@@ -120,9 +120,15 @@ const MODES = {
   structure: {
     name: 'Structure',
     categories: {
-      flooring: { name: 'Flooring', color: '#999', subsections: { surfaces: { name: 'Surfaces' }, foundations: { name: 'Foundations' } } },
-      zones:    { name: 'Zones',    color: '#6a6', subsections: { laboratories: { name: 'Laboratories' }, operations: { name: 'Operations' }, industrial: { name: 'Industrial' } } },
-      demolish: { name: 'Demolish', color: '#a44' },
+      flooring:    { name: 'Flooring',      color: '#999', subsections: { surfaces: { name: 'Surfaces' }, foundations: { name: 'Foundations' } } },
+      rfLab:       { name: 'RF Lab',         color: '#a83', isZoneTab: true, zoneType: 'rfLab' },
+      coolingLab:  { name: 'Cooling Lab',    color: '#3aa', isZoneTab: true, zoneType: 'coolingLab' },
+      vacuumLab:   { name: 'Vacuum Lab',     color: '#74a', isZoneTab: true, zoneType: 'vacuumLab' },
+      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace' },
+      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom' },
+      machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop' },
+      maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
+      demolish:    { name: 'Demolish',       color: '#a44' },
     },
   },
 };
@@ -2281,6 +2287,54 @@ const ZONES = {
 
 const ZONE_TIER_THRESHOLDS = [4, 8, 16, 20]; // Tier 1: 4 tiles, Tier 2: 8, Tier 3: 16, Tier 4: 20
 
+// Zone furnishings — purchasable items placed inside zones
+const ZONE_FURNISHINGS = {
+  // RF Lab furnishings
+  rfWorkbench:      { id: 'rfWorkbench',      name: 'RF Workbench',       zoneType: 'rfLab',       cost: 50,   spriteColor: 0xbb9944 },
+  oscilloscope:     { id: 'oscilloscope',      name: 'Oscilloscope',       zoneType: 'rfLab',       cost: 120,  spriteColor: 0x44aa44 },
+  signalGenerator:  { id: 'signalGenerator',   name: 'Signal Generator',   zoneType: 'rfLab',       cost: 200,  spriteColor: 0xcc6644 },
+  spectrumAnalyzer: { id: 'spectrumAnalyzer',  name: 'Spectrum Analyzer',  zoneType: 'rfLab',       cost: 350,  spriteColor: 0x4488cc },
+  networkAnalyzer:  { id: 'networkAnalyzer',   name: 'Network Analyzer',   zoneType: 'rfLab',       cost: 500,  spriteColor: 0x8844cc },
+
+  // Cooling Lab furnishings
+  coolantPump:      { id: 'coolantPump',       name: 'Coolant Pump',       zoneType: 'coolingLab',  cost: 80,   spriteColor: 0x33bbbb },
+  heatExchanger:    { id: 'heatExchanger',     name: 'Heat Exchanger',     zoneType: 'coolingLab',  cost: 150,  spriteColor: 0x4499aa },
+  pipeRack:         { id: 'pipeRack',          name: 'Pipe Rack',          zoneType: 'coolingLab',  cost: 40,   spriteColor: 0x667788 },
+  chillerUnit:      { id: 'chillerUnit',       name: 'Chiller Unit',       zoneType: 'coolingLab',  cost: 300,  spriteColor: 0x2288aa },
+  flowMeter:        { id: 'flowMeter',         name: 'Flow Meter',         zoneType: 'coolingLab',  cost: 100,  spriteColor: 0x55cccc },
+
+  // Vacuum Lab furnishings
+  testChamber:      { id: 'testChamber',       name: 'Test Chamber',       zoneType: 'vacuumLab',   cost: 200,  spriteColor: 0x8855bb },
+  leakDetector:     { id: 'leakDetector',      name: 'Leak Detector',      zoneType: 'vacuumLab',   cost: 180,  spriteColor: 0x6644aa },
+  pumpCart:         { id: 'pumpCart',           name: 'Pump Cart',          zoneType: 'vacuumLab',   cost: 60,   spriteColor: 0x9966cc },
+  gasManifold:      { id: 'gasManifold',       name: 'Gas Manifold',       zoneType: 'vacuumLab',   cost: 120,  spriteColor: 0x7755aa },
+  rga:              { id: 'rga',               name: 'Residual Gas Analyzer', zoneType: 'vacuumLab', cost: 400,  spriteColor: 0xaa77dd },
+
+  // Office Space furnishings
+  desk:             { id: 'desk',              name: 'Desk',               zoneType: 'officeSpace', cost: 30,   spriteColor: 0x5577aa },
+  filingCabinet:    { id: 'filingCabinet',     name: 'Filing Cabinet',     zoneType: 'officeSpace', cost: 20,   spriteColor: 0x667799 },
+  whiteboard:       { id: 'whiteboard',        name: 'Whiteboard',         zoneType: 'officeSpace', cost: 25,   spriteColor: 0xddddee },
+  coffeeMachine:    { id: 'coffeeMachine',     name: 'Coffee Machine',     zoneType: 'officeSpace', cost: 15,   spriteColor: 0x664433 },
+
+  // Control Room furnishings
+  monitorBank:      { id: 'monitorBank',       name: 'Monitor Bank',       zoneType: 'controlRoom', cost: 150,  spriteColor: 0x44bb66 },
+  serverRack:       { id: 'serverRack',        name: 'Server Rack',        zoneType: 'controlRoom', cost: 250,  spriteColor: 0x338855 },
+  operatorConsole:  { id: 'operatorConsole',   name: 'Operator Console',   zoneType: 'controlRoom', cost: 200,  spriteColor: 0x55cc77 },
+  alarmPanel:       { id: 'alarmPanel',        name: 'Alarm Panel',        zoneType: 'controlRoom', cost: 100,  spriteColor: 0xcc5544 },
+
+  // Machine Shop furnishings
+  lathe:            { id: 'lathe',             name: 'Lathe',              zoneType: 'machineShop', cost: 120,  spriteColor: 0x997755 },
+  millingMachine:   { id: 'millingMachine',    name: 'Milling Machine',    zoneType: 'machineShop', cost: 180,  spriteColor: 0x887766 },
+  drillPress:       { id: 'drillPress',        name: 'Drill Press',        zoneType: 'machineShop', cost: 80,   spriteColor: 0x776655 },
+  toolCabinet:      { id: 'toolCabinet',       name: 'Tool Cabinet',       zoneType: 'machineShop', cost: 40,   spriteColor: 0xaa8866 },
+
+  // Maintenance furnishings
+  toolChest:        { id: 'toolChest',         name: 'Tool Chest',         zoneType: 'maintenance', cost: 50,   spriteColor: 0xbb7744 },
+  partsShelf:       { id: 'partsShelf',        name: 'Parts Shelf',        zoneType: 'maintenance', cost: 35,   spriteColor: 0xaa6633 },
+  workCart:         { id: 'workCart',           name: 'Work Cart',          zoneType: 'maintenance', cost: 25,   spriteColor: 0xcc8855 },
+  craneHoist:       { id: 'craneHoist',        name: 'Crane Hoist',        zoneType: 'maintenance', cost: 300,  spriteColor: 0xddaa44 },
+};
+
 const RESEARCH_CATEGORIES = {
   beamOptics:    { id: 'beamOptics',    name: 'Beam Optics',      color: '#4ac' },
   rf:            { id: 'rf',            name: 'RF Systems',       color: '#c44' },
@@ -2884,6 +2938,81 @@ const RESEARCH = {
     unlocks: ['positronTarget'],
     requires: 'targetPhysicsAdv',
   },
+  // === Machine Type Unlocks (Tier progression) ===
+  photoinjectorTech: {
+    id: 'photoinjectorTech', category: 'machineTypes',
+    name: 'Photoinjector Design',
+    desc: 'Master the design of high-brightness photoinjectors. Combines photocathode sources with emittance compensation techniques to produce the brightest electron beams possible. Unlocks the Photoinjector machine type — where beam brightness is the figure of merit and space charge is the enemy.',
+    cost: { data: 20, funding: 3000, reputation: 3 },
+    duration: 60,
+    unlocks: [],
+    effect: { unlocksMachineType: 'photoinjector' },
+    requires: 'photocathodes',
+  },
+  felTech: {
+    id: 'felTech', category: 'machineTypes',
+    name: 'Free Electron Laser Design',
+    desc: 'Develop the techniques for building a Free Electron Laser — the most brilliant X-ray source ever conceived. Requires mastery of bunch compression, undulator physics, and emittance preservation over kilometres of beamline. Unlocks the FEL machine type.',
+    cost: { data: 60, funding: 20000, reputation: 10 },
+    duration: 100,
+    unlocks: [],
+    effect: { unlocksMachineType: 'fel' },
+    requires: ['bunchCompression', 'felPhysics'],
+  },
+  colliderTech: {
+    id: 'colliderTech', category: 'machineTypes',
+    name: 'Collider Design',
+    desc: 'Master the art of colliding electron and positron beams at nanometre-scale interaction points. The ultimate challenge: everything from Tiers 1-3 must work simultaneously on two beamlines converging at a single point. Unlocks the Collider machine type.',
+    cost: { data: 150, funding: 100000, reputation: 25 },
+    duration: 200,
+    unlocks: [],
+    effect: { unlocksMachineType: 'collider' },
+    requires: ['highLuminosity', 'antimatter'],
+  },
+};
+
+// Machine tier for each beamline component — controls which components are visible
+// for each machine type. Components without an entry default to tier 1.
+// Tier 1: Electron Linac (basic optics, RF, beam to target)
+// Tier 2: Photoinjector (photoguns, solenoid, diagnostics, space charge regime)
+// Tier 3: FEL (bunch compression, undulators, photon science)
+// Tier 4: Collider (positrons, detectors, beam-beam physics)
+const MACHINE_TIER = {
+  // Tier 1 — available from start (default)
+  // source, drift, driftVert, bellows, quadrupole, dipole, rfCavity, collimator,
+  // target, beamDump, bpm, faradayCup, beamStop, corrector, aperture
+
+  // Tier 2 — Photoinjector
+  dcPhotoGun: 2, ncRfGun: 2, srfGun: 2,
+  solenoid: 2,
+  screen: 2, ict: 2, wireScanner: 2,
+  laserSystem: 2,
+
+  // Tier 3 — FEL
+  chicane: 3, buncher: 3, harmonicLinearizer: 3, dogleg: 3, laserHeater: 3,
+  undulator: 3, helicalUndulator: 3, wiggler: 3, apple2Undulator: 3,
+  photonPort: 3,
+  bunchLengthMonitor: 3, energySpectrometer: 3,
+  cryomodule: 3, srf650Cavity: 3, cbandCavity: 3, xbandCavity: 3,
+  sextupole: 3, octupole: 3,
+  scQuad: 3, scDipole: 3,
+  combinedFunctionMagnet: 3,
+
+  // Tier 4 — Collider
+  positronTarget: 4,
+  detector: 4,
+  kickerMagnet: 4, septumMagnet: 4,
+  comptonIP: 4,
+  fixedTargetAdv: 4,
+  stripperFoil: 4,
+};
+
+// Machine type definitions for UI
+const MACHINE_TYPES = {
+  linac:          { name: 'Electron Linac',  tier: 1, desc: 'Deliver beam to target' },
+  photoinjector:  { name: 'Photoinjector',   tier: 2, desc: 'Maximize beam brightness' },
+  fel:            { name: 'Free Electron Laser', tier: 3, desc: 'Achieve FEL saturation' },
+  collider:       { name: 'e⁺e⁻ Collider',  tier: 4, desc: 'Accumulate discoveries' },
 };
 
 const OBJECTIVES = [

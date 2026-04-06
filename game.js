@@ -31,6 +31,7 @@ class Game {
       finalNormEmittanceX: undefined,
       finalBunchLength: undefined,
       felSaturated: false,
+      machineType: 'linac',       // current accelerator type: linac, photoinjector, fel, collider
       // Staffing
       staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
       staffCosts: { operators: 5, technicians: 8, scientists: 10, engineers: 12 }, // $/tick
@@ -47,6 +48,10 @@ class Game {
       facilityEquipment: [],      // [{ id, type, col, row }]
       facilityGrid: {},           // "col,row" -> equipment id
       facilityNextId: 1,
+      // Zone furnishings (purchasable items placed in zones)
+      zoneFurnishings: [],        // [{ id, type, col, row }]
+      zoneFurnishingGrid: {},     // "col,row" -> furnishing id
+      zoneFurnishingNextId: 1,
       // Utility connections
       connections: new Map(),     // "col,row" -> Set of connection type keys
       // Machines (cyclotrons, stalls, rings)
@@ -374,6 +379,13 @@ class Game {
     if (idx !== -1) {
       this.state.zones.splice(idx, 1);
       delete this.state.zoneOccupied[key];
+      // Also remove any furnishing on this tile
+      const furnId = this.state.zoneFurnishingGrid[key];
+      if (furnId) {
+        const fi = this.state.zoneFurnishings.findIndex(e => e.id === furnId);
+        if (fi !== -1) this.state.zoneFurnishings.splice(fi, 1);
+        delete this.state.zoneFurnishingGrid[key];
+      }
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
       return true;
@@ -561,6 +573,59 @@ class Game {
     return true;
   }
 
+  // === ZONE FURNISHINGS ===
+
+  placeZoneFurnishing(col, row, furnType) {
+    const furn = ZONE_FURNISHINGS[furnType];
+    if (!furn) return false;
+    if (!this.canAfford({ funding: furn.cost })) {
+      this.log(`Can't afford ${furn.name}!`, 'bad');
+      return false;
+    }
+
+    const key = col + ',' + row;
+    // Must be on a zone tile of the correct type
+    const zoneType = this.state.zoneOccupied[key];
+    if (zoneType !== furn.zoneType) {
+      const zone = ZONES[furn.zoneType];
+      this.log(`Must place on ${zone ? zone.name : furn.zoneType}!`, 'bad');
+      return false;
+    }
+    if (this.state.zoneFurnishingGrid[key]) {
+      this.log('Tile occupied!', 'bad');
+      return false;
+    }
+
+    const id = 'zf_' + this.state.zoneFurnishingNextId++;
+    this.spend({ funding: furn.cost });
+    const entry = { id, type: furnType, col, row };
+    this.state.zoneFurnishings.push(entry);
+    this.state.zoneFurnishingGrid[key] = id;
+    this.log(`Built ${furn.name}`, 'good');
+    this.emit('zonesChanged');
+    return true;
+  }
+
+  removeZoneFurnishing(furnId) {
+    const idx = this.state.zoneFurnishings.findIndex(e => e.id === furnId);
+    if (idx === -1) return false;
+
+    const entry = this.state.zoneFurnishings[idx];
+    const furn = ZONE_FURNISHINGS[entry.type];
+
+    // 50% refund
+    if (furn) {
+      this.state.resources.funding += Math.floor(furn.cost * 0.5);
+    }
+
+    const key = entry.col + ',' + entry.row;
+    delete this.state.zoneFurnishingGrid[key];
+    this.state.zoneFurnishings.splice(idx, 1);
+    this.log(`Removed ${furn ? furn.name : 'furnishing'} (50% refund)`, 'info');
+    this.emit('zonesChanged');
+    return true;
+  }
+
   // === CONNECTIONS ===
 
   placeConnection(col, row, connType) {
@@ -714,10 +779,13 @@ class Game {
 
     // Gather research effects for physics
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance']) {
+    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
+                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
+                        'beamLifetimeMult', 'diagnosticPrecision']) {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
+    researchEffects.machineType = this.state.machineType;
 
     // Run physics simulation
     this.runPhysics(physicsBeamline, researchEffects);
@@ -779,6 +847,40 @@ class Game {
     this.state.photonRate = 0;
     this.state.collisionRate = 0;
     this.state.physicsEnvelope = null;
+  }
+
+  // === BEAM CONTROL ===
+
+  // === MACHINE TYPE SELECTION ===
+
+  setMachineType(type) {
+    const MACHINE_TYPE_RESEARCH = {
+      linac: null,
+      photoinjector: 'photoinjectorTech',
+      fel: 'felTech',
+      collider: 'colliderTech',
+    };
+    const req = MACHINE_TYPE_RESEARCH[type];
+    if (req && !this.state.completedResearch.includes(req)) {
+      this.log(`Research "${req}" required to unlock ${type}`, 'bad');
+      return false;
+    }
+    this.state.machineType = type;
+    this.log(`Switched to ${type.charAt(0).toUpperCase() + type.slice(1)} mode`, 'info');
+    this.recalcBeamline();
+    this.emit('machineTypeChanged');
+    return true;
+  }
+
+  isMachineTypeUnlocked(type) {
+    const MACHINE_TYPE_RESEARCH = {
+      linac: null,
+      photoinjector: 'photoinjectorTech',
+      fel: 'felTech',
+      collider: 'colliderTech',
+    };
+    const req = MACHINE_TYPE_RESEARCH[type];
+    return !req || this.state.completedResearch.includes(req);
   }
 
   // === BEAM CONTROL ===
@@ -1742,6 +1844,11 @@ class Game {
       if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
       if (!this.state.facilityGrid) this.state.facilityGrid = {};
       if (!this.state.facilityNextId) this.state.facilityNextId = 1;
+
+      // Ensure zone furnishing arrays exist for old saves
+      if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
+      if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
+      if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
 
       // Migrate: remove deprecated energy resource
       delete this.state.resources.energy;
