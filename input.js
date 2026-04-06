@@ -11,8 +11,23 @@ class InputHandler {
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
     this.worldStart = { x: 0, y: 0 };
+    // Infrastructure placement
+    this.selectedInfraTool = null;  // infrastructure type or null
+    this.isDragging = false;
+    this.dragStart = null;          // { col, row }
+    this.dragEnd = null;            // { col, row }
+    this.activeMode = 'beamline';
+    this.selectedFacilityTool = null;
+    this.selectedConnTool = null;
+    this.isDrawingConn = false;
+    this.connPath = [];
+    // Continuous panning
+    this.keysDown = new Set();
+    // Bulldozer mode
+    this.bulldozerMode = false;
     this._bindKeyboard();
     this._bindMouse();
+    this._startPanLoop();
   }
 
   // --- Keyboard bindings ---
@@ -23,19 +38,15 @@ class InputHandler {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
+      // Track pan keys for continuous movement
+      const panKeys = ['w','W','ArrowUp','s','S','ArrowDown','a','A','ArrowLeft','d','D','ArrowRight'];
+      if (panKeys.includes(e.key)) {
+        this.keysDown.add(e.key);
+        e.preventDefault();
+        return;
+      }
+
       switch (e.key) {
-        case 'w': case 'W': case 'ArrowUp':
-          this.renderer.panBy(0, -40);
-          break;
-        case 's': case 'S': case 'ArrowDown':
-          this.renderer.panBy(0, 40);
-          break;
-        case 'a': case 'A': case 'ArrowLeft':
-          this.renderer.panBy(-40, 0);
-          break;
-        case 'd': case 'D': case 'ArrowRight':
-          this.renderer.panBy(40, 0);
-          break;
         case ' ':
           this.game.toggleBeam();
           e.preventDefault();
@@ -54,14 +65,20 @@ class InputHandler {
           // Close all overlays
           document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
           this.deselectTool();
+          this.deselectInfraTool();
+          this.deselectFacilityTool();
+          this.deselectConnTool();
+          this.bulldozerMode = false;
+          this.renderer.setBulldozerMode(false);
           this.selectedNodeId = null;
           this.renderer.hidePopup();
           break;
         case 'Tab': {
           e.preventDefault();
-          const catKeys = Object.keys(CATEGORIES);
+          const mode = MODES[this.activeMode];
+          if (!mode || mode.disabled) break;
+          const catKeys = Object.keys(mode.categories);
           const tabs = document.querySelectorAll('.cat-tab');
-          // Map tab data-category to CATEGORIES keys
           const tabCats = Array.from(tabs).map(t => t.dataset.category);
           const curIdx = tabCats.indexOf(this.selectedCategory);
           const nextIdx = (curIdx + 1) % tabCats.length;
@@ -76,14 +93,47 @@ class InputHandler {
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
         case 'Delete': case 'Backspace':
-          if (this.selectedNodeId) {
+          if (this.selectedTool || this.buildMode) {
+            // In build mode: remove the most recently placed component
+            const nodes = this.game.beamline.getAllNodes();
+            if (nodes.length > 0) {
+              const last = nodes[nodes.length - 1];
+              this.game.removeComponent(last.id);
+            }
+          } else if (this.selectedNodeId) {
             this.game.removeComponent(this.selectedNodeId);
             this.selectedNodeId = null;
             this.renderer.hidePopup();
+          } else {
+            // Toggle bulldozer mode
+            this.bulldozerMode = !this.bulldozerMode;
+            this.deselectTool();
+            this.deselectInfraTool();
+            this.renderer.setBulldozerMode(this.bulldozerMode);
           }
           break;
       }
     });
+
+    window.addEventListener('keyup', (e) => {
+      this.keysDown.delete(e.key);
+    });
+  }
+
+  _startPanLoop() {
+    const PAN_SPEED = 5;
+    const loop = () => {
+      let dx = 0, dy = 0;
+      if (this.keysDown.has('w') || this.keysDown.has('W') || this.keysDown.has('ArrowUp')) dy -= PAN_SPEED;
+      if (this.keysDown.has('s') || this.keysDown.has('S') || this.keysDown.has('ArrowDown')) dy += PAN_SPEED;
+      if (this.keysDown.has('a') || this.keysDown.has('A') || this.keysDown.has('ArrowLeft')) dx -= PAN_SPEED;
+      if (this.keysDown.has('d') || this.keysDown.has('D') || this.keysDown.has('ArrowRight')) dx += PAN_SPEED;
+      if (dx !== 0 || dy !== 0) {
+        this.renderer.panBy(dx, dy);
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
   }
 
   // --- Mouse bindings ---
@@ -105,6 +155,20 @@ class InputHandler {
         this.worldStart = { x: this.renderer.world.x, y: this.renderer.world.y };
         canvas.style.cursor = 'grabbing';
         e.preventDefault();
+        return;
+      }
+
+      // Infrastructure drag start
+      if (e.button === 0 && this.selectedInfraTool) {
+        const infra = INFRASTRUCTURE[this.selectedInfraTool];
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        if (infra && infra.isDragPlacement) {
+          this.isDragging = true;
+          this.dragStart = { col: grid.col, row: grid.row };
+          this.dragEnd = { col: grid.col, row: grid.row };
+          this.renderer.renderDragPreview(grid.col, grid.row, grid.col, grid.row, this.selectedInfraTool);
+        }
       }
     });
 
@@ -114,6 +178,14 @@ class InputHandler {
         const dy = e.clientY - this.panStart.y;
         this.renderer.world.x = this.worldStart.x + dx;
         this.renderer.world.y = this.worldStart.y + dy;
+      } else if (this.isDragging && this.dragStart) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        this.dragEnd = { col: grid.col, row: grid.row };
+        this.renderer.renderDragPreview(
+          this.dragStart.col, this.dragStart.row,
+          grid.col, grid.row, this.selectedInfraTool
+        );
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -128,17 +200,46 @@ class InputHandler {
         return;
       }
 
+      // Infrastructure drag end
+      if (this.isDragging && this.dragStart && this.dragEnd) {
+        this.game.placeInfraRect(
+          this.dragStart.col, this.dragStart.row,
+          this.dragEnd.col, this.dragEnd.row,
+          this.selectedInfraTool
+        );
+        this.isDragging = false;
+        this.dragStart = null;
+        this.dragEnd = null;
+        this.renderer.clearDragPreview();
+        return;
+      }
+
       if (e.button === 0) {
         // Left click
         this._handleClick(e.clientX, e.clientY);
       } else if (e.button === 2) {
-        // Right click — remove selected component or deselect tool
-        if (this.selectedNodeId) {
-          this.game.removeComponent(this.selectedNodeId);
-          this.selectedNodeId = null;
-          this.renderer.hidePopup();
-        } else if (this.selectedTool) {
+        // Right click
+        if (this.selectedTool) {
+          // Deselect current tool
           this.deselectTool();
+        } else if (this.selectedInfraTool) {
+          this.deselectInfraTool();
+        } else {
+          // Right-click on the grid: check if clicking on a beamline component
+          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+          const grid = isoToGrid(world.x, world.y);
+          const node = this.game.beamline.getNodeAt(grid.col, grid.row);
+          if (node || this.game.beamline.getAllNodes().length > 0) {
+            // Enter build mode — activate Sources tab and build mode
+            this.selectedTool = 'source'; // default tool, user can pick another
+            this.renderer.setBuildMode(true, 'source');
+            // Activate the Sources tab visually
+            const tabs = document.querySelectorAll('.cat-tab');
+            tabs.forEach(t => t.classList.remove('active'));
+            const srcTab = document.querySelector('.cat-tab[data-category="sources"]');
+            if (srcTab) srcTab.classList.add('active');
+            this.renderer.updatePalette('sources');
+          }
         }
       }
     });
@@ -155,6 +256,36 @@ class InputHandler {
     const grid = isoToGrid(world.x, world.y);
     const col = grid.col;
     const row = grid.row;
+
+    if (this.bulldozerMode) {
+      // Bulldozer: remove whatever is at the clicked tile
+      const node = this.game.beamline.getNodeAt(col, row);
+      if (node) {
+        this.game.removeComponent(node.id);
+      }
+      // Also remove infrastructure
+      const infraKey = col + ',' + row;
+      if (this.game.state.infraOccupied[infraKey]) {
+        const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
+        if (idx !== -1) {
+          this.game.state.infrastructure.splice(idx, 1);
+          delete this.game.state.infraOccupied[infraKey];
+          this.game.emit('infrastructureChanged');
+        }
+      }
+      return;
+    }
+
+    if (this.selectedInfraTool) {
+      // Infrastructure placement (single tile for non-drag items like path)
+      const infra = INFRASTRUCTURE[this.selectedInfraTool];
+      if (infra && !infra.isDragPlacement) {
+        if (this.game.placeInfraTile(col, row, this.selectedInfraTool)) {
+          this.game.emit('infrastructureChanged');
+        }
+      }
+      return;
+    }
 
     if (this.selectedTool) {
       // Placement mode
@@ -186,14 +317,77 @@ class InputHandler {
   // --- Tool selection ---
 
   selectTool(compType) {
+    this.selectedInfraTool = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
-    this.renderer.setBuildMode(true);
+    this.renderer.setBuildMode(true, compType);
+
+    // Auto-place at the first available build cursor
+    const nodes = this.game.beamline.getAllNodes();
+    if (nodes.length > 0) {
+      const cursors = this.game.beamline.getBuildCursors();
+      if (cursors.length > 0) {
+        this.game.placeComponent(cursors[0], compType, this.dipoleBendDir);
+      }
+    }
   }
 
   deselectTool() {
     this.selectedTool = null;
     this.renderer.setBuildMode(false);
+  }
+
+  selectInfraTool(infraType) {
+    this.selectedTool = null;
+    this.renderer.setBuildMode(false);
+    this.selectedInfraTool = infraType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+  }
+
+  deselectInfraTool() {
+    this.selectedInfraTool = null;
+    this.isDragging = false;
+    this.dragStart = null;
+    this.dragEnd = null;
+    this.renderer.clearDragPreview();
+  }
+
+  selectFacilityTool(compType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectConnTool();
+    this.selectedFacilityTool = compType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+  }
+
+  deselectFacilityTool() {
+    this.selectedFacilityTool = null;
+  }
+
+  selectConnTool(connType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.selectedConnTool = connType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+  }
+
+  deselectConnTool() {
+    this.selectedConnTool = null;
+    this.isDrawingConn = false;
+    this.connPath = [];
+  }
+
+  setActiveMode(mode) {
+    this.activeMode = mode;
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectConnTool();
+    this.renderer.activeMode = mode;
   }
 }
