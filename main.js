@@ -17,9 +17,29 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   // Create input handler and wire tool selection
   const input = new InputHandler(renderer, game);
   renderer._onToolSelect = (compType) => input.selectTool(compType);
+  renderer._onInfraSelect = (infraType) => input.selectInfraTool(infraType);
+  renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
+  renderer._onConnSelect = (connType) => input.selectConnTool(connType);
+
+  // Sync mode changes to input handler
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (MODES[mode]?.disabled) return;
+      input.setActiveMode(mode);
+    });
+  });
 
   // Load saved game (if any)
   game.load();
+
+  // New Game button
+  document.getElementById('btn-new-game').addEventListener('click', () => {
+    if (confirm('Start a new game? All progress will be lost.')) {
+      localStorage.removeItem('beamlineTycoon');
+      location.reload();
+    }
+  });
 
   // Start game loop
   game.start();
