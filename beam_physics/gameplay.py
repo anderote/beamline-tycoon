@@ -261,13 +261,23 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     lumi_mult = effects.get("luminosityMult", 1.0)
     data_mult = effects.get("dataRateMult", 1.0)
 
+    # Infrastructure research effects
+    vacuum_quality = effects.get("vacuumQuality", 0)
+    beam_stability = effects.get("beamStability", 0)
+    photon_flux_mult = effects.get("photonFluxMult", 1.0)
+    beam_lifetime_mult = effects.get("beamLifetimeMult", 1.0)
+
     # Beam quality acts as a multiplier on data output:
     # quality=1.0 means perfect emittance preservation -> full output
     # quality=0.0 means beam is degraded -> no useful data
-    quality = summary["beam_quality"]
+    # beam_stability research improves effective quality
+    quality = min(1.0, summary["beam_quality"] * (1.0 + beam_stability))
 
     # Current fraction: how much beam survives
-    current_frac = summary["final_current"] / max(summary["initial_current"], 1e-10)
+    # vacuum_quality research reduces losses, beam_lifetime_mult extends lifetime
+    raw_loss = summary["total_loss_fraction"]
+    improved_loss = raw_loss * max(0.1, 1.0 - vacuum_quality) / beam_lifetime_mult
+    current_frac = 1.0 - min(improved_loss, raw_loss)  # never worse than raw
 
     # Data rate from detectors:
     # - sqrt(luminosity): compress the huge dynamic range
@@ -293,8 +303,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     if data_rate > 0 and data_rate < 0.1:
         data_rate = 0.1
 
-    # Photon rate from undulators: scales with current and quality
-    photon_rate_val = summary["photon_rate"] * quality * current_frac
+    # Photon rate from undulators: scales with current, quality, and photon science research
+    photon_rate_val = summary["photon_rate"] * quality * current_frac * photon_flux_mult
 
     # Collision rate from targets: scales with current
     collision_rate = summary["collision_rate"] * current_frac * lumi_mult

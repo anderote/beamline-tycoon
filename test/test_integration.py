@@ -108,5 +108,38 @@ class TestGameplayBridge(unittest.TestCase):
         self.assertTrue(result["beamAlive"])
 
 
+class TestResearchEffects(unittest.TestCase):
+    def test_vacuum_quality_reduces_loss(self):
+        """vacuumQuality research effect should reduce beam loss in game output."""
+        import json
+        from beam_physics.gameplay import compute_beam_for_game
+        beamline = [
+            {"type": "source"},
+            {"type": "drift", "length": 5},
+            {"type": "target"},
+        ]
+        # Without vacuum research
+        r1 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({})))
+        # With vacuum research
+        r2 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({"vacuumQuality": 0.1})))
+        # Loss should be same or less with vacuum quality
+        self.assertLessEqual(r2.get("totalLossFraction", 0), r1.get("totalLossFraction", 0) + 1e-10)
+
+    def test_beam_stability_improves_quality(self):
+        """beamStability research effect should improve beam quality."""
+        import json
+        from beam_physics.gameplay import compute_beam_for_game
+        beamline = [
+            {"type": "source"},
+            {"type": "rfCavity", "stats": {"energyGain": 0.1}},
+            {"type": "quadrupole", "stats": {"focusStrength": 1}},
+            {"type": "drift"},
+            {"type": "target"},
+        ]
+        r1 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({})))
+        r2 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({"beamStability": 0.2})))
+        self.assertGreaterEqual(r2["beamQuality"], r1["beamQuality"])
+
+
 if __name__ == "__main__":
     unittest.main()
