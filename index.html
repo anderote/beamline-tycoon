@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beamline Tycoon</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game">
+
+    <!-- Top resource bar (DOM overlay) -->
+    <div id="top-bar">
+      <div id="game-title">Beamline Tycoon</div>
+      <div id="resources">
+        <div class="res-box" id="res-funding" title="Funding">
+          <span class="res-icon">$</span>
+          <span class="res-val" id="val-funding">500</span>
+        </div>
+        <div class="res-box" id="res-energy" title="Energy">
+          <span class="res-icon">E</span>
+          <span class="res-val" id="val-energy">100</span>
+        </div>
+        <div class="res-box" id="res-reputation" title="Reputation">
+          <span class="res-icon">R</span>
+          <span class="res-val" id="val-reputation">0</span>
+        </div>
+        <div class="res-box" id="res-data" title="Research Data">
+          <span class="res-icon">D</span>
+          <span class="res-val" id="val-data">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom HUD (DOM overlay) -->
+    <div id="bottom-hud">
+      <div id="beam-stats">
+        <span class="stat-box">Energy: <strong id="stat-beam-energy">0.0</strong> GeV</span>
+        <span class="stat-box">Quality: <strong id="stat-beam-quality">--</strong></span>
+        <span class="stat-box">Current: <strong id="stat-beam-current">--</strong></span>
+        <span class="stat-box">Data: <strong id="stat-data-rate">0</strong>/s</span>
+        <span class="stat-box">Length: <strong id="stat-length">0</strong> m</span>
+        <span class="stat-box">Cost: <strong id="stat-energy-cost">0</strong> E/s</span>
+      </div>
+      <div id="hud-controls">
+        <div id="category-tabs">
+          <button class="cat-tab active" data-category="sources">Sources</button>
+          <button class="cat-tab" data-category="magnets">Magnets</button>
+          <button class="cat-tab" data-category="rf-accel">RF/Accel</button>
+          <button class="cat-tab" data-category="diagnostics">Diagnostics</button>
+          <button class="cat-tab" data-category="beam-optics">Beam Optics</button>
+        </div>
+        <div id="hud-buttons">
+          <button id="btn-research" class="hud-btn">Research</button>
+          <button id="btn-goals" class="hud-btn">Goals</button>
+          <button id="btn-toggle-beam" class="hud-btn btn-beam">Start Beam</button>
+        </div>
+      </div>
+      <div id="component-palette"></div>
+    </div>
+
+    <!-- Research overlay (hidden by default) -->
+    <div id="research-overlay" class="overlay hidden">
+      <div class="overlay-header">
+        <span class="overlay-title">Research</span>
+        <button class="overlay-close" data-close="research-overlay">&times;</button>
+      </div>
+      <div class="overlay-body">
+        <div id="research-list"></div>
+      </div>
+    </div>
+
+    <!-- Goals overlay (hidden by default) -->
+    <div id="goals-overlay" class="overlay hidden">
+      <div class="overlay-header">
+        <span class="overlay-title">Goals</span>
+        <button class="overlay-close" data-close="goals-overlay">&times;</button>
+      </div>
+      <div class="overlay-body">
+        <div id="goals-list"></div>
+      </div>
+    </div>
+
+    <!-- Component detail popup (hidden by default) -->
+    <div id="component-popup" class="hidden">
+      <div class="popup-header">
+        <span class="popup-title"></span>
+        <button class="popup-close">&times;</button>
+      </div>
+      <div class="popup-body">
+        <div class="popup-stats"></div>
+        <div class="popup-actions"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
+  <script src="data.js"></script>
+  <script src="physics.js"></script>
+  <script src="beamline.js"></script>
+  <script src="game.js"></script>
+  <script src="sprites.js"></script>
+  <script src="input.js"></script>
+  <script src="renderer.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,491 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  background: #0a0a1a;
+  color: #e0e0e0;
+  overflow: hidden;
+  font-size: 10px;
+  image-rendering: pixelated;
+}
+
+/* === GAME CONTAINER === */
+#game {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* === TOP BAR === */
+#top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background: rgba(20, 20, 40, 0.92);
+  border-bottom: 1px solid rgba(100, 100, 160, 0.3);
+}
+
+#game-title {
+  font-size: 11px;
+  color: #aaccff;
+  white-space: nowrap;
+  text-shadow: 0 0 8px rgba(100, 150, 255, 0.4);
+}
+
+#resources {
+  display: flex;
+  gap: 8px;
+  margin-left: 16px;
+}
+
+.res-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(30, 30, 60, 0.8);
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  min-width: 70px;
+}
+
+.res-icon {
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.res-val {
+  font-size: 9px;
+  font-weight: bold;
+}
+
+/* Resource colors */
+#res-funding .res-icon, #res-funding .res-val { color: #44dd66; }
+#res-energy .res-icon, #res-energy .res-val { color: #dddd44; }
+#res-reputation .res-icon, #res-reputation .res-val { color: #4488ff; }
+#res-data .res-icon, #res-data .res-val { color: #ee66aa; }
+
+/* === BOTTOM HUD === */
+#bottom-hud {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(20, 20, 40, 0.92);
+  border-top: 1px solid rgba(100, 100, 160, 0.3);
+  padding: 4px 8px 6px;
+}
+
+/* Beam stats row */
+#beam-stats {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0 4px;
+  flex-wrap: wrap;
+}
+
+.stat-box {
+  font-size: 8px;
+  padding: 2px 6px;
+  color: #8888bb;
+}
+
+.stat-box strong {
+  color: #aaddff;
+}
+
+/* HUD controls row */
+#hud-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+/* Category tabs */
+#category-tabs {
+  display: flex;
+  gap: 3px;
+}
+
+.cat-tab {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 4px 8px;
+  background: rgba(40, 40, 70, 0.8);
+  color: #8888aa;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cat-tab:hover {
+  background: rgba(60, 60, 100, 0.8);
+  color: #aaaacc;
+}
+
+.cat-tab.active {
+  background: rgba(60, 80, 140, 0.8);
+  color: #ccddff;
+  border-color: rgba(100, 140, 220, 0.6);
+}
+
+/* HUD buttons */
+#hud-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.hud-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 4px 10px;
+  background: rgba(40, 40, 70, 0.8);
+  color: #aaaacc;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.hud-btn:hover {
+  background: rgba(60, 60, 100, 0.8);
+  color: #ccccee;
+}
+
+.btn-beam {
+  background: rgba(30, 80, 50, 0.8);
+  color: #44dd66;
+  border-color: rgba(60, 140, 80, 0.5);
+}
+
+.btn-beam:hover {
+  background: rgba(40, 100, 60, 0.8);
+}
+
+.btn-beam.running {
+  background: rgba(120, 30, 30, 0.8);
+  color: #ff6666;
+  border-color: rgba(180, 60, 60, 0.5);
+}
+
+/* Component palette */
+#component-palette {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0 2px;
+}
+
+.palette-item {
+  width: 55px;
+  height: 45px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: rgba(30, 30, 60, 0.8);
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 6px;
+  color: #aaaacc;
+}
+
+.palette-item:hover {
+  background: rgba(50, 50, 90, 0.8);
+  border-color: rgba(120, 120, 180, 0.5);
+}
+
+.palette-item.selected {
+  border-color: rgba(100, 180, 255, 0.7);
+  background: rgba(40, 60, 100, 0.8);
+}
+
+.palette-item .palette-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.palette-item .palette-name {
+  font-size: 5px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 50px;
+}
+
+.palette-item .palette-cost {
+  font-size: 5px;
+  color: #44dd66;
+}
+
+/* === OVERLAYS === */
+.overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  max-height: 70vh;
+  z-index: 200;
+  background: rgba(20, 20, 40, 0.96);
+  border: 1px solid rgba(100, 100, 160, 0.4);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+}
+
+.overlay-title {
+  font-size: 11px;
+  color: #aaccff;
+}
+
+.overlay-close {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.overlay-close:hover {
+  color: #ff6666;
+}
+
+.overlay-body {
+  padding: 8px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* === RESEARCH ITEMS === */
+.research-item {
+  font-size: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(30, 30, 60, 0.6);
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+  cursor: pointer;
+  color: #aaaacc;
+}
+
+.research-item:hover {
+  background: rgba(40, 40, 80, 0.7);
+}
+
+.research-item .res-name {
+  font-size: 9px;
+  color: #ccddff;
+  margin-bottom: 3px;
+}
+
+.research-item .res-cost {
+  font-size: 7px;
+  color: #4488ff;
+}
+
+.research-item .res-desc {
+  font-size: 7px;
+  color: #6666aa;
+  margin-top: 3px;
+  line-height: 1.6;
+}
+
+.research-item.researching {
+  border-color: rgba(200, 180, 60, 0.5);
+}
+
+.research-item.completed {
+  opacity: 0.5;
+  border-color: rgba(60, 160, 80, 0.4);
+}
+
+.research-item.locked {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.research-item .res-progress {
+  margin-top: 4px;
+  height: 4px;
+  background: rgba(20, 20, 40, 0.8);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.research-item .res-progress .bar {
+  height: 100%;
+  background: #ddaa22;
+  border-radius: 2px;
+}
+
+/* === OBJECTIVE / GOAL ITEMS === */
+.objective-item {
+  font-size: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(30, 30, 60, 0.6);
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+  color: #aaaacc;
+}
+
+.objective-item.completed {
+  border-color: rgba(60, 160, 80, 0.4);
+  background: rgba(30, 60, 40, 0.5);
+}
+
+.objective-item .obj-name {
+  font-size: 9px;
+  color: #ccddff;
+  margin-bottom: 3px;
+}
+
+.objective-item .obj-desc {
+  font-size: 7px;
+  color: #6666aa;
+  line-height: 1.6;
+}
+
+.objective-item .obj-reward {
+  font-size: 7px;
+  color: #44dd66;
+  margin-top: 3px;
+}
+
+/* === COMPONENT POPUP === */
+#component-popup {
+  position: absolute;
+  z-index: 150;
+  width: 220px;
+  background: rgba(20, 20, 40, 0.96);
+  border: 1px solid rgba(100, 100, 160, 0.4);
+  border-radius: 4px;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+}
+
+.popup-title {
+  font-size: 9px;
+  color: #ccddff;
+}
+
+.popup-close {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.popup-close:hover {
+  color: #ff6666;
+}
+
+.popup-body {
+  padding: 6px 8px;
+}
+
+.popup-stats {
+  margin-bottom: 6px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 7px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(60, 60, 100, 0.2);
+  color: #8888bb;
+}
+
+.stat-row .stat-value {
+  color: #aaddff;
+  font-weight: bold;
+}
+
+.popup-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.popup-actions button {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  flex: 1;
+  padding: 4px 6px;
+  background: rgba(40, 40, 70, 0.8);
+  color: #aaaacc;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.popup-actions button:hover {
+  background: rgba(60, 60, 100, 0.8);
+}
+
+.popup-actions button.btn-danger {
+  color: #ff6666;
+  border-color: rgba(180, 60, 60, 0.4);
+}
+
+.popup-actions button.btn-danger:hover {
+  background: rgba(100, 30, 30, 0.6);
+}
+
+/* === SCROLLBAR === */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 10, 20, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(60, 60, 100, 0.6);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(80, 80, 140, 0.7);
+}
