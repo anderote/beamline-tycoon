@@ -136,7 +136,7 @@ def beamline_config_from_game(game_beamline):
                         "octupole", "stripperFoil"):
             physics_type = "drift"  # thin elements, minimal beam effect
         elif ctype == "combinedFunctionMagnet":
-            physics_type = "dipole"  # treat as dipole with focusing
+            physics_type = "combined_function"
         elif ctype == "chicane":
             physics_type = "chicane"
         elif ctype == "solenoid":
@@ -153,13 +153,14 @@ def beamline_config_from_game(game_beamline):
 
         if physics_type == "source":
             el["length"] = 0
-            # Different guns produce different beam qualities
-            if ctype == "dcPhotoGun":
-                el["emittance"] = 1e-6
-            elif ctype == "ncRfGun":
-                el["emittance"] = 0.5e-6
-            elif ctype == "srfGun":
-                el["emittance"] = 0.3e-6
+            # Read emittance from computed stats if available, else use defaults per gun type
+            default_emit = {"dcPhotoGun": 1e-6, "ncRfGun": 0.5e-6, "srfGun": 0.3e-6}
+            # component-physics.js computes emittance in mm·mrad; convert to m·rad
+            raw_emit = stats.get("emittance", None)
+            if raw_emit is not None and raw_emit > 0:
+                el["emittance"] = raw_emit * 1e-6  # mm·mrad → m·rad
+            else:
+                el["emittance"] = default_emit.get(ctype, 1e-6)
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
@@ -178,10 +179,21 @@ def beamline_config_from_game(game_beamline):
                                   defaults.get("bendAngle", 90.0))
             el["bendAngle"] = raw_angle * DIPOLE_ANGLE_SCALE
 
+        elif physics_type == "combined_function":
+            raw_angle = stats.get("bendAngle",
+                                  defaults.get("bendAngle", 45.0))
+            el["bendAngle"] = raw_angle * DIPOLE_ANGLE_SCALE
+            raw_k = stats.get("focusStrength",
+                              defaults.get("focusStrength", 0.5))
+            el["focusStrength"] = raw_k * QUAD_K_SCALE
+
         elif physics_type in ("rfCavity", "cryomodule"):
             el["energyGain"] = stats.get("energyGain",
                                          defaults.get("energyGain", 0.5))
-            el["rfPhase"] = stats.get("rfPhase", comp.get("rfPhase", 0.0))
+            # rfPhase comes from params (slider) or stats (computed)
+            params = comp.get("params", {})
+            el["rfPhase"] = params.get("rfPhase",
+                                       stats.get("rfPhase", 0.0))
 
         elif physics_type == "sextupole":
             el["focusStrength"] = stats.get("focusStrength",
@@ -194,7 +206,12 @@ def beamline_config_from_game(game_beamline):
         elif physics_type == "undulator":
             el["photonRate"] = stats.get("photonRate",
                                          defaults.get("photonRate", 1.0))
-            el["period"] = stats.get("period", defaults.get("period", 0.03))
+            # Period in component-physics is in mm, convert to metres
+            raw_period = stats.get("period", None)
+            if raw_period is not None:
+                el["period"] = raw_period * 1e-3  # mm → m
+            else:
+                el["period"] = defaults.get("period", 0.03)
             el["kParameter"] = stats.get("kParameter", defaults.get("kParameter", 1.5))
 
         elif physics_type == "detector":
@@ -206,10 +223,20 @@ def beamline_config_from_game(game_beamline):
                                             defaults.get("collisionRate", 2.0))
 
         elif physics_type == "solenoid":
-            el["field"] = defaults.get("field", 0.2)
+            # Read field from params (slider) or stats, falling back to default
+            params = comp.get("params", {})
+            el["fieldStrength"] = params.get("fieldStrength",
+                                             stats.get("fieldStrength",
+                                                       defaults.get("field", 0.2)))
 
         elif physics_type == "chicane":
-            el["r56"] = defaults.get("r56", -0.05)
+            params = comp.get("params", {})
+            # r56 in game units is mm, convert to metres for physics
+            raw_r56 = params.get("r56", stats.get("r56", None))
+            if raw_r56 is not None:
+                el["r56"] = raw_r56 * 1e-3  # mm → m
+            else:
+                el["r56"] = defaults.get("r56", -0.05)
 
         elements.append(el)
 
