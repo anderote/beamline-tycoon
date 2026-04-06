@@ -246,9 +246,10 @@ class Renderer {
         if (i === 0) this.nodeSprites[node.id] = sprite;
       }
 
+      const center = this._nodeCenter(node);
+
       // Add label at mid/close zoom (at center tile)
       if (this.zoom >= 0.7) {
-        const center = this._nodeCenter(node);
         const label = new PIXI.Text({
           text: comp.name,
           style: {
@@ -262,6 +263,27 @@ class Renderer {
         label.y = center.y + 8;
         label.zIndex = node.col + node.row + 0.1;
         this.componentLayer.addChild(label);
+      }
+
+      // Check for missing utility connections
+      node._missingConn = null;
+      if (comp.category === 'rf') {
+        if (!this.game.hasValidConnection(node, 'rfWaveguide')) {
+          node._missingConn = 'rfWaveguide';
+        }
+      }
+
+      // Warning indicator for missing connections
+      if (node._missingConn) {
+        const warn = new PIXI.Text({
+          text: '!',
+          style: { fontFamily: 'monospace', fontSize: 14, fill: 0xff4444, fontWeight: 'bold' },
+        });
+        warn.anchor.set(0.5, 1);
+        warn.x = center.x + 10;
+        warn.y = center.y - 10;
+        warn.zIndex = node.col + node.row + 0.2;
+        this.componentLayer.addChild(warn);
       }
     }
   }
@@ -532,41 +554,60 @@ class Renderer {
     const title = popup.querySelector('.popup-title');
     if (title) title.textContent = comp.name;
 
-    const stats = popup.querySelector('.popup-stats');
-    if (stats) {
+    const body = popup.querySelector('.popup-body');
+    if (body) {
       const health = this.game.getComponentHealth(node.id);
-      let html = `<div>Type: ${comp.name}</div>`;
-      html += `<div>Direction: ${DIR_NAMES[node.dir] || '--'}</div>`;
-      html += `<div>Energy Cost: ${comp.energyCost} E/s</div>`;
-      html += `<div>Length: ${comp.length} m</div>`;
-      html += `<div>Health: ${Math.round(health)}%</div>`;
+      const healthColor = health > 60 ? '#44dd66' : health > 25 ? '#ddaa22' : '#ff4444';
+      const healthClass = health < 40 ? ' low' : '';
+
+      const row = (label, val, unit) =>
+        `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-value">${val}</span>${unit ? `<span class="stat-unit">${unit}</span>` : ''}</div>`;
+
+      let html = '';
+
+      // Description
+      if (comp.desc) {
+        html += `<div class="popup-desc">${comp.desc}</div>`;
+      }
+
+      // Stats
+      html += '<div class="popup-stats">';
+      html += '<div class="popup-section-label">Parameters</div>';
+      html += row('Direction', DIR_NAMES[node.dir] || '--', '');
+      html += row('Energy Cost', comp.energyCost, 'E/s');
+      html += row('Length', comp.length, 'm');
+
       if (comp.stats) {
         for (const [k, v] of Object.entries(comp.stats)) {
-          html += `<div>${k}: ${v}</div>`;
+          const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+          html += row(label, v, '');
         }
       }
-      stats.innerHTML = html;
-    }
 
-    const actions = popup.querySelector('.popup-actions');
-    if (actions) {
-      actions.innerHTML = '';
-      const removeBtn = document.createElement('button');
-      removeBtn.textContent = 'Remove (50% refund)';
-      removeBtn.className = 'popup-remove-btn';
-      removeBtn.addEventListener('click', () => {
+      // Health with bar
+      html += `<div class="stat-row health-row${healthClass}"><span class="stat-label">Health</span><span class="stat-value">${Math.round(health)}%</span></div>`;
+      html += `<div class="popup-health-bar"><div class="popup-health-fill" style="width:${health}%;background:${healthColor}"></div></div>`;
+      html += '</div>';
+
+      // Actions
+      const refund = Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
+      html += '<div class="popup-actions">';
+      html += `<button class="btn-danger" id="popup-remove-btn">Recycle (${refund})</button>`;
+      html += '</div>';
+
+      body.innerHTML = html;
+
+      document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
         this.game.removeComponent(node.id);
         this.hidePopup();
       });
-      actions.appendChild(removeBtn);
     }
 
     // Position near click, clamped to viewport
-    popup.style.left = Math.min(screenX + 10, window.innerWidth - 220) + 'px';
-    popup.style.top = Math.min(screenY + 10, window.innerHeight - 200) + 'px';
+    popup.style.left = Math.min(screenX + 14, window.innerWidth - 290) + 'px';
+    popup.style.top = Math.min(screenY + 14, window.innerHeight - 300) + 'px';
     popup.classList.remove('hidden');
 
-    // Close button
     const closeBtn = popup.querySelector('.popup-close');
     if (closeBtn) {
       closeBtn.onclick = () => this.hidePopup();
