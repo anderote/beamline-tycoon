@@ -273,6 +273,7 @@ class Game {
     this.state.zones.push({ type: zoneType, col, row });
     this.state.zoneOccupied[key] = zoneType;
     this.recomputeZoneConnectivity();
+    this.emit('zonesChanged');
     return true;
   }
 

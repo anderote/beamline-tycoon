@@ -110,6 +110,8 @@ class InputHandler {
           this.deselectInfraTool();
           this.deselectFacilityTool();
           this.deselectConnTool();
+          this.deselectZoneTool();
+          this.deselectDemolishTool();
           this.bulldozerMode = false;
           this.bulldozerConnType = null;
           this.renderer.setBulldozerMode(false);
@@ -702,6 +704,8 @@ class InputHandler {
       this.deselectInfraTool();
       this.deselectFacilityTool();
       this.deselectConnTool();
+      this.deselectZoneTool();
+      this.deselectDemolishTool();
       this.renderer.activeMode = next.mode;
       // Update mode buttons
       document.querySelectorAll('.mode-btn').forEach(b => {
@@ -742,7 +746,11 @@ class InputHandler {
     const compKeys = this._getPaletteCompKeys();
     if (this.paletteIndex < compKeys.length) {
       const compKey = compKeys[this.paletteIndex];
-      if (this.selectedCategory === 'infrastructure') {
+      if (this.selectedCategory === 'zones') {
+        this.selectZoneTool(compKey);
+      } else if (this.selectedCategory === 'demolish') {
+        this.selectDemolishTool();
+      } else if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
         this._selectInfraToolPreview(compKey);
       } else if (isFacilityCategory(this.selectedCategory)) {
         this._selectFacilityToolPreview(compKey);
