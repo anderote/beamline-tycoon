@@ -303,12 +303,18 @@ body {
   padding: 6px 12px 8px;
 }
 
-/* HUD controls — two rows: modes on top, category tabs below */
+/* HUD controls — two rows: modes+pipes on top, category tabs below */
 #hud-controls {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 2px 0;
+}
+
+#hud-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
 /* Category tabs — left-justified row */
@@ -1333,8 +1339,7 @@ body {
 #connection-tools {
   display: flex;
   gap: 3px;
-  justify-content: flex-end;
-  padding: 0 0 4px;
+  align-items: flex-start;
 }
 
 .conn-btn {

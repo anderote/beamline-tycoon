@@ -81,20 +81,22 @@
 
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
-      <div id="connection-tools">
-        <!-- pipe/cable connection buttons, always visible -->
-      </div>
       <div id="hud-controls">
-        <div id="mode-switcher">
-          <div class="mode-btn-wrap">
-            <button class="mode-btn active" data-mode="beamline">Beamline</button>
-            <div class="mode-btn-sub" id="beamline-type-label"></div>
-            <div class="machine-type-dropdown hidden" id="machine-type-dropdown">
-              <!-- dynamically generated machine type options -->
+        <div id="hud-top-row">
+          <div id="mode-switcher">
+            <div class="mode-btn-wrap">
+              <button class="mode-btn active" data-mode="beamline">Beamline</button>
+              <div class="mode-btn-sub" id="beamline-type-label"></div>
+              <div class="machine-type-dropdown hidden" id="machine-type-dropdown">
+                <!-- dynamically generated machine type options -->
+              </div>
             </div>
+            <button class="mode-btn" data-mode="facility">Facility</button>
+            <button class="mode-btn" data-mode="structure">Structure</button>
           </div>
-          <button class="mode-btn" data-mode="facility">Facility</button>
-          <button class="mode-btn" data-mode="structure">Structure</button>
+          <div id="connection-tools">
+            <!-- pipe/cable connection buttons -->
+          </div>
         </div>
         <div id="category-tabs">
           <!-- dynamically generated based on active mode -->
