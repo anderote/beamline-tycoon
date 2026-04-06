@@ -1143,10 +1143,11 @@ class Renderer {
     const texture = this.sprites.getTileTexture(infra.id);
     if (texture) {
       const sprite = new PIXI.Sprite(texture);
-      sprite.anchor.set(0.5, 0.65);
+      const scale = (TILE_W / texture.width) * 1.35;
+      sprite.anchor.set(0.5, 0.5);
       sprite.x = pos.x;
-      sprite.y = pos.y;
-      const scale = TILE_W / texture.width;
+      // Offset up: the diamond center is above the canvas center due to side faces
+      sprite.y = pos.y - (texture.height * scale * 0.08);
       sprite.scale.set(scale, scale);
       sprite.zIndex = isoDepth;
       this.infraLayer.addChild(sprite);
@@ -1176,6 +1177,9 @@ class Renderer {
 
     // Draw zone labels for each zone type
     this._drawZoneLabels(zones, connectivity);
+
+    // Draw placed furnishings
+    this._renderZoneFurnishings();
   }
 
   _drawZoneTile(col, row, zone, active) {
@@ -1189,10 +1193,10 @@ class Renderer {
     const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
     if (floorTexture) {
       const fs = new PIXI.Sprite(floorTexture);
-      fs.anchor.set(0.5, 0.65);
+      const fScale = (TILE_W / floorTexture.width) * 1.35;
+      fs.anchor.set(0.5, 0.5);
       fs.x = pos.x;
-      fs.y = pos.y;
-      const fScale = TILE_W / floorTexture.width;
+      fs.y = pos.y - (floorTexture.height * fScale * 0.08);
       fs.scale.set(fScale, fScale);
       fs.zIndex = isoDepth;
       this.infraLayer.addChild(fs);
@@ -1204,23 +1208,6 @@ class Renderer {
         g.fill({ color: floorInfo.topColor });
         g.zIndex = isoDepth;
         this.infraLayer.addChild(g);
-      }
-    }
-
-    // Sparse furniture: deterministic hash to place zone sprite on ~1 in 4 tiles
-    const hash = ((col * 7 + row * 13 + col * row * 3) & 0xffff) % 4;
-    if (hash === 0) {
-      const texture = this.sprites.getTileTexture(zone.id);
-      if (texture) {
-        const sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5, 0.65);
-        sprite.x = pos.x;
-        sprite.y = pos.y;
-        const scale = TILE_W / texture.width;
-        sprite.scale.set(scale, scale);
-        sprite.alpha = active ? 0.9 : 0.7;
-        sprite.zIndex = isoDepth;
-        this.zoneLayer.addChild(sprite);
       }
     }
 
@@ -1300,6 +1287,36 @@ class Renderer {
         label.alpha = conn?.active ? 0.9 : 0.4;
         this.zoneLayer.addChild(label);
       }
+    }
+  }
+
+  // --- Zone furnishing rendering ---
+
+  _renderZoneFurnishings() {
+    // Zone furnishings render into the zoneLayer (after zones are drawn)
+    const furnishings = this.game.state.zoneFurnishings || [];
+    for (const furn of furnishings) {
+      const furnDef = ZONE_FURNISHINGS[furn.type];
+      if (!furnDef) continue;
+      const texture = this.sprites.getTexture(furn.type);
+      if (!texture) continue;
+
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5, 0.7);
+      const pos = tileCenterIso(furn.col, furn.row);
+      sprite.x = pos.x;
+      sprite.y = pos.y;
+      sprite.zIndex = furn.col + furn.row;
+      this.zoneLayer.addChild(sprite);
+
+      const label = new PIXI.Text({
+        text: furnDef.name,
+        style: { fontFamily: 'monospace', fontSize: 9, fill: 0xcccccc },
+      });
+      label.anchor.set(0.5, 0);
+      label.x = pos.x;
+      label.y = pos.y + 8;
+      this.labelLayer.addChild(label);
     }
   }
 
@@ -1706,6 +1723,48 @@ class Renderer {
       this._renderPalette(catKeys[0]);
       this._updateSystemStatsContent(catKeys[0]);
     }
+
+    // Machine type selector — only visible in beamline mode
+    this._renderMachineTypeSelector();
+  }
+
+  _renderMachineTypeSelector() {
+    const container = document.getElementById('machine-type-selector');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (this.activeMode !== 'beamline' || typeof MACHINE_TYPES === 'undefined') {
+      container.classList.remove('visible');
+      return;
+    }
+    container.classList.add('visible');
+
+    const currentType = this.game.state.machineType || 'linac';
+    for (const [key, mt] of Object.entries(MACHINE_TYPES)) {
+      const btn = document.createElement('button');
+      btn.className = 'machine-type-btn';
+      btn.dataset.machineType = key;
+
+      const unlocked = this.game.isMachineTypeUnlocked(key);
+      if (key === currentType) btn.classList.add('active');
+      if (!unlocked) btn.classList.add('locked');
+
+      btn.textContent = mt.name;
+      btn.title = unlocked ? mt.desc : `Locked — research required`;
+
+      btn.addEventListener('click', () => {
+        if (!unlocked) {
+          this.game.log(`Research required to unlock ${mt.name}`, 'bad');
+          return;
+        }
+        if (this.game.setMachineType(key)) {
+          this._renderMachineTypeSelector();
+          this._generateCategoryTabs();
+        }
+      });
+
+      container.appendChild(btn);
+    }
   }
 
   _renderPalette(tabCategory) {
@@ -1816,91 +1875,131 @@ class Renderer {
       return;
     }
 
-    // Structure mode — Zones tab: show zone types
-    if (compCategory === 'zones') {
-      const catDef = MODES.structure.categories.zones;
-      const subsections = catDef.subsections;
-      const subKeys = Object.keys(subsections);
-      const zoneEntries = Object.entries(ZONES);
-      let renderedSections = 0;
-      for (const subKey of subKeys) {
-        const subDef = subsections[subKey];
-        const subItems = zoneEntries.filter(([, z]) => z.subsection === subKey);
-        if (subItems.length === 0) continue;
+    // Structure mode — Zone tabs: show zone paint tool + furnishings
+    const zoneCatDef = MODES.structure?.categories?.[compCategory];
+    if (zoneCatDef?.isZoneTab) {
+      const zoneType = zoneCatDef.zoneType;
+      const zone = ZONES[zoneType];
+      if (!zone) return;
 
-        if (renderedSections > 0) {
-          const divider = document.createElement('div');
-          divider.className = 'palette-subsection-divider';
-          palette.appendChild(divider);
-        }
+      // Zone section — the zone paint tool
+      const zoneSection = document.createElement('div');
+      zoneSection.className = 'palette-subsection';
+      const zoneLabel = document.createElement('div');
+      zoneLabel.className = 'palette-subsection-label';
+      zoneLabel.textContent = 'Zone';
+      zoneSection.appendChild(zoneLabel);
 
-        const section = document.createElement('div');
-        section.className = 'palette-subsection';
-        const label = document.createElement('div');
-        label.className = 'palette-subsection-label';
-        label.textContent = subDef.name;
-        section.appendChild(label);
+      const zoneItems = document.createElement('div');
+      zoneItems.className = 'palette-subsection-items';
 
-        const itemsContainer = document.createElement('div');
-        itemsContainer.className = 'palette-subsection-items';
+      const zoneItem = document.createElement('div');
+      zoneItem.className = 'palette-item';
+      zoneItem.dataset.paletteIndex = paletteIdx;
+      const zoneIdx = paletteIdx++;
+      const hex = '#' + zone.color.toString(16).padStart(6, '0');
+      zoneItem.style.borderLeft = `4px solid ${hex}`;
 
-        for (const [key, zone] of subItems) {
+      const zoneName = document.createElement('div');
+      zoneName.className = 'palette-name';
+      zoneName.textContent = zone.name;
+      zoneItem.appendChild(zoneName);
+
+      const zoneDesc = document.createElement('div');
+      zoneDesc.className = 'palette-cost';
+      zoneDesc.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor} (drag)`;
+      zoneItem.appendChild(zoneDesc);
+
+      zoneItem.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(zoneIdx);
+        if (this._onZoneSelect) this._onZoneSelect(zoneType);
+      });
+      zoneItems.appendChild(zoneItem);
+      zoneSection.appendChild(zoneItems);
+      palette.appendChild(zoneSection);
+
+      // Furnishings section
+      const furnEntries = Object.entries(ZONE_FURNISHINGS).filter(([, f]) => f.zoneType === zoneType);
+      if (furnEntries.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'palette-subsection-divider';
+        palette.appendChild(divider);
+
+        const furnSection = document.createElement('div');
+        furnSection.className = 'palette-subsection';
+        const furnLabel = document.createElement('div');
+        furnLabel.className = 'palette-subsection-label';
+        furnLabel.textContent = 'Furnishings';
+        furnSection.appendChild(furnLabel);
+
+        const furnItems = document.createElement('div');
+        furnItems.className = 'palette-subsection-items';
+
+        for (const [key, furn] of furnEntries) {
           const item = document.createElement('div');
           item.className = 'palette-item';
           item.dataset.paletteIndex = paletteIdx;
           const idx = paletteIdx++;
 
-          const hex = '#' + zone.color.toString(16).padStart(6, '0');
-          item.style.borderLeft = `4px solid ${hex}`;
+          const affordable = this.game.state.resources.funding >= furn.cost;
+          if (!affordable) item.classList.add('unaffordable');
 
           const nameEl = document.createElement('div');
           nameEl.className = 'palette-name';
-          nameEl.textContent = zone.name;
+          nameEl.textContent = furn.name;
           item.appendChild(nameEl);
 
-          const descEl = document.createElement('div');
-          descEl.className = 'palette-cost';
-          descEl.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor}`;
-          item.appendChild(descEl);
+          const costEl = document.createElement('div');
+          costEl.className = 'palette-cost';
+          costEl.textContent = `$${furn.cost}`;
+          item.appendChild(costEl);
 
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onZoneSelect) this._onZoneSelect(key);
+            if (this._onFurnishingSelect) this._onFurnishingSelect(key);
           });
 
-          itemsContainer.appendChild(item);
+          furnItems.appendChild(item);
         }
 
-        section.appendChild(itemsContainer);
-        palette.appendChild(section);
-        renderedSections++;
+        furnSection.appendChild(furnItems);
+        palette.appendChild(furnSection);
       }
       return;
     }
 
-    // Structure mode — Demolish tab: show demolish tool
+    // Structure mode — Demolish tab: three demolish tools
     if (compCategory === 'demolish') {
-      const item = document.createElement('div');
-      item.className = 'palette-item';
-      item.dataset.paletteIndex = 0;
-      paletteIdx++;
+      const demolishTools = [
+        { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
+        { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
+        { key: 'demolishFurnishing', name: 'Remove Furniture', desc: 'Click to remove placed furnishings', color: '#a48' },
+      ];
 
-      const nameEl = document.createElement('div');
-      nameEl.className = 'palette-name';
-      nameEl.textContent = 'Demolish Tool';
-      item.appendChild(nameEl);
+      for (const tool of demolishTools) {
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+        item.style.borderLeft = `4px solid ${tool.color}`;
 
-      const descEl = document.createElement('div');
-      descEl.className = 'palette-cost';
-      descEl.textContent = 'Click or drag area to remove flooring & zones';
-      item.appendChild(descEl);
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = tool.name;
+        item.appendChild(nameEl);
 
-      item.addEventListener('click', () => {
-        if (this._onPaletteClick) this._onPaletteClick(0);
-        if (this._onDemolishSelect) this._onDemolishSelect();
-      });
+        const descEl = document.createElement('div');
+        descEl.className = 'palette-cost';
+        descEl.textContent = tool.desc;
+        item.appendChild(descEl);
 
-      palette.appendChild(item);
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onDemolishSelect) this._onDemolishSelect(tool.key);
+        });
+
+        palette.appendChild(item);
+      }
       return;
     }
 
@@ -1974,6 +2073,14 @@ class Renderer {
   _createPaletteItem(key, comp, idx) {
     const unlocked = this.game.isComponentUnlocked(comp);
     if (!unlocked) return null;
+
+    // Machine tier gating — hide components above current machine type tier
+    if (typeof MACHINE_TIER !== 'undefined' && typeof MACHINE_TYPES !== 'undefined') {
+      const compTier = MACHINE_TIER[key] || 1;
+      const currentType = this.game.state.machineType || 'linac';
+      const currentMachineTier = MACHINE_TYPES[currentType]?.tier || 1;
+      if (compTier > currentMachineTier) return null;
+    }
 
     const isFacility = isFacilityCategory(comp.category);
 
