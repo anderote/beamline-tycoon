@@ -1267,13 +1267,16 @@ body {
   align-items: stretch;
 }
 .mode-btn-sub {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 2px;
   font-family: 'Press Start 2P', monospace;
   font-size: 6px;
   color: #6a8;
-  text-align: center;
-  padding: 1px 0 0;
   cursor: pointer;
   white-space: nowrap;
+  pointer-events: auto;
 }
 .mode-btn-sub:hover {
   color: #8ca;
