@@ -238,6 +238,28 @@
       kickAngle: { min: 0.5, max: 10, default: 5, unit: 'mrad', step: 0.1 },
       riseTime:  { min: 5, max: 100, default: 25, unit: 'ns', step: 1 },
     },
+
+    // ---- Pillbox cavity (low-energy, 200 MHz) ----
+    pillboxCavity: {
+      voltage:    { min: 0.05, max: 2.0, default: 0.5, unit: 'MV', step: 0.05 },
+      rfPhase:    { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain: { min: 0, max: 0.002, default: 0.0005, unit: 'GeV', step: 0.0001, derived: true },
+    },
+
+    // ---- RFQ (Radio-Frequency Quadrupole, 352 MHz) ----
+    rfq: {
+      intervaneVoltage: { min: 20, max: 150, default: 80, unit: 'kV', step: 1 },
+      rfPhase:          { min: -60, max: 0, default: -30, unit: 'deg', step: 1 },
+      energyGain:       { min: 0, max: 0.005, default: 0.003, unit: 'GeV', step: 0.0001, derived: true },
+      bunchCompression: { min: 0, max: 1, default: 0.5, unit: '', step: 0.01, derived: true },
+    },
+
+    // ---- DTL (Drift-Tube Linac, Alvarez-style) ----
+    dtl: {
+      gradient:   { min: 1, max: 5, default: 3, unit: 'MV/m', step: 0.1 },
+      rfPhase:    { min: -40, max: 0, default: -25, unit: 'deg', step: 1 },
+      energyGain: { min: 0, max: 0.05, default: 0.008, unit: 'GeV', step: 0.001, derived: true },
+    },
   };
 
   // ---------------------------------------------------------------------------
@@ -656,6 +678,45 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Low-energy RF physics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pillbox cavity — single-cell copper cavity, 200 MHz.
+   * energyGain [GeV] = V [MV] * 0.7 * cos(φ) / 1000   (transit time factor 0.7)
+   */
+  function computePillboxCavity(params) {
+    const V       = params.voltage; // MV
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const energyGain = V * 0.7 * Math.cos(phi_rad) / 1000; // GeV
+    return { energyGain };
+  }
+
+  /**
+   * RFQ — simultaneous bunching and acceleration from keV to ~3 MeV.
+   * energyGain [GeV]      = (V_kV/80) * 0.003 * cos(φ + π/6)
+   * bunchCompression       = 0.5 * |sin(φ)|, capped at 0.8
+   */
+  function computeRfq(params) {
+    const V_kV    = params.intervaneVoltage; // kV
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const energyGain      = (V_kV / 80) * 0.003 * Math.cos(phi_rad + Math.PI / 6);
+    const bunchCompression = Math.min(0.8, 0.5 * Math.abs(Math.sin(phi_rad)));
+    return { energyGain, bunchCompression };
+  }
+
+  /**
+   * DTL — Alvarez drift-tube linac, accelerates 3–50 MeV.
+   * energyGain [GeV] = G [MV/m] * 3 [m] * 0.9 * cos(φ) / 1000
+   */
+  function computeDtl(params) {
+    const G       = params.gradient; // MV/m
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const energyGain = G * 3 * 0.9 * Math.cos(phi_rad) / 1000; // GeV
+    return { energyGain };
+  }
+
+  // ---------------------------------------------------------------------------
   // COMPUTE_STATS dispatch table
   // ---------------------------------------------------------------------------
   const COMPUTE_STATS = {
@@ -688,6 +749,10 @@
     corrector:              computeCorrector,
     kickerMagnet:           computeKickerMagnet,
     combinedFunctionMagnet: computeCombinedFunctionMagnet,
+    // low-energy RF
+    pillboxCavity:          computePillboxCavity,
+    rfq:                    computeRfq,
+    dtl:                    computeDtl,
   };
 
   /**

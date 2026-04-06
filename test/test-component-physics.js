@@ -6,6 +6,9 @@ global.COMPONENTS = {
   dcPhotoGun:{ id: 'dcPhotoGun',length: 2 },
   ncRfGun:   { id: 'ncRfGun',   length: 2 },
   srfGun:    { id: 'srfGun',    length: 3 },
+  pillboxCavity: { id: 'pillboxCavity', length: 1 },
+  rfq:           { id: 'rfq',           length: 3 },
+  dtl:           { id: 'dtl',           length: 5 },
 };
 
 // --- Load module ---
@@ -454,6 +457,76 @@ console.log('\n-- PARAM_DEFS new types --');
   assert(PARAM_DEFS.corrector !== undefined, 'PARAM_DEFS.corrector exists');
   assert(PARAM_DEFS.kickerMagnet !== undefined, 'PARAM_DEFS.kickerMagnet exists');
   assert(PARAM_DEFS.kickerMagnet.riseTime !== undefined, 'kickerMagnet has riseTime');
+}
+
+// -----------------------------------------------------------------------
+// pillboxCavity
+// -----------------------------------------------------------------------
+console.log('\n-- pillboxCavity: low-energy single-cell cavity --');
+{
+  const defs  = getDefaults('pillboxCavity');
+  const stats = computeStats('pillboxCavity', defs);
+  assert(stats.energyGain > 0, 'pillboxCavity on-crest produces positive energyGain');
+  assert(stats.energyGain < 0.002, 'pillboxCavity energyGain in MeV range (< 0.002 GeV)');
+
+  // off-crest reduces gain
+  const offCrest = computeStats('pillboxCavity', { ...defs, rfPhase: 30 });
+  assert(offCrest.energyGain < stats.energyGain,
+    'off-crest phase reduces pillboxCavity energyGain');
+}
+
+// -----------------------------------------------------------------------
+// rfq
+// -----------------------------------------------------------------------
+console.log('\n-- rfq: radio-frequency quadrupole --');
+{
+  const defs  = getDefaults('rfq');
+  const stats = computeStats('rfq', defs);
+  assert(stats.energyGain > 0, 'rfq produces positive energyGain');
+  assert(stats.bunchCompression > 0, 'rfq produces positive bunchCompression');
+  assert(stats.bunchCompression <= 0.8, 'rfq bunchCompression capped at 0.8');
+
+  // Higher voltage → higher energy gain
+  const lowV  = computeStats('rfq', { ...defs, intervaneVoltage: 30 });
+  const highV = computeStats('rfq', { ...defs, intervaneVoltage: 120 });
+  assert(highV.energyGain > lowV.energyGain,
+    'higher intervaneVoltage → higher rfq energyGain');
+}
+
+// -----------------------------------------------------------------------
+// dtl
+// -----------------------------------------------------------------------
+console.log('\n-- dtl: drift-tube linac --');
+{
+  const defs  = getDefaults('dtl');
+  const stats = computeStats('dtl', defs);
+  assert(stats.energyGain > 0, 'dtl produces positive energyGain');
+  assert(stats.energyGain > 0.005, 'dtl energyGain > 5 MeV (> 0.005 GeV)');
+
+  // Higher gradient → higher energy gain
+  const lowG  = computeStats('dtl', { ...defs, gradient: 1 });
+  const highG = computeStats('dtl', { ...defs, gradient: 5 });
+  assert(highG.energyGain > lowG.energyGain,
+    'higher gradient → higher dtl energyGain');
+}
+
+// -----------------------------------------------------------------------
+// PARAM_DEFS: spot-check low-energy RF types
+// -----------------------------------------------------------------------
+console.log('\n-- PARAM_DEFS low-energy RF types --');
+{
+  assert(PARAM_DEFS.pillboxCavity !== undefined, 'PARAM_DEFS.pillboxCavity exists');
+  assert(PARAM_DEFS.pillboxCavity.voltage !== undefined, 'pillboxCavity has voltage');
+  assert(PARAM_DEFS.pillboxCavity.energyGain.derived === true, 'pillboxCavity energyGain is derived');
+
+  assert(PARAM_DEFS.rfq !== undefined, 'PARAM_DEFS.rfq exists');
+  assert(PARAM_DEFS.rfq.intervaneVoltage !== undefined, 'rfq has intervaneVoltage');
+  assert(PARAM_DEFS.rfq.energyGain.derived === true, 'rfq energyGain is derived');
+  assert(PARAM_DEFS.rfq.bunchCompression.derived === true, 'rfq bunchCompression is derived');
+
+  assert(PARAM_DEFS.dtl !== undefined, 'PARAM_DEFS.dtl exists');
+  assert(PARAM_DEFS.dtl.gradient !== undefined, 'dtl has gradient');
+  assert(PARAM_DEFS.dtl.energyGain.derived === true, 'dtl energyGain is derived');
 }
 
 // -----------------------------------------------------------------------
