@@ -1636,7 +1636,7 @@ class Game {
       }
 
       if (this.state.tick % 10 === 0) {
-        const wearRate = 0.01 + eCost * 0.001;
+        const wearRate = 0.01 + (def.energyCost || 0) * 0.001;
         machine.health = Math.max(0, machine.health - wearRate);
         if (machine.health < 20 && Math.random() < 0.05) {
           machine.health = 0; machine.active = false;
@@ -1671,7 +1671,7 @@ class Game {
     }
     const saveState = { ...this.state, connections: connObj };
     localStorage.setItem('beamlineTycoon', JSON.stringify({
-      version: 4,
+      version: 5,
       state: saveState,
       beamline: this.beamline.toJSON(),
     }));
@@ -1743,6 +1743,16 @@ class Game {
       if (!this.state.facilityGrid) this.state.facilityGrid = {};
       if (!this.state.facilityNextId) this.state.facilityNextId = 1;
 
+      // Migrate: remove deprecated energy resource
+      delete this.state.resources.energy;
+      delete this.state.electricalPower;
+      delete this.state.maxElectricalPower;
+
+      // Ensure infra validation state exists
+      this.state.infraBlockers = this.state.infraBlockers || [];
+      this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
+      this.state.networkData = this.state.networkData || null;
+
       this.beamline.fromJSON(data.beamline);
 
       // Migrate old saves: initialize params for nodes that don't have them
@@ -1759,6 +1769,7 @@ class Game {
       }
 
       this.recalcBeamline();
+      this.validateInfrastructure();
       this.log('Game loaded.', 'info');
       this.emit('loaded');
       return true;
