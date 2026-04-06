@@ -62,27 +62,11 @@
       <div class="bsp-row"><span class="bsp-label">E Cost</span><span class="bsp-val" id="stat-energy-cost">0</span><span class="bsp-unit">E/s</span></div>
     </div>
 
-    <!-- Beam diagnostics plots (lower-right, expandable) -->
-    <div id="beam-plots" class="collapsed">
-      <div id="beam-plots-header">
-        <span id="beam-plots-title">Beam Diagnostics</span>
-        <button id="beam-plots-toggle">+</button>
-      </div>
-      <div id="beam-plots-body">
-        <div class="plot-container">
-          <div class="plot-label">Beam Envelope (sigma)</div>
-          <canvas id="plot-envelope" width="490" height="160"></canvas>
-        </div>
-        <div class="plot-container">
-          <div class="plot-label">Energy Profile</div>
-          <canvas id="plot-energy" width="490" height="130"></canvas>
-        </div>
-        <div class="plot-container">
-          <div class="plot-label">Beam Current</div>
-          <canvas id="plot-current" width="490" height="130"></canvas>
-        </div>
-      </div>
-    </div>
+    <!-- Beamline warnings panel (top-right) -->
+    <div id="beamline-warnings"></div>
+
+    <!-- Probe mode indicator -->
+    <div id="probe-mode-indicator" class="hidden">PROBE MODE (P to toggle, click nodes to add probes, Esc to exit)</div>
 
     <!-- Component preview panel (lower-left, above bottom HUD) -->
     <div id="component-preview" class="hidden">
@@ -113,15 +97,18 @@
       <div id="component-palette"></div>
     </div>
 
-    <!-- Research overlay (hidden by default) -->
-    <div id="research-overlay" class="overlay hidden">
-      <div class="overlay-header">
-        <span class="overlay-title">Research</span>
+    <!-- Research tech tree (full-screen, hidden by default) -->
+    <div id="research-overlay" class="tech-tree-overlay hidden">
+      <div class="tt-header">
+        <div class="tt-category-tabs" id="tt-category-tabs"></div>
+        <div class="tt-active-research" id="tt-active-research"></div>
         <button class="overlay-close" data-close="research-overlay">&times;</button>
       </div>
-      <div class="overlay-body">
-        <div id="research-list"></div>
+      <div class="tt-canvas-wrapper" id="tt-canvas-wrapper">
+        <svg class="tt-connectors" id="tt-connectors"></svg>
+        <div class="tt-canvas" id="tt-canvas"></div>
       </div>
+      <div class="tt-popover hidden" id="tt-popover"></div>
     </div>
 
     <!-- Goals overlay (hidden by default) -->
@@ -143,6 +130,7 @@
       </div>
       <div class="popup-body"></div>
     </div>
+
 
   </div>
 
