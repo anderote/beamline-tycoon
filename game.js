@@ -1032,6 +1032,7 @@ class Game {
   computeSystemStats() {
     const equip = this.state.facilityEquipment || [];
     const beamline = this.state.beamline || [];
+    const nets = this.state.networkData; // may be null if Networks not loaded yet
 
     // Count facility equipment by type
     const counts = {};
@@ -1062,18 +1063,35 @@ class Game {
     const gaugeTypes = ['piraniGauge', 'coldCathodeGauge', 'baGauge'];
     const pumpCount = pumpTypes.reduce((s, t) => s + (counts[t] || 0), 0);
     const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
-    // Estimate pump speed: roughing 10 L/s, turbo 300 L/s, ion 100 L/s, NEG 200 L/s, Ti-Sub 500 L/s
     const pumpSpeeds = { roughingPump: 10, turboPump: 300, ionPump: 100, negPump: 200, tiSubPump: 500 };
-    const totalPumpSpeed = pumpTypes.reduce((s, t) => s + (counts[t] || 0) * (pumpSpeeds[t] || 0), 0);
-    const avgPressure = this.state.avgPressure || (pumpCount > 0 ? 1e-6 / Math.max(totalPumpSpeed / Math.max(totalVolume, 1), 0.01) : 1013);
-    // Pressure quality
-    let pressureQuality = 'None';
-    if (pumpCount > 0) {
-      if (avgPressure < 1e-9) pressureQuality = 'Excellent';
+
+    // If network validation data is available, use vacuum conductance calculations
+    let avgPressure, totalPumpSpeed, pressureQuality;
+    if (nets && nets.vacuumPipe && nets.vacuumPipe.length > 0) {
+      const vacNets = nets.vacuumPipe.map(net => Networks.validateVacuumNetwork(net, beamline));
+      totalPumpSpeed = vacNets.reduce((s, n) => s + n.effectivePumpSpeed, 0);
+      const gasLoad = Math.max(totalVolume, 1) * Networks.OUTGASSING_RATE;
+      avgPressure = totalPumpSpeed > 0 ? gasLoad / totalPumpSpeed : (pumpCount > 0 ? 1013 : 1013);
+      // Derive quality from the computed pressure
+      if (totalPumpSpeed === 0) pressureQuality = 'None';
+      else if (avgPressure < 1e-9) pressureQuality = 'Excellent';
       else if (avgPressure < 1e-7) pressureQuality = 'Good';
       else if (avgPressure < 1e-4) pressureQuality = 'Marginal';
       else pressureQuality = 'Poor';
+    } else {
+      // Fallback to old estimation from equipment counts
+      totalPumpSpeed = pumpTypes.reduce((s, t) => s + (counts[t] || 0) * (pumpSpeeds[t] || 0), 0);
+      avgPressure = this.state.avgPressure || (pumpCount > 0 ? 1e-6 / Math.max(totalPumpSpeed / Math.max(totalVolume, 1), 0.01) : 1013);
+      pressureQuality = 'None';
+      if (pumpCount > 0) {
+        if (avgPressure < 1e-9) pressureQuality = 'Excellent';
+        else if (avgPressure < 1e-7) pressureQuality = 'Good';
+        else if (avgPressure < 1e-4) pressureQuality = 'Marginal';
+        else pressureQuality = 'Poor';
+      }
     }
+
+    this.state.avgPressure = avgPressure;
 
     const vacuum = {
       avgPressure,
@@ -1101,13 +1119,24 @@ class Game {
     const rfSourceTypes = ['klystron', 'ssa', 'iot', 'magnetron'];
     const rfSupportTypes = ['modulator', 'circulator', 'waveguide', 'llrfController', 'masterOscillator', 'vectorModulator'];
     const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
-    // Estimate RF power per source type (kW): klystron 50MW peak/5MW avg, SSA 100kW, IOT 80kW, magnetron 2MW
-    const rfPowerPerSource = { klystron: 5000, ssa: 100, iot: 80, magnetron: 2000 };
-    const totalFwdPower = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0) * (rfPowerPerSource[t] || 0), 0);
-    const reflFraction = 0.02; // 2% mismatch model
-    const totalReflPower = totalFwdPower * reflFraction;
+
+    // If network data exists, sum forward/reflected power from RF network validations
+    let totalFwdPower, totalReflPower;
+    if (nets && nets.rfWaveguide && nets.rfWaveguide.length > 0) {
+      const rfNets = nets.rfWaveguide.map(net => Networks.validateRfNetwork(net));
+      totalFwdPower = rfNets.reduce((s, n) => s + n.forwardPower, 0);
+      totalReflPower = rfNets.reduce((s, n) => s + n.reflectedPower, 0);
+    } else {
+      // Fallback to old estimation from equipment counts
+      const rfPowerPerSource = { klystron: 5000, ssa: 100, iot: 80, magnetron: 2000 };
+      totalFwdPower = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0) * (rfPowerPerSource[t] || 0), 0);
+      const reflFraction = 0.02;
+      totalReflPower = totalFwdPower * reflFraction;
+    }
+
     const avgEfficiency = rfSourceCount > 0 ? 0.55 : 0; // rough average
     const rfWallPower = avgEfficiency > 0 ? totalFwdPower / avgEfficiency : 0;
+    const reflFraction = totalFwdPower > 0 ? totalReflPower / totalFwdPower : 0;
     const vswr = reflFraction > 0 ? ((1 + Math.sqrt(reflFraction)) / (1 - Math.sqrt(reflFraction))).toFixed(2) : '1.00';
 
     const rfPower = {
@@ -1140,14 +1169,32 @@ class Game {
     const ln2Precool = counts.ln2Precooler || 0;
     const heRecovery = counts.heRecovery || 0;
     const cryocoolers = counts.cryocooler || 0;
-    // Cooling capacity: coldBox4K 500W each, subCooling2K 200W each, cryocooler 50W each
-    const cryoCapacity = coldBox4K * 500 + subCooling2K * 200 + cryocoolers * 50;
-    // Heat load estimate: each cryomodule housing ~5W static + dynamic from beamline SRF cavities
-    const srfCavities = beamline.filter(n => n.type === 'cryomodule').length;
-    const staticLoad = cryoHousings * 3 + srfCavities * 3;
-    const dynamicLoad = srfCavities * 15; // rough 15W dynamic per SRF cavity
-    const totalCryoLoad = staticLoad + dynamicLoad;
-    const opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
+
+    let cryoCapacity, totalCryoLoad, opTemp, staticLoad, dynamicLoad;
+    if (nets && nets.cryoTransfer && nets.cryoTransfer.length > 0) {
+      const cryoNets = nets.cryoTransfer.map(net => Networks.validateCryoNetwork(net));
+      cryoCapacity = cryoNets.reduce((s, n) => s + n.capacity, 0);
+      totalCryoLoad = cryoNets.reduce((s, n) => s + n.heatLoad, 0);
+      // Use best (lowest nonzero) opTemp from networks
+      opTemp = 0;
+      for (const cn of cryoNets) {
+        if (cn.opTemp > 0 && (opTemp === 0 || cn.opTemp < opTemp)) opTemp = cn.opTemp;
+      }
+      // Decompose load into static/dynamic for detail (estimate from counts)
+      const srfCavities = beamline.filter(n => n.type === 'cryomodule').length;
+      staticLoad = cryoHousings * 3 + srfCavities * 3;
+      dynamicLoad = totalCryoLoad - staticLoad;
+      if (dynamicLoad < 0) { staticLoad = totalCryoLoad; dynamicLoad = 0; }
+    } else {
+      // Fallback to old estimation from equipment counts
+      cryoCapacity = coldBox4K * 500 + subCooling2K * 200 + cryocoolers * 50;
+      const srfCavities = beamline.filter(n => n.type === 'cryomodule').length;
+      staticLoad = cryoHousings * 3 + srfCavities * 3;
+      dynamicLoad = srfCavities * 15;
+      totalCryoLoad = staticLoad + dynamicLoad;
+      opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
+    }
+
     const carnot = opTemp === 2.0 ? 750 : 250;
     const cryoWallPower = totalCryoLoad * carnot / 1000; // kW
     const cryoMargin = cryoCapacity > 0 ? ((cryoCapacity - totalCryoLoad) / cryoCapacity * 100) : 0;
@@ -1180,10 +1227,18 @@ class Game {
     const waterLoads = counts.waterLoad || 0;
     const deionizers = counts.deionizer || 0;
     const emergCooling = counts.emergencyCooling || 0;
-    // Capacity: LCW 100kW, Chiller 200kW, Tower 500kW
-    const coolingCap = lcwSkids * 100 + chillers * 200 + towers * 500;
-    // Heat load: sum of all beamline+facility energy costs (rough proxy)
-    const coolingLoad = (this.state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
+
+    let coolingCap, coolingLoad;
+    if (nets && nets.coolingWater && nets.coolingWater.length > 0) {
+      const coolNets = nets.coolingWater.map(net => Networks.validateCoolingNetwork(net));
+      coolingCap = coolNets.reduce((s, n) => s + n.capacity, 0);
+      coolingLoad = coolNets.reduce((s, n) => s + n.heatLoad, 0);
+    } else {
+      // Fallback to old estimation from equipment counts
+      coolingCap = lcwSkids * 100 + chillers * 200 + towers * 500;
+      coolingLoad = (this.state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
+    }
+
     const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T
     const coolingMargin = coolingCap > 0 ? ((coolingCap - coolingLoad) / coolingCap * 100) : 0;
 
@@ -1208,8 +1263,18 @@ class Game {
     const substations = counts.substation || 0;
     const panels = counts.powerPanel || 0;
     const laserSystems = counts.laserSystem || 0;
-    const powerCapacity = this.state.maxElectricalPower || 500;
-    const totalDraw = (this.state.totalEnergyCost || 0) + vacuum.energyDraw + rfPower.energyDraw + cryo.energyDraw + cooling.energyDraw;
+
+    let powerCapacity, totalDraw;
+    if (nets && nets.powerCable && nets.powerCable.length > 0) {
+      const pwrNets = nets.powerCable.map(net => Networks.validatePowerNetwork(net));
+      powerCapacity = pwrNets.reduce((s, n) => s + n.capacity, 0);
+      totalDraw = pwrNets.reduce((s, n) => s + n.draw, 0);
+    } else {
+      // Fallback to old estimation
+      powerCapacity = this.state.maxElectricalPower || 500;
+      totalDraw = (this.state.totalEnergyCost || 0) + vacuum.energyDraw + rfPower.energyDraw + cryo.energyDraw + cooling.energyDraw;
+    }
+
     const powerUtil = powerCapacity > 0 ? (totalDraw / powerCapacity * 100) : 0;
 
     const power = {
