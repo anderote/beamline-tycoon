@@ -158,6 +158,16 @@ class InputHandler {
         return;
       }
 
+      // Connection drawing start
+      if (e.button === 0 && this.selectedConnTool) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        this.isDrawingConn = true;
+        this.connPath = [{ col: grid.col, row: grid.row }];
+        this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+        return;
+      }
+
       // Infrastructure drag start
       if (e.button === 0 && this.selectedInfraTool) {
         const infra = INFRASTRUCTURE[this.selectedInfraTool];
@@ -186,6 +196,14 @@ class InputHandler {
           this.dragStart.col, this.dragStart.row,
           grid.col, grid.row, this.selectedInfraTool
         );
+      } else if (this.isDrawingConn && this.selectedConnTool) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        const last = this.connPath[this.connPath.length - 1];
+        if (grid.col !== last.col || grid.row !== last.row) {
+          this.connPath.push({ col: grid.col, row: grid.row });
+          this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+        }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -197,6 +215,13 @@ class InputHandler {
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
+        return;
+      }
+
+      // Connection drawing end
+      if (this.isDrawingConn) {
+        this.isDrawingConn = false;
+        this.connPath = [];
         return;
       }
 
@@ -284,6 +309,12 @@ class InputHandler {
           this.game.emit('infrastructureChanged');
         }
       }
+      return;
+    }
+
+    // Facility equipment placement
+    if (this.selectedFacilityTool) {
+      this.game.placeFacilityEquipment(col, row, this.selectedFacilityTool);
       return;
     }
 
