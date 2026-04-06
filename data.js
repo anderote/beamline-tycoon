@@ -120,8 +120,11 @@ const MODES = {
   },
   structure: {
     name: 'Structure',
-    categories: {},
-    disabled: true,
+    categories: {
+      flooring: { name: 'Flooring', color: '#999' },
+      zones:    { name: 'Zones',    color: '#6a6' },
+      demolish: { name: 'Demolish', color: '#a44' },
+    },
   },
 };
 
@@ -1720,7 +1723,46 @@ const INFRASTRUCTURE = {
     topColor: 0x999999,
     isDragPlacement: true,
   },
+  labFloor: {
+    id: 'labFloor',
+    name: 'Lab Flooring',
+    desc: 'Clean epoxy floor for laboratory zones. Drag to place.',
+    cost: 15,
+    color: 0xbbbbbb,
+    topColor: 0xdddddd,
+    isDragPlacement: true,
+  },
+  officeFloor: {
+    id: 'officeFloor',
+    name: 'Office Flooring',
+    desc: 'Carpet tile flooring for office and admin zones. Drag to place.',
+    cost: 12,
+    color: 0xaa9977,
+    topColor: 0xccbb99,
+    isDragPlacement: true,
+  },
+  hallway: {
+    id: 'hallway',
+    name: 'Hallway',
+    desc: 'White linoleum hallway connecting zones to the control room. Drag to place.',
+    cost: 8,
+    color: 0xcccccc,
+    topColor: 0xeeeeee,
+    isDragPlacement: true,
+  },
 };
+
+const ZONES = {
+  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower' },
+  cryoLab:     { id: 'cryoLab',     name: 'Cryogenic Lab',  color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cryo' },
+  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum' },
+  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null },
+  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls' },
+  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'concrete',    gatesCategory: 'beamline' },
+  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: ['cooling', 'safety'] },
+};
+
+const ZONE_TIER_THRESHOLDS = [16, 36, 64]; // Tier 1: 16 tiles, Tier 2: 36, Tier 3: 64
 
 const RESEARCH = {
   // === TIER 1 — Beam Science Basics ===
