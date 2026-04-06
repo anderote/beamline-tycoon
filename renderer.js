@@ -1010,34 +1010,42 @@ class Renderer {
     if (!targetNet) return;
 
     this.activeNetworkType = connType;
-    const connColor = CONNECTION_TYPES[connType]?.color || 0xffffff;
+    this._networkTileSet = new Set(targetNet.tiles.map(t => t.col + ',' + t.row));
+    this._networkConnType = connType;
 
-    // Draw white isometric diamond outlines around connected beamline components
+    // Draw white isometric box outlines around connected beamline components
     for (const node of targetNet.beamlineNodes) {
       const tiles = node.tiles || [{ col: node.col, row: node.row }];
       for (const tile of tiles) {
-        this._drawIsoDiamondOutline(tile.col, tile.row, 0xffffff, 2);
+        this._drawIsoBoxOutline(tile.col, tile.row, 0xffffff, 2);
       }
     }
 
-    // Draw white isometric diamond outlines around connected equipment
+    // Draw white isometric box outlines around connected equipment
     for (const eq of targetNet.equipment) {
-      this._drawIsoDiamondOutline(eq.col, eq.row, 0xffffff, 2);
+      this._drawIsoBoxOutline(eq.col, eq.row, 0xffffff, 2);
     }
+
+    // Re-render connections so network pipes appear white
+    this._renderConnections();
 
     // Show stats panel
     this._showNetworkPanel(connType, targetNet);
   }
 
-  _drawIsoDiamondOutline(col, row, color, lineWidth) {
+  _drawIsoBoxOutline(col, row, color, lineWidth) {
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
+    const depth = hh; // box side depth matches sprite generation
     const g = new PIXI.Graphics();
-    g.moveTo(pos.x, pos.y - hh);
-    g.lineTo(pos.x + hw, pos.y);
-    g.lineTo(pos.x, pos.y + hh);
-    g.lineTo(pos.x - hw, pos.y);
+    // Trace full iso box: top diamond + left side + right side + bottom edge
+    g.moveTo(pos.x, pos.y - hh);           // top
+    g.lineTo(pos.x + hw, pos.y);            // right of top diamond
+    g.lineTo(pos.x + hw, pos.y + depth);    // down right side
+    g.lineTo(pos.x, pos.y + hh + depth);    // bottom center
+    g.lineTo(pos.x - hw, pos.y + depth);    // down left side
+    g.lineTo(pos.x - hw, pos.y);            // left of top diamond
     g.closePath();
     g.stroke({ color, width: lineWidth, alpha: 0.9 });
     this.networkOverlayLayer.addChild(g);
@@ -1050,6 +1058,12 @@ class Renderer {
       this.networkPanel = null;
     }
     this.activeNetworkType = null;
+    // Clear network highlight and re-render connections in normal colors
+    if (this._networkTileSet) {
+      this._networkTileSet = null;
+      this._networkConnType = null;
+      this._renderConnections();
+    }
   }
 
   _showNetworkPanel(connType, network) {
@@ -1430,6 +1444,11 @@ class Renderer {
         const col = parseInt(colStr);
         const row = parseInt(rowStr);
 
+        // Highlight network tiles white
+        const isNetTile = this._networkTileSet && this._networkConnType === connType && this._networkTileSet.has(key);
+        const tileColor = isNetTile ? 0xffffff : conn.color;
+        const tileWidth = isNetTile ? LINE_WIDTH + 1 : LINE_WIDTH;
+
         const center = tileCenterIso(col, row);
 
         // Check 4 neighbors for same connection type
@@ -1464,8 +1483,8 @@ class Renderer {
             g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 2);
             g.fill({ color: 0x000000, alpha: 0.9 });
           }
-          g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 1);
-          g.fill({ color: conn.color, alpha: 0.8 });
+          g.circle(center.x + ox, center.y + oy, tileWidth + 1);
+          g.fill({ color: tileColor, alpha: 0.8 });
         } else {
           const hasNS = hasN || hasS;
           const hasEW = hasE || hasW;
@@ -1503,7 +1522,7 @@ class Renderer {
             const py = perps[i].py * off;
             g.moveTo(cx, cy);
             g.lineTo(mids[i].x + px, mids[i].y + py);
-            g.stroke({ color: conn.color, width: LINE_WIDTH, alpha: 0.9 });
+            g.stroke({ color: tileColor, width: tileWidth, alpha: 0.9 });
           }
         }
       }
