@@ -52,7 +52,6 @@ class Renderer {
     this.networkOverlayLayer = null;
     this.networkPanel = null;
     this.activeNetworkType = null;
-    this._networkTintedSprites = []; // [{sprite, originalTint}]
 
     // Tech tree pan/zoom state
     this._treePanX = 0;
@@ -1013,40 +1012,35 @@ class Renderer {
     this.activeNetworkType = connType;
     const connColor = CONNECTION_TYPES[connType]?.color || 0xffffff;
 
-    // Highlight network pipe/cable tiles with semi-transparent overlay
-    for (const tile of targetNet.tiles) {
-      const pos = tileCenterIso(tile.col, tile.row);
-      const highlight = new PIXI.Graphics();
-      highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
-      highlight.fill({ color: connColor, alpha: 0.3 });
-      this.networkOverlayLayer.addChild(highlight);
-    }
-
-    // Tint connected beamline component sprites white
+    // Draw white isometric diamond outlines around connected beamline components
     for (const node of targetNet.beamlineNodes) {
-      const sprite = this.nodeSprites[node.id];
-      if (sprite) {
-        this._networkTintedSprites.push({ sprite, originalTint: sprite.tint });
-        sprite.tint = 0xffffff;
+      const tiles = node.tiles || [{ col: node.col, row: node.row }];
+      for (const tile of tiles) {
+        this._drawIsoDiamondOutline(tile.col, tile.row, 0xffffff, 2);
       }
     }
 
-    // Tint connected facility equipment sprites white
-    const networkEquipIds = new Set(targetNet.equipment.map(e => e.id));
-    for (const child of this.facilityLayer.children) {
-      // Match by position — facility sprites are placed at tileCenterIso(eq.col, eq.row)
-      for (const eq of targetNet.equipment) {
-        const pos = tileCenterIso(eq.col, eq.row);
-        if (child instanceof PIXI.Sprite && Math.abs(child.x - pos.x) < 1 && Math.abs(child.y - pos.y) < 1) {
-          this._networkTintedSprites.push({ sprite: child, originalTint: child.tint });
-          child.tint = 0xffffff;
-          break;
-        }
-      }
+    // Draw white isometric diamond outlines around connected equipment
+    for (const eq of targetNet.equipment) {
+      this._drawIsoDiamondOutline(eq.col, eq.row, 0xffffff, 2);
     }
 
     // Show stats panel
     this._showNetworkPanel(connType, targetNet);
+  }
+
+  _drawIsoDiamondOutline(col, row, color, lineWidth) {
+    const pos = tileCenterIso(col, row);
+    const hw = TILE_W / 2;
+    const hh = TILE_H / 2;
+    const g = new PIXI.Graphics();
+    g.moveTo(pos.x, pos.y - hh);
+    g.lineTo(pos.x + hw, pos.y);
+    g.lineTo(pos.x, pos.y + hh);
+    g.lineTo(pos.x - hw, pos.y);
+    g.closePath();
+    g.stroke({ color, width: lineWidth, alpha: 0.9 });
+    this.networkOverlayLayer.addChild(g);
   }
 
   clearNetworkOverlay() {
@@ -1055,11 +1049,6 @@ class Renderer {
       this.networkPanel.remove();
       this.networkPanel = null;
     }
-    // Restore original tints on sprites
-    for (const { sprite, originalTint } of this._networkTintedSprites) {
-      sprite.tint = originalTint;
-    }
-    this._networkTintedSprites = [];
     this.activeNetworkType = null;
   }
 
@@ -2419,12 +2408,13 @@ class Renderer {
         node.appendChild(prog);
       }
 
-      // Click handler for available nodes
-      if (available && !completed && !isActive) {
+      // Click handler — all non-completed nodes (locked ones show info only)
+      if (!completed) {
         node.addEventListener('click', (e) => {
           e.stopPropagation();
           this._showResearchPopover(id, node);
         });
+        node.style.cursor = 'pointer';
       }
 
       canvas.appendChild(node);
