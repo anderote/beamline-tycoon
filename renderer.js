@@ -40,6 +40,7 @@ class Renderer {
     this.infraLayer = null;
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
+    this.connectionLayer = null;
   }
 
   async init() {
@@ -80,6 +81,10 @@ class Renderer {
     this.facilityLayer.sortableChildren = true;
     this.world.addChild(this.facilityLayer);
 
+    this.connectionLayer = new PIXI.Container();
+    this.connectionLayer.zIndex = 0.7;
+    this.world.addChild(this.connectionLayer);
+
     this.beamLayer = new PIXI.Container();
     this.beamLayer.zIndex = 1;
     this.world.addChild(this.beamLayer);
@@ -117,12 +122,16 @@ class Renderer {
           this._renderInfrastructure();
           this._renderPlots();
           this._renderFacilityEquipment();
+          this._renderConnections();
           break;
         case 'infrastructureChanged':
           this._renderInfrastructure();
           break;
         case 'facilityChanged':
           this._renderFacilityEquipment();
+          break;
+        case 'connectionsChanged':
+          this._renderConnections();
           break;
         case 'beamToggled':
           this._renderBeam();
@@ -149,6 +158,7 @@ class Renderer {
     this._renderGoalsOverlay();
     this._renderInfrastructure();
     this._renderFacilityEquipment();
+    this._renderConnections();
     this._updateHUD();
   }
 
@@ -633,6 +643,87 @@ class Renderer {
       label.zIndex = equip.col + equip.row + 0.1;
       this.facilityLayer.addChild(label);
     }
+  }
+
+  // --- Connection rendering ---
+
+  _renderConnections() {
+    this.connectionLayer.removeChildren();
+    const connections = this.game.state.connections;
+    if (!connections || connections.size === 0) return;
+
+    // Fixed draw order for consistent parallel offset
+    const CONN_ORDER = ['vacuumPipe', 'cryoTransfer', 'rfWaveguide', 'coolingWater', 'powerCable', 'dataFiber'];
+    const LINE_WIDTH = 2;
+    const LINE_GAP = 3;
+
+    for (const [key, typeSet] of connections) {
+      const [colStr, rowStr] = key.split(',');
+      const col = parseInt(colStr);
+      const row = parseInt(rowStr);
+
+      const types = CONN_ORDER.filter(t => typeSet.has(t));
+      const totalWidth = types.length * LINE_GAP;
+      const startOffset = -totalWidth / 2 + LINE_GAP / 2;
+
+      types.forEach((connType, idx) => {
+        const conn = CONNECTION_TYPES[connType];
+        if (!conn) return;
+
+        const offset = startOffset + idx * LINE_GAP;
+
+        // Check 4 neighbors for same connection type
+        const hasN = this._hasConnection(col, row - 1, connType);
+        const hasS = this._hasConnection(col, row + 1, connType);
+        const hasE = this._hasConnection(col + 1, row, connType);
+        const hasW = this._hasConnection(col - 1, row, connType);
+
+        const neighbors = [hasN, hasE, hasS, hasW];
+        const count = neighbors.filter(Boolean).length;
+
+        const g = new PIXI.Graphics();
+        const center = tileCenterIso(col, row);
+
+        // Calculate edge midpoints in isometric space
+        const midN = tileCenterIso(col, row - 0.5);
+        const midS = tileCenterIso(col, row + 0.5);
+        const midE = tileCenterIso(col + 0.5, row);
+        const midW = tileCenterIso(col - 0.5, row);
+
+        const edgeMids = [midN, midE, midS, midW];
+
+        const applyOffset = (point, dirIdx) => {
+          if (dirIdx === 0 || dirIdx === 2) {
+            return { x: point.x + offset, y: point.y };
+          } else {
+            return { x: point.x, y: point.y + offset * 0.5 };
+          }
+        };
+
+        const centerOff = { x: center.x + offset * 0.5, y: center.y + offset * 0.25 };
+
+        if (count === 0) {
+          g.circle(center.x, center.y, LINE_WIDTH);
+          g.fill({ color: conn.color, alpha: 0.8 });
+        } else {
+          for (let i = 0; i < 4; i++) {
+            if (!neighbors[i]) continue;
+            const edgePt = applyOffset(edgeMids[i], i);
+            g.moveTo(centerOff.x, centerOff.y);
+            g.lineTo(edgePt.x, edgePt.y);
+            g.stroke({ color: conn.color, width: LINE_WIDTH, alpha: 0.9 });
+          }
+        }
+
+        this.connectionLayer.addChild(g);
+      });
+    }
+  }
+
+  _hasConnection(col, row, connType) {
+    const key = col + ',' + row;
+    const set = this.game.state.connections.get(key);
+    return set ? set.has(connType) : false;
   }
 
   renderDragPreview(startCol, startRow, endCol, endRow, infraType) {
