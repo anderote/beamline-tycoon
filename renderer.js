@@ -2010,12 +2010,14 @@ class Renderer {
       return;
     }
 
-    // Structure mode — Demolish tab: three demolish tools
+    // Demolish mode tools
     if (compCategory === 'demolish') {
       const demolishTools = [
-        { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
-        { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
+        { key: 'demolishComponent', name: 'Remove Components', desc: 'Click beamline components to remove', color: '#c44' },
+        { key: 'demolishConnection', name: 'Remove Pipes', desc: 'Click utility pipes/cables to remove', color: '#c84' },
         { key: 'demolishFurnishing', name: 'Remove Furniture', desc: 'Click to remove placed furnishings', color: '#a48' },
+        { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
+        { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
       ];
 
       for (const tool of demolishTools) {

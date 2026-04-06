@@ -1,5 +1,24 @@
 // === BEAMLINE COWBOY: GAME DATA ===
 
+// Smart energy unit formatter: takes value in GeV, returns {val, unit} scaled to keV/MeV/GeV/TeV
+function formatEnergy(gev, suffix = '') {
+  if (gev == null || !isFinite(gev)) return { val: '--', unit: '' };
+  const abs = Math.abs(gev);
+  const fmt = (v) => {
+    const a = Math.abs(v);
+    if (a >= 100) return v.toFixed(0);
+    if (a >= 10) return v.toFixed(1);
+    if (a >= 1) return v.toFixed(2);
+    if (a >= 0.1) return v.toFixed(3);
+    return v.toPrecision(3);
+  };
+  if (abs >= 1000)  return { val: fmt(gev / 1000), unit: `TeV${suffix}` };
+  if (abs >= 1)     return { val: fmt(gev), unit: `GeV${suffix}` };
+  if (abs >= 1e-4)  return { val: fmt(gev * 1e3), unit: `MeV${suffix}` };
+  if (abs >= 1e-7)  return { val: fmt(gev * 1e6), unit: `keV${suffix}` };
+  return { val: fmt(gev * 1e9), unit: `eV${suffix}` };
+}
+
 // Units for all component properties, stats, and params
 const UNITS = {
   // Component-level properties
@@ -15,7 +34,7 @@ const UNITS = {
   bendAngle:       'deg',
   focusStrength:   'T/m',
   beamQuality:     'mm·mrad',
-  energyGain:      'GeV',
+  energyGain:      'MeV',
   dataRate:        'pts/s',
   collisionRate:   'events/s',
   photonRate:      'ph/s (×10¹²)',
@@ -128,7 +147,12 @@ const MODES = {
       controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom' },
       machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop' },
       maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
-      demolish:    { name: 'Demolish',       color: '#a44' },
+    },
+  },
+  demolish: {
+    name: 'Demolish',
+    categories: {
+      demolish: { name: 'Demolish', color: '#a44' },
     },
   },
 };
@@ -781,7 +805,7 @@ const COMPONENTS = {
   srf650Cavity: {
     id: 'srf650Cavity',
     name: '650 MHz SRF Cavity',
-    desc: 'Large-bore 650 MHz superconducting cavity optimized for continuous-wave operation with high beam currents. Delivers 1.5 GeV at only 4 E/s — the best efficiency of any accelerating structure. Needs cryo infrastructure. Requires CW Linac Design research.',
+    desc: 'Large-bore 650 MHz superconducting cavity optimized for continuous-wave operation with high beam currents. Delivers 1.5 GeV at only 4 kW — the best efficiency of any accelerating structure. Needs cryo infrastructure. Requires CW Linac Design research.',
     category: 'rf',
     subsection: 'highEnergy',
     cost: { funding: 3000 },

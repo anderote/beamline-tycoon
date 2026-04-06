@@ -1259,6 +1259,20 @@ body {
   pointer-events: none;
 }
 
+.mode-btn-demolish {
+  color: #aa6666;
+  border-color: rgba(100, 50, 50, 0.4);
+}
+.mode-btn-demolish:hover {
+  color: #cc8888;
+  background: rgba(80, 40, 40, 0.8);
+}
+.mode-btn-demolish.active {
+  color: #ffaaaa;
+  background: rgba(100, 40, 40, 0.8);
+  border-color: rgba(200, 80, 80, 0.6);
+}
+
 /* === MACHINE TYPE DROPDOWN === */
 .mode-btn-wrap {
   position: relative;
