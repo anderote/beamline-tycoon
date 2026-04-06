@@ -30,25 +30,54 @@
           <span class="res-val" id="val-data">0</span>
         </div>
       </div>
+      <button id="btn-new-game" title="Start a new game">New Game</button>
+    </div>
+
+    <!-- Beam parameters panel (top-left, transparent) -->
+    <div id="beam-stats-panel">
+      <div class="bsp-row"><span class="bsp-label">Energy</span><span class="bsp-val" id="stat-beam-energy">0.0</span><span class="bsp-unit">GeV</span></div>
+      <div class="bsp-row"><span class="bsp-label">Quality</span><span class="bsp-val" id="stat-beam-quality">--</span></div>
+      <div class="bsp-row"><span class="bsp-label">Current</span><span class="bsp-val" id="stat-beam-current">--</span><span class="bsp-unit">mA</span></div>
+      <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
+      <div class="bsp-row"><span class="bsp-label">Length</span><span class="bsp-val" id="stat-length">0</span><span class="bsp-unit">m</span></div>
+      <div class="bsp-row"><span class="bsp-label">E Cost</span><span class="bsp-val" id="stat-energy-cost">0</span><span class="bsp-unit">E/s</span></div>
+    </div>
+
+    <!-- Beam diagnostics plots (lower-right, expandable) -->
+    <div id="beam-plots" class="collapsed">
+      <div id="beam-plots-header">
+        <span id="beam-plots-title">Beam Diagnostics</span>
+        <button id="beam-plots-toggle">+</button>
+      </div>
+      <div id="beam-plots-body">
+        <div class="plot-container">
+          <div class="plot-label">Beam Envelope (sigma)</div>
+          <canvas id="plot-envelope" width="490" height="160"></canvas>
+        </div>
+        <div class="plot-container">
+          <div class="plot-label">Energy Profile</div>
+          <canvas id="plot-energy" width="490" height="130"></canvas>
+        </div>
+        <div class="plot-container">
+          <div class="plot-label">Beam Current</div>
+          <canvas id="plot-current" width="490" height="130"></canvas>
+        </div>
+      </div>
     </div>
 
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
-      <div id="beam-stats">
-        <span class="stat-box">Energy: <strong id="stat-beam-energy">0.0</strong> GeV</span>
-        <span class="stat-box">Quality: <strong id="stat-beam-quality">--</strong></span>
-        <span class="stat-box">Current: <strong id="stat-beam-current">--</strong></span>
-        <span class="stat-box">Data: <strong id="stat-data-rate">0</strong>/s</span>
-        <span class="stat-box">Length: <strong id="stat-length">0</strong> m</span>
-        <span class="stat-box">Cost: <strong id="stat-energy-cost">0</strong> E/s</span>
-      </div>
       <div id="hud-controls">
+        <div id="mode-switcher">
+          <button class="mode-btn active" data-mode="beamline">Beamline</button>
+          <button class="mode-btn" data-mode="facility">Facility</button>
+          <button class="mode-btn disabled" data-mode="structure">Structure</button>
+        </div>
         <div id="category-tabs">
-          <button class="cat-tab active" data-category="sources">Sources</button>
-          <button class="cat-tab" data-category="magnets">Magnets</button>
-          <button class="cat-tab" data-category="rf-accel">RF/Accel</button>
-          <button class="cat-tab" data-category="diagnostics">Diagnostics</button>
-          <button class="cat-tab" data-category="beam-optics">Beam Optics</button>
+          <!-- dynamically generated based on active mode -->
+        </div>
+        <div id="connection-tools" class="hidden">
+          <!-- shown only in facility mode, populated dynamically -->
         </div>
         <div id="hud-buttons">
           <button id="btn-research" class="hud-btn">Research</button>

@@ -50,6 +50,24 @@ body {
   margin-left: 16px;
 }
 
+#btn-new-game {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 10px;
+  margin-left: auto;
+  background: rgba(120, 30, 30, 0.6);
+  color: #ff8888;
+  border: 1px solid rgba(180, 60, 60, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#btn-new-game:hover {
+  background: rgba(160, 40, 40, 0.7);
+  color: #ffaaaa;
+}
+
 .res-box {
   display: flex;
   align-items: center;
@@ -77,6 +95,115 @@ body {
 #res-reputation .res-icon, #res-reputation .res-val { color: #4488ff; }
 #res-data .res-icon, #res-data .res-val { color: #ee66aa; }
 
+/* === BEAM STATS PANEL (top-left) === */
+#beam-stats-panel {
+  position: absolute;
+  top: 42px;
+  left: 10px;
+  z-index: 90;
+  background: rgba(10, 10, 30, 0.45);
+  border-radius: 4px;
+  padding: 6px 10px;
+  pointer-events: none;
+  min-width: 140px;
+}
+
+.bsp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 9px;
+}
+
+.bsp-label {
+  color: rgba(140, 140, 180, 0.8);
+  min-width: 55px;
+}
+
+.bsp-val {
+  color: #aaddff;
+  font-weight: bold;
+  min-width: 45px;
+  text-align: right;
+}
+
+.bsp-unit {
+  color: rgba(120, 120, 160, 0.7);
+  font-size: 7px;
+}
+
+/* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
+#beam-plots {
+  position: absolute;
+  bottom: 160px;
+  right: 12px;
+  z-index: 110;
+  background: rgba(15, 15, 35, 0.92);
+  border: 1px solid rgba(80, 80, 140, 0.4);
+  border-radius: 5px;
+  width: 520px;
+  overflow: hidden;
+}
+
+#beam-plots.collapsed #beam-plots-body {
+  display: none;
+}
+
+#beam-plots-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+}
+
+#beam-plots-title {
+  font-size: 10px;
+  color: #8899cc;
+}
+
+#beam-plots-toggle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: #8899cc;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+#beam-plots-toggle:hover {
+  color: #aaccff;
+}
+
+#beam-plots-body {
+  padding: 10px 14px 14px;
+}
+
+.plot-container {
+  margin-bottom: 14px;
+}
+
+.plot-container:last-child {
+  margin-bottom: 0;
+}
+
+.plot-label {
+  font-size: 9px;
+  color: rgba(160, 180, 220, 0.8);
+  margin-bottom: 5px;
+}
+
+.plot-container canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(60, 60, 100, 0.3);
+  border-radius: 3px;
+  background: rgba(5, 5, 20, 0.6);
+}
+
 /* === BOTTOM HUD === */
 #bottom-hud {
   position: absolute;
@@ -86,25 +213,7 @@ body {
   z-index: 100;
   background: rgba(20, 20, 40, 0.92);
   border-top: 1px solid rgba(100, 100, 160, 0.3);
-  padding: 4px 8px 6px;
-}
-
-/* Beam stats row */
-#beam-stats {
-  display: flex;
-  gap: 6px;
-  padding: 2px 0 4px;
-  flex-wrap: wrap;
-}
-
-.stat-box {
-  font-size: 8px;
-  padding: 2px 6px;
-  color: #8888bb;
-}
-
-.stat-box strong {
-  color: #aaddff;
+  padding: 6px 12px 8px;
 }
 
 /* HUD controls row */
@@ -124,8 +233,8 @@ body {
 
 .cat-tab {
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  padding: 4px 8px;
+  font-size: 10px;
+  padding: 6px 10px;
   background: rgba(40, 40, 70, 0.8);
   color: #8888aa;
   border: 1px solid rgba(80, 80, 120, 0.4);
@@ -153,8 +262,8 @@ body {
 
 .hud-btn {
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  padding: 4px 10px;
+  font-size: 10px;
+  padding: 6px 12px;
   background: rgba(40, 40, 70, 0.8);
   color: #aaaacc;
   border: 1px solid rgba(80, 80, 120, 0.4);
@@ -186,26 +295,27 @@ body {
 /* Component palette */
 #component-palette {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   overflow-x: auto;
-  padding: 4px 0 2px;
+  padding: 6px 0 4px;
 }
 
 .palette-item {
-  width: 55px;
-  height: 45px;
+  width: 90px;
+  height: 68px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 4px;
   background: rgba(30, 30, 60, 0.8);
   border: 1px solid rgba(80, 80, 120, 0.4);
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 6px;
+  font-size: 9px;
   color: #aaaacc;
+  position: relative;
 }
 
 .palette-item:hover {
@@ -219,21 +329,80 @@ body {
 }
 
 .palette-item .palette-icon {
-  font-size: 16px;
+  font-size: 22px;
   line-height: 1;
 }
 
 .palette-item .palette-name {
-  font-size: 5px;
+  font-size: 9px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
-  max-width: 50px;
+  max-width: 82px;
 }
 
 .palette-item .palette-cost {
-  font-size: 5px;
+  font-size: 8px;
   color: #44dd66;
+}
+
+.palette-item.locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.palette-item.unaffordable {
+  opacity: 0.6;
+}
+
+/* Palette tooltip */
+.palette-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  background: rgba(15, 15, 35, 0.96);
+  border: 1px solid rgba(100, 100, 180, 0.5);
+  border-radius: 4px;
+  padding: 8px 10px;
+  z-index: 300;
+  pointer-events: none;
+}
+
+.palette-item:hover .palette-tooltip {
+  display: block;
+}
+
+.palette-tooltip .tt-name {
+  font-size: 10px;
+  color: #ccddff;
+  margin-bottom: 4px;
+}
+
+.palette-tooltip .tt-desc {
+  font-size: 8px;
+  color: #8888bb;
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+.palette-tooltip .tt-stats {
+  font-size: 8px;
+  color: #aaaacc;
+}
+
+.palette-tooltip .tt-stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+  border-bottom: 1px solid rgba(60, 60, 100, 0.2);
+}
+
+.palette-tooltip .tt-stat-val {
+  color: #aaddff;
+  font-weight: bold;
 }
 
 /* === OVERLAYS === */
@@ -326,6 +495,15 @@ body {
 .research-item.completed {
   opacity: 0.5;
   border-color: rgba(60, 160, 80, 0.4);
+}
+
+.research-item.available {
+  border-color: rgba(60, 120, 200, 0.5);
+  cursor: pointer;
+}
+
+.research-item.available:hover {
+  background: rgba(40, 50, 90, 0.8);
 }
 
 .research-item.locked {
@@ -488,4 +666,66 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(80, 80, 140, 0.7);
+}
+
+/* === MODE SWITCHER === */
+#mode-switcher {
+  display: flex;
+  gap: 3px;
+  margin-right: 8px;
+}
+
+.mode-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 6px 10px;
+  background: rgba(30, 30, 50, 0.8);
+  color: #6666aa;
+  border: 1px solid rgba(60, 60, 100, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  background: rgba(50, 50, 80, 0.8);
+  color: #8888cc;
+}
+
+.mode-btn.active {
+  background: rgba(50, 60, 100, 0.8);
+  color: #aaccff;
+  border-color: rgba(80, 120, 200, 0.6);
+}
+
+.mode-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* === CONNECTION TOOLS === */
+#connection-tools {
+  display: flex;
+  gap: 3px;
+  margin-left: 8px;
+}
+
+.conn-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 4px 8px;
+  background: rgba(30, 30, 50, 0.8);
+  border: 1px solid rgba(60, 60, 100, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.conn-btn:hover {
+  background: rgba(50, 50, 80, 0.8);
+}
+
+.conn-btn.active {
+  border-width: 2px;
 }
