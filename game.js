@@ -5,7 +5,7 @@ class Game {
     this.beamline = beamline;
 
     this.state = {
-      resources: { funding: 100000, energy: 100, reputation: 0, data: 0 },
+      resources: { funding: 100000, reputation: 0, data: 0 },
       beamline: [],    // populated by recalcBeamline() from beamline.getOrderedComponents()
       beamOn: false,
       beamEnergy: 0,
@@ -23,8 +23,6 @@ class Game {
       dataRate: 0,
       beamQuality: 1,
       // Expanded economy
-      electricalPower: 0,       // current draw in kW
-      maxElectricalPower: 500,  // capacity from substations (kVA)
       totalBeamHours: 0,        // for user facility objectives
       continuousBeamTicks: 0,   // for stable beam objectives
       beamOnTicks: 0,           // total ticks with beam on (for uptime calc)
@@ -64,6 +62,9 @@ class Game {
       physicsEnvelope: null,
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
+      infraBlockers: [],          // blockers from Networks.validate()
+      infraCanRun: true,          // true if no blockers
+      networkData: null,          // network discovery data
     };
 
     this.listeners = [];
@@ -183,6 +184,7 @@ class Game {
     if (infraType === 'hallway') {
       this.recomputeZoneConnectivity();
     }
+    this.validateInfrastructure();
     return true;
   }
 
@@ -230,6 +232,7 @@ class Game {
         this.recomputeZoneConnectivity();
         this.emit('zonesChanged');
       }
+      this.validateInfrastructure();
     }
     return placed > 0;
   }
@@ -255,6 +258,7 @@ class Game {
     }
 
     this.emit('infrastructureChanged');
+    this.validateInfrastructure();
     return true;
   }
 
@@ -267,8 +271,11 @@ class Game {
     // Must have the right flooring underneath
     const floor = this.state.infraOccupied[key];
     if (floor !== zone.requiredFloor) return false;
-    // Can't place two zones on same tile
-    if (this.state.zoneOccupied[key]) return false;
+    // Overwrite existing zone if different type; skip if same type
+    if (this.state.zoneOccupied[key]) {
+      if (this.state.zoneOccupied[key] === zoneType) return false;
+      this.removeZoneTile(col, row);
+    }
 
     this.state.zones.push({ type: zoneType, col, row });
     this.state.zoneOccupied[key] = zoneType;
@@ -292,7 +299,13 @@ class Game {
         const key = c + ',' + r;
         const floor = this.state.infraOccupied[key];
         if (floor !== zone.requiredFloor) continue;
-        if (this.state.zoneOccupied[key]) continue;
+        if (this.state.zoneOccupied[key] === zoneType) continue;
+        if (this.state.zoneOccupied[key]) {
+          // Overwrite existing zone
+          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          if (idx !== -1) this.state.zones.splice(idx, 1);
+          delete this.state.zoneOccupied[key];
+        }
 
         this.state.zones.push({ type: zoneType, col: c, row: r });
         this.state.zoneOccupied[key] = zoneType;
@@ -306,6 +319,52 @@ class Game {
       this.emit('zonesChanged');
     }
     return placed > 0;
+  }
+
+  removeZoneRect(startCol, startRow, endCol, endRow) {
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    let removed = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        if (this.state.zoneOccupied[key]) {
+          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          if (idx !== -1) {
+            this.state.zones.splice(idx, 1);
+            delete this.state.zoneOccupied[key];
+            removed++;
+          }
+        }
+      }
+    }
+    if (removed > 0) {
+      this.log(`Cleared ${removed} zone tiles`, 'info');
+      this.recomputeZoneConnectivity();
+      this.emit('zonesChanged');
+    }
+    return removed > 0;
+  }
+
+  removeInfraRect(startCol, startRow, endCol, endRow) {
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    let removed = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        if (this.removeInfraTile(c, r)) removed++;
+      }
+    }
+    if (removed > 0) {
+      this.log(`Removed ${removed} floor tiles`, 'info');
+    }
+    return removed > 0;
   }
 
   removeZoneTile(col, row) {
@@ -338,10 +397,10 @@ class Game {
 
     // Compute tier from tile count
     for (const info of Object.values(connectivity)) {
-      if (info.tileCount >= ZONE_TIER_THRESHOLDS[2]) info.tier = 3;
-      else if (info.tileCount >= ZONE_TIER_THRESHOLDS[1]) info.tier = 2;
-      else if (info.tileCount >= ZONE_TIER_THRESHOLDS[0]) info.tier = 1;
-      else info.tier = 0;
+      info.tier = 0;
+      for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
+        if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { info.tier = t + 1; break; }
+      }
     }
 
     // Find all Control Room tiles
@@ -448,11 +507,13 @@ class Game {
     }
 
     const key = col + ',' + row;
-    if (this.state.facilityGrid[key]) {
-      this.log('Tile occupied!', 'bad');
+    // Require concrete flooring
+    const floor = this.state.infraOccupied[key];
+    if (floor !== 'concrete') {
+      this.log(floor ? 'Need concrete flooring!' : 'Must build on concrete flooring!', 'bad');
       return false;
     }
-    if (this.state.infraOccupied[key]) {
+    if (this.state.facilityGrid[key]) {
       this.log('Tile occupied!', 'bad');
       return false;
     }
@@ -473,6 +534,7 @@ class Game {
     this.log(`Built ${comp.name}`, 'good');
     this.computeSystemStats();
     this.emit('facilityChanged');
+    this.validateInfrastructure();
     return true;
   }
 
@@ -495,6 +557,7 @@ class Game {
     this.log(`Removed ${comp ? comp.name : 'equipment'} (50% refund)`, 'info');
     this.computeSystemStats();
     this.emit('facilityChanged');
+    this.validateInfrastructure();
     return true;
   }
 
@@ -509,6 +572,7 @@ class Game {
     if (set.has(connType)) return false; // already exists
     set.add(connType);
     this.emit('connectionsChanged');
+    this.validateInfrastructure();
     return true; // added
   }
 
@@ -519,6 +583,7 @@ class Game {
     set.delete(connType);
     if (set.size === 0) this.state.connections.delete(key);
     this.emit('connectionsChanged');
+    this.validateInfrastructure();
     return true; // removed
   }
 
@@ -532,21 +597,18 @@ class Game {
     const conn = CONNECTION_TYPES[connType];
     if (!conn) return false;
 
-    // Check all 4 adjacent tiles for the connection type
-    const adjacentTiles = [
-      { col: node.col, row: node.row - 1 },
-      { col: node.col, row: node.row + 1 },
-      { col: node.col + 1, row: node.row },
-      { col: node.col - 1, row: node.row },
-    ];
+    // Check tiles adjacent to ALL occupied tiles of this component
+    const occupied = new Set((node.tiles || [{ col: node.col, row: node.row }])
+      .map(t => t.col + ',' + t.row));
+    const dirs = [{ dc: 0, dr: -1 }, { dc: 0, dr: 1 }, { dc: 1, dr: 0 }, { dc: -1, dr: 0 }];
 
-    for (const adj of adjacentTiles) {
-      const connSet = this.getConnectionsAt(adj.col, adj.row);
-      if (!connSet.has(connType)) continue;
-
-      // Trace the connection path to see if it reaches a valid facility source
-      if (this._traceConnectionToSource(adj.col, adj.row, connType)) {
-        return true;
+    for (const tile of (node.tiles || [{ col: node.col, row: node.row }])) {
+      for (const d of dirs) {
+        const ac = tile.col + d.dc, ar = tile.row + d.dr;
+        if (occupied.has(ac + ',' + ar)) continue; // skip own tiles
+        const connSet = this.getConnectionsAt(ac, ar);
+        if (!connSet.has(connType)) continue;
+        if (this._traceConnectionToSource(ac, ar, connType)) return true;
       }
     }
     return false;
@@ -594,9 +656,9 @@ class Game {
   _getEquipmentConnectionType(compType) {
     const comp = COMPONENTS[compType];
     if (!comp) return null;
+    if (comp.category === 'cooling' && comp.subsection === 'cryogenics') return 'cryoTransfer';
     switch (comp.category) {
       case 'vacuum': return 'vacuumPipe';
-      case 'cryo': return 'cryoTransfer';
       case 'rfPower': return 'rfWaveguide';
       case 'cooling': return 'coolingWater';
       case 'power': return 'powerCable';
@@ -660,6 +722,7 @@ class Game {
     // Run physics simulation
     this.runPhysics(physicsBeamline, researchEffects);
     this.checkInjectorLinks();
+    this.validateInfrastructure();
   }
 
   runPhysics(physicsBeamline, researchEffects) {
@@ -726,8 +789,19 @@ class Game {
       this.state.continuousBeamTicks = 0;
       this.log('Beam OFF', 'info');
     } else {
-      if (!this.beamline.nodes.some(n => COMPONENTS[n.type]?.isSource)) { this.log('Need a Source!', 'bad'); return; }
-      if (this.state.resources.energy < this.state.totalEnergyCost) { this.log('Not enough energy!', 'bad'); return; }
+      if (!this.beamline.nodes.some(n => COMPONENTS[n.type]?.isSource)) {
+        this.log('Need a Source!', 'bad'); return;
+      }
+      this.validateInfrastructure();
+      if (!this.state.infraCanRun) {
+        const count = this.state.infraBlockers.length;
+        this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
+        for (const b of this.state.infraBlockers.slice(0, 3)) {
+          this.log(`  - ${b.reason}`, 'bad');
+        }
+        if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
+        return;
+      }
       this.state.beamOn = true;
       this.log('Beam ON!', 'good');
     }
@@ -790,6 +864,7 @@ class Game {
   start() {
     if (this.tickInterval) return;
     this.computeSystemStats();
+    this.validateInfrastructure();
     this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
     this.log('Welcome to Beamline Tycoon!', 'info');
     this.emit('started');
@@ -809,17 +884,8 @@ class Game {
     }, 0);
     this.state.resources.funding -= staffCost;
 
-    // Energy recharge (power capacity from substations)
-    const substations = (this.state.facilityEquipment || []).filter(e => e.type === 'substation');
-    this.state.maxElectricalPower = 500 + substations.length * 1500; // base 500 + 1500 per substation
-    this.state.resources.energy = Math.min(
-      this.state.resources.energy + 3,
-      200 + this.state.resources.reputation * 20
-    );
-
     if (this.state.beamOn) {
-      if (this.state.resources.energy >= this.state.totalEnergyCost) {
-        this.state.resources.energy -= this.state.totalEnergyCost;
+      if (this.state.infraCanRun) {
         this.state.continuousBeamTicks++;
         this.state.beamOnTicks++;
 
@@ -867,11 +933,6 @@ class Game {
         if (this.state.tick % 10 === 0) {
           this._applyWear();
         }
-      } else {
-        this.state.beamOn = false;
-        this.state.continuousBeamTicks = 0;
-        this.log('Beam shut down: no energy!', 'bad');
-        this.emit('beamToggled');
       }
     } else {
       this.state.continuousBeamTicks = 0;
@@ -956,12 +1017,14 @@ class Game {
       counts[e.type] = (counts[e.type] || 0) + 1;
     }
 
-    // Helper: sum energyCost for equipment types in a category
-    const categoryDraw = (cat) => {
+    // Helper: sum energyCost for equipment types in a category (optionally filtered by subsection)
+    const categoryDraw = (cat, sub) => {
       let draw = 0;
       for (const e of equip) {
         const comp = COMPONENTS[e.type];
-        if (comp && comp.category === cat) draw += (comp.energyCost || 0);
+        if (!comp || comp.category !== cat) continue;
+        if (sub && comp.subsection !== sub) continue;
+        draw += (comp.energyCost || 0);
       }
       return draw;
     };
@@ -1073,7 +1136,7 @@ class Game {
       opTemp,
       wallPower: cryoWallPower,
       margin: Math.max(cryoMargin, 0),
-      energyDraw: categoryDraw('cryo'),
+      energyDraw: categoryDraw('cooling', 'cryogenics'),
       detail: {
         compressors,
         coldBox4K,
@@ -1167,7 +1230,54 @@ class Game {
       },
     };
 
-    this.state.systemStats = { vacuum, rfPower, cryo, cooling, power, dataControls };
+    // === OPS ===
+    const shieldingCount = counts.shielding || 0;
+    const targetHandlingCount = counts.targetHandling || 0;
+    const beamDumpCount = counts.beamDump || 0;
+    const radWasteCount = counts.radWasteStorage || 0;
+
+    const ops = {
+      shielding: shieldingCount,
+      targetHandling: targetHandlingCount,
+      beamDumps: beamDumpCount,
+      radWasteStorage: radWasteCount,
+      energyDraw: categoryDraw('ops'),
+      detail: {
+        shielding: shieldingCount,
+        targetHandling: targetHandlingCount,
+        beamDumps: beamDumpCount,
+        radWasteStorage: radWasteCount,
+      },
+    };
+
+    this.state.systemStats = { vacuum, rfPower, cryo, cooling, power, dataControls, ops };
+  }
+
+  validateInfrastructure() {
+    if (typeof Networks === 'undefined') return;
+
+    const validationState = {
+      connections: this.state.connections,
+      facilityEquipment: this.state.facilityEquipment,
+      facilityGrid: this.state.facilityGrid,
+      beamline: this.state.beamline,
+    };
+
+    const result = Networks.validate(validationState);
+    this.state.infraBlockers = result.blockers;
+    this.state.infraCanRun = result.canRun;
+    this.state.networkData = result.networks;
+
+    // If beam is running and we now have blockers, shut it off
+    if (this.state.beamOn && !result.canRun) {
+      this.state.beamOn = false;
+      this.state.continuousBeamTicks = 0;
+      const reason = result.blockers[0]?.reason || 'Infrastructure failure';
+      this.log(`Beam TRIPPED: ${reason}`, 'bad');
+      this.emit('beamToggled');
+    }
+
+    this.emit('infrastructureValidated');
   }
 
   // === WEAR & REPAIR ===
@@ -1425,14 +1535,7 @@ class Game {
       if (!def) continue;
       const perf = this.getMachinePerformance(machine);
 
-      const eCost = def.energyCost * perf.energyMult;
-      if (this.state.resources.energy < eCost) {
-        machine.active = false;
-        this.log(`${def.name} shut down: no energy!`, 'bad');
-        this.emit('machineChanged');
-        continue;
-      }
-      this.state.resources.energy -= eCost;
+      // Machine energy costs accounted for by infrastructure power networks
 
       this.state.resources.funding += def.baseFunding * perf.fundingMult;
       const dataGain = def.baseData * perf.dataMult;
@@ -1507,6 +1610,21 @@ class Game {
       for (const z of this.state.zones) {
         this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
       }
+      // Migrate renamed zones from older saves
+      const zoneMigrations = { cryoLab: 'coolingLab' };
+      for (const z of this.state.zones) {
+        if (zoneMigrations[z.type]) z.type = zoneMigrations[z.type];
+      }
+      for (const [key, val] of Object.entries(this.state.zoneOccupied)) {
+        if (zoneMigrations[val]) this.state.zoneOccupied[key] = zoneMigrations[val];
+      }
+      // Migrate renamed facility categories
+      if (this.state.facilityEquipment) {
+        for (const eq of this.state.facilityEquipment) {
+          const comp = COMPONENTS[eq.type];
+          if (comp) eq.category = comp.category;
+        }
+      }
       this.state.zoneConnectivity = {};
       this.recomputeZoneConnectivity();
       // Rebuild machineGrid
@@ -1555,6 +1673,6 @@ class Game {
       this.log('Game loaded.', 'info');
       this.emit('loaded');
       return true;
-    } catch { return false; }
+    } catch (e) { console.error('Save load failed:', e); return false; }
   }
 }
