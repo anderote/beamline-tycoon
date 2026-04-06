@@ -595,8 +595,8 @@ body {
 /* Node cards */
 .tt-node {
   position: absolute;
-  width: 150px;
-  padding: 6px 8px;
+  width: 200px;
+  padding: 10px 12px;
   border: 1px solid rgba(80, 80, 120, 0.4);
   border-radius: 4px;
   background: rgba(25, 25, 50, 0.9);
@@ -644,14 +644,15 @@ body {
 }
 
 .tt-node-name {
-  font-size: 7px;
+  font-size: 9px;
   color: inherit;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .tt-node-type {
-  font-size: 6px;
-  margin-bottom: 2px;
+  font-size: 7px;
+  margin-bottom: 3px;
+  line-height: 1.6;
 }
 
 .tt-node-type.unlock {
@@ -663,8 +664,8 @@ body {
 }
 
 .tt-node-progress {
-  margin-top: 4px;
-  height: 3px;
+  margin-top: 6px;
+  height: 4px;
   background: rgba(20, 20, 40, 0.8);
   border-radius: 2px;
   overflow: hidden;
@@ -678,7 +679,7 @@ body {
 }
 
 .tt-node .tt-check {
-  font-size: 7px;
+  font-size: 9px;
   color: #66bb66;
   float: right;
 }
@@ -687,10 +688,10 @@ body {
 .tt-column-header {
   position: absolute;
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-size: 9px;
   text-align: center;
-  width: 150px;
-  padding-bottom: 8px;
+  width: 200px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(80, 80, 120, 0.2);
 }
 

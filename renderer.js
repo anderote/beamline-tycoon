@@ -1102,26 +1102,49 @@ class Renderer {
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
-    const alpha = active ? 0.6 : 0.3;
 
-    // Use sprite if available
-    const texture = this.sprites.getTileTexture(zone.id);
-    if (texture) {
-      const sprite = new PIXI.Sprite(texture);
-      sprite.anchor.set(0.5, 0.5);
-      sprite.x = pos.x;
-      sprite.y = pos.y;
-      const scale = TILE_W / texture.width;
-      sprite.scale.set(scale, scale);
-      sprite.alpha = alpha;
-      this.zoneLayer.addChild(sprite);
-    } else {
-      // Fallback: colored polygon overlay
-      const g = new PIXI.Graphics();
-      g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-      g.fill({ color: zone.color, alpha: active ? 0.4 : 0.15 });
-      this.zoneLayer.addChild(g);
+    // Draw the zone's required floor type as the base
+    const floorId = zone.requiredFloor;
+    const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
+    if (floorTexture) {
+      const fs = new PIXI.Sprite(floorTexture);
+      fs.anchor.set(0.5, 0.5);
+      fs.x = pos.x;
+      fs.y = pos.y;
+      const fScale = TILE_W / floorTexture.width;
+      fs.scale.set(fScale, fScale);
+      this.zoneLayer.addChild(fs);
+    } else if (floorId) {
+      const floorInfo = INFRASTRUCTURE[floorId];
+      if (floorInfo) {
+        const g = new PIXI.Graphics();
+        g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+        g.fill({ color: floorInfo.topColor });
+        this.zoneLayer.addChild(g);
+      }
     }
+
+    // Sparse furniture: deterministic hash to place zone sprite on ~1 in 4 tiles
+    const hash = ((col * 7 + row * 13 + col * row * 3) & 0xffff) % 3;
+    if (hash === 0) {
+      const texture = this.sprites.getTileTexture(zone.id);
+      if (texture) {
+        const sprite = new PIXI.Sprite(texture);
+        sprite.anchor.set(0.5, 0.5);
+        sprite.x = pos.x;
+        sprite.y = pos.y;
+        const scale = TILE_W / texture.width;
+        sprite.scale.set(scale, scale);
+        sprite.alpha = active ? 0.9 : 0.7;
+        this.zoneLayer.addChild(sprite);
+      }
+    }
+
+    // Tint overlay to show zone boundary
+    const g = new PIXI.Graphics();
+    g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+    g.fill({ color: zone.color, alpha: active ? 0.15 : 0.07 });
+    this.zoneLayer.addChild(g);
   }
 
   _drawZoneLabels(zones, connectivity) {
@@ -1965,12 +1988,12 @@ class Renderer {
   // --- Tech Tree ---
 
   _buildTreeLayout() {
-    const NODE_W = 150;
-    const NODE_H = 55;
+    const NODE_W = 200;
+    const NODE_H = 70;
     const H_GAP = 50;
     const V_GAP = 50;
-    const COL_GAP = 60;
-    const HEADER_H = 30;
+    const COL_GAP = 70;
+    const HEADER_H = 35;
 
     const categories = Object.keys(RESEARCH_CATEGORIES);
     const layout = {};
@@ -2074,8 +2097,8 @@ class Renderer {
     if (!this._treeLayout) this._buildTreeLayout();
     const layout = this._treeLayout;
 
-    const NODE_W = 150;
-    const NODE_H = 55;
+    const NODE_W = 200;
+    const NODE_H = 70;
 
     canvas.style.width = this._treeCanvasWidth + 'px';
     canvas.style.height = this._treeCanvasHeight + 'px';
@@ -2311,7 +2334,7 @@ class Renderer {
     if (!wrapper) return;
 
     const wrapperW = wrapper.clientWidth;
-    const targetX = pos.x + 75 - wrapperW / 2;
+    const targetX = pos.x + 100 - wrapperW / 2;
 
     this._treePanX = -targetX * this._treeZoom;
     this._treePanY = 0;
