@@ -19,7 +19,7 @@ class BeamState:
     Units: m, rad, m, rad, s, dimensionless
     """
 
-    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS):
+    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS, bunch_frequency=1.3e9):
         self.sigma = np.array(sigma, dtype=np.float64)
         self.energy = energy        # GeV
         self.current = current      # mA
@@ -29,9 +29,22 @@ class BeamState:
         self.initial_current = current
         self.initial_eps_x = self.emittance_x()
         self.initial_eps_y = self.emittance_y()
+        self.bunch_frequency = bunch_frequency
+        self._update_bunch_properties()
 
     def update_relativistic(self):
         self.gamma, self.beta = relativistic_params(self.energy, self.mass)
+
+    def _update_bunch_properties(self):
+        """Derive peak current and n_particles from average current and bunch length."""
+        from beam_physics.constants import ELECTRON_CHARGE
+        charge_per_bunch = (self.current * 1e-3) / self.bunch_frequency if self.bunch_frequency > 0 else 0
+        self.n_particles = charge_per_bunch / ELECTRON_CHARGE if ELECTRON_CHARGE > 0 else 0
+        sigma_t = self.bunch_length()
+        if sigma_t > 0:
+            self.peak_current = charge_per_bunch / (np.sqrt(2 * np.pi) * sigma_t)
+        else:
+            self.peak_current = 0.0
 
     # --- Twiss parameters per plane ---
 
@@ -112,6 +125,10 @@ class BeamState:
             "cov_xy": float(self.sigma[0, 2]),
             # Cumulative path length
             "s": cumulative_s,
+            # Bunch properties
+            "peak_current": self.peak_current,
+            "n_particles": self.n_particles,
+            "bunch_frequency": self.bunch_frequency,
         }
 
 
@@ -158,4 +175,5 @@ def create_initial_beam(params):
     sigma[4, 4] = params["sigma_dt"] ** 2
     sigma[5, 5] = params["sigma_dE"] ** 2
 
-    return BeamState(sigma, energy, current, mass)
+    bunch_freq = params.get("bunch_frequency", 1.3e9)
+    return BeamState(sigma, energy, current, mass, bunch_frequency=bunch_freq)
