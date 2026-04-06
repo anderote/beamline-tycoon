@@ -267,15 +267,7 @@ class Renderer {
 
   // Determine which connection types a beamline component requires
   _getRequiredConnections(comp) {
-    const required = [];
-    for (const [connType, connDef] of Object.entries(CONNECTION_TYPES)) {
-      const vt = connDef.validTargets;
-      if (vt === 'any') continue;
-      const catMatch = vt.categoryMatch && vt.categoryMatch.includes(comp.category);
-      const idMatch = vt.idMatch && vt.idMatch.includes(comp.id);
-      if (catMatch || idMatch) required.push(connType);
-    }
-    return required;
+    return comp.requiredConnections || [];
   }
 
   _renderComponents() {
@@ -1204,10 +1196,10 @@ class Renderer {
     const texture = this.sprites.getTileTexture(infra.id);
     if (texture) {
       const sprite = new PIXI.Sprite(texture);
-      sprite.anchor.set(0.5, 0.5);
+      // Top-face center of isometric tile sprite is at ~50% x, ~35% y
+      sprite.anchor.set(0.5, 0.35);
       sprite.x = pos.x;
       sprite.y = pos.y;
-      // Scale proportionally so the sprite's width matches the tile diamond width
       const scale = TILE_W / texture.width;
       sprite.scale.set(scale, scale);
       this.infraLayer.addChild(sprite);
@@ -1248,7 +1240,7 @@ class Renderer {
     const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
     if (floorTexture) {
       const fs = new PIXI.Sprite(floorTexture);
-      fs.anchor.set(0.5, 0.5);
+      fs.anchor.set(0.5, 0.35);
       fs.x = pos.x;
       fs.y = pos.y;
       const fScale = TILE_W / floorTexture.width;
@@ -1265,12 +1257,12 @@ class Renderer {
     }
 
     // Sparse furniture: deterministic hash to place zone sprite on ~1 in 4 tiles
-    const hash = ((col * 7 + row * 13 + col * row * 3) & 0xffff) % 3;
+    const hash = ((col * 7 + row * 13 + col * row * 3) & 0xffff) % 4;
     if (hash === 0) {
       const texture = this.sprites.getTileTexture(zone.id);
       if (texture) {
         const sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5, 0.5);
+        sprite.anchor.set(0.5, 0.35);
         sprite.x = pos.x;
         sprite.y = pos.y;
         const scale = TILE_W / texture.width;
@@ -1654,7 +1646,12 @@ class Renderer {
       if (el) el.textContent = typeof val === 'string' ? val : this._fmt(val);
     };
     setEl('val-funding', Math.floor(res.funding));
-    setEl('val-energy', res.energy !== undefined ? Math.floor(res.energy) : '--');
+    const ss = this.game.state.systemStats;
+    if (ss && ss.power) {
+      setEl('val-energy', `${Math.round(ss.power.totalDraw)}/${Math.round(ss.power.capacity)}`);
+    } else {
+      setEl('val-energy', '--');
+    }
     setEl('val-reputation', Math.floor(res.reputation));
     setEl('val-data', Math.floor(res.data));
 
@@ -2142,8 +2139,8 @@ class Renderer {
   // --- Tech Tree ---
 
   _buildTreeLayout() {
-    const NODE_W = 200;
-    const NODE_H = 70;
+    const NODE_W = 260;
+    const NODE_H = 85;
     const H_GAP = 50;
     const V_GAP = 50;
     const COL_GAP = 70;
@@ -2251,8 +2248,8 @@ class Renderer {
     if (!this._treeLayout) this._buildTreeLayout();
     const layout = this._treeLayout;
 
-    const NODE_W = 200;
-    const NODE_H = 70;
+    const NODE_W = 260;
+    const NODE_H = 85;
 
     canvas.style.width = this._treeCanvasWidth + 'px';
     canvas.style.height = this._treeCanvasHeight + 'px';
@@ -2488,7 +2485,7 @@ class Renderer {
     if (!wrapper) return;
 
     const wrapperW = wrapper.clientWidth;
-    const targetX = pos.x + 100 - wrapperW / 2;
+    const targetX = pos.x + 130 - wrapperW / 2;
 
     this._treePanX = -targetX * this._treeZoom;
     this._treePanY = 0;
