@@ -20,6 +20,7 @@ class InputHandler {
     this.dragEnd = null;            // { col, row }
     this.activeMode = 'beamline';
     this.selectedFacilityTool = null;
+    this.selectedFurnishingTool = null; // zone furnishing type or null
     this.selectedConnTool = null;
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
@@ -86,6 +87,8 @@ class InputHandler {
             }
           } else if (this.selectedFacilityTool) {
             this.game.placeFacilityEquipment(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFacilityTool);
+          } else if (this.selectedFurnishingTool) {
+            this.game.placeZoneFurnishing(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFurnishingTool);
           } else if (this.selectedInfraTool) {
             const infra = INFRASTRUCTURE[this.selectedInfraTool];
             if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
@@ -118,6 +121,7 @@ class InputHandler {
           this.deselectTool();
           this.deselectInfraTool();
           this.deselectFacilityTool();
+          this.deselectFurnishingTool();
           this.deselectConnTool();
           this.deselectZoneTool();
           this.deselectDemolishTool();
@@ -158,6 +162,7 @@ class InputHandler {
             this.deselectTool();
             this.deselectInfraTool();
             this.deselectFacilityTool();
+            this.deselectFurnishingTool();
             this.deselectConnTool();
             this.deselectZoneTool();
             this.deselectDemolishTool();
@@ -185,6 +190,7 @@ class InputHandler {
             this.bulldozerMode = !this.bulldozerMode;
             this.deselectTool();
             this.deselectInfraTool();
+            this.deselectFurnishingTool();
             this.renderer.setBulldozerMode(this.bulldozerMode);
           }
           break;
@@ -393,14 +399,51 @@ class InputHandler {
       // Infrastructure, zone, or demolish drag end
       if (this.isDragging && this.dragStart && this.dragEnd) {
         if (this.demolishMode) {
-          this.game.removeZoneRect(
-            this.dragStart.col, this.dragStart.row,
-            this.dragEnd.col, this.dragEnd.row
-          );
-          this.game.removeInfraRect(
-            this.dragStart.col, this.dragStart.row,
-            this.dragEnd.col, this.dragEnd.row
-          );
+          const minCol = Math.min(this.dragStart.col, this.dragEnd.col);
+          const maxCol = Math.max(this.dragStart.col, this.dragEnd.col);
+          const minRow = Math.min(this.dragStart.row, this.dragEnd.row);
+          const maxRow = Math.max(this.dragStart.row, this.dragEnd.row);
+
+          if (this.demolishType === 'demolishComponent') {
+            // Remove beamline components in rect
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                const node = this.game.beamline.getNodeAt(c, r);
+                if (node) this.game.removeComponent(node.id);
+              }
+            }
+          } else if (this.demolishType === 'demolishConnection') {
+            // Remove utility connections in rect
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                const conns = this.game.getConnectionsAt(c, r);
+                for (const ct of [...conns]) {
+                  this.game.removeConnection(c, r, ct);
+                }
+              }
+            }
+          } else if (this.demolishType === 'demolishFurnishing') {
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                const fId = this.game.state.zoneFurnishingGrid[c + ',' + r];
+                if (fId) this.game.removeZoneFurnishing(fId);
+              }
+            }
+          } else if (this.demolishType === 'demolishZone') {
+            this.game.removeZoneRect(
+              this.dragStart.col, this.dragStart.row,
+              this.dragEnd.col, this.dragEnd.row
+            );
+          } else if (this.demolishType === 'demolishFloor') {
+            this.game.removeZoneRect(
+              this.dragStart.col, this.dragStart.row,
+              this.dragEnd.col, this.dragEnd.row
+            );
+            this.game.removeInfraRect(
+              this.dragStart.col, this.dragStart.row,
+              this.dragEnd.col, this.dragEnd.row
+            );
+          }
         } else if (this.selectedZoneTool) {
           this.game.placeZoneRect(
             this.dragStart.col, this.dragStart.row,
@@ -433,6 +476,8 @@ class InputHandler {
           this.deselectInfraTool();
         } else if (this.selectedFacilityTool) {
           this.deselectFacilityTool();
+        } else if (this.selectedFurnishingTool) {
+          this.deselectFurnishingTool();
         } else if (this.selectedConnTool) {
           this.deselectConnTool();
         } else if (this.selectedZoneTool) {
@@ -493,6 +538,11 @@ class InputHandler {
         if (this.game.state.infraOccupied[key]) {
           this.game.removeInfraTile(col, row);
         }
+        // Remove zone furnishings
+        const furnId = this.game.state.zoneFurnishingGrid[key];
+        if (furnId) {
+          this.game.removeZoneFurnishing(furnId);
+        }
         // Remove facility equipment
         const equipId = this.game.state.facilityGrid[key];
         if (equipId) {
@@ -533,12 +583,36 @@ class InputHandler {
 
     if (this.demolishMode) {
       const key = col + ',' + row;
-      if (this.game.state.zoneOccupied[key]) {
-        this.game.removeZoneTile(col, row);
+      if (this.demolishType === 'demolishComponent') {
+        const node = this.game.beamline.getNodeAt(col, row);
+        if (node) this.game.removeComponent(node.id);
+      } else if (this.demolishType === 'demolishConnection') {
+        // Remove all connection types at this tile
+        const conns = this.game.getConnectionsAt(col, row);
+        for (const ct of [...conns]) {
+          this.game.removeConnection(col, row, ct);
+        }
+      } else if (this.demolishType === 'demolishFurnishing') {
+        const fId = this.game.state.zoneFurnishingGrid[key];
+        if (fId) this.game.removeZoneFurnishing(fId);
+      } else if (this.demolishType === 'demolishZone') {
+        if (this.game.state.zoneOccupied[key]) {
+          this.game.removeZoneTile(col, row);
+        }
+      } else if (this.demolishType === 'demolishFloor') {
+        if (this.game.state.zoneOccupied[key]) {
+          this.game.removeZoneTile(col, row);
+        }
+        if (this.game.state.infraOccupied[key]) {
+          this.game.removeInfraTile(col, row);
+        }
       }
-      if (this.game.state.infraOccupied[key]) {
-        this.game.removeInfraTile(col, row);
-      }
+      return;
+    }
+
+    // Zone furnishing placement
+    if (this.selectedFurnishingTool) {
+      this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool);
       return;
     }
 
@@ -605,6 +679,7 @@ class InputHandler {
   selectTool(compType) {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
+    this.selectedFurnishingTool = null;
     this.bulldozerMode = false;
     this.selectedTool = compType;
     this.selectedNodeId = null;
@@ -616,6 +691,7 @@ class InputHandler {
   _selectToolPreview(compType) {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
+    this.selectedFurnishingTool = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -625,6 +701,7 @@ class InputHandler {
   _selectFacilityToolPreview(compType) {
     this.deselectTool();
     this.deselectInfraTool();
+    this.deselectFurnishingTool();
     this.deselectConnTool();
     this.selectedFacilityTool = compType;
     this.selectedNodeId = null;
@@ -634,6 +711,7 @@ class InputHandler {
   _selectInfraToolPreview(infraType) {
     this.selectedTool = null;
     this.selectedFacilityTool = null;
+    this.selectedFurnishingTool = null;
     this.renderer.setBuildMode(false);
     this.selectedInfraTool = infraType;
     this.selectedNodeId = null;
@@ -647,7 +725,10 @@ class InputHandler {
 
   selectInfraTool(infraType) {
     this.selectedTool = null;
+    this.selectedFurnishingTool = null;
+    this.demolishMode = false;
     this.renderer.setBuildMode(false);
+    this.renderer.clearDragPreview();
     this.selectedInfraTool = infraType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -666,6 +747,7 @@ class InputHandler {
   selectFacilityTool(compType) {
     this.deselectTool();
     this.deselectInfraTool();
+    this.deselectFurnishingTool();
     this.deselectConnTool();
     this.selectedFacilityTool = compType;
     this.selectedNodeId = null;
@@ -680,6 +762,7 @@ class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
+    this.deselectFurnishingTool();
     this.bulldozerMode = false;
     this.renderer.setBulldozerMode(false);
     this.selectedConnTool = connType;
@@ -697,6 +780,7 @@ class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
+    this.deselectFurnishingTool();
     this.deselectConnTool();
     this.demolishMode = false;
     this.selectedZoneTool = zoneType;
@@ -706,17 +790,34 @@ class InputHandler {
     this.selectedZoneTool = null;
   }
 
-  selectDemolishTool() {
+  selectFurnishingTool(furnType) {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectConnTool();
     this.deselectZoneTool();
+    this.demolishMode = false;
+    this.selectedFurnishingTool = furnType;
+  }
+
+  deselectFurnishingTool() {
+    this.selectedFurnishingTool = null;
+  }
+
+  selectDemolishTool(demolishType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
     this.demolishMode = true;
+    this.demolishType = demolishType || 'demolishFloor';
   }
 
   deselectDemolishTool() {
     this.demolishMode = false;
+    this.demolishType = null;
   }
 
   setActiveMode(mode) {
@@ -724,6 +825,7 @@ class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
+    this.deselectFurnishingTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.deselectDemolishTool();
@@ -798,6 +900,7 @@ class InputHandler {
       this.deselectTool();
       this.deselectInfraTool();
       this.deselectFacilityTool();
+      this.deselectFurnishingTool();
       this.deselectConnTool();
       this.deselectZoneTool();
       this.deselectDemolishTool();
@@ -841,10 +944,16 @@ class InputHandler {
     const compKeys = this._getPaletteCompKeys();
     if (this.paletteIndex < compKeys.length) {
       const compKey = compKeys[this.paletteIndex];
-      if (this.selectedCategory === 'zones') {
-        this.selectZoneTool(compKey);
+      const catDef = MODES.structure?.categories?.[this.selectedCategory];
+      if (catDef?.isZoneTab) {
+        // First item is zone paint tool, rest are furnishings
+        if (this.paletteIndex === 0) {
+          this.selectZoneTool(compKey);
+        } else {
+          this.selectFurnishingTool(compKey);
+        }
       } else if (this.selectedCategory === 'demolish') {
-        this.selectDemolishTool();
+        this.selectDemolishTool(compKey);
       } else if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
         this._selectInfraToolPreview(compKey);
       } else if (isFacilityCategory(this.selectedCategory)) {
@@ -868,8 +977,8 @@ class InputHandler {
 
     const key = compKeys[this.paletteIndex];
 
-    // Could be infrastructure or component
-    if (this.selectedCategory === 'infrastructure') {
+    // Could be infrastructure, flooring, or component
+    if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
       const infra = INFRASTRUCTURE[key];
       if (!infra) { this._hidePreview(); return; }
       this._renderPreview(infra.name, infra.desc || '', [
@@ -879,19 +988,53 @@ class InputHandler {
       return;
     }
 
+    // Zone tab items
+    const zoneCatDef = MODES.structure?.categories?.[this.selectedCategory];
+    if (zoneCatDef?.isZoneTab) {
+      if (this.paletteIndex === 0) {
+        const zone = ZONES[key];
+        if (!zone) { this._hidePreview(); return; }
+        this._renderPreview(zone.name, '', [
+          ['Requires', INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor],
+          ['Placement', 'Drag area'],
+        ]);
+      } else {
+        const furn = ZONE_FURNISHINGS[key];
+        if (!furn) { this._hidePreview(); return; }
+        this._renderPreview(furn.name, '', [
+          ['Cost', `$${furn.cost}`],
+          ['Zone', ZONES[furn.zoneType]?.name || furn.zoneType],
+        ]);
+      }
+      return;
+    }
+
+    // Demolish tools
+    if (this.selectedCategory === 'demolish') {
+      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture' };
+      this._renderPreview(names[key] || 'Demolish', '', []);
+      return;
+    }
+
     const comp = COMPONENTS[key];
     if (!comp) { this._hidePreview(); return; }
 
     const costs = Object.entries(comp.cost).map(([r, a]) => `${a} ${r}`).join(', ');
     const statEntries = [
       ['Cost', costs],
-      ['Energy Cost', `${comp.energyCost} E/s`],
+      ['Energy Cost', `${comp.energyCost} kW`],
       ['Length', `${comp.length} m`],
     ];
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {
         const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-        statEntries.push([label, v]);
+        if (k === 'energyGain') {
+          const e = formatEnergy(v);
+          statEntries.push([label, `${e.val} ${e.unit}`]);
+        } else {
+          const unit = typeof UNITS !== 'undefined' && UNITS[k] ? ` ${UNITS[k]}` : '';
+          statEntries.push([label, `${v}${unit}`]);
+        }
       }
     }
     if (comp.requires) {
@@ -931,14 +1074,18 @@ class InputHandler {
     if (category === 'flooring') {
       return ['labFloor', 'officeFloor', 'concrete', 'hallway'];
     }
-    if (category === 'zones') {
-      return Object.keys(ZONES);
-    }
     if (category === 'demolish') {
-      return ['demolish'];
+      return ['demolishFloor', 'demolishZone', 'demolishFurnishing'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);
+    }
+    // Zone tabs: first item is zone type, then furnishings
+    const catDef = MODES.structure?.categories?.[category];
+    if (catDef?.isZoneTab) {
+      const zoneType = catDef.zoneType;
+      const furnKeys = Object.keys(ZONE_FURNISHINGS).filter(k => ZONE_FURNISHINGS[k].zoneType === zoneType);
+      return [zoneType, ...furnKeys];
     }
     const keys = [];
     for (const [key, comp] of Object.entries(COMPONENTS)) {
