@@ -18,12 +18,11 @@ const ProbePlots = (() => {
     const fns = {
       'phase-space': _drawPhaseSpace,
       'beam-envelope': _drawBeamEnvelope,
-      'twiss': _drawTwiss,
-      'energy-dist': _drawEnergyDist,
-      'longitudinal': _drawLongitudinal,
-      'beam-profile': _drawBeamProfile,
       'current-loss': _drawCurrentLoss,
       'emittance': _drawEmittance,
+      'energy-dispersion': _drawEnergyDispersion,
+      'peak-current': _drawPeakCurrent,
+      'longitudinal': _drawLongitudinal,
     };
 
     const fn = fns[type];
@@ -84,6 +83,23 @@ const ProbePlots = (() => {
       ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
       ctx.fillText(yLbl, 0, 0); ctx.restore();
     }
+  }
+
+  // Dual-axis: second Y axis on the right
+  function _axesDual(ctx, a, xLbl, yLblL, yMinL, yMaxL, yLblR, yMinR, yMaxR) {
+    _axes(ctx, a, xLbl, yLblL, yMinL, yMaxL);
+    // Right axis ticks
+    ctx.strokeStyle = 'rgba(60, 60, 100, 0.15)'; ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 3; i++) {
+      const y = a.y + a.h - (i / 3) * a.h;
+      ctx.fillStyle = 'rgba(160, 120, 100, 0.7)';
+      ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText((yMinR + (i / 3) * (yMaxR - yMinR)).toPrecision(3), a.x + a.w + 3, y + 3);
+    }
+    // Right axis label
+    ctx.fillStyle = 'rgba(180, 140, 120, 0.7)'; ctx.font = '8px monospace';
+    ctx.save(); ctx.translate(a.x + a.w + PAD.right - 2, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center'; ctx.fillText(yLblR, 0, 0); ctx.restore();
   }
 
   function _line(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed) {
@@ -148,18 +164,6 @@ const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03c3_x' }, { color: '#ff6644', label: '\u03c3_y' }]);
   }
 
-  function _drawTwiss(ctx, canvas, env, pins) {
-    const a = _area(canvas);
-    const [xMin, xMax] = _xRange(env);
-    const vals = env.flatMap(d => [d.beta_x, d.beta_y].filter(v => v != null && isFinite(v)));
-    const [yMin, yMax] = _range(vals);
-    _axes(ctx, a, 's (m)', '\u03b2 (m)', yMin, yMax);
-    _line(ctx, a, env, 'beta_x', '#44aaff', xMin, xMax, yMin, yMax, false);
-    _line(ctx, a, env, 'beta_y', '#ff6644', xMin, xMax, yMin, yMax, true);
-    _pinMarkers(ctx, a, env, pins, xMin, xMax);
-    _legend(ctx, a, [{ color: '#44aaff', label: '\u03b2_x' }, { color: '#ff6644', label: '\u03b2_y' }]);
-  }
-
   function _drawCurrentLoss(ctx, canvas, env, pins) {
     const a = _area(canvas);
     const [xMin, xMax] = _xRange(env);
@@ -185,13 +189,94 @@ const ProbePlots = (() => {
   function _drawEmittance(ctx, canvas, env, pins) {
     const a = _area(canvas);
     const [xMin, xMax] = _xRange(env);
-    const vals = env.flatMap(d => [d.emit_x, d.emit_y].filter(v => v != null && isFinite(v)));
+    // Use normalized emittance — the conserved quantity
+    const vals = env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)));
     const [yMin, yMax] = _range(vals);
-    _axes(ctx, a, 's (m)', '\u03b5 (m\u00b7rad)', yMin, yMax);
-    _line(ctx, a, env, 'emit_x', '#44aaff', xMin, xMax, yMin, yMax, false);
-    _line(ctx, a, env, 'emit_y', '#ff6644', xMin, xMax, yMin, yMax, true);
+    _axes(ctx, a, 's (m)', '\u03b5_n (m\u00b7rad)', yMin, yMax);
+    _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false);
+    _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true);
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
-    _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_x' }, { color: '#ff6644', label: '\u03b5_y' }]);
+    _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
+  }
+
+  function _drawEnergyDispersion(ctx, canvas, env, pins) {
+    const a = _area(canvas);
+    // Shrink plot area slightly for right axis labels
+    const aR = { ...a, w: a.w - 30 };
+    const [xMin, xMax] = _xRange(env);
+
+    // Left axis: energy in GeV
+    const eVals = env.map(d => d.energy).filter(v => v != null && isFinite(v));
+    const [eMin, eMax] = _range(eVals);
+
+    // Right axis: dispersion in metres
+    const dVals = env.map(d => d.eta_x).filter(v => v != null && isFinite(v));
+    const [dMin, dMax] = _range(dVals.length > 0 ? dVals : [0]);
+
+    _axesDual(ctx, aR, 's (m)', 'E (GeV)', eMin, eMax, '\u03b7_x (m)', dMin, dMax);
+    _line(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false);
+    _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);
+    _pinMarkers(ctx, aR, env, pins, xMin, xMax);
+    _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
+  }
+
+  function _drawPeakCurrent(ctx, canvas, env, pins) {
+    const a = _area(canvas);
+    const [xMin, xMax] = _xRange(env);
+    const vals = env.map(d => d.peak_current).filter(v => v != null && isFinite(v) && v > 0);
+    if (vals.length === 0) {
+      _msg(ctx, canvas, 'No peak current data');
+      return;
+    }
+
+    // Use log scale if range spans > 2 orders of magnitude
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    const useLog = maxVal / Math.max(minVal, 1e-10) > 100;
+
+    if (useLog) {
+      const logMin = Math.floor(Math.log10(Math.max(minVal, 1e-3)));
+      const logMax = Math.ceil(Math.log10(maxVal));
+      const lMin = logMin - 0.3, lMax = logMax + 0.3;
+
+      // Custom log axes
+      ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)'; ctx.lineWidth = 0.5;
+      for (let dec = logMin; dec <= logMax; dec++) {
+        const frac = (dec - lMin) / (lMax - lMin);
+        const y = a.y + a.h - frac * a.h;
+        ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
+        ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
+        ctx.font = '9px monospace'; ctx.textAlign = 'right';
+        ctx.fillText('10^' + dec, a.x - 3, y + 3);
+      }
+      ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
+      ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('s (m)', a.x + a.w / 2, a.y + a.h + 14);
+      ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText('I_peak (A)', 0, 0); ctx.restore();
+
+      // Draw line in log space
+      ctx.strokeStyle = '#ee55ee'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < env.length; i++) {
+        const xV = env[i].s != null ? env[i].s : i;
+        const v = env[i].peak_current;
+        if (v == null || !isFinite(v) || v <= 0) continue;
+        const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
+        const logV = Math.log10(v);
+        const y = a.y + a.h - ((logV - lMin) / (lMax - lMin)) * a.h;
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else {
+      const [yMin, yMax] = _range(vals);
+      _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax);
+      _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false);
+    }
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [{ color: '#ee55ee', label: 'I_peak' }]);
   }
 
   // --- "At this point" plots ---
@@ -251,80 +336,6 @@ const ProbePlots = (() => {
       ctx.fillStyle = color;
       ctx.fillText('\u03b5=' + emittance.toExponential(2), cx, oy - 3);
     }
-  }
-
-  function _drawBeamProfile(ctx, canvas, env, pins, activePin) {
-    const pin = pins[activePin];
-    if (!pin) { _msg(ctx, canvas, 'No pin selected'); return; }
-    const d = env[pin.elementIndex];
-    if (!d || !d.cov_xx || !d.cov_yy) { _msg(ctx, canvas, 'No data at pin'); return; }
-
-    const a = _area(canvas);
-    const imgW = Math.floor(a.w), imgH = Math.floor(a.h);
-    if (imgW <= 0 || imgH <= 0) return;
-
-    const sx = Math.sqrt(d.cov_xx), sy = Math.sqrt(d.cov_yy);
-    const rxy = d.cov_xy || 0;
-    const det = d.cov_xx * d.cov_yy - rxy * rxy;
-    const invDet = 1 / Math.max(det, 1e-30);
-    const rangeX = sx * 4, rangeY = sy * 4;
-
-    const imgData = ctx.createImageData(imgW, imgH);
-    for (let py = 0; py < imgH; py++) {
-      const y = (py / imgH - 0.5) * 2 * rangeY;
-      for (let px = 0; px < imgW; px++) {
-        const x = (px / imgW - 0.5) * 2 * rangeX;
-        const exp = -0.5 * invDet * (d.cov_yy * x * x - 2 * rxy * x * y + d.cov_xx * y * y);
-        const t = Math.min(Math.exp(exp), 1);
-        const idx = (py * imgW + px) * 4;
-        imgData.data[idx]     = Math.floor(Math.min(t * 3, 1) * 255);
-        imgData.data[idx + 1] = Math.floor(Math.max(0, Math.min((t - 0.33) * 3, 1)) * 255);
-        imgData.data[idx + 2] = Math.floor(Math.max(0, Math.min((t - 0.66) * 3, 1)) * 255);
-        imgData.data[idx + 3] = 255;
-      }
-    }
-    ctx.putImageData(imgData, a.x, a.y);
-
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('x', a.x + a.w / 2, a.y + a.h + 14);
-    ctx.fillText(`\u03c3x=${sx.toExponential(1)} \u03c3y=${sy.toExponential(1)}`, a.x + a.w / 2, a.y - 3);
-  }
-
-  function _drawEnergyDist(ctx, canvas, env, pins, activePin) {
-    const pin = pins[activePin];
-    if (!pin) { _msg(ctx, canvas, 'No pin selected'); return; }
-    const d = env[pin.elementIndex];
-    if (!d) { _msg(ctx, canvas, 'No data at pin'); return; }
-
-    const a = _area(canvas);
-    const sigma = d.energy_spread || 0.001;
-    const center = d.energy || 0;
-    const nBins = 60;
-    const xMin = center - 4 * sigma, xMax = center + 4 * sigma;
-
-    let maxVal = 0;
-    const vals = [];
-    for (let i = 0; i < nBins; i++) {
-      const x = xMin + (i + 0.5) * (xMax - xMin) / nBins;
-      const v = Math.exp(-0.5 * ((x - center) / sigma) ** 2);
-      vals.push(v);
-      if (v > maxVal) maxVal = v;
-    }
-
-    _axes(ctx, a, 'E (GeV)', '', 0, 1.1);
-    const binW = a.w / nBins;
-    ctx.fillStyle = `rgba(${_hexRgb(pin.color)}, 0.4)`;
-    ctx.strokeStyle = pin.color; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y + a.h);
-    for (let i = 0; i < nBins; i++) {
-      ctx.lineTo(a.x + i * binW, a.y + a.h - (vals[i] / maxVal) * a.h);
-    }
-    ctx.lineTo(a.x + a.w, a.y + a.h);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-
-    ctx.fillStyle = pin.color; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`\u03c3_E=${sigma.toExponential(2)}`, a.x + a.w / 2, a.y - 3);
   }
 
   function _drawLongitudinal(ctx, canvas, env, pins, activePin) {

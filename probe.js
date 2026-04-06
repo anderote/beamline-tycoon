@@ -5,12 +5,11 @@ const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
 const PROBE_PLOT_TYPES = [
   { id: 'phase-space', name: 'Phase Space' },
   { id: 'beam-envelope', name: 'Beam Envelope' },
-  { id: 'twiss', name: 'Twiss Parameters' },
-  { id: 'energy-dist', name: 'Energy Distribution' },
-  { id: 'longitudinal', name: 'Longitudinal PS' },
-  { id: 'beam-profile', name: 'Beam Profile' },
   { id: 'current-loss', name: 'Current & Loss' },
   { id: 'emittance', name: 'Emittance' },
+  { id: 'energy-dispersion', name: 'Energy & Dispersion' },
+  { id: 'peak-current', name: 'Peak Current' },
+  { id: 'longitudinal', name: 'Longitudinal PS' },
   { id: 'summary', name: 'Summary Stats' },
 ];
 
@@ -21,10 +20,10 @@ class ProbeWindow {
     this.activePin = 0;
     this.gridLayout = [2, 2];
     this.cells = [
-      { type: 'phase-space' },
       { type: 'beam-envelope' },
+      { type: 'emittance' },
+      { type: 'current-loss' },
       { type: 'summary' },
-      { type: null },
     ];
     this.open = false;
     this.el = null;
@@ -128,7 +127,8 @@ class ProbeWindow {
     });
 
     // Listen for beamline changes — re-resolve pin indices and update plots
-    this.game.on('beamlineChanged', () => {
+    this.game.on((event) => {
+      if (event !== 'beamlineChanged') return;
       if (!this.open) return;
       const ordered = this.game.state.beamline;
       this.pins = this.pins.filter(pin => {
@@ -336,21 +336,21 @@ class ProbeWindow {
     card.style.borderTopColor = pin.color;
     const r = (label, val, unit) =>
       `<div class="ps-row"><span>${label}</span><span>${val} ${unit || ''}</span></div>`;
+    const fmtSci = (v) => v != null && isFinite(v) ? v.toExponential(2) : '--';
+    const fmtFix = (v, d) => v != null && isFinite(v) ? v.toFixed(d) : '--';
     card.innerHTML =
-      r('Energy', data.energy?.toFixed(3) ?? '--', 'GeV') +
-      r('Current', data.current?.toFixed(2) ?? '--', 'mA') +
-      r('\u03c3_x', ((data.sigma_x || 0) * 1000).toFixed(3), 'mm') +
-      r('\u03c3_y', ((data.sigma_y || 0) * 1000).toFixed(3), 'mm') +
-      r('\u03b5_x', data.emit_x?.toExponential(2) ?? '--', 'm\u00b7rad') +
-      r('\u03b5_y', data.emit_y?.toExponential(2) ?? '--', 'm\u00b7rad') +
-      r('\u03b5_nx', data.emit_nx?.toExponential(2) ?? '--', 'm\u00b7rad') +
-      r('\u03b5_ny', data.emit_ny?.toExponential(2) ?? '--', 'm\u00b7rad') +
-      r('\u03b2_x', data.beta_x?.toFixed(2) ?? '--', 'm') +
-      r('\u03b2_y', data.beta_y?.toFixed(2) ?? '--', 'm') +
-      r('\u03b1_x', data.alpha_x?.toFixed(3) ?? '--', '') +
-      r('\u03b1_y', data.alpha_y?.toFixed(3) ?? '--', '') +
-      r('\u03c3_E', data.energy_spread?.toExponential(2) ?? '--', '') +
-      r('\u03c3_t', data.bunch_length?.toExponential(2) ?? '--', 's');
+      r('Energy', fmtFix(data.energy, 3), 'GeV') +
+      r('Current', fmtFix(data.current, 2), 'mA') +
+      r('I_peak', fmtFix(data.peak_current, 1), 'A') +
+      r('\u03c3_x', fmtFix((data.sigma_x || 0) * 1000, 3), 'mm') +
+      r('\u03c3_y', fmtFix((data.sigma_y || 0) * 1000, 3), 'mm') +
+      r('\u03b5_nx', fmtSci(data.emit_nx), 'm\u00b7rad') +
+      r('\u03b5_ny', fmtSci(data.emit_ny), 'm\u00b7rad') +
+      r('\u03b7_x', fmtFix(data.eta_x, 4), 'm') +
+      r('\u03b2_x', fmtFix(data.beta_x, 2), 'm') +
+      r('\u03b2_y', fmtFix(data.beta_y, 2), 'm') +
+      r('\u03c3_E', fmtSci(data.energy_spread), '') +
+      r('\u03c3_t', fmtSci(data.bunch_length), 's');
   }
 
   // --- Save/Load ---
@@ -374,7 +374,7 @@ class ProbeWindow {
     this.pins = data.pins || [];
     this.activePin = data.activePin || 0;
     this.gridLayout = data.gridLayout || [2, 2];
-    this.cells = data.cells || [{ type: 'phase-space' }, { type: 'beam-envelope' }, { type: 'summary' }, { type: null }];
+    this.cells = data.cells || [{ type: 'beam-envelope' }, { type: 'emittance' }, { type: 'current-loss' }, { type: 'summary' }];
     if (data.x != null) this.el.style.left = data.x + 'px';
     if (data.y != null) this.el.style.top = data.y + 'px';
     if (data.width != null) this.el.style.width = data.width + 'px';
