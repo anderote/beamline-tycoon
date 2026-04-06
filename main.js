@@ -30,8 +30,29 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     });
   });
 
+  // Create probe window and wire to renderer
+  const probeWindow = new ProbeWindow(game);
+  renderer.onProbeClick = (node) => probeWindow.addPin(node);
+
+  // Hook probe state into save
+  const origSave = game.save.bind(game);
+  game.save = function() {
+    this.state.probe = probeWindow.toJSON();
+    origSave();
+  };
+
+  // Render pin flags on beamline changes
+  game.on('beamlineChanged', () => {
+    renderer._renderProbeFlags(probeWindow.pins);
+  });
+
   // Load saved game (if any)
   game.load();
+
+  // Restore probe state from save
+  if (game.state.probe) {
+    probeWindow.fromJSON(game.state.probe);
+  }
 
   // New Game button
   document.getElementById('btn-new-game').addEventListener('click', () => {

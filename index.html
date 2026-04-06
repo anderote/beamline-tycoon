@@ -30,7 +30,11 @@
           <span class="res-val" id="val-data">0</span>
         </div>
       </div>
-      <button id="btn-new-game" title="Start a new game">New Game</button>
+      <div id="top-buttons">
+        <button id="btn-research" class="hud-btn">Research</button>
+        <button id="btn-goals" class="hud-btn">Goals</button>
+        <button id="btn-new-game" title="Start a new game">New Game</button>
+      </div>
     </div>
 
     <!-- Beam parameters panel (top-left, transparent) -->
@@ -65,8 +69,22 @@
       </div>
     </div>
 
+    <!-- Component preview panel (lower-left, above bottom HUD) -->
+    <div id="component-preview" class="hidden">
+      <div id="preview-header">
+        <span id="preview-name"></span>
+      </div>
+      <div id="preview-body">
+        <div id="preview-desc"></div>
+        <div id="preview-stats"></div>
+      </div>
+    </div>
+
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
+      <div id="connection-tools" class="hidden">
+        <!-- shown only in facility mode, populated dynamically -->
+      </div>
       <div id="hud-controls">
         <div id="mode-switcher">
           <button class="mode-btn active" data-mode="beamline">Beamline</button>
@@ -76,12 +94,7 @@
         <div id="category-tabs">
           <!-- dynamically generated based on active mode -->
         </div>
-        <div id="connection-tools" class="hidden">
-          <!-- shown only in facility mode, populated dynamically -->
-        </div>
         <div id="hud-buttons">
-          <button id="btn-research" class="hud-btn">Research</button>
-          <button id="btn-goals" class="hud-btn">Goals</button>
           <button id="btn-toggle-beam" class="hud-btn btn-beam">Start Beam</button>
         </div>
       </div>
@@ -116,10 +129,7 @@
         <span class="popup-title"></span>
         <button class="popup-close">&times;</button>
       </div>
-      <div class="popup-body">
-        <div class="popup-stats"></div>
-        <div class="popup-actions"></div>
-      </div>
+      <div class="popup-body"></div>
     </div>
 
   </div>
@@ -133,6 +143,8 @@
   <script src="sprites.js"></script>
   <script src="input.js"></script>
   <script src="renderer.js"></script>
+  <script src="probe-plots.js"></script>
+  <script src="probe.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

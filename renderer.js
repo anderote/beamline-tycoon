@@ -656,6 +656,40 @@ class Renderer {
     if (popup) popup.classList.add('hidden');
   }
 
+  // --- Probe pin flags ---
+
+  _renderProbeFlags(pins) {
+    if (this._flagLayer) this._flagLayer.removeChildren();
+    else {
+      this._flagLayer = new PIXI.Container();
+      this.app.stage.addChild(this._flagLayer);
+    }
+    if (!pins || pins.length === 0) return;
+
+    const ordered = this.game.state.beamline;
+    for (const pin of pins) {
+      const node = ordered.find(n => n.id === pin.nodeId);
+      if (!node) continue;
+      const pos = tileCenterIso(node.col, node.row);
+
+      const g = new PIXI.Graphics();
+      // Flag pole
+      g.moveTo(pos.x + 8, pos.y - 20);
+      g.lineTo(pos.x + 8, pos.y - 4);
+      g.stroke({ color: 0xaaaaaa, width: 1 });
+      // Flag body
+      const flagColor = parseInt(pin.color.replace('#', ''), 16);
+      g.poly([
+        pos.x + 8, pos.y - 20,
+        pos.x + 20, pos.y - 16,
+        pos.x + 8, pos.y - 12,
+      ]);
+      g.fill({ color: flagColor, alpha: 0.9 });
+
+      this._flagLayer.addChild(g);
+    }
+  }
+
   // --- Infrastructure rendering ---
 
   _renderInfrastructure() {
@@ -1024,7 +1058,11 @@ class Renderer {
 
         if (unlocked) {
           item.addEventListener('click', () => {
-            if (this._onFacilitySelect) this._onFacilitySelect(key);
+            if (comp.connectionType && this._onConnSelect) {
+              this._onConnSelect(comp.connectionType);
+            } else if (this._onFacilitySelect) {
+              this._onFacilitySelect(key);
+            }
           });
         }
 
