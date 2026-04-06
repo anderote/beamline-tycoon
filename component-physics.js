@@ -87,6 +87,157 @@
       beamCurrent: { derived: true, unit: 'mA' },
       emittance:   { derived: true, unit: 'mm·mrad' },
     },
+
+    // ---- Quadrupole ----
+    quadrupole: {
+      gradient:     { min: 1, max: 50, default: 20, unit: 'T/m', step: 0.5 },
+      focusStrength: { derived: true, unit: 'm⁻²' },
+    },
+
+    // ---- Superconducting quadrupole ----
+    scQuad: {
+      gradient:     { min: 1, max: 200, default: 100, unit: 'T/m', step: 1 },
+      focusStrength: { derived: true, unit: 'm⁻²' },
+    },
+
+    // ---- Dipole ----
+    dipole: {
+      fieldStrength: { min: 0.1, max: 2.0, default: 1.0, unit: 'T', step: 0.01 },
+      maxMomentum:   { derived: true, unit: 'GeV/c' },
+    },
+
+    // ---- Superconducting dipole ----
+    scDipole: {
+      fieldStrength: { min: 0.5, max: 8.0, default: 6.0, unit: 'T', step: 0.1 },
+      maxMomentum:   { derived: true, unit: 'GeV/c' },
+    },
+
+    // ---- Solenoid ----
+    solenoid: {
+      fieldStrength: { min: 0.01, max: 0.5, default: 0.2, unit: 'T', step: 0.01 },
+      focusStrength: { derived: true, unit: 'm⁻²' },
+    },
+
+    // ---- Sextupole ----
+    sextupole: {
+      fieldStrength: { min: 10, max: 500, default: 100, unit: 'T/m²', step: 5 },
+      beamQuality:   { derived: true, unit: '' },
+    },
+
+    // ---- Octupole ----
+    octupole: {
+      fieldStrength: { min: 10, max: 1000, default: 200, unit: 'T/m³', step: 10 },
+      beamQuality:   { derived: true, unit: '' },
+    },
+
+    // ---- Normal-conducting RF cavity ----
+    rfCavity: {
+      voltage:    { min: 0.1, max: 2.0, default: 1.0, unit: 'MV', step: 0.01 },
+      rfPhase:    { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain:    { derived: true, unit: 'GeV' },
+      energySpread:  { derived: true, unit: '' },
+    },
+
+    // ---- C-band cavity ----
+    cbandCavity: {
+      gradient: { min: 10, max: 50, default: 35, unit: 'MV/m', step: 0.5 },
+      rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain:   { derived: true, unit: 'GeV' },
+      energySpread: { derived: true, unit: '' },
+    },
+
+    // ---- X-band cavity ----
+    xbandCavity: {
+      gradient: { min: 20, max: 100, default: 65, unit: 'MV/m', step: 0.5 },
+      rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain:   { derived: true, unit: 'GeV' },
+      energySpread: { derived: true, unit: '' },
+    },
+
+    // ---- Cryomodule (SRF, 1.3 GHz, TESLA-style) ----
+    cryomodule: {
+      gradient: { min: 5, max: 35, default: 25, unit: 'MV/m', step: 0.5 },
+      rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain:   { derived: true, unit: 'GeV' },
+      energySpread: { derived: true, unit: '' },
+    },
+
+    // ---- SRF 650 MHz cavity ----
+    srf650Cavity: {
+      gradient: { min: 5, max: 25, default: 18, unit: 'MV/m', step: 0.5 },
+      rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+      energyGain:   { derived: true, unit: 'GeV' },
+      energySpread: { derived: true, unit: '' },
+    },
+
+    // ---- Buncher cavity ----
+    buncher: {
+      voltage:         { min: 0.01, max: 0.5, default: 0.1, unit: 'MV', step: 0.01 },
+      rfPhase:         { min: -90, max: 0, default: -90, unit: 'deg', step: 1 },
+      bunchCompression: { derived: true, unit: '' },
+    },
+
+    // ---- Harmonic linearizer ----
+    harmonicLinearizer: {
+      voltage:         { min: 0.01, max: 0.2, default: 0.05, unit: 'MV', step: 0.005 },
+      rfPhase:         { min: -180, max: 180, default: 180, unit: 'deg', step: 1 },
+      bunchCompression: { derived: true, unit: '' },
+      beamQuality:     { derived: true, unit: '' },
+    },
+
+    // ---- Undulator ----
+    undulator: {
+      gap:        { min: 5, max: 30, default: 10, unit: 'mm', step: 0.5 },
+      kParameter:  { derived: true, unit: '' },
+      photonRate:  { derived: true, unit: 'ph/s' },
+      photonEnergy:{ derived: true, unit: 'keV' },
+    },
+
+    // ---- Helical undulator ----
+    helicalUndulator: {
+      gap:        { min: 5, max: 30, default: 10, unit: 'mm', step: 0.5 },
+      kParameter:  { derived: true, unit: '' },
+      photonRate:  { derived: true, unit: 'ph/s' },
+      photonEnergy:{ derived: true, unit: 'keV' },
+    },
+
+    // ---- Wiggler ----
+    wiggler: {
+      gap:        { min: 10, max: 50, default: 20, unit: 'mm', step: 0.5 },
+      kParameter:  { derived: true, unit: '' },
+      photonRate:  { derived: true, unit: 'ph/s' },
+      photonEnergy:{ derived: true, unit: 'keV' },
+    },
+
+    // ---- APPLE-2 undulator (variable polarization) ----
+    apple2Undulator: {
+      gap:              { min: 5, max: 30, default: 10, unit: 'mm', step: 0.5 },
+      polarizationMode: {
+        min: 0, max: 2, default: 0, unit: '', step: 1,
+        labels: ['Linear H', 'Circular', 'Linear V'],
+      },
+      kParameter:  { derived: true, unit: '' },
+      photonRate:  { derived: true, unit: 'ph/s' },
+      photonEnergy:{ derived: true, unit: 'keV' },
+    },
+
+    // ---- Corrector magnet ----
+    corrector: {
+      kickAngle: { min: -2, max: 2, default: 0, unit: 'mrad', step: 0.01 },
+    },
+
+    // ---- Combined-function magnet ----
+    combinedFunctionMagnet: {
+      dipoleField:   { min: 0.1, max: 2.0, default: 1.2, unit: 'T', step: 0.01 },
+      quadGradient:  { min: 1, max: 50, default: 20, unit: 'T/m', step: 0.5 },
+      focusStrength: { derived: true, unit: 'm⁻²' },
+    },
+
+    // ---- Kicker magnet ----
+    kickerMagnet: {
+      kickAngle: { min: 0.5, max: 10, default: 5, unit: 'mrad', step: 0.1 },
+      riseTime:  { min: 5, max: 100, default: 25, unit: 'ns', step: 1 },
+    },
   };
 
   // ---------------------------------------------------------------------------
@@ -284,6 +435,227 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Magnet physics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Quadrupole / scQuad — thin-lens focusing strength.
+   * k [m⁻²] = 0.2998 * G [T/m] / p [GeV/c]
+   * We display for a 1 GeV/c beam.
+   */
+  function computeQuadrupole(params) {
+    const G = params.gradient; // T/m
+    const p_GeV = 1.0;         // representative beam momentum
+    const focusStrength = 0.2998 * G / p_GeV;
+    return { focusStrength };
+  }
+
+  /**
+   * Dipole / scDipole — maximum momentum that can be bent through 90° over a
+   * 3 m arc (rho = L/θ = 3 m for θ=π/2 → rho = 6/π ≈ 1.91 m).
+   * p_max [GeV/c] = 0.2998 * B [T] * rho [m]
+   */
+  function computeDipole(params) {
+    const B = params.fieldStrength; // T
+    const rho = 3.0 / (Math.PI / 2); // ~1.909 m
+    const maxMomentum = 0.2998 * B * rho;
+    return { maxMomentum };
+  }
+
+  /**
+   * Solenoid — thin-lens focal length from integrated B² (paraxial optics).
+   * f⁻¹ [m⁻²] = (e / (2*p))² * ∫B² dz ≈ (0.1499 * B)² * L
+   * Use representative L=0.5 m, p=1 GeV/c (in SI-like units, factored out).
+   * Simplified: focusStrength = 0.0225 * B² (calibrated for display).
+   */
+  function computeSolenoid(params) {
+    const B = params.fieldStrength; // T
+    const L = 0.5;                  // m — representative active length
+    const focusStrength = Math.pow(0.1499 * B, 2) * L;
+    return { focusStrength };
+  }
+
+  /**
+   * Sextupole — chromatic correction quality metric (normalised 0–1).
+   * beamQuality = 0.3 * (1 - exp(-S/150))  where S = fieldStrength [T/m²]
+   */
+  function computeSextupole(params) {
+    const S = params.fieldStrength;
+    const beamQuality = 0.3 * (1 - Math.exp(-S / 150));
+    return { beamQuality };
+  }
+
+  /**
+   * Octupole — nonlinear detuning quality metric.
+   * beamQuality = 0.15 * (1 - exp(-O/300))
+   */
+  function computeOctupole(params) {
+    const O = params.fieldStrength;
+    const beamQuality = 0.15 * (1 - Math.exp(-O / 300));
+    return { beamQuality };
+  }
+
+  // ---------------------------------------------------------------------------
+  // RF cavity physics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Normal-conducting RF cavity.
+   * energyGain [GeV] = V [MV] * 0.85 * cos(φ) / 1000
+   * energySpread      = 0.01 * |sin(φ)|  (relative, dimensionless)
+   */
+  function computeRfCavity(params) {
+    const V       = params.voltage; // MV
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const energyGain   = V * 0.85 * Math.cos(phi_rad) / 1000; // GeV
+    const energySpread = 0.01 * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  }
+
+  /**
+   * C-band cavity (active length 0.6 m representative).
+   * energyGain [GeV] = G [MV/m] * length [m] * cos(φ) / 1000
+   */
+  function computeCbandCavity(params) {
+    const G       = params.gradient; // MV/m
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const length  = 0.6; // m
+    const energyGain   = G * length * Math.cos(phi_rad) / 1000;
+    const energySpread = 0.008 * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  }
+
+  /**
+   * X-band cavity (active length 0.23 m representative).
+   */
+  function computeXbandCavity(params) {
+    const G       = params.gradient; // MV/m
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const length  = 0.23; // m
+    const energyGain   = G * length * Math.cos(phi_rad) / 1000;
+    const energySpread = 0.008 * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  }
+
+  /**
+   * Cryomodule (TESLA 9-cell, 1.3 GHz, active length 5 m for 8 cavities).
+   * Lower energy spread due to CW / low-loss operation.
+   */
+  function computeCryomodule(params) {
+    const G       = params.gradient; // MV/m
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const length  = 5.0; // m active
+    const energyGain   = G * length * Math.cos(phi_rad) / 1000;
+    const energySpread = 0.003 * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  }
+
+  /**
+   * SRF 650 MHz cavity (active length 4 m).
+   */
+  function computeSrf650Cavity(params) {
+    const G       = params.gradient; // MV/m
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const length  = 4.0; // m active
+    const energyGain   = G * length * Math.cos(phi_rad) / 1000;
+    const energySpread = 0.003 * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  }
+
+  /**
+   * Buncher cavity — compresses bunch longitudinally.
+   * bunchCompression = 0.3 * V [MV] * |sin(φ)|, capped at 0.8
+   */
+  function computeBuncher(params) {
+    const V       = params.voltage; // MV
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const bunchCompression = Math.min(0.8, 0.3 * V * Math.abs(Math.sin(phi_rad)));
+    return { bunchCompression };
+  }
+
+  /**
+   * Harmonic linearizer — 3rd-harmonic cavity for chirp linearisation.
+   * Operates at φ=180° (decelerating) to flatten the energy-time correlation.
+   * bunchCompression = 0.5 * V * (1 + cos(φ))   [0 at 180°, max at 0°]
+   * beamQuality      = 0.4 * V * (1 + cos(φ))
+   */
+  function computeHarmonicLinearizer(params) {
+    const V       = params.voltage; // MV
+    const phi_rad = params.rfPhase * Math.PI / 180;
+    const factor  = 1 + Math.cos(phi_rad);
+    const bunchCompression = 0.5 * V * factor;
+    const beamQuality      = 0.4 * V * factor;
+    return { bunchCompression, beamQuality };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Insertion device physics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Shared undulator/wiggler helper.
+   * B_peak = B_0 * exp(-π * gap / period)  (Halbach formula, B_0 = 3 T)
+   * K = 0.0934 * period [mm] * B_peak [T]
+   * photonEnergy [keV] ∝ γ² * K (simplified, γ=2000 representative for 1 GeV)
+   * photonRate [arb] ∝ K²  (total power ∝ K²)
+   */
+  function _undulatorCalc(gap_mm, period_mm, rateScale) {
+    const B_0    = 3.0; // T — peak field at gap→0
+    const B_peak = B_0 * Math.exp(-Math.PI * gap_mm / period_mm);
+    const kParam = 0.0934 * period_mm * B_peak;
+    const gamma  = 2000; // representative (1 GeV electrons)
+    // First harmonic energy: E1 = 0.95 * gamma^2 * (1/period_m) / (1 + K²/2) keV (simplified)
+    const period_m = period_mm * 1e-3;
+    const photonEnergy = 0.95e-3 * gamma * gamma / (period_m * (1 + kParam * kParam / 2)); // keV
+    const photonRate   = rateScale * kParam * kParam; // relative units
+    return { kParameter: kParam, photonRate, photonEnergy };
+  }
+
+  function computeUndulator(params) {
+    return _undulatorCalc(params.gap, 20, 1.0);
+  }
+
+  function computeHelicalUndulator(params) {
+    const base = _undulatorCalc(params.gap, 20, 1.5);
+    return base;
+  }
+
+  function computeWiggler(params) {
+    return _undulatorCalc(params.gap, 80, 2.0);
+  }
+
+  function computeApple2Undulator(params) {
+    // polarizationMode affects effective K: 0=Linear H (full K), 1=Circular (0.707x), 2=Linear V (full K)
+    const base = _undulatorCalc(params.gap, 20, 1.8);
+    const mode = params.polarizationMode !== undefined ? params.polarizationMode : 0;
+    const kFactor = (mode === 1) ? 0.707 : 1.0;
+    return {
+      kParameter:  base.kParameter * kFactor,
+      photonRate:  base.photonRate * kFactor * kFactor,
+      photonEnergy: base.photonEnergy,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Beam manipulation — no derived outputs
+  // ---------------------------------------------------------------------------
+
+  function computeCorrector(/* params */) {
+    return {};
+  }
+
+  function computeKickerMagnet(/* params */) {
+    return {};
+  }
+
+  function computeCombinedFunctionMagnet(params) {
+    const G = params.quadGradient; // T/m
+    const p_GeV = 1.0;
+    const focusStrength = 0.2998 * G / p_GeV;
+    return { focusStrength };
+  }
+
+  // ---------------------------------------------------------------------------
   // COMPUTE_STATS dispatch table
   // ---------------------------------------------------------------------------
   const COMPUTE_STATS = {
@@ -291,6 +663,31 @@
     dcPhotoGun: computeDcPhotoGun,
     ncRfGun:    computeNcRfGun,
     srfGun:     computeSrfGun,
+    // magnets
+    quadrupole:             computeQuadrupole,
+    scQuad:                 computeQuadrupole,
+    dipole:                 computeDipole,
+    scDipole:               computeDipole,
+    solenoid:               computeSolenoid,
+    sextupole:              computeSextupole,
+    octupole:               computeOctupole,
+    // RF cavities
+    rfCavity:               computeRfCavity,
+    cbandCavity:            computeCbandCavity,
+    xbandCavity:            computeXbandCavity,
+    cryomodule:             computeCryomodule,
+    srf650Cavity:           computeSrf650Cavity,
+    buncher:                computeBuncher,
+    harmonicLinearizer:     computeHarmonicLinearizer,
+    // insertion devices
+    undulator:              computeUndulator,
+    helicalUndulator:       computeHelicalUndulator,
+    wiggler:                computeWiggler,
+    apple2Undulator:        computeApple2Undulator,
+    // beam manipulation
+    corrector:              computeCorrector,
+    kickerMagnet:           computeKickerMagnet,
+    combinedFunctionMagnet: computeCombinedFunctionMagnet,
   };
 
   /**

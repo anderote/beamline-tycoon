@@ -245,6 +245,218 @@ console.log('\n-- srfGun: superconducting RF gun physics --');
 }
 
 // -----------------------------------------------------------------------
+// quadrupole / scQuad
+// -----------------------------------------------------------------------
+console.log('\n-- quadrupole: focusing strength --');
+{
+  const defs = getDefaults('quadrupole');
+  const stats = computeStats('quadrupole', defs);
+  assert(stats.focusStrength > 0, 'quadrupole produces positive focusStrength');
+
+  const low  = computeStats('quadrupole', { gradient: 5 });
+  const high = computeStats('quadrupole', { gradient: 45 });
+  assert(high.focusStrength > low.focusStrength,
+    'higher gradient → stronger focusing (quadrupole)');
+
+  const scDefs = getDefaults('scQuad');
+  const scStats = computeStats('scQuad', scDefs);
+  assert(scStats.focusStrength > stats.focusStrength,
+    'scQuad (higher default gradient) stronger than regular quadrupole');
+}
+
+// -----------------------------------------------------------------------
+// dipole / scDipole
+// -----------------------------------------------------------------------
+console.log('\n-- dipole: max momentum --');
+{
+  const defs = getDefaults('dipole');
+  const stats = computeStats('dipole', defs);
+  assert(stats.maxMomentum > 0, 'dipole produces positive maxMomentum');
+
+  const low  = computeStats('dipole', { fieldStrength: 0.2 });
+  const high = computeStats('dipole', { fieldStrength: 1.8 });
+  assert(high.maxMomentum > low.maxMomentum,
+    'higher fieldStrength → higher maxMomentum (dipole)');
+
+  const scDefs  = getDefaults('scDipole');
+  const scStats = computeStats('scDipole', scDefs);
+  assert(scStats.maxMomentum > stats.maxMomentum,
+    'scDipole (higher default field) has larger maxMomentum than regular dipole');
+}
+
+// -----------------------------------------------------------------------
+// solenoid
+// -----------------------------------------------------------------------
+console.log('\n-- solenoid: focusing --');
+{
+  const defs  = getDefaults('solenoid');
+  const stats = computeStats('solenoid', defs);
+  assert(stats.focusStrength > 0, 'solenoid produces positive focusStrength');
+
+  const weak   = computeStats('solenoid', { fieldStrength: 0.05 });
+  const strong = computeStats('solenoid', { fieldStrength: 0.4 });
+  assert(strong.focusStrength > weak.focusStrength,
+    'stronger B → stronger solenoid focusing');
+}
+
+// -----------------------------------------------------------------------
+// sextupole / octupole
+// -----------------------------------------------------------------------
+console.log('\n-- sextupole / octupole: beam quality --');
+{
+  const sext = computeStats('sextupole', getDefaults('sextupole'));
+  assert(sext.beamQuality > 0, 'sextupole produces positive beamQuality');
+  assert(sext.beamQuality < 0.3, 'sextupole beamQuality bounded below 0.3');
+
+  const oct  = computeStats('octupole', getDefaults('octupole'));
+  assert(oct.beamQuality > 0, 'octupole produces positive beamQuality');
+  assert(oct.beamQuality < 0.15, 'octupole beamQuality bounded below 0.15');
+}
+
+// -----------------------------------------------------------------------
+// rfCavity
+// -----------------------------------------------------------------------
+console.log('\n-- rfCavity: energy gain --');
+{
+  const defs  = getDefaults('rfCavity');
+  const stats = computeStats('rfCavity', defs);
+  assert(stats.energyGain > 0, 'rfCavity on-crest produces positive energyGain');
+  assertClose(stats.energySpread, 0, 1e-9,
+    'rfCavity on-crest (φ=0) has zero energySpread');
+
+  // off-crest reduces gain
+  const offCrest = computeStats('rfCavity', { ...defs, rfPhase: 30 });
+  assert(offCrest.energyGain < stats.energyGain,
+    'off-crest phase reduces energyGain');
+  assert(offCrest.energySpread > 0,
+    'off-crest phase produces non-zero energySpread');
+}
+
+// -----------------------------------------------------------------------
+// cryomodule
+// -----------------------------------------------------------------------
+console.log('\n-- cryomodule: energy gain --');
+{
+  const defs  = getDefaults('cryomodule');
+  const stats = computeStats('cryomodule', defs);
+  assert(stats.energyGain > 0, 'cryomodule produces positive energyGain');
+
+  const lowG  = computeStats('cryomodule', { ...defs, gradient: 8 });
+  const highG = computeStats('cryomodule', { ...defs, gradient: 32 });
+  assert(highG.energyGain > lowG.energyGain,
+    'higher gradient → higher cryomodule energyGain');
+}
+
+// -----------------------------------------------------------------------
+// buncher / harmonicLinearizer
+// -----------------------------------------------------------------------
+console.log('\n-- buncher: bunch compression --');
+{
+  const defs  = getDefaults('buncher');
+  const stats = computeStats('buncher', defs);
+  // φ=-90 → |sin|=1, so compression is active
+  assert(stats.bunchCompression > 0, 'buncher at φ=-90 produces bunchCompression');
+  assert(stats.bunchCompression <= 0.8, 'bunchCompression capped at 0.8');
+
+  const lin = computeStats('harmonicLinearizer', getDefaults('harmonicLinearizer'));
+  // φ=180 → cos(180°)=-1 → factor=0 → both zero
+  assertClose(lin.bunchCompression, 0, 1e-9,
+    'harmonicLinearizer at φ=180 has zero bunchCompression');
+}
+
+// -----------------------------------------------------------------------
+// undulator
+// -----------------------------------------------------------------------
+console.log('\n-- undulator: K and photon rate --');
+{
+  const defs  = getDefaults('undulator');
+  const stats = computeStats('undulator', defs);
+  assert(stats.kParameter  > 0, 'undulator produces positive K');
+  assert(stats.photonRate  > 0, 'undulator produces positive photonRate');
+  assert(stats.photonEnergy > 0, 'undulator produces positive photonEnergy');
+
+  // Smaller gap → higher B_peak → higher K
+  const wideGap   = computeStats('undulator', { gap: 25 });
+  const narrowGap = computeStats('undulator', { gap: 6 });
+  assert(narrowGap.kParameter > wideGap.kParameter,
+    'smaller gap → higher K (undulator)');
+  assert(narrowGap.photonRate > wideGap.photonRate,
+    'smaller gap → higher photonRate (undulator)');
+}
+
+// -----------------------------------------------------------------------
+// wiggler / helicalUndulator / apple2Undulator
+// -----------------------------------------------------------------------
+console.log('\n-- wiggler / helical / apple2 --');
+{
+  const wig  = computeStats('wiggler', getDefaults('wiggler'));
+  assert(wig.kParameter > 1, 'wiggler has K > 1 (undulator-like K<<1 not expected)');
+
+  const hel  = computeStats('helicalUndulator', getDefaults('helicalUndulator'));
+  assert(hel.photonRate > 0, 'helicalUndulator produces photonRate');
+
+  const ap0  = computeStats('apple2Undulator', { gap: 10, polarizationMode: 0 });
+  const ap1  = computeStats('apple2Undulator', { gap: 10, polarizationMode: 1 });
+  assert(ap0.kParameter > ap1.kParameter,
+    'apple2 linear mode has higher effective K than circular mode');
+}
+
+// -----------------------------------------------------------------------
+// combinedFunctionMagnet
+// -----------------------------------------------------------------------
+console.log('\n-- combinedFunctionMagnet --');
+{
+  const defs  = getDefaults('combinedFunctionMagnet');
+  const stats = computeStats('combinedFunctionMagnet', defs);
+  assert(stats.focusStrength > 0, 'combinedFunctionMagnet produces positive focusStrength');
+}
+
+// -----------------------------------------------------------------------
+// corrector / kickerMagnet — no derived outputs
+// -----------------------------------------------------------------------
+console.log('\n-- corrector / kickerMagnet: empty stats --');
+{
+  const corr = computeStats('corrector', getDefaults('corrector'));
+  assertEq(Object.keys(corr).length, 0, 'corrector returns empty stats object');
+
+  const kick = computeStats('kickerMagnet', getDefaults('kickerMagnet'));
+  assertEq(Object.keys(kick).length, 0, 'kickerMagnet returns empty stats object');
+}
+
+// -----------------------------------------------------------------------
+// PARAM_DEFS: spot-check new types
+// -----------------------------------------------------------------------
+console.log('\n-- PARAM_DEFS new types --');
+{
+  assert(PARAM_DEFS.quadrupole !== undefined, 'PARAM_DEFS.quadrupole exists');
+  assert(PARAM_DEFS.quadrupole.gradient !== undefined, 'quadrupole has gradient');
+  assert(PARAM_DEFS.quadrupole.focusStrength !== undefined, 'quadrupole has focusStrength');
+  assert(PARAM_DEFS.quadrupole.focusStrength.derived === true, 'focusStrength is derived');
+
+  assert(PARAM_DEFS.dipole !== undefined, 'PARAM_DEFS.dipole exists');
+  assert(PARAM_DEFS.dipole.maxMomentum.derived === true, 'dipole maxMomentum is derived');
+
+  assert(PARAM_DEFS.rfCavity !== undefined, 'PARAM_DEFS.rfCavity exists');
+  assert(PARAM_DEFS.rfCavity.voltage !== undefined, 'rfCavity has voltage');
+  assert(PARAM_DEFS.rfCavity.rfPhase !== undefined, 'rfCavity has rfPhase');
+  assert(PARAM_DEFS.rfCavity.energyGain.derived === true, 'rfCavity energyGain is derived');
+
+  assert(PARAM_DEFS.undulator !== undefined, 'PARAM_DEFS.undulator exists');
+  assert(PARAM_DEFS.undulator.gap !== undefined, 'undulator has gap');
+  assert(PARAM_DEFS.undulator.kParameter.derived === true, 'undulator kParameter is derived');
+
+  assert(PARAM_DEFS.apple2Undulator !== undefined, 'PARAM_DEFS.apple2Undulator exists');
+  assert(PARAM_DEFS.apple2Undulator.polarizationMode !== undefined,
+    'apple2Undulator has polarizationMode');
+  assert(Array.isArray(PARAM_DEFS.apple2Undulator.polarizationMode.labels),
+    'apple2Undulator polarizationMode has labels array');
+
+  assert(PARAM_DEFS.corrector !== undefined, 'PARAM_DEFS.corrector exists');
+  assert(PARAM_DEFS.kickerMagnet !== undefined, 'PARAM_DEFS.kickerMagnet exists');
+  assert(PARAM_DEFS.kickerMagnet.riseTime !== undefined, 'kickerMagnet has riseTime');
+}
+
+// -----------------------------------------------------------------------
 // Summary
 // -----------------------------------------------------------------------
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
