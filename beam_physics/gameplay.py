@@ -165,8 +165,13 @@ def beamline_config_from_game(game_beamline):
             raw_k = stats.get("focusStrength",
                               defaults.get("focusStrength", 1.0))
             el["focusStrength"] = raw_k * QUAD_K_SCALE
-            el["focusing"] = (quad_index % 2 == 0)
-            quad_index += 1
+            # Player-controlled polarity; fall back to auto-alternation
+            polarity = comp.get("polarity", stats.get("polarity", None))
+            if polarity is not None:
+                el["polarity"] = polarity
+            else:
+                el["polarity"] = 1 if (quad_index % 2 == 0) else -1
+                quad_index += 1
 
         elif physics_type == "dipole":
             raw_angle = stats.get("bendAngle",
@@ -176,6 +181,7 @@ def beamline_config_from_game(game_beamline):
         elif physics_type in ("rfCavity", "cryomodule"):
             el["energyGain"] = stats.get("energyGain",
                                          defaults.get("energyGain", 0.5))
+            el["rfPhase"] = stats.get("rfPhase", comp.get("rfPhase", 0.0))
 
         elif physics_type == "sextupole":
             el["focusStrength"] = stats.get("focusStrength",
@@ -188,6 +194,8 @@ def beamline_config_from_game(game_beamline):
         elif physics_type == "undulator":
             el["photonRate"] = stats.get("photonRate",
                                          defaults.get("photonRate", 1.0))
+            el["period"] = stats.get("period", defaults.get("period", 0.03))
+            el["kParameter"] = stats.get("kParameter", defaults.get("kParameter", 1.5))
 
         elif physics_type == "detector":
             el["dataRate"] = stats.get("dataRate",
@@ -275,7 +283,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     n_diagnostics = sum(1 for el in elements
                         if el.get("game_type", el["type"]) in DIAGNOSTIC_TYPES)
 
-    return {
+    result = {
         # Core beam state
         "beamEnergy": summary["final_energy"],
         "beamAlive": summary["alive"],
@@ -340,12 +348,31 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
         "finalBeamSizeY": summary["final_beam_size_y"],
         "finalBunchLength": summary.get("final_bunch_length", None),
 
-        # FEL status
-        "felSaturated": summary.get("fel_saturated", False),
-
         # Diagnostic coverage
         "nDiagnostics": n_diagnostics,
     }
+
+    # Extract FEL data from module reports
+    reports = physics_result.get("reports", [])
+    fel_reports = [r for r in reports if r.module == "fel_gain"]
+    if fel_reports:
+        best = max(fel_reports, key=lambda r: r.details.get("power_w", 0))
+        result["felSaturated"] = best.details.get("saturated", False)
+        result["felWavelength"] = best.details.get("wavelength_m", None)
+        result["felPower"] = best.details.get("power_w", 0)
+        result["felGainLength"] = best.details.get("gain_length_3D_m", None)
+        result["felRho"] = best.details.get("rho", 0)
+    else:
+        result["felSaturated"] = False
+
+    # Extract beam-beam data
+    bb_reports = [r for r in reports if r.module == "beam_beam"]
+    if bb_reports:
+        result["luminosity"] = bb_reports[0].details.get("luminosity", 0)
+        result["tuneShiftY"] = bb_reports[0].details.get("tune_shift_y", 0)
+        result["beamStable"] = bb_reports[0].details.get("beam_stable", True)
+
+    return result
 
 
 def compute_beam_for_game(game_beamline_json, research_effects_json=None):
@@ -358,7 +385,8 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     research_effects = json.loads(research_effects_json) if research_effects_json else {}
 
     elements = beamline_config_from_game(game_beamline)
-    physics_result = propagate(elements)
+    machine_type = research_effects.get("machineType", "linac") if research_effects else "linac"
+    physics_result = propagate(elements, machine_type=machine_type)
     game_result = physics_to_game(physics_result, research_effects, elements)
 
     return json.dumps(game_result)
