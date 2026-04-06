@@ -1,5 +1,13 @@
 // === BEAMLINE TYCOON: PIXI.JS RENDERER ===
 
+// Darken a hex color by a factor (0–1)
+function _darkenPort(color, factor) {
+  const r = Math.floor(((color >> 16) & 0xff) * factor);
+  const g = Math.floor(((color >> 8) & 0xff) * factor);
+  const b = Math.floor((color & 0xff) * factor);
+  return (r << 16) | (g << 8) | b;
+}
+
 // Determine which mode a category belongs to
 function getModeForCategory(catKey) {
   for (const [modeKey, mode] of Object.entries(MODES)) {
@@ -41,6 +49,17 @@ class Renderer {
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
     this.connectionLayer = null;
+
+    // Tech tree pan/zoom state
+    this._treePanX = 0;
+    this._treePanY = 0;
+    this._treeZoom = 1;
+    this._treeDragging = false;
+    this._treeDragStartX = 0;
+    this._treeDragStartY = 0;
+    this._treeLayout = null;
+    this._treeCanvasWidth = 0;
+    this._treeCanvasHeight = 0;
   }
 
   async init() {
@@ -67,6 +86,10 @@ class Renderer {
     this.gridLayer = new PIXI.Container();
     this.gridLayer.zIndex = 0;
     this.world.addChild(this.gridLayer);
+
+    this.infraSidesLayer = new PIXI.Container();
+    this.infraSidesLayer.zIndex = -0.1;
+    this.world.addChild(this.infraSidesLayer);
 
     this.infraLayer = new PIXI.Container();
     this.infraLayer.zIndex = 0.5;
@@ -98,6 +121,10 @@ class Renderer {
     this.componentLayer.sortableChildren = true;
     this.world.addChild(this.componentLayer);
 
+    this.labelLayer = new PIXI.Container();
+    this.labelLayer.zIndex = 4;
+    this.world.addChild(this.labelLayer);
+
     this.cursorLayer = new PIXI.Container();
     this.cursorLayer.zIndex = 3;
     this.world.addChild(this.cursorLayer);
@@ -125,7 +152,6 @@ class Renderer {
           this._renderCursors();
           this._renderInfrastructure();
           this._renderZones();
-          this._renderPlots();
           this._renderFacilityEquipment();
           this._renderConnections();
           break;
@@ -137,9 +163,11 @@ class Renderer {
           break;
         case 'facilityChanged':
           this._renderFacilityEquipment();
+          this._renderComponents(); // recheck connection warnings
           break;
         case 'connectionsChanged':
           this._renderConnections();
+          this._renderComponents(); // recheck connection warnings
           break;
         case 'beamToggled':
           this._renderBeam();
@@ -147,9 +175,10 @@ class Renderer {
           break;
         case 'tick':
           this._updateHUD();
+          this._updateTreeProgress();
           break;
         case 'researchChanged':
-          this._renderResearchOverlay();
+          this._renderTechTree();
           break;
         case 'objectiveCompleted':
           this._renderGoalsOverlay();
@@ -159,10 +188,11 @@ class Renderer {
 
     // 9. Bind DOM HUD events
     this._bindHUDEvents();
+    this._bindTreeEvents();
 
     // 10. Initial renders
     this._generateCategoryTabs();
-    this._renderResearchOverlay();
+    this._renderTechTree();
     this._renderGoalsOverlay();
     this._renderInfrastructure();
     this._renderFacilityEquipment();
@@ -227,11 +257,43 @@ class Renderer {
 
   // --- Component rendering ---
 
+  // Determine which connection types a beamline component requires
+  _getRequiredConnections(comp) {
+    const required = [];
+    for (const [connType, connDef] of Object.entries(CONNECTION_TYPES)) {
+      const vt = connDef.validTargets;
+      if (vt === 'any') continue;
+      const catMatch = vt.categoryMatch && vt.categoryMatch.includes(comp.category);
+      const idMatch = vt.idMatch && vt.idMatch.includes(comp.id);
+      if (catMatch || idMatch) required.push(connType);
+    }
+    return required;
+  }
+
   _renderComponents() {
     this.componentLayer.removeChildren();
+    this.labelLayer.removeChildren();
     this.nodeSprites = {};
 
     const nodes = this.game.beamline.getAllNodes();
+
+    // Auto-name: count instances of each component type in placement order
+    const typeCounts = {};
+    const typeTotals = {};
+    for (const node of nodes) typeTotals[node.type] = (typeTotals[node.type] || 0) + 1;
+
+    const nodeNames = {};
+    for (const node of nodes) {
+      const comp = COMPONENTS[node.type];
+      if (!comp) continue;
+      typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
+      nodeNames[node.id] = typeTotals[node.type] > 1
+        ? `${comp.name} #${typeCounts[node.type]}`
+        : comp.name;
+    }
+
+    const warnings = [];
+
     for (const node of nodes) {
       const comp = COMPONENTS[node.type];
       if (!comp) continue;
@@ -255,34 +317,37 @@ class Renderer {
       }
 
       const center = this._nodeCenter(node);
+      const displayName = nodeNames[node.id] || comp.name;
 
       // Add label at mid/close zoom (at center tile)
       if (this.zoom >= 0.7) {
         const label = new PIXI.Text({
-          text: comp.name,
+          text: displayName,
           style: {
             fontFamily: 'monospace',
             fontSize: 10,
             fill: 0xffffff,
           },
         });
-        label.anchor.set(0.5, 0);
-        label.x = center.x;
-        label.y = center.y + 8;
-        label.zIndex = node.col + node.row + 0.1;
-        this.componentLayer.addChild(label);
+        const firstTile = tiles[0];
+        const topLeft = tileCenterIso(firstTile.col, firstTile.row);
+        label.anchor.set(0, 1);
+        label.x = topLeft.x;
+        label.y = topLeft.y - 12;
+        this.labelLayer.addChild(label);
       }
 
       // Check for missing utility connections
-      node._missingConn = null;
-      if (comp.category === 'rf') {
-        if (!this.game.hasValidConnection(node, 'rfWaveguide')) {
-          node._missingConn = 'rfWaveguide';
+      const required = this._getRequiredConnections(comp);
+      const missing = [];
+      for (const connType of required) {
+        if (!this.game.hasValidConnection(node, connType)) {
+          missing.push(connType);
         }
       }
 
       // Warning indicator for missing connections
-      if (node._missingConn) {
+      if (missing.length > 0) {
         const warn = new PIXI.Text({
           text: '!',
           style: { fontFamily: 'monospace', fontSize: 14, fill: 0xff4444, fontWeight: 'bold' },
@@ -290,10 +355,114 @@ class Renderer {
         warn.anchor.set(0.5, 1);
         warn.x = center.x + 10;
         warn.y = center.y - 10;
-        warn.zIndex = node.col + node.row + 0.2;
-        this.componentLayer.addChild(warn);
+        warn.zIndex = 9999;
+        this.labelLayer.addChild(warn);
+
+        for (const connType of missing) {
+          warnings.push({ name: displayName, connType });
+        }
+      }
+
+      // Port dots for required connections (perpendicular to beam, one per side)
+      if (this.zoom >= 0.7 && required.length > 0) {
+        const PORT_RADIUS = 1.5;
+        const CONN_ORDER = ['vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer', 'powerCable', 'dataFiber'];
+        const PORT_GAP = 6;
+        const TOTAL_SLOTS = CONN_ORDER.length;
+        const startOff = -(TOTAL_SLOTS - 1) * PORT_GAP / 2;
+
+        const INV_SQRT5 = 1 / Math.sqrt(5);
+        const NS_PX = INV_SQRT5, NS_PY = 2 * INV_SQRT5;
+        const EW_PX = -INV_SQRT5, EW_PY = 2 * INV_SQRT5;
+
+        const beamDir = node.entryDir != null ? node.entryDir : (node.dir != null ? node.dir : 0);
+        const leftDir = turnLeft(beamDir);
+        const rightDir = turnRight(beamDir);
+        const leftDelta = DIR_DELTA[leftDir];
+        const rightDelta = DIR_DELTA[rightDir];
+
+        // Use center tile for port placement
+        const midIdx = Math.floor(tiles.length / 2);
+        const portTile = tiles[midIdx];
+
+        // Edge midpoints in perpendicular directions
+        const leftMid = tileCenterIso(
+          portTile.col + leftDelta.dc * 0.5,
+          portTile.row + leftDelta.dr * 0.5
+        );
+        const rightMid = tileCenterIso(
+          portTile.col + rightDelta.dc * 0.5,
+          portTile.row + rightDelta.dr * 0.5
+        );
+
+        // Perp offset direction depends on grid axis of each side
+        const leftPerp = leftDelta.dc !== 0
+          ? { px: EW_PX, py: EW_PY }
+          : { px: NS_PX, py: NS_PY };
+        const rightPerp = rightDelta.dc !== 0
+          ? { px: EW_PX, py: EW_PY }
+          : { px: NS_PX, py: NS_PY };
+
+        const missingSet = new Set(missing);
+        const portG = new PIXI.Graphics();
+
+        for (const connType of required) {
+          const slotIdx = CONN_ORDER.indexOf(connType);
+          if (slotIdx < 0) continue;
+          const conn = CONNECTION_TYPES[connType];
+          if (!conn) continue;
+
+          const off = startOff + slotIdx * PORT_GAP;
+          const connected = !missingSet.has(connType);
+          const color = connected ? conn.color : _darkenPort(conn.color, 0.5);
+          const alpha = connected ? 0.9 : 0.6;
+
+          // Left side port
+          portG.circle(
+            leftMid.x + leftPerp.px * off,
+            leftMid.y + leftPerp.py * off,
+            PORT_RADIUS
+          );
+          portG.fill({ color, alpha });
+
+          // Right side port
+          portG.circle(
+            rightMid.x + rightPerp.px * off,
+            rightMid.y + rightPerp.py * off,
+            PORT_RADIUS
+          );
+          portG.fill({ color, alpha });
+        }
+
+        portG.zIndex = 9998;
+        this.componentLayer.addChild(portG);
       }
     }
+
+    this._updateWarningsPanel(warnings);
+  }
+
+  _updateWarningsPanel(warnings) {
+    const panel = document.getElementById('beamline-warnings');
+    if (!panel) return;
+    if (warnings.length === 0) { panel.innerHTML = ''; return; }
+
+    // Group by connection type
+    const byType = {};
+    for (const w of warnings) {
+      if (!byType[w.connType]) byType[w.connType] = [];
+      byType[w.connType].push(w.name);
+    }
+
+    const lines = [];
+    for (const [connType, names] of Object.entries(byType)) {
+      const connName = CONNECTION_TYPES[connType]?.name || connType;
+      const nameStr = names.length <= 3
+        ? names.join(', ')
+        : names.slice(0, 3).join(', ') + ` +${names.length - 3} more`;
+      lines.push(`<div class="bl-warn">No ${connName}: <span class="warn-name">${nameStr}</span></div>`);
+    }
+    panel.innerHTML = lines.join('');
   }
 
   // --- Beam rendering ---
@@ -593,6 +762,26 @@ class Renderer {
       html += row('Length', comp.length, 'm');
       html += '</div>';
 
+      // Parameter dropdowns (if component has paramOptions)
+      if (comp.paramOptions) {
+        if (!node.params) node.params = {};
+        html += '<div class="popup-sliders">';
+        html += '<div class="popup-section-label">Configuration</div>';
+        for (const [key, options] of Object.entries(comp.paramOptions)) {
+          const current = node.params[key] ?? comp.params?.[key] ?? options[0];
+          html += `<div class="param-slider-row">`;
+          html += `<span class="param-label">${this._paramLabel(key)}</span>`;
+          html += `<select data-param-option="${key}" class="param-select">`;
+          for (const opt of options) {
+            const sel = opt === current ? ' selected' : '';
+            html += `<option value="${opt}"${sel}>${opt.charAt(0).toUpperCase() + opt.slice(1)}</option>`;
+          }
+          html += `</select>`;
+          html += `</div>`;
+        }
+        html += '</div>';
+      }
+
       // Parameter sliders (if this component type has paramDefs)
       const paramDefs = typeof PARAM_DEFS !== 'undefined' ? PARAM_DEFS[node.type] : null;
       if (paramDefs) {
@@ -658,6 +847,16 @@ class Renderer {
       if (paramDefs) {
         this._wirePopupSliders(node, paramDefs, body);
       }
+
+      // Wire up dropdown events
+      body.querySelectorAll('select[data-param-option]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const key = sel.dataset.paramOption;
+          if (!node.params) node.params = {};
+          node.params[key] = sel.value;
+          this.game.recalcBeamline();
+        });
+      });
 
       document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
         this.game.removeComponent(node.id);
@@ -825,34 +1024,59 @@ class Renderer {
 
   _renderInfrastructure() {
     this.infraLayer.removeChildren();
+    this.infraSidesLayer.removeChildren();
     const tiles = this.game.state.infrastructure || [];
-    for (const tile of tiles) {
+    // Build a lookup set for occupied positions
+    const occupied = new Set();
+    for (const tile of tiles) occupied.add(`${tile.col},${tile.row}`);
+    // Sort by isometric depth so front tiles overlap back tiles
+    const sorted = [...tiles].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+    for (const tile of sorted) {
       const infra = INFRASTRUCTURE[tile.type];
       if (!infra) continue;
-      this._drawInfraTile(tile.col, tile.row, infra);
+      const hasRight = occupied.has(`${tile.col + 1},${tile.row}`);
+      const hasBelow = occupied.has(`${tile.col},${tile.row + 1}`);
+      this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow);
     }
   }
 
-  _drawInfraTile(col, row, infra) {
-    const g = new PIXI.Graphics();
+  _drawInfraTile(col, row, infra, hasRight, hasBelow) {
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
-    const depth = 4;
+    const depth = 6;
 
-    // Top face
-    g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-    g.fill({ color: infra.topColor });
+    // Side faces — drawn below the grid layer so grid lines appear on top
+    if (!hasRight || !hasBelow) {
+      const sides = new PIXI.Graphics();
+      if (!hasRight) {
+        sides.poly([pos.x, pos.y + hh, pos.x + hw, pos.y, pos.x + hw, pos.y + depth, pos.x, pos.y + hh + depth]);
+        sides.fill({ color: infra.color });
+      }
+      if (!hasBelow) {
+        sides.poly([pos.x - hw, pos.y, pos.x, pos.y + hh, pos.x, pos.y + hh + depth, pos.x - hw, pos.y + depth]);
+        sides.fill({ color: infra.color });
+      }
+      this.infraSidesLayer.addChild(sides);
+    }
 
-    // Left face
-    g.poly([pos.x - hw, pos.y, pos.x, pos.y + hh, pos.x, pos.y + hh + depth, pos.x - hw, pos.y + depth]);
-    g.fill({ color: infra.color });
-
-    // Right face
-    g.poly([pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x, pos.y + hh + depth, pos.x + hw, pos.y + depth]);
-    g.fill({ color: infra.color });
-
-    this.infraLayer.addChild(g);
+    // Top face — use sprite if available, otherwise colored polygon
+    const texture = this.sprites.getTileTexture(infra.id);
+    if (texture) {
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5, 0.5);
+      sprite.x = pos.x;
+      sprite.y = pos.y;
+      // Scale proportionally so the sprite's width matches the tile diamond width
+      const scale = TILE_W / texture.width;
+      sprite.scale.set(scale, scale);
+      this.infraLayer.addChild(sprite);
+    } else {
+      const top = new PIXI.Graphics();
+      top.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+      top.fill({ color: infra.topColor });
+      this.infraLayer.addChild(top);
+    }
   }
 
   // --- Zone rendering ---
@@ -875,50 +1099,99 @@ class Renderer {
   }
 
   _drawZoneTile(col, row, zone, active) {
-    const g = new PIXI.Graphics();
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
+    const alpha = active ? 0.6 : 0.3;
 
-    const alpha = active ? 0.4 : 0.15;
-
-    // Top face overlay
-    g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-    g.fill({ color: zone.color, alpha });
-
-    this.zoneLayer.addChild(g);
+    // Use sprite if available
+    const texture = this.sprites.getTileTexture(zone.id);
+    if (texture) {
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5, 0.5);
+      sprite.x = pos.x;
+      sprite.y = pos.y;
+      const scale = TILE_W / texture.width;
+      sprite.scale.set(scale, scale);
+      sprite.alpha = alpha;
+      this.zoneLayer.addChild(sprite);
+    } else {
+      // Fallback: colored polygon overlay
+      const g = new PIXI.Graphics();
+      g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+      g.fill({ color: zone.color, alpha: active ? 0.4 : 0.15 });
+      this.zoneLayer.addChild(g);
+    }
   }
 
   _drawZoneLabels(zones, connectivity) {
-    // Group zone tiles by type and find center of each group
-    const groups = {};
+    // Build a lookup of tile positions by type
+    const tilesByType = {};
     for (const z of zones) {
-      if (!groups[z.type]) groups[z.type] = [];
-      groups[z.type].push(z);
+      if (!tilesByType[z.type]) tilesByType[z.type] = [];
+      tilesByType[z.type].push(z);
     }
 
-    for (const [type, tiles] of Object.entries(groups)) {
+    for (const [type, tiles] of Object.entries(tilesByType)) {
       const zone = ZONES[type];
       if (!zone) continue;
       const conn = connectivity[type];
-      const count = conn ? conn.tileCount : tiles.length;
+      const totalCount = conn ? conn.tileCount : tiles.length;
 
-      // Find average position
-      let avgCol = 0, avgRow = 0;
-      for (const t of tiles) { avgCol += t.col; avgRow += t.row; }
-      avgCol /= tiles.length;
-      avgRow /= tiles.length;
+      // Flood-fill to find contiguous groups
+      const tileSet = new Set(tiles.map(t => t.col + ',' + t.row));
+      const visited = new Set();
+      const groups = [];
 
-      const pos = tileCenterIso(avgCol, avgRow);
-      const label = new PIXI.Text({
-        text: `${zone.name} (${count})`,
-        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff, align: 'center' },
-      });
-      label.anchor.set(0.5, 0.5);
-      label.x = pos.x;
-      label.y = pos.y;
-      label.alpha = conn?.active ? 0.9 : 0.4;
-      this.zoneLayer.addChild(label);
+      for (const t of tiles) {
+        const key = t.col + ',' + t.row;
+        if (visited.has(key)) continue;
+
+        // BFS to find contiguous group
+        const group = [];
+        const queue = [key];
+        visited.add(key);
+        while (queue.length > 0) {
+          const cur = queue.shift();
+          group.push(cur);
+          const [cc, cr] = cur.split(',').map(Number);
+          for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+            const nk = (cc + dc) + ',' + (cr + dr);
+            if (tileSet.has(nk) && !visited.has(nk)) {
+              visited.add(nk);
+              queue.push(nk);
+            }
+          }
+        }
+        groups.push(group);
+      }
+
+      // Draw a label at the center of each contiguous group
+      for (const group of groups) {
+        let avgCol = 0, avgRow = 0;
+        for (const key of group) {
+          const [c, r] = key.split(',').map(Number);
+          avgCol += c;
+          avgRow += r;
+        }
+        avgCol /= group.length;
+        avgRow /= group.length;
+
+        const labelText = groups.length > 1
+          ? `${zone.name} (${group.length}/${totalCount})`
+          : `${zone.name} (${totalCount})`;
+
+        const pos = tileCenterIso(avgCol, avgRow);
+        const label = new PIXI.Text({
+          text: labelText,
+          style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff, align: 'center' },
+        });
+        label.anchor.set(0.5, 0.5);
+        label.x = pos.x;
+        label.y = pos.y;
+        label.alpha = conn?.active ? 0.9 : 0.4;
+        this.zoneLayer.addChild(label);
+      }
     }
   }
 
@@ -950,8 +1223,7 @@ class Renderer {
       label.anchor.set(0.5, 0);
       label.x = pos.x;
       label.y = pos.y + 8;
-      label.zIndex = equip.col + equip.row + 0.1;
-      this.facilityLayer.addChild(label);
+      this.labelLayer.addChild(label);
     }
   }
 
@@ -1023,8 +1295,14 @@ class Renderer {
         ];
         const mids = [midN, midE, midS, midW];
 
+        const needsOutline = connType === 'dataFiber';
+
         if (count === 0) {
           const ox = off * NS_PX, oy = off * NS_PY;
+          if (needsOutline) {
+            g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 2);
+            g.fill({ color: 0x000000, alpha: 0.9 });
+          }
           g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 1);
           g.fill({ color: conn.color, alpha: 0.8 });
         } else {
@@ -1048,6 +1326,16 @@ class Renderer {
           }
 
           // Draw half-segments from center to each offset edge midpoint
+          if (needsOutline) {
+            for (let i = 0; i < 4; i++) {
+              if (!neighbors[i]) continue;
+              const px = perps[i].px * off;
+              const py = perps[i].py * off;
+              g.moveTo(cx, cy);
+              g.lineTo(mids[i].x + px, mids[i].y + py);
+              g.stroke({ color: 0x000000, width: LINE_WIDTH + 2, alpha: 0.9 });
+            }
+          }
           for (let i = 0; i < 4; i++) {
             if (!neighbors[i]) continue;
             const px = perps[i].px * off;
@@ -1125,6 +1413,68 @@ class Renderer {
     this.dragPreviewLayer.addChild(label);
   }
 
+  renderLinePreview(path, infraType) {
+    this.dragPreviewLayer.removeChildren();
+    if (!path || path.length === 0) return;
+
+    const infra = INFRASTRUCTURE[infraType];
+    if (!infra) return;
+    const cost = infra.cost;
+    const totalCost = path.length * cost;
+    const canAfford = this.game.state.resources.funding >= totalCost;
+    const previewColor = infra.topColor;
+
+    for (const pt of path) {
+      const g = new PIXI.Graphics();
+      const pos = tileCenterIso(pt.col, pt.row);
+      const hw = TILE_W / 2;
+      const hh = TILE_H / 2;
+      g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+      g.fill({ color: canAfford ? previewColor : 0xcc3333, alpha: 0.5 });
+      g.stroke({ color: canAfford ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
+      this.dragPreviewLayer.addChild(g);
+    }
+
+    // Cost label at last tile
+    const last = path[path.length - 1];
+    const centerPos = tileCenterIso(last.col, last.row);
+    const label = new PIXI.Text({
+      text: `$${totalCost} (${path.length} tiles)`,
+      style: { fontFamily: 'monospace', fontSize: 10, fill: canAfford ? 0xffffff : 0xff4444 },
+    });
+    label.anchor.set(0.5, 0.5);
+    label.x = centerPos.x;
+    label.y = centerPos.y - 12;
+    this.dragPreviewLayer.addChild(label);
+  }
+
+  renderDemolishPreview(startCol, startRow, endCol, endRow) {
+    this.dragPreviewLayer.removeChildren();
+    if (startCol == null || endCol == null) return;
+
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        const hasContent = this.game.state.infraOccupied[key] || this.game.state.zoneOccupied[key];
+        const g = new PIXI.Graphics();
+        const pos = tileCenterIso(c, r);
+        const hw = TILE_W / 2;
+        const hh = TILE_H / 2;
+
+        g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+        g.fill({ color: 0xff0000, alpha: hasContent ? 0.3 : 0.1 });
+        g.stroke({ color: 0xff4444, width: 1, alpha: 0.6 });
+
+        this.dragPreviewLayer.addChild(g);
+      }
+    }
+  }
+
   clearDragPreview() {
     this.dragPreviewLayer.removeChildren();
   }
@@ -1158,11 +1508,6 @@ class Renderer {
     // Refresh system stats if panel is visible
     this._refreshSystemStatsValues();
 
-    // Refresh plots if panel is open
-    const plotsPanel = document.getElementById('beam-plots');
-    if (plotsPanel && !plotsPanel.classList.contains('collapsed')) {
-      this._renderPlots();
-    }
   }
 
   _updateBeamButton() {
@@ -1279,64 +1624,124 @@ class Renderer {
     // Structure mode — Flooring tab: show flooring INFRASTRUCTURE items
     if (compCategory === 'flooring') {
       const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
-      for (const key of flooringKeys) {
-        const infra = INFRASTRUCTURE[key];
-        if (!infra) continue;
-        const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.dataset.paletteIndex = paletteIdx;
-        const idx = paletteIdx++;
+      const catDef = MODES.structure.categories.flooring;
+      const subsections = catDef.subsections;
+      const subKeys = Object.keys(subsections);
+      let renderedSections = 0;
+      for (const subKey of subKeys) {
+        const subDef = subsections[subKey];
+        const subItems = flooringKeys.filter(k => INFRASTRUCTURE[k]?.subsection === subKey);
+        if (subItems.length === 0) continue;
 
-        const affordable = this.game.state.resources.funding >= infra.cost;
-        if (!affordable) item.classList.add('unaffordable');
+        if (renderedSections > 0) {
+          const divider = document.createElement('div');
+          divider.className = 'palette-subsection-divider';
+          palette.appendChild(divider);
+        }
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'palette-name';
-        nameEl.textContent = infra.name;
-        item.appendChild(nameEl);
+        const section = document.createElement('div');
+        section.className = 'palette-subsection';
+        const label = document.createElement('div');
+        label.className = 'palette-subsection-label';
+        label.textContent = subDef.name;
+        section.appendChild(label);
 
-        const costEl = document.createElement('div');
-        costEl.className = 'palette-cost';
-        costEl.textContent = `$${infra.cost}/tile`;
-        item.appendChild(costEl);
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'palette-subsection-items';
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onInfraSelect) this._onInfraSelect(key);
-        });
+        for (const key of subItems) {
+          const infra = INFRASTRUCTURE[key];
+          const item = document.createElement('div');
+          item.className = 'palette-item';
+          item.dataset.paletteIndex = paletteIdx;
+          const idx = paletteIdx++;
 
-        palette.appendChild(item);
+          const affordable = this.game.state.resources.funding >= infra.cost;
+          if (!affordable) item.classList.add('unaffordable');
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'palette-name';
+          nameEl.textContent = infra.name;
+          item.appendChild(nameEl);
+
+          const costEl = document.createElement('div');
+          costEl.className = 'palette-cost';
+          costEl.textContent = `$${infra.cost}/tile`;
+          item.appendChild(costEl);
+
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onInfraSelect) this._onInfraSelect(key);
+          });
+
+          itemsContainer.appendChild(item);
+        }
+
+        section.appendChild(itemsContainer);
+        palette.appendChild(section);
+        renderedSections++;
       }
       return;
     }
 
     // Structure mode — Zones tab: show zone types
     if (compCategory === 'zones') {
-      for (const [key, zone] of Object.entries(ZONES)) {
-        const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.dataset.paletteIndex = paletteIdx;
-        const idx = paletteIdx++;
+      const catDef = MODES.structure.categories.zones;
+      const subsections = catDef.subsections;
+      const subKeys = Object.keys(subsections);
+      const zoneEntries = Object.entries(ZONES);
+      let renderedSections = 0;
+      for (const subKey of subKeys) {
+        const subDef = subsections[subKey];
+        const subItems = zoneEntries.filter(([, z]) => z.subsection === subKey);
+        if (subItems.length === 0) continue;
 
-        const hex = '#' + zone.color.toString(16).padStart(6, '0');
-        item.style.borderLeft = `4px solid ${hex}`;
+        if (renderedSections > 0) {
+          const divider = document.createElement('div');
+          divider.className = 'palette-subsection-divider';
+          palette.appendChild(divider);
+        }
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'palette-name';
-        nameEl.textContent = zone.name;
-        item.appendChild(nameEl);
+        const section = document.createElement('div');
+        section.className = 'palette-subsection';
+        const label = document.createElement('div');
+        label.className = 'palette-subsection-label';
+        label.textContent = subDef.name;
+        section.appendChild(label);
 
-        const descEl = document.createElement('div');
-        descEl.className = 'palette-cost';
-        descEl.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor}`;
-        item.appendChild(descEl);
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'palette-subsection-items';
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onZoneSelect) this._onZoneSelect(key);
-        });
+        for (const [key, zone] of subItems) {
+          const item = document.createElement('div');
+          item.className = 'palette-item';
+          item.dataset.paletteIndex = paletteIdx;
+          const idx = paletteIdx++;
 
-        palette.appendChild(item);
+          const hex = '#' + zone.color.toString(16).padStart(6, '0');
+          item.style.borderLeft = `4px solid ${hex}`;
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'palette-name';
+          nameEl.textContent = zone.name;
+          item.appendChild(nameEl);
+
+          const descEl = document.createElement('div');
+          descEl.className = 'palette-cost';
+          descEl.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor}`;
+          item.appendChild(descEl);
+
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onZoneSelect) this._onZoneSelect(key);
+          });
+
+          itemsContainer.appendChild(item);
+        }
+
+        section.appendChild(itemsContainer);
+        palette.appendChild(section);
+        renderedSections++;
       }
       return;
     }
@@ -1355,7 +1760,7 @@ class Renderer {
 
       const descEl = document.createElement('div');
       descEl.className = 'palette-cost';
-      descEl.textContent = 'Click/drag to remove flooring & zones';
+      descEl.textContent = 'Click or drag area to remove flooring & zones';
       item.appendChild(descEl);
 
       item.addEventListener('click', () => {
@@ -1364,63 +1769,6 @@ class Renderer {
       });
 
       palette.appendChild(item);
-      return;
-    }
-
-    // Facility mode — show components from facility categories
-    if (isFacilityCategory(compCategory)) {
-      for (const [key, comp] of Object.entries(COMPONENTS)) {
-        if (comp.category !== compCategory) continue;
-
-        const unlocked = this.game.isComponentUnlocked(comp);
-        if (!unlocked) continue;
-
-        const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.dataset.paletteIndex = paletteIdx;
-        const idx = paletteIdx++;
-
-        const affordable = this.game.canAfford(comp.cost);
-        if (!affordable) item.classList.add('unaffordable');
-
-        const zoneTier = this.game.getZoneTierForCategory(compCategory);
-        const compTier = comp.zoneTier || 1;
-        const zoneBlocked = zoneTier < compTier;
-
-        if (zoneBlocked) item.classList.add('locked');
-
-        const nameEl = document.createElement('div');
-        nameEl.className = 'palette-name';
-        nameEl.textContent = comp.name;
-        item.appendChild(nameEl);
-
-        const costEl = document.createElement('div');
-        costEl.className = 'palette-cost';
-        const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-        if (zoneBlocked) {
-          const neededTiles = ZONE_TIER_THRESHOLDS[compTier - 1];
-          let zoneName = '';
-          for (const z of Object.values(ZONES)) {
-            const gates = Array.isArray(z.gatesCategory) ? z.gatesCategory : [z.gatesCategory];
-            if (gates.includes(compCategory)) { zoneName = z.name; break; }
-          }
-          costEl.textContent = `Needs ${neededTiles} ${zoneName} tiles`;
-        } else {
-          costEl.textContent = unlocked ? costs : 'Locked';
-        }
-        item.appendChild(costEl);
-
-        item.appendChild(this._createPaletteTooltip(comp, costs));
-
-        item.addEventListener('click', () => {
-          if (unlocked && !zoneBlocked) {
-            if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onFacilitySelect) this._onFacilitySelect(key);
-          }
-        });
-
-        palette.appendChild(item);
-      }
       return;
     }
 
@@ -1439,6 +1787,7 @@ class Renderer {
     if (subsections && Object.keys(subsections).length > 0) {
       // Render with subsection grouping
       const subKeys = Object.keys(subsections);
+      let renderedSections = 0;
       subKeys.forEach((subKey, subIdx) => {
         const subDef = subsections[subKey];
         const subComps = catComps.filter(({ comp }) => {
@@ -1447,8 +1796,21 @@ class Renderer {
         });
         if (subComps.length === 0) return;
 
-        // Divider between subsections (not before first)
-        if (subIdx > 0) {
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'palette-subsection-items';
+
+        for (const { key, comp } of subComps) {
+          const item = this._createPaletteItem(key, comp, paletteIdx);
+          if (!item) continue;
+          paletteIdx++;
+          itemsContainer.appendChild(item);
+        }
+
+        // Skip empty subsections (all items locked)
+        if (itemsContainer.children.length === 0) return;
+
+        // Divider between rendered subsections
+        if (renderedSections > 0) {
           const divider = document.createElement('div');
           divider.className = 'palette-subsection-divider';
           palette.appendChild(divider);
@@ -1462,18 +1824,9 @@ class Renderer {
         label.textContent = subDef.name;
         section.appendChild(label);
 
-        const itemsContainer = document.createElement('div');
-        itemsContainer.className = 'palette-subsection-items';
-
-        for (const { key, comp } of subComps) {
-          const item = this._createPaletteItem(key, comp, paletteIdx);
-          if (!item) continue;
-          paletteIdx++;
-          itemsContainer.appendChild(item);
-        }
-
         section.appendChild(itemsContainer);
         palette.appendChild(section);
+        renderedSections++;
       });
     } else {
       // No subsections — flat rendering
@@ -1490,12 +1843,23 @@ class Renderer {
     const unlocked = this.game.isComponentUnlocked(comp);
     if (!unlocked) return null;
 
+    const isFacility = isFacilityCategory(comp.category);
+
+    // Zone-tier check for facility items
+    let zoneBlocked = false;
+    if (isFacility && this.game.getZoneTierForCategory) {
+      const zoneTier = this.game.getZoneTierForCategory(comp.category);
+      const compTier = comp.zoneTier || 1;
+      zoneBlocked = zoneTier < compTier;
+    }
+
     const item = document.createElement('div');
     item.className = 'palette-item';
     item.dataset.paletteIndex = idx;
 
     const affordable = this.game.canAfford(comp.cost);
     if (!affordable) item.classList.add('unaffordable');
+    if (zoneBlocked) item.classList.add('zone-blocked');
 
     // Name
     const nameEl = document.createElement('div');
@@ -1507,131 +1871,532 @@ class Renderer {
     const costEl = document.createElement('div');
     costEl.className = 'palette-cost';
     const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-    costEl.textContent = costs;
+    if (zoneBlocked) {
+      const neededTiles = ZONE_TIER_THRESHOLDS[( comp.zoneTier || 1) - 1];
+      let zoneName = '';
+      for (const z of Object.values(ZONES)) {
+        const gates = Array.isArray(z.gatesCategory) ? z.gatesCategory : [z.gatesCategory];
+        if (gates.includes(comp.category)) { zoneName = z.name; break; }
+      }
+      costEl.textContent = `Needs ${neededTiles} ${zoneName} tiles`;
+    } else {
+      costEl.textContent = costs;
+    }
     item.appendChild(costEl);
 
-    item.appendChild(this._createPaletteTooltip(comp, costs));
-
-    item.addEventListener('click', () => {
-      if (this._onPaletteClick) this._onPaletteClick(idx);
-      if (this._onToolSelect) this._onToolSelect(key);
+    // Hover preview
+    item.addEventListener('mouseenter', () => {
+      this._showPalettePreview(comp);
     });
+    item.addEventListener('mouseleave', () => {
+      this._hidePalettePreview();
+    });
+
+    if (!zoneBlocked) {
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        if (isFacility) {
+          if (this._onFacilitySelect) this._onFacilitySelect(key);
+        } else {
+          if (this._onToolSelect) this._onToolSelect(key);
+        }
+      });
+    }
 
     return item;
   }
 
-  _createPaletteTooltip(comp, costs) {
-    const tooltip = document.createElement('div');
-    tooltip.className = 'palette-tooltip';
+  _showPalettePreview(comp) {
+    const preview = document.getElementById('component-preview');
+    if (!preview) return;
 
-    const ttName = document.createElement('div');
-    ttName.className = 'tt-name';
-    ttName.textContent = comp.name;
-    tooltip.appendChild(ttName);
+    const nameEl = document.getElementById('preview-name');
+    if (nameEl) nameEl.textContent = comp.name;
 
-    const ttDesc = document.createElement('div');
-    ttDesc.className = 'tt-desc';
-    ttDesc.textContent = comp.desc || '';
-    tooltip.appendChild(ttDesc);
+    const descEl = document.getElementById('preview-desc');
+    if (descEl) descEl.textContent = comp.desc || '';
 
-    const ttStats = document.createElement('div');
-    ttStats.className = 'tt-stats';
+    const statsEl = document.getElementById('preview-stats');
+    if (statsEl) {
+      const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
+      const statRow = (label, val) =>
+        `<div class="prev-stat-row"><span>${label}</span><span class="prev-stat-val">${val}</span></div>`;
 
-    const statEntries = [
-      ['Cost', costs],
-      ['Energy Cost', `${comp.energyCost} E/s`],
-      ['Length', `${comp.length} m`],
-    ];
-    if (comp.stats) {
-      for (const [k, v] of Object.entries(comp.stats)) {
-        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-        statEntries.push([label, v]);
+      let html = '';
+      html += statRow('Cost', costs);
+      html += statRow('Energy Cost', `${comp.energyCost} E/s`);
+      html += statRow('Length', `${comp.length} m`);
+      if (comp.stats) {
+        for (const [k, v] of Object.entries(comp.stats)) {
+          const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+          html += statRow(label, v);
+        }
       }
+      statsEl.innerHTML = html;
     }
-    for (const [label, val] of statEntries) {
-      const row = document.createElement('div');
-      row.className = 'tt-stat-row';
-      row.innerHTML = `<span>${label}</span><span class="tt-stat-val">${val}</span>`;
-      ttStats.appendChild(row);
+
+    preview.classList.remove('hidden');
+
+    // Position to the right of the component-popup if visible, otherwise at its default CSS position
+    const mainPopup = document.getElementById('component-popup');
+    const mainVisible = mainPopup && !mainPopup.classList.contains('hidden');
+    if (mainVisible) {
+      const mainRect = mainPopup.getBoundingClientRect();
+      preview.style.left = (mainRect.right + 8) + 'px';
+      preview.style.bottom = '';
+      preview.style.top = mainRect.top + 'px';
+    } else {
+      // Use default CSS positioning (lower-left)
+      preview.style.left = '';
+      preview.style.top = '';
+      preview.style.bottom = '';
     }
-    tooltip.appendChild(ttStats);
-    return tooltip;
+  }
+
+  _hidePalettePreview() {
+    const preview = document.getElementById('component-preview');
+    if (preview) preview.classList.add('hidden');
   }
 
   updatePalette(category) {
     this._renderPalette(category);
   }
 
-  // --- Research overlay ---
+  // --- Tech Tree ---
 
-  _renderResearchOverlay() {
-    const list = document.getElementById('research-list');
-    if (!list) return;
-    list.innerHTML = '';
+  _buildTreeLayout() {
+    const NODE_W = 150;
+    const NODE_H = 55;
+    const H_GAP = 50;
+    const V_GAP = 50;
+    const COL_GAP = 60;
+    const HEADER_H = 30;
 
+    const categories = Object.keys(RESEARCH_CATEGORIES);
+    const layout = {};
+    let colX = 40;
+
+    for (const cat of categories) {
+      const items = Object.entries(RESEARCH).filter(
+        ([, r]) => r.category === cat && !r.hidden
+      );
+      if (items.length === 0) continue;
+
+      // Build adjacency: parent -> children
+      const children = {};
+      const roots = [];
+      for (const [id] of items) {
+        children[id] = [];
+      }
+      for (const [id, r] of items) {
+        const reqs = r.requires
+          ? (Array.isArray(r.requires) ? r.requires : [r.requires])
+          : [];
+        const inCatReqs = reqs.filter(req => RESEARCH[req]?.category === cat);
+        if (inCatReqs.length === 0) {
+          roots.push(id);
+        }
+        for (const req of inCatReqs) {
+          if (children[req]) children[req].push(id);
+        }
+      }
+
+      // BFS to assign depth
+      const depth = {};
+      const queue = [...roots];
+      for (const r of roots) depth[r] = 0;
+      while (queue.length > 0) {
+        const id = queue.shift();
+        for (const child of (children[id] || [])) {
+          const d = depth[id] + 1;
+          if (depth[child] === undefined || d > depth[child]) {
+            depth[child] = d;
+            queue.push(child);
+          }
+        }
+      }
+
+      // Group by depth
+      const byDepth = {};
+      let maxDepth = 0;
+      for (const [id] of items) {
+        const d = depth[id] ?? 0;
+        if (!byDepth[d]) byDepth[d] = [];
+        byDepth[d].push(id);
+        if (d > maxDepth) maxDepth = d;
+      }
+
+      // Determine column width based on max items at any depth
+      let maxBreadth = 1;
+      for (const ids of Object.values(byDepth)) {
+        if (ids.length > maxBreadth) maxBreadth = ids.length;
+      }
+      const colWidth = maxBreadth * (NODE_W + H_GAP) - H_GAP;
+
+      // Assign positions
+      for (let d = 0; d <= maxDepth; d++) {
+        const ids = byDepth[d] || [];
+        const totalW = ids.length * NODE_W + (ids.length - 1) * H_GAP;
+        const startX = colX + (colWidth - totalW) / 2;
+        for (let i = 0; i < ids.length; i++) {
+          layout[ids[i]] = {
+            x: startX + i * (NODE_W + H_GAP),
+            y: HEADER_H + d * (NODE_H + V_GAP),
+            col: cat,
+          };
+        }
+      }
+
+      layout['__header_' + cat] = {
+        x: colX + colWidth / 2 - NODE_W / 2,
+        y: 0,
+        col: cat,
+        isHeader: true,
+        colWidth,
+      };
+
+      colX += colWidth + COL_GAP;
+    }
+
+    this._treeLayout = layout;
+    this._treeCanvasWidth = colX;
+    const maxY = Math.max(...Object.values(layout).filter(l => !l.isHeader).map(l => l.y));
+    this._treeCanvasHeight = Math.max(maxY + NODE_H + 80, 400);
+  }
+
+  _renderTechTree() {
+    const canvas = document.getElementById('tt-canvas');
+    const svg = document.getElementById('tt-connectors');
+    const tabsEl = document.getElementById('tt-category-tabs');
+    const activeEl = document.getElementById('tt-active-research');
+    if (!canvas || !svg || !tabsEl) return;
+
+    if (!this._treeLayout) this._buildTreeLayout();
+    const layout = this._treeLayout;
+
+    const NODE_W = 150;
+    const NODE_H = 55;
+
+    canvas.style.width = this._treeCanvasWidth + 'px';
+    canvas.style.height = this._treeCanvasHeight + 'px';
+    svg.setAttribute('width', this._treeCanvasWidth);
+    svg.setAttribute('height', this._treeCanvasHeight);
+    svg.innerHTML = '';
+    canvas.innerHTML = '';
+
+    // Category tabs
+    tabsEl.innerHTML = '';
+    for (const [catId, cat] of Object.entries(RESEARCH_CATEGORIES)) {
+      const tab = document.createElement('div');
+      tab.className = 'tt-cat-tab';
+      tab.textContent = cat.name;
+      tab.style.setProperty('--cat-color', cat.color);
+      tab.dataset.category = catId;
+      tab.addEventListener('click', () => {
+        this._scrollToCategory(catId);
+        tabsEl.querySelectorAll('.tt-cat-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+      });
+      tabsEl.appendChild(tab);
+    }
+
+    // Active research indicator
+    if (this.game.state.activeResearch) {
+      const r = RESEARCH[this.game.state.activeResearch];
+      const pct = Math.min(100, Math.round((this.game.state.researchProgress / r.duration) * 100));
+      activeEl.textContent = `Researching: ${r.name} (${pct}%)`;
+    } else {
+      activeEl.textContent = '';
+    }
+
+    // Draw connector lines (SVG)
     for (const [id, r] of Object.entries(RESEARCH)) {
-      if (r.hidden) continue;
+      if (r.hidden || !r.category || !layout[id]) continue;
+      const reqs = r.requires ? (Array.isArray(r.requires) ? r.requires : [r.requires]) : [];
+      for (const reqId of reqs) {
+        const parentPos = layout[reqId];
+        const childPos = layout[id];
+        if (!parentPos || !childPos) continue;
 
+        const x1 = parentPos.x + NODE_W / 2;
+        const y1 = parentPos.y + NODE_H;
+        const x2 = childPos.x + NODE_W / 2;
+        const y2 = childPos.y;
+        const midY = (y1 + y2) / 2;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`);
+
+        const completed = this.game.state.completedResearch.includes(id);
+        const parentDone = this.game.state.completedResearch.includes(reqId);
+        const available = this.game.isResearchAvailable(id);
+
+        let cls = 'tt-connector ';
+        if (completed) cls += 'completed';
+        else if (available || parentDone) cls += 'available';
+        else cls += 'locked';
+        path.setAttribute('class', cls);
+
+        svg.appendChild(path);
+      }
+    }
+
+    // Draw column headers
+    for (const [catId, cat] of Object.entries(RESEARCH_CATEGORIES)) {
+      const hKey = '__header_' + catId;
+      if (!layout[hKey]) continue;
+      const h = document.createElement('div');
+      h.className = 'tt-column-header';
+      h.style.left = layout[hKey].x + 'px';
+      h.style.top = '0px';
+      h.style.color = cat.color;
+      h.textContent = cat.name;
+      h.dataset.category = catId;
+      canvas.appendChild(h);
+    }
+
+    // Draw nodes
+    for (const [id, r] of Object.entries(RESEARCH)) {
+      if (r.hidden || !r.category || !layout[id]) continue;
+
+      const pos = layout[id];
       const completed = this.game.state.completedResearch.includes(id);
       const isActive = this.game.state.activeResearch === id;
       const available = this.game.isResearchAvailable(id);
 
-      // Hide locked research items
-      if (!completed && !isActive && !available) continue;
+      const node = document.createElement('div');
+      node.className = 'tt-node';
+      node.style.left = pos.x + 'px';
+      node.style.top = pos.y + 'px';
+      node.dataset.researchId = id;
 
-      const item = document.createElement('div');
-      item.className = 'research-item';
+      if (completed) node.classList.add('completed');
+      else if (isActive) node.classList.add('researching');
+      else if (available) node.classList.add('available');
+      else node.classList.add('locked');
 
+      // Name
+      const name = document.createElement('div');
+      name.className = 'tt-node-name';
+      name.textContent = r.name;
       if (completed) {
-        item.classList.add('completed');
-      } else if (isActive) {
-        item.classList.add('researching');
-      } else if (available) {
-        item.classList.add('available');
+        const check = document.createElement('span');
+        check.className = 'tt-check';
+        check.textContent = '\u2713';
+        name.appendChild(check);
       }
+      node.appendChild(name);
 
-      // Name and description
-      const nameEl = document.createElement('div');
-      nameEl.className = 'res-name';
-      nameEl.textContent = r.name + (completed ? ' [DONE]' : '');
-      item.appendChild(nameEl);
-
-      const descEl = document.createElement('div');
-      descEl.className = 'res-desc';
-      descEl.textContent = r.desc;
-      item.appendChild(descEl);
-
-      // Cost info
-      if (!completed) {
-        const costEl = document.createElement('div');
-        costEl.className = 'res-cost';
-        const costs = Object.entries(r.cost).map(([k, v]) => `${v} ${k}`).join(', ');
-        costEl.textContent = `Cost: ${costs} | Duration: ${r.duration}s`;
-        item.appendChild(costEl);
+      // Type indicator (unlock vs boost)
+      const typeEl = document.createElement('div');
+      typeEl.className = 'tt-node-type';
+      if (r.unlocks || r.unlocksMachines) {
+        typeEl.classList.add('unlock');
+        const names = [];
+        if (r.unlocks) {
+          for (const c of r.unlocks) {
+            if (COMPONENTS[c]) names.push(COMPONENTS[c].name);
+          }
+        }
+        if (r.unlocksMachines && typeof MACHINES !== 'undefined') {
+          for (const m of r.unlocksMachines) {
+            if (MACHINES[m]) names.push(MACHINES[m].name);
+          }
+        }
+        if (names.length > 0) {
+          typeEl.textContent = '\u25B8 ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '...' : '');
+        }
+      } else if (r.effect) {
+        typeEl.classList.add('boost');
+        const effects = Object.entries(r.effect).map(([k, v]) => {
+          if (k.endsWith('Mult')) return `${Math.round((1 - v) * 100)}% ${k.replace('Mult', '')} saving`;
+          return `+${v} ${k}`;
+        });
+        typeEl.textContent = '\u2191 ' + effects.join(', ');
       }
+      node.appendChild(typeEl);
 
       // Progress bar for active research
       if (isActive) {
-        const progressContainer = document.createElement('div');
-        progressContainer.className = 'res-progress';
-        const progressFill = document.createElement('div');
-        progressFill.className = 'bar';
+        const prog = document.createElement('div');
+        prog.className = 'tt-node-progress';
+        const bar = document.createElement('div');
+        bar.className = 'bar';
         const pct = Math.min(100, (this.game.state.researchProgress / r.duration) * 100);
-        progressFill.style.width = pct + '%';
-        progressContainer.appendChild(progressFill);
-        item.appendChild(progressContainer);
+        bar.style.width = pct + '%';
+        prog.appendChild(bar);
+        node.appendChild(prog);
       }
 
-      // Click to start
+      // Click handler for available nodes
       if (available && !completed && !isActive) {
-        item.addEventListener('click', () => {
-          this.game.startResearch(id);
+        node.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._showResearchPopover(id, node);
         });
-        item.style.cursor = 'pointer';
       }
 
-      list.appendChild(item);
+      canvas.appendChild(node);
     }
+  }
+
+  _showResearchPopover(id, nodeEl) {
+    const r = RESEARCH[id];
+    const popover = document.getElementById('tt-popover');
+    if (!popover) return;
+
+    const costs = Object.entries(r.cost).map(([k, v]) => {
+      if (k === 'funding') return `$${v}`;
+      if (k === 'reputation') return `${v} rep (threshold)`;
+      return `${v} ${k}`;
+    }).join(', ');
+
+    let unlocksText = '';
+    if (r.unlocks) {
+      const names = r.unlocks.map(c => COMPONENTS[c]?.name).filter(Boolean);
+      if (names.length) unlocksText = 'Unlocks: ' + names.join(', ');
+    }
+    if (r.unlocksMachines && typeof MACHINES !== 'undefined') {
+      const names = r.unlocksMachines.map(m => MACHINES[m]?.name).filter(Boolean);
+      if (names.length) unlocksText += (unlocksText ? '\n' : '') + 'Unlocks: ' + names.join(', ');
+    }
+    if (r.effect) {
+      const effects = Object.entries(r.effect).map(([k, v]) => {
+        if (k.endsWith('Mult')) return `${Math.round((1 - v) * 100)}% ${k.replace('Mult', '')} saving`;
+        return `+${v} ${k}`;
+      });
+      unlocksText += (unlocksText ? '\n' : '') + 'Effect: ' + effects.join(', ');
+    }
+
+    popover.innerHTML = `
+      <div class="tt-popover-name">${r.name}</div>
+      <div class="tt-popover-desc">${r.desc}</div>
+      ${unlocksText ? `<div class="tt-popover-unlocks">${unlocksText}</div>` : ''}
+      <div class="tt-popover-cost">Cost: ${costs} | ${r.duration}s</div>
+      <div class="tt-popover-buttons">
+        <button class="tt-btn-research" id="tt-btn-start">Research</button>
+        <button class="tt-btn-cancel" id="tt-btn-close">Cancel</button>
+      </div>
+    `;
+
+    // Position popover near the node
+    const rect = nodeEl.getBoundingClientRect();
+    popover.style.left = (rect.right + 8) + 'px';
+    popover.style.top = rect.top + 'px';
+
+    popover.classList.remove('hidden');
+    const popRect = popover.getBoundingClientRect();
+    if (popRect.right > window.innerWidth) {
+      popover.style.left = (rect.left - popRect.width - 8) + 'px';
+    }
+    if (popRect.bottom > window.innerHeight) {
+      popover.style.top = (window.innerHeight - popRect.height - 8) + 'px';
+    }
+
+    document.getElementById('tt-btn-start').addEventListener('click', () => {
+      this.game.startResearch(id);
+      popover.classList.add('hidden');
+    });
+    document.getElementById('tt-btn-close').addEventListener('click', () => {
+      popover.classList.add('hidden');
+    });
+  }
+
+  _scrollToCategory(catId) {
+    const hKey = '__header_' + catId;
+    const pos = this._treeLayout?.[hKey];
+    if (!pos) return;
+
+    const wrapper = document.getElementById('tt-canvas-wrapper');
+    if (!wrapper) return;
+
+    const wrapperW = wrapper.clientWidth;
+    const targetX = pos.x + 75 - wrapperW / 2;
+
+    this._treePanX = -targetX * this._treeZoom;
+    this._treePanY = 0;
+    this._applyTreeTransform();
+  }
+
+  _applyTreeTransform() {
+    const canvas = document.getElementById('tt-canvas');
+    const svg = document.getElementById('tt-connectors');
+    if (!canvas || !svg) return;
+    const tx = `translate(${this._treePanX}px, ${this._treePanY}px) scale(${this._treeZoom})`;
+    canvas.style.transform = tx;
+    svg.style.transform = tx;
+  }
+
+  _updateTreeProgress() {
+    const overlay = document.getElementById('research-overlay');
+    if (!overlay || overlay.classList.contains('hidden')) return;
+    if (!this.game.state.activeResearch) return;
+
+    const r = RESEARCH[this.game.state.activeResearch];
+    if (!r) return;
+    const pct = Math.min(100, (this.game.state.researchProgress / r.duration) * 100);
+
+    const node = document.querySelector(`.tt-node[data-research-id="${this.game.state.activeResearch}"]`);
+    if (node) {
+      const bar = node.querySelector('.tt-node-progress .bar');
+      if (bar) bar.style.width = pct + '%';
+    }
+
+    const activeEl = document.getElementById('tt-active-research');
+    if (activeEl) {
+      activeEl.textContent = `Researching: ${r.name} (${Math.round(pct)}%)`;
+    }
+  }
+
+  _bindTreeEvents() {
+    const wrapper = document.getElementById('tt-canvas-wrapper');
+    if (!wrapper) return;
+
+    wrapper.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.tt-node') || e.target.closest('.tt-popover')) return;
+      this._treeDragging = true;
+      this._treeDragStartX = e.clientX - this._treePanX;
+      this._treeDragStartY = e.clientY - this._treePanY;
+      const popover = document.getElementById('tt-popover');
+      if (popover) popover.classList.add('hidden');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this._treeDragging) return;
+      this._treePanX = e.clientX - this._treeDragStartX;
+      this._treePanY = e.clientY - this._treeDragStartY;
+      this._applyTreeTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      this._treeDragging = false;
+    });
+
+    wrapper.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomSpeed = 0.001;
+      const oldZoom = this._treeZoom;
+      this._treeZoom = Math.max(0.4, Math.min(1.8, this._treeZoom - e.deltaY * zoomSpeed));
+
+      const rect = wrapper.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const scale = this._treeZoom / oldZoom;
+      this._treePanX = cx - scale * (cx - this._treePanX);
+      this._treePanY = cy - scale * (cy - this._treePanY);
+
+      this._applyTreeTransform();
+    }, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const overlay = document.getElementById('research-overlay');
+        if (overlay && !overlay.classList.contains('hidden')) {
+          overlay.classList.add('hidden');
+          e.stopPropagation();
+        }
+      }
+    });
   }
 
   // --- Goals overlay ---
@@ -1668,160 +2433,6 @@ class Renderer {
     }
   }
 
-  // --- Beam diagnostics plots ---
-
-  _renderPlots() {
-    const envelope = this.game.state.physicsEnvelope;
-    if (!envelope || envelope.length === 0) {
-      this._drawEmptyPlot('plot-envelope', 'No beam data');
-      this._drawEmptyPlot('plot-energy', 'No beam data');
-      this._drawEmptyPlot('plot-current', 'No beam data');
-      return;
-    }
-
-    // Envelope plot: sigma_x and sigma_y vs element index
-    this._drawLinePlot('plot-envelope', envelope, [
-      { key: 'sigma_x', color: '#44aaff', label: 'sigma_x' },
-      { key: 'sigma_y', color: '#ff6644', label: 'sigma_y' },
-    ], { yLabel: 'mm', autoScale: true });
-
-    // Energy plot: energy vs element index
-    this._drawLinePlot('plot-energy', envelope, [
-      { key: 'energy', color: '#44dd66', label: 'Energy' },
-    ], { yLabel: 'GeV', autoScale: true });
-
-    // Current plot: current vs element index
-    this._drawLinePlot('plot-current', envelope, [
-      { key: 'current', color: '#ddaa44', label: 'Current' },
-    ], { yLabel: 'mA', autoScale: true });
-  }
-
-  _drawEmptyPlot(canvasId, message) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(message, w / 2, h / 2);
-  }
-
-  _drawLinePlot(canvasId, data, series, opts = {}) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    const pad = { top: 18, right: 14, bottom: 24, left: 52 };
-    const pw = w - pad.left - pad.right;
-    const ph = h - pad.top - pad.bottom;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // Background
-    ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
-    ctx.fillRect(0, 0, w, h);
-
-    if (data.length < 2) return;
-
-    // Compute y-range across all series
-    let yMin = Infinity, yMax = -Infinity;
-    for (const s of series) {
-      for (const d of data) {
-        const v = d[s.key];
-        if (v != null && isFinite(v)) {
-          if (v < yMin) yMin = v;
-          if (v > yMax) yMax = v;
-        }
-      }
-    }
-    if (!isFinite(yMin) || yMin === yMax) { yMin = 0; yMax = 1; }
-    const yPad = (yMax - yMin) * 0.1 || 0.1;
-    yMin -= yPad;
-    yMax += yPad;
-    if (yMin < 0 && data.every(d => series.every(s => (d[s.key] || 0) >= 0))) yMin = 0;
-
-    const n = data.length;
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)';
-    ctx.lineWidth = 0.5;
-    const nGridY = 4;
-    for (let i = 0; i <= nGridY; i++) {
-      const y = pad.top + ph - (i / nGridY) * ph;
-      ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(pad.left + pw, y);
-      ctx.stroke();
-
-      // Y-axis labels
-      const val = yMin + (i / nGridY) * (yMax - yMin);
-      ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(val.toPrecision(3), pad.left - 4, y + 4);
-    }
-
-    // Axes
-    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, pad.top);
-    ctx.lineTo(pad.left, pad.top + ph);
-    ctx.lineTo(pad.left + pw, pad.top + ph);
-    ctx.stroke();
-
-    // Draw each series
-    for (const s of series) {
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < n; i++) {
-        const v = data[i][s.key];
-        if (v == null || !isFinite(v)) continue;
-        const x = pad.left + (i / (n - 1)) * pw;
-        const y = pad.top + ph - ((v - yMin) / (yMax - yMin)) * ph;
-        if (!started) { ctx.moveTo(x, y); started = true; }
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    // Legend
-    ctx.font = '10px monospace';
-    let lx = pad.left + 6;
-    for (const s of series) {
-      ctx.fillStyle = s.color;
-      ctx.fillRect(lx, pad.top - 12, 10, 8);
-      ctx.fillStyle = 'rgba(180, 180, 220, 0.8)';
-      ctx.textAlign = 'left';
-      ctx.fillText(s.label, lx + 14, pad.top - 5);
-      lx += ctx.measureText(s.label).width + 30;
-    }
-
-    // X-axis label
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)';
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('element index', pad.left + pw / 2, h - 5);
-
-    // Y-axis label
-    if (opts.yLabel) {
-      ctx.save();
-      ctx.translate(10, pad.top + ph / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillStyle = 'rgba(140, 140, 180, 0.7)';
-      ctx.font = '9px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(opts.yLabel, 0, 0);
-      ctx.restore();
-    }
-  }
-
   // --- HUD event bindings ---
 
   _bindHUDEvents() {
@@ -1855,7 +2466,7 @@ class Renderer {
       beamBtn.addEventListener('click', () => this.game.toggleBeam());
     }
 
-    // Research button
+    // Research button — opens tech tree
     const resBtn = document.getElementById('btn-research');
     if (resBtn) {
       resBtn.addEventListener('click', () => {
@@ -1863,7 +2474,8 @@ class Renderer {
         if (overlay) {
           overlay.classList.toggle('hidden');
           if (!overlay.classList.contains('hidden')) {
-            this._renderResearchOverlay();
+            this._treeLayout = null; // force relayout
+            this._renderTechTree();
           }
         }
       });
@@ -1891,20 +2503,6 @@ class Renderer {
       sysStatsHeader.addEventListener('click', () => {
         sysStatsPanel.classList.toggle('expanded');
         sysStatsToggle.textContent = sysStatsPanel.classList.contains('expanded') ? '-' : '+';
-      });
-    }
-
-    // Beam plots toggle
-    const plotsPanel = document.getElementById('beam-plots');
-    const plotsToggle = document.getElementById('beam-plots-toggle');
-    const plotsHeader = document.getElementById('beam-plots-header');
-    if (plotsPanel && plotsToggle && plotsHeader) {
-      plotsHeader.addEventListener('click', () => {
-        plotsPanel.classList.toggle('collapsed');
-        plotsToggle.textContent = plotsPanel.classList.contains('collapsed') ? '+' : '-';
-        if (!plotsPanel.classList.contains('collapsed')) {
-          this._renderPlots();
-        }
       });
     }
 
@@ -1947,6 +2545,15 @@ class Renderer {
     this.app.canvas.style.cursor = active ? 'crosshair' : '';
   }
 
+  setProbeMode(active) {
+    this.probeMode = active;
+    this.app.canvas.style.cursor = active ? 'crosshair' : '';
+    const indicator = document.getElementById('probe-mode-indicator');
+    if (indicator) {
+      indicator.classList.toggle('hidden', !active);
+    }
+  }
+
   updateCursorBendDir(dir) {
     this.cursorBendDir = dir;
   }
@@ -1971,12 +2578,11 @@ class Renderer {
     // Map category key to system stats key and display name
     const catMap = {
       vacuum:       { key: 'vacuum',       name: 'VACUUM' },
-      cryo:         { key: 'cryo',         name: 'CRYO' },
       rfPower:      { key: 'rfPower',      name: 'RF POWER' },
       cooling:      { key: 'cooling',      name: 'COOLING' },
-      power:        { key: 'power',        name: 'POWER' },
       dataControls: { key: 'dataControls', name: 'DATA/CTRL' },
-      safety:       { key: 'dataControls', name: 'SAFETY' },
+      power:        { key: 'power',        name: 'POWER' },
+      ops:          { key: 'ops',          name: 'OPS' },
     };
 
     const mapped = catMap[category];
@@ -2017,17 +2623,20 @@ class Renderer {
       case 'rfPower':
         this._renderRfPowerStats(data, summary, detail);
         break;
-      case 'cryo':
-        this._renderCryoStats(data, summary, detail);
-        break;
-      case 'cooling':
+      case 'cooling': {
         this._renderCoolingStats(data, summary, detail);
+        const cryoData = stats.cryo;
+        if (cryoData) this._renderCryoStats(cryoData, summary, detail, true);
         break;
+      }
       case 'power':
         this._renderPowerStats(data, summary, detail);
         break;
       case 'dataControls':
         this._renderDataControlsStats(data, summary, detail);
+        break;
+      case 'ops':
+        this._renderOpsStats(data, summary, detail);
         break;
     }
   }
@@ -2133,24 +2742,21 @@ class Renderer {
     </div>`;
   }
 
-  _renderCryoStats(d, summary, detail) {
+  _renderCryoStats(d, summary, detail, append = false) {
     const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
-    summary.innerHTML = [
-      this._sstat('Capacity', this._fmt(d.coolingCapacity), 'W'),
+    const cryoSummary = [
+      this._sstat('Cryo Cap', this._fmt(d.coolingCapacity), 'W'),
       this._ssep(),
-      this._sstat('Load', this._fmt(d.heatLoad), 'W'),
+      this._sstat('Cryo Load', this._fmt(d.heatLoad), 'W'),
       this._ssep(),
       this._sstat('Temp', d.opTemp > 0 ? d.opTemp.toFixed(1) : '--', 'K'),
       this._ssep(),
-      this._sstat('Wall Pwr', d.wallPower.toFixed(1), 'kW'),
-      this._ssep(),
-      this._sstat('Margin', d.coolingCapacity > 0 ? d.margin.toFixed(0) : '--', '%', mc),
-      this._ssep(),
-      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+      this._sstat('Cryo Margin', d.coolingCapacity > 0 ? d.margin.toFixed(0) : '--', '%', mc),
     ].join('');
 
     const dd = d.detail;
-    detail.innerHTML = `<div class="sstat-detail-grid">
+    const cryoDetail = `<div class="sstat-detail-grid" style="margin-top:6px;border-top:1px solid #333;padding-top:4px;">
+      <div style="grid-column:1/-1;color:#4aa;font-size:10px;margin-bottom:2px;">CRYOGENICS</div>
       ${this._detailRow('He Compressors', dd.compressors)}
       ${this._detailRow('Cold Box 4K', dd.coldBox4K)}
       ${this._detailRow('Sub-Cooling 2K', dd.subCooling2K)}
@@ -2161,6 +2767,14 @@ class Renderer {
       ${this._detailRow('Static Load', dd.staticLoad.toFixed(1), 'W')}
       ${this._detailRow('Dynamic Load', dd.dynamicLoad.toFixed(1), 'W')}
     </div>`;
+
+    if (append) {
+      summary.innerHTML += cryoSummary;
+      detail.innerHTML += cryoDetail;
+    } else {
+      summary.innerHTML = cryoSummary;
+      detail.innerHTML = cryoDetail;
+    }
   }
 
   _renderCoolingStats(d, summary, detail) {
@@ -2237,6 +2851,28 @@ class Renderer {
       ${this._detailRow('Timing Systems', dd.timingSystems)}
       ${this._detailRow('MPS Units', dd.mps)}
       ${this._detailRow('Laser Systems', dd.laserSystems)}
+    </div>`;
+  }
+
+  _renderOpsStats(d, summary, detail) {
+    summary.innerHTML = [
+      this._sstat('Shielding', d.shielding, ''),
+      this._ssep(),
+      this._sstat('Beam Dumps', d.beamDumps, ''),
+      this._ssep(),
+      this._sstat('Tgt Handling', d.targetHandling, ''),
+      this._ssep(),
+      this._sstat('Rad Waste', d.radWasteStorage, ''),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('Shielding Blocks', dd.shielding)}
+      ${this._detailRow('Beam Dumps', dd.beamDumps)}
+      ${this._detailRow('Target Handling', dd.targetHandling)}
+      ${this._detailRow('Rad Waste Storage', dd.radWasteStorage)}
     </div>`;
   }
 
