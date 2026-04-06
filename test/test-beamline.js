@@ -23,6 +23,15 @@ global.COMPONENTS = {
   detector:    { id: 'detector',    trackLength: 3, isEndpoint: true },
 };
 
+global.PARAM_DEFS = {
+  source: {
+    extractionVoltage: { min: 10, max: 100, default: 50, derived: false },
+    cathodeTemperature: { min: 600, max: 2000, default: 1200, derived: false },
+    beamCurrent: { min: 0, max: 10, default: 1, derived: true },
+    emittance: { min: 0, max: 50, default: 5, derived: true },
+  },
+};
+
 // --- Load Beamline ---
 const Beamline = require('../beamline.js');
 
@@ -231,6 +240,17 @@ console.log('\n-- Serialization round-trip --');
   assertEq(bl2.getAllNodes().length, 2, 'deserialized has 2 nodes');
   assert(bl2.isTileOccupied(5, 5), 'deserialized occupied map correct');
   assertEq(bl2.getBuildCursors().length, 1, 'deserialized cursors work');
+}
+
+console.log('\n-- Param initialization on placement --');
+{
+  const bl = new Beamline();
+  const id = bl.placeSource(5, 5, DIR.NE);
+  const node = bl.nodes.find(n => n.id === id);
+  assert(node.params !== undefined, 'placed source has params');
+  assert(node.params.extractionVoltage === 50, 'extractionVoltage initialized to default');
+  assert(node.params.cathodeTemperature === 1200, 'cathodeTemperature initialized to default');
+  assert(node.params.beamCurrent === undefined, 'derived param beamCurrent not in params');
 }
 
 // --- Summary ---
