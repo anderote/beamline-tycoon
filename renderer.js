@@ -160,14 +160,14 @@ class Renderer {
       const end = gridToIso(i, range);
       g.moveTo(start.x, start.y);
       g.lineTo(end.x, end.y);
-      g.stroke({ color: 0x000000, width: 1, alpha: 0.15 });
+      g.stroke({ color: 0x4444aa, width: 1, alpha: 0.2 });
 
       // Row lines
       const rStart = gridToIso(-range, i);
       const rEnd = gridToIso(range, i);
       g.moveTo(rStart.x, rStart.y);
       g.lineTo(rEnd.x, rEnd.y);
-      g.stroke({ color: 0x000000, width: 1, alpha: 0.15 });
+      g.stroke({ color: 0x4444aa, width: 1, alpha: 0.2 });
     }
 
     this.gridLayer.addChild(g);
@@ -228,14 +228,21 @@ class Renderer {
 
     if (!this.game.state.beamOn) return;
 
-    const ordered = this.game.beamline.getOrderedComponents();
-    if (ordered.length < 2) return;
+    const nodes = this.game.beamline.getAllNodes();
+    if (nodes.length < 2) return;
 
     const g = new PIXI.Graphics();
+    const nodeById = {};
+    for (const n of nodes) nodeById[n.id] = n;
 
-    for (let i = 0; i < ordered.length - 1; i++) {
-      const from = this._nodeCenter(ordered[i]);
-      const to = this._nodeCenter(ordered[i + 1]);
+    // Draw beam along parent-child edges
+    for (const node of nodes) {
+      if (node.parentId == null) continue;
+      const parent = nodeById[node.parentId];
+      if (!parent) continue;
+
+      const from = this._nodeCenter(parent);
+      const to = this._nodeCenter(node);
 
       // Outer glow
       g.moveTo(from.x, from.y);
@@ -331,11 +338,12 @@ class Renderer {
     g.lineTo(pos.x, pos.y + ps);
     g.stroke({ color: 0x4488ff, width: 1.5, alpha: 0.8 });
 
-    // Direction arrow
+    // Direction arrow (convert grid delta to isometric screen delta)
     const dirDelta = DIR_DELTA[cursor.dir];
-    const arrowLen = 10;
-    const ax = pos.x + dirDelta.dc * arrowLen;
-    const ay = pos.y + dirDelta.dr * arrowLen;
+    const isoDir = gridToIso(dirDelta.dc, dirDelta.dr);
+    const arrowScale = 0.3;
+    const ax = pos.x + isoDir.x * arrowScale;
+    const ay = pos.y + isoDir.y * arrowScale;
     g.moveTo(pos.x, pos.y);
     g.lineTo(ax, ay);
     g.stroke({ color: 0x88bbff, width: 2, alpha: 0.9 });
@@ -433,12 +441,10 @@ class Renderer {
     if (!btn) return;
     if (this.game.state.beamOn) {
       btn.textContent = 'Stop Beam';
-      btn.classList.add('beam-on');
-      btn.classList.remove('beam-off');
+      btn.classList.add('running');
     } else {
       btn.textContent = 'Start Beam';
-      btn.classList.remove('beam-on');
-      btn.classList.add('beam-off');
+      btn.classList.remove('running');
     }
   }
 

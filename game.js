@@ -68,7 +68,7 @@ class Game {
 
   isComponentUnlocked(comp) {
     if (comp.unlocked) return true;
-    if (!comp.requires) return false;
+    if (!comp.requires) return true;   // no requirement = available by default
     if (Array.isArray(comp.requires)) {
       return comp.requires.every(req => this.state.completedResearch.includes(req));
     }

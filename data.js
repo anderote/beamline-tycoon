@@ -386,7 +386,7 @@ const COMPONENTS = {
     energyCost: 2,
     length: 1,
     trackLength: 1,
-    requires: 'advancedOptics2',
+    requires: 'advancedOptics',
     spriteKey: 'octupole',
     spriteColor: 0xcc4444,
     params: { fieldStrength: 200 },
