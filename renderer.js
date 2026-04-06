@@ -1037,15 +1037,22 @@ class Renderer {
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
-    const depth = hh; // box side depth matches sprite generation
+    const depth = hh;
+    // Sprite anchor is (0.5, 0.7) on a 48px tall texture (hh*3).
+    // The box center in the texture is at the diamond center (y=0 in box coords),
+    // which is at texture y=16. Anchor is at texture y=33.6.
+    // So box is drawn 33.6 - 16 = 17.6px above the anchor point.
+    const yOff = -(0.7 * (hh * 3) - hh);
+    const cx = pos.x;
+    const cy = pos.y + yOff;
     const g = new PIXI.Graphics();
     // Trace full iso box: top diamond + left side + right side + bottom edge
-    g.moveTo(pos.x, pos.y - hh);           // top
-    g.lineTo(pos.x + hw, pos.y);            // right of top diamond
-    g.lineTo(pos.x + hw, pos.y + depth);    // down right side
-    g.lineTo(pos.x, pos.y + hh + depth);    // bottom center
-    g.lineTo(pos.x - hw, pos.y + depth);    // down left side
-    g.lineTo(pos.x - hw, pos.y);            // left of top diamond
+    g.moveTo(cx, cy - hh);              // top
+    g.lineTo(cx + hw, cy);              // right of top diamond
+    g.lineTo(cx + hw, cy + depth);      // down right side
+    g.lineTo(cx, cy + hh + depth);      // bottom center
+    g.lineTo(cx - hw, cy + depth);      // down left side
+    g.lineTo(cx - hw, cy);              // left of top diamond
     g.closePath();
     g.stroke({ color, width: lineWidth, alpha: 0.9 });
     this.networkOverlayLayer.addChild(g);
