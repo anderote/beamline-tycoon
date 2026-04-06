@@ -202,3 +202,162 @@ if (nFailed > 0) {
 } else {
   console.log('\n=== ALL NETWORK DISCOVERY TESTS PASSED ===');
 }
+
+// === Network Validation Tests ===
+// Make COMPONENTS available as a global so validation methods can access it
+// COMPONENTS is declared with const in data.js, so it's script-scoped in vm, not on ctx directly
+global.COMPONENTS = vm.runInContext('COMPONENTS', ctx);
+
+let vPassed = 0;
+let vFailed = 0;
+function vassert(cond, msg) {
+  if (!cond) { console.log('FAIL: ' + msg); vFailed++; }
+  else { vPassed++; }
+}
+
+function placeBeamlineNode(state, id, type, col, row) {
+  state.beamline.push({ id: id, type: type, col: col, row: row, tiles: [{ col: col, row: row }] });
+}
+
+// --- Power Validation Tests ---
+console.log('\n=== Power Validation Tests ===');
+
+// 1. Substation provides 1500 kW, quad draws from it, ok=true
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const pNet = nets.powerCable[0];
+  const result = Networks.validatePowerNetwork(pNet);
+  vassert(result.capacity === 1500, 'substation should provide 1500 kW, got ' + result.capacity);
+  vassert(result.draw === 6, 'quad should draw 6 kW, got ' + result.draw);
+  vassert(result.ok === true, 'power should be ok');
+  vassert(result.substations.length === 1, 'should have 1 substation');
+  vassert(result.consumers.length === 1, 'should have 1 consumer');
+  vassert(result.consumers[0].source === 'beamline', 'consumer source should be beamline');
+}
+
+// 2. No substation = zero capacity, ok=false
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 6);
+  const nets = Networks.discoverAll(state);
+  const pNet = nets.powerCable[0];
+  const result = Networks.validatePowerNetwork(pNet);
+  vassert(result.capacity === 0, 'no substation = 0 capacity');
+  vassert(result.ok === false, 'no substation should fail');
+}
+
+// 3. Facility equipment draw also counted
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeEquip(state, 'ch1', 'chiller', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const pNet = nets.powerCable[0];
+  const result = Networks.validatePowerNetwork(pNet);
+  vassert(result.capacity === 1500, 'substation capacity correct');
+  vassert(result.draw === 5, 'chiller draws 5 kW, got ' + result.draw);
+  vassert(result.consumers.length === 1, 'should have 1 facility consumer');
+  vassert(result.consumers[0].source === 'facility', 'consumer source should be facility');
+  vassert(result.ok === true, 'power should be ok with chiller');
+}
+
+// --- Cooling Validation Tests ---
+console.log('\n=== Cooling Validation Tests ===');
+
+// 1. Chiller provides 200 kW, dipole generates heat, ok=true
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'coolingWater');
+  placeConn(state, 5, 6, 'coolingWater');
+  placeEquip(state, 'ch1', 'chiller', 5, 4);
+  placeBeamlineNode(state, 'd1', 'dipole', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const cNet = nets.coolingWater[0];
+  const result = Networks.validateCoolingNetwork(cNet);
+  vassert(result.capacity === 200, 'chiller should provide 200 kW, got ' + result.capacity);
+  // dipole energyCost=8, heat = 8*0.6 = 4.8
+  vassert(Math.abs(result.heatLoad - 4.8) < 0.01, 'dipole heat should be 4.8, got ' + result.heatLoad);
+  vassert(result.ok === true, 'cooling should be ok');
+  vassert(result.plants.length === 1, 'should have 1 cooling plant');
+  vassert(result.consumers.length === 1, 'should have 1 consumer');
+}
+
+// 2. No cooling plant = zero capacity
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'coolingWater');
+  placeBeamlineNode(state, 'd1', 'dipole', 5, 6);
+  const nets = Networks.discoverAll(state);
+  const cNet = nets.coolingWater[0];
+  const result = Networks.validateCoolingNetwork(cNet);
+  vassert(result.capacity === 0, 'no cooling plant = 0 capacity');
+  vassert(result.ok === false, 'no cooling plant should fail');
+}
+
+// --- Cryo Validation Tests ---
+console.log('\n=== Cryo Validation Tests ===');
+
+// 1. Compressor + 4K cold box = 500W capacity, cryomodule = 18W heat, ok=true
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'cryoTransfer');
+  placeConn(state, 5, 6, 'cryoTransfer');
+  placeConn(state, 5, 7, 'cryoTransfer');
+  placeEquip(state, 'comp1', 'heCompressor', 5, 4);
+  placeEquip(state, 'cb1', 'coldBox4K', 5, 8);
+  placeBeamlineNode(state, 'cm1', 'cryomodule', 6, 5);
+  const nets = Networks.discoverAll(state);
+  const crNet = nets.cryoTransfer[0];
+  const result = Networks.validateCryoNetwork(crNet);
+  vassert(result.hasCompressor === true, 'should detect compressor');
+  vassert(result.capacity === 500, '4K cold box with compressor = 500W, got ' + result.capacity);
+  vassert(result.heatLoad === 18, 'cryomodule = 18W heat, got ' + result.heatLoad);
+  vassert(result.opTemp === 4.5, 'opTemp should be 4.5K, got ' + result.opTemp);
+  vassert(result.ok === true, 'cryo should be ok');
+}
+
+// 2. Cold box without compressor = 0 capacity, ok=false
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'cryoTransfer');
+  placeConn(state, 5, 6, 'cryoTransfer');
+  placeEquip(state, 'cb1', 'coldBox4K', 5, 4);
+  placeBeamlineNode(state, 'cm1', 'cryomodule', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const crNet = nets.cryoTransfer[0];
+  const result = Networks.validateCryoNetwork(crNet);
+  vassert(result.hasCompressor === false, 'no compressor');
+  vassert(result.capacity === 0, 'cold box without compressor = 0 capacity, got ' + result.capacity);
+  vassert(result.ok === false, 'should fail without compressor');
+  vassert(result.opTemp === 4.5, 'opTemp still set from cold box, got ' + result.opTemp);
+}
+
+// 3. Cryocooler works without compressor (50W)
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'cryoTransfer');
+  placeEquip(state, 'cc1', 'cryocooler', 5, 4);
+  const nets = Networks.discoverAll(state);
+  const crNet = nets.cryoTransfer[0];
+  const result = Networks.validateCryoNetwork(crNet);
+  vassert(result.hasCompressor === false, 'no compressor needed for cryocooler');
+  vassert(result.capacity === 50, 'cryocooler = 50W, got ' + result.capacity);
+  vassert(result.opTemp === 40, 'cryocooler opTemp = 40K, got ' + result.opTemp);
+  vassert(result.ok === true, 'cryocooler with no heat load should be ok');
+}
+
+console.log('Passed: ' + vPassed + '  Failed: ' + vFailed);
+if (vFailed > 0) {
+  console.log('\n=== VALIDATION TESTS FAILED ===');
+  process.exit(1);
+} else {
+  console.log('\n=== ALL VALIDATION TESTS PASSED ===');
+}

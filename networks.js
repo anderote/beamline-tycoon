@@ -131,6 +131,179 @@ const Networks = {
     }
     return found;
   },
+
+  // ── Network Validation ──────────────────────────────────────────────
+
+  /**
+   * Validate power network: substations provide capacity, everything else draws.
+   * Returns { capacity, draw, ok, substations: [...], consumers: [...] }
+   */
+  validatePowerNetwork: function(network) {
+    var SUBSTATION_KW = 1500;
+    var substations = [];
+    var consumers = [];
+    var capacity = 0;
+    var draw = 0;
+
+    // Facility equipment
+    for (var i = 0; i < network.equipment.length; i++) {
+      var eq = network.equipment[i];
+      if (eq.type === 'substation') {
+        capacity += SUBSTATION_KW;
+        substations.push({ id: eq.id, type: eq.type, capacity: SUBSTATION_KW });
+      } else {
+        var comp = COMPONENTS[eq.type];
+        var eCost = (comp && comp.energyCost) ? comp.energyCost : 0;
+        if (eCost > 0) {
+          draw += eCost;
+          consumers.push({ id: eq.id, type: eq.type, draw: eCost, source: 'facility' });
+        }
+      }
+    }
+
+    // Beamline nodes
+    for (var j = 0; j < network.beamlineNodes.length; j++) {
+      var node = network.beamlineNodes[j];
+      var bComp = COMPONENTS[node.type];
+      var bCost = (bComp && bComp.energyCost) ? bComp.energyCost : 0;
+      if (bCost > 0) {
+        draw += bCost;
+        consumers.push({ id: node.id, type: node.type, draw: bCost, source: 'beamline' });
+      }
+    }
+
+    return {
+      capacity: capacity,
+      draw: draw,
+      ok: capacity >= draw && capacity > 0,
+      substations: substations,
+      consumers: consumers,
+    };
+  },
+
+  /**
+   * Validate cooling network: cooling plants provide capacity, components with coolingWater generate heat.
+   * Returns { capacity, heatLoad, margin, ok, plants: [...], consumers: [...] }
+   */
+  validateCoolingNetwork: function(network) {
+    var COOLING_CAPACITY = { lcwSkid: 100, chiller: 200, coolingTower: 500 };
+    var plants = [];
+    var consumers = [];
+    var capacity = 0;
+    var heatLoad = 0;
+
+    // Facility equipment: check for cooling plants and heat generators
+    for (var i = 0; i < network.equipment.length; i++) {
+      var eq = network.equipment[i];
+      if (COOLING_CAPACITY[eq.type] !== undefined) {
+        var cap = COOLING_CAPACITY[eq.type];
+        capacity += cap;
+        plants.push({ id: eq.id, type: eq.type, capacity: cap });
+      } else {
+        var comp = COMPONENTS[eq.type];
+        if (comp && Array.isArray(comp.requiredConnections) &&
+            comp.requiredConnections.indexOf('coolingWater') !== -1 && comp.energyCost) {
+          var heat = comp.energyCost * 0.6;
+          heatLoad += heat;
+          consumers.push({ id: eq.id, type: eq.type, heatLoad: heat, source: 'facility' });
+        }
+      }
+    }
+
+    // Beamline nodes
+    for (var j = 0; j < network.beamlineNodes.length; j++) {
+      var node = network.beamlineNodes[j];
+      var bComp = COMPONENTS[node.type];
+      if (bComp && Array.isArray(bComp.requiredConnections) &&
+          bComp.requiredConnections.indexOf('coolingWater') !== -1 && bComp.energyCost) {
+        var bHeat = bComp.energyCost * 0.6;
+        heatLoad += bHeat;
+        consumers.push({ id: node.id, type: node.type, heatLoad: bHeat, source: 'beamline' });
+      }
+    }
+
+    var margin = capacity > 0 ? (capacity - heatLoad) / capacity * 100 : 0;
+
+    return {
+      capacity: capacity,
+      heatLoad: heatLoad,
+      margin: margin,
+      ok: capacity >= heatLoad && capacity > 0,
+      plants: plants,
+      consumers: consumers,
+    };
+  },
+
+  /**
+   * Validate cryo network: compressor + cold boxes provide capacity, SRF components generate heat.
+   * Returns { capacity, heatLoad, opTemp, hasCompressor, margin, ok, consumers: [...] }
+   */
+  validateCryoNetwork: function(network) {
+    var SRF_TYPES = ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'srfGun', 'scQuad', 'scDipole'];
+    var SRF_HEAT_W = 18;
+    var HOUSING_HEAT_W = 3;
+    var COLD_BOX_CAPACITY = { coldBox4K: 500, coldBox2K: 200 };
+    var COLD_BOX_TEMP = { coldBox4K: 4.5, coldBox2K: 2.0 };
+    var CRYOCOOLER_CAPACITY = 50;
+    var CRYOCOOLER_TEMP = 40;
+
+    var hasCompressor = false;
+    var capacity = 0;
+    var heatLoad = 0;
+    var opTemp = 0;
+    var consumers = [];
+
+    // Check for compressor
+    for (var i = 0; i < network.equipment.length; i++) {
+      if (network.equipment[i].type === 'heCompressor') {
+        hasCompressor = true;
+        break;
+      }
+    }
+
+    // Facility equipment: cold boxes, cryocoolers, cryomodule housings
+    for (var e = 0; e < network.equipment.length; e++) {
+      var eq = network.equipment[e];
+      if (COLD_BOX_CAPACITY[eq.type] !== undefined) {
+        if (hasCompressor) {
+          capacity += COLD_BOX_CAPACITY[eq.type];
+        }
+        var boxTemp = COLD_BOX_TEMP[eq.type];
+        if (opTemp === 0 || boxTemp < opTemp) {
+          opTemp = boxTemp;
+        }
+      } else if (eq.type === 'cryocooler') {
+        capacity += CRYOCOOLER_CAPACITY;
+        if (opTemp === 0 || CRYOCOOLER_TEMP < opTemp) {
+          opTemp = CRYOCOOLER_TEMP;
+        }
+      } else if (eq.type === 'cryomoduleHousing') {
+        heatLoad += HOUSING_HEAT_W;
+        consumers.push({ id: eq.id, type: eq.type, heatLoad: HOUSING_HEAT_W, source: 'facility' });
+      }
+    }
+
+    // Beamline nodes: SRF types
+    for (var j = 0; j < network.beamlineNodes.length; j++) {
+      var node = network.beamlineNodes[j];
+      if (SRF_TYPES.indexOf(node.type) !== -1) {
+        heatLoad += SRF_HEAT_W;
+        consumers.push({ id: node.id, type: node.type, heatLoad: SRF_HEAT_W, source: 'beamline' });
+      }
+    }
+
+    var margin = capacity > 0 ? (capacity - heatLoad) / capacity * 100 : 0;
+
+    return {
+      capacity: capacity,
+      heatLoad: heatLoad,
+      opTemp: opTemp,
+      hasCompressor: hasCompressor,
+      margin: margin,
+      ok: capacity >= heatLoad && (heatLoad === 0 || capacity > 0),
+      consumers: consumers,
+    };
+  },
 };
 
 if (typeof module !== 'undefined' && module.exports) {
