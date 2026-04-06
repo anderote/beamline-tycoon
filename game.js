@@ -297,6 +297,84 @@ class Game {
     return this.state.connections.get(key) || new Set();
   }
 
+  // Check if a beamline component has a valid connection of the given type
+  hasValidConnection(node, connType) {
+    const conn = CONNECTION_TYPES[connType];
+    if (!conn) return false;
+
+    // Check all 4 adjacent tiles for the connection type
+    const adjacentTiles = [
+      { col: node.col, row: node.row - 1 },
+      { col: node.col, row: node.row + 1 },
+      { col: node.col + 1, row: node.row },
+      { col: node.col - 1, row: node.row },
+    ];
+
+    for (const adj of adjacentTiles) {
+      const connSet = this.getConnectionsAt(adj.col, adj.row);
+      if (!connSet.has(connType)) continue;
+
+      // Trace the connection path to see if it reaches a valid facility source
+      if (this._traceConnectionToSource(adj.col, adj.row, connType)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _traceConnectionToSource(startCol, startRow, connType) {
+    // BFS from the tile adjacent to the beamline component, following
+    // connected tiles of the same type, looking for facility equipment
+    const visited = new Set();
+    const queue = [{ col: startCol, row: startRow }];
+
+    while (queue.length > 0) {
+      const { col, row } = queue.shift();
+      const key = col + ',' + row;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      // Check if there's facility equipment here
+      const equipId = this.state.facilityGrid[key];
+      if (equipId) {
+        const equip = this.state.facilityEquipment.find(e => e.id === equipId);
+        if (equip) {
+          const equipConn = this._getEquipmentConnectionType(equip.type);
+          if (equipConn === connType) return true;
+        }
+      }
+
+      // Expand to neighbors that have this connection type
+      const neighbors = [
+        { col: col, row: row - 1 },
+        { col: col, row: row + 1 },
+        { col: col + 1, row: row },
+        { col: col - 1, row: row },
+      ];
+      for (const n of neighbors) {
+        const nKey = n.col + ',' + n.row;
+        if (!visited.has(nKey) && this.getConnectionsAt(n.col, n.row).has(connType)) {
+          queue.push(n);
+        }
+      }
+    }
+    return false;
+  }
+
+  _getEquipmentConnectionType(compType) {
+    const comp = COMPONENTS[compType];
+    if (!comp) return null;
+    switch (comp.category) {
+      case 'vacuum': return 'vacuumPipe';
+      case 'cryo': return 'cryoTransfer';
+      case 'rfPower': return 'rfWaveguide';
+      case 'cooling': return 'coolingWater';
+      case 'power': return 'powerCable';
+      case 'dataControls': return 'dataFiber';
+      default: return null;
+    }
+  }
+
   // === STATS ===
 
   recalcBeamline() {
