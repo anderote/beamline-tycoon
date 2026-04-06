@@ -249,6 +249,10 @@ class InputHandler {
           this.deselectTool();
         } else if (this.selectedInfraTool) {
           this.deselectInfraTool();
+        } else if (this.selectedFacilityTool) {
+          this.deselectFacilityTool();
+        } else if (this.selectedConnTool) {
+          this.deselectConnTool();
         } else {
           // Right-click on the grid: check if clicking on a beamline component
           const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -339,6 +343,19 @@ class InputHandler {
         this.selectedNodeId = node.id;
         this.renderer.showPopup(node, screenX, screenY);
       } else {
+        // Check for facility equipment click
+        const facKey = col + ',' + row;
+        const facId = this.game.state.facilityGrid[facKey];
+        if (facId) {
+          const equip = this.game.state.facilityEquipment.find(e => e.id === facId);
+          if (equip) {
+            const comp = COMPONENTS[equip.type];
+            if (comp) {
+              this.renderer.showFacilityPopup(equip, comp, screenX, screenY);
+              return;
+            }
+          }
+        }
         this.selectedNodeId = null;
         this.renderer.hidePopup();
       }

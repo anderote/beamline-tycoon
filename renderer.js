@@ -593,6 +593,7 @@ class Renderer {
       const refund = Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
       html += '<div class="popup-actions">';
       html += `<button class="btn-danger" id="popup-remove-btn">Recycle (${refund})</button>`;
+      html += '<button class="popup-probe-btn" id="popup-probe-btn">Probe</button>';
       html += '</div>';
 
       body.innerHTML = html;
@@ -600,6 +601,11 @@ class Renderer {
       document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
         this.game.removeComponent(node.id);
         this.hidePopup();
+      });
+
+      document.getElementById('popup-probe-btn')?.addEventListener('click', () => {
+        this.hidePopup();
+        if (this.onProbeClick) this.onProbeClick(node);
       });
     }
 
@@ -612,6 +618,37 @@ class Renderer {
     if (closeBtn) {
       closeBtn.onclick = () => this.hidePopup();
     }
+  }
+
+  showFacilityPopup(equip, comp, screenX, screenY) {
+    const popup = document.getElementById('component-popup');
+    if (!popup) return;
+
+    const title = popup.querySelector('.popup-title');
+    if (title) title.textContent = comp.name;
+
+    const body = popup.querySelector('.popup-body');
+    if (body) {
+      let html = `<div class="popup-stats">`;
+      html += `<div>Type: ${comp.name}</div>`;
+      html += `<div>Category: ${comp.category}</div>`;
+      html += `<div>Energy Cost: ${comp.energyCost} E/s</div>`;
+      html += `</div>`;
+      html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">Remove (50% refund)</button></div>`;
+      body.innerHTML = html;
+
+      document.getElementById('popup-remove-facility-btn')?.addEventListener('click', () => {
+        this.game.removeFacilityEquipment(equip.id);
+        this.hidePopup();
+      });
+    }
+
+    popup.style.left = Math.min(screenX + 10, window.innerWidth - 220) + 'px';
+    popup.style.top = Math.min(screenY + 10, window.innerHeight - 200) + 'px';
+    popup.classList.remove('hidden');
+
+    const closeBtn = popup.querySelector('.popup-close');
+    if (closeBtn) closeBtn.onclick = () => this.hidePopup();
   }
 
   hidePopup() {
