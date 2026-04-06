@@ -72,6 +72,10 @@ class Renderer {
     this.infraLayer.zIndex = 0.5;
     this.world.addChild(this.infraLayer);
 
+    this.zoneLayer = new PIXI.Container();
+    this.zoneLayer.zIndex = 0.55;
+    this.world.addChild(this.zoneLayer);
+
     this.dragPreviewLayer = new PIXI.Container();
     this.dragPreviewLayer.zIndex = 0.6;
     this.world.addChild(this.dragPreviewLayer);
@@ -120,12 +124,16 @@ class Renderer {
           this._renderBeam();
           this._renderCursors();
           this._renderInfrastructure();
+          this._renderZones();
           this._renderPlots();
           this._renderFacilityEquipment();
           this._renderConnections();
           break;
         case 'infrastructureChanged':
           this._renderInfrastructure();
+          break;
+        case 'zonesChanged':
+          this._renderZones();
           break;
         case 'facilityChanged':
           this._renderFacilityEquipment();
@@ -847,6 +855,73 @@ class Renderer {
     this.infraLayer.addChild(g);
   }
 
+  // --- Zone rendering ---
+
+  _renderZones() {
+    this.zoneLayer.removeChildren();
+    const zones = this.game.state.zones || [];
+    const connectivity = this.game.state.zoneConnectivity || {};
+
+    for (const tile of zones) {
+      const zone = ZONES[tile.type];
+      if (!zone) continue;
+      const conn = connectivity[tile.type];
+      const active = conn ? conn.active : false;
+      this._drawZoneTile(tile.col, tile.row, zone, active);
+    }
+
+    // Draw zone labels for each zone type
+    this._drawZoneLabels(zones, connectivity);
+  }
+
+  _drawZoneTile(col, row, zone, active) {
+    const g = new PIXI.Graphics();
+    const pos = tileCenterIso(col, row);
+    const hw = TILE_W / 2;
+    const hh = TILE_H / 2;
+
+    const alpha = active ? 0.4 : 0.15;
+
+    // Top face overlay
+    g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+    g.fill({ color: zone.color, alpha });
+
+    this.zoneLayer.addChild(g);
+  }
+
+  _drawZoneLabels(zones, connectivity) {
+    // Group zone tiles by type and find center of each group
+    const groups = {};
+    for (const z of zones) {
+      if (!groups[z.type]) groups[z.type] = [];
+      groups[z.type].push(z);
+    }
+
+    for (const [type, tiles] of Object.entries(groups)) {
+      const zone = ZONES[type];
+      if (!zone) continue;
+      const conn = connectivity[type];
+      const count = conn ? conn.tileCount : tiles.length;
+
+      // Find average position
+      let avgCol = 0, avgRow = 0;
+      for (const t of tiles) { avgCol += t.col; avgRow += t.row; }
+      avgCol /= tiles.length;
+      avgRow /= tiles.length;
+
+      const pos = tileCenterIso(avgCol, avgRow);
+      const label = new PIXI.Text({
+        text: `${zone.name} (${count})`,
+        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff, align: 'center' },
+      });
+      label.anchor.set(0.5, 0.5);
+      label.x = pos.x;
+      label.y = pos.y;
+      label.alpha = conn?.active ? 0.9 : 0.4;
+      this.zoneLayer.addChild(label);
+    }
+  }
+
   // --- Facility equipment rendering ---
 
   _renderFacilityEquipment() {
@@ -1195,15 +1270,15 @@ class Renderer {
       for (const [key, comp] of Object.entries(COMPONENTS)) {
         if (comp.category !== compCategory) continue;
 
+        const unlocked = this.game.isComponentUnlocked(comp);
+        if (!unlocked) continue;
+
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         const idx = paletteIdx++;
 
-        const unlocked = this.game.isComponentUnlocked(comp);
         const affordable = this.game.canAfford(comp.cost);
-
-        if (!unlocked) item.classList.add('locked');
         if (!affordable) item.classList.add('unaffordable');
 
         const nameEl = document.createElement('div');
@@ -1214,15 +1289,15 @@ class Renderer {
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
         const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-        costEl.textContent = unlocked ? costs : 'Locked';
+        costEl.textContent = costs;
         item.appendChild(costEl);
 
-        if (unlocked) {
-          item.addEventListener('click', () => {
-            if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onFacilitySelect) this._onFacilitySelect(key);
-          });
-        }
+        item.appendChild(this._createPaletteTooltip(comp, costs));
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onFacilitySelect) this._onFacilitySelect(key);
+        });
 
         palette.appendChild(item);
       }
@@ -1272,6 +1347,7 @@ class Renderer {
 
         for (const { key, comp } of subComps) {
           const item = this._createPaletteItem(key, comp, paletteIdx);
+          if (!item) continue;
           paletteIdx++;
           itemsContainer.appendChild(item);
         }
@@ -1283,6 +1359,7 @@ class Renderer {
       // No subsections — flat rendering
       for (const { key, comp } of catComps) {
         const item = this._createPaletteItem(key, comp, paletteIdx);
+        if (!item) continue;
         paletteIdx++;
         palette.appendChild(item);
       }
@@ -1290,14 +1367,14 @@ class Renderer {
   }
 
   _createPaletteItem(key, comp, idx) {
+    const unlocked = this.game.isComponentUnlocked(comp);
+    if (!unlocked) return null;
+
     const item = document.createElement('div');
     item.className = 'palette-item';
     item.dataset.paletteIndex = idx;
 
-    const unlocked = this.game.isComponentUnlocked(comp);
     const affordable = this.game.canAfford(comp.cost);
-
-    if (!unlocked) item.classList.add('locked');
     if (!affordable) item.classList.add('unaffordable');
 
     // Name
@@ -1310,12 +1387,23 @@ class Renderer {
     const costEl = document.createElement('div');
     costEl.className = 'palette-cost';
     const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-    costEl.textContent = unlocked ? costs : 'Locked';
+    costEl.textContent = costs;
     item.appendChild(costEl);
 
-    // Tooltip
+    item.appendChild(this._createPaletteTooltip(comp, costs));
+
+    item.addEventListener('click', () => {
+      if (this._onPaletteClick) this._onPaletteClick(idx);
+      if (this._onToolSelect) this._onToolSelect(key);
+    });
+
+    return item;
+  }
+
+  _createPaletteTooltip(comp, costs) {
     const tooltip = document.createElement('div');
     tooltip.className = 'palette-tooltip';
+
     const ttName = document.createElement('div');
     ttName.className = 'tt-name';
     ttName.textContent = comp.name;
@@ -1329,7 +1417,6 @@ class Renderer {
     const ttStats = document.createElement('div');
     ttStats.className = 'tt-stats';
 
-    // Show key stats
     const statEntries = [
       ['Cost', costs],
       ['Energy Cost', `${comp.energyCost} E/s`],
@@ -1341,10 +1428,6 @@ class Renderer {
         statEntries.push([label, v]);
       }
     }
-    if (comp.requires) {
-      const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
-      statEntries.push(['Requires', reqs.join(', ')]);
-    }
     for (const [label, val] of statEntries) {
       const row = document.createElement('div');
       row.className = 'tt-stat-row';
@@ -1352,16 +1435,7 @@ class Renderer {
       ttStats.appendChild(row);
     }
     tooltip.appendChild(ttStats);
-    item.appendChild(tooltip);
-
-    if (unlocked) {
-      item.addEventListener('click', () => {
-        if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (this._onToolSelect) this._onToolSelect(key);
-      });
-    }
-
-    return item;
+    return tooltip;
   }
 
   updatePalette(category) {
@@ -1378,12 +1452,15 @@ class Renderer {
     for (const [id, r] of Object.entries(RESEARCH)) {
       if (r.hidden) continue;
 
-      const item = document.createElement('div');
-      item.className = 'research-item';
-
       const completed = this.game.state.completedResearch.includes(id);
       const isActive = this.game.state.activeResearch === id;
       const available = this.game.isResearchAvailable(id);
+
+      // Hide locked research items
+      if (!completed && !isActive && !available) continue;
+
+      const item = document.createElement('div');
+      item.className = 'research-item';
 
       if (completed) {
         item.classList.add('completed');
@@ -1391,8 +1468,6 @@ class Renderer {
         item.classList.add('researching');
       } else if (available) {
         item.classList.add('available');
-      } else {
-        item.classList.add('locked');
       }
 
       // Name and description
