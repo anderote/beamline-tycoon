@@ -354,6 +354,90 @@ console.log('\n=== Cryo Validation Tests ===');
   vassert(result.ok === true, 'cryocooler with no heat load should be ok');
 }
 
+// --- RF Validation Tests ---
+console.log('\n=== RF Validation Tests ===');
+
+// 1. Klystron (2856 MHz) + rfCavity (2856 MHz) with modulator = ok
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'rfWaveguide');
+  placeConn(state, 5, 6, 'rfWaveguide');
+  placeConn(state, 5, 7, 'rfWaveguide');
+  placeEquip(state, 'k1', 'pulsedKlystron', 5, 4);
+  placeEquip(state, 'mod1', 'modulator', 5, 8);
+  placeBeamlineNode(state, 'cav1', 'rfCavity', 6, 6);
+  const nets = Networks.discoverAll(state);
+  const rfNet = nets.rfWaveguide[0];
+  const result = Networks.validateRfNetwork(rfNet);
+  vassert(result.ok === true, 'RF1: klystron + rfCavity + modulator should be ok, got ok=' + result.ok);
+  vassert(result.sources.length === 1, 'RF1: should have 1 source, got ' + result.sources.length);
+  vassert(result.cavities.length === 1, 'RF1: should have 1 cavity, got ' + result.cavities.length);
+  vassert(result.frequencyMatch === true, 'RF1: frequency should match');
+  vassert(result.missingModulator === false, 'RF1: modulator present');
+  vassert(result.sources[0].power === 50, 'RF1: klystron power should be 50, got ' + result.sources[0].power);
+}
+
+// 2. Klystron (2856 MHz) + cryomodule (1300 MHz) = frequency mismatch
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'rfWaveguide');
+  placeConn(state, 5, 6, 'rfWaveguide');
+  placeConn(state, 5, 7, 'rfWaveguide');
+  placeEquip(state, 'k1', 'pulsedKlystron', 5, 4);
+  placeEquip(state, 'mod1', 'modulator', 5, 8);
+  placeBeamlineNode(state, 'cm1', 'cryomodule', 6, 6);
+  const nets = Networks.discoverAll(state);
+  const rfNet = nets.rfWaveguide[0];
+  const result = Networks.validateRfNetwork(rfNet);
+  vassert(result.frequencyMatch === false, 'RF2: 2856 klystron + 1300 cryomodule should mismatch');
+  vassert(result.mismatches.length === 1, 'RF2: should have 1 mismatch, got ' + result.mismatches.length);
+  vassert(result.ok === false, 'RF2: should not be ok');
+}
+
+// 3. Broadband SSA + any cavity = ok (broadband matches anything)
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'rfWaveguide');
+  placeConn(state, 5, 6, 'rfWaveguide');
+  placeEquip(state, 'ssa1', 'solidStateAmp', 5, 4);
+  placeBeamlineNode(state, 'cav1', 'cryomodule', 6, 5);
+  const nets = Networks.discoverAll(state);
+  const rfNet = nets.rfWaveguide[0];
+  const result = Networks.validateRfNetwork(rfNet);
+  vassert(result.frequencyMatch === true, 'RF3: broadband should match any cavity');
+  vassert(result.mismatches.length === 0, 'RF3: no mismatches');
+  vassert(result.missingModulator === false, 'RF3: SSA not pulsed, no modulator needed');
+}
+
+// 4. Pulsed klystron without modulator = zero power, missingModulator=true
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'rfWaveguide');
+  placeConn(state, 5, 6, 'rfWaveguide');
+  placeEquip(state, 'k1', 'pulsedKlystron', 5, 4);
+  placeBeamlineNode(state, 'cav1', 'rfCavity', 6, 5);
+  const nets = Networks.discoverAll(state);
+  const rfNet = nets.rfWaveguide[0];
+  const result = Networks.validateRfNetwork(rfNet);
+  vassert(result.missingModulator === true, 'RF4: should flag missing modulator');
+  vassert(result.sources[0].power === 0, 'RF4: pulsed klystron without modulator should have 0 power, got ' + result.sources[0].power);
+  vassert(result.ok === false, 'RF4: should not be ok without modulator');
+}
+
+// 5. Klystron + modulator = power available, missingModulator=false
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'rfWaveguide');
+  placeConn(state, 5, 6, 'rfWaveguide');
+  placeEquip(state, 'k1', 'pulsedKlystron', 5, 4);
+  placeEquip(state, 'mod1', 'modulator', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const rfNet = nets.rfWaveguide[0];
+  const result = Networks.validateRfNetwork(rfNet);
+  vassert(result.missingModulator === false, 'RF5: modulator present');
+  vassert(result.sources[0].power === 50, 'RF5: klystron with modulator should have 50 MW power, got ' + result.sources[0].power);
+}
+
 console.log('Passed: ' + vPassed + '  Failed: ' + vFailed);
 if (vFailed > 0) {
   console.log('\n=== VALIDATION TESTS FAILED ===');

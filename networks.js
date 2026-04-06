@@ -238,6 +238,129 @@ const Networks = {
    * Validate cryo network: compressor + cold boxes provide capacity, SRF components generate heat.
    * Returns { capacity, heatLoad, opTemp, hasCompressor, margin, ok, consumers: [...] }
    */
+  /**
+   * Validate RF network: sources provide power at specific frequencies, cavities demand power.
+   * Returns { forwardPower, reflectedPower, totalDemand, frequencyMatch, missingModulator, hasCirculator, mismatches, ok, sources, cavities }
+   */
+  validateRfNetwork: function(network) {
+    var SUPPORT_TYPES = ['modulator', 'circulator', 'rfCoupler', 'llrfController'];
+    var PULSED_TYPES = ['pulsedKlystron', 'multibeamKlystron'];
+
+    var hasModulator = false;
+    var hasCirculator = false;
+    var sources = [];
+    var cavities = [];
+    var mismatches = [];
+
+    // Check for support equipment
+    for (var i = 0; i < network.equipment.length; i++) {
+      var eq = network.equipment[i];
+      if (eq.type === 'modulator') hasModulator = true;
+      if (eq.type === 'circulator') hasCirculator = true;
+    }
+
+    // Identify RF sources from equipment
+    for (var s = 0; s < network.equipment.length; s++) {
+      var seq = network.equipment[s];
+      var sComp = COMPONENTS[seq.type];
+      if (!sComp || sComp.rfFrequency === undefined) continue;
+      if (SUPPORT_TYPES.indexOf(seq.type) !== -1) continue;
+
+      var isPulsed = PULSED_TYPES.indexOf(seq.type) !== -1;
+      var power = 0;
+      if (sComp.params) {
+        power = sComp.params.peakPower || sComp.params.cwPower || 0;
+      }
+      if (isPulsed && !hasModulator) {
+        power = 0;
+      }
+      sources.push({ id: seq.id, type: seq.type, frequency: sComp.rfFrequency, power: power });
+    }
+
+    // Identify RF cavities from beamline nodes
+    for (var c = 0; c < network.beamlineNodes.length; c++) {
+      var node = network.beamlineNodes[c];
+      var cComp = COMPONENTS[node.type];
+      if (!cComp || cComp.rfFrequency === undefined) continue;
+      var demand = cComp.energyCost || 0;
+      cavities.push({ id: node.id, type: node.type, frequency: cComp.rfFrequency, demand: demand });
+    }
+
+    // Frequency matching: check each cavity has a matching source
+    for (var m = 0; m < cavities.length; m++) {
+      var cav = cavities[m];
+      var matched = false;
+      for (var ms = 0; ms < sources.length; ms++) {
+        if (sources[ms].frequency === 'broadband' || sources[ms].frequency === cav.frequency) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        mismatches.push({ cavityId: cav.id, cavityType: cav.type, frequency: cav.frequency });
+      }
+    }
+
+    // Power budget per frequency
+    var freqGroups = {};
+    for (var fg = 0; fg < cavities.length; fg++) {
+      var freq = cavities[fg].frequency;
+      if (!freqGroups[freq]) freqGroups[freq] = { demand: 0, supply: 0 };
+      freqGroups[freq].demand += cavities[fg].demand;
+    }
+    for (var ps = 0; ps < sources.length; ps++) {
+      var src = sources[ps];
+      if (src.frequency === 'broadband') {
+        // Broadband sources contribute to all frequency groups
+        var groupKeys = Object.keys(freqGroups);
+        for (var gk = 0; gk < groupKeys.length; gk++) {
+          freqGroups[groupKeys[gk]].supply += src.power;
+        }
+      } else {
+        if (freqGroups[src.frequency]) {
+          freqGroups[src.frequency].supply += src.power;
+        }
+      }
+    }
+
+    var powerOk = true;
+    var totalForwardPower = 0;
+    var totalDemand = 0;
+    var fKeys = Object.keys(freqGroups);
+    for (var fk = 0; fk < fKeys.length; fk++) {
+      var grp = freqGroups[fKeys[fk]];
+      totalDemand += grp.demand;
+      if (grp.supply < grp.demand) powerOk = false;
+    }
+    for (var tp = 0; tp < sources.length; tp++) {
+      totalForwardPower += sources[tp].power;
+    }
+
+    var reflectedPower = totalForwardPower * 0.02;
+    var missingModulator = false;
+    for (var pm = 0; pm < sources.length; pm++) {
+      if (PULSED_TYPES.indexOf(sources[pm].type) !== -1 && !hasModulator) {
+        missingModulator = true;
+        break;
+      }
+    }
+    var frequencyMatch = mismatches.length === 0;
+    var ok = frequencyMatch && powerOk && !missingModulator && (cavities.length === 0 || sources.length > 0);
+
+    return {
+      forwardPower: totalForwardPower,
+      reflectedPower: reflectedPower,
+      totalDemand: totalDemand,
+      frequencyMatch: frequencyMatch,
+      missingModulator: missingModulator,
+      hasCirculator: hasCirculator,
+      mismatches: mismatches,
+      ok: ok,
+      sources: sources,
+      cavities: cavities,
+    };
+  },
+
   validateCryoNetwork: function(network) {
     var SRF_TYPES = ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'srfGun', 'scQuad', 'scDipole'];
     var SRF_HEAT_W = 18;
