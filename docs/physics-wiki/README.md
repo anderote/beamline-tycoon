@@ -30,6 +30,9 @@ Each article has three sections:
 - [tier4-components.md](tier4-components.md) — Positron target, detector, septum, kicker
 - [tier4-physics.md](tier4-physics.md) — Luminosity, beam-beam effects, final focus, positron production
 
+### Using the Tools
+- [diagnostics-and-plots.md](diagnostics-and-plots.md) — Probe window: all 7 plot types explained, what to look for, how to diagnose problems
+
 ### Reference
 - [equations.md](equations.md) — All equations in one place
 - [glossary.md](glossary.md) — Accelerator physics terminology

@@ -116,6 +116,8 @@
 
 ## P
 
+**Peak current:** The current within a single bunch, as opposed to the time-averaged current. Peak current = charge_per_bunch / (sqrt(2*pi) * sigma_t). Typical values: 10-100 A from the gun, 1-10 kA after bunch compression. Critical parameter for FEL lasing.
+
 **Perveance:** Dimensionless measure of space charge strength: K = 2I/(I_A * beta^3 * gamma^3). Important at low energy.
 
 **Phase advance:** The number of betatron oscillation degrees per FODO cell. Optimal range: 60-90 degrees.
