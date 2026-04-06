@@ -2426,6 +2426,9 @@ class Renderer {
     const popover = document.getElementById('tt-popover');
     if (!popover) return;
 
+    const available = this.game.isResearchAvailable(id);
+    const isActive = this.game.state.activeResearch === id;
+
     const costs = Object.entries(r.cost).map(([k, v]) => {
       if (k === 'funding') return `$${v}`;
       if (k === 'reputation') return `${v} rep (threshold)`;
@@ -2449,14 +2452,36 @@ class Renderer {
       unlocksText += (unlocksText ? '\n' : '') + 'Effect: ' + effects.join(', ');
     }
 
+    // Show prerequisite info for locked items
+    let requiresText = '';
+    if (!available && !isActive) {
+      const reqs = r.requires ? (Array.isArray(r.requires) ? r.requires : [r.requires]) : [];
+      const missing = reqs.filter(req => !this.game.state.completedResearch.includes(req));
+      if (missing.length > 0) {
+        const names = missing.map(req => RESEARCH[req]?.name || req);
+        requiresText = 'Requires: ' + names.join(', ');
+      }
+    }
+
+    // Buttons: Research if available, just Close otherwise
+    let buttonsHtml;
+    if (available && !isActive) {
+      buttonsHtml = `
+        <button class="tt-btn-research" id="tt-btn-start">Research</button>
+        <button class="tt-btn-cancel" id="tt-btn-close">Close</button>
+      `;
+    } else {
+      buttonsHtml = `<button class="tt-btn-cancel" id="tt-btn-close">Close</button>`;
+    }
+
     popover.innerHTML = `
       <div class="tt-popover-name">${r.name}</div>
       <div class="tt-popover-desc">${r.desc}</div>
       ${unlocksText ? `<div class="tt-popover-unlocks">${unlocksText}</div>` : ''}
+      ${requiresText ? `<div class="tt-popover-requires">${requiresText}</div>` : ''}
       <div class="tt-popover-cost">Cost: ${costs} | ${r.duration}s</div>
       <div class="tt-popover-buttons">
-        <button class="tt-btn-research" id="tt-btn-start">Research</button>
-        <button class="tt-btn-cancel" id="tt-btn-close">Cancel</button>
+        ${buttonsHtml}
       </div>
     `;
 
@@ -2474,10 +2499,13 @@ class Renderer {
       popover.style.top = (window.innerHeight - popRect.height - 8) + 'px';
     }
 
-    document.getElementById('tt-btn-start').addEventListener('click', () => {
-      this.game.startResearch(id);
-      popover.classList.add('hidden');
-    });
+    const startBtn = document.getElementById('tt-btn-start');
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        this.game.startResearch(id);
+        popover.classList.add('hidden');
+      });
+    }
     document.getElementById('tt-btn-close').addEventListener('click', () => {
       popover.classList.add('hidden');
     });

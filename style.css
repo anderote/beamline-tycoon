@@ -736,6 +736,13 @@ body {
   line-height: 2;
 }
 
+.tt-popover-requires {
+  font-size: 8px;
+  color: #cc6666;
+  margin-bottom: 6px;
+  line-height: 2;
+}
+
 .tt-popover-cost {
   font-size: 8px;
   color: #4488ff;
