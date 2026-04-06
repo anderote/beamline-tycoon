@@ -536,8 +536,8 @@ body {
 
 .tt-cat-tab {
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
-  padding: 4px 8px;
+  font-size: 9px;
+  padding: 6px 12px;
   border: 1px solid rgba(80, 80, 120, 0.3);
   border-radius: 3px;
   background: rgba(30, 30, 60, 0.6);
@@ -559,7 +559,7 @@ body {
 
 .tt-active-research {
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
+  font-size: 9px;
   color: #ddaa22;
   white-space: nowrap;
 }
@@ -595,8 +595,8 @@ body {
 /* Node cards */
 .tt-node {
   position: absolute;
-  width: 200px;
-  padding: 10px 12px;
+  width: 260px;
+  padding: 14px 16px;
   border: 1px solid rgba(80, 80, 120, 0.4);
   border-radius: 4px;
   background: rgba(25, 25, 50, 0.9);
@@ -644,15 +644,15 @@ body {
 }
 
 .tt-node-name {
-  font-size: 9px;
+  font-size: 11px;
   color: inherit;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .tt-node-type {
-  font-size: 7px;
-  margin-bottom: 3px;
-  line-height: 1.6;
+  font-size: 8px;
+  margin-bottom: 4px;
+  line-height: 1.7;
 }
 
 .tt-node-type.unlock {
@@ -664,8 +664,8 @@ body {
 }
 
 .tt-node-progress {
-  margin-top: 6px;
-  height: 4px;
+  margin-top: 8px;
+  height: 5px;
   background: rgba(20, 20, 40, 0.8);
   border-radius: 2px;
   overflow: hidden;
@@ -679,7 +679,7 @@ body {
 }
 
 .tt-node .tt-check {
-  font-size: 9px;
+  font-size: 11px;
   color: #66bb66;
   float: right;
 }
@@ -688,10 +688,10 @@ body {
 .tt-column-header {
   position: absolute;
   font-family: 'Press Start 2P', monospace;
-  font-size: 9px;
+  font-size: 11px;
   text-align: center;
-  width: 200px;
-  padding-bottom: 10px;
+  width: 260px;
+  padding-bottom: 12px;
   border-bottom: 1px solid rgba(80, 80, 120, 0.2);
 }
 
@@ -699,8 +699,10 @@ body {
 .tt-popover {
   position: fixed;
   z-index: 310;
-  width: 220px;
-  padding: 10px 12px;
+  width: 320px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 14px 16px;
   background: rgba(20, 20, 45, 0.98);
   border: 1px solid rgba(100, 100, 160, 0.5);
   border-radius: 4px;
@@ -714,40 +716,41 @@ body {
 }
 
 .tt-popover-name {
-  font-size: 8px;
+  font-size: 11px;
   color: #ccddff;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .tt-popover-desc {
-  font-size: 6px;
-  color: #7777aa;
-  line-height: 1.8;
-  margin-bottom: 6px;
+  font-size: 8px;
+  color: #9999bb;
+  line-height: 2;
+  margin-bottom: 10px;
 }
 
 .tt-popover-unlocks {
-  font-size: 6px;
+  font-size: 8px;
   color: #6699cc;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   white-space: pre-line;
+  line-height: 2;
 }
 
 .tt-popover-cost {
-  font-size: 6px;
+  font-size: 8px;
   color: #4488ff;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .tt-popover-buttons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 .tt-popover-buttons button {
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
-  padding: 4px 10px;
+  font-size: 9px;
+  padding: 6px 14px;
   border: 1px solid rgba(80, 80, 120, 0.4);
   border-radius: 3px;
   cursor: pointer;
