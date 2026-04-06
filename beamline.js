@@ -11,11 +11,28 @@ class Beamline {
 
   // --- Internal helpers ---
 
-  _calcTiles(col, row, dir, trackLength) {
+  _calcTiles(col, row, dir, trackLength, trackWidth) {
     const tiles = [];
     const delta = DIR_DELTA[dir];
+    const w = trackWidth || 1;
+
+    // Perpendicular direction (turn left from beam dir)
+    const perpDir = turnLeft(dir);
+    const perpDelta = DIR_DELTA[perpDir];
+
+    // Width offsets centered on beam: e.g. width=2 → [-0.5, 0.5]
+    const widthOffsets = [];
+    for (let j = 0; j < w; j++) {
+      widthOffsets.push(j - (w - 1) / 2);
+    }
+
     for (let i = 0; i < trackLength; i++) {
-      tiles.push({ col: col + delta.dc * i, row: row + delta.dr * i });
+      for (const wOff of widthOffsets) {
+        tiles.push({
+          col: col + delta.dc * i + perpDelta.dc * wOff,
+          row: row + delta.dr * i + perpDelta.dr * wOff,
+        });
+      }
     }
     return tiles;
   }
@@ -43,7 +60,7 @@ class Beamline {
 
   placeSource(col, row, dir) {
     const comp = COMPONENTS.source;
-    const tiles = this._calcTiles(col, row, dir, comp.trackLength);
+    const tiles = this._calcTiles(col, row, dir, comp.trackLength, comp.trackWidth);
     if (!this._tilesAvailable(tiles)) return null;
 
     const node = {
@@ -57,6 +74,13 @@ class Beamline {
       bendDir: null,
       tiles: tiles,
     };
+    // Initialize tunable params from PARAM_DEFS defaults
+    if (typeof PARAM_DEFS !== 'undefined' && PARAM_DEFS['source']) {
+      node.params = {};
+      for (const [k, def] of Object.entries(PARAM_DEFS['source'])) {
+        if (!def.derived) node.params[k] = def.default;
+      }
+    }
     this.nodes.push(node);
     this._occupyTiles(tiles, node.id);
     return node.id;
@@ -74,7 +98,7 @@ class Beamline {
       exitDir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
     }
 
-    const tiles = this._calcTiles(col, row, exitDir, comp.trackLength);
+    const tiles = this._calcTiles(col, row, exitDir, comp.trackLength, comp.trackWidth);
     if (!this._tilesAvailable(tiles)) return null;
 
     const node = {
@@ -88,6 +112,13 @@ class Beamline {
       bendDir: bendDir || null,
       tiles: tiles,
     };
+    // Initialize tunable params from PARAM_DEFS defaults
+    if (typeof PARAM_DEFS !== 'undefined' && PARAM_DEFS[compType]) {
+      node.params = {};
+      for (const [k, def] of Object.entries(PARAM_DEFS[compType])) {
+        if (!def.derived) node.params[k] = def.default;
+      }
+    }
     this.nodes.push(node);
     this._occupyTiles(tiles, node.id);
     return node.id;
@@ -197,13 +228,35 @@ class Beamline {
   }
 
   isTileOccupied(col, row) {
-    return this.occupied[col + ',' + row] !== undefined;
+    if (this.occupied[col + ',' + row] !== undefined) return true;
+    // Check half-tile positions
+    if (this.occupied[(col + 0.5) + ',' + row] !== undefined) return true;
+    if (this.occupied[(col - 0.5) + ',' + row] !== undefined) return true;
+    if (this.occupied[col + ',' + (row + 0.5)] !== undefined) return true;
+    if (this.occupied[col + ',' + (row - 0.5)] !== undefined) return true;
+    return false;
   }
 
   getNodeAt(col, row) {
-    const nodeId = this.occupied[col + ',' + row];
-    if (nodeId === undefined) return null;
-    return this.nodes.find(n => n.id === nodeId) || null;
+    // Check exact position and nearby half-tile positions
+    const candidates = [
+      col + ',' + row,
+      (col + 0.5) + ',' + row,
+      (col - 0.5) + ',' + row,
+      col + ',' + (row + 0.5),
+      col + ',' + (row - 0.5),
+      (col + 0.5) + ',' + (row + 0.5),
+      (col - 0.5) + ',' + (row - 0.5),
+      (col + 0.5) + ',' + (row - 0.5),
+      (col - 0.5) + ',' + (row + 0.5),
+    ];
+    for (const key of candidates) {
+      const nodeId = this.occupied[key];
+      if (nodeId !== undefined) {
+        return this.nodes.find(n => n.id === nodeId) || null;
+      }
+    }
+    return null;
   }
 
   toJSON() {

@@ -58,6 +58,8 @@ class Game {
       photonRate: 0,
       collisionRate: 0,
       physicsEnvelope: null,
+      // System-level infrastructure stats (computed by computeSystemStats)
+      systemStats: null,
     };
 
     this.listeners = [];
@@ -255,6 +257,7 @@ class Game {
     this.state.facilityEquipment.push(entry);
     this.state.facilityGrid[key] = id;
     this.log(`Built ${comp.name}`, 'good');
+    this.computeSystemStats();
     this.emit('facilityChanged');
     return true;
   }
@@ -276,6 +279,7 @@ class Game {
     delete this.state.facilityGrid[key];
     this.state.facilityEquipment.splice(idx, 1);
     this.log(`Removed ${comp ? comp.name : 'equipment'} (50% refund)`, 'info');
+    this.computeSystemStats();
     this.emit('facilityChanged');
     return true;
   }
@@ -288,16 +292,20 @@ class Game {
       this.state.connections.set(key, new Set());
     }
     const set = this.state.connections.get(key);
-    if (set.has(connType)) {
-      // Toggle off — remove this connection type from the tile
-      set.delete(connType);
-      if (set.size === 0) this.state.connections.delete(key);
-      this.emit('connectionsChanged');
-      return false; // removed
-    }
+    if (set.has(connType)) return false; // already exists
     set.add(connType);
     this.emit('connectionsChanged');
     return true; // added
+  }
+
+  removeConnection(col, row, connType) {
+    const key = col + ',' + row;
+    const set = this.state.connections.get(key);
+    if (!set || !set.has(connType)) return false;
+    set.delete(connType);
+    if (set.size === 0) this.state.connections.delete(key);
+    this.emit('connectionsChanged');
+    return true; // removed
   }
 
   getConnectionsAt(col, row) {
@@ -415,10 +423,16 @@ class Game {
     const physicsBeamline = ordered
       .map(node => {
         const t = COMPONENTS[node.type];
+        // Use computed stats from slider tuning if available, otherwise template defaults
+        const effectiveStats = { ...(t.stats || {}) };
+        if (node.computedStats) {
+          Object.assign(effectiveStats, node.computedStats);
+        }
         return {
           type: node.type,
           length: t.length,
-          stats: t.stats || {},
+          stats: effectiveStats,
+          params: node.params || {},
         };
       });
 
@@ -561,6 +575,7 @@ class Game {
 
   start() {
     if (this.tickInterval) return;
+    this.computeSystemStats();
     this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
     this.log('Welcome to Beamline Tycoon!', 'info');
     this.emit('started');
@@ -706,10 +721,239 @@ class Game {
     // Tick machines (cyclotrons, stalls, rings)
     this._tickMachines();
 
+    // Recompute system-level infrastructure stats
+    this.computeSystemStats();
+
     // Auto-save every 30 ticks
     if (this.state.tick % 30 === 0) this.save();
 
     this.emit('tick');
+  }
+
+  // === SYSTEM-LEVEL INFRASTRUCTURE STATS ===
+
+  computeSystemStats() {
+    const equip = this.state.facilityEquipment || [];
+    const beamline = this.state.beamline || [];
+
+    // Count facility equipment by type
+    const counts = {};
+    for (const e of equip) {
+      counts[e.type] = (counts[e.type] || 0) + 1;
+    }
+
+    // Helper: sum energyCost for equipment types in a category
+    const categoryDraw = (cat) => {
+      let draw = 0;
+      for (const e of equip) {
+        const comp = COMPONENTS[e.type];
+        if (comp && comp.category === cat) draw += (comp.energyCost || 0);
+      }
+      return draw;
+    };
+
+    // Helper: total beamline interior volume
+    const totalVolume = beamline.reduce((sum, n) => {
+      const c = COMPONENTS[n.type];
+      return sum + (c ? (c.interiorVolume || 0) : 0);
+    }, 0);
+
+    // === VACUUM ===
+    const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump'];
+    const gaugeTypes = ['piraniGauge', 'coldCathodeGauge', 'baGauge'];
+    const pumpCount = pumpTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+    const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+    // Estimate pump speed: roughing 10 L/s, turbo 300 L/s, ion 100 L/s, NEG 200 L/s, Ti-Sub 500 L/s
+    const pumpSpeeds = { roughingPump: 10, turboPump: 300, ionPump: 100, negPump: 200, tiSubPump: 500 };
+    const totalPumpSpeed = pumpTypes.reduce((s, t) => s + (counts[t] || 0) * (pumpSpeeds[t] || 0), 0);
+    const avgPressure = this.state.avgPressure || (pumpCount > 0 ? 1e-6 / Math.max(totalPumpSpeed / Math.max(totalVolume, 1), 0.01) : 1013);
+    // Pressure quality
+    let pressureQuality = 'None';
+    if (pumpCount > 0) {
+      if (avgPressure < 1e-9) pressureQuality = 'Excellent';
+      else if (avgPressure < 1e-7) pressureQuality = 'Good';
+      else if (avgPressure < 1e-4) pressureQuality = 'Marginal';
+      else pressureQuality = 'Poor';
+    }
+
+    const vacuum = {
+      avgPressure,
+      totalPumpSpeed,
+      beamlineVolume: totalVolume,
+      pumpCount,
+      gaugeCount,
+      energyDraw: categoryDraw('vacuum'),
+      pressureQuality,
+      detail: {
+        roughingPumps: counts.roughingPump || 0,
+        turboPumps: counts.turboPump || 0,
+        ionPumps: counts.ionPump || 0,
+        negPumps: counts.negPump || 0,
+        tiSubPumps: counts.tiSubPump || 0,
+        piraniGauges: counts.piraniGauge || 0,
+        ccGauges: counts.coldCathodeGauge || 0,
+        baGauges: counts.baGauge || 0,
+        gateValves: counts.gateValve || 0,
+        bakeoutSystems: counts.bakeoutSystem || 0,
+      },
+    };
+
+    // === RF POWER ===
+    const rfSourceTypes = ['klystron', 'ssa', 'iot', 'magnetron'];
+    const rfSupportTypes = ['modulator', 'circulator', 'waveguide', 'llrfController', 'masterOscillator', 'vectorModulator'];
+    const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+    // Estimate RF power per source type (kW): klystron 50MW peak/5MW avg, SSA 100kW, IOT 80kW, magnetron 2MW
+    const rfPowerPerSource = { klystron: 5000, ssa: 100, iot: 80, magnetron: 2000 };
+    const totalFwdPower = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0) * (rfPowerPerSource[t] || 0), 0);
+    const reflFraction = 0.02; // 2% mismatch model
+    const totalReflPower = totalFwdPower * reflFraction;
+    const avgEfficiency = rfSourceCount > 0 ? 0.55 : 0; // rough average
+    const rfWallPower = avgEfficiency > 0 ? totalFwdPower / avgEfficiency : 0;
+    const vswr = reflFraction > 0 ? ((1 + Math.sqrt(reflFraction)) / (1 - Math.sqrt(reflFraction))).toFixed(2) : '1.00';
+
+    const rfPower = {
+      totalFwdPower,
+      totalReflPower,
+      wallPower: rfWallPower,
+      vswr,
+      sourceCount: rfSourceCount,
+      avgEfficiency: avgEfficiency * 100,
+      energyDraw: categoryDraw('rfPower'),
+      detail: {
+        klystrons: counts.klystron || 0,
+        ssas: counts.ssa || 0,
+        iots: counts.iot || 0,
+        magnetrons: counts.magnetron || 0,
+        modulators: counts.modulator || 0,
+        circulators: counts.circulator || 0,
+        waveguides: counts.waveguide || 0,
+        llrfControllers: counts.llrfController || 0,
+        masterOscillators: counts.masterOscillator || 0,
+        vectorModulators: counts.vectorModulator || 0,
+      },
+    };
+
+    // === CRYO ===
+    const compressors = counts.heliumCompressor || 0;
+    const coldBox4K = counts.coldBox4K || 0;
+    const subCooling2K = counts.subCooling2K || 0;
+    const cryoHousings = counts.cryomoduleHousing || 0;
+    const ln2Precool = counts.ln2Precooler || 0;
+    const heRecovery = counts.heRecovery || 0;
+    const cryocoolers = counts.cryocooler || 0;
+    // Cooling capacity: coldBox4K 500W each, subCooling2K 200W each, cryocooler 50W each
+    const cryoCapacity = coldBox4K * 500 + subCooling2K * 200 + cryocoolers * 50;
+    // Heat load estimate: each cryomodule housing ~5W static + dynamic from beamline SRF cavities
+    const srfCavities = beamline.filter(n => n.type === 'cryomodule').length;
+    const staticLoad = cryoHousings * 3 + srfCavities * 3;
+    const dynamicLoad = srfCavities * 15; // rough 15W dynamic per SRF cavity
+    const totalCryoLoad = staticLoad + dynamicLoad;
+    const opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
+    const carnot = opTemp === 2.0 ? 750 : 250;
+    const cryoWallPower = totalCryoLoad * carnot / 1000; // kW
+    const cryoMargin = cryoCapacity > 0 ? ((cryoCapacity - totalCryoLoad) / cryoCapacity * 100) : 0;
+
+    const cryo = {
+      coolingCapacity: cryoCapacity,
+      heatLoad: totalCryoLoad,
+      opTemp,
+      wallPower: cryoWallPower,
+      margin: Math.max(cryoMargin, 0),
+      energyDraw: categoryDraw('cryo'),
+      detail: {
+        compressors,
+        coldBox4K,
+        subCooling2K,
+        cryoHousings,
+        ln2Precoolers: ln2Precool,
+        heRecovery,
+        cryocoolers,
+        staticLoad,
+        dynamicLoad,
+      },
+    };
+
+    // === COOLING ===
+    const lcwSkids = counts.lcwSkid || 0;
+    const chillers = counts.chiller || 0;
+    const towers = counts.coolingTower || 0;
+    const exchangers = counts.heatExchanger || 0;
+    const waterLoads = counts.waterLoad || 0;
+    const deionizers = counts.deionizer || 0;
+    const emergCooling = counts.emergencyCooling || 0;
+    // Capacity: LCW 100kW, Chiller 200kW, Tower 500kW
+    const coolingCap = lcwSkids * 100 + chillers * 200 + towers * 500;
+    // Heat load: sum of all beamline+facility energy costs (rough proxy)
+    const coolingLoad = (this.state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
+    const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T
+    const coolingMargin = coolingCap > 0 ? ((coolingCap - coolingLoad) / coolingCap * 100) : 0;
+
+    const cooling = {
+      coolingCapacity: coolingCap,
+      heatLoad: coolingLoad,
+      flowRate,
+      energyDraw: categoryDraw('cooling'),
+      margin: Math.max(coolingMargin, 0),
+      detail: {
+        lcwSkids,
+        chillers,
+        coolingTowers: towers,
+        heatExchangers: exchangers,
+        waterLoads,
+        deionizers,
+        emergencyCooling: emergCooling,
+      },
+    };
+
+    // === POWER ===
+    const substations = counts.substation || 0;
+    const panels = counts.powerPanel || 0;
+    const laserSystems = counts.laserSystem || 0;
+    const powerCapacity = this.state.maxElectricalPower || 500;
+    const totalDraw = (this.state.totalEnergyCost || 0) + vacuum.energyDraw + rfPower.energyDraw + cryo.energyDraw + cooling.energyDraw;
+    const powerUtil = powerCapacity > 0 ? (totalDraw / powerCapacity * 100) : 0;
+
+    const power = {
+      capacity: powerCapacity,
+      totalDraw,
+      utilization: Math.min(powerUtil, 100),
+      substations,
+      panels,
+      laserSystems,
+      detail: {
+        vacuumDraw: vacuum.energyDraw,
+        rfDraw: rfPower.energyDraw,
+        cryoDraw: cryo.energyDraw,
+        coolingDraw: cooling.energyDraw,
+        beamlineDraw: this.state.totalEnergyCost || 0,
+      },
+    };
+
+    // === DATA & CONTROLS ===
+    const iocs = counts.rackIoc || 0;
+    const interlocks = counts.ppsInterlock || 0;
+    const monitors = counts.areaMonitor || 0;
+    const timingSystems = counts.timingSystem || 0;
+    const mpsCount = counts.mps || 0;
+
+    const dataControls = {
+      iocs,
+      interlocks,
+      monitors,
+      timingSystems,
+      mpsStatus: mpsCount > 0 ? 'Active' : 'None',
+      energyDraw: categoryDraw('dataControls'),
+      detail: {
+        rackIocs: iocs,
+        ppsInterlocks: interlocks,
+        radiationMonitors: monitors,
+        timingSystems,
+        mps: mpsCount,
+        laserSystems,
+      },
+    };
+
+    this.state.systemStats = { vacuum, rfPower, cryo, cooling, power, dataControls };
   }
 
   // === WEAR & REPAIR ===
