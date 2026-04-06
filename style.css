@@ -303,19 +303,19 @@ body {
   padding: 6px 12px 8px;
 }
 
-/* HUD controls row */
+/* HUD controls — two rows: modes on top, category tabs below */
 #hud-controls {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 2px 0;
 }
 
-/* Category tabs */
+/* Category tabs — left-justified row */
 #category-tabs {
   display: flex;
   gap: 3px;
+  justify-content: flex-start;
 }
 
 .cat-tab {
@@ -1221,7 +1221,7 @@ body {
 #mode-switcher {
   display: flex;
   gap: 3px;
-  margin-right: 8px;
+  align-items: flex-start;
 }
 
 .mode-btn {
