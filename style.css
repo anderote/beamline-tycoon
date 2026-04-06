@@ -222,6 +222,35 @@ body {
   gap: 2px 16px;
 }
 
+/* === BEAMLINE WARNINGS (top-right) === */
+#beamline-warnings {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 90;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  max-height: 40vh;
+  overflow: hidden;
+}
+
+#beamline-warnings:empty { display: none; }
+
+.bl-warn {
+  background: rgba(40, 10, 10, 0.7);
+  border: 1px solid rgba(255, 80, 80, 0.4);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 9px;
+  color: #ff8866;
+  white-space: nowrap;
+}
+
+.bl-warn .warn-name { color: #ddd; }
+
 /* === BEAM STATS PANEL (top-left) === */
 #beam-stats-panel {
   position: absolute;
@@ -261,75 +290,6 @@ body {
 }
 
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
-#beam-plots {
-  position: absolute;
-  bottom: 160px;
-  right: 12px;
-  z-index: 110;
-  background: rgba(15, 15, 35, 0.92);
-  border: 1px solid rgba(80, 80, 140, 0.4);
-  border-radius: 5px;
-  width: 520px;
-  overflow: hidden;
-}
-
-#beam-plots.collapsed #beam-plots-body {
-  display: none;
-}
-
-#beam-plots-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 14px;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
-}
-
-#beam-plots-title {
-  font-size: 10px;
-  color: #8899cc;
-}
-
-#beam-plots-toggle {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 12px;
-  background: none;
-  border: none;
-  color: #8899cc;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-#beam-plots-toggle:hover {
-  color: #aaccff;
-}
-
-#beam-plots-body {
-  padding: 10px 14px 14px;
-}
-
-.plot-container {
-  margin-bottom: 14px;
-}
-
-.plot-container:last-child {
-  margin-bottom: 0;
-}
-
-.plot-label {
-  font-size: 9px;
-  color: rgba(160, 180, 220, 0.8);
-  margin-bottom: 5px;
-}
-
-.plot-container canvas {
-  width: 100%;
-  height: auto;
-  border: 1px solid rgba(60, 60, 100, 0.3);
-  border-radius: 3px;
-  background: rgba(5, 5, 20, 0.6);
-}
 
 /* === BOTTOM HUD === */
 #bottom-hud {
@@ -428,8 +388,9 @@ body {
 }
 
 .palette-item {
-  width: 90px;
-  height: 68px;
+  width: 160px;
+  min-width: 160px;
+  height: 90px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -461,15 +422,16 @@ body {
 }
 
 .palette-item .palette-name {
-  font-size: 9px;
+  font-size: 12px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
-  max-width: 82px;
+  text-overflow: ellipsis;
+  max-width: 150px;
 }
 
 .palette-item .palette-cost {
-  font-size: 8px;
+  font-size: 10px;
   color: #44dd66;
 }
 
@@ -479,64 +441,15 @@ body {
   box-shadow: 0 0 8px rgba(255, 220, 100, 0.3);
 }
 
-.palette-item.locked {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 .palette-item.unaffordable {
   opacity: 0.6;
 }
 
-/* Palette tooltip */
-.palette-tooltip {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 220px;
-  background: rgba(15, 15, 35, 0.96);
-  border: 1px solid rgba(100, 100, 180, 0.5);
-  border-radius: 4px;
-  padding: 8px 10px;
-  z-index: 300;
-  pointer-events: none;
+.palette-item.zone-blocked {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
-.palette-item:hover .palette-tooltip {
-  display: block;
-}
-
-.palette-tooltip .tt-name {
-  font-size: 10px;
-  color: #ccddff;
-  margin-bottom: 4px;
-}
-
-.palette-tooltip .tt-desc {
-  font-size: 8px;
-  color: #8888bb;
-  line-height: 1.6;
-  margin-bottom: 6px;
-}
-
-.palette-tooltip .tt-stats {
-  font-size: 8px;
-  color: #aaaacc;
-}
-
-.palette-tooltip .tt-stat-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 1px 0;
-  border-bottom: 1px solid rgba(60, 60, 100, 0.2);
-}
-
-.palette-tooltip .tt-stat-val {
-  color: #aaddff;
-  font-weight: bold;
-}
 
 /* === OVERLAYS === */
 .overlay {
@@ -587,75 +500,295 @@ body {
   flex: 1;
 }
 
-/* === RESEARCH ITEMS === */
-.research-item {
-  font-size: 8px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  background: rgba(30, 30, 60, 0.6);
+/* === TECH TREE OVERLAY === */
+.tech-tree-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 300;
+  background: rgba(10, 10, 25, 0.97);
+  display: flex;
+  flex-direction: column;
+}
+
+.tech-tree-overlay.hidden {
+  display: none;
+}
+
+.tt-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+  background: rgba(15, 15, 35, 0.95);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.tt-category-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.tt-cat-tab {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 4px 8px;
   border: 1px solid rgba(80, 80, 120, 0.3);
   border-radius: 3px;
+  background: rgba(30, 30, 60, 0.6);
+  color: #8888aa;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.tt-cat-tab:hover {
+  background: rgba(40, 40, 80, 0.7);
   color: #aaaacc;
 }
 
-.research-item:hover {
-  background: rgba(40, 40, 80, 0.7);
+.tt-cat-tab.active {
+  border-color: var(--cat-color, #4488cc);
+  color: var(--cat-color, #4488cc);
+  background: rgba(40, 40, 80, 0.8);
 }
 
-.research-item .res-name {
-  font-size: 9px;
-  color: #ccddff;
+.tt-active-research {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #ddaa22;
+  white-space: nowrap;
+}
+
+/* Canvas area — pan/zoom container */
+.tt-canvas-wrapper {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+}
+
+.tt-canvas-wrapper:active {
+  cursor: grabbing;
+}
+
+.tt-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.tt-connectors {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+  transform-origin: 0 0;
+}
+
+/* Node cards */
+.tt-node {
+  position: absolute;
+  width: 150px;
+  padding: 6px 8px;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 4px;
+  background: rgba(25, 25, 50, 0.9);
+  color: #8888aa;
+  font-family: 'Press Start 2P', monospace;
+  cursor: default;
+  user-select: none;
+  transition: border-color 0.2s, opacity 0.2s;
+}
+
+.tt-node.locked {
+  opacity: 0.35;
+  border-color: rgba(60, 60, 80, 0.3);
+}
+
+.tt-node.available {
+  border-color: rgba(60, 200, 100, 0.6);
+  color: #aaccaa;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(60, 200, 100, 0.15);
+}
+
+.tt-node.available:hover {
+  border-color: rgba(80, 220, 120, 0.8);
+  background: rgba(30, 40, 60, 0.95);
+  box-shadow: 0 0 12px rgba(60, 200, 100, 0.25);
+}
+
+.tt-node.researching {
+  border-color: rgba(220, 180, 40, 0.6);
+  color: #ddcc88;
+  box-shadow: 0 0 8px rgba(220, 180, 40, 0.15);
+  animation: tt-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tt-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(220, 180, 40, 0.15); }
+  50% { box-shadow: 0 0 14px rgba(220, 180, 40, 0.3); }
+}
+
+.tt-node.completed {
+  border-color: rgba(60, 160, 80, 0.5);
+  background: rgba(20, 40, 30, 0.9);
+  color: #88bb88;
+}
+
+.tt-node-name {
+  font-size: 7px;
+  color: inherit;
   margin-bottom: 3px;
 }
 
-.research-item .res-cost {
-  font-size: 7px;
-  color: #4488ff;
+.tt-node-type {
+  font-size: 6px;
+  margin-bottom: 2px;
 }
 
-.research-item .res-desc {
-  font-size: 7px;
-  color: #6666aa;
-  margin-top: 3px;
-  line-height: 1.6;
+.tt-node-type.unlock {
+  color: #6699cc;
 }
 
-.research-item.researching {
-  border-color: rgba(200, 180, 60, 0.5);
+.tt-node-type.boost {
+  color: #cc9944;
 }
 
-.research-item.completed {
-  opacity: 0.5;
-  border-color: rgba(60, 160, 80, 0.4);
-}
-
-.research-item.available {
-  border-color: rgba(60, 120, 200, 0.5);
-  cursor: pointer;
-}
-
-.research-item.available:hover {
-  background: rgba(40, 50, 90, 0.8);
-}
-
-.research-item.locked {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.research-item .res-progress {
+.tt-node-progress {
   margin-top: 4px;
-  height: 4px;
+  height: 3px;
   background: rgba(20, 20, 40, 0.8);
   border-radius: 2px;
   overflow: hidden;
 }
 
-.research-item .res-progress .bar {
+.tt-node-progress .bar {
   height: 100%;
   background: #ddaa22;
   border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.tt-node .tt-check {
+  font-size: 7px;
+  color: #66bb66;
+  float: right;
+}
+
+/* Column headers */
+.tt-column-header {
+  position: absolute;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  text-align: center;
+  width: 150px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.2);
+}
+
+/* Popover for research confirmation */
+.tt-popover {
+  position: fixed;
+  z-index: 310;
+  width: 220px;
+  padding: 10px 12px;
+  background: rgba(20, 20, 45, 0.98);
+  border: 1px solid rgba(100, 100, 160, 0.5);
+  border-radius: 4px;
+  font-family: 'Press Start 2P', monospace;
+  color: #aaaacc;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.tt-popover.hidden {
+  display: none;
+}
+
+.tt-popover-name {
+  font-size: 8px;
+  color: #ccddff;
+  margin-bottom: 6px;
+}
+
+.tt-popover-desc {
+  font-size: 6px;
+  color: #7777aa;
+  line-height: 1.8;
+  margin-bottom: 6px;
+}
+
+.tt-popover-unlocks {
+  font-size: 6px;
+  color: #6699cc;
+  margin-bottom: 4px;
+  white-space: pre-line;
+}
+
+.tt-popover-cost {
+  font-size: 6px;
+  color: #4488ff;
+  margin-bottom: 8px;
+}
+
+.tt-popover-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.tt-popover-buttons button {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 4px 10px;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.tt-btn-research {
+  background: rgba(40, 100, 60, 0.8);
+  color: #88dd88;
+  border-color: rgba(60, 160, 80, 0.5);
+}
+
+.tt-btn-research:hover {
+  background: rgba(50, 120, 70, 0.9);
+}
+
+.tt-btn-cancel {
+  background: rgba(60, 40, 40, 0.8);
+  color: #cc8888;
+  border-color: rgba(120, 60, 60, 0.4);
+}
+
+.tt-btn-cancel:hover {
+  background: rgba(80, 50, 50, 0.9);
+}
+
+/* SVG connector lines */
+.tt-connector {
+  fill: none;
+  stroke-width: 2;
+}
+
+.tt-connector.locked {
+  stroke: rgba(60, 60, 80, 0.25);
+  stroke-dasharray: 4 3;
+}
+
+.tt-connector.available {
+  stroke: rgba(60, 200, 100, 0.4);
+}
+
+.tt-connector.completed {
+  stroke: rgba(60, 160, 80, 0.5);
 }
 
 /* === OBJECTIVE / GOAL ITEMS === */
@@ -704,6 +837,7 @@ body {
     0 0 12px rgba(200, 120, 40, 0.15),
     inset 0 0 30px rgba(10, 10, 30, 0.5);
 }
+
 
 .popup-header {
   display: flex;
@@ -1135,6 +1269,23 @@ body {
   border-width: 2px;
 }
 
+/* === PROBE MODE INDICATOR === */
+#probe-mode-indicator {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: rgba(80, 40, 120, 0.9);
+  border: 1px solid rgba(160, 100, 220, 0.6);
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 10px;
+  color: #ddbbff;
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+
 /* === COMPONENT PREVIEW PANEL === */
 #component-preview {
   position: absolute;
@@ -1298,6 +1449,18 @@ body {
   flex-shrink: 0;
   font-size: 7px;
   color: rgba(160, 160, 200, 0.4);
+}
+
+.param-select {
+  flex: 1;
+  background: rgba(20, 20, 50, 0.8);
+  color: #ccc;
+  border: 1px solid rgba(100, 100, 160, 0.4);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 8px;
+  font-family: 'Press Start 2P', monospace;
+  cursor: pointer;
 }
 
 .param-derived-row {
