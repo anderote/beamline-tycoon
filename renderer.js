@@ -52,6 +52,7 @@ class Renderer {
     this.networkOverlayLayer = null;
     this.networkPanel = null;
     this.activeNetworkType = null;
+    this._networkTintedSprites = []; // [{sprite, originalTint}]
 
     // Tech tree pan/zoom state
     this._treePanX = 0;
@@ -96,10 +97,12 @@ class Renderer {
 
     this.infraLayer = new PIXI.Container();
     this.infraLayer.zIndex = 0.5;
+    this.infraLayer.sortableChildren = true;
     this.world.addChild(this.infraLayer);
 
     this.zoneLayer = new PIXI.Container();
     this.zoneLayer.zIndex = 0.55;
+    this.zoneLayer.sortableChildren = true;
     this.world.addChild(this.zoneLayer);
 
     this.dragPreviewLayer = new PIXI.Container();
@@ -1010,7 +1013,7 @@ class Renderer {
     this.activeNetworkType = connType;
     const connColor = CONNECTION_TYPES[connType]?.color || 0xffffff;
 
-    // Highlight network tiles with semi-transparent overlay
+    // Highlight network pipe/cable tiles with semi-transparent overlay
     for (const tile of targetNet.tiles) {
       const pos = tileCenterIso(tile.col, tile.row);
       const highlight = new PIXI.Graphics();
@@ -1019,25 +1022,27 @@ class Renderer {
       this.networkOverlayLayer.addChild(highlight);
     }
 
-    // Highlight connected beamline components in yellow
+    // Tint connected beamline component sprites white
     for (const node of targetNet.beamlineNodes) {
-      const tiles = node.tiles || [{ col: node.col, row: node.row }];
-      for (const tile of tiles) {
-        const pos = tileCenterIso(tile.col, tile.row);
-        const highlight = new PIXI.Graphics();
-        highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
-        highlight.fill({ color: 0xffff00, alpha: 0.2 });
-        this.networkOverlayLayer.addChild(highlight);
+      const sprite = this.nodeSprites[node.id];
+      if (sprite) {
+        this._networkTintedSprites.push({ sprite, originalTint: sprite.tint });
+        sprite.tint = 0xffffff;
       }
     }
 
-    // Highlight connected equipment with stronger overlay
-    for (const eq of targetNet.equipment) {
-      const pos = tileCenterIso(eq.col, eq.row);
-      const highlight = new PIXI.Graphics();
-      highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
-      highlight.fill({ color: connColor, alpha: 0.4 });
-      this.networkOverlayLayer.addChild(highlight);
+    // Tint connected facility equipment sprites white
+    const networkEquipIds = new Set(targetNet.equipment.map(e => e.id));
+    for (const child of this.facilityLayer.children) {
+      // Match by position — facility sprites are placed at tileCenterIso(eq.col, eq.row)
+      for (const eq of targetNet.equipment) {
+        const pos = tileCenterIso(eq.col, eq.row);
+        if (child instanceof PIXI.Sprite && Math.abs(child.x - pos.x) < 1 && Math.abs(child.y - pos.y) < 1) {
+          this._networkTintedSprites.push({ sprite: child, originalTint: child.tint });
+          child.tint = 0xffffff;
+          break;
+        }
+      }
     }
 
     // Show stats panel
@@ -1050,6 +1055,11 @@ class Renderer {
       this.networkPanel.remove();
       this.networkPanel = null;
     }
+    // Restore original tints on sprites
+    for (const { sprite, originalTint } of this._networkTintedSprites) {
+      sprite.tint = originalTint;
+    }
+    this._networkTintedSprites = [];
     this.activeNetworkType = null;
   }
 
@@ -1193,20 +1203,22 @@ class Renderer {
     }
 
     // Top face — use sprite if available, otherwise colored polygon
+    const isoDepth = col + row;
     const texture = this.sprites.getTileTexture(infra.id);
     if (texture) {
       const sprite = new PIXI.Sprite(texture);
-      // Top-face center of isometric tile sprite is at ~50% x, ~35% y
-      sprite.anchor.set(0.5, 0.35);
+      sprite.anchor.set(0.5, 0.65);
       sprite.x = pos.x;
       sprite.y = pos.y;
       const scale = TILE_W / texture.width;
       sprite.scale.set(scale, scale);
+      sprite.zIndex = isoDepth;
       this.infraLayer.addChild(sprite);
     } else {
       const top = new PIXI.Graphics();
       top.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
       top.fill({ color: infra.topColor });
+      top.zIndex = isoDepth;
       this.infraLayer.addChild(top);
     }
   }
@@ -1234,17 +1246,19 @@ class Renderer {
     const pos = tileCenterIso(col, row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
+    const isoDepth = col + row;
 
     // Draw the zone's required floor type as the base (into infraLayer so it's beneath everything)
     const floorId = zone.requiredFloor;
     const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
     if (floorTexture) {
       const fs = new PIXI.Sprite(floorTexture);
-      fs.anchor.set(0.5, 0.35);
+      fs.anchor.set(0.5, 0.65);
       fs.x = pos.x;
       fs.y = pos.y;
       const fScale = TILE_W / floorTexture.width;
       fs.scale.set(fScale, fScale);
+      fs.zIndex = isoDepth;
       this.infraLayer.addChild(fs);
     } else if (floorId) {
       const floorInfo = INFRASTRUCTURE[floorId];
@@ -1252,6 +1266,7 @@ class Renderer {
         const g = new PIXI.Graphics();
         g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
         g.fill({ color: floorInfo.topColor });
+        g.zIndex = isoDepth;
         this.infraLayer.addChild(g);
       }
     }
@@ -1262,12 +1277,13 @@ class Renderer {
       const texture = this.sprites.getTileTexture(zone.id);
       if (texture) {
         const sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5, 0.35);
+        sprite.anchor.set(0.5, 0.65);
         sprite.x = pos.x;
         sprite.y = pos.y;
         const scale = TILE_W / texture.width;
         sprite.scale.set(scale, scale);
         sprite.alpha = active ? 0.9 : 0.7;
+        sprite.zIndex = isoDepth;
         this.zoneLayer.addChild(sprite);
       }
     }
@@ -1276,6 +1292,7 @@ class Renderer {
     const g = new PIXI.Graphics();
     g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
     g.fill({ color: zone.color, alpha: active ? 0.15 : 0.07 });
+    g.zIndex = isoDepth;
     this.zoneLayer.addChild(g);
   }
 
