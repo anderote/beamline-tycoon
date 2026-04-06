@@ -438,6 +438,86 @@ console.log('\n=== RF Validation Tests ===');
   vassert(result.sources[0].power === 50, 'RF5: klystron with modulator should have 50 MW power, got ' + result.sources[0].power);
 }
 
+// --- Vacuum Validation Tests ---
+console.log('\n=== Vacuum Validation Tests ===');
+
+// 1. Short path: pump adjacent to 1 pipe tile, beamline adjacent to same tile
+{
+  const state = mockGameState();
+  // One vacuum pipe tile at (5,5)
+  placeConn(state, 5, 5, 'vacuumPipe');
+  // Turbo pump adjacent at (5,4)
+  placeEquip(state, 'tp1', 'turboPump', 5, 4);
+  // Beamline node (drift) adjacent at (5,6)
+  state.beamline.push({ id: 'bl1', type: 'drift', col: 5, row: 6, tiles: [{ col: 5, row: 6 }] });
+  const nets = Networks.discoverAll(state);
+  const vNet = nets.vacuumPipe[0];
+  const result = Networks.validateVacuumNetwork(vNet, state.beamline);
+  // S_eff = 1/(1/300 + 1/50) = 1/(0.00333 + 0.02) = 1/0.02333 ≈ 42.86
+  vassert(result.effectivePumpSpeed > 40 && result.effectivePumpSpeed < 50,
+    'VAC1: short path S_eff should be 40-50, got ' + result.effectivePumpSpeed);
+  vassert(result.ok === true, 'VAC1: should be ok');
+  vassert(result.pumps.length === 1, 'VAC1: should have 1 pump');
+}
+
+// 2. Long path: pump connected through 10 tiles of pipe to beamline
+{
+  const state = mockGameState();
+  // 10 vacuum pipe tiles in a line from (0,5) to (9,5)
+  for (let c = 0; c < 10; c++) {
+    placeConn(state, c, 5, 'vacuumPipe');
+  }
+  // Turbo pump adjacent to first tile at (-1,5)
+  placeEquip(state, 'tp1', 'turboPump', -1, 5);
+  // Beamline node adjacent to last tile at (10,5)
+  state.beamline.push({ id: 'bl1', type: 'drift', col: 10, row: 5, tiles: [{ col: 10, row: 5 }] });
+  const nets = Networks.discoverAll(state);
+  const vNet = nets.vacuumPipe[0];
+  const result = Networks.validateVacuumNetwork(vNet, state.beamline);
+  // C_path = 50/10 = 5, S_eff = 1/(1/300 + 1/5) = 1/(0.00333+0.2) ≈ 4.92
+  vassert(result.effectivePumpSpeed < 10,
+    'VAC2: long path S_eff should be < 10, got ' + result.effectivePumpSpeed);
+  vassert(result.pumps[0].pathLength === 10,
+    'VAC2: path length should be 10, got ' + result.pumps[0].pathLength);
+}
+
+// 3. Two pumps parallel: two turbo pumps each adjacent to a pipe tile that's adjacent to beamline
+{
+  const state = mockGameState();
+  // Three pipe tiles in a line
+  placeConn(state, 5, 5, 'vacuumPipe');
+  placeConn(state, 6, 5, 'vacuumPipe');
+  placeConn(state, 7, 5, 'vacuumPipe');
+  // Two turbo pumps, each adjacent to an end tile
+  placeEquip(state, 'tp1', 'turboPump', 5, 4);
+  placeEquip(state, 'tp2', 'turboPump', 7, 4);
+  // Beamline node adjacent to all three pipe tiles (directly below the line)
+  // Node at row 6, with tiles spanning cols 5-7 so each pipe tile is a beamline connection
+  state.beamline.push({ id: 'bl1', type: 'drift', col: 5, row: 6,
+    tiles: [{ col: 5, row: 6 }, { col: 6, row: 6 }, { col: 7, row: 6 }] });
+  const nets = Networks.discoverAll(state);
+  const vNet = nets.vacuumPipe[0];
+  const result = Networks.validateVacuumNetwork(vNet, state.beamline);
+  // Each pump: path length 1 (adjacent tile IS a beamline connection point)
+  // S_eff each ≈ 42.86, total ≈ 85.7
+  vassert(result.effectivePumpSpeed > 70,
+    'VAC3: two parallel pumps should give > 70 L/s, got ' + result.effectivePumpSpeed);
+  vassert(result.pumps.length === 2, 'VAC3: should have 2 pumps');
+}
+
+// 4. No pumps: pipe tiles with no pumps
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'vacuumPipe');
+  state.beamline.push({ id: 'bl1', type: 'drift', col: 5, row: 6, tiles: [{ col: 5, row: 6 }] });
+  const nets = Networks.discoverAll(state);
+  const vNet = nets.vacuumPipe[0];
+  const result = Networks.validateVacuumNetwork(vNet, state.beamline);
+  vassert(result.effectivePumpSpeed === 0, 'VAC4: no pumps = 0 speed');
+  vassert(result.pressureQuality === 'None', 'VAC4: quality should be None, got ' + result.pressureQuality);
+  vassert(result.ok === false, 'VAC4: should not be ok');
+}
+
 console.log('Passed: ' + vPassed + '  Failed: ' + vFailed);
 if (vFailed > 0) {
   console.log('\n=== VALIDATION TESTS FAILED ===');

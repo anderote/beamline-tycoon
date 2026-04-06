@@ -361,6 +361,159 @@ const Networks = {
     };
   },
 
+  // ── Vacuum Conductance Constants ───────────────────────────────────
+  PIPE_CONDUCTANCE: 50,  // L/s per vacuum pipe tile
+  PUMP_SPEEDS: {
+    roughingPump: 10, turboPump: 300, ionPump: 100, negPump: 200, tiSubPump: 500,
+  },
+  OUTGASSING_RATE: 1e-9,  // mbar*L/s per liter of beamline volume
+
+  /**
+   * BFS from startKey through tiles in tileSet.
+   * Returns shortest distance to any key in targetSet.
+   * Distance = number of tiles traversed (start tile counts as 1).
+   * If unreachable, returns Infinity.
+   */
+  _bfsDistance: function(startKey, targetSet, tileSet) {
+    if (targetSet.has(startKey)) return 1;
+    var visited = new Set();
+    visited.add(startKey);
+    var queue = [{ key: startKey, dist: 1 }];
+    while (queue.length > 0) {
+      var cur = queue.shift();
+      var parts = cur.key.split(',');
+      var col = parseInt(parts[0], 10);
+      var row = parseInt(parts[1], 10);
+      for (var d = 0; d < CARDINAL.length; d++) {
+        var nKey = (col + CARDINAL[d][0]) + ',' + (row + CARDINAL[d][1]);
+        if (visited.has(nKey)) continue;
+        visited.add(nKey);
+        if (!tileSet.has(nKey)) continue;
+        var nDist = cur.dist + 1;
+        if (targetSet.has(nKey)) return nDist;
+        queue.push({ key: nKey, dist: nDist });
+      }
+    }
+    return Infinity;
+  },
+
+  /**
+   * Validate vacuum network: pumps provide effective speed through pipe conductance.
+   * Returns { effectivePumpSpeed, avgPressure, pressureQuality, ok, pumps }
+   */
+  validateVacuumNetwork: function(network, allBeamline) {
+    var PUMP_SPEEDS = Networks.PUMP_SPEEDS;
+    var PIPE_CONDUCTANCE = Networks.PIPE_CONDUCTANCE;
+    var OUTGASSING_RATE = Networks.OUTGASSING_RATE;
+
+    // 1. Build tileSet for fast lookup
+    var tileSet = new Set();
+    for (var t = 0; t < network.tiles.length; t++) {
+      tileSet.add(network.tiles[t].col + ',' + network.tiles[t].row);
+    }
+
+    // 2. Find pumps in network equipment
+    var pumps = [];
+    for (var i = 0; i < network.equipment.length; i++) {
+      var eq = network.equipment[i];
+      if (PUMP_SPEEDS[eq.type] !== undefined) {
+        pumps.push(eq);
+      }
+    }
+
+    // 3. No pumps case
+    if (pumps.length === 0) {
+      return {
+        effectivePumpSpeed: 0,
+        avgPressure: Infinity,
+        pressureQuality: 'None',
+        ok: false,
+        pumps: [],
+      };
+    }
+
+    // 4. Find beamline connection points: beamline node tiles cardinally adjacent to a vacuum pipe tile
+    var beamlineConnSet = new Set();
+    for (var b = 0; b < network.beamlineNodes.length; b++) {
+      var node = network.beamlineNodes[b];
+      var nodeTiles = node.tiles || [{ col: node.col, row: node.row }];
+      for (var nt = 0; nt < nodeTiles.length; nt++) {
+        var nc = nodeTiles[nt].col;
+        var nr = nodeTiles[nt].row;
+        for (var d = 0; d < CARDINAL.length; d++) {
+          var adjKey = (nc + CARDINAL[d][0]) + ',' + (nr + CARDINAL[d][1]);
+          if (tileSet.has(adjKey)) {
+            beamlineConnSet.add(adjKey);
+          }
+        }
+      }
+    }
+
+    // 5. For each pump, BFS through network to find shortest path to beamline connection
+    var totalEffectiveSpeed = 0;
+    var pumpResults = [];
+    for (var p = 0; p < pumps.length; p++) {
+      var pump = pumps[p];
+      var sPump = PUMP_SPEEDS[pump.type];
+      var pumpTiles = pump.tiles || [{ col: pump.col, row: pump.row }];
+
+      // Find pump's adjacent tiles that are in the network
+      var bestDist = Infinity;
+      for (var pt = 0; pt < pumpTiles.length; pt++) {
+        var pc = pumpTiles[pt].col;
+        var pr = pumpTiles[pt].row;
+        for (var pd = 0; pd < CARDINAL.length; pd++) {
+          var pAdjKey = (pc + CARDINAL[pd][0]) + ',' + (pr + CARDINAL[pd][1]);
+          if (tileSet.has(pAdjKey)) {
+            var dist = Networks._bfsDistance(pAdjKey, beamlineConnSet, tileSet);
+            if (dist < bestDist) bestDist = dist;
+          }
+        }
+      }
+
+      var pathLength = bestDist;
+      var cPath = PIPE_CONDUCTANCE / Math.max(pathLength, 1);
+      var sEff = 1 / (1 / sPump + 1 / cPath);
+      totalEffectiveSpeed += sEff;
+      pumpResults.push({ id: pump.id, type: pump.type, pumpSpeed: sPump, effectiveSpeed: sEff, pathLength: pathLength });
+    }
+
+    // 6. Compute pressure
+    var totalVolume = 0;
+    for (var bv = 0; bv < allBeamline.length; bv++) {
+      var bNode = allBeamline[bv];
+      var bComp = COMPONENTS[bNode.type];
+      if (bComp && bComp.interiorVolume) {
+        totalVolume += bComp.interiorVolume;
+      }
+    }
+    var gasLoad = Math.max(totalVolume, 1) * OUTGASSING_RATE;
+    var avgPressure = gasLoad / totalEffectiveSpeed;
+
+    // 7. Pressure quality
+    var pressureQuality;
+    if (avgPressure < 1e-9) {
+      pressureQuality = 'Excellent';
+    } else if (avgPressure < 1e-7) {
+      pressureQuality = 'Good';
+    } else if (avgPressure < 1e-4) {
+      pressureQuality = 'Marginal';
+    } else {
+      pressureQuality = 'Poor';
+    }
+
+    // 8. ok
+    var ok = pressureQuality !== 'Poor' && pressureQuality !== 'None';
+
+    return {
+      effectivePumpSpeed: totalEffectiveSpeed,
+      avgPressure: avgPressure,
+      pressureQuality: pressureQuality,
+      ok: ok,
+      pumps: pumpResults,
+    };
+  },
+
   validateCryoNetwork: function(network) {
     var SRF_TYPES = ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'srfGun', 'scQuad', 'scDipole'];
     var SRF_HEAT_W = 18;
