@@ -39,6 +39,7 @@ class Renderer {
     this.bulldozerMode = false;
     this.infraLayer = null;
     this.dragPreviewLayer = null;
+    this.facilityLayer = null;
   }
 
   async init() {
@@ -73,6 +74,11 @@ class Renderer {
     this.dragPreviewLayer = new PIXI.Container();
     this.dragPreviewLayer.zIndex = 0.6;
     this.world.addChild(this.dragPreviewLayer);
+
+    this.facilityLayer = new PIXI.Container();
+    this.facilityLayer.zIndex = 1.5;
+    this.facilityLayer.sortableChildren = true;
+    this.world.addChild(this.facilityLayer);
 
     this.beamLayer = new PIXI.Container();
     this.beamLayer.zIndex = 1;
@@ -110,9 +116,13 @@ class Renderer {
           this._renderCursors();
           this._renderInfrastructure();
           this._renderPlots();
+          this._renderFacilityEquipment();
           break;
         case 'infrastructureChanged':
           this._renderInfrastructure();
+          break;
+        case 'facilityChanged':
+          this._renderFacilityEquipment();
           break;
         case 'beamToggled':
           this._renderBeam();
@@ -138,6 +148,7 @@ class Renderer {
     this._renderResearchOverlay();
     this._renderGoalsOverlay();
     this._renderInfrastructure();
+    this._renderFacilityEquipment();
     this._updateHUD();
   }
 
@@ -589,6 +600,39 @@ class Renderer {
     g.fill({ color: infra.color });
 
     this.infraLayer.addChild(g);
+  }
+
+  // --- Facility equipment rendering ---
+
+  _renderFacilityEquipment() {
+    this.facilityLayer.removeChildren();
+    const equipment = this.game.state.facilityEquipment || [];
+    for (const equip of equipment) {
+      const comp = COMPONENTS[equip.type];
+      if (!comp) continue;
+      const spriteKey = comp.spriteKey || equip.type;
+      const texture = this.sprites.getTexture(spriteKey);
+      if (!texture) continue;
+
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5, 0.7);
+      const pos = tileCenterIso(equip.col, equip.row);
+      sprite.x = pos.x;
+      sprite.y = pos.y;
+      sprite.zIndex = equip.col + equip.row;
+      this.facilityLayer.addChild(sprite);
+
+      // Label
+      const label = new PIXI.Text({
+        text: comp.name,
+        style: { fontFamily: 'monospace', fontSize: 9, fill: 0xcccccc },
+      });
+      label.anchor.set(0.5, 0);
+      label.x = pos.x;
+      label.y = pos.y + 8;
+      label.zIndex = equip.col + equip.row + 0.1;
+      this.facilityLayer.addChild(label);
+    }
   }
 
   renderDragPreview(startCol, startRow, endCol, endRow, infraType) {
