@@ -49,6 +49,9 @@ class Renderer {
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
     this.connectionLayer = null;
+    this.networkOverlayLayer = null;
+    this.networkPanel = null;
+    this.activeNetworkType = null;
 
     // Tech tree pan/zoom state
     this._treePanX = 0;
@@ -128,6 +131,11 @@ class Renderer {
     this.cursorLayer = new PIXI.Container();
     this.cursorLayer.zIndex = 3;
     this.world.addChild(this.cursorLayer);
+
+    this.networkOverlayLayer = new PIXI.Container();
+    this.networkOverlayLayer.sortableChildren = true;
+    this.networkOverlayLayer.zIndex = 5000;
+    this.world.addChild(this.networkOverlayLayer);
 
     this.world.sortableChildren = true;
 
@@ -986,6 +994,138 @@ class Renderer {
     if (popup) popup.classList.add('hidden');
   }
 
+  showNetworkOverlay(equipId) {
+    this.clearNetworkOverlay();
+
+    const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+    if (!equip) return;
+
+    // Get the connection type this equipment produces/provides
+    const connType = this.game._getEquipmentConnectionType(equip.type);
+    if (!connType || !this.game.state.networkData) return;
+
+    // Find which network this equipment belongs to
+    const networks = this.game.state.networkData[connType] || [];
+    let targetNet = null;
+    for (const net of networks) {
+      if (net.equipment.some(e => e.id === equipId)) {
+        targetNet = net;
+        break;
+      }
+    }
+    if (!targetNet) return;
+
+    this.activeNetworkType = connType;
+    const connColor = CONNECTION_TYPES[connType]?.color || 0xffffff;
+
+    // Highlight network tiles with semi-transparent overlay
+    for (const tile of targetNet.tiles) {
+      const pos = tileCenterIso(tile.col, tile.row);
+      const highlight = new PIXI.Graphics();
+      highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
+      highlight.fill({ color: connColor, alpha: 0.3 });
+      this.networkOverlayLayer.addChild(highlight);
+    }
+
+    // Highlight connected beamline components in yellow
+    for (const node of targetNet.beamlineNodes) {
+      const tiles = node.tiles || [{ col: node.col, row: node.row }];
+      for (const tile of tiles) {
+        const pos = tileCenterIso(tile.col, tile.row);
+        const highlight = new PIXI.Graphics();
+        highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
+        highlight.fill({ color: 0xffff00, alpha: 0.2 });
+        this.networkOverlayLayer.addChild(highlight);
+      }
+    }
+
+    // Highlight connected equipment with stronger overlay
+    for (const eq of targetNet.equipment) {
+      const pos = tileCenterIso(eq.col, eq.row);
+      const highlight = new PIXI.Graphics();
+      highlight.rect(pos.x - TILE_W / 2, pos.y - TILE_H / 2, TILE_W, TILE_H);
+      highlight.fill({ color: connColor, alpha: 0.4 });
+      this.networkOverlayLayer.addChild(highlight);
+    }
+
+    // Show stats panel
+    this._showNetworkPanel(connType, targetNet);
+  }
+
+  clearNetworkOverlay() {
+    if (this.networkOverlayLayer) this.networkOverlayLayer.removeChildren();
+    if (this.networkPanel) {
+      this.networkPanel.remove();
+      this.networkPanel = null;
+    }
+    this.activeNetworkType = null;
+  }
+
+  _showNetworkPanel(connType, network) {
+    if (this.networkPanel) this.networkPanel.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'network-panel';
+    panel.style.cssText = 'position:fixed;top:80px;right:16px;width:280px;background:rgba(0,0,0,0.85);color:#eee;padding:12px;border-radius:6px;font-family:monospace;font-size:12px;z-index:10000;border:1px solid rgba(255,255,255,0.2);';
+
+    const title = CONNECTION_TYPES[connType]?.name || connType;
+    let html = `<div style="font-size:14px;font-weight:bold;margin-bottom:8px">${title} Network</div>`;
+
+    if (connType === 'powerCable' && typeof Networks !== 'undefined') {
+      const stats = Networks.validatePowerNetwork(network);
+      const util = stats.capacity > 0 ? (stats.draw / stats.capacity * 100).toFixed(0) : 0;
+      const color = stats.ok ? '#4c4' : '#f44';
+      html += `<div>Capacity: ${stats.capacity} kW</div>`;
+      html += `<div>Draw: ${stats.draw} kW</div>`;
+      html += `<div>Utilization: ${util}%</div>`;
+      html += `<div style="color:${color}">Status: ${stats.ok ? 'OK' : 'OVERLOADED'}</div>`;
+      html += `<div style="margin-top:6px;font-size:11px">Substations: ${stats.substations.length}</div>`;
+      html += `<div style="font-size:11px">Consumers: ${stats.consumers.length}</div>`;
+    } else if (connType === 'rfWaveguide' && typeof Networks !== 'undefined') {
+      const stats = Networks.validateRfNetwork(network);
+      const freq = stats.sources.length > 0 ? stats.sources[0].frequency : '—';
+      html += `<div>Frequency: ${freq === 'broadband' ? 'Broadband' : freq + ' MHz'}</div>`;
+      html += `<div>Forward Power: ${stats.forwardPower} kW</div>`;
+      html += `<div>Reflected: ${stats.reflectedPower.toFixed(1)} kW</div>`;
+      html += `<div>Sources: ${stats.sources.length} | Cavities: ${stats.cavities.length}</div>`;
+      if (stats.missingModulator) html += `<div style="color:#f44">Missing modulator!</div>`;
+      if (!stats.frequencyMatch) html += `<div style="color:#f44">Frequency mismatch!</div>`;
+      html += `<div>Circulator: ${stats.hasCirculator ? 'Yes' : 'No'}</div>`;
+      html += `<div style="color:${stats.ok ? '#4c4' : '#f44'}">Status: ${stats.ok ? 'OK' : 'ISSUES'}</div>`;
+    } else if (connType === 'coolingWater' && typeof Networks !== 'undefined') {
+      const stats = Networks.validateCoolingNetwork(network);
+      html += `<div>Capacity: ${stats.capacity} kW</div>`;
+      html += `<div>Heat Load: ${stats.heatLoad.toFixed(1)} kW</div>`;
+      html += `<div>Margin: ${stats.margin.toFixed(0)}%</div>`;
+      html += `<div style="color:${stats.ok ? '#4c4' : '#f44'}">Status: ${stats.ok ? 'OK' : 'OVERLOADED'}</div>`;
+    } else if (connType === 'cryoTransfer' && typeof Networks !== 'undefined') {
+      const stats = Networks.validateCryoNetwork(network);
+      html += `<div>Capacity: ${stats.capacity} W</div>`;
+      html += `<div>Heat Load: ${stats.heatLoad} W</div>`;
+      html += `<div>Op Temp: ${stats.opTemp > 0 ? stats.opTemp + ' K' : 'N/A'}</div>`;
+      html += `<div>Compressor: ${stats.hasCompressor ? 'Yes' : 'No'}</div>`;
+      html += `<div>Margin: ${stats.margin.toFixed(0)}%</div>`;
+      html += `<div style="color:${stats.ok ? '#4c4' : '#f44'}">Status: ${stats.ok ? 'OK' : 'ISSUES'}</div>`;
+    } else if (connType === 'vacuumPipe' && typeof Networks !== 'undefined') {
+      const stats = Networks.validateVacuumNetwork(network, this.game.state.beamline);
+      html += `<div>Eff. Pump Speed: ${stats.effectivePumpSpeed.toFixed(1)} L/s</div>`;
+      html += `<div>Pressure: ${stats.avgPressure === Infinity ? '—' : stats.avgPressure.toExponential(1)} mbar</div>`;
+      html += `<div>Quality: ${stats.pressureQuality}</div>`;
+      html += `<div>Pumps: ${stats.pumps.length}</div>`;
+      html += `<div style="color:${stats.ok ? '#4c4' : '#f44'}">Status: ${stats.ok ? 'OK' : 'POOR'}</div>`;
+    } else if (connType === 'dataFiber') {
+      const hasIoc = network.equipment.some(eq => eq.type === 'rackIoc');
+      html += `<div>Rack/IOC: ${hasIoc ? 'Connected' : 'None'}</div>`;
+      html += `<div>Diagnostics: ${network.beamlineNodes.length}</div>`;
+      html += `<div style="color:${hasIoc ? '#4c4' : '#f44'}">Status: ${hasIoc ? 'OK' : 'NO IOC'}</div>`;
+    }
+
+    html += `<div style="margin-top:8px;font-size:10px;color:#888">Click elsewhere or Esc to close</div>`;
+    panel.innerHTML = html;
+    document.body.appendChild(panel);
+    this.networkPanel = panel;
+  }
+
   // --- Probe pin flags ---
 
   _renderProbeFlags(pins) {
@@ -1103,7 +1243,7 @@ class Renderer {
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
 
-    // Draw the zone's required floor type as the base
+    // Draw the zone's required floor type as the base (into infraLayer so it's beneath everything)
     const floorId = zone.requiredFloor;
     const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
     if (floorTexture) {
@@ -1113,14 +1253,14 @@ class Renderer {
       fs.y = pos.y;
       const fScale = TILE_W / floorTexture.width;
       fs.scale.set(fScale, fScale);
-      this.zoneLayer.addChild(fs);
+      this.infraLayer.addChild(fs);
     } else if (floorId) {
       const floorInfo = INFRASTRUCTURE[floorId];
       if (floorInfo) {
         const g = new PIXI.Graphics();
         g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
         g.fill({ color: floorInfo.topColor });
-        this.zoneLayer.addChild(g);
+        this.infraLayer.addChild(g);
       }
     }
 

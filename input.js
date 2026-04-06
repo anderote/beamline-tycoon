@@ -24,11 +24,15 @@ class InputHandler {
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
     this.connPath = [];
+    // Line placement (hallway)
+    this.isDrawingLine = false;
+    this.linePath = [];
     // Continuous panning
     this.keysDown = new Set();
     // Bulldozer mode
     this.bulldozerMode = false;
-    this.bulldozerConnType = null;  // null = destroy everything, or a specific conn type
+    // Probe placement mode
+    this.probeMode = false;
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     this._bindKeyboard();
@@ -84,7 +88,7 @@ class InputHandler {
             this.game.placeFacilityEquipment(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFacilityTool);
           } else if (this.selectedInfraTool) {
             const infra = INFRASTRUCTURE[this.selectedInfraTool];
-            if (infra && !infra.isDragPlacement) {
+            if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
               if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool)) {
                 this.game.emit('infrastructureChanged');
               }
@@ -104,6 +108,11 @@ class InputHandler {
           break;
         }
         case 'Escape':
+          // Close network overlay if active
+          if (this.renderer.activeNetworkType) {
+            this.renderer.clearNetworkOverlay();
+            // Don't return — let other Escape handling also run
+          }
           // Close all overlays
           document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
           this.deselectTool();
@@ -113,8 +122,9 @@ class InputHandler {
           this.deselectZoneTool();
           this.deselectDemolishTool();
           this.bulldozerMode = false;
-          this.bulldozerConnType = null;
           this.renderer.setBulldozerMode(false);
+          this.probeMode = false;
+          this.renderer.setProbeMode(false);
           this.selectedNodeId = null;
           this.renderer.hidePopup();
           this.paletteIndex = -1;
@@ -142,8 +152,23 @@ class InputHandler {
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
+        case 'p': case 'P':
+          this.probeMode = !this.probeMode;
+          if (this.probeMode) {
+            this.deselectTool();
+            this.deselectInfraTool();
+            this.deselectFacilityTool();
+            this.deselectConnTool();
+            this.deselectZoneTool();
+            this.deselectDemolishTool();
+            this.bulldozerMode = false;
+            this.renderer.setBulldozerMode(false);
+            this.renderer.setProbeMode(true);
+          } else {
+            this.renderer.setProbeMode(false);
+          }
+          break;
         case 'Delete': case 'Backspace':
-          console.log('[DELETE]', { selectedTool: this.selectedTool, buildMode: this.buildMode, selectedNodeId: this.selectedNodeId, selectedConnTool: this.selectedConnTool, bulldozerMode: this.bulldozerMode, bulldozerConnType: this.bulldozerConnType });
           if (this.selectedTool || this.buildMode) {
             // In build mode: remove the most recently placed component
             const nodes = this.game.beamline.getAllNodes();
@@ -155,19 +180,9 @@ class InputHandler {
             this.game.removeComponent(this.selectedNodeId);
             this.selectedNodeId = null;
             this.renderer.hidePopup();
-          } else if (this.selectedConnTool) {
-            // Utility pipe selected: enter bulldoze mode for just that pipe type
-            const connType = this.selectedConnTool;
-            this.bulldozerConnType = connType;
-            this.bulldozerMode = !this.bulldozerMode;
-            this.deselectTool();
-            this.deselectInfraTool();
-            this.deselectConnTool();
-            this.renderer.setBulldozerMode(this.bulldozerMode);
           } else {
             // Nothing selected: toggle general bulldozer mode
             this.bulldozerMode = !this.bulldozerMode;
-            this.bulldozerConnType = null;
             this.deselectTool();
             this.deselectInfraTool();
             this.renderer.setBulldozerMode(this.bulldozerMode);
@@ -234,6 +249,15 @@ class InputHandler {
         return;
       }
 
+      // Demolish drag start
+      if (e.button === 0 && this.demolishMode) {
+        this.isDragging = true;
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        this.dragStart = { col: grid.col, row: grid.row };
+        this.dragEnd = { col: grid.col, row: grid.row };
+      }
+
       // Zone drag start
       if (e.button === 0 && this.selectedZoneTool) {
         this.isDragging = true;
@@ -243,7 +267,20 @@ class InputHandler {
         this.dragEnd = { col: grid.col, row: grid.row };
       }
 
-      // Infrastructure drag start
+      // Infrastructure line placement start (hallway)
+      if (e.button === 0 && this.selectedInfraTool) {
+        const infra = INFRASTRUCTURE[this.selectedInfraTool];
+        if (infra && infra.isLinePlacement) {
+          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+          const grid = isoToGrid(world.x, world.y);
+          this.isDrawingLine = true;
+          this.linePath = [{ col: grid.col, row: grid.row }];
+          this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
+          return;
+        }
+      }
+
+      // Infrastructure drag start (area placement)
       if (e.button === 0 && this.selectedInfraTool) {
         const infra = INFRASTRUCTURE[this.selectedInfraTool];
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -267,7 +304,12 @@ class InputHandler {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.dragEnd = { col: grid.col, row: grid.row };
-        if (this.selectedZoneTool) {
+        if (this.demolishMode) {
+          this.renderer.renderDemolishPreview(
+            this.dragStart.col, this.dragStart.row,
+            grid.col, grid.row
+          );
+        } else if (this.selectedZoneTool) {
           this.renderer.renderDragPreview(
             this.dragStart.col, this.dragStart.row,
             grid.col, grid.row, this.selectedZoneTool, true
@@ -277,6 +319,30 @@ class InputHandler {
             this.dragStart.col, this.dragStart.row,
             grid.col, grid.row, this.selectedInfraTool
           );
+        }
+      } else if (this.isDrawingLine && this.selectedInfraTool) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        const last = this.linePath[this.linePath.length - 1];
+        if (grid.col !== last.col || grid.row !== last.row) {
+          // Only add if adjacent (no diagonal jumps)
+          const dc = Math.abs(grid.col - last.col);
+          const dr = Math.abs(grid.row - last.row);
+          if (dc + dr === 1) {
+            this.linePath.push({ col: grid.col, row: grid.row });
+          } else {
+            // Bridge gap with straight line to cursor
+            const steps = Math.max(dc, dr);
+            for (let i = 1; i <= steps; i++) {
+              const ic = last.col + Math.round((grid.col - last.col) * i / steps);
+              const ir = last.row + Math.round((grid.row - last.row) * i / steps);
+              const prev = this.linePath[this.linePath.length - 1];
+              if (ic !== prev.col || ir !== prev.row) {
+                this.linePath.push({ col: ic, row: ir });
+              }
+            }
+          }
+          this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
         }
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -312,9 +378,30 @@ class InputHandler {
         return;
       }
 
-      // Infrastructure or zone drag end
+      // Line placement end (hallway)
+      if (this.isDrawingLine && this.linePath.length > 0) {
+        for (const pt of this.linePath) {
+          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool);
+        }
+        this.game.emit('infrastructureChanged');
+        this.isDrawingLine = false;
+        this.linePath = [];
+        this.renderer.clearDragPreview();
+        return;
+      }
+
+      // Infrastructure, zone, or demolish drag end
       if (this.isDragging && this.dragStart && this.dragEnd) {
-        if (this.selectedZoneTool) {
+        if (this.demolishMode) {
+          this.game.removeZoneRect(
+            this.dragStart.col, this.dragStart.row,
+            this.dragEnd.col, this.dragEnd.row
+          );
+          this.game.removeInfraRect(
+            this.dragStart.col, this.dragStart.row,
+            this.dragEnd.col, this.dragEnd.row
+          );
+        } else if (this.selectedZoneTool) {
           this.game.placeZoneRect(
             this.dragStart.col, this.dragStart.row,
             this.dragEnd.col, this.dragEnd.row,
@@ -388,7 +475,6 @@ class InputHandler {
     console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.beamline.getAllNodes().length });
 
     if (this.bulldozerMode) {
-      console.log('[BULLDOZE]', { col, row, bulldozerConnType: this.bulldozerConnType });
       if (this.bulldozerConnType) {
         // Pipe-specific bulldozer: only remove the selected connection type
         this.game.removeConnection(col, row, this.bulldozerConnType);
@@ -429,7 +515,7 @@ class InputHandler {
     if (this.selectedInfraTool) {
       // Infrastructure placement (single tile for non-drag items like path)
       const infra = INFRASTRUCTURE[this.selectedInfraTool];
-      if (infra && !infra.isDragPlacement) {
+      if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
         if (this.game.placeInfraTile(col, row, this.selectedInfraTool)) {
           this.game.emit('infrastructureChanged');
         }
@@ -479,6 +565,13 @@ class InputHandler {
           this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
         }
       }
+    } else if (this.probeMode) {
+      // Probe placement mode — click nodes to add probes
+      const node = this.game.beamline.getNodeAt(col, row);
+      if (node && this.renderer.onProbeClick) {
+        this.renderer.onProbeClick(node);
+      }
+      return;
     } else {
       // Selection mode
       const node = this.game.beamline.getNodeAt(col, row);
@@ -494,6 +587,7 @@ class InputHandler {
           if (equip) {
             const comp = COMPONENTS[equip.type];
             if (comp) {
+              this.renderer.showNetworkOverlay(facId);
               this.renderer.showFacilityPopup(equip, comp, screenX, screenY);
               return;
             }
@@ -501,6 +595,7 @@ class InputHandler {
         }
         this.selectedNodeId = null;
         this.renderer.hidePopup();
+        this.renderer.clearNetworkOverlay();
       }
     }
   }
@@ -511,7 +606,6 @@ class InputHandler {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.bulldozerMode = false;
-    this.bulldozerConnType = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -564,6 +658,8 @@ class InputHandler {
     this.isDragging = false;
     this.dragStart = null;
     this.dragEnd = null;
+    this.isDrawingLine = false;
+    this.linePath = [];
     this.renderer.clearDragPreview();
   }
 
@@ -585,7 +681,6 @@ class InputHandler {
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.bulldozerMode = false;
-    this.bulldozerConnType = null;
     this.renderer.setBulldozerMode(false);
     this.selectedConnTool = connType;
     this.selectedNodeId = null;
@@ -779,7 +874,7 @@ class InputHandler {
       if (!infra) { this._hidePreview(); return; }
       this._renderPreview(infra.name, infra.desc || '', [
         ['Cost', `$${infra.cost}/tile`],
-        ['Placement', infra.isDragPlacement ? 'Drag' : 'Click'],
+        ['Placement', infra.isDragPlacement ? 'Drag area' : infra.isLinePlacement ? 'Draw line' : 'Click'],
       ]);
       return;
     }
