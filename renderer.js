@@ -2153,7 +2153,9 @@ class Renderer {
     // Cost
     const costEl = document.createElement('div');
     costEl.className = 'palette-cost';
-    const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
+    const costs = Object.entries(comp.cost).map(([r, a]) =>
+      r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
+    ).join(', ');
     if (zoneBlocked) {
       const neededTiles = ZONE_TIER_THRESHOLDS[( comp.zoneTier || 1) - 1];
       let zoneName = '';
@@ -2201,7 +2203,9 @@ class Renderer {
 
     const statsEl = document.getElementById('preview-stats');
     if (statsEl) {
-      const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
+      const costs = Object.entries(comp.cost).map(([r, a]) =>
+      r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
+    ).join(', ');
       const statRow = (label, val) =>
         `<div class="prev-stat-row"><span>${label}</span><span class="prev-stat-val">${val}</span></div>`;
 
