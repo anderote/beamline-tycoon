@@ -891,8 +891,30 @@ class Game {
 
         // Data from detectors (physics-driven)
         if (this.state.dataRate > 0) {
-          const sciMult = 1 + this.state.staff.scientists * 0.1; // scientists boost data
-          const dataGain = this.state.dataRate * sciMult;
+          // Only count data from diagnostics with data/fiber connections to IOCs
+          let connectedDataRate = this.state.dataRate;
+          if (typeof Networks !== 'undefined' && this.state.networkData) {
+            const dataConnected = new Set();
+            for (const net of (this.state.networkData.dataFiber || [])) {
+              const hasIoc = net.equipment.some(eq => eq.type === 'rackIoc');
+              if (hasIoc) {
+                for (const node of net.beamlineNodes) dataConnected.add(node.id);
+              }
+            }
+            let totalDiagRate = 0, connDiagRate = 0;
+            for (const node of this.state.beamline) {
+              const comp = COMPONENTS[node.type];
+              if (comp && (comp.stats?.dataRate || 0) > 0) {
+                totalDiagRate += comp.stats.dataRate;
+                if (dataConnected.has(node.id)) connDiagRate += comp.stats.dataRate;
+              }
+            }
+            if (totalDiagRate > 0) {
+              connectedDataRate = this.state.dataRate * (connDiagRate / totalDiagRate);
+            }
+          }
+          const sciMult = 1 + this.state.staff.scientists * 0.1;
+          const dataGain = connectedDataRate * sciMult;
           this.state.resources.data += dataGain;
           this.state.totalDataCollected += dataGain;
         }
@@ -1292,7 +1314,9 @@ class Game {
       }
       // Base wear rate: higher energy cost = more stress
       const baseWear = 0.01 + (t.energyCost || 0) * 0.002;
-      this.state.componentHealth[node.id] = Math.max(0, this.state.componentHealth[node.id] - baseWear);
+      const hasMPS = (this.state.facilityEquipment || []).some(eq => eq.type === 'mps');
+      const wearMult = hasMPS ? 1 : 2;
+      this.state.componentHealth[node.id] = Math.max(0, this.state.componentHealth[node.id] - baseWear * wearMult);
 
       // Random failure check below 20% health
       if (this.state.componentHealth[node.id] < 20 && Math.random() < 0.05) {
