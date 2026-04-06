@@ -20,6 +20,10 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._onInfraSelect = (infraType) => input.selectInfraTool(infraType);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
+  renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
+  renderer._onDemolishSelect = () => input.selectDemolishTool();
+  renderer._onPaletteClick = (idx) => input._syncPaletteClick(idx);
+  renderer._onTabSelect = (category) => { input.selectedCategory = category; input.paletteIndex = -1; input._hidePreview(); };
 
   // Sync mode changes to input handler
   document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -42,8 +46,10 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   };
 
   // Render pin flags on beamline changes
-  game.on('beamlineChanged', () => {
-    renderer._renderProbeFlags(probeWindow.pins);
+  game.on((event) => {
+    if (event === 'beamlineChanged') {
+      renderer._renderProbeFlags(probeWindow.pins);
+    }
   });
 
   // Load saved game (if any)

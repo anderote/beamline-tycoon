@@ -1265,6 +1265,97 @@ class Renderer {
       return;
     }
 
+    // Structure mode — Flooring tab: show flooring INFRASTRUCTURE items
+    if (compCategory === 'flooring') {
+      const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
+      for (const key of flooringKeys) {
+        const infra = INFRASTRUCTURE[key];
+        if (!infra) continue;
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const affordable = this.game.state.resources.funding >= infra.cost;
+        if (!affordable) item.classList.add('unaffordable');
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = infra.name;
+        item.appendChild(nameEl);
+
+        const costEl = document.createElement('div');
+        costEl.className = 'palette-cost';
+        costEl.textContent = `$${infra.cost}/tile`;
+        item.appendChild(costEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onInfraSelect) this._onInfraSelect(key);
+        });
+
+        palette.appendChild(item);
+      }
+      return;
+    }
+
+    // Structure mode — Zones tab: show zone types
+    if (compCategory === 'zones') {
+      for (const [key, zone] of Object.entries(ZONES)) {
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const hex = '#' + zone.color.toString(16).padStart(6, '0');
+        item.style.borderLeft = `4px solid ${hex}`;
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = zone.name;
+        item.appendChild(nameEl);
+
+        const descEl = document.createElement('div');
+        descEl.className = 'palette-cost';
+        descEl.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor}`;
+        item.appendChild(descEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onZoneSelect) this._onZoneSelect(key);
+        });
+
+        palette.appendChild(item);
+      }
+      return;
+    }
+
+    // Structure mode — Demolish tab: show demolish tool
+    if (compCategory === 'demolish') {
+      const item = document.createElement('div');
+      item.className = 'palette-item';
+      item.dataset.paletteIndex = 0;
+      paletteIdx++;
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'palette-name';
+      nameEl.textContent = 'Demolish Tool';
+      item.appendChild(nameEl);
+
+      const descEl = document.createElement('div');
+      descEl.className = 'palette-cost';
+      descEl.textContent = 'Click/drag to remove flooring & zones';
+      item.appendChild(descEl);
+
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(0);
+        if (this._onDemolishSelect) this._onDemolishSelect();
+      });
+
+      palette.appendChild(item);
+      return;
+    }
+
     // Facility mode — show components from facility categories
     if (isFacilityCategory(compCategory)) {
       for (const [key, comp] of Object.entries(COMPONENTS)) {

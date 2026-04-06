@@ -5,7 +5,7 @@ class InputHandler {
     this.renderer = renderer;
     this.game = game;
     this.selectedTool = null;       // component type string or null
-    this.selectedCategory = 'sources';
+    this.selectedCategory = 'source';
     this.dipoleBendDir = 'right';
     this.selectedNodeId = null;
     this.isPanning = false;
@@ -13,6 +13,8 @@ class InputHandler {
     this.worldStart = { x: 0, y: 0 };
     // Infrastructure placement
     this.selectedInfraTool = null;  // infrastructure type or null
+    this.selectedZoneTool = null;    // zone type or null
+    this.demolishMode = false;       // structure demolish tool
     this.isDragging = false;
     this.dragStart = null;          // { col, row }
     this.dragEnd = null;            // { col, row }
@@ -20,11 +22,15 @@ class InputHandler {
     this.selectedFacilityTool = null;
     this.selectedConnTool = null;
     this.isDrawingConn = false;
+    this.connDrawMode = 'add';  // 'add' or 'remove'
     this.connPath = [];
     // Continuous panning
     this.keysDown = new Set();
     // Bulldozer mode
     this.bulldozerMode = false;
+    this.bulldozerConnType = null;  // null = destroy everything, or a specific conn type
+    // Palette keyboard navigation
+    this.paletteIndex = -1;  // -1 = no keyboard focus
     this._bindKeyboard();
     this._bindMouse();
     this._startPanLoop();
@@ -38,8 +44,15 @@ class InputHandler {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-      // Track pan keys for continuous movement
-      const panKeys = ['w','W','ArrowUp','s','S','ArrowDown','a','A','ArrowLeft','d','D','ArrowRight'];
+      // Arrow keys → palette navigation
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this._handlePaletteNav(e.key);
+        return;
+      }
+
+      // Track pan keys for continuous movement (WASD only)
+      const panKeys = ['w','W','s','S','a','A','d','D'];
       if (panKeys.includes(e.key)) {
         this.keysDown.add(e.key);
         e.preventDefault();
@@ -48,8 +61,37 @@ class InputHandler {
 
       switch (e.key) {
         case ' ':
-          this.game.toggleBeam();
           e.preventDefault();
+          if (this.selectedTool) {
+            // Place at cursor position
+            const nodes = this.game.beamline.getAllNodes();
+            if (nodes.length === 0) {
+              const comp = COMPONENTS[this.selectedTool];
+              if (comp && comp.isSource) {
+                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, DIR.NE);
+              }
+            } else {
+              const cursors = this.game.beamline.getBuildCursors();
+              // If only one cursor, place there; otherwise place at hovered cursor
+              const cursor = cursors.length === 1
+                ? cursors[0]
+                : cursors.find(c => c.col === this.renderer.hoverCol && c.row === this.renderer.hoverRow);
+              if (cursor) {
+                this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
+              }
+            }
+          } else if (this.selectedFacilityTool) {
+            this.game.placeFacilityEquipment(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFacilityTool);
+          } else if (this.selectedInfraTool) {
+            const infra = INFRASTRUCTURE[this.selectedInfraTool];
+            if (infra && !infra.isDragPlacement) {
+              if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool)) {
+                this.game.emit('infrastructureChanged');
+              }
+            }
+          } else {
+            this.game.toggleBeam();
+          }
           break;
         case 'r': case 'R': {
           const overlay = document.getElementById('research-overlay');
@@ -69,9 +111,13 @@ class InputHandler {
           this.deselectFacilityTool();
           this.deselectConnTool();
           this.bulldozerMode = false;
+          this.bulldozerConnType = null;
           this.renderer.setBulldozerMode(false);
           this.selectedNodeId = null;
           this.renderer.hidePopup();
+          this.paletteIndex = -1;
+          this._hidePreview();
+          document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('kb-focus'));
           break;
         case 'Tab': {
           e.preventDefault();
@@ -86,6 +132,8 @@ class InputHandler {
           tabs.forEach(t => t.classList.remove('active'));
           tabs[nextIdx].classList.add('active');
           this.renderer.updatePalette(this.selectedCategory);
+          this.paletteIndex = -1;
+          this._hidePreview();
           break;
         }
         case 'f': case 'F':
@@ -104,9 +152,19 @@ class InputHandler {
             this.game.removeComponent(this.selectedNodeId);
             this.selectedNodeId = null;
             this.renderer.hidePopup();
-          } else {
-            // Toggle bulldozer mode
+          } else if (this.selectedConnTool) {
+            // Utility pipe selected: enter bulldoze mode for just that pipe type
+            const connType = this.selectedConnTool;
+            this.bulldozerConnType = connType;
             this.bulldozerMode = !this.bulldozerMode;
+            this.deselectTool();
+            this.deselectInfraTool();
+            this.deselectConnTool();
+            this.renderer.setBulldozerMode(this.bulldozerMode);
+          } else {
+            // Nothing selected: toggle general bulldozer mode
+            this.bulldozerMode = !this.bulldozerMode;
+            this.bulldozerConnType = null;
             this.deselectTool();
             this.deselectInfraTool();
             this.renderer.setBulldozerMode(this.bulldozerMode);
@@ -124,10 +182,10 @@ class InputHandler {
     const PAN_SPEED = 5;
     const loop = () => {
       let dx = 0, dy = 0;
-      if (this.keysDown.has('w') || this.keysDown.has('W') || this.keysDown.has('ArrowUp')) dy -= PAN_SPEED;
-      if (this.keysDown.has('s') || this.keysDown.has('S') || this.keysDown.has('ArrowDown')) dy += PAN_SPEED;
-      if (this.keysDown.has('a') || this.keysDown.has('A') || this.keysDown.has('ArrowLeft')) dx -= PAN_SPEED;
-      if (this.keysDown.has('d') || this.keysDown.has('D') || this.keysDown.has('ArrowRight')) dx += PAN_SPEED;
+      if (this.keysDown.has('w') || this.keysDown.has('W')) dy -= PAN_SPEED;
+      if (this.keysDown.has('s') || this.keysDown.has('S')) dy += PAN_SPEED;
+      if (this.keysDown.has('a') || this.keysDown.has('A')) dx -= PAN_SPEED;
+      if (this.keysDown.has('d') || this.keysDown.has('D')) dx += PAN_SPEED;
       if (dx !== 0 || dy !== 0) {
         this.renderer.panBy(dx, dy);
       }
@@ -158,14 +216,28 @@ class InputHandler {
         return;
       }
 
-      // Connection drawing start
-      if (e.button === 0 && this.selectedConnTool) {
+      // Connection drawing start (left click = add, right click = remove)
+      if (this.selectedConnTool && (e.button === 0 || e.button === 2)) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.isDrawingConn = true;
+        this.connDrawMode = e.button === 0 ? 'add' : 'remove';
         this.connPath = [{ col: grid.col, row: grid.row }];
-        this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+        if (this.connDrawMode === 'add') {
+          this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+        } else {
+          this.game.removeConnection(grid.col, grid.row, this.selectedConnTool);
+        }
         return;
+      }
+
+      // Zone drag start
+      if (e.button === 0 && this.selectedZoneTool) {
+        this.isDragging = true;
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        this.dragStart = { col: grid.col, row: grid.row };
+        this.dragEnd = { col: grid.col, row: grid.row };
       }
 
       // Infrastructure drag start
@@ -202,7 +274,11 @@ class InputHandler {
         const last = this.connPath[this.connPath.length - 1];
         if (grid.col !== last.col || grid.row !== last.row) {
           this.connPath.push({ col: grid.col, row: grid.row });
-          this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+          if (this.connDrawMode === 'add') {
+            this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+          } else {
+            this.game.removeConnection(grid.col, grid.row, this.selectedConnTool);
+          }
         }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -212,6 +288,7 @@ class InputHandler {
     });
 
     canvas.addEventListener('mouseup', (e) => {
+      console.log('[MOUSEUP]', { button: e.button, isPanning: this.isPanning, isDrawingConn: this.isDrawingConn, isDragging: this.isDragging });
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
@@ -225,13 +302,21 @@ class InputHandler {
         return;
       }
 
-      // Infrastructure drag end
+      // Infrastructure or zone drag end
       if (this.isDragging && this.dragStart && this.dragEnd) {
-        this.game.placeInfraRect(
-          this.dragStart.col, this.dragStart.row,
-          this.dragEnd.col, this.dragEnd.row,
-          this.selectedInfraTool
-        );
+        if (this.selectedZoneTool) {
+          this.game.placeZoneRect(
+            this.dragStart.col, this.dragStart.row,
+            this.dragEnd.col, this.dragEnd.row,
+            this.selectedZoneTool
+          );
+        } else if (this.selectedInfraTool) {
+          this.game.placeInfraRect(
+            this.dragStart.col, this.dragStart.row,
+            this.dragEnd.col, this.dragEnd.row,
+            this.selectedInfraTool
+          );
+        }
         this.isDragging = false;
         this.dragStart = null;
         this.dragEnd = null;
@@ -253,6 +338,10 @@ class InputHandler {
           this.deselectFacilityTool();
         } else if (this.selectedConnTool) {
           this.deselectConnTool();
+        } else if (this.selectedZoneTool) {
+          this.deselectZoneTool();
+        } else if (this.demolishMode) {
+          this.deselectDemolishTool();
         } else {
           // Right-click on the grid: check if clicking on a beamline component
           const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -286,20 +375,46 @@ class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
+    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.beamline.getAllNodes().length });
+
     if (this.bulldozerMode) {
-      // Bulldozer: remove whatever is at the clicked tile
-      const node = this.game.beamline.getNodeAt(col, row);
-      if (node) {
-        this.game.removeComponent(node.id);
-      }
-      // Also remove infrastructure
-      const infraKey = col + ',' + row;
-      if (this.game.state.infraOccupied[infraKey]) {
-        const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
-        if (idx !== -1) {
-          this.game.state.infrastructure.splice(idx, 1);
-          delete this.game.state.infraOccupied[infraKey];
-          this.game.emit('infrastructureChanged');
+      if (this.bulldozerConnType) {
+        // Pipe-specific bulldozer: only remove the selected connection type
+        this.game.removeConnection(col, row, this.bulldozerConnType);
+      } else {
+        // General bulldozer: remove whatever is at the clicked tile
+        const key = col + ',' + row;
+        const node = this.game.beamline.getNodeAt(col, row);
+        if (node) {
+          this.game.removeComponent(node.id);
+        }
+        // Remove infrastructure
+        if (this.game.state.infraOccupied[key]) {
+          const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
+          if (idx !== -1) {
+            this.game.state.infrastructure.splice(idx, 1);
+            delete this.game.state.infraOccupied[key];
+            this.game.emit('infrastructureChanged');
+          }
+        }
+        // Remove facility equipment
+        const equipId = this.game.state.facilityGrid[key];
+        if (equipId) {
+          this.game.removeFacilityEquipment(equipId);
+        }
+        // Remove machines
+        const machineId = this.game.state.machineGrid[key];
+        if (machineId) {
+          this.game.removeMachine(machineId);
+        }
+        // Remove zones
+        if (this.game.state.zoneOccupied[key]) {
+          this.game.removeZoneTile(col, row);
+        }
+        // Remove all connections at this tile
+        const conns = this.game.getConnectionsAt(col, row);
+        for (const connType of conns) {
+          this.game.removeConnection(col, row, connType);
         }
       }
       return;
@@ -316,6 +431,31 @@ class InputHandler {
       return;
     }
 
+    // Zone placement (single tile click)
+    if (this.selectedZoneTool) {
+      if (this.game.placeZoneTile(col, row, this.selectedZoneTool)) {
+        this.game.emit('zonesChanged');
+      }
+      return;
+    }
+
+    // Structure demolish mode
+    if (this.demolishMode) {
+      const key = col + ',' + row;
+      if (this.game.state.zoneOccupied[key]) {
+        this.game.removeZoneTile(col, row);
+      }
+      if (this.game.state.infraOccupied[key]) {
+        const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
+        if (idx !== -1) {
+          this.game.state.infrastructure.splice(idx, 1);
+          delete this.game.state.infraOccupied[key];
+          this.game.emit('infrastructureChanged');
+        }
+      }
+      return;
+    }
+
     // Facility equipment placement
     if (this.selectedFacilityTool) {
       this.game.placeFacilityEquipment(col, row, this.selectedFacilityTool);
@@ -325,9 +465,12 @@ class InputHandler {
     if (this.selectedTool) {
       // Placement mode
       const nodes = this.game.beamline.getAllNodes();
-      if (nodes.length === 0 && this.selectedTool === 'source') {
-        // Place first source
-        this.game.placeSource(col, row, DIR.NE);
+      if (nodes.length === 0) {
+        // Place first component (must be a source type)
+        const comp = COMPONENTS[this.selectedTool];
+        if (comp && comp.isSource) {
+          this.game.placeSource(col, row, DIR.NE);
+        }
       } else {
         // Find matching cursor
         const cursors = this.game.beamline.getBuildCursors();
@@ -366,19 +509,41 @@ class InputHandler {
 
   selectTool(compType) {
     this.selectedInfraTool = null;
+    this.selectedFacilityTool = null;
+    this.bulldozerMode = false;
+    this.bulldozerConnType = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
     this.renderer.setBuildMode(true, compType);
+  }
 
-    // Auto-place at the first available build cursor
-    const nodes = this.game.beamline.getAllNodes();
-    if (nodes.length > 0) {
-      const cursors = this.game.beamline.getBuildCursors();
-      if (cursors.length > 0) {
-        this.game.placeComponent(cursors[0], compType, this.dipoleBendDir);
-      }
-    }
+  // Select tool without auto-placing (for keyboard navigation preview)
+  _selectToolPreview(compType) {
+    this.selectedInfraTool = null;
+    this.selectedFacilityTool = null;
+    this.selectedTool = compType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+    this.renderer.setBuildMode(true, compType);
+  }
+
+  _selectFacilityToolPreview(compType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectConnTool();
+    this.selectedFacilityTool = compType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+  }
+
+  _selectInfraToolPreview(infraType) {
+    this.selectedTool = null;
+    this.selectedFacilityTool = null;
+    this.renderer.setBuildMode(false);
+    this.selectedInfraTool = infraType;
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
   }
 
   deselectTool() {
@@ -419,6 +584,9 @@ class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
+    this.bulldozerMode = false;
+    this.bulldozerConnType = null;
+    this.renderer.setBulldozerMode(false);
     this.selectedConnTool = connType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -430,12 +598,42 @@ class InputHandler {
     this.connPath = [];
   }
 
+  selectZoneTool(zoneType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectConnTool();
+    this.demolishMode = false;
+    this.selectedZoneTool = zoneType;
+  }
+
+  deselectZoneTool() {
+    this.selectedZoneTool = null;
+  }
+
+  selectDemolishTool() {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.demolishMode = true;
+  }
+
+  deselectDemolishTool() {
+    this.demolishMode = false;
+  }
+
   setActiveMode(mode) {
     this.activeMode = mode;
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectConnTool();
+    this.deselectZoneTool();
+    this.deselectDemolishTool();
+    this.paletteIndex = -1;
+    this._hidePreview();
     // Reset selected category to first in new mode
     const modeData = MODES[mode];
     if (modeData && !modeData.disabled) {
@@ -443,5 +641,208 @@ class InputHandler {
       this.selectedCategory = catKeys[0] || '';
     }
     this.renderer.activeMode = mode;
+  }
+
+  // --- Palette click sync ---
+
+  _syncPaletteClick(idx) {
+    this.paletteIndex = idx;
+    // Update kb-focus visual
+    const items = document.querySelectorAll('#component-palette .palette-item');
+    items.forEach(el => el.classList.remove('kb-focus'));
+    if (idx >= 0 && idx < items.length) {
+      items[idx].classList.add('kb-focus');
+    }
+    this._showPreviewForIndex();
+  }
+
+  // --- Palette keyboard navigation ---
+
+  _handlePaletteNav(key) {
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      this._handleVerticalNav(key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
+
+    const items = document.querySelectorAll('#component-palette .palette-item');
+    if (items.length === 0) return;
+
+    if (key === 'ArrowRight') {
+      this.paletteIndex = Math.min(this.paletteIndex + 1, items.length - 1);
+    } else if (key === 'ArrowLeft') {
+      this.paletteIndex = Math.max(this.paletteIndex - 1, 0);
+    }
+
+    this._applyPaletteFocus(items);
+  }
+
+  _handleVerticalNav(dir) {
+    // Build a flat list: all modes and their category tabs
+    const modeKeys = Object.keys(MODES).filter(k => !MODES[k].disabled);
+    const allEntries = []; // { mode, category }
+    for (const mk of modeKeys) {
+      const catKeys = Object.keys(MODES[mk].categories);
+      for (const ck of catKeys) {
+        allEntries.push({ mode: mk, category: ck });
+      }
+    }
+    if (allEntries.length === 0) return;
+
+    // Find current position
+    let curIdx = allEntries.findIndex(
+      e => e.mode === this.activeMode && e.category === this.selectedCategory
+    );
+    if (curIdx < 0) curIdx = 0;
+
+    const nextIdx = (curIdx + dir + allEntries.length) % allEntries.length;
+    const next = allEntries[nextIdx];
+
+    // Switch mode if needed
+    if (next.mode !== this.activeMode) {
+      this.activeMode = next.mode;
+      this.deselectTool();
+      this.deselectInfraTool();
+      this.deselectFacilityTool();
+      this.deselectConnTool();
+      this.renderer.activeMode = next.mode;
+      // Update mode buttons
+      document.querySelectorAll('.mode-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === next.mode);
+      });
+      this.renderer._generateCategoryTabs();
+    }
+
+    // Switch category tab
+    this.selectedCategory = next.category;
+    const tabs = document.querySelectorAll('.cat-tab');
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.category === next.category));
+    this.renderer.updatePalette(next.category);
+
+    // Keep palette index position, clamped to new tab's item count
+    const newItems = document.querySelectorAll('#component-palette .palette-item');
+    if (this.paletteIndex < 0) this.paletteIndex = 0;
+    if (newItems.length > 0 && this.paletteIndex >= newItems.length) {
+      this.paletteIndex = newItems.length - 1;
+    }
+    this._applyPaletteFocus(newItems);
+  }
+
+  _applyPaletteFocus(items) {
+    if (!items || items.length === 0) return;
+    if (this.paletteIndex < 0) this.paletteIndex = 0;
+    if (this.paletteIndex >= items.length) this.paletteIndex = items.length - 1;
+
+    // Update visual focus
+    items.forEach(el => el.classList.remove('kb-focus'));
+    const focused = items[this.paletteIndex];
+    focused.classList.add('kb-focus');
+
+    // Scroll into view
+    focused.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+
+    // Select the component as the active tool (without auto-placing)
+    const compKeys = this._getPaletteCompKeys();
+    if (this.paletteIndex < compKeys.length) {
+      const compKey = compKeys[this.paletteIndex];
+      if (this.selectedCategory === 'infrastructure') {
+        this._selectInfraToolPreview(compKey);
+      } else if (isFacilityCategory(this.selectedCategory)) {
+        this._selectFacilityToolPreview(compKey);
+      } else {
+        this._selectToolPreview(compKey);
+      }
+    }
+
+    // Show preview panel
+    this._showPreviewForIndex();
+  }
+
+  _showPreviewForIndex() {
+    // Gather the component keys in the current palette
+    const compKeys = this._getPaletteCompKeys();
+    if (this.paletteIndex < 0 || this.paletteIndex >= compKeys.length) {
+      this._hidePreview();
+      return;
+    }
+
+    const key = compKeys[this.paletteIndex];
+
+    // Could be infrastructure or component
+    if (this.selectedCategory === 'infrastructure') {
+      const infra = INFRASTRUCTURE[key];
+      if (!infra) { this._hidePreview(); return; }
+      this._renderPreview(infra.name, infra.desc || '', [
+        ['Cost', `$${infra.cost}/tile`],
+        ['Placement', infra.isDragPlacement ? 'Drag' : 'Click'],
+      ]);
+      return;
+    }
+
+    const comp = COMPONENTS[key];
+    if (!comp) { this._hidePreview(); return; }
+
+    const costs = Object.entries(comp.cost).map(([r, a]) => `${a} ${r}`).join(', ');
+    const statEntries = [
+      ['Cost', costs],
+      ['Energy Cost', `${comp.energyCost} E/s`],
+      ['Length', `${comp.length} m`],
+    ];
+    if (comp.stats) {
+      for (const [k, v] of Object.entries(comp.stats)) {
+        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+        statEntries.push([label, v]);
+      }
+    }
+    if (comp.requires) {
+      const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
+      statEntries.push(['Requires', reqs.join(', ')]);
+    }
+
+    this._renderPreview(comp.name, comp.desc || '', statEntries);
+  }
+
+  _renderPreview(name, desc, stats) {
+    const panel = document.getElementById('component-preview');
+    const nameEl = document.getElementById('preview-name');
+    const descEl = document.getElementById('preview-desc');
+    const statsEl = document.getElementById('preview-stats');
+    if (!panel) return;
+
+    nameEl.textContent = name;
+    descEl.textContent = desc;
+    statsEl.innerHTML = '';
+    for (const [label, val] of stats) {
+      const row = document.createElement('div');
+      row.className = 'prev-stat-row';
+      row.innerHTML = `<span>${label}</span><span class="prev-stat-val">${val}</span>`;
+      statsEl.appendChild(row);
+    }
+    panel.classList.remove('hidden');
+  }
+
+  _hidePreview() {
+    const panel = document.getElementById('component-preview');
+    if (panel) panel.classList.add('hidden');
+  }
+
+  _getPaletteCompKeys() {
+    const category = this.selectedCategory;
+    if (category === 'flooring') {
+      return ['labFloor', 'officeFloor', 'concrete', 'hallway'];
+    }
+    if (category === 'zones') {
+      return Object.keys(ZONES);
+    }
+    if (category === 'demolish') {
+      return ['demolish'];
+    }
+    if (category === 'infrastructure') {
+      return Object.keys(INFRASTRUCTURE);
+    }
+    const keys = [];
+    for (const [key, comp] of Object.entries(COMPONENTS)) {
+      if (comp.category === category) keys.push(key);
+    }
+    return keys;
   }
 }
