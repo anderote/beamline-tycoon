@@ -686,7 +686,7 @@ class Renderer {
       html += '<div class="popup-stats">';
       html += '<div class="popup-section-label">Info</div>';
       html += row('Direction', DIR_NAMES[node.dir] || '--', '');
-      html += row('Energy Cost', comp.energyCost, 'E/s');
+      html += row('Energy Cost', comp.energyCost, 'kW');
       html += row('Length', comp.length, 'm');
       html += '</div>';
 
@@ -747,10 +747,14 @@ class Renderer {
           const computed = typeof computeStats !== 'undefined' ? computeStats(node.type, node.params) : null;
           for (const [key, def] of derivedKeys) {
             const val = computed ? computed[key] : (node.params[key] ?? def.default);
+            const isEnergy = def.unit === 'GeV' || def.unit === 'GeV/c';
+            const suffix = def.unit === 'GeV/c' ? '/c' : '';
+            const dispVal = isEnergy ? formatEnergy(val, suffix).val : this._fmtParam(val);
+            const dispUnit = isEnergy ? formatEnergy(val, suffix).unit : def.unit;
             html += `<div class="param-derived-row">`;
             html += `<span class="param-label">${this._paramLabel(key)}</span>`;
-            html += `<span class="param-value" data-derived-display="${key}">${this._fmtParam(val)}</span>`;
-            html += `<span class="param-unit">${def.unit}</span>`;
+            html += `<span class="param-value" data-derived-display="${key}">${dispVal}</span>`;
+            html += `<span class="param-unit" data-derived-unit="${key}">${dispUnit}</span>`;
             html += `</div>`;
           }
         }
@@ -852,7 +856,11 @@ class Renderer {
                 if (!dDef.derived) continue;
                 const dDisplay = body.querySelector(`[data-derived-display="${dKey}"]`);
                 if (dDisplay && computed[dKey] !== undefined) {
-                  dDisplay.textContent = this._fmtParam(computed[dKey]);
+                  const isEnergy = dDef.unit === 'GeV' || dDef.unit === 'GeV/c';
+                  const suffix = dDef.unit === 'GeV/c' ? '/c' : '';
+                  dDisplay.textContent = isEnergy ? formatEnergy(computed[dKey], suffix).val : this._fmtParam(computed[dKey]);
+                  const dUnit = body.querySelector(`[data-derived-unit="${dKey}"]`);
+                  if (dUnit && isEnergy) dUnit.textContent = formatEnergy(computed[dKey], suffix).unit;
                   // Flash animation
                   const row = dDisplay.closest('.param-derived-row');
                   if (row) {
@@ -890,7 +898,7 @@ class Renderer {
       let html = `<div class="popup-stats">`;
       html += `<div>Type: ${comp.name}</div>`;
       html += `<div>Category: ${comp.category}</div>`;
-      html += `<div>Energy Cost: ${comp.energyCost} E/s</div>`;
+      html += `<div>Energy Cost: ${comp.energyCost} kW</div>`;
       html += `</div>`;
       html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">Remove (50% refund)</button></div>`;
       body.innerHTML = html;
@@ -1147,7 +1155,7 @@ class Renderer {
       sprite.anchor.set(0.5, 0.5);
       sprite.x = pos.x;
       // Offset up: the diamond center is above the canvas center due to side faces
-      sprite.y = pos.y - (texture.height * scale * 0.08);
+      sprite.y = pos.y - (texture.height * scale * 0.04);
       sprite.scale.set(scale, scale);
       sprite.zIndex = isoDepth;
       this.infraLayer.addChild(sprite);
@@ -1196,7 +1204,7 @@ class Renderer {
       const fScale = (TILE_W / floorTexture.width) * 1.35;
       fs.anchor.set(0.5, 0.5);
       fs.x = pos.x;
-      fs.y = pos.y - (floorTexture.height * fScale * 0.08);
+      fs.y = pos.y - (floorTexture.height * fScale * 0.04);
       fs.scale.set(fScale, fScale);
       fs.zIndex = isoDepth;
       this.infraLayer.addChild(fs);
@@ -1631,7 +1639,14 @@ class Renderer {
     setEl('val-data', Math.floor(res.data));
 
     // Beam stats (top-left panel)
-    setEl('stat-beam-energy', s.beamEnergy ? s.beamEnergy.toFixed(2) : '0.0');
+    if (s.beamEnergy) {
+      const e = formatEnergy(s.beamEnergy);
+      setEl('stat-beam-energy', e.val);
+      setEl('stat-beam-energy-unit', e.unit);
+    } else {
+      setEl('stat-beam-energy', '0.0');
+      setEl('stat-beam-energy-unit', 'GeV');
+    }
     setEl('stat-beam-quality', s.beamQuality ? s.beamQuality.toFixed(2) : '--');
     setEl('stat-beam-current', s.beamCurrent ? s.beamCurrent.toFixed(2) : '--');
     setEl('stat-data-rate', s.dataRate ? s.dataRate.toFixed(1) : '0');
@@ -1729,41 +1744,68 @@ class Renderer {
   }
 
   _renderMachineTypeSelector() {
-    const container = document.getElementById('machine-type-selector');
-    if (!container) return;
-    container.innerHTML = '';
-
-    if (this.activeMode !== 'beamline' || typeof MACHINE_TYPES === 'undefined') {
-      container.classList.remove('visible');
-      return;
-    }
-    container.classList.add('visible');
+    const label = document.getElementById('beamline-type-label');
+    const dropdown = document.getElementById('machine-type-dropdown');
+    if (!label || !dropdown) return;
 
     const currentType = this.game.state.machineType || 'linac';
+    const currentName = (typeof MACHINE_TYPES !== 'undefined' && MACHINE_TYPES[currentType])
+      ? MACHINE_TYPES[currentType].name : 'Electron Linac';
+
+    // Show current type as subtitle under Beamline button (only in beamline mode)
+    if (this.activeMode === 'beamline') {
+      label.textContent = currentName;
+      label.style.display = '';
+    } else {
+      label.textContent = '';
+      label.style.display = 'none';
+    }
+
+    // Build dropdown options
+    dropdown.innerHTML = '';
+    if (typeof MACHINE_TYPES === 'undefined') return;
+
     for (const [key, mt] of Object.entries(MACHINE_TYPES)) {
-      const btn = document.createElement('button');
-      btn.className = 'machine-type-btn';
-      btn.dataset.machineType = key;
-
+      const opt = document.createElement('div');
+      opt.className = 'machine-type-opt';
       const unlocked = this.game.isMachineTypeUnlocked(key);
-      if (key === currentType) btn.classList.add('active');
-      if (!unlocked) btn.classList.add('locked');
+      if (key === currentType) opt.classList.add('active');
+      if (!unlocked) opt.classList.add('locked');
 
-      btn.textContent = mt.name;
-      btn.title = unlocked ? mt.desc : `Locked — research required`;
+      let html = mt.name;
+      if (!unlocked) html += '<span class="mt-lock">\u{1F512}</span>';
+      html += `<span class="mt-desc">${mt.desc}</span>`;
+      opt.innerHTML = html;
 
-      btn.addEventListener('click', () => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (!unlocked) {
           this.game.log(`Research required to unlock ${mt.name}`, 'bad');
           return;
         }
         if (this.game.setMachineType(key)) {
+          dropdown.classList.add('hidden');
           this._renderMachineTypeSelector();
           this._generateCategoryTabs();
         }
       });
 
-      container.appendChild(btn);
+      dropdown.appendChild(opt);
+    }
+
+    // Wire label click to toggle dropdown
+    label.onclick = (e) => {
+      e.stopPropagation();
+      if (this.activeMode !== 'beamline') return;
+      dropdown.classList.toggle('hidden');
+    };
+
+    // Close dropdown when clicking elsewhere
+    if (!this._mtDropdownBound) {
+      document.addEventListener('click', () => {
+        dropdown.classList.add('hidden');
+      });
+      this._mtDropdownBound = true;
     }
   }
 
@@ -2163,12 +2205,18 @@ class Renderer {
 
       let html = '';
       html += statRow('Cost', costs);
-      html += statRow('Energy Cost', `${comp.energyCost} E/s`);
+      html += statRow('Energy Cost', `${comp.energyCost} kW`);
       html += statRow('Length', `${comp.length} m`);
       if (comp.stats) {
         for (const [k, v] of Object.entries(comp.stats)) {
           const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-          html += statRow(label, v);
+          if (k === 'energyGain') {
+            const e = formatEnergy(v);
+            html += statRow(label, `${e.val} ${e.unit}`);
+          } else {
+            const unit = typeof UNITS !== 'undefined' && UNITS[k] ? ` ${UNITS[k]}` : '';
+            html += statRow(label, `${v}${unit}`);
+          }
         }
       }
       statsEl.innerHTML = html;

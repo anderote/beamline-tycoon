@@ -54,12 +54,12 @@
 
     <!-- Beam parameters panel (top-left, transparent) -->
     <div id="beam-stats-panel">
-      <div class="bsp-row"><span class="bsp-label">Energy</span><span class="bsp-val" id="stat-beam-energy">0.0</span><span class="bsp-unit">GeV</span></div>
+      <div class="bsp-row"><span class="bsp-label">Energy</span><span class="bsp-val" id="stat-beam-energy">0.0</span><span class="bsp-unit" id="stat-beam-energy-unit">GeV</span></div>
       <div class="bsp-row"><span class="bsp-label">Quality</span><span class="bsp-val" id="stat-beam-quality">--</span></div>
       <div class="bsp-row"><span class="bsp-label">Current</span><span class="bsp-val" id="stat-beam-current">--</span><span class="bsp-unit">mA</span></div>
       <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
       <div class="bsp-row"><span class="bsp-label">Length</span><span class="bsp-val" id="stat-length">0</span><span class="bsp-unit">m</span></div>
-      <div class="bsp-row"><span class="bsp-label">E Cost</span><span class="bsp-val" id="stat-energy-cost">0</span><span class="bsp-unit">E/s</span></div>
+      <div class="bsp-row"><span class="bsp-label">E Cost</span><span class="bsp-val" id="stat-energy-cost">0</span><span class="bsp-unit">kW</span></div>
     </div>
 
     <!-- Beamline warnings panel (top-right) -->
@@ -86,12 +86,15 @@
       </div>
       <div id="hud-controls">
         <div id="mode-switcher">
-          <button class="mode-btn active" data-mode="beamline">Beamline</button>
+          <div class="mode-btn-wrap">
+            <button class="mode-btn active" data-mode="beamline">Beamline</button>
+            <div class="mode-btn-sub" id="beamline-type-label"></div>
+            <div class="machine-type-dropdown hidden" id="machine-type-dropdown">
+              <!-- dynamically generated machine type options -->
+            </div>
+          </div>
           <button class="mode-btn" data-mode="facility">Facility</button>
           <button class="mode-btn" data-mode="structure">Structure</button>
-        </div>
-        <div id="machine-type-selector" class="machine-type-selector">
-          <!-- dynamically generated machine type buttons -->
         </div>
         <div id="category-tabs">
           <!-- dynamically generated based on active mode -->
