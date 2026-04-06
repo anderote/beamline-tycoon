@@ -234,6 +234,30 @@ class Game {
     return placed > 0;
   }
 
+  removeInfraTile(col, row) {
+    const key = col + ',' + row;
+    if (!this.state.infraOccupied[key]) return false;
+    const idx = this.state.infrastructure.findIndex(t => t.col === col && t.row === row);
+    if (idx === -1) return false;
+
+    // Removing flooring also removes any zone on that tile
+    if (this.state.zoneOccupied[key]) {
+      this.removeZoneTile(col, row);
+    }
+
+    this.state.infrastructure.splice(idx, 1);
+    const wasHallway = this.state.infraOccupied[key] === 'hallway';
+    delete this.state.infraOccupied[key];
+
+    if (wasHallway) {
+      this.recomputeZoneConnectivity();
+      this.emit('zonesChanged');
+    }
+
+    this.emit('infrastructureChanged');
+    return true;
+  }
+
   // === ZONES ===
 
   placeZoneTile(col, row, zoneType) {

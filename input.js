@@ -397,14 +397,13 @@ class InputHandler {
         if (node) {
           this.game.removeComponent(node.id);
         }
-        // Remove infrastructure
+        // Remove zones
+        if (this.game.state.zoneOccupied[key]) {
+          this.game.removeZoneTile(col, row);
+        }
+        // Remove infrastructure (cascades to zones)
         if (this.game.state.infraOccupied[key]) {
-          const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
-          if (idx !== -1) {
-            this.game.state.infrastructure.splice(idx, 1);
-            delete this.game.state.infraOccupied[key];
-            this.game.emit('infrastructureChanged');
-          }
+          this.game.removeInfraTile(col, row);
         }
         // Remove facility equipment
         const equipId = this.game.state.facilityGrid[key];
@@ -415,10 +414,6 @@ class InputHandler {
         const machineId = this.game.state.machineGrid[key];
         if (machineId) {
           this.game.removeMachine(machineId);
-        }
-        // Remove zones
-        if (this.game.state.zoneOccupied[key]) {
-          this.game.removeZoneTile(col, row);
         }
         // Remove all connections at this tile
         const conns = this.game.getConnectionsAt(col, row);
@@ -448,19 +443,13 @@ class InputHandler {
       return;
     }
 
-    // Structure demolish mode
     if (this.demolishMode) {
       const key = col + ',' + row;
       if (this.game.state.zoneOccupied[key]) {
         this.game.removeZoneTile(col, row);
       }
       if (this.game.state.infraOccupied[key]) {
-        const idx = this.game.state.infrastructure.findIndex(t => t.col === col && t.row === row);
-        if (idx !== -1) {
-          this.game.state.infrastructure.splice(idx, 1);
-          delete this.game.state.infraOccupied[key];
-          this.game.emit('infrastructureChanged');
-        }
+        this.game.removeInfraTile(col, row);
       }
       return;
     }
