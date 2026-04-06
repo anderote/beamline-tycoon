@@ -1372,6 +1372,12 @@ class Renderer {
         const affordable = this.game.canAfford(comp.cost);
         if (!affordable) item.classList.add('unaffordable');
 
+        const zoneTier = this.game.getZoneTierForCategory(compCategory);
+        const compTier = comp.zoneTier || 1;
+        const zoneBlocked = zoneTier < compTier;
+
+        if (zoneBlocked) item.classList.add('locked');
+
         const nameEl = document.createElement('div');
         nameEl.className = 'palette-name';
         nameEl.textContent = comp.name;
@@ -1380,14 +1386,26 @@ class Renderer {
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
         const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-        costEl.textContent = costs;
+        if (zoneBlocked) {
+          const neededTiles = ZONE_TIER_THRESHOLDS[compTier - 1];
+          let zoneName = '';
+          for (const z of Object.values(ZONES)) {
+            const gates = Array.isArray(z.gatesCategory) ? z.gatesCategory : [z.gatesCategory];
+            if (gates.includes(compCategory)) { zoneName = z.name; break; }
+          }
+          costEl.textContent = `Needs ${neededTiles} ${zoneName} tiles`;
+        } else {
+          costEl.textContent = unlocked ? costs : 'Locked';
+        }
         item.appendChild(costEl);
 
         item.appendChild(this._createPaletteTooltip(comp, costs));
 
         item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onFacilitySelect) this._onFacilitySelect(key);
+          if (unlocked && !zoneBlocked) {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onFacilitySelect) this._onFacilitySelect(key);
+          }
         });
 
         palette.appendChild(item);

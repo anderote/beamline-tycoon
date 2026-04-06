@@ -406,6 +406,14 @@ class Game {
       return false;
     }
 
+    // Zone gating
+    const zoneTier = this.getZoneTierForCategory(comp.category);
+    const compTier = comp.zoneTier || 1;
+    if (zoneTier < compTier) {
+      this.log(`Need more zone area for ${comp.name}!`, 'bad');
+      return false;
+    }
+
     const key = col + ',' + row;
     if (this.state.facilityGrid[key]) {
       this.log('Tile occupied!', 'bad');
