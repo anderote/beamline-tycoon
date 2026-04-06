@@ -364,10 +364,11 @@ class Renderer {
       return;
     }
 
-    // Draw cursors at build positions
+    // Draw cursors at build positions, highlight the one under the mouse
     const cursors = this.game.beamline.getBuildCursors();
     for (const cursor of cursors) {
-      this._drawCursorMarker(cursor);
+      const isHovered = cursor.col === this.hoverCol && cursor.row === this.hoverRow;
+      this._drawCursorMarker(cursor, isHovered);
     }
   }
 
@@ -395,9 +396,12 @@ class Renderer {
     const hh = TILE_H / 2;
 
     // Check if there's something to demolish here
+    const key = col + ',' + row;
     const node = this.game.beamline.getNodeAt(col, row);
-    const hasInfra = this.game.state.infraOccupied[col + ',' + row];
-    const hasTarget = node || hasInfra;
+    const hasInfra = this.game.state.infraOccupied[key];
+    const hasFacility = this.game.state.facilityGrid[key];
+    const hasMachine = this.game.state.machineGrid[key];
+    const hasTarget = node || hasInfra || hasFacility || hasMachine;
     const color = hasTarget ? 0xff4444 : 0xff6644;
     const alpha = hasTarget ? 0.8 : 0.3;
 
@@ -429,10 +433,13 @@ class Renderer {
     this.cursorLayer.addChild(g);
   }
 
-  _drawCursorMarker(cursor) {
+  _drawCursorMarker(cursor, isHovered) {
     const g = new PIXI.Graphics();
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
+
+    // Dim non-hovered cursors so the active one stands out
+    const baseAlpha = isHovered ? 1.0 : 0.3;
 
     // Compute preview tiles based on the selected tool (including width)
     const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
@@ -480,8 +487,8 @@ class Renderer {
         pos.x, pos.y + hh,
         pos.x - hw, pos.y,
       ]);
-      g.fill({ color: color, alpha: 0.15 });
-      g.stroke({ color: color, width: 1.5, alpha: 0.6 });
+      g.fill({ color: color, alpha: 0.15 * baseAlpha });
+      g.stroke({ color: color, width: 1.5, alpha: 0.6 * baseAlpha });
     }
 
     // Draw dashed outline on the first tile
@@ -501,7 +508,7 @@ class Renderer {
         const t1 = (s + 1) / segments;
         g.moveTo(from.x + (to.x - from.x) * t0, from.y + (to.y - from.y) * t0);
         g.lineTo(from.x + (to.x - from.x) * t1, from.y + (to.y - from.y) * t1);
-        g.stroke({ color: color, width: 1.5, alpha: 0.8 });
+        g.stroke({ color: color, width: 1.5, alpha: 0.8 * baseAlpha });
       }
     }
 
@@ -509,10 +516,10 @@ class Renderer {
     const ps = 6;
     g.moveTo(pos.x - ps, pos.y);
     g.lineTo(pos.x + ps, pos.y);
-    g.stroke({ color: color, width: 1.5, alpha: 0.8 });
+    g.stroke({ color: color, width: 1.5, alpha: 0.8 * baseAlpha });
     g.moveTo(pos.x, pos.y - ps);
     g.lineTo(pos.x, pos.y + ps);
-    g.stroke({ color: color, width: 1.5, alpha: 0.8 });
+    g.stroke({ color: color, width: 1.5, alpha: 0.8 * baseAlpha });
 
     // Direction arrow showing exit direction
     const isoDir = gridToIso(delta.dc, delta.dr);
@@ -523,10 +530,10 @@ class Renderer {
     const ay = lastPos.y + isoDir.y * arrowScale;
     g.moveTo(lastPos.x, lastPos.y);
     g.lineTo(ax, ay);
-    g.stroke({ color: 0x88bbff, width: 2, alpha: 0.9 });
+    g.stroke({ color: 0x88bbff, width: 2, alpha: 0.9 * baseAlpha });
 
-    // Component name label
-    if (comp) {
+    // Component name label (only on hovered cursor)
+    if (comp && isHovered) {
       const midTile = tiles[Math.floor(tiles.length / 2)];
       const midPos = tileCenterIso(midTile.col, midTile.row);
       const label = new PIXI.Text({
@@ -764,25 +771,42 @@ class Renderer {
     const connections = this.game.state.connections;
     if (!connections || connections.size === 0) return;
 
-    // Fixed draw order for consistent parallel offset
-    const CONN_ORDER = ['vacuumPipe', 'cryoTransfer', 'rfWaveguide', 'coolingWater', 'powerCable', 'dataFiber'];
+    // Fixed draw order — each type always gets the same global offset index
+    const CONN_ORDER = ['vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer', 'powerCable', 'dataFiber'];
     const LINE_WIDTH = 2;
-    const LINE_GAP = 3;
+    const LINE_GAP = 6; // wider gap to prevent overlap
 
-    for (const [key, typeSet] of connections) {
-      const [colStr, rowStr] = key.split(',');
-      const col = parseInt(colStr);
-      const row = parseInt(rowStr);
+    // Global offset: each type always at the same position regardless of which
+    // other types are present on this tile. Center the full set of 6 slots.
+    const TOTAL_SLOTS = CONN_ORDER.length;
+    const startOffset = -(TOTAL_SLOTS - 1) * LINE_GAP / 2;
 
-      const types = CONN_ORDER.filter(t => typeSet.has(t));
-      const totalWidth = types.length * LINE_GAP;
-      const startOffset = -totalWidth / 2 + LINE_GAP / 2;
+    // Perpendicular offset directions for each axis.
+    // E/W segments run along (16,8) — perp is (-1,2)/√5
+    // N/S segments run along (16,-8) — perp is (1,2)/√5
+    // Their intersection offset is (0, √5/2) per unit off.
+    const INV_SQRT5 = 1 / Math.sqrt(5);
+    const HALF_SQRT5 = Math.sqrt(5) / 2;
+    const EW_PX = -INV_SQRT5, EW_PY = 2 * INV_SQRT5;
+    const NS_PX =  INV_SQRT5, NS_PY = 2 * INV_SQRT5;
 
-      types.forEach((connType, idx) => {
-        const conn = CONNECTION_TYPES[connType];
-        if (!conn) return;
+    for (let slotIdx = 0; slotIdx < CONN_ORDER.length; slotIdx++) {
+      const connType = CONN_ORDER[slotIdx];
+      const conn = CONNECTION_TYPES[connType];
+      if (!conn) continue;
 
-        const offset = startOffset + idx * LINE_GAP;
+      const off = startOffset + slotIdx * LINE_GAP;
+
+      const g = new PIXI.Graphics();
+
+      for (const [key, typeSet] of connections) {
+        if (!typeSet.has(connType)) continue;
+
+        const [colStr, rowStr] = key.split(',');
+        const col = parseInt(colStr);
+        const row = parseInt(rowStr);
+
+        const center = tileCenterIso(col, row);
 
         // Check 4 neighbors for same connection type
         const hasN = this._hasConnection(col, row - 1, connType);
@@ -793,42 +817,58 @@ class Renderer {
         const neighbors = [hasN, hasE, hasS, hasW];
         const count = neighbors.filter(Boolean).length;
 
-        const g = new PIXI.Graphics();
-        const center = tileCenterIso(col, row);
-
-        // Calculate edge midpoints in isometric space
+        // Edge midpoints (unoffset)
         const midN = tileCenterIso(col, row - 0.5);
         const midS = tileCenterIso(col, row + 0.5);
         const midE = tileCenterIso(col + 0.5, row);
         const midW = tileCenterIso(col - 0.5, row);
 
-        const edgeMids = [midN, midE, midS, midW];
-
-        const applyOffset = (point, dirIdx) => {
-          if (dirIdx === 0 || dirIdx === 2) {
-            return { x: point.x + offset, y: point.y };
-          } else {
-            return { x: point.x, y: point.y + offset * 0.5 };
-          }
-        };
-
-        const centerOff = { x: center.x + offset * 0.5, y: center.y + offset * 0.25 };
+        // Per-direction perpendicular offsets: N/S use NS perp, E/W use EW perp
+        const perps = [
+          { px: NS_PX, py: NS_PY },  // N
+          { px: EW_PX, py: EW_PY },  // E
+          { px: NS_PX, py: NS_PY },  // S
+          { px: EW_PX, py: EW_PY },  // W
+        ];
+        const mids = [midN, midE, midS, midW];
 
         if (count === 0) {
-          g.circle(center.x, center.y, LINE_WIDTH);
+          const ox = off * NS_PX, oy = off * NS_PY;
+          g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 1);
           g.fill({ color: conn.color, alpha: 0.8 });
         } else {
+          const hasNS = hasN || hasS;
+          const hasEW = hasE || hasW;
+
+          // Center point depends on connectivity:
+          // Straight runs use axis-specific perpendicular offset.
+          // Corners/junctions use the geometric intersection of
+          // the two offset lines: (0, off * √5/2).
+          let cx, cy;
+          if (hasNS && hasEW) {
+            cx = center.x;
+            cy = center.y + off * HALF_SQRT5;
+          } else if (hasNS) {
+            cx = center.x + NS_PX * off;
+            cy = center.y + NS_PY * off;
+          } else {
+            cx = center.x + EW_PX * off;
+            cy = center.y + EW_PY * off;
+          }
+
+          // Draw half-segments from center to each offset edge midpoint
           for (let i = 0; i < 4; i++) {
             if (!neighbors[i]) continue;
-            const edgePt = applyOffset(edgeMids[i], i);
-            g.moveTo(centerOff.x, centerOff.y);
-            g.lineTo(edgePt.x, edgePt.y);
+            const px = perps[i].px * off;
+            const py = perps[i].py * off;
+            g.moveTo(cx, cy);
+            g.lineTo(mids[i].x + px, mids[i].y + py);
             g.stroke({ color: conn.color, width: LINE_WIDTH, alpha: 0.9 });
           }
         }
+      }
 
-        this.connectionLayer.addChild(g);
-      });
+      this.connectionLayer.addChild(g);
     }
   }
 
@@ -913,6 +953,9 @@ class Renderer {
 
     this._updateBeamButton();
 
+    // Refresh system stats if panel is visible
+    this._refreshSystemStatsValues();
+
     // Refresh plots if panel is open
     const plotsPanel = document.getElementById('beam-plots');
     if (plotsPanel && !plotsPanel.classList.contains('collapsed')) {
@@ -953,39 +996,36 @@ class Renderer {
         tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
         btn.classList.add('active');
         this._renderPalette(key);
+        this._updateSystemStatsContent(key);
+        if (this._onTabSelect) this._onTabSelect(key);
       });
       tabsContainer.appendChild(btn);
     });
 
-    // Generate connection tool buttons for facility mode
+    // Generate connection tool buttons (always visible)
     const connContainer = document.getElementById('connection-tools');
-    if (connContainer) {
-      connContainer.innerHTML = '';
-      if (this.activeMode === 'facility') {
-        connContainer.classList.remove('hidden');
-        for (const [key, conn] of Object.entries(CONNECTION_TYPES)) {
-          const btn = document.createElement('button');
-          btn.className = 'conn-btn';
-          btn.dataset.connType = key;
-          btn.textContent = conn.name;
-          const hex = '#' + conn.color.toString(16).padStart(6, '0');
-          btn.style.color = hex;
-          btn.style.borderColor = hex;
-          btn.addEventListener('click', () => {
-            connContainer.querySelectorAll('.conn-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            if (this._onConnSelect) this._onConnSelect(key);
-          });
-          connContainer.appendChild(btn);
-        }
-      } else {
-        connContainer.classList.add('hidden');
+    if (connContainer && connContainer.children.length === 0) {
+      for (const [key, conn] of Object.entries(CONNECTION_TYPES)) {
+        const btn = document.createElement('button');
+        btn.className = 'conn-btn';
+        btn.dataset.connType = key;
+        btn.textContent = conn.name;
+        const hex = '#' + conn.color.toString(16).padStart(6, '0');
+        btn.style.color = hex;
+        btn.style.borderColor = hex;
+        btn.addEventListener('click', () => {
+          connContainer.querySelectorAll('.conn-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          if (this._onConnSelect) this._onConnSelect(key);
+        });
+        connContainer.appendChild(btn);
       }
     }
 
     // Render palette for first category in mode
     if (catKeys.length > 0) {
       this._renderPalette(catKeys[0]);
+      this._updateSystemStatsContent(catKeys[0]);
     }
   }
 
@@ -996,11 +1036,15 @@ class Renderer {
 
     const compCategory = tabCategory;
 
+    let paletteIdx = 0;
+
     // Infrastructure tab uses INFRASTRUCTURE items instead of COMPONENTS
     if (compCategory === 'infrastructure') {
       for (const [key, infra] of Object.entries(INFRASTRUCTURE)) {
         const item = document.createElement('div');
         item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= infra.cost;
         if (!affordable) item.classList.add('unaffordable');
@@ -1021,9 +1065,8 @@ class Renderer {
         item.appendChild(descEl);
 
         item.addEventListener('click', () => {
-          if (this._onInfraSelect) {
-            this._onInfraSelect(key);
-          }
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onInfraSelect) this._onInfraSelect(key);
         });
 
         palette.appendChild(item);
@@ -1038,6 +1081,8 @@ class Renderer {
 
         const item = document.createElement('div');
         item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
 
         const unlocked = this.game.isComponentUnlocked(comp);
         const affordable = this.game.canAfford(comp.cost);
@@ -1058,11 +1103,8 @@ class Renderer {
 
         if (unlocked) {
           item.addEventListener('click', () => {
-            if (comp.connectionType && this._onConnSelect) {
-              this._onConnSelect(comp.connectionType);
-            } else if (this._onFacilitySelect) {
-              this._onFacilitySelect(key);
-            }
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onFacilitySelect) this._onFacilitySelect(key);
           });
         }
 
@@ -1071,82 +1113,139 @@ class Renderer {
       return;
     }
 
+    // Get subsection definitions from category
+    const mode = MODES[this.activeMode];
+    const catDef = mode?.categories?.[compCategory];
+    const subsections = catDef?.subsections;
+
+    // Collect components for this category
+    const catComps = [];
     for (const [key, comp] of Object.entries(COMPONENTS)) {
       if (comp.category !== compCategory) continue;
-
-      const item = document.createElement('div');
-      item.className = 'palette-item';
-
-      const unlocked = this.game.isComponentUnlocked(comp);
-      const affordable = this.game.canAfford(comp.cost);
-
-      if (!unlocked) item.classList.add('locked');
-      if (!affordable) item.classList.add('unaffordable');
-
-      // Name
-      const nameEl = document.createElement('div');
-      nameEl.className = 'palette-name';
-      nameEl.textContent = comp.name;
-      item.appendChild(nameEl);
-
-      // Cost
-      const costEl = document.createElement('div');
-      costEl.className = 'palette-cost';
-      const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
-      costEl.textContent = unlocked ? costs : 'Locked';
-      item.appendChild(costEl);
-
-      // Tooltip
-      const tooltip = document.createElement('div');
-      tooltip.className = 'palette-tooltip';
-      const ttName = document.createElement('div');
-      ttName.className = 'tt-name';
-      ttName.textContent = comp.name;
-      tooltip.appendChild(ttName);
-
-      const ttDesc = document.createElement('div');
-      ttDesc.className = 'tt-desc';
-      ttDesc.textContent = comp.desc || '';
-      tooltip.appendChild(ttDesc);
-
-      const ttStats = document.createElement('div');
-      ttStats.className = 'tt-stats';
-
-      // Show key stats
-      const statEntries = [
-        ['Cost', costs],
-        ['Energy Cost', `${comp.energyCost} E/s`],
-        ['Length', `${comp.length} m`],
-      ];
-      if (comp.stats) {
-        for (const [k, v] of Object.entries(comp.stats)) {
-          const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-          statEntries.push([label, v]);
-        }
-      }
-      if (comp.requires) {
-        const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
-        statEntries.push(['Requires', reqs.join(', ')]);
-      }
-      for (const [label, val] of statEntries) {
-        const row = document.createElement('div');
-        row.className = 'tt-stat-row';
-        row.innerHTML = `<span>${label}</span><span class="tt-stat-val">${val}</span>`;
-        ttStats.appendChild(row);
-      }
-      tooltip.appendChild(ttStats);
-      item.appendChild(tooltip);
-
-      if (unlocked) {
-        item.addEventListener('click', () => {
-          if (this._onToolSelect) {
-            this._onToolSelect(key);
-          }
-        });
-      }
-
-      palette.appendChild(item);
+      catComps.push({ key, comp });
     }
+
+    if (subsections && Object.keys(subsections).length > 0) {
+      // Render with subsection grouping
+      const subKeys = Object.keys(subsections);
+      subKeys.forEach((subKey, subIdx) => {
+        const subDef = subsections[subKey];
+        const subComps = catComps.filter(({ comp }) => {
+          if (comp.subsection) return comp.subsection === subKey;
+          return subIdx === 0; // default to first subsection
+        });
+        if (subComps.length === 0) return;
+
+        // Divider between subsections (not before first)
+        if (subIdx > 0) {
+          const divider = document.createElement('div');
+          divider.className = 'palette-subsection-divider';
+          palette.appendChild(divider);
+        }
+
+        const section = document.createElement('div');
+        section.className = 'palette-subsection';
+
+        const label = document.createElement('div');
+        label.className = 'palette-subsection-label';
+        label.textContent = subDef.name;
+        section.appendChild(label);
+
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'palette-subsection-items';
+
+        for (const { key, comp } of subComps) {
+          const item = this._createPaletteItem(key, comp, paletteIdx);
+          paletteIdx++;
+          itemsContainer.appendChild(item);
+        }
+
+        section.appendChild(itemsContainer);
+        palette.appendChild(section);
+      });
+    } else {
+      // No subsections — flat rendering
+      for (const { key, comp } of catComps) {
+        const item = this._createPaletteItem(key, comp, paletteIdx);
+        paletteIdx++;
+        palette.appendChild(item);
+      }
+    }
+  }
+
+  _createPaletteItem(key, comp, idx) {
+    const item = document.createElement('div');
+    item.className = 'palette-item';
+    item.dataset.paletteIndex = idx;
+
+    const unlocked = this.game.isComponentUnlocked(comp);
+    const affordable = this.game.canAfford(comp.cost);
+
+    if (!unlocked) item.classList.add('locked');
+    if (!affordable) item.classList.add('unaffordable');
+
+    // Name
+    const nameEl = document.createElement('div');
+    nameEl.className = 'palette-name';
+    nameEl.textContent = comp.name;
+    item.appendChild(nameEl);
+
+    // Cost
+    const costEl = document.createElement('div');
+    costEl.className = 'palette-cost';
+    const costs = Object.entries(comp.cost).map(([r, a]) => `${this._fmt(a)} ${r}`).join(', ');
+    costEl.textContent = unlocked ? costs : 'Locked';
+    item.appendChild(costEl);
+
+    // Tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'palette-tooltip';
+    const ttName = document.createElement('div');
+    ttName.className = 'tt-name';
+    ttName.textContent = comp.name;
+    tooltip.appendChild(ttName);
+
+    const ttDesc = document.createElement('div');
+    ttDesc.className = 'tt-desc';
+    ttDesc.textContent = comp.desc || '';
+    tooltip.appendChild(ttDesc);
+
+    const ttStats = document.createElement('div');
+    ttStats.className = 'tt-stats';
+
+    // Show key stats
+    const statEntries = [
+      ['Cost', costs],
+      ['Energy Cost', `${comp.energyCost} E/s`],
+      ['Length', `${comp.length} m`],
+    ];
+    if (comp.stats) {
+      for (const [k, v] of Object.entries(comp.stats)) {
+        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+        statEntries.push([label, v]);
+      }
+    }
+    if (comp.requires) {
+      const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
+      statEntries.push(['Requires', reqs.join(', ')]);
+    }
+    for (const [label, val] of statEntries) {
+      const row = document.createElement('div');
+      row.className = 'tt-stat-row';
+      row.innerHTML = `<span>${label}</span><span class="tt-stat-val">${val}</span>`;
+      ttStats.appendChild(row);
+    }
+    tooltip.appendChild(ttStats);
+    item.appendChild(tooltip);
+
+    if (unlocked) {
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        if (this._onToolSelect) this._onToolSelect(key);
+      });
+    }
+
+    return item;
   }
 
   updatePalette(category) {
@@ -1424,6 +1523,7 @@ class Renderer {
         btn.classList.add('active');
         this.activeMode = mode;
         this._generateCategoryTabs();
+        this._updateSystemStatsVisibility();
       });
     });
 
@@ -1434,6 +1534,7 @@ class Renderer {
         tab.classList.add('active');
         const category = tab.dataset.category;
         this._renderPalette(category);
+        if (this._onTabSelect) this._onTabSelect(category);
       });
     });
 
@@ -1471,6 +1572,17 @@ class Renderer {
       });
     }
 
+    // System stats panel toggle
+    const sysStatsPanel = document.getElementById('system-stats-panel');
+    const sysStatsHeader = document.getElementById('system-stats-header');
+    const sysStatsToggle = document.getElementById('system-stats-toggle');
+    if (sysStatsPanel && sysStatsHeader && sysStatsToggle) {
+      sysStatsHeader.addEventListener('click', () => {
+        sysStatsPanel.classList.toggle('expanded');
+        sysStatsToggle.textContent = sysStatsPanel.classList.contains('expanded') ? '-' : '+';
+      });
+    }
+
     // Beam plots toggle
     const plotsPanel = document.getElementById('beam-plots');
     const plotsToggle = document.getElementById('beam-plots-toggle');
@@ -1502,7 +1614,7 @@ class Renderer {
   updateHover(col, row) {
     this.hoverCol = col;
     this.hoverRow = row;
-    if (this.bulldozerMode || (this.buildMode && this.game.beamline.getAllNodes().length === 0)) {
+    if (this.bulldozerMode || this.buildMode) {
       this._renderCursors();
     }
   }
@@ -1526,6 +1638,295 @@ class Renderer {
 
   updateCursorBendDir(dir) {
     this.cursorBendDir = dir;
+  }
+
+  // --- System Stats Panel ---
+
+  _updateSystemStatsVisibility() {
+    const panel = document.getElementById('system-stats-panel');
+    if (!panel) return;
+    if (this.activeMode === 'facility') {
+      panel.classList.remove('hidden');
+    } else {
+      panel.classList.add('hidden');
+    }
+  }
+
+  _updateSystemStatsContent(category) {
+    this._activeStatsCategory = category;
+    const panel = document.getElementById('system-stats-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    // Map category key to system stats key and display name
+    const catMap = {
+      vacuum:       { key: 'vacuum',       name: 'VACUUM' },
+      cryo:         { key: 'cryo',         name: 'CRYO' },
+      rfPower:      { key: 'rfPower',      name: 'RF POWER' },
+      cooling:      { key: 'cooling',      name: 'COOLING' },
+      power:        { key: 'power',        name: 'POWER' },
+      dataControls: { key: 'dataControls', name: 'DATA/CTRL' },
+      safety:       { key: 'dataControls', name: 'SAFETY' },
+    };
+
+    const mapped = catMap[category];
+    if (!mapped) return;
+
+    const title = document.getElementById('system-stats-title');
+    if (title) {
+      title.textContent = mapped.name;
+      // Set color from category
+      const cat = MODES.facility?.categories[category];
+      if (cat) title.style.color = cat.color;
+    }
+
+    this._activeStatsKey = mapped.key;
+    this._refreshSystemStatsValues();
+  }
+
+  _refreshSystemStatsValues() {
+    const panel = document.getElementById('system-stats-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    const stats = this.game.state.systemStats;
+    if (!stats) return;
+
+    const key = this._activeStatsKey;
+    if (!key || !stats[key]) return;
+
+    const data = stats[key];
+    const summary = document.getElementById('system-stats-summary');
+    const detail = document.getElementById('system-stats-detail');
+    if (!summary || !detail) return;
+
+    // Build summary and detail based on which system
+    switch (key) {
+      case 'vacuum':
+        this._renderVacuumStats(data, summary, detail);
+        break;
+      case 'rfPower':
+        this._renderRfPowerStats(data, summary, detail);
+        break;
+      case 'cryo':
+        this._renderCryoStats(data, summary, detail);
+        break;
+      case 'cooling':
+        this._renderCoolingStats(data, summary, detail);
+        break;
+      case 'power':
+        this._renderPowerStats(data, summary, detail);
+        break;
+      case 'dataControls':
+        this._renderDataControlsStats(data, summary, detail);
+        break;
+    }
+  }
+
+  _sstat(label, value, unit, quality) {
+    const cls = quality ? ` ${quality}` : '';
+    return `<span class="sstat"><span class="sstat-label">${label}</span><span class="sstat-val${cls}">${value}</span><span class="sstat-unit">${unit}</span></span>`;
+  }
+
+  _ssep() { return '<span class="sstat-sep">|</span>'; }
+
+  _detailRow(label, value, unit) {
+    return `<div class="sstat-detail-row"><span class="sstat-detail-label">${label}</span><span class="sstat-detail-val">${value}</span><span class="sstat-detail-unit">${unit || ''}</span></div>`;
+  }
+
+  _fmtPressure(p) {
+    if (p >= 1) return p.toFixed(0);
+    const exp = Math.floor(Math.log10(p));
+    const mantissa = p / Math.pow(10, exp);
+    return `${mantissa.toFixed(1)}×10${this._superscript(exp)}`;
+  }
+
+  _superscript(n) {
+    const sup = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻' };
+    return String(n).split('').map(c => sup[c] || c).join('');
+  }
+
+  _qualityColor(q) {
+    if (q === 'Excellent' || q === 'Good') return 'good';
+    if (q === 'Marginal') return 'warn';
+    if (q === 'Poor') return 'bad';
+    return '';
+  }
+
+  _marginColor(m) {
+    if (m > 30) return 'good';
+    if (m > 10) return 'warn';
+    return 'bad';
+  }
+
+  _renderVacuumStats(d, summary, detail) {
+    const pq = this._qualityColor(d.pressureQuality);
+    summary.innerHTML = [
+      this._sstat('Pressure', this._fmtPressure(d.avgPressure), 'mbar', pq),
+      this._ssep(),
+      this._sstat('Pump Spd', this._fmt(d.totalPumpSpeed), 'L/s'),
+      this._ssep(),
+      this._sstat('Volume', this._fmt(d.beamlineVolume), 'L'),
+      this._ssep(),
+      this._sstat('Pumps', d.pumpCount, ''),
+      this._ssep(),
+      this._sstat('Gauges', d.gaugeCount, ''),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+      this._ssep(),
+      this._sstat('Quality', d.pressureQuality, '', pq),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('Roughing Pumps', dd.roughingPumps)}
+      ${this._detailRow('Turbo Pumps', dd.turboPumps)}
+      ${this._detailRow('Ion Pumps', dd.ionPumps)}
+      ${this._detailRow('NEG Pumps', dd.negPumps)}
+      ${this._detailRow('Ti-Sub Pumps', dd.tiSubPumps)}
+      ${this._detailRow('Gate Valves', dd.gateValves)}
+      ${this._detailRow('Pirani Gauges', dd.piraniGauges)}
+      ${this._detailRow('CC Gauges', dd.ccGauges)}
+      ${this._detailRow('BA Gauges', dd.baGauges)}
+      ${this._detailRow('Bakeout Systems', dd.bakeoutSystems)}
+    </div>`;
+  }
+
+  _renderRfPowerStats(d, summary, detail) {
+    summary.innerHTML = [
+      this._sstat('Fwd', this._fmt(d.totalFwdPower), 'kW'),
+      this._ssep(),
+      this._sstat('Refl', this._fmt(d.totalReflPower), 'kW'),
+      this._ssep(),
+      this._sstat('Wall', this._fmt(d.wallPower), 'kW'),
+      this._ssep(),
+      this._sstat('VSWR', d.vswr, ''),
+      this._ssep(),
+      this._sstat('Sources', d.sourceCount, ''),
+      this._ssep(),
+      this._sstat('Eff', d.avgEfficiency.toFixed(0), '%'),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('Klystrons', dd.klystrons)}
+      ${this._detailRow('SSAs', dd.ssas)}
+      ${this._detailRow('IOTs', dd.iots)}
+      ${this._detailRow('Magnetrons', dd.magnetrons)}
+      ${this._detailRow('Modulators', dd.modulators)}
+      ${this._detailRow('Circulators', dd.circulators)}
+      ${this._detailRow('Waveguides', dd.waveguides)}
+      ${this._detailRow('LLRF Controllers', dd.llrfControllers)}
+      ${this._detailRow('Master Oscillators', dd.masterOscillators)}
+      ${this._detailRow('Vector Modulators', dd.vectorModulators)}
+    </div>`;
+  }
+
+  _renderCryoStats(d, summary, detail) {
+    const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
+    summary.innerHTML = [
+      this._sstat('Capacity', this._fmt(d.coolingCapacity), 'W'),
+      this._ssep(),
+      this._sstat('Load', this._fmt(d.heatLoad), 'W'),
+      this._ssep(),
+      this._sstat('Temp', d.opTemp > 0 ? d.opTemp.toFixed(1) : '--', 'K'),
+      this._ssep(),
+      this._sstat('Wall Pwr', d.wallPower.toFixed(1), 'kW'),
+      this._ssep(),
+      this._sstat('Margin', d.coolingCapacity > 0 ? d.margin.toFixed(0) : '--', '%', mc),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('He Compressors', dd.compressors)}
+      ${this._detailRow('Cold Box 4K', dd.coldBox4K)}
+      ${this._detailRow('Sub-Cooling 2K', dd.subCooling2K)}
+      ${this._detailRow('Cryo Housings', dd.cryoHousings)}
+      ${this._detailRow('LN2 Pre-coolers', dd.ln2Precoolers)}
+      ${this._detailRow('He Recovery', dd.heRecovery > 0 ? 'Yes' : 'No')}
+      ${this._detailRow('Cryocoolers', dd.cryocoolers)}
+      ${this._detailRow('Static Load', dd.staticLoad.toFixed(1), 'W')}
+      ${this._detailRow('Dynamic Load', dd.dynamicLoad.toFixed(1), 'W')}
+    </div>`;
+  }
+
+  _renderCoolingStats(d, summary, detail) {
+    const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
+    summary.innerHTML = [
+      this._sstat('Capacity', this._fmt(d.coolingCapacity), 'kW'),
+      this._ssep(),
+      this._sstat('Load', d.heatLoad.toFixed(1), 'kW'),
+      this._ssep(),
+      this._sstat('Flow', this._fmt(Math.round(d.flowRate)), 'L/min'),
+      this._ssep(),
+      this._sstat('Margin', d.coolingCapacity > 0 ? d.margin.toFixed(0) : '--', '%', mc),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('LCW Skids', dd.lcwSkids)}
+      ${this._detailRow('Chillers', dd.chillers)}
+      ${this._detailRow('Cooling Towers', dd.coolingTowers)}
+      ${this._detailRow('Heat Exchangers', dd.heatExchangers)}
+      ${this._detailRow('Water Loads', dd.waterLoads)}
+      ${this._detailRow('Deionizer', dd.deionizers > 0 ? 'Yes' : 'No')}
+      ${this._detailRow('Emergency Cooling', dd.emergencyCooling > 0 ? 'Yes' : 'No')}
+    </div>`;
+  }
+
+  _renderPowerStats(d, summary, detail) {
+    const uc = d.utilization > 90 ? 'bad' : (d.utilization > 70 ? 'warn' : 'good');
+    summary.innerHTML = [
+      this._sstat('Capacity', this._fmt(d.capacity), 'kW'),
+      this._ssep(),
+      this._sstat('Draw', d.totalDraw.toFixed(1), 'kW'),
+      this._ssep(),
+      this._sstat('Util', d.utilization.toFixed(0), '%', uc),
+      this._ssep(),
+      this._sstat('Substations', d.substations, ''),
+      this._ssep(),
+      this._sstat('Panels', d.panels, ''),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('Beamline Draw', dd.beamlineDraw.toFixed(1), 'kW')}
+      ${this._detailRow('Vacuum Draw', dd.vacuumDraw.toFixed(1), 'kW')}
+      ${this._detailRow('RF Draw', dd.rfDraw.toFixed(1), 'kW')}
+      ${this._detailRow('Cryo Draw', dd.cryoDraw.toFixed(1), 'kW')}
+      ${this._detailRow('Cooling Draw', dd.coolingDraw.toFixed(1), 'kW')}
+    </div>`;
+  }
+
+  _renderDataControlsStats(d, summary, detail) {
+    const mpsColor = d.mpsStatus === 'Active' ? 'good' : '';
+    summary.innerHTML = [
+      this._sstat('IOCs', d.iocs, ''),
+      this._ssep(),
+      this._sstat('Interlocks', d.interlocks, ''),
+      this._ssep(),
+      this._sstat('Monitors', d.monitors, ''),
+      this._ssep(),
+      this._sstat('Timing', d.timingSystems, ''),
+      this._ssep(),
+      this._sstat('MPS', d.mpsStatus, '', mpsColor),
+      this._ssep(),
+      this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
+    ].join('');
+
+    const dd = d.detail;
+    detail.innerHTML = `<div class="sstat-detail-grid">
+      ${this._detailRow('Rack/IOCs', dd.rackIocs)}
+      ${this._detailRow('PPS Interlocks', dd.ppsInterlocks)}
+      ${this._detailRow('Rad Monitors', dd.radiationMonitors)}
+      ${this._detailRow('Timing Systems', dd.timingSystems)}
+      ${this._detailRow('MPS Units', dd.mps)}
+      ${this._detailRow('Laser Systems', dd.laserSystems)}
+    </div>`;
   }
 
   // --- Helpers ---
