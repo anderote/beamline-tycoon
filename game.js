@@ -240,6 +240,14 @@ class Game {
       this.log('Tile occupied!', 'bad');
       return false;
     }
+    if (this.beamline.getNodeAt(col, row)) {
+      this.log('Tile occupied by beamline!', 'bad');
+      return false;
+    }
+    if (this.state.machineGrid[key]) {
+      this.log('Tile occupied!', 'bad');
+      return false;
+    }
 
     const id = 'fac_' + this.state.facilityNextId++;
     this.spend(comp.cost);
@@ -573,7 +581,7 @@ class Game {
     this.state.resources.funding -= staffCost;
 
     // Energy recharge (power capacity from substations)
-    const substations = this.state.beamline.filter(c => c.type === 'substation');
+    const substations = (this.state.facilityEquipment || []).filter(e => e.type === 'substation');
     this.state.maxElectricalPower = 500 + substations.length * 1500; // base 500 + 1500 per substation
     this.state.resources.energy = Math.min(
       this.state.resources.energy + 3,

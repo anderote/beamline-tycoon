@@ -436,6 +436,12 @@ class InputHandler {
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectConnTool();
+    // Reset selected category to first in new mode
+    const modeData = MODES[mode];
+    if (modeData && !modeData.disabled) {
+      const catKeys = Object.keys(modeData.categories);
+      this.selectedCategory = catKeys[0] || '';
+    }
     this.renderer.activeMode = mode;
   }
 }
