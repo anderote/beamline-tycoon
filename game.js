@@ -1315,6 +1315,20 @@ class Game {
       if (!this.state.facilityNextId) this.state.facilityNextId = 1;
 
       this.beamline.fromJSON(data.beamline);
+
+      // Migrate old saves: initialize params for nodes that don't have them
+      if (typeof PARAM_DEFS !== 'undefined') {
+        for (const node of this.beamline.nodes) {
+          const defs = PARAM_DEFS[node.type];
+          if (defs && !node.params) {
+            node.params = {};
+            for (const [k, def] of Object.entries(defs)) {
+              if (!def.derived) node.params[k] = def.default;
+            }
+          }
+        }
+      }
+
       this.recalcBeamline();
       this.log('Game loaded.', 'info');
       this.emit('loaded');
