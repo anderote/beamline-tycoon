@@ -41,6 +41,10 @@ class Game {
       // Infrastructure tiles (paths, concrete pads)
       infrastructure: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
+      // Zone overlays
+      zones: [],                // [{ type, col, row }]
+      zoneOccupied: {},         // "col,row" -> zoneType
+      zoneConnectivity: {},     // zoneType -> { active: bool, tileCount: int, tier: int }
       // Facility equipment (off-beamline support systems)
       facilityEquipment: [],      // [{ id, type, col, row }]
       facilityGrid: {},           // "col,row" -> equipment id
@@ -220,6 +224,175 @@ class Game {
       this.emit('infrastructureChanged');
     }
     return placed > 0;
+  }
+
+  // === ZONES ===
+
+  placeZoneTile(col, row, zoneType) {
+    const zone = ZONES[zoneType];
+    if (!zone) return false;
+    const key = col + ',' + row;
+    // Must have the right flooring underneath
+    const floor = this.state.infraOccupied[key];
+    if (floor !== zone.requiredFloor) return false;
+    // Can't place two zones on same tile
+    if (this.state.zoneOccupied[key]) return false;
+
+    this.state.zones.push({ type: zoneType, col, row });
+    this.state.zoneOccupied[key] = zoneType;
+    this.recomputeZoneConnectivity();
+    return true;
+  }
+
+  placeZoneRect(startCol, startRow, endCol, endRow, zoneType) {
+    const zone = ZONES[zoneType];
+    if (!zone) return false;
+
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    let placed = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        const floor = this.state.infraOccupied[key];
+        if (floor !== zone.requiredFloor) continue;
+        if (this.state.zoneOccupied[key]) continue;
+
+        this.state.zones.push({ type: zoneType, col: c, row: r });
+        this.state.zoneOccupied[key] = zoneType;
+        placed++;
+      }
+    }
+
+    if (placed > 0) {
+      this.log(`Assigned ${placed} ${zone.name} tiles`, 'good');
+      this.recomputeZoneConnectivity();
+      this.emit('zonesChanged');
+    }
+    return placed > 0;
+  }
+
+  removeZoneTile(col, row) {
+    const key = col + ',' + row;
+    if (!this.state.zoneOccupied[key]) return false;
+    const idx = this.state.zones.findIndex(z => z.col === col && z.row === row);
+    if (idx !== -1) {
+      this.state.zones.splice(idx, 1);
+      delete this.state.zoneOccupied[key];
+      this.recomputeZoneConnectivity();
+      this.emit('zonesChanged');
+      return true;
+    }
+    return false;
+  }
+
+  // Flood-fill from Control Room through hallways to determine zone connectivity
+  recomputeZoneConnectivity() {
+    const connectivity = {};
+    for (const zoneType of Object.keys(ZONES)) {
+      connectivity[zoneType] = { active: false, tileCount: 0, tier: 0 };
+    }
+
+    // Count tiles per zone type
+    for (const z of this.state.zones) {
+      if (connectivity[z.type]) {
+        connectivity[z.type].tileCount++;
+      }
+    }
+
+    // Compute tier from tile count
+    for (const info of Object.values(connectivity)) {
+      if (info.tileCount >= ZONE_TIER_THRESHOLDS[2]) info.tier = 3;
+      else if (info.tileCount >= ZONE_TIER_THRESHOLDS[1]) info.tier = 2;
+      else if (info.tileCount >= ZONE_TIER_THRESHOLDS[0]) info.tier = 1;
+      else info.tier = 0;
+    }
+
+    // Find all Control Room tiles
+    const controlRoomTiles = this.state.zones
+      .filter(z => z.type === 'controlRoom')
+      .map(z => z.col + ',' + z.row);
+
+    if (controlRoomTiles.length === 0) {
+      this.state.zoneConnectivity = connectivity;
+      return;
+    }
+
+    // Control Room is always active if it exists
+    connectivity.controlRoom.active = true;
+
+    // Find all hallway tiles adjacent to Control Room — seed the flood fill
+    const hallwaySet = new Set();
+    for (const tile of this.state.infrastructure) {
+      if (tile.type === 'hallway') hallwaySet.add(tile.col + ',' + tile.row);
+    }
+
+    const visited = new Set();
+    const queue = [];
+
+    // Seed: hallway tiles adjacent to any Control Room tile
+    for (const crKey of controlRoomTiles) {
+      const [cc, cr] = crKey.split(',').map(Number);
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nk = (cc + dc) + ',' + (cr + dr);
+        if (hallwaySet.has(nk) && !visited.has(nk)) {
+          visited.add(nk);
+          queue.push(nk);
+        }
+      }
+    }
+
+    // BFS through hallway tiles
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      const [cc, cr] = cur.split(',').map(Number);
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nk = (cc + dc) + ',' + (cr + dr);
+        if (hallwaySet.has(nk) && !visited.has(nk)) {
+          visited.add(nk);
+          queue.push(nk);
+        }
+      }
+    }
+
+    // Check each zone: if any tile is adjacent to a reachable hallway tile, it's active
+    const zonesByType = {};
+    for (const z of this.state.zones) {
+      if (!zonesByType[z.type]) zonesByType[z.type] = [];
+      zonesByType[z.type].push(z);
+    }
+
+    for (const [zoneType, tiles] of Object.entries(zonesByType)) {
+      if (zoneType === 'controlRoom') continue; // already active
+      for (const tile of tiles) {
+        for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const nk = (tile.col + dc) + ',' + (tile.row + dr);
+          if (visited.has(nk)) {
+            connectivity[zoneType].active = true;
+            break;
+          }
+        }
+        if (connectivity[zoneType].active) break;
+      }
+    }
+
+    this.state.zoneConnectivity = connectivity;
+  }
+
+  // Get the achieved tier for a gated category (0 = no zone, 1-3 = tier)
+  getZoneTierForCategory(category) {
+    for (const zone of Object.values(ZONES)) {
+      const gates = Array.isArray(zone.gatesCategory) ? zone.gatesCategory : [zone.gatesCategory];
+      if (gates.includes(category)) {
+        const conn = this.state.zoneConnectivity?.[zone.id];
+        if (!conn || !conn.active) return 0;
+        return conn.tier;
+      }
+    }
+    return 99; // ungated category
   }
 
   // === FACILITY EQUIPMENT ===
@@ -1287,6 +1460,14 @@ class Game {
         for (const tile of this.state.infrastructure)
           this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
       } else { this.state.infrastructure = []; }
+      // Rebuild zoneOccupied
+      this.state.zones = this.state.zones || [];
+      this.state.zoneOccupied = {};
+      for (const z of this.state.zones) {
+        this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+      }
+      this.state.zoneConnectivity = {};
+      this.recomputeZoneConnectivity();
       // Rebuild machineGrid
       this.state.machineGrid = {};
       if (this.state.machines) {
