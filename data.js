@@ -4,10 +4,10 @@
 const DIR = { NE: 0, SE: 1, SW: 2, NW: 3 };
 const DIR_NAMES = ['NE', 'SE', 'SW', 'NW'];
 const DIR_DELTA = [
-  { dc: 1, dr: -1 },  // NE
-  { dc: 1, dr: 1 },   // SE
-  { dc: -1, dr: 1 },  // SW
-  { dc: -1, dr: -1 }, // NW
+  { dc: 0, dr: -1 },  // NE — along -row axis, visually upper-right on grid
+  { dc: 1, dr: 0 },   // SE — along +col axis, visually lower-right on grid
+  { dc: 0, dr: 1 },   // SW — along +row axis, visually lower-left on grid
+  { dc: -1, dr: 0 },  // NW — along -col axis, visually upper-left on grid
 ];
 function turnLeft(dir) { return (dir + 3) % 4; }
 function turnRight(dir) { return (dir + 1) % 4; }
@@ -17,13 +17,51 @@ function reverseDir(dir) { return (dir + 2) % 4; }
 const TILE_W = 64;
 const TILE_H = 32;
 
-// Component categories
-const CATEGORIES = {
-  source: { name: 'Sources', color: '#4a9' },
-  magnet: { name: 'Magnets', color: '#c44' },
-  rf: { name: 'RF/Accel', color: '#c90' },
-  diagnostic: { name: 'Diagnostics', color: '#44c' },
-  special: { name: 'Beam Optics', color: '#a4a' },
+// Placement modes — each mode has its own set of category tabs
+const MODES = {
+  beamline: {
+    name: 'Beamline',
+    categories: {
+      source:     { name: 'Sources',     color: '#4a9' },
+      focusing:   { name: 'Focusing',    color: '#c44' },
+      rf:         { name: 'RF / Accel',  color: '#c90' },
+      diagnostic: { name: 'Diagnostics', color: '#44c' },
+      beamOptics: { name: 'Beam Optics', color: '#a4a' },
+    },
+  },
+  facility: {
+    name: 'Facility',
+    categories: {
+      vacuum:       { name: 'Vacuum',          color: '#669' },
+      cryo:         { name: 'Cryo',            color: '#4aa' },
+      rfPower:      { name: 'RF Power',        color: '#aa4' },
+      cooling:      { name: 'Cooling',         color: '#a66' },
+      dataControls: { name: 'Data & Controls', color: '#6a6' },
+      power:        { name: 'Power',           color: '#a84' },
+      safety:       { name: 'Safety',          color: '#888' },
+    },
+  },
+  structure: {
+    name: 'Structure',
+    categories: {},
+    disabled: true,
+  },
+};
+
+// Flat lookup for backwards compat — used by palette rendering, etc.
+const CATEGORIES = {};
+for (const mode of Object.values(MODES)) {
+  Object.assign(CATEGORIES, mode.categories);
+}
+
+// Utility connection types drawn as thin lines between facility equipment and beamline
+const CONNECTION_TYPES = {
+  vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x888888, validTargets: 'any' },
+  cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { categoryMatch: ['rf'], idMatch: ['cryomodule', 'scQuad', 'scDipole'] } },
+  rfWaveguide:  { name: 'RF Waveguide',  color: 0xccaa44, validTargets: { categoryMatch: ['rf'] } },
+  coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'focusing'], idMatch: ['target'] } },
+  powerCable:   { name: 'Power Cable',   color: 0xcc4444, validTargets: 'any' },
+  dataFiber:    { name: 'Data/Fiber',    color: 0x44cc44, validTargets: { categoryMatch: ['diagnostic'] } },
 };
 
 // Components — trackLength replaces w/h; icon and connectDirs removed
@@ -1431,6 +1469,101 @@ const COMPONENTS = {
     spriteKey: 'powerPanel',
     spriteColor: 0xcc9900,
   },
+
+  // ── Proton Linac Components ───────────────────────────────────────
+  ionSource: {
+    id: 'ionSource',
+    name: 'Ion Source',
+    icon: 'H+',
+    desc: 'Generates a beam of protons for the proton linac.',
+    category: 'source',
+    cost: { funding: 300 },
+    stats: { beamCurrent: 0.5 },
+    energyCost: 8,
+    length: 2,
+    w: 2, h: 2,
+    maxCount: 2,
+    isSource: true,
+    requires: 'protonAcceleration',
+    connectDirs: ['right'],
+  },
+  rfq: {
+    id: 'rfq',
+    name: 'RFQ',
+    icon: '~',
+    desc: 'Radio-Frequency Quadrupole. Bunches and accelerates low-energy protons.',
+    category: 'rf',
+    cost: { funding: 800 },
+    stats: { energyGain: 0.003 },
+    energyCost: 15,
+    length: 3,
+    w: 3, h: 1,
+    requires: 'protonAcceleration',
+    connectDirs: ['left', 'right'],
+  },
+  dtlCavity: {
+    id: 'dtlCavity',
+    name: 'DTL Cavity',
+    icon: '|||',
+    desc: 'Drift Tube Linac. Accelerates protons through a series of drift tubes.',
+    category: 'rf',
+    cost: { funding: 1200 },
+    stats: { energyGain: 0.05 },
+    energyCost: 20,
+    length: 4,
+    w: 4, h: 1,
+    requires: 'protonAcceleration',
+    connectDirs: ['left', 'right'],
+  },
+  protonQuad: {
+    id: 'protonQuad',
+    name: 'Proton Quad',
+    icon: 'Q+',
+    desc: 'Heavy-duty quadrupole for proton beam focusing. Higher field than electron quads.',
+    category: 'magnet',
+    cost: { funding: 300 },
+    stats: { focusStrength: 0.8 },
+    energyCost: 8,
+    length: 2,
+    w: 1, h: 1,
+    requires: 'protonAcceleration',
+    connectDirs: ['left', 'right', 'up', 'down'],
+  },
+  protonDipole: {
+    id: 'protonDipole',
+    name: 'Proton Dipole',
+    icon: 'D+',
+    desc: 'High-field dipole for bending proton beams. Requires more field than electron dipoles.',
+    category: 'dipole',
+    cost: { funding: 500 },
+    stats: { bendAngle: 90 },
+    energyCost: 12,
+    length: 3,
+    w: 2, h: 2,
+    requires: 'protonAcceleration',
+    connectDirs: ['left', 'right', 'up', 'down'],
+  },
+};
+
+// Infrastructure items — placed freely on the grid, not part of the beamline
+const INFRASTRUCTURE = {
+  path: {
+    id: 'path',
+    name: 'Walkway',
+    desc: 'Paved walkway for staff access between buildings.',
+    cost: 5,   // funding per tile
+    color: 0x887766,
+    topColor: 0x998877,
+  },
+  concrete: {
+    id: 'concrete',
+    name: 'Concrete Pad',
+    desc: 'Reinforced concrete foundation. Drag to place a rectangle.',
+    cost: 10,  // funding per tile
+    color: 0x777777,
+    topColor: 0x999999,
+    isDragPlacement: true,
+  },
 };
 
 const RESEARCH = {
@@ -1483,6 +1616,17 @@ const RESEARCH = {
     duration: 40,
     unlocks: ['mps', 'beamLossMonitor', 'emergencyCooling'],
     requires: 'beamDiagnostics',
+    tier: 1,
+  },
+
+  cyclotronTech: {
+    id: 'cyclotronTech',
+    name: 'Cyclotron Technology',
+    desc: 'Circular acceleration principles. Unlocks Small Cyclotron machine.',
+    cost: { data: 15, funding: 1000 },
+    duration: 40,
+    unlocksMachines: ['smallCyclotron'],
+    requires: null,
     tier: 1,
   },
 
@@ -1555,6 +1699,17 @@ const RESEARCH = {
     duration: 40,
     effect: { dataRateMult: 2 },
     requires: null,
+    tier: 2,
+  },
+
+  protonAcceleration: {
+    id: 'protonAcceleration',
+    name: 'Proton Acceleration',
+    desc: 'Techniques for accelerating heavy particles. Unlocks proton linac components.',
+    cost: { data: 25, funding: 3000 },
+    duration: 60,
+    unlocks: ['ionSource', 'rfq', 'dtlCavity', 'protonQuad', 'protonDipole'],
+    requires: 'cyclotronTech',
     tier: 2,
   },
 
@@ -1637,6 +1792,27 @@ const RESEARCH = {
     cost: { data: 35, funding: 5000 },
     duration: 60,
     effect: { energyCostMult: 0.7 },
+    requires: 'srfTechnology',
+    tier: 3,
+  },
+
+  isochronousCyclotron: {
+    id: 'isochronousCyclotron',
+    name: 'Isochronous Cyclotron',
+    desc: 'Sector-focused cyclotron for higher energies. Unlocks Large Cyclotron.',
+    cost: { data: 40, funding: 8000, reputation: 5 },
+    duration: 80,
+    unlocksMachines: ['largeCyclotron'],
+    requires: 'cyclotronTech',
+    tier: 3,
+  },
+  synchrotronTech: {
+    id: 'synchrotronTech',
+    name: 'Synchrotron Technology',
+    desc: 'Ramped magnetic fields for high-energy rings. Unlocks Synchrotron Booster.',
+    cost: { data: 50, funding: 10000, reputation: 5 },
+    duration: 90,
+    unlocksMachines: ['synchrotronBooster'],
     requires: 'srfTechnology',
     tier: 3,
   },
@@ -1740,6 +1916,27 @@ const RESEARCH = {
     duration: 120,
     effect: { discoveryChance: 0.1 },
     requires: 'highLuminosity',
+    tier: 4,
+  },
+
+  storageRingTech: {
+    id: 'storageRingTech',
+    name: 'Storage Ring Technology',
+    desc: 'Ultra-stable stored beams with insertion devices. Unlocks Storage Ring / Light Source.',
+    cost: { data: 60, funding: 15000, reputation: 10 },
+    duration: 100,
+    unlocksMachines: ['storageRing'],
+    requires: 'synchrotronTech',
+    tier: 4,
+  },
+  plasmaAcceleration: {
+    id: 'plasmaAcceleration',
+    name: 'Plasma Acceleration',
+    desc: 'Laser-driven plasma wakefields. Unlocks Tabletop Laser Plasma Accelerator.',
+    cost: { data: 70, funding: 20000, reputation: 10 },
+    duration: 110,
+    unlocksMachines: ['tabletopLaser'],
+    requires: 'felPhysics',
     tier: 4,
   },
 
@@ -2084,3 +2281,345 @@ const OBJECTIVES = [
     tier: 5,
   },
 ];
+
+const MACHINES = {
+  // === Stall Machines (available at start) ===
+  vanDeGraaff: {
+    id: 'vanDeGraaff',
+    name: 'Van de Graaff Generator',
+    icon: '\u26A1',
+    desc: 'A classic electrostatic accelerator. Cheap and reliable.',
+    category: 'stall',
+    cost: { funding: 200 },
+    w: 2, h: 2,
+    baseFunding: 0.5,
+    baseData: 0.2,
+    energyCost: 2,
+    requires: null,
+    maxCount: null,
+    canLink: false,
+    operatingModes: null,
+    modeMultipliers: null,
+    upgrades: {
+      voltage: {
+        name: 'Terminal Voltage',
+        levels: [
+          { label: '1 MV', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '3 MV', cost: { funding: 200, data: 3 }, fundingMult: 1.5, dataMult: 1.4, energyMult: 1.2 },
+          { label: '5 MV', cost: { funding: 600, data: 8 }, fundingMult: 2.0, dataMult: 1.8, energyMult: 1.5 },
+        ],
+      },
+      belt: {
+        name: 'Belt Material',
+        levels: [
+          { label: 'Rubber belt', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Silk belt', cost: { funding: 150, data: 2 }, fundingMult: 1.2, dataMult: 1.3, energyMult: 1.0 },
+          { label: 'Pelletron chain', cost: { funding: 500, data: 6 }, fundingMult: 1.5, dataMult: 1.6, energyMult: 1.1 },
+        ],
+      },
+    },
+  },
+
+  cockcroftWalton: {
+    id: 'cockcroftWalton',
+    name: 'Cockcroft-Walton Generator',
+    icon: '\u2301',
+    desc: 'Voltage multiplier cascade. The machine that first split the atom.',
+    category: 'stall',
+    cost: { funding: 500 },
+    w: 3, h: 2,
+    baseFunding: 1,
+    baseData: 0.5,
+    energyCost: 4,
+    requires: null,
+    maxCount: null,
+    canLink: false,
+    operatingModes: null,
+    modeMultipliers: null,
+    upgrades: {
+      stages: {
+        name: 'Stage Count',
+        levels: [
+          { label: '2-stage (200 kV)', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '4-stage (500 kV)', cost: { funding: 400, data: 5 }, fundingMult: 1.5, dataMult: 1.4, energyMult: 1.3 },
+          { label: '8-stage (1 MV)', cost: { funding: 1200, data: 12 }, fundingMult: 2.0, dataMult: 1.8, energyMult: 1.6 },
+        ],
+      },
+      voltage: {
+        name: 'Voltage Regulation',
+        levels: [
+          { label: 'Basic', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Stabilized', cost: { funding: 300, data: 3 }, fundingMult: 1.3, dataMult: 1.5, energyMult: 1.0 },
+          { label: 'Precision', cost: { funding: 800, data: 8 }, fundingMult: 1.5, dataMult: 2.0, energyMult: 1.1 },
+        ],
+      },
+    },
+  },
+
+  tabletopLaser: {
+    id: 'tabletopLaser',
+    name: 'Tabletop Laser Plasma',
+    icon: '\u2604',
+    desc: 'Cutting-edge laser-driven plasma wakefield accelerator. Compact but powerful.',
+    category: 'stall',
+    cost: { funding: 15000 },
+    w: 3, h: 3,
+    baseFunding: 5,
+    baseData: 8,
+    energyCost: 15,
+    requires: 'plasmaAcceleration',
+    maxCount: null,
+    canLink: false,
+    operatingModes: null,
+    modeMultipliers: null,
+    upgrades: {
+      laserPower: {
+        name: 'Laser Power',
+        levels: [
+          { label: '10 TW', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '100 TW', cost: { funding: 8000, data: 30 }, fundingMult: 1.5, dataMult: 1.8, energyMult: 1.4 },
+          { label: '1 PW', cost: { funding: 25000, data: 80 }, fundingMult: 2.5, dataMult: 3.0, energyMult: 2.0 },
+        ],
+      },
+      plasmaDensity: {
+        name: 'Plasma Density',
+        levels: [
+          { label: 'Low density', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Medium density', cost: { funding: 5000, data: 20 }, fundingMult: 1.3, dataMult: 1.5, energyMult: 1.2 },
+          { label: 'High density', cost: { funding: 12000, data: 50 }, fundingMult: 1.6, dataMult: 2.0, energyMult: 1.5 },
+        ],
+      },
+      staging: {
+        name: 'Staging',
+        levels: [
+          { label: 'Single stage', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Double stage', cost: { funding: 10000, data: 40 }, fundingMult: 1.5, dataMult: 1.5, energyMult: 1.3 },
+          { label: 'Triple stage', cost: { funding: 30000, data: 100 }, fundingMult: 2.0, dataMult: 2.0, energyMult: 1.6 },
+        ],
+      },
+    },
+  },
+
+  // === Ring Machines ===
+  smallCyclotron: {
+    id: 'smallCyclotron',
+    name: 'Small Cyclotron',
+    icon: '\uD83C\uDF00',
+    desc: 'Compact cyclotron for isotope production and basic nuclear research.',
+    category: 'ring',
+    cost: { funding: 2000 },
+    w: 5, h: 5,
+    baseFunding: 3,
+    baseData: 0.5,
+    energyCost: 10,
+    requires: 'cyclotronTech',
+    maxCount: null,
+    canLink: false,
+    operatingModes: ['isotopes', 'research'],
+    modeMultipliers: {
+      isotopes: { fundingMult: 1.5, dataMult: 0.5 },
+      research: { fundingMult: 0.3, dataMult: 2.0 },
+    },
+    upgrades: {
+      magneticField: {
+        name: 'Magnetic Field',
+        levels: [
+          { label: '1.2 T / 12 MeV', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '1.5 T / 18 MeV', cost: { funding: 1500, data: 10 }, fundingMult: 1.4, dataMult: 1.3, energyMult: 1.3 },
+          { label: '1.8 T / 25 MeV', cost: { funding: 4000, data: 30 }, fundingMult: 1.8, dataMult: 1.6, energyMult: 1.6 },
+        ],
+      },
+      rfSystem: {
+        name: 'RF System',
+        levels: [
+          { label: 'Single dee', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Dual dee, 2x current', cost: { funding: 1000, data: 8 }, fundingMult: 1.5, dataMult: 1.3, energyMult: 1.2 },
+          { label: 'High-Q resonator', cost: { funding: 3000, data: 20 }, fundingMult: 2.0, dataMult: 1.5, energyMult: 1.4 },
+        ],
+      },
+      extraction: {
+        name: 'Extraction',
+        levels: [
+          { label: '40% efficiency', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '60% efficiency', cost: { funding: 800, data: 5 }, fundingMult: 1.5, dataMult: 1.2, energyMult: 1.0 },
+          { label: '85% efficiency', cost: { funding: 2500, data: 15 }, fundingMult: 2.0, dataMult: 1.4, energyMult: 1.0 },
+        ],
+      },
+      shielding: {
+        name: 'Shielding',
+        levels: [
+          { label: 'Basic', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Improved', cost: { funding: 600, data: 5 }, fundingMult: 1.0, dataMult: 1.5, energyMult: 1.0 },
+          { label: 'Full containment', cost: { funding: 2000, data: 12 }, fundingMult: 1.0, dataMult: 2.0, energyMult: 1.0 },
+        ],
+      },
+    },
+  },
+
+  largeCyclotron: {
+    id: 'largeCyclotron',
+    name: 'Large Cyclotron',
+    icon: '\uD83C\uDF00',
+    desc: 'Isochronous sector-focused cyclotron. Higher energy, multiple uses.',
+    category: 'ring',
+    cost: { funding: 8000 },
+    w: 7, h: 7,
+    baseFunding: 8,
+    baseData: 2,
+    energyCost: 25,
+    requires: 'isochronousCyclotron',
+    maxCount: null,
+    canLink: false,
+    operatingModes: ['isotopes', 'research', 'therapy'],
+    modeMultipliers: {
+      isotopes: { fundingMult: 1.5, dataMult: 0.5 },
+      research: { fundingMult: 0.3, dataMult: 2.0 },
+      therapy: { fundingMult: 1.0, dataMult: 1.0 },
+    },
+    upgrades: {
+      sectorMagnets: {
+        name: 'Sector Magnets',
+        levels: [
+          { label: 'Standard iron', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Shimmed poles', cost: { funding: 3000, data: 15 }, fundingMult: 1.3, dataMult: 1.4, energyMult: 1.2 },
+          { label: 'Superconducting coils', cost: { funding: 10000, data: 40 }, fundingMult: 1.8, dataMult: 1.8, energyMult: 1.5 },
+        ],
+      },
+      rfSystem: {
+        name: 'RF System',
+        levels: [
+          { label: 'Single cavity', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Dual cavity', cost: { funding: 2000, data: 12 }, fundingMult: 1.4, dataMult: 1.3, energyMult: 1.2 },
+          { label: 'Flat-topping', cost: { funding: 6000, data: 30 }, fundingMult: 1.8, dataMult: 1.6, energyMult: 1.4 },
+        ],
+      },
+      ionSourceInternal: {
+        name: 'Internal Ion Source',
+        levels: [
+          { label: 'Basic PIG source', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'ECR source', cost: { funding: 2500, data: 15 }, fundingMult: 1.5, dataMult: 1.3, energyMult: 1.1 },
+          { label: 'Multicusp source', cost: { funding: 5000, data: 25 }, fundingMult: 2.0, dataMult: 1.5, energyMult: 1.2 },
+        ],
+      },
+      extractionPorts: {
+        name: 'Extraction Ports',
+        levels: [
+          { label: '1 port', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '2 ports', cost: { funding: 2000, data: 10 }, fundingMult: 1.8, dataMult: 1.3, energyMult: 1.1 },
+          { label: '3 ports', cost: { funding: 5000, data: 25 }, fundingMult: 2.5, dataMult: 1.5, energyMult: 1.2 },
+        ],
+      },
+    },
+  },
+
+  synchrotronBooster: {
+    id: 'synchrotronBooster',
+    name: 'Synchrotron Booster',
+    icon: '\u25CE',
+    desc: 'A ramped synchrotron that boosts beam to high energy. Link to a linac for best performance.',
+    category: 'ring',
+    cost: { funding: 12000 },
+    w: 6, h: 6,
+    baseFunding: 15,
+    baseData: 5,
+    energyCost: 35,
+    requires: 'synchrotronTech',
+    maxCount: null,
+    canLink: true,
+    operatingModes: ['production', 'machineStudies'],
+    modeMultipliers: {
+      production: { fundingMult: 1.0, dataMult: 1.0 },
+      machineStudies: { fundingMult: 0.0, dataMult: 3.0 },
+    },
+    upgrades: {
+      dipoleField: {
+        name: 'Dipole Field',
+        levels: [
+          { label: '0.8 T / 1 GeV', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '1.2 T / 3 GeV', cost: { funding: 5000, data: 20 }, fundingMult: 1.5, dataMult: 1.4, energyMult: 1.3 },
+          { label: '1.8 T / 6 GeV', cost: { funding: 15000, data: 50 }, fundingMult: 2.0, dataMult: 1.8, energyMult: 1.6 },
+        ],
+      },
+      rfVoltage: {
+        name: 'RF Voltage',
+        levels: [
+          { label: 'Low voltage', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Medium voltage', cost: { funding: 3000, data: 15 }, fundingMult: 1.3, dataMult: 1.3, energyMult: 1.2 },
+          { label: 'High voltage', cost: { funding: 8000, data: 35 }, fundingMult: 1.6, dataMult: 1.6, energyMult: 1.4 },
+        ],
+      },
+      injection: {
+        name: 'Injection System',
+        levels: [
+          { label: 'Single-turn', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Multi-turn', cost: { funding: 4000, data: 18 }, fundingMult: 1.4, dataMult: 1.2, energyMult: 1.0 },
+          { label: 'Charge-exchange', cost: { funding: 10000, data: 40 }, fundingMult: 1.8, dataMult: 1.5, energyMult: 1.0 },
+        ],
+      },
+      extractionKickers: {
+        name: 'Extraction Kickers',
+        levels: [
+          { label: 'Slow extraction', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Fast extraction', cost: { funding: 3000, data: 15 }, fundingMult: 1.3, dataMult: 1.4, energyMult: 1.1 },
+          { label: 'Resonant extraction', cost: { funding: 8000, data: 35 }, fundingMult: 1.6, dataMult: 1.8, energyMult: 1.2 },
+        ],
+      },
+    },
+  },
+
+  storageRing: {
+    id: 'storageRing',
+    name: 'Storage Ring / Light Source',
+    icon: '\u2B55',
+    desc: 'A full storage ring with insertion devices. The ultimate user facility. Link to an injector for best performance.',
+    category: 'ring',
+    cost: { funding: 30000 },
+    w: 10, h: 10,
+    baseFunding: 25,
+    baseData: 10,
+    energyCost: 50,
+    requires: 'storageRingTech',
+    maxCount: null,
+    canLink: true,
+    reputationPerTick: 0.01,
+    operatingModes: ['userOps', 'machineStudies'],
+    modeMultipliers: {
+      userOps: { fundingMult: 2.0, dataMult: 0.5 },
+      machineStudies: { fundingMult: 0.0, dataMult: 3.0 },
+    },
+    upgrades: {
+      lattice: {
+        name: 'Lattice',
+        levels: [
+          { label: 'DBA lattice', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'TBA lattice', cost: { funding: 10000, data: 30 }, fundingMult: 1.3, dataMult: 1.5, energyMult: 1.1 },
+          { label: 'MBA lattice (4th gen)', cost: { funding: 30000, data: 80 }, fundingMult: 1.8, dataMult: 2.0, energyMult: 1.3 },
+        ],
+      },
+      insertionDevices: {
+        name: 'Insertion Devices',
+        levels: [
+          { label: '2 beamline ports', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: '6 beamline ports', cost: { funding: 15000, data: 40 }, fundingMult: 2.5, dataMult: 1.5, energyMult: 1.2 },
+          { label: '12 beamline ports', cost: { funding: 40000, data: 100 }, fundingMult: 5.0, dataMult: 2.0, energyMult: 1.5 },
+        ],
+      },
+      vacuumSystem: {
+        name: 'Vacuum System',
+        levels: [
+          { label: 'Standard UHV', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'NEG-coated', cost: { funding: 8000, data: 25 }, fundingMult: 1.2, dataMult: 1.4, energyMult: 0.9 },
+          { label: 'In-vacuum undulators', cost: { funding: 20000, data: 60 }, fundingMult: 1.5, dataMult: 1.8, energyMult: 1.0 },
+        ],
+      },
+      topUpInjection: {
+        name: 'Top-up Injection',
+        levels: [
+          { label: 'Decay mode', fundingMult: 1.0, dataMult: 1.0, energyMult: 1.0 },
+          { label: 'Periodic top-up', cost: { funding: 12000, data: 35 }, fundingMult: 1.5, dataMult: 1.3, energyMult: 1.1 },
+          { label: 'Continuous top-up', cost: { funding: 25000, data: 70 }, fundingMult: 2.0, dataMult: 1.5, energyMult: 1.2 },
+        ],
+      },
+    },
+  },
+};
