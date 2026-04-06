@@ -1006,9 +1006,15 @@ class Game {
   // === SAVE / LOAD ===
 
   save() {
+    // Convert connections Map to serializable format
+    const connObj = {};
+    for (const [key, set] of this.state.connections) {
+      connObj[key] = Array.from(set);
+    }
+    const saveState = { ...this.state, connections: connObj };
     localStorage.setItem('beamlineTycoon', JSON.stringify({
       version: 4,
-      state: this.state,
+      state: saveState,
       beamline: this.beamline.toJSON(),
     }));
   }
@@ -1040,6 +1046,22 @@ class Game {
               this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
         }
       } else { this.state.machines = []; }
+      // Restore connections Map from serialized format
+      if (this.state.connections && !(this.state.connections instanceof Map)) {
+        const map = new Map();
+        for (const [key, arr] of Object.entries(this.state.connections)) {
+          map.set(key, new Set(arr));
+        }
+        this.state.connections = map;
+      } else if (!this.state.connections) {
+        this.state.connections = new Map();
+      }
+
+      // Ensure facility arrays exist for old saves
+      if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
+      if (!this.state.facilityGrid) this.state.facilityGrid = {};
+      if (!this.state.facilityNextId) this.state.facilityNextId = 1;
+
       this.beamline.fromJSON(data.beamline);
       this.recalcBeamline();
       this.log('Game loaded.', 'info');
