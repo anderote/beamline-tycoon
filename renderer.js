@@ -1654,7 +1654,7 @@ class Renderer {
       if (el) el.textContent = typeof val === 'string' ? val : this._fmt(val);
     };
     setEl('val-funding', Math.floor(res.funding));
-    setEl('val-energy', Math.floor(res.energy));
+    setEl('val-energy', res.energy !== undefined ? Math.floor(res.energy) : '--');
     setEl('val-reputation', Math.floor(res.reputation));
     setEl('val-data', Math.floor(res.data));
 
@@ -1679,8 +1679,22 @@ class Renderer {
     if (this.game.state.beamOn) {
       btn.textContent = 'Stop Beam';
       btn.classList.add('running');
+      btn.classList.remove('blocked');
+      btn.title = '';
+      btn.style.opacity = '1';
     } else {
-      btn.textContent = 'Start Beam';
+      const blockers = this.game.state.infraBlockers || [];
+      if (blockers.length > 0) {
+        btn.textContent = `Start Beam (${blockers.length} issue${blockers.length > 1 ? 's' : ''})`;
+        btn.classList.add('blocked');
+        btn.title = blockers.map(b => b.reason).join('\n');
+        btn.style.opacity = '0.6';
+      } else {
+        btn.textContent = 'Start Beam';
+        btn.classList.remove('blocked');
+        btn.title = '';
+        btn.style.opacity = '1';
+      }
       btn.classList.remove('running');
     }
   }
