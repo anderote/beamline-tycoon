@@ -141,6 +141,7 @@ class InputHandler {
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
         case 'Delete': case 'Backspace':
+          console.log('[DELETE]', { selectedTool: this.selectedTool, buildMode: this.buildMode, selectedNodeId: this.selectedNodeId, selectedConnTool: this.selectedConnTool, bulldozerMode: this.bulldozerMode, bulldozerConnType: this.bulldozerConnType });
           if (this.selectedTool || this.buildMode) {
             // In build mode: remove the most recently placed component
             const nodes = this.game.beamline.getAllNodes();
@@ -264,10 +265,17 @@ class InputHandler {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.dragEnd = { col: grid.col, row: grid.row };
-        this.renderer.renderDragPreview(
-          this.dragStart.col, this.dragStart.row,
-          grid.col, grid.row, this.selectedInfraTool
-        );
+        if (this.selectedZoneTool) {
+          this.renderer.renderDragPreview(
+            this.dragStart.col, this.dragStart.row,
+            grid.col, grid.row, this.selectedZoneTool, true
+          );
+        } else {
+          this.renderer.renderDragPreview(
+            this.dragStart.col, this.dragStart.row,
+            grid.col, grid.row, this.selectedInfraTool
+          );
+        }
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -378,6 +386,7 @@ class InputHandler {
     console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.beamline.getAllNodes().length });
 
     if (this.bulldozerMode) {
+      console.log('[BULLDOZE]', { col, row, bulldozerConnType: this.bulldozerConnType });
       if (this.bulldozerConnType) {
         // Pipe-specific bulldozer: only remove the selected connection type
         this.game.removeConnection(col, row, this.bulldozerConnType);

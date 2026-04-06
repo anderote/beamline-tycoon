@@ -180,6 +180,9 @@ class Game {
     this.state.resources.funding -= infra.cost;
     this.state.infrastructure.push({ type: infraType, col, row });
     this.state.infraOccupied[key] = infraType;
+    if (infraType === 'hallway') {
+      this.recomputeZoneConnectivity();
+    }
     return true;
   }
 
@@ -222,6 +225,11 @@ class Game {
     if (placed > 0) {
       this.log(`Placed ${placed} ${infra.name} tiles ($${placed * infra.cost})`, 'good');
       this.emit('infrastructureChanged');
+      // Hallway changes affect zone connectivity
+      if (infraType === 'hallway') {
+        this.recomputeZoneConnectivity();
+        this.emit('zonesChanged');
+      }
     }
     return placed > 0;
   }

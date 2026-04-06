@@ -1069,12 +1069,22 @@ class Renderer {
     return set ? set.has(connType) : false;
   }
 
-  renderDragPreview(startCol, startRow, endCol, endRow, infraType) {
+  renderDragPreview(startCol, startRow, endCol, endRow, type, isZone = false) {
     this.dragPreviewLayer.removeChildren();
     if (startCol == null || endCol == null) return;
 
-    const infra = INFRASTRUCTURE[infraType];
-    if (!infra) return;
+    let previewColor, cost;
+    if (isZone) {
+      const zone = ZONES[type];
+      if (!zone) return;
+      previewColor = zone.color;
+      cost = 0; // zones are free to assign
+    } else {
+      const infra = INFRASTRUCTURE[type];
+      if (!infra) return;
+      previewColor = infra.topColor;
+      cost = infra.cost;
+    }
 
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
@@ -1082,8 +1092,8 @@ class Renderer {
     const maxRow = Math.max(startRow, endRow);
 
     const tileCount = (maxCol - minCol + 1) * (maxRow - minRow + 1);
-    const totalCost = tileCount * infra.cost;
-    const canAfford = this.game.state.resources.funding >= totalCost;
+    const totalCost = tileCount * cost;
+    const canAfford = cost === 0 || this.game.state.resources.funding >= totalCost;
 
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
@@ -1093,7 +1103,7 @@ class Renderer {
         const hh = TILE_H / 2;
 
         g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-        g.fill({ color: canAfford ? infra.topColor : 0xcc3333, alpha: 0.5 });
+        g.fill({ color: canAfford ? previewColor : 0xcc3333, alpha: isZone ? 0.4 : 0.5 });
         g.stroke({ color: canAfford ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
 
         this.dragPreviewLayer.addChild(g);
@@ -1104,8 +1114,9 @@ class Renderer {
     const centerCol = (minCol + maxCol) / 2;
     const centerRow = (minRow + maxRow) / 2;
     const centerPos = tileCenterIso(centerCol, centerRow);
+    const labelText = cost > 0 ? `$${totalCost} (${tileCount} tiles)` : `${tileCount} tiles`;
     const label = new PIXI.Text({
-      text: `$${totalCost} (${tileCount} tiles)`,
+      text: labelText,
       style: { fontFamily: 'monospace', fontSize: 10, fill: canAfford ? 0xffffff : 0xff4444 },
     });
     label.anchor.set(0.5, 0.5);
