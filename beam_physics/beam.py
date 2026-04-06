@@ -92,9 +92,9 @@ class BeamState:
     def bunch_length(self):
         return np.sqrt(max(self.sigma[4, 4], 0.0))
 
-    def snapshot(self, element_index, element_type, cumulative_s=0.0):
+    def snapshot(self, element_index, element_type, cumulative_s=0.0, extra=None):
         """Return a dict snapshot of the current beam state."""
-        return {
+        snap = {
             "element_index": element_index,
             "element_type": element_type,
             "beam_size_x": self.beam_size_x(),
@@ -130,6 +130,9 @@ class BeamState:
             "n_particles": self.n_particles,
             "bunch_frequency": self.bunch_frequency,
         }
+        if extra:
+            snap.update(extra)
+        return snap
 
 
 def create_initial_beam(params):

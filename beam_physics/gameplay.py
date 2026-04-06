@@ -371,6 +371,10 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "cov_tdE": s["cov_tdE"],
                 "cov_dEdE": s["cov_dEdE"],
                 "cov_xy": s["cov_xy"],
+                # Dispersion and bunch properties
+                "eta_x": s.get("eta_x", 0),
+                "eta_xp": s.get("eta_xp", 0),
+                "peak_current": s.get("peak_current", 0),
             }
             for s in physics_result["snapshots"]
         ],

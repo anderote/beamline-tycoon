@@ -45,7 +45,9 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         etype = element.get("type", "drift")
 
         if etype == "source":
-            context.snapshots.append(beam.snapshot(i, etype, 0.0))
+            context.snapshots.append(beam.snapshot(i, etype, 0.0, extra={
+                "eta_x": 0.0, "eta_xp": 0.0,
+            }))
             continue
 
         if etype in ("quadrupole", "sextupole"):
@@ -66,7 +68,10 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             collision_rates.append(beam.current * element.get("collisionRate", 2.0))
 
         context.cumulative_s += element.get("length", 0.0)
-        context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s))
+        context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
+            "eta_x": float(context.dispersion[0]),
+            "eta_xp": float(context.dispersion[1]),
+        }))
 
         if not beam.alive:
             break
