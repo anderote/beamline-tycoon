@@ -5,7 +5,7 @@ class Game {
     this.beamline = beamline;
 
     this.state = {
-      resources: { funding: 500, energy: 100, reputation: 0, data: 0 },
+      resources: { funding: 100000, energy: 100, reputation: 0, data: 0 },
       beamline: [],    // populated by recalcBeamline() from beamline.getOrderedComponents()
       beamOn: false,
       beamEnergy: 0,
@@ -38,6 +38,26 @@ class Game {
       staffCosts: { operators: 5, technicians: 8, scientists: 10, engineers: 12 }, // $/tick
       // Component health tracking
       componentHealth: {},      // id -> health (0-100)
+      // Infrastructure tiles (paths, concrete pads)
+      infrastructure: [],       // [{ type, col, row }]
+      infraOccupied: {},        // "col,row" -> type
+      // Facility equipment (off-beamline support systems)
+      facilityEquipment: [],      // [{ id, type, col, row }]
+      facilityGrid: {},           // "col,row" -> equipment id
+      facilityNextId: 1,
+      // Utility connections
+      connections: new Map(),     // "col,row" -> Set of connection type keys
+      // Machines (cyclotrons, stalls, rings)
+      machines: [],             // machine instances
+      machineGrid: {},          // "col,row" -> machineId
+      // Physics results (set by runPhysics)
+      physicsAlive: true,
+      beamCurrent: 0,
+      totalLossFraction: 0,
+      discoveryChance: 0,
+      photonRate: 0,
+      collisionRate: 0,
+      physicsEnvelope: null,
     };
 
     this.listeners = [];
@@ -142,6 +162,141 @@ class Game {
     return true;
   }
 
+  // === INFRASTRUCTURE ===
+
+  placeInfraTile(col, row, infraType) {
+    const infra = INFRASTRUCTURE[infraType];
+    if (!infra) return false;
+    const key = col + ',' + row;
+    if (this.state.infraOccupied[key]) return false; // already occupied
+    if (this.state.resources.funding < infra.cost) return false;
+
+    this.state.resources.funding -= infra.cost;
+    this.state.infrastructure.push({ type: infraType, col, row });
+    this.state.infraOccupied[key] = infraType;
+    return true;
+  }
+
+  placeInfraRect(startCol, startRow, endCol, endRow, infraType) {
+    const infra = INFRASTRUCTURE[infraType];
+    if (!infra) return false;
+
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    // Count new tiles and total cost
+    let newTiles = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        if (!this.state.infraOccupied[c + ',' + r]) newTiles++;
+      }
+    }
+    const totalCost = newTiles * infra.cost;
+    if (this.state.resources.funding < totalCost) {
+      this.log(`Need $${totalCost} for ${newTiles} tiles!`, 'bad');
+      return false;
+    }
+
+    // Place all tiles
+    let placed = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        if (!this.state.infraOccupied[key]) {
+          this.state.resources.funding -= infra.cost;
+          this.state.infrastructure.push({ type: infraType, col: c, row: r });
+          this.state.infraOccupied[key] = infraType;
+          placed++;
+        }
+      }
+    }
+
+    if (placed > 0) {
+      this.log(`Placed ${placed} ${infra.name} tiles ($${placed * infra.cost})`, 'good');
+      this.emit('infrastructureChanged');
+    }
+    return placed > 0;
+  }
+
+  // === FACILITY EQUIPMENT ===
+
+  placeFacilityEquipment(col, row, compType) {
+    const comp = COMPONENTS[compType];
+    if (!comp) return false;
+    if (!this.isComponentUnlocked(comp)) return false;
+    if (!this.canAfford(comp.cost)) {
+      this.log(`Can't afford ${comp.name}!`, 'bad');
+      return false;
+    }
+
+    const key = col + ',' + row;
+    if (this.state.facilityGrid[key]) {
+      this.log('Tile occupied!', 'bad');
+      return false;
+    }
+    if (this.state.infraOccupied[key]) {
+      this.log('Tile occupied!', 'bad');
+      return false;
+    }
+
+    const id = 'fac_' + this.state.facilityNextId++;
+    this.spend(comp.cost);
+    const entry = { id, type: compType, col, row };
+    this.state.facilityEquipment.push(entry);
+    this.state.facilityGrid[key] = id;
+    this.log(`Built ${comp.name}`, 'good');
+    this.emit('facilityChanged');
+    return true;
+  }
+
+  removeFacilityEquipment(equipId) {
+    const idx = this.state.facilityEquipment.findIndex(e => e.id === equipId);
+    if (idx === -1) return false;
+
+    const entry = this.state.facilityEquipment[idx];
+    const comp = COMPONENTS[entry.type];
+
+    // 50% refund
+    if (comp) {
+      for (const [r, a] of Object.entries(comp.cost))
+        this.state.resources[r] += Math.floor(a * 0.5);
+    }
+
+    const key = entry.col + ',' + entry.row;
+    delete this.state.facilityGrid[key];
+    this.state.facilityEquipment.splice(idx, 1);
+    this.log(`Removed ${comp ? comp.name : 'equipment'} (50% refund)`, 'info');
+    this.emit('facilityChanged');
+    return true;
+  }
+
+  // === CONNECTIONS ===
+
+  placeConnection(col, row, connType) {
+    const key = col + ',' + row;
+    if (!this.state.connections.has(key)) {
+      this.state.connections.set(key, new Set());
+    }
+    const set = this.state.connections.get(key);
+    if (set.has(connType)) {
+      // Toggle off — remove this connection type from the tile
+      set.delete(connType);
+      if (set.size === 0) this.state.connections.delete(key);
+      this.emit('connectionsChanged');
+      return false; // removed
+    }
+    set.add(connType);
+    this.emit('connectionsChanged');
+    return true; // added
+  }
+
+  getConnectionsAt(col, row) {
+    const key = col + ',' + row;
+    return this.state.connections.get(key) || new Set();
+  }
+
   // === STATS ===
 
   recalcBeamline() {
@@ -190,6 +345,7 @@ class Game {
 
     // Run physics simulation
     this.runPhysics(physicsBeamline, researchEffects);
+    this.checkInjectorLinks();
   }
 
   runPhysics(physicsBeamline, researchEffects) {
@@ -239,6 +395,12 @@ class Game {
     this.state.dataRate = dRate * bq;
     this.state.beamQuality = bq;
     this.state.luminosity = 0;
+    this.state.physicsAlive = true;
+    this.state.beamCurrent = 0;
+    this.state.totalLossFraction = 0;
+    this.state.discoveryChance = 0;
+    this.state.photonRate = 0;
+    this.state.collisionRate = 0;
     this.state.physicsEnvelope = null;
   }
 
@@ -423,6 +585,11 @@ class Game {
             if (COMPONENTS[c]) this.log(`Unlocked: ${COMPONENTS[c].name}`, 'good');
           }
         }
+        if (r.unlocksMachines && typeof MACHINES !== 'undefined') {
+          for (const m of r.unlocksMachines) {
+            if (MACHINES[m]) this.log(`Unlocked machine: ${MACHINES[m].name}`, 'good');
+          }
+        }
         this.state.activeResearch = null;
         this.state.researchProgress = 0;
         this.recalcBeamline();
@@ -449,6 +616,9 @@ class Game {
         }
       } catch { /* objective condition may reference undefined state */ }
     }
+
+    // Tick machines (cyclotrons, stalls, rings)
+    this._tickMachines();
 
     // Auto-save every 30 ticks
     if (this.state.tick % 30 === 0) this.save();
@@ -524,8 +694,242 @@ class Game {
     return true;
   }
 
+  // === MACHINES (cyclotrons, stalls, rings) ===
+
+  canPlaceMachine(machineId, col, row) {
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machineId] : null;
+    if (!def) return false;
+    for (let dy = 0; dy < def.h; dy++) {
+      for (let dx = 0; dx < def.w; dx++) {
+        const key = (col + dx) + ',' + (row + dy);
+        if (this.state.machineGrid[key]) return false;
+        if (this.beamline.occupied?.[key] !== undefined) return false;
+      }
+    }
+    return true;
+  }
+
+  isMachineUnlocked(def) {
+    if (!def.requires) return true;
+    return this.state.completedResearch.includes(def.requires);
+  }
+
+  placeMachine(machineId, col, row) {
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machineId] : null;
+    if (!def) return false;
+    if (!this.isMachineUnlocked(def)) return false;
+    if (!this.canAfford(def.cost)) { this.log(`Can't afford ${def.name}!`, 'bad'); return false; }
+    if (!this.canPlaceMachine(machineId, col, row)) { this.log("Can't place there!", 'bad'); return false; }
+
+    this.spend(def.cost);
+    const upgrades = {};
+    for (const key of Object.keys(def.upgrades || {})) upgrades[key] = 0;
+
+    const inst = {
+      type: machineId,
+      id: `${machineId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      col, row, upgrades,
+      operatingMode: def.operatingModes ? def.operatingModes[0] : null,
+      health: 100, active: true, injectorQuality: null,
+    };
+    this.state.machines.push(inst);
+
+    for (let dy = 0; dy < def.h; dy++)
+      for (let dx = 0; dx < def.w; dx++)
+        this.state.machineGrid[(col + dx) + ',' + (row + dy)] = inst.id;
+
+    this.checkInjectorLinks();
+    this.log(`Built ${def.name}`, 'good');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  removeMachine(instanceId) {
+    const idx = this.state.machines.findIndex(m => m.id === instanceId);
+    if (idx === -1) return false;
+    const machine = this.state.machines[idx];
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+
+    if (def) {
+      for (const [r, a] of Object.entries(def.cost))
+        this.state.resources[r] += Math.floor(a * 0.5);
+      for (let dy = 0; dy < def.h; dy++)
+        for (let dx = 0; dx < def.w; dx++)
+          delete this.state.machineGrid[(machine.col + dx) + ',' + (machine.row + dy)];
+    }
+
+    this.state.machines.splice(idx, 1);
+    this.log(`Demolished ${def ? def.name : 'machine'} (50% refund)`, 'info');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  getMachineAt(col, row) {
+    const id = this.state.machineGrid[col + ',' + row];
+    return id ? (this.state.machines.find(m => m.id === id) || null) : null;
+  }
+
+  upgradeMachine(instanceId, subsystem) {
+    const machine = this.state.machines.find(m => m.id === instanceId);
+    if (!machine) return false;
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+    if (!def) return false;
+    const upgDef = def.upgrades?.[subsystem];
+    if (!upgDef) return false;
+
+    const nextLevel = (machine.upgrades[subsystem] || 0) + 1;
+    if (nextLevel >= upgDef.levels.length) { this.log('Already max level!', 'bad'); return false; }
+
+    const levelDef = upgDef.levels[nextLevel];
+    if (!levelDef.cost || !this.canAfford(levelDef.cost)) {
+      this.log(`Can't afford ${upgDef.name} upgrade!`, 'bad');
+      return false;
+    }
+
+    this.spend(levelDef.cost);
+    machine.upgrades[subsystem] = nextLevel;
+    this.log(`Upgraded ${def.name}: ${upgDef.name} -> ${levelDef.label}`, 'good');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  setMachineMode(instanceId, mode) {
+    const machine = this.state.machines.find(m => m.id === instanceId);
+    if (!machine) return false;
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+    if (!def?.operatingModes?.includes(mode)) return false;
+    if (machine.operatingMode === mode) return false;
+    machine.operatingMode = mode;
+    this.log(`${def.name} mode: ${mode}`, 'info');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  toggleMachine(instanceId) {
+    const machine = this.state.machines.find(m => m.id === instanceId);
+    if (!machine) return false;
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+    if (machine.health <= 0) { this.log(`${def?.name || 'Machine'} is broken!`, 'bad'); return false; }
+    machine.active = !machine.active;
+    this.log(`${def?.name || 'Machine'} ${machine.active ? 'ON' : 'OFF'}`, machine.active ? 'good' : 'info');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  getMachinePerformance(machine) {
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+    if (!def) return { fundingMult: 0, dataMult: 0, energyMult: 1 };
+
+    let fundingMult = 1, dataMult = 1, energyMult = 1;
+
+    // Upgrade multipliers
+    for (const [sub, lvl] of Object.entries(machine.upgrades)) {
+      const level = def.upgrades?.[sub]?.levels?.[lvl];
+      if (!level) continue;
+      fundingMult *= level.fundingMult;
+      dataMult *= level.dataMult;
+      energyMult *= level.energyMult;
+    }
+
+    // Operating mode
+    if (machine.operatingMode && def.modeMultipliers?.[machine.operatingMode]) {
+      const m = def.modeMultipliers[machine.operatingMode];
+      fundingMult *= m.fundingMult;
+      dataMult *= m.dataMult;
+    }
+
+    // Injector bonus
+    if (def.canLink) {
+      if (machine.injectorQuality != null) {
+        const bonus = 0.5 + 0.5 * machine.injectorQuality;
+        fundingMult *= bonus; dataMult *= bonus;
+      } else {
+        fundingMult *= 0.5; dataMult *= 0.5;
+      }
+    }
+
+    // Health penalty below 50%
+    if (machine.health < 50) {
+      const hf = machine.health / 50;
+      fundingMult *= hf; dataMult *= hf;
+    }
+
+    return { fundingMult, dataMult, energyMult };
+  }
+
+  checkInjectorLinks() {
+    for (const machine of this.state.machines) {
+      const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+      if (!def?.canLink) continue;
+      machine.injectorQuality = null;
+
+      for (let dx = -1; dx <= def.w && machine.injectorQuality == null; dx++) {
+        for (let dy = -1; dy <= def.h && machine.injectorQuality == null; dy++) {
+          if (dx >= 0 && dx < def.w && dy >= 0 && dy < def.h) continue;
+          if (this.beamline.occupied?.[(machine.col + dx) + ',' + (machine.row + dy)] !== undefined) {
+            machine.injectorQuality = this.state.beamQuality || 0;
+          }
+        }
+      }
+    }
+  }
+
+  _tickMachines() {
+    for (const machine of this.state.machines) {
+      if (!machine.active) continue;
+      const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+      if (!def) continue;
+      const perf = this.getMachinePerformance(machine);
+
+      const eCost = def.energyCost * perf.energyMult;
+      if (this.state.resources.energy < eCost) {
+        machine.active = false;
+        this.log(`${def.name} shut down: no energy!`, 'bad');
+        this.emit('machineChanged');
+        continue;
+      }
+      this.state.resources.energy -= eCost;
+
+      this.state.resources.funding += def.baseFunding * perf.fundingMult;
+      const dataGain = def.baseData * perf.dataMult;
+      this.state.resources.data += dataGain;
+      this.state.totalDataCollected += dataGain;
+
+      if (def.reputationPerTick && machine.operatingMode === 'userOps') {
+        this.state.resources.reputation += def.reputationPerTick;
+      }
+
+      if (this.state.tick % 10 === 0) {
+        const wearRate = 0.01 + eCost * 0.001;
+        machine.health = Math.max(0, machine.health - wearRate);
+        if (machine.health < 20 && Math.random() < 0.05) {
+          machine.health = 0; machine.active = false;
+          this.log(`${def.name} BROKE DOWN!`, 'bad');
+          this.emit('machineChanged');
+        }
+      }
+    }
+  }
+
+  repairMachine(instanceId) {
+    const machine = this.state.machines.find(m => m.id === instanceId);
+    if (!machine || machine.health >= 100) return false;
+    const def = typeof MACHINES !== 'undefined' ? MACHINES[machine.type] : null;
+    if (!def) return false;
+    const repairCost = Math.ceil(def.cost.funding * 0.3 * (100 - machine.health) / 100);
+    if (!this.canAfford({ funding: repairCost })) { this.log(`Need $${repairCost} to repair`, 'bad'); return false; }
+    this.spend({ funding: repairCost });
+    machine.health = 100;
+    this.log(`Repaired ${def.name} ($${repairCost})`, 'good');
+    this.emit('machineChanged');
+    return true;
+  }
+
+  // === SAVE / LOAD ===
+
   save() {
     localStorage.setItem('beamlineTycoon', JSON.stringify({
+      version: 4,
       state: this.state,
       beamline: this.beamline.toJSON(),
     }));
@@ -536,7 +940,28 @@ class Game {
     if (!raw) return false;
     try {
       const data = JSON.parse(raw);
+      if (!data.version || data.version < 4) {
+        localStorage.removeItem('beamlineTycoon');
+        return false;
+      }
       Object.assign(this.state, data.state);
+      // Rebuild infraOccupied
+      this.state.infraOccupied = {};
+      if (this.state.infrastructure) {
+        for (const tile of this.state.infrastructure)
+          this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+      } else { this.state.infrastructure = []; }
+      // Rebuild machineGrid
+      this.state.machineGrid = {};
+      if (this.state.machines) {
+        for (const m of this.state.machines) {
+          const def = typeof MACHINES !== 'undefined' ? MACHINES[m.type] : null;
+          if (!def) continue;
+          for (let dy = 0; dy < def.h; dy++)
+            for (let dx = 0; dx < def.w; dx++)
+              this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
+        }
+      } else { this.state.machines = []; }
       this.beamline.fromJSON(data.beamline);
       this.recalcBeamline();
       this.log('Game loaded.', 'info');
