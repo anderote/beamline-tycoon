@@ -1223,3 +1223,115 @@ body {
   margin: 0 4px;
   align-self: stretch;
 }
+
+/* Parameter sliders in popup */
+#component-popup {
+  width: 320px;
+}
+
+.popup-sliders {
+  margin: 8px 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(100, 80, 60, 0.2);
+}
+
+.popup-sliders .popup-section-label {
+  margin-bottom: 8px;
+}
+
+.param-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 8px;
+  color: rgba(160, 160, 200, 0.7);
+}
+
+.param-slider-row .param-label {
+  width: 75px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 8px;
+}
+
+.param-slider-row input[type="range"] {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(80, 80, 120, 0.4);
+  border-radius: 2px;
+  outline: none;
+}
+
+.param-slider-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ee9944;
+  cursor: pointer;
+  border: 1px solid rgba(200, 120, 40, 0.8);
+}
+
+.param-slider-row input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ee9944;
+  cursor: pointer;
+  border: 1px solid rgba(200, 120, 40, 0.8);
+}
+
+.param-slider-row .param-value {
+  width: 55px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 8px;
+  font-family: 'Press Start 2P', monospace;
+  color: #ccccee;
+}
+
+.param-slider-row .param-unit {
+  width: 35px;
+  flex-shrink: 0;
+  font-size: 7px;
+  color: rgba(160, 160, 200, 0.4);
+}
+
+.param-derived-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 8px;
+  color: rgba(130, 130, 170, 0.6);
+}
+
+.param-derived-row .param-label {
+  width: 75px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 8px;
+}
+
+.param-derived-row .param-value {
+  flex: 1;
+  text-align: right;
+  font-size: 8px;
+  font-family: 'Press Start 2P', monospace;
+  color: rgba(180, 180, 220, 0.7);
+}
+
+.param-derived-row .param-unit {
+  width: 35px;
+  flex-shrink: 0;
+  font-size: 7px;
+  color: rgba(130, 130, 170, 0.4);
+}
+
+.param-derived-row.flash .param-value {
+  color: #ee9944;
+  transition: color 0.3s ease;
+}

@@ -577,24 +577,65 @@ class Renderer {
         html += `<div class="popup-desc">${comp.desc}</div>`;
       }
 
-      // Stats
+      // Fixed stats
       html += '<div class="popup-stats">';
-      html += '<div class="popup-section-label">Parameters</div>';
+      html += '<div class="popup-section-label">Info</div>';
       html += row('Direction', DIR_NAMES[node.dir] || '--', '');
       html += row('Energy Cost', comp.energyCost, 'E/s');
       html += row('Length', comp.length, 'm');
+      html += '</div>';
 
-      if (comp.stats) {
-        for (const [k, v] of Object.entries(comp.stats)) {
-          const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-          html += row(label, v, '');
+      // Parameter sliders (if this component type has paramDefs)
+      const paramDefs = typeof PARAM_DEFS !== 'undefined' ? PARAM_DEFS[node.type] : null;
+      if (paramDefs) {
+        // Initialize node.params if missing (backwards compat with old saves)
+        if (!node.params) {
+          node.params = {};
+          for (const [k, def] of Object.entries(paramDefs)) {
+            if (!def.derived) node.params[k] = def.default;
+          }
         }
+
+        html += '<div class="popup-sliders">';
+        html += '<div class="popup-section-label">Parameters</div>';
+
+        // Adjustable sliders
+        for (const [key, def] of Object.entries(paramDefs)) {
+          if (def.derived) continue;
+          const val = node.params[key] ?? def.default;
+          html += `<div class="param-slider-row">`;
+          html += `<span class="param-label">${this._paramLabel(key)}</span>`;
+          html += `<input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${val}" data-param="${key}">`;
+          if (def.labels) {
+            html += `<span class="param-value" data-param-display="${key}">${def.labels[Math.round(val)] || val}</span>`;
+          } else {
+            html += `<span class="param-value" data-param-display="${key}">${this._fmtParam(val)}</span>`;
+          }
+          html += `<span class="param-unit">${def.unit}</span>`;
+          html += `</div>`;
+        }
+
+        // Derived readouts
+        const derivedKeys = Object.entries(paramDefs).filter(([_, def]) => def.derived);
+        if (derivedKeys.length > 0) {
+          html += '<div class="popup-section-label" style="margin-top:6px">Output</div>';
+          const computed = typeof computeStats !== 'undefined' ? computeStats(node.type, node.params) : null;
+          for (const [key, def] of derivedKeys) {
+            const val = computed ? computed[key] : (node.params[key] ?? def.default);
+            html += `<div class="param-derived-row">`;
+            html += `<span class="param-label">${this._paramLabel(key)}</span>`;
+            html += `<span class="param-value" data-derived-display="${key}">${this._fmtParam(val)}</span>`;
+            html += `<span class="param-unit">${def.unit}</span>`;
+            html += `</div>`;
+          }
+        }
+
+        html += '</div>';
       }
 
       // Health with bar
       html += `<div class="stat-row health-row${healthClass}"><span class="stat-label">Health</span><span class="stat-value">${Math.round(health)}%</span></div>`;
       html += `<div class="popup-health-bar"><div class="popup-health-fill" style="width:${health}%;background:${healthColor}"></div></div>`;
-      html += '</div>';
 
       // Actions
       const refund = Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
@@ -604,6 +645,11 @@ class Renderer {
       html += '</div>';
 
       body.innerHTML = html;
+
+      // Wire up slider events
+      if (paramDefs) {
+        this._wirePopupSliders(node, paramDefs, body);
+      }
 
       document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
         this.game.removeComponent(node.id);
@@ -617,14 +663,84 @@ class Renderer {
     }
 
     // Position near click, clamped to viewport
-    popup.style.left = Math.min(screenX + 14, window.innerWidth - 290) + 'px';
-    popup.style.top = Math.min(screenY + 14, window.innerHeight - 300) + 'px';
+    popup.style.left = Math.min(screenX + 14, window.innerWidth - 340) + 'px';
+    popup.style.top = Math.min(screenY + 14, window.innerHeight - 400) + 'px';
     popup.classList.remove('hidden');
 
     const closeBtn = popup.querySelector('.popup-close');
     if (closeBtn) {
       closeBtn.onclick = () => this.hidePopup();
     }
+  }
+
+  _paramLabel(key) {
+    return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+  }
+
+  _fmtParam(val) {
+    if (val === undefined || val === null) return '--';
+    if (Math.abs(val) >= 100) return val.toFixed(0);
+    if (Math.abs(val) >= 1) return val.toFixed(2);
+    if (Math.abs(val) >= 0.01) return val.toFixed(3);
+    return val.toExponential(2);
+  }
+
+  _wirePopupSliders(node, paramDefs, body) {
+    let debounceTimer = null;
+
+    const sliders = body.querySelectorAll('input[type="range"][data-param]');
+    sliders.forEach(slider => {
+      slider.addEventListener('input', () => {
+        const key = slider.dataset.param;
+        const def = paramDefs[key];
+        const val = parseFloat(slider.value);
+        node.params[key] = val;
+
+        // Update displayed value
+        const display = body.querySelector(`[data-param-display="${key}"]`);
+        if (display) {
+          if (def.labels) {
+            display.textContent = def.labels[Math.round(val)] || val;
+          } else {
+            display.textContent = this._fmtParam(val);
+          }
+        }
+
+        // Debounced recalc
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          // Recompute derived values
+          if (typeof computeStats !== 'undefined') {
+            const computed = computeStats(node.type, node.params);
+            if (computed) {
+              for (const [dKey, dDef] of Object.entries(paramDefs)) {
+                if (!dDef.derived) continue;
+                const dDisplay = body.querySelector(`[data-derived-display="${dKey}"]`);
+                if (dDisplay && computed[dKey] !== undefined) {
+                  dDisplay.textContent = this._fmtParam(computed[dKey]);
+                  // Flash animation
+                  const row = dDisplay.closest('.param-derived-row');
+                  if (row) {
+                    row.classList.add('flash');
+                    setTimeout(() => row.classList.remove('flash'), 300);
+                  }
+                }
+              }
+
+              // Update node's computed stats for game engine
+              if (!node.computedStats) node.computedStats = {};
+              for (const [sk, sv] of Object.entries(computed)) {
+                node.computedStats[sk] = sv;
+              }
+            }
+          }
+
+          // Trigger full beamline recalc
+          this.game.recalcBeamline();
+          this.game.emit('beamlineChanged');
+        }, 50);
+      });
+    });
   }
 
   showFacilityPopup(equip, comp, screenX, screenY) {
