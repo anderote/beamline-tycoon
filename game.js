@@ -5,7 +5,7 @@ class Game {
     this.beamline = beamline;
 
     this.state = {
-      resources: { funding: 100000, reputation: 0, data: 0 },
+      resources: { funding: 25000000, reputation: 0, data: 0 },
       beamline: [],    // populated by recalcBeamline() from beamline.getOrderedComponents()
       beamOn: false,
       beamEnergy: 0,
@@ -180,7 +180,20 @@ class Game {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
-    if (this.state.infraOccupied[key]) return false; // already occupied
+    const existing = this.state.infraOccupied[key];
+    if (existing === infraType) return true; // same floor, no charge
+    if (existing) {
+      // Replace existing floor - remove old tile first
+      this.state.infrastructure = this.state.infrastructure.filter(
+        t => !(t.col === col && t.row === row)
+      );
+      // Remove zone on this tile since floor is changing
+      const hadZone = this.state.zoneOccupied?.[key];
+      if (hadZone) {
+        delete this.state.zoneOccupied[key];
+        this.state.zones = this.state.zones.filter(z => !(z.col === col && z.row === row));
+      }
+    }
     if (this.state.resources.funding < infra.cost) return false;
 
     this.state.resources.funding -= infra.cost;
@@ -202,13 +215,15 @@ class Game {
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
 
-    // Count new tiles and total cost
+    // Count new tiles and total cost (skip tiles that already have the same floor)
     let newTiles = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        if (!this.state.infraOccupied[c + ',' + r]) newTiles++;
+        const existing = this.state.infraOccupied[c + ',' + r];
+        if (existing !== infraType) newTiles++;
       }
     }
+    if (newTiles === 0) return true; // all tiles already have this floor
     const totalCost = newTiles * infra.cost;
     if (this.state.resources.funding < totalCost) {
       this.log(`Need $${totalCost} for ${newTiles} tiles!`, 'bad');
@@ -220,12 +235,23 @@ class Game {
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
         const key = c + ',' + r;
-        if (!this.state.infraOccupied[key]) {
-          this.state.resources.funding -= infra.cost;
-          this.state.infrastructure.push({ type: infraType, col: c, row: r });
-          this.state.infraOccupied[key] = infraType;
-          placed++;
+        const existing = this.state.infraOccupied[key];
+        if (existing === infraType) continue; // same floor, skip
+        if (existing) {
+          // Replace existing floor - remove old tile
+          this.state.infrastructure = this.state.infrastructure.filter(
+            t => !(t.col === c && t.row === r)
+          );
+          // Remove zone on this tile since floor is changing
+          if (this.state.zoneOccupied?.[key]) {
+            delete this.state.zoneOccupied[key];
+            this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+          }
         }
+        this.state.resources.funding -= infra.cost;
+        this.state.infrastructure.push({ type: infraType, col: c, row: r });
+        this.state.infraOccupied[key] = infraType;
+        placed++;
       }
     }
 
@@ -925,6 +951,16 @@ class Game {
   startResearch(id) {
     if (!this.isResearchAvailable(id)) return false;
     const r = RESEARCH[id];
+    // Check lab gate
+    const speedMult = this.getResearchSpeedMultiplier(id);
+    if (speedMult === null) {
+      const labType = RESEARCH_LAB_MAP[r.category];
+      const labName = ZONES[labType]?.name || labType;
+      const isFinal = this._computeFinalNodes().has(id);
+      const minTier = isFinal ? 2 : 1;
+      this.log(`Requires ${labName} (Tier ${minTier}+) to begin`, 'bad');
+      return false;
+    }
     // Check all costs (data, funding, reputation)
     const costs = {};
     if (r.cost.data) costs.data = r.cost.data;
@@ -959,6 +995,84 @@ class Game {
         v = key.endsWith('Mult') ? v * r.effect[key] : v + r.effect[key];
     }
     return v;
+  }
+
+  // === LAB-GATED RESEARCH ===
+
+  // Compute depth of a research node in its prerequisite chain (root = 1)
+  _computeNodeDepth(id) {
+    if (this._nodeDepthCache?.[id] !== undefined) return this._nodeDepthCache[id];
+    const r = RESEARCH[id];
+    if (!r || !r.requires) return 1;
+    const reqs = Array.isArray(r.requires) ? r.requires : [r.requires];
+    const depth = 1 + Math.max(...reqs.map(req => this._computeNodeDepth(req)));
+    if (!this._nodeDepthCache) this._nodeDepthCache = {};
+    this._nodeDepthCache[id] = depth;
+    return depth;
+  }
+
+  // Compute which nodes are "final" (no other node in same category requires them)
+  _computeFinalNodes() {
+    if (this._finalNodes) return this._finalNodes;
+    const referenced = new Set();
+    for (const r of Object.values(RESEARCH)) {
+      if (r.requires) {
+        const reqs = Array.isArray(r.requires) ? r.requires : [r.requires];
+        for (const req of reqs) referenced.add(req);
+      }
+    }
+    this._finalNodes = new Set();
+    for (const [id, r] of Object.entries(RESEARCH)) {
+      if (!r.hidden && !referenced.has(id)) this._finalNodes.add(id);
+    }
+    return this._finalNodes;
+  }
+
+  // Get the furnishing-based tier for a specific zone type
+  _getFurnishingTier(zoneType) {
+    let count = 0;
+    for (const f of this.state.zoneFurnishings || []) {
+      const def = ZONE_FURNISHINGS[f.type];
+      if (def && def.zoneType === zoneType) count++;
+    }
+    let tier = 0;
+    for (let t = FURNISHING_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
+      if (count >= FURNISHING_TIER_THRESHOLDS[t]) { tier = t + 1; break; }
+    }
+    return tier;
+  }
+
+  // Get the combined research tier for a lab: min(zoneTileTier, furnishingTier)
+  getLabResearchTier(labType) {
+    const conn = this.state.zoneConnectivity?.[labType];
+    if (!conn || !conn.active) {
+      // Lab exists but not connected, or doesn't exist — use furnishing tier capped by tile tier
+      const tileTier = conn ? conn.tier : 0;
+      const furnTier = this._getFurnishingTier(labType);
+      return Math.min(tileTier, furnTier);
+    }
+    const tileTier = conn.tier;
+    const furnTier = this._getFurnishingTier(labType);
+    return Math.min(tileTier, furnTier);
+  }
+
+  // Get the speed multiplier for a research node (null = blocked)
+  getResearchSpeedMultiplier(id) {
+    const r = RESEARCH[id];
+    if (!r) return null;
+    const labType = RESEARCH_LAB_MAP[r.category];
+    if (!labType) return 1; // no lab mapping = normal speed
+    const tier = this.getLabResearchTier(labType);
+    const depth = this._computeNodeDepth(id);
+    const isFinal = this._computeFinalNodes().has(id);
+
+    let row;
+    if (isFinal) row = 'final';
+    else if (depth >= 5) row = 'late';
+    else if (depth >= 3) row = 'mid';
+    else row = 'early';
+
+    return RESEARCH_SPEED_TABLE[row][tier];
   }
 
   // === GAME LOOP ===
@@ -1048,9 +1162,9 @@ class Game {
           this.state.resources.funding += 5000;
         }
 
-        // Beam quality affects reputation gain passively
-        if (this.state.beamQuality > 0.8 && this.state.tick % 60 === 0) {
-          this.state.resources.reputation += 0.5;
+        // Beam quality affects reputation gain passively (scaled, not binary)
+        if (this.state.tick % 60 === 0 && this.state.beamQuality > 0.3) {
+          this.state.resources.reputation += this.state.beamQuality * 0.6;
         }
 
         // Component wear (every 10 ticks)
@@ -1072,11 +1186,13 @@ class Game {
       this._autoRepair();
     }
 
-    // Research progress (scientists speed it up)
+    // Research progress (scientists speed it up, beam quality matters, lab tier affects speed)
     if (this.state.activeResearch) {
       const r = RESEARCH[this.state.activeResearch];
       const sciBonus = 1 + this.state.staff.scientists * 0.05;
-      this.state.researchProgress += sciBonus;
+      const bqFactor = this.state.beamOn ? (0.5 + 0.5 * this.state.beamQuality) : 0.5;
+      const speedMult = this.getResearchSpeedMultiplier(this.state.activeResearch) || 1;
+      this.state.researchProgress += (1 / speedMult) * sciBonus * bqFactor;
       if (this.state.researchProgress >= r.duration) {
         this.state.completedResearch.push(this.state.activeResearch);
         this.log(`Research done: ${r.name}!`, 'reward');
