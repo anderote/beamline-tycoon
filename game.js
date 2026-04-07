@@ -5,7 +5,7 @@ class Game {
     this.beamline = beamline;
 
     this.state = {
-      resources: { funding: 25000000, reputation: 0, data: 0 },
+      resources: { funding: 5000000, reputation: 0, data: 0 },
       beamline: [],    // populated by recalcBeamline() from beamline.getOrderedComponents()
       beamOn: false,
       beamEnergy: 0,
