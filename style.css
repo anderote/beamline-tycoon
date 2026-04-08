@@ -1653,3 +1653,124 @@ body {
 .ctx-schem-arrow { color:#555; }
 .beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; }
 .beam-summary.active { color:#4f4; }
+
+/* === BEAMLINE CONTROLLER OVERLAY === */
+.controller-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 250;
+  background: rgba(8, 8, 20, 0.98);
+  display: flex;
+  flex-direction: column;
+}
+.controller-overlay.hidden {
+  display: none;
+}
+
+.ctrl-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+  gap: 12px;
+  flex-shrink: 0;
+}
+.ctrl-title {
+  font-size: 11px;
+  color: #aaccff;
+  font-family: 'Press Start 2P', monospace;
+}
+.ctrl-draft-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.ctrl-draft-summary {
+  font-size: 10px;
+  color: #888;
+  font-family: monospace;
+}
+.ctrl-draft-cost {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: bold;
+}
+.ctrl-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 4px 10px;
+  border: 1px solid rgba(100, 100, 160, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  background: rgba(30, 30, 60, 0.8);
+}
+.ctrl-confirm {
+  color: #88ff88;
+  border-color: rgba(80, 180, 80, 0.4);
+}
+.ctrl-confirm:hover {
+  background: rgba(40, 80, 40, 0.6);
+}
+.ctrl-cancel {
+  color: #ff8888;
+  border-color: rgba(180, 80, 80, 0.4);
+}
+.ctrl-cancel:hover {
+  background: rgba(80, 40, 40, 0.6);
+}
+
+.ctrl-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 120px;
+}
+.ctrl-schematic-row {
+  flex: 1;
+  position: relative;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.2);
+  min-height: 0;
+}
+.ctrl-schematic-row canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ctrl-plots-row {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.2);
+  min-height: 0;
+}
+.ctrl-plot-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+}
+.ctrl-plot-select {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 10;
+  font-family: monospace;
+  font-size: 9px;
+  background: rgba(20, 20, 40, 0.85);
+  color: #aaa;
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.ctrl-plot-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

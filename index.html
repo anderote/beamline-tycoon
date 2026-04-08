@@ -142,6 +142,65 @@
     </div>
 
 
+    <!-- Beamline Controller View (full-screen, hidden by default) -->
+    <div id="controller-overlay" class="controller-overlay hidden">
+      <div class="ctrl-header">
+        <span class="ctrl-title">Beamline Controller</span>
+        <div class="ctrl-draft-bar">
+          <span class="ctrl-draft-summary" id="ctrl-draft-summary"></span>
+          <span class="ctrl-draft-cost" id="ctrl-draft-cost"></span>
+          <button class="ctrl-btn ctrl-insert-before" id="ctrl-insert-before" title="Insert Before Selected">+ Before</button>
+          <button class="ctrl-btn ctrl-insert-after" id="ctrl-insert-after" title="Insert After Selected">+ After</button>
+          <button class="ctrl-btn ctrl-confirm" id="ctrl-confirm">Confirm</button>
+          <button class="ctrl-btn ctrl-cancel" id="ctrl-cancel">Cancel</button>
+        </div>
+        <button class="overlay-close" id="ctrl-close">&times;</button>
+      </div>
+      <div class="ctrl-body">
+        <div class="ctrl-schematic-row">
+          <canvas id="ctrl-schematic-canvas"></canvas>
+        </div>
+        <div class="ctrl-plots-row">
+          <div class="ctrl-plot-panel">
+            <select class="ctrl-plot-select" data-panel="0">
+              <option value="beam-envelope" selected>Beam Envelope</option>
+              <option value="current-loss">Current &amp; Loss</option>
+              <option value="emittance">Emittance</option>
+              <option value="energy-dispersion">Energy &amp; Dispersion</option>
+              <option value="peak-current">Peak Current</option>
+              <option value="phase-space">Phase Space</option>
+              <option value="longitudinal">Longitudinal PS</option>
+            </select>
+            <canvas class="ctrl-plot-canvas" data-panel="0"></canvas>
+          </div>
+          <div class="ctrl-plot-panel">
+            <select class="ctrl-plot-select" data-panel="1">
+              <option value="beam-envelope">Beam Envelope</option>
+              <option value="current-loss">Current &amp; Loss</option>
+              <option value="emittance" selected>Emittance</option>
+              <option value="energy-dispersion">Energy &amp; Dispersion</option>
+              <option value="peak-current">Peak Current</option>
+              <option value="phase-space">Phase Space</option>
+              <option value="longitudinal">Longitudinal PS</option>
+            </select>
+            <canvas class="ctrl-plot-canvas" data-panel="1"></canvas>
+          </div>
+          <div class="ctrl-plot-panel">
+            <select class="ctrl-plot-select" data-panel="2">
+              <option value="beam-envelope">Beam Envelope</option>
+              <option value="current-loss">Current &amp; Loss</option>
+              <option value="emittance">Emittance</option>
+              <option value="energy-dispersion">Energy &amp; Dispersion</option>
+              <option value="peak-current">Peak Current</option>
+              <option value="phase-space" selected>Phase Space</option>
+              <option value="longitudinal">Longitudinal PS</option>
+            </select>
+            <canvas class="ctrl-plot-canvas" data-panel="2"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="context-windows-container"></div>
   </div>
 
