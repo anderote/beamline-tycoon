@@ -1,18 +1,6 @@
 // test/test-component-physics.js — Node.js tests for component-physics.js
 
-// --- Stub minimal globals ---
-global.COMPONENTS = {
-  source:    { id: 'source',    length: 2 },
-  dcPhotoGun:{ id: 'dcPhotoGun',length: 2 },
-  ncRfGun:   { id: 'ncRfGun',   length: 2 },
-  srfGun:    { id: 'srfGun',    length: 3 },
-  pillboxCavity: { id: 'pillboxCavity', length: 1 },
-  rfq:           { id: 'rfq',           length: 3 },
-  dtl:           { id: 'dtl',           length: 5 },
-};
-
-// --- Load module ---
-const { PARAM_DEFS, computeStats, getDefaults } = require('../component-physics.js');
+import { PARAM_DEFS, computeStats, getDefaults } from '../src/beamline/component-physics.js';
 
 // --- Test harness ---
 let passed = 0;

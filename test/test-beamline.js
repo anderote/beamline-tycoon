@@ -1,39 +1,13 @@
 // test/test-beamline.js — Node.js tests for Beamline directed graph
 
-// --- Stub globals from data.js ---
-global.DIR = { NE: 0, SE: 1, SW: 2, NW: 3 };
-global.DIR_DELTA = [
-  { dc: 1, dr: -1 },  // NE
-  { dc: 1, dr: 1 },   // SE
-  { dc: -1, dr: 1 },  // SW
-  { dc: -1, dr: -1 }, // NW
-];
-global.turnLeft = function(dir) { return (dir + 3) % 4; };
-global.turnRight = function(dir) { return (dir + 1) % 4; };
-global.reverseDir = function(dir) { return (dir + 2) % 4; };
-global.TILE_W = 64;
-global.TILE_H = 32;
-global.COMPONENTS = {
-  source:      { id: 'source',      trackLength: 2, isSource: true },
-  drift:       { id: 'drift',       trackLength: 1 },
-  dipole:      { id: 'dipole',      trackLength: 2, isDipole: true },
-  quadrupole:  { id: 'quadrupole',  trackLength: 1 },
-  rfCavity:    { id: 'rfCavity',    trackLength: 3 },
-  splitter:    { id: 'splitter',    trackLength: 2, isSplitter: true },
-  detector:    { id: 'detector',    trackLength: 3, isEndpoint: true },
-};
+import { Beamline } from '../src/beamline/Beamline.js';
+import { COMPONENTS } from '../src/data/components.js';
+import { DIR } from '../src/data/directions.js';
+import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 
-global.PARAM_DEFS = {
-  source: {
-    extractionVoltage: { min: 10, max: 100, default: 50, derived: false },
-    cathodeTemperature: { min: 600, max: 2000, default: 1200, derived: false },
-    beamCurrent: { min: 0, max: 10, default: 1, derived: true },
-    emittance: { min: 0, max: 50, default: 5, derived: true },
-  },
-};
-
-// --- Load Beamline ---
-const Beamline = require('../beamline.js');
+// Make globals available for modules that reference them internally
+globalThis.COMPONENTS = COMPONENTS;
+globalThis.PARAM_DEFS = PARAM_DEFS;
 
 // --- Test harness ---
 let passed = 0;
@@ -75,10 +49,10 @@ console.log('-- Place source --');
   assertEq(node.row, 5, 'node row is 5');
   assertEq(node.dir, DIR.NE, 'node dir is NE');
   assertEq(node.tiles.length, 2, 'source has 2 tiles (trackLength=2)');
-  // Tiles: (5,5) and (6,4) for NE
+  // Tiles: (5,5) and (5,4) for NE (cardinal: dc=0, dr=-1)
   assertEq(node.tiles[0].col, 5, 'first tile col');
   assertEq(node.tiles[0].row, 5, 'first tile row');
-  assertEq(node.tiles[1].col, 6, 'second tile col');
+  assertEq(node.tiles[1].col, 5, 'second tile col');
   assertEq(node.tiles[1].row, 4, 'second tile row');
 }
 
@@ -89,8 +63,8 @@ console.log('\n-- Build cursor after source --');
   bl.placeSource(5, 5, DIR.NE);
   const cursors = bl.getBuildCursors();
   assertEq(cursors.length, 1, 'one build cursor after source');
-  // After source: last tile is (6,4), next NE step is (7,3)
-  assertEq(cursors[0].col, 7, 'cursor col is 7');
+  // After source: last tile is (5,4), next NE step is (5,3)
+  assertEq(cursors[0].col, 5, 'cursor col is 5');
   assertEq(cursors[0].row, 3, 'cursor row is 3');
   assertEq(cursors[0].dir, DIR.NE, 'cursor dir is NE');
 }
@@ -105,8 +79,8 @@ console.log('\n-- Place drift after source --');
   assert(driftId !== null, 'drift placed successfully');
   const newCursors = bl.getBuildCursors();
   assertEq(newCursors.length, 1, 'one cursor after drift');
-  // drift trackLength=1, placed at (7,3), next NE is (8,2)
-  assertEq(newCursors[0].col, 8, 'cursor col after drift');
+  // drift trackLength=1, placed at (5,3), next NE is (5,2)
+  assertEq(newCursors[0].col, 5, 'cursor col after drift');
   assertEq(newCursors[0].row, 2, 'cursor row after drift');
 }
 
@@ -174,8 +148,8 @@ console.log('\n-- Occupied tiles --');
   const bl = new Beamline();
   bl.placeSource(5, 5, DIR.NE);
   assert(bl.isTileOccupied(5, 5), 'tile (5,5) occupied');
-  assert(bl.isTileOccupied(6, 4), 'tile (6,4) occupied');
-  assert(!bl.isTileOccupied(7, 3), 'tile (7,3) not occupied');
+  assert(bl.isTileOccupied(5, 4), 'tile (5,4) occupied');
+  assert(!bl.isTileOccupied(5, 3), 'tile (5,3) not occupied');
   const node = bl.getNodeAt(5, 5);
   assertEq(node.type, 'source', 'getNodeAt returns correct node');
 }
@@ -191,7 +165,7 @@ console.log('\n-- Remove leaf node --');
   const ok = bl.removeNode(driftId);
   assert(ok, 'removeNode returns true for leaf');
   assertEq(bl.getAllNodes().length, 1, 'one node after remove');
-  assert(!bl.isTileOccupied(7, 3), 'drift tile freed');
+  assert(!bl.isTileOccupied(5, 3), 'drift tile freed');
 }
 
 // Test 10: Cannot place on occupied tile
@@ -222,9 +196,9 @@ console.log('\n-- Endpoint has no build cursor --');
   const bl = new Beamline();
   bl.placeSource(5, 5, DIR.NE);
   const c = bl.getBuildCursors();
-  bl.placeAt(c[0], 'detector');
+  bl.placeAt(c[0], 'faradayCup');
   const newCursors = bl.getBuildCursors();
-  assertEq(newCursors.length, 0, 'detector (endpoint) produces no cursor');
+  assertEq(newCursors.length, 0, 'faradayCup (endpoint) produces no cursor');
 }
 
 // Test 13: toJSON / fromJSON round-trip

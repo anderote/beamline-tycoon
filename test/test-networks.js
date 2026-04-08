@@ -1,11 +1,7 @@
 // Test: every component has requiredConnections, RF components have rfFrequency
-const fs = require('fs');
-const vm = require('vm');
+import { COMPONENTS } from '../src/data/components.js';
+import { Networks } from '../src/networks/networks.js';
 
-const ctx = vm.createContext({ console, Math, Date, JSON, Array, Object, String });
-vm.runInContext(fs.readFileSync('data.js', 'utf8'), ctx);
-
-const testCode = `
 let passed = 0;
 let failed = 0;
 function assert(cond, msg) {
@@ -68,18 +64,10 @@ rfSourceKeys.forEach(k => {
 
 console.log('Passed: ' + passed + '  Failed: ' + failed);
 if (failed > 0) {
-  console.log('\\n=== TESTS FAILED ===');
-  // exit with error
   throw new Error(failed + ' test(s) failed');
-} else {
-  console.log('\\n=== ALL TESTS PASSED ===');
 }
-`;
-
-vm.runInContext(testCode, ctx);
 
 // === Network Discovery Tests ===
-const Networks = require('../networks.js');
 
 function mockGameState() {
   return {
@@ -204,9 +192,6 @@ if (nFailed > 0) {
 }
 
 // === Network Validation Tests ===
-// Make COMPONENTS available as a global so validation methods can access it
-// COMPONENTS is declared with const in data.js, so it's script-scoped in vm, not on ctx directly
-global.COMPONENTS = vm.runInContext('COMPONENTS', ctx);
 
 let vPassed = 0;
 let vFailed = 0;
@@ -524,4 +509,100 @@ if (vFailed > 0) {
   process.exit(1);
 } else {
   console.log('\n=== ALL VALIDATION TESTS PASSED ===');
+}
+
+// === Full Validation Engine Tests ===
+let fPassed = 0;
+let fFailed = 0;
+function fassert(cond, msg) {
+  if (!cond) { console.log('FAIL: ' + msg); fFailed++; }
+  else { fPassed++; }
+}
+
+console.log('\n=== Full Validation Engine Tests ===');
+
+// 1. Minimal valid setup: source + substation (power cable connected) + PPS + shielding → no blockers
+{
+  const state = mockGameState();
+  // Power cable from substation to source
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  // Vacuum system: pipe + pump connected to beamline
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  // Source on beamline at (5,7), adjacent to power cable at (5,6) and vacuum pipe at (5,8)
+  placeBeamlineNode(state, 's1', 'source', 5, 7);
+  // PPS interlock
+  placeEquip(state, 'pps1', 'ppsInterlock', 10, 10);
+  // Shielding (need at least 1 since source energyCost=5, ceil(5/50)=1)
+  placeEquip(state, 'sh1', 'shielding', 12, 12);
+
+  const result = Networks.validate(state);
+  fassert(result.canRun === true, 'VALID1: minimal valid setup should canRun=true, blockers=' + JSON.stringify(result.blockers));
+  fassert(result.blockers.length === 0, 'VALID1: should have 0 blockers, got ' + result.blockers.length);
+  fassert(result.networks !== undefined, 'VALID1: should return networks');
+}
+
+// 2. Missing PPS: same but no PPS interlock → blocker with reason containing "PPS"
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  placeBeamlineNode(state, 's1', 'source', 5, 7);
+  // Shielding but no PPS
+  placeEquip(state, 'sh1', 'shielding', 12, 12);
+
+  const result = Networks.validate(state);
+  fassert(result.canRun === false, 'VALID2: missing PPS should canRun=false');
+  const ppsBlocker = result.blockers.find(b => b.reason.indexOf('PPS') !== -1);
+  fassert(ppsBlocker !== undefined, 'VALID2: should have blocker mentioning PPS');
+}
+
+// 3. Missing connection: quadrupole without power cable or cooling water → blockers for both
+{
+  const state = mockGameState();
+  // Quad on beamline but no connections at all
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 5);
+  // PPS and shielding present
+  placeEquip(state, 'pps1', 'ppsInterlock', 10, 10);
+  placeEquip(state, 'sh1', 'shielding', 12, 12);
+
+  const result = Networks.validate(state);
+  fassert(result.canRun === false, 'VALID3: missing connections should canRun=false');
+  const powerBlocker = result.blockers.find(b => b.type === 'connection' && b.missing === 'powerCable' && b.nodeId === 'q1');
+  const coolBlocker = result.blockers.find(b => b.type === 'connection' && b.missing === 'coolingWater' && b.nodeId === 'q1');
+  fassert(powerBlocker !== undefined, 'VALID3: should have powerCable blocker for quad');
+  fassert(coolBlocker !== undefined, 'VALID3: should have coolingWater blocker for quad');
+}
+
+// 4. Insufficient shielding: source with energyCost=5, needs ceil(5/50)=1 shielding, have 0
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  placeBeamlineNode(state, 's1', 'source', 5, 7);
+  placeEquip(state, 'pps1', 'ppsInterlock', 10, 10);
+  // No shielding
+
+  const result = Networks.validate(state);
+  fassert(result.canRun === false, 'VALID4: no shielding should canRun=false');
+  const shieldBlocker = result.blockers.find(b => b.type === 'shielding');
+  fassert(shieldBlocker !== undefined, 'VALID4: should have shielding blocker');
+  fassert(shieldBlocker && shieldBlocker.reason.indexOf('need 1') !== -1,
+    'VALID4: shielding blocker should say need 1, got: ' + (shieldBlocker && shieldBlocker.reason));
+}
+
+console.log('Passed: ' + fPassed + '  Failed: ' + fFailed);
+if (fFailed > 0) {
+  console.log('\n=== FULL VALIDATION TESTS FAILED ===');
+  process.exit(1);
+} else {
+  console.log('\n=== ALL FULL VALIDATION TESTS PASSED ===');
 }
