@@ -149,7 +149,8 @@ export function tickResearch(state, log, getResearchSpeedMult, recalcBeamline) {
   const sciBonus = 1 + state.staff.scientists * 0.05;
   const bqFactor = state.beamOn ? (0.5 + 0.5 * state.beamQuality) : 0.5;
   const speedMult = getResearchSpeedMult(state.activeResearch) || 1;
-  state.researchProgress += (1 / speedMult) * sciBonus * bqFactor;
+  // Apply morale bonus to research speed
+  state.researchProgress += (1 / speedMult) * sciBonus * bqFactor * (state.moraleMultiplier || 1.0);
   if (state.researchProgress >= r.duration) {
     state.completedResearch.push(state.activeResearch);
     log(`Research done: ${r.name}!`, 'reward');

@@ -1209,10 +1209,15 @@ export class Game {
   tick() {
     this.state.tick++;
 
+    // Decoration effects
+    this.state.moraleMultiplier = computeMoraleMultiplier(this.state.decorations);
+    this.state.reputationTier = getReputationTier(this.state.decorations.length);
+
     // === Revenue ===
     const passiveIncome = this.getEffect('passiveFunding', 0);
     const repIncome = Math.floor(this.state.resources.reputation * 0.5);
-    this.state.resources.funding += passiveIncome + repIncome;
+    const repBonus = this.state?.reputationTier?.fundingBonus || 0;
+    this.state.resources.funding += Math.floor((passiveIncome + repIncome) * (1 + repBonus));
 
     // Staffing costs
     const staffCost = Object.entries(this.state.staff).reduce((sum, [type, count]) => {
