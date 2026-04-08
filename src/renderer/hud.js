@@ -68,6 +68,9 @@ Renderer.prototype._updateHUD = function() {
   // Refresh system stats if panel is visible
   this._refreshSystemStatsValues();
 
+  // Refresh any open beamline context windows
+  this._refreshContextWindows();
+
 };
 
 Renderer.prototype._updateBeamSummary = function() {

@@ -8,6 +8,7 @@ import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/researc
 import { OBJECTIVES } from '../data/objectives.js';
 import { MACHINES } from '../data/machines.js';
 import { MachineWindow } from '../ui/MachineWindow.js';
+import { BeamlineWindow } from '../ui/BeamlineWindow.js';
 import { ZONES } from '../data/infrastructure.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
@@ -3373,6 +3374,32 @@ Renderer.prototype._renderGoalsOverlay = function() {
 
     list.appendChild(item);
   }
+
+// ---------------------------------------------------------------------------
+// Beamline context windows
+// ---------------------------------------------------------------------------
+
+Renderer.prototype._openBeamlineWindow = function(beamlineId) {
+  if (!this._beamlineWindows) this._beamlineWindows = {};
+  if (this._beamlineWindows[beamlineId]) {
+    this._beamlineWindows[beamlineId].ctx.focus();
+    return;
+  }
+  const bw = new BeamlineWindow(this.game, beamlineId);
+  this._beamlineWindows[beamlineId] = bw;
+  const origClose = bw.ctx.onClose;
+  bw.ctx.onClose = () => {
+    delete this._beamlineWindows[beamlineId];
+    if (origClose) origClose();
+  };
+};
+
+Renderer.prototype._refreshContextWindows = function() {
+  if (!this._beamlineWindows) return;
+  for (const bw of Object.values(this._beamlineWindows)) {
+    bw.refresh();
+  }
+};
 };
 
 // --- Machine context windows ---
