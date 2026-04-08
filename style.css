@@ -1737,6 +1737,20 @@ body {
   color: #aaccff;
   font-family: 'Press Start 2P', monospace;
 }
+.dsgn-name-input {
+  font-size: 11px;
+  color: #aaccff;
+  font-family: 'Press Start 2P', monospace;
+  background: rgba(20, 20, 50, 0.8);
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  padding: 2px 8px;
+  outline: none;
+  width: 200px;
+}
+.dsgn-name-input:focus {
+  border-color: #4488ff;
+}
 .dsgn-draft-bar {
   display: flex;
   align-items: center;

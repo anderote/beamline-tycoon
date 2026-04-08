@@ -19,6 +19,11 @@ export class BeamlineDesigner {
     this.draftEnvelope = null;  // physics result for draft
     this.selectedIndex = -1;    // index into draftNodes
 
+    // Mode: 'edit' (from placed beamline) or 'design' (standalone sandbox)
+    this.mode = 'edit';
+    this.designId = null;       // ID of saved design being edited (design mode only)
+    this.designName = '';       // editable name for design mode
+
     // Viewport (shared between schematic and along-s plots)
     this.viewX = 0;             // horizontal pan offset in beamline-meters
     this.viewZoom = 1;          // zoom level (1 = fit-all)
@@ -59,6 +64,8 @@ export class BeamlineDesigner {
       this.insertMode = this.insertMode === 'after' ? null : 'after';
       this._updateInsertButtons();
     });
+    document.getElementById('dsgn-save-design').addEventListener('click', () => this.saveDesign());
+    document.getElementById('dsgn-save-as').addEventListener('click', () => this.saveDesignAs());
   }
 
   _bindEvents() {
@@ -221,6 +228,9 @@ export class BeamlineDesigner {
 
     this.beamlineId = beamlineId;
     this.isOpen = true;
+    this.mode = 'edit';
+    this.designId = null;
+    this.designName = '';
 
     // Clone the ordered node list for draft editing
     const ordered = entry.beamline.getOrderedComponents();
@@ -255,12 +265,160 @@ export class BeamlineDesigner {
 
     // Set up beamline-only palette with preview cards
     this._setupDesignerTabs();
+    this._updateDesignerHeader();
 
     // Update draft bar
     this._updateDraftBar();
 
     // Trigger initial render
     this._renderAll();
+  }
+
+  openDesign(design = null) {
+    this.mode = 'design';
+    this.beamlineId = null;
+    this.isOpen = true;
+
+    if (design) {
+      this.designId = design.id;
+      this.designName = design.name;
+      this.draftNodes = design.components.map((c, i) => ({
+        id: -(i + 1),
+        type: c.type,
+        col: 0, row: 0, dir: 0, entryDir: 0,
+        parentId: null, bendDir: c.bendDir || null, tiles: [],
+        params: c.params ? { ...c.params } : {},
+        computedStats: null,
+      }));
+    } else {
+      this.designId = null;
+      this.designName = 'New Design';
+      this.draftNodes = [];
+    }
+    this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+    this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+    this.markerS = 0;
+    this.focusRow = 0;
+    this.insertMode = null;
+    this.plotRangeMode = 'full';
+    this.viewX = 0;
+    this.viewZoom = 1;
+    this._nextTempId = this.draftNodes.length;
+
+    this._updateTotalLength();
+    this._recalcDraft();
+
+    ContextWindow.closeAll();
+    this.renderer.hidePopup();
+
+    this.overlay.classList.remove('hidden');
+    const bottomHud = document.getElementById('bottom-hud');
+    if (bottomHud) bottomHud.style.zIndex = '260';
+
+    this._setupDesignerTabs();
+    this._updateDesignerHeader();
+    this._updateDraftBar();
+    this._renderAll();
+  }
+
+  _updateDesignerHeader() {
+    const titleEl = document.getElementById('dsgn-title');
+    const confirmBtn = document.getElementById('dsgn-confirm');
+    const cancelBtn = document.getElementById('dsgn-cancel');
+    const saveDesignBtn = document.getElementById('dsgn-save-design');
+    const saveAsBtn = document.getElementById('dsgn-save-as');
+    const costEl = document.getElementById('dsgn-draft-cost');
+
+    if (this.mode === 'design') {
+      if (titleEl) {
+        titleEl.innerHTML = '';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.designName;
+        input.className = 'dsgn-name-input';
+        input.addEventListener('input', () => { this.designName = input.value; });
+        titleEl.appendChild(input);
+      }
+      if (confirmBtn) confirmBtn.style.display = 'none';
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (saveDesignBtn) saveDesignBtn.style.display = '';
+      if (saveAsBtn) saveAsBtn.style.display = this.designId ? '' : 'none';
+      if (costEl) costEl.style.display = 'none';
+    } else {
+      if (titleEl) titleEl.textContent = 'Beamline Designer';
+      if (confirmBtn) confirmBtn.style.display = '';
+      if (cancelBtn) cancelBtn.style.display = '';
+      if (saveDesignBtn) {
+        saveDesignBtn.style.display = '';
+        saveDesignBtn.textContent = 'Save as Design';
+      }
+      if (saveAsBtn) saveAsBtn.style.display = 'none';
+      if (costEl) costEl.style.display = '';
+    }
+  }
+
+  saveDesign() {
+    if (this.draftNodes.length === 0) {
+      this.game.log('Cannot save empty design!', 'bad');
+      return;
+    }
+
+    const components = this.draftNodes.map(n => ({
+      type: n.type,
+      params: n.params ? { ...n.params } : {},
+      bendDir: n.bendDir || null,
+    }));
+
+    if (this.mode === 'design' && this.designId) {
+      this.game.updateDesign(this.designId, {
+        name: this.designName,
+        components,
+      });
+      this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+      this.game.log(`Design "${this.designName}" saved.`, 'good');
+    } else {
+      const name = this.mode === 'design' ? this.designName : prompt('Design name:', 'My Design');
+      if (!name) return;
+      const category = this._pickCategory();
+      const id = this.game.addDesign({ name, category, components });
+      if (this.mode === 'design') {
+        this.designId = id;
+        this.designName = name;
+        this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+        this._updateDesignerHeader();
+      }
+      this.game.log(`Design "${name}" saved.`, 'good');
+    }
+  }
+
+  saveDesignAs() {
+    if (this.draftNodes.length === 0) {
+      this.game.log('Cannot save empty design!', 'bad');
+      return;
+    }
+    const name = prompt('New design name:', this.designName + ' (copy)');
+    if (!name) return;
+    const category = this._pickCategory();
+    const components = this.draftNodes.map(n => ({
+      type: n.type,
+      params: n.params ? { ...n.params } : {},
+      bendDir: n.bendDir || null,
+    }));
+    const id = this.game.addDesign({ name, category, components });
+    this.designId = id;
+    this.designName = name;
+    this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+    this._updateDesignerHeader();
+    this.game.log(`Design "${name}" saved as new copy.`, 'good');
+  }
+
+  _pickCategory() {
+    const types = this.draftNodes.map(n => n.type);
+    const hasBend = types.some(t => COMPONENTS[t]?.isDipole);
+    const hasUndulator = types.some(t => t === 'undulator' || t === 'wiggler');
+    if (hasUndulator) return 'fel';
+    if (hasBend) return 'synchrotron';
+    return 'linac';
   }
 
   close() {
@@ -276,6 +434,7 @@ export class BeamlineDesigner {
 
   confirm() {
     if (!this.isOpen) return;
+    if (this.mode === 'design') return;
     const entry = this.game.registry.get(this.beamlineId);
     if (!entry) { this._cleanup(); return; }
 
@@ -604,8 +763,12 @@ export class BeamlineDesigner {
       const v = this.game.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
-    const entry = this.game.registry.get(this.beamlineId);
-    if (entry) researchEffects.machineType = entry.beamState.machineType;
+    if (this.beamlineId) {
+      const entry = this.game.registry.get(this.beamlineId);
+      if (entry) researchEffects.machineType = entry.beamState.machineType;
+    } else {
+      researchEffects.machineType = this._pickCategory();
+    }
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;
@@ -630,6 +793,10 @@ export class BeamlineDesigner {
   }
 
   _updateDraftBar() {
+    if (this.mode === 'design') {
+      this.summaryEl.textContent = `${this.draftNodes.length} components · ${this.totalLength.toFixed(1)}m`;
+      return;
+    }
     let added = 0, removed = 0, replaced = 0;
     const origIds = new Set(this.originalNodes.map(n => n.id));
     const draftIds = new Set(this.draftNodes.map(n => n.id));
