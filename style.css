@@ -1776,9 +1776,9 @@ body {
   padding: 8px 14px;
   gap: 14px;
   flex-shrink: 0;
-  height: 144px;
-  min-height: 144px;
-  max-height: 144px;
+  height: 160px;
+  min-height: 160px;
+  max-height: 160px;
   overflow: hidden;
 }
 /* Left column: name + full description (wider) */
