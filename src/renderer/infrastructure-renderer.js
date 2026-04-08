@@ -28,6 +28,9 @@ Renderer.prototype._renderInfrastructure = function() {
     const hasBelow = occupied.has(`${tile.col},${tile.row + 1}`);
     this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow);
   }
+
+  // Re-render decorations since infra changes may have cleared some
+  if (this._renderDecorations) this._renderDecorations();
 };
 
 Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow) {
@@ -338,14 +341,8 @@ Renderer.prototype._renderConnections = function() {
       ];
       const mids = [midN, midE, midS, midW];
 
-      const needsOutline = connType === 'dataFiber';
-
       if (count === 0) {
         const ox = off * NS_PX, oy = off * NS_PY;
-        if (needsOutline) {
-          g.circle(center.x + ox, center.y + oy, LINE_WIDTH + 2);
-          g.fill({ color: 0x000000, alpha: 0.9 });
-        }
         g.circle(center.x + ox, center.y + oy, tileWidth + 1);
         g.fill({ color: tileColor, alpha: 0.8 });
       } else {
@@ -369,16 +366,6 @@ Renderer.prototype._renderConnections = function() {
         }
 
         // Draw half-segments from center to each offset edge midpoint
-        if (needsOutline) {
-          for (let i = 0; i < 4; i++) {
-            if (!neighbors[i]) continue;
-            const px = perps[i].px * off;
-            const py = perps[i].py * off;
-            g.moveTo(cx, cy);
-            g.lineTo(mids[i].x + px, mids[i].y + py);
-            g.stroke({ color: 0x000000, width: LINE_WIDTH + 2, alpha: 0.9 });
-          }
-        }
         for (let i = 0; i < 4; i++) {
           if (!neighbors[i]) continue;
           const px = perps[i].px * off;
@@ -486,6 +473,39 @@ Renderer.prototype.renderLinePreview = function(path, infraType) {
   const label = new PIXI.Text({
     text: `$${totalCost} (${path.length} tiles)`,
     style: { fontFamily: 'monospace', fontSize: 10, fill: canAfford ? 0xffffff : 0xff4444 },
+  });
+  label.anchor.set(0.5, 0.5);
+  label.x = centerPos.x;
+  label.y = centerPos.y - 12;
+  this.dragPreviewLayer.addChild(label);
+};
+
+Renderer.prototype.renderConnLinePreview = function(path, connType, mode) {
+  this.dragPreviewLayer.removeChildren();
+  if (!path || path.length === 0) return;
+
+  const conn = CONNECTION_TYPES[connType];
+  if (!conn) return;
+  const previewColor = conn.color;
+  const isRemove = mode === 'remove';
+
+  for (const pt of path) {
+    const g = new PIXI.Graphics();
+    const pos = tileCenterIso(pt.col, pt.row);
+    const hw = TILE_W / 2;
+    const hh = TILE_H / 2;
+    g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+    g.fill({ color: isRemove ? 0xcc3333 : previewColor, alpha: 0.45 });
+    g.stroke({ color: isRemove ? 0xff4444 : 0xffffff, width: 1, alpha: 0.4 });
+    this.dragPreviewLayer.addChild(g);
+  }
+
+  // Tile count label at last tile
+  const last = path[path.length - 1];
+  const centerPos = tileCenterIso(last.col, last.row);
+  const label = new PIXI.Text({
+    text: `${path.length} tiles`,
+    style: { fontFamily: 'monospace', fontSize: 10, fill: isRemove ? 0xff4444 : 0xffffff },
   });
   label.anchor.set(0.5, 0.5);
   label.x = centerPos.x;
