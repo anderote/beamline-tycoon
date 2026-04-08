@@ -374,7 +374,7 @@ function _fmtParam(val) {
 // ---- Plot rendering ----
 
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
-const PLOT_SCALE = 1.4;
+const PLOT_SCALE = 1;
 
 ControllerView.prototype._renderPlots = function() {
   const panels = document.querySelectorAll('.ctrl-plot-panel');
