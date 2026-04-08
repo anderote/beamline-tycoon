@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { OBJECTIVES } from '../data/objectives.js';
 import { MACHINES } from '../data/machines.js';
+import { MachineWindow } from '../ui/MachineWindow.js';
 import { ZONES } from '../data/infrastructure.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
@@ -328,21 +329,137 @@ Renderer.prototype.drawSchematic = function(canvas, componentType) {
     scMagDk:  '#2299bb',
     label:    '#556688',
     aperture: '#334455',
+    // Utility pipe colors
+    pipeRF:      '#cc4444',
+    pipeCryo:    '#44aacc',
+    pipeVacuum:  '#999999',
+    pipeCooling: '#4488cc',
+    pipePower:   '#44cc44',
+    pipeData:    '#eeeeee',
   };
   const cy = Math.floor(PH / 2);
 
   // Clear
   px(0, 0, PW, PH, C.bg);
 
-  // Beam dashes (background, across whole width)
-  for (let x = 2; x < PW - 2; x += 3) {
-    dot(x, cy, C.beamDim);
-    if (x + 1 < PW - 2) dot(x + 1, cy, C.beamDim);
+  // Determine if this is a facility (non-beamline) component
+  const comp = COMPONENTS[componentType];
+  const facilityCategories = ['rfPower', 'cooling', 'vacuum', 'dataControls', 'ops', 'power'];
+  const isFacility = comp && facilityCategories.includes(comp.category);
+
+  if (isFacility) {
+    // Draw utility pipe background instead of beam
+    // Determine pipe color based on category
+    const pipeColorMap = {
+      rfPower: C.pipeRF,
+      cooling: C.pipeCooling,
+      vacuum: C.pipeVacuum,
+      dataControls: C.pipeData,
+      ops: C.wall,
+      power: C.pipePower,
+    };
+    // Draw connection stubs based on requiredConnections
+    const conns = comp.requiredConnections || [];
+    // Deduplicate and map to colors
+    const connColorMap = {
+      powerCable:   C.pipePower,
+      rfWaveguide:  C.pipeRF,
+      coolingWater: C.pipeCooling,
+      cryoTransfer: C.pipeCryo,
+      dataFiber:    C.pipeData,
+      vacuumPipe:   C.pipeVacuum,
+    };
+    // Valve-bearing connection types (fluid lines)
+    const valveConns = new Set(['coolingWater', 'cryoTransfer', 'vacuumPipe']);
+    // Collect unique connection types
+    const uniqueConns = [...new Set(conns)].filter(c => connColorMap[c]);
+    // Add output connections for facility categories that provide services
+    // RF Power: produces RF waveguide output
+    if (comp.category === 'rfPower' && !uniqueConns.includes('rfWaveguide')) {
+      uniqueConns.push('rfWaveguide');
+    }
+    // Cooling/cryo subsection: produces cryo transfer output
+    if (comp.category === 'cooling' && comp.subsection === 'cryogenics' && !uniqueConns.includes('cryoTransfer')) {
+      uniqueConns.push('cryoTransfer');
+    }
+    // Cooling distribution/plant: produces cooling water output
+    if (comp.category === 'cooling' && comp.subsection !== 'cryogenics' && !uniqueConns.includes('coolingWater')) {
+      uniqueConns.push('coolingWater');
+    }
+    // Data/Controls: produces data fiber output
+    if (comp.category === 'dataControls' && !uniqueConns.includes('dataFiber')) {
+      uniqueConns.push('dataFiber');
+    }
+    // Vacuum: provides vacuum pipe service
+    if (comp.category === 'vacuum' && !uniqueConns.includes('vacuumPipe')) {
+      uniqueConns.push('vacuumPipe');
+    }
+    // Power: provides power cable service
+    if (comp.category === 'power' && !uniqueConns.includes('powerCable')) {
+      uniqueConns.push('powerCable');
+    }
+
+    if (uniqueConns.length > 0) {
+      const baseY = cy + 5;
+      const yStep = 4; // vertical offset between successive connection lines
+
+      for (let i = 0; i < uniqueConns.length; i++) {
+        const connType = uniqueConns[i];
+        const color = connColorMap[connType];
+        const lineY = baseY + i * yStep;
+        const stubX = 35; // all drop from center
+        const hasValve = valveConns.has(connType);
+
+        // Vertical dashed stub down from equipment
+        for (let y = cy + 2; y <= lineY; y += 2) {
+          dot(stubX - i * 3, y, color);
+        }
+        // Elbow
+        dot(stubX - i * 3, lineY, color);
+        // Horizontal dashed line going right
+        const hStart = stubX - i * 3 + 1;
+        const hEnd = PW - 4;
+        for (let x = hStart; x < hEnd; x += 3) {
+          dot(x, lineY, color);
+          if (x + 1 < hEnd) dot(x + 1, lineY, color);
+        }
+        // Arrow at end
+        dot(hEnd, lineY, color);
+        dot(hEnd - 1, lineY - 1, color);
+        dot(hEnd - 1, lineY + 1, color);
+
+        // Valve symbol for fluid lines only
+        if (hasValve) {
+          const vx = stubX - i * 3 + 3, vy = lineY;
+          dot(vx, vy - 2, color);
+          dot(vx, vy - 1, color);
+          dot(vx, vy, color);
+          dot(vx, vy + 1, color);
+          dot(vx, vy + 2, color);
+          dot(vx + 1, vy - 1, color);
+          dot(vx + 1, vy + 1, color);
+          dot(vx + 2, vy, color);
+          dot(vx + 4, vy - 2, color);
+          dot(vx + 4, vy - 1, color);
+          dot(vx + 4, vy, color);
+          dot(vx + 4, vy + 1, color);
+          dot(vx + 4, vy + 2, color);
+          dot(vx + 3, vy - 1, color);
+          dot(vx + 3, vy + 1, color);
+        }
+      }
+    }
+  } else {
+    // Beam dashes (background, across whole width)
+    for (let x = 2; x < PW - 2; x += 3) {
+      dot(x, cy, C.beamDim);
+      if (x + 1 < PW - 2) dot(x + 1, cy, C.beamDim);
+    }
+    // Beam arrow at right
+    dot(PW - 4, cy, C.beam);
+    dot(PW - 5, cy - 1, C.beamDim);
+    dot(PW - 5, cy + 1, C.beamDim);
   }
-  // Beam arrow at right
-  dot(PW - 4, cy, C.beam);
-  dot(PW - 5, cy - 1, C.beamDim);
-  dot(PW - 5, cy + 1, C.beamDim);
 
   // Dispatch to specific component drawer
   const drawFn = this._schematicDrawers[componentType];
@@ -639,6 +756,2099 @@ Renderer.prototype._schematicDrawers = {
       dot(x, y, C.beamDim);
     }
 
+  },
+
+  // === RF CAVITY ===
+  rfCavity(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 60;
+    // Outer vessel walls
+    px(L, cy - 10, R - L, 1, C.wall);
+    px(L, cy + 10, R - L, 1, C.wall);
+    px(L, cy - 10, 1, 21, C.wallHi);
+    px(R, cy - 10, 1, 21, C.wallHi);
+    // Cavity cells — bulging profile
+    const cells = 3;
+    const cellW = (R - L - 2) / cells;
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + 1 + Math.floor(cellW * (i + 0.5));
+      const bulge = 7;
+      // Top bulge
+      for (let dx = -Math.floor(cellW / 2) + 1; dx < Math.floor(cellW / 2); dx++) {
+        const t = Math.abs(dx) / (cellW / 2);
+        const h = Math.round(bulge * (1 - t * t));
+        dot(cx2 + dx, cy - 3 - h, C.hot);
+        dot(cx2 + dx, cy + 3 + h, C.hot);
+      }
+      // Iris walls between cells
+      if (i > 0) {
+        const ix = L + 1 + Math.floor(cellW * i);
+        for (let dy = -3; dy <= 3; dy++) {
+          if (Math.abs(dy) <= 1) continue;
+          dot(ix, cy + dy, C.metal);
+        }
+      }
+    }
+    // Beam pipe
+    px(L, cy - 2, R - L, 1, C.wallDk);
+    px(L, cy + 2, R - L, 1, C.wallDk);
+    // RF field lines
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + 1 + Math.floor(cellW * (i + 0.5));
+      for (let dy = -1; dy <= 1; dy++) {
+        dot(cx2, cy + dy, C.hotBright);
+        dot(cx2 - 1, cy + dy, '#cc6633');
+        dot(cx2 + 1, cy + dy, '#cc6633');
+      }
+    }
+  },
+
+  // === FARADAY CUP ===
+  faradayCup(p, px, dot, W, H, cy, C) {
+    const L = 20, R = 50;
+    // Cup shape — open on left
+    px(R - 2, cy - 8, 2, 17, C.metal);
+    px(L, cy - 8, R - L, 2, C.metal);
+    px(L, cy + 7, R - L, 2, C.metal);
+    // Interior dark
+    px(L + 2, cy - 6, R - L - 4, 13, '#0d0d22');
+    // Wire lead out
+    px(R, cy, 8, 1, C.coil);
+    dot(R + 8, cy, C.coilDk);
+    // Beam hitting back wall
+    for (let x = 4; x < L + 2; x++) dot(x, cy, C.beam);
+    for (let x = L + 2; x < R - 2; x++) {
+      dot(x, cy, C.beamDim);
+    }
+    // Charge collection sparks
+    dot(R - 4, cy - 2, C.hotBright);
+    dot(R - 3, cy + 1, C.hot);
+    dot(R - 5, cy + 2, C.hotBright);
+  },
+
+  // === BEAM STOP ===
+  beamStop(p, px, dot, W, H, cy, C) {
+    const L = 24, R = 50;
+    // Thick absorber block
+    px(L, cy - 10, R - L, 21, C.metalDk);
+    px(L + 1, cy - 9, R - L - 2, 19, C.metal);
+    // Cooling channels
+    for (let y = cy - 7; y <= cy + 7; y += 3) {
+      px(L + 3, y, R - L - 6, 1, '#2255aa');
+    }
+    // Beam entering
+    for (let x = 4; x < L; x++) dot(x, cy, C.beam);
+    // Heat glow at impact
+    dot(L + 1, cy, C.glow);
+    dot(L + 2, cy, C.hot);
+    dot(L + 1, cy - 1, C.hot);
+    dot(L + 1, cy + 1, C.hot);
+  },
+
+  // === DETECTOR ===
+  detector(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Concentric detector layers
+    for (const r of [12, 9, 6, 3]) {
+      const color = r > 9 ? C.metalDk : r > 6 ? C.magnet : r > 3 ? C.coil : C.hot;
+      for (let a = 0; a < Math.PI * 2; a += 0.15) {
+        const dx = Math.round(Math.cos(a) * r);
+        const dy = Math.round(Math.sin(a) * r * 0.85);
+        if (cx + dx >= 2 && cx + dx < W - 2) dot(cx + dx, cy + dy, color);
+      }
+    }
+    // Beam pipe through center
+    px(4, cy - 1, cx - 6, 3, '#0d0d22');
+    for (let x = 4; x < cx - 2; x++) dot(x, cy, C.beam);
+    // Interaction vertex
+    dot(cx, cy, '#ffffff');
+    dot(cx - 1, cy, C.hotBright);
+    dot(cx + 1, cy, C.hotBright);
+  },
+
+  // === SPLITTER ===
+  splitter(p, px, dot, W, H, cy, C) {
+    // Incoming beam
+    for (let x = 4; x < 30; x++) dot(x, cy, C.beam);
+    // Junction point
+    dot(30, cy, '#ffffff');
+    // Upper branch
+    for (let x = 30; x < W - 4; x++) {
+      const t = (x - 30) / (W - 34);
+      const y = Math.round(cy - t * 8);
+      dot(x, y, C.beamDim);
+      if (y > 0) { dot(x, y - 1, '#0d0d22'); }
+    }
+    // Lower branch
+    for (let x = 30; x < W - 4; x++) {
+      const t = (x - 30) / (W - 34);
+      const y = Math.round(cy + t * 8);
+      dot(x, y, C.beamDim);
+    }
+    // Septum magnet at split
+    px(29, cy - 2, 2, 5, C.magnetDk);
+    dot(30, cy - 1, C.magnetLt);
+    dot(30, cy + 1, C.magnetLt);
+  },
+
+  // === APERTURE / COLLIMATOR ===
+  aperture(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Upper jaw
+    px(cx - 2, cy - 12, 4, 8, C.metal);
+    px(cx - 1, cy - 12, 2, 8, C.metalDk);
+    // Lower jaw
+    px(cx - 2, cy + 5, 4, 8, C.metal);
+    px(cx - 1, cy + 5, 2, 8, C.metalDk);
+    // Jaw tips (tapered)
+    dot(cx - 1, cy - 4, C.metal);
+    dot(cx, cy - 4, C.metal);
+    dot(cx - 1, cy + 4, C.metal);
+    dot(cx, cy + 4, C.metal);
+    // Beam pipe walls
+    px(10, cy - 3, cx - 12, 1, C.wallDk);
+    px(10, cy + 3, cx - 12, 1, C.wallDk);
+    px(cx + 4, cy - 3, 20, 1, C.wallDk);
+    px(cx + 4, cy + 3, 20, 1, C.wallDk);
+    // Beam narrowing through gap
+    for (let x = 4; x < cx - 2; x++) {
+      const t = (x - 4) / (cx - 6);
+      const spread = Math.round(2 * (1 - t));
+      dot(x, cy + spread, C.beamDim);
+      dot(x, cy - spread, C.beamDim);
+      dot(x, cy, C.beam);
+    }
+    for (let x = cx + 2; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === VELOCITY SELECTOR ===
+  velocitySelector(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56;
+    // E-field plates (top/bottom)
+    px(L, cy - 8, R - L, 2, '#cc4444');
+    px(L, cy + 7, R - L, 2, '#4444cc');
+    // B-field indicators (perpendicular dots)
+    for (let x = L + 4; x < R - 2; x += 5) {
+      dot(x, cy - 5, C.magnetLt);
+      dot(x, cy + 5, C.magnetLt);
+    }
+    // Beam pipe
+    px(L - 2, cy - 3, R - L + 4, 1, C.wallDk);
+    px(L - 2, cy + 3, R - L + 4, 1, C.wallDk);
+    // Beam — selected velocities pass through
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Rejected particles deflected
+    for (let i = 0; i < 4; i++) {
+      const sx = L + 8 + i * 8;
+      dot(sx, cy - 2, C.beamDim);
+      dot(sx + 1, cy - 4, '#553322');
+    }
+  },
+
+  // === EMITTANCE FILTER ===
+  emittanceFilter(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Slit pair
+    px(cx - 6, cy - 10, 2, 7, C.metal);
+    px(cx - 6, cy + 4, 2, 7, C.metal);
+    px(cx + 4, cy - 10, 2, 7, C.metal);
+    px(cx + 4, cy + 4, 2, 7, C.metal);
+    // Beam envelope narrowing
+    for (let x = 4; x < cx - 6; x++) {
+      const spread = Math.round(3 * (1 - (x - 4) / (cx - 10)));
+      dot(x, cy + spread, C.beamDim);
+      dot(x, cy - spread, C.beamDim);
+      dot(x, cy, C.beam);
+    }
+    for (let x = cx + 6; x < W - 4; x++) dot(x, cy, C.beam);
+    // Phase space label
+    dot(cx - 2, cy - 5, C.label);
+    dot(cx, cy - 5, C.label);
+    dot(cx + 2, cy - 5, C.label);
+  },
+
+  // === UNDULATOR ===
+  undulator(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    // Alternating N/S magnet blocks
+    const nBlocks = 8;
+    const step = (R - L) / nBlocks;
+    for (let i = 0; i < nBlocks; i++) {
+      const x = L + Math.floor(i * step);
+      const w = Math.max(1, Math.floor(step) - 1);
+      const isN = i % 2 === 0;
+      px(x, cy - 10, w, 4, isN ? '#cc4444' : '#4444cc');
+      px(x, cy + 7, w, 4, isN ? '#4444cc' : '#cc4444');
+    }
+    // Beam pipe walls
+    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
+    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
+    // Sinusoidal beam path
+    for (let x = 4; x < W - 4; x++) {
+      const phase = (x - L) / (R - L) * nBlocks * Math.PI;
+      const y = Math.round(cy + Math.sin(phase) * 2);
+      dot(x, y, C.beam);
+    }
+    // Radiation cone at exit
+    for (let i = 0; i < 3; i++) {
+      dot(R + 2 + i, cy - i, '#ffdd44');
+      dot(R + 2 + i, cy, '#ffdd44');
+      dot(R + 2 + i, cy + i, '#ffdd44');
+    }
+  },
+
+  // === COLLIMATOR ===
+  collimator(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Two jaws
+    px(cx - 1, cy - 12, 2, 9, C.metal);
+    px(cx - 1, cy + 4, 2, 9, C.metal);
+    // Jaw tips
+    dot(cx - 1, cy - 3, C.metalDk);
+    dot(cx, cy - 3, C.metalDk);
+    dot(cx - 1, cy + 3, C.metalDk);
+    dot(cx, cy + 3, C.metalDk);
+    // Beam pipe
+    px(10, cy - 2, 50, 1, C.wallDk);
+    px(10, cy + 2, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === CRYOMODULE ===
+  cryomodule(p, px, dot, W, H, cy, C) {
+    const L = 6, R = 64;
+    // Outer vacuum vessel
+    px(L, cy - 12, R - L, 1, C.wall);
+    px(L, cy + 12, R - L, 1, C.wall);
+    px(L, cy - 12, 1, 25, C.wallHi);
+    px(R, cy - 12, 1, 25, C.wallHi);
+    // Thermal shield (80K)
+    px(L + 2, cy - 10, R - L - 4, 1, '#886633');
+    px(L + 2, cy + 10, R - L - 4, 1, '#886633');
+    // Inner vessel (4K/2K)
+    px(L + 4, cy - 8, R - L - 8, 1, C.scMagnet);
+    px(L + 4, cy + 8, R - L - 8, 1, C.scMagnet);
+    // SRF cavity cells inside
+    const cells = 4;
+    const cellW = (R - L - 10) / cells;
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + 5 + Math.floor(cellW * (i + 0.5));
+      for (let dx = -Math.floor(cellW / 3); dx <= Math.floor(cellW / 3); dx++) {
+        const t = Math.abs(dx) / (cellW / 3);
+        const h = Math.round(5 * (1 - t * t));
+        dot(cx2 + dx, cy - 2 - h, C.scMagDk);
+        dot(cx2 + dx, cy + 2 + h, C.scMagDk);
+      }
+    }
+    // Beam axis
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === SEXTUPOLE ===
+  sextupole(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Six pole tips at 60-degree intervals
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3 - Math.PI / 6;
+      const pr = 9;
+      const tipX = Math.round(cx + Math.cos(angle) * pr);
+      const tipY = Math.round(cy + Math.sin(angle) * pr * 0.85);
+      const color = i % 2 === 0 ? '#cc4444' : '#4444cc';
+      px(tipX - 1, tipY - 1, 3, 3, color);
+    }
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    // Yoke ring
+    for (let a = 0; a < Math.PI * 2; a += 0.2) {
+      const rx = Math.round(cx + Math.cos(a) * 11);
+      const ry = Math.round(cy + Math.sin(a) * 11 * 0.85);
+      if (rx >= 2 && rx < W - 2 && ry >= 1 && ry < H - 1) dot(rx, ry, C.wallDk);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === DC PHOTO GUN ===
+  dcPhotoGun(p, px, dot, W, H, cy, C) {
+    const cathX = 14, anodeX = 40;
+    // Cathode plate
+    for (let dy = -7; dy <= 7; dy++) {
+      dot(cathX, cy + dy, C.metal);
+      dot(cathX + 1, cy + dy, C.metalDk);
+    }
+    // Laser beam hitting cathode (from above-left)
+    for (let i = 0; i < 10; i++) {
+      dot(cathX - 8 + i, cy - 10 + i, '#44cc44');
+    }
+    dot(cathX, cy - 1, '#88ff88');
+    dot(cathX, cy, '#88ff88');
+    dot(cathX, cy + 1, '#88ff88');
+    // Anode
+    for (let dy = -9; dy <= 9; dy++) {
+      if (Math.abs(dy) <= 2) continue;
+      dot(anodeX, cy + dy, C.metal);
+    }
+    // HV insulator
+    px(cathX - 4, cy - 9, 3, 19, '#443366');
+    // Electron beam
+    for (let x = cathX + 2; x < W - 4; x++) dot(x, cy, x < anodeX ? C.beamDim : C.beam);
+  },
+
+  // === NC RF GUN ===
+  ncRfGun(p, px, dot, W, H, cy, C) {
+    const L = 12, R = 50;
+    // Half-cell + full cell cavity
+    px(L, cy - 9, 1, 19, C.wallHi);
+    px(L, cy - 9, R - L, 1, C.wall);
+    px(L, cy + 9, R - L, 1, C.wall);
+    // Half cell
+    for (let dx = 0; dx < 12; dx++) {
+      const t = dx / 12;
+      const h = Math.round(6 * Math.sin(t * Math.PI));
+      dot(L + 1 + dx, cy - 3 - h, C.hot);
+      dot(L + 1 + dx, cy + 3 + h, C.hot);
+    }
+    // Full cell
+    for (let dx = 0; dx < 18; dx++) {
+      const t = dx / 18;
+      const h = Math.round(6 * Math.sin(t * Math.PI));
+      dot(L + 14 + dx, cy - 3 - h, C.hot);
+      dot(L + 14 + dx, cy + 3 + h, C.hot);
+    }
+    // Cathode plate
+    for (let dy = -3; dy <= 3; dy++) dot(L + 1, cy + dy, C.hotBright);
+    // Beam
+    for (let x = L + 3; x < W - 4; x++) dot(x, cy, C.beam);
+    // RF feed
+    px(L + 20, cy - 9, 2, 4, C.coil);
+  },
+
+  // === SRF GUN ===
+  srfGun(p, px, dot, W, H, cy, C) {
+    const L = 12, R = 52;
+    // SRF cavity shape (rounder)
+    for (let dx = 0; dx < R - L; dx++) {
+      const t = dx / (R - L);
+      const h = Math.round(8 * Math.sin(t * Math.PI));
+      dot(L + dx, cy - 2 - h, C.scMagnet);
+      dot(L + dx, cy + 2 + h, C.scMagnet);
+    }
+    // Outer cryostat
+    px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
+    px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
+    // Cathode
+    for (let dy = -2; dy <= 2; dy++) dot(L + 1, cy + dy, C.hotBright);
+    // Beam
+    for (let x = L + 3; x < W - 4; x++) dot(x, cy, C.beam);
+    // Cryo indicator
+    dot(R - 4, cy - 10, C.scMagnet);
+    dot(R - 3, cy - 10, C.scMagDk);
+  },
+
+  // === CORRECTOR ===
+  corrector(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Small H/V corrector coils
+    px(cx - 5, cy - 7, 3, 4, '#cc6644');
+    px(cx + 3, cy - 7, 3, 4, '#cc6644');
+    px(cx - 5, cy + 4, 3, 4, '#4466cc');
+    px(cx + 3, cy + 4, 3, 4, '#4466cc');
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    // Correction arrows
+    dot(cx, cy - 5, '#ffaa44');
+    dot(cx, cy - 6, '#ffaa44');
+    dot(cx - 1, cy - 5, '#ffaa44');
+    dot(cx + 1, cy - 5, '#ffaa44');
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === OCTUPOLE ===
+  octupole(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4;
+      const pr = 9;
+      const tipX = Math.round(cx + Math.cos(angle) * pr);
+      const tipY = Math.round(cy + Math.sin(angle) * pr * 0.85);
+      const color = i % 2 === 0 ? '#cc4444' : '#4444cc';
+      px(tipX - 1, tipY - 1, 2, 2, color);
+    }
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === SC QUAD ===
+  scQuad(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Superconducting quad — like quad but with cryo layer
+    for (let a = 0; a < Math.PI * 2; a += 0.2) {
+      const rx = Math.round(cx + Math.cos(a) * 12);
+      const ry = Math.round(cy + Math.sin(a) * 12 * 0.85);
+      if (rx >= 2 && rx < W - 2 && ry >= 1 && ry < H - 1) dot(rx, ry, C.scMagDk);
+    }
+    px(cx - 8, cy - 11, 16, 4, C.scMagnet);
+    px(cx - 5, cy - 7, 10, 3, C.scMagDk);
+    px(cx - 8, cy + 7, 16, 4, C.scMagnet);
+    px(cx - 5, cy + 5, 10, 3, C.scMagDk);
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === SC DIPOLE ===
+  scDipole(p, px, dot, W, H, cy, C) {
+    const L = 16, R = 54, T = cy - 12, B = cy + 12;
+    px(L, T, R - L, 2, C.scMagnet);
+    px(L, B - 1, R - L, 2, C.scMagnet);
+    px(L, T, 2, B - T + 1, C.scMagDk);
+    px(L + 2, T + 2, R - L - 2, 2, C.scMagDk);
+    px(L + 2, B - 3, R - L - 2, 2, C.scMagDk);
+    px(L + 6, cy - 3, R - L - 6, 7, '#0d0d22');
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === COMBINED FUNCTION MAGNET ===
+  combinedFunctionMagnet(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56, T = cy - 11, B = cy + 11;
+    px(L, T, R - L, 2, C.magnet);
+    px(L, B - 1, R - L, 2, C.magnet);
+    px(L, T, 2, B - T + 1, C.wallHi);
+    // Gradient shading (combined function = dipole + quad)
+    for (let x = L + 3; x < R - 1; x++) {
+      const t = (x - L) / (R - L);
+      const shade = Math.round(t * 3);
+      dot(x, T + 3, shade > 1 ? C.magnetLt : C.magnetDk);
+      dot(x, B - 3, shade > 1 ? C.magnetDk : C.magnetLt);
+    }
+    px(L + 3, cy - 3, R - L - 4, 7, '#0d0d22');
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === BPM ===
+  bpm(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Four button pickups around beam pipe
+    px(10, cy - 4, 50, 1, C.wallDk);
+    px(10, cy + 4, 50, 1, C.wallDk);
+    // Buttons
+    px(cx - 1, cy - 6, 3, 2, '#ccaa44');
+    px(cx - 1, cy + 5, 3, 2, '#ccaa44');
+    px(cx - 7, cy - 1, 2, 3, '#ccaa44');
+    px(cx + 6, cy - 1, 2, 3, '#ccaa44');
+    // Signal wires
+    dot(cx, cy - 8, C.coil);
+    dot(cx, cy + 7, C.coil);
+    dot(cx - 9, cy, C.coil);
+    dot(cx + 8, cy, C.coil);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === SCREEN ===
+  screen(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Insertable phosphor screen (angled)
+    for (let i = -8; i <= 8; i++) {
+      const sx = cx + Math.round(i * 0.3);
+      dot(sx, cy + i, '#44cc88');
+      dot(sx + 1, cy + i, '#338866');
+    }
+    // Actuator rod going up
+    px(cx - 1, cy - 12, 2, 4, C.metal);
+    // Glow when beam hits screen
+    dot(cx, cy, '#88ffaa');
+    dot(cx + 1, cy, '#88ffaa');
+    dot(cx - 1, cy - 1, '#66cc88');
+    dot(cx + 1, cy + 1, '#66cc88');
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+  },
+
+  // === ICT ===
+  ict(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Toroidal transformer ring
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      const rx = Math.round(cx + Math.cos(a) * 8);
+      const ry = Math.round(cy + Math.sin(a) * 8 * 0.7);
+      dot(rx, ry, C.coil);
+    }
+    for (let a = 0; a < Math.PI * 2; a += 0.2) {
+      const rx = Math.round(cx + Math.cos(a) * 6);
+      const ry = Math.round(cy + Math.sin(a) * 6 * 0.7);
+      dot(rx, ry, C.coilDk);
+    }
+    // Beam through center
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Signal cable
+    px(cx + 8, cy - 8, 1, 4, C.coil);
+  },
+
+  // === WIRE SCANNER ===
+  wireScanner(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Wire crossing beam
+    for (let i = -6; i <= 6; i++) {
+      dot(cx + Math.round(i * 0.4), cy + i, C.metal);
+    }
+    // Fork mount
+    px(cx - 4, cy - 10, 2, 5, C.metalDk);
+    px(cx + 3, cy - 10, 2, 5, C.metalDk);
+    px(cx - 4, cy - 11, 10, 1, C.metal);
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === BUNCH LENGTH MONITOR ===
+  bunchLengthMonitor(p, px, dot, W, H, cy, C) {
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Streak display — pulse shape above
+    const baseY = cy - 8;
+    for (let x = 20; x < 50; x++) {
+      const t = (x - 20) / 30;
+      const h = Math.round(5 * Math.exp(-((t - 0.5) * (t - 0.5)) / 0.02));
+      for (let dy = 0; dy < h; dy++) {
+        dot(x, baseY - dy, '#44ccaa');
+      }
+    }
+  },
+
+  // === ENERGY SPECTROMETER ===
+  energySpectrometer(p, px, dot, W, H, cy, C) {
+    // Bending magnet section
+    px(20, cy - 10, 20, 3, C.magnetDk);
+    px(20, cy + 8, 20, 3, C.magnetDk);
+    // Beam bends through dipole
+    for (let x = 4; x < 20; x++) dot(x, cy, C.beam);
+    for (let x = 20; x < 40; x++) {
+      const t = (x - 20) / 20;
+      const bend = Math.round(t * t * 5);
+      dot(x, cy - bend, C.beam);
+      dot(x, cy - bend + 1, C.beamDim);
+      dot(x, cy - bend - 1, C.beamDim);
+    }
+    // Detector screen
+    px(45, cy - 12, 2, 20, '#44cc88');
+    // Energy spread marks
+    dot(46, cy - 8, '#ff4444');
+    dot(46, cy - 5, '#44ff44');
+    dot(46, cy - 2, '#4444ff');
+  },
+
+  // === BEAM LOSS MONITOR ===
+  beamLossMonitor(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Ionization chamber
+    px(cx - 4, cy - 8, 8, 16, C.metalDk);
+    px(cx - 3, cy - 7, 6, 14, '#1a1a33');
+    // Electrodes inside
+    px(cx - 2, cy - 6, 1, 12, '#ccaa44');
+    px(cx + 2, cy - 6, 1, 12, '#ccaa44');
+    // Cable out
+    px(cx, cy - 8, 1, -4, C.coil);
+    // Beam pipe (beam passes by, not through)
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Radiation particles hitting detector
+    dot(cx - 1, cy - 4, C.glow);
+    dot(cx + 1, cy + 2, C.glow);
+  },
+
+  // === SR LIGHT MONITOR ===
+  srLightMonitor(p, px, dot, W, H, cy, C) {
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Viewport window
+    px(34, cy - 3, 3, 1, '#446688');
+    // Light cone going up to detector
+    for (let i = 1; i <= 8; i++) {
+      const spread = Math.round(i * 0.5);
+      for (let dx = -spread; dx <= spread; dx++) {
+        dot(35 + dx, cy - 3 - i, '#ffdd44');
+      }
+    }
+    // Detector/camera
+    px(32, cy - 13, 7, 2, C.metal);
+  },
+
+  // === HELICAL UNDULATOR ===
+  helicalUndulator(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    const nBlocks = 8;
+    const step = (R - L) / nBlocks;
+    for (let i = 0; i < nBlocks; i++) {
+      const x = L + Math.floor(i * step);
+      const w = Math.max(1, Math.floor(step) - 1);
+      // Rotated poles for helical field
+      px(x, cy - 10, w, 3, i % 2 === 0 ? '#cc4444' : '#4444cc');
+      px(x, cy + 8, w, 3, i % 2 === 0 ? '#4444cc' : '#cc4444');
+      // Side poles (rotated 90 deg)
+      if (i % 2 === 0) {
+        dot(x, cy - 5, '#cc44cc');
+        dot(x, cy + 5, '#44cccc');
+      }
+    }
+    px(L - 1, cy - 3, R - L + 2, 1, C.wallDk);
+    px(L - 1, cy + 3, R - L + 2, 1, C.wallDk);
+    // Helical beam
+    for (let x = 4; x < W - 4; x++) {
+      const phase = (x - L) / (R - L) * nBlocks * Math.PI;
+      const dy = Math.round(Math.sin(phase) * 2);
+      dot(x, cy + dy, C.beam);
+    }
+  },
+
+  // === WIGGLER ===
+  wiggler(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 60;
+    const nBlocks = 5;
+    const step = (R - L) / nBlocks;
+    for (let i = 0; i < nBlocks; i++) {
+      const x = L + Math.floor(i * step);
+      const w = Math.max(2, Math.floor(step) - 1);
+      px(x, cy - 11, w, 5, i % 2 === 0 ? '#cc4444' : '#4444cc');
+      px(x, cy + 7, w, 5, i % 2 === 0 ? '#4444cc' : '#cc4444');
+    }
+    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
+    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
+    // Larger amplitude oscillation
+    for (let x = 4; x < W - 4; x++) {
+      const phase = (x - L) / (R - L) * nBlocks * Math.PI;
+      const dy = Math.round(Math.sin(phase) * 3);
+      dot(x, cy + dy, C.beam);
+    }
+    // Broad radiation fan
+    for (let dy = -4; dy <= 4; dy++) {
+      dot(R + 2, cy + dy, '#ffdd44');
+      if (Math.abs(dy) < 3) dot(R + 3, cy + dy, '#ffdd44');
+    }
+  },
+
+  // === APPLE-2 UNDULATOR ===
+  apple2Undulator(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    const nBlocks = 6;
+    const step = (R - L) / nBlocks;
+    for (let i = 0; i < nBlocks; i++) {
+      const x = L + Math.floor(i * step);
+      const w = Math.max(1, Math.floor(step) - 2);
+      // Four magnet arrays (APPLE-II has 4 movable rows)
+      px(x, cy - 10, w, 2, '#cc4444');
+      px(x + 1, cy - 8, w, 2, '#cc44cc');
+      px(x, cy + 7, w, 2, '#4444cc');
+      px(x + 1, cy + 9, w, 2, '#44cccc');
+    }
+    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
+    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) {
+      const phase = (x - L) / (R - L) * nBlocks * Math.PI;
+      dot(x, cy + Math.round(Math.sin(phase) * 2), C.beam);
+    }
+  },
+
+  // === KICKER MAGNET ===
+  kickerMagnet(p, px, dot, W, H, cy, C) {
+    const L = 18, R = 52;
+    px(L, cy - 8, R - L, 2, C.magnet);
+    px(L, cy + 7, R - L, 2, C.magnet);
+    // Fast pulsed coils
+    px(L + 2, cy - 6, 3, 3, C.coil);
+    px(R - 5, cy - 6, 3, 3, C.coil);
+    px(L + 2, cy + 4, 3, 3, C.coil);
+    px(R - 5, cy + 4, 3, 3, C.coil);
+    // HV pulser symbol (lightning)
+    dot(L + 10, cy - 7, C.hotBright);
+    dot(L + 11, cy - 6, C.hot);
+    dot(L + 10, cy - 5, C.hotBright);
+    dot(L + 11, cy - 4, C.hot);
+    // Beam kicked
+    for (let x = 4; x < 30; x++) dot(x, cy, C.beam);
+    for (let x = 30; x < W - 4; x++) {
+      const t = (x - 30) / (W - 34);
+      dot(x, cy - Math.round(t * 4), C.beam);
+    }
+  },
+
+  // === SEPTUM MAGNET ===
+  septumMagnet(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Thin septum wall
+    px(cx, cy - 10, 1, 21, C.metal);
+    px(cx + 1, cy - 10, 1, 21, C.metalDk);
+    // Magnet yoke on one side
+    px(cx + 2, cy - 8, 10, 2, C.magnet);
+    px(cx + 2, cy + 7, 10, 2, C.magnet);
+    px(cx + 2, cy - 8, 2, 17, C.magnetDk);
+    // Two beam paths on either side
+    for (let x = 4; x < cx; x++) dot(x, cy - 4, C.beam);
+    for (let x = 4; x < cx; x++) dot(x, cy + 4, C.beamDim);
+    for (let x = cx + 2; x < W - 4; x++) dot(x, cy - 4, C.beam);
+    for (let x = cx + 2; x < W - 4; x++) dot(x, cy + 4, C.beamDim);
+  },
+
+  // === CHICANE ===
+  chicane(p, px, dot, W, H, cy, C) {
+    // Four-dipole chicane for bunch compression
+    const dipoles = [14, 26, 38, 50];
+    for (const dx of dipoles) {
+      px(dx, cy - 6, 4, 3, C.magnet);
+      px(dx, cy + 4, 4, 3, C.magnet);
+    }
+    // Beam path through chicane
+    for (let x = 4; x < 14; x++) dot(x, cy, C.beam);
+    for (let x = 14; x < 26; x++) {
+      const t = (x - 14) / 12;
+      dot(x, cy - Math.round(t * 5), C.beam);
+    }
+    for (let x = 26; x < 38; x++) dot(x, cy - 5, C.beam);
+    for (let x = 38; x < 50; x++) {
+      const t = (x - 38) / 12;
+      dot(x, cy - 5 + Math.round(t * 5), C.beam);
+    }
+    for (let x = 50; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === DOGLEG ===
+  dogleg(p, px, dot, W, H, cy, C) {
+    const d1 = 20, d2 = 44;
+    px(d1, cy - 6, 4, 3, C.magnet);
+    px(d1, cy + 4, 4, 3, C.magnet);
+    px(d2, cy - 11, 4, 3, C.magnet);
+    px(d2, cy - 1, 4, 3, C.magnet);
+    for (let x = 4; x < d1; x++) dot(x, cy, C.beam);
+    for (let x = d1; x < d2; x++) {
+      const t = (x - d1) / (d2 - d1);
+      dot(x, cy - Math.round(t * 6), C.beam);
+    }
+    for (let x = d2; x < W - 4; x++) dot(x, cy - 6, C.beam);
+  },
+
+  // === STRIPPER FOIL ===
+  stripperFoil(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Thin foil
+    px(cx, cy - 8, 1, 17, '#ccaa44');
+    px(cx + 1, cy - 8, 1, 17, '#aa8833');
+    // Beam in
+    for (let x = 4; x < cx; x++) dot(x, cy, C.beam);
+    // Multiple charge states out
+    for (let x = cx + 2; x < W - 4; x++) {
+      dot(x, cy, C.beam);
+      dot(x, cy - 2, C.beamDim);
+      dot(x, cy + 2, C.beamDim);
+    }
+    // Scattered electrons
+    dot(cx + 4, cy - 5, '#ff6644');
+    dot(cx + 6, cy - 7, '#ff6644');
+    dot(cx + 3, cy + 4, '#ff6644');
+  },
+
+  // === FIXED TARGET (Advanced) ===
+  fixedTargetAdv(p, px, dot, W, H, cy, C) {
+    const cx = 30;
+    // Target block
+    px(cx, cy - 6, 4, 13, C.metalDk);
+    px(cx + 1, cy - 5, 2, 11, C.metal);
+    // Beam in
+    for (let x = 4; x < cx; x++) dot(x, cy, C.beam);
+    // Collision products spraying out
+    for (let i = 0; i < 8; i++) {
+      const angle = (i - 4) * 0.4;
+      for (let r = 1; r < 12; r++) {
+        const px2 = cx + 4 + Math.round(Math.cos(angle) * r);
+        const py = cy + Math.round(Math.sin(angle) * r);
+        if (px2 < W - 2 && py >= 1 && py < H - 1) {
+          dot(px2, py, r < 4 ? C.hotBright : C.beamDim);
+        }
+      }
+    }
+  },
+
+  // === PHOTON PORT ===
+  photonPort(p, px, dot, W, H, cy, C) {
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Viewport/window
+    px(33, cy - 3, 4, 1, '#446688');
+    // Photon beam going up
+    for (let i = 1; i <= 10; i++) {
+      const spread = Math.round(i * 0.3);
+      for (let dx = -spread; dx <= spread; dx++) {
+        const c = Math.abs(dx) < spread ? '#ffee44' : '#ccaa22';
+        dot(35 + dx, cy - 3 - i, c);
+      }
+    }
+  },
+
+  // === POSITRON TARGET ===
+  positronTarget(p, px, dot, W, H, cy, C) {
+    const cx = 30;
+    // Converter target
+    px(cx, cy - 5, 3, 11, C.metalDk);
+    // Beam in
+    for (let x = 4; x < cx; x++) dot(x, cy, C.beam);
+    // e+ going up, e- going down
+    for (let x = cx + 3; x < W - 4; x++) {
+      const t = (x - cx - 3) / (W - cx - 7);
+      dot(x, cy - Math.round(t * 6), '#ff4444'); // e+
+      dot(x, cy + Math.round(t * 6), '#4444ff'); // e-
+    }
+    // Photon flash at target
+    dot(cx + 1, cy, C.hotBright);
+    dot(cx + 1, cy - 1, C.hot);
+    dot(cx + 1, cy + 1, C.hot);
+  },
+
+  // === COMPTON IP ===
+  comptonIP(p, px, dot, W, H, cy, C) {
+    // Beam pipe
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Laser beam crossing vertically
+    for (let y = 2; y < H - 2; y++) {
+      dot(35, y, '#ff4444');
+      if (y === cy) dot(35, y, '#ffffff'); // interaction point
+    }
+    // Scattered photons
+    dot(38, cy - 4, '#ffdd44');
+    dot(40, cy - 6, '#ffdd44');
+    dot(37, cy - 3, '#ffdd44');
+  },
+
+  // === PILLBOX CAVITY ===
+  pillboxCavity(p, px, dot, W, H, cy, C) {
+    const L = 18, R = 52;
+    px(L, cy - 8, R - L, 1, C.wall);
+    px(L, cy + 8, R - L, 1, C.wall);
+    px(L, cy - 8, 1, 17, C.wallHi);
+    px(R, cy - 8, 1, 17, C.wallHi);
+    // Simple cylindrical shape
+    px(L + 1, cy - 7, R - L - 2, 15, '#1a0d0d');
+    // RF field
+    for (let dy = -5; dy <= 5; dy++) {
+      dot(35, cy + dy, C.hot);
+    }
+    // Beam pipe
+    px(L, cy - 2, R - L, 1, C.wallDk);
+    px(L, cy + 2, R - L, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === RFQ ===
+  rfq(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 60;
+    px(L, cy - 10, R - L, 1, C.wall);
+    px(L, cy + 10, R - L, 1, C.wall);
+    px(L, cy - 10, 1, 21, C.wallHi);
+    px(R, cy - 10, 1, 21, C.wallHi);
+    // Four vanes converging
+    for (let x = L + 2; x < R - 1; x += 2) {
+      const mod = Math.sin((x - L) * 0.4) * 2;
+      dot(x, cy - 4 + Math.round(mod), C.hot);
+      dot(x, cy + 4 - Math.round(mod), C.hot);
+      dot(x, cy - 7, C.metal);
+      dot(x, cy + 7, C.metal);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === DTL ===
+  dtl(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    px(L, cy - 10, R - L, 1, C.wall);
+    px(L, cy + 10, R - L, 1, C.wall);
+    px(L, cy - 10, 1, 21, C.wallHi);
+    px(R, cy - 10, 1, 21, C.wallHi);
+    // Drift tubes inside tank
+    const nTubes = 5;
+    const step = (R - L - 4) / nTubes;
+    for (let i = 0; i < nTubes; i++) {
+      const tx = L + 2 + Math.floor(i * step);
+      const tw = Math.floor(step * 0.6);
+      px(tx, cy - 4, tw, 9, C.metal);
+      px(tx + 1, cy - 3, tw - 2, 7, C.metalDk);
+      // Stem
+      px(tx + Math.floor(tw / 2), cy - 9, 1, 5, C.metal);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === DTL CAVITY ===
+  dtlCavity(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 60;
+    px(L, cy - 9, R - L, 1, C.wall);
+    px(L, cy + 9, R - L, 1, C.wall);
+    px(L, cy - 9, 1, 19, C.wallHi);
+    px(R, cy - 9, 1, 19, C.wallHi);
+    const nTubes = 4;
+    const step = (R - L - 4) / nTubes;
+    for (let i = 0; i < nTubes; i++) {
+      const tx = L + 2 + Math.floor(i * step);
+      const tw = Math.floor(step * 0.5);
+      px(tx, cy - 3, tw, 7, C.metal);
+      px(tx + Math.floor(tw / 2), cy - 8, 1, 5, C.metal);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === BUNCHER ===
+  buncher(p, px, dot, W, H, cy, C) {
+    const L = 18, R = 52;
+    px(L, cy - 7, R - L, 1, C.wall);
+    px(L, cy + 7, R - L, 1, C.wall);
+    px(L, cy - 7, 1, 15, C.wallHi);
+    px(R, cy - 7, 1, 15, C.wallHi);
+    // Single cell cavity
+    for (let dx = 2; dx < R - L - 2; dx++) {
+      const t = dx / (R - L - 4);
+      const h = Math.round(4 * Math.sin(t * Math.PI));
+      dot(L + dx, cy - 2 - h, C.hot);
+      dot(L + dx, cy + 2 + h, C.hot);
+    }
+    // Beam: spread dots becoming bunched
+    for (let x = 4; x < L; x += 2) dot(x, cy, C.beamDim);
+    for (let x = R; x < W - 4; x++) {
+      if (x % 4 < 2) dot(x, cy, C.beam);
+    }
+    for (let x = L; x < R; x++) dot(x, cy, C.beamDim);
+  },
+
+  // === HARMONIC LINEARIZER ===
+  harmonicLinearizer(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56;
+    px(L, cy - 8, R - L, 1, C.wall);
+    px(L, cy + 8, R - L, 1, C.wall);
+    px(L, cy - 8, 1, 17, C.wallHi);
+    px(R, cy - 8, 1, 17, C.wallHi);
+    // Higher harmonic cavity cells (smaller, more frequent)
+    const cells = 5;
+    const cellW = (R - L - 2) / cells;
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + 1 + Math.floor(cellW * (i + 0.5));
+      for (let dx = -2; dx <= 2; dx++) {
+        const t = Math.abs(dx) / 3;
+        const h = Math.round(4 * (1 - t * t));
+        dot(cx2 + dx, cy - 2 - h, C.hot);
+        dot(cx2 + dx, cy + 2 + h, C.hot);
+      }
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === S-BAND STRUCTURE ===
+  sbandStructure(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    px(L, cy - 9, R - L, 1, C.wall);
+    px(L, cy + 9, R - L, 1, C.wall);
+    px(L, cy - 9, 1, 19, C.wallHi);
+    px(R, cy - 9, 1, 19, C.wallHi);
+    // Traveling wave structure — many small cells
+    for (let x = L + 2; x < R - 1; x += 3) {
+      dot(x, cy - 6, C.hot);
+      dot(x, cy + 6, C.hot);
+      dot(x, cy - 3, C.wallDk);
+      dot(x, cy + 3, C.wallDk);
+    }
+    // RF coupler ports
+    px(L + 4, cy - 9, 2, 3, C.coil);
+    px(R - 6, cy - 9, 2, 3, C.coil);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === C-BAND CAVITY ===
+  cbandCavity(p, px, dot, W, H, cy, C) {
+    const L = 12, R = 58;
+    px(L, cy - 8, R - L, 1, C.wall);
+    px(L, cy + 8, R - L, 1, C.wall);
+    px(L, cy - 8, 1, 17, C.wallHi);
+    px(R, cy - 8, 1, 17, C.wallHi);
+    // Compact cells (C-band = higher frequency, smaller)
+    for (let x = L + 2; x < R - 1; x += 4) {
+      for (let dx = 0; dx < 3; dx++) {
+        const t = dx / 3;
+        const h = Math.round(3 * Math.sin(t * Math.PI));
+        dot(x + dx, cy - 2 - h, C.hot);
+        dot(x + dx, cy + 2 + h, C.hot);
+      }
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === X-BAND CAVITY ===
+  xbandCavity(p, px, dot, W, H, cy, C) {
+    const L = 12, R = 58;
+    px(L, cy - 7, R - L, 1, C.wall);
+    px(L, cy + 7, R - L, 1, C.wall);
+    px(L, cy - 7, 1, 15, C.wallHi);
+    px(R, cy - 7, 1, 15, C.wallHi);
+    // Very compact cells (X-band = highest frequency)
+    for (let x = L + 2; x < R - 1; x += 3) {
+      dot(x, cy - 4, C.hot);
+      dot(x + 1, cy - 5, C.hot);
+      dot(x, cy + 4, C.hot);
+      dot(x + 1, cy + 5, C.hot);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === SRF 650 CAVITY (Tesla 9-cell shares) ===
+  srf650Cavity(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 62;
+    px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
+    px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
+    // Large elliptical cells
+    const cells = 3;
+    const cellW = (R - L) / cells;
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + Math.floor(cellW * (i + 0.5));
+      for (let dx = -Math.floor(cellW / 2) + 1; dx < Math.floor(cellW / 2); dx++) {
+        const t = Math.abs(dx) / (cellW / 2);
+        const h = Math.round(8 * (1 - t * t));
+        dot(cx2 + dx, cy - 1 - h, C.scMagnet);
+        dot(cx2 + dx, cy + 1 + h, C.scMagnet);
+      }
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === TESLA 9-CELL (uses same as srf650Cavity basically) ===
+  tesla9Cell(p, px, dot, W, H, cy, C) {
+    const L = 4, R = 66;
+    px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
+    px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
+    const cells = 9;
+    const cellW = (R - L) / cells;
+    for (let i = 0; i < cells; i++) {
+      const cx2 = L + Math.floor(cellW * (i + 0.5));
+      for (let dx = -2; dx <= 2; dx++) {
+        const t = Math.abs(dx) / 3;
+        const h = Math.round(7 * (1 - t * t));
+        dot(cx2 + dx, cy - 1 - h, C.scMagnet);
+        dot(cx2 + dx, cy + 1 + h, C.scMagnet);
+      }
+    }
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === SOLID STATE AMP ===
+  solidStateAmp(p, px, dot, W, H, cy, C) {
+    // Amplifier triangle
+    const L = 18, R = 52, my = cy - 2;
+    for (let x = L; x <= R; x++) {
+      const t = (x - L) / (R - L);
+      const h = Math.round(t * 10);
+      dot(x, my - h, C.hot);
+      dot(x, my + h, C.hot);
+    }
+    px(L, my - 1, 1, 3, C.hot);
+    // Input signal (small)
+    for (let x = 6; x < L; x += 2) dot(x, my, C.pipeRF);
+    // Output signal (large)
+    for (let x = R + 2; x < W - 2; x += 2) {
+      dot(x, my, C.hotBright);
+      dot(x, my - 1, C.hot);
+      dot(x, my + 1, C.hot);
+    }
+  },
+
+  // === PULSED KLYSTRON ===
+  pulsedKlystron(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 58, my = cy - 3;
+    px(L, my - 8, R - L, 1, C.wall);
+    px(L, my + 8, R - L, 1, C.wall);
+    px(L, my - 8, 2, 17, C.wallHi);
+    px(R, my - 8, 2, 17, C.wallHi);
+    // Cavities inside klystron tube
+    for (const cx2 of [20, 32, 44]) {
+      px(cx2 - 1, my - 6, 3, 13, C.metalDk);
+      px(cx2, my - 5, 1, 11, C.hot);
+    }
+    // Internal electron beam
+    px(L + 3, my - 1, R - L - 5, 3, '#1a0d22');
+    for (let x = L + 3; x < R - 2; x++) dot(x, my, C.pipeRF);
+    // Collector
+    px(R - 4, my - 6, 3, 13, C.metal);
+    // HV pulse indicator
+    for (let x = 4; x < L; x += 2) dot(x, my - 6, C.hotBright);
+  },
+
+  // === CW KLYSTRON ===
+  cwKlystron(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 58, my = cy - 3;
+    px(L, my - 8, R - L, 1, C.wall);
+    px(L, my + 8, R - L, 1, C.wall);
+    px(L, my - 8, 2, 17, C.wallHi);
+    px(R, my - 8, 2, 17, C.wallHi);
+    for (const cx2 of [20, 32, 44]) {
+      px(cx2 - 1, my - 6, 3, 13, C.metalDk);
+      px(cx2, my - 5, 1, 11, C.hot);
+    }
+    px(L + 3, my - 1, R - L - 5, 3, '#1a0d22');
+    for (let x = L + 3; x < R - 2; x++) dot(x, my, C.pipeRF);
+    px(R - 4, my - 6, 3, 13, C.metal);
+    // CW sine wave indicator
+    for (let x = 4; x < L; x++) {
+      dot(x, my - 6 + Math.round(Math.sin(x * 1.5) * 2), '#44cc44');
+    }
+  },
+
+  // === MODULATOR ===
+  modulator(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(14, my - 6, 30, 15, C.metalDk);
+    px(15, my - 5, 28, 13, '#1a1a2a');
+    // Transformer core
+    px(22, my - 3, 4, 9, C.metal);
+    px(32, my - 3, 4, 9, C.metal);
+    // Coils
+    px(18, my - 2, 4, 3, C.coil);
+    px(18, my + 2, 4, 3, C.coil);
+    px(36, my - 2, 4, 3, C.coil);
+    px(36, my + 2, 4, 3, C.coil);
+    // HV lightning symbol
+    dot(29, my - 2, C.hotBright);
+    dot(28, my, C.hot);
+    dot(29, my + 2, C.hotBright);
+    dot(28, my + 4, C.hot);
+  },
+
+  // === IOT ===
+  iot(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 52, my = cy - 3;
+    // Tube envelope
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      const rx = Math.round(33 + Math.cos(a) * 18);
+      const ry = Math.round(my + Math.sin(a) * 9);
+      if (rx >= L && rx <= R) dot(rx, ry, C.wall);
+    }
+    // Grid
+    for (let dy = -5; dy <= 5; dy += 2) dot(28, my + dy, C.metal);
+    // Internal electron beam
+    for (let x = L + 4; x < R - 4; x++) dot(x, my, C.pipeRF);
+    // Output gap
+    px(38, my - 4, 2, 9, C.hot);
+  },
+
+  // === CIRCULATOR ===
+  circulator(p, px, dot, W, H, cy, C) {
+    const cx = 35, my = cy - 3;
+    // Circular body
+    for (let a = 0; a < Math.PI * 2; a += 0.12) {
+      dot(Math.round(cx + Math.cos(a) * 10), Math.round(my + Math.sin(a) * 10 * 0.7), C.wall);
+    }
+    // Arrow showing circulation direction
+    dot(cx + 4, my - 4, C.hotBright);
+    dot(cx + 5, my - 2, C.hot);
+    dot(cx + 4, my, C.hot);
+    dot(cx + 2, my + 2, C.hot);
+    dot(cx, my + 3, C.hot);
+    dot(cx - 3, my + 2, C.hotBright);
+  },
+
+  // === RF COUPLER ===
+  rfCoupler(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // RF waveguide (horizontal)
+    px(10, my - 2, 50, 5, C.wallDk);
+    px(11, my - 1, 48, 3, '#1a0d0d');
+    // Coupler port (T-junction going down to pipe)
+    px(33, my + 3, 4, 8, C.wall);
+    px(34, my + 3, 2, 8, C.wallDk);
+    // RF power arrow
+    dot(35, my + 6, C.hotBright);
+    dot(35, my + 8, C.hot);
+    dot(34, my + 7, C.hot);
+    dot(36, my + 7, C.hot);
+    // RF signal in waveguide
+    for (let x = 12; x < 58; x += 3) dot(x, my, C.pipeRF);
+  },
+
+  // === LLRF CONTROLLER ===
+  llrfController(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Electronics box
+    px(14, my - 4, 32, 15, C.metalDk);
+    px(15, my - 3, 30, 13, '#0d0d1a');
+    // Display showing sine wave
+    px(18, my - 1, 20, 8, '#0a1a0a');
+    for (let x = 0; x < 18; x++) {
+      const y = Math.round(Math.sin(x * 0.8) * 2);
+      dot(19 + x, my + 3 + y, '#44cc44');
+    }
+    // Status LEDs
+    dot(40, my - 1, '#44ff44');
+    dot(40, my + 1, '#44ff44');
+    dot(40, my + 3, '#ffaa44');
+  },
+
+  // === MULTIBEAM KLYSTRON ===
+  multibeamKlystron(p, px, dot, W, H, cy, C) {
+    const L = 8, R = 58, my = cy - 3;
+    px(L, my - 8, R - L, 1, C.wall);
+    px(L, my + 8, R - L, 1, C.wall);
+    px(L, my - 8, 2, 17, C.wallHi);
+    px(R, my - 8, 2, 17, C.wallHi);
+    // Multiple beam tunnels
+    for (const by of [my - 5, my - 1, my + 3]) {
+      for (let x = L + 3; x < R - 2; x++) dot(x, by, C.pipeRF);
+    }
+    // Cavities
+    for (const cx2 of [22, 35, 48]) {
+      px(cx2, my - 7, 2, 15, C.metalDk);
+      dot(cx2, my - 5, C.hot);
+      dot(cx2, my - 1, C.hot);
+      dot(cx2, my + 3, C.hot);
+    }
+  },
+
+  // === HIGH POWER SSA ===
+  highPowerSSA(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 52, my = cy - 2;
+    for (let x = L; x <= R; x++) {
+      const t = (x - L) / (R - L);
+      const h = Math.round(t * 9);
+      dot(x, my - h, C.hot);
+      dot(x, my + h, C.hot);
+    }
+    px(L, my - 1, 1, 3, C.hot);
+    // Heat sink fins on back
+    for (let y = my - 7; y <= my + 7; y += 2) {
+      px(R + 2, y, 4, 1, C.metalDk);
+    }
+    // RF input
+    for (let x = 6; x < L; x += 2) dot(x, my, C.pipeRF);
+    // RF output (amplified)
+    for (let x = R + 1; x < W - 2; x++) dot(x, my, C.hotBright);
+  },
+
+  // === LN2 DEWAR ===
+  ln2Dewar(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Outer vessel (double-walled dewar)
+    px(20, my - 8, 20, 1, C.wall);
+    px(20, my + 10, 20, 1, C.wall);
+    px(20, my - 8, 1, 19, C.wallHi);
+    px(39, my - 8, 1, 19, C.wallHi);
+    // Inner vessel
+    px(22, my - 6, 16, 1, C.wallDk);
+    px(22, my + 8, 16, 1, C.wallDk);
+    px(22, my - 6, 1, 15, C.wallDk);
+    px(37, my - 6, 1, 15, C.wallDk);
+    // Vacuum gap (dark between walls)
+    px(21, my - 7, 1, 16, '#0a0a1a');
+    px(38, my - 7, 1, 16, '#0a0a1a');
+    // LN2 liquid fill
+    px(23, my + 1, 14, 7, '#2255aa');
+    px(23, my, 14, 1, '#3377cc');
+    // Bubbles
+    dot(27, my + 3, '#4499dd');
+    dot(32, my + 5, '#4499dd');
+    dot(29, my + 2, '#4499dd');
+    // Lid / top flange
+    px(20, my - 8, 20, 2, C.metal);
+    // Vent / pressure relief
+    px(28, my - 10, 4, 2, C.wallDk);
+    dot(29, my - 11, '#cccccc');
+    dot(30, my - 12, '#aaaaaa');
+    // Fill port
+    px(34, my - 10, 3, 2, C.metalDk);
+  },
+
+  // === CRYOCOOLER ===
+  cryocooler(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Compressor head
+    px(20, my - 6, 16, 8, C.metalDk);
+    px(21, my - 5, 14, 6, C.metal);
+    // Cold finger going down
+    px(27, my + 2, 2, 8, C.scMagnet);
+    // Cold tip
+    px(25, my + 10, 6, 3, C.scMagDk);
+    dot(28, my + 11, '#88ddff');
+  },
+
+  // === LN2 PRECOOLER ===
+  ln2Precooler(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Dewar vessel
+    px(16, my - 6, 28, 1, C.wall);
+    px(16, my + 10, 28, 1, C.wall);
+    px(16, my - 6, 1, 17, C.wallHi);
+    px(43, my - 6, 1, 17, C.wallHi);
+    // LN2 liquid level
+    px(17, my + 2, 26, 8, '#2255aa');
+    px(17, my + 1, 26, 1, '#3377cc');
+    // Bubbles
+    dot(25, my + 4, '#4499dd');
+    dot(30, my + 6, '#4499dd');
+    dot(35, my + 3, '#4499dd');
+    // Vent
+    px(28, my - 6, 4, 3, C.wallDk);
+    dot(29, my - 8, '#cccccc');
+  },
+
+  // === HE COMPRESSOR ===
+  heCompressor(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(14, my - 7, 32, 17, C.metalDk);
+    px(15, my - 6, 30, 15, C.metal);
+    // Motor
+    for (let a = 0; a < Math.PI * 2; a += 0.2) {
+      dot(Math.round(24 + Math.cos(a) * 5), Math.round(my + Math.sin(a) * 5), C.coil);
+    }
+    // Piston
+    px(34, my - 4, 8, 9, C.metalDk);
+    px(35, my - 3, 6, 7, '#1a1a2a');
+    px(37, my - 2, 2, 5, C.metal);
+  },
+
+  // === COLD BOX 4K ===
+  coldBox4K(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(14, my - 7, 32, 17, C.wallDk);
+    px(15, my - 6, 30, 15, '#0d1a2a');
+    // Heat exchangers inside
+    for (let x = 18; x < 42; x += 4) {
+      px(x, my - 5, 1, 13, '#224466');
+    }
+    // "4K" cold region
+    px(22, my - 2, 16, 7, '#112244');
+    dot(28, my, C.scMagnet);
+    dot(30, my + 1, C.scMagDk);
+    dot(32, my - 1, C.scMagnet);
+  },
+
+  // === COLD BOX 2K ===
+  coldBox2K(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(14, my - 7, 32, 17, C.wallDk);
+    px(15, my - 6, 30, 15, '#0a0a22');
+    for (let x = 18; x < 42; x += 4) {
+      px(x, my - 5, 1, 13, '#1a2244');
+    }
+    // "2K" even colder
+    px(22, my - 2, 16, 7, '#0a1133');
+    // JT valve
+    dot(28, my, C.scMagnet);
+    dot(29, my + 1, '#ffffff');
+    dot(30, my + 2, C.scMagDk);
+  },
+
+  // === CRYOMODULE HOUSING ===
+  cryomoduleHousing(p, px, dot, W, H, cy, C) {
+    const L = 6, R = 64, my = cy - 3;
+    // Outer vessel
+    px(L, my - 10, R - L, 1, C.wall);
+    px(L, my + 10, R - L, 1, C.wall);
+    px(L, my - 10, 1, 21, C.wallHi);
+    px(R, my - 10, 1, 21, C.wallHi);
+    // Thermal shields
+    px(L + 2, my - 8, R - L - 4, 1, '#886633');
+    px(L + 2, my + 8, R - L - 4, 1, '#886633');
+    px(L + 4, my - 6, R - L - 8, 1, C.scMagDk);
+    px(L + 4, my + 6, R - L - 8, 1, C.scMagDk);
+    // MLI insulation dots
+    for (let x = L + 6; x < R - 4; x += 4) {
+      dot(x, my - 7, '#554422');
+      dot(x + 2, my + 7, '#554422');
+    }
+  },
+
+  // === HE RECOVERY ===
+  heRecovery(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Gas bag
+    for (let a = 0; a < Math.PI * 2; a += 0.12) {
+      const rx = Math.round(35 + Math.cos(a) * 16);
+      const ry = Math.round(my + Math.sin(a) * 8);
+      if (rx >= 6 && rx < 64) dot(rx, ry, C.wall);
+    }
+    // Fill
+    px(22, my - 4, 26, 9, '#0d2233');
+    // He label
+    dot(32, my - 1, C.scMagnet);
+    dot(33, my - 1, C.scMagnet);
+    dot(34, my - 1, C.scMagDk);
+    dot(35, my - 1, C.scMagDk);
+  },
+
+  // === ROUGHING PUMP ===
+  roughingPump(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Scroll pump body
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(30 + Math.cos(a) * 10), Math.round(my + Math.sin(a) * 8), C.wall);
+    }
+    px(22, my - 6, 16, 13, C.metalDk);
+    // Scroll spiral
+    for (let a = 0; a < 6; a += 0.2) {
+      const r = 6 - a * 0.8;
+      if (r < 1) break;
+      dot(Math.round(30 + Math.cos(a) * r), Math.round(my + Math.sin(a) * r * 0.6), C.metal);
+    }
+    // Motor
+    px(40, my - 4, 10, 9, C.metalDk);
+    px(41, my - 3, 8, 7, C.coil);
+  },
+
+  // === TURBO PUMP ===
+  turboPump(p, px, dot, W, H, cy, C) {
+    const cx2 = 32, my = cy - 3;
+    // Cylindrical body
+    px(cx2 - 8, my - 8, 16, 18, C.metalDk);
+    px(cx2 - 7, my - 7, 14, 16, '#1a1a2a');
+    // Blade stages
+    for (let y = my - 6; y <= my + 6; y += 3) {
+      for (let dx = -5; dx <= 5; dx++) {
+        const angle = dx * 0.3 + y * 0.2;
+        dot(cx2 + dx, y, angle > 0 ? C.metal : C.metalDk);
+      }
+    }
+  },
+
+  // === ION PUMP ===
+  ionPump(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(16, my - 7, 28, 15, C.metalDk);
+    px(17, my - 6, 26, 13, '#0d0d22');
+    // Anode cells
+    for (let x = 20; x < 40; x += 5) {
+      px(x, my - 4, 3, 9, C.metal);
+      px(x + 1, my - 3, 1, 7, '#ccaa44');
+    }
+    // Cathode plates
+    px(18, my - 5, 24, 1, '#4444cc');
+    px(18, my + 5, 24, 1, '#4444cc');
+    // Magnetic field
+    dot(16, my - 8, C.magnetLt);
+    dot(43, my - 8, C.magnetLt);
+    // HV connection
+    px(28, my - 7, 4, 2, '#cc4444');
+  },
+
+  // === NEG PUMP ===
+  negPump(p, px, dot, W, H, cy, C) {
+    const L = 16, R = 54, my = cy - 3;
+    px(L, my - 6, R - L, 13, C.metalDk);
+    px(L + 1, my - 5, R - L - 2, 11, '#0d0d22');
+    // NEG strips (getter material)
+    for (let x = L + 3; x < R - 2; x += 3) {
+      px(x, my - 3, 1, 7, '#aa8844');
+    }
+    // Heating current indicators
+    dot(L + 4, my - 4, C.hot);
+    dot(L + 10, my - 4, C.hot);
+  },
+
+  // === TI SUBLIMATION PUMP ===
+  tiSubPump(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(18, my - 7, 24, 15, C.metalDk);
+    px(19, my - 6, 22, 13, '#0d0d22');
+    // Ti filaments
+    for (const fx of [25, 30, 35]) {
+      px(fx, my - 5, 1, 11, C.metal);
+      dot(fx, my - 3, C.hot);
+      dot(fx, my, C.hotBright);
+      dot(fx, my + 3, C.hot);
+    }
+    // Ti film deposits
+    for (let x = 20; x < 40; x += 2) {
+      dot(x, my - 5, '#888899');
+      dot(x, my + 5, '#888899');
+    }
+  },
+
+  // === PIRANI GAUGE ===
+  piraniGauge(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(35 + Math.cos(a) * 8), Math.round(my + Math.sin(a) * 7), C.wall);
+    }
+    px(28, my - 5, 14, 11, '#0d0d22');
+    // Heated wire
+    px(32, my - 2, 6, 1, C.hot);
+    dot(35, my - 2, C.hotBright);
+    // Dial needle
+    dot(35, my + 2, C.metal);
+    dot(36, my + 1, '#ff4444');
+    dot(37, my, '#ff4444');
+  },
+
+  // === COLD CATHODE GAUGE ===
+  coldCathodeGauge(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(35 + Math.cos(a) * 8), Math.round(my + Math.sin(a) * 7), C.wall);
+    }
+    px(28, my - 5, 14, 11, '#0d0d22');
+    // Glow discharge
+    dot(35, my, '#aa44ff');
+    dot(34, my - 1, '#8833cc');
+    dot(36, my + 1, '#8833cc');
+    dot(35, my - 2, '#6622aa');
+    dot(35, my + 2, '#6622aa');
+    // Cathode plates
+    px(30, my - 3, 1, 7, C.metal);
+    px(39, my - 3, 1, 7, C.metal);
+  },
+
+  // === BA GAUGE ===
+  baGauge(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(35 + Math.cos(a) * 8), Math.round(my + Math.sin(a) * 7), C.wall);
+    }
+    px(28, my - 5, 14, 11, '#0d0d22');
+    // Filament
+    dot(31, my - 2, C.hot);
+    dot(31, my, C.hotBright);
+    dot(31, my + 2, C.hot);
+    // Grid
+    for (let dy = -3; dy <= 3; dy += 2) dot(35, my + dy, '#ccaa44');
+    // Collector
+    dot(39, my, C.metal);
+  },
+
+  // === GATE VALVE ===
+  gateValve(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Valve body
+    px(30, my - 8, 10, 17, C.metal);
+    px(31, my - 7, 8, 15, C.metalDk);
+    // Gate disc (closed position)
+    px(34, my - 6, 2, 13, C.wallHi);
+    // Actuator on top
+    px(33, my - 10, 4, 2, C.wall);
+    dot(35, my - 11, '#44cc44'); // Open indicator
+  },
+
+  // === BAKEOUT SYSTEM ===
+  bakeoutSystem(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(11, my - 1, 48, 3, '#1a1a2a');
+    // Heating tape wrapped around
+    for (let x = 12; x < 58; x += 4) {
+      dot(x, my - 2, C.hot);
+      dot(x + 1, my + 2, C.hot);
+      dot(x + 2, my - 2, C.hotBright);
+    }
+    // Heat waves rising
+    for (let x = 16; x < 54; x += 8) {
+      dot(x, my - 4, '#ff6622');
+      dot(x + 1, my - 6, '#cc4411');
+      dot(x, my - 8, '#993311');
+    }
+    // Thermocouple
+    dot(35, my + 3, '#ccaa44');
+    dot(35, my + 4, C.coil);
+  },
+
+  // === HEAT EXCHANGER ===
+  heatExchanger(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(16, my - 7, 28, 15, C.metalDk);
+    px(17, my - 6, 26, 13, '#0d0d22');
+    // Hot side channels
+    for (let x = 20; x < 40; x += 4) {
+      px(x, my - 5, 1, 11, '#cc4444');
+    }
+    // Cold side channels
+    for (let x = 22; x < 40; x += 4) {
+      px(x, my - 5, 1, 11, '#4444cc');
+    }
+  },
+
+  // === WATER LOAD ===
+  waterLoad(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(18, my - 6, 24, 13, C.metalDk);
+    px(19, my - 5, 22, 11, '#0d0d22');
+    // Absorbing material
+    px(22, my - 3, 16, 7, '#443322');
+    // Water channels
+    for (let y = my - 2; y <= my + 2; y += 2) {
+      px(23, y, 14, 1, '#2255aa');
+    }
+  },
+
+  // === LCW SKID ===
+  lcwSkid(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Pump
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(24 + Math.cos(a) * 6), Math.round(my + Math.sin(a) * 6), C.wall);
+    }
+    px(19, my - 4, 10, 9, C.metalDk);
+    // Impeller
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      dot(Math.round(24 + Math.cos(a) * 3), Math.round(my + Math.sin(a) * 3), C.metal);
+    }
+    // Control panel
+    px(48, my - 4, 8, 10, C.metalDk);
+    dot(50, my - 2, '#44ff44');
+    dot(50, my, '#44ff44');
+  },
+
+  // === CHILLER ===
+  chiller(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(12, my - 7, 36, 15, C.metalDk);
+    px(13, my - 6, 34, 13, C.metal);
+    // Compressor
+    for (let a = 0; a < Math.PI * 2; a += 0.2) {
+      dot(Math.round(24 + Math.cos(a) * 4), Math.round(my + Math.sin(a) * 4), C.coil);
+    }
+    // Condenser coils
+    for (let y = my - 4; y <= my + 4; y += 2) {
+      px(34, y, 10, 1, '#886644');
+    }
+    // Fan
+    dot(42, my, C.metal);
+    dot(41, my - 2, C.metalDk);
+    dot(43, my - 2, C.metalDk);
+    dot(41, my + 2, C.metalDk);
+    dot(43, my + 2, C.metalDk);
+  },
+
+  // === COOLING TOWER ===
+  coolingTower(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Hyperbolic tower shape
+    for (let y = my - 8; y <= my + 10; y++) {
+      const t = (y - my + 8) / 18;
+      const w = Math.round(5 + Math.abs(t - 0.4) * 12);
+      px(35 - w, y, w * 2, 1, C.wall);
+    }
+    // Fill material inside
+    px(30, my + 2, 10, 6, C.metalDk);
+    // Water falling
+    for (let y = my + 3; y <= my + 7; y += 2) {
+      dot(31 + (y % 3), y, C.pipeCooling);
+      dot(37 + (y % 2), y, C.pipeCooling);
+    }
+    // Steam plume
+    for (let i = 0; i < 4; i++) {
+      dot(34 + (i % 3), my - 9 - i, '#aaaaaa');
+      dot(36 + (i % 2), my - 10 - i, '#888888');
+    }
+  },
+
+  // === DEIONIZER ===
+  deionizer(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // DI column
+    px(27, my - 8, 10, 19, C.wallDk);
+    px(28, my - 7, 8, 17, '#0d0d22');
+    // Resin bed
+    px(29, my - 2, 6, 10, '#aa8844');
+    // Beads
+    for (let y = my; y <= my + 6; y += 2) {
+      for (let x = 30; x <= 33; x += 2) dot(x, y, '#ccaa44');
+    }
+  },
+
+  // === EMERGENCY COOLING ===
+  emergencyCooling(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Red cross
+    px(31, my - 6, 8, 14, '#cc2222');
+    px(26, my - 1, 18, 4, '#cc2222');
+    px(32, my - 5, 6, 12, '#ff4444');
+    px(27, my, 16, 2, '#ff4444');
+    // Water drop symbol in center
+    dot(35, my - 2, C.pipeCooling);
+    dot(34, my - 1, C.pipeCooling);
+    dot(36, my - 1, C.pipeCooling);
+    dot(35, my, '#2266aa');
+  },
+
+  // === RACK IOC ===
+  rackIoc(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    px(20, my - 6, 20, 19, C.metalDk);
+    px(21, my - 5, 18, 17, '#0d0d1a');
+    // Rack units
+    for (let y = my - 3; y <= my + 9; y += 3) {
+      px(22, y, 16, 2, C.metalDk);
+      dot(36, y, '#44ff44');
+      dot(36, y + 1, '#226622');
+    }
+    // Activity lights
+    dot(34, my - 2, '#ffaa44');
+    dot(34, my + 4, '#44ff44');
+  },
+
+  // === PPS INTERLOCK ===
+  ppsInterlock(p, px, dot, W, H, cy, C) {
+    const cx2 = 35, my = cy - 4;
+    // Shield shape
+    for (let y = my - 6; y <= my + 6; y++) {
+      const t = Math.max(0, (y - my) / 6);
+      const w = Math.round(10 * (1 - t * t));
+      if (w > 0) px(cx2 - w, y, w * 2, 1, '#cc2222');
+    }
+    for (let y = my - 6; y <= my; y++) {
+      px(cx2 - 10, y, 20, 1, '#cc2222');
+    }
+    // Lock symbol
+    px(cx2 - 2, my - 2, 4, 5, '#ffcc44');
+    for (let a = 0; a < Math.PI; a += 0.3) {
+      dot(Math.round(cx2 + Math.cos(a) * 3), my - 3 - Math.round(Math.sin(a) * 3), '#ffcc44');
+    }
+  },
+
+  // === SHIELDING ===
+  shielding(p, px, dot, W, H, cy, C) {
+    const my = cy - 2;
+    // Concrete block wall
+    px(10, my - 10, 50, 20, '#666677');
+    // Brick/block pattern
+    for (let y = my - 10; y < my + 10; y += 4) {
+      px(10, y, 50, 1, '#555566');
+      const offset = ((y - my + 10) / 4) % 2 === 0 ? 0 : 8;
+      for (let x = 10 + offset; x < 60; x += 16) {
+        px(x, y, 1, 4, '#555566');
+      }
+    }
+    // Rebar dots
+    dot(22, my - 4, C.metalDk);
+    dot(35, my + 2, C.metalDk);
+    dot(48, my + 6, C.metalDk);
+  },
+
+  // === MPS ===
+  mps(p, px, dot, W, H, cy, C) {
+    const cx2 = 35, my = cy - 4;
+    // Warning triangle
+    for (let y = my - 6; y <= my + 6; y++) {
+      const t = (y - my + 6) / 12;
+      const w = Math.round(t * 12);
+      px(cx2 - w, y, w * 2, 1, '#ccaa22');
+    }
+    // Exclamation mark
+    px(cx2 - 1, my - 3, 2, 6, '#1a1a0a');
+    px(cx2 - 1, my + 4, 2, 2, '#1a1a0a');
+  },
+
+  // === AREA MONITOR ===
+  areaMonitor(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Detector body
+    px(24, my - 2, 16, 10, C.metalDk);
+    px(25, my - 1, 14, 8, '#1a1a2a');
+    // GM tube inside
+    px(28, my + 1, 8, 4, C.metal);
+    dot(32, my + 2, C.hot);
+    // Antenna
+    px(31, my - 2, 2, 1, C.metal);
+    px(32, my - 8, 1, 6, C.metal);
+    // Signal arcs
+    dot(34, my - 7, C.hotBright);
+    dot(35, my - 6, C.hot);
+    dot(36, my - 8, C.hot);
+    // Display
+    px(26, my + 5, 10, 3, '#0a1a0a');
+    dot(28, my + 6, '#44ff44');
+    dot(30, my + 6, '#44ff44');
+    dot(32, my + 6, '#ff4444');
+  },
+
+  // === TIMING SYSTEM ===
+  timingSystem(p, px, dot, W, H, cy, C) {
+    const my = cy - 4;
+    // Clock face
+    for (let a = 0; a < Math.PI * 2; a += 0.12) {
+      dot(Math.round(35 + Math.cos(a) * 9), Math.round(my + Math.sin(a) * 9), C.wall);
+    }
+    px(27, my - 7, 16, 15, '#0d0d1a');
+    // Clock hands
+    dot(35, my, '#ffffff');
+    for (let i = 1; i <= 4; i++) dot(35, my - i, C.metal);
+    for (let i = 1; i <= 5; i++) dot(35 + i, my - Math.round(i * 0.3), C.metalDk);
+    // Tick marks
+    for (let i = 0; i < 12; i++) {
+      const a = i * Math.PI / 6;
+      dot(Math.round(35 + Math.cos(a) * 7), Math.round(my + Math.sin(a) * 7), C.wallHi);
+    }
+  },
+
+  // === LASER SYSTEM ===
+  laserSystem(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Laser cavity
+    px(12, my - 4, 28, 9, C.metalDk);
+    px(13, my - 3, 26, 7, '#1a0d0d');
+    // Gain medium
+    px(16, my - 1, 20, 3, '#882244');
+    // Mirrors
+    px(14, my - 2, 1, 5, '#ccaa44');
+    px(37, my - 2, 1, 5, C.metal);
+    // Laser beam output
+    for (let x = 38; x < W - 4; x++) {
+      dot(x, my, '#ff2222');
+      dot(x, my - 1, '#cc1111');
+      dot(x, my + 1, '#cc1111');
+    }
+    // Pump source
+    px(22, my - 4, 8, 1, '#44ff44');
+  },
+
+  // === LASER HEATER ===
+  laserHeater(p, px, dot, W, H, cy, C) {
+    // Beam pipe — this IS a beamline component despite being in power category
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Laser beam crossing
+    for (let y = 2; y < H - 2; y++) {
+      const c = y === cy ? '#ffcc44' : '#ff4444';
+      dot(35, y, c);
+    }
+    // Undulator section
+    px(28, cy - 6, 3, 2, '#cc4444');
+    px(28, cy + 5, 3, 2, '#4444cc');
+    px(38, cy - 6, 3, 2, '#4444cc');
+    px(38, cy + 5, 3, 2, '#cc4444');
+    dot(35, cy, '#ffffff');
+  },
+
+  // === POWER PANEL ===
+  powerPanel(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    px(18, my - 7, 24, 16, C.metalDk);
+    px(19, my - 6, 22, 14, '#1a1a2a');
+    // Breaker rows
+    for (let y = my - 4; y <= my + 5; y += 3) {
+      for (let x = 22; x <= 36; x += 4) {
+        px(x, y, 2, 2, C.metal);
+        dot(x + 1, y, (x + y) % 6 < 3 ? '#44ff44' : '#ff4444');
+      }
+    }
+    // Bus bars
+    px(21, my - 5, 1, 13, '#ccaa44');
+    px(39, my - 5, 1, 13, '#ccaa44');
+  },
+
+  // === SUBSTATION ===
+  substation(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Transformer
+    px(16, my - 7, 14, 15, C.metalDk);
+    px(17, my - 6, 12, 13, '#1a1a2a');
+    // Primary coil
+    for (let y = my - 4; y <= my + 4; y += 2) dot(20, y, C.coil);
+    // Core
+    px(23, my - 5, 3, 11, C.metal);
+    // Secondary coil
+    for (let y = my - 4; y <= my + 4; y += 2) dot(27, y, C.coilDk);
+    // HV bushings
+    px(18, my - 9, 3, 2, '#cc4444');
+    px(26, my - 9, 3, 2, '#cc4444');
+    // Cooling fins
+    for (let y = my - 4; y <= my + 4; y += 3) {
+      px(36, y, 6, 1, C.metalDk);
+    }
+  },
+
+  // === ION SOURCE ===
+  ionSource(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 46;
+    // Plasma chamber
+    px(L, cy - 9, R - L, 19, C.metalDk);
+    px(L + 1, cy - 8, R - L - 2, 17, '#220d22');
+    // Plasma glow
+    px(L + 4, cy - 4, R - L - 8, 9, '#663388');
+    dot(25, cy, '#aa66cc');
+    dot(28, cy - 2, '#9955bb');
+    dot(22, cy + 2, '#aa66cc');
+    // Extraction electrode
+    for (let dy = -6; dy <= 6; dy++) {
+      if (Math.abs(dy) <= 2) continue;
+      dot(R, cy + dy, C.metal);
+    }
+    // Ion beam out
+    for (let x = R + 2; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === PROTON DIPOLE ===
+  protonDipole(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56, T = cy - 12, B = cy + 12;
+    px(L, T, R - L, 2, C.magnet);
+    px(L, B - 1, R - L, 2, C.magnet);
+    px(L, T, 2, B - T + 1, C.wallHi);
+    px(L + 2, T + 2, R - L - 2, 2, C.magnetDk);
+    px(L + 2, B - 3, R - L - 2, 2, C.magnetDk);
+    px(L + 2, T + 4, 4, cy - T - 5, C.coil);
+    px(L + 2, cy + 2, 4, B - cy - 5, C.coil);
+    px(L + 6, cy - 4, R - L - 6, 9, '#0d0d22');
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // "p" marker
+    dot(R - 6, T + 3, '#ffaa44');
+  },
+
+  // === PROTON QUAD ===
+  protonQuad(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    px(10, cy - 3, 50, 1, C.wallDk);
+    px(10, cy + 3, 50, 1, C.wallDk);
+    px(cx - 8, cy - 11, 16, 5, C.magnet);
+    px(cx - 5, cy - 7, 10, 3, C.magnetDk);
+    px(cx - 8, cy + 7, 16, 5, C.magnet);
+    px(cx - 5, cy + 5, 10, 3, C.magnetDk);
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    dot(cx + 6, cy - 9, '#ffaa44');
+  },
+
+  // === SPOKE CAVITY ===
+  spokeCavity(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56;
+    px(L, cy - 10, R - L, 1, C.scMagnet);
+    px(L, cy + 10, R - L, 1, C.scMagnet);
+    px(L, cy - 10, 1, 21, C.scMagDk);
+    px(R, cy - 10, 1, 21, C.scMagDk);
+    // Spoke bars
+    for (const sx of [24, 35, 46]) {
+      px(sx, cy - 8, 2, 17, C.scMagnet);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === HALF WAVE RESONATOR ===
+  halfWaveResonator(p, px, dot, W, H, cy, C) {
+    const L = 14, R = 56;
+    px(L, cy - 10, R - L, 21, '#0d1a2a');
+    px(L, cy - 10, R - L, 1, C.scMagnet);
+    px(L, cy + 10, R - L, 1, C.scMagnet);
+    // Half-wave shape
+    for (let dx = 0; dx < R - L; dx++) {
+      const t = dx / (R - L);
+      const h = Math.round(7 * Math.sin(t * Math.PI));
+      dot(L + dx, cy - h, C.scMagDk);
+      dot(L + dx, cy + h, C.scMagDk);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+  },
+
+  // === MAGNETRON ===
+  magnetron(p, px, dot, W, H, cy, C) {
+    const cx2 = 35, my = cy - 3;
+    for (let a = 0; a < Math.PI * 2; a += 0.15) {
+      dot(Math.round(cx2 + Math.cos(a) * 8), Math.round(my + Math.sin(a) * 8), C.wall);
+    }
+    px(28, my - 6, 14, 13, C.metalDk);
+    // Cavities around circumference
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      dot(Math.round(cx2 + Math.cos(a) * 6), Math.round(my + Math.sin(a) * 6), C.hot);
+    }
+    // Central cathode
+    dot(cx2, my, C.hotBright);
+  },
+
+  // === TWT ===
+  twt(p, px, dot, W, H, cy, C) {
+    const L = 10, R = 56, my = cy - 3;
+    px(L, my - 4, R - L, 9, C.metalDk);
+    px(L + 1, my - 3, R - L - 2, 7, '#1a1a2a');
+    // Helix slow-wave structure
+    for (let x = L + 3; x < R - 2; x += 2) {
+      dot(x, my - 2, C.coil);
+      dot(x + 1, my + 2, C.coil);
+    }
+    // Internal electron beam
+    for (let x = L + 2; x < R - 1; x++) dot(x, my, C.pipeRF);
+    // Gun
+    px(L, my - 1, 3, 3, C.metal);
+    // Collector
+    px(R - 3, my - 2, 3, 5, C.metal);
+  },
+
+  // === BEAM DUMP ===
+  beamDump(p, px, dot, W, H, cy, C) {
+    const L = 22, R = 54, my = cy - 3;
+    // Large water-cooled absorber
+    px(L, my - 8, R - L, 18, C.metalDk);
+    px(L + 1, my - 7, R - L - 2, 16, C.metal);
+    // Cooling channels
+    for (let y = my - 6; y <= my + 6; y += 2) {
+      px(L + 3, y, R - L - 6, 1, '#2255aa');
+    }
+    // Impact glow
+    dot(L + 1, my, C.glow);
+    dot(L + 2, my - 1, C.hot);
+    dot(L + 2, my + 1, C.hot);
+  },
+
+  // === TARGET (shared sprite) ===
+  target(p, px, dot, W, H, cy, C) {
+    const cx = 35;
+    // Target block
+    px(cx - 3, cy - 8, 6, 17, C.metalDk);
+    px(cx - 2, cy - 7, 4, 15, C.metal);
+    // Beam in
+    for (let x = 4; x < cx - 3; x++) dot(x, cy, C.beam);
+    // Impact
+    dot(cx - 2, cy, C.glow);
+    dot(cx - 1, cy, C.hotBright);
+    // Products out
+    for (let i = -3; i <= 3; i++) {
+      for (let r = 1; r < 8; r++) {
+        const px2 = cx + 3 + r;
+        const py = cy + Math.round(i * r * 0.3);
+        if (px2 < W - 2 && py >= 1 && py < H - 1) dot(px2, py, C.beamDim);
+      }
+    }
+  },
+
+  // === TARGET HANDLING ===
+  targetHandling(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Hot cell / shielded enclosure
+    px(14, my - 7, 32, 17, '#666677');
+    px(16, my - 5, 28, 13, '#0d0d22');
+    // Manipulator arm
+    px(22, my - 1, 14, 2, C.metal);
+    px(35, my - 3, 2, 5, C.metalDk);
+    // Gripper
+    dot(36, my - 3, C.metal);
+    dot(37, my - 4, C.metalDk);
+    dot(37, my - 2, C.metalDk);
+    // Target object
+    px(26, my + 3, 4, 3, C.hot);
+    // Shielded window
+    px(18, my - 7, 6, 2, '#446688');
+  },
+
+  // === RAD WASTE STORAGE ===
+  radWasteStorage(p, px, dot, W, H, cy, C) {
+    const my = cy - 2;
+    // Barrel/drum
+    px(24, my - 7, 12, 16, '#ccaa22');
+    px(25, my - 6, 10, 14, '#aa8811');
+    // Radiation trefoil
+    dot(30, my - 1, '#1a1a0a');
+    dot(29, my + 1, '#1a1a0a');
+    dot(31, my + 1, '#1a1a0a');
+    dot(30, my + 3, '#1a1a0a');
+    // Lid
+    px(24, my - 7, 12, 2, C.metalDk);
+    // Floor/pad
+    px(20, my + 9, 20, 2, '#555566');
   },
 
 };
@@ -1162,5 +3372,31 @@ Renderer.prototype._renderGoalsOverlay = function() {
     item.appendChild(rewardEl);
 
     list.appendChild(item);
+  }
+};
+
+// --- Machine context windows ---
+
+Renderer.prototype._openMachineWindow = function(machineInstanceId) {
+  if (!this._machineWindows) this._machineWindows = {};
+  if (this._machineWindows[machineInstanceId]) {
+    this._machineWindows[machineInstanceId].ctx.focus();
+    return;
+  }
+  const mw = new MachineWindow(this.game, machineInstanceId);
+  this._machineWindows[machineInstanceId] = mw;
+  const origClose = mw.ctx.onClose;
+  mw.ctx.onClose = () => {
+    delete this._machineWindows[machineInstanceId];
+    if (origClose) origClose();
+  };
+};
+
+Renderer.prototype._refreshContextWindows = function() {
+  if (this._beamlineWindows) {
+    for (const bw of Object.values(this._beamlineWindows)) bw.refresh();
+  }
+  if (this._machineWindows) {
+    for (const mw of Object.values(this._machineWindows)) mw.refresh();
   }
 };
