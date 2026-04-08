@@ -49,6 +49,32 @@ export class InputHandler {
     this._startPanLoop();
   }
 
+  // --- Helper methods for multi-beamline support ---
+
+  _getNodeAtGrid(col, row) {
+    const blId = this.game.registry.sharedOccupied[col + ',' + row];
+    if (!blId) return null;
+    const entry = this.game.registry.get(blId);
+    if (!entry) return null;
+    return entry.beamline.getAllNodes().find(n =>
+      n.tiles.some(t => t.col === col && t.row === row)
+    ) || null;
+  }
+
+  _getActiveBuildCursors() {
+    if (!this.game.editingBeamlineId) return [];
+    const entry = this.game.registry.get(this.game.editingBeamlineId);
+    if (!entry) return [];
+    return entry.beamline.getBuildCursors();
+  }
+
+  _getActiveBeamlineNodes() {
+    if (!this.game.editingBeamlineId) return [];
+    const entry = this.game.registry.get(this.game.editingBeamlineId);
+    if (!entry) return [];
+    return entry.beamline.getAllNodes();
+  }
+
   // --- Keyboard bindings ---
 
   _bindKeyboard() {
@@ -77,14 +103,14 @@ export class InputHandler {
           e.preventDefault();
           if (this.selectedTool) {
             // Place at cursor position
-            const nodes = this.game.beamline.getAllNodes();
+            const nodes = this._getActiveBeamlineNodes();
             if (nodes.length === 0) {
               const comp = COMPONENTS[this.selectedTool];
               if (comp && comp.isSource) {
                 this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, DIR.NE);
               }
             } else {
-              const cursors = this.game.beamline.getBuildCursors();
+              const cursors = this._getActiveBuildCursors();
               // If only one cursor, place there; otherwise place at hovered cursor
               const cursor = cursors.length === 1
                 ? cursors[0]
@@ -119,6 +145,11 @@ export class InputHandler {
           break;
         }
         case 'Escape':
+          // Exit edit mode if active
+          if (this.game.editingBeamlineId) {
+            this.game.editingBeamlineId = null;
+            this.game.emit('editModeChanged', null);
+          }
           // Close network overlay if active
           if (this.renderer.activeNetworkType) {
             this.renderer.clearNetworkOverlay();
@@ -184,7 +215,7 @@ export class InputHandler {
         case 'Delete': case 'Backspace':
           if (this.selectedTool || this.buildMode) {
             // In build mode: remove the most recently placed component
-            const nodes = this.game.beamline.getAllNodes();
+            const nodes = this._getActiveBeamlineNodes();
             if (nodes.length > 0) {
               const last = nodes[nodes.length - 1];
               this.game.removeComponent(last.id);
@@ -416,8 +447,14 @@ export class InputHandler {
             // Remove beamline components in rect
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
-                const node = this.game.beamline.getNodeAt(c, r);
-                if (node) this.game.removeComponent(node.id);
+                const node = this._getNodeAtGrid(c, r);
+                if (node) {
+                  if (this.game.editingBeamlineId) {
+                    const entry = this.game.registry.getBeamlineForNode(node.id);
+                    if (!entry || entry.id !== this.game.editingBeamlineId) continue;
+                  }
+                  this.game.removeComponent(node.id);
+                }
               }
             }
           } else if (this.demolishType === 'demolishConnection') {
@@ -496,8 +533,8 @@ export class InputHandler {
           // Right-click on the grid: check if clicking on a beamline component
           const world = this.renderer.screenToWorld(e.clientX, e.clientY);
           const grid = isoToGrid(world.x, world.y);
-          const node = this.game.beamline.getNodeAt(grid.col, grid.row);
-          if (node || this.game.beamline.getAllNodes().length > 0) {
+          const node = this._getNodeAtGrid(grid.col, grid.row);
+          if (node || this.game.registry.getAllNodes().length > 0) {
             // Enter build mode — activate Sources tab and build mode
             this.selectedTool = 'source'; // default tool, user can pick another
             this.renderer.setBuildMode(true, 'source');
@@ -525,7 +562,7 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
-    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.beamline.getAllNodes().length });
+    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.registry.getAllNodes().length });
 
     if (this.bulldozerMode) {
       if (this.bulldozerConnType) {
@@ -534,9 +571,16 @@ export class InputHandler {
       } else {
         // General bulldozer: remove whatever is at the clicked tile
         const key = col + ',' + row;
-        const node = this.game.beamline.getNodeAt(col, row);
+        const node = this._getNodeAtGrid(col, row);
         if (node) {
-          this.game.removeComponent(node.id);
+          if (this.game.editingBeamlineId) {
+            const entry = this.game.registry.getBeamlineForNode(node.id);
+            if (entry && entry.id === this.game.editingBeamlineId) {
+              this.game.removeComponent(node.id);
+            }
+          } else {
+            this.game.removeComponent(node.id);
+          }
         }
         // Remove zones
         if (this.game.state.zoneOccupied[key]) {
@@ -592,8 +636,17 @@ export class InputHandler {
     if (this.demolishMode) {
       const key = col + ',' + row;
       if (this.demolishType === 'demolishComponent') {
-        const node = this.game.beamline.getNodeAt(col, row);
-        if (node) this.game.removeComponent(node.id);
+        const node = this._getNodeAtGrid(col, row);
+        if (node) {
+          if (this.game.editingBeamlineId) {
+            const entry = this.game.registry.getBeamlineForNode(node.id);
+            if (entry && entry.id === this.game.editingBeamlineId) {
+              this.game.removeComponent(node.id);
+            }
+          } else {
+            this.game.removeComponent(node.id);
+          }
+        }
       } else if (this.demolishType === 'demolishConnection') {
         // Remove all connection types at this tile
         const conns = this.game.getConnectionsAt(col, row);
@@ -632,7 +685,7 @@ export class InputHandler {
 
     if (this.selectedTool) {
       // Placement mode
-      const nodes = this.game.beamline.getAllNodes();
+      const nodes = this._getActiveBeamlineNodes();
       if (nodes.length === 0) {
         // Place first component (must be a source type)
         const comp = COMPONENTS[this.selectedTool];
@@ -641,7 +694,7 @@ export class InputHandler {
         }
       } else {
         // Find matching cursor
-        const cursors = this.game.beamline.getBuildCursors();
+        const cursors = this._getActiveBuildCursors();
         const cursor = cursors.find(c => c.col === col && c.row === row);
         if (cursor) {
           this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
@@ -649,16 +702,22 @@ export class InputHandler {
       }
     } else if (this.probeMode) {
       // Probe placement mode — click nodes to add probes
-      const node = this.game.beamline.getNodeAt(col, row);
+      const node = this._getNodeAtGrid(col, row);
       if (node && this.renderer.onProbeClick) {
         this.renderer.onProbeClick(node);
       }
       return;
     } else {
       // Selection mode
-      const node = this.game.beamline.getNodeAt(col, row);
+      const node = this._getNodeAtGrid(col, row);
       if (node) {
         this.selectedNodeId = node.id;
+        // Select the beamline this node belongs to
+        const entry = this.game.registry.getBeamlineForNode(node.id);
+        if (entry) {
+          this.game.selectedBeamlineId = entry.id;
+          this.game.emit('beamlineSelected', entry.id);
+        }
         this.renderer.showPopup(node, screenX, screenY);
       } else {
         // Check for facility equipment click
@@ -674,6 +733,11 @@ export class InputHandler {
               return;
             }
           }
+        }
+        // Clicked empty space — exit edit mode if active
+        if (this.game.editingBeamlineId) {
+          this.game.editingBeamlineId = null;
+          this.game.emit('editModeChanged', null);
         }
         this.selectedNodeId = null;
         this.renderer.hidePopup();
@@ -1050,10 +1114,10 @@ export class InputHandler {
       statEntries.push(['Requires', reqs.join(', ')]);
     }
 
-    this._renderPreview(comp.name, comp.desc || '', statEntries);
+    this._renderPreview(comp.name, comp.desc || '', statEntries, comp.id);
   }
 
-  _renderPreview(name, desc, stats) {
+  _renderPreview(name, desc, stats, componentId) {
     const panel = document.getElementById('component-preview');
     const nameEl = document.getElementById('preview-name');
     const descEl = document.getElementById('preview-desc');
@@ -1069,6 +1133,15 @@ export class InputHandler {
       row.innerHTML = `<span>${label}</span><span class="prev-stat-val">${val}</span>`;
       statsEl.appendChild(row);
     }
+    // Draw schematic if available
+    const schematicCanvas = document.getElementById('preview-schematic');
+    if (schematicCanvas && componentId && this.renderer._schematicDrawers[componentId]) {
+      schematicCanvas.style.display = 'block';
+      this.renderer.drawSchematic(schematicCanvas, componentId);
+    } else if (schematicCanvas) {
+      schematicCanvas.style.display = 'none';
+    }
+
     panel.classList.remove('hidden');
   }
 
