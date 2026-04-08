@@ -20,7 +20,7 @@ Renderer.prototype._renderComponents = function() {
   this.labelLayer.removeChildren();
   this.nodeSprites = {};
 
-  const nodes = this.game.beamline.getAllNodes();
+  const nodes = this.game.registry.getAllNodes();
 
   // Auto-name: count instances of each component type in placement order
   const typeCounts = {};
@@ -47,6 +47,15 @@ Renderer.prototype._renderComponents = function() {
     const texture = this.sprites.getTexture(spriteKey);
     if (!texture) continue;
 
+    // Determine if this node belongs to a non-edited beamline (for dimming)
+    let dimmed = false;
+    if (this.game.editingBeamlineId) {
+      const nodeEntry = this.game.registry.getBeamlineForNode(node.id);
+      if (nodeEntry && nodeEntry.id !== this.game.editingBeamlineId) {
+        dimmed = true;
+      }
+    }
+
     // Draw one sprite per occupied tile
     const tiles = node.tiles || [{ col: node.col, row: node.row }];
     for (let i = 0; i < tiles.length; i++) {
@@ -57,6 +66,7 @@ Renderer.prototype._renderComponents = function() {
       sprite.x = pos.x;
       sprite.y = pos.y;
       sprite.zIndex = tile.col + tile.row;
+      if (dimmed) sprite.alpha = 0.3;
       this.componentLayer.addChild(sprite);
       if (i === 0) this.nodeSprites[node.id] = sprite;
     }
@@ -79,6 +89,7 @@ Renderer.prototype._renderComponents = function() {
       label.anchor.set(0, 1);
       label.x = topLeft.x;
       label.y = topLeft.y - 12;
+      if (dimmed) label.alpha = 0.3;
       this.labelLayer.addChild(label);
     }
 
@@ -167,34 +178,43 @@ Renderer.prototype._renderBeam = function() {
 
   if (!this.game.state.beamOn) return;
 
-  const nodes = this.game.beamline.getAllNodes();
-  if (nodes.length < 2) return;
+  // Render beams per-beamline so we can dim non-edited ones
+  for (const entry of this.game.registry.getAll()) {
+    const nodes = entry.beamline.getAllNodes();
+    if (nodes.length < 2) continue;
 
-  const g = new PIXI.Graphics();
-  const nodeById = {};
-  for (const n of nodes) nodeById[n.id] = n;
+    // Dim beam for non-edited beamlines
+    let beamAlpha = 1.0;
+    if (this.game.editingBeamlineId && entry.id !== this.game.editingBeamlineId) {
+      beamAlpha = 0.3;
+    }
 
-  // Draw beam along parent-child edges
-  for (const node of nodes) {
-    if (node.parentId == null) continue;
-    const parent = nodeById[node.parentId];
-    if (!parent) continue;
+    const g = new PIXI.Graphics();
+    const nodeById = {};
+    for (const n of nodes) nodeById[n.id] = n;
 
-    const from = this._nodeCenter(parent);
-    const to = this._nodeCenter(node);
+    // Draw beam along parent-child edges
+    for (const node of nodes) {
+      if (node.parentId == null) continue;
+      const parent = nodeById[node.parentId];
+      if (!parent) continue;
 
-    // Outer glow
-    g.moveTo(from.x, from.y);
-    g.lineTo(to.x, to.y);
-    g.stroke({ color: 0x00ff00, width: 3, alpha: 0.6 });
+      const from = this._nodeCenter(parent);
+      const to = this._nodeCenter(node);
 
-    // Bright core
-    g.moveTo(from.x, from.y);
-    g.lineTo(to.x, to.y);
-    g.stroke({ color: 0xaaffaa, width: 1.5, alpha: 0.9 });
+      // Outer glow
+      g.moveTo(from.x, from.y);
+      g.lineTo(to.x, to.y);
+      g.stroke({ color: 0x00ff00, width: 3, alpha: 0.6 * beamAlpha });
+
+      // Bright core
+      g.moveTo(from.x, from.y);
+      g.lineTo(to.x, to.y);
+      g.stroke({ color: 0xaaffaa, width: 1.5, alpha: 0.9 * beamAlpha });
+    }
+
+    this.beamLayer.addChild(g);
   }
-
-  this.beamLayer.addChild(g);
 };
 
 // --- Cursor rendering ---
@@ -210,7 +230,12 @@ Renderer.prototype._renderCursors = function() {
 
   if (!this.buildMode) return;
 
-  const nodes = this.game.beamline.getAllNodes();
+  // Get nodes for the currently edited beamline only
+  let nodes = [];
+  if (this.game.editingBeamlineId) {
+    const entry = this.game.registry.get(this.game.editingBeamlineId);
+    if (entry) nodes = entry.beamline.getAllNodes();
+  }
 
   if (nodes.length === 0) {
     // Draw hover cursor showing full footprint of selected tool
@@ -236,8 +261,12 @@ Renderer.prototype._renderCursors = function() {
     return;
   }
 
-  // Draw cursors at build positions, highlight the one under the mouse
-  const cursors = this.game.beamline.getBuildCursors();
+  // Draw cursors at build positions for the edited beamline only
+  let cursors = [];
+  if (this.game.editingBeamlineId) {
+    const entry = this.game.registry.get(this.game.editingBeamlineId);
+    if (entry) cursors = entry.beamline.getBuildCursors();
+  }
   for (const cursor of cursors) {
     const isHovered = cursor.col === this.hoverCol && cursor.row === this.hoverRow;
     this._drawCursorMarker(cursor, isHovered);
@@ -269,7 +298,7 @@ Renderer.prototype._drawBulldozerCursor = function(col, row) {
 
   // Check if there's something to demolish here
   const key = col + ',' + row;
-  const node = this.game.beamline.getNodeAt(col, row);
+  const node = this.game.registry.sharedOccupied[key] !== undefined;
   const hasInfra = this.game.state.infraOccupied[key];
   const hasFacility = this.game.state.facilityGrid[key];
   const hasMachine = this.game.state.machineGrid[key];
@@ -344,9 +373,9 @@ Renderer.prototype._drawCursorMarker = function(cursor, isHovered) {
     }
   }
 
-  // Check if tiles are available (use exact fractional key check)
+  // Check if tiles are available (use shared occupancy grid)
   const available = tiles.every(t =>
-    this.game.beamline.occupied[t.col + ',' + t.row] === undefined
+    this.game.registry.sharedOccupied[t.col + ',' + t.row] === undefined
   );
   const color = available ? 0x4488ff : 0xff4444;
 
