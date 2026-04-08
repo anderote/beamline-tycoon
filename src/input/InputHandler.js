@@ -132,7 +132,7 @@ export class InputHandler {
           } else if (this.selectedInfraTool) {
             const infra = INFRASTRUCTURE[this.selectedInfraTool];
             if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-              if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool)) {
+              if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool, this.selectedInfraVariant)) {
                 this.game.emit('infrastructureChanged');
               }
             }
@@ -456,7 +456,7 @@ export class InputHandler {
       // Line placement end (hallway)
       if (this.isDrawingLine && this.linePath.length > 0) {
         for (const pt of this.linePath) {
-          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool);
+          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
         }
         this.game.emit('infrastructureChanged');
         this.isDrawingLine = false;
@@ -529,7 +529,8 @@ export class InputHandler {
           this.game.placeInfraRect(
             this.dragStart.col, this.dragStart.row,
             this.dragEnd.col, this.dragEnd.row,
-            this.selectedInfraTool
+            this.selectedInfraTool,
+            this.selectedInfraVariant
           );
         }
         this.isDragging = false;
@@ -652,7 +653,7 @@ export class InputHandler {
       // Infrastructure placement (single tile for non-drag items like path)
       const infra = INFRASTRUCTURE[this.selectedInfraTool];
       if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-        if (this.game.placeInfraTile(col, row, this.selectedInfraTool)) {
+        if (this.game.placeInfraTile(col, row, this.selectedInfraTool, this.selectedInfraVariant)) {
           this.game.emit('infrastructureChanged');
         }
       }
@@ -859,7 +860,7 @@ export class InputHandler {
     this.renderer.setBuildMode(false);
   }
 
-  selectInfraTool(infraType) {
+  selectInfraTool(infraType, variant = 0) {
     this.selectedTool = null;
     this.selectedFurnishingTool = null;
     this.selectedDecorationTool = null;
@@ -867,6 +868,7 @@ export class InputHandler {
     this.renderer.setBuildMode(false);
     this.renderer.clearDragPreview();
     this.selectedInfraTool = infraType;
+    this.selectedInfraVariant = variant;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
   }

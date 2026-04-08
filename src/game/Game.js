@@ -246,7 +246,7 @@ export class Game {
 
   // === INFRASTRUCTURE ===
 
-  placeInfraTile(col, row, infraType) {
+  placeInfraTile(col, row, infraType, variant = 0) {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
@@ -272,7 +272,7 @@ export class Game {
     if (this.state.resources.funding < infra.cost) return false;
 
     this.state.resources.funding -= infra.cost;
-    this.state.infrastructure.push({ type: infraType, col, row });
+    this.state.infrastructure.push({ type: infraType, col, row, variant });
     this.state.infraOccupied[key] = infraType;
     if (infraType === 'hallway') {
       this.recomputeZoneConnectivity();
@@ -281,7 +281,7 @@ export class Game {
     return true;
   }
 
-  placeInfraRect(startCol, startRow, endCol, endRow, infraType) {
+  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0) {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
 
@@ -326,7 +326,7 @@ export class Game {
           }
         }
         this.state.resources.funding -= infra.cost;
-        this.state.infrastructure.push({ type: infraType, col: c, row: r });
+        this.state.infrastructure.push({ type: infraType, col: c, row: r, variant });
         this.state.infraOccupied[key] = infraType;
         placed++;
       }

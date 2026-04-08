@@ -53,7 +53,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     if (controllerView.handlePaletteClick(compType)) return;
     input.selectTool(compType);
   };
-  renderer._onInfraSelect = (infraType) => input.selectInfraTool(infraType);
+  renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);

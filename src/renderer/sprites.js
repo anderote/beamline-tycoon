@@ -13,6 +13,7 @@ export class SpriteManager {
     this.textures = {}; // spriteKey -> PIXI.Texture
     this.tileTextures = {}; // gameId -> PIXI.Texture (single, for flooring)
     this.tileVariants = {}; // gameId -> [PIXI.Texture, ...] (multiple, for zones)
+    this.floorVariants = {}; // gameId -> [PIXI.Texture, ...] (floor color variants)
   }
 
   /**
@@ -51,6 +52,21 @@ export class SpriteManager {
           } catch (e) {
             console.warn(`Failed to load tile sprite: ${info.file}`, e);
           }
+          // Load floor color variants if present
+          if (info.variants) {
+            const varTextures = [];
+            for (let i = 0; i < info.variants.length; i++) {
+              const vAlias = `tile_${gameId}_v${i}`;
+              try {
+                PIXI.Assets.add({ alias: vAlias, src: info.variants[i].file });
+                const vTex = await PIXI.Assets.load(vAlias);
+                if (vTex && vTex.valid !== false) { varTextures.push(vTex); count++; }
+              } catch (e) {
+                console.warn(`Failed to load floor variant: ${info.variants[i].file}`, e);
+              }
+            }
+            if (varTextures.length) this.floorVariants[gameId] = varTextures;
+          }
         }
       }
       console.log(`Loaded ${count} tile sprites`);
@@ -86,8 +102,12 @@ export class SpriteManager {
 
   /**
    * Return single tile texture (flooring), or null.
+   * If variantIndex is provided, return that floor variant texture.
    */
-  getTileTexture(gameId) {
+  getTileTexture(gameId, variantIndex) {
+    if (variantIndex != null && this.floorVariants[gameId]) {
+      return this.floorVariants[gameId][variantIndex] || this.tileTextures[gameId] || null;
+    }
     return this.tileTextures[gameId] || null;
   }
 

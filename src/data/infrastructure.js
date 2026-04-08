@@ -17,6 +17,7 @@ export const INFRASTRUCTURE = {
     topColor: 0x999999,
     isDragPlacement: true,
     subsection: 'foundations',
+    variants: ['Standard', 'Light', 'Dark', 'Warm'],
   },
   labFloor: {
     id: 'labFloor',
@@ -27,6 +28,7 @@ export const INFRASTRUCTURE = {
     topColor: 0xdddddd,
     isDragPlacement: true,
     subsection: 'surfaces',
+    variants: ['Blue-Gray Epoxy', 'White Epoxy', 'Green Epoxy', 'Dark Epoxy'],
   },
   officeFloor: {
     id: 'officeFloor',
@@ -37,16 +39,18 @@ export const INFRASTRUCTURE = {
     topColor: 0xccbb99,
     isDragPlacement: true,
     subsection: 'surfaces',
+    variants: ['Tan Carpet', 'Blue-Gray Carpet', 'Hardwood', 'Charcoal Carpet'],
   },
   hallway: {
     id: 'hallway',
     name: 'Hallway',
-    desc: 'White linoleum hallway connecting zones to the control room. Click and drag a line.',
+    desc: 'Checked linoleum hallway connecting zones. Click and drag a line.',
     cost: 8,
     color: 0xcccccc,
     topColor: 0xeeeeee,
     isLinePlacement: true,
     subsection: 'surfaces',
+    variants: ['Gray Checked', 'Cream Checked', 'Blue Checked', 'Green Checked'],
   },
 };
 

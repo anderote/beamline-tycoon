@@ -2,103 +2,80 @@
   "hallway": {
     "file": "assets/tiles/hallway.png",
     "section": "flooring",
-    "size": {
-      "width": 64,
-      "height": 31
-    }
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/hallway.png", "name": "Gray Checked" },
+      { "file": "assets/tiles/hallway_1.png", "name": "Cream Checked" },
+      { "file": "assets/tiles/hallway_2.png", "name": "Blue Checked" },
+      { "file": "assets/tiles/hallway_3.png", "name": "Green Checked" }
+    ]
   },
   "officeFloor": {
     "file": "assets/tiles/officeFloor.png",
     "section": "flooring",
-    "size": {
-      "width": 64,
-      "height": 31
-    }
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/officeFloor.png", "name": "Tan Carpet" },
+      { "file": "assets/tiles/officeFloor_1.png", "name": "Blue-Gray Carpet" },
+      { "file": "assets/tiles/officeFloor_2.png", "name": "Hardwood" },
+      { "file": "assets/tiles/officeFloor_3.png", "name": "Charcoal Carpet" }
+    ]
   },
   "labFloor": {
     "file": "assets/tiles/labFloor.png",
     "section": "flooring",
-    "size": {
-      "width": 64,
-      "height": 31
-    }
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/labFloor.png", "name": "Blue-Gray Epoxy" },
+      { "file": "assets/tiles/labFloor_1.png", "name": "White Epoxy" },
+      { "file": "assets/tiles/labFloor_2.png", "name": "Green Epoxy" },
+      { "file": "assets/tiles/labFloor_3.png", "name": "Dark Epoxy" }
+    ]
   },
   "concrete": {
     "file": "assets/tiles/concrete.png",
     "section": "flooring",
-    "size": {
-      "width": 64,
-      "height": 31
-    }
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/concrete.png", "name": "Standard" },
+      { "file": "assets/tiles/concrete_1.png", "name": "Light" },
+      { "file": "assets/tiles/concrete_2.png", "name": "Dark" },
+      { "file": "assets/tiles/concrete_3.png", "name": "Warm" }
+    ]
   },
   "rfLab": {
-    "files": [
-      "assets/tiles/rfLab_0.png"
-    ],
+    "files": ["assets/tiles/rfLab_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "coolingLab": {
-    "files": [
-      "assets/tiles/coolingLab_0.png"
-    ],
+    "files": ["assets/tiles/coolingLab_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "vacuumLab": {
-    "files": [
-      "assets/tiles/vacuumLab_0.png"
-    ],
+    "files": ["assets/tiles/vacuumLab_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "officeSpace": {
-    "files": [
-      "assets/tiles/officeSpace_0.png"
-    ],
+    "files": ["assets/tiles/officeSpace_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "controlRoom": {
-    "files": [
-      "assets/tiles/controlRoom_0.png"
-    ],
+    "files": ["assets/tiles/controlRoom_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "machineShop": {
-    "files": [
-      "assets/tiles/machineShop_0.png"
-    ],
+    "files": ["assets/tiles/machineShop_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   },
   "maintenance": {
-    "files": [
-      "assets/tiles/maintenance_0.png"
-    ],
+    "files": ["assets/tiles/maintenance_0.png"],
     "section": "zones",
-    "size": {
-      "width": 48,
-      "height": 48
-    }
+    "size": { "width": 48, "height": 48 }
   }
 }

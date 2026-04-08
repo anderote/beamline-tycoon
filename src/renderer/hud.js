@@ -313,10 +313,42 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         costEl.textContent = `$${infra.cost}/tile`;
         item.appendChild(costEl);
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onInfraSelect) this._onInfraSelect(key);
-        });
+        // If this floor has variants, show a flyout on click
+        if (infra.variants && infra.variants.length > 1) {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            // Toggle variant flyout
+            const existing = item.querySelector('.variant-flyout');
+            if (existing) { existing.remove(); return; }
+            // Remove other flyouts
+            palette.querySelectorAll('.variant-flyout').forEach(f => f.remove());
+            const flyout = document.createElement('div');
+            flyout.className = 'variant-flyout';
+            flyout.style.cssText = 'display:flex;gap:4px;padding:4px 0;margin-top:4px;border-top:1px solid rgba(255,255,255,0.1);flex-wrap:wrap;';
+            for (let vi = 0; vi < infra.variants.length; vi++) {
+              const vBtn = document.createElement('div');
+              vBtn.style.cssText = 'padding:3px 6px;font-size:9px;background:rgba(255,255,255,0.08);border-radius:3px;cursor:pointer;color:#ccc;';
+              vBtn.textContent = infra.variants[vi];
+              const variantIdx = vi;
+              vBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
+                // Highlight selected variant
+                flyout.querySelectorAll('div').forEach(d => d.style.background = 'rgba(255,255,255,0.08)');
+                vBtn.style.background = 'rgba(100,180,255,0.3)';
+              });
+              flyout.appendChild(vBtn);
+            }
+            item.appendChild(flyout);
+            // Auto-select first variant
+            if (this._onInfraSelect) this._onInfraSelect(key, 0);
+          });
+        } else {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onInfraSelect) this._onInfraSelect(key);
+          });
+        }
 
         itemsContainer.appendChild(item);
       }

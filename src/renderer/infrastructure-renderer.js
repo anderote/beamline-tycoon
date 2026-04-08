@@ -26,14 +26,14 @@ Renderer.prototype._renderInfrastructure = function() {
     if (!infra) continue;
     const hasRight = occupied.has(`${tile.col + 1},${tile.row}`);
     const hasBelow = occupied.has(`${tile.col},${tile.row + 1}`);
-    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow);
+    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow, tile.variant);
   }
 
   // Re-render decorations since infra changes may have cleared some
   if (this._renderDecorations) this._renderDecorations();
 };
 
-Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow) {
+Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow, variant) {
   const pos = tileCenterIso(col, row);
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
@@ -55,7 +55,7 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
 
   // Top face — use sprite if available, otherwise colored polygon
   const isoDepth = col + row;
-  const texture = this.sprites.getTileTexture(infra.id);
+  const texture = this.sprites.getTileTexture(infra.id, variant);
   if (texture) {
     const sprite = new PIXI.Sprite(texture);
     // RCT2 tiles are isometric diamond-shaped (64x31 or 64x48) — scale by width only
