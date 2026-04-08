@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename "Beamline Controller" to "Beamline Designer", add a saved designs library, design placement on the map, and replace "New Game" with a Menu dropdown.
+**Goal:** Rename "Beamline Controller" to "Beamline Designer", add a saved designs library, design placement on the map, replace "New Game" with a Menu dropdown, and make the designer a persistent tab view with URL hash routing and state persistence across reloads.
 
-**Architecture:** Extend the existing ControllerView with a `mode` property (`'edit'` vs `'design'`). Add a DesignLibrary overlay for browsing saved designs. Add a DesignPlacer class for stamping designs onto the map with transparent preview. Saved designs stored in `game.state.savedDesigns[]` and persisted via localStorage.
+**Architecture:** Extend the existing ControllerView with a `mode` property (`'edit'` vs `'design'`). Add a DesignLibrary overlay for browsing saved designs. Add a DesignPlacer class for stamping designs onto the map with transparent preview. Saved designs stored in `game.state.savedDesigns[]` and persisted via localStorage. URL hash routing (`#designer`, `#designs`, `#game`) tracks the active view. Designer draft state saved with game state so reloads restore the session.
 
 **Tech Stack:** Vanilla JS (ES6 modules), PIXI.js for map rendering, HTML/CSS DOM overlays.
 
@@ -15,6 +15,7 @@
 ### New Files
 - `src/ui/DesignLibrary.js` — Designs overlay: browse, manage, categorize saved designs
 - `src/ui/DesignPlacer.js` — Map placement mode for stamping saved designs onto isometric grid
+- `src/ui/ViewRouter.js` — URL hash routing and view transition management
 
 ### Renamed Files
 - `src/ui/ControllerView.js` → `src/ui/BeamlineDesigner.js`
@@ -1705,23 +1706,319 @@ Check if `Renderer` has a `requestRender` method. If not, add to `src/renderer/R
 
 Or if the renderer uses an animation loop that already re-renders every frame, the InputHandler just needs to mark the state dirty and the existing loop handles it. In that case, `requestRender` is a no-op or just sets a dirty flag.
 
-- [ ] **Step 3: Test full workflow**
-
-1. Click "Beamline Designer" — blank designer opens in design mode
-2. Add components from the palette, tune parameters, see plots update
-3. Click "Save Design" — prompted for name, saves to library
-4. Close designer, click "Designs" — card appears with mini schematic
-5. Click "Edit" on card — designer opens with that design loaded
-6. Modify, click "Save" — overwrites existing design
-7. Click "Save As" — creates new copy
-8. Click "Place" on a card — ghost preview on map, F to rotate, R to reflect
-9. Click to place — beamline created with auto-foundation
-10. Click on placed beamline, click "Designer" — opens in edit mode with Confirm/Cancel
-11. Add components that extend beyond concrete pad — confirm, foundation auto-placed
-12. Click "Save as Design" from edit mode — design saved to library
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add -A && git commit -m "feat: integrate DesignPlacer rendering and final polish"
+```
+
+---
+
+### Task 10: URL hash routing and designer state persistence
+
+**Files:**
+- Create: `src/ui/ViewRouter.js`
+- Modify: `src/main.js`
+- Modify: `src/ui/BeamlineDesigner.js`
+- Modify: `src/game/Game.js`
+
+- [ ] **Step 1: Create src/ui/ViewRouter.js**
+
+```javascript
+// src/ui/ViewRouter.js — URL hash routing for view management.
+// Routes: #game (default), #designer, #designer?edit=<id>, #designer?design=<id>, #designs
+
+export class ViewRouter {
+  constructor() {
+    this.currentView = 'game';
+    this.params = {};
+    this.listeners = [];
+
+    window.addEventListener('hashchange', () => this._onHashChange());
+  }
+
+  on(fn) { this.listeners.push(fn); }
+  _emit(view, params) { this.listeners.forEach(fn => fn(view, params)); }
+
+  init() {
+    // Parse the initial hash on page load
+    this._onHashChange();
+  }
+
+  _onHashChange() {
+    const hash = window.location.hash.slice(1) || 'game';
+    const [path, query] = hash.split('?');
+    const params = {};
+    if (query) {
+      for (const pair of query.split('&')) {
+        const [k, v] = pair.split('=');
+        params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+      }
+    }
+    this.currentView = path;
+    this.params = params;
+    this._emit(path, params);
+  }
+
+  navigate(view, params = {}) {
+    const query = Object.entries(params)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
+    const hash = query ? `${view}?${query}` : view;
+    window.location.hash = hash;
+    // hashchange will fire and call _onHashChange
+  }
+
+  get isDesigner() { return this.currentView === 'designer'; }
+  get isDesigns() { return this.currentView === 'designs'; }
+  get isGame() { return this.currentView === 'game' || !this.currentView; }
+}
+```
+
+- [ ] **Step 2: Add designerState to Game state and persistence**
+
+In `src/game/Game.js`, add to the initial state (after `savedDesignNextId`):
+
+```javascript
+      // Designer session state (persisted for reload)
+      designerState: null,
+```
+
+In `save()`, before the `localStorage.setItem` call, the designer will have already serialized its state into `game.state.designerState` (done via a hook in main.js).
+
+In `load()`, after the savedDesigns migration, add:
+
+```javascript
+      // Ensure designerState exists
+      if (!this.state.designerState) this.state.designerState = null;
+```
+
+- [ ] **Step 3: Add serialize/deserialize methods to BeamlineDesigner**
+
+In `src/ui/BeamlineDesigner.js`, add:
+
+```javascript
+  serializeState() {
+    if (!this.isOpen) return null;
+    return {
+      isOpen: true,
+      mode: this.mode,
+      beamlineId: this.beamlineId,
+      designId: this.designId,
+      designName: this.designName,
+      draftNodes: this.draftNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        params: n.params ? { ...n.params } : {},
+        bendDir: n.bendDir || null,
+      })),
+      selectedIndex: this.selectedIndex,
+      viewX: this.viewX,
+      viewZoom: this.viewZoom,
+    };
+  }
+
+  restoreState(state) {
+    if (!state || !state.isOpen) return;
+
+    if (state.mode === 'edit' && state.beamlineId) {
+      // Restore edit mode — re-open from beamline
+      const entry = this.game.registry.get(state.beamlineId);
+      if (entry) {
+        this.open(state.beamlineId);
+        // Restore draft nodes from saved state instead of fresh clone
+        this.draftNodes = state.draftNodes.map((n, i) => ({
+          id: n.id,
+          type: n.type,
+          col: 0, row: 0, dir: 0, entryDir: 0,
+          parentId: null, bendDir: n.bendDir || null, tiles: [],
+          params: n.params ? { ...n.params } : {},
+          computedStats: null,
+        }));
+        this.selectedIndex = state.selectedIndex;
+        this.viewX = state.viewX;
+        this.viewZoom = state.viewZoom;
+        this._updateTotalLength();
+        this._recalcDraft();
+        this._updateDraftBar();
+        this._renderAll();
+      }
+    } else if (state.mode === 'design') {
+      // Restore design mode
+      const design = state.designId ? this.game.getDesign(state.designId) : null;
+      this.openDesign(design);
+      // Override draft with saved state
+      this.draftNodes = state.draftNodes.map((n, i) => ({
+        id: n.id,
+        type: n.type,
+        col: 0, row: 0, dir: 0, entryDir: 0,
+        parentId: null, bendDir: n.bendDir || null, tiles: [],
+        params: n.params ? { ...n.params } : {},
+        computedStats: null,
+      }));
+      this.designName = state.designName;
+      this.selectedIndex = state.selectedIndex;
+      this.viewX = state.viewX;
+      this.viewZoom = state.viewZoom;
+      this._updateTotalLength();
+      this._recalcDraft();
+      this._updateDesignerHeader();
+      this._updateDraftBar();
+      this._renderAll();
+    }
+  }
+```
+
+- [ ] **Step 4: Wire ViewRouter in src/main.js**
+
+Add import:
+```javascript
+import { ViewRouter } from './ui/ViewRouter.js';
+```
+
+Create the router early in main():
+```javascript
+  const router = new ViewRouter();
+```
+
+Wire route changes (after all components are created):
+```javascript
+  // View routing
+  router.on((view, params) => {
+    if (view === 'designer') {
+      if (params.edit) {
+        const blId = parseInt(params.edit, 10);
+        if (!designer.isOpen || designer.beamlineId !== blId) {
+          designer.open(blId);
+        }
+      } else if (params.design) {
+        const designId = parseInt(params.design, 10);
+        const design = game.getDesign(designId);
+        if (design && (!designer.isOpen || designer.designId !== designId)) {
+          designer.openDesign(design);
+        }
+      } else {
+        if (!designer.isOpen) designer.openDesign(null);
+      }
+    } else if (view === 'designs') {
+      if (designer.isOpen) designer.close();
+      designLibrary.open();
+    } else {
+      // #game or default
+      if (designer.isOpen) designer.close();
+      if (designLibrary.isOpen) designLibrary.close();
+    }
+  });
+```
+
+Update the button handlers to use router.navigate:
+```javascript
+  document.getElementById('btn-designer').addEventListener('click', () => {
+    router.navigate('designer');
+  });
+
+  document.getElementById('btn-designs').addEventListener('click', () => {
+    router.navigate('designs');
+  });
+```
+
+Update the designer's open/openDesign/close methods to set the hash:
+In `BeamlineDesigner.open(beamlineId)`, add at the end:
+```javascript
+    window.location.hash = `designer?edit=${beamlineId}`;
+```
+
+In `BeamlineDesigner.openDesign(design)`, add at the end:
+```javascript
+    window.location.hash = design ? `designer?design=${design.id}` : 'designer';
+```
+
+In `BeamlineDesigner._cleanup()`, add:
+```javascript
+    if (window.location.hash.startsWith('#designer')) {
+      window.location.hash = 'game';
+    }
+```
+
+- [ ] **Step 5: Save/restore designer state on game save/load**
+
+In `src/main.js`, update the save hook (the existing `origSave` wrapper):
+
+```javascript
+  const origSave = game.save.bind(game);
+  game.save = function() {
+    this.state.probe = probeWindow.toJSON();
+    this.state.view = {
+      zoom: renderer.zoom,
+      worldX: renderer.world.x,
+      worldY: renderer.world.y,
+    };
+    this.state.designerState = designer.serializeState();
+    origSave();
+  };
+```
+
+After `game.load()`, add:
+
+```javascript
+  // Restore designer state if it was open
+  if (game.state.designerState && game.state.designerState.isOpen) {
+    designer.restoreState(game.state.designerState);
+  }
+```
+
+Initialize the router after all load/restore is done:
+```javascript
+  router.init();
+```
+
+- [ ] **Step 6: Update DesignLibrary close to navigate back**
+
+In `src/ui/DesignLibrary.js`, update:
+
+```javascript
+  close() {
+    this.overlay.classList.add('hidden');
+    if (window.location.hash.startsWith('#designs')) {
+      window.location.hash = 'game';
+    }
+  }
+```
+
+And when a card action navigates to the designer:
+```javascript
+  // In edit button handler:
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    this.close();
+    window.location.hash = `designer?design=${design.id}`;
+  });
+
+  // In card click handler:
+  card.addEventListener('click', () => {
+    this.close();
+    window.location.hash = `designer?design=${design.id}`;
+  });
+
+  // In "New Design" card:
+  newCard.addEventListener('click', () => {
+    this.close();
+    window.location.hash = 'designer';
+  });
+```
+
+- [ ] **Step 7: Test persistence and routing**
+
+1. Open `#designer` — blank designer opens
+2. Add a few components, reload the page — designer reopens with same draft
+3. Navigate to `#game` — back to map view
+4. Press browser Back button — returns to `#designer`
+5. Open a saved design via `#designer?design=1` — loads that design
+6. Edit a placed beamline — URL shows `#designer?edit=<id>`
+7. Reload during edit — restores the edit session
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A && git commit -m "feat: add URL hash routing and designer state persistence across reloads"
 ```

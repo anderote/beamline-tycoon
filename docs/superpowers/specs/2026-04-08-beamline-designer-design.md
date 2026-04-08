@@ -137,6 +137,50 @@ The design is stored as a 1D ordered list. At placement time:
 - Dipoles change direction based on their `bendDir`
 - **Reflect** flips all dipole `bendDir` values (left↔right), mirroring the beamline shape
 
+## View Routing & State Persistence
+
+The designer is a full persistent view, not a modal overlay. URL hash routing tracks the active view.
+
+### URL Hash Routes
+
+- `#game` (or no hash) — default isometric map view
+- `#designer` — Beamline Designer view (design mode, blank or last session's draft)
+- `#designer?edit=<beamlineId>` — Beamline Designer in edit mode for a placed beamline
+- `#designer?design=<designId>` — Beamline Designer editing a saved design
+- `#designs` — Designs library overlay
+
+Clicking top-bar buttons sets the hash. Browser back/forward navigates between views. Page reload restores the active view from the hash.
+
+### Designer State Persistence
+
+The designer's draft state is saved with the game state so it survives reloads:
+
+```javascript
+// Added to game.state
+designerState: {
+  isOpen: boolean,
+  mode: 'edit' | 'design',
+  beamlineId: number | null,     // edit mode only
+  designId: number | null,       // design mode, editing saved design
+  designName: string,
+  draftNodes: [],                // serialized draft components
+  selectedIndex: number,
+  viewX: number,
+  viewZoom: number,
+}
+```
+
+On save: the designer serializes its current state into `game.state.designerState`.
+On load: if `designerState.isOpen` is true, the designer reopens with the saved draft.
+The URL hash is also restored from `designerState` on load.
+
+### View Transition Behavior
+
+- Navigating to `#game` from the designer prompts for unsaved changes (same as close)
+- Navigating to `#designer` from `#game` opens the designer (blank if no saved state)
+- The isometric map is hidden (not destroyed) when the designer is active
+- The bottom HUD palette switches to designer mode when `#designer` is active
+
 ## Menu Button
 
 Replace `btn-new-game` with a `btn-menu` dropdown:
