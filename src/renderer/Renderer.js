@@ -215,7 +215,7 @@ export class Renderer {
           break;
         case 'beamToggled':
           this._renderBeam();
-          this._updateBeamButton();
+          this._updateBeamSummary();
           break;
         case 'tick':
           this._updateHUD();

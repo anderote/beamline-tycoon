@@ -30,51 +30,58 @@ Renderer.prototype._updateHUD = function() {
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
 
-  // Beam stats (top-left panel)
-  if (s.beamEnergy) {
-    const e = formatEnergy(s.beamEnergy);
-    setEl('stat-beam-energy', e.val);
-    setEl('stat-beam-energy-unit', e.unit);
-  } else {
-    setEl('stat-beam-energy', '0.0');
-    setEl('stat-beam-energy-unit', 'GeV');
-  }
-  setEl('stat-beam-quality', s.beamQuality ? s.beamQuality.toFixed(2) : '--');
-  setEl('stat-beam-current', s.beamCurrent ? s.beamCurrent.toFixed(2) : '--');
-  setEl('stat-data-rate', s.dataRate ? s.dataRate.toFixed(1) : '0');
-  setEl('stat-length', s.totalLength || 0);
-  setEl('stat-energy-cost', s.totalEnergyCost || 0);
+  // Beam stats (top-left panel) — show selected beamline or facility summary
+  const selectedId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
+  const selectedEntry = selectedId ? this.game.registry.get(selectedId) : null;
 
-  this._updateBeamButton();
+  if (selectedEntry) {
+    const bs = selectedEntry.beamState;
+    if (bs.beamEnergy) {
+      const e = formatEnergy(bs.beamEnergy);
+      setEl('stat-beam-energy', e.val);
+      setEl('stat-beam-energy-unit', e.unit);
+    } else {
+      setEl('stat-beam-energy', '0.0');
+      setEl('stat-beam-energy-unit', 'GeV');
+    }
+    setEl('stat-beam-quality', bs.beamQuality ? bs.beamQuality.toFixed(2) : '--');
+    setEl('stat-beam-current', bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--');
+    setEl('stat-data-rate', bs.dataRate ? bs.dataRate.toFixed(1) : '0');
+    setEl('stat-length', bs.totalLength || 0);
+    setEl('stat-energy-cost', bs.totalEnergyCost || 0);
+  } else {
+    // Facility summary — aggregate across all beamlines
+    const entries = this.game.registry.getAll();
+    const totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.dataRate || 0), 0);
+    const totalEnergyCost = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
+    setEl('stat-beam-energy', '--');
+    setEl('stat-beam-energy-unit', '');
+    setEl('stat-beam-quality', '--');
+    setEl('stat-beam-current', '--');
+    setEl('stat-data-rate', totalDataRate ? totalDataRate.toFixed(1) : '0');
+    setEl('stat-length', '--');
+    setEl('stat-energy-cost', totalEnergyCost || 0);
+  }
+
+  this._updateBeamSummary();
 
   // Refresh system stats if panel is visible
   this._refreshSystemStatsValues();
 
 };
 
-Renderer.prototype._updateBeamButton = function() {
-  const btn = document.getElementById('btn-toggle-beam');
-  if (!btn) return;
-  if (this.game.state.beamOn) {
-    btn.textContent = 'Stop Beam';
-    btn.classList.add('running');
-    btn.classList.remove('blocked');
-    btn.title = '';
-    btn.style.opacity = '1';
+Renderer.prototype._updateBeamSummary = function() {
+  const el = document.getElementById('beam-summary');
+  if (!el) return;
+  const entries = this.game.registry.getAll();
+  const running = entries.filter(e => e.status === 'running').length;
+  const total = entries.length;
+  if (total === 0) {
+    el.textContent = 'No beamlines';
+    el.className = 'beam-summary';
   } else {
-    const blockers = this.game.state.infraBlockers || [];
-    if (blockers.length > 0) {
-      btn.textContent = `Start Beam (${blockers.length} issue${blockers.length > 1 ? 's' : ''})`;
-      btn.classList.add('blocked');
-      btn.title = blockers.map(b => b.reason).join('\n');
-      btn.style.opacity = '0.6';
-    } else {
-      btn.textContent = 'Start Beam';
-      btn.classList.remove('blocked');
-      btn.title = '';
-      btn.style.opacity = '1';
-    }
-    btn.classList.remove('running');
+    el.textContent = `${running}/${total} beamlines running`;
+    el.className = running > 0 ? 'beam-summary active' : 'beam-summary';
   }
 };
 
@@ -140,7 +147,8 @@ Renderer.prototype._renderMachineTypeSelector = function() {
   const dropdown = document.getElementById('machine-type-dropdown');
   if (!label || !dropdown) return;
 
-  const currentType = this.game.state.machineType || 'linac';
+  const editingEntry = this.game.editingBeamlineId ? this.game.registry.get(this.game.editingBeamlineId) : null;
+  const currentType = (editingEntry && editingEntry.beamState.machineType) || 'linac';
   const currentName = (typeof MACHINE_TYPES !== 'undefined' && MACHINE_TYPES[currentType])
     ? MACHINE_TYPES[currentType].name : 'Electron Linac';
 
@@ -520,7 +528,8 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   // Machine tier gating — hide components above current machine type tier
   if (typeof MACHINE_TIER !== 'undefined' && typeof MACHINE_TYPES !== 'undefined') {
     const compTier = MACHINE_TIER[key] || 1;
-    const currentType = this.game.state.machineType || 'linac';
+    const editingEntry = this.game.editingBeamlineId ? this.game.registry.get(this.game.editingBeamlineId) : null;
+    const currentType = (editingEntry && editingEntry.beamState.machineType) || 'linac';
     const currentMachineTier = MACHINE_TYPES[currentType]?.tier || 1;
     if (compTier > currentMachineTier) return null;
   }
@@ -691,12 +700,6 @@ Renderer.prototype._bindHUDEvents = function() {
       if (this._onTabSelect) this._onTabSelect(category);
     });
   });
-
-  // Beam toggle button
-  const beamBtn = document.getElementById('btn-toggle-beam');
-  if (beamBtn) {
-    beamBtn.addEventListener('click', () => this.game.toggleBeam());
-  }
 
   // Research button — opens tech tree
   const resBtn = document.getElementById('btn-research');

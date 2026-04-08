@@ -176,7 +176,7 @@ Renderer.prototype._updateWarningsPanel = function(warnings) {
 Renderer.prototype._renderBeam = function() {
   this.beamLayer.removeChildren();
 
-  if (!this.game.state.beamOn) return;
+  if (!this.game.registry.getAll().some(e => e.status === 'running')) return;
 
   // Render beams per-beamline so we can dim non-edited ones
   for (const entry of this.game.registry.getAll()) {
