@@ -20,6 +20,7 @@ export class DesignLibrary {
     this.overlay = document.getElementById('designs-overlay');
     this.activeCategory = 'all';
     this.onPlace = null;  // callback set externally for "Place" action
+    this._suppressHashUpdate = false;
 
     this._bindClose();
   }
@@ -35,10 +36,15 @@ export class DesignLibrary {
     this.overlay.classList.remove('hidden');
     this._renderTabs();
     this._renderGrid();
+    window.location.hash = 'designs';
   }
 
   close() {
     this.overlay.classList.add('hidden');
+    if (!this._suppressHashUpdate && window.location.hash === '#designs') {
+      window.location.hash = 'game';
+    }
+    this._suppressHashUpdate = false;
   }
 
   get isOpen() {

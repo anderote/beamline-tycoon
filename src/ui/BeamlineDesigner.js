@@ -48,6 +48,8 @@ export class BeamlineDesigner {
     this.summaryEl = document.getElementById('dsgn-draft-summary');
     this.costEl = document.getElementById('dsgn-draft-cost');
 
+    this._suppressHashUpdate = false;
+
     this._bindButtons();
     this._bindEvents();
   }
@@ -272,6 +274,7 @@ export class BeamlineDesigner {
 
     // Trigger initial render
     this._renderAll();
+    window.location.hash = `designer?edit=${beamlineId}`;
   }
 
   openDesign(design = null) {
@@ -319,6 +322,7 @@ export class BeamlineDesigner {
     this._updateDesignerHeader();
     this._updateDraftBar();
     this._renderAll();
+    window.location.hash = design ? `designer?design=${design.id}` : 'designer';
   }
 
   _updateDesignerHeader() {
@@ -502,6 +506,10 @@ export class BeamlineDesigner {
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
+    if (!this._suppressHashUpdate && window.location.hash.startsWith('#designer')) {
+      window.location.hash = 'game';
+    }
+    this._suppressHashUpdate = false;
     // Restore normal palette tabs
     this._restoreNormalTabs();
   }
@@ -871,6 +879,75 @@ export class BeamlineDesigner {
       if (node.tiles && node.tiles.length > 0) {
         bl._occupyTiles(node.tiles, node.id);
       }
+    }
+  }
+
+  serializeState() {
+    if (!this.isOpen) return null;
+    return {
+      isOpen: true,
+      mode: this.mode,
+      beamlineId: this.beamlineId,
+      designId: this.designId,
+      designName: this.designName,
+      draftNodes: this.draftNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        params: n.params ? { ...n.params } : {},
+        bendDir: n.bendDir || null,
+      })),
+      selectedIndex: this.selectedIndex,
+      viewX: this.viewX,
+      viewZoom: this.viewZoom,
+    };
+  }
+
+  restoreState(state) {
+    if (!state || !state.isOpen) return;
+
+    if (state.mode === 'edit' && state.beamlineId) {
+      const entry = this.game.registry.get(state.beamlineId);
+      if (entry) {
+        this.open(state.beamlineId);
+        // Restore draft nodes from saved state
+        this.draftNodes = state.draftNodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          col: 0, row: 0, dir: 0, entryDir: 0,
+          parentId: null, bendDir: n.bendDir || null, tiles: [],
+          params: n.params ? { ...n.params } : {},
+          computedStats: null,
+        }));
+        this.selectedIndex = state.selectedIndex;
+        this.viewX = state.viewX;
+        this.viewZoom = state.viewZoom;
+        this._updateTotalLength();
+        this._recalcDraft();
+        this._updateDraftBar();
+        this._renderAll();
+      }
+    } else if (state.mode === 'design') {
+      const design = state.designId ? this.game.getDesign(state.designId) : null;
+      this.openDesign(design);
+      // Override draft with saved state
+      this.draftNodes = state.draftNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        col: 0, row: 0, dir: 0, entryDir: 0,
+        parentId: null, bendDir: n.bendDir || null, tiles: [],
+        params: n.params ? { ...n.params } : {},
+        computedStats: null,
+      }));
+      this.designName = state.designName;
+      this.selectedIndex = state.selectedIndex;
+      this.viewX = state.viewX;
+      this.viewZoom = state.viewZoom;
+      this._nextTempId = this.draftNodes.length;
+      this._updateTotalLength();
+      this._recalcDraft();
+      this._updateDesignerHeader();
+      this._updateDraftBar();
+      this._renderAll();
     }
   }
 

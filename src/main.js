@@ -19,6 +19,7 @@ import { DesignLibrary } from './ui/DesignLibrary.js';
 import { DesignPlacer } from './ui/DesignPlacer.js';
 import './renderer/designer-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
+import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
@@ -38,6 +39,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
 (async function main() {
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
+  const router = new ViewRouter();
   const spriteManager = new SpriteManager();
 
   const renderer = new Renderer(game, spriteManager);
@@ -100,6 +102,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
       worldX: renderer.world.x,
       worldY: renderer.world.y,
     };
+    this.state.designerState = designer.serializeState();
     origSave();
   };
 
@@ -122,14 +125,59 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     probeWindow.fromJSON(game.state.probe);
   }
 
+  // Restore designer state if it was open
+  if (game.state.designerState && game.state.designerState.isOpen) {
+    designer.restoreState(game.state.designerState);
+  }
+
+  // View routing
+  router.on((view, params) => {
+    if (view === 'designer') {
+      if (designLibrary.isOpen) {
+        designLibrary._suppressHashUpdate = true;
+        designLibrary.close();
+      }
+      if (params.edit) {
+        const blId = parseInt(params.edit, 10);
+        if (!designer.isOpen || designer.beamlineId !== blId) {
+          designer.open(blId);
+        }
+      } else if (params.design) {
+        const designId = parseInt(params.design, 10);
+        const design = game.getDesign(designId);
+        if (design && (!designer.isOpen || designer.designId !== designId)) {
+          designer.openDesign(design);
+        }
+      } else {
+        if (!designer.isOpen) designer.openDesign(null);
+      }
+    } else if (view === 'designs') {
+      if (designer.isOpen) {
+        designer._suppressHashUpdate = true;
+        designer._cleanup();
+      }
+      if (!designLibrary.isOpen) designLibrary.open();
+    } else {
+      // #game or default
+      if (designer.isOpen) {
+        designer._suppressHashUpdate = true;
+        designer._cleanup();
+      }
+      if (designLibrary.isOpen) {
+        designLibrary._suppressHashUpdate = true;
+        designLibrary.close();
+      }
+    }
+  });
+
   // Beamline Designer button — opens blank designer
   document.getElementById('btn-designer').addEventListener('click', () => {
-    designer.openDesign(null);
+    router.navigate('designer');
   });
 
   // Designs button — opens library
   document.getElementById('btn-designs').addEventListener('click', () => {
-    designLibrary.open();
+    router.navigate('designs');
   });
 
   // Menu dropdown toggle
@@ -170,6 +218,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     }
   });
 
+  router.init();
   game.start();
 
   BeamPhysics.init().then(() => {
