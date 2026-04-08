@@ -183,6 +183,13 @@ export class Renderer {
 
     this.world.sortableChildren = true;
 
+    // Enable viewport culling on dynamic layers
+    this.componentLayer.cullable = true;
+    this.facilityLayer.cullable = true;
+    this.decorationLayer.cullable = true;
+    this.connectionLayer.cullable = true;
+    this.labelLayer.cullable = true;
+
     // 5. Generate placeholder sprites
     this.sprites.generatePlaceholders(this.app);
 
