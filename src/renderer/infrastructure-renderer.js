@@ -58,11 +58,11 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
   const texture = this.sprites.getTileTexture(infra.id);
   if (texture) {
     const sprite = new PIXI.Sprite(texture);
-    // RCT2 tiles are already isometric diamond-shaped (64x31), no extra scaling needed
-    // Old hand-drawn tiles (64x64) need the 1.35x multiplier to fill the diamond
-    const isIsoDiamond = texture.height <= TILE_H + 2;
+    // RCT2 tiles are isometric diamond-shaped (64x31 or 64x48) — scale by width only
+    // Old hand-drawn square tiles (64x64) need the 1.35x multiplier to fill the diamond
+    const isIsoDiamond = texture.height < TILE_H * 1.8;
     const scale = isIsoDiamond
-      ? TILE_W / texture.width
+      ? (TILE_W / texture.width) * 1.03
       : (TILE_W / texture.width) * 1.35;
     sprite.anchor.set(0.5, 0.5);
     sprite.x = pos.x;
@@ -114,7 +114,7 @@ Renderer.prototype._drawZoneTile = function(col, row, zone, active) {
     const fs = new PIXI.Sprite(floorTexture);
     const isIsoDiamond = floorTexture.height <= TILE_H + 2;
     const fScale = isIsoDiamond
-      ? TILE_W / floorTexture.width
+      ? (TILE_W / floorTexture.width) * 1.03
       : (TILE_W / floorTexture.width) * 1.35;
     fs.anchor.set(0.5, 0.5);
     fs.x = pos.x;
@@ -285,7 +285,7 @@ Renderer.prototype._renderConnections = function() {
   // Fixed draw order — each type always gets the same global offset index
   const CONN_ORDER = ['vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer', 'powerCable', 'dataFiber'];
   const LINE_WIDTH = 2;
-  const LINE_GAP = 6; // wider gap to prevent overlap
+  const LINE_GAP = 4; // snug gap so pipes fit within one tile
 
   // Global offset: each type always at the same position regardless of which
   // other types are present on this tile. Center the full set of 6 slots.

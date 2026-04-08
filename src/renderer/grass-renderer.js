@@ -22,7 +22,7 @@ Renderer.prototype._renderGrass = function() {
 
       if (texture) {
         const sprite = new PIXI.Sprite(texture);
-        const scale = TILE_W / texture.width;
+        const scale = (TILE_W / texture.width) * 1.03;
         sprite.anchor.set(0.5, 0.5);
         sprite.x = pos.x;
         sprite.y = pos.y;
