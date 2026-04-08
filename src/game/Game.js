@@ -9,6 +9,7 @@ import { Networks } from '../networks/networks.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
+import { generateStartingMap } from './map-generator.js';
 
 import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
@@ -69,6 +70,14 @@ export class Game {
     this.listeners = [];
     this.tickInterval = null;
     this.TICK_MS = 1000;
+
+    // Generate starting map
+    const startMap = generateStartingMap(Date.now());
+    this.state.decorations = startMap.decorations;
+    this.state.decorationNextId = startMap.nextId;
+    for (const dec of this.state.decorations) {
+      this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
+    }
   }
 
   on(fn) { this.listeners.push(fn); }
