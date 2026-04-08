@@ -65,6 +65,11 @@ export class Game {
       infraBlockers: [],          // blockers from Networks.validate()
       infraCanRun: true,          // true if no blockers
       networkData: null,          // network discovery data
+      // Saved beamline designs
+      savedDesigns: [],
+      savedDesignNextId: 1,
+      // Designer session state (persisted for reload)
+      designerState: null,
     };
 
     this.listeners = [];
@@ -158,7 +163,7 @@ export class Game {
     return this.state.completedResearch.includes(comp.requires);
   }
 
-  placeSource(col, row, dir, sourceType = 'source') {
+  placeSource(col, row, dir, sourceType = 'source', paramOverrides = null) {
     const template = COMPONENTS[sourceType];
     if (!template) return false;
     if (!template.isSource) return false;
@@ -181,12 +186,21 @@ export class Game {
     const entry = this.registry.createBeamline(machineType);
 
     // Place source on the entry's beamline
-    const nodeId = entry.beamline.placeSource(col, row, dir);
+    const nodeId = entry.beamline.placeSource(col, row, dir, sourceType);
     if (nodeId == null) {
       // Failed to place - remove the entry
       this.registry.removeBeamline(entry.id);
       this.log("Can't place there!", 'bad');
       return false;
+    }
+
+    // Apply param overrides from palette flyout (e.g. particleType)
+    if (paramOverrides) {
+      const node = entry.beamline.nodes.find(n => n.id === nodeId);
+      if (node) {
+        if (!node.params) node.params = {};
+        Object.assign(node.params, paramOverrides);
+      }
     }
 
     // Register tiles in shared grid
@@ -207,7 +221,7 @@ export class Game {
     return entry.id;
   }
 
-  placeComponent(cursor, compType, bendDir) {
+  placeComponent(cursor, compType, bendDir, paramOverrides = null) {
     const template = COMPONENTS[compType];
     if (!template) return false;
     if (!this.isComponentUnlocked(template)) return false;
@@ -233,6 +247,15 @@ export class Game {
 
     const nodeId = entry.beamline.placeAt(cursor, compType, bendDir);
     if (nodeId == null) { this.log("Can't place there!", 'bad'); return false; }
+
+    // Apply param overrides from palette flyout (e.g. particleType)
+    if (paramOverrides) {
+      const node = entry.beamline.nodes.find(n => n.id === nodeId);
+      if (node) {
+        if (!node.params) node.params = {};
+        Object.assign(node.params, paramOverrides);
+      }
+    }
 
     // Register tiles in shared grid
     const node = entry.beamline.nodes.find(n => n.id === nodeId);
@@ -1836,6 +1859,48 @@ export class Game {
     return true;
   }
 
+  // === SAVED DESIGNS ===
+
+  addDesign({ name, category, components }) {
+    const id = this.state.savedDesignNextId++;
+    const now = Date.now();
+    this.state.savedDesigns.push({
+      id,
+      name,
+      category: category || 'other',
+      components,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return id;
+  }
+
+  updateDesign(id, updates) {
+    const design = this.state.savedDesigns.find(d => d.id === id);
+    if (!design) return false;
+    if (updates.name !== undefined) design.name = updates.name;
+    if (updates.category !== undefined) design.category = updates.category;
+    if (updates.components !== undefined) design.components = updates.components;
+    design.updatedAt = Date.now();
+    return true;
+  }
+
+  deleteDesign(id) {
+    const idx = this.state.savedDesigns.findIndex(d => d.id === id);
+    if (idx < 0) return false;
+    this.state.savedDesigns.splice(idx, 1);
+    return true;
+  }
+
+  getDesign(id) {
+    return this.state.savedDesigns.find(d => d.id === id) || null;
+  }
+
+  getDesignsByCategory(category) {
+    if (!category || category === 'all') return this.state.savedDesigns;
+    return this.state.savedDesigns.filter(d => d.category === category);
+  }
+
   // === SAVE / LOAD ===
 
   save() {
@@ -1940,6 +2005,12 @@ export class Game {
       this.state.infraBlockers = this.state.infraBlockers || [];
       this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
       this.state.networkData = this.state.networkData || null;
+
+      // Ensure saved designs exist
+      if (!this.state.savedDesigns) this.state.savedDesigns = [];
+      if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
+      // Ensure designerState exists
+      if (!this.state.designerState) this.state.designerState = null;
 
       // Initialize params for nodes across all beamlines
       for (const entry of this.registry.getAll()) {
