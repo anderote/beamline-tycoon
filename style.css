@@ -1747,6 +1747,110 @@ body {
   height: 100%;
   display: block;
 }
+.ctrl-tuning-row {
+  display: flex;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.2);
+  padding: 6px 12px;
+  gap: 16px;
+  flex-shrink: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.ctrl-tuning-info {
+  flex: 1;
+  min-width: 0;
+}
+.ctrl-tuning-name {
+  font-size: 11px;
+  color: #aaccff;
+  font-family: 'Press Start 2P', monospace;
+  margin-bottom: 4px;
+}
+.ctrl-tuning-desc {
+  font-size: 10px;
+  color: #778;
+  line-height: 1.4;
+  margin-bottom: 6px;
+  max-height: 40px;
+  overflow-y: auto;
+}
+.ctrl-tuning-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 10px;
+  font-family: monospace;
+}
+.ctrl-tuning-stats .ts-row {
+  display: flex;
+  gap: 4px;
+}
+.ctrl-tuning-stats .ts-label {
+  color: #666;
+}
+.ctrl-tuning-stats .ts-val {
+  color: #aaa;
+}
+.ctrl-tuning-stats .ts-unit {
+  color: #556;
+}
+.ctrl-tuning-params {
+  flex: 1.5;
+  min-width: 0;
+}
+.ctrl-tuning-params .param-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-family: monospace;
+}
+.ctrl-tuning-params .param-label {
+  color: #889;
+  width: 100px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.ctrl-tuning-params input[type="range"] {
+  flex: 1;
+  height: 4px;
+  accent-color: #4488ff;
+}
+.ctrl-tuning-params .param-value {
+  color: #ccc;
+  width: 50px;
+  text-align: right;
+}
+.ctrl-tuning-params .param-unit {
+  color: #556;
+  width: 40px;
+}
+.ctrl-tuning-params .param-select {
+  font-family: monospace;
+  font-size: 9px;
+  background: rgba(20, 20, 40, 0.85);
+  color: #aaa;
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.ctrl-tuning-params .param-derived-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-family: monospace;
+}
+.ctrl-tuning-params .popup-section-label {
+  font-size: 9px;
+  color: #556;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
 .ctrl-plots-row {
   flex: 1;
   display: flex;

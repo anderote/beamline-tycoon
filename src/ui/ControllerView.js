@@ -275,6 +275,7 @@ export class ControllerView {
     this.originalNodes = [];
     this.draftEnvelope = null;
     this.selectedIndex = -1;
+    this._lastTuningKey = null;
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
