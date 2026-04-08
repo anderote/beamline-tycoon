@@ -1733,6 +1733,8 @@ export class Game {
       connObj[key] = Array.from(set);
     }
     const saveState = { ...this.state, connections: connObj };
+    saveState.decorations = this.state.decorations;
+    saveState.decorationNextId = this.state.decorationNextId;
     localStorage.setItem('beamlineTycoon', JSON.stringify({
       version: 6,
       state: saveState,
@@ -1808,6 +1810,14 @@ export class Game {
       if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
       if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
       if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+      // Restore decoration state
+      this.state.decorations = data.state.decorations || [];
+      this.state.decorationNextId = data.state.decorationNextId || 1;
+      this.state.decorationOccupied = {};
+      for (const dec of this.state.decorations) {
+        this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
+      }
 
       // Migrate: remove deprecated energy resource
       delete this.state.resources.energy;
