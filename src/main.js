@@ -14,6 +14,8 @@ import './renderer/decoration-renderer.js';
 import './renderer/hud.js';
 import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';
+import { ControllerView } from './ui/ControllerView.js';
+import './renderer/controller-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
@@ -45,7 +47,12 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._renderZones();
 
   const input = new InputHandler(renderer, game);
-  renderer._onToolSelect = (compType) => input.selectTool(compType);
+  const controllerView = new ControllerView(game, renderer);
+  game._controllerView = controllerView;
+  renderer._onToolSelect = (compType) => {
+    if (controllerView.handlePaletteClick(compType)) return;
+    input.selectTool(compType);
+  };
   renderer._onInfraSelect = (infraType) => input.selectInfraTool(infraType);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);

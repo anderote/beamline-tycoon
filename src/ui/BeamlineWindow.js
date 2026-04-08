@@ -126,6 +126,14 @@ export class BeamlineWindow {
         },
       },
       {
+        label: 'Controller',
+        onClick: () => {
+          if (this.game._controllerView) {
+            this.game._controllerView.open(this.beamlineId);
+          }
+        },
+      },
+      {
         label: 'Edit',
         onClick: () => {
           if (this.game.editingBeamlineId === this.beamlineId) {

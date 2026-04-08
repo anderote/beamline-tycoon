@@ -85,6 +85,9 @@ export class InputHandler {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
+      // Skip normal input handling when controller overlay is open
+      if (this.game._controllerView && this.game._controllerView.isOpen) return;
+
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -196,6 +199,15 @@ export class InputHandler {
         case 'f': case 'F':
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
+          break;
+        case 'c': case 'C':
+          if (this.game._controllerView && !this.game._controllerView.isOpen) {
+            const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
+            if (blId) {
+              e.preventDefault();
+              this.game._controllerView.open(blId);
+            }
+          }
           break;
         case 'p': case 'P':
           this.probeMode = !this.probeMode;
