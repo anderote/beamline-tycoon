@@ -1734,7 +1734,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-bottom: 200px; /* space for taller bottom HUD with preview cards */
+  padding-bottom: 240px; /* space for taller bottom HUD with preview cards */
 }
 .ctrl-schematic-row {
   height: 25vh;
