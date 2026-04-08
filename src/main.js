@@ -40,6 +40,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   await renderer.init();
 
   await spriteManager.loadTileSprites();
+  await spriteManager.loadDecorationSprites();
   renderer._renderInfrastructure();
   renderer._renderZones();
 
