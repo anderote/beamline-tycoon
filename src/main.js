@@ -16,6 +16,7 @@ import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { DesignLibrary } from './ui/DesignLibrary.js';
+import { DesignPlacer } from './ui/DesignPlacer.js';
 import './renderer/designer-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
 import { MODES } from './data/modes.js';
@@ -55,6 +56,15 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
   const designLibrary = new DesignLibrary(game, designer, renderer);
+  const designPlacer = new DesignPlacer(game, renderer);
+  game._designPlacer = designPlacer;
+
+  // Wire "Place" from design library
+  designLibrary.onPlace = (design) => {
+    designPlacer.start(design);
+    game.log('Click to place design. F=rotate, R=reflect, Esc=cancel', 'info');
+  };
+
   renderer._onToolSelect = (compType) => {
     if (designer.handlePaletteClick(compType)) return;
     // Pass any param overrides from the palette flyout

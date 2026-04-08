@@ -90,6 +90,28 @@ export class InputHandler {
       // Skip normal input handling when controller overlay is open
       if (this.game._designer && this.game._designer.isOpen) return;
 
+      // Handle DesignPlacer keys
+      if (this.game._designPlacer && this.game._designPlacer.active) {
+        if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          this.game._designPlacer.rotate();
+          this.renderer._renderCursors();
+          return;
+        }
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          this.game._designPlacer.reflect();
+          this.renderer._renderCursors();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.game._designPlacer.cancel();
+          return;
+        }
+        return; // block other keys while placing
+      }
+
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -432,6 +454,11 @@ export class InputHandler {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
+        // Update design placer position
+        if (this.game._designPlacer && this.game._designPlacer.active) {
+          this.game._designPlacer.setPosition(grid.col, grid.row);
+          this.renderer._renderCursors();
+        }
       }
     });
 
@@ -599,6 +626,16 @@ export class InputHandler {
     const row = grid.row;
 
     console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.registry.getAllNodes().length });
+
+    // DesignPlacer confirmation
+    if (this.game._designPlacer && this.game._designPlacer.active) {
+      if (this.game._designPlacer.valid) {
+        this.game._designPlacer.confirm();
+      } else {
+        this.game.log('Invalid placement!', 'bad');
+      }
+      return;
+    }
 
     if (this.bulldozerMode) {
       if (this.bulldozerConnType) {

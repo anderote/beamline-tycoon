@@ -293,6 +293,52 @@ Renderer.prototype._renderCursors = function() {
     const isHovered = cursor.col === this.hoverCol && cursor.row === this.hoverRow;
     this._drawCursorMarker(cursor, isHovered);
   }
+
+  // Design placer ghost preview
+  const placer = this.game._designPlacer;
+  if (placer && placer.active) {
+    const alpha = placer.valid ? 0.4 : 0.25;
+    const tint = placer.valid ? 0x44ff44 : 0xff4444;
+
+    // Draw foundation preview tiles
+    for (const ft of placer.foundationTiles) {
+      const pos = gridToIso(ft.col, ft.row);
+      const g = new PIXI.Graphics();
+      g.poly([0, 0, 32, 16, 0, 32, -32, 16]);
+      g.fill({ color: 0x999999, alpha: 0.3 });
+      g.x = pos.x;
+      g.y = pos.y;
+      this.cursorLayer.addChild(g);
+    }
+
+    // Draw component preview tiles
+    for (const pt of placer.previewTiles) {
+      const pos = gridToIso(pt.col, pt.row);
+      const g = new PIXI.Graphics();
+      g.poly([0, 0, 32, 16, 0, 32, -32, 16]);
+      g.fill({ color: tint, alpha });
+      g.x = pos.x;
+      g.y = pos.y;
+      this.cursorLayer.addChild(g);
+    }
+
+    // Cost label near first tile
+    if (placer.previewTiles.length > 0) {
+      const first = placer.previewTiles[0];
+      const pos = gridToIso(first.col, first.row);
+      const text = new PIXI.Text({
+        text: `$${placer.totalCost.toLocaleString()}`,
+        style: {
+          fontFamily: 'monospace',
+          fontSize: 10,
+          fill: placer.valid ? '#88ff88' : '#ff8888',
+        },
+      });
+      text.x = pos.x - 20;
+      text.y = pos.y - 20;
+      this.cursorLayer.addChild(text);
+    }
+  }
 };
 
 Renderer.prototype._drawSpritePreview = function(comp, tiles, available) {
