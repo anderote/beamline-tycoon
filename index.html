@@ -75,6 +75,7 @@
       </div>
       <div id="preview-body">
         <div id="preview-desc"></div>
+        <canvas id="preview-schematic" width="280" height="100"></canvas>
         <div id="preview-stats"></div>
       </div>
     </div>
@@ -145,17 +146,6 @@
 
   <script src="https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
-  <script src="data.js"></script>
-  <script src="component-physics.js"></script>
-  <script src="physics.js"></script>
-  <script src="beamline.js"></script>
-  <script src="networks.js"></script>
-  <script src="game.js"></script>
-  <script src="sprites.js"></script>
-  <script src="input.js"></script>
-  <script src="renderer.js"></script>
-  <script src="probe-plots.js"></script>
-  <script src="probe.js"></script>
-  <script src="main.js"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>

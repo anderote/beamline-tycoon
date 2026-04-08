@@ -5,6 +5,7 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { COMPONENTS } from '../data/components.js';
+import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
 import { tileCenterIso } from './grid.js';
 
 export class SpriteManager {

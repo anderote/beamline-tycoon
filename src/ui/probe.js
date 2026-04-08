@@ -1,6 +1,7 @@
 // === PROBE DIAGNOSTICS WINDOW ===
 
 import { COMPONENTS } from '../data/components.js';
+import { ProbePlots } from './probe-plots.js';
 
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];

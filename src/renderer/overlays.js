@@ -10,6 +10,7 @@ import { MACHINES } from '../data/machines.js';
 import { ZONES } from '../data/infrastructure.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
+import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 
 // --- Component popup ---
 

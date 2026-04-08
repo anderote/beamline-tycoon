@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { TILE_W, TILE_H, DIR, DIR_DELTA, turnLeft, turnRight } from '../data/directions.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
 import { gridToIso, tileCenterIso } from './grid.js';
+import { Networks } from '../networks/networks.js';
 
 // --- Component rendering ---
 

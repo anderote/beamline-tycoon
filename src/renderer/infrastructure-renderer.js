@@ -8,6 +8,7 @@ import { TILE_W, TILE_H } from '../data/directions.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS } from '../data/infrastructure.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
 import { tileCenterIso } from './grid.js';
+import { Networks } from '../networks/networks.js';
 
 // --- Infrastructure rendering ---
 
