@@ -3,19 +3,19 @@
     "file": "assets/decorations/grass_tile_0.png",
     "size": [
       64,
-      47
+      32
     ],
     "category": "terrain",
-    "source": "rct2-g1:1955"
+    "source": "procedural-flat-grass"
   },
   "grass_tile_1": {
     "file": "assets/decorations/grass_tile_1.png",
     "size": [
       64,
-      47
+      32
     ],
     "category": "terrain",
-    "source": "rct2-g1:1956"
+    "source": "procedural-flat-grass"
   },
   "grass_tile_2": {
     "file": "assets/decorations/grass_tile_2.png",
@@ -24,16 +24,16 @@
       32
     ],
     "category": "terrain",
-    "source": "rct2-g1:1957"
+    "source": "procedural-flat-grass"
   },
   "grass_tile_3": {
     "file": "assets/decorations/grass_tile_3.png",
     "size": [
-      63,
-      31
+      64,
+      32
     ],
     "category": "terrain",
-    "source": "rct2-g1:1958"
+    "source": "procedural-flat-grass"
   },
   "hedge_0": {
     "file": "assets/decorations/hedge_0.png",
