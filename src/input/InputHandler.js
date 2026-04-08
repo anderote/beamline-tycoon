@@ -552,6 +552,22 @@ export class InputHandler {
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
+
+    // Double-click: enter edit mode for the clicked beamline and open its window
+    canvas.addEventListener('dblclick', (e) => {
+      const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+      const grid = isoToGrid(world.x, world.y);
+      const clickedNode = this._getNodeAtGrid(grid.col, grid.row);
+      if (clickedNode) {
+        const entry = this.game.registry.getBeamlineForNode(clickedNode.id);
+        if (entry) {
+          this.game.editingBeamlineId = entry.id;
+          this.game.selectedBeamlineId = entry.id;
+          this.renderer._openBeamlineWindow(entry.id);
+          this.game.emit('editModeChanged', entry.id);
+        }
+      }
+    });
   }
 
   // --- Click handling ---
@@ -712,14 +728,21 @@ export class InputHandler {
       const node = this._getNodeAtGrid(col, row);
       if (node) {
         this.selectedNodeId = node.id;
-        // Select the beamline this node belongs to
+        // Select the beamline this node belongs to and open its context window
         const entry = this.game.registry.getBeamlineForNode(node.id);
         if (entry) {
           this.game.selectedBeamlineId = entry.id;
+          this.renderer._openBeamlineWindow(entry.id);
           this.game.emit('beamlineSelected', entry.id);
         }
         this.renderer.showPopup(node, screenX, screenY);
       } else {
+        // Check for machine tile click
+        const machineId = this.game.state.machineGrid[col + ',' + row];
+        if (machineId) {
+          this.renderer._openMachineWindow(machineId);
+          return;
+        }
         // Check for facility equipment click
         const facKey = col + ',' + row;
         const facId = this.game.state.facilityGrid[facKey];
