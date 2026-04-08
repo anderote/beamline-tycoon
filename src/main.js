@@ -43,6 +43,10 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
 
   await spriteManager.loadTileSprites();
   await spriteManager.loadDecorationSprites();
+  // Force re-render now that textures are loaded (initial render used fallbacks)
+  renderer._grassCacheKey = null;
+  renderer._renderGrass();
+  renderer._renderDecorations();
   renderer._renderInfrastructure();
   renderer._renderZones();
 
