@@ -1,0 +1,128 @@
+{
+  "grass_tile_0": {
+    "file": "assets/decorations/grass_tile_0.png",
+    "size": [
+      64,
+      47
+    ],
+    "category": "terrain",
+    "source": "rct2-g1:1955"
+  },
+  "grass_tile_1": {
+    "file": "assets/decorations/grass_tile_1.png",
+    "size": [
+      64,
+      47
+    ],
+    "category": "terrain",
+    "source": "rct2-g1:1956"
+  },
+  "grass_tile_2": {
+    "file": "assets/decorations/grass_tile_2.png",
+    "size": [
+      64,
+      32
+    ],
+    "category": "terrain",
+    "source": "rct2-g1:1957"
+  },
+  "grass_tile_3": {
+    "file": "assets/decorations/grass_tile_3.png",
+    "size": [
+      63,
+      31
+    ],
+    "category": "terrain",
+    "source": "rct2-g1:1958"
+  },
+  "hedge_0": {
+    "file": "assets/decorations/hedge_0.png",
+    "size": [
+      58,
+      54
+    ],
+    "category": "hedge",
+    "source": "rct2-g1:21179"
+  },
+  "hedge_1": {
+    "file": "assets/decorations/hedge_1.png",
+    "size": [
+      58,
+      54
+    ],
+    "category": "hedge",
+    "source": "rct2-g1:21182"
+  },
+  "oak_tree": {
+    "file": "assets/decorations/oak_tree.png",
+    "size": [
+      20,
+      32
+    ],
+    "category": "tree",
+    "source": "procedural"
+  },
+  "pine_tree": {
+    "file": "assets/decorations/pine_tree.png",
+    "size": [
+      14,
+      36
+    ],
+    "category": "tree",
+    "source": "procedural"
+  },
+  "small_tree": {
+    "file": "assets/decorations/small_tree.png",
+    "size": [
+      12,
+      20
+    ],
+    "category": "tree",
+    "source": "procedural"
+  },
+  "shrub": {
+    "file": "assets/decorations/shrub.png",
+    "size": [
+      10,
+      8
+    ],
+    "category": "shrub",
+    "source": "procedural"
+  },
+  "flower_bed": {
+    "file": "assets/decorations/flower_bed.png",
+    "size": [
+      12,
+      8
+    ],
+    "category": "shrub",
+    "source": "procedural"
+  },
+  "park_bench": {
+    "file": "assets/decorations/park_bench.png",
+    "size": [
+      16,
+      10
+    ],
+    "category": "furniture",
+    "source": "procedural"
+  },
+  "lamppost": {
+    "file": "assets/decorations/lamppost.png",
+    "size": [
+      6,
+      20
+    ],
+    "category": "furniture",
+    "source": "procedural"
+  },
+  "iron_fence": {
+    "file": "assets/decorations/iron_fence.png",
+    "size": [
+      32,
+      12
+    ],
+    "category": "fence",
+    "source": "procedural"
+  }
+}
