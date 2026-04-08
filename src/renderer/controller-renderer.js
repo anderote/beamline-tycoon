@@ -234,17 +234,32 @@ ControllerView.prototype._renderTuning = function() {
     return;
   }
 
-  // --- Left side: name, description, stats ---
+  // --- Left column: name + full description ---
   nameEl.textContent = comp.name;
   descEl.textContent = comp.desc || '';
 
+  // --- Middle column: base stats ---
   let statsHtml = '';
   const costStr = comp.cost ? Object.entries(comp.cost).map(([r, a]) =>
     r === 'funding' ? `$${a.toLocaleString()}` : `${a} ${r}`
   ).join(', ') : '--';
-  statsHtml += `<span class="ts-row"><span class="ts-label">Cost:</span><span class="ts-val">${costStr}</span></span>`;
-  statsHtml += `<span class="ts-row"><span class="ts-label">Energy:</span><span class="ts-val">${comp.energyCost}</span><span class="ts-unit">kW</span></span>`;
-  statsHtml += `<span class="ts-row"><span class="ts-label">Length:</span><span class="ts-val">${comp.length}</span><span class="ts-unit">m</span></span>`;
+  statsHtml += `<div class="ts-row"><span class="ts-label">Cost</span><span class="ts-val">${costStr}</span></div>`;
+  statsHtml += `<div class="ts-row"><span class="ts-label">Energy Cost</span><span class="ts-val">${comp.energyCost} <span class="ts-unit">kW</span></span></div>`;
+  statsHtml += `<div class="ts-row"><span class="ts-label">Length</span><span class="ts-val">${comp.length} <span class="ts-unit">m</span></span></div>`;
+
+  // Component-specific base stats
+  if (comp.stats) {
+    for (const [k, v] of Object.entries(comp.stats)) {
+      const label = _paramLabel(k);
+      if (k === 'energyGain') {
+        const e = formatEnergy(v);
+        statsHtml += `<div class="ts-row"><span class="ts-label">${label}</span><span class="ts-val">${e.val} <span class="ts-unit">${e.unit}</span></span></div>`;
+      } else {
+        const unit = typeof UNITS !== 'undefined' && UNITS[k] ? UNITS[k] : '';
+        statsHtml += `<div class="ts-row"><span class="ts-label">${label}</span><span class="ts-val">${v}${unit ? ' <span class="ts-unit">' + unit + '</span>' : ''}</span></div>`;
+      }
+    }
+  }
 
   // Health from game state
   const entry = this.game.registry.get(this.beamlineId);
@@ -252,7 +267,7 @@ ControllerView.prototype._renderTuning = function() {
     const health = entry.beamState.componentHealth[node.id];
     if (health != null) {
       const hColor = health > 60 ? '#4d4' : health > 25 ? '#da4' : '#f44';
-      statsHtml += `<span class="ts-row"><span class="ts-label">Health:</span><span class="ts-val" style="color:${hColor}">${Math.round(health)}%</span></span>`;
+      statsHtml += `<div class="ts-row"><span class="ts-label">Health</span><span class="ts-val" style="color:${hColor}">${Math.round(health)}%</span></div>`;
     }
   }
   statsEl.innerHTML = statsHtml;
