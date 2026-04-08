@@ -1,0 +1,6 @@
+.env
+tools/asset-dashboard.html
+node_modules/
+dist/
+__pycache__/
+*.pyc
