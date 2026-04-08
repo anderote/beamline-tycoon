@@ -3,28 +3,28 @@
     "file": "assets/decorations/grass_tile_0.png",
     "size": [
       64,
-      32
+      31
     ],
     "category": "terrain",
-    "source": "procedural-flat-grass"
+    "source": "rct2-g1:1947"
   },
   "grass_tile_1": {
     "file": "assets/decorations/grass_tile_1.png",
     "size": [
       64,
-      32
+      31
     ],
     "category": "terrain",
-    "source": "procedural-flat-grass"
+    "source": "rct2-g1:1966"
   },
   "grass_tile_2": {
     "file": "assets/decorations/grass_tile_2.png",
     "size": [
       64,
-      32
+      31
     ],
     "category": "terrain",
-    "source": "procedural-flat-grass"
+    "source": "rct2-g1:1947"
   },
   "grass_tile_3": {
     "file": "assets/decorations/grass_tile_3.png",

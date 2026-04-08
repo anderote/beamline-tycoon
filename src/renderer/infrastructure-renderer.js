@@ -58,11 +58,15 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
   const texture = this.sprites.getTileTexture(infra.id);
   if (texture) {
     const sprite = new PIXI.Sprite(texture);
-    const scale = (TILE_W / texture.width) * 1.35;
+    // RCT2 tiles are already isometric diamond-shaped (64x31), no extra scaling needed
+    // Old hand-drawn tiles (64x64) need the 1.35x multiplier to fill the diamond
+    const isIsoDiamond = texture.height <= TILE_H + 2;
+    const scale = isIsoDiamond
+      ? TILE_W / texture.width
+      : (TILE_W / texture.width) * 1.35;
     sprite.anchor.set(0.5, 0.5);
     sprite.x = pos.x;
-    // Offset up: the diamond center is above the canvas center due to side faces
-    sprite.y = pos.y - (texture.height * scale * 0.04);
+    sprite.y = pos.y - (isIsoDiamond ? 0 : texture.height * scale * 0.04);
     sprite.scale.set(scale, scale);
     sprite.zIndex = isoDepth;
     this.infraLayer.addChild(sprite);
@@ -108,10 +112,13 @@ Renderer.prototype._drawZoneTile = function(col, row, zone, active) {
   const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
   if (floorTexture) {
     const fs = new PIXI.Sprite(floorTexture);
-    const fScale = (TILE_W / floorTexture.width) * 1.35;
+    const isIsoDiamond = floorTexture.height <= TILE_H + 2;
+    const fScale = isIsoDiamond
+      ? TILE_W / floorTexture.width
+      : (TILE_W / floorTexture.width) * 1.35;
     fs.anchor.set(0.5, 0.5);
     fs.x = pos.x;
-    fs.y = pos.y - (floorTexture.height * fScale * 0.04);
+    fs.y = pos.y - (isIsoDiamond ? 0 : floorTexture.height * fScale * 0.04);
     fs.scale.set(fScale, fScale);
     fs.zIndex = isoDepth;
     this.infraLayer.addChild(fs);

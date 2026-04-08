@@ -1,0 +1,104 @@
+{
+  "hallway": {
+    "file": "assets/tiles/hallway.png",
+    "section": "flooring",
+    "size": {
+      "width": 64,
+      "height": 31
+    }
+  },
+  "officeFloor": {
+    "file": "assets/tiles/officeFloor.png",
+    "section": "flooring",
+    "size": {
+      "width": 64,
+      "height": 31
+    }
+  },
+  "labFloor": {
+    "file": "assets/tiles/labFloor.png",
+    "section": "flooring",
+    "size": {
+      "width": 64,
+      "height": 31
+    }
+  },
+  "concrete": {
+    "file": "assets/tiles/concrete.png",
+    "section": "flooring",
+    "size": {
+      "width": 64,
+      "height": 31
+    }
+  },
+  "rfLab": {
+    "files": [
+      "assets/tiles/rfLab_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "coolingLab": {
+    "files": [
+      "assets/tiles/coolingLab_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "vacuumLab": {
+    "files": [
+      "assets/tiles/vacuumLab_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "officeSpace": {
+    "files": [
+      "assets/tiles/officeSpace_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "controlRoom": {
+    "files": [
+      "assets/tiles/controlRoom_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "machineShop": {
+    "files": [
+      "assets/tiles/machineShop_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  },
+  "maintenance": {
+    "files": [
+      "assets/tiles/maintenance_0.png"
+    ],
+    "section": "zones",
+    "size": {
+      "width": 48,
+      "height": 48
+    }
+  }
+}
