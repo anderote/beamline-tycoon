@@ -1740,7 +1740,7 @@ body {
   flex: 1;
   position: relative;
   border-bottom: 1px solid rgba(80, 80, 120, 0.2);
-  min-height: 0;
+  min-height: 120px;
 }
 .ctrl-schematic-row canvas {
   width: 100%;
@@ -1753,7 +1753,9 @@ body {
   padding: 6px 12px;
   gap: 16px;
   flex-shrink: 0;
-  max-height: 140px;
+  height: 130px;
+  min-height: 130px;
+  max-height: 130px;
   overflow-y: auto;
 }
 .ctrl-tuning-info {
@@ -1852,11 +1854,13 @@ body {
   letter-spacing: 1px;
 }
 .ctrl-plots-row {
-  flex: 1;
+  height: 200px;
+  min-height: 200px;
+  max-height: 200px;
   display: flex;
   gap: 2px;
   border-bottom: 1px solid rgba(80, 80, 120, 0.2);
-  min-height: 0;
+  flex-shrink: 0;
 }
 .ctrl-plot-panel {
   flex: 1;
@@ -1882,4 +1886,58 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* Controller palette cards */
+.ctrl-palette-card {
+  width: 180px;
+  min-width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(25, 25, 50, 0.9);
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.ctrl-palette-card:hover {
+  border-color: rgba(100, 150, 255, 0.6);
+  background: rgba(35, 35, 65, 0.95);
+}
+.ctrl-palette-card.unaffordable {
+  opacity: 0.4;
+}
+.ctrl-card-schematic {
+  background: #0a0a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-bottom: 1px solid rgba(60, 60, 100, 0.2);
+}
+.ctrl-card-schematic canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.ctrl-card-info {
+  padding: 4px 6px;
+}
+.ctrl-card-name {
+  font-size: 10px;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctrl-card-cost {
+  font-size: 9px;
+  color: #8a8;
+  margin-top: 1px;
+}
+.ctrl-card-stats {
+  font-size: 8px;
+  color: #667;
+  margin-top: 1px;
 }

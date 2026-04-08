@@ -5,7 +5,9 @@ import { ControllerView } from '../ui/ControllerView.js';
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { formatEnergy } from '../data/units.js';
-import { Renderer } from './Renderer.js';
+import { MODES } from '../data/modes.js';
+import { UNITS } from '../data/units.js';
+import { Renderer, isFacilityCategory } from './Renderer.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 
 // Schematic pixel dimensions per component (same as overlays.js drawSchematic)
@@ -428,4 +430,162 @@ ControllerView.prototype._hitTestSchematic = function(clientX, clientY) {
     }
   }
   return -1;
+};
+
+// ---- Controller palette rendering (beamline-only, with preview cards) ----
+
+ControllerView.prototype._renderControllerPalette = function(category) {
+  const palette = document.getElementById('component-palette');
+  if (!palette) return;
+  palette.innerHTML = '';
+
+  // Only show beamline components
+  const mode = MODES.beamline;
+  const catDef = mode?.categories?.[category];
+  if (!catDef) return;
+
+  const catComps = [];
+  for (const [key, comp] of Object.entries(COMPONENTS)) {
+    if (comp.category !== category) continue;
+    if (!this.game.isComponentUnlocked(comp)) continue;
+    if (isFacilityCategory(comp.category)) continue;
+    catComps.push({ key, comp });
+  }
+
+  const subsections = catDef.subsections;
+  if (subsections && Object.keys(subsections).length > 0) {
+    let renderedSections = 0;
+    for (const subKey of Object.keys(subsections)) {
+      const subDef = subsections[subKey];
+      const subComps = catComps.filter(({ comp }) =>
+        comp.subsection ? comp.subsection === subKey : false
+      );
+      if (subComps.length === 0) continue;
+
+      if (renderedSections > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'palette-subsection-divider';
+        palette.appendChild(divider);
+      }
+
+      const section = document.createElement('div');
+      section.className = 'palette-subsection';
+
+      const label = document.createElement('div');
+      label.className = 'palette-subsection-label';
+      label.textContent = subDef.name;
+      section.appendChild(label);
+
+      const items = document.createElement('div');
+      items.className = 'palette-subsection-items';
+      for (const { key, comp } of subComps) {
+        items.appendChild(this._createControllerPaletteCard(key, comp));
+      }
+      section.appendChild(items);
+      palette.appendChild(section);
+      renderedSections++;
+    }
+  } else {
+    for (const { key, comp } of catComps) {
+      palette.appendChild(this._createControllerPaletteCard(key, comp));
+    }
+  }
+};
+
+ControllerView.prototype._createControllerPaletteCard = function(key, comp) {
+  const card = document.createElement('div');
+  card.className = 'ctrl-palette-card';
+
+  // Schematic canvas
+  const canvasWrap = document.createElement('div');
+  canvasWrap.className = 'ctrl-card-schematic';
+  const canvas = document.createElement('canvas');
+  canvas.width = 140;
+  canvas.height = 50;
+  canvas.style.width = '140px';
+  canvas.style.height = '50px';
+  this.renderer.drawSchematic(canvas, key);
+  canvasWrap.appendChild(canvas);
+  card.appendChild(canvasWrap);
+
+  // Info section
+  const info = document.createElement('div');
+  info.className = 'ctrl-card-info';
+
+  const name = document.createElement('div');
+  name.className = 'ctrl-card-name';
+  name.textContent = comp.name;
+  info.appendChild(name);
+
+  const costs = Object.entries(comp.cost).map(([r, a]) =>
+    r === 'funding' ? `$${a.toLocaleString()}` : `${a} ${r}`
+  ).join(', ');
+  const cost = document.createElement('div');
+  cost.className = 'ctrl-card-cost';
+  cost.textContent = costs;
+  info.appendChild(cost);
+
+  const stats = document.createElement('div');
+  stats.className = 'ctrl-card-stats';
+  stats.textContent = `${comp.energyCost}kW · ${comp.length}m`;
+  info.appendChild(stats);
+
+  card.appendChild(info);
+
+  // Affordable check
+  if (!this.game.canAfford(comp.cost)) {
+    card.classList.add('unaffordable');
+  }
+
+  // Click handler
+  card.addEventListener('click', () => {
+    if (this.renderer._onToolSelect) {
+      this.renderer._onToolSelect(key);
+    }
+  });
+
+  return card;
+};
+
+ControllerView.prototype._setupControllerTabs = function() {
+  const tabsContainer = document.getElementById('category-tabs');
+  if (!tabsContainer) return;
+  tabsContainer.innerHTML = '';
+
+  const mode = MODES.beamline;
+  const catKeys = Object.keys(mode.categories);
+
+  catKeys.forEach((key, idx) => {
+    const cat = mode.categories[key];
+    const btn = document.createElement('button');
+    btn.className = 'cat-tab' + (idx === 0 ? ' active' : '');
+    btn.dataset.category = key;
+    btn.textContent = cat.name;
+    btn.addEventListener('click', () => {
+      tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      this._renderControllerPalette(key);
+    });
+    tabsContainer.appendChild(btn);
+  });
+
+  // Hide mode switcher and connection tools
+  const modeSwitcher = document.getElementById('mode-switcher');
+  if (modeSwitcher) modeSwitcher.style.display = 'none';
+  const connTools = document.getElementById('connection-tools');
+  if (connTools) connTools.style.display = 'none';
+
+  // Render first category
+  if (catKeys.length > 0) {
+    this._renderControllerPalette(catKeys[0]);
+  }
+};
+
+ControllerView.prototype._restoreNormalTabs = function() {
+  const modeSwitcher = document.getElementById('mode-switcher');
+  if (modeSwitcher) modeSwitcher.style.display = '';
+  const connTools = document.getElementById('connection-tools');
+  if (connTools) connTools.style.display = '';
+  // Regenerate normal tabs
+  this.renderer._generateCategoryTabs();
 };

@@ -218,6 +218,9 @@ export class ControllerView {
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '260';
 
+    // Set up beamline-only palette with preview cards
+    this._setupControllerTabs();
+
     // Update draft bar
     this._updateDraftBar();
 
@@ -284,6 +287,8 @@ export class ControllerView {
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
+    // Restore normal palette tabs
+    this._restoreNormalTabs();
   }
 
   // --- Draft operations ---
