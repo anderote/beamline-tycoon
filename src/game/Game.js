@@ -8,6 +8,8 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 
+import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
+
 import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
@@ -48,6 +50,10 @@ export class Game {
       zoneFurnishings: [],        // [{ id, type, col, row }]
       zoneFurnishingGrid: {},     // "col,row" -> furnishing id
       zoneFurnishingNextId: 1,
+      // Decorations (trees, shrubs, benches, etc.)
+      decorations: [],              // [{ id, type, col, row }]
+      decorationOccupied: {},       // "col,row" -> decoration id
+      decorationNextId: 1,
       // Utility connections
       connections: new Map(),     // "col,row" -> Set of connection type keys
       // Machines (cyclotrons, stalls, rings)
@@ -235,6 +241,11 @@ export class Game {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
+    if (this.hasBlockingDecoration(col, row)) {
+      this.log('Clear the tree first! (Use demolish)', 'bad');
+      return false;
+    }
+    this._clearNonBlockingDecoration(col, row);
     const existing = this.state.infraOccupied[key];
     if (existing === infraType) return true; // same floor, no charge
     if (existing) {
@@ -292,6 +303,8 @@ export class Game {
         const key = c + ',' + r;
         const existing = this.state.infraOccupied[key];
         if (existing === infraType) continue; // same floor, skip
+        if (this.hasBlockingDecoration(c, r)) continue;
+        this._clearNonBlockingDecoration(c, r);
         if (existing) {
           // Replace existing floor - remove old tile
           this.state.infrastructure = this.state.infrastructure.filter(
@@ -593,7 +606,7 @@ export class Game {
 
     // Zone gating
     const zoneTier = this.getZoneTierForCategory(comp.category);
-    const compTier = comp.zoneTier || 1;
+    const compTier = comp.zoneTier != null ? comp.zoneTier : 1;
     if (zoneTier < compTier) {
       this.log(`Need more zone area for ${comp.name}!`, 'bad');
       return false;
@@ -706,6 +719,76 @@ export class Game {
     this.log(`Removed ${furn ? furn.name : 'furnishing'} (50% refund)`, 'info');
     this.emit('zonesChanged');
     return true;
+  }
+
+  // === DECORATIONS ===
+
+  placeDecoration(col, row, decType) {
+    const dec = DECORATIONS[decType];
+    if (!dec) return false;
+    const key = col + ',' + row;
+    if (this.state.decorationOccupied[key]) return false;
+    if (dec.placement === 'outdoor') {
+      if (this.state.infraOccupied[key] || this.state.zoneOccupied[key]) return false;
+    } else if (dec.placement === 'indoor') {
+      if (!this.state.infraOccupied[key]) return false;
+    }
+    if (this.state.facilityGrid[key]) return false;
+    if (this.state.zoneFurnishingGrid[key]) return false;
+    if (this.state.resources.funding < dec.cost) return false;
+
+    const id = 'dec_' + (this.state.decorationNextId++);
+    this.state.resources.funding -= dec.cost;
+    this.state.decorations.push({ id, type: decType, col, row });
+    this.state.decorationOccupied[key] = id;
+    this.emit('decorationsChanged');
+    return true;
+  }
+
+  removeDecoration(col, row) {
+    const key = col + ',' + row;
+    const decId = this.state.decorationOccupied[key];
+    if (!decId) return false;
+    const idx = this.state.decorations.findIndex(d => d.id === decId);
+    if (idx === -1) return false;
+    const dec = this.state.decorations[idx];
+    const def = DECORATIONS[dec.type];
+    const removeCost = def ? def.removeCost : 0;
+    if (removeCost > 0 && this.state.resources.funding < removeCost) {
+      this.log(`Need $${removeCost} to remove ${def.name}!`, 'bad');
+      return false;
+    }
+    if (removeCost > 0) {
+      this.state.resources.funding -= removeCost;
+      this.log(`Removed ${def.name} ($${removeCost})`, '');
+    }
+    this.state.decorations.splice(idx, 1);
+    delete this.state.decorationOccupied[key];
+    this.emit('decorationsChanged');
+    return true;
+  }
+
+  hasBlockingDecoration(col, row) {
+    const key = col + ',' + row;
+    const decId = this.state.decorationOccupied[key];
+    if (!decId) return false;
+    const dec = this.state.decorations.find(d => d.id === decId);
+    if (!dec) return false;
+    const def = DECORATIONS[dec.type];
+    return def ? def.blocksBuild : false;
+  }
+
+  _clearNonBlockingDecoration(col, row) {
+    const key = col + ',' + row;
+    const decId = this.state.decorationOccupied[key];
+    if (!decId) return;
+    const dec = this.state.decorations.find(d => d.id === decId);
+    if (!dec) return;
+    const def = DECORATIONS[dec.type];
+    if (def && !def.blocksBuild) {
+      this.state.decorations = this.state.decorations.filter(d => d.id !== decId);
+      delete this.state.decorationOccupied[key];
+    }
   }
 
   // === CONNECTIONS ===
@@ -874,12 +957,16 @@ export class Game {
         if (node.computedStats) {
           Object.assign(effectiveStats, node.computedStats);
         }
-        return {
+        const el = {
           type: node.type,
           length: t.length,
           stats: effectiveStats,
           params: node.params || {},
         };
+        if (t.extractionEnergy !== undefined) {
+          el.extractionEnergy = t.extractionEnergy;
+        }
+        return el;
       });
 
     // Gather research effects for physics
