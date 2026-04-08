@@ -1829,9 +1829,10 @@ body {
 }
 /* Right column: tuning parameters (1/3 width) */
 .ctrl-tuning-params {
-  flex: 1;
+  flex: 1.1;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .ctrl-tuning-params .param-slider-row {
   display: flex;
