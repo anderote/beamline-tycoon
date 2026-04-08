@@ -22,6 +22,7 @@ export class InputHandler {
     this.worldStart = { x: 0, y: 0 };
     // Infrastructure placement
     this.selectedInfraTool = null;  // infrastructure type or null
+    this.selectedInfraVariant = 0;  // floor variant index
     this.selectedZoneTool = null;    // zone type or null
     this.demolishMode = false;       // structure demolish tool
     this.isDragging = false;
@@ -740,7 +741,7 @@ export class InputHandler {
         if (cursor) {
           this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
         } else {
-          // Clicked an existing component — open its beamline panel
+          // Clicked an existing component — open its beamline window
           const node = this._getNodeAtGrid(col, row);
           if (node) {
             this.selectedNodeId = node.id;
@@ -750,7 +751,6 @@ export class InputHandler {
               this.renderer._openBeamlineWindow(entry.id);
               this.game.emit('beamlineSelected', entry.id);
             }
-            this.renderer.showPopup(node, screenX, screenY);
           }
         }
       }
@@ -773,7 +773,6 @@ export class InputHandler {
           this.renderer._openBeamlineWindow(entry.id);
           this.game.emit('beamlineSelected', entry.id);
         }
-        this.renderer.showPopup(node, screenX, screenY);
       } else {
         // Check for machine tile click
         const machineId = this.game.state.machineGrid[col + ',' + row];

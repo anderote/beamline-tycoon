@@ -4,6 +4,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
+import { ContextWindow } from './ContextWindow.js';
 
 export class ControllerView {
   constructor(game, renderer) {
@@ -207,6 +208,10 @@ export class ControllerView {
 
     // Run initial physics on draft
     this._recalcDraft();
+
+    // Close all context windows and popups before showing controller
+    ContextWindow.closeAll();
+    this.renderer.hidePopup();
 
     // Show overlay, ensure bottom HUD stays visible above controller
     this.overlay.classList.remove('hidden');
