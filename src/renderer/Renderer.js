@@ -305,14 +305,14 @@ export class Renderer {
       const end = gridToIso(i, range);
       g.moveTo(start.x, start.y);
       g.lineTo(end.x, end.y);
-      g.stroke({ color: 0x888888, width: 1, alpha: 0.08 });
+      g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
 
       // Row lines
       const rStart = gridToIso(-range, i);
       const rEnd = gridToIso(range, i);
       g.moveTo(rStart.x, rStart.y);
       g.lineTo(rEnd.x, rEnd.y);
-      g.stroke({ color: 0x888888, width: 1, alpha: 0.08 });
+      g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
     }
 
     this.gridLayer.addChild(g);
