@@ -35,6 +35,10 @@ export const MODES = {
       opticsLab:   { name: 'Optics Lab',     color: '#4ac', isZoneTab: true, zoneType: 'opticsLab' },
       diagnosticsLab: { name: 'Diagnostics Lab', color: '#ac4', isZoneTab: true, zoneType: 'diagnosticsLab' },
       maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
+      treesPlants: { name: 'Trees & Plants', color: '#4a4', isDecorationTab: true },
+      furniture:   { name: 'Furniture',      color: '#864', isDecorationTab: true },
+      lighting:    { name: 'Lighting',       color: '#aa8', isDecorationTab: true },
+      fencing:     { name: 'Fencing',        color: '#686', isDecorationTab: true },
     },
   },
   demolish: {
@@ -53,7 +57,7 @@ for (const mode of Object.values(MODES)) {
 
 // Utility connection types drawn as thin lines between facility equipment and beamline
 export const CONNECTION_TYPES = {
-  vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x999999, validTargets: 'any' },
+  vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x555555, validTargets: 'any' },
   rfWaveguide:  { name: 'RF Waveguide',  color: 0xcc4444, validTargets: { categoryMatch: ['rf'] } },
   coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'focusing'], idMatch: ['target', 'fixedTargetAdv', 'positronTarget', 'beamStop', 'detector'] } },
   cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { idMatch: ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'scQuad', 'scDipole'] } },

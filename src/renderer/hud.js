@@ -6,6 +6,7 @@ import { Renderer, isFacilityCategory } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/infrastructure.js';
 import { MODES, CONNECTION_TYPES } from '../data/modes.js';
+import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 
@@ -327,6 +328,48 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
+  // Structure mode — Decoration tabs: show decoration items for this category
+  const decCatDef = MODES.structure?.categories?.[compCategory];
+  if (decCatDef?.isDecorationTab) {
+    const decItems = Object.entries(DECORATIONS).filter(([, d]) => d.category === compCategory);
+    if (decItems.length === 0) return;
+
+    for (const [key, dec] of decItems) {
+      const item = document.createElement('div');
+      item.className = 'palette-item';
+      item.dataset.paletteIndex = paletteIdx;
+      const idx = paletteIdx++;
+
+      const affordable = this.game.state.resources.funding >= dec.cost;
+      if (!affordable) item.classList.add('unaffordable');
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'palette-name';
+      nameEl.textContent = dec.name;
+      item.appendChild(nameEl);
+
+      const costEl = document.createElement('div');
+      costEl.className = 'palette-cost';
+      costEl.textContent = `$${dec.cost}`;
+      item.appendChild(costEl);
+
+      const descEl = document.createElement('div');
+      descEl.className = 'palette-name';
+      descEl.style.fontSize = '9px';
+      descEl.style.color = '#8a8';
+      descEl.textContent = dec.placement === 'outdoor' ? 'Outdoor' : 'Indoor';
+      item.appendChild(descEl);
+
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        if (this._onDecorationSelect) this._onDecorationSelect(key);
+      });
+
+      palette.appendChild(item);
+    }
+    return;
+  }
+
   // Structure mode — Zone tabs: show zone paint tool + furnishings
   const zoneCatDef = MODES.structure?.categories?.[compCategory];
   if (zoneCatDef?.isZoneTab) {
@@ -543,7 +586,7 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   let zoneBlocked = false;
   if (isFacility && this.game.getZoneTierForCategory) {
     const zoneTier = this.game.getZoneTierForCategory(comp.category);
-    const compTier = comp.zoneTier || 1;
+    const compTier = comp.zoneTier != null ? comp.zoneTier : 1;
     zoneBlocked = zoneTier < compTier;
   }
 
@@ -568,7 +611,7 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
     r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
   ).join(', ');
   if (zoneBlocked) {
-    const neededTiles = ZONE_TIER_THRESHOLDS[( comp.zoneTier || 1) - 1];
+    const neededTiles = ZONE_TIER_THRESHOLDS[( (comp.zoneTier != null ? comp.zoneTier : 1)) - 1];
     let zoneName = '';
     for (const z of Object.values(ZONES)) {
       const gates = Array.isArray(z.gatesCategory) ? z.gatesCategory : [z.gatesCategory];

@@ -1,5 +1,6 @@
 import { COMPONENTS } from '../data/components.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR } from '../data/directions.js';
 import { isoToGrid } from '../renderer/grid.js';
@@ -29,6 +30,7 @@ export class InputHandler {
     this.activeMode = 'beamline';
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null; // zone furnishing type or null
+    this.selectedDecorationTool = null; // decoration type or null
     this.selectedConnTool = null;
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
@@ -286,11 +288,7 @@ export class InputHandler {
         this.isDrawingConn = true;
         this.connDrawMode = e.button === 0 ? 'add' : 'remove';
         this.connPath = [{ col: grid.col, row: grid.row }];
-        if (this.connDrawMode === 'add') {
-          this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
-        } else {
-          this.game.removeConnection(grid.col, grid.row, this.selectedConnTool);
-        }
+        this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
         return;
       }
 
@@ -394,12 +392,23 @@ export class InputHandler {
         const grid = isoToGrid(world.x, world.y);
         const last = this.connPath[this.connPath.length - 1];
         if (grid.col !== last.col || grid.row !== last.row) {
-          this.connPath.push({ col: grid.col, row: grid.row });
-          if (this.connDrawMode === 'add') {
-            this.game.placeConnection(grid.col, grid.row, this.selectedConnTool);
+          const dc = Math.abs(grid.col - last.col);
+          const dr = Math.abs(grid.row - last.row);
+          if (dc + dr === 1) {
+            this.connPath.push({ col: grid.col, row: grid.row });
           } else {
-            this.game.removeConnection(grid.col, grid.row, this.selectedConnTool);
+            // Bridge gap with straight line to cursor
+            const steps = Math.max(dc, dr);
+            for (let i = 1; i <= steps; i++) {
+              const ic = last.col + Math.round((grid.col - last.col) * i / steps);
+              const ir = last.row + Math.round((grid.row - last.row) * i / steps);
+              const prev = this.connPath[this.connPath.length - 1];
+              if (ic !== prev.col || ir !== prev.row) {
+                this.connPath.push({ col: ic, row: ir });
+              }
+            }
           }
+          this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
         }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -416,10 +425,18 @@ export class InputHandler {
         return;
       }
 
-      // Connection drawing end
+      // Connection drawing end — commit all tiles on release
       if (this.isDrawingConn) {
+        for (const pt of this.connPath) {
+          if (this.connDrawMode === 'add') {
+            this.game.placeConnection(pt.col, pt.row, this.selectedConnTool);
+          } else {
+            this.game.removeConnection(pt.col, pt.row, this.selectedConnTool);
+          }
+        }
         this.isDrawingConn = false;
         this.connPath = [];
+        this.renderer.clearDragPreview();
         return;
       }
 
@@ -529,22 +546,6 @@ export class InputHandler {
           this.deselectZoneTool();
         } else if (this.demolishMode) {
           this.deselectDemolishTool();
-        } else {
-          // Right-click on the grid: check if clicking on a beamline component
-          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-          const grid = isoToGrid(world.x, world.y);
-          const node = this._getNodeAtGrid(grid.col, grid.row);
-          if (node || this.game.registry.getAllNodes().length > 0) {
-            // Enter build mode — activate Sources tab and build mode
-            this.selectedTool = 'source'; // default tool, user can pick another
-            this.renderer.setBuildMode(true, 'source');
-            // Activate the Sources tab visually
-            const tabs = document.querySelectorAll('.cat-tab');
-            tabs.forEach(t => t.classList.remove('active'));
-            const srcTab = document.querySelector('.cat-tab[data-category="sources"]');
-            if (srcTab) srcTab.classList.add('active');
-            this.renderer.updatePalette('sources');
-          }
         }
       }
     });
@@ -597,6 +598,10 @@ export class InputHandler {
           } else {
             this.game.removeComponent(node.id);
           }
+        }
+        // Remove decorations
+        if (this.game.state.decorationOccupied[key]) {
+          this.game.removeDecoration(col, row);
         }
         // Remove zones
         if (this.game.state.zoneOccupied[key]) {
@@ -687,6 +692,14 @@ export class InputHandler {
       return;
     }
 
+    // Decoration placement
+    if (this.selectedDecorationTool) {
+      if (this.game.placeDecoration(col, row, this.selectedDecorationTool)) {
+        this.game.emit('decorationsChanged');
+      }
+      return;
+    }
+
     // Zone furnishing placement
     if (this.selectedFurnishingTool) {
       this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool);
@@ -714,6 +727,19 @@ export class InputHandler {
         const cursor = cursors.find(c => c.col === col && c.row === row);
         if (cursor) {
           this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
+        } else {
+          // Clicked an existing component — open its beamline panel
+          const node = this._getNodeAtGrid(col, row);
+          if (node) {
+            this.selectedNodeId = node.id;
+            const entry = this.game.registry.getBeamlineForNode(node.id);
+            if (entry) {
+              this.game.selectedBeamlineId = entry.id;
+              this.renderer._openBeamlineWindow(entry.id);
+              this.game.emit('beamlineSelected', entry.id);
+            }
+            this.renderer.showPopup(node, screenX, screenY);
+          }
         }
       }
     } else if (this.probeMode) {
@@ -775,6 +801,7 @@ export class InputHandler {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.selectedDecorationTool = null;
     this.bulldozerMode = false;
     this.selectedTool = compType;
     this.selectedNodeId = null;
@@ -787,6 +814,7 @@ export class InputHandler {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.selectedDecorationTool = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -797,6 +825,7 @@ export class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFurnishingTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.selectedFacilityTool = compType;
     this.selectedNodeId = null;
@@ -807,6 +836,7 @@ export class InputHandler {
     this.selectedTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.selectedDecorationTool = null;
     this.renderer.setBuildMode(false);
     this.selectedInfraTool = infraType;
     this.selectedNodeId = null;
@@ -821,6 +851,7 @@ export class InputHandler {
   selectInfraTool(infraType) {
     this.selectedTool = null;
     this.selectedFurnishingTool = null;
+    this.selectedDecorationTool = null;
     this.demolishMode = false;
     this.renderer.setBuildMode(false);
     this.renderer.clearDragPreview();
@@ -843,6 +874,7 @@ export class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFurnishingTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.selectedFacilityTool = compType;
     this.selectedNodeId = null;
@@ -876,6 +908,7 @@ export class InputHandler {
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectFurnishingTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.demolishMode = false;
     this.selectedZoneTool = zoneType;
@@ -889,6 +922,7 @@ export class InputHandler {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.demolishMode = false;
@@ -899,11 +933,27 @@ export class InputHandler {
     this.selectedFurnishingTool = null;
   }
 
+  selectDecorationTool(decType) {
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.demolishMode = false;
+    this.selectedDecorationTool = decType;
+  }
+
+  deselectDecorationTool() {
+    this.selectedDecorationTool = null;
+  }
+
   selectDemolishTool(demolishType) {
     this.deselectTool();
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectFurnishingTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.demolishMode = true;
@@ -921,6 +971,7 @@ export class InputHandler {
     this.deselectInfraTool();
     this.deselectFacilityTool();
     this.deselectFurnishingTool();
+    this.deselectDecorationTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.deselectDemolishTool();
