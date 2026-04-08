@@ -453,6 +453,22 @@ export class BeamlineDesigner {
     // Apply draft nodes to the real beamline
     this._applyDraftToBeamline(entry);
 
+    // Auto-place foundation under any beamline tiles that lack it
+    for (const node of entry.beamline.nodes) {
+      if (!node.tiles) continue;
+      for (const tile of node.tiles) {
+        const key = tile.col + ',' + tile.row;
+        if (!this.game.state.infraOccupied[key]) {
+          if (this.game.state.decorationOccupied[key]) {
+            this.game.removeDecoration(tile.col, tile.row);
+          }
+          this.game.state.infrastructure.push({ type: 'concrete', col: tile.col, row: tile.row, variant: 0 });
+          this.game.state.infraOccupied[key] = 'concrete';
+          this.game.state.resources.funding -= 10;
+        }
+      }
+    }
+
     // Recalculate real physics
     this.game.recalcBeamline(this.beamlineId);
     this.game.emit('beamlineChanged');
