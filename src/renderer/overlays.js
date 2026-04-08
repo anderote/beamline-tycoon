@@ -3394,13 +3394,7 @@ Renderer.prototype._openBeamlineWindow = function(beamlineId) {
   };
 };
 
-Renderer.prototype._refreshContextWindows = function() {
-  if (!this._beamlineWindows) return;
-  for (const bw of Object.values(this._beamlineWindows)) {
-    bw.refresh();
-  }
-};
-};
+// _refreshContextWindows defined below after machine windows
 
 // --- Machine context windows ---
 
