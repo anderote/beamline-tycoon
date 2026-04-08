@@ -59,6 +59,31 @@ export class SpriteManager {
     }
   }
 
+  async loadDecorationSprites() {
+    try {
+      const resp = await fetch('assets/decorations/decoration-manifest.json');
+      if (!resp.ok) return;
+      const manifest = await resp.json();
+      let count = 0;
+      for (const [key, info] of Object.entries(manifest)) {
+        const alias = `dec_${key}`;
+        try {
+          PIXI.Assets.add({ alias, src: info.file });
+          const tex = await PIXI.Assets.load(alias);
+          if (tex && tex.valid !== false) {
+            this.textures[key] = tex;
+            count++;
+          }
+        } catch (e) {
+          console.warn(`Failed to load decoration sprite: ${info.file}`, e);
+        }
+      }
+      console.log(`Loaded ${count} decoration sprites`);
+    } catch {
+      // No manifest yet
+    }
+  }
+
   /**
    * Return single tile texture (flooring), or null.
    */
@@ -131,7 +156,7 @@ export class SpriteManager {
 
   // --- Internal helpers ---
 
-  /**
+/**
    * Draw an isometric box with top, left, and right faces.
    */
   _drawIsoBox(w, h, color) {
