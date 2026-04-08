@@ -71,13 +71,61 @@ export class Game {
     this.tickInterval = null;
     this.TICK_MS = 1000;
 
+    // Generate terrain brightness blobs (multimodal 2D gaussian)
+    this.state.terrainSeed = Date.now();
+    this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
+
     // Generate starting map
-    const startMap = generateStartingMap(Date.now());
+    const startMap = generateStartingMap(this.state.terrainSeed);
     this.state.decorations = startMap.decorations;
     this.state.decorationNextId = startMap.nextId;
     for (const dec of this.state.decorations) {
       this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
     }
+  }
+
+  _generateTerrainBlobs(seed) {
+    // Seeded PRNG (simple LCG)
+    let s = seed | 0;
+    const rand = () => { s = (s * 1664525 + 1013904223) | 0; return (s >>> 0) / 4294967296; };
+    const blobs = [];
+    // Large slow-rolling blobs (broad landscape variation)
+    const largeCt = 4 + Math.floor(rand() * 4);
+    for (let i = 0; i < largeCt; i++) {
+      blobs.push({
+        cx: (rand() - 0.5) * 80,
+        cy: (rand() - 0.5) * 80,
+        sx: 10 + rand() * 18,
+        sy: 10 + rand() * 18,
+        angle: rand() * Math.PI,
+        brightness: (rand() * 2 - 1) * 0.8,
+      });
+    }
+    // Medium blobs (patches of lighter/darker grass)
+    const medCt = 6 + Math.floor(rand() * 6);
+    for (let i = 0; i < medCt; i++) {
+      blobs.push({
+        cx: (rand() - 0.5) * 60,
+        cy: (rand() - 0.5) * 60,
+        sx: 3 + rand() * 8,
+        sy: 3 + rand() * 8,
+        angle: rand() * Math.PI,
+        brightness: (rand() * 2 - 1) * 1.2,
+      });
+    }
+    // Small tight blobs (individual spots, puddles of color)
+    const smallCt = 8 + Math.floor(rand() * 10);
+    for (let i = 0; i < smallCt; i++) {
+      blobs.push({
+        cx: (rand() - 0.5) * 50,
+        cy: (rand() - 0.5) * 50,
+        sx: 1.5 + rand() * 4,
+        sy: 1.5 + rand() * 4,
+        angle: rand() * Math.PI,
+        brightness: (rand() * 2 - 1) * 1.5,
+      });
+    }
+    return blobs;
   }
 
   on(fn) { this.listeners.push(fn); }
@@ -250,13 +298,33 @@ export class Game {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
-    if (this.hasBlockingDecoration(col, row)) {
-      this.log('Clear the tree first! (Use demolish)', 'bad');
-      return false;
-    }
-    this._clearNonBlockingDecoration(col, row);
     const existing = this.state.infraOccupied[key];
     if (existing === infraType) return true; // same floor, no charge
+    // Check foundation requirement
+    if (infra.requiresFoundation) {
+      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      const baseType = existingTile?.foundation || existing;
+      if (baseType !== infra.requiresFoundation) {
+        this.log(`${infra.name} requires ${INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
+        return false;
+      }
+    }
+    // Auto-remove any decoration (including trees) — include removal cost
+    let totalCost = infra.cost;
+    const decId = this.state.decorationOccupied[key];
+    if (decId) {
+      const dec = this.state.decorations.find(d => d.id === decId);
+      const def = dec ? DECORATIONS[dec.type] : null;
+      totalCost += def ? (def.removeCost || 0) : 0;
+    }
+    if (this.state.resources.funding < totalCost) return false;
+    if (decId) this.removeDecoration(col, row);
+    // Track foundation for surface tiles placed on top of a foundation
+    let foundation = null;
+    if (infra.requiresFoundation && existing) {
+      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      foundation = existingTile?.foundation || existing;
+    }
     if (existing) {
       // Replace existing floor - remove old tile first
       this.state.infrastructure = this.state.infrastructure.filter(
@@ -269,10 +337,11 @@ export class Game {
         this.state.zones = this.state.zones.filter(z => !(z.col === col && z.row === row));
       }
     }
-    if (this.state.resources.funding < infra.cost) return false;
 
     this.state.resources.funding -= infra.cost;
-    this.state.infrastructure.push({ type: infraType, col, row, variant });
+    const tileEntry = { type: infraType, col, row, variant };
+    if (foundation) tileEntry.foundation = foundation;
+    this.state.infrastructure.push(tileEntry);
     this.state.infraOccupied[key] = infraType;
     if (infraType === 'hallway') {
       this.recomputeZoneConnectivity();
@@ -291,15 +360,36 @@ export class Game {
     const maxRow = Math.max(startRow, endRow);
 
     // Count new tiles and total cost (skip tiles that already have the same floor)
+    // Include tree removal costs; skip tiles missing required foundation
+    let totalCost = 0;
     let newTiles = 0;
+    let skippedNoFoundation = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const existing = this.state.infraOccupied[c + ',' + r];
-        if (existing !== infraType) newTiles++;
+        const tileKey = c + ',' + r;
+        const existing = this.state.infraOccupied[tileKey];
+        if (existing === infraType) continue;
+        if (infra.requiresFoundation) {
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const baseType = existingTile?.foundation || existing;
+          if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
+        }
+        newTiles++;
+        totalCost += infra.cost;
+        const decId = this.state.decorationOccupied[tileKey];
+        if (decId) {
+          const dec = this.state.decorations.find(d => d.id === decId);
+          const def = dec ? DECORATIONS[dec.type] : null;
+          totalCost += def ? (def.removeCost || 0) : 0;
+        }
       }
     }
-    if (newTiles === 0) return true; // all tiles already have this floor
-    const totalCost = newTiles * infra.cost;
+    if (newTiles === 0) {
+      if (skippedNoFoundation > 0) {
+        this.log(`${infra.name} requires ${INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
+      }
+      return true;
+    }
     if (this.state.resources.funding < totalCost) {
       this.log(`Need $${totalCost} for ${newTiles} tiles!`, 'bad');
       return false;
@@ -312,8 +402,19 @@ export class Game {
         const key = c + ',' + r;
         const existing = this.state.infraOccupied[key];
         if (existing === infraType) continue; // same floor, skip
-        if (this.hasBlockingDecoration(c, r)) continue;
-        this._clearNonBlockingDecoration(c, r);
+        if (infra.requiresFoundation) {
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const baseType = existingTile?.foundation || existing;
+          if (baseType !== infra.requiresFoundation) continue;
+        }
+        // Auto-remove any decoration (including trees)
+        if (this.state.decorationOccupied[key]) this.removeDecoration(c, r);
+        // Track foundation for surface tiles
+        let foundation = null;
+        if (infra.requiresFoundation && existing) {
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          foundation = existingTile?.foundation || existing;
+        }
         if (existing) {
           // Replace existing floor - remove old tile
           this.state.infrastructure = this.state.infrastructure.filter(
@@ -326,7 +427,9 @@ export class Game {
           }
         }
         this.state.resources.funding -= infra.cost;
-        this.state.infrastructure.push({ type: infraType, col: c, row: r, variant });
+        const tileEntry = { type: infraType, col: c, row: r, variant };
+        if (foundation) tileEntry.foundation = foundation;
+        this.state.infrastructure.push(tileEntry);
         this.state.infraOccupied[key] = infraType;
         placed++;
       }
@@ -356,9 +459,18 @@ export class Game {
       this.removeZoneTile(col, row);
     }
 
+    const tile = this.state.infrastructure[idx];
+    const foundation = tile.foundation;
     this.state.infrastructure.splice(idx, 1);
     const wasHallway = this.state.infraOccupied[key] === 'hallway';
-    delete this.state.infraOccupied[key];
+
+    // If the tile had a foundation, revert to the foundation type
+    if (foundation) {
+      this.state.infrastructure.push({ type: foundation, col, row, variant: tile.variant });
+      this.state.infraOccupied[key] = foundation;
+    } else {
+      delete this.state.infraOccupied[key];
+    }
 
     if (wasHallway) {
       this.recomputeZoneConnectivity();

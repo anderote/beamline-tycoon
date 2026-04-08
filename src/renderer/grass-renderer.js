@@ -9,6 +9,49 @@ import { tileCenterIso, gridToIso } from './grid.js';
 
 const GRASS_RANGE = 20;
 
+// 24 variants grouped by brightness: dark (0-7), mid (8-15), light (16-23)
+const DARK_VARIANTS  = [8, 9, 10, 11, 16, 17, 18, 19];   // dark + flipped-dark
+const MID_VARIANTS   = [0, 1, 2, 3, 4, 5, 6, 7];         // base + flipped
+const LIGHT_VARIANTS = [12, 13, 14, 15, 20, 21, 22, 23];  // light + flipped-light
+
+/**
+ * Sample the terrain brightness at a grid position using the stored gaussian blobs.
+ * Returns a value roughly in [-1, 1].
+ */
+function sampleTerrainBrightness(col, row, blobs) {
+  let val = 0;
+  for (const blob of blobs) {
+    // Rotate point into blob's local frame
+    const dx = col - blob.cx;
+    const dy = row - blob.cy;
+    const cos = Math.cos(blob.angle);
+    const sin = Math.sin(blob.angle);
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    // 2D gaussian
+    const ex = (lx * lx) / (2 * blob.sx * blob.sx);
+    const ey = (ly * ly) / (2 * blob.sy * blob.sy);
+    val += blob.brightness * Math.exp(-(ex + ey));
+  }
+  // Clamp to [-1, 1]
+  return Math.max(-1, Math.min(1, val));
+}
+
+/**
+ * Pick a grass variant index based on brightness and a hash for randomness.
+ */
+function pickVariant(brightness, hash) {
+  let pool;
+  if (brightness < -0.25) {
+    pool = DARK_VARIANTS;
+  } else if (brightness > 0.25) {
+    pool = LIGHT_VARIANTS;
+  } else {
+    pool = MID_VARIANTS;
+  }
+  return pool[hash % pool.length];
+}
+
 /**
  * Rebuild the grass RenderTexture if the occupied tiles have changed.
  */
@@ -24,8 +67,6 @@ Renderer.prototype._renderGrass = function() {
 
   // Calculate texture bounds
   const range = GRASS_RANGE;
-  // Isometric extents: the diamond spans from (-range,-range) to (range,range)
-  // Screen bounds: x from -(range)*TILE_W to (range)*TILE_W, y from -(range)*TILE_H to (range)*TILE_H
   const texW = (range * 2 + 1) * TILE_W;
   const texH = (range * 2 + 1) * TILE_H;
   const offsetX = texW / 2;
@@ -37,6 +78,8 @@ Renderer.prototype._renderGrass = function() {
     this._grassRT = PIXI.RenderTexture.create({ width: texW, height: texH });
   }
 
+  const blobs = this.game.state.terrainBlobs || [];
+
   // Build a temporary container with all grass sprites
   const container = new PIXI.Container();
 
@@ -46,16 +89,34 @@ Renderer.prototype._renderGrass = function() {
       if (this.game.state.infraOccupied[key] || this.game.state.zoneOccupied[key]) continue;
 
       const pos = tileCenterIso(col, row);
-      const variant = ((col * 7 + row * 13) & 0xffff) % 4;
-      const texture = this.sprites.getTexture(`grass_tile_${variant}`) || this.sprites.getTexture('grass_tile_0');
+
+      // Hash for pseudo-random variant within brightness bucket
+      let h = ((col * 374761393 + row * 668265263) ^ 0x5bf03635) | 0;
+      h = ((h ^ (h >>> 13)) * 1274126177) | 0;
+      const hash = ((h >>> 16) ^ h) & 0x7fffffff;
+
+      // Sample terrain brightness from gaussian blobs
+      const brightness = sampleTerrainBrightness(col, row, blobs);
+      const variantIdx = pickVariant(brightness, hash);
+      const texture = this.sprites.getTexture(`grass_tile_${variantIdx}`) || this.sprites.getTexture('grass_tile_0');
 
       if (texture) {
+        texture.source.scaleMode = 'nearest';
         const sprite = new PIXI.Sprite(texture);
         const scale = (TILE_W / texture.width) * 1.03;
         sprite.anchor.set(0.5, 0.5);
         sprite.x = pos.x + offsetX;
         sprite.y = pos.y + offsetY;
         sprite.scale.set(scale, scale);
+
+        // Tint from continuous brightness — wider range for visible variation
+        const tintFactor = 0.88 + brightness * 0.12; // 0.76 to 1.0
+        const warmth = brightness * 0.05;
+        const r = Math.min(255, Math.round((0.94 + warmth) * 255 * tintFactor));
+        const g = Math.min(255, Math.round(255 * tintFactor));
+        const b = Math.min(255, Math.round((0.94 - warmth) * 255 * tintFactor));
+        sprite.tint = (r << 16) | (g << 8) | b;
+
         container.addChild(sprite);
       } else {
         const hw = TILE_W / 2;

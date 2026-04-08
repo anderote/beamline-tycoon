@@ -242,21 +242,43 @@ Renderer.prototype._renderCursors = function() {
     const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
     const trackLength = comp ? (comp.trackLength || 1) : 1;
     const trackWidth = comp ? (comp.trackWidth || 1) : 1;
-    const dir = DIR.NE;
+    const dir = this.placementDir || DIR.NE;
     const delta = DIR_DELTA[dir];
     const perpDelta = DIR_DELTA[turnLeft(dir)];
     const widthOffsets = [];
     for (let j = 0; j < trackWidth; j++) {
       widthOffsets.push(j - (trackWidth - 1) / 2);
     }
+    const tiles = [];
     for (let i = 0; i < trackLength; i++) {
       for (const wOff of widthOffsets) {
-        this._drawDiamond(
-          this.hoverCol + delta.dc * i + perpDelta.dc * wOff,
-          this.hoverRow + delta.dr * i + perpDelta.dr * wOff,
-          0x4488ff, 0.6
-        );
+        tiles.push({
+          col: this.hoverCol + delta.dc * i + perpDelta.dc * wOff,
+          row: this.hoverRow + delta.dr * i + perpDelta.dr * wOff,
+        });
       }
+    }
+    // Check availability
+    const available = tiles.every(t =>
+      this.game.registry.sharedOccupied[t.col + ',' + t.row] === undefined
+    );
+    const color = available ? 0x4488ff : 0xff4444;
+    for (const tile of tiles) {
+      this._drawDiamond(tile.col, tile.row, color, 0.6);
+    }
+    // Transparent sprite preview
+    this._drawSpritePreview(comp, tiles, available);
+    // Direction arrow
+    if (tiles.length > 0) {
+      const lastTile = tiles[tiles.length - 1];
+      const lastPos = tileCenterIso(lastTile.col, lastTile.row);
+      const isoDir = gridToIso(delta.dc, delta.dr);
+      const arrowScale = 0.35;
+      const g = new PIXI.Graphics();
+      g.moveTo(lastPos.x, lastPos.y);
+      g.lineTo(lastPos.x + isoDir.x * arrowScale, lastPos.y + isoDir.y * arrowScale);
+      g.stroke({ color: 0x88bbff, width: 2, alpha: 0.9 });
+      this.cursorLayer.addChild(g);
     }
     return;
   }
@@ -270,6 +292,23 @@ Renderer.prototype._renderCursors = function() {
   for (const cursor of cursors) {
     const isHovered = cursor.col === this.hoverCol && cursor.row === this.hoverRow;
     this._drawCursorMarker(cursor, isHovered);
+  }
+};
+
+Renderer.prototype._drawSpritePreview = function(comp, tiles, available) {
+  if (!comp || !this.selectedToolType) return;
+  const texture = this.sprites.getTexture(this.selectedToolType);
+  if (!texture) return;
+
+  for (const tile of tiles) {
+    const sprite = new PIXI.Sprite(texture);
+    sprite.anchor.set(0.5, 0.7);
+    const pos = tileCenterIso(tile.col, tile.row);
+    sprite.x = pos.x;
+    sprite.y = pos.y;
+    sprite.alpha = available ? 0.4 : 0.25;
+    if (!available) sprite.tint = 0xff4444;
+    this.cursorLayer.addChild(sprite);
   }
 };
 
@@ -433,8 +472,10 @@ Renderer.prototype._drawCursorMarker = function(cursor, isHovered) {
   g.lineTo(ax, ay);
   g.stroke({ color: 0x88bbff, width: 2, alpha: 0.9 * baseAlpha });
 
-  // Component name label (only on hovered cursor)
+  // Transparent sprite preview (only on hovered cursor)
   if (comp && isHovered) {
+    this._drawSpritePreview(comp, tiles, available);
+
     const midTile = tiles[Math.floor(tiles.length / 2)];
     const midPos = tileCenterIso(midTile.col, midTile.row);
     const label = new PIXI.Text({

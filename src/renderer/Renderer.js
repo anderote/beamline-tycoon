@@ -77,6 +77,7 @@ export class Renderer {
     this._onFacilitySelect = null;
     this._onConnSelect = null;
     this.selectedToolType = null; // current component type for preview
+    this.placementDir = 0;       // DIR.NE — rotated with F key
     this.bulldozerMode = false;
     this.infraLayer = null;
     this.dragPreviewLayer = null;
@@ -283,7 +284,7 @@ export class Renderer {
 
   zoomAt(screenX, screenY, delta) {
     const oldZoom = this.zoom;
-    this.zoom = Math.max(0.2, Math.min(3, this.zoom + delta));
+    this.zoom = Math.max(0.2, Math.min(5, this.zoom + delta));
 
     // Zoom toward cursor position
     const worldX = screenX - this.world.x;
@@ -363,6 +364,11 @@ export class Renderer {
 
   updateCursorBendDir(dir) {
     this.cursorBendDir = dir;
+  }
+
+  updatePlacementDir(dir) {
+    this.placementDir = dir;
+    this._renderCursors();
   }
 
   // --- Helpers ---

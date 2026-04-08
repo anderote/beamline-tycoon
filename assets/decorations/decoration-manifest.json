@@ -1,40 +1,28 @@
 {
-  "grass_tile_0": {
-    "file": "assets/decorations/grass_tile_0.png",
-    "size": [
-      64,
-      31
-    ],
-    "category": "terrain",
-    "source": "rct2-g1:1947"
-  },
-  "grass_tile_1": {
-    "file": "assets/decorations/grass_tile_1.png",
-    "size": [
-      64,
-      31
-    ],
-    "category": "terrain",
-    "source": "rct2-g1:1966"
-  },
-  "grass_tile_2": {
-    "file": "assets/decorations/grass_tile_2.png",
-    "size": [
-      64,
-      31
-    ],
-    "category": "terrain",
-    "source": "rct2-g1:1947"
-  },
-  "grass_tile_3": {
-    "file": "assets/decorations/grass_tile_3.png",
-    "size": [
-      64,
-      32
-    ],
-    "category": "terrain",
-    "source": "procedural-flat-grass"
-  },
+  "grass_tile_0": { "file": "assets/decorations/grass_tile_0.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_1": { "file": "assets/decorations/grass_tile_1.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_2": { "file": "assets/decorations/grass_tile_2.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_3": { "file": "assets/decorations/grass_tile_3.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_4": { "file": "assets/decorations/grass_tile_4.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_5": { "file": "assets/decorations/grass_tile_5.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_6": { "file": "assets/decorations/grass_tile_6.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_7": { "file": "assets/decorations/grass_tile_7.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_8": { "file": "assets/decorations/grass_tile_8.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_9": { "file": "assets/decorations/grass_tile_9.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_10": { "file": "assets/decorations/grass_tile_10.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_11": { "file": "assets/decorations/grass_tile_11.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_12": { "file": "assets/decorations/grass_tile_12.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_13": { "file": "assets/decorations/grass_tile_13.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_14": { "file": "assets/decorations/grass_tile_14.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_15": { "file": "assets/decorations/grass_tile_15.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_16": { "file": "assets/decorations/grass_tile_16.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_17": { "file": "assets/decorations/grass_tile_17.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_18": { "file": "assets/decorations/grass_tile_18.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_19": { "file": "assets/decorations/grass_tile_19.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_20": { "file": "assets/decorations/grass_tile_20.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_21": { "file": "assets/decorations/grass_tile_21.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_22": { "file": "assets/decorations/grass_tile_22.png", "size": [128, 62], "category": "terrain" },
+  "grass_tile_23": { "file": "assets/decorations/grass_tile_23.png", "size": [128, 62], "category": "terrain" },
   "hedge_0": {
     "file": "assets/decorations/hedge_0.png",
     "size": [
@@ -118,11 +106,110 @@
   },
   "iron_fence": {
     "file": "assets/decorations/iron_fence.png",
-    "size": [
-      32,
-      12
-    ],
+    "size": [32, 12],
     "category": "fence",
+    "source": "procedural"
+  },
+  "willow_tree": {
+    "file": "assets/decorations/willow_tree.png",
+    "size": [24, 40],
+    "category": "tree",
+    "source": "procedural"
+  },
+  "flower_garden": {
+    "file": "assets/decorations/flower_garden.png",
+    "size": [16, 10],
+    "category": "shrub",
+    "source": "procedural"
+  },
+  "tall_hedge": {
+    "file": "assets/decorations/tall_hedge.png",
+    "size": [32, 20],
+    "category": "hedge",
+    "source": "procedural"
+  },
+  "hedge_corner": {
+    "file": "assets/decorations/hedge_corner.png",
+    "size": [20, 16],
+    "category": "hedge",
+    "source": "procedural"
+  },
+  "wood_fence": {
+    "file": "assets/decorations/wood_fence.png",
+    "size": [32, 14],
+    "category": "fence",
+    "source": "procedural"
+  },
+  "chain_link": {
+    "file": "assets/decorations/chain_link.png",
+    "size": [32, 12],
+    "category": "fence",
+    "source": "procedural"
+  },
+  "stone_wall": {
+    "file": "assets/decorations/stone_wall.png",
+    "size": [32, 14],
+    "category": "fence",
+    "source": "procedural"
+  },
+  "picnic_table": {
+    "file": "assets/decorations/picnic_table.png",
+    "size": [20, 14],
+    "category": "furniture",
+    "source": "procedural"
+  },
+  "fountain": {
+    "file": "assets/decorations/fountain.png",
+    "size": [22, 24],
+    "category": "furniture",
+    "source": "procedural"
+  },
+  "statue": {
+    "file": "assets/decorations/statue.png",
+    "size": [14, 26],
+    "category": "furniture",
+    "source": "procedural"
+  },
+  "bollard_light": {
+    "file": "assets/decorations/bollard_light.png",
+    "size": [6, 12],
+    "category": "lighting",
+    "source": "procedural"
+  },
+  "spot_light": {
+    "file": "assets/decorations/spot_light.png",
+    "size": [10, 18],
+    "category": "lighting",
+    "source": "procedural"
+  },
+  "trash_can": {
+    "file": "assets/decorations/trash_can.png",
+    "size": [10, 14],
+    "category": "bins",
+    "source": "procedural"
+  },
+  "recycling_bin": {
+    "file": "assets/decorations/recycling_bin.png",
+    "size": [12, 14],
+    "category": "bins",
+    "source": "procedural"
+  },
+  "info_sign": {
+    "file": "assets/decorations/info_sign.png",
+    "size": [14, 18],
+    "category": "signs",
+    "source": "procedural"
+  },
+  "direction_sign": {
+    "file": "assets/decorations/direction_sign.png",
+    "size": [18, 16],
+    "category": "signs",
+    "source": "procedural"
+  },
+  "flagpole": {
+    "file": "assets/decorations/flagpole.png",
+    "size": [14, 24],
+    "category": "signs",
     "source": "procedural"
   }
 }

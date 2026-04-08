@@ -43,6 +43,15 @@
       { "file": "assets/tiles/concrete_3.png", "name": "Warm" }
     ]
   },
+  "groomedGrass": {
+    "file": "assets/tiles/groomedGrass_0.png",
+    "section": "flooring",
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/groomedGrass_0.png", "name": "Groomed Grass" },
+      { "file": "assets/tiles/groomedGrass_1.png", "name": "Groomed Grass (light)" }
+    ]
+  },
   "rfLab": {
     "files": ["assets/tiles/rfLab_0.png"],
     "section": "zones",

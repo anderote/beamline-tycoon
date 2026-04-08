@@ -16,6 +16,7 @@ export class InputHandler {
     this.selectedTool = null;       // component type string or null
     this.selectedCategory = 'source';
     this.dipoleBendDir = 'right';
+    this.placementDir = DIR.NE;     // direction for source/free placement
     this.selectedNodeId = null;
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
@@ -113,7 +114,7 @@ export class InputHandler {
             if (nodes.length === 0) {
               const comp = COMPONENTS[this.selectedTool];
               if (comp && comp.isSource) {
-                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, DIR.NE);
+                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir);
               }
             } else {
               const cursors = this._getActiveBuildCursors();
@@ -198,6 +199,10 @@ export class InputHandler {
           break;
         }
         case 'f': case 'F':
+          // Rotate placement direction (cycles NE→SE→SW→NW)
+          this.placementDir = (this.placementDir + 1) % 4;
+          this.renderer.updatePlacementDir(this.placementDir);
+          // Also toggle dipole bend direction
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
@@ -733,7 +738,7 @@ export class InputHandler {
         // Place first component (must be a source type)
         const comp = COMPONENTS[this.selectedTool];
         if (comp && comp.isSource) {
-          this.game.placeSource(col, row, DIR.NE);
+          this.game.placeSource(col, row, this.placementDir);
         }
       } else {
         // Find matching cursor
