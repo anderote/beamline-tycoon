@@ -110,10 +110,52 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     probeWindow.fromJSON(game.state.probe);
   }
 
-  document.getElementById('btn-new-game').addEventListener('click', () => {
-    if (confirm('Start a new game? All progress will be lost.')) {
-      localStorage.removeItem('beamlineTycoon');
-      location.reload();
+  // Beamline Designer button — opens blank designer
+  document.getElementById('btn-designer').addEventListener('click', () => {
+    designer.openDesign(null);
+  });
+
+  // Designs button — will be wired to DesignLibrary in Task 6
+  // (placeholder: log message for now)
+  document.getElementById('btn-designs').addEventListener('click', () => {
+    game.log('Designs library — coming in next update.', 'info');
+  });
+
+  // Menu dropdown toggle
+  const menuBtn = document.getElementById('btn-menu');
+  const menuDropdown = document.getElementById('menu-dropdown');
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menuDropdown.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => menuDropdown.classList.add('hidden'));
+  menuDropdown.addEventListener('click', (e) => {
+    const action = e.target.dataset?.action;
+    if (!action) return;
+    menuDropdown.classList.add('hidden');
+    switch (action) {
+      case 'new-game':
+        if (confirm('Start a new game? All progress will be lost.')) {
+          localStorage.removeItem('beamlineTycoon');
+          location.reload();
+        }
+        break;
+      case 'save-game':
+        game.save();
+        game.log('Game saved.', 'good');
+        break;
+      case 'load-game':
+        game.log('Load game — coming soon.', 'info');
+        break;
+      case 'scenarios':
+        game.log('Scenarios — coming soon.', 'info');
+        break;
+      case 'options':
+        game.log('Options — coming soon.', 'info');
+        break;
+      case 'guide':
+        game.log('Guide — coming soon.', 'info');
+        break;
     }
   });
 

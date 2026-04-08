@@ -32,9 +32,22 @@
       </div>
       <div id="top-buttons">
         <span id="beam-summary" class="beam-summary"></span>
+        <button id="btn-designer" class="hud-btn">Beamline Designer</button>
+        <button id="btn-designs" class="hud-btn">Designs</button>
         <button id="btn-research" class="hud-btn">Research</button>
         <button id="btn-goals" class="hud-btn">Goals</button>
-        <button id="btn-new-game" title="Start a new game">New Game</button>
+        <div id="menu-wrapper">
+          <button id="btn-menu" class="hud-btn">Menu</button>
+          <div id="menu-dropdown" class="menu-dropdown hidden">
+            <button class="menu-item" data-action="new-game">New Game</button>
+            <button class="menu-item" data-action="save-game">Save Game</button>
+            <button class="menu-item" data-action="load-game">Load Game</button>
+            <div class="menu-divider"></div>
+            <button class="menu-item" data-action="scenarios">Scenarios</button>
+            <button class="menu-item" data-action="options">Options</button>
+            <button class="menu-item" data-action="guide">Guide</button>
+          </div>
+        </div>
       </div>
     </div>
 
