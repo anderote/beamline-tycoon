@@ -373,6 +373,9 @@ function _fmtParam(val) {
 
 // ---- Plot rendering ----
 
+// Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
+const PLOT_SCALE = 2;
+
 ControllerView.prototype._renderPlots = function() {
   const panels = document.querySelectorAll('.ctrl-plot-panel');
   panels.forEach((panel) => {
@@ -380,36 +383,46 @@ ControllerView.prototype._renderPlots = function() {
     const canvas = panel.querySelector('.ctrl-plot-canvas');
     if (!select || !canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
     const rect = panel.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = (rect.height - 28) * dpr;  // account for select dropdown height
+    const plotW = Math.floor(rect.width / PLOT_SCALE);
+    const plotH = Math.floor((rect.height - 28) / PLOT_SCALE);
+    if (plotW < 10 || plotH < 10) return;
 
     const plotType = select.value;
     const envelope = this.draftEnvelope;
 
+    // Render to a small offscreen canvas
+    const off = document.createElement('canvas');
+    off.width = plotW;
+    off.height = plotH;
+
     if (!envelope || envelope.length < 2) {
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ctx = off.getContext('2d');
       ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, plotW, plotH);
       ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('No beam data', canvas.width / 2, canvas.height / 2);
-      return;
+      ctx.fillText('No beam data', plotW / 2, plotH / 2);
+    } else {
+      // Build a mock pin for "at-a-point" plots at the selected component
+      const pins = [];
+      if (this.selectedIndex >= 0 && this.selectedIndex < envelope.length) {
+        pins.push({
+          elementIndex: this.selectedIndex,
+          color: '#4488ff',
+        });
+      }
+      ProbePlots.draw(off, plotType, envelope, pins, 0);
     }
 
-    // Build a mock pin for "at-a-point" plots at the selected component
-    const pins = [];
-    if (this.selectedIndex >= 0 && this.selectedIndex < envelope.length) {
-      pins.push({
-        elementIndex: this.selectedIndex,
-        color: '#4488ff',
-      });
-    }
-
-    ProbePlots.draw(canvas, plotType, envelope, pins, 0);
+    // Scale up to display canvas with nearest-neighbor (crispy pixels)
+    canvas.width = Math.floor(rect.width);
+    canvas.height = Math.floor(rect.height - 28);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(off, 0, 0, plotW, plotH, 0, 0, canvas.width, canvas.height);
   });
 };
 
