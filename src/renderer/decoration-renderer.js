@@ -19,6 +19,7 @@ Renderer.prototype._renderDecorations = function() {
     const texture = this.sprites.getTexture(def.spriteKey);
 
     if (texture) {
+      texture.source.scaleMode = 'nearest';
       const sprite = new PIXI.Sprite(texture);
       if (def.category === 'treesPlants' && def.blocksBuild) {
         sprite.anchor.set(0.5, 1.0);

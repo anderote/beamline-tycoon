@@ -1,9 +1,24 @@
 // Decoration items — placeable cosmetic/morale items on the map
 export const DECORATIONS = {
-  // === Outdoor (grass-only) ===
+  // === Trees & Plants ===
   oakTree: {
     id: 'oakTree', name: 'Oak Tree', cost: 15, removeCost: 10,
     morale: 1, placement: 'outdoor', spriteKey: 'oak_tree',
+    blocksBuild: true, category: 'treesPlants',
+  },
+  mapleTree: {
+    id: 'mapleTree', name: 'Maple Tree', cost: 15, removeCost: 10,
+    morale: 1, placement: 'outdoor', spriteKey: 'maple_tree',
+    blocksBuild: true, category: 'treesPlants',
+  },
+  elmTree: {
+    id: 'elmTree', name: 'Elm Tree', cost: 15, removeCost: 10,
+    morale: 1, placement: 'outdoor', spriteKey: 'elm_tree',
+    blocksBuild: true, category: 'treesPlants',
+  },
+  birchTree: {
+    id: 'birchTree', name: 'Birch Tree', cost: 15, removeCost: 10,
+    morale: 1, placement: 'outdoor', spriteKey: 'birch_tree',
     blocksBuild: true, category: 'treesPlants',
   },
   pineTree: {
@@ -11,9 +26,19 @@ export const DECORATIONS = {
     morale: 1, placement: 'outdoor', spriteKey: 'pine_tree',
     blocksBuild: true, category: 'treesPlants',
   },
+  cedarTree: {
+    id: 'cedarTree', name: 'Cedar Tree', cost: 12, removeCost: 8,
+    morale: 1, placement: 'outdoor', spriteKey: 'cedar_tree',
+    blocksBuild: true, category: 'treesPlants',
+  },
   smallTree: {
     id: 'smallTree', name: 'Small Tree', cost: 8, removeCost: 5,
     morale: 0.5, placement: 'outdoor', spriteKey: 'small_tree',
+    blocksBuild: true, category: 'treesPlants',
+  },
+  willowTree: {
+    id: 'willowTree', name: 'Willow Tree', cost: 18, removeCost: 12,
+    morale: 1.5, placement: 'outdoor', spriteKey: 'willow_tree',
     blocksBuild: true, category: 'treesPlants',
   },
   shrub: {
@@ -26,25 +51,115 @@ export const DECORATIONS = {
     morale: 0.5, placement: 'outdoor', spriteKey: 'flower_bed',
     blocksBuild: false, category: 'treesPlants',
   },
-  parkBench: {
-    id: 'parkBench', name: 'Park Bench', cost: 10, removeCost: 0,
-    morale: 1, placement: 'outdoor', spriteKey: 'park_bench',
-    blocksBuild: false, category: 'furniture',
+  flowerGarden: {
+    id: 'flowerGarden', name: 'Flower Garden', cost: 10, removeCost: 0,
+    morale: 1, placement: 'outdoor', spriteKey: 'flower_garden',
+    blocksBuild: false, category: 'treesPlants',
   },
-  lamppost: {
-    id: 'lamppost', name: 'Lamppost', cost: 8, removeCost: 0,
-    morale: 0.5, placement: 'outdoor', spriteKey: 'lamppost',
-    blocksBuild: false, category: 'lighting',
+
+  // === Hedges ===
+  hedge: {
+    id: 'hedge', name: 'Hedge', cost: 6, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'hedge_0',
+    blocksBuild: false, category: 'hedges',
   },
+  tallHedge: {
+    id: 'tallHedge', name: 'Tall Hedge', cost: 10, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'tall_hedge',
+    blocksBuild: false, category: 'hedges',
+  },
+  hedgeCorner: {
+    id: 'hedgeCorner', name: 'Hedge Corner', cost: 8, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'hedge_corner',
+    blocksBuild: false, category: 'hedges',
+  },
+
+  // === Fencing ===
   ironFence: {
     id: 'ironFence', name: 'Iron Fence', cost: 4, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'iron_fence',
     blocksBuild: false, category: 'fencing',
   },
-  hedge: {
-    id: 'hedge', name: 'Hedge', cost: 6, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'hedge_0',
+  woodFence: {
+    id: 'woodFence', name: 'Wood Fence', cost: 3, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'wood_fence',
     blocksBuild: false, category: 'fencing',
+  },
+  chainLink: {
+    id: 'chainLink', name: 'Chain Link Fence', cost: 2, removeCost: 0,
+    morale: 0, placement: 'outdoor', spriteKey: 'chain_link',
+    blocksBuild: false, category: 'fencing',
+  },
+  stoneWall: {
+    id: 'stoneWall', name: 'Stone Wall', cost: 8, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'stone_wall',
+    blocksBuild: false, category: 'fencing',
+  },
+
+  // === Furniture ===
+  parkBench: {
+    id: 'parkBench', name: 'Park Bench', cost: 10, removeCost: 0,
+    morale: 1, placement: 'outdoor', spriteKey: 'park_bench',
+    blocksBuild: false, category: 'furniture',
+  },
+  picnicTable: {
+    id: 'picnicTable', name: 'Picnic Table', cost: 15, removeCost: 0,
+    morale: 1.5, placement: 'outdoor', spriteKey: 'picnic_table',
+    blocksBuild: false, category: 'furniture',
+  },
+  fountain: {
+    id: 'fountain', name: 'Fountain', cost: 50, removeCost: 0,
+    morale: 3, placement: 'outdoor', spriteKey: 'fountain',
+    blocksBuild: true, category: 'furniture',
+  },
+  statue: {
+    id: 'statue', name: 'Statue', cost: 40, removeCost: 0,
+    morale: 2, placement: 'outdoor', spriteKey: 'statue',
+    blocksBuild: true, category: 'furniture',
+  },
+
+  // === Lighting ===
+  lamppost: {
+    id: 'lamppost', name: 'Lamppost', cost: 8, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'lamppost',
+    blocksBuild: false, category: 'lighting',
+  },
+  bollardLight: {
+    id: 'bollardLight', name: 'Bollard Light', cost: 6, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'bollard_light',
+    blocksBuild: false, category: 'lighting',
+  },
+  spotLight: {
+    id: 'spotLight', name: 'Spot Light', cost: 12, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'spot_light',
+    blocksBuild: false, category: 'lighting',
+  },
+
+  // === Bins & Signs ===
+  trashCan: {
+    id: 'trashCan', name: 'Trash Can', cost: 5, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'trash_can',
+    blocksBuild: false, category: 'bins',
+  },
+  recyclingBin: {
+    id: 'recyclingBin', name: 'Recycling Bin', cost: 8, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'recycling_bin',
+    blocksBuild: false, category: 'bins',
+  },
+  infoSign: {
+    id: 'infoSign', name: 'Info Sign', cost: 10, removeCost: 0,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'info_sign',
+    blocksBuild: false, category: 'bins',
+  },
+  directionSign: {
+    id: 'directionSign', name: 'Direction Sign', cost: 8, removeCost: 0,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'direction_sign',
+    blocksBuild: false, category: 'bins',
+  },
+  flagpole: {
+    id: 'flagpole', name: 'Flagpole', cost: 15, removeCost: 0,
+    morale: 1, placement: 'outdoor', spriteKey: 'flagpole',
+    blocksBuild: false, category: 'bins',
   },
 };
 
