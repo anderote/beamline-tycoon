@@ -500,10 +500,10 @@ ControllerView.prototype._createControllerPaletteCard = function(key, comp) {
   const canvasWrap = document.createElement('div');
   canvasWrap.className = 'ctrl-card-schematic';
   const canvas = document.createElement('canvas');
-  canvas.width = 140;
-  canvas.height = 50;
-  canvas.style.width = '140px';
-  canvas.style.height = '50px';
+  canvas.width = 180;
+  canvas.height = 60;
+  canvas.style.width = '180px';
+  canvas.style.height = '60px';
   this.renderer.drawSchematic(canvas, key);
   canvasWrap.appendChild(canvas);
   card.appendChild(canvasWrap);
@@ -517,18 +517,21 @@ ControllerView.prototype._createControllerPaletteCard = function(key, comp) {
   name.textContent = comp.name;
   info.appendChild(name);
 
+  // Short description (first sentence)
+  if (comp.desc) {
+    const desc = document.createElement('div');
+    desc.className = 'ctrl-card-desc';
+    desc.textContent = comp.desc;
+    info.appendChild(desc);
+  }
+
   const costs = Object.entries(comp.cost).map(([r, a]) =>
     r === 'funding' ? `$${a.toLocaleString()}` : `${a} ${r}`
   ).join(', ');
   const cost = document.createElement('div');
   cost.className = 'ctrl-card-cost';
-  cost.textContent = costs;
+  cost.textContent = `${costs}  ·  ${comp.energyCost}kW  ·  ${comp.length}m`;
   info.appendChild(cost);
-
-  const stats = document.createElement('div');
-  stats.className = 'ctrl-card-stats';
-  stats.textContent = `${comp.energyCost}kW · ${comp.length}m`;
-  info.appendChild(stats);
 
   card.appendChild(info);
 
