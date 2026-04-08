@@ -39,23 +39,23 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';
 
     // DOM references
-    this.overlay = document.getElementById('controller-overlay');
-    this.summaryEl = document.getElementById('ctrl-draft-summary');
-    this.costEl = document.getElementById('ctrl-draft-cost');
+    this.overlay = document.getElementById('designer-overlay');
+    this.summaryEl = document.getElementById('dsgn-draft-summary');
+    this.costEl = document.getElementById('dsgn-draft-cost');
 
     this._bindButtons();
     this._bindEvents();
   }
 
   _bindButtons() {
-    document.getElementById('ctrl-confirm').addEventListener('click', () => this.confirm());
-    document.getElementById('ctrl-cancel').addEventListener('click', () => this.cancel());
-    document.getElementById('ctrl-close').addEventListener('click', () => this.close());
-    document.getElementById('ctrl-insert-before').addEventListener('click', () => {
+    document.getElementById('dsgn-confirm').addEventListener('click', () => this.confirm());
+    document.getElementById('dsgn-cancel').addEventListener('click', () => this.cancel());
+    document.getElementById('dsgn-close').addEventListener('click', () => this.close());
+    document.getElementById('dsgn-insert-before').addEventListener('click', () => {
       this.insertMode = this.insertMode === 'before' ? null : 'before';
       this._updateInsertButtons();
     });
-    document.getElementById('ctrl-insert-after').addEventListener('click', () => {
+    document.getElementById('dsgn-insert-after').addEventListener('click', () => {
       this.insertMode = this.insertMode === 'after' ? null : 'after';
       this._updateInsertButtons();
     });
@@ -129,7 +129,7 @@ export class BeamlineDesigner {
     window.addEventListener('keyup', this._onKeyUp, true);
 
     // Schematic click + drag panning
-    const schematicCanvas = document.getElementById('ctrl-schematic-canvas');
+    const schematicCanvas = document.getElementById('dsgn-schematic-canvas');
     if (schematicCanvas) {
       let dragging = false;
       let dragStartX = 0;
@@ -174,25 +174,25 @@ export class BeamlineDesigner {
     }
 
     // Plot selector dropdowns — re-render on change
-    document.querySelectorAll('.ctrl-plot-select').forEach(select => {
+    document.querySelectorAll('.dsgn-plot-select').forEach(select => {
       select.addEventListener('change', () => {
         if (this.isOpen) this._renderPlots();
       });
     });
 
     // Plot range buttons
-    document.querySelectorAll('.ctrl-range-btn').forEach(btn => {
+    document.querySelectorAll('.dsgn-range-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         if (!this.isOpen) return;
         this.plotRangeMode = btn.dataset.range;
-        document.querySelectorAll('.ctrl-range-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.dsgn-range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this._renderPlots();
       });
     });
 
     // Mousewheel on plot canvases (sync zoom with schematic)
-    document.querySelectorAll('.ctrl-plot-canvas').forEach(canvas => {
+    document.querySelectorAll('.dsgn-plot-canvas').forEach(canvas => {
       canvas.addEventListener('wheel', (e) => {
         if (!this.isOpen) return;
         e.preventDefault();
@@ -234,7 +234,7 @@ export class BeamlineDesigner {
     this.viewX = 0;
     this.viewZoom = 1;
     // Reset range button UI
-    document.querySelectorAll('.ctrl-range-btn').forEach(b => {
+    document.querySelectorAll('.dsgn-range-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.range === 'full');
     });
 
@@ -254,7 +254,7 @@ export class BeamlineDesigner {
     if (bottomHud) bottomHud.style.zIndex = '260';
 
     // Set up beamline-only palette with preview cards
-    this._setupControllerTabs();
+    this._setupDesignerTabs();
 
     // Update draft bar
     this._updateDraftBar();
@@ -666,8 +666,8 @@ export class BeamlineDesigner {
   }
 
   _updateInsertButtons() {
-    const beforeBtn = document.getElementById('ctrl-insert-before');
-    const afterBtn = document.getElementById('ctrl-insert-after');
+    const beforeBtn = document.getElementById('dsgn-insert-before');
+    const afterBtn = document.getElementById('dsgn-insert-after');
     if (beforeBtn) beforeBtn.classList.toggle('active', this.insertMode === 'before');
     if (afterBtn) afterBtn.classList.toggle('active', this.insertMode === 'after');
   }

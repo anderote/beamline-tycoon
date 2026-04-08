@@ -27,7 +27,7 @@ BeamlineDesigner.prototype._renderAll = function() {
 };
 
 BeamlineDesigner.prototype._renderSchematic = function() {
-  const canvas = document.getElementById('ctrl-schematic-canvas');
+  const canvas = document.getElementById('dsgn-schematic-canvas');
   if (!canvas) return;
 
   const dpr = window.devicePixelRatio || 1;
@@ -331,10 +331,10 @@ BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType) {
 // ---- Tuning row rendering ----
 
 BeamlineDesigner.prototype._renderTuning = function() {
-  const nameEl = document.getElementById('ctrl-tuning-name');
-  const descEl = document.getElementById('ctrl-tuning-desc');
-  const statsEl = document.getElementById('ctrl-tuning-stats');
-  const paramsEl = document.getElementById('ctrl-tuning-params');
+  const nameEl = document.getElementById('dsgn-tuning-name');
+  const descEl = document.getElementById('dsgn-tuning-desc');
+  const statsEl = document.getElementById('dsgn-tuning-stats');
+  const paramsEl = document.getElementById('dsgn-tuning-params');
   if (!nameEl || !paramsEl) return;
 
   if (this.selectedIndex < 0 || this.selectedIndex >= this.draftNodes.length) {
@@ -557,10 +557,10 @@ BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x-range based on plot range mode
   const xRange = this._getPlotXRange();
 
-  const panels = document.querySelectorAll('.ctrl-plot-panel');
+  const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
-    const select = panel.querySelector('.ctrl-plot-select');
-    const canvas = panel.querySelector('.ctrl-plot-canvas');
+    const select = panel.querySelector('.dsgn-plot-select');
+    const canvas = panel.querySelector('.dsgn-plot-canvas');
     if (!select || !canvas) return;
 
     const rect = panel.getBoundingClientRect();
@@ -628,7 +628,7 @@ BeamlineDesigner.prototype._getPlotXRange = function() {
 // ---- Click detection on schematic ----
 
 BeamlineDesigner.prototype._hitTestSchematic = function(clientX, clientY) {
-  const canvas = document.getElementById('ctrl-schematic-canvas');
+  const canvas = document.getElementById('dsgn-schematic-canvas');
   if (!canvas || !this._compRegions) return -1;
 
   const rect = canvas.getBoundingClientRect();
@@ -646,7 +646,7 @@ BeamlineDesigner.prototype._hitTestSchematic = function(clientX, clientY) {
 
 // ---- Controller palette rendering (beamline-only, with preview cards) ----
 
-BeamlineDesigner.prototype._renderControllerPalette = function(category) {
+BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   const palette = document.getElementById('component-palette');
   if (!palette) return;
   palette.innerHTML = '';
@@ -691,7 +691,7 @@ BeamlineDesigner.prototype._renderControllerPalette = function(category) {
       const items = document.createElement('div');
       items.className = 'palette-subsection-items';
       for (const { key, comp } of subComps) {
-        items.appendChild(this._createControllerPaletteCard(key, comp));
+        items.appendChild(this._createDesignerPaletteCard(key, comp));
       }
       section.appendChild(items);
       palette.appendChild(section);
@@ -699,18 +699,18 @@ BeamlineDesigner.prototype._renderControllerPalette = function(category) {
     }
   } else {
     for (const { key, comp } of catComps) {
-      palette.appendChild(this._createControllerPaletteCard(key, comp));
+      palette.appendChild(this._createDesignerPaletteCard(key, comp));
     }
   }
 };
 
-BeamlineDesigner.prototype._createControllerPaletteCard = function(key, comp) {
+BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
   const card = document.createElement('div');
-  card.className = 'ctrl-palette-card';
+  card.className = 'dsgn-palette-card';
 
   // Schematic canvas
   const canvasWrap = document.createElement('div');
-  canvasWrap.className = 'ctrl-card-schematic';
+  canvasWrap.className = 'dsgn-card-schematic';
   const canvas = document.createElement('canvas');
   canvas.width = 180;
   canvas.height = 60;
@@ -722,17 +722,17 @@ BeamlineDesigner.prototype._createControllerPaletteCard = function(key, comp) {
 
   // Info section
   const info = document.createElement('div');
-  info.className = 'ctrl-card-info';
+  info.className = 'dsgn-card-info';
 
   const name = document.createElement('div');
-  name.className = 'ctrl-card-name';
+  name.className = 'dsgn-card-name';
   name.textContent = comp.name;
   info.appendChild(name);
 
   // Short description (first sentence)
   if (comp.desc) {
     const desc = document.createElement('div');
-    desc.className = 'ctrl-card-desc';
+    desc.className = 'dsgn-card-desc';
     desc.textContent = comp.desc;
     info.appendChild(desc);
   }
@@ -741,7 +741,7 @@ BeamlineDesigner.prototype._createControllerPaletteCard = function(key, comp) {
     r === 'funding' ? `$${a.toLocaleString()}` : `${a} ${r}`
   ).join(', ');
   const cost = document.createElement('div');
-  cost.className = 'ctrl-card-cost';
+  cost.className = 'dsgn-card-cost';
   cost.textContent = `${costs}  ·  ${comp.energyCost}kW  ·  ${comp.length}m`;
   info.appendChild(cost);
 
@@ -762,7 +762,7 @@ BeamlineDesigner.prototype._createControllerPaletteCard = function(key, comp) {
   return card;
 };
 
-BeamlineDesigner.prototype._setupControllerTabs = function() {
+BeamlineDesigner.prototype._setupDesignerTabs = function() {
   const tabsContainer = document.getElementById('category-tabs');
   if (!tabsContainer) return;
   tabsContainer.innerHTML = '';
@@ -779,7 +779,7 @@ BeamlineDesigner.prototype._setupControllerTabs = function() {
     btn.addEventListener('click', () => {
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-      this._renderControllerPalette(key);
+      this._renderDesignerPalette(key);
     });
     tabsContainer.appendChild(btn);
   });
@@ -792,7 +792,7 @@ BeamlineDesigner.prototype._setupControllerTabs = function() {
 
   // Render first category
   if (catKeys.length > 0) {
-    this._renderControllerPalette(catKeys[0]);
+    this._renderDesignerPalette(catKeys[0]);
   }
 };
 

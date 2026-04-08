@@ -143,36 +143,38 @@
     </div>
 
 
-    <!-- Beamline Controller View (full-screen, hidden by default) -->
-    <div id="controller-overlay" class="controller-overlay hidden">
-      <div class="ctrl-header">
-        <span class="ctrl-title">Beamline Controller</span>
-        <div class="ctrl-draft-bar">
-          <span class="ctrl-draft-summary" id="ctrl-draft-summary"></span>
-          <span class="ctrl-draft-cost" id="ctrl-draft-cost"></span>
-          <button class="ctrl-btn ctrl-insert-before" id="ctrl-insert-before" title="Insert Before Selected">+ Before</button>
-          <button class="ctrl-btn ctrl-insert-after" id="ctrl-insert-after" title="Insert After Selected">+ After</button>
-          <button class="ctrl-btn ctrl-confirm" id="ctrl-confirm">Confirm</button>
-          <button class="ctrl-btn ctrl-cancel" id="ctrl-cancel">Cancel</button>
+    <!-- Beamline Designer View (full-screen, hidden by default) -->
+    <div id="designer-overlay" class="designer-overlay hidden">
+      <div class="dsgn-header">
+        <span class="dsgn-title" id="dsgn-title">Beamline Designer</span>
+        <div class="dsgn-draft-bar">
+          <span class="dsgn-draft-summary" id="dsgn-draft-summary"></span>
+          <span class="dsgn-draft-cost" id="dsgn-draft-cost"></span>
+          <button class="dsgn-btn dsgn-insert-before" id="dsgn-insert-before" title="Insert Before Selected">+ Before</button>
+          <button class="dsgn-btn dsgn-insert-after" id="dsgn-insert-after" title="Insert After Selected">+ After</button>
+          <button class="dsgn-btn dsgn-save-design" id="dsgn-save-design" style="display:none">Save Design</button>
+          <button class="dsgn-btn dsgn-save-as" id="dsgn-save-as" style="display:none">Save As</button>
+          <button class="dsgn-btn dsgn-confirm" id="dsgn-confirm">Confirm</button>
+          <button class="dsgn-btn dsgn-cancel" id="dsgn-cancel">Cancel</button>
         </div>
-        <button class="overlay-close" id="ctrl-close">&times;</button>
+        <button class="overlay-close" id="dsgn-close">&times;</button>
       </div>
-      <div class="ctrl-body">
-        <div class="ctrl-schematic-row">
-          <canvas id="ctrl-schematic-canvas"></canvas>
+      <div class="dsgn-body">
+        <div class="dsgn-schematic-row">
+          <canvas id="dsgn-schematic-canvas"></canvas>
         </div>
-        <div class="ctrl-tuning-row" id="ctrl-tuning-row">
-          <div class="ctrl-tuning-info" id="ctrl-tuning-info">
-            <div class="ctrl-tuning-name" id="ctrl-tuning-name">No component selected</div>
-            <div class="ctrl-tuning-desc" id="ctrl-tuning-desc"></div>
+        <div class="dsgn-tuning-row" id="dsgn-tuning-row">
+          <div class="dsgn-tuning-info" id="dsgn-tuning-info">
+            <div class="dsgn-tuning-name" id="dsgn-tuning-name">No component selected</div>
+            <div class="dsgn-tuning-desc" id="dsgn-tuning-desc"></div>
           </div>
-          <div class="ctrl-tuning-stats" id="ctrl-tuning-stats"></div>
-          <div class="ctrl-tuning-params" id="ctrl-tuning-params">
+          <div class="dsgn-tuning-stats" id="dsgn-tuning-stats"></div>
+          <div class="dsgn-tuning-params" id="dsgn-tuning-params">
           </div>
         </div>
-        <div class="ctrl-plots-row">
-          <div class="ctrl-plot-panel">
-            <select class="ctrl-plot-select" data-panel="0">
+        <div class="dsgn-plots-row">
+          <div class="dsgn-plot-panel">
+            <select class="dsgn-plot-select" data-panel="0">
               <option value="beam-envelope" selected>Beam Envelope</option>
               <option value="current-loss">Current &amp; Loss</option>
               <option value="emittance">Emittance</option>
@@ -181,10 +183,10 @@
               <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
             </select>
-            <canvas class="ctrl-plot-canvas" data-panel="0"></canvas>
+            <canvas class="dsgn-plot-canvas" data-panel="0"></canvas>
           </div>
-          <div class="ctrl-plot-panel">
-            <select class="ctrl-plot-select" data-panel="1">
+          <div class="dsgn-plot-panel">
+            <select class="dsgn-plot-select" data-panel="1">
               <option value="beam-envelope">Beam Envelope</option>
               <option value="current-loss">Current &amp; Loss</option>
               <option value="emittance" selected>Emittance</option>
@@ -193,10 +195,10 @@
               <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
             </select>
-            <canvas class="ctrl-plot-canvas" data-panel="1"></canvas>
+            <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
           </div>
-          <div class="ctrl-plot-panel">
-            <select class="ctrl-plot-select" data-panel="2">
+          <div class="dsgn-plot-panel">
+            <select class="dsgn-plot-select" data-panel="2">
               <option value="beam-envelope">Beam Envelope</option>
               <option value="current-loss">Current &amp; Loss</option>
               <option value="emittance">Emittance</option>
@@ -205,7 +207,7 @@
               <option value="phase-space" selected>Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
             </select>
-            <canvas class="ctrl-plot-canvas" data-panel="2"></canvas>
+            <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
           </div>
         </div>
       </div>
