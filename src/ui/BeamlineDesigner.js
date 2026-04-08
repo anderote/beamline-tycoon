@@ -1,4 +1,4 @@
-// src/ui/ControllerView.js — Beamline Controller View
+// src/ui/BeamlineDesigner.js — Beamline Designer View
 // Full-screen 2D view for inspecting and editing a beamline with live physics preview.
 
 import { COMPONENTS } from '../data/components.js';
@@ -6,7 +6,7 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 
-export class ControllerView {
+export class BeamlineDesigner {
   constructor(game, renderer) {
     this.game = game;
     this.renderer = renderer;
@@ -26,12 +26,17 @@ export class ControllerView {
 
     // Continuous marker position along s (meters)
     this.markerS = 0;
+    this._markerDir = 0;      // -1, 0, or +1 for continuous panning
+    this._markerAnimId = null; // requestAnimationFrame id
 
     // Focus row: 0 = schematic, 1 = plots, 2 = palette
     this.focusRow = 0;
 
     // Insert mode: null, 'before', or 'after'
     this.insertMode = null;
+
+    // Plot range mode: 'full', '20', '10' (meters)
+    this.plotRangeMode = 'full';
 
     // DOM references
     this.overlay = document.getElementById('controller-overlay');
@@ -67,12 +72,12 @@ export class ControllerView {
         case 'ArrowLeft':
           e.preventDefault();
           e.stopPropagation();
-          this.selectPrev();
+          this._startMarkerMove(-1);
           break;
         case 'ArrowRight':
           e.preventDefault();
           e.stopPropagation();
-          this.selectNext();
+          this._startMarkerMove(1);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -111,8 +116,17 @@ export class ControllerView {
           break;
       }
     };
+    this._onKeyUp = (e) => {
+      if (!this.isOpen) return;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        this._stopMarkerMove();
+      }
+    };
     // Use capture phase so we intercept before InputHandler
     window.addEventListener('keydown', this._onKeyDown, true);
+    window.addEventListener('keyup', this._onKeyUp, true);
 
     // Schematic click + drag panning
     const schematicCanvas = document.getElementById('ctrl-schematic-canvas');
@@ -166,6 +180,17 @@ export class ControllerView {
       });
     });
 
+    // Plot range buttons
+    document.querySelectorAll('.ctrl-range-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!this.isOpen) return;
+        this.plotRangeMode = btn.dataset.range;
+        document.querySelectorAll('.ctrl-range-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this._renderPlots();
+      });
+    });
+
     // Mousewheel on plot canvases (sync zoom with schematic)
     document.querySelectorAll('.ctrl-plot-canvas').forEach(canvas => {
       canvas.addEventListener('wheel', (e) => {
@@ -205,8 +230,13 @@ export class ControllerView {
     this.markerS = 0;
     this.focusRow = 0;
     this.insertMode = null;
+    this.plotRangeMode = 'full';
     this.viewX = 0;
     this.viewZoom = 1;
+    // Reset range button UI
+    document.querySelectorAll('.ctrl-range-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.range === 'full');
+    });
 
     // Compute total length
     this._updateTotalLength();
@@ -289,6 +319,11 @@ export class ControllerView {
     this.draftEnvelope = null;
     this.selectedIndex = -1;
     this._lastTuningKey = null;
+    this._markerDir = 0;
+    if (this._markerAnimId) {
+      cancelAnimationFrame(this._markerAnimId);
+      this._markerAnimId = null;
+    }
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
@@ -395,21 +430,47 @@ export class ControllerView {
 
   // --- Selection / Navigation ---
 
-  selectNext() {
-    if (this.draftNodes.length === 0) return;
-    this.selectedIndex = Math.min(this.selectedIndex + 1, this.draftNodes.length - 1);
-    this._updateMarkerToComponentCenter();
-    this._renderAll();
+  /** Start continuous marker movement in a direction (-1 or +1). */
+  _startMarkerMove(dir) {
+    this._markerDir = dir;
+    if (this._markerAnimId) return; // animation already running
+    this._lastMarkerTime = performance.now();
+    this._runMarkerAnimation();
   }
 
-  selectPrev() {
-    if (this.draftNodes.length === 0) return;
-    this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-    this._updateMarkerToComponentCenter();
-    this._renderAll();
+  /** Stop continuous marker movement. */
+  _stopMarkerMove() {
+    this._markerDir = 0;
+    // Animation will stop on next frame when dir is 0
   }
 
-  /** Set markerS to the center of the currently selected component. */
+  _runMarkerAnimation() {
+    // Speed: traverse full beamline in ~3 seconds
+    const SPEED_FACTOR = Math.max(this.totalLength / 3, 0.5);
+
+    const step = (now) => {
+      const dt = Math.min((now - this._lastMarkerTime) / 1000, 0.05); // cap at 50ms
+      this._lastMarkerTime = now;
+
+      if (this._markerDir === 0) {
+        this._markerAnimId = null;
+        return;
+      }
+
+      this.markerS = Math.max(0, Math.min(this.totalLength,
+        this.markerS + this._markerDir * SPEED_FACTOR * dt));
+
+      // Update selected component based on marker position
+      this._updateSelectionFromMarker();
+
+      this._renderSchematic();
+      this._renderPlots();
+      this._markerAnimId = requestAnimationFrame(step);
+    };
+    this._markerAnimId = requestAnimationFrame(step);
+  }
+
+  /** Set markerS to the center of the currently selected component (instant, for clicks). */
   _updateMarkerToComponentCenter() {
     if (this.selectedIndex < 0 || this.draftNodes.length === 0) return;
     let s = 0;
@@ -420,6 +481,30 @@ export class ControllerView {
     const comp = COMPONENTS[this.draftNodes[this.selectedIndex].type];
     if (comp) s += comp.length / 2;
     this.markerS = s;
+  }
+
+  /** Update selectedIndex based on current markerS position. */
+  _updateSelectionFromMarker() {
+    if (this.draftNodes.length === 0) { this.selectedIndex = -1; return; }
+    let cumS = 0;
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      const comp = COMPONENTS[this.draftNodes[i].type];
+      const len = comp ? comp.length : 1;
+      if (this.markerS < cumS + len) {
+        if (this.selectedIndex !== i) {
+          this.selectedIndex = i;
+          this._renderTuning();
+        }
+        return;
+      }
+      cumS += len;
+    }
+    // Past the end — select last component
+    const last = this.draftNodes.length - 1;
+    if (this.selectedIndex !== last) {
+      this.selectedIndex = last;
+      this._renderTuning();
+    }
   }
 
   /** Find the envelope index closest to the current markerS. */
@@ -606,9 +691,10 @@ export class ControllerView {
     }
   }
 
-  // --- Rendering (placeholder — filled in by controller-renderer.js) ---
+  // --- Rendering (placeholders — filled in by designer-renderer.js) ---
 
-  _renderAll() {
-    // Will be replaced by controller-renderer.js extension
-  }
+  _renderAll() {}
+  _renderSchematic() {}
+  _renderTuning() {}
+  _renderPlots() {}
 }

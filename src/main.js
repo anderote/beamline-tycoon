@@ -14,8 +14,8 @@ import './renderer/decoration-renderer.js';
 import './renderer/hud.js';
 import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';
-import { ControllerView } from './ui/ControllerView.js';
-import './renderer/controller-renderer.js';
+import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
+import './renderer/designer-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
@@ -51,11 +51,13 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._renderZones();
 
   const input = new InputHandler(renderer, game);
-  const controllerView = new ControllerView(game, renderer);
-  game._controllerView = controllerView;
+  const designer = new BeamlineDesigner(game, renderer);
+  game._designer = designer;
   renderer._onToolSelect = (compType) => {
-    if (controllerView.handlePaletteClick(compType)) return;
-    input.selectTool(compType);
+    if (designer.handlePaletteClick(compType)) return;
+    // Pass any param overrides from the palette flyout
+    const overrides = renderer._selectedParamOverrides?.[compType];
+    input.selectTool(compType, overrides);
   };
   renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);

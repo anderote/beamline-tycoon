@@ -1,7 +1,7 @@
-// src/renderer/controller-renderer.js — Schematic and plot rendering for controller view
-// Extends ControllerView.prototype with canvas rendering methods.
+// src/renderer/designer-renderer.js — Schematic and plot rendering for designer view
+// Extends BeamlineDesigner.prototype with canvas rendering methods.
 
-import { ControllerView } from '../ui/ControllerView.js';
+import { BeamlineDesigner } from '../ui/BeamlineDesigner.js';
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { formatEnergy } from '../data/units.js';
@@ -19,14 +19,14 @@ const COMP_GAP = 4;
 
 // ---- Schematic rendering ----
 
-ControllerView.prototype._renderAll = function() {
+BeamlineDesigner.prototype._renderAll = function() {
   if (!this.isOpen) return;
   this._renderSchematic();
   this._renderTuning();
   this._renderPlots();
 };
 
-ControllerView.prototype._renderSchematic = function() {
+BeamlineDesigner.prototype._renderSchematic = function() {
   const canvas = document.getElementById('ctrl-schematic-canvas');
   if (!canvas) return;
 
@@ -38,13 +38,20 @@ ControllerView.prototype._renderSchematic = function() {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  const W = rect.width;
+  const H = rect.height;
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  // --- Draw lab background ---
+  _drawLabBackground(ctx, W, H);
+
   if (this.draftNodes.length === 0) {
-    ctx.save();
-    ctx.scale(dpr, dpr);
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('No components — add from palette below', rect.width / 2, rect.height / 2);
+    ctx.fillText('No components — add from palette below', W / 2, H / 2);
     ctx.restore();
     return;
   }
@@ -58,84 +65,112 @@ ControllerView.prototype._renderSchematic = function() {
   const totalPixelWidth = compWidths.reduce((s, w) => s + w + COMP_GAP, -COMP_GAP);
 
   // Auto-fit zoom if viewZoom is 1 (initial)
-  const viewWidthPx = canvas.width / dpr;
-  const baseZoom = viewWidthPx / (totalPixelWidth + 40);
+  const baseZoom = W / (totalPixelWidth + 40);
   const effectiveZoom = this.viewZoom * baseZoom;
 
   // Calculate pan offset in pixels
   const panOffsetPx = -this.viewX * effectiveZoom;
 
-  // Vertical center
-  const centerY = (canvas.height / dpr) / 2;
+  // Components sit on the floor — position beam line at ~60% height
+  const beamY = H * 0.55;
   const schematicH = SCHEM_PH * effectiveZoom;
 
-  ctx.save();
-  ctx.scale(dpr, dpr);
+  // --- Beamline rail / beam pipe on the floor ---
+  // Support stands
+  const railY = beamY + schematicH / 2 + 2;
+  const floorY = H * 0.88;
 
-  // Draw beam dashes across full width (background)
-  const beamY = centerY;
-  ctx.strokeStyle = 'rgba(34, 136, 85, 0.3)';
+  // Beam pipe background (long horizontal tube)
+  ctx.fillStyle = 'rgba(40, 50, 65, 0.6)';
+  ctx.fillRect(0, beamY - 2, W, 4);
+
+  // Beam dashes through the pipe
+  ctx.strokeStyle = 'rgba(34, 200, 100, 0.25)';
   ctx.lineWidth = 1;
-  ctx.setLineDash([6, 4]);
+  ctx.setLineDash([8, 5]);
   ctx.beginPath();
   ctx.moveTo(0, beamY);
-  ctx.lineTo(viewWidthPx, beamY);
+  ctx.lineTo(W, beamY);
   ctx.stroke();
   ctx.setLineDash([]);
 
   // Draw each component
-  let xPos = 20 + panOffsetPx;  // start with left margin
-  // Store component regions for click detection
+  let xPos = 20 + panOffsetPx;
   this._compRegions = [];
 
   for (let i = 0; i < this.draftNodes.length; i++) {
     const node = this.draftNodes[i];
     const compW = compWidths[i] * effectiveZoom;
     const compH = schematicH;
+    const compTop = beamY - compH / 2;
 
     // Store region for click detection
     this._compRegions.push({
       x: xPos,
-      y: centerY - compH / 2,
+      y: compTop,
       w: compW,
       h: compH,
       index: i,
     });
 
+    // Support stand under each component
+    ctx.fillStyle = 'rgba(50, 55, 70, 0.7)';
+    const standW = Math.max(4, compW * 0.15);
+    const standX = xPos + compW / 2 - standW / 2;
+    ctx.fillRect(standX, railY, standW, floorY - railY);
+    // Stand base
+    ctx.fillStyle = 'rgba(60, 65, 80, 0.6)';
+    ctx.fillRect(standX - 2, floorY - 3, standW + 4, 3);
+
+    // Shadow under the component
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect(xPos + 2, compTop + compH + 1, compW, 3);
+
     // Draw component using existing schematic drawer
     const offscreen = this._drawComponentOffscreen(node.type);
     if (offscreen) {
-      ctx.drawImage(offscreen, xPos, centerY - compH / 2, compW, compH);
+      ctx.drawImage(offscreen, xPos, compTop, compW, compH);
     }
 
     // Selection highlight
     if (i === this.selectedIndex) {
       ctx.strokeStyle = '#4488ff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(xPos - 1, centerY - compH / 2 - 1, compW + 2, compH + 2);
+      ctx.strokeRect(xPos - 1, compTop - 1, compW + 2, compH + 2);
+
+      // Glow effect
+      ctx.shadowColor = '#4488ff';
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(xPos - 1, compTop - 1, compW + 2, compH + 2);
+      ctx.shadowBlur = 0;
 
       // Component name label
       ctx.fillStyle = '#aaccff';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       const comp = COMPONENTS[node.type];
-      ctx.fillText(comp ? comp.name : node.type, xPos + compW / 2, centerY - compH / 2 - 6);
+      ctx.fillText(comp ? comp.name : node.type, xPos + compW / 2, compTop - 8);
     }
 
-    // Index label under each component
+    // Index label under component
     ctx.fillStyle = 'rgba(100, 100, 140, 0.6)';
     ctx.font = '8px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`${i + 1}`, xPos + compW / 2, centerY + compH / 2 + 10);
+    ctx.fillText(`${i + 1}`, xPos + compW / 2, compTop + compH + 14);
 
-    // Beam dash connector to next component
+    // Beam pipe connector to next component
     if (i < this.draftNodes.length - 1) {
-      ctx.strokeStyle = '#228855';
+      const gapW = COMP_GAP * effectiveZoom;
+      // Pipe segment
+      ctx.fillStyle = 'rgba(45, 55, 70, 0.5)';
+      ctx.fillRect(xPos + compW, beamY - 2, gapW, 4);
+      // Beam dash
+      ctx.strokeStyle = 'rgba(34, 200, 100, 0.2)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 2]);
       ctx.beginPath();
       ctx.moveTo(xPos + compW, beamY);
-      ctx.lineTo(xPos + compW + COMP_GAP * effectiveZoom, beamY);
+      ctx.lineTo(xPos + compW + gapW, beamY);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -148,8 +183,6 @@ ControllerView.prototype._renderSchematic = function() {
 
   // Draw marker line at markerS position
   if (this.markerS >= 0 && this.totalLength > 0) {
-    // Convert markerS (meters) to pixel x position
-    // We need to map s position to the schematic layout
     let markerXPos = 20 + panOffsetPx;
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
@@ -159,7 +192,6 @@ ControllerView.prototype._renderSchematic = function() {
       const gapW = COMP_GAP * effectiveZoom;
 
       if (this.markerS <= cumS + compLen) {
-        // Marker is within this component
         const frac = (this.markerS - cumS) / compLen;
         markerXPos += frac * compW;
         break;
@@ -168,21 +200,22 @@ ControllerView.prototype._renderSchematic = function() {
       markerXPos += compW + gapW;
     }
 
-    ctx.strokeStyle = 'rgba(68, 136, 255, 0.6)';
+    // Marker line from top to floor
+    ctx.strokeStyle = 'rgba(68, 136, 255, 0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(markerXPos, centerY - schematicH / 2 - 15);
-    ctx.lineTo(markerXPos, centerY + schematicH / 2 + 15);
+    ctx.moveTo(markerXPos, 10);
+    ctx.lineTo(markerXPos, floorY);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Small triangle indicator at top
+    // Triangle indicator at top
     ctx.fillStyle = '#4488ff';
     ctx.beginPath();
-    ctx.moveTo(markerXPos - 4, centerY - schematicH / 2 - 15);
-    ctx.lineTo(markerXPos + 4, centerY - schematicH / 2 - 15);
-    ctx.lineTo(markerXPos, centerY - schematicH / 2 - 8);
+    ctx.moveTo(markerXPos - 5, 4);
+    ctx.lineTo(markerXPos + 5, 4);
+    ctx.lineTo(markerXPos, 12);
     ctx.closePath();
     ctx.fill();
   }
@@ -190,7 +223,95 @@ ControllerView.prototype._renderSchematic = function() {
   ctx.restore();
 };
 
-ControllerView.prototype._drawComponentOffscreen = function(componentType) {
+// --- Lab background rendering ---
+
+function _drawLabBackground(ctx, W, H) {
+  // Concrete floor
+  const floorY = H * 0.88;
+  ctx.fillStyle = 'rgba(35, 38, 48, 0.95)';
+  ctx.fillRect(0, floorY, W, H - floorY);
+  // Floor line
+  ctx.strokeStyle = 'rgba(70, 75, 90, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, floorY);
+  ctx.lineTo(W, floorY);
+  ctx.stroke();
+
+  // Floor tiles pattern
+  ctx.strokeStyle = 'rgba(50, 55, 68, 0.3)';
+  ctx.lineWidth = 0.5;
+  const tileW = 40;
+  for (let x = 0; x < W; x += tileW) {
+    ctx.beginPath();
+    ctx.moveTo(x, floorY);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+
+  // Back wall — subtle gradient
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
+  wallGrad.addColorStop(0, 'rgba(18, 20, 30, 0.95)');
+  wallGrad.addColorStop(1, 'rgba(25, 28, 38, 0.95)');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, W, floorY);
+
+  // Wall panel lines (vertical girders/pillars)
+  ctx.strokeStyle = 'rgba(45, 50, 65, 0.4)';
+  ctx.lineWidth = 2;
+  const pillarSpacing = 120;
+  for (let x = pillarSpacing / 2; x < W; x += pillarSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, floorY);
+    ctx.stroke();
+    // Pillar base bracket
+    ctx.fillStyle = 'rgba(50, 55, 70, 0.3)';
+    ctx.fillRect(x - 6, floorY - 8, 12, 8);
+  }
+
+  // Horizontal wall stripe (cable tray / conduit)
+  const traysY = [H * 0.12, H * 0.25];
+  for (const ty of traysY) {
+    ctx.fillStyle = 'rgba(40, 45, 58, 0.35)';
+    ctx.fillRect(0, ty, W, 3);
+  }
+
+  // Ceiling-mounted cable runs (small dashes across top)
+  ctx.strokeStyle = 'rgba(60, 70, 90, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([12, 8]);
+  for (let y = 8; y < H * 0.15; y += 10) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Radiation warning signs on wall (small yellow triangles at intervals)
+  const signSpacing = 240;
+  for (let x = signSpacing; x < W - 20; x += signSpacing) {
+    const sy = H * 0.32;
+    ctx.fillStyle = 'rgba(200, 180, 40, 0.25)';
+    ctx.beginPath();
+    ctx.moveTo(x, sy - 6);
+    ctx.lineTo(x + 5, sy + 4);
+    ctx.lineTo(x - 5, sy + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(200, 180, 40, 0.15)';
+    ctx.fillRect(x - 1, sy - 2, 2, 3);
+  }
+
+  // Safety stripe along floor edge
+  ctx.fillStyle = 'rgba(180, 160, 40, 0.12)';
+  for (let x = 0; x < W; x += 16) {
+    ctx.fillRect(x, floorY, 8, 2);
+  }
+}
+
+BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType) {
   // Cache offscreen canvases per component type
   if (!this._schematicCache) this._schematicCache = {};
   if (this._schematicCache[componentType]) return this._schematicCache[componentType];
@@ -209,7 +330,7 @@ ControllerView.prototype._drawComponentOffscreen = function(componentType) {
 
 // ---- Tuning row rendering ----
 
-ControllerView.prototype._renderTuning = function() {
+BeamlineDesigner.prototype._renderTuning = function() {
   const nameEl = document.getElementById('ctrl-tuning-name');
   const descEl = document.getElementById('ctrl-tuning-desc');
   const statsEl = document.getElementById('ctrl-tuning-stats');
@@ -364,7 +485,7 @@ ControllerView.prototype._renderTuning = function() {
   });
 };
 
-ControllerView.prototype._wireTuningSliders = function(node, paramDefs, container) {
+BeamlineDesigner.prototype._wireTuningSliders = function(node, paramDefs, container) {
   if (!paramDefs) return;
   let debounceTimer = null;
 
@@ -432,7 +553,10 @@ function _fmtParam(val) {
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
 const PLOT_SCALE = 1.2;
 
-ControllerView.prototype._renderPlots = function() {
+BeamlineDesigner.prototype._renderPlots = function() {
+  // Compute the x-range based on plot range mode
+  const xRange = this._getPlotXRange();
+
   const panels = document.querySelectorAll('.ctrl-plot-panel');
   panels.forEach((panel) => {
     const select = panel.querySelector('.ctrl-plot-select');
@@ -461,16 +585,17 @@ ControllerView.prototype._renderPlots = function() {
       ctx.textAlign = 'center';
       ctx.fillText('No beam data', plotW / 2, plotH / 2);
     } else {
-      // Build a pin at the closest envelope point to the marker position
+      // Build a pin at the marker position, passing exact s for alignment
       const markerIdx = this.getMarkerEnvelopeIndex();
       const pins = [];
       if (markerIdx >= 0) {
         pins.push({
           elementIndex: markerIdx,
+          s: this.markerS,
           color: '#4488ff',
         });
       }
-      ProbePlots.draw(off, plotType, envelope, pins, 0);
+      ProbePlots.draw(off, plotType, envelope, pins, 0, xRange);
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
@@ -483,9 +608,26 @@ ControllerView.prototype._renderPlots = function() {
   });
 };
 
+/** Compute the plot x-range based on the selected range mode. */
+BeamlineDesigner.prototype._getPlotXRange = function() {
+  const mode = this.plotRangeMode || 'full';
+  if (mode === 'full') {
+    return [0, this.totalLength];
+  }
+  // Windowed mode: center on marker
+  const halfW = parseFloat(mode) / 2;
+  let lo = this.markerS - halfW;
+  let hi = this.markerS + halfW;
+  // Clamp to beamline bounds
+  if (lo < 0) { hi -= lo; lo = 0; }
+  if (hi > this.totalLength) { lo -= (hi - this.totalLength); hi = this.totalLength; }
+  lo = Math.max(0, lo);
+  return [lo, hi];
+};
+
 // ---- Click detection on schematic ----
 
-ControllerView.prototype._hitTestSchematic = function(clientX, clientY) {
+BeamlineDesigner.prototype._hitTestSchematic = function(clientX, clientY) {
   const canvas = document.getElementById('ctrl-schematic-canvas');
   if (!canvas || !this._compRegions) return -1;
 
@@ -504,7 +646,7 @@ ControllerView.prototype._hitTestSchematic = function(clientX, clientY) {
 
 // ---- Controller palette rendering (beamline-only, with preview cards) ----
 
-ControllerView.prototype._renderControllerPalette = function(category) {
+BeamlineDesigner.prototype._renderControllerPalette = function(category) {
   const palette = document.getElementById('component-palette');
   if (!palette) return;
   palette.innerHTML = '';
@@ -562,7 +704,7 @@ ControllerView.prototype._renderControllerPalette = function(category) {
   }
 };
 
-ControllerView.prototype._createControllerPaletteCard = function(key, comp) {
+BeamlineDesigner.prototype._createControllerPaletteCard = function(key, comp) {
   const card = document.createElement('div');
   card.className = 'ctrl-palette-card';
 
@@ -620,7 +762,7 @@ ControllerView.prototype._createControllerPaletteCard = function(key, comp) {
   return card;
 };
 
-ControllerView.prototype._setupControllerTabs = function() {
+BeamlineDesigner.prototype._setupControllerTabs = function() {
   const tabsContainer = document.getElementById('category-tabs');
   if (!tabsContainer) return;
   tabsContainer.innerHTML = '';
@@ -654,7 +796,7 @@ ControllerView.prototype._setupControllerTabs = function() {
   }
 };
 
-ControllerView.prototype._restoreNormalTabs = function() {
+BeamlineDesigner.prototype._restoreNormalTabs = function() {
   const modeSwitcher = document.getElementById('mode-switcher');
   if (modeSwitcher) modeSwitcher.style.display = '';
   const connTools = document.getElementById('connection-tools');

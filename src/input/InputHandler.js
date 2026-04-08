@@ -88,7 +88,7 @@ export class InputHandler {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       // Skip normal input handling when controller overlay is open
-      if (this.game._controllerView && this.game._controllerView.isOpen) return;
+      if (this.game._designer && this.game._designer.isOpen) return;
 
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -114,7 +114,7 @@ export class InputHandler {
             if (nodes.length === 0) {
               const comp = COMPONENTS[this.selectedTool];
               if (comp && comp.isSource) {
-                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir);
+                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir, this.selectedTool, this.selectedParamOverrides);
               }
             } else {
               const cursors = this._getActiveBuildCursors();
@@ -123,7 +123,7 @@ export class InputHandler {
                 ? cursors[0]
                 : cursors.find(c => c.col === this.renderer.hoverCol && c.row === this.renderer.hoverRow);
               if (cursor) {
-                this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
+                this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir, this.selectedParamOverrides);
               }
             }
           } else if (this.selectedFacilityTool) {
@@ -207,11 +207,11 @@ export class InputHandler {
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
         case 'c': case 'C':
-          if (this.game._controllerView && !this.game._controllerView.isOpen) {
+          if (this.game._designer && !this.game._designer.isOpen) {
             const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
             if (blId) {
               e.preventDefault();
-              this.game._controllerView.open(blId);
+              this.game._designer.open(blId);
             }
           }
           break;
@@ -738,14 +738,14 @@ export class InputHandler {
         // Place first component (must be a source type)
         const comp = COMPONENTS[this.selectedTool];
         if (comp && comp.isSource) {
-          this.game.placeSource(col, row, this.placementDir);
+          this.game.placeSource(col, row, this.placementDir, this.selectedTool, this.selectedParamOverrides);
         }
       } else {
         // Find matching cursor
         const cursors = this._getActiveBuildCursors();
         const cursor = cursors.find(c => c.col === col && c.row === row);
         if (cursor) {
-          this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir);
+          this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir, this.selectedParamOverrides);
         } else {
           // Clicked an existing component — open its beamline window
           const node = this._getNodeAtGrid(col, row);
@@ -814,13 +814,14 @@ export class InputHandler {
 
   // --- Tool selection ---
 
-  selectTool(compType) {
+  selectTool(compType, paramOverrides) {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
     this.selectedDecorationTool = null;
     this.bulldozerMode = false;
     this.selectedTool = compType;
+    this.selectedParamOverrides = paramOverrides || null;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
     this.renderer.setBuildMode(true, compType);

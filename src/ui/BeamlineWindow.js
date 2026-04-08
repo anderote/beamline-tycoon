@@ -126,10 +126,10 @@ export class BeamlineWindow {
         },
       },
       {
-        label: 'Controller',
+        label: 'Designer',
         onClick: () => {
-          if (this.game._controllerView) {
-            this.game._controllerView.open(this.beamlineId);
+          if (this.game._designer) {
+            this.game._designer.open(this.beamlineId);
           }
         },
       },
