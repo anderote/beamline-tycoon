@@ -6,6 +6,11 @@ import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
 import { SpriteManager } from './renderer/sprites.js';
 import { Renderer } from './renderer/Renderer.js';
+// Renderer prototype extensions — must import AFTER Renderer.js to avoid circular TDZ
+import './renderer/beamline-renderer.js';
+import './renderer/infrastructure-renderer.js';
+import './renderer/hud.js';
+import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';
 import { ProbeWindow } from './ui/probe.js';
 import { MODES } from './data/modes.js';

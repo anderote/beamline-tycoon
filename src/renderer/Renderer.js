@@ -359,8 +359,5 @@ export class Renderer {
   }
 }
 
-// --- Import prototype extensions (must come after class definition) ---
-import './beamline-renderer.js';
-import './infrastructure-renderer.js';
-import './hud.js';
-import './overlays.js';
+// NOTE: Prototype extensions (beamline-renderer, infrastructure-renderer, hud, overlays)
+// are imported from main.js to avoid circular import TDZ issues.
