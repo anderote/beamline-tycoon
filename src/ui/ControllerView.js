@@ -24,6 +24,9 @@ export class ControllerView {
     this.viewZoom = 1;          // zoom level (1 = fit-all)
     this.totalLength = 0;       // total beamline length in meters
 
+    // Continuous marker position along s (meters)
+    this.markerS = 0;
+
     // Focus row: 0 = schematic, 1 = plots, 2 = palette
     this.focusRow = 0;
 
@@ -141,6 +144,7 @@ export class ControllerView {
         const idx = this._hitTestSchematic(e.clientX, e.clientY);
         if (idx >= 0) {
           this.selectedIndex = idx;
+          this._updateMarkerToComponentCenter();
           this._renderAll();
         }
       });
@@ -198,6 +202,7 @@ export class ControllerView {
     this.originalNodes = ordered.map(n => this._cloneNode(n));
     this.draftNodes = ordered.map(n => this._cloneNode(n));
     this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+    this.markerS = 0;
     this.focusRow = 0;
     this.insertMode = null;
     this.viewX = 0;
@@ -393,13 +398,43 @@ export class ControllerView {
   selectNext() {
     if (this.draftNodes.length === 0) return;
     this.selectedIndex = Math.min(this.selectedIndex + 1, this.draftNodes.length - 1);
+    this._updateMarkerToComponentCenter();
     this._renderAll();
   }
 
   selectPrev() {
     if (this.draftNodes.length === 0) return;
     this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+    this._updateMarkerToComponentCenter();
     this._renderAll();
+  }
+
+  /** Set markerS to the center of the currently selected component. */
+  _updateMarkerToComponentCenter() {
+    if (this.selectedIndex < 0 || this.draftNodes.length === 0) return;
+    let s = 0;
+    for (let i = 0; i < this.selectedIndex; i++) {
+      const comp = COMPONENTS[this.draftNodes[i].type];
+      if (comp) s += comp.length;
+    }
+    const comp = COMPONENTS[this.draftNodes[this.selectedIndex].type];
+    if (comp) s += comp.length / 2;
+    this.markerS = s;
+  }
+
+  /** Find the envelope index closest to the current markerS. */
+  getMarkerEnvelopeIndex() {
+    if (!this.draftEnvelope || this.draftEnvelope.length === 0) return -1;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < this.draftEnvelope.length; i++) {
+      const dist = Math.abs((this.draftEnvelope[i].s || 0) - this.markerS);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return best;
   }
 
   focusRowUp() {

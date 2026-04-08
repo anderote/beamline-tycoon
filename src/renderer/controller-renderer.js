@@ -146,6 +146,47 @@ ControllerView.prototype._renderSchematic = function() {
   // Store total rendered width for viewport calculations
   this._renderedWidth = xPos - 20 - panOffsetPx;
 
+  // Draw marker line at markerS position
+  if (this.markerS >= 0 && this.totalLength > 0) {
+    // Convert markerS (meters) to pixel x position
+    // We need to map s position to the schematic layout
+    let markerXPos = 20 + panOffsetPx;
+    let cumS = 0;
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      const comp = COMPONENTS[this.draftNodes[i].type];
+      const compLen = comp ? comp.length : 1;
+      const compW = compWidths[i] * effectiveZoom;
+      const gapW = COMP_GAP * effectiveZoom;
+
+      if (this.markerS <= cumS + compLen) {
+        // Marker is within this component
+        const frac = (this.markerS - cumS) / compLen;
+        markerXPos += frac * compW;
+        break;
+      }
+      cumS += compLen;
+      markerXPos += compW + gapW;
+    }
+
+    ctx.strokeStyle = 'rgba(68, 136, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(markerXPos, centerY - schematicH / 2 - 15);
+    ctx.lineTo(markerXPos, centerY + schematicH / 2 + 15);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Small triangle indicator at top
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.moveTo(markerXPos - 4, centerY - schematicH / 2 - 15);
+    ctx.lineTo(markerXPos + 4, centerY - schematicH / 2 - 15);
+    ctx.lineTo(markerXPos, centerY - schematicH / 2 - 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   ctx.restore();
 };
 
@@ -405,11 +446,12 @@ ControllerView.prototype._renderPlots = function() {
       ctx.textAlign = 'center';
       ctx.fillText('No beam data', plotW / 2, plotH / 2);
     } else {
-      // Build a mock pin for "at-a-point" plots at the selected component
+      // Build a pin at the closest envelope point to the marker position
+      const markerIdx = this.getMarkerEnvelopeIndex();
       const pins = [];
-      if (this.selectedIndex >= 0 && this.selectedIndex < envelope.length) {
+      if (markerIdx >= 0) {
         pins.push({
-          elementIndex: this.selectedIndex,
+          elementIndex: markerIdx,
           color: '#4488ff',
         });
       }
