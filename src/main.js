@@ -15,6 +15,7 @@ import './renderer/hud.js';
 import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
+import { DesignLibrary } from './ui/DesignLibrary.js';
 import './renderer/designer-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
 import { MODES } from './data/modes.js';
@@ -53,6 +54,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const input = new InputHandler(renderer, game);
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
+  const designLibrary = new DesignLibrary(game, designer, renderer);
   renderer._onToolSelect = (compType) => {
     if (designer.handlePaletteClick(compType)) return;
     // Pass any param overrides from the palette flyout
@@ -115,10 +117,9 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     designer.openDesign(null);
   });
 
-  // Designs button — will be wired to DesignLibrary in Task 6
-  // (placeholder: log message for now)
+  // Designs button — opens library
   document.getElementById('btn-designs').addEventListener('click', () => {
-    game.log('Designs library — coming in next update.', 'info');
+    designLibrary.open();
   });
 
   // Menu dropdown toggle
