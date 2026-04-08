@@ -6,48 +6,33 @@ import { CONNECTION_TYPES } from '../data/modes.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
+import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 
 import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 
 export class Game {
-  constructor(beamline) {
-    this.beamline = beamline;
+  constructor(registry) {
+    this.registry = registry;
+    this.beamline = null;  // kept for renderer compatibility (will be updated in later tasks)
+
+    this.editingBeamlineId = null;
+    this.selectedBeamlineId = null;
 
     this.state = {
       resources: { funding: 3500000, reputation: 0, data: 0 },
-      beamline: [],    // populated by recalcBeamline() from beamline.getOrderedComponents()
-      beamOn: false,
-      beamEnergy: 0,
-      luminosity: 0,
+      beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,
       researchProgress: 0,
-      totalDataCollected: 0,
       completedObjectives: [],
       discoveries: 0,
       tick: 0,
       log: [],
-      totalLength: 0,
-      totalEnergyCost: 0,
-      dataRate: 0,
-      beamQuality: 1,
-      // Expanded economy
-      totalBeamHours: 0,        // for user facility objectives
-      continuousBeamTicks: 0,   // for stable beam objectives
-      beamOnTicks: 0,           // total ticks with beam on (for uptime calc)
-      uptimeFraction: 1,        // beamOnTicks / tick
-      avgPressure: undefined,   // average vacuum pressure (from physics)
-      finalNormEmittanceX: undefined,
-      finalBunchLength: undefined,
-      felSaturated: false,
-      machineType: 'linac',       // current accelerator type: linac, photoinjector, fel, collider
       // Staffing
       staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
       staffCosts: { operators: 5, technicians: 8, scientists: 10, engineers: 12 }, // $/tick
-      // Component health tracking
-      componentHealth: {},      // id -> health (0-100)
       // Infrastructure tiles (paths, concrete pads)
       infrastructure: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
@@ -68,14 +53,6 @@ export class Game {
       // Machines (cyclotrons, stalls, rings)
       machines: [],             // machine instances
       machineGrid: {},          // "col,row" -> machineId
-      // Physics results (set by runPhysics)
-      physicsAlive: true,
-      beamCurrent: 0,
-      totalLossFraction: 0,
-      discoveryChance: 0,
-      photonRate: 0,
-      collisionRate: 0,
-      physicsEnvelope: null,
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
       infraBlockers: [],          // blockers from Networks.validate()
@@ -118,26 +95,53 @@ export class Game {
     return this.state.completedResearch.includes(comp.requires);
   }
 
-  placeSource(col, row, dir) {
-    const template = COMPONENTS.source;
+  placeSource(col, row, dir, sourceType = 'source') {
+    const template = COMPONENTS[sourceType];
     if (!template) return false;
+    if (!template.isSource) return false;
     if (!this.isComponentUnlocked(template)) return false;
     if (!this.canAfford(template.cost)) { this.log(`Can't afford ${template.name}!`, 'bad'); return false; }
-    if (template.maxCount) {
-      const count = this.beamline.nodes.filter(n => n.type === 'source').length;
-      if (count >= template.maxCount) {
-        this.log(`Max ${template.name} reached.`, 'bad'); return false;
-      }
+
+    // Check shared tile occupancy
+    if (this.registry.isTileOccupied(col, row)) {
+      this.log("Can't place there!", 'bad');
+      return false;
     }
 
-    const nodeId = this.beamline.placeSource(col, row, dir);
-    if (nodeId == null) { this.log("Can't place there!", 'bad'); return false; }
+    // Determine machine type from source type
+    let machineType = 'linac';
+    if (sourceType === 'dcPhotoGun' || sourceType === 'ncRfGun' || sourceType === 'srfGun') {
+      machineType = 'photoinjector';
+    }
+
+    // Create new beamline entry
+    const entry = this.registry.createBeamline(machineType);
+
+    // Place source on the entry's beamline
+    const nodeId = entry.beamline.placeSource(col, row, dir);
+    if (nodeId == null) {
+      // Failed to place - remove the entry
+      this.registry.removeBeamline(entry.id);
+      this.log("Can't place there!", 'bad');
+      return false;
+    }
+
+    // Register tiles in shared grid
+    const node = entry.beamline.nodes.find(n => n.id === nodeId);
+    if (node) {
+      this.registry.occupyTiles(entry.id, node);
+    }
 
     this.spend(template.cost);
-    this.recalcBeamline();
+
+    // Auto-enter edit mode for this beamline
+    this.editingBeamlineId = entry.id;
+    this.selectedBeamlineId = entry.id;
+
+    this.recalcBeamline(entry.id);
     this.log(`Built ${template.name}`, 'good');
     this.emit('beamlineChanged');
-    return true;
+    return entry.id;
   }
 
   placeComponent(cursor, compType, bendDir) {
@@ -145,30 +149,63 @@ export class Game {
     if (!template) return false;
     if (!this.isComponentUnlocked(template)) return false;
     if (!this.canAfford(template.cost)) { this.log(`Can't afford ${template.name}!`, 'bad'); return false; }
+
+    if (!this.editingBeamlineId) {
+      this.log('Select a beamline to edit first!', 'bad');
+      return false;
+    }
+
+    const entry = this.registry.get(this.editingBeamlineId);
+    if (!entry) {
+      this.log('Beamline not found!', 'bad');
+      return false;
+    }
+
     if (template.maxCount) {
-      const count = this.beamline.nodes.filter(n => n.type === compType).length;
+      const count = entry.beamline.nodes.filter(n => n.type === compType).length;
       if (count >= template.maxCount) {
         this.log(`Max ${template.name} reached.`, 'bad'); return false;
       }
     }
 
-    const nodeId = this.beamline.placeAt(cursor, compType, bendDir);
+    const nodeId = entry.beamline.placeAt(cursor, compType, bendDir);
     if (nodeId == null) { this.log("Can't place there!", 'bad'); return false; }
 
+    // Register tiles in shared grid
+    const node = entry.beamline.nodes.find(n => n.id === nodeId);
+    if (node) {
+      this.registry.occupyTiles(entry.id, node);
+    }
+
     this.spend(template.cost);
-    this.recalcBeamline();
+    this.recalcBeamline(entry.id);
     this.log(`Built ${template.name}`, 'good');
     this.emit('beamlineChanged');
     return true;
   }
 
   removeComponent(nodeId) {
-    const node = this.beamline.nodes.find(n => n.id === nodeId);
+    const entry = this.registry.getBeamlineForNode(nodeId);
+    if (!entry) return false;
+
+    // If editing a different beamline, reject
+    if (this.editingBeamlineId && this.editingBeamlineId !== entry.id) {
+      this.log('Cannot modify a beamline you are not editing!', 'bad');
+      return false;
+    }
+
+    const node = entry.beamline.nodes.find(n => n.id === nodeId);
     if (!node) return false;
 
     const template = COMPONENTS[node.type];
-    const removed = this.beamline.removeNode(nodeId);
+
+    // Free tiles from shared grid before removal
+    this.registry.freeTiles(node);
+
+    const removed = entry.beamline.removeNode(nodeId);
     if (!removed) {
+      // Re-occupy tiles since removal failed
+      this.registry.occupyTiles(entry.id, node);
       this.log('Can only remove end pieces!', 'bad');
       return false;
     }
@@ -179,7 +216,14 @@ export class Game {
         this.state.resources[r] += Math.floor(a * 0.5);
     }
 
-    this.recalcBeamline();
+    // If beamline is now empty, remove it from registry
+    if (entry.beamline.nodes.length === 0) {
+      this.registry.removeBeamline(entry.id);
+      if (this.editingBeamlineId === entry.id) this.editingBeamlineId = null;
+      if (this.selectedBeamlineId === entry.id) this.selectedBeamlineId = null;
+    }
+
+    this.recalcAllBeamlines();
     this.log(`Demolished ${template ? template.name : 'component'} (50% refund)`, 'info');
     this.emit('beamlineChanged');
     return true;
@@ -566,7 +610,8 @@ export class Game {
       this.log('Tile occupied!', 'bad');
       return false;
     }
-    if (this.beamline.getNodeAt(col, row)) {
+    // Check shared beamline tile occupancy
+    if (this.registry.isTileOccupied(col, row)) {
       this.log('Tile occupied by beamline!', 'bad');
       return false;
     }
@@ -771,9 +816,32 @@ export class Game {
 
   // === STATS ===
 
-  recalcBeamline() {
-    const ordered = this.beamline.getOrderedComponents();
-    this.state.beamline = ordered;
+  recalcBeamline(beamlineId) {
+    if (beamlineId) {
+      const entry = this.registry.get(beamlineId);
+      if (!entry) return;
+      this._recalcSingleBeamline(entry);
+    } else {
+      // Recalc all if no id given (backward compat)
+      this.recalcAllBeamlines();
+      return;
+    }
+    this._updateAggregateBeamline();
+    this.checkInjectorLinks();
+    this.validateInfrastructure();
+  }
+
+  recalcAllBeamlines() {
+    for (const entry of this.registry.getAll()) {
+      this._recalcSingleBeamline(entry);
+    }
+    this._updateAggregateBeamline();
+    this.checkInjectorLinks();
+    this.validateInfrastructure();
+  }
+
+  _recalcSingleBeamline(entry) {
+    const ordered = entry.beamline.getOrderedComponents();
 
     // Calculate energy cost and total length from templates
     let tLen = 0, tCost = 0, hasSrc = false;
@@ -785,15 +853,15 @@ export class Game {
       tCost += t.energyCost * ecm;
       if (t.isSource) hasSrc = true;
     }
-    this.state.totalLength = tLen;
-    this.state.totalEnergyCost = Math.ceil(tCost);
+    entry.beamState.totalLength = tLen;
+    entry.beamState.totalEnergyCost = Math.ceil(tCost);
 
     if (!hasSrc) {
-      this.state.beamEnergy = 0;
-      this.state.dataRate = 0;
-      this.state.beamQuality = 1;
-      this.state.luminosity = 0;
-      this.state.physicsEnvelope = null;
+      entry.beamState.beamEnergy = 0;
+      entry.beamState.dataRate = 0;
+      entry.beamState.beamQuality = 1;
+      entry.beamState.luminosity = 0;
+      entry.beamState.physicsEnvelope = null;
       return;
     }
 
@@ -822,49 +890,109 @@ export class Game {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
-    researchEffects.machineType = this.state.machineType;
+    researchEffects.machineType = entry.beamState.machineType;
 
     // Run physics simulation
-    this.runPhysics(physicsBeamline, researchEffects);
-    this.checkInjectorLinks();
-    this.validateInfrastructure();
+    this.runPhysicsForBeamline(entry, physicsBeamline, researchEffects);
   }
 
-  runPhysics(physicsBeamline, researchEffects) {
+  _updateAggregateBeamline() {
+    this.state.beamline = this.registry.getAllNodes();
+
+    // Aggregate per-beamline stats into state for objectives/economy/renderers
+    const entries = this.registry.getAll();
+    let totalLength = 0, totalEnergyCost = 0;
+    let beamOn = false;
+    let maxBeamEnergy = 0, maxBeamQuality = 0, maxLuminosity = 0;
+    let totalDataCollected = 0, totalBeamHours = 0;
+    let maxContinuousBeamTicks = 0, totalBeamOnTicks = 0;
+    let felSaturated = false;
+    let avgPressure = undefined;
+    let finalNormEmittanceX = undefined;
+    let finalBunchLength = undefined;
+
+    for (const entry of entries) {
+      const bs = entry.beamState;
+      totalLength += bs.totalLength || 0;
+      totalEnergyCost += bs.totalEnergyCost || 0;
+      totalDataCollected += bs.totalDataCollected || 0;
+      totalBeamHours += bs.totalBeamHours || 0;
+      totalBeamOnTicks += bs.beamOnTicks || 0;
+
+      if (entry.status === 'running') {
+        beamOn = true;
+        if (bs.continuousBeamTicks > maxContinuousBeamTicks) maxContinuousBeamTicks = bs.continuousBeamTicks;
+      }
+      if (bs.beamEnergy > maxBeamEnergy) maxBeamEnergy = bs.beamEnergy;
+      if (bs.beamQuality > maxBeamQuality) maxBeamQuality = bs.beamQuality;
+      if (bs.luminosity > maxLuminosity) maxLuminosity = bs.luminosity;
+      if (bs.felSaturated) felSaturated = true;
+    }
+
+    this.state.totalLength = totalLength;
+    this.state.totalEnergyCost = totalEnergyCost;
+    this.state.beamOn = beamOn;
+    this.state.beamEnergy = maxBeamEnergy;
+    this.state.beamQuality = maxBeamQuality;
+    this.state.luminosity = maxLuminosity;
+    this.state.totalDataCollected = totalDataCollected;
+    this.state.totalBeamHours = totalBeamHours;
+    this.state.continuousBeamTicks = maxContinuousBeamTicks;
+    this.state.beamOnTicks = totalBeamOnTicks;
+    this.state.felSaturated = felSaturated;
+    this.state.uptimeFraction = this.state.tick > 0 ? totalBeamOnTicks / this.state.tick : 1;
+
+    // For single-beamline compat: expose first running beamline's detailed physics
+    const running = entries.find(e => e.status === 'running');
+    if (running) {
+      this.state.avgPressure = running.beamState.avgPressure;
+      this.state.finalNormEmittanceX = running.beamState.finalNormEmittanceX;
+      this.state.finalBunchLength = running.beamState.finalBunchLength;
+    } else if (entries.length > 0) {
+      const first = entries[0];
+      this.state.avgPressure = first.beamState.avgPressure;
+      this.state.finalNormEmittanceX = first.beamState.finalNormEmittanceX;
+      this.state.finalBunchLength = first.beamState.finalBunchLength;
+    }
+  }
+
+  runPhysicsForBeamline(entry, physicsBeamline, researchEffects) {
     if (!BeamPhysics.isReady()) {
       // Physics not loaded yet -- use simple fallback
-      this._fallbackStats(physicsBeamline);
+      this._fallbackStatsForBeamline(entry, physicsBeamline);
       return;
     }
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     if (!result) {
-      this._fallbackStats(physicsBeamline);
+      this._fallbackStatsForBeamline(entry, physicsBeamline);
       return;
     }
 
-    // Apply physics results to game state
-    this.state.beamEnergy = result.beamEnergy;
-    this.state.dataRate = result.dataRate;
-    this.state.beamQuality = result.beamQuality;
-    this.state.luminosity = result.luminosity || 0;
-    this.state.physicsAlive = result.beamAlive;
-    this.state.beamCurrent = result.beamCurrent;
-    this.state.totalLossFraction = result.totalLossFraction;
-    this.state.discoveryChance = result.discoveryChance || 0;
-    this.state.photonRate = result.photonRate || 0;
-    this.state.collisionRate = result.collisionRate || 0;
-    this.state.physicsEnvelope = result.envelope || null;
+    // Apply physics results to beamState
+    const bs = entry.beamState;
+    bs.beamEnergy = result.beamEnergy;
+    bs.dataRate = result.dataRate;
+    bs.beamQuality = result.beamQuality;
+    bs.luminosity = result.luminosity || 0;
+    bs.physicsAlive = result.beamAlive;
+    bs.beamCurrent = result.beamCurrent;
+    bs.totalLossFraction = result.totalLossFraction;
+    bs.discoveryChance = result.discoveryChance || 0;
+    bs.photonRate = result.photonRate || 0;
+    bs.collisionRate = result.collisionRate || 0;
+    bs.physicsEnvelope = result.envelope || null;
 
-    // If physics says beam tripped, shut it down
-    if (this.state.beamOn && !result.beamAlive) {
-      this.state.beamOn = false;
+    // If physics says beam tripped, fault this beamline
+    if (entry.status === 'running' && !result.beamAlive) {
+      entry.status = 'stopped';
+      bs.continuousBeamTicks = 0;
       this.log('Beam TRIPPED -- too much loss! Fix your optics.', 'bad');
       this.emit('beamToggled');
     }
   }
 
-  _fallbackStats(physicsBeamline) {
+  _fallbackStatsForBeamline(entry, physicsBeamline) {
     // Simple stat-summing fallback while Pyodide loads
     let eGain = 0, dRate = 0, bq = 1;
     for (const el of physicsBeamline) {
@@ -873,39 +1001,23 @@ export class Game {
       if (s.dataRate) dRate += s.dataRate;
       if (s.beamQuality) bq += s.beamQuality;
     }
-    this.state.beamEnergy = eGain;
-    this.state.dataRate = dRate * bq;
-    this.state.beamQuality = bq;
-    this.state.luminosity = 0;
-    this.state.physicsAlive = true;
-    this.state.beamCurrent = 0;
-    this.state.totalLossFraction = 0;
-    this.state.discoveryChance = 0;
-    this.state.photonRate = 0;
-    this.state.collisionRate = 0;
-    this.state.physicsEnvelope = null;
+    const bs = entry.beamState;
+    bs.beamEnergy = eGain;
+    bs.dataRate = dRate * bq;
+    bs.beamQuality = bq;
+    bs.luminosity = 0;
+    bs.physicsAlive = true;
+    bs.beamCurrent = 0;
+    bs.totalLossFraction = 0;
+    bs.discoveryChance = 0;
+    bs.photonRate = 0;
+    bs.collisionRate = 0;
+    bs.physicsEnvelope = null;
   }
 
   // === MACHINE TYPE SELECTION ===
-
-  setMachineType(type) {
-    const MACHINE_TYPE_RESEARCH = {
-      linac: null,
-      photoinjector: 'photoinjectorTech',
-      fel: 'felTech',
-      collider: 'colliderTech',
-    };
-    const req = MACHINE_TYPE_RESEARCH[type];
-    if (req && !this.state.completedResearch.includes(req)) {
-      this.log(`Research "${req}" required to unlock ${type}`, 'bad');
-      return false;
-    }
-    this.state.machineType = type;
-    this.log(`Switched to ${type.charAt(0).toUpperCase() + type.slice(1)} mode`, 'info');
-    this.recalcBeamline();
-    this.emit('machineTypeChanged');
-    return true;
-  }
+  // Machine type is now per-beamline, set at source placement.
+  // isMachineTypeUnlocked is still useful for UI checks.
 
   isMachineTypeUnlocked(type) {
     const MACHINE_TYPE_RESEARCH = {
@@ -920,13 +1032,23 @@ export class Game {
 
   // === BEAM CONTROL ===
 
-  toggleBeam() {
-    if (this.state.beamOn) {
-      this.state.beamOn = false;
-      this.state.continuousBeamTicks = 0;
+  toggleBeam(beamlineId) {
+    if (!beamlineId) {
+      this.log('No beamline specified!', 'bad');
+      return;
+    }
+    const entry = this.registry.get(beamlineId);
+    if (!entry) {
+      this.log('Beamline not found!', 'bad');
+      return;
+    }
+
+    if (entry.status === 'running') {
+      entry.status = 'stopped';
+      entry.beamState.continuousBeamTicks = 0;
       this.log('Beam OFF', 'info');
     } else {
-      if (!this.beamline.nodes.some(n => COMPONENTS[n.type]?.isSource)) {
+      if (!entry.beamline.nodes.some(n => COMPONENTS[n.type]?.isSource)) {
         this.log('Need a Source!', 'bad'); return;
       }
       this.validateInfrastructure();
@@ -939,7 +1061,7 @@ export class Game {
         if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
         return;
       }
-      this.state.beamOn = true;
+      entry.status = 'running';
       this.log('Beam ON!', 'good');
     }
     this.emit('beamToggled');
@@ -1002,96 +1124,24 @@ export class Game {
     }, 0);
     this.state.resources.funding -= staffCost;
 
-    if (this.state.beamOn) {
-      if (this.state.infraCanRun) {
-        this.state.continuousBeamTicks++;
-        this.state.beamOnTicks++;
-
-        // Data from detectors (physics-driven)
-        if (this.state.dataRate > 0) {
-          // Only count data from endpoints with data/fiber connections to IOCs AND control room
-          let connectedDataRate = this.state.dataRate;
-          if (this.state.networkData) {
-            const dataConnected = new Set();
-            for (const net of (this.state.networkData.dataFiber || [])) {
-              const hasIoc = net.equipment.some(eq => eq.type === 'rackIoc');
-              const reachesControlRoom = Networks.touchesControlRoom(this.state, net);
-              if (hasIoc && reachesControlRoom) {
-                for (const node of net.beamlineNodes) dataConnected.add(node.id);
-              }
-            }
-            let totalDiagRate = 0, connDiagRate = 0;
-            for (const node of this.state.beamline) {
-              const comp = COMPONENTS[node.type];
-              if (comp && (comp.stats?.dataRate || 0) > 0) {
-                totalDiagRate += comp.stats.dataRate;
-                if (dataConnected.has(node.id)) connDiagRate += comp.stats.dataRate;
-              }
-            }
-            if (totalDiagRate > 0) {
-              connectedDataRate = this.state.dataRate * (connDiagRate / totalDiagRate);
-            }
-            // Warn once if endpoints exist but aren't wired to control room
-            if (totalDiagRate > 0 && connDiagRate === 0 && !this._warnedNoControlRoom) {
-              this.log('Endpoints not wired to control room -- no data collected!', 'bad');
-              this._warnedNoControlRoom = true;
-            } else if (connDiagRate > 0) {
-              this._warnedNoControlRoom = false;
-            }
-          }
-          const sciMult = 1 + this.state.staff.scientists * 0.1;
-          const dataGain = connectedDataRate * sciMult;
-          this.state.resources.data += dataGain;
-          this.state.totalDataCollected += dataGain;
-        }
-
-        // Photon data from undulators (bonus data, scaled down)
-        if (this.state.photonRate > 0) {
-          const photonData = this.state.photonRate * 0.1 * this.state.beamQuality;
-          this.state.resources.data += photonData;
-          this.state.totalDataCollected += photonData;
-        }
-
-        // User beam hours from photon ports
-        const photonPorts = this.state.beamline.filter(c => c.type === 'photonPort');
-        if (photonPorts.length > 0 && this.state.beamQuality > 0.5) {
-          const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
-          this.state.totalBeamHours += beamHoursThisTick;
-          // User fees revenue
-          const userFees = photonPorts.length * 2 * this.state.beamQuality;
-          this.state.resources.funding += userFees;
-          this.state.resources.reputation += photonPorts.length * 0.001;
-        }
-
-        // Discovery chance (physics-driven)
-        const dc = this.state.discoveryChance || 0;
-        if (dc > 0 && Math.random() < dc) {
-          this.state.discoveries++;
-          this.log('*** PARTICLE DISCOVERY! ***', 'reward');
-          this.state.resources.reputation += 10;
-          this.state.resources.funding += 5000;
-        }
-
-        // Beam quality affects reputation gain passively (scaled, not binary)
-        if (this.state.tick % 60 === 0 && this.state.beamQuality > 0.3) {
-          this.state.resources.reputation += this.state.beamQuality * 0.6;
-        }
-
-        // Component wear (every 10 ticks)
-        if (this.state.tick % 10 === 0) {
-          this._applyWear();
-        }
+    // Tick all running beamlines
+    for (const entry of this.registry.getAll()) {
+      if (entry.status === 'running') {
+        this._tickBeamline(entry);
+      } else {
+        entry.beamState.continuousBeamTicks = 0;
       }
-    } else {
-      this.state.continuousBeamTicks = 0;
+
+      // Uptime tracking per beamline
+      if (this.state.tick > 0) {
+        entry.beamState.uptimeFraction = entry.beamState.beamOnTicks / this.state.tick;
+      }
     }
 
-    // Uptime tracking
-    if (this.state.tick > 0) {
-      this.state.uptimeFraction = this.state.beamOnTicks / this.state.tick;
-    }
+    // Update aggregate state for objectives/economy/renderers
+    this._updateAggregateBeamline();
 
-    // Technician auto-repair
+    // Technician auto-repair (across all beamlines)
     if (this.state.staff.technicians > 0 && this.state.tick % 5 === 0) {
       this._autoRepair();
     }
@@ -1101,7 +1151,7 @@ export class Game {
       this.state,
       (msg, type) => this.log(msg, type),
       (id) => this.getResearchSpeedMultiplier(id),
-      () => this.recalcBeamline()
+      () => this.recalcAllBeamlines()
     );
     if (researchCompleted) {
       this.emit('researchChanged');
@@ -1132,6 +1182,93 @@ export class Game {
     this.emit('tick');
   }
 
+  _tickBeamline(entry) {
+    const bs = entry.beamState;
+
+    if (!this.state.infraCanRun) return;
+
+    bs.continuousBeamTicks++;
+    bs.beamOnTicks++;
+
+    // Data from detectors (physics-driven)
+    if (bs.dataRate > 0) {
+      // Only count data from endpoints with data/fiber connections to IOCs AND control room
+      let connectedDataRate = bs.dataRate;
+      if (this.state.networkData) {
+        const dataConnected = new Set();
+        for (const net of (this.state.networkData.dataFiber || [])) {
+          const hasIoc = net.equipment.some(eq => eq.type === 'rackIoc');
+          const reachesControlRoom = Networks.touchesControlRoom(this.state, net);
+          if (hasIoc && reachesControlRoom) {
+            for (const node of net.beamlineNodes) dataConnected.add(node.id);
+          }
+        }
+        // Get this beamline's nodes
+        const blNodes = entry.beamline.getAllNodes();
+        let totalDiagRate = 0, connDiagRate = 0;
+        for (const node of blNodes) {
+          const comp = COMPONENTS[node.type];
+          if (comp && (comp.stats?.dataRate || 0) > 0) {
+            totalDiagRate += comp.stats.dataRate;
+            if (dataConnected.has(node.id)) connDiagRate += comp.stats.dataRate;
+          }
+        }
+        if (totalDiagRate > 0) {
+          connectedDataRate = bs.dataRate * (connDiagRate / totalDiagRate);
+        }
+        // Warn once if endpoints exist but aren't wired to control room
+        if (totalDiagRate > 0 && connDiagRate === 0 && !this._warnedNoControlRoom) {
+          this.log('Endpoints not wired to control room -- no data collected!', 'bad');
+          this._warnedNoControlRoom = true;
+        } else if (connDiagRate > 0) {
+          this._warnedNoControlRoom = false;
+        }
+      }
+      const sciMult = 1 + this.state.staff.scientists * 0.1;
+      const dataGain = connectedDataRate * sciMult;
+      this.state.resources.data += dataGain;
+      bs.totalDataCollected += dataGain;
+    }
+
+    // Photon data from undulators (bonus data, scaled down)
+    if (bs.photonRate > 0) {
+      const photonData = bs.photonRate * 0.1 * bs.beamQuality;
+      this.state.resources.data += photonData;
+      bs.totalDataCollected += photonData;
+    }
+
+    // User beam hours from photon ports
+    const blNodes = entry.beamline.getAllNodes();
+    const photonPorts = blNodes.filter(c => c.type === 'photonPort');
+    if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
+      const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
+      bs.totalBeamHours += beamHoursThisTick;
+      // User fees revenue
+      const userFees = photonPorts.length * 2 * bs.beamQuality;
+      this.state.resources.funding += userFees;
+      this.state.resources.reputation += photonPorts.length * 0.001;
+    }
+
+    // Discovery chance (physics-driven)
+    const dc = bs.discoveryChance || 0;
+    if (dc > 0 && Math.random() < dc) {
+      this.state.discoveries++;
+      this.log('*** PARTICLE DISCOVERY! ***', 'reward');
+      this.state.resources.reputation += 10;
+      this.state.resources.funding += 5000;
+    }
+
+    // Beam quality affects reputation gain passively (scaled, not binary)
+    if (this.state.tick % 60 === 0 && bs.beamQuality > 0.3) {
+      this.state.resources.reputation += bs.beamQuality * 0.6;
+    }
+
+    // Component wear (every 10 ticks)
+    if (this.state.tick % 10 === 0) {
+      this._applyWearForBeamline(entry);
+    }
+  }
+
   // === INFRASTRUCTURE VALIDATION ===
 
   validateInfrastructure() {
@@ -1147,13 +1284,31 @@ export class Game {
     this.state.infraCanRun = result.canRun;
     this.state.networkData = result.networks;
 
-    // If beam is running and we now have blockers, shut it off
-    if (this.state.beamOn && !result.canRun) {
-      this.state.beamOn = false;
-      this.state.continuousBeamTicks = 0;
-      const reason = result.blockers[0]?.reason || 'Infrastructure failure';
-      this.log(`Beam TRIPPED: ${reason}`, 'bad');
-      this.emit('beamToggled');
+    // Per-beamline fault attribution: if a blocker references a node, fault that beamline
+    for (const blocker of result.blockers) {
+      if (blocker.nodeId) {
+        const blEntry = this.registry.getBeamlineForNode(blocker.nodeId);
+        if (blEntry && blEntry.status === 'running') {
+          blEntry.status = 'stopped';
+          blEntry.beamState.continuousBeamTicks = 0;
+          const reason = blocker.reason || 'Infrastructure failure';
+          this.log(`Beam TRIPPED: ${reason}`, 'bad');
+          this.emit('beamToggled');
+        }
+      }
+    }
+
+    // If global canRun is false, stop all running beamlines
+    if (!result.canRun) {
+      for (const entry of this.registry.getAll()) {
+        if (entry.status === 'running') {
+          entry.status = 'stopped';
+          entry.beamState.continuousBeamTicks = 0;
+        }
+      }
+      if (this.registry.getAll().some(e => e.status === 'stopped')) {
+        this.emit('beamToggled');
+      }
     }
 
     this.emit('infrastructureValidated');
@@ -1161,23 +1316,24 @@ export class Game {
 
   // === WEAR & REPAIR ===
 
-  _applyWear() {
-    for (const node of this.state.beamline) {
+  _applyWearForBeamline(entry) {
+    const blNodes = entry.beamline.getAllNodes();
+    for (const node of blNodes) {
       const t = COMPONENTS[node.type];
       if (!t) continue;
       // Initialize health if needed
-      if (this.state.componentHealth[node.id] === undefined) {
-        this.state.componentHealth[node.id] = 100;
+      if (entry.beamState.componentHealth[node.id] === undefined) {
+        entry.beamState.componentHealth[node.id] = 100;
       }
       // Base wear rate: higher energy cost = more stress
       const baseWear = 0.01 + (t.energyCost || 0) * 0.002;
       const hasMPS = (this.state.facilityEquipment || []).some(eq => eq.type === 'mps');
       const wearMult = hasMPS ? 1 : 2;
-      this.state.componentHealth[node.id] = Math.max(0, this.state.componentHealth[node.id] - baseWear * wearMult);
+      entry.beamState.componentHealth[node.id] = Math.max(0, entry.beamState.componentHealth[node.id] - baseWear * wearMult);
 
       // Random failure check below 20% health
-      if (this.state.componentHealth[node.id] < 20 && Math.random() < 0.05) {
-        this.state.componentHealth[node.id] = 0;
+      if (entry.beamState.componentHealth[node.id] < 20 && Math.random() < 0.05) {
+        entry.beamState.componentHealth[node.id] = 0;
         this.log(`${t.name} FAILED! Repair needed.`, 'bad');
       }
     }
@@ -1186,19 +1342,28 @@ export class Game {
   _autoRepair() {
     const repairRate = this.state.staff.technicians * 2; // health points per cycle
     let remaining = repairRate;
-    for (const node of this.state.beamline) {
-      if (remaining <= 0) break;
-      const health = this.state.componentHealth[node.id];
-      if (health !== undefined && health < 100) {
-        const repair = Math.min(remaining, 100 - health);
-        this.state.componentHealth[node.id] += repair;
-        remaining -= repair;
+    // Iterate all beamlines' nodes
+    for (const entry of this.registry.getAll()) {
+      for (const node of entry.beamline.getAllNodes()) {
+        if (remaining <= 0) return;
+        const health = entry.beamState.componentHealth[node.id];
+        if (health !== undefined && health < 100) {
+          const repair = Math.min(remaining, 100 - health);
+          entry.beamState.componentHealth[node.id] += repair;
+          remaining -= repair;
+        }
       }
     }
   }
 
   getComponentHealth(id) {
-    return this.state.componentHealth[id] !== undefined ? this.state.componentHealth[id] : 100;
+    // Search all beamlines for this component's health
+    for (const entry of this.registry.getAll()) {
+      if (entry.beamState.componentHealth[id] !== undefined) {
+        return entry.beamState.componentHealth[id];
+      }
+    }
+    return 100;
   }
 
   // === STAFFING ===
@@ -1238,7 +1403,7 @@ export class Game {
       for (let dx = 0; dx < def.w; dx++) {
         const key = (col + dx) + ',' + (row + dy);
         if (this.state.machineGrid[key]) return false;
-        if (this.beamline.occupied?.[key] !== undefined) return false;
+        if (this.registry.isTileOccupied(col + dx, row + dy)) return false;
       }
     }
     return true;
@@ -1401,8 +1566,13 @@ export class Game {
       for (let dx = -1; dx <= def.w && machine.injectorQuality == null; dx++) {
         for (let dy = -1; dy <= def.h && machine.injectorQuality == null; dy++) {
           if (dx >= 0 && dx < def.w && dy >= 0 && dy < def.h) continue;
-          if (this.beamline.occupied?.[(machine.col + dx) + ',' + (machine.row + dy)] !== undefined) {
-            machine.injectorQuality = this.state.beamQuality || 0;
+          const tileKey = (machine.col + dx) + ',' + (machine.row + dy);
+          // Check shared occupied grid
+          const blId = this.registry.sharedOccupied[tileKey];
+          if (blId !== undefined) {
+            // Look up beam quality from the beamline entry
+            const blEntry = this.registry.get(blId);
+            machine.injectorQuality = blEntry ? (blEntry.beamState.beamQuality || 0) : 0;
           }
         }
       }
@@ -1421,7 +1591,7 @@ export class Game {
       this.state.resources.funding += def.baseFunding * perf.fundingMult;
       const dataGain = def.baseData * perf.dataMult;
       this.state.resources.data += dataGain;
-      this.state.totalDataCollected += dataGain;
+      this.state.totalDataCollected = (this.state.totalDataCollected || 0) + dataGain;
 
       if (def.reputationPerTick && machine.operatingMode === 'userOps') {
         this.state.resources.reputation += def.reputationPerTick;
@@ -1463,9 +1633,9 @@ export class Game {
     }
     const saveState = { ...this.state, connections: connObj };
     localStorage.setItem('beamlineTycoon', JSON.stringify({
-      version: 5,
+      version: 6,
       state: saveState,
-      beamline: this.beamline.toJSON(),
+      beamlines: this.registry.toJSON(),
     }));
   }
 
@@ -1478,7 +1648,20 @@ export class Game {
         localStorage.removeItem('beamlineTycoon');
         return false;
       }
+
+      // Migrate v5 save data to v6 format
+      if (data.version === 5) {
+        this._migrateV5(data);
+        return true;
+      }
+
       Object.assign(this.state, data.state);
+
+      // Restore registry from saved beamlines data
+      if (data.beamlines) {
+        this.registry.fromJSON(data.beamlines);
+      }
+
       // Rebuild infraOccupied
       this.state.infraOccupied = {};
       if (this.state.infrastructure) {
@@ -1535,24 +1718,145 @@ export class Game {
       this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
       this.state.networkData = this.state.networkData || null;
 
-      this.beamline.fromJSON(data.beamline);
-
-      // Initialize params for nodes that don't have them
-      for (const node of this.beamline.nodes) {
-        const defs = PARAM_DEFS[node.type];
-        if (defs && !node.params) {
-          node.params = {};
-          for (const [k, def] of Object.entries(defs)) {
-            if (!def.derived) node.params[k] = def.default;
+      // Initialize params for nodes across all beamlines
+      for (const entry of this.registry.getAll()) {
+        for (const node of entry.beamline.nodes) {
+          const defs = PARAM_DEFS[node.type];
+          if (defs && !node.params) {
+            node.params = {};
+            for (const [k, def] of Object.entries(defs)) {
+              if (!def.derived) node.params[k] = def.default;
+            }
           }
         }
       }
 
-      this.recalcBeamline();
+      this.recalcAllBeamlines();
       this.validateInfrastructure();
       this.log('Game loaded.', 'info');
       this.emit('loaded');
       return true;
     } catch (e) { console.error('Save load failed:', e); return false; }
+  }
+
+  _migrateV5(data) {
+    // Migrate a v5 save: single beamline stored at data.beamline, beam fields on data.state
+    Object.assign(this.state, data.state);
+
+    // Determine machine type from v5 state
+    const machineType = data.state.machineType || 'linac';
+
+    // Create a single beamline entry from the v5 data
+    const entry = this.registry.createBeamline(machineType);
+    if (data.beamline) {
+      entry.beamline.fromJSON(data.beamline);
+      // Re-register tiles in shared grid
+      for (const node of entry.beamline.nodes) {
+        this.registry.occupyTiles(entry.id, node);
+      }
+    }
+
+    // Move per-beamline fields from state to beamState
+    const beamFields = [
+      'beamEnergy', 'beamCurrent', 'beamQuality', 'dataRate', 'luminosity',
+      'totalLength', 'totalEnergyCost', 'beamOnTicks', 'continuousBeamTicks',
+      'uptimeFraction', 'totalBeamHours', 'totalDataCollected', 'physicsAlive',
+      'physicsEnvelope', 'discoveryChance', 'photonRate', 'collisionRate',
+      'totalLossFraction', 'componentHealth', 'felSaturated',
+    ];
+    for (const field of beamFields) {
+      if (data.state[field] !== undefined) {
+        entry.beamState[field] = data.state[field];
+      }
+      delete this.state[field];
+    }
+    entry.beamState.machineType = machineType;
+
+    // Transfer beam on state to entry status
+    if (data.state.beamOn) {
+      entry.status = 'running';
+    }
+    delete this.state.beamOn;
+    delete this.state.machineType;
+
+    // If entry has nodes, select it for editing
+    if (entry.beamline.nodes.length > 0) {
+      this.editingBeamlineId = entry.id;
+      this.selectedBeamlineId = entry.id;
+    } else {
+      // Remove empty beamline
+      this.registry.removeBeamline(entry.id);
+    }
+
+    // Rebuild infraOccupied
+    this.state.infraOccupied = {};
+    if (this.state.infrastructure) {
+      for (const tile of this.state.infrastructure)
+        this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+    } else { this.state.infrastructure = []; }
+    // Rebuild zoneOccupied
+    this.state.zones = this.state.zones || [];
+    this.state.zoneOccupied = {};
+    for (const z of this.state.zones) {
+      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+    }
+    this.state.zoneConnectivity = {};
+    this.recomputeZoneConnectivity();
+    // Rebuild machineGrid
+    this.state.machineGrid = {};
+    if (this.state.machines) {
+      for (const m of this.state.machines) {
+        const def = MACHINES[m.type];
+        if (!def) continue;
+        for (let dy = 0; dy < def.h; dy++)
+          for (let dx = 0; dx < def.w; dx++)
+            this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
+      }
+    } else { this.state.machines = []; }
+    // Restore connections Map
+    if (this.state.connections && !(this.state.connections instanceof Map)) {
+      const map = new Map();
+      for (const [key, arr] of Object.entries(this.state.connections)) {
+        map.set(key, new Set(arr));
+      }
+      this.state.connections = map;
+    } else if (!this.state.connections) {
+      this.state.connections = new Map();
+    }
+
+    // Ensure facility arrays exist
+    if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
+    if (!this.state.facilityGrid) this.state.facilityGrid = {};
+    if (!this.state.facilityNextId) this.state.facilityNextId = 1;
+    if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
+    if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
+    if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+    // Remove deprecated fields
+    delete this.state.resources.energy;
+    delete this.state.electricalPower;
+    delete this.state.maxElectricalPower;
+
+    this.state.infraBlockers = this.state.infraBlockers || [];
+    this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
+    this.state.networkData = this.state.networkData || null;
+
+    // Initialize params for nodes
+    for (const blEntry of this.registry.getAll()) {
+      for (const node of blEntry.beamline.nodes) {
+        const defs = PARAM_DEFS[node.type];
+        if (defs && !node.params) {
+          node.params = {};
+          for (const [k, pdef] of Object.entries(defs)) {
+            if (!pdef.derived) node.params[k] = pdef.default;
+          }
+        }
+      }
+    }
+
+    this.recalcAllBeamlines();
+    this.validateInfrastructure();
+    this.log('Game loaded (migrated from v5).', 'info');
+    this.emit('loaded');
   }
 }

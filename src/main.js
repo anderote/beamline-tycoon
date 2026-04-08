@@ -1,6 +1,6 @@
 // src/main.js — Beamline Tycoon entry point
 
-import { Beamline } from './beamline/Beamline.js';
+import { BeamlineRegistry } from './beamline/BeamlineRegistry.js';
 import { BeamPhysics } from './beamline/physics.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
@@ -30,8 +30,8 @@ const oldSave = localStorage.getItem('beamlineCowboy');
 if (oldSave) localStorage.removeItem('beamlineCowboy');
 
 (async function main() {
-  const beamline = new Beamline();
-  const game = new Game(beamline);
+  const registry = new BeamlineRegistry();
+  const game = new Game(registry);
   const spriteManager = new SpriteManager();
 
   const renderer = new Renderer(game, spriteManager);
@@ -66,6 +66,11 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const origSave = game.save.bind(game);
   game.save = function() {
     this.state.probe = probeWindow.toJSON();
+    this.state.view = {
+      zoom: renderer.zoom,
+      worldX: renderer.world.x,
+      worldY: renderer.world.y,
+    };
     origSave();
   };
 
@@ -76,6 +81,13 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   });
 
   game.load();
+
+  if (game.state.view) {
+    renderer.zoom = game.state.view.zoom;
+    renderer.world.x = game.state.view.worldX;
+    renderer.world.y = game.state.view.worldY;
+    renderer.world.scale.set(renderer.zoom);
+  }
 
   if (game.state.probe) {
     probeWindow.fromJSON(game.state.probe);
@@ -92,7 +104,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
 
   BeamPhysics.init().then(() => {
     game.log('Beam physics engine loaded.', 'good');
-    game.recalcBeamline();
+    game.recalcAllBeamlines();
     game.emit('beamlineChanged');
   }).catch(err => {
     game.log('Physics engine failed to load — using simplified model.', 'bad');
