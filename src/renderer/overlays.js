@@ -3374,6 +3374,7 @@ Renderer.prototype._renderGoalsOverlay = function() {
 
     list.appendChild(item);
   }
+};
 
 // ---------------------------------------------------------------------------
 // Beamline context windows
