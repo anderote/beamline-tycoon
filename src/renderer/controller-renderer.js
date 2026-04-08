@@ -34,10 +34,13 @@ ControllerView.prototype._renderSchematic = function() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (this.draftNodes.length === 0) {
+    ctx.save();
+    ctx.scale(dpr, dpr);
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('No components — add from palette below', canvas.width / 2, canvas.height / 2);
+    ctx.fillText('No components — add from palette below', rect.width / 2, rect.height / 2);
+    ctx.restore();
     return;
   }
 

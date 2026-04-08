@@ -1709,6 +1709,11 @@ body {
   cursor: pointer;
   background: rgba(30, 30, 60, 0.8);
 }
+.ctrl-btn.active {
+  background: rgba(68, 136, 255, 0.3);
+  border-color: #4488ff;
+  color: #aaccff;
+}
 .ctrl-confirm {
   color: #88ff88;
   border-color: rgba(80, 180, 80, 0.4);

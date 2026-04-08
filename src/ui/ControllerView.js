@@ -44,9 +44,11 @@ export class ControllerView {
     document.getElementById('ctrl-close').addEventListener('click', () => this.close());
     document.getElementById('ctrl-insert-before').addEventListener('click', () => {
       this.insertMode = this.insertMode === 'before' ? null : 'before';
+      this._updateInsertButtons();
     });
     document.getElementById('ctrl-insert-after').addEventListener('click', () => {
       this.insertMode = this.insertMode === 'after' ? null : 'after';
+      this._updateInsertButtons();
     });
   }
 
@@ -108,35 +110,39 @@ export class ControllerView {
     // Use capture phase so we intercept before InputHandler
     window.addEventListener('keydown', this._onKeyDown, true);
 
-    // Schematic click
+    // Schematic click + drag panning
     const schematicCanvas = document.getElementById('ctrl-schematic-canvas');
     if (schematicCanvas) {
+      let dragging = false;
+      let dragStartX = 0;
+      let dragStartViewX = 0;
+      let dragDistance = 0;
+
+      schematicCanvas.addEventListener('mousedown', (e) => {
+        if (!this.isOpen) return;
+        dragging = true;
+        dragStartX = e.clientX;
+        dragStartViewX = this.viewX;
+        dragDistance = 0;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - dragStartX;
+        dragDistance = Math.abs(dx);
+        this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
+        this._renderAll();
+      });
+      window.addEventListener('mouseup', () => { dragging = false; });
+
       schematicCanvas.addEventListener('click', (e) => {
         if (!this.isOpen) return;
+        if (dragDistance > 5) return;  // was a drag, not a click
         const idx = this._hitTestSchematic(e.clientX, e.clientY);
         if (idx >= 0) {
           this.selectedIndex = idx;
           this._renderAll();
         }
       });
-
-      // Mouse drag panning on schematic
-      let dragging = false;
-      let dragStartX = 0;
-      let dragStartViewX = 0;
-      schematicCanvas.addEventListener('mousedown', (e) => {
-        if (!this.isOpen) return;
-        dragging = true;
-        dragStartX = e.clientX;
-        dragStartViewX = this.viewX;
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        const dx = e.clientX - dragStartX;
-        this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
-        this._renderAll();
-      });
-      window.addEventListener('mouseup', () => { dragging = false; });
 
       // Mousewheel zoom
       schematicCanvas.addEventListener('wheel', (e) => {
@@ -308,7 +314,7 @@ export class ControllerView {
     if (!comp) return;
 
     const newNode = {
-      id: -Date.now(),  // temporary negative ID for draft
+      id: -(this._nextTempId = (this._nextTempId || 0) + 1),  // unique negative ID for draft
       type: type,
       col: 0, row: 0, dir: 0, entryDir: 0,
       parentId: null, bendDir: null, tiles: [],
@@ -479,6 +485,7 @@ export class ControllerView {
     for (let i = 0; i < this.draftNodes.length; i++) {
       if (this.draftNodes[i].type !== this.originalNodes[i].type) return true;
       if (this.draftNodes[i].id !== this.originalNodes[i].id) return true;
+      if (JSON.stringify(this.draftNodes[i].params) !== JSON.stringify(this.originalNodes[i].params)) return true;
     }
     return false;
   }
@@ -525,6 +532,13 @@ export class ControllerView {
       this.costEl.textContent = '$0';
       this.costEl.style.color = '#888';
     }
+  }
+
+  _updateInsertButtons() {
+    const beforeBtn = document.getElementById('ctrl-insert-before');
+    const afterBtn = document.getElementById('ctrl-insert-after');
+    if (beforeBtn) beforeBtn.classList.toggle('active', this.insertMode === 'before');
+    if (afterBtn) afterBtn.classList.toggle('active', this.insertMode === 'after');
   }
 
   _applyDraftToBeamline(entry) {
