@@ -9,6 +9,8 @@ import { Renderer } from './renderer/Renderer.js';
 // Renderer prototype extensions — must import AFTER Renderer.js to avoid circular TDZ
 import './renderer/beamline-renderer.js';
 import './renderer/infrastructure-renderer.js';
+import './renderer/grass-renderer.js';
+import './renderer/decoration-renderer.js';
 import './renderer/hud.js';
 import './renderer/overlays.js';
 import { InputHandler } from './input/InputHandler.js';

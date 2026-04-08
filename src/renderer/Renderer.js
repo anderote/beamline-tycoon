@@ -123,6 +123,15 @@ export class Renderer {
     this.gridLayer.zIndex = 0;
     this.world.addChild(this.gridLayer);
 
+    this.grassLayer = new PIXI.Container();
+    this.grassLayer.zIndex = -0.5;
+    this.world.addChild(this.grassLayer);
+
+    this.decorationLayer = new PIXI.Container();
+    this.decorationLayer.zIndex = 0.3;
+    this.decorationLayer.sortableChildren = true;
+    this.world.addChild(this.decorationLayer);
+
     this.infraSidesLayer = new PIXI.Container();
     this.infraSidesLayer.zIndex = -0.1;
     this.world.addChild(this.infraSidesLayer);
@@ -190,6 +199,8 @@ export class Renderer {
       switch (event) {
         case 'beamlineChanged':
         case 'loaded':
+          this._renderGrass();
+          this._renderDecorations();
           this._renderComponents();
           this._renderBeam();
           this._renderCursors();
@@ -199,9 +210,15 @@ export class Renderer {
           this._renderConnections();
           break;
         case 'infrastructureChanged':
+          this._renderGrass();
           this._renderInfrastructure();
           break;
+        case 'decorationsChanged':
+          this._renderGrass();
+          this._renderDecorations();
+          break;
         case 'zonesChanged':
+          this._renderGrass();
           this._renderZones();
           this._refreshPalette();
           break;
@@ -238,6 +255,8 @@ export class Renderer {
     this._generateCategoryTabs();
     this._renderTechTree();
     this._renderGoalsOverlay();
+    this._renderGrass();
+    this._renderDecorations();
     this._renderInfrastructure();
     this._renderFacilityEquipment();
     this._renderConnections();
