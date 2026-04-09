@@ -81,8 +81,8 @@ Renderer.prototype._renderComponents = function() {
     const center = this._nodeCenter(node);
     const displayName = nodeNames[node.id] || comp.name;
 
-    // Add label at mid/close zoom (at center tile)
-    if (this.zoom >= 0.7) {
+    // Add label at mid/close zoom (at center tile); hidden at labelLevel >= 4
+    if (this.zoom >= 0.7 && this.labelLevel < 4) {
       const label = new PIXI.Text({
         text: displayName,
         style: {
@@ -126,8 +126,8 @@ Renderer.prototype._renderComponents = function() {
       }
     }
 
-    // Warning indicator for missing connections
-    if (missing.length > 0 || needsControlRoom) {
+    // Warning indicator for missing connections (hidden at labelLevel >= 4)
+    if ((missing.length > 0 || needsControlRoom) && this.labelLevel < 4) {
       const warn = new PIXI.Text({
         text: '!',
         style: { fontFamily: 'monospace', fontSize: 14, fill: 0xff4444, fontWeight: 'bold' },
@@ -247,8 +247,9 @@ Renderer.prototype._renderCursors = function() {
   if (nodes.length === 0) {
     // Draw hover cursor showing full footprint of selected tool
     const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
-    const trackLength = comp ? (comp.trackLength || 1) : 1;
-    const trackWidth = comp ? (comp.trackWidth || 1) : 1;
+    // convert sub-units to tile counts
+    const trackLength = comp ? Math.ceil((comp.subL || 4) / 4) : 1;
+    const trackWidth = comp ? Math.ceil((comp.subW || 2) / 4) : 1;
     const dir = this.placementDir || DIR.NE;
     const delta = DIR_DELTA[dir];
     const perpDelta = DIR_DELTA[turnLeft(dir)];
@@ -436,8 +437,9 @@ Renderer.prototype._drawCursorMarker = function(cursor, isHovered) {
 
   // Compute preview tiles based on the selected tool (including width)
   const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
-  const trackLength = comp ? (comp.trackLength || 1) : 1;
-  const trackWidth = comp ? (comp.trackWidth || 1) : 1;
+  // convert sub-units to tile counts
+  const trackLength = comp ? Math.ceil((comp.subL || 4) / 4) : 1;
+  const trackWidth = comp ? Math.ceil((comp.subW || 2) / 4) : 1;
 
   // Calculate exit direction (dipoles bend)
   let exitDir = cursor.dir;
