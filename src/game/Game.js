@@ -49,8 +49,8 @@ export class Game {
       facilityGrid: {},           // "col,row" -> equipment id
       facilityNextId: 1,
       // Zone furnishings (purchasable items placed in zones)
-      zoneFurnishings: [],        // [{ id, type, col, row }]
-      zoneFurnishingGrid: {},     // "col,row" -> furnishing id
+      zoneFurnishings: [],           // [{ id, type, col, row, subCol, subRow, rotated }]
+      zoneFurnishingSubgrids: {},    // "col,row" -> [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
       zoneFurnishingNextId: 1,
       // Decorations (trees, shrubs, benches, etc.)
       decorations: [],              // [{ id, type, col, row }]
@@ -174,7 +174,7 @@ export class Game {
       facilityGrid: { ...this.state.facilityGrid },
       facilityNextId: this.state.facilityNextId,
       zoneFurnishings: this.state.zoneFurnishings.map(f => ({ ...f })),
-      zoneFurnishingGrid: { ...this.state.zoneFurnishingGrid },
+      zoneFurnishingSubgrids: JSON.parse(JSON.stringify(this.state.zoneFurnishingSubgrids)),
       zoneFurnishingNextId: this.state.zoneFurnishingNextId,
       machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
       machineGrid: { ...this.state.machineGrid },
@@ -267,7 +267,7 @@ export class Game {
     this.state.facilityGrid = snap.facilityGrid;
     this.state.facilityNextId = snap.facilityNextId;
     this.state.zoneFurnishings = snap.zoneFurnishings;
-    this.state.zoneFurnishingGrid = snap.zoneFurnishingGrid;
+    this.state.zoneFurnishingSubgrids = snap.zoneFurnishingSubgrids;
     this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
     this.state.machines = snap.machines;
     this.state.machineGrid = snap.machineGrid;
@@ -933,13 +933,15 @@ export class Game {
     if (idx !== -1) {
       this.state.zones.splice(idx, 1);
       delete this.state.zoneOccupied[key];
-      // Also remove any furnishing on this tile
-      const furnId = this.state.zoneFurnishingGrid[key];
-      if (furnId) {
-        const fi = this.state.zoneFurnishings.findIndex(e => e.id === furnId);
-        if (fi !== -1) this.state.zoneFurnishings.splice(fi, 1);
-        delete this.state.zoneFurnishingGrid[key];
+      // Remove ALL furnishings on this tile
+      const tileFurnishings = this.state.zoneFurnishings.filter(e => e.col === col && e.row === row);
+      for (const f of tileFurnishings) {
+        const fDef = ZONE_FURNISHINGS[f.type];
+        if (fDef) this.state.resources.funding += Math.floor(fDef.cost * 0.5);
       }
+      this.state.zoneFurnishings = this.state.zoneFurnishings.filter(e => !(e.col === col && e.row === row));
+      delete this.state.zoneFurnishingSubgrids[key];
+      this._reindexFurnishingSubgrids();
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
       return true;
@@ -1130,7 +1132,7 @@ export class Game {
 
   // === ZONE FURNISHINGS ===
 
-  placeZoneFurnishing(col, row, furnType) {
+  placeZoneFurnishing(col, row, furnType, subCol, subRow, rotated = false) {
     const furn = ZONE_FURNISHINGS[furnType];
     if (!furn) return false;
     if (!this.canAfford({ funding: furn.cost })) {
@@ -1139,24 +1141,66 @@ export class Game {
     }
 
     const key = col + ',' + row;
-    // Must be on a zone tile of the correct type
-    const zoneType = this.state.zoneOccupied[key];
-    if (zoneType !== furn.zoneType) {
-      const zone = ZONES[furn.zoneType];
-      this.log(`Must place on ${zone ? zone.name : furn.zoneType}!`, 'bad');
-      return false;
-    }
-    if (this.state.zoneFurnishingGrid[key]) {
-      this.log('Tile occupied!', 'bad');
+    // Must be on an infrastructure tile
+    if (!this.state.infraOccupied[key]) {
+      this.log('Must place on infrastructure!', 'bad');
       return false;
     }
 
+    const gw = rotated ? furn.gridH : furn.gridW;
+    const gh = rotated ? furn.gridW : furn.gridH;
+
+    // Validate sub-grid bounds
+    if (subCol < 0 || subRow < 0 || subCol + gw > 4 || subRow + gh > 4) {
+      this.log('Doesn\'t fit here!', 'bad');
+      return false;
+    }
+
+    // Ensure subgrid exists for this tile
+    if (!this.state.zoneFurnishingSubgrids[key]) {
+      this.state.zoneFurnishingSubgrids[key] = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+    }
+    const subgrid = this.state.zoneFurnishingSubgrids[key];
+
+    // Check for collisions in the sub-grid
+    for (let r = subRow; r < subRow + gh; r++) {
+      for (let c = subCol; c < subCol + gw; c++) {
+        if (subgrid[r][c] !== 0) {
+          this.log('Space occupied!', 'bad');
+          return false;
+        }
+      }
+    }
+
+    // Place it
     const id = 'zf_' + this.state.zoneFurnishingNextId++;
     this.spend({ funding: furn.cost });
-    const entry = { id, type: furnType, col, row };
+
+    const entry = { id, type: furnType, col, row, subCol, subRow, rotated };
     this.state.zoneFurnishings.push(entry);
-    this.state.zoneFurnishingGrid[key] = id;
-    this.log(`Built ${furn.name}`, 'good');
+
+    // Mark sub-grid cells
+    const furnIdx = this.state.zoneFurnishings.length; // nonzero index
+    for (let r = subRow; r < subRow + gh; r++) {
+      for (let c = subCol; c < subCol + gw; c++) {
+        subgrid[r][c] = furnIdx;
+      }
+    }
+
+    // Zone bonus logging
+    const zoneType = this.state.zoneOccupied[key];
+    if (zoneType === furn.zoneType) {
+      this.log(`Built ${furn.name} (zone bonus active)`, 'good');
+    } else {
+      this.log(`Built ${furn.name}`, 'good');
+    }
+
+    this.computeSystemStats();
     this.emit('zonesChanged');
     return true;
   }
@@ -1173,12 +1217,60 @@ export class Game {
       this.state.resources.funding += Math.floor(furn.cost * 0.5);
     }
 
+    // Clear sub-grid cells
     const key = entry.col + ',' + entry.row;
-    delete this.state.zoneFurnishingGrid[key];
+    const subgrid = this.state.zoneFurnishingSubgrids[key];
+    if (subgrid) {
+      const gw = entry.rotated ? furn.gridH : furn.gridW;
+      const gh = entry.rotated ? furn.gridW : furn.gridH;
+      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
+        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
+          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = 0;
+        }
+      }
+      // Clean up empty subgrids
+      if (subgrid.every(row => row.every(cell => cell === 0))) {
+        delete this.state.zoneFurnishingSubgrids[key];
+      }
+    }
+
     this.state.zoneFurnishings.splice(idx, 1);
+
+    // Re-index subgrid references (since indices shifted after splice)
+    this._reindexFurnishingSubgrids();
+
     this.log(`Removed ${furn ? furn.name : 'furnishing'} (50% refund)`, 'info');
+    this.computeSystemStats();
     this.emit('zonesChanged');
     return true;
+  }
+
+  _reindexFurnishingSubgrids() {
+    // Rebuild all subgrids from the furnishings array
+    const subgrids = {};
+    for (let i = 0; i < this.state.zoneFurnishings.length; i++) {
+      const entry = this.state.zoneFurnishings[i];
+      const furn = ZONE_FURNISHINGS[entry.type];
+      if (!furn) continue;
+      const key = entry.col + ',' + entry.row;
+      if (!subgrids[key]) {
+        subgrids[key] = [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ];
+      }
+      const gw = entry.rotated ? furn.gridH : furn.gridW;
+      const gh = entry.rotated ? furn.gridW : furn.gridH;
+      const furnIdx = i + 1; // 1-based index
+      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
+        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
+          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrids[key][r][c] = furnIdx;
+        }
+      }
+    }
+    this.state.zoneFurnishingSubgrids = subgrids;
   }
 
   // === DECORATIONS ===
@@ -1194,7 +1286,7 @@ export class Game {
       if (!this.state.infraOccupied[key]) return false;
     }
     if (this.state.facilityGrid[key]) return false;
-    if (this.state.zoneFurnishingGrid[key]) return false;
+    if (this.state.zoneFurnishingSubgrids[key]) return false;
     if (this.state.resources.funding < dec.cost) return false;
 
     const id = 'dec_' + (this.state.decorationNextId++);
@@ -2301,7 +2393,7 @@ export class Game {
 
       // Ensure zone furnishing arrays exist
       if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
-      if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
+      if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
       if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
 
       // Restore decoration state
@@ -2446,7 +2538,7 @@ export class Game {
     if (!this.state.facilityGrid) this.state.facilityGrid = {};
     if (!this.state.facilityNextId) this.state.facilityNextId = 1;
     if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
-    if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
+    if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
     if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
 
     // Rebuild wall state
