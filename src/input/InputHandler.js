@@ -3,7 +3,7 @@ import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from 
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR } from '../data/directions.js';
-import { isoToGrid, isoToGridFloat } from '../renderer/grid.js';
+import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 
@@ -32,6 +32,9 @@ export class InputHandler {
     this.activeMode = 'beamline';
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null; // zone furnishing type or null
+    this.furnishingRotated = false;     // rotation state for sub-tile placement
+    this.hoverSubCol = -1;              // sub-grid column under cursor
+    this.hoverSubRow = -1;              // sub-grid row under cursor
     this.selectedDecorationTool = null; // decoration type or null
     this.selectedConnTool = null;
     this.isDrawingConn = false;
@@ -259,7 +262,7 @@ export class InputHandler {
           } else if (this.selectedFacilityTool) {
             this.game.placeFacilityEquipment(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFacilityTool);
           } else if (this.selectedFurnishingTool) {
-            this.game.placeZoneFurnishing(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFurnishingTool);
+            this.game.placeZoneFurnishing(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFurnishingTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated);
           } else if (this.selectedInfraTool) {
             const infra = INFRASTRUCTURE[this.selectedInfraTool];
             if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
@@ -272,6 +275,10 @@ export class InputHandler {
           }
           break;
         case 'r': case 'R': {
+          if (this.selectedFurnishingTool) {
+            this.furnishingRotated = !this.furnishingRotated;
+            return;
+          }
           const overlay = document.getElementById('research-overlay');
           if (overlay) overlay.classList.toggle('hidden');
           break;
@@ -629,6 +636,29 @@ export class InputHandler {
           const color = infra?.topColor || zone?.color || 0xffffff;
           this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
         }
+        // Sub-grid hover: calculate which sub-cell the cursor is over
+        if (this.selectedFurnishingTool && this.renderer.hoverCol !== undefined) {
+          const tilePos = gridToIso(this.renderer.hoverCol, this.renderer.hoverRow);
+          const offsetX = world.x - tilePos.x;
+          const offsetY = world.y - tilePos.y;
+          const sub = isoToSubGrid(offsetX, offsetY);
+          const furnDef = ZONE_FURNISHINGS[this.selectedFurnishingTool];
+          if (furnDef) {
+            const gw = this.furnishingRotated ? furnDef.gridH : furnDef.gridW;
+            const gh = this.furnishingRotated ? furnDef.gridW : furnDef.gridH;
+            this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
+            this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
+          }
+          // Render sub-grid overlay and furnishing ghost preview
+          const key = grid.col + ',' + grid.row;
+          if (this.game.state.infraOccupied[key]) {
+            this.renderer._renderSubgridOverlay(grid.col, grid.row);
+            this.renderer._renderFurnishingGhost(
+              grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
+              this.selectedFurnishingTool, this.furnishingRotated
+            );
+          }
+        }
         // Update design placer position
         if (this.game._designPlacer && this.game._designPlacer.active) {
           this.game._designPlacer.setPosition(grid.col, grid.row);
@@ -754,8 +784,18 @@ export class InputHandler {
           } else if (this.demolishType === 'demolishFurnishing') {
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
-                const fId = this.game.state.zoneFurnishingGrid[c + ',' + r];
-                if (fId) this.game.removeZoneFurnishing(fId);
+                const subgrid = this.game.state.zoneFurnishingSubgrids[c + ',' + r];
+                if (subgrid) {
+                  for (let sr = 0; sr < 4; sr++) {
+                    for (let sc = 0; sc < 4; sc++) {
+                      const furnIdx = subgrid[sr][sc];
+                      if (furnIdx > 0) {
+                        const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+                        if (entry) this.game.removeZoneFurnishing(entry.id);
+                      }
+                    }
+                  }
+                }
               }
             }
           } else if (this.demolishType === 'demolishZone') {
@@ -890,9 +930,21 @@ export class InputHandler {
           this.game.removeDecoration(col, row);
         }
         // Remove zone furnishings
-        const furnId = this.game.state.zoneFurnishingGrid[key];
-        if (furnId) {
-          this.game.removeZoneFurnishing(furnId);
+        const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+        if (subgrid) {
+          const tilePos = gridToIso(col, row);
+          const offsetX = world.x - tilePos.x;
+          const offsetY = world.y - tilePos.y;
+          const sub = isoToSubGrid(offsetX, offsetY);
+          const sc = Math.floor(sub.subCol);
+          const sr = Math.floor(sub.subRow);
+          if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+            const furnIdx = subgrid[sr][sc];
+            if (furnIdx > 0) {
+              const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+              if (entry) this.game.removeZoneFurnishing(entry.id);
+            }
+          }
         }
         // Remove facility equipment
         const equipId = this.game.state.facilityGrid[key];
@@ -951,8 +1003,22 @@ export class InputHandler {
           this.game.removeConnection(col, row, ct);
         }
       } else if (this.demolishType === 'demolishFurnishing') {
-        const fId = this.game.state.zoneFurnishingGrid[key];
-        if (fId) this.game.removeZoneFurnishing(fId);
+        const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+        if (subgrid) {
+          const tilePos = gridToIso(col, row);
+          const offsetX = world.x - tilePos.x;
+          const offsetY = world.y - tilePos.y;
+          const sub = isoToSubGrid(offsetX, offsetY);
+          const sc = Math.floor(sub.subCol);
+          const sr = Math.floor(sub.subRow);
+          if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+            const furnIdx = subgrid[sr][sc];
+            if (furnIdx > 0) {
+              const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+              if (entry) this.game.removeZoneFurnishing(entry.id);
+            }
+          }
+        }
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
           this.game.removeZoneTile(col, row);
@@ -988,7 +1054,7 @@ export class InputHandler {
     // Zone furnishing placement
     if (this.selectedFurnishingTool) {
       this.game._pushUndo();
-      this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool);
+      this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated);
       return;
     }
 
@@ -1087,6 +1153,7 @@ export class InputHandler {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.furnishingRotated = false;
     this.selectedDecorationTool = null;
     this.bulldozerMode = false;
     this.selectedTool = compType;
@@ -1101,6 +1168,7 @@ export class InputHandler {
     this.selectedInfraTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.furnishingRotated = false;
     this.selectedDecorationTool = null;
     this.selectedTool = compType;
     this.selectedNodeId = null;
@@ -1123,6 +1191,7 @@ export class InputHandler {
     this.selectedTool = null;
     this.selectedFacilityTool = null;
     this.selectedFurnishingTool = null;
+    this.furnishingRotated = false;
     this.selectedDecorationTool = null;
     this.renderer.setBuildMode(false);
     this.selectedInfraTool = infraType;
@@ -1138,6 +1207,7 @@ export class InputHandler {
   selectInfraTool(infraType, variant = 0) {
     this.selectedTool = null;
     this.selectedFurnishingTool = null;
+    this.furnishingRotated = false;
     this.selectedDecorationTool = null;
     this.demolishMode = false;
     this.renderer.setBuildMode(false);
@@ -1228,6 +1298,7 @@ export class InputHandler {
 
   deselectFurnishingTool() {
     this.selectedFurnishingTool = null;
+    this.furnishingRotated = false;
   }
 
   selectDecorationTool(decType) {
@@ -1283,8 +1354,18 @@ export class InputHandler {
     const conns = this.game.getConnectionsAt(col, row);
     for (const ct of [...conns]) this.game.removeConnection(col, row, ct);
     // Remove furnishings
-    const fId = this.game.state.zoneFurnishingGrid[key];
-    if (fId) this.game.removeZoneFurnishing(fId);
+    const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+    if (subgrid) {
+      for (let sr = 0; sr < 4; sr++) {
+        for (let sc = 0; sc < 4; sc++) {
+          const furnIdx = subgrid[sr][sc];
+          if (furnIdx > 0) {
+            const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+            if (entry) this.game.removeZoneFurnishing(entry.id);
+          }
+        }
+      }
+    }
     // Remove decorations
     if (this.game.state.decorationOccupied[key]) this.game.removeDecoration(col, row);
     // Remove zones
