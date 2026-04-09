@@ -33,13 +33,13 @@ export class TerrainBuilder {
     //   1: ( 1,0,-1) right-of-diamond  → UV (1.0, 0.5)
     //   2: (-1,0, 1) left-of-diamond   → UV (0.0, 0.5)
     //   3: ( 1,0, 1) bottom-of-diamond → UV (0.5, 0.0)
-    // Shrink UVs slightly inward to scale texture up ~3%, closing gaps between tiles.
+    // Push UVs inward toward center to scale texture UP ~3%, closing gaps.
     const S = 0.03;
     const uvs = geo.attributes.uv;
-    uvs.setXY(0, 0.5, 1.0 + S);
-    uvs.setXY(1, 1.0 + S, 0.5);
-    uvs.setXY(2, 0.0 - S, 0.5);
-    uvs.setXY(3, 0.5, 0.0 - S);
+    uvs.setXY(0, 0.5, 1.0 - S);
+    uvs.setXY(1, 1.0 - S, 0.5);
+    uvs.setXY(2, 0.0 + S, 0.5);
+    uvs.setXY(3, 0.5, 0.0 + S);
     uvs.needsUpdate = true;
 
     // Material: use grass texture if available, else fallback color
