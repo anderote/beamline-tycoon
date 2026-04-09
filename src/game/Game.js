@@ -1275,10 +1275,50 @@ export class Game {
 
   // === DECORATIONS ===
 
-  placeDecoration(col, row, decType) {
+  placeDecoration(col, row, decType, subCol, subRow, rotated = false) {
     const dec = DECORATIONS[decType];
     if (!dec) return false;
     const key = col + ',' + row;
+
+    // Sub-tile decoration (has gridW/gridH)
+    if (dec.gridW && dec.gridH) {
+      if (this.state.resources.funding < dec.cost) return false;
+
+      const gw = rotated ? dec.gridH : dec.gridW;
+      const gh = rotated ? dec.gridW : dec.gridH;
+
+      if (subCol < 0 || subRow < 0 || subCol + gw > 4 || subRow + gh > 4) return false;
+
+      if (!this.state.zoneFurnishingSubgrids[key]) {
+        this.state.zoneFurnishingSubgrids[key] = [
+          [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
+        ];
+      }
+      const subgrid = this.state.zoneFurnishingSubgrids[key];
+      for (let r = subRow; r < subRow + gh; r++) {
+        for (let c = subCol; c < subCol + gw; c++) {
+          if (subgrid[r][c] !== 0) return false;
+        }
+      }
+
+      const id = 'dec_' + (this.state.decorationNextId++);
+      this.state.resources.funding -= dec.cost;
+      const entry = { id, type: decType, col, row, subCol, subRow, rotated, isSubtile: true };
+      this.state.decorations.push(entry);
+
+      // Mark sub-grid cells (use negative indices to distinguish from furnishings)
+      const decIdx = -(this.state.decorations.length);
+      for (let r = subRow; r < subRow + gh; r++) {
+        for (let c = subCol; c < subCol + gw; c++) {
+          subgrid[r][c] = decIdx;
+        }
+      }
+
+      this.emit('decorationsChanged');
+      return true;
+    }
+
+    // Full-tile decoration (no gridW/gridH — trees, etc.)
     if (this.state.decorationOccupied[key]) return false;
     if (dec.placement === 'outdoor') {
       if (this.state.infraOccupied[key] || this.state.zoneOccupied[key]) return false;
@@ -1297,8 +1337,49 @@ export class Game {
     return true;
   }
 
-  removeDecoration(col, row) {
+  removeDecoration(col, row, subCol, subRow) {
     const key = col + ',' + row;
+
+    // Try sub-tile removal first
+    if (subCol !== undefined && subRow !== undefined) {
+      const subgrid = this.state.zoneFurnishingSubgrids[key];
+      if (subgrid && subCol >= 0 && subCol < 4 && subRow >= 0 && subRow < 4) {
+        const cellVal = subgrid[subRow][subCol];
+        if (cellVal < 0) {
+          // Negative value = decoration index (negated)
+          const decIdx = (-cellVal) - 1;
+          const entry = this.state.decorations[decIdx];
+          if (entry && entry.isSubtile) {
+            const def = DECORATIONS[entry.type];
+            const removeCost = def ? def.removeCost : 0;
+            if (removeCost > 0 && this.state.resources.funding < removeCost) {
+              this.log(`Need $${removeCost} to remove ${def.name}!`, 'bad');
+              return false;
+            }
+            if (removeCost > 0) this.state.resources.funding -= removeCost;
+
+            // Clear sub-grid cells
+            const gw = entry.rotated ? def.gridH : def.gridW;
+            const gh = entry.rotated ? def.gridW : def.gridH;
+            for (let r = entry.subRow; r < entry.subRow + gh; r++) {
+              for (let c = entry.subCol; c < entry.subCol + gw; c++) {
+                if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = 0;
+              }
+            }
+            if (subgrid.every(row => row.every(cell => cell === 0))) {
+              delete this.state.zoneFurnishingSubgrids[key];
+            }
+
+            this.state.decorations.splice(decIdx, 1);
+            this._reindexSubgridDecorations();
+            this.emit('decorationsChanged');
+            return true;
+          }
+        }
+      }
+    }
+
+    // Full-tile removal
     const decId = this.state.decorationOccupied[key];
     if (!decId) return false;
     const idx = this.state.decorations.findIndex(d => d.id === decId);
@@ -1318,6 +1399,43 @@ export class Game {
     delete this.state.decorationOccupied[key];
     this.emit('decorationsChanged');
     return true;
+  }
+
+  _reindexSubgridDecorations() {
+    // Rebuild negative indices in subgrids for sub-tile decorations
+    // First clear all negative values
+    for (const key in this.state.zoneFurnishingSubgrids) {
+      const subgrid = this.state.zoneFurnishingSubgrids[key];
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          if (subgrid[r][c] < 0) subgrid[r][c] = 0;
+        }
+      }
+    }
+    // Re-insert decoration indices
+    for (let i = 0; i < this.state.decorations.length; i++) {
+      const entry = this.state.decorations[i];
+      if (!entry.isSubtile) continue;
+      const def = DECORATIONS[entry.type];
+      if (!def) continue;
+      const key = entry.col + ',' + entry.row;
+      if (!this.state.zoneFurnishingSubgrids[key]) {
+        this.state.zoneFurnishingSubgrids[key] = [
+          [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
+        ];
+      }
+      const subgrid = this.state.zoneFurnishingSubgrids[key];
+      const gw = entry.rotated ? def.gridH : def.gridW;
+      const gh = entry.rotated ? def.gridW : def.gridH;
+      const decIdx = -(i + 1);
+      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
+        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
+          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = decIdx;
+        }
+      }
+    }
+    // Also rebuild furnishing indices
+    this._reindexFurnishingSubgrids();
   }
 
   hasBlockingDecoration(col, row) {

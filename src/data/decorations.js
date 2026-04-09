@@ -45,16 +45,19 @@ export const DECORATIONS = {
     id: 'shrub', name: 'Shrub', cost: 3, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'shrub',
     blocksBuild: false, category: 'treesPlants',
+    gridW: 1, gridH: 1,
   },
   flowerBed: {
     id: 'flowerBed', name: 'Flower Bed', cost: 5, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'flower_bed',
     blocksBuild: false, category: 'treesPlants',
+    gridW: 2, gridH: 1,
   },
   flowerGarden: {
     id: 'flowerGarden', name: 'Flower Garden', cost: 10, removeCost: 0,
     morale: 1, placement: 'outdoor', spriteKey: 'flower_garden',
     blocksBuild: false, category: 'treesPlants',
+    gridW: 2, gridH: 2,
   },
 
   // (Hedges and fencing moved to wall system — see WALL_TYPES in infrastructure.js)
@@ -64,21 +67,25 @@ export const DECORATIONS = {
     id: 'parkBench', name: 'Park Bench', cost: 10, removeCost: 0,
     morale: 1, placement: 'outdoor', spriteKey: 'park_bench',
     blocksBuild: false, category: 'furniture',
+    gridW: 3, gridH: 1,
   },
   picnicTable: {
     id: 'picnicTable', name: 'Picnic Table', cost: 15, removeCost: 0,
     morale: 1.5, placement: 'outdoor', spriteKey: 'picnic_table',
     blocksBuild: false, category: 'furniture',
+    gridW: 2, gridH: 2,
   },
   fountain: {
     id: 'fountain', name: 'Fountain', cost: 50, removeCost: 0,
     morale: 3, placement: 'outdoor', spriteKey: 'fountain',
     blocksBuild: true, category: 'furniture',
+    gridW: 3, gridH: 3,
   },
   statue: {
     id: 'statue', name: 'Statue', cost: 40, removeCost: 0,
     morale: 2, placement: 'outdoor', spriteKey: 'statue',
     blocksBuild: true, category: 'furniture',
+    gridW: 2, gridH: 2,
   },
 
   // === Lighting ===
@@ -86,16 +93,19 @@ export const DECORATIONS = {
     id: 'lamppost', name: 'Lamppost', cost: 8, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'lamppost',
     blocksBuild: false, category: 'lighting',
+    gridW: 1, gridH: 1,
   },
   bollardLight: {
     id: 'bollardLight', name: 'Bollard Light', cost: 6, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'bollard_light',
     blocksBuild: false, category: 'lighting',
+    gridW: 1, gridH: 1,
   },
   spotLight: {
     id: 'spotLight', name: 'Spot Light', cost: 12, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'spot_light',
     blocksBuild: false, category: 'lighting',
+    gridW: 1, gridH: 1,
   },
 
   // === Bins & Signs ===
@@ -103,26 +113,31 @@ export const DECORATIONS = {
     id: 'trashCan', name: 'Trash Can', cost: 5, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'trash_can',
     blocksBuild: false, category: 'bins',
+    gridW: 1, gridH: 1,
   },
   recyclingBin: {
     id: 'recyclingBin', name: 'Recycling Bin', cost: 8, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'recycling_bin',
     blocksBuild: false, category: 'bins',
+    gridW: 1, gridH: 1,
   },
   infoSign: {
     id: 'infoSign', name: 'Info Sign', cost: 10, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'info_sign',
     blocksBuild: false, category: 'bins',
+    gridW: 1, gridH: 1,
   },
   directionSign: {
     id: 'directionSign', name: 'Direction Sign', cost: 8, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'direction_sign',
     blocksBuild: false, category: 'bins',
+    gridW: 1, gridH: 1,
   },
   flagpole: {
     id: 'flagpole', name: 'Flagpole', cost: 15, removeCost: 0,
     morale: 1, placement: 'outdoor', spriteKey: 'flagpole',
     blocksBuild: false, category: 'bins',
+    gridW: 1, gridH: 1,
   },
 };
 

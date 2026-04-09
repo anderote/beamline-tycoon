@@ -279,6 +279,13 @@ export class InputHandler {
             this.furnishingRotated = !this.furnishingRotated;
             return;
           }
+          if (this.selectedDecorationTool) {
+            const dd = DECORATIONS[this.selectedDecorationTool];
+            if (dd && dd.gridW && dd.gridH) {
+              this.furnishingRotated = !this.furnishingRotated;
+              return;
+            }
+          }
           const overlay = document.getElementById('research-overlay');
           if (overlay) overlay.classList.toggle('hidden');
           break;
@@ -289,7 +296,13 @@ export class InputHandler {
           break;
         }
         case 'Escape':
-          // If in demolish mode, restore previous mode
+          // If in context-aware demolish (mode didn't change), just deselect
+          if (this.demolishMode && this.activeMode !== 'demolish') {
+            this.deselectDemolishTool();
+            this._hidePreview();
+            break;
+          }
+          // If in full demolish mode, restore previous mode
           if (this.demolishMode || this.bulldozerMode) {
             this._restorePreviousMode();
             break;
@@ -462,6 +475,10 @@ export class InputHandler {
           this._doorStart = edge;
           this.doorPath = [edge];
           return;
+        }
+        // Furnishing demolish is click-on-object, not drag-based
+        if (this.demolishType === 'demolishFurnishing') {
+          return; // handled in _handleClick
         }
         this.isDragging = true;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -652,11 +669,68 @@ export class InputHandler {
           // Render furnishing placement preview
           const key = grid.col + ',' + grid.row;
           if (this.game.state.infraOccupied[key]) {
-            this.renderer._renderFurnishingPreview(
+            this.renderer._renderSubtilePreview(
               grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
-              this.selectedFurnishingTool, this.furnishingRotated
+              furnDef.gridW, furnDef.gridH, this.furnishingRotated
             );
           } else {
+            this.renderer.dragPreviewLayer.removeChildren();
+          }
+        }
+        // Sub-grid hover for sub-tile decorations
+        if (this.selectedDecorationTool && this.renderer.hoverCol !== undefined) {
+          const decDef = DECORATIONS[this.selectedDecorationTool];
+          if (decDef && decDef.gridW && decDef.gridH) {
+            const tilePos = gridToIso(this.renderer.hoverCol, this.renderer.hoverRow);
+            const offsetX = world.x - tilePos.x;
+            const offsetY = world.y - tilePos.y;
+            const sub = isoToSubGrid(offsetX, offsetY);
+            const gw = this.furnishingRotated ? decDef.gridH : decDef.gridW;
+            const gh = this.furnishingRotated ? decDef.gridW : decDef.gridH;
+            this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
+            this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
+            this.renderer._renderSubtilePreview(
+              grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
+              decDef.gridW, decDef.gridH, this.furnishingRotated
+            );
+          }
+        }
+        // Demolish furnishing hover: highlight hovered item with red tint and refund label
+        if (this.demolishMode && this.demolishType === 'demolishFurnishing') {
+          const col = grid.col, row = grid.row;
+          const key = col + ',' + row;
+          const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+          let found = false;
+          if (subgrid) {
+            const tilePos = gridToIso(col, row);
+            const offsetX = world.x - tilePos.x;
+            const offsetY = world.y - tilePos.y;
+            const sub = isoToSubGrid(offsetX, offsetY);
+            const sc = Math.floor(sub.subCol);
+            const sr = Math.floor(sub.subRow);
+            if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+              const furnIdx = subgrid[sr][sc];
+              if (furnIdx > 0) {
+                const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+                if (entry) {
+                  this.renderer._renderDemolishFurnishingHighlight(entry);
+                  found = true;
+                }
+              }
+            }
+          }
+          // Check facility equipment if no furnishing found
+          if (!found) {
+            const equipId = this.game.state.facilityGrid[key];
+            if (equipId) {
+              const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+              if (equip) {
+                this.renderer._renderDemolishEquipmentHighlight(equip);
+                found = true;
+              }
+            }
+          }
+          if (!found) {
             this.renderer.dragPreviewLayer.removeChildren();
           }
         }
@@ -861,6 +935,7 @@ export class InputHandler {
           this.deselectZoneTool();
         } else if (this.demolishMode) {
           this.deselectDemolishTool();
+          this._hidePreview();
         }
       }
     });
@@ -1004,6 +1079,8 @@ export class InputHandler {
           this.game.removeConnection(col, row, ct);
         }
       } else if (this.demolishType === 'demolishFurnishing') {
+        // Click-on-object: check furnishings first, then facility equipment
+        let removed = false;
         const subgrid = this.game.state.zoneFurnishingSubgrids[key];
         if (subgrid) {
           const tilePos = gridToIso(col, row);
@@ -1016,9 +1093,17 @@ export class InputHandler {
             const furnIdx = subgrid[sr][sc];
             if (furnIdx > 0) {
               const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-              if (entry) this.game.removeZoneFurnishing(entry.id);
+              if (entry) {
+                this.game.removeZoneFurnishing(entry.id);
+                removed = true;
+              }
             }
           }
+        }
+        // Also check facility equipment on this tile
+        if (!removed) {
+          const equipId = this.game.state.facilityGrid[key];
+          if (equipId) this.game.removeFacilityEquipment(equipId);
         }
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
@@ -1046,8 +1131,17 @@ export class InputHandler {
     // Decoration placement
     if (this.selectedDecorationTool) {
       this.game._pushUndo();
-      if (this.game.placeDecoration(col, row, this.selectedDecorationTool)) {
-        this.game.emit('decorationsChanged');
+      const decDef = DECORATIONS[this.selectedDecorationTool];
+      if (decDef && decDef.gridW && decDef.gridH) {
+        // Sub-tile decoration
+        if (this.game.placeDecoration(col, row, this.selectedDecorationTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated)) {
+          this.game.emit('decorationsChanged');
+        }
+      } else {
+        // Full-tile decoration
+        if (this.game.placeDecoration(col, row, this.selectedDecorationTool)) {
+          this.game.emit('decorationsChanged');
+        }
       }
       return;
     }
@@ -1344,6 +1438,7 @@ export class InputHandler {
   deselectDemolishTool() {
     this.demolishMode = false;
     this.demolishType = null;
+    this.renderer.clearDragPreview();
   }
 
   _demolishEverythingAt(col, row) {
@@ -1386,7 +1481,7 @@ export class InputHandler {
     const catDef = MODES[mode]?.categories?.[cat];
     if (mode === 'beamline') return 'demolishComponent';
     if (mode === 'infra') return 'demolishConnection';
-    if (mode === 'facility') return 'demolishZone';
+    if (mode === 'facility') return 'demolishFurnishing';
     if (mode === 'structure') {
       if (cat === 'flooring') return 'demolishFloor';
       if (cat === 'walls') return 'demolishWall';
@@ -1425,7 +1520,8 @@ export class InputHandler {
     this.bulldozerMode = false;
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
-    this._updatePreview(demolishType);
+    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: 'Remove Component', demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
+    this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
   _switchToDemolishMode() {

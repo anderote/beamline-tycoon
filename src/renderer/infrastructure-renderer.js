@@ -572,7 +572,6 @@ Renderer.prototype._renderDoors = function() {
     }
   }
   this.doorGraphics = {};
-  this.doorLayer.removeChildren();
   const doors = this.game.state.doors || [];
   const sorted = [...doors].sort((a, b) => (a.col + a.row) - (b.col + b.row));
   const renderedDoors = new Set();
@@ -596,7 +595,6 @@ Renderer.prototype._drawDoorEdge = function(col, row, edge, dt) {
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   const h = dt.wallHeight;
-  const isoDepth = (col + row) * 10 + 5;
   const g = new PIXI.Graphics();
 
   // Door frame posts (two narrow pillars at each end of the edge)
@@ -670,8 +668,8 @@ Renderer.prototype._drawDoorEdge = function(col, row, edge, dt) {
     g.stroke({ color: dt.topColor, width: 1, alpha: 0.3 });
   }
 
-  g.zIndex = isoDepth;
-  this.doorLayer.addChild(g);
+  g.zIndex = col + row + 0.6;
+  this.componentLayer.addChild(g);
   this.doorGraphics[`${col},${row},${edge}`] = g;
 };
 
@@ -844,7 +842,9 @@ Renderer.prototype._renderZoneFurnishings = function() {
   for (const furn of furnishings) {
     const furnDef = ZONE_FURNISHINGS[furn.type];
     if (!furnDef) continue;
-    const texture = this.sprites.getTexture(furn.type);
+    const texKey = (furn.rotated && furnDef.gridW !== furnDef.gridH)
+      ? furn.type + '_rotated' : furn.type;
+    const texture = this.sprites.getTexture(texKey);
     if (!texture) continue;
 
     const gw = furn.rotated ? furnDef.gridH : furnDef.gridW;
@@ -865,14 +865,11 @@ Renderer.prototype._renderZoneFurnishings = function() {
   }
 };
 
-Renderer.prototype._renderFurnishingPreview = function(col, row, subCol, subRow, furnType, rotated) {
+Renderer.prototype._renderSubtilePreview = function(col, row, subCol, subRow, itemGridW, itemGridH, rotated) {
   this.dragPreviewLayer.removeChildren();
 
-  const furnDef = ZONE_FURNISHINGS[furnType];
-  if (!furnDef) return;
-
-  const gw = rotated ? furnDef.gridH : furnDef.gridW;
-  const gh = rotated ? furnDef.gridW : furnDef.gridH;
+  const gw = rotated ? itemGridH : itemGridW;
+  const gh = rotated ? itemGridW : itemGridH;
 
   // Check if placement is valid
   const key = col + ',' + row;
@@ -915,6 +912,115 @@ Renderer.prototype._renderFurnishingPreview = function(col, row, subCol, subRow,
   gfx.stroke({ color, width: 1.5, alpha: 0.8 });
 
   this.dragPreviewLayer.addChild(gfx);
+};
+
+// --- Demolish furnishing hover highlight ---
+
+Renderer.prototype._renderDemolishFurnishingHighlight = function(furn) {
+  this.dragPreviewLayer.removeChildren();
+
+  const furnDef = ZONE_FURNISHINGS[furn.type];
+  if (!furnDef) return;
+
+  const gw = furn.rotated ? furnDef.gridH : furnDef.gridW;
+  const gh = furn.rotated ? furnDef.gridW : furnDef.gridH;
+
+  const tilePos = gridToIso(furn.col, furn.row);
+  const topPt = subGridToIso(furn.subCol, furn.subRow);
+  const rightPt = subGridToIso(furn.subCol + gw, furn.subRow);
+  const bottomPt = subGridToIso(furn.subCol + gw, furn.subRow + gh);
+  const leftPt = subGridToIso(furn.subCol, furn.subRow + gh);
+
+  const ox = tilePos.x;
+  const oy = tilePos.y;
+
+  const gfx = new PIXI.Graphics();
+
+  // Red tinted fill over the furnishing footprint
+  gfx.poly([
+    ox + topPt.x, oy + topPt.y,
+    ox + rightPt.x, oy + rightPt.y,
+    ox + bottomPt.x, oy + bottomPt.y,
+    ox + leftPt.x, oy + leftPt.y,
+  ]);
+  gfx.fill({ color: 0xff2222, alpha: 0.25 });
+  gfx.stroke({ color: 0xff4444, width: 1.5, alpha: 0.7 });
+
+  this.dragPreviewLayer.addChild(gfx);
+
+  const center = subGridToIso(furn.subCol + gw / 2, furn.subRow + gh / 2);
+
+  // Name label
+  const nameLabel = new PIXI.Text({
+    text: furnDef.name,
+    style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff },
+  });
+  nameLabel.anchor.set(0.5, 1);
+  nameLabel.x = ox + center.x;
+  nameLabel.y = oy + center.y - 14;
+  this.dragPreviewLayer.addChild(nameLabel);
+
+  // Refund label
+  const refund = Math.floor(furnDef.cost * 0.5);
+  const refundLabel = new PIXI.Text({
+    text: `+$${refund}`,
+    style: { fontFamily: 'monospace', fontSize: 11, fontWeight: 'bold', fill: 0x44dd44 },
+  });
+  refundLabel.anchor.set(0.5, 1);
+  refundLabel.x = ox + center.x;
+  refundLabel.y = oy + center.y - 4;
+  this.dragPreviewLayer.addChild(refundLabel);
+};
+
+Renderer.prototype._renderDemolishEquipmentHighlight = function(equip) {
+  this.dragPreviewLayer.removeChildren();
+
+  const comp = COMPONENTS[equip.type];
+  if (!comp) return;
+
+  const pos = tileCenterIso(equip.col, equip.row);
+
+  // Red tinted diamond over the tile
+  const hw = TILE_W / 2;
+  const hh = TILE_H / 2;
+  const tilePos = gridToIso(equip.col, equip.row);
+
+  const gfx = new PIXI.Graphics();
+  gfx.poly([
+    tilePos.x, tilePos.y,
+    tilePos.x + hw, tilePos.y + hh,
+    tilePos.x, tilePos.y + TILE_H,
+    tilePos.x - hw, tilePos.y + hh,
+  ]);
+  gfx.fill({ color: 0xff2222, alpha: 0.25 });
+  gfx.stroke({ color: 0xff4444, width: 1.5, alpha: 0.7 });
+
+  this.dragPreviewLayer.addChild(gfx);
+
+  // Name label
+  const nameLabel = new PIXI.Text({
+    text: comp.name,
+    style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff },
+  });
+  nameLabel.anchor.set(0.5, 1);
+  nameLabel.x = pos.x;
+  nameLabel.y = pos.y - 20;
+  this.dragPreviewLayer.addChild(nameLabel);
+
+  // Refund label
+  const cost = comp.cost;
+  const refundParts = [];
+  for (const [resource, amount] of Object.entries(cost)) {
+    refundParts.push(`+$${Math.floor(amount * 0.5)}`);
+  }
+  const refundLabel = new PIXI.Text({
+    text: refundParts.join(' '),
+    style: { fontFamily: 'monospace', fontSize: 11, fontWeight: 'bold', fill: 0x44dd44 },
+  });
+  refundLabel.anchor.set(0.5, 1);
+  refundLabel.x = pos.x;
+  refundLabel.y = pos.y - 10;
+  this.dragPreviewLayer.addChild(label);
 };
 
 // --- Facility equipment rendering ---

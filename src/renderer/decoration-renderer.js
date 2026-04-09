@@ -5,7 +5,7 @@
 import { Renderer } from './Renderer.js';
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { DECORATIONS } from '../data/decorations.js';
-import { tileCenterIso } from './grid.js';
+import { tileCenterIso, gridToIso, subGridToIso } from './grid.js';
 
 Renderer.prototype._renderDecorations = function() {
   this.decorationLayer.removeChildren();
@@ -21,6 +21,35 @@ Renderer.prototype._renderDecorations = function() {
   for (const dec of sorted) {
     const def = DECORATIONS[dec.type];
     if (!def) continue;
+
+    // Sub-tile decoration: position at sub-grid center
+    if (dec.isSubtile) {
+      const gw = dec.rotated ? def.gridH : def.gridW;
+      const gh = dec.rotated ? def.gridW : def.gridH;
+      const tilePos = gridToIso(dec.col, dec.row);
+      const subOffset = subGridToIso(dec.subCol + gw / 2, dec.subRow + gh / 2);
+      const pos = { x: tilePos.x + subOffset.x, y: tilePos.y + subOffset.y };
+
+      const texture = this.sprites.getTexture(def.spriteKey);
+      if (texture) {
+        texture.source.scaleMode = 'nearest';
+        const sprite = new PIXI.Sprite(texture);
+        sprite.anchor.set(0.5, 0.5);
+        sprite.x = pos.x;
+        sprite.y = pos.y;
+        sprite.zIndex = (dec.col + dec.row) * 16 + (dec.subRow + gh);
+        this.decorationLayer.addChild(sprite);
+      } else {
+        const g = new PIXI.Graphics();
+        g.circle(pos.x, pos.y, 2);
+        g.fill({ color: 0x448844 });
+        g.zIndex = (dec.col + dec.row) * 16 + (dec.subRow + gh);
+        this.decorationLayer.addChild(g);
+      }
+      continue;
+    }
+
+    // Full-tile decoration
     const pos = tileCenterIso(dec.col, dec.row);
     const texture = this.sprites.getTexture(def.spriteKey);
     const isTall = def.blocksBuild; // trees, fountains — need depth sorting with components
