@@ -2117,6 +2117,23 @@ export class Game {
           this._warnedNoControlRoom = false;
         }
       }
+      // Apply data fiber network quality
+      if (this.state.nodeQualities) {
+        let totalDataQ = 0;
+        let dataNodeCount = 0;
+        const qualNodes = entry.beamline.getAllNodes();
+        for (const node of qualNodes) {
+          const comp = COMPONENTS[node.type];
+          if (comp && (comp.stats?.dataRate || 0) > 0) {
+            const nq = this.state.nodeQualities[node.id];
+            totalDataQ += nq ? nq.dataQuality : 1.0;
+            dataNodeCount++;
+          }
+        }
+        if (dataNodeCount > 0) {
+          connectedDataRate *= totalDataQ / dataNodeCount;
+        }
+      }
       const sciMult = 1 + this.state.staff.scientists * 0.1;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
