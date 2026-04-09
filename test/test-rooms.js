@@ -397,6 +397,82 @@ function addFurnishing(state, col, row, type) {
     '16: bonus should be capped at 0.5, got ' + bonuses.rfWaveguide[0].bonus);
 }
 
+// === Integration Test: Full Pipeline ===
+console.log('\n=== Integration Test: Lab Bonus → Network Quality Pipeline ===');
+
+import { Networks } from '../src/networks/networks.js';
+
+// 17. End-to-end: room detection → lab connectivity → network quality → physics integration
+{
+  const state = makeState();
+
+  // Row 0: Beam hall — 5 concrete tiles, walled
+  for (let c = 0; c < 5; c++) {
+    addFloor(state, c, 0, 'concrete');
+    addWall(state, c, 0, 'n');
+    addWall(state, c, 0, 's');
+  }
+  addWall(state, 0, 0, 'w');
+  addWall(state, 4, 0, 'e');
+  // Beamline node (RF cavity) inside beam hall
+  state.beamline.push({ id: 'rfCavity1', type: 'rfCavity', col: 2, row: 0, tiles: [{ col: 2, row: 0 }] });
+
+  // Row 1: Hallway — 3 hallway tiles (cols 0-2), no walls (open corridor)
+  for (let c = 0; c < 3; c++) {
+    addFloor(state, c, 1, 'hallway');
+  }
+
+  // Row 2: RF Lab — 3 labFloor tiles, walled, zone=rfLab
+  for (let c = 0; c < 3; c++) {
+    addFloor(state, c, 2, 'labFloor');
+    addZone(state, c, 2, 'rfLab');
+    addWall(state, c, 2, 'n');
+    addWall(state, c, 2, 's');
+  }
+  addWall(state, 0, 2, 'w');
+  addWall(state, 2, 2, 'e');
+  // Furnishing: oscilloscope (zoneOutput: 0.05)
+  addFurnishing(state, 1, 2, 'oscilloscope');
+
+  // Detect rooms
+  const rooms = detectRooms(state);
+
+  // Assertion 1: 3 rooms (beam hall, hallway, RF lab)
+  assert(rooms.length === 3, '17a: should find 3 rooms, got ' + rooms.length);
+
+  // Assertion 2: One room is beamHall
+  const beamHall = rooms.find(r => r.roomType === 'beamHall');
+  assert(!!beamHall, '17b: should have a beamHall room');
+
+  // Assertion 3: One room has zoneTypes containing 'rfLab'
+  const rfLab = rooms.find(r => r.zoneTypes && r.zoneTypes.indexOf('rfLab') !== -1);
+  assert(!!rfLab, '17c: should have a room with rfLab zoneType');
+
+  // RF waveguide network cluster: tiles in hallway (0,1) and beam hall (0,0)
+  const networkClusters = {
+    rfWaveguide: [{ tiles: [{ col: 0, row: 1 }, { col: 0, row: 0 }], equipment: [], beamlineNodes: [] }],
+    coolingWater: [],
+    vacuumPipe: [],
+    dataFiber: [],
+  };
+
+  // Find lab network bonuses
+  const bonuses = findLabNetworkBonuses(state, networkClusters);
+
+  // Assertion 4: RF Lab found the waveguide
+  assert(bonuses.rfWaveguide.length === 1,
+    '17d: should find 1 rfWaveguide bonus, got ' + bonuses.rfWaveguide.length);
+
+  // Assertion 5: Bonus is 0.05 (oscilloscope zoneOutput)
+  assert(bonuses.rfWaveguide.length > 0 && Math.abs(bonuses.rfWaveguide[0].bonus - 0.05) < 0.001,
+    '17e: bonus should be 0.05, got ' + (bonuses.rfWaveguide.length > 0 ? bonuses.rfWaveguide[0].bonus : 'N/A'));
+
+  // Assertion 6: computeNetworkQuality with no RF source (capacity=0, demand=100) + lab bonus
+  const quality = Networks.computeNetworkQuality(0, 100, bonuses.rfWaveguide);
+  assert(Math.abs(quality - 0.05) < 0.001,
+    '17f: network quality should be ~0.05, got ' + quality);
+}
+
 console.log('\nPassed: ' + passed + '  Failed: ' + failed);
 if (failed > 0) {
   console.log('\n=== TESTS FAILED ===');
