@@ -3,6 +3,7 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { MODES } from '../data/modes.js';
+import { INFRASTRUCTURE } from '../data/infrastructure.js';
 import { gridToIso, tileCenterIso } from './grid.js';
 
 // --- Utility functions (exported for use by extension modules) ---
@@ -22,7 +23,8 @@ export function getModeForCategory(catKey) {
 }
 
 export function isFacilityCategory(catKey) {
-  return getModeForCategory(catKey) === 'facility';
+  const mode = getModeForCategory(catKey);
+  return mode === 'facility' || mode === 'infra';
 }
 
 export const _PX_FONT = {
@@ -81,6 +83,11 @@ export class Renderer {
     this.bulldozerMode = false;
     this.infraLayer = null;
     this.wallLayer = null;
+    this.wallGraphics = {};        // keyed by "col,row,edge" -> PIXI.Graphics
+    this.wallVisibilityMode = 'up'; // 'up' | 'cutaway' | 'transparent' | 'down'
+    this._cutawayRoom = null;       // Set of "col,row" strings for current room
+    this._cutawayHoverKey = null;   // "col,row" of last hover that triggered room detection
+    this.doorLayer = null;
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
     this.connectionLayer = null;
@@ -153,6 +160,11 @@ export class Renderer {
     this.wallLayer.sortableChildren = true;
     this.world.addChild(this.wallLayer);
 
+    this.doorLayer = new PIXI.Container();
+    this.doorLayer.zIndex = 0.58;
+    this.doorLayer.sortableChildren = true;
+    this.world.addChild(this.doorLayer);
+
     this.dragPreviewLayer = new PIXI.Container();
     this.dragPreviewLayer.zIndex = 0.6;
     this.world.addChild(this.dragPreviewLayer);
@@ -221,12 +233,15 @@ export class Renderer {
           this._renderInfrastructure();
           this._renderZones();
           this._renderWalls();
+          this._renderDoors();
           this._renderFacilityEquipment();
           this._renderConnections();
           break;
         case 'infrastructureChanged':
           this._renderGrass();
           this._renderInfrastructure();
+          this.gridLayer.removeChildren();
+          this._drawGrid();
           break;
         case 'decorationsChanged':
           this._renderGrass();
@@ -239,6 +254,9 @@ export class Renderer {
           break;
         case 'wallsChanged':
           this._renderWalls();
+          break;
+        case 'doorsChanged':
+          this._renderDoors();
           break;
         case 'facilityChanged':
           this._renderFacilityEquipment();
@@ -277,6 +295,7 @@ export class Renderer {
     this._renderDecorations();
     this._renderInfrastructure();
     this._renderWalls();
+    this._renderDoors();
     this._renderFacilityEquipment();
     this._renderConnections();
     this._updateHUD();
@@ -318,20 +337,36 @@ export class Renderer {
     const g = new PIXI.Graphics();
     const range = 30;
 
-    for (let i = -range; i <= range; i++) {
-      // Column lines
-      const start = gridToIso(i, -range);
-      const end = gridToIso(i, range);
-      g.moveTo(start.x, start.y);
-      g.lineTo(end.x, end.y);
-      g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+    // Build lookup of noGrid tiles (e.g. lab flooring with built-in tile pattern)
+    const noGridSet = new Set();
+    const tiles = this.game?.state?.infrastructure || [];
+    for (const tile of tiles) {
+      const infra = INFRASTRUCTURE[tile.type];
+      if (infra?.noGrid) noGridSet.add(`${tile.col},${tile.row}`);
+    }
 
-      // Row lines
-      const rStart = gridToIso(-range, i);
-      const rEnd = gridToIso(range, i);
-      g.moveTo(rStart.x, rStart.y);
-      g.lineTo(rEnd.x, rEnd.y);
-      g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+    for (let i = -range; i <= range; i++) {
+      // Column lines — line at col=i borders tiles (i-1, j) and (i, j)
+      for (let j = -range; j < range; j++) {
+        const bothNoGrid = noGridSet.has(`${i - 1},${j}`) && noGridSet.has(`${i},${j}`);
+        if (bothNoGrid) continue;
+        const start = gridToIso(i, j);
+        const end = gridToIso(i, j + 1);
+        g.moveTo(start.x, start.y);
+        g.lineTo(end.x, end.y);
+        g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+      }
+
+      // Row lines — line at row=i borders tiles (j, i-1) and (j, i)
+      for (let j = -range; j < range; j++) {
+        const bothNoGrid = noGridSet.has(`${j},${i - 1}`) && noGridSet.has(`${j},${i}`);
+        if (bothNoGrid) continue;
+        const rStart = gridToIso(j, i);
+        const rEnd = gridToIso(j + 1, i);
+        g.moveTo(rStart.x, rStart.y);
+        g.lineTo(rEnd.x, rEnd.y);
+        g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+      }
     }
 
     this.gridLayer.addChild(g);

@@ -5,7 +5,7 @@
 import { Renderer } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
 import { TILE_W, TILE_H } from '../data/directions.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
 import { tileCenterIso } from './grid.js';
 import { Networks } from '../networks/networks.js';
@@ -28,14 +28,14 @@ Renderer.prototype._renderInfrastructure = function() {
     const hasBelow = occupied.has(`${tile.col},${tile.row + 1}`);
     // Use foundation side color if tile sits on a foundation
     const sideColor = tile.foundation ? (INFRASTRUCTURE[tile.foundation]?.color || infra.color) : infra.color;
-    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow, tile.variant, sideColor);
+    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow, tile.variant, sideColor, tile.orientation);
   }
 
   // Re-render decorations since infra changes may have cleared some
   if (this._renderDecorations) this._renderDecorations();
 };
 
-Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow, variant, sideColor) {
+Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow, variant, sideColor, orientation) {
   const pos = tileCenterIso(col, row);
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
@@ -44,7 +44,7 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
   const isoDepth = col + row;
 
   // Side faces — drawn below the grid layer so grid lines appear on top
-  if (!hasRight || !hasBelow) {
+  if ((!hasRight || !hasBelow) && !infra.noBase) {
     const sides = new PIXI.Graphics();
     if (!hasRight) {
       sides.poly([pos.x, pos.y + hh, pos.x + hw, pos.y, pos.x + hw, pos.y + depth, pos.x, pos.y + hh + depth]);
@@ -63,14 +63,21 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
     const sprite = new PIXI.Sprite(texture);
     // RCT2 tiles are isometric diamond-shaped (64x31 or 64x48) — scale by width only
     // Old hand-drawn square tiles (64x64) need the 1.35x multiplier to fill the diamond
-    const isIsoDiamond = texture.height < TILE_H * 1.8;
+    const isIsoDiamond = texture.height < TILE_H * 2.1;
     const scale = isIsoDiamond
       ? (TILE_W / texture.width) * 1.03
       : (TILE_W / texture.width) * 1.35;
     sprite.anchor.set(0.5, 0.5);
     sprite.x = pos.x;
     sprite.y = pos.y - (isIsoDiamond ? 0 : texture.height * scale * 0.04);
-    sprite.scale.set(scale, scale);
+    // Flip horizontally for orientable tiles (rotates pattern in iso space)
+    const baseFlip = infra.id === 'groomedGrass' ? -1 : 1;
+    const flipX = (orientation === 1 && infra.orientable) ? -baseFlip : baseFlip;
+    sprite.scale.set(scale * flipX, scale);
+    // Apply variant tint if defined (e.g. lab floor color variants)
+    if (variant != null && infra.variantTints && infra.variantTints[variant] != null) {
+      sprite.tint = infra.variantTints[variant];
+    }
     sprite.zIndex = isoDepth;
     this.infraLayer.addChild(sprite);
   } else {
@@ -86,51 +93,108 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
 
 Renderer.prototype._renderWalls = function() {
   this.wallLayer.removeChildren();
+  this.wallGraphics = {};
   const walls = this.game.state.walls || [];
   const sorted = [...walls].sort((a, b) => (a.col + a.row) - (b.col + b.row));
   for (const wall of sorted) {
     const wt = WALL_TYPES[wall.type];
     if (!wt) continue;
-    this._drawWallEdge(wall.col, wall.row, wall.edge, wt);
+    // Normalize n/w edges to s/e on the adjacent tile with flipped thickness
+    let { col: rc, row: rr, edge: re } = wall;
+    let flip = false;
+    if (wall.edge === 'n') { rr -= 1; re = 's'; flip = true; }
+    else if (wall.edge === 'w') { rc -= 1; re = 'e'; flip = true; }
+    this._drawWallEdge(rc, rr, re, wt, flip);
   }
+  if (this._applyWallVisibility) this._applyWallVisibility();
 };
 
-Renderer.prototype._drawWallEdge = function(col, row, edge, wt) {
+Renderer.prototype._drawWallEdge = function(col, row, edge, wt, flip) {
   const pos = tileCenterIso(col, row);
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   const h = wt.wallHeight;
+  const t = wt.thickness || 0;
   const isoDepth = (col + row) * 10 + 5;
   const g = new PIXI.Graphics();
+  const s = flip ? -1 : 1; // flip thickness direction for n/w edges
+
+  // Perpendicular offset for thickness (inward from edge toward tile center)
+  // 'e' edge normal points NW: (-0.447, -0.894) per pixel of thickness
+  // 's' edge normal points NE: ( 0.447, -0.894) per pixel of thickness
+  // side 1 flips outward
+  const pdx = (edge === 'e' ? -0.447 * t : 0.447 * t) * s;
+  const pdy = -0.894 * t * s;
 
   if (edge === 'e') {
-    // SE edge: right vertex to bottom vertex, extruded upward
-    g.poly([
-      pos.x + hw, pos.y,
-      pos.x, pos.y + hh,
-      pos.x, pos.y + hh - h,
-      pos.x + hw, pos.y - h,
-    ]);
+    const rx = pos.x + hw, ry = pos.y;      // right vertex
+    const bx = pos.x, by = pos.y + hh;      // bottom vertex
+
+    if (t > 0) {
+      // Back face (further from camera, darker)
+      g.poly([
+        rx + pdx, ry + pdy,
+        bx + pdx, by + pdy,
+        bx + pdx, by + pdy - h,
+        rx + pdx, ry + pdy - h,
+      ]);
+      g.fill({ color: this._darkenWallColor(wt.color, 0.6) });
+
+      // Top surface (connects front top edge to back top edge)
+      g.poly([
+        rx, ry - h,
+        bx, by - h,
+        bx + pdx, by + pdy - h,
+        rx + pdx, ry + pdy - h,
+      ]);
+      g.fill({ color: wt.topColor });
+    }
+
+    // Front face (SE edge, closest to camera)
+    g.poly([rx, ry, bx, by, bx, by - h, rx, ry - h]);
     g.fill({ color: this._darkenWallColor(wt.color, 0.85) });
-    g.moveTo(pos.x + hw, pos.y - h);
-    g.lineTo(pos.x, pos.y + hh - h);
+
+    // Top edge highlight
+    g.moveTo(rx, ry - h);
+    g.lineTo(bx, by - h);
     g.stroke({ color: wt.topColor, width: 1, alpha: 0.6 });
   } else {
-    // SW edge: bottom vertex to left vertex, extruded upward
-    g.poly([
-      pos.x, pos.y + hh,
-      pos.x - hw, pos.y,
-      pos.x - hw, pos.y - h,
-      pos.x, pos.y + hh - h,
-    ]);
+    const bx = pos.x, by = pos.y + hh;      // bottom vertex
+    const lx = pos.x - hw, ly = pos.y;      // left vertex
+
+    if (t > 0) {
+      // Back face
+      g.poly([
+        bx + pdx, by + pdy,
+        lx + pdx, ly + pdy,
+        lx + pdx, ly + pdy - h,
+        bx + pdx, by + pdy - h,
+      ]);
+      g.fill({ color: this._darkenWallColor(wt.color, 0.5) });
+
+      // Top surface
+      g.poly([
+        bx, by - h,
+        lx, ly - h,
+        lx + pdx, ly + pdy - h,
+        bx + pdx, by + pdy - h,
+      ]);
+      g.fill({ color: wt.topColor });
+    }
+
+    // Front face (SW edge)
+    g.poly([bx, by, lx, ly, lx, ly - h, bx, by - h]);
     g.fill({ color: this._darkenWallColor(wt.color, 0.7) });
-    g.moveTo(pos.x, pos.y + hh - h);
-    g.lineTo(pos.x - hw, pos.y - h);
+
+    // Top edge highlight
+    g.moveTo(bx, by - h);
+    g.lineTo(lx, ly - h);
     g.stroke({ color: wt.topColor, width: 1, alpha: 0.6 });
   }
 
   g.zIndex = isoDepth;
   this.wallLayer.addChild(g);
+  this.wallGraphics[`${col},${row},${edge}`] = g;
 };
 
 Renderer.prototype._darkenWallColor = function(color, factor) {
@@ -150,7 +214,12 @@ Renderer.prototype.renderWallPreview = function(path, wallType) {
   const canAfford = this.game.state.resources.funding >= totalCost;
 
   for (const pt of path) {
-    const pos = tileCenterIso(pt.col, pt.row);
+    // Normalize n/w to s/e on adjacent tile for rendering
+    let rc = pt.col, rr = pt.row, re = pt.edge;
+    if (pt.edge === 'n') { rr -= 1; re = 's'; }
+    else if (pt.edge === 'w') { rc -= 1; re = 'e'; }
+
+    const pos = tileCenterIso(rc, rr);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
     const h = wt.wallHeight;
@@ -158,7 +227,7 @@ Renderer.prototype.renderWallPreview = function(path, wallType) {
     const ok = canAfford && !occupied;
     const g = new PIXI.Graphics();
 
-    if (pt.edge === 'e') {
+    if (re === 'e') {
       g.poly([
         pos.x + hw, pos.y,
         pos.x, pos.y + hh,
@@ -194,12 +263,17 @@ Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge) {
   this.dragPreviewLayer.removeChildren();
   if (col == null || edge == null) return;
 
-  const pos = tileCenterIso(col, row);
+  // Normalize n/w to s/e on adjacent tile
+  let rc = col, rr = row, re = edge;
+  if (edge === 'n') { rr -= 1; re = 's'; }
+  else if (edge === 'w') { rc -= 1; re = 'e'; }
+
+  const pos = tileCenterIso(rc, rr);
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   const g = new PIXI.Graphics();
 
-  if (edge === 'e') {
+  if (re === 'e') {
     g.moveTo(pos.x + hw, pos.y);
     g.lineTo(pos.x, pos.y + hh);
   } else {
@@ -208,6 +282,152 @@ Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge) {
   }
   g.stroke({ color: 0xffffff, width: 2, alpha: 0.7 });
   this.dragPreviewLayer.addChild(g);
+};
+
+// --- Door rendering (edge-based, drawn as opening in wall) ---
+
+Renderer.prototype._renderDoors = function() {
+  this.doorLayer.removeChildren();
+  const doors = this.game.state.doors || [];
+  const sorted = [...doors].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+  for (const door of sorted) {
+    const dt = DOOR_TYPES[door.type];
+    if (!dt) continue;
+    this._drawDoorEdge(door.col, door.row, door.edge, dt);
+  }
+};
+
+Renderer.prototype._drawDoorEdge = function(col, row, edge, dt) {
+  const pos = tileCenterIso(col, row);
+  const hw = TILE_W / 2;
+  const hh = TILE_H / 2;
+  const h = dt.wallHeight;
+  const isoDepth = (col + row) * 10 + 5;
+  const g = new PIXI.Graphics();
+
+  // Door frame posts (two narrow pillars at each end of the edge)
+  const postWidth = 0.15; // fraction of edge length for each post
+
+  if (edge === 'e') {
+    // SE edge: right vertex (pos.x+hw, pos.y) to bottom vertex (pos.x, pos.y+hh)
+    const x0 = pos.x + hw, y0 = pos.y;
+    const x1 = pos.x, y1 = pos.y + hh;
+    const dx = x1 - x0, dy = y1 - y0;
+
+    // Left post
+    g.poly([
+      x0, y0,
+      x0 + dx * postWidth, y0 + dy * postWidth,
+      x0 + dx * postWidth, y0 + dy * postWidth - h,
+      x0, y0 - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(dt.color, 0.85) });
+
+    // Right post
+    g.poly([
+      x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth),
+      x1, y1,
+      x1, y1 - h,
+      x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth) - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(dt.color, 0.85) });
+
+    // Top lintel connecting the posts
+    g.moveTo(x0, y0 - h);
+    g.lineTo(x1, y1 - h);
+    g.stroke({ color: dt.topColor, width: 2, alpha: 0.8 });
+
+    // Threshold line at ground level (dashed look via short segment)
+    g.moveTo(x0 + dx * postWidth, y0 + dy * postWidth);
+    g.lineTo(x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth));
+    g.stroke({ color: dt.topColor, width: 1, alpha: 0.3 });
+  } else {
+    // SW edge: bottom vertex (pos.x, pos.y+hh) to left vertex (pos.x-hw, pos.y)
+    const x0 = pos.x, y0 = pos.y + hh;
+    const x1 = pos.x - hw, y1 = pos.y;
+    const dx = x1 - x0, dy = y1 - y0;
+
+    // Left post
+    g.poly([
+      x0, y0,
+      x0 + dx * postWidth, y0 + dy * postWidth,
+      x0 + dx * postWidth, y0 + dy * postWidth - h,
+      x0, y0 - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(dt.color, 0.7) });
+
+    // Right post
+    g.poly([
+      x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth),
+      x1, y1,
+      x1, y1 - h,
+      x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth) - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(dt.color, 0.7) });
+
+    // Top lintel
+    g.moveTo(x0, y0 - h);
+    g.lineTo(x1, y1 - h);
+    g.stroke({ color: dt.topColor, width: 2, alpha: 0.8 });
+
+    // Threshold line
+    g.moveTo(x0 + dx * postWidth, y0 + dy * postWidth);
+    g.lineTo(x0 + dx * (1 - postWidth), y0 + dy * (1 - postWidth));
+    g.stroke({ color: dt.topColor, width: 1, alpha: 0.3 });
+  }
+
+  g.zIndex = isoDepth;
+  this.doorLayer.addChild(g);
+};
+
+Renderer.prototype.renderDoorPreview = function(path, doorType) {
+  this.dragPreviewLayer.removeChildren();
+  if (!path || path.length === 0) return;
+
+  const dt = DOOR_TYPES[doorType];
+  if (!dt) return;
+  const totalCost = path.length * dt.cost;
+  const canAfford = this.game.state.resources.funding >= totalCost;
+
+  for (const pt of path) {
+    const pos = tileCenterIso(pt.col, pt.row);
+    const hw = TILE_W / 2;
+    const hh = TILE_H / 2;
+    const h = dt.wallHeight;
+    const occupied = this.game.state.doorOccupied[`${pt.col},${pt.row},${pt.edge}`];
+    const ok = canAfford && !occupied;
+    const g = new PIXI.Graphics();
+
+    if (pt.edge === 'e') {
+      g.poly([
+        pos.x + hw, pos.y,
+        pos.x, pos.y + hh,
+        pos.x, pos.y + hh - h,
+        pos.x + hw, pos.y - h,
+      ]);
+    } else {
+      g.poly([
+        pos.x, pos.y + hh,
+        pos.x - hw, pos.y,
+        pos.x - hw, pos.y - h,
+        pos.x, pos.y + hh - h,
+      ]);
+    }
+    g.fill({ color: ok ? dt.color : 0xcc3333, alpha: 0.5 });
+    g.stroke({ color: ok ? 0xffffff : 0xff4444, width: 1, alpha: 0.5 });
+    this.dragPreviewLayer.addChild(g);
+  }
+
+  const last = path[path.length - 1];
+  const labelPos = tileCenterIso(last.col, last.row);
+  const label = new PIXI.Text({
+    text: `$${totalCost} (${path.length} segments)`,
+    style: { fontFamily: 'monospace', fontSize: 10, fill: canAfford ? 0xffffff : 0xff4444 },
+  });
+  label.anchor.set(0.5, 0.5);
+  label.x = labelPos.x;
+  label.y = labelPos.y - 16;
+  this.dragPreviewLayer.addChild(label);
 };
 
 // --- Zone rendering ---
