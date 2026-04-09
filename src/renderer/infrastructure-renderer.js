@@ -204,6 +204,49 @@ Renderer.prototype._darkenWallColor = function(color, factor) {
   return (r << 16) | (gn << 8) | b;
 };
 
+Renderer.prototype._detectRoom = function(startCol, startRow) {
+  const wallOcc = this.game.state.wallOccupied || {};
+  const room = new Set();
+  const queue = [`${startCol},${startRow}`];
+  room.add(queue[0]);
+  const MAX_TILES = 500;
+
+  while (queue.length > 0 && room.size < MAX_TILES) {
+    const key = queue.shift();
+    const [c, r] = key.split(',').map(Number);
+
+    // East: blocked by wall at (c, r, 'e')
+    const eKey = `${c + 1},${r}`;
+    if (!room.has(eKey) && !wallOcc[`${c},${r},e`]) {
+      room.add(eKey);
+      queue.push(eKey);
+    }
+
+    // West: blocked by wall at (c-1, r, 'e')
+    const wKey = `${c - 1},${r}`;
+    if (!room.has(wKey) && !wallOcc[`${c - 1},${r},e`]) {
+      room.add(wKey);
+      queue.push(wKey);
+    }
+
+    // South: blocked by wall at (c, r, 's')
+    const sKey = `${c},${r + 1}`;
+    if (!room.has(sKey) && !wallOcc[`${c},${r},s`]) {
+      room.add(sKey);
+      queue.push(sKey);
+    }
+
+    // North: blocked by wall at (c, r-1, 's')
+    const nKey = `${c},${r - 1}`;
+    if (!room.has(nKey) && !wallOcc[`${c},${r - 1},s`]) {
+      room.add(nKey);
+      queue.push(nKey);
+    }
+  }
+
+  return room;
+};
+
 Renderer.prototype.renderWallPreview = function(path, wallType) {
   this.dragPreviewLayer.removeChildren();
   if (!path || path.length === 0) return;
@@ -293,7 +336,11 @@ Renderer.prototype._renderDoors = function() {
   for (const door of sorted) {
     const dt = DOOR_TYPES[door.type];
     if (!dt) continue;
-    this._drawDoorEdge(door.col, door.row, door.edge, dt);
+    // Normalize n/w edges to s/e on adjacent tile for rendering
+    let { col: rc, row: rr, edge: re } = door;
+    if (door.edge === 'n') { rr -= 1; re = 's'; }
+    else if (door.edge === 'w') { rc -= 1; re = 'e'; }
+    this._drawDoorEdge(rc, rr, re, dt);
   }
 };
 
@@ -390,7 +437,11 @@ Renderer.prototype.renderDoorPreview = function(path, doorType) {
   const canAfford = this.game.state.resources.funding >= totalCost;
 
   for (const pt of path) {
-    const pos = tileCenterIso(pt.col, pt.row);
+    let rc = pt.col, rr = pt.row, re = pt.edge;
+    if (pt.edge === 'n') { rr -= 1; re = 's'; }
+    else if (pt.edge === 'w') { rc -= 1; re = 'e'; }
+
+    const pos = tileCenterIso(rc, rr);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
     const h = dt.wallHeight;
@@ -398,7 +449,7 @@ Renderer.prototype.renderDoorPreview = function(path, doorType) {
     const ok = canAfford && !occupied;
     const g = new PIXI.Graphics();
 
-    if (pt.edge === 'e') {
+    if (re === 'e') {
       g.poly([
         pos.x + hw, pos.y,
         pos.x, pos.y + hh,
