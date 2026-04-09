@@ -6,6 +6,7 @@ import { DIR } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
+import { NetworkWindow } from '../ui/NetworkWindow.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -398,6 +399,17 @@ export class InputHandler {
             this.renderer.setProbeMode(false);
           }
           break;
+        case 'i': case 'I': {
+          const levelName = this.renderer.cycleLabelLevel();
+          this._showToast(`Labels: ${levelName}`);
+          break;
+        }
+        case 'z': case 'Z': {
+          if (e.ctrlKey || e.metaKey) break; // let Ctrl+Z undo through
+          const visible = this.renderer.toggleZoneOverlay();
+          this._showToast(`Zones: ${visible ? 'On' : 'Off'}`);
+          break;
+        }
         case 'Delete': case 'Backspace':
           e.preventDefault();
           // Toggle context-aware demolish without leaving current menu
@@ -1210,6 +1222,22 @@ export class InputHandler {
           this.game.emit('beamlineSelected', entry.id);
         }
       } else {
+        // Check for connection tile click (network info)
+        const connKey = col + ',' + row;
+        const connTypes = this.game.state.connections.get(connKey);
+        if (connTypes && connTypes.size > 0) {
+          const networkData = this.game.state.networkData || {};
+          for (const connType of connTypes) {
+            const clusters = networkData[connType] || [];
+            for (let ci = 0; ci < clusters.length; ci++) {
+              const inCluster = clusters[ci].tiles.some(t => t.col === col && t.row === row);
+              if (inCluster) {
+                new NetworkWindow(this.game, connType, ci);
+                return;
+              }
+            }
+          }
+        }
         // Check for machine tile click
         const machineId = this.game.state.machineGrid[col + ',' + row];
         if (machineId) {
@@ -1493,6 +1521,19 @@ export class InputHandler {
       if (catDef?.isDecorationTab) return 'demolishFurnishing';
     }
     return null;
+  }
+
+  _showToast(msg) {
+    let el = document.getElementById('key-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'key-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => el.classList.add('hidden'), 1200);
   }
 
   _toggleContextDemolish() {
