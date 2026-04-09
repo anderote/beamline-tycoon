@@ -24,6 +24,17 @@ export function isoToGrid(screenX, screenY) {
 }
 
 /**
+ * Convert isometric screen position to fractional grid coordinates (no rounding).
+ * Used for edge detection — determines which edge of a tile the cursor is nearest to.
+ */
+export function isoToGridFloat(screenX, screenY) {
+  return {
+    col: (screenX / (TILE_W / 2) + screenY / (TILE_H / 2)) / 2,
+    row: (screenY / (TILE_H / 2) - screenX / (TILE_W / 2)) / 2,
+  };
+}
+
+/**
  * Return the isometric screen position of the CENTER of grid cell (col, row).
  * gridToIso gives the top vertex; this offsets by half a tile in each axis.
  */
