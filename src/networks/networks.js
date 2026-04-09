@@ -155,6 +155,25 @@ export const Networks = {
   // ── Network Validation ──────────────────────────────────────────────
 
   /**
+   * Compute effective quality for a network given capacity, demand, and lab bonuses.
+   * @param {number} capacity
+   * @param {number} demand
+   * @param {Array} labBonuses - Array of { bonus } from findLabNetworkBonuses
+   * @returns {number} Quality 0.0 - 1.0
+   */
+  computeNetworkQuality: function(capacity, demand, labBonuses) {
+    var ratio = demand > 0 ? Math.min(1.0, capacity / demand) : 1.0;
+    var labBonus = 0;
+    if (Array.isArray(labBonuses)) {
+      for (var i = 0; i < labBonuses.length; i++) {
+        labBonus += labBonuses[i].bonus || 0;
+      }
+    }
+    labBonus = Math.min(labBonus, 0.5);
+    return Math.min(1.0, ratio + labBonus);
+  },
+
+  /**
    * Validate power network: substations provide capacity, everything else draws.
    * Returns { capacity, draw, ok, substations: [...], consumers: [...] }
    */
@@ -192,10 +211,13 @@ export const Networks = {
       }
     }
 
+    var ratio = draw > 0 ? Math.min(1.0, capacity / draw) : (capacity > 0 ? 1.0 : 0);
+
     return {
       capacity: capacity,
       draw: draw,
       ok: capacity >= draw && capacity > 0,
+      quality: ratio,
       substations: substations,
       consumers: consumers,
     };
@@ -243,12 +265,14 @@ export const Networks = {
     }
 
     var margin = capacity > 0 ? (capacity - heatLoad) / capacity * 100 : 0;
+    var ratio = heatLoad > 0 ? Math.min(1.0, capacity / heatLoad) : (capacity > 0 ? 1.0 : 0);
 
     return {
       capacity: capacity,
       heatLoad: heatLoad,
       margin: margin,
       ok: capacity >= heatLoad && capacity > 0,
+      quality: ratio,
       plants: plants,
       consumers: consumers,
     };
@@ -367,6 +391,8 @@ export const Networks = {
     var frequencyMatch = mismatches.length === 0;
     var ok = frequencyMatch && powerOk && !missingModulator && (cavities.length === 0 || sources.length > 0);
 
+    var ratio = totalDemand > 0 ? Math.min(1.0, totalForwardPower / totalDemand) : (sources.length > 0 ? 1.0 : 0);
+
     return {
       forwardPower: totalForwardPower,
       reflectedPower: reflectedPower,
@@ -376,6 +402,7 @@ export const Networks = {
       hasCirculator: hasCirculator,
       mismatches: mismatches,
       ok: ok,
+      quality: ratio,
       sources: sources,
       cavities: cavities,
     };
@@ -525,11 +552,14 @@ export const Networks = {
     // 8. ok
     var ok = pressureQuality !== 'Poor' && pressureQuality !== 'None';
 
+    var qualityMap = { 'Excellent': 1.0, 'Good': 0.85, 'Marginal': 0.6, 'Poor': 0.3, 'None': 0 };
+
     return {
       effectivePumpSpeed: totalEffectiveSpeed,
       avgPressure: avgPressure,
       pressureQuality: pressureQuality,
       ok: ok,
+      quality: qualityMap[pressureQuality] || 0,
       pumps: pumpResults,
     };
   },
@@ -770,6 +800,7 @@ export const Networks = {
     }
 
     var margin = capacity > 0 ? (capacity - heatLoad) / capacity * 100 : 0;
+    var ratio = heatLoad > 0 ? Math.min(1.0, capacity / heatLoad) : (capacity > 0 ? 1.0 : 0);
 
     return {
       capacity: capacity,
@@ -778,6 +809,8 @@ export const Networks = {
       hasCompressor: hasCompressor,
       margin: margin,
       ok: capacity >= heatLoad && (heatLoad === 0 || capacity > 0),
+      quality: ratio,
+      quenched: ratio < 0.5 && heatLoad > 0,
       consumers: consumers,
     };
   },

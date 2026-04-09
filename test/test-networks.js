@@ -606,3 +606,92 @@ if (fFailed > 0) {
 } else {
   console.log('\n=== ALL FULL VALIDATION TESTS PASSED ===');
 }
+
+// === Network Quality Tests ===
+let qPassed = 0;
+let qFailed = 0;
+function qassert(cond, msg) {
+  if (!cond) { console.log('FAIL: ' + msg); qFailed++; }
+  else { qPassed++; }
+}
+
+console.log('\n=== Network Quality Tests ===');
+
+// 1. Power network with no draw → quality 1.0
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  const nets = Networks.discoverAll(state);
+  const pNet = nets.powerCable[0];
+  const result = Networks.validatePowerNetwork(pNet);
+  qassert(result.quality === 1.0, 'Q1: power with no draw should have quality 1.0, got ' + result.quality);
+}
+
+// 2. Power network with no capacity (no substation) → quality 0
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 6);
+  const nets = Networks.discoverAll(state);
+  const pNet = nets.powerCable[0];
+  const result = Networks.validatePowerNetwork(pNet);
+  qassert(result.quality === 0, 'Q2: power with no capacity should have quality 0, got ' + result.quality);
+}
+
+// 3. computeNetworkQuality with lab bonus: capacity=0, demand=100, lab bonus 0.15 → quality 0.15
+{
+  var q = Networks.computeNetworkQuality(0, 100, [{ bonus: 0.15 }]);
+  qassert(Math.abs(q - 0.15) < 0.001, 'Q3: capacity=0, demand=100, bonus=0.15 should give 0.15, got ' + q);
+}
+
+// 4. computeNetworkQuality capped at 1.0 when ratio + bonus > 1.0
+{
+  var q = Networks.computeNetworkQuality(100, 100, [{ bonus: 0.3 }]);
+  qassert(q === 1.0, 'Q4: ratio 1.0 + bonus 0.3 should cap at 1.0, got ' + q);
+}
+
+// 5. Vacuum quality maps: verify validateVacuumNetwork returns numeric quality
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 4);
+  state.beamline.push({ id: 'bl1', type: 'drift', col: 5, row: 6, tiles: [{ col: 5, row: 6 }] });
+  const nets = Networks.discoverAll(state);
+  const vNet = nets.vacuumPipe[0];
+  const result = Networks.validateVacuumNetwork(vNet, state.beamline);
+  qassert(typeof result.quality === 'number', 'Q5: vacuum quality should be a number, got ' + typeof result.quality);
+  qassert(result.quality > 0 && result.quality <= 1.0, 'Q5: vacuum quality should be between 0 and 1, got ' + result.quality);
+}
+
+// 6. Cryo quenched field: true when ratio < 0.5 with heat load
+{
+  const state = mockGameState();
+  // Long cryo transfer line so all cryomodules are adjacent
+  for (let r = 3; r <= 10; r++) {
+    placeConn(state, 5, r, 'cryoTransfer');
+  }
+  // Cryocooler provides 50W capacity
+  placeEquip(state, 'cc1', 'cryocooler', 5, 2);
+  // Add many cryomodules to exceed capacity (each 18W, need > 100W total for ratio < 0.5)
+  placeBeamlineNode(state, 'cm1', 'cryomodule', 6, 3);
+  placeBeamlineNode(state, 'cm2', 'cryomodule', 6, 4);
+  placeBeamlineNode(state, 'cm3', 'cryomodule', 6, 5);
+  placeBeamlineNode(state, 'cm4', 'cryomodule', 6, 6);
+  placeBeamlineNode(state, 'cm5', 'cryomodule', 6, 7);
+  placeBeamlineNode(state, 'cm6', 'cryomodule', 6, 8);
+  const nets = Networks.discoverAll(state);
+  const crNet = nets.cryoTransfer[0];
+  const result = Networks.validateCryoNetwork(crNet);
+  // 6 cryomodules * 18W = 108W heat, 50W capacity, ratio = 50/108 ≈ 0.463
+  qassert(result.quenched === true, 'Q6: cryo should be quenched when ratio < 0.5, ratio=' + result.quality + ' quenched=' + result.quenched);
+  qassert(result.quality < 0.5, 'Q6: quality should be < 0.5, got ' + result.quality);
+}
+
+console.log('Passed: ' + qPassed + '  Failed: ' + qFailed);
+if (qFailed > 0) {
+  console.log('\n=== NETWORK QUALITY TESTS FAILED ===');
+  process.exit(1);
+} else {
+  console.log('\n=== ALL NETWORK QUALITY TESTS PASSED ===');
+}
