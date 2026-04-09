@@ -1,9 +1,9 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR } from '../data/directions.js';
-import { isoToGrid } from '../renderer/grid.js';
+import { isoToGrid, isoToGridFloat } from '../renderer/grid.js';
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 
@@ -40,6 +40,10 @@ export class InputHandler {
     // Line placement (hallway)
     this.isDrawingLine = false;
     this.linePath = [];
+    // Wall placement (edge-based)
+    this.selectedWallTool = null;
+    this.isDrawingWall = false;
+    this.wallPath = [];
     // Continuous panning
     this.keysDown = new Set();
     // Bulldozer mode
@@ -77,6 +81,26 @@ export class InputHandler {
     const entry = this.game.registry.get(this.game.editingBeamlineId);
     if (!entry) return [];
     return entry.beamline.getAllNodes();
+  }
+
+  _getNearestEdge(screenX, screenY) {
+    const world = this.renderer.screenToWorld(screenX, screenY);
+    const gf = isoToGridFloat(world.x, world.y);
+    const col = Math.floor(gf.col);
+    const row = Math.floor(gf.row);
+    const fx = gf.col - col;
+    const fy = gf.row - row;
+
+    const dN = fy;
+    const dS = 1 - fy;
+    const dE = 1 - fx;
+    const dW = fx;
+
+    const min = Math.min(dN, dS, dE, dW);
+    if (min === dN) return { col, row: row - 1, edge: 's' };
+    if (min === dS) return { col, row, edge: 's' };
+    if (min === dE) return { col, row, edge: 'e' };
+    return { col: col - 1, row, edge: 'e' };
   }
 
   // --- Keyboard bindings ---
@@ -278,7 +302,7 @@ export class InputHandler {
             this.selectedNodeId = null;
             this.renderer.hidePopup();
           } else {
-            // Nothing selected: toggle general bulldozer mode
+            // Toggle general bulldozer mode (removes components & furniture only)
             this.bulldozerMode = !this.bulldozerMode;
             this.deselectTool();
             this.deselectInfraTool();
@@ -374,6 +398,15 @@ export class InputHandler {
         }
       }
 
+      // Wall edge placement start
+      if (e.button === 0 && this.selectedWallTool) {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        this.isDrawingWall = true;
+        this.wallPath = [edge];
+        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
+        return;
+      }
+
       // Infrastructure drag start (area placement)
       if (e.button === 0 && this.selectedInfraTool) {
         const infra = INFRASTRUCTURE[this.selectedInfraTool];
@@ -438,6 +471,20 @@ export class InputHandler {
           }
           this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
         }
+      } else if (this.isDrawingWall && this.selectedWallTool) {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        const last = this.wallPath[this.wallPath.length - 1];
+        if (edge.col !== last.col || edge.row !== last.row || edge.edge !== last.edge) {
+          const key = `${edge.col},${edge.row},${edge.edge}`;
+          const inPath = this.wallPath.some(p => `${p.col},${p.row},${p.edge}` === key);
+          if (!inPath) {
+            this.wallPath.push(edge);
+          }
+          this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
+        }
+      } else if (this.selectedWallTool && !this.isDrawingWall) {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -504,6 +551,15 @@ export class InputHandler {
         this.game.emit('infrastructureChanged');
         this.isDrawingLine = false;
         this.linePath = [];
+        this.renderer.clearDragPreview();
+        return;
+      }
+
+      // Wall placement end
+      if (this.isDrawingWall && this.wallPath.length > 0) {
+        this.game.placeWallPath(this.wallPath, this.selectedWallTool);
+        this.isDrawingWall = false;
+        this.wallPath = [];
         this.renderer.clearDragPreview();
         return;
       }
@@ -653,7 +709,8 @@ export class InputHandler {
         // Pipe-specific bulldozer: only remove the selected connection type
         this.game.removeConnection(col, row, this.bulldozerConnType);
       } else {
-        // General bulldozer: remove whatever is at the clicked tile
+        // General bulldozer: remove furniture and components only
+        // (does not affect zones, floors/walls, or pipes)
         const key = col + ',' + row;
         const node = this._getNodeAtGrid(col, row);
         if (node) {
@@ -670,14 +727,6 @@ export class InputHandler {
         if (this.game.state.decorationOccupied[key]) {
           this.game.removeDecoration(col, row);
         }
-        // Remove zones
-        if (this.game.state.zoneOccupied[key]) {
-          this.game.removeZoneTile(col, row);
-        }
-        // Remove infrastructure (cascades to zones)
-        if (this.game.state.infraOccupied[key]) {
-          this.game.removeInfraTile(col, row);
-        }
         // Remove zone furnishings
         const furnId = this.game.state.zoneFurnishingGrid[key];
         if (furnId) {
@@ -692,11 +741,6 @@ export class InputHandler {
         const machineId = this.game.state.machineGrid[key];
         if (machineId) {
           this.game.removeMachine(machineId);
-        }
-        // Remove all connections at this tile
-        const conns = this.game.getConnectionsAt(col, row);
-        for (const connType of conns) {
-          this.game.removeConnection(col, row, connType);
         }
       }
       return;
@@ -934,6 +978,9 @@ export class InputHandler {
     this.dragEnd = null;
     this.isDrawingLine = false;
     this.linePath = [];
+    this.selectedWallTool = null;
+    this.isDrawingWall = false;
+    this.wallPath = [];
     this.renderer.clearDragPreview();
   }
 
@@ -1013,6 +1060,11 @@ export class InputHandler {
 
   deselectDecorationTool() {
     this.selectedDecorationTool = null;
+  }
+
+  selectWallTool(wallType) {
+    this.deselectInfraTool();
+    this.selectedWallTool = wallType;
   }
 
   selectDemolishTool(demolishType) {
@@ -1167,6 +1219,8 @@ export class InputHandler {
         }
       } else if (this.selectedCategory === 'demolish') {
         this.selectDemolishTool(compKey);
+      } else if (this.selectedCategory === 'walls') {
+        this.selectWallTool(compKey);
       } else if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
         this._selectInfraToolPreview(compKey);
       } else if (isFacilityCategory(this.selectedCategory)) {
@@ -1191,6 +1245,16 @@ export class InputHandler {
     const key = compKeys[this.paletteIndex];
 
     // Could be infrastructure, flooring, or component
+    if (this.selectedCategory === 'walls') {
+      const wt = WALL_TYPES[key];
+      if (!wt) { this._hidePreview(); return; }
+      this._renderPreview(wt.name, wt.desc || '', [
+        ['Cost', `$${wt.cost}/segment`],
+        ['Placement', 'Drag along edges'],
+      ]);
+      return;
+    }
+
     if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
       const infra = INFRASTRUCTURE[key];
       if (!infra) { this._hidePreview(); return; }
@@ -1295,6 +1359,9 @@ export class InputHandler {
     const category = this.selectedCategory;
     if (category === 'flooring') {
       return ['labFloor', 'officeFloor', 'concrete', 'hallway'];
+    }
+    if (category === 'walls') {
+      return Object.keys(WALL_TYPES);
     }
     if (category === 'demolish') {
       return ['demolishFloor', 'demolishZone', 'demolishFurnishing'];
