@@ -80,6 +80,7 @@ export class Renderer {
     this.placementDir = 0;       // DIR.NE — rotated with F key
     this.bulldozerMode = false;
     this.infraLayer = null;
+    this.wallLayer = null;
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
     this.connectionLayer = null;
@@ -129,7 +130,7 @@ export class Renderer {
     this.world.addChild(this.grassLayer);
 
     this.decorationLayer = new PIXI.Container();
-    this.decorationLayer.zIndex = 0.3;
+    this.decorationLayer.zIndex = 1.8;
     this.decorationLayer.sortableChildren = true;
     this.world.addChild(this.decorationLayer);
 
@@ -146,6 +147,11 @@ export class Renderer {
     this.zoneLayer.zIndex = 0.55;
     this.zoneLayer.sortableChildren = true;
     this.world.addChild(this.zoneLayer);
+
+    this.wallLayer = new PIXI.Container();
+    this.wallLayer.zIndex = 0.57;
+    this.wallLayer.sortableChildren = true;
+    this.world.addChild(this.wallLayer);
 
     this.dragPreviewLayer = new PIXI.Container();
     this.dragPreviewLayer.zIndex = 0.6;
@@ -214,6 +220,7 @@ export class Renderer {
           this._renderCursors();
           this._renderInfrastructure();
           this._renderZones();
+          this._renderWalls();
           this._renderFacilityEquipment();
           this._renderConnections();
           break;
@@ -229,6 +236,9 @@ export class Renderer {
           this._renderGrass();
           this._renderZones();
           this._refreshPalette();
+          break;
+        case 'wallsChanged':
+          this._renderWalls();
           break;
         case 'facilityChanged':
           this._renderFacilityEquipment();
@@ -266,6 +276,7 @@ export class Renderer {
     this._renderGrass();
     this._renderDecorations();
     this._renderInfrastructure();
+    this._renderWalls();
     this._renderFacilityEquipment();
     this._renderConnections();
     this._updateHUD();
