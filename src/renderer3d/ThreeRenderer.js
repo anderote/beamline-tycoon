@@ -7,6 +7,9 @@ import { InfraBuilder } from './infra-builder.js';
 import { WallBuilder } from './wall-builder.js';
 import { ComponentBuilder } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
+import { EquipmentBuilder } from './equipment-builder.js';
+import { DecorationBuilder } from './decoration-builder.js';
+import { ConnectionBuilder } from './connection-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 
 export class ThreeRenderer {
@@ -42,6 +45,9 @@ export class ThreeRenderer {
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
     this.beamBuilder = new BeamBuilder();
+    this.equipmentBuilder = new EquipmentBuilder();
+    this.decorationBuilder = new DecorationBuilder();
+    this.connectionBuilder = new ConnectionBuilder();
     this.wallVisibilityMode = 'up';
     this._snapshot = null;
   }
@@ -268,6 +274,9 @@ export class ThreeRenderer {
     this.wallBuilder.build(snapshot.walls, snapshot.doors, this.wallGroup, this.wallVisibilityMode);
     this.componentBuilder.build(snapshot.components, this.componentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
+    this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
+    this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
+    this.connectionBuilder.build(snapshot.connections, this.connectionGroup);
   }
 
   refresh() {
