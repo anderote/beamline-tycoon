@@ -5,7 +5,7 @@
 import { Renderer } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
 import { TILE_W, TILE_H } from '../data/directions.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
 import { tileCenterIso } from './grid.js';
 import { Networks } from '../networks/networks.js';
@@ -26,35 +26,38 @@ Renderer.prototype._renderInfrastructure = function() {
     if (!infra) continue;
     const hasRight = occupied.has(`${tile.col + 1},${tile.row}`);
     const hasBelow = occupied.has(`${tile.col},${tile.row + 1}`);
-    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow, tile.variant);
+    // Use foundation side color if tile sits on a foundation
+    const sideColor = tile.foundation ? (INFRASTRUCTURE[tile.foundation]?.color || infra.color) : infra.color;
+    this._drawInfraTile(tile.col, tile.row, infra, hasRight, hasBelow, tile.variant, sideColor);
   }
 
   // Re-render decorations since infra changes may have cleared some
   if (this._renderDecorations) this._renderDecorations();
 };
 
-Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow, variant) {
+Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow, variant, sideColor) {
   const pos = tileCenterIso(col, row);
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   const depth = 6;
+  const sColor = sideColor || infra.color;
+  const isoDepth = col + row;
 
   // Side faces — drawn below the grid layer so grid lines appear on top
   if (!hasRight || !hasBelow) {
     const sides = new PIXI.Graphics();
     if (!hasRight) {
       sides.poly([pos.x, pos.y + hh, pos.x + hw, pos.y, pos.x + hw, pos.y + depth, pos.x, pos.y + hh + depth]);
-      sides.fill({ color: infra.color });
+      sides.fill({ color: sColor });
     }
     if (!hasBelow) {
       sides.poly([pos.x - hw, pos.y, pos.x, pos.y + hh, pos.x, pos.y + hh + depth, pos.x - hw, pos.y + depth]);
-      sides.fill({ color: infra.color });
+      sides.fill({ color: sColor });
     }
     this.infraSidesLayer.addChild(sides);
   }
 
   // Top face — use sprite if available, otherwise colored polygon
-  const isoDepth = col + row;
   const texture = this.sprites.getTileTexture(infra.id, variant);
   if (texture) {
     const sprite = new PIXI.Sprite(texture);
@@ -77,6 +80,134 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
     top.zIndex = isoDepth;
     this.infraLayer.addChild(top);
   }
+};
+
+// --- Wall rendering (edge-based) ---
+
+Renderer.prototype._renderWalls = function() {
+  this.wallLayer.removeChildren();
+  const walls = this.game.state.walls || [];
+  const sorted = [...walls].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+  for (const wall of sorted) {
+    const wt = WALL_TYPES[wall.type];
+    if (!wt) continue;
+    this._drawWallEdge(wall.col, wall.row, wall.edge, wt);
+  }
+};
+
+Renderer.prototype._drawWallEdge = function(col, row, edge, wt) {
+  const pos = tileCenterIso(col, row);
+  const hw = TILE_W / 2;
+  const hh = TILE_H / 2;
+  const h = wt.wallHeight;
+  const isoDepth = (col + row) * 10 + 5;
+  const g = new PIXI.Graphics();
+
+  if (edge === 'e') {
+    // SE edge: right vertex to bottom vertex, extruded upward
+    g.poly([
+      pos.x + hw, pos.y,
+      pos.x, pos.y + hh,
+      pos.x, pos.y + hh - h,
+      pos.x + hw, pos.y - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(wt.color, 0.85) });
+    g.moveTo(pos.x + hw, pos.y - h);
+    g.lineTo(pos.x, pos.y + hh - h);
+    g.stroke({ color: wt.topColor, width: 1, alpha: 0.6 });
+  } else {
+    // SW edge: bottom vertex to left vertex, extruded upward
+    g.poly([
+      pos.x, pos.y + hh,
+      pos.x - hw, pos.y,
+      pos.x - hw, pos.y - h,
+      pos.x, pos.y + hh - h,
+    ]);
+    g.fill({ color: this._darkenWallColor(wt.color, 0.7) });
+    g.moveTo(pos.x, pos.y + hh - h);
+    g.lineTo(pos.x - hw, pos.y - h);
+    g.stroke({ color: wt.topColor, width: 1, alpha: 0.6 });
+  }
+
+  g.zIndex = isoDepth;
+  this.wallLayer.addChild(g);
+};
+
+Renderer.prototype._darkenWallColor = function(color, factor) {
+  const r = Math.floor(((color >> 16) & 0xff) * factor);
+  const gn = Math.floor(((color >> 8) & 0xff) * factor);
+  const b = Math.floor((color & 0xff) * factor);
+  return (r << 16) | (gn << 8) | b;
+};
+
+Renderer.prototype.renderWallPreview = function(path, wallType) {
+  this.dragPreviewLayer.removeChildren();
+  if (!path || path.length === 0) return;
+
+  const wt = WALL_TYPES[wallType];
+  if (!wt) return;
+  const totalCost = path.length * wt.cost;
+  const canAfford = this.game.state.resources.funding >= totalCost;
+
+  for (const pt of path) {
+    const pos = tileCenterIso(pt.col, pt.row);
+    const hw = TILE_W / 2;
+    const hh = TILE_H / 2;
+    const h = wt.wallHeight;
+    const occupied = this.game.state.wallOccupied[`${pt.col},${pt.row},${pt.edge}`];
+    const ok = canAfford && !occupied;
+    const g = new PIXI.Graphics();
+
+    if (pt.edge === 'e') {
+      g.poly([
+        pos.x + hw, pos.y,
+        pos.x, pos.y + hh,
+        pos.x, pos.y + hh - h,
+        pos.x + hw, pos.y - h,
+      ]);
+    } else {
+      g.poly([
+        pos.x, pos.y + hh,
+        pos.x - hw, pos.y,
+        pos.x - hw, pos.y - h,
+        pos.x, pos.y + hh - h,
+      ]);
+    }
+    g.fill({ color: ok ? wt.color : 0xcc3333, alpha: 0.5 });
+    g.stroke({ color: ok ? 0xffffff : 0xff4444, width: 1, alpha: 0.5 });
+    this.dragPreviewLayer.addChild(g);
+  }
+
+  const last = path[path.length - 1];
+  const labelPos = tileCenterIso(last.col, last.row);
+  const label = new PIXI.Text({
+    text: `$${totalCost} (${path.length} segments)`,
+    style: { fontFamily: 'monospace', fontSize: 10, fill: canAfford ? 0xffffff : 0xff4444 },
+  });
+  label.anchor.set(0.5, 0.5);
+  label.x = labelPos.x;
+  label.y = labelPos.y - 16;
+  this.dragPreviewLayer.addChild(label);
+};
+
+Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge) {
+  this.dragPreviewLayer.removeChildren();
+  if (col == null || edge == null) return;
+
+  const pos = tileCenterIso(col, row);
+  const hw = TILE_W / 2;
+  const hh = TILE_H / 2;
+  const g = new PIXI.Graphics();
+
+  if (edge === 'e') {
+    g.moveTo(pos.x + hw, pos.y);
+    g.lineTo(pos.x, pos.y + hh);
+  } else {
+    g.moveTo(pos.x, pos.y + hh);
+    g.lineTo(pos.x - hw, pos.y);
+  }
+  g.stroke({ color: 0xffffff, width: 2, alpha: 0.7 });
+  this.dragPreviewLayer.addChild(g);
 };
 
 // --- Zone rendering ---
@@ -422,6 +553,22 @@ Renderer.prototype.renderDragPreview = function(startCol, startRow, endCol, endR
   const totalCost = tileCount * cost;
   const canAfford = cost === 0 || this.game.state.resources.funding >= totalCost;
 
+  // Check if any tiles are missing required foundation
+  const infra = !isZone ? INFRASTRUCTURE[type] : null;
+  let needsFoundation = false;
+  if (infra?.requiresFoundation) {
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const k = c + ',' + r;
+        const existing = this.game.state.infraOccupied[k];
+        const existingTile = this.game.state.infrastructure.find(t => t.col === c && t.row === r);
+        const baseType = existingTile?.foundation || existing;
+        if (baseType !== infra.requiresFoundation) { needsFoundation = true; break; }
+      }
+      if (needsFoundation) break;
+    }
+  }
+
   for (let c = minCol; c <= maxCol; c++) {
     for (let r = minRow; r <= maxRow; r++) {
       const g = new PIXI.Graphics();
@@ -429,9 +576,16 @@ Renderer.prototype.renderDragPreview = function(startCol, startRow, endCol, endR
       const hw = TILE_W / 2;
       const hh = TILE_H / 2;
 
+      const tileOk = !needsFoundation || (() => {
+        const k = c + ',' + r;
+        const existing = this.game.state.infraOccupied[k];
+        const existingTile = this.game.state.infrastructure.find(t => t.col === c && t.row === r);
+        const baseType = existingTile?.foundation || existing;
+        return baseType === infra.requiresFoundation;
+      })();
       g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-      g.fill({ color: canAfford ? previewColor : 0xcc3333, alpha: isZone ? 0.4 : 0.5 });
-      g.stroke({ color: canAfford ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
+      g.fill({ color: (canAfford && tileOk) ? previewColor : 0xcc3333, alpha: isZone ? 0.4 : 0.5 });
+      g.stroke({ color: (canAfford && tileOk) ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
 
       this.dragPreviewLayer.addChild(g);
     }
@@ -450,6 +604,18 @@ Renderer.prototype.renderDragPreview = function(startCol, startRow, endCol, endR
   label.x = centerPos.x;
   label.y = centerPos.y - 12;
   this.dragPreviewLayer.addChild(label);
+
+  // "Needs foundation!" warning below cost label
+  if (needsFoundation) {
+    const warn = new PIXI.Text({
+      text: 'Needs foundation!',
+      style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff4444 },
+    });
+    warn.anchor.set(0.5, 0.5);
+    warn.x = centerPos.x;
+    warn.y = centerPos.y + 2;
+    this.dragPreviewLayer.addChild(warn);
+  }
 };
 
 Renderer.prototype.renderLinePreview = function(path, infraType) {
@@ -463,14 +629,33 @@ Renderer.prototype.renderLinePreview = function(path, infraType) {
   const canAfford = this.game.state.resources.funding >= totalCost;
   const previewColor = infra.topColor;
 
+  // Check if any tiles are missing required foundation
+  let needsFoundation = false;
+  if (infra.requiresFoundation) {
+    for (const pt of path) {
+      const k = pt.col + ',' + pt.row;
+      const existing = this.game.state.infraOccupied[k];
+      const existingTile = this.game.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+      const baseType = existingTile?.foundation || existing;
+      if (baseType !== infra.requiresFoundation) { needsFoundation = true; break; }
+    }
+  }
+
   for (const pt of path) {
     const g = new PIXI.Graphics();
     const pos = tileCenterIso(pt.col, pt.row);
     const hw = TILE_W / 2;
     const hh = TILE_H / 2;
+    const tileOk = !needsFoundation || (() => {
+      const k = pt.col + ',' + pt.row;
+      const existing = this.game.state.infraOccupied[k];
+      const existingTile = this.game.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+      const baseType = existingTile?.foundation || existing;
+      return baseType === infra.requiresFoundation;
+    })();
     g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-    g.fill({ color: canAfford ? previewColor : 0xcc3333, alpha: 0.5 });
-    g.stroke({ color: canAfford ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
+    g.fill({ color: (canAfford && tileOk) ? previewColor : 0xcc3333, alpha: 0.5 });
+    g.stroke({ color: (canAfford && tileOk) ? 0xffffff : 0xff4444, width: 1, alpha: 0.4 });
     this.dragPreviewLayer.addChild(g);
   }
 
@@ -485,6 +670,18 @@ Renderer.prototype.renderLinePreview = function(path, infraType) {
   label.x = centerPos.x;
   label.y = centerPos.y - 12;
   this.dragPreviewLayer.addChild(label);
+
+  // "Needs foundation!" warning below cost label
+  if (needsFoundation) {
+    const warn = new PIXI.Text({
+      text: 'Needs foundation!',
+      style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff4444 },
+    });
+    warn.anchor.set(0.5, 0.5);
+    warn.x = centerPos.x;
+    warn.y = centerPos.y + 2;
+    this.dragPreviewLayer.addChild(warn);
+  }
 };
 
 Renderer.prototype.renderConnLinePreview = function(path, connType, mode) {
