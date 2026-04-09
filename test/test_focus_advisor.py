@@ -56,5 +56,31 @@ class TestFocusMargin(unittest.TestCase):
             self.assertLess(post_quad[-1]["focus_urgency"], 0.3)
 
 
+import json
+from beam_physics.gameplay import compute_beam_for_game
+
+
+class TestFocusFieldsInGameOutput(unittest.TestCase):
+    def _game_beamline_json(self):
+        beamline = [
+            {"type": "source", "length": 1, "stats": {}},
+            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1}, "params": {"polarity": 0}},
+            {"type": "drift", "length": 5, "stats": {}},
+            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1}, "params": {"polarity": 1}},
+            {"type": "drift", "length": 5, "stats": {}},
+        ]
+        return json.dumps(beamline)
+
+    def test_envelope_has_focus_margin(self):
+        result = json.loads(compute_beam_for_game(self._game_beamline_json()))
+        for point in result["envelope"]:
+            self.assertIn("focus_margin", point)
+
+    def test_envelope_has_focus_urgency(self):
+        result = json.loads(compute_beam_for_game(self._game_beamline_json()))
+        for point in result["envelope"]:
+            self.assertIn("focus_urgency", point)
+
+
 if __name__ == "__main__":
     unittest.main()

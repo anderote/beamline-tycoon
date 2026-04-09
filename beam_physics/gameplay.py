@@ -380,6 +380,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "eta_x": s.get("eta_x", 0),
                 "eta_xp": s.get("eta_xp", 0),
                 "peak_current": s.get("peak_current", 0),
+                "focus_margin": s.get("focus_margin", 1.0),
+                "focus_urgency": s.get("focus_urgency", 0.0),
             }
             for s in physics_result["snapshots"]
         ],
