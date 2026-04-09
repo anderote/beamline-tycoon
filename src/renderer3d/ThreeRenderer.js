@@ -148,6 +148,40 @@ export class ThreeRenderer {
 
     window.addEventListener('resize', this._boundOnResize);
 
+    // Game event listener — rebuilds relevant sections on state changes
+    this.game.on((event, data) => {
+      switch (event) {
+        case 'beamlineChanged':
+        case 'loaded':
+          this.refresh(); // full rebuild
+          break;
+        case 'infrastructureChanged':
+          this._refreshTerrain();
+          this._refreshInfra();
+          break;
+        case 'decorationsChanged':
+          this._refreshTerrain();
+          this._refreshDecorations();
+          break;
+        case 'zonesChanged':
+          this._refreshTerrain();
+          break;
+        case 'wallsChanged':
+        case 'doorsChanged':
+          this._refreshWalls();
+          break;
+        case 'facilityChanged':
+          this._refreshEquipment();
+          break;
+        case 'connectionsChanged':
+          this._refreshConnections();
+          break;
+        case 'beamToggled':
+          this._refreshBeam();
+          break;
+      }
+    });
+
     await this.overlay.init();
 
     this._animate();
@@ -289,6 +323,54 @@ export class ThreeRenderer {
   refresh() {
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
+  }
+
+  _refreshTerrain() {
+    const snap = buildWorldSnapshot(this.game);
+    this.terrainBuilder.build(snap.terrain, this.terrainGroup);
+  }
+
+  _refreshInfra() {
+    const snap = buildWorldSnapshot(this.game);
+    this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup);
+  }
+
+  _refreshWalls() {
+    const snap = buildWorldSnapshot(this.game);
+    this.wallBuilder.build(snap.walls, snap.doors, this.wallGroup, this.wallVisibilityMode);
+  }
+
+  _refreshEquipment() {
+    const snap = buildWorldSnapshot(this.game);
+    this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup);
+  }
+
+  _refreshDecorations() {
+    const snap = buildWorldSnapshot(this.game);
+    this.decorationBuilder.build(snap.decorations, this.decorationGroup);
+  }
+
+  _refreshConnections() {
+    const snap = buildWorldSnapshot(this.game);
+    this.connectionBuilder.build(snap.connections, this.connectionGroup);
+  }
+
+  _refreshBeam() {
+    const snap = buildWorldSnapshot(this.game);
+    this.beamBuilder.build(snap.beamPaths, this.componentGroup);
+  }
+
+  _refreshComponents() {
+    const snap = buildWorldSnapshot(this.game);
+    this.componentBuilder.build(snap.components, this.componentGroup);
+  }
+
+  screenToGrid(screenX, screenY) {
+    const world = this.screenToWorld(screenX, screenY);
+    return {
+      col: Math.floor(world.x / 2),
+      row: Math.floor(world.y / 2),
+    };
   }
 
   dispose() {
