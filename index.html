@@ -185,17 +185,18 @@
         <button class="overlay-close" id="dsgn-close">&times;</button>
       </div>
       <div class="dsgn-body">
-        <div class="dsgn-schematic-row">
-          <canvas id="dsgn-schematic-canvas"></canvas>
-        </div>
-        <div class="dsgn-tuning-row" id="dsgn-tuning-row">
-          <div class="dsgn-tuning-info" id="dsgn-tuning-info">
-            <div class="dsgn-tuning-name" id="dsgn-tuning-name">No component selected</div>
-            <div class="dsgn-tuning-desc" id="dsgn-tuning-desc"></div>
-          </div>
-          <div class="dsgn-tuning-stats" id="dsgn-tuning-stats"></div>
-          <div class="dsgn-tuning-params" id="dsgn-tuning-params">
-          </div>
+        <div class="dsgn-section-title">Beamline Performance</div>
+        <div class="dsgn-plot-range-bar">
+          <span class="dsgn-range-label">X:</span>
+          <button class="dsgn-range-btn dsgn-xrange-btn active" data-range="full">Full</button>
+          <button class="dsgn-range-btn dsgn-xrange-btn" data-range="30">30m</button>
+          <button class="dsgn-range-btn dsgn-xrange-btn" data-range="9">9m</button>
+          <span class="dsgn-range-sep">|</span>
+          <span class="dsgn-range-label">Y:</span>
+          <button class="dsgn-range-btn dsgn-yrange-btn active" data-yrange="full">Full</button>
+          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="half">½</button>
+          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="30">30m</button>
+          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="9">9m</button>
         </div>
         <div class="dsgn-plots-row">
           <div class="dsgn-plot-panel">
@@ -233,6 +234,19 @@
               <option value="longitudinal">Longitudinal PS</option>
             </select>
             <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
+          </div>
+        </div>
+        <div class="dsgn-section-title">Beamline Stackup</div>
+        <div class="dsgn-schematic-row">
+          <canvas id="dsgn-schematic-canvas"></canvas>
+        </div>
+        <div class="dsgn-tuning-row" id="dsgn-tuning-row">
+          <div class="dsgn-tuning-info" id="dsgn-tuning-info">
+            <div class="dsgn-tuning-name" id="dsgn-tuning-name">No component selected</div>
+            <div class="dsgn-tuning-desc" id="dsgn-tuning-desc"></div>
+          </div>
+          <div class="dsgn-tuning-stats" id="dsgn-tuning-stats"></div>
+          <div class="dsgn-tuning-params" id="dsgn-tuning-params">
           </div>
         </div>
       </div>

@@ -17,6 +17,10 @@ const SCHEM_PH = 30;
 // Gap between components in pixels (at base zoom)
 const COMP_GAP = 4;
 
+// Must match beam_physics/gameplay.py
+// 1 tile ≈ 10 ft ≈ 3 m — must match beam_physics/gameplay.py LENGTH_SCALE
+const LENGTH_SCALE = 3.0;
+
 // ---- Schematic rendering ----
 
 BeamlineDesigner.prototype._renderAll = function() {
@@ -181,13 +185,22 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // Store total rendered width for viewport calculations
   this._renderedWidth = xPos - 20 - panOffsetPx;
 
-  // Draw marker line at markerS position
+  // Draw marker line at markerS position (in physical meters)
+  // Use totalLength (from envelope) to derive per-component s-lengths so the
+  // schematic marker stays in sync with the plot cursor.
   if (this.markerS >= 0 && this.totalLength > 0) {
+    const tileLenSum = this.draftNodes.reduce((s, n) => {
+      const c = COMPONENTS[n.type];
+      return s + (c ? c.length : 1);
+    }, 0) || 1;
+
     let markerXPos = 20 + panOffsetPx;
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
       const comp = COMPONENTS[this.draftNodes[i].type];
-      const compLen = comp ? comp.length : 1;
+      const tileLen = comp ? comp.length : 1;
+      // Scale so per-component lengths sum to this.totalLength
+      const compLen = (tileLen / tileLenSum) * this.totalLength;
       const compW = compWidths[i] * effectiveZoom;
       const gapW = COMP_GAP * effectiveZoom;
 
@@ -366,7 +379,7 @@ BeamlineDesigner.prototype._renderTuning = function() {
   ).join(', ') : '--';
   statsHtml += `<div class="ts-row"><span class="ts-label">Cost</span><span class="ts-val">${costStr}</span></div>`;
   statsHtml += `<div class="ts-row"><span class="ts-label">Energy Cost</span><span class="ts-val">${comp.energyCost} <span class="ts-unit">kW</span></span></div>`;
-  statsHtml += `<div class="ts-row"><span class="ts-label">Length</span><span class="ts-val">${comp.length} <span class="ts-unit">m</span></span></div>`;
+  statsHtml += `<div class="ts-row"><span class="ts-label">Length</span><span class="ts-val">${(comp.length * LENGTH_SCALE).toFixed(1)} <span class="ts-unit">m</span></span></div>`;
 
   // Component-specific base stats
   if (comp.stats) {
@@ -554,8 +567,9 @@ function _fmtParam(val) {
 const PLOT_SCALE = 1.2;
 
 BeamlineDesigner.prototype._renderPlots = function() {
-  // Compute the x-range based on plot range mode
+  // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
+  const yScale = this._getPlotYScale();
 
   const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
@@ -595,7 +609,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
           color: '#4488ff',
         });
       }
-      ProbePlots.draw(off, plotType, envelope, pins, 0, xRange);
+      ProbePlots.draw(off, plotType, envelope, pins, 0, xRange, yScale);
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
@@ -623,6 +637,16 @@ BeamlineDesigner.prototype._getPlotXRange = function() {
   if (hi > this.totalLength) { lo -= (hi - this.totalLength); hi = this.totalLength; }
   lo = Math.max(0, lo);
   return [lo, hi];
+};
+
+/** Compute the y-axis scale factor from the selected y-range mode.
+ *  Returns a number that _range() results get multiplied by:
+ *  'full' = null (auto), 'half' = 0.5, '30' / '9' = fixed max in meters. */
+BeamlineDesigner.prototype._getPlotYScale = function() {
+  const mode = this.plotYRangeMode || 'full';
+  if (mode === 'full') return null;
+  if (mode === 'half') return 0.5;
+  return parseFloat(mode);  // fixed range in meters
 };
 
 // ---- Click detection on schematic ----

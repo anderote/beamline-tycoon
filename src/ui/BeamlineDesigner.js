@@ -7,8 +7,8 @@ import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 
 // Must match beam_physics/gameplay.py LENGTH_SCALE
-// 1 game tile = 10 ft = 3.048 m
-const LENGTH_SCALE = 3.048;
+// 1 tile ≈ 10 ft ≈ 3 m
+const LENGTH_SCALE = 3.0;
 
 export class BeamlineDesigner {
   constructor(game, renderer) {
@@ -44,8 +44,9 @@ export class BeamlineDesigner {
     // Insert mode: null, 'before', or 'after'
     this.insertMode = null;
 
-    // Plot range mode: 'full', '20', '10' (meters)
-    this.plotRangeMode = 'full';
+    // Plot range modes
+    this.plotRangeMode = 'full';   // x: 'full', '30', '9'
+    this.plotYRangeMode = 'full';  // y: 'full', 'half', '30', '9'
 
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
@@ -193,12 +194,23 @@ export class BeamlineDesigner {
       });
     });
 
-    // Plot range buttons
-    document.querySelectorAll('.dsgn-range-btn').forEach(btn => {
+    // Plot x-range buttons
+    document.querySelectorAll('.dsgn-xrange-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         if (!this.isOpen) return;
         this.plotRangeMode = btn.dataset.range;
-        document.querySelectorAll('.dsgn-range-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.dsgn-xrange-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this._renderPlots();
+      });
+    });
+
+    // Plot y-range buttons
+    document.querySelectorAll('.dsgn-yrange-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!this.isOpen) return;
+        this.plotYRangeMode = btn.dataset.yrange;
+        document.querySelectorAll('.dsgn-yrange-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this._renderPlots();
       });
@@ -269,9 +281,13 @@ export class BeamlineDesigner {
     this.focusRow = 0;
     this.insertMode = null;
     this.plotRangeMode = 'full';
+    this.plotYRangeMode = 'full';
     // Reset range button UI
-    document.querySelectorAll('.dsgn-range-btn').forEach(b => {
+    document.querySelectorAll('.dsgn-xrange-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.range === 'full');
+    });
+    document.querySelectorAll('.dsgn-yrange-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.yrange === 'full');
     });
 
     // Compute total length
@@ -685,11 +701,17 @@ export class BeamlineDesigner {
   }
 
   _runMarkerAnimation() {
-    // Speed: traverse full beamline in ~3 seconds
-    const SPEED_FACTOR = Math.max(this.totalLength / 3, 0.5);
+    // Build visual-to-physical mapping for constant visual speed
+    const compMap = this._buildCompVisualMap();
+    // Traverse full visual length in ~3 seconds
+    const totalVisual = compMap.totalVisual || 1;
+    const VISUAL_SPEED = totalVisual / 3;
+
+    // Convert current markerS to visual position
+    let visualPos = this._sToVisual(compMap);
 
     const step = (now) => {
-      const dt = Math.min((now - this._lastMarkerTime) / 1000, 0.05); // cap at 50ms
+      const dt = Math.min((now - this._lastMarkerTime) / 1000, 0.05);
       this._lastMarkerTime = now;
 
       if (this._markerDir === 0) {
@@ -697,12 +719,14 @@ export class BeamlineDesigner {
         return;
       }
 
-      this.markerS = Math.max(0, Math.min(this.totalLength,
-        this.markerS + this._markerDir * SPEED_FACTOR * dt));
+      // Advance in visual units at constant speed
+      visualPos = Math.max(0, Math.min(totalVisual,
+        visualPos + this._markerDir * VISUAL_SPEED * dt));
 
-      // Update selected component based on marker position
+      // Convert visual position back to physical s
+      this.markerS = this._visualToS(compMap, visualPos);
+
       this._updateSelectionFromMarker();
-
       this._renderSchematic();
       this._renderPlots();
       this._markerAnimId = requestAnimationFrame(step);
@@ -710,34 +734,95 @@ export class BeamlineDesigner {
     this._markerAnimId = requestAnimationFrame(step);
   }
 
+  /** Build array mapping each component's visual width and physical length.
+   *  Physical lengths are derived from this.totalLength proportionally so they
+   *  stay in sync with the envelope s-values used by the plots. */
+  _buildCompVisualMap() {
+    const SCHEM_PW = 70;
+    const tileLenSum = this.draftNodes.reduce((s, n) => {
+      const c = COMPONENTS[n.type];
+      return s + (c ? c.length : 1);
+    }, 0) || 1;
+
+    const entries = [];
+    let totalVisual = 0;
+    for (const node of this.draftNodes) {
+      const comp = COMPONENTS[node.type];
+      const len = comp ? comp.length : 1;
+      const visualW = Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+      const physLen = (len / tileLenSum) * this.totalLength;
+      entries.push({ visualW, physLen });
+      totalVisual += visualW;
+    }
+    return { entries, totalVisual, totalPhysical: this.totalLength };
+  }
+
+  /** Convert current markerS (physical) to visual position. */
+  _sToVisual(compMap) {
+    let cumS = 0;
+    let cumV = 0;
+    for (const e of compMap.entries) {
+      if (this.markerS <= cumS + e.physLen) {
+        const frac = e.physLen > 0 ? (this.markerS - cumS) / e.physLen : 0;
+        return cumV + frac * e.visualW;
+      }
+      cumS += e.physLen;
+      cumV += e.visualW;
+    }
+    return compMap.totalVisual;
+  }
+
+  /** Convert visual position to physical s. */
+  _visualToS(compMap, visualPos) {
+    let cumV = 0;
+    let cumS = 0;
+    for (const e of compMap.entries) {
+      if (visualPos <= cumV + e.visualW) {
+        const frac = e.visualW > 0 ? (visualPos - cumV) / e.visualW : 0;
+        return cumS + frac * e.physLen;
+      }
+      cumV += e.visualW;
+      cumS += e.physLen;
+    }
+    return compMap.totalPhysical;
+  }
+
+  /** Compute per-component physical lengths that sum to this.totalLength. */
+  _compPhysLengths() {
+    const tileLenSum = this.draftNodes.reduce((s, n) => {
+      const c = COMPONENTS[n.type];
+      return s + (c ? c.length : 1);
+    }, 0) || 1;
+    return this.draftNodes.map(n => {
+      const c = COMPONENTS[n.type];
+      return ((c ? c.length : 1) / tileLenSum) * this.totalLength;
+    });
+  }
+
   /** Set markerS to the center of the currently selected component (instant, for clicks). */
   _updateMarkerToComponentCenter() {
     if (this.selectedIndex < 0 || this.draftNodes.length === 0) return;
+    const lengths = this._compPhysLengths();
     let s = 0;
-    for (let i = 0; i < this.selectedIndex; i++) {
-      const comp = COMPONENTS[this.draftNodes[i].type];
-      if (comp) s += comp.length * LENGTH_SCALE;
-    }
-    const comp = COMPONENTS[this.draftNodes[this.selectedIndex].type];
-    if (comp) s += comp.length * LENGTH_SCALE / 2;
+    for (let i = 0; i < this.selectedIndex; i++) s += lengths[i];
+    s += lengths[this.selectedIndex] / 2;
     this.markerS = s;
   }
 
   /** Update selectedIndex based on current markerS position. */
   _updateSelectionFromMarker() {
     if (this.draftNodes.length === 0) { this.selectedIndex = -1; return; }
+    const lengths = this._compPhysLengths();
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
-      const comp = COMPONENTS[this.draftNodes[i].type];
-      const len = (comp ? comp.length : 1) * LENGTH_SCALE;
-      if (this.markerS < cumS + len) {
+      if (this.markerS < cumS + lengths[i]) {
         if (this.selectedIndex !== i) {
           this.selectedIndex = i;
           this._renderTuning();
         }
         return;
       }
-      cumS += len;
+      cumS += lengths[i];
     }
     // Past the end — select last component
     const last = this.draftNodes.length - 1;
