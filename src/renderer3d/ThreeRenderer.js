@@ -12,11 +12,13 @@ import { DecorationBuilder } from './decoration-builder.js';
 import { ConnectionBuilder } from './connection-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
-import { syncOverlay } from './camera-sync.js';
+import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
+import { tileCenterIso } from '../renderer/grid.js';
 
 export class ThreeRenderer {
-  constructor(game) {
+  constructor(game, spriteManager) {
     this.game = game;
+    this.sprites = spriteManager;
 
     this._panX = 0;
     this._panY = 0;
@@ -28,6 +30,11 @@ export class ThreeRenderer {
     this.renderer = null;
     this.scene = null;
     this.camera = null;
+    this.canvas = null;  // interactive canvas (overlay PixiJS canvas)
+
+    // PixiJS overlay references — set during init()
+    this.app = null;
+    this.world = null;
 
     // Scene groups
     this.terrainGroup = null;
@@ -54,6 +61,72 @@ export class ThreeRenderer {
     this._snapshot = null;
 
     this.overlay = new Overlay();
+
+    // --- Compatibility properties (InputHandler, main.js, hud.js) ---
+    this.buildMode = false;
+    this.bulldozerMode = false;
+    this.probeMode = false;
+    this.selectedToolType = null;
+    this.placementDir = 0;
+    this.cursorBendDir = 'right';
+    this.hoverCol = 0;
+    this.hoverRow = 0;
+    this.labelLevel = 0;
+    this.zoneOverlayVisible = true;
+    this.activeMode = 'beamline';
+    this.nodeSprites = {};
+    this.beamTime = 0;
+
+    // PixiJS layers — stubs for code that references them directly
+    this.gridLayer = null;
+    this.grassLayer = null;
+    this.decorationLayer = null;
+    this.infraSidesLayer = null;
+    this.infraLayer = null;
+    this.zoneLayer = null;
+    this.wallLayer = null;
+    this.doorLayer = null;
+    this.dragPreviewLayer = null;
+    this.facilityLayer = null;
+    this.connectionLayer = null;
+    this.beamLayer = null;
+    this.componentLayer = null;
+    this.labelLayer = null;
+    this.cursorLayer = null;
+    this.networkOverlayLayer = null;
+    this.networkPanel = null;
+    this.activeNetworkType = null;
+    this.wallGraphics = {};
+    this._cutawayRoom = null;
+    this._cutawayHoverKey = null;
+    this._transparentTiles = null;
+    this._transparentHoverKey = null;
+
+    // Tech tree pan/zoom state
+    this._treePanX = 0;
+    this._treePanY = 0;
+    this._treeZoom = 1;
+    this._treeDragging = false;
+    this._treeDragStartX = 0;
+    this._treeDragStartY = 0;
+    this._treeLayout = null;
+    this._treeCanvasWidth = 0;
+    this._treeCanvasHeight = 0;
+
+    // Callback stubs
+    this._onToolSelect = null;
+    this._onInfraSelect = null;
+    this._onFacilitySelect = null;
+    this._onConnSelect = null;
+    this._onZoneSelect = null;
+    this._onWallSelect = null;
+    this._onDoorSelect = null;
+    this._onFurnishingSelect = null;
+    this._onDecorationSelect = null;
+    this._onDemolishSelect = null;
+    this._onPaletteClick = null;
+    this._onTabSelect = null;
+    this.onProbeClick = null;
   }
 
   async init() {
@@ -66,13 +139,13 @@ export class ThreeRenderer {
     this.renderer.shadowMap.type = THREE.BasicShadowMap;
     this.renderer.setClearColor(0x1a1a2e);
 
-    const canvas = this.renderer.domElement;
-    canvas.style.position = 'absolute';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.zIndex = '10';
-    canvas.style.pointerEvents = 'none';
-    gameEl.insertBefore(canvas, gameEl.firstChild);
+    const threeCanvas = this.renderer.domElement;
+    threeCanvas.style.position = 'absolute';
+    threeCanvas.style.top = '0';
+    threeCanvas.style.left = '0';
+    threeCanvas.style.zIndex = '10';
+    threeCanvas.style.pointerEvents = 'none';
+    gameEl.insertBefore(threeCanvas, gameEl.firstChild);
 
     this._setSize();
 
@@ -148,12 +221,12 @@ export class ThreeRenderer {
 
     window.addEventListener('resize', this._boundOnResize);
 
-    // Game event listener — rebuilds relevant sections on state changes
+    // Game event listener — rebuilds relevant 3D sections and updates DOM HUD
     this.game.on((event, data) => {
       switch (event) {
         case 'beamlineChanged':
         case 'loaded':
-          this.refresh(); // full rebuild
+          this.refresh(); // full 3D rebuild
           break;
         case 'infrastructureChanged':
           this._refreshTerrain();
@@ -165,6 +238,7 @@ export class ThreeRenderer {
           break;
         case 'zonesChanged':
           this._refreshTerrain();
+          if (this._refreshPalette) this._refreshPalette();
           break;
         case 'wallsChanged':
         case 'doorsChanged':
@@ -172,103 +246,258 @@ export class ThreeRenderer {
           break;
         case 'facilityChanged':
           this._refreshEquipment();
+          this._refreshComponents(); // recheck connection warnings
           break;
         case 'connectionsChanged':
           this._refreshConnections();
+          this._refreshComponents(); // recheck connection warnings
           break;
         case 'beamToggled':
           this._refreshBeam();
+          if (this._updateBeamSummary) this._updateBeamSummary();
+          break;
+        case 'tick':
+          if (this._updateHUD) this._updateHUD();
+          if (this._updateTreeProgress) this._updateTreeProgress();
+          break;
+        case 'researchChanged':
+          if (this._renderTechTree) this._renderTechTree();
+          break;
+        case 'objectiveCompleted':
+          if (this._renderGoalsOverlay) this._renderGoalsOverlay();
           break;
       }
     });
 
+    // Initialize PixiJS overlay
     await this.overlay.init();
+
+    // Wire PixiJS app/world for compatibility with InputHandler and DOM HUD code
+    this.app = this.overlay.app;
+    this.world = this.overlay.world;
+    this.canvas = this.app.canvas;
+
+    // Make overlay canvas interactive (receives pointer events)
+    this.canvas.style.pointerEvents = 'auto';
+
+    // Set initial world position (same as old Renderer)
+    this.world.x = this.app.screen.width / 2;
+    this.world.y = this.app.screen.height / 3;
+
+    // Generate placeholder sprites
+    this.sprites.generatePlaceholders(this.app);
+
+    // Ticker for animation (beam time)
+    this.app.ticker.add((ticker) => {
+      this.beamTime += ticker.deltaTime * 0.02;
+    });
+
+    // Load 3D assets
+    await this.loadAssets();
+
+    // Initial 3D refresh
+    this.refresh();
+
+    // Bind DOM HUD events (added by hud.js bridge)
+    if (this._bindHUDEvents) this._bindHUDEvents();
+    if (this._bindTreeEvents) this._bindTreeEvents();
+
+    // Initial DOM renders (added by hud.js/overlays.js bridge)
+    if (this._generateCategoryTabs) this._generateCategoryTabs();
+    if (this._renderTechTree) this._renderTechTree();
+    if (this._renderGoalsOverlay) this._renderGoalsOverlay();
+    if (this._updateHUD) this._updateHUD();
 
     this._animate();
   }
 
-  // Zoom centered on a screen position
+  // --- Coordinate conversion (PixiJS-compatible) ---
+
+  screenToWorld(screenX, screenY) {
+    return {
+      x: (screenX - this.world.x) / this.zoom,
+      y: (screenY - this.world.y) / this.zoom,
+    };
+  }
+
+  // --- Camera controls (PixiJS-compatible, syncs to Three.js) ---
+
   zoomAt(screenX, screenY, delta) {
-    const gameEl = document.getElementById('game');
-    const rect = gameEl.getBoundingClientRect();
+    const oldZoom = this.zoom;
+    this.zoom = Math.max(0.2, Math.min(5, this.zoom + delta));
 
-    // World position before zoom
-    const wBefore = this.screenToWorld(screenX - rect.left, screenY - rect.top);
+    // Zoom toward cursor position
+    const worldX = screenX - this.world.x;
+    const worldY = screenY - this.world.y;
+    const scale = this.zoom / oldZoom;
+    this.world.x = screenX - worldX * scale;
+    this.world.y = screenY - worldY * scale;
 
-    this.zoom = Math.max(0.2, Math.min(5, this.zoom * (1 + delta)));
+    this.world.scale.set(this.zoom);
+    this._syncThreeCameraFromOverlay();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+  }
+
+  panBy(dx, dy) {
+    this.world.x -= dx;
+    this.world.y -= dy;
+    this._syncThreeCameraFromOverlay();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+  }
+
+  /**
+   * Sync the Three.js camera frustum and position from the PixiJS world container state.
+   * This is the reverse of the old syncOverlay — the PixiJS container is the source of truth.
+   */
+  _syncThreeCameraFromOverlay() {
+    // The PixiJS world container position and scale encode the camera state.
+    // world.x, world.y = screen pixel offset of isometric origin
+    // world.scale = zoom level (this.zoom)
+    //
+    // We need to compute what Three.js frustum and lookAt correspond to this.
+    //
+    // In the old PixiJS renderer:
+    //   iso origin is at screen (world.x, world.y)
+    //   zoom is world.scale.x
+    //
+    // For Three.js:
+    //   frustumSize determines zoom: smaller frustum = more zoomed in
+    //   camera.lookAt determines pan center in world XZ
+    //
+    // We'll derive the Three.js camera params from the PixiJS state.
+
+    const screenW = this.app.screen.width || window.innerWidth;
+    const screenH = this.app.screen.height || window.innerHeight;
+
+    // Read zoom from the PixiJS world scale as the authoritative source
+    // (main.js may set world.scale.set() directly during save/load restore)
+    const zoom = this.world.scale?.x || this.zoom;
+    this.zoom = zoom;
+
+    // Where is the screen center in isometric coords?
+    const centerIsoX = (screenW / 2 - this.world.x) / zoom;
+    const centerIsoY = (screenH / 2 - this.world.y) / zoom;
+
+    // Convert isometric coords to grid coords (floating point)
+    // From grid.js: gridToIso: x = (col - row) * (TILE_W/2), y = (col + row) * (TILE_H/2)
+    // Inverse: col = (x/(TILE_W/2) + y/(TILE_H/2)) / 2
+    //          row = (y/(TILE_H/2) - x/(TILE_W/2)) / 2
+    const TILE_W = 64, TILE_H = 32;
+    const col = (centerIsoX / (TILE_W / 2) + centerIsoY / (TILE_H / 2)) / 2;
+    const row = (centerIsoY / (TILE_H / 2) - centerIsoX / (TILE_W / 2)) / 2;
+
+    // Three.js world: each grid tile = 2 world units (from terrain-builder convention)
+    this._panX = col * 2;
+    this._panY = row * 2;
+
+    // Frustum size from zoom: when zoom=1 the old renderer showed ~20 frustum units
     this._frustumSize = 20 / this.zoom;
     this._updateCameraFrustum();
-
-    // World position after zoom (same screen point)
-    const wAfter = this.screenToWorld(screenX - rect.left, screenY - rect.top);
-
-    // Adjust pan to keep the point under the cursor stationary
-    this._panX += wBefore.x - wAfter.x;
-    this._panY += wBefore.z - wAfter.z;
     this._updateCameraLookAt();
   }
 
-  // Pan by screen pixel deltas
-  panBy(dx, dy) {
-    const gameEl = document.getElementById('game');
-    const screenWidth = gameEl.clientWidth;
-    const screenHeight = gameEl.clientHeight;
-    const aspect = screenWidth / screenHeight;
-    const frustumWidth = this._frustumSize * aspect;
+  // --- State setters (InputHandler compatibility) ---
 
-    // Convert screen pixels to world units, accounting for isometric angle
-    // The camera is rotated 45° around Y, so screen X maps to world X+Z diagonal
-    // and screen Y maps to world Y (elevation) + X-Z diagonal
-    const worldPerPixelX = frustumWidth / screenWidth;
-    const worldPerPixelY = this._frustumSize / screenHeight;
-
-    // Isometric: screen right = world (X+Z)/sqrt(2), screen up = world Y + (X-Z)/sqrt(2)*sin(iso)
-    // For panning on the ground plane (Y=0):
-    // screen dx → pan along XZ diagonal
-    // screen dy → pan along XZ anti-diagonal
-    const cos45 = Math.SQRT1_2;
-    this._panX += (-dx * worldPerPixelX * cos45 + dy * worldPerPixelY * cos45);
-    this._panY += ( dx * worldPerPixelX * cos45 + dy * worldPerPixelY * cos45);
-
-    this._updateCameraLookAt();
+  updateHover(col, row) {
+    this.hoverCol = col;
+    this.hoverRow = row;
   }
 
-  // Convert screen coordinates to world XZ position (Y=0 ground plane)
-  screenToWorld(screenX, screenY) {
-    const gameEl = document.getElementById('game');
-    const w = gameEl.clientWidth;
-    const h = gameEl.clientHeight;
-
-    // Normalized device coordinates
-    const ndcX = (screenX / w) * 2 - 1;
-    const ndcY = -(screenY / h) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
-
-    // Intersect with Y=0 plane
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const target = new THREE.Vector3();
-    raycaster.ray.intersectPlane(plane, target);
-
-    return target || new THREE.Vector3(0, 0, 0);
+  setBuildMode(active, toolType) {
+    this.buildMode = active;
+    this.selectedToolType = toolType || null;
+    if (active) this.bulldozerMode = false;
   }
 
-  // Convert world XZ to grid col/row
-  worldToGrid(wx, wz) {
-    return {
-      col: Math.floor(wx),
-      row: Math.floor(wz),
-    };
+  setBulldozerMode(active) {
+    this.bulldozerMode = active;
+    if (active) { this.buildMode = false; this.selectedToolType = null; }
+    this.canvas.style.cursor = active ? 'crosshair' : '';
   }
 
-  // Convert grid col/row to world XZ center
-  gridToWorld(col, row) {
-    return {
-      x: col + 0.5,
-      z: row + 0.5,
-    };
+  setProbeMode(active) {
+    this.probeMode = active;
+    this.canvas.style.cursor = active ? 'crosshair' : '';
+    const indicator = document.getElementById('probe-mode-indicator');
+    if (indicator) indicator.classList.toggle('hidden', !active);
   }
+
+  cycleLabelLevel() {
+    const names = ['Everything', 'Furniture + Equipment + Beamline', 'Equipment + Beamline', 'Beamline', 'Nothing'];
+    this.labelLevel = (this.labelLevel + 1) % 5;
+    return names[this.labelLevel];
+  }
+
+  toggleZoneOverlay() {
+    this.zoneOverlayVisible = !this.zoneOverlayVisible;
+    return this.zoneOverlayVisible;
+  }
+
+  updateCursorBendDir(dir) { this.cursorBendDir = dir; }
+  updatePlacementDir(dir) { this.placementDir = dir; }
+
+  // --- Render delegation methods (called by game events and legacy code) ---
+  // These bridge calls from code that expects the old Renderer API.
+  // Methods that do 2D PixiJS rendering are stubs for now (rendered by Three.js instead).
+
+  _renderCursors() { /* overlay cursor rendering — future */ }
+  _renderComponents() { this._refreshComponents(); }
+  _renderBeam() { this._refreshBeam(); }
+  _renderInfrastructure() { this._refreshInfra(); }
+  _renderZones() { /* zone overlays — future (3D handles terrain coloring) */ }
+  _renderWalls() { this._refreshWalls(); }
+  _renderDoors() { this._refreshWalls(); }
+  _renderFacilityEquipment() { this._refreshEquipment(); }
+  _renderConnections() { this._refreshConnections(); }
+  _renderGrass() { this._refreshTerrain(); }
+  _renderDecorations() { this._refreshDecorations(); }
+  _renderZoneFurnishings() { this._refreshEquipment(); }
+  _renderNetworkOverlay() { /* future */ }
+  _renderSubtilePreview() { /* future */ }
+  renderConnLinePreview() { /* future */ }
+  renderLinePreview() { /* future */ }
+  _renderProbeFlags() { /* future */ }
+
+  // Preview / highlight stubs (called by InputHandler for drag-based placement)
+  renderDragPreview() { /* future */ }
+  clearDragPreview() { /* future */ }
+  renderDemolishPreview() { /* future */ }
+  renderWallPreview() { /* future */ }
+  renderDoorPreview() { /* future */ }
+  renderWallEdgeHighlight() { /* future */ }
+  renderInfraHoverCursor() { /* future */ }
+  _renderDemolishFurnishingHighlight() { /* future */ }
+  _renderDemolishEquipmentHighlight() { /* future */ }
+  showNetworkOverlay() { /* future */ }
+  clearNetworkOverlay() { /* future */ }
+
+  // Wall/door visibility stubs
+  _applyWallVisibility() { /* future */ }
+  _applyDoorVisibility() { /* future */ }
+
+  // Grid stub (overlay handles the grid)
+  _drawGrid() { /* handled by overlay */ }
+
+  // --- Helpers (copied from legacy Renderer) ---
+
+  _nodeCenter(node) {
+    if (!node.tiles || node.tiles.length === 0) {
+      return tileCenterIso(node.col, node.row);
+    }
+    const mid = Math.floor(node.tiles.length / 2);
+    const tile = node.tiles[mid];
+    return tileCenterIso(tile.col, tile.row);
+  }
+
+  _fmt(n) {
+    if (n === undefined || n === null) return '0';
+    if (typeof n !== 'number') return String(n);
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return Math.floor(n).toString();
+  }
+
+  // --- Three.js internals ---
 
   _setSize() {
     const gameEl = document.getElementById('game');
@@ -289,6 +518,7 @@ export class ThreeRenderer {
   }
 
   _updateCameraLookAt() {
+    this.camera.position.set(50 + this._panX, 50, 50 + this._panY);
     this.camera.lookAt(this._panX, 0, this._panY);
   }
 
@@ -299,8 +529,10 @@ export class ThreeRenderer {
 
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
+    // Sync Three.js camera from PixiJS world container every frame
+    // (InputHandler may directly set world.x/y without calling panBy)
+    this._syncThreeCameraFromOverlay();
     this.renderer.render(this.scene, this.camera);
-    syncOverlay(this.camera, this.overlay.world, window.innerWidth, window.innerHeight);
   }
 
   async loadAssets() {
@@ -380,7 +612,40 @@ export class ThreeRenderer {
     }
     window.removeEventListener('resize', this._boundOnResize);
     this.renderer.dispose();
-    const canvas = this.renderer.domElement;
-    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+    const threeCanvas = this.renderer.domElement;
+    if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);
+  }
+}
+
+// --- Bridge DOM-based UI methods from legacy Renderer prototype ---
+// These are added by hud.js, overlays.js, designer-renderer.js via
+// Renderer.prototype.methodName = function() {...}
+// We copy them onto ThreeRenderer.prototype so they work on our instance.
+
+const domMethods = [
+  // hud.js
+  '_updateHUD', '_updateBeamSummary', '_generateCategoryTabs',
+  '_renderPalette', '_refreshPalette', 'updatePalette',
+  '_renderMachineTypeSelector', '_bindHUDEvents',
+  '_updateSystemStatsVisibility', '_updateSystemStatsContent',
+  '_refreshSystemStatsValues',
+  '_renderVacuumStats', '_renderRfPowerStats', '_renderCryoStats',
+  '_renderCoolingStats', '_renderPowerStats', '_renderDataControlsStats', '_renderOpsStats',
+  '_createPaletteItem', '_removeParamFlyout', '_showPalettePreview', '_hidePalettePreview',
+  '_sstat', '_ssep', '_detailRow', '_fmtPressure', '_superscript', '_qualityColor', '_marginColor',
+  // overlays.js
+  'showPopup', 'showFacilityPopup', 'hidePopup',
+  'drawSchematic', '_schematicDrawers',
+  '_paramLabel', '_fmtParam', '_wirePopupSliders',
+  '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
+  '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
+  '_renderGoalsOverlay',
+  '_openBeamlineWindow', '_openMachineWindow', '_refreshContextWindows',
+  '_updateAnchoredWindows',
+];
+
+for (const method of domMethods) {
+  if (LegacyRenderer.prototype[method] && !ThreeRenderer.prototype[method]) {
+    ThreeRenderer.prototype[method] = LegacyRenderer.prototype[method];
   }
 }

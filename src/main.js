@@ -5,26 +5,24 @@ import { BeamPhysics } from './beamline/physics.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
 import { SpriteManager } from './renderer/sprites.js';
+// Legacy Renderer — needed so hud.js/overlays.js can attach methods to its prototype
 import { Renderer } from './renderer/Renderer.js';
 // Renderer prototype extensions — must import AFTER Renderer.js to avoid circular TDZ
-import './renderer/beamline-renderer.js';
-import './renderer/infrastructure-renderer.js';
-import './renderer/grass-renderer.js';
-import './renderer/decoration-renderer.js';
 import './renderer/hud.js';
 import './renderer/overlays.js';
+import './renderer/designer-renderer.js';
+// ThreeRenderer imports LegacyRenderer and bridges the DOM methods onto its own prototype
+import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { DesignLibrary } from './ui/DesignLibrary.js';
 import { DesignPlacer } from './ui/DesignPlacer.js';
-import './renderer/designer-renderer.js';
 import { ProbeWindow } from './ui/probe.js';
 import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
 import { Networks } from './networks/networks.js';
-import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -44,26 +42,15 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   game.viewRouter = router;
   const spriteManager = new SpriteManager();
 
-  const renderer = new Renderer(game, spriteManager);
+  const renderer = new ThreeRenderer(game, spriteManager);
   window._renderer = renderer;
   await renderer.init();
-
-  // Temporary: test Three.js renderer alongside PixiJS
-  const threeRenderer = new ThreeRenderer(game);
-  await threeRenderer.init();
-  await threeRenderer.loadAssets();
-  threeRenderer.refresh();
-  window._three = threeRenderer;
 
   await spriteManager.loadTileSprites();
   await spriteManager.loadDecorationSprites();
   await spriteManager.loadSpriteOffsets();
   // Force re-render now that textures are loaded (initial render used fallbacks)
-  renderer._grassCacheKey = null;
-  renderer._renderGrass();
-  renderer._renderDecorations();
-  renderer._renderInfrastructure();
-  renderer._renderZones();
+  renderer.refresh();
 
   const input = new InputHandler(renderer, game);
   const designer = new BeamlineDesigner(game, renderer);
@@ -135,6 +122,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     renderer.world.x = game.state.view.worldX;
     renderer.world.y = game.state.view.worldY;
     renderer.world.scale.set(renderer.zoom);
+    renderer._syncThreeCameraFromOverlay();
     // Restore active mode and selected category/tab
     if (game.state.view.activeMode && MODES[game.state.view.activeMode]) {
       input.setActiveMode(game.state.view.activeMode);
