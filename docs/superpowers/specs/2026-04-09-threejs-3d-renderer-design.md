@@ -103,7 +103,7 @@ Every placeable object defines its 3D dimensions. `subL` (length along beam or p
 | Category | Examples | subH Range | Notes |
 |---|---|---|---|
 | Beamline components | Beam pipe, quad, dipole, cavity | 2-6 | Reflects real proportions — pipe is short, cryomodule is tall |
-| Infrastructure floors | Concrete, lab floor, clean room | ~0.25 | Thin slab, gives slight thickness |
+| Infrastructure floors | Concrete, lab floor, clean room | 0 | Flat plane at Y=0, zero height — objects sit directly on ground |
 | Walls | Standard wall | 6-8 | ~3-4m tall, matching real room height |
 | Doors | Standard door | 5-6 | Opening height + lintel |
 | Facility equipment | Racks, pumps, cryo units, desks | 2-6 | Desk ~2 (1m), rack ~5 (2.5m) |

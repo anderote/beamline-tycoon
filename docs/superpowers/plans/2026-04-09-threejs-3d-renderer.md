@@ -982,14 +982,14 @@ export class InfraBuilder {
     }
 
     const tileSize = 2;
-    const tileHeight = 0.05; // thin floor slab
 
     for (const [type, tiles] of byType) {
       const infra = INFRASTRUCTURE[type];
       if (!infra) continue;
 
-      // Use a thin box for floors so they have slight visual thickness
-      const geo = new THREE.BoxGeometry(tileSize, tileHeight, tileSize);
+      // Flat plane at Y=0 — zero height so objects sit at ground level
+      const geo = new THREE.PlaneGeometry(tileSize, tileSize);
+      geo.rotateX(-Math.PI / 2); // face up (XZ plane)
 
       // Try to get tile texture
       const tileInfo = this._textureManager.getTileInfo(type);
@@ -1021,7 +1021,7 @@ export class InfraBuilder {
         const tile = tiles[i];
         dummy.position.set(
           tile.col * 2 + 1,
-          tileHeight / 2, // sit on top of ground plane
+          0.001, // barely above Y=0 to avoid z-fighting with terrain
           tile.row * 2 + 1
         );
         dummy.updateMatrix();
@@ -1359,7 +1359,7 @@ quadrupole: {
 Apply to ALL components in the file.
 
 Also add `subH` to `src/data/infrastructure.js`:
-- INFRASTRUCTURE entries: `subH: 0.25` (thin floor slab) for all floor types
+- INFRASTRUCTURE entries: `subH: 0` (flat plane at Y=0, zero height — objects sit at ground level on top)
 - Wall type definitions: `subH: 6` (3m tall standard wall)
 - Door type definitions: `subH: 5` (2.5m door opening)
 - ZONE_FURNISHINGS entries: `subH: 1-3` per item (chair ~2, monitor ~1, desk ~2, rack ~5, etc.)
@@ -1442,7 +1442,7 @@ export class ComponentBuilder {
       // Component center along beam axis
       const subH = (compDef.subH || 2) * SUB_UNIT;
       const cx = comp.col * 2 + 1;
-      const cy = subH / 2 + 0.05; // sit on floor (floor is at 0.05)
+      const cy = subH / 2; // sit on ground (floor is at Y=0)
       const cz = comp.row * 2 + 1;
       mesh.position.set(cx, cy, cz);
 
@@ -1682,7 +1682,7 @@ export class EquipmentBuilder {
       const subZ = (eq.subRow || 0) * SUB_UNIT;
       mesh.position.set(
         tileX + subX + w / 2,
-        h / 2 + 0.05,
+        h / 2,
         tileZ + subZ + l / 2
       );
       mesh.castShadow = true;
@@ -1712,7 +1712,7 @@ export class EquipmentBuilder {
       const subZ = (furn.subRow || 0) * SUB_UNIT;
       mesh.position.set(
         tileX + subX + w / 2,
-        h / 2 + 0.05,
+        h / 2,
         tileZ + subZ + l / 2
       );
       mesh.castShadow = true;
