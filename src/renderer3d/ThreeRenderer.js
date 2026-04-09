@@ -11,6 +11,8 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { ConnectionBuilder } from './connection-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
+import { Overlay } from './overlay.js';
+import { syncOverlay } from './camera-sync.js';
 
 export class ThreeRenderer {
   constructor(game) {
@@ -50,6 +52,8 @@ export class ThreeRenderer {
     this.connectionBuilder = new ConnectionBuilder();
     this.wallVisibilityMode = 'up';
     this._snapshot = null;
+
+    this.overlay = new Overlay();
   }
 
   async init() {
@@ -143,6 +147,8 @@ export class ThreeRenderer {
     this.scene.add(this.decorationGroup);
 
     window.addEventListener('resize', this._boundOnResize);
+
+    await this.overlay.init();
 
     this._animate();
   }
@@ -260,6 +266,7 @@ export class ThreeRenderer {
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
     this.renderer.render(this.scene, this.camera);
+    syncOverlay(this.camera, this.overlay.world, window.innerWidth, window.innerHeight);
   }
 
   async loadAssets() {
