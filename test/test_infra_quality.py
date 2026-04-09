@@ -48,6 +48,20 @@ def test_no_quality_means_full_performance():
     rf_el = [e for e in elements if e["type"] == "rfCavity"][0]
     assert abs(rf_el["energyGain"] - 1.0) < 0.01, f"No quality = full, got {rf_el['energyGain']}"
 
+def test_vacuum_quality_reduces_aperture():
+    """Poor vacuum should reduce aperture on elements."""
+    game_beamline = [
+        {"type": "source", "stats": {"beamCurrent": 1.0}},
+        {"type": "drift", "stats": {},
+         "infraQuality": {"vacuumQuality": 0.5}},
+    ]
+    elements = beamline_config_from_game(game_beamline)
+    from beam_physics.constants import DEFAULT_APERTURE
+    drift_el = elements[1]
+    expected_aperture = DEFAULT_APERTURE * (0.5 + 0.5 * 0.5)  # = 0.75 * DEFAULT_APERTURE
+    assert abs(drift_el.get("aperture", 0) - expected_aperture) < 1e-6, \
+        f"Expected aperture ~{expected_aperture}, got {drift_el.get('aperture', 'missing')}"
+
 if __name__ == "__main__":
     test_quality_derates_rf_gradient()
     print("  PASS: test_quality_derates_rf_gradient")
@@ -57,4 +71,6 @@ if __name__ == "__main__":
     print("  PASS: test_cryo_quench_converts_to_drift")
     test_no_quality_means_full_performance()
     print("  PASS: test_no_quality_means_full_performance")
+    test_vacuum_quality_reduces_aperture()
+    print("  PASS: test_vacuum_quality_reduces_aperture")
     print("\nAll infrastructure quality tests passed!")

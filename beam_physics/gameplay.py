@@ -7,6 +7,7 @@ applying scaling, clamping, and multipliers from research effects.
 
 import json
 from beam_physics.lattice import propagate
+from beam_physics.constants import DEFAULT_APERTURE
 
 # Default stats per component type, matching data.js COMPONENTS
 COMPONENT_DEFAULTS = {
@@ -272,6 +273,12 @@ def beamline_config_from_game(game_beamline):
         if cooling_q < 1.0:
             el["coolingDegradation"] = 1.0 + 0.1 * (1.0 - cooling_q)
 
+        # Poor vacuum narrows effective aperture (gas scattering)
+        vac_q = infra_q.get("vacuumQuality", 1.0)
+        if vac_q < 1.0:
+            current_aperture = el.get("aperture", DEFAULT_APERTURE)
+            el["aperture"] = current_aperture * (0.5 + 0.5 * vac_q)
+
         elements.append(el)
 
     return elements
@@ -492,7 +499,6 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     # Vacuum quality widens effective aperture during propagation
     vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0
     if vacuum_quality > 0:
-        from beam_physics.constants import DEFAULT_APERTURE
         wider_aperture = DEFAULT_APERTURE * (1.0 + vacuum_quality * 2.0)
         for el in elements:
             if "aperture" not in el:
