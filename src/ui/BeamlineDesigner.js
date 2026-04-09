@@ -228,6 +228,20 @@ export class BeamlineDesigner {
         if (dragDistance > 5) return;  // was a drag, not a click
         const rect = schematicCanvas.getBoundingClientRect();
         const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+
+        // Check ghost quad click first
+        if (this._ghostRegions) {
+          const dpr = window.devicePixelRatio || 1;
+          for (const gr of this._ghostRegions) {
+            if (clickX >= gr.x / dpr && clickX <= (gr.x + gr.w) / dpr &&
+                clickY >= gr.y / dpr && clickY <= (gr.y + gr.h) / dpr) {
+              this._insertGhostQuad(gr.ghost);
+              return;
+            }
+          }
+        }
+
         this._placeMarkerAtClickX(clickX);
         this._renderAll();
       });
@@ -1324,6 +1338,28 @@ export class BeamlineDesigner {
         inUrgentRegion = false;
       }
     }
+  }
+
+  /**
+   * Insert a quad at a ghost marker position.
+   * Activates insert mode at the ghost's node index with focusing category selected.
+   */
+  _insertGhostQuad(ghost) {
+    // Move marker to ghost position
+    this.markerS = ghost.s;
+
+    // Select the node at the ghost position
+    this.selectedIndex = Math.min(ghost.nodeIndex, this.draftNodes.length - 1);
+
+    // Activate insert mode
+    this.insertMode = 'nearest';
+    this._updateInsertButtons();
+
+    // Set focus row to palette
+    this.focusRow = 1;
+    this._updateFocusRowVisuals();
+
+    this._renderAll();
   }
 
   _hasDraftChanges() {
