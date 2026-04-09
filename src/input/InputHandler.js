@@ -230,10 +230,21 @@ export class InputHandler {
           break;
         case 'c': case 'C':
           if (this.game._designer && !this.game._designer.isOpen) {
+            e.preventDefault();
             const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
             if (blId) {
-              e.preventDefault();
               this.game._designer.open(blId);
+            } else {
+              // Reopen last designer session or open blank
+              const saved = this.game.state.designerState;
+              if (saved && saved.mode === 'edit' && saved.beamlineId) {
+                this.game._designer.open(saved.beamlineId);
+              } else if (saved && saved.mode === 'design') {
+                const design = saved.designId ? this.game.getDesign(saved.designId) : null;
+                this.game._designer.openDesign(design);
+              } else {
+                this.game._designer.openDesign(null);
+              }
             }
           }
           break;
