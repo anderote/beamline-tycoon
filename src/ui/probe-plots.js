@@ -79,6 +79,44 @@ export const ProbePlots = (() => {
     return [0, yScale];
   }
 
+  /** Draw focus margin color bands behind a plot.
+   *  Reads focus_margin from envelope data to color the background. */
+  function _drawFocusBands(ctx, area, envelope, xr) {
+    if (!envelope || envelope.length < 2) return;
+    const [xMin, xMax] = xr;
+    const xSpan = xMax - xMin || 1;
+
+    for (let i = 0; i < envelope.length - 1; i++) {
+      const d = envelope[i];
+      const dNext = envelope[i + 1];
+      const margin = d.focus_margin;
+      if (margin == null) continue;
+
+      const s0 = d.s != null ? d.s : i;
+      const s1 = dNext.s != null ? dNext.s : i + 1;
+
+      // Map s to pixel x
+      const px0 = area.x + ((s0 - xMin) / xSpan) * area.w;
+      const px1 = area.x + ((s1 - xMin) / xSpan) * area.w;
+
+      // Skip if fully outside view
+      if (px1 < area.x || px0 > area.x + area.w) continue;
+
+      // Color by margin
+      let color;
+      if (margin > 0.6) color = 'rgba(0, 200, 0, 0.12)';
+      else if (margin > 0.3) color = 'rgba(200, 200, 0, 0.12)';
+      else if (margin > 0.0) color = 'rgba(200, 100, 0, 0.15)';
+      else color = 'rgba(200, 0, 0, 0.18)';
+
+      ctx.fillStyle = color;
+      ctx.fillRect(
+        Math.max(px0, area.x), area.y,
+        Math.min(px1, area.x + area.w) - Math.max(px0, area.x), area.h
+      );
+    }
+  }
+
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax) {
     ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)';
     ctx.lineWidth = 0.5;
@@ -191,6 +229,8 @@ export const ProbePlots = (() => {
   function _drawBeamEnvelope(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
+    // Focus health color bands (behind everything)
+    _drawFocusBands(ctx, a, env, [xMin, xMax]);
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
     const [yMin, yMax] = _applyYScale(..._range(scaled.flatMap(d => [d.sx_mm, d.sy_mm])), yScale);
     _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
