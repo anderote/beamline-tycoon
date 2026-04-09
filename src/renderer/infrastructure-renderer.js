@@ -106,7 +106,8 @@ Renderer.prototype._renderWalls = function() {
     else if (wall.edge === 'w') { rc -= 1; re = 'e'; flip = true; }
     this._drawWallEdge(rc, rr, re, wt, flip);
   }
-  if (this._applyWallVisibility) this._applyWallVisibility();
+  this._cutawayHoverKey = null; // invalidate room cache on wall data change
+  this._applyWallVisibility();
 };
 
 Renderer.prototype._drawWallEdge = function(col, row, edge, wt, flip) {
@@ -215,30 +216,30 @@ Renderer.prototype._detectRoom = function(startCol, startRow) {
     const key = queue.shift();
     const [c, r] = key.split(',').map(Number);
 
-    // East: blocked by wall at (c, r, 'e')
+    // East: blocked by wall at (c,r,'e') or (c+1,r,'w')
     const eKey = `${c + 1},${r}`;
-    if (!room.has(eKey) && !wallOcc[`${c},${r},e`]) {
+    if (!room.has(eKey) && !wallOcc[`${c},${r},e`] && !wallOcc[`${c + 1},${r},w`]) {
       room.add(eKey);
       queue.push(eKey);
     }
 
-    // West: blocked by wall at (c-1, r, 'e')
+    // West: blocked by wall at (c-1,r,'e') or (c,r,'w')
     const wKey = `${c - 1},${r}`;
-    if (!room.has(wKey) && !wallOcc[`${c - 1},${r},e`]) {
+    if (!room.has(wKey) && !wallOcc[`${c - 1},${r},e`] && !wallOcc[`${c},${r},w`]) {
       room.add(wKey);
       queue.push(wKey);
     }
 
-    // South: blocked by wall at (c, r, 's')
+    // South: blocked by wall at (c,r,'s') or (c,r+1,'n')
     const sKey = `${c},${r + 1}`;
-    if (!room.has(sKey) && !wallOcc[`${c},${r},s`]) {
+    if (!room.has(sKey) && !wallOcc[`${c},${r},s`] && !wallOcc[`${c},${r + 1},n`]) {
       room.add(sKey);
       queue.push(sKey);
     }
 
-    // North: blocked by wall at (c, r-1, 's')
+    // North: blocked by wall at (c,r-1,'s') or (c,r,'n')
     const nKey = `${c},${r - 1}`;
-    if (!room.has(nKey) && !wallOcc[`${c},${r - 1},s`]) {
+    if (!room.has(nKey) && !wallOcc[`${c},${r - 1},s`] && !wallOcc[`${c},${r},n`]) {
       room.add(nKey);
       queue.push(nKey);
     }
@@ -295,16 +296,20 @@ Renderer.prototype._applyWallVisibility = function() {
 
     const walls = this.game.state.walls || [];
     for (const wall of walls) {
-      const wKey = `${wall.col},${wall.row},${wall.edge}`;
-      const g = this.wallGraphics[wKey];
+      // Normalize n/w to s/e to match registry keys
+      let nc = wall.col, nr = wall.row, ne = wall.edge;
+      if (wall.edge === 'n') { nr -= 1; ne = 's'; }
+      else if (wall.edge === 'w') { nc -= 1; ne = 'e'; }
+
+      const g = this.wallGraphics[`${nc},${nr},${ne}`];
       if (!g) continue;
 
       // A wall borders the room if either of its neighboring tiles is in the room
       let bordersRoom = false;
-      if (wall.edge === 'e') {
-        bordersRoom = room.has(`${wall.col},${wall.row}`) || room.has(`${wall.col + 1},${wall.row}`);
+      if (ne === 'e') {
+        bordersRoom = room.has(`${nc},${nr}`) || room.has(`${nc + 1},${nr}`);
       } else {
-        bordersRoom = room.has(`${wall.col},${wall.row}`) || room.has(`${wall.col},${wall.row + 1}`);
+        bordersRoom = room.has(`${nc},${nr}`) || room.has(`${nc},${nr + 1}`);
       }
 
       g.visible = !bordersRoom;

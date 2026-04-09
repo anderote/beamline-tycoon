@@ -40,6 +40,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
   const router = new ViewRouter();
+  game.viewRouter = router;
   const spriteManager = new SpriteManager();
 
   const renderer = new Renderer(game, spriteManager);
