@@ -56,6 +56,8 @@ function buildCatalog() {
     const descRe = /desc:\s*'([^']+)'/;
     const catRe = /category:\s*'([^']+)'/;
     const colorRe = /spriteColor:\s*(0x[0-9a-fA-F]+)/;
+    const subLRe = /subL:\s*(\d+)/;
+    const subWRe = /subW:\s*(\d+)/;
 
     // Split by top-level keys
     const blocks = src.split(/\n  (\w+):\s*\{/);
@@ -67,10 +69,32 @@ function buildCatalog() {
       const category = (block.match(catRe) || [])[1] || 'other';
       const color = (block.match(colorRe) || [])[1] || '0x888888';
 
+      const subL = parseInt((block.match(subLRe) || [])[1]) || 0;
+      const subW = parseInt((block.match(subWRe) || [])[1]) || 0;
+
+      // Compute sprite pixel dimensions from sub-unit footprint
+      // 1 sub-unit = 16x8 iso pixels (TILE_W/4 x TILE_H/4)
+      const TILE_W = 64, TILE_H = 32;
+      let spritePixelW = 64, spritePixelH = 48; // default full-tile size
+      if (subL > 0 && subW > 0) {
+        const floorW = (TILE_W / 4) * subL;
+        const floorH = (TILE_H / 4) * subW;
+        const heightAllowance = 16;
+        spritePixelW = Math.max(floorW, 16);
+        spritePixelH = floorH + heightAllowance;
+      }
+
       if (!catalog.components[spriteKey]) {
-        catalog.components[spriteKey] = { spriteKey, name, category, color, ids: [id] };
+        catalog.components[spriteKey] = { spriteKey, name, category, color, ids: [id], subL, subW, spritePixelW, spritePixelH };
       } else {
         catalog.components[spriteKey].ids.push(id);
+        // Use the largest sub-unit size if multiple components share a spriteKey
+        if (subL > (catalog.components[spriteKey].subL || 0)) {
+          catalog.components[spriteKey].subL = subL;
+          catalog.components[spriteKey].subW = subW;
+          catalog.components[spriteKey].spritePixelW = spritePixelW;
+          catalog.components[spriteKey].spritePixelH = spritePixelH;
+        }
       }
     }
   } catch (e) {
@@ -269,7 +293,7 @@ async function handleRequest(req, res) {
     // ── Generate ──
     if (url.pathname === '/api/generate' && req.method === 'POST') {
       const body = await readBody(req);
-      const { component, description, count, refImage, assetType, direction, globalStyle } = JSON.parse(body);
+      const { component, description, count, refImage, assetType, direction, globalStyle, spritePixelW, spritePixelH } = JSON.parse(body);
 
       // Load reference image — prefer uploaded ref photo for this component, fall back to style ref
       let bgImage = null;
@@ -314,10 +338,14 @@ async function handleRequest(req, res) {
         const dirDesc = dir === 'nw-se'
           ? ', facing from top-left to bottom-right'
           : ', facing from top-right to bottom-left';
+        // Use component-specific sprite dimensions if provided, otherwise default
+        const imgW = spritePixelW || 64;
+        const imgH = spritePixelH || 48;
+
         for (let i = 0; i < n; i++) {
           const payload = {
             description: `isometric pixel art ${description}${dirDesc}, seen from above at 45 degrees, RollerCoaster Tycoon 2 style${globalStyle ? ', ' + globalStyle : ''}`,
-            image_size: { width: 64, height: 48 },
+            image_size: { width: imgW, height: imgH },
             view: 'high top-down',
             outline: 'selective outline',
             shading: 'medium shading',
