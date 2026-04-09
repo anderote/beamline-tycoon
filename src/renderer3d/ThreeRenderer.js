@@ -3,6 +3,7 @@
 
 import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
+import { InfraBuilder } from './infra-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 
 export class ThreeRenderer {
@@ -34,6 +35,7 @@ export class ThreeRenderer {
 
     this.textureManager = new TextureManager();
     this.terrainBuilder = new TerrainBuilder(this.textureManager);
+    this.infraBuilder = new InfraBuilder(this.textureManager);
     this._snapshot = null;
   }
 
@@ -255,6 +257,7 @@ export class ThreeRenderer {
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
     this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
+    this.infraBuilder.build(snapshot.infrastructure, this.infrastructureGroup);
   }
 
   refresh() {
