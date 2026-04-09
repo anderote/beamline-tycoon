@@ -68,6 +68,76 @@ export const INFRASTRUCTURE = {
   },
 };
 
+// Wall types — placed on tile edges, not full tiles
+export const WALL_TYPES = {
+  officeWall: {
+    id: 'officeWall',
+    name: 'Office Wall',
+    desc: 'Standard drywall partition for dividing office and admin spaces.',
+    cost: 15,
+    color: 0xccccbb,
+    topColor: 0xddddcc,
+    wallHeight: 14,
+    subsection: 'interior',
+    isWall: true,
+  },
+  cubicleWall: {
+    id: 'cubicleWall',
+    name: 'Cubicle Wall',
+    desc: 'Low cubicle divider for open-plan office layouts.',
+    cost: 8,
+    color: 0x99aabb,
+    topColor: 0xaabbcc,
+    wallHeight: 8,
+    subsection: 'interior',
+    isWall: true,
+  },
+  exteriorWall: {
+    id: 'exteriorWall',
+    name: 'Exterior Wall',
+    desc: 'Reinforced concrete building wall for enclosing structures.',
+    cost: 25,
+    color: 0x888888,
+    topColor: 0xaaaaaa,
+    wallHeight: 24,
+    subsection: 'exterior',
+    isWall: true,
+  },
+  chainLinkFence: {
+    id: 'chainLinkFence',
+    name: 'Chain Link Fence',
+    desc: 'Standard chain link perimeter fencing.',
+    cost: 10,
+    color: 0x889999,
+    topColor: 0xaabbbb,
+    wallHeight: 14,
+    subsection: 'exterior',
+    isWall: true,
+  },
+  barbedWireFence: {
+    id: 'barbedWireFence',
+    name: 'Barbed Wire Fence',
+    desc: 'Chain link fence with barbed wire top for secure perimeters.',
+    cost: 18,
+    color: 0x778888,
+    topColor: 0x99aaaa,
+    wallHeight: 18,
+    subsection: 'exterior',
+    isWall: true,
+  },
+  woodFence: {
+    id: 'woodFence',
+    name: 'Wood Fence',
+    desc: 'Wooden slat fence for boundaries and decorative enclosures.',
+    cost: 12,
+    color: 0x997755,
+    topColor: 0xbb9966,
+    wallHeight: 14,
+    subsection: 'exterior',
+    isWall: true,
+  },
+};
+
 export const ZONES = {
   rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',                   subsection: 'laboratories' },
   coolingLab:  { id: 'coolingLab',  name: 'Cooling Lab',    color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cooling',                   subsection: 'laboratories' },
@@ -78,6 +148,8 @@ export const ZONES = {
   maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',                       subsection: 'industrial' },
   opticsLab:   { id: 'opticsLab',   name: 'Optics Lab',     color: 0x44aacc, requiredFloor: 'labFloor',    gatesCategory: null,                        subsection: 'laboratories' },
   diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,                   subsection: 'laboratories' },
+  cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,                        subsection: 'operations' },
+  meetingRoom: { id: 'meetingRoom', name: 'Meeting Room',   color: 0x664499, requiredFloor: 'officeFloor', gatesCategory: null,                        subsection: 'operations' },
 };
 
 export const ZONE_TIER_THRESHOLDS = [4, 8, 16, 20]; // Tier 1: 4 tiles, Tier 2: 8, Tier 3: 16, Tier 4: 20
@@ -139,6 +211,19 @@ export const ZONE_FURNISHINGS = {
   bpmTestFixture:   { id: 'bpmTestFixture',    name: 'BPM Test Fixture',        zoneType: 'diagnosticsLab', cost: 300,  spriteColor: 0xcccc44 },
   daqRack:          { id: 'daqRack',           name: 'DAQ Rack',                zoneType: 'diagnosticsLab', cost: 250,  spriteColor: 0x44cc44 },
   serverCluster:    { id: 'serverCluster',     name: 'Server Cluster',          zoneType: 'diagnosticsLab', cost: 500,  spriteColor: 0x448844 },
+
+  // Cafeteria furnishings
+  diningTable:      { id: 'diningTable',      name: 'Dining Table',       zoneType: 'cafeteria',   cost: 25,   spriteColor: 0xaa7744 },
+  servingCounter:   { id: 'servingCounter',    name: 'Serving Counter',    zoneType: 'cafeteria',   cost: 80,   spriteColor: 0x999999 },
+  vendingMachine:   { id: 'vendingMachine',    name: 'Vending Machine',    zoneType: 'cafeteria',   cost: 40,   spriteColor: 0x4488aa },
+  microwave:        { id: 'microwave',         name: 'Microwave Station',  zoneType: 'cafeteria',   cost: 20,   spriteColor: 0x666666 },
+  waterCooler:      { id: 'waterCooler',       name: 'Water Cooler',       zoneType: 'cafeteria',   cost: 10,   spriteColor: 0x66aacc },
+
+  // Meeting Room furnishings
+  conferenceTable:  { id: 'conferenceTable',   name: 'Conference Table',   zoneType: 'meetingRoom', cost: 60,   spriteColor: 0x775533 },
+  projector:        { id: 'projector',          name: 'Projector',          zoneType: 'meetingRoom', cost: 120,  spriteColor: 0x444444 },
+  phoneUnit:        { id: 'phoneUnit',          name: 'Conference Phone',   zoneType: 'meetingRoom', cost: 40,   spriteColor: 0x333333 },
+  whiteboardLarge:  { id: 'whiteboardLarge',    name: 'Large Whiteboard',   zoneType: 'meetingRoom', cost: 35,   spriteColor: 0xeeeeee },
 
   // Maintenance furnishings
   toolChest:        { id: 'toolChest',         name: 'Tool Chest',         zoneType: 'maintenance', cost: 50,   spriteColor: 0xbb7744 },
