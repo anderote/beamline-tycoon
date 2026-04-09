@@ -1637,6 +1637,10 @@ export class Game {
         if (t.extractionEnergy !== undefined) {
           el.extractionEnergy = t.extractionEnergy;
         }
+        const nq = this.state.nodeQualities?.[node.id];
+        if (nq) {
+          el.infraQuality = nq;
+        }
         return el;
       });
 

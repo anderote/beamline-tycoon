@@ -85,7 +85,7 @@ RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
                    "cbandCavity", "xbandCavity", "srf650Cavity"}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
-# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 3m physical)
+# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)
 # Game bendAngle=90 -> 15 degrees physically (90 is a routing concept in the grid)
 # Game energyGain stays as-is (already in GeV)
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
@@ -242,6 +242,35 @@ def beamline_config_from_game(game_beamline):
                 el["r56"] = raw_r56 * 1e-3  # mm → m
             else:
                 el["r56"] = defaults.get("r56", -0.05)
+
+        # === Infrastructure quality multipliers ===
+        infra_q = comp.get("infraQuality", {})
+        power_q = infra_q.get("powerQuality", 1.0)
+        rf_q = infra_q.get("rfQuality", 1.0)
+        cooling_q = infra_q.get("coolingQuality", 1.0)
+        cryo_q = infra_q.get("cryoQuality", 1.0)
+        cryo_quenched = infra_q.get("cryoQuenched", False)
+
+        # SRF quench: convert to drift (zero acceleration)
+        SRF_TYPES_SET = {"cryomodule", "srf650Cavity", "srfGun"}
+        if cryo_quenched and ctype in SRF_TYPES_SET:
+            el["type"] = "drift"
+            el.pop("energyGain", None)
+            el.pop("focusStrength", None)
+            elements.append(el)
+            continue
+
+        # Derate energy gain: power * rf * cooling * cryo
+        if "energyGain" in el:
+            el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+
+        # Derate focus strength: power only
+        if "focusStrength" in el:
+            el["focusStrength"] *= power_q
+
+        # Cooling degradation: emittance growth factor (stored for potential use)
+        if cooling_q < 1.0:
+            el["coolingDegradation"] = 1.0 + 0.1 * (1.0 - cooling_q)
 
         elements.append(el)
 
