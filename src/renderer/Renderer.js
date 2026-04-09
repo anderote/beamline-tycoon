@@ -380,6 +380,9 @@ export class Renderer {
     if (this.bulldozerMode || this.buildMode) {
       this._renderCursors();
     }
+    if (this.wallVisibilityMode === 'cutaway') {
+      this._applyWallVisibility();
+    }
   }
 
   setBuildMode(active, toolType) {
