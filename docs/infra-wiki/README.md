@@ -22,6 +22,10 @@ Each article has three sections:
 - [cryogenics.md](cryogenics.md) — Cryogenic systems: cold boxes, compressors, helium, operating temperatures
 - [controls.md](controls.md) — Data, controls, and safety: IOCs, interlocks, MPS, timing
 
+### Quality & Rooms
+- [infrastructure-quality.md](infrastructure-quality.md) — How network quality affects beamline performance, lab bonuses, soft vs hard failures
+- [rooms.md](rooms.md) — Room detection, auto-classification, lab connectivity and reach
+
 ### Reference
 - [connection-types.md](connection-types.md) — All six connection types and what they carry
 - [required-connections.md](required-connections.md) — What each component needs to function
