@@ -41,3 +41,30 @@ export function isoToGridFloat(screenX, screenY) {
 export function tileCenterIso(col, row) {
   return gridToIso(col + 0.5, row + 0.5);
 }
+
+/**
+ * Convert sub-grid coordinates within a tile to isometric screen offset.
+ * A tile's 4x4 sub-grid has cells of size TILE_W/4 x TILE_H/4.
+ * Returns pixel offset from the tile's top vertex (gridToIso position).
+ */
+export function subGridToIso(subCol, subRow) {
+  const subW = TILE_W / 4;
+  const subH = TILE_H / 4;
+  return {
+    x: (subCol - subRow) * (subW / 2),
+    y: (subCol + subRow) * (subH / 2),
+  };
+}
+
+/**
+ * Convert a screen offset (relative to tile top vertex) to sub-grid coordinates.
+ * Returns fractional values — caller should Math.floor for cell index.
+ */
+export function isoToSubGrid(offsetX, offsetY) {
+  const subW = TILE_W / 4;
+  const subH = TILE_H / 4;
+  return {
+    subCol: (offsetX / (subW / 2) + offsetY / (subH / 2)) / 2,
+    subRow: (offsetY / (subH / 2) - offsetX / (subW / 2)) / 2,
+  };
+}
