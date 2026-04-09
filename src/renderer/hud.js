@@ -4,7 +4,7 @@
 
 import { Renderer, isFacilityCategory } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, WALL_TYPES } from '../data/infrastructure.js';
 import { MODES, CONNECTION_TYPES } from '../data/modes.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
@@ -147,70 +147,12 @@ Renderer.prototype._generateCategoryTabs = function() {
 };
 
 Renderer.prototype._renderMachineTypeSelector = function() {
+  // Machine type is now determined by the source component — no separate selector needed.
+  // Hide the label and dropdown.
   const label = document.getElementById('beamline-type-label');
   const dropdown = document.getElementById('machine-type-dropdown');
-  if (!label || !dropdown) return;
-
-  const editingEntry = this.game.editingBeamlineId ? this.game.registry.get(this.game.editingBeamlineId) : null;
-  const currentType = (editingEntry && editingEntry.beamState.machineType) || 'linac';
-  const currentName = (typeof MACHINE_TYPES !== 'undefined' && MACHINE_TYPES[currentType])
-    ? MACHINE_TYPES[currentType].name : 'Electron Linac';
-
-  // Show current type as subtitle under Beamline button (only in beamline mode)
-  if (this.activeMode === 'beamline') {
-    label.textContent = currentName;
-    label.style.display = '';
-  } else {
-    label.textContent = '';
-    label.style.display = 'none';
-  }
-
-  // Build dropdown options
-  dropdown.innerHTML = '';
-  if (typeof MACHINE_TYPES === 'undefined') return;
-
-  for (const [key, mt] of Object.entries(MACHINE_TYPES)) {
-    const opt = document.createElement('div');
-    opt.className = 'machine-type-opt';
-    const unlocked = this.game.isMachineTypeUnlocked(key);
-    if (key === currentType) opt.classList.add('active');
-    if (!unlocked) opt.classList.add('locked');
-
-    let html = mt.name;
-    if (!unlocked) html += '<span class="mt-lock">\u{1F512}</span>';
-    html += `<span class="mt-desc">${mt.desc}</span>`;
-    opt.innerHTML = html;
-
-    opt.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!unlocked) {
-        this.game.log(`Research required to unlock ${mt.name}`, 'bad');
-        return;
-      }
-      if (this.game.setMachineType(key)) {
-        dropdown.classList.add('hidden');
-        this._renderMachineTypeSelector();
-        this._generateCategoryTabs();
-      }
-    });
-
-    dropdown.appendChild(opt);
-  }
-
-  // Wire label click to toggle dropdown
-  label.onclick = (e) => {
-    e.stopPropagation();
-    if (this.activeMode !== 'beamline') return;
-    dropdown.classList.toggle('hidden');
-  };
-
-  // Close dropdown when clicking elsewhere
-  if (!this._mtDropdownBound) {
-    document.addEventListener('click', () => {
-      dropdown.classList.add('hidden');
-    });
-    this._mtDropdownBound = true;
-  }
+  if (label) { label.style.display = 'none'; label.textContent = ''; }
+  if (dropdown) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; }
 };
 
 Renderer.prototype._refreshPalette = function() {
@@ -221,6 +163,7 @@ Renderer.prototype._refreshPalette = function() {
 };
 
 Renderer.prototype._renderPalette = function(tabCategory) {
+  this._removeParamFlyout();
   const palette = document.getElementById('component-palette');
   if (!palette) return;
   palette.innerHTML = '';
@@ -239,6 +182,23 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       const affordable = this.game.state.resources.funding >= infra.cost;
       if (!affordable) item.classList.add('unaffordable');
+
+      // Tile preview
+      const previewEl = document.createElement('div');
+      previewEl.className = 'palette-preview';
+      const tilePath = this.sprites.getTilePath(key);
+      if (tilePath) {
+        const img = document.createElement('img');
+        img.src = tilePath;
+        img.alt = infra.name;
+        previewEl.appendChild(img);
+      } else {
+        const swatch = document.createElement('div');
+        const c = infra.topColor || infra.color || 0x888888;
+        swatch.style.cssText = `width:48px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);`;
+        previewEl.appendChild(swatch);
+      }
+      item.appendChild(previewEl);
 
       const nameEl = document.createElement('div');
       nameEl.className = 'palette-name';
@@ -266,6 +226,86 @@ Renderer.prototype._renderPalette = function(tabCategory) {
   }
 
   // Structure mode — Flooring tab: show flooring INFRASTRUCTURE items
+  // Structure mode — Walls tab: show wall INFRASTRUCTURE items
+  if (compCategory === 'walls') {
+    const wallKeys = Object.keys(WALL_TYPES);
+    const catDef = MODES.structure.categories.walls;
+    const subsections = catDef.subsections;
+    const subKeys = Object.keys(subsections);
+    let renderedSections = 0;
+    for (const subKey of subKeys) {
+      const subDef = subsections[subKey];
+      const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey);
+      if (subItems.length === 0) continue;
+
+      if (renderedSections > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'palette-subsection-divider';
+        palette.appendChild(divider);
+      }
+
+      const section = document.createElement('div');
+      section.className = 'palette-subsection';
+      const label = document.createElement('div');
+      label.className = 'palette-subsection-label';
+      label.textContent = subDef.name;
+      section.appendChild(label);
+
+      const itemsContainer = document.createElement('div');
+      itemsContainer.className = 'palette-subsection-items';
+
+      for (const key of subItems) {
+        const infra = WALL_TYPES[key];
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const affordable = this.game.state.resources.funding >= infra.cost;
+        if (!affordable) item.classList.add('unaffordable');
+
+        // Wall preview — color swatch rendered as a tall iso block
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const tilePath2 = this.sprites.getTilePath(key);
+        if (tilePath2) {
+          const img = document.createElement('img');
+          img.src = tilePath2;
+          img.alt = infra.name;
+          previewEl.appendChild(img);
+        } else {
+          const swatch = document.createElement('div');
+          const c = infra.topColor || infra.color || 0x888888;
+          swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+          previewEl.appendChild(swatch);
+        }
+        item.appendChild(previewEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = infra.name;
+        item.appendChild(nameEl);
+
+        const costEl = document.createElement('div');
+        costEl.className = 'palette-cost';
+        costEl.textContent = `$${infra.cost}/seg`;
+        item.appendChild(costEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onWallSelect) this._onWallSelect(key);
+        });
+
+        itemsContainer.appendChild(item);
+      }
+
+      section.appendChild(itemsContainer);
+      palette.appendChild(section);
+      renderedSections++;
+    }
+    return;
+  }
+
   if (compCategory === 'flooring') {
     const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
     const catDef = MODES.structure.categories.flooring;
@@ -303,6 +343,24 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         const affordable = this.game.state.resources.funding >= infra.cost;
         if (!affordable) item.classList.add('unaffordable');
 
+        // Tile preview
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const tilePath2 = this.sprites.getTilePath(key);
+        if (tilePath2) {
+          const img = document.createElement('img');
+          img.src = tilePath2;
+          img.alt = infra.name;
+          previewEl.appendChild(img);
+        } else {
+          // Color swatch fallback
+          const swatch = document.createElement('div');
+          const c = infra.topColor || infra.color || 0x888888;
+          swatch.style.cssText = `width:48px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);`;
+          previewEl.appendChild(swatch);
+        }
+        item.appendChild(previewEl);
+
         const nameEl = document.createElement('div');
         nameEl.className = 'palette-name';
         nameEl.textContent = infra.name;
@@ -313,35 +371,49 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         costEl.textContent = `$${infra.cost}/tile`;
         item.appendChild(costEl);
 
-        // If this floor has variants, show a flyout on click
+        // If this floor has variants, show a flyout above the item on click
         if (infra.variants && infra.variants.length > 1) {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            // Toggle variant flyout
-            const existing = item.querySelector('.variant-flyout');
-            if (existing) { existing.remove(); return; }
-            // Remove other flyouts
-            palette.querySelectorAll('.variant-flyout').forEach(f => f.remove());
+            this._removeParamFlyout();
             const flyout = document.createElement('div');
-            flyout.className = 'variant-flyout';
-            flyout.style.cssText = 'display:flex;gap:4px;padding:4px 0;margin-top:4px;border-top:1px solid rgba(255,255,255,0.1);flex-wrap:wrap;';
+            flyout.className = 'param-flyout';
+
             for (let vi = 0; vi < infra.variants.length; vi++) {
               const vBtn = document.createElement('div');
-              vBtn.style.cssText = 'padding:3px 6px;font-size:9px;background:rgba(255,255,255,0.08);border-radius:3px;cursor:pointer;color:#ccc;';
+              vBtn.className = 'param-flyout-btn';
               vBtn.textContent = infra.variants[vi];
               const variantIdx = vi;
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
                 // Highlight selected variant
-                flyout.querySelectorAll('div').forEach(d => d.style.background = 'rgba(255,255,255,0.08)');
-                vBtn.style.background = 'rgba(100,180,255,0.3)';
+                flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+                vBtn.classList.add('active');
+                this._removeParamFlyout();
               });
               flyout.appendChild(vBtn);
             }
-            item.appendChild(flyout);
+
+            // Portal to body, positioned above the palette item
+            document.body.appendChild(flyout);
+            const rect = item.getBoundingClientRect();
+            flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+            flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+            this._activeParamFlyout = flyout;
+
             // Auto-select first variant
             if (this._onInfraSelect) this._onInfraSelect(key, 0);
+            flyout.querySelector('.param-flyout-btn')?.classList.add('active');
+
+            // Close on outside click
+            const closeHandler = (e) => {
+              if (!flyout.contains(e.target) && !item.contains(e.target)) {
+                this._removeParamFlyout();
+                document.removeEventListener('click', closeHandler, true);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
           });
         } else {
           item.addEventListener('click', () => {
@@ -360,8 +432,8 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
-  // Structure mode — Decoration tabs: show decoration items for this category
-  const decCatDef = MODES.structure?.categories?.[compCategory];
+  // Decoration tabs (Grounds mode): show decoration items for this category
+  const decCatDef = MODES.grounds?.categories?.[compCategory];
   if (decCatDef?.isDecorationTab) {
     const decItems = Object.entries(DECORATIONS).filter(([, d]) => d.category === compCategory);
     if (decItems.length === 0) return;
@@ -375,6 +447,24 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       const affordable = this.game.state.resources.funding >= dec.cost;
       if (!affordable) item.classList.add('unaffordable');
 
+      // Sprite preview
+      const previewEl = document.createElement('div');
+      previewEl.className = 'palette-preview';
+      const spritePath = this.sprites.getSpritePath(dec.spriteKey);
+      if (spritePath) {
+        const img = document.createElement('img');
+        img.src = spritePath;
+        img.alt = dec.name;
+        previewEl.appendChild(img);
+      } else {
+        const img = document.createElement('img');
+        img.src = `assets/decorations/${dec.spriteKey}.png`;
+        img.alt = dec.name;
+        img.onerror = () => { img.style.display = 'none'; };
+        previewEl.appendChild(img);
+      }
+      item.appendChild(previewEl);
+
       const nameEl = document.createElement('div');
       nameEl.className = 'palette-name';
       nameEl.textContent = dec.name;
@@ -384,13 +474,6 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       costEl.className = 'palette-cost';
       costEl.textContent = `$${dec.cost}`;
       item.appendChild(costEl);
-
-      const descEl = document.createElement('div');
-      descEl.className = 'palette-name';
-      descEl.style.fontSize = '9px';
-      descEl.style.color = '#8a8';
-      descEl.textContent = dec.placement === 'outdoor' ? 'Outdoor' : 'Indoor';
-      item.appendChild(descEl);
 
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
@@ -426,6 +509,22 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     const zoneIdx = paletteIdx++;
     const hex = '#' + zone.color.toString(16).padStart(6, '0');
     zoneItem.style.borderLeft = `4px solid ${hex}`;
+
+    // Zone tile preview
+    const zPreviewEl = document.createElement('div');
+    zPreviewEl.className = 'palette-preview';
+    const zoneVarPath = this.sprites.getZoneVariantPath(zoneType, 0, 0);
+    if (zoneVarPath) {
+      const img = document.createElement('img');
+      img.src = zoneVarPath;
+      img.alt = zone.name;
+      zPreviewEl.appendChild(img);
+    } else {
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:48px;height:24px;background:${hex};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);opacity:0.7;`;
+      zPreviewEl.appendChild(swatch);
+    }
+    zoneItem.appendChild(zPreviewEl);
 
     const zoneName = document.createElement('div');
     zoneName.className = 'palette-name';
@@ -470,6 +569,15 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const affordable = this.game.state.resources.funding >= furn.cost;
         if (!affordable) item.classList.add('unaffordable');
+
+        // Furnishing sprite preview
+        const fPreviewEl = document.createElement('div');
+        fPreviewEl.className = 'palette-preview';
+        const swatch = document.createElement('div');
+        const c = furn.spriteColor || 0x888888;
+        swatch.style.cssText = `width:32px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);`;
+        fPreviewEl.appendChild(swatch);
+        item.appendChild(fPreviewEl);
 
         const nameEl = document.createElement('div');
         nameEl.className = 'palette-name';
@@ -630,6 +738,23 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   if (!affordable) item.classList.add('unaffordable');
   if (zoneBlocked) item.classList.add('zone-blocked');
 
+  // Sprite preview — isometric box swatch from component color
+  const previewEl = document.createElement('div');
+  previewEl.className = 'palette-preview';
+  const color = comp.spriteColor || 0x888888;
+  const hex = '#' + color.toString(16).padStart(6, '0');
+  const darkHex = '#' + this.sprites._darken(color, 0.7).toString(16).padStart(6, '0');
+  const rightHex = '#' + this.sprites._darken(color, 0.85).toString(16).padStart(6, '0');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '48');
+  svg.setAttribute('height', '40');
+  svg.setAttribute('viewBox', '0 0 48 40');
+  svg.innerHTML = `<polygon points="24,4 44,14 24,24 4,14" fill="${hex}"/>` +
+    `<polygon points="4,14 24,24 24,36 4,26" fill="${darkHex}"/>` +
+    `<polygon points="44,14 24,24 24,36 44,26" fill="${rightHex}"/>`;
+  previewEl.appendChild(svg);
+  item.appendChild(previewEl);
+
   // Name
   const nameEl = document.createElement('div');
   nameEl.className = 'palette-name';
@@ -664,17 +789,82 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   });
 
   if (!zoneBlocked) {
-    item.addEventListener('click', () => {
-      if (this._onPaletteClick) this._onPaletteClick(idx);
-      if (isFacility) {
-        if (this._onFacilitySelect) this._onFacilitySelect(key);
-      } else {
-        if (this._onToolSelect) this._onToolSelect(key);
-      }
-    });
+    // Components with paramOptions (e.g. source particleType) get a flyout above the item
+    if (comp.paramOptions && Object.keys(comp.paramOptions).length > 0) {
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        // Toggle flyout — remove any existing one first
+        this._removeParamFlyout();
+        const flyout = document.createElement('div');
+        flyout.className = 'param-flyout';
+
+        for (const [paramKey, options] of Object.entries(comp.paramOptions)) {
+          for (const opt of options) {
+            const btn = document.createElement('div');
+            btn.className = 'param-flyout-btn';
+            btn.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
+            // Highlight if this is the currently selected override
+            const current = this._selectedParamOverrides?.[key]?.[paramKey];
+            if (current === opt || (!current && opt === (comp.params?.[paramKey] ?? options[0]))) {
+              btn.classList.add('active');
+            }
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              // Store param override
+              if (!this._selectedParamOverrides) this._selectedParamOverrides = {};
+              if (!this._selectedParamOverrides[key]) this._selectedParamOverrides[key] = {};
+              this._selectedParamOverrides[key][paramKey] = opt;
+              // Highlight selected
+              flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+              // Select the tool
+              if (isFacility) {
+                if (this._onFacilitySelect) this._onFacilitySelect(key);
+              } else {
+                if (this._onToolSelect) this._onToolSelect(key);
+              }
+              this._removeParamFlyout();
+            });
+            flyout.appendChild(btn);
+          }
+        }
+
+        // Portal to body, positioned above the palette item
+        document.body.appendChild(flyout);
+        const rect = item.getBoundingClientRect();
+        flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+        flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+        this._activeParamFlyout = flyout;
+
+        // Close on outside click
+        const closeHandler = (e) => {
+          if (!flyout.contains(e.target) && !item.contains(e.target)) {
+            this._removeParamFlyout();
+            document.removeEventListener('click', closeHandler, true);
+          }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+      });
+    } else {
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        if (isFacility) {
+          if (this._onFacilitySelect) this._onFacilitySelect(key);
+        } else {
+          if (this._onToolSelect) this._onToolSelect(key);
+        }
+      });
+    }
   }
 
   return item;
+};
+
+Renderer.prototype._removeParamFlyout = function() {
+  if (this._activeParamFlyout) {
+    this._activeParamFlyout.remove();
+    this._activeParamFlyout = null;
+  }
 };
 
 Renderer.prototype._showPalettePreview = function(comp) {

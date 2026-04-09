@@ -77,6 +77,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
+  renderer._onWallSelect = (wallType) => input.selectWallTool(wallType);
   renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
   renderer._onDecorationSelect = (decType) => input.selectDecorationTool(decType);
   renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
