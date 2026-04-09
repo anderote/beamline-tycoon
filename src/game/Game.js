@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
 import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
@@ -55,6 +55,9 @@ export class Game {
       decorations: [],              // [{ id, type, col, row }]
       decorationOccupied: {},       // "col,row" -> decoration id
       decorationNextId: 1,
+      // Walls (edge-based)
+      walls: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
+      wallOccupied: {},       // "col,row,edge" -> wallType
       // Utility connections
       connections: new Map(),     // "col,row" -> Set of connection type keys
       // Machines (cyclotrons, stalls, rings)
@@ -502,6 +505,64 @@ export class Game {
 
     this.emit('infrastructureChanged');
     this.validateInfrastructure();
+    return true;
+  }
+
+  // === WALLS (EDGE-BASED) ===
+
+  placeWall(col, row, edge, wallType) {
+    const wt = WALL_TYPES[wallType];
+    if (!wt) return false;
+    const key = `${col},${row},${edge}`;
+    if (this.state.wallOccupied[key] === wallType) return true;
+    if (this.state.wallOccupied[key]) {
+      this.state.walls = this.state.walls.filter(
+        w => !(w.col === col && w.row === row && w.edge === edge)
+      );
+    }
+    if (this.state.resources.funding < wt.cost) return false;
+    this.state.resources.funding -= wt.cost;
+    this.state.walls.push({ type: wallType, col, row, edge });
+    this.state.wallOccupied[key] = wallType;
+    return true;
+  }
+
+  placeWallPath(path, wallType) {
+    const wt = WALL_TYPES[wallType];
+    if (!wt) return false;
+    let placed = 0;
+    for (const pt of path) {
+      const key = `${pt.col},${pt.row},${pt.edge}`;
+      if (this.state.wallOccupied[key] === wallType) continue;
+      if (this.state.resources.funding < wt.cost) break;
+      if (this.state.wallOccupied[key]) {
+        this.state.walls = this.state.walls.filter(
+          w => !(w.col === pt.col && w.row === pt.row && w.edge === pt.edge)
+        );
+      }
+      this.state.resources.funding -= wt.cost;
+      this.state.walls.push({ type: wallType, col: pt.col, row: pt.row, edge: pt.edge });
+      this.state.wallOccupied[key] = wallType;
+      placed++;
+    }
+    if (placed > 0) {
+      this.log(`Placed ${placed} ${wt.name} segments ($${placed * wt.cost})`, 'good');
+      this.emit('wallsChanged');
+    }
+    return placed > 0;
+  }
+
+  removeWall(col, row, edge) {
+    const key = `${col},${row},${edge}`;
+    const wallType = this.state.wallOccupied[key];
+    if (!wallType) return false;
+    const wt = WALL_TYPES[wallType];
+    if (wt) this.state.resources.funding += Math.floor(wt.cost * 0.5);
+    this.state.walls = this.state.walls.filter(
+      w => !(w.col === col && w.row === row && w.edge === edge)
+    );
+    delete this.state.wallOccupied[key];
+    this.emit('wallsChanged');
     return true;
   }
 
@@ -1996,6 +2057,13 @@ export class Game {
         this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
       }
 
+      // Rebuild wall state
+      this.state.walls = this.state.walls || [];
+      this.state.wallOccupied = {};
+      for (const w of this.state.walls) {
+        this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+      }
+
       // Migrate: remove deprecated energy resource
       delete this.state.resources.energy;
       delete this.state.electricalPower;
@@ -2125,6 +2193,13 @@ export class Game {
     if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
     if (!this.state.zoneFurnishingGrid) this.state.zoneFurnishingGrid = {};
     if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+    // Rebuild wall state
+    this.state.walls = this.state.walls || [];
+    this.state.wallOccupied = {};
+    for (const w of this.state.walls) {
+      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    }
 
     // Remove deprecated fields
     delete this.state.resources.energy;
