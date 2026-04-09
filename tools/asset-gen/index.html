@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beamline Tycoon — Asset Generator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e6edf3; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 13px; }
+  .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; }
+  .sidebar h1 { font-size: 15px; margin-bottom: 2px; }
+  .sidebar .sub { font-size: 10px; color: #8b949e; margin-bottom: 10px; }
+  .sidebar-actions { display: flex; gap: 6px; margin-bottom: 10px; }
+  .sidebar-actions .btn { flex: 1; text-align: center; }
+
+  .nav-section { margin-bottom: 8px; }
+  .nav-section h3 { font-size: 9px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; padding: 0 6px; }
+  .nav-item { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 6px; line-height: 1.3; }
+  .nav-item:hover { background: #21262d; }
+  .nav-item.active { background: #1f6feb33; color: #58a6ff; }
+  .nav-item .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .nav-item .cnt { margin-left: auto; font-size: 9px; color: #8b949e; background: #21262d; padding: 0 4px; border-radius: 8px; min-width: 16px; text-align: center; }
+  .nav-item .cnt.has { background: #238636; color: #fff; }
+  .nav-item .spin { margin-left: 4px; width: 8px; height: 8px; border: 1.5px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.6s linear infinite; display: none; }
+  .nav-item.generating .spin { display: inline-block; }
+
+  /* Main */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Ref bar */
+  .ref-bar { background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 12px; flex-shrink: 0; }
+  .ref-label { font-size: 9px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; display: block; }
+  .ref-scroll { display: flex; gap: 6px; flex-wrap: wrap; max-height: 230px; overflow-y: auto; align-items: flex-start; align-content: flex-start; }
+  .ref-t { width: 96px; height: 96px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; background: repeating-conic-gradient(#21262d 0% 25%, #161b22 0% 50%) 0 0 / 6px 6px; padding: 2px; flex-shrink: 0; }
+  .ref-t:hover { border-color: #30363d; }
+  .ref-t.sel { border-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,0.3); }
+  .ref-t img { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+
+  /* Content */
+  .content { flex: 1; overflow-y: auto; padding: 12px; }
+
+  /* Batch */
+  .batch { background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 12px; }
+  .batch-hdr { padding: 8px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #21262d; }
+  .batch-hdr .title { font-size: 13px; font-weight: 600; }
+  .batch-hdr .info { font-size: 11px; color: #8b949e; margin-left: auto; }
+  .batch-hdr .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 4px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .batch-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 8px; }
+  .batch-acts { padding: 6px 10px; border-top: 1px solid #21262d; display: flex; gap: 6px; align-items: center; }
+
+  .pair { display: flex; flex-direction: column; gap: 2px; }
+  .pair-label { font-size: 7px; color: #484f58; text-align: center; }
+
+  .gc { background: #0d1117; border: 2px solid #21262d; border-radius: 4px; overflow: hidden; cursor: pointer; transition: all 0.12s; position: relative; }
+  .gc:hover { border-color: #30363d; }
+  .gc.sel { border-color: #238636; box-shadow: 0 0 8px rgba(35,134,54,0.25); }
+  .gc .iw { aspect-ratio: 1; background: repeating-conic-gradient(#21262d 0% 25%, #161b22 0% 50%) 0 0 / 6px 6px; display: flex; align-items: center; justify-content: center; }
+  .gc .iw img { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+  .gc .chk { position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; background: #238636; border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 10px; }
+  .gc.sel .chk { display: flex; }
+  .gc .ph { color: #30363d; font-size: 16px; }
+
+  .btn { border: none; color: #fff; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #genBtn { opacity: 1 !important; cursor: pointer !important; }
+  .btn-green { background: #238636; }
+  .btn-green:hover:not(:disabled) { background: #2ea043; }
+  .btn-blue { background: #1f6feb; }
+  .btn-blue:hover:not(:disabled) { background: #388bfd; }
+  .btn-red { background: #da3633; font-size: 10px; padding: 3px 8px; }
+  .btn-ghost { background: transparent; border: 1px solid #30363d; color: #8b949e; }
+  .btn-ghost:hover { background: #21262d; color: #e6edf3; }
+
+  .empty { text-align: center; padding: 40px 20px; color: #484f58; }
+  .empty h3 { font-size: 15px; margin-bottom: 6px; color: #8b949e; }
+
+  /* Asset browser */
+  .browser { margin-top: 16px; }
+  .browser h3 { font-size: 12px; color: #8b949e; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; }
+  .browser h3:hover { color: #e6edf3; }
+  .asset-group { margin-bottom: 12px; }
+  .asset-group-title { font-size: 11px; color: #58a6ff; margin-bottom: 4px; font-weight: 600; }
+  .asset-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .asset-card { width: 96px; position: relative; }
+  .asset-card .iw { width: 96px; height: 96px; background: repeating-conic-gradient(#21262d 0% 25%, #161b22 0% 50%) 0 0 / 6px 6px; border-radius: 4px; cursor: pointer; border: 1px solid #21262d; }
+  .asset-card .iw:hover { border-color: #30363d; }
+  .asset-card .iw img { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+  .asset-card .del { position: absolute; top: 1px; right: 1px; width: 14px; height: 14px; background: #da363399; border: none; color: white; border-radius: 50%; cursor: pointer; font-size: 8px; display: none; align-items: center; justify-content: center; line-height: 1; }
+  .asset-card:hover .del { display: flex; }
+  .asset-card .lbl { font-size: 7px; color: #484f58; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <h1>Asset Generator</h1>
+    <div class="sub">Beamline Tycoon</div>
+    <div class="sidebar-actions">
+      <button class="btn btn-blue" onclick="genCurrent()" id="genBtn" style="flex:1;text-align:center;" type="button">Generate 5</button>
+      <button class="btn btn-ghost" onclick="genReverse()" id="revBtn" style="text-align:center;" type="button" title="Generate NW→SE view using selected ref as guide">Reverse</button>
+    </div>
+    <div id="sidebarNav" style="flex:1;overflow-y:auto;"></div>
+  </div>
+
+  <div class="main">
+    <div class="ref-bar">
+      <span class="ref-label">Style ref:</span>
+      <div class="ref-scroll" id="refScroll"><span style="color:#484f58;font-size:11px;">Loading...</span></div>
+    </div>
+    <!-- Prompt editor -->
+    <div id="promptBar" style="background:#161b22;border-bottom:1px solid #30363d;padding:8px 12px;flex-shrink:0;display:none;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;">Prompt for <strong id="promptLabel" style="color:#58a6ff;"></strong></span>
+        <button class="btn btn-ghost" onclick="savePrompt()" style="margin-left:auto;font-size:10px;padding:3px 8px;">Save prompt</button>
+        <button class="btn btn-ghost" onclick="resetPrompt()" style="font-size:10px;padding:3px 8px;">Reset</button>
+      </div>
+      <textarea id="promptText" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;min-height:40px;max-height:120px;" rows="2"></textarea>
+    </div>
+
+    <div class="content" id="content">
+      <div class="empty" id="emptyState">
+        <h3>Select a component, then Generate</h3>
+        <p>All batches persist here. Double-click sidebar items to generate instantly.</p>
+      </div>
+      <div id="batches"></div>
+      <div class="browser" id="browser"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentKey = '', currentDesc = '', currentType = 'object';
+let selectedRef = null;
+let customPrompts = JSON.parse(localStorage.getItem('assetgen_prompts') || '{}'); // key -> edited prompt
+let batches = [];
+let allAssets = {};
+let catalog = {};
+let pollTimer = null;
+
+// Hard-coded descriptions for items not easily parsed from source
+// Components that are asymmetric and need a separately generated reverse view
+// (not just a horizontal flip). true = asymmetric, default = symmetric (auto-flip)
+const ASYMMETRIC = {
+  source: true, dcPhotoGun: true, ncRfGun: true, srfGun: true,  // beam exits one side
+  dipole: true, scDipole: true,  // C-shape has directionality
+  detector: true, target: true,  // endpoints face one direction
+  splitter: true,  // Y-junction
+  undulator: true, // long periodic structure
+  collimator: true, // jaw orientation matters
+};
+
+const DESC_OVERRIDES = {
+  // Sources
+  source: 'thermionic particle source, boxy green metal housing with beam pipe exiting to one side, high-voltage connector on top, on metal support stand',
+  dcPhotoGun: 'DC photocathode electron gun, compact cylindrical stainless steel housing with laser viewport window, green high-voltage insulator, beam pipe exiting, on support stand',
+  ncRfGun: 'normal-conducting RF photoinjector gun, copper cylindrical cavity with waveguide input coupler on side, beam pipe exiting, on support stand',
+  srfGun: 'superconducting RF gun, silver cylindrical cryostat housing with cryogenic transfer lines, beam pipe exiting, on support stand',
+
+  // Magnets
+  dipole: 'C-shaped blue electromagnet yoke around silver beam pipe passing through the gap, dipole bending magnet on support stand',
+  quadrupole: 'blue square magnet yoke housing clamped around silver beam pipe with copper coil windings visible, quadrupole focusing magnet on green support stand',
+  sextupole: 'blue hexagonal magnet housing clamped around silver beam pipe, similar to quadrupole but wider with six poles, on support stand',
+  octupole: 'octagonal blue magnet housing around beam pipe, eight-pole corrector magnet on support stand',
+  solenoid: 'long cylindrical copper coil wrapped around beam pipe, solenoid focusing magnet on support stand',
+  corrector: 'small blue corrector steering magnet clamped around beam pipe, compact dipole on support stand',
+  scQuad: 'superconducting quadrupole in silver cryostat housing around beam pipe, on support stand with cryogenic lines',
+  scDipole: 'superconducting dipole in silver cryostat housing around beam pipe, large C-shaped magnet on support stand',
+  combinedFunctionMagnet: 'combined function magnet, large blue yoke housing around beam pipe with multiple coil layers visible, on heavy support stand',
+
+  // Furniture
+  rfWorkbench: 'RF electronics workbench with test equipment and soldering iron',
+  oscilloscope: 'oscilloscope on cart, screen showing waveform',
+  signalGenerator: 'RF signal generator rack instrument',
+  spectrumAnalyzer: 'spectrum analyzer, display showing frequency spectrum',
+  networkAnalyzer: 'network analyzer rack instrument',
+  coolantPump: 'industrial coolant pump with piping',
+  heatExchanger: 'heat exchanger unit with pipe connections',
+  pipeRack: 'pipe rack storage with various pipes',
+  chillerUnit: 'industrial chiller unit, large blue cooling machine',
+  flowMeter: 'industrial flow meter with digital display',
+  testChamber: 'cylindrical stainless steel vacuum test chamber with viewport',
+  leakDetector: 'helium leak detector on cart',
+  pumpCart: 'vacuum pump on wheeled cart',
+  gasManifold: 'gas manifold with valves and gauges',
+  rga: 'residual gas analyzer, electronic instrument',
+  desk: 'office desk with computer monitor and keyboard',
+  filingCabinet: 'metal filing cabinet',
+  whiteboard: 'whiteboard on stand with markers',
+  coffeeMachine: 'coffee machine on counter',
+  monitorBank: 'control room monitor bank, multiple screens on console desk',
+  serverRack: 'server rack with blinking LEDs and network cables',
+  operatorConsole: 'operator console desk with controls and screens',
+  alarmPanel: 'red alarm panel with warning lights',
+  lathe: 'metalworking lathe, industrial machine tool',
+  millingMachine: 'milling machine, industrial metalworking',
+  drillPress: 'drill press, workshop tool',
+  toolCabinet: 'red metal tool cabinet on wheels',
+  weldingStation: 'welding station with gas tank and table',
+  cncMill: 'CNC milling machine, computerized machining',
+  assemblyCrane: 'overhead assembly crane hoist',
+  opticalTable: 'optical table with mirror mounts and lasers',
+  laserAlignment: 'laser alignment system on optical table',
+  mirrorMount: 'precision mirror mount station',
+  beamProfiler: 'beam profiler instrument',
+  interferometer: 'interferometer on optical table',
+  scopeStation: 'oscilloscope workstation',
+  wireScannerBench: 'wire scanner test bench',
+  bpmTestFixture: 'BPM test fixture apparatus',
+  daqRack: 'data acquisition rack with electronics',
+  serverCluster: 'server cluster rack',
+  diningTable: 'cafeteria dining table with chairs',
+  servingCounter: 'food serving counter',
+  vendingMachine: 'snack vending machine with display',
+  microwave: 'microwave oven on counter',
+  waterCooler: 'water cooler dispenser',
+  conferenceTable: 'large conference table with chairs',
+  projector: 'ceiling projector',
+  phoneUnit: 'conference phone on table',
+  whiteboardLarge: 'large whiteboard on wall mount',
+  toolChest: 'red tool chest on wheels',
+  partsShelf: 'parts storage shelf with bins',
+  workCart: 'maintenance work cart',
+  craneHoist: 'portable crane hoist'
+};
+
+// Sidebar category definitions
+const SIDEBAR_CATS = [
+  { title: 'Sources', color: '#4caf50', filter: c => c.category === 'source' },
+  { title: 'Transport', color: '#90a4ae', filter: c => ['drift','bellows'].includes(c.spriteKey) },
+  { title: 'Magnets', color: '#42a5f5', filter: c => c.category === 'focusing' || ['sextupole','solenoid','corrector','octupole','scQuad','scDipole','combinedFunctionMagnet'].includes(c.spriteKey) },
+  { title: 'RF / Acceleration', color: '#ef5350', filter: c => c.category === 'rf' },
+  { title: 'Beam Optics', color: '#26c6da', filter: c => c.category === 'beamOptics' },
+  { title: 'Diagnostics', color: '#ffb74d', filter: c => ['bpm','screen','ict','wireScanner','bunchLengthMonitor','energySpectrometer','beamLossMonitor','srLightMonitor'].includes(c.spriteKey) },
+  { title: 'Endpoints', color: '#bdbdbd', filter: c => c.category === 'endpoint' },
+  { title: 'RF Power', color: '#ff7043', filter: c => ['solidStateAmp','pulsedKlystron','cwKlystron','modulator','iot','circulator','rfCoupler','llrfController','multibeamKlystron','highPowerSSA'].includes(c.spriteKey) },
+  { title: 'Cryo', color: '#80deea', filter: c => ['cryocooler','ln2Precooler','heCompressor','coldBox4K','coldBox2K','cryomoduleHousing','heRecovery'].includes(c.spriteKey) },
+  { title: 'Vacuum', color: '#ce93d8', filter: c => ['roughingPump','turboPump','ionPump','negPump','tiSubPump','piraniGauge','coldCathodeGauge','baGauge','gateValve','bakeoutSystem'].includes(c.spriteKey) },
+  { title: 'Cooling', color: '#4dd0e1', filter: c => ['heatExchanger','waterLoad','lcwSkid','chiller','coolingTower','deionizer','emergencyCooling'].includes(c.spriteKey) },
+  { title: 'Safety / Controls', color: '#fff176', filter: c => ['rackIoc','ppsInterlock','shielding','mps','areaMonitor','timingSystem','laserSystem','laserHeater','powerPanel','substation'].includes(c.spriteKey) },
+];
+
+const FURNITURE_ZONES = ['rfLab','coolingLab','vacuumLab','officeSpace','controlRoom','machineShop','opticsLab','diagnosticsLab','cafeteria','meetingRoom','maintenance'];
+
+async function init() {
+  const [catRes, assRes] = await Promise.all([fetch('/api/catalog'), fetch('/api/assets')]);
+  catalog = await catRes.json();
+  allAssets = await assRes.json();
+  buildSidebar();
+  renderRefBar();
+  renderBrowser();
+}
+
+function buildSidebar() {
+  const nav = document.getElementById('sidebarNav');
+  let html = '';
+
+  // Component categories
+  const allComps = Object.values(catalog.components);
+  const used = new Set();
+
+  for (const cat of SIDEBAR_CATS) {
+    const items = allComps.filter(c => { if (used.has(c.spriteKey)) return false; return cat.filter(c); });
+    if (items.length === 0) continue;
+    items.forEach(c => used.add(c.spriteKey));
+
+    html += `<div class="nav-section"><h3>${cat.title}</h3>`;
+    for (const c of items) {
+      const n = (allAssets[c.spriteKey] || []).length;
+      const desc = customPrompts[c.spriteKey] || DESC_OVERRIDES[c.spriteKey] || `${c.name}, ${c.spriteKey} beamline component on metal support stand, with beam pipe`;
+      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc}" data-type="object">
+        <div class="dot" style="background:${cat.color}"></div>${c.name}<div class="spin"></div>
+        <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
+    }
+    html += '</div>';
+  }
+
+  // Uncategorized components
+  const uncategorized = allComps.filter(c => !used.has(c.spriteKey));
+  if (uncategorized.length > 0) {
+    html += '<div class="nav-section"><h3>Other Components</h3>';
+    for (const c of uncategorized) {
+      used.add(c.spriteKey);
+      const n = (allAssets[c.spriteKey] || []).length;
+      const desc2 = customPrompts[c.spriteKey] || DESC_OVERRIDES[c.spriteKey] || `${c.name}, ${c.spriteKey} beamline component on metal support stand, with beam pipe`;
+      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc2}" data-type="object">
+        <div class="dot" style="background:#888"></div>${c.name}<div class="spin"></div>
+        <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
+    }
+    html += '</div>';
+  }
+
+  // Furniture by zone
+  for (const zone of FURNITURE_ZONES) {
+    const items = Object.values(catalog.furniture).filter(f => f.zoneType === zone);
+    if (items.length === 0) continue;
+    html += `<div class="nav-section"><h3>${zone.replace(/([A-Z])/g, ' $1').trim()}</h3>`;
+    for (const f of items) {
+      const desc = customPrompts[f.id] || DESC_OVERRIDES[f.id] || `${f.name}, furniture item`;
+      const n = (allAssets[f.id] || []).length;
+      html += `<div class="nav-item" data-key="${f.id}" data-desc="${desc}" data-type="object">
+        <div class="dot" style="background:#ab47bc"></div>${f.name}<div class="spin"></div>
+        <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
+    }
+    html += '</div>';
+  }
+
+  // Floor tiles
+  html += `<div class="nav-section"><h3>Floor Tiles</h3>`;
+  for (const [key, desc] of [
+    ['concrete_tile', 'smooth gray industrial concrete floor'],
+    ['labFloor_tile', 'clean blue-gray epoxy laboratory floor'],
+    ['officeFloor_tile', 'tan commercial carpet tile floor'],
+    ['hallway_tile', 'gray and white checked linoleum hallway floor'],
+    ['grass_tile', 'green grass ground, natural lawn'],
+    ['dirt_tile', 'packed brown earth path'],
+    ['pavement_tile', 'asphalt pavement surface'],
+  ]) {
+    const n = (allAssets[key] || []).length;
+    html += `<div class="nav-item" data-key="${key}" data-desc="${desc}" data-type="tile">
+      <div class="dot" style="background:#795548"></div>${key.replace('_tile','')}<div class="spin"></div>
+      <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
+  }
+  html += '</div>';
+
+  // Walls
+  html += `<div class="nav-section"><h3>Walls</h3>`;
+  for (const [key, desc] of [
+    ['wall_concrete', 'smooth gray concrete wall surface'],
+    ['wall_brick', 'red brick masonry wall'],
+    ['wall_metal', 'corrugated metal panel wall, industrial siding'],
+    ['wall_glass', 'glass curtain wall with metal frames'],
+  ]) {
+    const n = (allAssets[key] || []).length;
+    html += `<div class="nav-item" data-key="${key}" data-desc="${desc}" data-type="tile">
+      <div class="dot" style="background:#607d8b"></div>${key.replace('wall_','')}<div class="spin"></div>
+      <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
+  }
+  html += '</div>';
+
+  // Custom
+  html += `<div class="nav-section"><div class="nav-item" onclick="addCustom()"><div class="dot" style="background:#7c4dff"></div>+ Custom...</div></div>`;
+
+  nav.innerHTML = html;
+
+  // Bind events
+  nav.querySelectorAll('.nav-item[data-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      nav.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+      currentKey = el.dataset.key;
+      currentDesc = el.dataset.desc;
+      currentType = el.dataset.type || 'object';
+      showPromptBar(currentKey, currentDesc);
+    });
+    el.addEventListener('dblclick', () => {
+      currentKey = el.dataset.key;
+      currentDesc = el.dataset.desc;
+      currentType = el.dataset.type || 'object';
+      genForKey(currentKey, currentDesc, currentType);
+    });
+  });
+}
+
+function renderRefBar() {
+  const scroll = document.getElementById('refScroll');
+  scroll.innerHTML = '';
+  let count = 0;
+  for (const [key, assets] of Object.entries(allAssets)) {
+    for (const a of assets) {
+      const t = document.createElement('div');
+      t.className = 'ref-t' + (selectedRef && selectedRef.file === a.file ? ' sel' : '');
+      t.title = `${key} — click=ref, right-click=delete`;
+      t.innerHTML = `<img src="${a.path}"/>`;
+      t.onclick = () => { selectedRef = a; scroll.querySelectorAll('.ref-t').forEach(x => x.classList.remove('sel')); t.classList.add('sel'); };
+      t.oncontextmenu = (e) => { e.preventDefault(); delAsset(a.file, a.assetDir); };
+      scroll.appendChild(t);
+      count++;
+    }
+  }
+  if (!count) scroll.innerHTML = '<span style="color:#484f58;font-size:11px;">No saved assets yet</span>';
+}
+
+function renderBrowser() {
+  const el = document.getElementById('browser');
+  const keys = Object.keys(allAssets).filter(k => allAssets[k].length > 0);
+  if (keys.length === 0) { el.innerHTML = ''; return; }
+
+  let html = '<h3>All Saved Assets (' + keys.length + ' types)</h3>';
+  for (const key of keys.sort()) {
+    html += `<div class="asset-group"><div class="asset-group-title">${key} (${allAssets[key].length})</div><div class="asset-row">`;
+    for (const a of allAssets[key]) {
+      html += `<div class="asset-card">
+        <div class="iw" onclick="setRef('${a.file}','${a.path}')"><img src="${a.path}"/></div>
+        <button class="del" onclick="delAsset('${a.file}','${a.assetDir}')">&times;</button>
+        <div class="lbl">${a.file}</div></div>`;
+    }
+    html += '</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+function setRef(file, path) { selectedRef = { file, path }; renderRefBar(); }
+
+async function delAsset(file, assetDir) {
+  if (!confirm(`Delete ${file}?`)) return;
+  await fetch('/api/assets', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ file, assetDir: assetDir || 'components' }) });
+  await reloadAssets();
+}
+
+async function reloadAssets() {
+  allAssets = await (await fetch('/api/assets')).json();
+  renderRefBar();
+  renderBrowser();
+  // Update counts
+  document.querySelectorAll('.nav-item[data-key]').forEach(el => {
+    const n = (allAssets[el.dataset.key] || []).length;
+    const cnt = el.querySelector('.cnt');
+    if (cnt) { cnt.textContent = n; cnt.className = 'cnt' + (n > 0 ? ' has' : ''); }
+  });
+}
+
+function addCustom() {
+  const key = prompt('Sprite key:'); if (!key) return;
+  const desc = prompt('Description:'); if (!desc) return;
+  const type = prompt('Type (object/tile):', 'object') || 'object';
+  currentKey = key; currentDesc = desc; currentType = type;
+  genForKey(key, desc, type);
+}
+
+// ── Generation ──
+function showPromptBar(key, defaultDesc) {
+  const bar = document.getElementById('promptBar');
+  const label = document.getElementById('promptLabel');
+  const text = document.getElementById('promptText');
+  bar.style.display = 'block';
+  label.textContent = key;
+  text.value = customPrompts[key] || defaultDesc;
+  text.dataset.defaultDesc = defaultDesc;
+}
+
+function savePrompt() {
+  if (!currentKey) return;
+  const text = document.getElementById('promptText').value.trim();
+  if (text) {
+    customPrompts[currentKey] = text;
+    currentDesc = text;
+    // Also update the nav item's data-desc
+    const navEl = document.querySelector(`.nav-item[data-key="${currentKey}"]`);
+    if (navEl) navEl.dataset.desc = text;
+  }
+  localStorage.setItem('assetgen_prompts', JSON.stringify(customPrompts));
+}
+
+function resetPrompt() {
+  if (!currentKey) return;
+  const text = document.getElementById('promptText');
+  const defaultDesc = text.dataset.defaultDesc || '';
+  text.value = defaultDesc;
+  delete customPrompts[currentKey];
+  currentDesc = defaultDesc;
+  const navEl = document.querySelector(`.nav-item[data-key="${currentKey}"]`);
+  if (navEl) navEl.dataset.desc = defaultDesc;
+  localStorage.setItem('assetgen_prompts', JSON.stringify(customPrompts));
+}
+
+function getPrompt(key) {
+  return customPrompts[key] || (document.querySelector(`.nav-item[data-key="${key}"]`)?.dataset.desc) || key;
+}
+
+function genCurrent() {
+  if (!currentKey) { alert('Select something first'); return; }
+  // Save any edits in the textarea before generating
+  const textEl = document.getElementById('promptText');
+  if (textEl && textEl.value.trim()) {
+    currentDesc = textEl.value.trim();
+    customPrompts[currentKey] = currentDesc;
+    localStorage.setItem('assetgen_prompts', JSON.stringify(customPrompts));
+  }
+  genForKey(currentKey, currentDesc, currentType, 'ne-sw');
+}
+
+function genReverse() {
+  if (!currentKey) { alert('Select something first'); return; }
+  if (!selectedRef) { alert('Select a style reference first (click an asset in the ref bar)'); return; }
+  const textEl = document.getElementById('promptText');
+  if (textEl && textEl.value.trim()) {
+    currentDesc = textEl.value.trim();
+  }
+  genForKey(currentKey, currentDesc, currentType, 'nw-se');
+}
+
+async function genForKey(key, desc, type, direction) {
+  type = type || 'object';
+  direction = direction || 'ne-sw';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('genBtn').disabled = false;
+  const navEl = document.querySelector(`.nav-item[data-key="${key}"]`);
+  if (navEl) navEl.classList.add('generating');
+
+  const dirLabel = direction === 'nw-se' ? ' (NW→SE)' : '';
+  const bid = Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  const batch = { id: bid, key, desc, type, direction, jobs: [] };
+  batches.unshift(batch);
+  renderBatches();
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        component: key, description: desc, count: 5,
+        assetType: type,
+        direction: direction,
+        refImage: selectedRef ? selectedRef.file : null
+      })
+    });
+    const data = await res.json();
+    batch.jobs = data.jobs.map(j => ({ ...j, status: 'processing', selected: false, downloadUrl: null }));
+    renderBatches();
+    startPolling();
+  } catch (e) {
+    batch.jobs = [{ status: 'failed' }];
+    renderBatches();
+    if (navEl) navEl.classList.remove('generating');
+  }
+}
+
+function renderBatches() {
+  const container = document.getElementById('batches');
+  container.innerHTML = '';
+
+  for (const batch of batches) {
+    const done = batch.jobs.filter(j => j.status === 'completed').length;
+    const total = batch.jobs.length;
+    const allDone = batch.jobs.every(j => j.status === 'completed' || j.status === 'failed');
+    const selCount = batch.jobs.filter(j => j.selected).length;
+
+    const el = document.createElement('div');
+    el.className = 'batch';
+
+    el.innerHTML = `
+      <div class="batch-hdr">
+        <div class="title">${batch.key}${batch.direction === 'nw-se' ? ' <span style="color:#58a6ff;font-size:11px;">(NW→SE reverse)</span>' : ''}</div>
+        <div class="info">${allDone ? done + '/' + total + ' ready' : '<span class="spinner"></span>' + done + '/' + total}</div>
+      </div>
+      <div class="batch-grid" id="bg-${batch.id}"></div>
+      <div class="batch-acts">
+        <button class="btn btn-green" onclick="saveBatch('${batch.id}')" ${selCount===0?'disabled':''}>Save${selCount?' ('+selCount+')':''}</button>
+        <button class="btn btn-ghost" onclick="selAll('${batch.id}')">All</button>
+        <button class="btn btn-ghost" onclick="selNone('${batch.id}')">None</button>
+        <div style="flex:1"></div>
+        <span style="font-size:10px;color:#484f58;">${ASYMMETRIC[batch.key] ? 'Asymmetric — use Reverse for other direction' : 'Symmetric — flipped copy auto-saved'}</span>
+        <button class="btn btn-red" onclick="rmBatch('${batch.id}')">Dismiss</button>
+      </div>`;
+
+    const grid = el.querySelector(`#bg-${batch.id}`);
+    batch.jobs.forEach((job, idx) => {
+      const card = document.createElement('div');
+      card.className = 'gc' + (job.selected ? ' sel' : '');
+
+      if (job.status === 'completed' && job.downloadUrl) {
+        card.innerHTML = `<div class="iw"><img src="/api/proxy-image?url=${encodeURIComponent(job.downloadUrl)}"/></div><div class="chk">✓</div>`;
+        card.onclick = () => { job.selected = !job.selected; renderBatches(); };
+      } else if (job.status === 'failed') {
+        card.innerHTML = '<div class="iw"><div class="ph" style="color:#da3633;">✗</div></div>';
+      } else {
+        card.innerHTML = '<div class="iw"><div class="ph"><span class="spinner" style="width:14px;height:14px;"></span></div></div>';
+        card.style.cursor = 'default';
+      }
+      grid.appendChild(card);
+    });
+    container.appendChild(el);
+  }
+}
+
+function selAll(bid) { const b = batches.find(x=>x.id===bid); if(b) b.jobs.forEach(j=>{if(j.status==='completed')j.selected=true;}); renderBatches(); }
+function selNone(bid) { const b = batches.find(x=>x.id===bid); if(b) b.jobs.forEach(j=>j.selected=false); renderBatches(); }
+function rmBatch(bid) { batches = batches.filter(b=>b.id!==bid); renderBatches(); if(!batches.length) document.getElementById('emptyState').style.display=''; }
+
+async function saveBatch(bid) {
+  const batch = batches.find(b=>b.id===bid);
+  if(!batch) return;
+  const isAsym = ASYMMETRIC[batch.key] || false;
+  const toSave = batch.jobs.filter(j=>j.selected && j.status==='completed');
+  for (const j of toSave) {
+    await fetch('/api/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        spriteKey: batch.key,
+        downloadUrl: j.downloadUrl,
+        direction: batch.direction || 'ne-sw',
+        assetType: batch.type,
+        autoFlip: !isAsym
+      })
+    });
+    j.selected = false;
+  }
+  await reloadAssets();
+  renderBatches();
+}
+
+// ── Polling ──
+function startPolling() { if (!pollTimer) pollTimer = setInterval(pollAll, 3000); }
+
+async function pollAll() {
+  const pending = [];
+  for (const b of batches) for (const j of b.jobs) {
+    if (j.objectId && j.status === 'processing') pending.push(j);
+  }
+  if (!pending.length) {
+    clearInterval(pollTimer); pollTimer = null;
+    document.querySelectorAll('.nav-item.generating').forEach(el => {
+      const key = el.dataset.key;
+      if (!batches.some(b => b.key===key && b.jobs.some(j=>j.status==='processing'))) el.classList.remove('generating');
+    });
+    return;
+  }
+
+  const ids = pending.map(j => j.isTile ? {id:j.objectId, isTile:true} : j.objectId);
+  try {
+    const res = await fetch('/api/status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({objectIds:ids})});
+    const data = await res.json();
+    for (const r of data.results) {
+      const j = pending.find(x=>x.objectId===r.objectId);
+      if(j) { j.status = r.status; if(r.downloadUrl) j.downloadUrl = r.downloadUrl; }
+    }
+    renderBatches();
+    document.querySelectorAll('.nav-item.generating').forEach(el => {
+      const key = el.dataset.key;
+      if (!batches.some(b => b.key===key && b.jobs.some(j=>j.status==='processing'))) el.classList.remove('generating');
+    });
+  } catch(e) { console.error('Poll error:', e); }
+}
+
+init();
+</script>
+</body>
+</html>
