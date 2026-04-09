@@ -26,19 +26,14 @@ export class TerrainBuilder {
     const geo = new THREE.PlaneGeometry(2, 2);
     geo.rotateX(-Math.PI / 2);
 
-    // Material: use grass texture if available, else fallback color
-    const grassTex = this._textureManager.get('assets/tiles/grass_tile_0.png');
-    const matParams = {
+    // Material: solid color — existing tile textures are isometric diamond sprites
+    // which don't work on 3D planes. Flat textures will be generated via PixelLab later.
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x338833,
       roughness: 1.0,
       metalness: 0.0,
       side: THREE.FrontSide,
-    };
-    if (grassTex) {
-      matParams.map = grassTex;
-    } else {
-      matParams.color = 0x338833;
-    }
-    const mat = new THREE.MeshStandardMaterial(matParams);
+    });
 
     // InstancedMesh
     const mesh = new THREE.InstancedMesh(geo, mat, terrainData.length);

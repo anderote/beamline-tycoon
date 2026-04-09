@@ -49,18 +49,13 @@ export class InfraBuilder {
       const geo = new THREE.PlaneGeometry(2, 2);
       geo.rotateX(-Math.PI / 2);
 
-      // Material: use tile texture if available, else fallback color
-      const tileInfo = this._textureManager.getTileInfo(type);
-      const matParams = {
+      // Material: solid color — existing tile textures are isometric diamond sprites
+      // which don't work on 3D planes. Flat textures will be generated via PixelLab later.
+      const mat = new THREE.MeshStandardMaterial({
+        color: infra.topColor ?? infra.color ?? 0x888888,
         roughness: 0.9,
         metalness: 0.0,
-      };
-      if (tileInfo && tileInfo.texture) {
-        matParams.map = tileInfo.texture;
-      } else {
-        matParams.color = infra.topColor ?? infra.color ?? 0x888888;
-      }
-      const mat = new THREE.MeshStandardMaterial(matParams);
+      });
 
       // InstancedMesh
       const mesh = new THREE.InstancedMesh(geo, mat, tiles.length);
