@@ -31,37 +31,36 @@ Renderer.prototype._updateHUD = function() {
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
 
-  // Beam stats (top-left panel) — show selected beamline or facility summary
-  const selectedId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
-  const selectedEntry = selectedId ? this.game.registry.get(selectedId) : null;
-
-  if (selectedEntry) {
-    const bs = selectedEntry.beamState;
-    if (bs.beamEnergy) {
-      const e = formatEnergy(bs.beamEnergy);
-      setEl('stat-beam-energy', e.val);
-      setEl('stat-beam-energy-unit', e.unit);
-    } else {
-      setEl('stat-beam-energy', '0.0');
-      setEl('stat-beam-energy-unit', 'GeV');
-    }
-    setEl('stat-beam-quality', bs.beamQuality ? bs.beamQuality.toFixed(2) : '--');
-    setEl('stat-beam-current', bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--');
-    setEl('stat-data-rate', bs.dataRate ? bs.dataRate.toFixed(1) : '0');
-    setEl('stat-length', bs.totalLength || 0);
-    setEl('stat-energy-cost', bs.totalEnergyCost || 0);
-  } else {
-    // Facility summary — aggregate across all beamlines
+  // Facility overview (top-left panel) — aggregated stats across all beamlines/machines
+  {
     const entries = this.game.registry.getAll();
     const totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.dataRate || 0), 0);
-    const totalEnergyCost = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
-    setEl('stat-beam-energy', '--');
-    setEl('stat-beam-energy-unit', '');
-    setEl('stat-beam-quality', '--');
-    setEl('stat-beam-current', '--');
+    const totalBeamPower = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
+    const totalLength = entries.reduce((sum, e) => sum + (e.beamState.totalLength || 0), 0);
+    let peakEnergy = 0;
+    for (const e of entries) {
+      if ((e.beamState.beamEnergy || 0) > peakEnergy) peakEnergy = e.beamState.beamEnergy;
+    }
+
+    // Power stats from systemStats
+    const totalPower = ss && ss.power ? Math.round(ss.power.totalDraw) : 0;
+    const rfPower = ss && ss.rfPower ? Math.round(ss.rfPower.totalFwdPower || 0) : 0;
+    const coolingPower = ss && ss.cooling ? Math.round(ss.cooling.energyDraw || 0) : 0;
+
+    setEl('stat-total-power', totalPower);
+    setEl('stat-rf-power', rfPower);
+    setEl('stat-beam-power', Math.round(totalBeamPower));
+    setEl('stat-cooling-power', coolingPower);
+    setEl('stat-total-length', Math.round(totalLength));
+    if (peakEnergy > 0) {
+      const e = formatEnergy(peakEnergy);
+      setEl('stat-peak-energy', e.val);
+      setEl('stat-peak-energy-unit', e.unit);
+    } else {
+      setEl('stat-peak-energy', '0');
+      setEl('stat-peak-energy-unit', 'GeV');
+    }
     setEl('stat-data-rate', totalDataRate ? totalDataRate.toFixed(1) : '0');
-    setEl('stat-length', '--');
-    setEl('stat-energy-cost', totalEnergyCost || 0);
   }
 
   this._updateBeamSummary();
@@ -795,7 +794,9 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const nameEl = document.createElement('div');
         nameEl.className = 'palette-name';
-        nameEl.textContent = furn.name;
+        const gw = furn.gridW || 1;
+        const gh = furn.gridH || 1;
+        nameEl.textContent = `${furn.name} (${gw}x${gh})`;
         item.appendChild(nameEl);
 
         const costEl = document.createElement('div');
