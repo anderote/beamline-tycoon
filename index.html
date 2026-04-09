@@ -93,8 +93,29 @@
       </div>
     </div>
 
+    <!-- Wall visibility control (lower-right, above bottom HUD) -->
+    <div id="wall-visibility-control">
+      <button class="wall-vis-btn active" data-wall-mode="up" title="Walls Up">
+        <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" fill="currentColor" opacity="0.8"/></svg>
+      </button>
+      <button class="wall-vis-btn" data-wall-mode="cutaway" title="Cutaway">
+        <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" fill="currentColor" opacity="0.8"/><rect x="6" y="6" width="8" height="8" fill="#1a1a2e"/></svg>
+      </button>
+      <button class="wall-vis-btn" data-wall-mode="transparent" title="Walls Transparent">
+        <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2" opacity="0.6"/></svg>
+      </button>
+      <button class="wall-vis-btn" data-wall-mode="down" title="Walls Down">
+        <svg width="16" height="16" viewBox="0 0 16 16"><line x1="3" y1="13" x2="13" y2="3" stroke="currentColor" stroke-width="1.5" opacity="0.5"/></svg>
+      </button>
+    </div>
+
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
+      <div id="dsgn-palette-actions" class="dsgn-palette-actions hidden">
+        <span class="dsgn-palette-hint">Click component to:</span>
+        <button class="dsgn-action-btn active" id="dsgn-action-replace" title="Replace selected component (Tab to toggle)">Replace</button>
+        <button class="dsgn-action-btn" id="dsgn-action-insert" title="Insert at nearest edge (Tab to toggle)">Insert</button>
+      </div>
       <div id="hud-controls">
         <div id="hud-top-row">
           <div id="mode-switcher">
@@ -105,6 +126,7 @@
                 <!-- dynamically generated machine type options -->
               </div>
             </div>
+            <button class="mode-btn" data-mode="infra">Infra</button>
             <button class="mode-btn" data-mode="facility">Facility</button>
             <button class="mode-btn" data-mode="structure">Structure</button>
             <button class="mode-btn" data-mode="grounds">Grounds</button>
@@ -175,8 +197,6 @@
         <div class="dsgn-draft-bar">
           <span class="dsgn-draft-summary" id="dsgn-draft-summary"></span>
           <span class="dsgn-draft-cost" id="dsgn-draft-cost"></span>
-          <button class="dsgn-btn dsgn-insert-before" id="dsgn-insert-before" title="Insert Before Selected">+ Before</button>
-          <button class="dsgn-btn dsgn-insert-after" id="dsgn-insert-after" title="Insert After Selected">+ After</button>
           <button class="dsgn-btn dsgn-save-design" id="dsgn-save-design" style="display:none">Save Design</button>
           <button class="dsgn-btn dsgn-save-as" id="dsgn-save-as" style="display:none">Save As</button>
           <button class="dsgn-btn dsgn-confirm" id="dsgn-confirm">Confirm</button>

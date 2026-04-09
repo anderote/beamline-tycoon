@@ -4,7 +4,7 @@
 
 import { Renderer, isFacilityCategory } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, WALL_TYPES } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { MODES, CONNECTION_TYPES } from '../data/modes.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
@@ -102,6 +102,11 @@ Renderer.prototype._generateCategoryTabs = function() {
   const catKeys = Object.keys(mode.categories);
   catKeys.forEach((key, idx) => {
     const cat = mode.categories[key];
+    if (cat.separatorBefore) {
+      const sep = document.createElement('div');
+      sep.className = 'cat-tab-separator';
+      tabsContainer.appendChild(sep);
+    }
     const btn = document.createElement('button');
     btn.className = 'cat-tab' + (idx === 0 ? ' active' : '');
     btn.dataset.category = key;
@@ -306,8 +311,78 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
+  if (compCategory === 'doors') {
+    const doorKeys = Object.keys(DOOR_TYPES);
+    const catDef = MODES.structure.categories.doors;
+    const subsections = catDef.subsections;
+    const subKeys = Object.keys(subsections);
+    let renderedSections = 0;
+    for (const subKey of subKeys) {
+      const subDef = subsections[subKey];
+      const subItems = doorKeys.filter(k => DOOR_TYPES[k]?.subsection === subKey);
+      if (subItems.length === 0) continue;
+
+      if (renderedSections > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'palette-subsection-divider';
+        palette.appendChild(divider);
+      }
+
+      const section = document.createElement('div');
+      section.className = 'palette-subsection';
+      const label = document.createElement('div');
+      label.className = 'palette-subsection-label';
+      label.textContent = subDef.name;
+      section.appendChild(label);
+
+      const itemsContainer = document.createElement('div');
+      itemsContainer.className = 'palette-subsection-items';
+
+      for (const key of subItems) {
+        const door = DOOR_TYPES[key];
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const affordable = this.game.state.resources.funding >= door.cost;
+        if (!affordable) item.classList.add('unaffordable');
+
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const swatch = document.createElement('div');
+        const c = door.topColor || door.color || 0x888888;
+        swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+        previewEl.appendChild(swatch);
+        item.appendChild(previewEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = door.name;
+        item.appendChild(nameEl);
+
+        const costEl = document.createElement('div');
+        costEl.className = 'palette-cost';
+        costEl.textContent = `$${door.cost}/seg`;
+        item.appendChild(costEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onDoorSelect) this._onDoorSelect(key);
+        });
+
+        itemsContainer.appendChild(item);
+      }
+
+      section.appendChild(itemsContainer);
+      palette.appendChild(section);
+      renderedSections++;
+    }
+    return;
+  }
+
   if (compCategory === 'flooring') {
-    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway', 'groomedGrass', 'pavement', 'dirt', 'cobblestone', 'brick'];
+    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
     const catDef = MODES.structure.categories.flooring;
     const subsections = catDef.subsections;
     const subKeys = Object.keys(subsections);
@@ -382,7 +457,14 @@ Renderer.prototype._renderPalette = function(tabCategory) {
             for (let vi = 0; vi < infra.variants.length; vi++) {
               const vBtn = document.createElement('div');
               vBtn.className = 'param-flyout-btn';
-              vBtn.textContent = infra.variants[vi];
+              // Add color swatch if variant tints are defined
+              if (infra.variantTints && infra.variantTints[vi] != null) {
+                const dot = document.createElement('span');
+                const c = infra.variantTints[vi];
+                dot.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:50%;background:#${c.toString(16).padStart(6,'0')};margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,0.3);`;
+                vBtn.appendChild(dot);
+              }
+              vBtn.appendChild(document.createTextNode(infra.variants[vi]));
               const variantIdx = vi;
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -428,6 +510,104 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       section.appendChild(itemsContainer);
       palette.appendChild(section);
       renderedSections++;
+    }
+    return;
+  }
+
+  // Surfaces tab (Grounds mode): show outdoor surface infrastructure items
+  const surfaceCatDef = MODES.grounds?.categories?.[compCategory];
+  if (surfaceCatDef?.isSurfaceTab) {
+    const surfaceKeys = Object.keys(INFRASTRUCTURE).filter(k => INFRASTRUCTURE[k].groundsSurface);
+    for (const key of surfaceKeys) {
+      const infra = INFRASTRUCTURE[key];
+      const item = document.createElement('div');
+      item.className = 'palette-item';
+      item.dataset.paletteIndex = paletteIdx;
+      const idx = paletteIdx++;
+
+      const affordable = this.game.state.resources.funding >= infra.cost;
+      if (!affordable) item.classList.add('unaffordable');
+
+      // Tile preview
+      const previewEl = document.createElement('div');
+      previewEl.className = 'palette-preview';
+      const tilePath2 = this.sprites.getTilePath(key);
+      if (tilePath2) {
+        const img = document.createElement('img');
+        img.src = tilePath2;
+        img.alt = infra.name;
+        previewEl.appendChild(img);
+      } else {
+        const swatch = document.createElement('div');
+        const c = infra.topColor || infra.color || 0x888888;
+        swatch.style.cssText = `width:48px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);`;
+        previewEl.appendChild(swatch);
+      }
+      item.appendChild(previewEl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'palette-name';
+      nameEl.textContent = infra.name;
+      item.appendChild(nameEl);
+
+      const costEl = document.createElement('div');
+      costEl.className = 'palette-cost';
+      costEl.textContent = `$${infra.cost}/tile`;
+      item.appendChild(costEl);
+
+      if (infra.variants && infra.variants.length > 1) {
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          this._removeParamFlyout();
+          const flyout = document.createElement('div');
+          flyout.className = 'param-flyout';
+
+          for (let vi = 0; vi < infra.variants.length; vi++) {
+            const vBtn = document.createElement('div');
+            vBtn.className = 'param-flyout-btn';
+            if (infra.variantTints && infra.variantTints[vi] != null) {
+              const dot = document.createElement('span');
+              const c = infra.variantTints[vi];
+              dot.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:50%;background:#${c.toString(16).padStart(6,'0')};margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,0.3);`;
+              vBtn.appendChild(dot);
+            }
+            vBtn.appendChild(document.createTextNode(infra.variants[vi]));
+            const variantIdx = vi;
+            vBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
+              flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+              vBtn.classList.add('active');
+              this._removeParamFlyout();
+            });
+            flyout.appendChild(vBtn);
+          }
+
+          document.body.appendChild(flyout);
+          const rect = item.getBoundingClientRect();
+          flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+          flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+          this._activeParamFlyout = flyout;
+
+          if (this._onInfraSelect) this._onInfraSelect(key, 0);
+          flyout.querySelector('.param-flyout-btn')?.classList.add('active');
+
+          const closeHandler = (e) => {
+            if (!flyout.contains(e.target) && !item.contains(e.target)) {
+              this._removeParamFlyout();
+              document.removeEventListener('click', closeHandler, true);
+            }
+          };
+          setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+        });
+      } else {
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onInfraSelect) this._onInfraSelect(key);
+        });
+      }
+
+      palette.appendChild(item);
     }
     return;
   }
@@ -485,8 +665,8 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
-  // Structure mode — Zone tabs: show zone paint tool + furnishings
-  const zoneCatDef = MODES.structure?.categories?.[compCategory];
+  // Zone tabs (facility mode): show zone paint tool + furnishings
+  const zoneCatDef = MODES.facility?.categories?.[compCategory];
   if (zoneCatDef?.isZoneTab) {
     const zoneType = zoneCatDef.zoneType;
     const zone = ZONES[zoneType];
@@ -612,6 +792,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
       { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
       { key: 'demolishWall', name: 'Remove Walls', desc: 'Click or drag to remove wall segments', color: '#a86' },
+      { key: 'demolishAll', name: 'Clear Everything', desc: 'Strip tiles back to natural grass', color: '#c22' },
     ];
 
     for (const tool of demolishTools) {
@@ -1020,6 +1201,17 @@ Renderer.prototype._bindHUDEvents = function() {
       }
     });
   });
+
+  // Wall visibility mode buttons
+  document.querySelectorAll('.wall-vis-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.wall-vis-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      this.wallVisibilityMode = btn.dataset.wallMode;
+      this._cutawayHoverKey = null; // force room re-detection
+      this._applyWallVisibility();
+    });
+  });
 };
 
 // --- System Stats Panel ---
@@ -1027,7 +1219,7 @@ Renderer.prototype._bindHUDEvents = function() {
 Renderer.prototype._updateSystemStatsVisibility = function() {
   const panel = document.getElementById('system-stats-panel');
   if (!panel) return;
-  if (this.activeMode === 'facility') {
+  if (this.activeMode === 'facility' || this.activeMode === 'infra') {
     panel.classList.remove('hidden');
   } else {
     panel.classList.add('hidden');

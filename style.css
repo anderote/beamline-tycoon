@@ -315,6 +315,47 @@ body {
 
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
 
+/* === WALL VISIBILITY CONTROL === */
+#wall-visibility-control {
+  position: absolute;
+  bottom: 90px;
+  right: 12px;
+  z-index: 101;
+  display: flex;
+  gap: 2px;
+  background: rgba(20, 20, 40, 0.85);
+  border: 1px solid rgba(100, 100, 160, 0.3);
+  border-radius: 4px;
+  padding: 3px;
+}
+
+.wall-vis-btn {
+  width: 24px;
+  height: 24px;
+  background: rgba(40, 40, 70, 0.8);
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  color: #8888aa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.wall-vis-btn:hover {
+  background: rgba(60, 60, 100, 0.8);
+  border-color: rgba(120, 120, 180, 0.6);
+  color: #aaaacc;
+}
+
+.wall-vis-btn.active {
+  background: rgba(80, 80, 140, 0.6);
+  border-color: rgba(140, 140, 200, 0.7);
+  color: #ccccee;
+}
+
 /* === BOTTOM HUD === */
 #bottom-hud {
   position: absolute;
@@ -371,6 +412,13 @@ body {
   border-color: rgba(100, 140, 220, 0.6);
 }
 
+.cat-tab-separator {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(80, 80, 120, 0.4);
+  margin: 2px 4px;
+}
+
 /* HUD buttons */
 #hud-buttons {
   display: flex;
@@ -410,6 +458,44 @@ body {
 }
 
 /* Component palette */
+.dsgn-palette-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 5px 12px;
+  background: rgba(20, 20, 45, 0.95);
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+  border-top: 1px solid rgba(68, 136, 255, 0.25);
+}
+.dsgn-palette-actions.hidden {
+  display: none;
+}
+.dsgn-palette-hint {
+  font-family: monospace;
+  font-size: 10px;
+  color: #556;
+}
+.dsgn-action-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 3px 10px;
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+  cursor: pointer;
+  background: rgba(30, 30, 55, 0.7);
+  color: #889;
+  transition: background 0.15s, color 0.15s;
+}
+.dsgn-action-btn.active {
+  background: rgba(68, 136, 255, 0.3);
+  border-color: rgba(68, 136, 255, 0.5);
+  color: #aaccff;
+}
+.dsgn-action-btn:hover:not(.active) {
+  background: rgba(50, 50, 80, 0.8);
+  color: #bbc;
+}
 #component-palette {
   display: flex;
   gap: 6px;
@@ -1476,7 +1562,7 @@ body {
 /* === COMPONENT PREVIEW PANEL === */
 #component-preview {
   position: absolute;
-  bottom: 200px;
+  bottom: 230px;
   left: 12px;
   z-index: 110;
   background: rgba(15, 15, 35, 0.92);
@@ -2071,6 +2157,46 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
 }
+.dsgn-tuning-params .param-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-family: monospace;
+}
+.dsgn-tuning-params .param-toggle-group {
+  display: flex;
+  gap: 0;
+}
+.dsgn-tuning-params .param-toggle-btn {
+  font-family: monospace;
+  font-size: 11px;
+  padding: 3px 12px;
+  background: rgba(30, 30, 55, 0.7);
+  color: #889;
+  border: 1px solid rgba(80, 80, 120, 0.3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.dsgn-tuning-params .param-toggle-btn:first-child {
+  border-radius: 3px 0 0 3px;
+}
+.dsgn-tuning-params .param-toggle-btn:last-child {
+  border-radius: 0 3px 3px 0;
+}
+.dsgn-tuning-params .param-toggle-btn:not(:first-child) {
+  border-left: none;
+}
+.dsgn-tuning-params .param-toggle-btn.active {
+  background: rgba(68, 136, 255, 0.35);
+  color: #cdf;
+  border-color: rgba(68, 136, 255, 0.5);
+}
+.dsgn-tuning-params .param-toggle-btn:hover:not(.active) {
+  background: rgba(50, 50, 80, 0.8);
+  color: #bbc;
+}
 .dsgn-plot-range-bar {
   display: flex;
   align-items: center;
@@ -2163,8 +2289,21 @@ body {
   border-color: rgba(100, 150, 255, 0.6);
   background: rgba(35, 35, 65, 0.95);
 }
+.dsgn-palette-card.kb-focus {
+  border-color: rgba(100, 180, 255, 0.8);
+  background: rgba(40, 50, 80, 0.95);
+  box-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
+}
 .dsgn-palette-card.unaffordable {
   opacity: 0.4;
+}
+.dsgn-focus-active {
+  outline: 1px solid rgba(100, 150, 255, 0.3);
+  outline-offset: 2px;
+}
+.cat-tab.kb-focus {
+  border-color: rgba(100, 180, 255, 0.8);
+  box-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
 }
 .dsgn-card-schematic {
   background: #0a0a1a;
