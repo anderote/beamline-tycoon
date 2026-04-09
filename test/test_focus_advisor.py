@@ -82,5 +82,40 @@ class TestFocusFieldsInGameOutput(unittest.TestCase):
             self.assertIn("focus_urgency", point)
 
 
+class TestFocusAdvisorIntegration(unittest.TestCase):
+    """End-to-end: game beamline through full pipeline produces focus data."""
+
+    def test_unfocused_beamline_has_high_urgency(self):
+        """A beamline with no quads should show high urgency somewhere."""
+        beamline = json.dumps([
+            {"type": "source", "length": 1, "stats": {}},
+            {"type": "drift", "length": 5, "stats": {}},
+            {"type": "drift", "length": 5, "stats": {}},
+            {"type": "drift", "length": 5, "stats": {}},
+        ])
+        result = json.loads(compute_beam_for_game(beamline))
+        max_urgency = max(p["focus_urgency"] for p in result["envelope"])
+        self.assertGreater(max_urgency, 0.5,
+                          "Long unfocused beamline should have high urgency")
+
+    def test_well_focused_beamline_has_low_urgency(self):
+        """A proper FODO lattice should keep urgency low throughout."""
+        beamline = json.dumps([
+            {"type": "source", "length": 1, "stats": {}},
+            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+             "params": {"polarity": 0}},
+            {"type": "drift", "length": 1, "stats": {}},
+            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+             "params": {"polarity": 1}},
+            {"type": "drift", "length": 1, "stats": {}},
+            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+             "params": {"polarity": 0}},
+        ])
+        result = json.loads(compute_beam_for_game(beamline))
+        max_urgency = max(p["focus_urgency"] for p in result["envelope"])
+        self.assertLess(max_urgency, 0.5,
+                       "Well-focused FODO should keep urgency low")
+
+
 if __name__ == "__main__":
     unittest.main()
