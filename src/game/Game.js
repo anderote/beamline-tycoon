@@ -1758,6 +1758,98 @@ export class Game {
     return { zoneOutput, research };
   }
 
+  _detectRoom(startCol, startRow) {
+    const wallOcc = this.state.wallOccupied || {};
+    const doorOcc = this.state.doorOccupied || {};
+    const room = new Set();
+    const queue = [`${startCol},${startRow}`];
+    room.add(queue[0]);
+    const MAX_TILES = 500;
+
+    const edgeBlocked = (wallKey1, wallKey2, doorKey1, doorKey2) =>
+      (wallOcc[wallKey1] || wallOcc[wallKey2]) && !doorOcc[doorKey1] && !doorOcc[doorKey2];
+
+    while (queue.length > 0 && room.size < MAX_TILES) {
+      const key = queue.shift();
+      const [c, r] = key.split(',').map(Number);
+
+      const eKey = `${c + 1},${r}`;
+      if (!room.has(eKey) && !edgeBlocked(`${c},${r},e`, `${c+1},${r},w`, `${c},${r},e`, `${c+1},${r},w`)) {
+        room.add(eKey); queue.push(eKey);
+      }
+      const wKey = `${c - 1},${r}`;
+      if (!room.has(wKey) && !edgeBlocked(`${c-1},${r},e`, `${c},${r},w`, `${c-1},${r},e`, `${c},${r},w`)) {
+        room.add(wKey); queue.push(wKey);
+      }
+      const sKey = `${c},${r + 1}`;
+      if (!room.has(sKey) && !edgeBlocked(`${c},${r},s`, `${c},${r+1},n`, `${c},${r},s`, `${c},${r+1},n`)) {
+        room.add(sKey); queue.push(sKey);
+      }
+      const nKey = `${c},${r - 1}`;
+      if (!room.has(nKey) && !edgeBlocked(`${c},${r-1},s`, `${c},${r},n`, `${c},${r-1},s`, `${c},${r},n`)) {
+        room.add(nKey); queue.push(nKey);
+      }
+    }
+    return room;
+  }
+
+  computeRoomMorale() {
+    const roomMorale = new Map();
+    const tileToRoom = {};
+    const processed = new Set();
+
+    for (const furn of this.state.zoneFurnishings) {
+      const furnDef = ZONE_FURNISHINGS[furn.type];
+      if (!furnDef || !furnDef.effects || !furnDef.effects.morale) continue;
+
+      const key = furn.col + ',' + furn.row;
+      let room = tileToRoom[key];
+      if (!room && !processed.has(key)) {
+        room = this._detectRoom(furn.col, furn.row);
+        for (const tileKey of room) {
+          tileToRoom[tileKey] = room;
+          processed.add(tileKey);
+        }
+      }
+      if (!room) continue;
+
+      const roomKey = [...room].sort()[0];
+      const current = roomMorale.get(roomKey) || 0;
+      roomMorale.set(roomKey, current + furnDef.effects.morale);
+    }
+
+    return roomMorale;
+  }
+
+  getBeamPhysicsEffects() {
+    const results = [];
+
+    for (const furn of this.state.zoneFurnishings) {
+      const furnDef = ZONE_FURNISHINGS[furn.type];
+      if (!furnDef || !furnDef.effects || !furnDef.effects.beamPhysics) continue;
+
+      const room = this._detectRoom(furn.col, furn.row);
+
+      for (const entry of this.registry.getAll()) {
+        for (const node of entry.nodes) {
+          for (const tile of (node.tiles || [{ col: node.col, row: node.row }])) {
+            const tileKey = tile.col + ',' + tile.row;
+            if (room.has(tileKey)) {
+              results.push({
+                beamlineId: entry.id,
+                effects: furnDef.effects.beamPhysics,
+                furnishingId: furn.id,
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
   computeSystemStats() {
     const result = computeSystemStats(this.state);
     this.state.systemStats = result;
@@ -1782,6 +1874,12 @@ export class Game {
 
     // Decoration effects
     this.state.moraleMultiplier = computeMoraleMultiplier(this.state.decorations);
+    const roomMorale = this.computeRoomMorale();
+    let totalFurnishingMorale = 0;
+    for (const [, morale] of roomMorale) {
+      totalFurnishingMorale += morale;
+    }
+    this.state.furnishingMorale = totalFurnishingMorale;
     this.state.reputationTier = getReputationTier(this.state.decorations.length);
 
     // === Revenue ===
