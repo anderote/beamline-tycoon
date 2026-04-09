@@ -866,34 +866,9 @@ Renderer.prototype._renderZoneFurnishings = function() {
   }
 };
 
-Renderer.prototype._renderSubgridOverlay = function(col, row) {
-  // Draw 4x4 iso sub-grid lines on the given tile
-  const tilePos = gridToIso(col, row);
-  const gfx = new PIXI.Graphics();
-  gfx.setStrokeStyle({ width: 0.5, color: 0x4a9eff, alpha: 0.4 });
+Renderer.prototype._renderFurnishingPreview = function(col, row, subCol, subRow, furnType, rotated) {
+  this.dragPreviewLayer.removeChildren();
 
-  // Draw lines along each iso axis
-  for (let i = 0; i <= 4; i++) {
-    // Lines parallel to NE-SW axis (varying subRow)
-    const startNE = subGridToIso(0, i);
-    const endNE = subGridToIso(4, i);
-    gfx.moveTo(tilePos.x + startNE.x, tilePos.y + startNE.y);
-    gfx.lineTo(tilePos.x + endNE.x, tilePos.y + endNE.y);
-    gfx.stroke();
-
-    // Lines parallel to NW-SE axis (varying subCol)
-    const startNW = subGridToIso(i, 0);
-    const endNW = subGridToIso(i, 4);
-    gfx.moveTo(tilePos.x + startNW.x, tilePos.y + startNW.y);
-    gfx.lineTo(tilePos.x + endNW.x, tilePos.y + endNW.y);
-    gfx.stroke();
-  }
-
-  gfx.zIndex = (col + row) * 16 + 20; // Above furnishings
-  this.zoneLayer.addChild(gfx);
-};
-
-Renderer.prototype._renderFurnishingGhost = function(col, row, subCol, subRow, furnType, rotated) {
   const furnDef = ZONE_FURNISHINGS[furnType];
   if (!furnDef) return;
 
@@ -913,30 +888,34 @@ Renderer.prototype._renderFurnishingGhost = function(col, row, subCol, subRow, f
   }
 
   const tilePos = gridToIso(col, row);
-  const color = valid ? 0x44ff44 : 0xff4444;
+  const color = valid ? 0xffffff : 0xff4444;
   const gfx = new PIXI.Graphics();
 
-  // Draw filled iso diamond for each cell in the footprint
-  for (let r = subRow; r < subRow + gh; r++) {
-    for (let c = subCol; c < subCol + gw; c++) {
-      const top = subGridToIso(c, r);
-      const right = subGridToIso(c + 1, r);
-      const bottom = subGridToIso(c + 1, r + 1);
-      const left = subGridToIso(c, r + 1);
+  // Draw the item footprint as a single outline (outer boundary of all cells)
+  const topPt = subGridToIso(subCol, subRow);
+  const rightPt = subGridToIso(subCol + gw, subRow);
+  const bottomPt = subGridToIso(subCol + gw, subRow + gh);
+  const leftPt = subGridToIso(subCol, subRow + gh);
 
-      gfx.poly([
-        tilePos.x + top.x, tilePos.y + top.y,
-        tilePos.x + right.x, tilePos.y + right.y,
-        tilePos.x + bottom.x, tilePos.y + bottom.y,
-        tilePos.x + left.x, tilePos.y + left.y,
-      ]);
-      gfx.fill({ color, alpha: 0.3 });
-      gfx.stroke({ width: 1, color, alpha: 0.6 });
-    }
-  }
+  gfx.poly([
+    tilePos.x + topPt.x, tilePos.y + topPt.y,
+    tilePos.x + rightPt.x, tilePos.y + rightPt.y,
+    tilePos.x + bottomPt.x, tilePos.y + bottomPt.y,
+    tilePos.x + leftPt.x, tilePos.y + leftPt.y,
+  ]);
+  gfx.stroke({ color, width: 1.5, alpha: 0.8 });
 
-  gfx.zIndex = (col + row) * 16 + 20;
-  this.zoneLayer.addChild(gfx);
+  // Small cross at center of footprint
+  const cx = subGridToIso(subCol + gw / 2, subRow + gh / 2);
+  const ps = 3;
+  gfx.moveTo(tilePos.x + cx.x - ps, tilePos.y + cx.y);
+  gfx.lineTo(tilePos.x + cx.x + ps, tilePos.y + cx.y);
+  gfx.stroke({ color, width: 1.5, alpha: 0.8 });
+  gfx.moveTo(tilePos.x + cx.x, tilePos.y + cx.y - ps);
+  gfx.lineTo(tilePos.x + cx.x, tilePos.y + cx.y + ps);
+  gfx.stroke({ color, width: 1.5, alpha: 0.8 });
+
+  this.dragPreviewLayer.addChild(gfx);
 };
 
 // --- Facility equipment rendering ---

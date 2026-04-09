@@ -649,14 +649,15 @@ export class InputHandler {
             this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
             this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
           }
-          // Render sub-grid overlay and furnishing ghost preview
+          // Render furnishing placement preview
           const key = grid.col + ',' + grid.row;
           if (this.game.state.infraOccupied[key]) {
-            this.renderer._renderSubgridOverlay(grid.col, grid.row);
-            this.renderer._renderFurnishingGhost(
+            this.renderer._renderFurnishingPreview(
               grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
               this.selectedFurnishingTool, this.furnishingRotated
             );
+          } else {
+            this.renderer.dragPreviewLayer.removeChildren();
           }
         }
         // Update design placer position
