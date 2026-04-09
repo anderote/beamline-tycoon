@@ -1212,6 +1212,14 @@ Renderer.prototype._bindHUDEvents = function() {
       this._applyWallVisibility();
     });
   });
+
+  // Hide wall visibility control when not in game view
+  const wallVisControl = document.getElementById('wall-visibility-control');
+  if (wallVisControl && this.game.viewRouter) {
+    this.game.viewRouter.on((view) => {
+      wallVisControl.classList.toggle('hidden', view !== 'game');
+    });
+  }
 };
 
 // --- System Stats Panel ---
