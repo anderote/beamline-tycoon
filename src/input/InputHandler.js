@@ -369,6 +369,12 @@ export class InputHandler {
 
       // Demolish drag start
       if (e.button === 0 && this.demolishMode) {
+        if (this.demolishType === 'demolishWall') {
+          const edge = this._getNearestEdge(e.clientX, e.clientY);
+          this.isDrawingWall = true;
+          this.wallPath = [edge];
+          return;
+        }
         this.isDragging = true;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -482,6 +488,17 @@ export class InputHandler {
           }
           this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
         }
+      } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishWall') {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        const last = this.wallPath[this.wallPath.length - 1];
+        if (edge.col !== last.col || edge.row !== last.row || edge.edge !== last.edge) {
+          const key = `${edge.col},${edge.row},${edge.edge}`;
+          const inPath = this.wallPath.some(p => `${p.col},${p.row},${p.edge}` === key);
+          if (!inPath) {
+            this.wallPath.push(edge);
+          }
+          this.renderer.renderWallPreview(this.wallPath, 'demolishWall');
+        }
       } else if (this.selectedWallTool && !this.isDrawingWall) {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
@@ -551,6 +568,17 @@ export class InputHandler {
         this.game.emit('infrastructureChanged');
         this.isDrawingLine = false;
         this.linePath = [];
+        this.renderer.clearDragPreview();
+        return;
+      }
+
+      // Wall demolish end
+      if (this.demolishType === 'demolishWall' && this.isDrawingWall && this.wallPath.length > 0) {
+        for (const pt of this.wallPath) {
+          this.game.removeWall(pt.col, pt.row, pt.edge);
+        }
+        this.isDrawingWall = false;
+        this.wallPath = [];
         this.renderer.clearDragPreview();
         return;
       }
@@ -799,6 +827,9 @@ export class InputHandler {
         if (this.game.state.infraOccupied[key]) {
           this.game.removeInfraTile(col, row);
         }
+      } else if (this.demolishType === 'demolishWall') {
+        const edge = this._getNearestEdge(screenX, screenY);
+        this.game.removeWall(edge.col, edge.row, edge.edge);
       }
       return;
     }
@@ -1288,7 +1319,7 @@ export class InputHandler {
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture' };
+      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls' };
       this._renderPreview(names[key] || 'Demolish', '', []);
       return;
     }
@@ -1364,7 +1395,7 @@ export class InputHandler {
       return Object.keys(WALL_TYPES);
     }
     if (category === 'demolish') {
-      return ['demolishFloor', 'demolishZone', 'demolishFurnishing'];
+      return ['demolishFloor', 'demolishZone', 'demolishFurnishing', 'demolishWall'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);

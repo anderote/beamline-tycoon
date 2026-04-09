@@ -307,7 +307,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
   }
 
   if (compCategory === 'flooring') {
-    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
+    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway', 'groomedGrass', 'pavement', 'dirt', 'cobblestone', 'brick'];
     const catDef = MODES.structure.categories.flooring;
     const subsections = catDef.subsections;
     const subKeys = Object.keys(subsections);
@@ -611,6 +611,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       { key: 'demolishFurnishing', name: 'Remove Furniture', desc: 'Click to remove placed furnishings', color: '#a48' },
       { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
       { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
+      { key: 'demolishWall', name: 'Remove Walls', desc: 'Click or drag to remove wall segments', color: '#a86' },
     ];
 
     for (const tool of demolishTools) {
