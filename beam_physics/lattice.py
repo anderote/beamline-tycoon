@@ -16,6 +16,9 @@ THIN_MODULES = {"bunch_compression", "collimation", "beam_beam", "fel_gain"}
 # Default sub-step size in meters
 SUB_STEP_SIZE = 0.5
 
+# Fixed number of snapshot sample points returned by propagate()
+SAMPLE_POINTS = 1000
+
 
 def _make_sub_element(element, length_fraction):
     """Create a sub-element with scaled length-proportional properties."""
@@ -166,8 +169,9 @@ def propagate(beamline_config, machine_type=None, source_params=None):
                     # Distance since last focusing element
                     drift_since_focus = context.cumulative_s - last_focus_s
                     # Reference scale based on energy (practical FODO half-cell)
+                    # f = p / (q*c * G * l) with G=20 T/m, l=2m (1-tile quad), q*c=0.2998
                     p_gev = beam.energy
-                    ref_focal = p_gev / (0.2998 * 20.0 * 3.0)
+                    ref_focal = p_gev / (0.2998 * 20.0 * 2.0)
                     ref_scale = max(ref_focal, 1.0)
                     # Component 1: proximity to beam loss
                     loss_urgency = max(0.0, min(1.0, 1.0 - meters_to_loss / (ref_scale * 100.0)))
@@ -220,6 +224,20 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         "final_bunch_length": beam.bunch_length(),
         "n_focusing": n_focusing,
     }
+
+    # Resample snapshots to fixed 1000-point grid
+    if context.snapshots and len(context.snapshots) > 1:
+        total_s = context.snapshots[-1].get("s", 0)
+        if total_s > 0:
+            sample_positions = [i * total_s / (SAMPLE_POINTS - 1) for i in range(SAMPLE_POINTS)]
+            resampled = []
+            snap_idx = 0
+            for target_s in sample_positions:
+                # Advance snap_idx to bracket target_s
+                while snap_idx < len(context.snapshots) - 1 and context.snapshots[snap_idx + 1].get("s", 0) <= target_s:
+                    snap_idx += 1
+                resampled.append(context.snapshots[snap_idx])
+            context.snapshots = resampled
 
     return {
         "snapshots": context.snapshots,
