@@ -43,6 +43,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const spriteManager = new SpriteManager();
 
   const renderer = new Renderer(game, spriteManager);
+  window._renderer = renderer;
   await renderer.init();
 
   await spriteManager.loadTileSprites();
@@ -78,6 +79,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
   renderer._onWallSelect = (wallType) => input.selectWallTool(wallType);
+  renderer._onDoorSelect = (doorType) => input.selectDoorTool(doorType);
   renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
   renderer._onDecorationSelect = (decType) => input.selectDecorationTool(decType);
   renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
@@ -102,6 +104,9 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
       zoom: renderer.zoom,
       worldX: renderer.world.x,
       worldY: renderer.world.y,
+      activeMode: input.activeMode,
+      selectedCategory: input.selectedCategory,
+      route: window.location.hash.slice(1) || 'game',
     };
     this.state.designerState = designer.serializeState();
     origSave();
@@ -120,6 +125,17 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     renderer.world.x = game.state.view.worldX;
     renderer.world.y = game.state.view.worldY;
     renderer.world.scale.set(renderer.zoom);
+    // Restore active mode and selected category/tab
+    if (game.state.view.activeMode && MODES[game.state.view.activeMode]) {
+      input.setActiveMode(game.state.view.activeMode);
+      if (game.state.view.selectedCategory) {
+        input.selectedCategory = game.state.view.selectedCategory;
+        renderer.updatePalette(game.state.view.selectedCategory);
+        document.querySelectorAll('.cat-tab').forEach(t => {
+          t.classList.toggle('active', t.dataset.category === game.state.view.selectedCategory);
+        });
+      }
+    }
   }
 
   if (game.state.probe) {
@@ -219,7 +235,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     }
   });
 
-  router.init();
+  router.init(game.state.view?.route);
   game.start();
 
   BeamPhysics.init().then(() => {
