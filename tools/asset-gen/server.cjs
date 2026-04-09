@@ -19,8 +19,9 @@ const PROJECT = path.join(__dirname, '../..');
 const COMPONENTS_DIR = path.join(PROJECT, 'assets/components');
 const TILES_DIR = path.join(PROJECT, 'assets/tiles');
 const DECORATIONS_DIR = path.join(PROJECT, 'assets/decorations');
+const FURNISHINGS_DIR = path.join(PROJECT, 'assets/furnishings');
 
-for (const d of [COMPONENTS_DIR, TILES_DIR, DECORATIONS_DIR]) {
+for (const d of [COMPONENTS_DIR, TILES_DIR, DECORATIONS_DIR, FURNISHINGS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -84,10 +85,35 @@ function buildCatalog() {
     const furnStart = src.indexOf('ZONE_FURNISHINGS');
     if (furnStart > -1) {
       const furnBlock = src.slice(furnStart, src.indexOf('};', furnStart) + 2);
-      const itemRe = /(\w+):\s*\{[^}]*name:\s*'([^']+)'[^}]*zoneType:\s*'([^']+)'/g;
-      let m;
-      while ((m = itemRe.exec(furnBlock)) !== null) {
-        catalog.furniture[m[1]] = { id: m[1], name: m[2], zoneType: m[3] };
+      const gridWRe = /gridW:\s*(\d+)/;
+      const gridHRe = /gridH:\s*(\d+)/;
+      const spriteColorRe = /spriteColor:\s*(0x[0-9a-fA-F]+)/;
+      // Split furnishing block into per-item blocks
+      const itemBlocks = furnBlock.split(/\n  (\w+):\s*\{/);
+      for (let i = 1; i < itemBlocks.length; i += 2) {
+        const itemId = itemBlocks[i];
+        const block = itemBlocks[i + 1] || '';
+        const name = (block.match(/name:\s*'([^']+)'/) || [])[1] || itemId;
+        const zoneType = (block.match(/zoneType:\s*'([^']+)'/) || [])[1] || '';
+        const gridW = parseInt((block.match(gridWRe) || [])[1]) || 1;
+        const gridH = parseInt((block.match(gridHRe) || [])[1]) || 1;
+        const spriteColor = (block.match(spriteColorRe) || [])[1] || '0x888888';
+        // Compute sprite pixel dimensions
+        const TILE_W = 64;
+        const TILE_H = 32;
+        const floorW = (TILE_W / 4) * gridW;
+        const floorH = (TILE_H / 4) * gridH;
+        const heightAllowance = 16;
+        catalog.furniture[itemId] = {
+          id: itemId,
+          name,
+          zoneType,
+          gridW,
+          gridH,
+          spriteColor,
+          spritePixelW: Math.max(floorW, 16),
+          spritePixelH: floorH + heightAllowance,
+        };
       }
     }
   } catch (e) {
