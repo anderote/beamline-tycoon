@@ -1732,10 +1732,38 @@ export class Game {
 
   // === SYSTEM STATS (delegates to economy module) ===
 
+  computeZoneFurnishingBonuses() {
+    // Returns { zoneOutput: { zoneType -> totalBonus }, research: { zoneType -> totalBonus } }
+    const zoneOutput = {};
+    const research = {};
+
+    for (const furn of this.state.zoneFurnishings) {
+      const furnDef = ZONE_FURNISHINGS[furn.type];
+      if (!furnDef || !furnDef.effects) continue;
+
+      const key = furn.col + ',' + furn.row;
+      const tileZone = this.state.zoneOccupied[key];
+
+      // zoneOutput only applies in the preferred zone
+      if (furnDef.effects.zoneOutput && tileZone === furnDef.zoneType) {
+        zoneOutput[tileZone] = (zoneOutput[tileZone] || 0) + furnDef.effects.zoneOutput;
+      }
+
+      // research applies in the preferred zone
+      if (furnDef.effects.research && tileZone === furnDef.zoneType) {
+        research[tileZone] = (research[tileZone] || 0) + furnDef.effects.research;
+      }
+    }
+
+    return { zoneOutput, research };
+  }
+
   computeSystemStats() {
     const result = computeSystemStats(this.state);
     this.state.systemStats = result;
     this.state.avgPressure = result.avgPressure;
+    const furnBonuses = this.computeZoneFurnishingBonuses();
+    this.state.zoneFurnishingBonuses = furnBonuses;
   }
 
   // === GAME LOOP ===
