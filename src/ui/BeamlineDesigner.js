@@ -6,6 +6,10 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 
+// Must match beam_physics/gameplay.py LENGTH_SCALE
+// 1 game tile = 10 ft = 3.048 m
+const LENGTH_SCALE = 3.048;
+
 export class BeamlineDesigner {
   constructor(game, renderer) {
     this.game = game;
@@ -234,17 +238,37 @@ export class BeamlineDesigner {
     this.designId = null;
     this.designName = '';
 
-    // Clone the ordered node list for draft editing
+    // Check for saved draft state for this beamline
+    const savedDraft = this.game.state.designerState;
+    const hasSavedDraft = savedDraft && savedDraft.mode === 'edit' && savedDraft.beamlineId === beamlineId;
+
+    // Clone the ordered node list as the original (pre-edit) snapshot
     const ordered = entry.beamline.getOrderedComponents();
     this.originalNodes = ordered.map(n => this._cloneNode(n));
-    this.draftNodes = ordered.map(n => this._cloneNode(n));
-    this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+
+    if (hasSavedDraft && savedDraft.draftNodes.length > 0) {
+      // Restore saved draft
+      this.draftNodes = savedDraft.draftNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        col: 0, row: 0, dir: 0, entryDir: 0,
+        parentId: null, bendDir: n.bendDir || null, tiles: [],
+        params: n.params ? { ...n.params } : {},
+        computedStats: null,
+      }));
+      this.selectedIndex = savedDraft.selectedIndex ?? 0;
+      this.viewX = savedDraft.viewX ?? 0;
+      this.viewZoom = savedDraft.viewZoom ?? 1;
+    } else {
+      this.draftNodes = ordered.map(n => this._cloneNode(n));
+      this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+      this.viewX = 0;
+      this.viewZoom = 1;
+    }
     this.markerS = 0;
     this.focusRow = 0;
     this.insertMode = null;
     this.plotRangeMode = 'full';
-    this.viewX = 0;
-    this.viewZoom = 1;
     // Reset range button UI
     document.querySelectorAll('.dsgn-range-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.range === 'full');
@@ -282,7 +306,27 @@ export class BeamlineDesigner {
     this.beamlineId = null;
     this.isOpen = true;
 
-    if (design) {
+    // Check for saved draft state for this design
+    const savedDraft = this.game.state.designerState;
+    const hasSavedDraft = savedDraft && savedDraft.mode === 'design'
+      && ((design && savedDraft.designId === design.id) || (!design && !savedDraft.designId));
+
+    if (hasSavedDraft && savedDraft.draftNodes.length > 0) {
+      // Restore saved draft
+      this.designId = savedDraft.designId;
+      this.designName = savedDraft.designName;
+      this.draftNodes = savedDraft.draftNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        col: 0, row: 0, dir: 0, entryDir: 0,
+        parentId: null, bendDir: n.bendDir || null, tiles: [],
+        params: n.params ? { ...n.params } : {},
+        computedStats: null,
+      }));
+      this.selectedIndex = savedDraft.selectedIndex ?? 0;
+      this.viewX = savedDraft.viewX ?? 0;
+      this.viewZoom = savedDraft.viewZoom ?? 1;
+    } else if (design) {
       this.designId = design.id;
       this.designName = design.name;
       this.draftNodes = design.components.map((c, i) => ({
@@ -293,19 +337,22 @@ export class BeamlineDesigner {
         params: c.params ? { ...c.params } : {},
         computedStats: null,
       }));
+      this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+      this.viewX = 0;
+      this.viewZoom = 1;
     } else {
       this.designId = null;
       this.designName = 'New Design';
       this.draftNodes = [];
+      this.selectedIndex = -1;
+      this.viewX = 0;
+      this.viewZoom = 1;
     }
     this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
-    this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
     this.markerS = 0;
     this.focusRow = 0;
     this.insertMode = null;
     this.plotRangeMode = 'full';
-    this.viewX = 0;
-    this.viewZoom = 1;
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
@@ -428,11 +475,8 @@ export class BeamlineDesigner {
   close() {
     if (!this.isOpen) return;
 
-    // Check for unsaved changes
-    if (this._hasDraftChanges() && !confirm('Discard unsaved changes?')) {
-      return;
-    }
-
+    // Auto-save draft state so user can resume later
+    this._saveDraftState();
     this._cleanup();
   }
 
@@ -477,17 +521,30 @@ export class BeamlineDesigner {
     this.game.recalcBeamline(this.beamlineId);
     this.game.emit('beamlineChanged');
 
+    // Changes applied — clear draft state
+    this._clearDraftState();
     this._cleanup();
   }
 
   cancel() {
     if (!this.isOpen) return;
 
-    if (this._hasDraftChanges() && !confirm('Discard unsaved changes?')) {
+    // Cancel discards the draft and reverts
+    if (this._hasDraftChanges() && !confirm('Discard draft changes?')) {
       return;
     }
-
+    this._clearDraftState();
     this._cleanup();
+  }
+
+  _saveDraftState() {
+    // Persist draft to game state so it survives close/reload
+    this.game.state.designerState = this.serializeState();
+  }
+
+  _clearDraftState() {
+    // Clear saved draft (e.g., after confirm applies changes)
+    this.game.state.designerState = null;
   }
 
   _cleanup() {
@@ -659,10 +716,10 @@ export class BeamlineDesigner {
     let s = 0;
     for (let i = 0; i < this.selectedIndex; i++) {
       const comp = COMPONENTS[this.draftNodes[i].type];
-      if (comp) s += comp.length;
+      if (comp) s += comp.length * LENGTH_SCALE;
     }
     const comp = COMPONENTS[this.draftNodes[this.selectedIndex].type];
-    if (comp) s += comp.length / 2;
+    if (comp) s += comp.length * LENGTH_SCALE / 2;
     this.markerS = s;
   }
 
@@ -672,7 +729,7 @@ export class BeamlineDesigner {
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
       const comp = COMPONENTS[this.draftNodes[i].type];
-      const len = comp ? comp.length : 1;
+      const len = (comp ? comp.length : 1) * LENGTH_SCALE;
       if (this.markerS < cumS + len) {
         if (this.selectedIndex !== i) {
           this.selectedIndex = i;
@@ -748,7 +805,7 @@ export class BeamlineDesigner {
     this.totalLength = 0;
     for (const node of this.draftNodes) {
       const comp = COMPONENTS[node.type];
-      if (comp) this.totalLength += comp.length;
+      if (comp) this.totalLength += comp.length * LENGTH_SCALE;
     }
     if (this.totalLength === 0) this.totalLength = 1;
   }
@@ -796,6 +853,12 @@ export class BeamlineDesigner {
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;
+
+    // Update totalLength from envelope to stay in sync with physics s-values
+    if (this.draftEnvelope && this.draftEnvelope.length > 0) {
+      const maxS = this.draftEnvelope[this.draftEnvelope.length - 1].s;
+      if (maxS > 0) this.totalLength = maxS;
+    }
   }
 
   _hasDraftChanges() {
