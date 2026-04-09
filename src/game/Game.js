@@ -2208,9 +2208,9 @@ export class Game {
     this.state.nodeQualities = nodeQualities;
     this.state.labBonuses = labBonuses;
 
-    // Per-beamline fault attribution: if a blocker references a node, fault that beamline
+    // Per-beamline fault attribution: only hard blockers stop the beam
     for (const blocker of result.blockers) {
-      if (blocker.nodeId) {
+      if (blocker.severity === 'hard' && blocker.nodeId) {
         const blEntry = this.registry.getBeamlineForNode(blocker.nodeId);
         if (blEntry && blEntry.status === 'running') {
           blEntry.status = 'stopped';
@@ -2220,6 +2220,20 @@ export class Game {
           this.emit('beamToggled');
         }
       }
+    }
+
+    // Soft blocker warnings (log once per unique reason)
+    if (!this._softBlockerWarned) this._softBlockerWarned = {};
+    for (const blocker of result.blockers) {
+      if (blocker.severity === 'soft' && !this._softBlockerWarned[blocker.reason]) {
+        this.log(`Warning: ${blocker.reason}`, 'warn');
+        this._softBlockerWarned[blocker.reason] = true;
+      }
+    }
+    // Clear warnings for blockers that are gone
+    const activeReasons = new Set(result.blockers.filter(b => b.severity === 'soft').map(b => b.reason));
+    for (const key of Object.keys(this._softBlockerWarned)) {
+      if (!activeReasons.has(key)) delete this._softBlockerWarned[key];
     }
 
     // If global canRun is false, stop all running beamlines

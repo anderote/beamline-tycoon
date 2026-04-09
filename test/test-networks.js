@@ -599,6 +599,82 @@ console.log('\n=== Full Validation Engine Tests ===');
     'VALID4: shielding blocker should say need 1, got: ' + (shieldBlocker && shieldBlocker.reason));
 }
 
+// 5. Soft blocker (power overload) should NOT prevent canRun, but should appear in blockers with severity='soft'
+{
+  const state = mockGameState();
+  // Power cable with no substation (0 capacity) but a quad drawing power
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 7);
+  // Vacuum system
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  // PPS and shielding present
+  placeEquip(state, 'pps1', 'ppsInterlock', 10, 10);
+  placeEquip(state, 'sh1', 'shielding', 12, 12);
+
+  const result = Networks.validate(state);
+  // Power overload is soft, but missing powerCable and coolingWater connections are hard
+  const powerBlocker = result.blockers.find(b => b.type === 'power');
+  fassert(powerBlocker !== undefined, 'VALID5: should have power blocker');
+  fassert(powerBlocker && powerBlocker.severity === 'soft', 'VALID5: power blocker should be soft');
+  // Connection blockers are hard
+  const connBlockers = result.blockers.filter(b => b.type === 'connection');
+  for (var cb = 0; cb < connBlockers.length; cb++) {
+    fassert(connBlockers[cb].severity === 'hard', 'VALID5: connection blocker should be hard');
+  }
+  // canRun false because of missing connection (hard blocker)
+  fassert(result.canRun === false, 'VALID5: hard connection blockers should still prevent canRun');
+}
+
+// 6. Only soft blockers present → canRun should be true
+{
+  const state = mockGameState();
+  // Source connected to power (with substation) and vacuum
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  placeBeamlineNode(state, 's1', 'source', 5, 7);
+  placeEquip(state, 'pps1', 'ppsInterlock', 10, 10);
+  placeEquip(state, 'sh1', 'shielding', 12, 12);
+  // Add a second power network that is overloaded (quad with no substation)
+  placeConn(state, 20, 20, 'powerCable');
+  placeConn(state, 20, 21, 'powerCable');
+  // quad needs powerCable + coolingWater connections; connect it to both
+  placeConn(state, 20, 23, 'coolingWater');
+  placeEquip(state, 'ch1', 'chiller', 20, 24);
+  placeBeamlineNode(state, 'q1', 'quadrupole', 20, 22);
+
+  const result = Networks.validate(state);
+  const softBlockers = result.blockers.filter(b => b.severity === 'soft');
+  const hardBlockers = result.blockers.filter(b => b.severity === 'hard');
+  // Power network for quad has no substation → soft blocker
+  fassert(softBlockers.length > 0, 'VALID6: should have soft blockers, got ' + softBlockers.length);
+  fassert(hardBlockers.length === 0, 'VALID6: should have no hard blockers, got ' + JSON.stringify(hardBlockers));
+  fassert(result.canRun === true, 'VALID6: only soft blockers should allow canRun=true');
+}
+
+// 7. Hard blockers (PPS, shielding) have severity='hard'
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeConn(state, 5, 8, 'vacuumPipe');
+  placeEquip(state, 'tp1', 'turboPump', 5, 9);
+  placeBeamlineNode(state, 's1', 'source', 5, 7);
+  // No PPS, no shielding
+
+  const result = Networks.validate(state);
+  const ppsBlocker = result.blockers.find(b => b.type === 'pps');
+  const shieldBlocker = result.blockers.find(b => b.type === 'shielding');
+  fassert(ppsBlocker && ppsBlocker.severity === 'hard', 'VALID7: PPS blocker should be hard');
+  fassert(shieldBlocker && shieldBlocker.severity === 'hard', 'VALID7: shielding blocker should be hard');
+  fassert(result.canRun === false, 'VALID7: hard blockers should prevent canRun');
+}
+
 console.log('Passed: ' + fPassed + '  Failed: ' + fFailed);
 if (fFailed > 0) {
   console.log('\n=== FULL VALIDATION TESTS FAILED ===');

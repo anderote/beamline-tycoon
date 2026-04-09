@@ -600,6 +600,7 @@ export const Networks = {
           var displayName = (CONNECTION_TYPES[req] && CONNECTION_TYPES[req].name) || req;
           blockers.push({
             type: 'connection',
+            severity: 'hard',
             nodeId: node.id,
             nodeType: node.type,
             missing: req,
@@ -617,6 +618,7 @@ export const Networks = {
       if (!pStats.ok && pStats.draw > 0) {
         blockers.push({
           type: 'power',
+          severity: 'soft',
           reason: 'Power network overloaded: ' + pStats.draw + ' kW draw, ' + pStats.capacity + ' kW capacity',
         });
       }
@@ -629,6 +631,7 @@ export const Networks = {
       if (!cStats.ok && cStats.heatLoad > 0) {
         blockers.push({
           type: 'cooling',
+          severity: 'soft',
           reason: 'Cooling network overloaded: ' + cStats.heatLoad + ' kW heat, ' + cStats.capacity + ' kW capacity',
         });
       }
@@ -642,11 +645,13 @@ export const Networks = {
         if (!crStats.hasCompressor) {
           blockers.push({
             type: 'cryo',
+            severity: 'soft',
             reason: 'Cryo network missing He compressor',
           });
         } else {
           blockers.push({
             type: 'cryo',
+            severity: 'soft',
             reason: 'Cryo network overloaded: ' + crStats.heatLoad + ' W heat, ' + crStats.capacity + ' W capacity',
           });
         }
@@ -664,6 +669,7 @@ export const Networks = {
         if (rStats.totalDemand > rStats.forwardPower) reasons.push('insufficient RF power');
         blockers.push({
           type: 'rf',
+          severity: 'soft',
           reason: 'RF network: ' + reasons.join(', '),
         });
       }
@@ -694,11 +700,13 @@ export const Networks = {
     if ((vacNets.length === 0 || totalPumpSpeed === 0) && hasActiveComponents) {
       blockers.push({
         type: 'vacuum',
+        severity: 'soft',
         reason: 'No vacuum system connected to beamline',
       });
     } else if (worstPressureQuality === 'Poor' && hasActiveComponents) {
       blockers.push({
         type: 'vacuum',
+        severity: 'soft',
         reason: 'Vacuum pressure too high: ' + worstPressure.toExponential(2) + ' mbar',
       });
     }
@@ -715,6 +723,7 @@ export const Networks = {
     if (!hasPPS && state.beamline.length > 0) {
       blockers.push({
         type: 'pps',
+        severity: 'hard',
         reason: 'PPS interlock required for beam operation',
       });
     }
@@ -733,13 +742,15 @@ export const Networks = {
     if (shieldCount < requiredShielding && state.beamline.length > 0) {
       blockers.push({
         type: 'shielding',
+        severity: 'hard',
         reason: 'Insufficient shielding: have ' + shieldCount + ', need ' + requiredShielding,
       });
     }
 
     // 6. Return result
+    var hardBlockers = blockers.filter(function(b) { return b.severity === 'hard'; });
     return {
-      canRun: blockers.length === 0,
+      canRun: hardBlockers.length === 0,
       blockers: blockers,
       networks: allNetworks,
     };
