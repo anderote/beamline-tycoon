@@ -1,4 +1,4 @@
-import { detectRooms, computeRoomReach, LAB_NETWORK_MAP } from '../src/networks/rooms.js';
+import { detectRooms, computeRoomReach, LAB_NETWORK_MAP, findLabNetworkBonuses } from '../src/networks/rooms.js';
 
 let passed = 0;
 let failed = 0;
@@ -265,10 +265,142 @@ console.log('=== Room Detection Tests ===');
   assert(rooms.length === 2, '12: wall on neighbor side should split into 2 rooms, got ' + rooms.length);
 }
 
+// === Lab-to-Network Connectivity Tests ===
+console.log('\n=== Lab-to-Network Connectivity Tests ===');
+
+function addZone(state, col, row, zoneType) {
+  state.zoneOccupied[col + ',' + row] = zoneType;
+}
+
+function addFurnishing(state, col, row, type) {
+  state.zoneFurnishings = state.zoneFurnishings || [];
+  state.zoneFurnishings.push({ id: type + '_' + col + '_' + row, type, col, row });
+}
+
+// 13. Room reach: 3x1 room with walls -> reach includes tiles outside, not inside
+{
+  const state = makeState();
+  addFloor(state, 0, 0, 'concrete');
+  addFloor(state, 1, 0, 'concrete');
+  addFloor(state, 2, 0, 'concrete');
+  // Walls on all sides
+  addWall(state, 0, 0, 'n'); addWall(state, 1, 0, 'n'); addWall(state, 2, 0, 'n');
+  addWall(state, 0, 0, 's'); addWall(state, 1, 0, 's'); addWall(state, 2, 0, 's');
+  addWall(state, 0, 0, 'w');
+  addWall(state, 2, 0, 'e');
+
+  const rooms = detectRooms(state);
+  assert(rooms.length === 1, '13: should have 1 room');
+  const reach = computeRoomReach(rooms[0]);
+
+  // Should NOT include room tiles
+  assert(!reach.has('0,0'), '13: reach excludes (0,0)');
+  assert(!reach.has('1,0'), '13: reach excludes (1,0)');
+  assert(!reach.has('2,0'), '13: reach excludes (2,0)');
+
+  // Should include tiles N, S, W, E of room
+  assert(reach.has('0,-1'), '13: reach includes north of (0,0)');
+  assert(reach.has('1,-1'), '13: reach includes north of (1,0)');
+  assert(reach.has('2,-1'), '13: reach includes north of (2,0)');
+  assert(reach.has('0,1'), '13: reach includes south of (0,0)');
+  assert(reach.has('1,1'), '13: reach includes south of (1,0)');
+  assert(reach.has('2,1'), '13: reach includes south of (2,0)');
+  assert(reach.has('-1,0'), '13: reach includes west of (0,0)');
+  assert(reach.has('3,0'), '13: reach includes east of (2,0)');
+}
+
+// 14. Lab bonus connected: RF Lab with oscilloscope + spectrumAnalyzer, waveguide tile in reach
+{
+  const state = makeState();
+  // 3x1 RF Lab room
+  addFloor(state, 0, 0, 'labFloor');
+  addFloor(state, 1, 0, 'labFloor');
+  addFloor(state, 2, 0, 'labFloor');
+  addZone(state, 0, 0, 'rfLab');
+  addZone(state, 1, 0, 'rfLab');
+  addZone(state, 2, 0, 'rfLab');
+  // Walls on all sides
+  addWall(state, 0, 0, 'n'); addWall(state, 1, 0, 'n'); addWall(state, 2, 0, 'n');
+  addWall(state, 0, 0, 's'); addWall(state, 1, 0, 's'); addWall(state, 2, 0, 's');
+  addWall(state, 0, 0, 'w');
+  addWall(state, 2, 0, 'e');
+  // Furnishings inside the room
+  addFurnishing(state, 0, 0, 'oscilloscope');    // zoneOutput: 0.05
+  addFurnishing(state, 1, 0, 'spectrumAnalyzer'); // zoneOutput: 0.08
+
+  // Waveguide cluster tile at (3, 0) — east of the room, in reach
+  const networkClusters = {
+    rfWaveguide: [{ tiles: [{ col: 3, row: 0 }], equipment: [], beamlineNodes: [] }],
+    coolingWater: [],
+    vacuumPipe: [],
+    dataFiber: [],
+  };
+
+  const bonuses = findLabNetworkBonuses(state, networkClusters);
+  assert(bonuses.rfWaveguide.length === 1, '14: should find 1 rfWaveguide bonus, got ' + bonuses.rfWaveguide.length);
+  assert(Math.abs(bonuses.rfWaveguide[0].bonus - 0.13) < 0.001,
+    '14: bonus should be 0.13, got ' + bonuses.rfWaveguide[0].bonus);
+  assert(bonuses.rfWaveguide[0].clusterIndex === 0, '14: clusterIndex should be 0');
+}
+
+// 15. Lab NOT connected: waveguide 2 tiles away, no network in hallway
+{
+  const state = makeState();
+  // 1x1 RF Lab room
+  addFloor(state, 0, 0, 'labFloor');
+  addZone(state, 0, 0, 'rfLab');
+  addWall(state, 0, 0, 'n'); addWall(state, 0, 0, 's');
+  addWall(state, 0, 0, 'w'); addWall(state, 0, 0, 'e');
+  addFurnishing(state, 0, 0, 'oscilloscope');
+
+  // Waveguide cluster tile at (2, 0) — 2 tiles east, NOT in reach (reach only extends 1 tile)
+  const networkClusters = {
+    rfWaveguide: [{ tiles: [{ col: 2, row: 0 }], equipment: [], beamlineNodes: [] }],
+    coolingWater: [],
+    vacuumPipe: [],
+    dataFiber: [],
+  };
+
+  const bonuses = findLabNetworkBonuses(state, networkClusters);
+  assert(bonuses.rfWaveguide.length === 0, '15: should find 0 rfWaveguide bonuses (out of reach), got ' + bonuses.rfWaveguide.length);
+}
+
+// 16. Bonus cap: many furnishings, bonus per entry capped at 0.5
+{
+  const state = makeState();
+  // Large RF Lab room
+  for (let c = 0; c < 10; c++) {
+    addFloor(state, c, 0, 'labFloor');
+    addZone(state, c, 0, 'rfLab');
+  }
+  addWall(state, 0, 0, 'w');
+  addWall(state, 9, 0, 'e');
+  for (let c = 0; c < 10; c++) {
+    addWall(state, c, 0, 'n');
+    addWall(state, c, 0, 's');
+  }
+  // 10 network analyzers = 10 * 0.10 = 1.0, should cap at 0.5
+  for (let c = 0; c < 10; c++) {
+    addFurnishing(state, c, 0, 'networkAnalyzer'); // zoneOutput: 0.10 each
+  }
+
+  const networkClusters = {
+    rfWaveguide: [{ tiles: [{ col: 10, row: 0 }], equipment: [], beamlineNodes: [] }],
+    coolingWater: [],
+    vacuumPipe: [],
+    dataFiber: [],
+  };
+
+  const bonuses = findLabNetworkBonuses(state, networkClusters);
+  assert(bonuses.rfWaveguide.length === 1, '16: should find 1 rfWaveguide bonus');
+  assert(Math.abs(bonuses.rfWaveguide[0].bonus - 0.5) < 0.001,
+    '16: bonus should be capped at 0.5, got ' + bonuses.rfWaveguide[0].bonus);
+}
+
 console.log('\nPassed: ' + passed + '  Failed: ' + failed);
 if (failed > 0) {
-  console.log('\n=== ROOM DETECTION TESTS FAILED ===');
+  console.log('\n=== TESTS FAILED ===');
   process.exit(1);
 } else {
-  console.log('\n=== ALL ROOM DETECTION TESTS PASSED ===');
+  console.log('\n=== ALL TESTS PASSED ===');
 }
