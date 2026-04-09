@@ -80,12 +80,16 @@ export const PARAM_DEFS = {
   // ---- Quadrupole ----
   quadrupole: {
     gradient:     { min: 1, max: 50, default: 20, unit: 'T/m', step: 0.5 },
+    polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
+                    labels: { 0: 'Focus X', 1: 'Focus Y' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
   },
 
   // ---- Superconducting quadrupole ----
   scQuad: {
     gradient:     { min: 1, max: 200, default: 100, unit: 'T/m', step: 1 },
+    polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
+                    labels: { 0: 'Focus X', 1: 'Focus Y' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
   },
 

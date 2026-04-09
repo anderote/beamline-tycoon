@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
@@ -7,6 +7,7 @@ import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
+import { Beamline } from '../beamline/Beamline.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { generateStartingMap } from './map-generator.js';
@@ -55,9 +56,12 @@ export class Game {
       decorations: [],              // [{ id, type, col, row }]
       decorationOccupied: {},       // "col,row" -> decoration id
       decorationNextId: 1,
-      // Walls (edge-based)
-      walls: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
+      // Walls (per-tile edge-based, like RCT2 fences)
+      walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
+      // Doors (edge-based, like walls)
+      doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
+      doorOccupied: {},       // "col,row,edge" -> doorType
       // Utility connections
       connections: new Map(),     // "col,row" -> Set of connection type keys
       // Machines (cyclotrons, stalls, rings)
@@ -78,6 +82,10 @@ export class Game {
     this.listeners = [];
     this.tickInterval = null;
     this.TICK_MS = 1000;
+
+    // Undo stack (max 3 snapshots)
+    this._undoStack = [];
+    this._UNDO_MAX = 3;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.terrainSeed = Date.now();
@@ -143,6 +151,148 @@ export class Game {
     this.state.log.unshift({ msg, type, tick: this.state.tick });
     if (this.state.log.length > 100) this.state.log.length = 100;
     this.emit('log', { msg, type });
+  }
+
+  // === UNDO ===
+
+  /** Snapshot mutable game state onto the undo stack (max 3). */
+  _pushUndo() {
+    const snap = {
+      resources: { ...this.state.resources },
+      infrastructure: this.state.infrastructure.map(t => ({ ...t })),
+      infraOccupied: { ...this.state.infraOccupied },
+      zones: this.state.zones.map(z => ({ ...z })),
+      zoneOccupied: { ...this.state.zoneOccupied },
+      walls: this.state.walls.map(w => ({ ...w })),
+      wallOccupied: { ...this.state.wallOccupied },
+      doors: this.state.doors.map(d => ({ ...d })),
+      doorOccupied: { ...this.state.doorOccupied },
+      decorations: this.state.decorations.map(d => ({ ...d })),
+      decorationOccupied: { ...this.state.decorationOccupied },
+      decorationNextId: this.state.decorationNextId,
+      facilityEquipment: this.state.facilityEquipment.map(e => ({ ...e })),
+      facilityGrid: { ...this.state.facilityGrid },
+      facilityNextId: this.state.facilityNextId,
+      zoneFurnishings: this.state.zoneFurnishings.map(f => ({ ...f })),
+      zoneFurnishingGrid: { ...this.state.zoneFurnishingGrid },
+      zoneFurnishingNextId: this.state.zoneFurnishingNextId,
+      machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
+      machineGrid: { ...this.state.machineGrid },
+      connections: new Map([...this.state.connections].map(([k, v]) => [k, new Set(v)])),
+      editingBeamlineId: this.editingBeamlineId,
+      selectedBeamlineId: this.selectedBeamlineId,
+      // Beamline registry snapshot
+      registryData: this._snapshotRegistry(),
+    };
+    this._undoStack.push(snap);
+    if (this._undoStack.length > this._UNDO_MAX) {
+      this._undoStack.shift();
+    }
+  }
+
+  _snapshotRegistry() {
+    const data = [];
+    for (const entry of this.registry.getAll()) {
+      data.push({
+        id: entry.id,
+        name: entry.name,
+        status: entry.status,
+        beamState: JSON.parse(JSON.stringify(entry.beamState)),
+        nodes: entry.beamline.nodes.map(n => ({
+          id: n.id, type: n.type, col: n.col, row: n.row,
+          dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
+          bendDir: n.bendDir,
+          tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
+          params: n.params ? { ...n.params } : {},
+          computedStats: n.computedStats ? { ...n.computedStats } : null,
+        })),
+        occupied: { ...entry.beamline.occupied },
+        nextId: entry.beamline.nextId,
+      });
+    }
+    return {
+      entries: data,
+      sharedOccupied: { ...this.registry.sharedOccupied },
+      nextBeamlineId: this.registry.nextBeamlineId,
+    };
+  }
+
+  _restoreRegistryFromSnap(regSnap) {
+    this.registry.beamlines.clear();
+    this.registry.sharedOccupied = { ...regSnap.sharedOccupied };
+    this.registry.nextBeamlineId = regSnap.nextBeamlineId;
+    for (const ed of regSnap.entries) {
+      const bl = new Beamline();
+      bl.nodes = ed.nodes.map(n => ({
+        id: n.id, type: n.type, col: n.col, row: n.row,
+        dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
+        bendDir: n.bendDir,
+        tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
+        params: n.params ? { ...n.params } : {},
+        computedStats: n.computedStats ? { ...n.computedStats } : null,
+      }));
+      bl.occupied = { ...ed.occupied };
+      bl.nextId = ed.nextId;
+      this.registry.beamlines.set(ed.id, {
+        id: ed.id,
+        name: ed.name,
+        status: ed.status,
+        beamline: bl,
+        beamState: ed.beamState,
+      });
+    }
+  }
+
+  undo() {
+    if (this._undoStack.length === 0) {
+      this.log('Nothing to undo', 'info');
+      return;
+    }
+    const snap = this._undoStack.pop();
+
+    // Restore state
+    this.state.resources = snap.resources;
+    this.state.infrastructure = snap.infrastructure;
+    this.state.infraOccupied = snap.infraOccupied;
+    this.state.zones = snap.zones;
+    this.state.zoneOccupied = snap.zoneOccupied;
+    this.state.walls = snap.walls;
+    this.state.wallOccupied = snap.wallOccupied;
+    this.state.doors = snap.doors;
+    this.state.doorOccupied = snap.doorOccupied;
+    this.state.decorations = snap.decorations;
+    this.state.decorationOccupied = snap.decorationOccupied;
+    this.state.decorationNextId = snap.decorationNextId;
+    this.state.facilityEquipment = snap.facilityEquipment;
+    this.state.facilityGrid = snap.facilityGrid;
+    this.state.facilityNextId = snap.facilityNextId;
+    this.state.zoneFurnishings = snap.zoneFurnishings;
+    this.state.zoneFurnishingGrid = snap.zoneFurnishingGrid;
+    this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
+    this.state.machines = snap.machines;
+    this.state.machineGrid = snap.machineGrid;
+    this.state.connections = snap.connections;
+    this.editingBeamlineId = snap.editingBeamlineId;
+    this.selectedBeamlineId = snap.selectedBeamlineId;
+
+    // Restore registry
+    this._restoreRegistryFromSnap(snap.registryData);
+
+    // Rebuild aggregate state
+    this._updateAggregateBeamline();
+    this.computeSystemStats();
+    this.recomputeZoneConnectivity();
+
+    this.log('Undo', 'info');
+    this.emit('beamlineChanged');
+    this.emit('infrastructureChanged');
+    this.emit('zonesChanged');
+    this.emit('wallsChanged');
+    this.emit('doorsChanged');
+    this.emit('decorationsChanged');
+    this.emit('facilityChanged');
+    this.emit('connectionsChanged');
+    this.emit('machineChanged');
   }
 
   // === PLACEMENT ===
@@ -325,7 +475,24 @@ export class Game {
     if (!infra) return false;
     const key = col + ',' + row;
     const existing = this.state.infraOccupied[key];
-    if (existing === infraType) return true; // same floor, no charge
+    // For orientable tiles of the same type, toggle orientation for free
+    if (existing === infraType && infra.orientable) {
+      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      if (existingTile) {
+        existingTile.orientation = existingTile.orientation ? 0 : 1;
+        this.emit('infrastructureChanged');
+      }
+      return true;
+    }
+    // Same type but different variant — update variant for free
+    if (existing === infraType) {
+      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      if (existingTile && existingTile.variant !== variant) {
+        existingTile.variant = variant;
+        this.emit('infrastructureChanged');
+      }
+      return true;
+    }
     // Check foundation requirement
     if (infra.requiresFoundation) {
       const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
@@ -380,6 +547,11 @@ export class Game {
     const infra = INFRASTRUCTURE[infraType];
     if (!infra) return false;
 
+    // Determine orientation from drag direction for orientable tiles
+    const orientation = infra.orientable
+      ? (Math.abs(endCol - startCol) >= Math.abs(endRow - startRow) ? 0 : 1)
+      : 0;
+
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     const minRow = Math.min(startRow, endRow);
@@ -394,7 +566,15 @@ export class Game {
       for (let r = minRow; r <= maxRow; r++) {
         const tileKey = c + ',' + r;
         const existing = this.state.infraOccupied[tileKey];
-        if (existing === infraType) continue;
+        if (existing === infraType && !infra.orientable) {
+          // Still count as a tile to process if variant differs (free recolor)
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          if (!existingTile || existingTile.variant === variant) continue;
+          newTiles++;
+          continue;
+        }
+        // Same-type orientable re-placement is free (just updates orientation)
+        if (existing === infraType && infra.orientable) { newTiles++; continue; }
         if (infra.requiresFoundation) {
           const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
           const baseType = existingTile?.foundation || existing;
@@ -427,7 +607,22 @@ export class Game {
       for (let r = minRow; r <= maxRow; r++) {
         const key = c + ',' + r;
         const existing = this.state.infraOccupied[key];
-        if (existing === infraType) continue; // same floor, skip
+        // Same-type orientable: just update orientation for free
+        if (existing === infraType && infra.orientable) {
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          if (existingTile) existingTile.orientation = orientation;
+          placed++;
+          continue;
+        }
+        // Same type — update variant for free if it differs, otherwise skip
+        if (existing === infraType) {
+          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          if (existingTile && existingTile.variant !== variant) {
+            existingTile.variant = variant;
+            placed++;
+          }
+          continue;
+        }
         if (infra.requiresFoundation) {
           const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
           const baseType = existingTile?.foundation || existing;
@@ -455,6 +650,7 @@ export class Game {
         this.state.resources.funding -= infra.cost;
         const tileEntry = { type: infraType, col: c, row: r, variant };
         if (foundation) tileEntry.foundation = foundation;
+        if (orientation) tileEntry.orientation = orientation;
         this.state.infrastructure.push(tileEntry);
         this.state.infraOccupied[key] = infraType;
         placed++;
@@ -508,7 +704,7 @@ export class Game {
     return true;
   }
 
-  // === WALLS (EDGE-BASED) ===
+  // === WALLS (PER-TILE EDGE) ===
 
   placeWall(col, row, edge, wallType) {
     const wt = WALL_TYPES[wallType];
@@ -516,6 +712,7 @@ export class Game {
     const key = `${col},${row},${edge}`;
     if (this.state.wallOccupied[key] === wallType) return true;
     if (this.state.wallOccupied[key]) {
+      // Replace existing wall on this edge
       this.state.walls = this.state.walls.filter(
         w => !(w.col === col && w.row === row && w.edge === edge)
       );
@@ -563,6 +760,64 @@ export class Game {
     );
     delete this.state.wallOccupied[key];
     this.emit('wallsChanged');
+    return true;
+  }
+
+  // === DOORS (EDGE-BASED) ===
+
+  placeDoor(col, row, edge, doorType) {
+    const dt = DOOR_TYPES[doorType];
+    if (!dt) return false;
+    const key = `${col},${row},${edge}`;
+    if (this.state.doorOccupied[key] === doorType) return true;
+    if (this.state.doorOccupied[key]) {
+      this.state.doors = this.state.doors.filter(
+        d => !(d.col === col && d.row === row && d.edge === edge)
+      );
+    }
+    if (this.state.resources.funding < dt.cost) return false;
+    this.state.resources.funding -= dt.cost;
+    this.state.doors.push({ type: doorType, col, row, edge });
+    this.state.doorOccupied[key] = doorType;
+    return true;
+  }
+
+  placeDoorPath(path, doorType) {
+    const dt = DOOR_TYPES[doorType];
+    if (!dt) return false;
+    let placed = 0;
+    for (const pt of path) {
+      const key = `${pt.col},${pt.row},${pt.edge}`;
+      if (this.state.doorOccupied[key] === doorType) continue;
+      if (this.state.resources.funding < dt.cost) break;
+      if (this.state.doorOccupied[key]) {
+        this.state.doors = this.state.doors.filter(
+          d => !(d.col === pt.col && d.row === pt.row && d.edge === pt.edge)
+        );
+      }
+      this.state.resources.funding -= dt.cost;
+      this.state.doors.push({ type: doorType, col: pt.col, row: pt.row, edge: pt.edge });
+      this.state.doorOccupied[key] = doorType;
+      placed++;
+    }
+    if (placed > 0) {
+      this.log(`Placed ${placed} ${dt.name} segment${placed > 1 ? 's' : ''} ($${placed * dt.cost})`, 'good');
+      this.emit('doorsChanged');
+    }
+    return placed > 0;
+  }
+
+  removeDoor(col, row, edge) {
+    const key = `${col},${row},${edge}`;
+    const doorType = this.state.doorOccupied[key];
+    if (!doorType) return false;
+    const dt = DOOR_TYPES[doorType];
+    if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
+    this.state.doors = this.state.doors.filter(
+      d => !(d.col === col && d.row === row && d.edge === edge)
+    );
+    delete this.state.doorOccupied[key];
+    this.emit('doorsChanged');
     return true;
   }
 
@@ -1473,8 +1728,8 @@ export class Game {
     // Recompute system-level infrastructure stats
     this.computeSystemStats();
 
-    // Auto-save every 30 ticks
-    if (this.state.tick % 30 === 0) this.save();
+    // Auto-save every 10 ticks
+    if (this.state.tick % 10 === 0) this.save();
 
     this.emit('tick');
   }

@@ -57,44 +57,7 @@ export const DECORATIONS = {
     blocksBuild: false, category: 'treesPlants',
   },
 
-  // === Hedges ===
-  hedge: {
-    id: 'hedge', name: 'Hedge', cost: 6, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'hedge_0',
-    blocksBuild: false, category: 'hedges',
-  },
-  tallHedge: {
-    id: 'tallHedge', name: 'Tall Hedge', cost: 10, removeCost: 0,
-    morale: 0.5, placement: 'outdoor', spriteKey: 'tall_hedge',
-    blocksBuild: false, category: 'hedges',
-  },
-  hedgeCorner: {
-    id: 'hedgeCorner', name: 'Hedge Corner', cost: 8, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'hedge_corner',
-    blocksBuild: false, category: 'hedges',
-  },
-
-  // === Fencing ===
-  ironFence: {
-    id: 'ironFence', name: 'Iron Fence', cost: 4, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'iron_fence',
-    blocksBuild: false, category: 'fencing',
-  },
-  woodFence: {
-    id: 'woodFence', name: 'Wood Fence', cost: 3, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'wood_fence',
-    blocksBuild: false, category: 'fencing',
-  },
-  chainLink: {
-    id: 'chainLink', name: 'Chain Link Fence', cost: 2, removeCost: 0,
-    morale: 0, placement: 'outdoor', spriteKey: 'chain_link',
-    blocksBuild: false, category: 'fencing',
-  },
-  stoneWall: {
-    id: 'stoneWall', name: 'Stone Wall', cost: 8, removeCost: 0,
-    morale: 0.5, placement: 'outdoor', spriteKey: 'stone_wall',
-    blocksBuild: false, category: 'fencing',
-  },
+  // (Hedges and fencing moved to wall system — see WALL_TYPES in infrastructure.js)
 
   // === Furniture ===
   parkBench: {

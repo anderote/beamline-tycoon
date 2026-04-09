@@ -14,6 +14,32 @@ export class SpriteManager {
     this.tileTextures = {}; // gameId -> PIXI.Texture (single, for flooring)
     this.tileVariants = {}; // gameId -> [PIXI.Texture, ...] (multiple, for zones)
     this.floorVariants = {}; // gameId -> [PIXI.Texture, ...] (floor color variants)
+    this.spritePaths = {}; // spriteKey -> file path (for HTML img previews)
+    this.tilePaths = {}; // gameId -> file path
+    this.zoneVariantPaths = {}; // gameId -> [file path, ...]
+    this.spriteOffsets = {}; // file path -> { x, y, rotation, scale }
+  }
+
+  /**
+   * Load sprite offsets from assets/components/offsets.json.
+   * These are per-sprite-file adjustments set in the asset generator preview grid.
+   */
+  async loadSpriteOffsets() {
+    try {
+      const resp = await fetch('assets/components/offsets.json');
+      if (!resp.ok) return;
+      this.spriteOffsets = await resp.json();
+      console.log(`Loaded sprite offsets for ${Object.keys(this.spriteOffsets).length} sprites`);
+    } catch {
+      // No offsets file yet
+    }
+  }
+
+  /**
+   * Get offset for a sprite path. Returns { x, y, rotation, scale } or defaults.
+   */
+  getSpriteOffset(path) {
+    return this.spriteOffsets[path] || { x: 0, y: 0, scale: 1 };
   }
 
   /**
@@ -31,24 +57,26 @@ export class SpriteManager {
         if (info.files) {
           // Multiple variants (zones)
           const textures = [];
+          const paths = [];
           for (let i = 0; i < info.files.length; i++) {
             const alias = `tile_${gameId}_${i}`;
             try {
               PIXI.Assets.add({ alias, src: info.files[i] });
               const tex = await PIXI.Assets.load(alias);
-              if (tex && tex.valid !== false) { textures.push(tex); count++; }
+              if (tex && tex.valid !== false) { textures.push(tex); paths.push(info.files[i]); count++; }
             } catch (e) {
               console.warn(`Failed to load tile variant: ${info.files[i]}`, e);
             }
           }
           if (textures.length) this.tileVariants[gameId] = textures;
+          if (paths.length) this.zoneVariantPaths[gameId] = paths;
         } else if (info.file) {
           // Single texture (flooring)
           const alias = `tile_${gameId}`;
           try {
             PIXI.Assets.add({ alias, src: info.file });
             const tex = await PIXI.Assets.load(alias);
-            if (tex && tex.valid !== false) { this.tileTextures[gameId] = tex; count++; }
+            if (tex && tex.valid !== false) { this.tileTextures[gameId] = tex; this.tilePaths[gameId] = info.file; count++; }
           } catch (e) {
             console.warn(`Failed to load tile sprite: ${info.file}`, e);
           }
@@ -88,6 +116,7 @@ export class SpriteManager {
           const tex = await PIXI.Assets.load(alias);
           if (tex && tex.valid !== false) {
             this.textures[key] = tex;
+            this.spritePaths[key] = info.file;
             count++;
           }
         } catch (e) {
@@ -155,6 +184,24 @@ export class SpriteManager {
   }
 
   /**
+   * Return the file path for a sprite/decoration/tile for use in HTML img tags.
+   */
+  getSpritePath(key) {
+    return this.spritePaths[key] || null;
+  }
+
+  getTilePath(gameId) {
+    return this.tilePaths[gameId] || null;
+  }
+
+  getZoneVariantPath(gameId, col, row) {
+    const paths = this.zoneVariantPaths[gameId];
+    if (!paths || !paths.length) return null;
+    const idx = ((col * 7 + row * 13) & 0xffff) % paths.length;
+    return paths[idx];
+  }
+
+  /**
    * Create a positioned PIXI.Sprite for a beamline node.
    */
   createNodeSprite(node) {
@@ -168,8 +215,18 @@ export class SpriteManager {
     sprite.anchor.set(0.5, 0.7);
 
     const pos = tileCenterIso(node.col, node.row);
-    sprite.x = pos.x;
-    sprite.y = pos.y;
+
+    // Apply per-sprite offsets from asset generator
+    const path = this.spritePaths[spriteKey];
+    if (path) {
+      const off = this.getSpriteOffset(path);
+      sprite.x = pos.x + (off.x || 0);
+      sprite.y = pos.y + (off.y || 0);
+      if (off.scale && off.scale !== 1) sprite.scale.set(off.scale);
+    } else {
+      sprite.x = pos.x;
+      sprite.y = pos.y;
+    }
 
     return sprite;
   }

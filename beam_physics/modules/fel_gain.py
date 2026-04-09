@@ -64,7 +64,7 @@ class FELGainModule(PhysicsModule):
         L_gain_3D = L_gain_1D * (1.0 + eta)
         L_sat = 20.0 * L_gain_3D
         saturation_fraction = und_length / L_sat if L_sat > 0 and np.isfinite(L_sat) else 0.0
-        saturated = saturation_fraction >= 1.0
+        saturated = bool(saturation_fraction >= 1.0)
 
         E_beam_J = beam.energy * 1.602e-10
         P_sat = rho * E_beam_J * I_peak if rho > 0 else 0.0

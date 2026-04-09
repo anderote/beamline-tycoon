@@ -52,6 +52,50 @@
       { "file": "assets/tiles/groomedGrass_1.png", "name": "Groomed Grass (light)" }
     ]
   },
+  "pavement": {
+    "file": "assets/tiles/pavement.png",
+    "section": "flooring",
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/pavement.png", "name": "Standard" },
+      { "file": "assets/tiles/pavement_1.png", "name": "Light" },
+      { "file": "assets/tiles/pavement_2.png", "name": "Dark" },
+      { "file": "assets/tiles/pavement_3.png", "name": "Weathered" }
+    ]
+  },
+  "dirt": {
+    "file": "assets/tiles/dirt.png",
+    "section": "flooring",
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/dirt.png", "name": "Packed Dirt" },
+      { "file": "assets/tiles/dirt_1.png", "name": "Sandy" },
+      { "file": "assets/tiles/dirt_2.png", "name": "Dark Earth" },
+      { "file": "assets/tiles/dirt_3.png", "name": "Red Clay" }
+    ]
+  },
+  "cobblestone": {
+    "file": "assets/tiles/cobblestone.png",
+    "section": "flooring",
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/cobblestone.png", "name": "Gray Stone" },
+      { "file": "assets/tiles/cobblestone_1.png", "name": "Light Stone" },
+      { "file": "assets/tiles/cobblestone_2.png", "name": "Dark Stone" },
+      { "file": "assets/tiles/cobblestone_3.png", "name": "Warm Stone" }
+    ]
+  },
+  "brick": {
+    "file": "assets/tiles/brick.png",
+    "section": "flooring",
+    "size": { "width": 64, "height": 31 },
+    "variants": [
+      { "file": "assets/tiles/brick.png", "name": "Red Brick" },
+      { "file": "assets/tiles/brick_1.png", "name": "Tan Brick" },
+      { "file": "assets/tiles/brick_2.png", "name": "Dark Brick" },
+      { "file": "assets/tiles/brick_3.png", "name": "Weathered Brick" }
+    ]
+  },
   "rfLab": {
     "files": ["assets/tiles/rfLab_0.png"],
     "section": "zones",

@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES } from '../data/infrastructure.js';
+import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR } from '../data/directions.js';
@@ -44,6 +44,10 @@ export class InputHandler {
     this.selectedWallTool = null;
     this.isDrawingWall = false;
     this.wallPath = [];
+    // Door placement (edge-based, like walls)
+    this.selectedDoorTool = null;
+    this.isDrawingDoor = false;
+    this.doorPath = [];
     // Continuous panning
     this.keysDown = new Set();
     // Bulldozer mode
@@ -91,16 +95,88 @@ export class InputHandler {
     const fx = gf.col - col;
     const fy = gf.row - row;
 
-    const dN = fy;
-    const dS = 1 - fy;
-    const dE = 1 - fx;
-    const dW = fx;
+    // Distance to each edge of THIS tile (no canonicalization)
+    const dN = fy;        // north (NE edge)
+    const dS = 1 - fy;    // south (SW edge)
+    const dE = 1 - fx;    // east (SE edge)
+    const dW = fx;         // west (NW edge)
 
     const min = Math.min(dN, dS, dE, dW);
-    if (min === dN) return { col, row: row - 1, edge: 's' };
+    if (min === dN) return { col, row, edge: 'n' };
     if (min === dS) return { col, row, edge: 's' };
     if (min === dE) return { col, row, edge: 'e' };
-    return { col: col - 1, row, edge: 'e' };
+    return { col, row, edge: 'w' };
+  }
+
+  /**
+   * Build a straight line of wall edges from start to the cursor edge.
+   * Walls lock to the start edge type and extend along the appropriate axis:
+   *   'e'/'w' edges: same col, vary row (wall runs SE ↔ NW)
+   *   'n'/'s' edges: same row, vary col (wall runs NE ↔ SW)
+   */
+  _buildWallLine(start, end) {
+    const path = [];
+    if (start.edge === 'e' || start.edge === 'w') {
+      const col = start.col;
+      const minR = Math.min(start.row, end.row);
+      const maxR = Math.max(start.row, end.row);
+      for (let r = minR; r <= maxR; r++) {
+        path.push({ col, row: r, edge: start.edge });
+      }
+    } else {
+      const row = start.row;
+      const minC = Math.min(start.col, end.col);
+      const maxC = Math.max(start.col, end.col);
+      for (let c = minC; c <= maxC; c++) {
+        path.push({ col: c, row, edge: start.edge });
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Return the nearest edge of the cursor's tile, preferring edges that sit
+   * on a flooring boundary (one side has infrastructure, the other doesn't).
+   */
+  _getNearestFloorEdge(screenX, screenY) {
+    const world = this.renderer.screenToWorld(screenX, screenY);
+    const gf = isoToGridFloat(world.x, world.y);
+    const col = Math.floor(gf.col);
+    const row = Math.floor(gf.row);
+    const fx = gf.col - col;
+    const fy = gf.row - row;
+
+    // All 4 edges of this tile with distances (no canonicalization)
+    const candidates = [
+      { col, row, edge: 'n', dist: fy },
+      { col, row, edge: 's', dist: 1 - fy },
+      { col, row, edge: 'e', dist: 1 - fx },
+      { col, row, edge: 'w', dist: fx },
+    ];
+
+    const occ = this.game.state.infraOccupied;
+
+    // Neighbor tile across each edge
+    const neighbor = (e) => {
+      if (e.edge === 'n') return `${e.col},${e.row - 1}`;
+      if (e.edge === 's') return `${e.col},${e.row + 1}`;
+      if (e.edge === 'e') return `${e.col + 1},${e.row}`;
+      return `${e.col - 1},${e.row}`;
+    };
+
+    const isFloorBoundary = (e) => {
+      const a = !!occ[`${e.col},${e.row}`];
+      const b = !!occ[neighbor(e)];
+      return a !== b;
+    };
+
+    candidates.sort((a, b) => {
+      const aScore = a.dist - (isFloorBoundary(a) ? 0.15 : 0);
+      const bScore = b.dist - (isFloorBoundary(b) ? 0.15 : 0);
+      return aScore - bScore;
+    });
+
+    return candidates[0];
   }
 
   // --- Keyboard bindings ---
@@ -113,6 +189,13 @@ export class InputHandler {
 
       // Skip normal input handling when controller overlay is open
       if (this.game._designer && this.game._designer.isOpen) return;
+
+      // Ctrl+Z → undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        this.game.undo();
+        return;
+      }
 
       // Handle DesignPlacer keys
       if (this.game._designPlacer && this.game._designPlacer.active) {
@@ -154,6 +237,7 @@ export class InputHandler {
       switch (e.key) {
         case ' ':
           e.preventDefault();
+          this.game._pushUndo();
           if (this.selectedTool) {
             // Place at cursor position
             const nodes = this._getActiveBeamlineNodes();
@@ -198,6 +282,11 @@ export class InputHandler {
           break;
         }
         case 'Escape':
+          // If in demolish mode, restore previous mode
+          if (this.demolishMode || this.bulldozerMode) {
+            this._restorePreviousMode();
+            break;
+          }
           // Exit edit mode if active
           if (this.game.editingBeamlineId) {
             this.game.editingBeamlineId = null;
@@ -290,25 +379,9 @@ export class InputHandler {
           }
           break;
         case 'Delete': case 'Backspace':
-          if (this.selectedTool || this.buildMode) {
-            // In build mode: remove the most recently placed component
-            const nodes = this._getActiveBeamlineNodes();
-            if (nodes.length > 0) {
-              const last = nodes[nodes.length - 1];
-              this.game.removeComponent(last.id);
-            }
-          } else if (this.selectedNodeId) {
-            this.game.removeComponent(this.selectedNodeId);
-            this.selectedNodeId = null;
-            this.renderer.hidePopup();
-          } else {
-            // Toggle general bulldozer mode (removes components & furniture only)
-            this.bulldozerMode = !this.bulldozerMode;
-            this.deselectTool();
-            this.deselectInfraTool();
-            this.deselectFurnishingTool();
-            this.renderer.setBulldozerMode(this.bulldozerMode);
-          }
+          e.preventDefault();
+          // Toggle context-aware demolish without leaving current menu
+          this._toggleContextDemolish();
           break;
       }
     });
@@ -372,7 +445,15 @@ export class InputHandler {
         if (this.demolishType === 'demolishWall') {
           const edge = this._getNearestEdge(e.clientX, e.clientY);
           this.isDrawingWall = true;
+          this._wallStart = edge;
           this.wallPath = [edge];
+          return;
+        }
+        if (this.demolishType === 'demolishDoor') {
+          const edge = this._getNearestEdge(e.clientX, e.clientY);
+          this.isDrawingDoor = true;
+          this._doorStart = edge;
+          this.doorPath = [edge];
           return;
         }
         this.isDragging = true;
@@ -406,10 +487,21 @@ export class InputHandler {
 
       // Wall edge placement start
       if (e.button === 0 && this.selectedWallTool) {
-        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
         this.isDrawingWall = true;
+        this._wallStart = edge;
         this.wallPath = [edge];
         this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
+        return;
+      }
+
+      // Door edge placement start
+      if (e.button === 0 && this.selectedDoorTool) {
+        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
+        this.isDrawingDoor = true;
+        this._doorStart = edge;
+        this.doorPath = [edge];
+        this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
         return;
       }
 
@@ -479,29 +571,30 @@ export class InputHandler {
         }
       } else if (this.isDrawingWall && this.selectedWallTool) {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
-        const last = this.wallPath[this.wallPath.length - 1];
-        if (edge.col !== last.col || edge.row !== last.row || edge.edge !== last.edge) {
-          const key = `${edge.col},${edge.row},${edge.edge}`;
-          const inPath = this.wallPath.some(p => `${p.col},${p.row},${p.edge}` === key);
-          if (!inPath) {
-            this.wallPath.push(edge);
-          }
-          this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
-        }
+        this.wallPath = this._buildWallLine(this._wallStart, edge);
+        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
       } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishWall') {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
-        const last = this.wallPath[this.wallPath.length - 1];
-        if (edge.col !== last.col || edge.row !== last.row || edge.edge !== last.edge) {
-          const key = `${edge.col},${edge.row},${edge.edge}`;
-          const inPath = this.wallPath.some(p => `${p.col},${p.row},${p.edge}` === key);
-          if (!inPath) {
-            this.wallPath.push(edge);
-          }
-          this.renderer.renderWallPreview(this.wallPath, 'demolishWall');
-        }
-      } else if (this.selectedWallTool && !this.isDrawingWall) {
+        this.wallPath = this._buildWallLine(this._wallStart, edge);
+        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool || 'exteriorWall');
+      } else if (this.isDrawingDoor && this.demolishMode && this.demolishType === 'demolishDoor') {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
+        this.doorPath = this._buildWallLine(this._doorStart, edge);
+        this.renderer.renderDoorPreview(this.doorPath, 'officeDoor');
+      } else if (this.selectedWallTool && !this.isDrawingWall) {
+        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+      } else if (this.isDrawingDoor && this.selectedDoorTool) {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        this.doorPath = this._buildWallLine(this._doorStart, edge);
+        this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
+      } else if (this.selectedDoorTool && !this.isDrawingDoor) {
+        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
+        this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+      } else if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor &&
+                 (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
+        const edge = this._getNearestEdge(e.clientX, e.clientY);
+        this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -529,6 +622,13 @@ export class InputHandler {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
+        // Show cross cursor when an infra/zone tool is selected
+        if (this.selectedInfraTool || this.selectedZoneTool) {
+          const infra = this.selectedInfraTool ? INFRASTRUCTURE[this.selectedInfraTool] : null;
+          const zone = this.selectedZoneTool ? ZONES[this.selectedZoneTool] : null;
+          const color = infra?.topColor || zone?.color || 0xffffff;
+          this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
+        }
         // Update design placer position
         if (this.game._designPlacer && this.game._designPlacer.active) {
           this.game._designPlacer.setPosition(grid.col, grid.row);
@@ -547,6 +647,7 @@ export class InputHandler {
 
       // Connection drawing end — commit all tiles on release
       if (this.isDrawingConn) {
+        this.game._pushUndo();
         for (const pt of this.connPath) {
           if (this.connDrawMode === 'add') {
             this.game.placeConnection(pt.col, pt.row, this.selectedConnTool);
@@ -562,6 +663,7 @@ export class InputHandler {
 
       // Line placement end (hallway)
       if (this.isDrawingLine && this.linePath.length > 0) {
+        this.game._pushUndo();
         for (const pt of this.linePath) {
           this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
         }
@@ -574,6 +676,7 @@ export class InputHandler {
 
       // Wall demolish end
       if (this.demolishType === 'demolishWall' && this.isDrawingWall && this.wallPath.length > 0) {
+        this.game._pushUndo();
         for (const pt of this.wallPath) {
           this.game.removeWall(pt.col, pt.row, pt.edge);
         }
@@ -583,8 +686,21 @@ export class InputHandler {
         return;
       }
 
+      // Door demolish end
+      if (this.demolishType === 'demolishDoor' && this.isDrawingDoor && this.doorPath.length > 0) {
+        this.game._pushUndo();
+        for (const pt of this.doorPath) {
+          this.game.removeDoor(pt.col, pt.row, pt.edge);
+        }
+        this.isDrawingDoor = false;
+        this.doorPath = [];
+        this.renderer.clearDragPreview();
+        return;
+      }
+
       // Wall placement end
       if (this.isDrawingWall && this.wallPath.length > 0) {
+        this.game._pushUndo();
         this.game.placeWallPath(this.wallPath, this.selectedWallTool);
         this.isDrawingWall = false;
         this.wallPath = [];
@@ -592,8 +708,19 @@ export class InputHandler {
         return;
       }
 
+      // Door placement end
+      if (this.isDrawingDoor && this.doorPath.length > 0) {
+        this.game._pushUndo();
+        this.game.placeDoorPath(this.doorPath, this.selectedDoorTool);
+        this.isDrawingDoor = false;
+        this.doorPath = [];
+        this.renderer.clearDragPreview();
+        return;
+      }
+
       // Infrastructure, zone, or demolish drag end
       if (this.isDragging && this.dragStart && this.dragEnd) {
+        this.game._pushUndo();
         if (this.demolishMode) {
           const minCol = Math.min(this.dragStart.col, this.dragEnd.col);
           const maxCol = Math.max(this.dragStart.col, this.dragEnd.col);
@@ -645,6 +772,12 @@ export class InputHandler {
               this.dragStart.col, this.dragStart.row,
               this.dragEnd.col, this.dragEnd.row
             );
+          } else if (this.demolishType === 'demolishAll') {
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                this._demolishEverythingAt(c, r);
+              }
+            }
           }
         } else if (this.selectedZoneTool) {
           this.game.placeZoneRect(
@@ -733,6 +866,7 @@ export class InputHandler {
     }
 
     if (this.bulldozerMode) {
+      this.game._pushUndo();
       if (this.bulldozerConnType) {
         // Pipe-specific bulldozer: only remove the selected connection type
         this.game.removeConnection(col, row, this.bulldozerConnType);
@@ -778,6 +912,7 @@ export class InputHandler {
       // Infrastructure placement (single tile for non-drag items like path)
       const infra = INFRASTRUCTURE[this.selectedInfraTool];
       if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
+        this.game._pushUndo();
         if (this.game.placeInfraTile(col, row, this.selectedInfraTool, this.selectedInfraVariant)) {
           this.game.emit('infrastructureChanged');
         }
@@ -787,6 +922,7 @@ export class InputHandler {
 
     // Zone placement (single tile click)
     if (this.selectedZoneTool) {
+      this.game._pushUndo();
       if (this.game.placeZoneTile(col, row, this.selectedZoneTool)) {
         this.game.emit('zonesChanged');
       }
@@ -794,6 +930,7 @@ export class InputHandler {
     }
 
     if (this.demolishMode) {
+      this.game._pushUndo();
       const key = col + ',' + row;
       if (this.demolishType === 'demolishComponent') {
         const node = this._getNodeAtGrid(col, row);
@@ -827,15 +964,21 @@ export class InputHandler {
         if (this.game.state.infraOccupied[key]) {
           this.game.removeInfraTile(col, row);
         }
+      } else if (this.demolishType === 'demolishAll') {
+        this._demolishEverythingAt(col, row);
       } else if (this.demolishType === 'demolishWall') {
         const edge = this._getNearestEdge(screenX, screenY);
         this.game.removeWall(edge.col, edge.row, edge.edge);
+      } else if (this.demolishType === 'demolishDoor') {
+        const edge = this._getNearestEdge(screenX, screenY);
+        this.game.removeDoor(edge.col, edge.row, edge.edge);
       }
       return;
     }
 
     // Decoration placement
     if (this.selectedDecorationTool) {
+      this.game._pushUndo();
       if (this.game.placeDecoration(col, row, this.selectedDecorationTool)) {
         this.game.emit('decorationsChanged');
       }
@@ -844,18 +987,21 @@ export class InputHandler {
 
     // Zone furnishing placement
     if (this.selectedFurnishingTool) {
+      this.game._pushUndo();
       this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool);
       return;
     }
 
     // Facility equipment placement
     if (this.selectedFacilityTool) {
+      this.game._pushUndo();
       this.game.placeFacilityEquipment(col, row, this.selectedFacilityTool);
       return;
     }
 
     if (this.selectedTool) {
       // Placement mode
+      this.game._pushUndo();
       const nodes = this._getActiveBeamlineNodes();
       if (nodes.length === 0) {
         // Place first component (must be a source type)
@@ -1012,6 +1158,11 @@ export class InputHandler {
     this.selectedWallTool = null;
     this.isDrawingWall = false;
     this.wallPath = [];
+    this._wallStart = null;
+    this.selectedDoorTool = null;
+    this.isDrawingDoor = false;
+    this.doorPath = [];
+    this._doorStart = null;
     this.renderer.clearDragPreview();
   }
 
@@ -1061,6 +1212,7 @@ export class InputHandler {
 
   deselectZoneTool() {
     this.selectedZoneTool = null;
+    this.renderer.clearDragPreview();
   }
 
   selectFurnishingTool(furnType) {
@@ -1095,7 +1247,14 @@ export class InputHandler {
 
   selectWallTool(wallType) {
     this.deselectInfraTool();
+    this.selectedDoorTool = null;
     this.selectedWallTool = wallType;
+  }
+
+  selectDoorTool(doorType) {
+    this.deselectInfraTool();
+    this.selectedWallTool = null;
+    this.selectedDoorTool = doorType;
   }
 
   selectDemolishTool(demolishType) {
@@ -1113,6 +1272,132 @@ export class InputHandler {
   deselectDemolishTool() {
     this.demolishMode = false;
     this.demolishType = null;
+  }
+
+  _demolishEverythingAt(col, row) {
+    const key = col + ',' + row;
+    // Remove beamline components
+    const node = this._getNodeAtGrid(col, row);
+    if (node) this.game.removeComponent(node.id);
+    // Remove utility connections
+    const conns = this.game.getConnectionsAt(col, row);
+    for (const ct of [...conns]) this.game.removeConnection(col, row, ct);
+    // Remove furnishings
+    const fId = this.game.state.zoneFurnishingGrid[key];
+    if (fId) this.game.removeZoneFurnishing(fId);
+    // Remove decorations
+    if (this.game.state.decorationOccupied[key]) this.game.removeDecoration(col, row);
+    // Remove zones
+    if (this.game.state.zoneOccupied[key]) this.game.removeZoneTile(col, row);
+    // Remove walls and doors on both edges of this tile
+    this.game.removeWall(col, row, 'e');
+    this.game.removeWall(col, row, 's');
+    this.game.removeDoor(col, row, 'e');
+    this.game.removeDoor(col, row, 's');
+    // Remove floor last
+    if (this.game.state.infraOccupied[key]) this.game.removeInfraTile(col, row);
+  }
+
+  _contextDemolishType() {
+    const mode = this.activeMode;
+    const cat = this.selectedCategory;
+    const catDef = MODES[mode]?.categories?.[cat];
+    if (mode === 'beamline') return 'demolishComponent';
+    if (mode === 'infra') return 'demolishConnection';
+    if (mode === 'facility') return 'demolishZone';
+    if (mode === 'structure') {
+      if (cat === 'flooring') return 'demolishFloor';
+      if (cat === 'walls') return 'demolishWall';
+      if (cat === 'doors') return 'demolishDoor';
+    }
+    if (mode === 'grounds') {
+      if (cat === 'surfaces') return 'demolishFloor';
+      if (catDef?.isWallTab) return 'demolishWall';
+      if (catDef?.isDecorationTab) return 'demolishFurnishing';
+    }
+    return null;
+  }
+
+  _toggleContextDemolish() {
+    // If already in demolish mode, toggle it off
+    if (this.demolishMode) {
+      this.deselectDemolishTool();
+      this._hidePreview();
+      return;
+    }
+    // Determine the right demolish type for current context
+    const demolishType = this._contextDemolishType();
+    if (!demolishType) {
+      // No context (e.g. already on demolish tab) — fall through to full demolish menu
+      this._switchToDemolishMode();
+      return;
+    }
+    // Activate demolish in-place without changing mode/menu
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectDecorationTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.bulldozerMode = false;
+    this.renderer.setBulldozerMode(false);
+    this.selectDemolishTool(demolishType);
+    this._updatePreview(demolishType);
+  }
+
+  _switchToDemolishMode() {
+    // Save current mode/category so Esc can restore it
+    if (!this.demolishMode && this.activeMode !== 'demolish') {
+      this._prevMode = this.activeMode;
+      this._prevCategory = this.selectedCategory;
+    }
+    // Switch to demolish mode
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectDecorationTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.bulldozerMode = false;
+    this.renderer.setBulldozerMode(false);
+    this.activeMode = 'demolish';
+    this.renderer.activeMode = 'demolish';
+    this.selectedCategory = 'demolish';
+    // Update mode button UI
+    document.querySelectorAll('.mode-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === 'demolish');
+    });
+    this.renderer._generateCategoryTabs();
+    this.renderer.updatePalette('demolish');
+    this.paletteIndex = -1;
+    this._hidePreview();
+  }
+
+  _restorePreviousMode() {
+    this.deselectDemolishTool();
+    this.bulldozerMode = false;
+    this.renderer.setBulldozerMode(false);
+    const mode = this._prevMode || 'beamline';
+    const category = this._prevCategory || Object.keys(MODES[mode]?.categories || {})[0] || '';
+    this.activeMode = mode;
+    this.renderer.activeMode = mode;
+    this.selectedCategory = category;
+    // Update mode button UI
+    document.querySelectorAll('.mode-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    this.renderer._generateCategoryTabs();
+    this.renderer.updatePalette(category);
+    // Activate the right tab
+    document.querySelectorAll('.cat-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.category === category);
+    });
+    this.paletteIndex = -1;
+    this._hidePreview();
+    this._prevMode = null;
+    this._prevCategory = null;
   }
 
   setActiveMode(mode) {
@@ -1240,7 +1525,7 @@ export class InputHandler {
     const compKeys = this._getPaletteCompKeys();
     if (this.paletteIndex < compKeys.length) {
       const compKey = compKeys[this.paletteIndex];
-      const catDef = MODES.structure?.categories?.[this.selectedCategory];
+      const catDef = MODES.facility?.categories?.[this.selectedCategory];
       if (catDef?.isZoneTab) {
         // First item is zone paint tool, rest are furnishings
         if (this.paletteIndex === 0) {
@@ -1252,6 +1537,8 @@ export class InputHandler {
         this.selectDemolishTool(compKey);
       } else if (this.selectedCategory === 'walls') {
         this.selectWallTool(compKey);
+      } else if (this.selectedCategory === 'doors') {
+        this.selectDoorTool(compKey);
       } else if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
         this._selectInfraToolPreview(compKey);
       } else if (isFacilityCategory(this.selectedCategory)) {
@@ -1286,6 +1573,16 @@ export class InputHandler {
       return;
     }
 
+    if (this.selectedCategory === 'doors') {
+      const dt = DOOR_TYPES[key];
+      if (!dt) { this._hidePreview(); return; }
+      this._renderPreview(dt.name, dt.desc || '', [
+        ['Cost', `$${dt.cost}/segment`],
+        ['Placement', 'Drag along edges'],
+      ]);
+      return;
+    }
+
     if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
       const infra = INFRASTRUCTURE[key];
       if (!infra) { this._hidePreview(); return; }
@@ -1297,7 +1594,7 @@ export class InputHandler {
     }
 
     // Zone tab items
-    const zoneCatDef = MODES.structure?.categories?.[this.selectedCategory];
+    const zoneCatDef = MODES.facility?.categories?.[this.selectedCategory];
     if (zoneCatDef?.isZoneTab) {
       if (this.paletteIndex === 0) {
         const zone = ZONES[key];
@@ -1319,7 +1616,7 @@ export class InputHandler {
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls' };
+      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
       this._renderPreview(names[key] || 'Demolish', '', []);
       return;
     }
@@ -1394,14 +1691,17 @@ export class InputHandler {
     if (category === 'walls') {
       return Object.keys(WALL_TYPES);
     }
+    if (category === 'doors') {
+      return Object.keys(DOOR_TYPES);
+    }
     if (category === 'demolish') {
-      return ['demolishFloor', 'demolishZone', 'demolishFurnishing', 'demolishWall'];
+      return ['demolishFloor', 'demolishZone', 'demolishFurnishing', 'demolishWall', 'demolishDoor', 'demolishAll'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);
     }
     // Zone tabs: first item is zone type, then furnishings
-    const catDef = MODES.structure?.categories?.[category];
+    const catDef = MODES.facility?.categories?.[category];
     if (catDef?.isZoneTab) {
       const zoneType = catDef.zoneType;
       const furnKeys = Object.keys(ZONE_FURNISHINGS).filter(k => ZONE_FURNISHINGS[k].zoneType === zoneType);

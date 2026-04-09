@@ -2,8 +2,18 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// Load .env
+const envPath = path.join(__dirname, '../../.env');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
+    const m = line.match(/^(\w+)=(.+)$/);
+    if (m) process.env[m[1]] = m[2].trim();
+  }
+}
+
 const PORT = 3333;
-const API_KEY = 'a532cdf9-c187-4970-8cec-3a58fda7b15a';
+const API_KEY = process.env.PIXELLAB_API_KEY || '';
+const XAI_KEY = process.env.XAI_API_KEY || '';
 const API_BASE = 'https://api.pixellab.ai';
 const PROJECT = path.join(__dirname, '../..');
 const COMPONENTS_DIR = path.join(PROJECT, 'assets/components');
@@ -233,12 +243,15 @@ async function handleRequest(req, res) {
     // ── Generate ──
     if (url.pathname === '/api/generate' && req.method === 'POST') {
       const body = await readBody(req);
-      const { component, description, count, refImage, assetType, direction } = JSON.parse(body);
+      const { component, description, count, refImage, assetType, direction, globalStyle } = JSON.parse(body);
 
-      // Load reference image
+      // Load reference image — prefer uploaded ref photo for this component, fall back to style ref
       let bgImage = null;
-      if (refImage) {
-        // Search all asset dirs for the ref file
+      const uploadedRefPath = path.join(COMPONENTS_DIR, 'references', `${component}.png`);
+      if (fs.existsSync(uploadedRefPath)) {
+        bgImage = fs.readFileSync(uploadedRefPath).toString('base64');
+        console.log(`[gen] Using uploaded reference photo for ${component}`);
+      } else if (refImage) {
         for (const dir of [COMPONENTS_DIR, TILES_DIR, DECORATIONS_DIR]) {
           const p = path.join(dir, refImage);
           if (fs.existsSync(p)) { bgImage = fs.readFileSync(p).toString('base64'); break; }
@@ -252,7 +265,7 @@ async function handleRequest(req, res) {
         // Flat 2D isometric tiles
         for (let i = 0; i < n; i++) {
           const payload = {
-            description: `${description}, seamless texture, pixel art`,
+            description: `${description}, seamless texture, pixel art, RollerCoaster Tycoon 2 style${globalStyle ? ', ' + globalStyle : ''}`,
             size: 64,
             tile_shape: 'thin tile',
             outline: 'lineless',
@@ -277,7 +290,7 @@ async function handleRequest(req, res) {
           : ', facing from top-right to bottom-left';
         for (let i = 0; i < n; i++) {
           const payload = {
-            description: `isometric pixel art ${description}${dirDesc}, seen from above at 45 degrees`,
+            description: `isometric pixel art ${description}${dirDesc}, seen from above at 45 degrees, RollerCoaster Tycoon 2 style${globalStyle ? ', ' + globalStyle : ''}`,
             image_size: { width: 64, height: 48 },
             view: 'high top-down',
             outline: 'selective outline',
@@ -349,6 +362,169 @@ async function handleRequest(req, res) {
       const imgBuf = await downloadImage(imgUrl);
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' });
       res.end(imgBuf);
+      return;
+    }
+
+    // ── Save uploaded reference image ──
+    if (url.pathname === '/api/save-ref-image' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { key, dataUrl } = JSON.parse(body);
+      const refDir = path.join(COMPONENTS_DIR, 'references');
+      if (!fs.existsSync(refDir)) fs.mkdirSync(refDir, { recursive: true });
+      // Strip data URL prefix and save as PNG
+      const b64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      fs.writeFileSync(path.join(refDir, `${key}.png`), Buffer.from(b64, 'base64'));
+      console.log(`[ref] Saved reference image for ${key}`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // ── Delete uploaded reference image ──
+    if (url.pathname === '/api/delete-ref-image' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { key } = JSON.parse(body);
+      const refPath = path.join(COMPONENTS_DIR, 'references', `${key}.png`);
+      if (fs.existsSync(refPath)) fs.unlinkSync(refPath);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // ── Save sprite offsets ──
+    if (url.pathname === '/api/save-offsets' && req.method === 'POST') {
+      const body = await readBody(req);
+      const offsets = JSON.parse(body);
+      fs.writeFileSync(path.join(COMPONENTS_DIR, 'offsets.json'), JSON.stringify(offsets, null, 2));
+      console.log(`[offsets] Saved ${Object.keys(offsets).length} offset entries`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // ── Load sprite offsets ──
+    if (url.pathname === '/api/offsets' && req.method === 'GET') {
+      const offsetsPath = path.join(COMPONENTS_DIR, 'offsets.json');
+      const offsets = fs.existsSync(offsetsPath) ? JSON.parse(fs.readFileSync(offsetsPath, 'utf-8')) : {};
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(offsets));
+      return;
+    }
+
+    // ── AI Improve global style ──
+    if (url.pathname === '/api/improve-global-style' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { currentStyle } = JSON.parse(body);
+
+      const systemPrompt = `You are an expert at writing style prompts for PixelLab, a pixel art generation AI. The game is a particle accelerator tycoon in the style of RollerCoaster Tycoon 2.
+
+Your job: improve a global style prompt that gets appended to every individual asset generation. This should define the overall visual language — color palette, shading approach, level of detail, artistic style.
+
+Rules:
+- Output ONLY the improved style text, nothing else. No quotes, no explanation.
+- Keep it under 150 characters
+- Focus on art style, not content (no specific objects or components)
+- Think about: color palette, shading style, outline approach, level of detail, mood
+- Should work for beamline components, lab furniture, floor tiles, and decorations alike
+- RollerCoaster Tycoon 2 is the target aesthetic: clean isometric pixel art, readable at small sizes`;
+
+      try {
+        const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${XAI_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'grok-3-mini',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: currentStyle ? `Improve this global style prompt:\n\n"${currentStyle}"` : 'Write a global style prompt for RCT2-style particle accelerator game assets.' }
+            ],
+            max_tokens: 200,
+            temperature: 0.7
+          })
+        });
+        const data = await grokRes.json();
+        const improved = data.choices?.[0]?.message?.content?.trim() || '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ improved }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // ── AI Improve prompt ──
+    if (url.pathname === '/api/improve-prompt' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { spriteKey, currentPrompt, refImage, hasUploadedRef } = JSON.parse(body);
+
+      // Check for uploaded reference photo
+      let uploadedRefB64 = null;
+      const refPhotoPath = path.join(COMPONENTS_DIR, 'references', `${spriteKey}.png`);
+      if (hasUploadedRef && fs.existsSync(refPhotoPath)) {
+        uploadedRefB64 = fs.readFileSync(refPhotoPath).toString('base64');
+      }
+
+      const refContext = refImage ? `\nThe pixel art style reference is "${refImage}" — the new prompt should produce something visually cohesive with that.` : '';
+
+      const systemPrompt = `You are an expert at writing prompts for PixelLab, a pixel art generation AI that creates isometric game assets in the style of RollerCoaster Tycoon 2 (RCT2). The game is a particle accelerator tycoon — building beamlines, labs, and research facilities.
+
+Your job: take a description of a component and improve it into an optimal PixelLab prompt that will generate a great RCT2-style isometric pixel art sprite.
+
+Rules:
+- Output ONLY the improved prompt text, nothing else. No quotes, no explanation.
+- Keep it under 200 characters
+- Focus on visual appearance: shape, color, material, key distinguishing features
+- Always include "on support stand" or "on metal stand" for beamline components
+- Use specific colors (blue, copper, silver, green) not vague ones
+- Mention the beam pipe running through when relevant
+- Don't include "pixel art", "isometric", or "RCT2" — those are added separately
+- Think about what makes this component visually distinct at small pixel scale (48-64px)
+- Real accelerator components should look like miniature versions of the real thing
+${uploadedRefB64 ? '- A reference photo of the real component is attached — describe what you see in terms PixelLab can reproduce as pixel art' : ''}`;
+
+      const messages = [];
+      if (uploadedRefB64) {
+        // Use vision model with the uploaded photo
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${uploadedRefB64}` } },
+            { type: 'text', text: `This is a real photo of a "${spriteKey}" component. Based on what you see, improve this PixelLab prompt to generate an accurate RCT2-style pixel art version:${refContext}\n\nCurrent prompt: "${currentPrompt}"` }
+          ]
+        });
+      } else {
+        messages.push({
+          role: 'user',
+          content: `Improve this PixelLab prompt for generating a "${spriteKey}" asset in RCT2 pixel art style:${refContext}\n\nCurrent prompt: "${currentPrompt}"`
+        });
+      }
+
+      try {
+        const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${XAI_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: uploadedRefB64 ? 'grok-4-fast-non-reasoning' : 'grok-3-mini',
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            max_tokens: 300,
+            temperature: 0.7
+          })
+        });
+        const grokData = await grokRes.json();
+        const improved = grokData.choices?.[0]?.message?.content?.trim() || '';
+        if (!improved) console.log('[ai] Raw response:', JSON.stringify(grokData).slice(0, 500));
+        console.log(`[ai] ${spriteKey}: "${improved.slice(0, 80)}..."`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ improved }));
+      } catch (e) {
+        console.error('[ai] Grok error:', e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
       return;
     }
 

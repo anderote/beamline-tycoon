@@ -16,7 +16,13 @@ Renderer.prototype._getRequiredConnections = function(comp) {
 };
 
 Renderer.prototype._renderComponents = function() {
-  this.componentLayer.removeChildren();
+  // Remove only component sprites (not walls which share this layer)
+  if (this._componentSprites) {
+    for (const s of this._componentSprites) {
+      if (s.parent) s.parent.removeChild(s);
+    }
+  }
+  this._componentSprites = [];
   this.labelLayer.removeChildren();
   this.nodeSprites = {};
 
@@ -68,6 +74,7 @@ Renderer.prototype._renderComponents = function() {
       sprite.zIndex = tile.col + tile.row;
       if (dimmed) sprite.alpha = 0.3;
       this.componentLayer.addChild(sprite);
+      this._componentSprites.push(sprite);
       if (i === 0) this.nodeSprites[node.id] = sprite;
     }
 

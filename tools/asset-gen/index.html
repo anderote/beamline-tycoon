@@ -107,27 +107,93 @@
   </div>
 
   <div class="main">
+    <!-- Global style section -->
+    <div style="background:#161b22;border-bottom:1px solid #30363d;padding:8px 12px;flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;">Global Style Prompt</span>
+        <span style="font-size:9px;color:#484f58;">— applied to every generation</span>
+        <button class="btn btn-ghost" onclick="aiImproveGlobal()" id="aiGlobalBtn" style="margin-left:auto;font-size:10px;padding:3px 8px;">✨ AI Improve</button>
+        <button class="btn btn-ghost" onclick="saveGlobalStyle()" style="font-size:10px;padding:3px 8px;">Save</button>
+      </div>
+      <textarea id="globalStyleInput" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;min-height:36px;" rows="2" placeholder="e.g. clean pixel art, muted industrial palette, consistent shading, small detailed equipment on metal stands..." onchange="saveGlobalStyle()"></textarea>
+    </div>
+    <!-- Style refs -->
     <div class="ref-bar">
       <span class="ref-label">Style ref:</span>
       <div class="ref-scroll" id="refScroll"><span style="color:#484f58;font-size:11px;">Loading...</span></div>
     </div>
     <!-- Prompt editor -->
-    <div id="promptBar" style="background:#161b22;border-bottom:1px solid #30363d;padding:8px 12px;flex-shrink:0;display:none;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-        <span style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;">Prompt for <strong id="promptLabel" style="color:#58a6ff;"></strong></span>
-        <button class="btn btn-ghost" onclick="savePrompt()" style="margin-left:auto;font-size:10px;padding:3px 8px;">Save prompt</button>
-        <button class="btn btn-ghost" onclick="resetPrompt()" style="font-size:10px;padding:3px 8px;">Reset</button>
+    <div id="promptBar" style="background:#161b22;border-bottom:1px solid #30363d;padding:10px 12px;flex-shrink:0;display:none;">
+      <div style="display:flex;gap:12px;">
+        <!-- Reference image upload area -->
+        <div style="flex-shrink:0;width:120px;">
+          <div id="refDropZone" onclick="document.getElementById('refUpload').click()" style="width:120px;height:120px;border-radius:6px;border:2px dashed #30363d;background:#0d1117;cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;">
+            <div id="refDropLabel" style="text-align:center;color:#484f58;font-size:10px;padding:8px;">Drop or click<br/>to upload<br/>reference photo</div>
+            <img id="refPreviewImg" style="width:100%;height:100%;object-fit:cover;display:none;image-rendering:auto;" />
+            <button id="refRemoveBtn" onclick="event.stopPropagation();clearRefUpload()" style="position:absolute;top:4px;right:4px;width:20px;height:20px;background:#da363399;border:none;color:white;border-radius:50%;cursor:pointer;font-size:12px;display:none;align-items:center;justify-content:center;line-height:1;">×</button>
+          </div>
+          <input type="file" id="refUpload" accept="image/*" onchange="uploadRefImage()" style="display:none;" />
+        </div>
+        <!-- Prompt text area -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;">Prompt for <strong id="promptLabel" style="color:#58a6ff;"></strong></span>
+            <button class="btn btn-ghost" onclick="aiImprove()" id="aiBtn" style="margin-left:auto;font-size:10px;padding:3px 8px;">✨ AI Improve</button>
+            <button class="btn btn-ghost" onclick="savePrompt()" style="font-size:10px;padding:3px 8px;">Save</button>
+            <button class="btn btn-ghost" onclick="resetPrompt()" style="font-size:10px;padding:3px 8px;">Reset</button>
+          </div>
+          <textarea id="promptText" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;flex:1;min-height:60px;" rows="3"></textarea>
+          <div style="font-size:9px;color:#484f58;">Upload a photo of the real component — AI Improve will use it to write a better prompt</div>
+        </div>
       </div>
-      <textarea id="promptText" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;min-height:40px;max-height:120px;" rows="2"></textarea>
     </div>
 
-    <div class="content" id="content">
-      <div class="empty" id="emptyState">
-        <h3>Select a component, then Generate</h3>
-        <p>All batches persist here. Double-click sidebar items to generate instantly.</p>
+    <!-- Split view: Generate left, Preview right -->
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <!-- Generate panel -->
+      <div class="content" id="tab-generate" style="flex:1;border-right:1px solid #30363d;">
+        <div class="empty" id="emptyState">
+          <h3>Select a component, then Generate</h3>
+          <p>All batches persist here. Double-click sidebar items to generate instantly.</p>
+        </div>
+        <div id="batches"></div>
+        <div class="browser" id="browser"></div>
       </div>
-      <div id="batches"></div>
-      <div class="browser" id="browser"></div>
+
+      <!-- Preview panel -->
+      <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;flex:1;overflow:hidden;">
+          <!-- Canvas area -->
+          <div style="flex:1;position:relative;overflow:hidden;background:#1a1e26;">
+            <canvas id="previewCanvas" style="cursor:crosshair;"></canvas>
+            <!-- Nudge controls - fixed bottom bar, not overlay -->
+            <div id="nudgePanel" style="position:absolute;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:6px 10px;display:none;font-size:11px;z-index:10;">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span style="color:#58a6ff;font-weight:600;margin-right:4px;" id="nudgeLabel">—</span>
+                <span style="color:#8b949e;">X:</span>
+                <button class="btn btn-ghost" onclick="nudge(-1,0)" style="padding:2px 6px;font-size:10px;">-1</button>
+                <span id="nudgeX" style="min-width:20px;text-align:center;">0</span>
+                <button class="btn btn-ghost" onclick="nudge(1,0)" style="padding:2px 6px;font-size:10px;">+1</button>
+                <span style="color:#8b949e;margin-left:4px;">Y:</span>
+                <button class="btn btn-ghost" onclick="nudge(0,-1)" style="padding:2px 6px;font-size:10px;">-1</button>
+                <span id="nudgeY" style="min-width:20px;text-align:center;">0</span>
+                <button class="btn btn-ghost" onclick="nudge(0,1)" style="padding:2px 6px;font-size:10px;">+1</button>
+                <button class="btn btn-ghost" onclick="nudge(0,0,true)" style="margin-left:4px;padding:2px 6px;font-size:10px;">Reset</button>
+                <button class="btn btn-red" onclick="removePreviewItem()" style="margin-left:4px;padding:2px 6px;">Del</button>
+              </div>
+            </div>
+            <!-- Instructions -->
+            <div id="previewHelp" style="position:absolute;top:8px;left:8px;color:#484f58;font-size:10px;">
+              WASD=pan, scroll=zoom, F=flip, arrows=nudge, T/G=scale
+            </div>
+          </div>
+          <!-- Asset palette -->
+          <div id="previewPalette" style="width:200px;background:#161b22;border-left:1px solid #30363d;overflow-y:auto;padding:6px;">
+            <div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Palette</div>
+            <div id="paletteGrid" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -135,7 +201,38 @@
 <script>
 let currentKey = '', currentDesc = '', currentType = 'object';
 let selectedRef = null;
-let customPrompts = JSON.parse(localStorage.getItem('assetgen_prompts') || '{}'); // key -> edited prompt
+let customPrompts = JSON.parse(localStorage.getItem('assetgen_prompts') || '{}');
+let globalStyle = localStorage.getItem('assetgen_global_style') || '';
+
+function saveGlobalStyle() {
+  globalStyle = document.getElementById('globalStyleInput').value.trim();
+  localStorage.setItem('assetgen_global_style', globalStyle);
+}
+
+async function aiImproveGlobal() {
+  const btn = document.getElementById('aiGlobalBtn');
+  const textEl = document.getElementById('globalStyleInput');
+  const current = textEl.value.trim();
+
+  btn.textContent = '⏳ Improving...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/improve-global-style', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ currentStyle: current })
+    });
+    const data = await res.json();
+    if (data.improved) {
+      textEl.value = data.improved;
+      saveGlobalStyle();
+    }
+  } catch (e) {
+    console.error('AI improve global error:', e);
+  }
+  btn.textContent = '✨ AI Improve';
+  btn.disabled = false;
+} // key -> edited prompt
 let batches = [];
 let allAssets = {};
 let catalog = {};
@@ -252,6 +349,8 @@ async function init() {
   buildSidebar();
   renderRefBar();
   renderBrowser();
+  document.getElementById('globalStyleInput').value = globalStyle;
+  requestAnimationFrame(() => initPreview());
 }
 
 function buildSidebar() {
@@ -389,8 +488,21 @@ function renderBrowser() {
   const keys = Object.keys(allAssets).filter(k => allAssets[k].length > 0);
   if (keys.length === 0) { el.innerHTML = ''; return; }
 
+  // Sort by sidebar order
+  const sidebarOrder = [];
+  document.querySelectorAll('.nav-item[data-key]').forEach(nav => sidebarOrder.push(nav.dataset.key));
+  const orderedKeys = keys.sort((a, b) => {
+    const ai = sidebarOrder.indexOf(a);
+    const bi = sidebarOrder.indexOf(b);
+    // Items not in sidebar go to the end, sorted alphabetically
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
   let html = '<h3>All Saved Assets (' + keys.length + ' types)</h3>';
-  for (const key of keys.sort()) {
+  for (const key of orderedKeys) {
     html += `<div class="asset-group"><div class="asset-group-title">${key} (${allAssets[key].length})</div><div class="asset-row">`;
     for (const a of allAssets[key]) {
       html += `<div class="asset-card">
@@ -432,6 +544,65 @@ function addCustom() {
 }
 
 // ── Generation ──
+let uploadedRefImages = JSON.parse(localStorage.getItem('assetgen_ref_images') || '{}'); // key -> base64
+
+function uploadRefImage() {
+  const input = document.getElementById('refUpload');
+  const file = input.files[0];
+  if (!file || !currentKey) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const b64 = e.target.result; // data:image/...;base64,...
+    uploadedRefImages[currentKey] = b64;
+    localStorage.setItem('assetgen_ref_images', JSON.stringify(uploadedRefImages));
+
+    // Save to server
+    await fetch('/api/save-ref-image', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ key: currentKey, dataUrl: b64 })
+    });
+
+    showRefPreview(currentKey);
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearRefUpload() {
+  if (!currentKey) return;
+  delete uploadedRefImages[currentKey];
+  localStorage.setItem('assetgen_ref_images', JSON.stringify(uploadedRefImages));
+  document.getElementById('refUpload').value = '';
+  showRefPreview(currentKey);
+
+  fetch('/api/delete-ref-image', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ key: currentKey })
+  }).catch(() => {});
+}
+
+function showRefPreview(key) {
+  const img = document.getElementById('refPreviewImg');
+  const label = document.getElementById('refDropLabel');
+  const removeBtn = document.getElementById('refRemoveBtn');
+  const zone = document.getElementById('refDropZone');
+  const b64 = uploadedRefImages[key];
+  if (b64) {
+    img.src = b64;
+    img.style.display = 'block';
+    label.style.display = 'none';
+    removeBtn.style.display = 'flex';
+    zone.style.borderStyle = 'solid';
+    zone.style.borderColor = '#30363d';
+  } else {
+    img.style.display = 'none';
+    label.style.display = 'block';
+    removeBtn.style.display = 'none';
+    zone.style.borderStyle = 'dashed';
+    zone.style.borderColor = '#30363d';
+  }
+}
+
 function showPromptBar(key, defaultDesc) {
   const bar = document.getElementById('promptBar');
   const label = document.getElementById('promptLabel');
@@ -440,6 +611,8 @@ function showPromptBar(key, defaultDesc) {
   label.textContent = key;
   text.value = customPrompts[key] || defaultDesc;
   text.dataset.defaultDesc = defaultDesc;
+  showRefPreview(key);
+  document.getElementById('refUpload').value = '';
 }
 
 function savePrompt() {
@@ -453,6 +626,38 @@ function savePrompt() {
     if (navEl) navEl.dataset.desc = text;
   }
   localStorage.setItem('assetgen_prompts', JSON.stringify(customPrompts));
+}
+
+async function aiImprove() {
+  if (!currentKey) return;
+  const textEl = document.getElementById('promptText');
+  const btn = document.getElementById('aiBtn');
+  const currentPrompt = textEl.value.trim();
+  if (!currentPrompt) return;
+
+  btn.textContent = '⏳ Improving...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/improve-prompt', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        spriteKey: currentKey,
+        currentPrompt,
+        refImage: selectedRef ? selectedRef.file : null,
+        hasUploadedRef: !!uploadedRefImages[currentKey]
+      })
+    });
+    const data = await res.json();
+    if (data.improved) {
+      textEl.value = data.improved;
+      currentDesc = data.improved;
+    }
+  } catch (e) {
+    console.error('AI improve error:', e);
+  }
+  btn.textContent = '✨ AI Improve';
+  btn.disabled = false;
 }
 
 function resetPrompt() {
@@ -514,7 +719,8 @@ async function genForKey(key, desc, type, direction) {
         component: key, description: desc, count: 5,
         assetType: type,
         direction: direction,
-        refImage: selectedRef ? selectedRef.file : null
+        refImage: selectedRef ? selectedRef.file : null,
+        globalStyle: globalStyle || ''
       })
     });
     const data = await res.json();
@@ -634,6 +840,415 @@ async function pollAll() {
     });
   } catch(e) { console.error('Poll error:', e); }
 }
+
+// Preview auto-inits after assets load
+
+// ── Preview Grid ──
+const TILE_W = 64, TILE_H = 32;
+const GRID_COLS = 12, GRID_ROWS = 8;
+let previewCtx = null;
+let previewImages = {}; // path -> HTMLImageElement (cached)
+let placedItems = JSON.parse(localStorage.getItem('assetgen_placed') || '[]');
+let selectedPlaced = null;
+let palettePick = null;
+let offsets = JSON.parse(localStorage.getItem('assetgen_offsets') || '{}');
+
+// Camera — centered on grid, zoomed in
+let camX = 0, camY = -80, camZoom = 3;
+const keysDown = new Set();
+let camAnimFrame = null;
+
+function isoToWorld(col, row) {
+  const x = (col - row) * (TILE_W / 2);
+  const y = (col + row) * (TILE_H / 2);
+  return { x, y };
+}
+
+function worldToScreen(wx, wy) {
+  const canvas = document.getElementById('previewCanvas');
+  return {
+    x: (wx + camX) * camZoom + canvas.width / 2,
+    y: (wy + camY) * camZoom + canvas.height / 2
+  };
+}
+
+function screenToWorld(sx, sy) {
+  const canvas = document.getElementById('previewCanvas');
+  return {
+    x: (sx - canvas.width / 2) / camZoom - camX,
+    y: (sy - canvas.height / 2) / camZoom - camY
+  };
+}
+
+function isoToScreen(col, row) {
+  const w = isoToWorld(col, row);
+  return worldToScreen(w.x, w.y);
+}
+
+function screenToIso(sx, sy) {
+  const { x: wx, y: wy } = screenToWorld(sx, sy);
+  const col = Math.round((wx / (TILE_W / 2) + wy / (TILE_H / 2)) / 2);
+  const row = Math.round((wy / (TILE_H / 2) - wx / (TILE_W / 2)) / 2);
+  return { col, row };
+}
+
+function initPreview() {
+  const canvas = document.getElementById('previewCanvas');
+  const container = canvas.parentElement;
+  canvas.width = container.clientWidth;
+  canvas.height = container.clientHeight;
+  previewCtx = canvas.getContext('2d');
+
+  // Resize handler
+  new ResizeObserver(() => {
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+    drawPreview();
+  }).observe(container);
+
+  // Click: place or select
+  canvas.onclick = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    // Always prioritize selecting existing items
+    const clickedIdx = findItemAt(sx, sy);
+    if (clickedIdx !== null) {
+      selectedPlaced = clickedIdx;
+      showNudgePanel();
+      drawPreview();
+      return;
+    }
+
+    // Place new item from palette
+    if (palettePick) {
+      const { col, row } = screenToIso(sx, sy);
+      if (col >= 0 && col < GRID_COLS && row >= 0 && row < GRID_ROWS) {
+        const off = getOffset(palettePick.path);
+        placedItems.push({
+          key: palettePick.key, path: palettePick.path, col, row,
+          offsetX: off.x, offsetY: off.y,
+          rotation: off.rotation || 0, scale: off.scale || 1
+        });
+        persistState();
+        selectedPlaced = placedItems.length - 1;
+        showNudgePanel();
+        drawPreview();
+      }
+      return;
+    }
+
+    // Deselect
+    selectedPlaced = null;
+    document.getElementById('nudgePanel').style.display = 'none';
+    drawPreview();
+  };
+
+  // Mousewheel zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoomSpeed = 0.1;
+    const oldZoom = camZoom;
+    if (e.deltaY < 0) camZoom = Math.min(6, camZoom * (1 + zoomSpeed));
+    else camZoom = Math.max(0.5, camZoom * (1 - zoomSpeed));
+
+    // Zoom toward mouse position
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const wx = (mx - canvas.width / 2) / oldZoom - camX;
+    const wy = (my - canvas.height / 2) / oldZoom - camY;
+    camX = (mx - canvas.width / 2) / camZoom - wx;
+    camY = (my - canvas.height / 2) / camZoom - wy;
+
+    drawPreview();
+  }, { passive: false });
+
+  // WASD pan loop
+  if (!camAnimFrame) {
+    function camLoop() {
+      camAnimFrame = requestAnimationFrame(camLoop);
+      const speed = 4 / camZoom;
+      let moved = false;
+      if (keysDown.has('a') || keysDown.has('A')) { camX += speed; moved = true; }
+      if (keysDown.has('d') || keysDown.has('D')) { camX -= speed; moved = true; }
+      if (keysDown.has('w') || keysDown.has('W')) { camY += speed; moved = true; }
+      if (keysDown.has('s') || keysDown.has('S')) { camY -= speed; moved = true; }
+      if (moved) drawPreview();
+    }
+    camLoop();
+  }
+
+  renderPalette();
+  drawPreview();
+}
+
+function findItemAt(sx, sy) {
+  for (let i = placedItems.length - 1; i >= 0; i--) {
+    const item = placedItems[i];
+    const pos = isoToScreen(item.col, item.row);
+    const cx = pos.x + (item.offsetX || 0) * camZoom;
+    const cy = pos.y + (item.offsetY || 0) * camZoom;
+    const hw = 32 * camZoom, hh = 24 * camZoom;
+    if (sx >= cx - hw && sx <= cx + hw && sy >= cy - hh * 1.5 && sy <= cy + hh * 0.3) return i;
+  }
+  return null;
+}
+
+function loadPreviewImage(path) {
+  if (previewImages[path]) return Promise.resolve(previewImages[path]);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { previewImages[path] = img; resolve(img); };
+    img.onerror = () => resolve(null);
+    img.src = path;
+  });
+}
+
+async function drawPreview() {
+  if (!previewCtx) return;
+  const ctx = previewCtx;
+  const canvas = ctx.canvas;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Apply camera transform
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(camZoom, camZoom);
+  ctx.translate(camX, camY);
+
+  // Draw grid diamonds
+  ctx.strokeStyle = '#2a2e38';
+  ctx.lineWidth = 1 / camZoom;
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const { x, y } = isoToWorld(c, r);
+      ctx.beginPath();
+      ctx.moveTo(x, y - TILE_H / 2);
+      ctx.lineTo(x + TILE_W / 2, y);
+      ctx.lineTo(x, y + TILE_H / 2);
+      ctx.lineTo(x - TILE_W / 2, y);
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
+  // Draw placed items (sorted by row+col for depth)
+  const sorted = placedItems.map((item, idx) => ({ ...item, idx }))
+    .sort((a, b) => (a.col + a.row) - (b.col + b.row));
+
+  ctx.imageSmoothingEnabled = false;
+  for (const item of sorted) {
+    const img = await loadPreviewImage(item.path);
+    if (!img) continue;
+    const { x, y } = isoToWorld(item.col, item.row);
+    const ox = item.offsetX || 0;
+    const oy = item.offsetY || 0;
+    const scl = item.scale || 1;
+    const flip = item.flipped ? -1 : 1;
+
+    ctx.save();
+    ctx.translate(x + ox, y + oy);
+    ctx.scale(scl * flip, scl);
+    ctx.drawImage(img, -img.width / 2, -img.height + 8);
+
+    // Highlight: blue for selected, dim blue for same sprite file
+    const selPath = selectedPlaced !== null ? placedItems[selectedPlaced]?.path : null;
+    if (item.idx === selectedPlaced) {
+      ctx.strokeStyle = '#58a6ff';
+      ctx.lineWidth = 2 / camZoom / scl;
+      ctx.strokeRect(-img.width / 2 - 1, -img.height + 7, img.width + 2, img.height + 2);
+    } else if (selPath && item.path === selPath) {
+      ctx.strokeStyle = '#58a6ff55';
+      ctx.lineWidth = 1 / camZoom / scl;
+      ctx.strokeRect(-img.width / 2 - 1, -img.height + 7, img.width + 2, img.height + 2);
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function showNudgePanel() {
+  if (selectedPlaced === null) return;
+  const item = placedItems[selectedPlaced];
+  const off = getOffset(item.path);
+  const fname = item.path.split('/').pop();
+  document.getElementById('nudgePanel').style.display = 'block';
+  document.getElementById('nudgeLabel').textContent = `${fname}  ${item.flipped ? 'flipped' : ''}  scale:${(off.scale||1).toFixed(1)}x`;
+  document.getElementById('nudgeX').textContent = off.x || 0;
+  document.getElementById('nudgeY').textContent = off.y || 0;
+}
+
+// Offsets are per individual sprite file path, not per category
+function getOffset(path) {
+  if (!offsets[path]) offsets[path] = { x: 0, y: 0, scale: 1 };
+  return offsets[path];
+}
+
+function nudge(dx, dy, reset) {
+  if (selectedPlaced === null) return;
+  const item = placedItems[selectedPlaced];
+  const off = getOffset(item.path);
+  if (reset) {
+    off.x = 0; off.y = 0;
+  } else {
+    off.x += dx; off.y += dy;
+  }
+  applyOffsetsToPath(item.path);
+  persistState();
+  showNudgePanel();
+  drawPreview();
+}
+
+function rotatePreviewItem() {
+  if (selectedPlaced === null) return;
+  const item = placedItems[selectedPlaced];
+  // Flip is per-instance, not per-sprite-type
+  item.flipped = !item.flipped;
+  persistState();
+  showNudgePanel();
+  drawPreview();
+}
+
+function scalePreviewItem(delta) {
+  if (selectedPlaced === null) return;
+  const item = placedItems[selectedPlaced];
+  const off = getOffset(item.path);
+  off.scale = Math.max(0.25, Math.min(4, (off.scale || 1) + delta));
+  off.scale = Math.round(off.scale * 100) / 100;
+  applyOffsetsToPath(item.path);
+  persistState();
+  showNudgePanel();
+  drawPreview();
+}
+
+// Sync offsets to all placed items using the same sprite file
+function applyOffsetsToPath(path) {
+  const off = offsets[path] || { x: 0, y: 0, scale: 1 };
+  for (const item of placedItems) {
+    if (item.path === path) {
+      item.offsetX = off.x;
+      item.offsetY = off.y;
+      item.scale = off.scale || 1;
+      // flipped is per-instance, not synced from offsets
+    }
+  }
+}
+
+let saveOffsetsTimer = null;
+function persistState() {
+  localStorage.setItem('assetgen_offsets', JSON.stringify(offsets));
+  localStorage.setItem('assetgen_placed', JSON.stringify(placedItems));
+  // Auto-save offsets to server (debounced)
+  clearTimeout(saveOffsetsTimer);
+  saveOffsetsTimer = setTimeout(() => {
+    fetch('/api/save-offsets', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(offsets)
+    }).catch(() => {});
+  }, 500);
+}
+
+function removePreviewItem() {
+  if (selectedPlaced === null) return;
+  placedItems.splice(selectedPlaced, 1);
+  selectedPlaced = null;
+  document.getElementById('nudgePanel').style.display = 'none';
+  persistState();
+  drawPreview();
+}
+
+async function saveOffsets() {
+  try {
+    await fetch('/api/save-offsets', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(offsets)
+    });
+    alert('Offsets saved to assets/components/offsets.json');
+  } catch (e) {
+    alert('Error saving offsets: ' + e.message);
+  }
+}
+
+function renderPalette() {
+  const grid = document.getElementById('paletteGrid');
+  grid.innerHTML = '';
+
+  // Get sidebar order
+  const sidebarOrder = [];
+  document.querySelectorAll('.nav-item[data-key]').forEach(nav => sidebarOrder.push(nav.dataset.key));
+
+  const assetKeys = Object.keys(allAssets).filter(k => allAssets[k].length > 0);
+  assetKeys.sort((a, b) => {
+    const ai = sidebarOrder.indexOf(a); const bi = sidebarOrder.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1; if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  for (const key of assetKeys) {
+    const assets = allAssets[key];
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:3px;align-items:center;flex-wrap:wrap;';
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:9px;color:#58a6ff;width:100%;';
+    label.textContent = key;
+    row.appendChild(label);
+
+    for (const a of assets) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;display:inline-block;';
+      const thumb = document.createElement('div');
+      const isSel = palettePick && palettePick.path === a.path;
+      thumb.style.cssText = `width:80px;height:80px;background:repeating-conic-gradient(#21262d 0% 25%,#161b22 0% 50%) 0 0/6px 6px;border-radius:4px;cursor:pointer;border:2px solid ${isSel ? '#238636' : 'transparent'};padding:2px;`;
+      thumb.innerHTML = `<img src="${a.path}" style="width:100%;height:100%;image-rendering:pixelated;object-fit:contain;"/>`;
+      thumb.onclick = (e) => {
+        e.stopPropagation();
+        palettePick = { key, path: a.path };
+        renderPalette();
+      };
+      const del = document.createElement('button');
+      del.style.cssText = 'position:absolute;top:2px;right:2px;width:18px;height:18px;background:#da363399;border:none;color:white;border-radius:50%;cursor:pointer;font-size:10px;display:none;align-items:center;justify-content:center;line-height:1;z-index:1;';
+      del.textContent = '\u00d7';
+      del.onclick = (e) => {
+        e.stopPropagation();
+        delAsset(a.file, a.assetDir);
+      };
+      wrap.onmouseenter = () => del.style.display = 'flex';
+      wrap.onmouseleave = () => del.style.display = 'none';
+      wrap.appendChild(thumb);
+      wrap.appendChild(del);
+      row.appendChild(wrap);
+    }
+    grid.appendChild(row);
+  }
+}
+
+// Keyboard: WASD=pan, arrows=nudge selected, delete=remove
+document.addEventListener('keydown', (e) => {
+  if (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') return;
+  keysDown.add(e.key);
+
+  // Arrow keys nudge selected item
+  if (selectedPlaced !== null) {
+    switch (e.key) {
+      case 'ArrowLeft': nudge(-1, 0); e.preventDefault(); return;
+      case 'ArrowRight': nudge(1, 0); e.preventDefault(); return;
+      case 'ArrowUp': nudge(0, -1); e.preventDefault(); return;
+      case 'ArrowDown': nudge(0, 1); e.preventDefault(); return;
+      case 'Delete': case 'Backspace': removePreviewItem(); e.preventDefault(); return;
+      case 'f': case 'F': rotatePreviewItem(); e.preventDefault(); return;
+      case 't': case 'T': scalePreviewItem(0.1); e.preventDefault(); return;
+      case 'g': case 'G': scalePreviewItem(-0.1); e.preventDefault(); return;
+    }
+  }
+
+  // Escape deselects palette pick
+  if (e.key === 'Escape') { palettePick = null; renderPalette(); }
+});
+document.addEventListener('keyup', (e) => { keysDown.delete(e.key); });
 
 init();
 </script>

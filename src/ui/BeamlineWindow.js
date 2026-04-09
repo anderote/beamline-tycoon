@@ -163,21 +163,21 @@ export class BeamlineWindow {
 
   _renderOverview(el) {
     const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { el.innerHTML = '<div style="padding:12px;color:#888">Beamline not found.</div>'; return; }
+    if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
 
     // Schematic preview
     const ordered = entry.beamline.getOrderedComponents();
     let schematic = '<div class="ctx-schematic">';
     if (ordered.length === 0) {
-      schematic += '<span style="color:#555;font-size:11px">No components placed</span>';
+      schematic += '<span style="color:#556">No components placed</span>';
     } else {
       for (let i = 0; i < ordered.length; i++) {
         const node = ordered[i];
         const comp = COMPONENTS[node.type];
         const color = _compColor(node.type);
         const label = comp ? (comp.abbr || comp.name.slice(0, 3)) : '?';
-        schematic += `<span class="ctx-schem-node" style="background:${color}22;border-color:${color};color:${color}" title="${comp ? comp.name : node.type}">${label}</span>`;
+        schematic += `<span class="ctx-schem-node" style="background:${color}15;border-color:${color}88;color:${color}" title="${comp ? comp.name : node.type}">${label}</span>`;
         if (i < ordered.length - 1) {
           schematic += '<span class="ctx-schem-arrow">→</span>';
         }
@@ -185,82 +185,93 @@ export class BeamlineWindow {
     }
     schematic += '</div>';
 
-    // Quick stats grid
+    // Quick stats
     const e = bs.beamEnergy ? formatEnergy(bs.beamEnergy) : { val: '0.0', unit: 'MeV' };
     const uptime = bs.uptimeFraction != null ? (bs.uptimeFraction * 100).toFixed(1) + '%' : '--';
     const machineType = bs.machineType || '--';
+    const quality = bs.beamQuality ? bs.beamQuality.toFixed(2) : '--';
+    const qualityClass = bs.beamQuality > 0.7 ? '' : bs.beamQuality > 0.4 ? ' warn' : ' bad';
 
-    const grid = `
-      <div class="ctx-stats-grid">
+    el.innerHTML = `
+      <div class="ctx-preview">${schematic}</div>
+      <div class="ctx-stats-grid three-col">
         <div class="ctx-stat"><div class="ctx-stat-label">Energy</div><div class="ctx-stat-val">${e.val} ${e.unit}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Current</div><div class="ctx-stat-val">${bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--'} mA</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Quality</div><div class="ctx-stat-val">${bs.beamQuality ? bs.beamQuality.toFixed(2) : '--'}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Data/s</div><div class="ctx-stat-val">${bs.dataRate ? bs.dataRate.toFixed(1) : '0'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Quality</div><div class="ctx-stat-val${qualityClass}">${quality}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Data Rate</div><div class="ctx-stat-val">${bs.dataRate ? bs.dataRate.toFixed(1) : '0'} /s</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Uptime</div><div class="ctx-stat-val">${uptime}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Type</div><div class="ctx-stat-val">${machineType}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Type</div><div class="ctx-stat-val neutral">${machineType}</div></div>
+      </div>
+      <div class="ctx-section-label">Components: ${ordered.length}</div>
+      <div class="ctx-stats-grid">
+        <div class="ctx-stat"><div class="ctx-stat-label">Photon Rate</div><div class="ctx-stat-val">${bs.photonRate ? bs.photonRate.toExponential(1) : '0'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Discovery</div><div class="ctx-stat-val">${bs.discoveryChance ? (bs.discoveryChance * 100).toFixed(1) + '%' : '--'}</div></div>
       </div>
     `;
-
-    el.innerHTML = `<div class="ctx-preview">${schematic}${grid}</div>`;
   }
 
   _renderStats(el) {
     const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { el.innerHTML = '<div style="padding:12px;color:#888">Beamline not found.</div>'; return; }
+    if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
 
     const e = bs.beamEnergy ? formatEnergy(bs.beamEnergy) : { val: '0.0', unit: 'MeV' };
     const uptime = bs.uptimeFraction != null ? (bs.uptimeFraction * 100).toFixed(1) + '%' : '--';
     const lossFraction = bs.totalLossFraction != null ? (bs.totalLossFraction * 100).toFixed(2) + '%' : '--';
+    const lossClass = bs.totalLossFraction > 0.1 ? ' bad' : bs.totalLossFraction > 0.03 ? ' warn' : '';
     const discoveryCh = bs.discoveryChance != null ? (bs.discoveryChance * 100).toFixed(1) + '%' : '--';
 
-    const row = (label, val) =>
-      `<div class="ctx-stat" style="grid-column:span 2"><div class="ctx-stat-label">${label}</div><div class="ctx-stat-val">${val}</div></div>`;
-
     el.innerHTML = `
-      <div class="ctx-stats-grid" style="grid-template-columns:1fr 1fr">
-        ${row('Beam Energy', `${e.val} ${e.unit}`)}
-        ${row('Beam Current', `${bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--'} mA`)}
-        ${row('Beam Quality', bs.beamQuality ? bs.beamQuality.toFixed(3) : '--')}
-        ${row('Data Rate', `${bs.dataRate ? bs.dataRate.toFixed(2) : '0'} /s`)}
-        ${row('Total Data', bs.totalDataCollected ? Math.floor(bs.totalDataCollected).toLocaleString() : '0')}
-        ${row('Uptime', uptime)}
-        ${row('Beam Hours', bs.totalBeamHours ? bs.totalBeamHours.toFixed(1) : '0')}
-        ${row('Photon Rate', bs.photonRate ? bs.photonRate.toExponential(2) : '0')}
-        ${row('Discovery %', discoveryCh)}
-        ${row('Loss Fraction', lossFraction)}
+      <div class="ctx-section-label">Beam Parameters</div>
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Energy</div><div class="ctx-stat-val">${e.val} ${e.unit}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Current</div><div class="ctx-stat-val">${bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--'} mA</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Quality</div><div class="ctx-stat-val">${bs.beamQuality ? bs.beamQuality.toFixed(3) : '--'}</div></div>
+      </div>
+      <div class="ctx-section-label">Output</div>
+      <div class="ctx-stats-grid">
+        <div class="ctx-stat"><div class="ctx-stat-label">Data Rate</div><div class="ctx-stat-val">${bs.dataRate ? bs.dataRate.toFixed(2) : '0'} /s</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Total Data</div><div class="ctx-stat-val">${bs.totalDataCollected ? Math.floor(bs.totalDataCollected).toLocaleString() : '0'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Photon Rate</div><div class="ctx-stat-val">${bs.photonRate ? bs.photonRate.toExponential(2) : '0'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Discovery</div><div class="ctx-stat-val">${discoveryCh}</div></div>
+      </div>
+      <div class="ctx-section-label">Performance</div>
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Uptime</div><div class="ctx-stat-val">${uptime}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Beam Hours</div><div class="ctx-stat-val">${bs.totalBeamHours ? bs.totalBeamHours.toFixed(1) : '0'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Losses</div><div class="ctx-stat-val${lossClass}">${lossFraction}</div></div>
       </div>
     `;
   }
 
   _renderComponents(el) {
     const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { el.innerHTML = '<div style="padding:12px;color:#888">Beamline not found.</div>'; return; }
+    if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
 
     const ordered = entry.beamline.getOrderedComponents();
     if (ordered.length === 0) {
-      el.innerHTML = '<div style="padding:12px;color:#555;font-size:12px">No components placed.</div>';
+      el.innerHTML = '<div class="ctx-empty">No components placed.</div>';
       return;
     }
 
     const compHealth = (entry.beamState.componentHealth) || {};
 
-    let html = '<div style="padding:6px;overflow-y:auto;max-height:300px">';
+    let html = '<div style="overflow-y:auto">';
     for (const node of ordered) {
       const comp = COMPONENTS[node.type];
       const name = comp ? comp.name : node.type;
+      const color = _compColor(node.type);
       const health = compHealth[node.id] != null ? compHealth[node.id] : 100;
-      const healthColor = health > 60 ? '#4d4' : health > 25 ? '#da4' : '#f44';
+      const healthColor = health > 60 ? '#44dd66' : health > 25 ? '#ddaa22' : '#ff4444';
       const healthPct = Math.max(0, Math.min(100, health));
       html += `
-        <div style="margin-bottom:6px">
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#ccc;margin-bottom:2px">
-            <span>${name}</span>
-            <span style="color:${healthColor}">${healthPct.toFixed(0)}%</span>
+        <div class="ctx-comp-row">
+          <span style="color:${color};font-size:10px;width:12px;text-align:center">●</span>
+          <span style="color:#aaaacc;font-size:8px;flex:1">${name}</span>
+          <div class="ctx-comp-health-bar" style="max-width:120px">
+            <div class="ctx-comp-health-fill" style="background:${healthColor};width:${healthPct}%"></div>
           </div>
-          <div style="background:#1a1a2a;border-radius:2px;height:5px">
-            <div style="background:${healthColor};width:${healthPct}%;height:100%;border-radius:2px;transition:width 0.3s"></div>
-          </div>
+          <span style="color:${healthColor};font-size:8px;width:32px;text-align:right">${healthPct.toFixed(0)}%</span>
         </div>
       `;
     }
@@ -270,25 +281,31 @@ export class BeamlineWindow {
 
   _renderSettings(el) {
     const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { el.innerHTML = '<div style="padding:12px;color:#888">Beamline not found.</div>'; return; }
+    if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
     const nodeCount = entry.beamline.getAllNodes().length;
+    const statusColor = entry.status === 'running' ? '#44dd66' : entry.status === 'faulted' ? '#ff4444' : '#8888aa';
 
     el.innerHTML = `
+      <div class="ctx-section-label">Configuration</div>
       <div class="ctx-stats-grid">
-        <div class="ctx-stat"><div class="ctx-stat-label">Machine Type</div><div class="ctx-stat-val">${bs.machineType || '--'}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Status</div><div class="ctx-stat-val">${entry.status ? entry.status.toUpperCase() : '--'}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Components</div><div class="ctx-stat-val">${nodeCount}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Machine Type</div><div class="ctx-stat-val neutral">${bs.machineType || '--'}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Status</div><div class="ctx-stat-val" style="color:${statusColor}">${entry.status ? entry.status.toUpperCase() : '--'}</div></div>
+      </div>
+      <div class="ctx-section-label">Layout</div>
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Components</div><div class="ctx-stat-val neutral">${nodeCount}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Sources</div><div class="ctx-stat-val neutral">${entry.beamline.getAllNodes().filter(n => COMPONENTS[n.type]?.isSource).length}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Tiles</div><div class="ctx-stat-val neutral">${entry.beamline.getAllNodes().reduce((s, n) => s + (n.tiles ? n.tiles.length : 0), 0)}</div></div>
       </div>
     `;
   }
 
   _renderFinance(el) {
     const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { el.innerHTML = '<div style="padding:12px;color:#888">Beamline not found.</div>'; return; }
+    if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
 
-    // Compute build cost from components
     const nodes = entry.beamline.getAllNodes();
     const buildCost = nodes.reduce((sum, n) => {
       const comp = COMPONENTS[n.type];
@@ -297,16 +314,19 @@ export class BeamlineWindow {
 
     const energyDraw = bs.totalEnergyCost || 0;
     const dataRateTick = bs.dataRate || 0;
-
-    // Estimate user fees per tick (data rate * some rate — placeholder)
     const feePerTick = dataRateTick * 0.1;
 
     el.innerHTML = `
+      <div class="ctx-section-label">Capital</div>
       <div class="ctx-stats-grid">
         <div class="ctx-stat"><div class="ctx-stat-label">Build Cost</div><div class="ctx-stat-val">$${buildCost.toLocaleString()}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Energy Draw</div><div class="ctx-stat-val">${energyDraw.toFixed(0)} kW</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">User Fees/tick</div><div class="ctx-stat-val">$${feePerTick.toFixed(2)}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Data Rate/tick</div><div class="ctx-stat-val">${dataRateTick.toFixed(2)}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Components</div><div class="ctx-stat-val neutral">${nodes.length}</div></div>
+      </div>
+      <div class="ctx-section-label">Operating</div>
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Energy</div><div class="ctx-stat-val warn">${energyDraw.toFixed(0)} kW</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">User Fees</div><div class="ctx-stat-val">$${feePerTick.toFixed(2)}/t</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Data Out</div><div class="ctx-stat-val">${dataRateTick.toFixed(2)}/t</div></div>
       </div>
     `;
   }
@@ -314,38 +334,46 @@ export class BeamlineWindow {
   _renderUtilities(el) {
     const nd = this.game.state.networkData;
     if (!nd) {
-      el.innerHTML = '<div style="padding:12px;color:#555;font-size:12px">Network data not available.</div>';
+      el.innerHTML = '<div class="ctx-empty">Network data not available.</div>';
       return;
     }
 
-    // For each utility type, check if any network's beamlineNodes includes a node on this beamline
     const entry = this.game.registry.get(this.beamlineId);
     const myNodeIds = entry
       ? new Set(entry.beamline.getAllNodes().map(n => n.id))
       : new Set();
 
-    let html = '<div style="padding:8px">';
+    let connectedCount = 0;
+    let html = '<div class="ctx-section-label">Utility Connections</div>';
     for (const { key, label } of UTILITY_TYPES) {
       const networks = nd[key] || [];
       let connected = false;
       for (const net of networks) {
         if (net.beamlineNodes && net.beamlineNodes.some(n => myNodeIds.has(n.id))) {
           connected = true;
+          connectedCount++;
           break;
         }
       }
-      const color = connected ? '#4d4' : '#555';
+      const color = connected ? '#44dd66' : '#556';
       const icon = connected ? '●' : '○';
       const text = connected ? 'Connected' : 'Not connected';
       html += `
-        <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px solid #1a1a2a">
-          <span style="color:${color};font-size:14px">${icon}</span>
-          <span style="color:#aaa;width:70px">${label}</span>
-          <span style="color:${color}">${text}</span>
+        <div class="ctx-utility-row">
+          <span class="ctx-utility-dot" style="color:${color}">${icon}</span>
+          <span class="ctx-utility-label">${label}</span>
+          <span class="ctx-utility-status" style="color:${color}">${text}</span>
         </div>
       `;
     }
-    html += '</div>';
+    html += `
+      <div style="margin-top:12px">
+        <div class="ctx-stats-grid">
+          <div class="ctx-stat"><div class="ctx-stat-label">Connected</div><div class="ctx-stat-val">${connectedCount} / ${UTILITY_TYPES.length}</div></div>
+          <div class="ctx-stat"><div class="ctx-stat-label">Coverage</div><div class="ctx-stat-val">${(connectedCount / UTILITY_TYPES.length * 100).toFixed(0)}%</div></div>
+        </div>
+      </div>
+    `;
     el.innerHTML = html;
   }
 

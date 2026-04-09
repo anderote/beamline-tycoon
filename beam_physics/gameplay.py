@@ -11,32 +11,32 @@ from beam_physics.lattice import propagate
 # Default stats per component type, matching data.js COMPONENTS
 COMPONENT_DEFAULTS = {
     # === Electron Sources ===
-    "source":       {"length": 2.0},
-    "dcPhotoGun":   {"length": 2.0, "emittance": 1e-6},
-    "ncRfGun":      {"length": 2.0, "emittance": 0.5e-6},
-    "srfGun":       {"length": 3.0, "emittance": 0.3e-6},
+    "source":       {"length": 1.0},
+    "dcPhotoGun":   {"length": 1.0, "emittance": 1e-6},
+    "ncRfGun":      {"length": 1.0, "emittance": 0.5e-6},
+    "srfGun":       {"length": 2.0, "emittance": 0.3e-6},
     # === Beam Pipe ===
     "drift":        {"length": 5.0},
     "driftVert":    {"length": 5.0},
     "bellows":      {"length": 0.3},
     # === RF Cavities ===
-    "rfCavity":     {"length": 4.0, "energyGain": 0.5},
+    "rfCavity":     {"length": 3.0, "energyGain": 0.5},
     "cryomodule":   {"length": 5.0, "energyGain": 2.0},
-    "buncher":      {"length": 2.0, "energyGain": 0.05},
+    "buncher":      {"length": 1.0, "energyGain": 0.05},
     "harmonicLinearizer": {"length": 2.0, "energyGain": 0.02},
     "cbandCavity":  {"length": 2.0, "energyGain": 0.8},
     "xbandCavity":  {"length": 2.0, "energyGain": 1.2},
     "srf650Cavity": {"length": 4.0, "energyGain": 1.5},
     # === Magnets ===
     "dipole":       {"length": 3.0, "bendAngle": 90.0},
-    "quadrupole":   {"length": 2.0, "focusStrength": 1.0},
+    "quadrupole":   {"length": 1.0, "focusStrength": 1.0},
     "solenoid":     {"length": 1.0, "field": 0.2},
     "corrector":    {"length": 1.0},
-    "sextupole":    {"length": 2.0, "focusStrength": 0.5, "beamQuality": 0.3},
+    "sextupole":    {"length": 1.0, "focusStrength": 0.5, "beamQuality": 0.3},
     "octupole":     {"length": 1.0},
     "scQuad":       {"length": 1.0, "focusStrength": 2.0},
     "scDipole":     {"length": 3.0, "bendAngle": 90.0},
-    "combinedFunctionMagnet": {"length": 2.0, "focusStrength": 0.5, "bendAngle": 45.0},
+    "combinedFunctionMagnet": {"length": 1.0, "focusStrength": 0.5, "bendAngle": 45.0},
     # === Diagnostics ===
     "bpm":          {"length": 0.1},
     "screen":       {"length": 0.1},
@@ -52,9 +52,9 @@ COMPONENT_DEFAULTS = {
     "wiggler":      {"length": 5.0, "photonRate": 2.0},
     "apple2Undulator": {"length": 5.0, "photonRate": 1.5},
     # === Beam Manipulation ===
-    "collimator":   {"length": 2.0, "beamQuality": 0.2},
+    "collimator":   {"length": 1.0, "beamQuality": 0.2},
     "kickerMagnet": {"length": 1.0},
-    "septumMagnet": {"length": 2.0},
+    "septumMagnet": {"length": 1.0},
     "chicane":      {"length": 4.0, "r56": -0.05},
     "dogleg":       {"length": 3.0},
     "stripperFoil": {"length": 0.1},
@@ -85,12 +85,12 @@ RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
                    "cbandCavity", "xbandCavity", "srf650Cavity"}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
-# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, works with 5m drifts)
+# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 3m physical)
 # Game bendAngle=90 -> 15 degrees physically (90 is a routing concept in the grid)
 # Game energyGain stays as-is (already in GeV)
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
 DIPOLE_ANGLE_SCALE = 15.0 / 90.0  # game bendAngle -> physical degrees
-LENGTH_SCALE = 0.5        # game length units -> physical meters (makes beamline more compact)
+LENGTH_SCALE = 2.0        # game tiles are 2m x 2m
 
 
 def beamline_config_from_game(game_beamline):
@@ -152,7 +152,6 @@ def beamline_config_from_game(game_beamline):
         el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
 
         if physics_type == "source":
-            el["length"] = 0
             # Read emittance from computed stats if available, else use defaults per gun type
             default_emit = {"dcPhotoGun": 1e-6, "ncRfGun": 0.5e-6, "srfGun": 0.3e-6}
             # component-physics.js computes emittance in mm·mrad; convert to m·rad
@@ -161,15 +160,21 @@ def beamline_config_from_game(game_beamline):
                 el["emittance"] = raw_emit * 1e-6  # mm·mrad → m·rad
             else:
                 el["emittance"] = default_emit.get(ctype, 1e-6)
+            # Extraction energy from component definition (GeV)
+            if "extractionEnergy" in comp:
+                el["extractionEnergy"] = comp["extractionEnergy"]
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
                               defaults.get("focusStrength", 1.0))
             el["focusStrength"] = raw_k * QUAD_K_SCALE
             # Player-controlled polarity; fall back to auto-alternation
-            polarity = comp.get("polarity", stats.get("polarity", None))
+            # JS param: 0 = Focus X (+1), 1 = Focus Y (-1)
+            params = comp.get("params", {})
+            polarity = params.get("polarity",
+                        comp.get("polarity", stats.get("polarity", None)))
             if polarity is not None:
-                el["polarity"] = polarity
+                el["polarity"] = -1 if polarity == 1 else 1
             else:
                 el["polarity"] = 1 if (quad_index % 2 == 0) else -1
                 quad_index += 1
@@ -306,13 +311,13 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     # Photon rate from undulators: scales with current, quality, and photon science research
     photon_rate_val = summary["photon_rate"] * quality * current_frac * photon_flux_mult
 
-    # Collision rate from targets: scales with current
-    collision_rate = summary["collision_rate"] * current_frac * lumi_mult
+    # Collision rate from targets: scales with current and beam quality
+    collision_rate = summary["collision_rate"] * current_frac * quality * lumi_mult
 
-    # Discovery chance scales with luminosity and energy
+    # Discovery chance scales with luminosity, energy, and beam quality squared
     discovery_base = effects.get("discoveryChance", 0.0)
     if summary["final_energy"] > 10.0 and raw_luminosity > 0:
-        discovery_chance = discovery_base * summary["final_energy"] * 0.01
+        discovery_chance = discovery_base * summary["final_energy"] * 0.01 * quality * quality
     else:
         discovery_chance = 0.0
 
@@ -427,7 +432,43 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
 
     elements = beamline_config_from_game(game_beamline)
     machine_type = research_effects.get("machineType", "linac") if research_effects else "linac"
-    physics_result = propagate(elements, machine_type=machine_type)
+
+    # Extract source parameters from the first source element so that
+    # gun-tuning sliders (emittance, current) feed into beam initialization.
+    source_params = None
+    for el in elements:
+        if el.get("type") == "source":
+            source_params = {}
+            if "emittance" in el:
+                source_params["eps_norm_x"] = el["emittance"]
+                source_params["eps_norm_y"] = el["emittance"]
+            # Extraction energy from the source component (GeV)
+            if "extractionEnergy" in el:
+                source_params["energy"] = el["extractionEnergy"]
+            # Set mass for ion sources (proton/H-)
+            game_type = el.get("game_type", "")
+            if game_type == "ionSource":
+                from beam_physics.constants import PROTON_MASS
+                source_params["mass"] = PROTON_MASS
+            # Find corresponding game component for beamCurrent
+            idx = elements.index(el)
+            if idx < len(game_beamline):
+                bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
+                if bc is not None and bc > 0:
+                    source_params["current"] = bc
+            break
+
+    # Vacuum quality widens effective aperture during propagation
+    vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0
+    if vacuum_quality > 0:
+        from beam_physics.constants import DEFAULT_APERTURE
+        wider_aperture = DEFAULT_APERTURE * (1.0 + vacuum_quality * 2.0)
+        for el in elements:
+            if "aperture" not in el:
+                el["aperture"] = wider_aperture
+
+    physics_result = propagate(elements, machine_type=machine_type,
+                               source_params=source_params)
     game_result = physics_to_game(physics_result, research_effects, elements)
 
     return json.dumps(game_result)

@@ -1,0 +1,44 @@
+{
+  "dipole": {
+    "x": 1,
+    "y": 6
+  },
+  "source": {
+    "x": 2,
+    "y": 3
+  },
+  "drift": {
+    "x": 0,
+    "y": 10,
+    "rotation": 0,
+    "scale": 1
+  },
+  "/assets/components/drift_0.png": {
+    "x": -4,
+    "y": 8,
+    "rotation": 0,
+    "scale": 0.8
+  },
+  "/assets/components/drift_NWSE_0.png": {
+    "x": 3,
+    "y": 4,
+    "rotation": 0,
+    "scale": 0.8
+  },
+  "/assets/components/drift_NESW_0.png": {
+    "x": 0,
+    "y": 0,
+    "rotation": 0,
+    "scale": 1
+  },
+  "/assets/components/source_1.png": {
+    "x": -1,
+    "y": 8,
+    "scale": 1
+  },
+  "/assets/components/source_NESW_0.png": {
+    "x": 0,
+    "y": 7,
+    "scale": 1
+  }
+}

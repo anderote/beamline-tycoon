@@ -92,18 +92,31 @@ Renderer.prototype._drawInfraTile = function(col, row, infra, hasRight, hasBelow
 // --- Wall rendering (edge-based) ---
 
 Renderer.prototype._renderWalls = function() {
-  this.wallLayer.removeChildren();
+  // Remove previous wall graphics from componentLayer
+  if (this.wallGraphics) {
+    for (const key in this.wallGraphics) {
+      const g = this.wallGraphics[key];
+      g.destroy();
+    }
+  }
   this.wallGraphics = {};
   const walls = this.game.state.walls || [];
   const sorted = [...walls].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+  const renderedWalls = new Set();
   for (const wall of sorted) {
     const wt = WALL_TYPES[wall.type];
     if (!wt) continue;
+    // Skip walls where a door exists (door frame replaces the wall segment)
+    if (this._hasDoorOnEdge(wall.col, wall.row, wall.edge)) continue;
     // Normalize n/w edges to s/e on the adjacent tile with flipped thickness
     let { col: rc, row: rr, edge: re } = wall;
     let flip = false;
     if (wall.edge === 'n') { rr -= 1; re = 's'; flip = true; }
     else if (wall.edge === 'w') { rc -= 1; re = 'e'; flip = true; }
+    // Skip duplicate walls that normalize to the same edge (e.g. tile A 'e' and tile B 'w')
+    const renderKey = `${rc},${rr},${re}`;
+    if (renderedWalls.has(renderKey)) continue;
+    renderedWalls.add(renderKey);
     this._drawWallEdge(rc, rr, re, wt, flip);
   }
   this._cutawayHoverKey = null; // invalidate room cache on wall data change
@@ -116,7 +129,6 @@ Renderer.prototype._drawWallEdge = function(col, row, edge, wt, flip) {
   const hh = TILE_H / 2;
   const h = wt.wallHeight;
   const t = wt.thickness || 0;
-  const isoDepth = (col + row) * 10 + 5;
   const g = new PIXI.Graphics();
   const s = flip ? -1 : 1; // flip thickness direction for n/w edges
 
@@ -193,9 +205,20 @@ Renderer.prototype._drawWallEdge = function(col, row, edge, wt, flip) {
     g.stroke({ color: wt.topColor, width: 1, alpha: 0.6 });
   }
 
-  g.zIndex = isoDepth;
-  this.wallLayer.addChild(g);
+  g.zIndex = col + row + 0.6;
+  this.componentLayer.addChild(g);
   this.wallGraphics[`${col},${row},${edge}`] = g;
+};
+
+// Check if a door exists on this edge (checking both sides of the shared edge)
+Renderer.prototype._hasDoorOnEdge = function(col, row, edge) {
+  const doorOcc = this.game.state.doorOccupied || {};
+  if (doorOcc[`${col},${row},${edge}`]) return true;
+  if (edge === 'e' && doorOcc[`${col + 1},${row},w`]) return true;
+  if (edge === 'w' && doorOcc[`${col - 1},${row},e`]) return true;
+  if (edge === 's' && doorOcc[`${col},${row + 1},n`]) return true;
+  if (edge === 'n' && doorOcc[`${col},${row - 1},s`]) return true;
+  return false;
 };
 
 Renderer.prototype._darkenWallColor = function(color, factor) {
@@ -207,39 +230,44 @@ Renderer.prototype._darkenWallColor = function(color, factor) {
 
 Renderer.prototype._detectRoom = function(startCol, startRow) {
   const wallOcc = this.game.state.wallOccupied || {};
+  const doorOcc = this.game.state.doorOccupied || {};
   const room = new Set();
   const queue = [`${startCol},${startRow}`];
   room.add(queue[0]);
   const MAX_TILES = 500;
 
+  // An edge is blocked only if a wall exists AND no door provides passage
+  const edgeBlocked = (wallKey1, wallKey2, doorKey1, doorKey2) =>
+    (wallOcc[wallKey1] || wallOcc[wallKey2]) && !doorOcc[doorKey1] && !doorOcc[doorKey2];
+
   while (queue.length > 0 && room.size < MAX_TILES) {
     const key = queue.shift();
     const [c, r] = key.split(',').map(Number);
 
-    // East: blocked by wall at (c,r,'e') or (c+1,r,'w')
+    // East: blocked by wall at (c,r,'e') or (c+1,r,'w'), unless door exists
     const eKey = `${c + 1},${r}`;
-    if (!room.has(eKey) && !wallOcc[`${c},${r},e`] && !wallOcc[`${c + 1},${r},w`]) {
+    if (!room.has(eKey) && !edgeBlocked(`${c},${r},e`, `${c+1},${r},w`, `${c},${r},e`, `${c+1},${r},w`)) {
       room.add(eKey);
       queue.push(eKey);
     }
 
-    // West: blocked by wall at (c-1,r,'e') or (c,r,'w')
+    // West: blocked by wall at (c-1,r,'e') or (c,r,'w'), unless door exists
     const wKey = `${c - 1},${r}`;
-    if (!room.has(wKey) && !wallOcc[`${c - 1},${r},e`] && !wallOcc[`${c},${r},w`]) {
+    if (!room.has(wKey) && !edgeBlocked(`${c-1},${r},e`, `${c},${r},w`, `${c-1},${r},e`, `${c},${r},w`)) {
       room.add(wKey);
       queue.push(wKey);
     }
 
-    // South: blocked by wall at (c,r,'s') or (c,r+1,'n')
+    // South: blocked by wall at (c,r,'s') or (c,r+1,'n'), unless door exists
     const sKey = `${c},${r + 1}`;
-    if (!room.has(sKey) && !wallOcc[`${c},${r},s`] && !wallOcc[`${c},${r + 1},n`]) {
+    if (!room.has(sKey) && !edgeBlocked(`${c},${r},s`, `${c},${r+1},n`, `${c},${r},s`, `${c},${r+1},n`)) {
       room.add(sKey);
       queue.push(sKey);
     }
 
-    // North: blocked by wall at (c,r-1,'s') or (c,r,'n')
+    // North: blocked by wall at (c,r-1,'s') or (c,r,'n'), unless door exists
     const nKey = `${c},${r - 1}`;
-    if (!room.has(nKey) && !wallOcc[`${c},${r - 1},s`] && !wallOcc[`${c},${r},n`]) {
+    if (!room.has(nKey) && !edgeBlocked(`${c},${r-1},s`, `${c},${r},n`, `${c},${r-1},s`, `${c},${r},n`)) {
       room.add(nKey);
       queue.push(nKey);
     }
@@ -248,15 +276,71 @@ Renderer.prototype._detectRoom = function(startCol, startRow) {
   return room;
 };
 
+// Flood-fill to find contiguous tiles of the same type as the hovered tile,
+// then expand by one tile to include neighbors.
+Renderer.prototype._detectContiguousTileRegion = function(startCol, startRow) {
+  const tiles = this.game.state.infrastructure || [];
+
+  // Build a lookup: "col,row" -> tile type
+  const tileMap = {};
+  for (const tile of tiles) {
+    tileMap[`${tile.col},${tile.row}`] = tile.type;
+  }
+
+  const startKey = `${startCol},${startRow}`;
+  const startType = tileMap[startKey];
+  if (!startType) return null; // not hovering over an infrastructure tile
+
+  // BFS flood-fill for contiguous same-type tiles
+  const contiguous = new Set();
+  const queue = [startKey];
+  contiguous.add(startKey);
+  const MAX_TILES = 1000;
+
+  while (queue.length > 0 && contiguous.size < MAX_TILES) {
+    const key = queue.shift();
+    const [c, r] = key.split(',').map(Number);
+
+    const neighbors = [
+      `${c + 1},${r}`, `${c - 1},${r}`,
+      `${c},${r + 1}`, `${c},${r - 1}`,
+    ];
+
+    for (const nKey of neighbors) {
+      if (!contiguous.has(nKey) && tileMap[nKey] === startType) {
+        contiguous.add(nKey);
+        queue.push(nKey);
+      }
+    }
+  }
+
+  // Expand region: add all tiles that touch the contiguous set
+  const expanded = new Set(contiguous);
+  for (const key of contiguous) {
+    const [c, r] = key.split(',').map(Number);
+    const neighbors = [
+      `${c + 1},${r}`, `${c - 1},${r}`,
+      `${c},${r + 1}`, `${c},${r - 1}`,
+    ];
+    for (const nKey of neighbors) {
+      if (tileMap[nKey]) {
+        expanded.add(nKey);
+      }
+    }
+  }
+
+  return expanded;
+};
+
 Renderer.prototype._applyWallVisibility = function() {
   const mode = this.wallVisibilityMode;
 
   if (mode === 'down') {
-    this.wallLayer.visible = false;
+    for (const key in this.wallGraphics) {
+      this.wallGraphics[key].visible = false;
+    }
     return;
   }
-
-  this.wallLayer.visible = true;
 
   if (mode === 'up') {
     for (const key in this.wallGraphics) {
@@ -271,7 +355,6 @@ Renderer.prototype._applyWallVisibility = function() {
     for (const key in this.wallGraphics) {
       const g = this.wallGraphics[key];
       g.visible = true;
-      // e and s edges are near-facing in iso view
       const edge = key.split(',')[2];
       g.alpha = (edge === 'e' || edge === 's') ? 0.25 : 1.0;
     }
@@ -280,13 +363,12 @@ Renderer.prototype._applyWallVisibility = function() {
 
   if (mode === 'cutaway') {
     const hoverKey = `${this.hoverCol},${this.hoverRow}`;
-    if (hoverKey !== this._cutawayHoverKey) {
-      this._cutawayHoverKey = hoverKey;
-      this._cutawayRoom = this._detectRoom(this.hoverCol, this.hoverRow);
+    if (hoverKey !== this._transparentHoverKey) {
+      this._transparentHoverKey = hoverKey;
+      this._transparentTiles = this._detectContiguousTileRegion(this.hoverCol, this.hoverRow);
     }
-    const room = this._cutawayRoom;
-    if (!room) {
-      // No room detected, show all
+    const region = this._transparentTiles;
+    if (!region || region.size === 0) {
       for (const key in this.wallGraphics) {
         this.wallGraphics[key].visible = true;
         this.wallGraphics[key].alpha = 1.0;
@@ -296,7 +378,6 @@ Renderer.prototype._applyWallVisibility = function() {
 
     const walls = this.game.state.walls || [];
     for (const wall of walls) {
-      // Normalize n/w to s/e to match registry keys
       let nc = wall.col, nr = wall.row, ne = wall.edge;
       if (wall.edge === 'n') { nr -= 1; ne = 's'; }
       else if (wall.edge === 'w') { nc -= 1; ne = 'e'; }
@@ -304,16 +385,87 @@ Renderer.prototype._applyWallVisibility = function() {
       const g = this.wallGraphics[`${nc},${nr},${ne}`];
       if (!g) continue;
 
-      // A wall borders the room if either of its neighboring tiles is in the room
-      let bordersRoom = false;
+      let bordersRegion = false;
       if (ne === 'e') {
-        bordersRoom = room.has(`${nc},${nr}`) || room.has(`${nc + 1},${nr}`);
+        bordersRegion = region.has(`${nc},${nr}`) || region.has(`${nc + 1},${nr}`);
       } else {
-        bordersRoom = room.has(`${nc},${nr}`) || room.has(`${nc},${nr + 1}`);
+        bordersRegion = region.has(`${nc},${nr}`) || region.has(`${nc},${nr + 1}`);
       }
 
-      g.visible = !bordersRoom;
+      if (bordersRegion) {
+        g.visible = true;
+        g.alpha = 0.15;
+      } else {
+        g.visible = true;
+        g.alpha = 1.0;
+      }
+    }
+    return;
+  }
+};
+
+Renderer.prototype._applyDoorVisibility = function() {
+  const mode = this.wallVisibilityMode;
+
+  if (mode === 'down') {
+    for (const key in this.doorGraphics) {
+      this.doorGraphics[key].visible = false;
+    }
+    return;
+  }
+
+  if (mode === 'up') {
+    for (const key in this.doorGraphics) {
+      const g = this.doorGraphics[key];
+      g.visible = true;
       g.alpha = 1.0;
+    }
+    return;
+  }
+
+  if (mode === 'transparent') {
+    for (const key in this.doorGraphics) {
+      const g = this.doorGraphics[key];
+      g.visible = true;
+      const edge = key.split(',')[2];
+      g.alpha = (edge === 'e' || edge === 's') ? 0.25 : 1.0;
+    }
+    return;
+  }
+
+  if (mode === 'cutaway') {
+    const region = this._transparentTiles;
+    if (!region || region.size === 0) {
+      for (const key in this.doorGraphics) {
+        this.doorGraphics[key].visible = true;
+        this.doorGraphics[key].alpha = 1.0;
+      }
+      return;
+    }
+
+    const doors = this.game.state.doors || [];
+    for (const door of doors) {
+      let nc = door.col, nr = door.row, ne = door.edge;
+      if (door.edge === 'n') { nr -= 1; ne = 's'; }
+      else if (door.edge === 'w') { nc -= 1; ne = 'e'; }
+
+      const g = this.doorGraphics[`${nc},${nr},${ne}`];
+      if (!g) continue;
+
+      let bordersRegion = false;
+      if (ne === 'e') {
+        bordersRegion = region.has(`${nc},${nr}`) || region.has(`${nc + 1},${nr}`);
+      } else {
+        bordersRegion = region.has(`${nc},${nr}`) || region.has(`${nc},${nr + 1}`);
+      }
+
+      if (bordersRegion) {
+        g.visible = true;
+        g.alpha = 0.15;
+      } else {
+        g.visible = true;
+        g.alpha = 1.0;
+      }
     }
     return;
   }
@@ -374,11 +526,23 @@ Renderer.prototype.renderWallPreview = function(path, wallType) {
   this.dragPreviewLayer.addChild(label);
 };
 
-Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge) {
+Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge, color) {
   this.dragPreviewLayer.removeChildren();
   if (col == null || edge == null) return;
+  const tint = color || 0xffffff;
 
-  // Normalize n/w to s/e on adjacent tile
+  // Cross indicator on the owning tile
+  const tilePos = tileCenterIso(col, row);
+  const cg = new PIXI.Graphics();
+  const cs = 4; // cross arm length
+  cg.moveTo(tilePos.x - cs, tilePos.y);
+  cg.lineTo(tilePos.x + cs, tilePos.y);
+  cg.moveTo(tilePos.x, tilePos.y - cs);
+  cg.lineTo(tilePos.x, tilePos.y + cs);
+  cg.stroke({ color: tint, width: 1.5, alpha: 0.8 });
+  this.dragPreviewLayer.addChild(cg);
+
+  // Normalize n/w to s/e on adjacent tile for edge line
   let rc = col, rr = row, re = edge;
   if (edge === 'n') { rr -= 1; re = 's'; }
   else if (edge === 'w') { rc -= 1; re = 'e'; }
@@ -395,16 +559,23 @@ Renderer.prototype.renderWallEdgeHighlight = function(col, row, edge) {
     g.moveTo(pos.x, pos.y + hh);
     g.lineTo(pos.x - hw, pos.y);
   }
-  g.stroke({ color: 0xffffff, width: 2, alpha: 0.7 });
+  g.stroke({ color: tint, width: 2, alpha: 0.7 });
   this.dragPreviewLayer.addChild(g);
 };
 
 // --- Door rendering (edge-based, drawn as opening in wall) ---
 
 Renderer.prototype._renderDoors = function() {
+  if (this.doorGraphics) {
+    for (const key in this.doorGraphics) {
+      this.doorGraphics[key].destroy();
+    }
+  }
+  this.doorGraphics = {};
   this.doorLayer.removeChildren();
   const doors = this.game.state.doors || [];
   const sorted = [...doors].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+  const renderedDoors = new Set();
   for (const door of sorted) {
     const dt = DOOR_TYPES[door.type];
     if (!dt) continue;
@@ -412,8 +583,12 @@ Renderer.prototype._renderDoors = function() {
     let { col: rc, row: rr, edge: re } = door;
     if (door.edge === 'n') { rr -= 1; re = 's'; }
     else if (door.edge === 'w') { rc -= 1; re = 'e'; }
+    const renderKey = `${rc},${rr},${re}`;
+    if (renderedDoors.has(renderKey)) continue;
+    renderedDoors.add(renderKey);
     this._drawDoorEdge(rc, rr, re, dt);
   }
+  this._applyDoorVisibility();
 };
 
 Renderer.prototype._drawDoorEdge = function(col, row, edge, dt) {
@@ -497,6 +672,7 @@ Renderer.prototype._drawDoorEdge = function(col, row, edge, dt) {
 
   g.zIndex = isoDepth;
   this.doorLayer.addChild(g);
+  this.doorGraphics[`${col},${row},${edge}`] = g;
 };
 
 Renderer.prototype.renderDoorPreview = function(path, doorType) {
@@ -581,36 +757,10 @@ Renderer.prototype._drawZoneTile = function(col, row, zone, active) {
   const hh = TILE_H / 2;
   const isoDepth = col + row;
 
-  // Draw the zone's required floor type as the base (into infraLayer so it's beneath everything)
-  const floorId = zone.requiredFloor;
-  const floorTexture = floorId ? this.sprites.getTileTexture(floorId) : null;
-  if (floorTexture) {
-    const fs = new PIXI.Sprite(floorTexture);
-    const isIsoDiamond = floorTexture.height <= TILE_H + 2;
-    const fScale = isIsoDiamond
-      ? (TILE_W / floorTexture.width) * 1.03
-      : (TILE_W / floorTexture.width) * 1.35;
-    fs.anchor.set(0.5, 0.5);
-    fs.x = pos.x;
-    fs.y = pos.y - (isIsoDiamond ? 0 : floorTexture.height * fScale * 0.04);
-    fs.scale.set(fScale, fScale);
-    fs.zIndex = isoDepth;
-    this.infraLayer.addChild(fs);
-  } else if (floorId) {
-    const floorInfo = INFRASTRUCTURE[floorId];
-    if (floorInfo) {
-      const g = new PIXI.Graphics();
-      g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-      g.fill({ color: floorInfo.topColor });
-      g.zIndex = isoDepth;
-      this.infraLayer.addChild(g);
-    }
-  }
-
-  // Tint overlay to show zone boundary
+  // Simple transparent colored tile for the zone
   const g = new PIXI.Graphics();
   g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
-  g.fill({ color: zone.color, alpha: active ? 0.15 : 0.07 });
+  g.fill({ color: zone.color, alpha: active ? 0.35 : 0.22 });
   g.zIndex = isoDepth;
   this.zoneLayer.addChild(g);
 };
@@ -1089,6 +1239,27 @@ Renderer.prototype.renderDemolishPreview = function(startCol, startRow, endCol, 
 
 Renderer.prototype.clearDragPreview = function() {
   this.dragPreviewLayer.removeChildren();
+};
+
+Renderer.prototype.renderInfraHoverCursor = function(col, row, color) {
+  this.dragPreviewLayer.removeChildren();
+  const pos = tileCenterIso(col, row);
+  const hw = TILE_W / 2;
+  const hh = TILE_H / 2;
+  const c = color || 0xffffff;
+
+  const g = new PIXI.Graphics();
+  // Diamond outline
+  g.poly([pos.x, pos.y - hh, pos.x + hw, pos.y, pos.x, pos.y + hh, pos.x - hw, pos.y]);
+  g.stroke({ color: c, width: 1.5, alpha: 0.6 });
+  // Cross lines
+  g.moveTo(pos.x - hw * 0.4, pos.y);
+  g.lineTo(pos.x + hw * 0.4, pos.y);
+  g.moveTo(pos.x, pos.y - hh * 0.4);
+  g.lineTo(pos.x, pos.y + hh * 0.4);
+  g.stroke({ color: c, width: 1.5, alpha: 0.8 });
+
+  this.dragPreviewLayer.addChild(g);
 };
 
 // --- Network overlay ---

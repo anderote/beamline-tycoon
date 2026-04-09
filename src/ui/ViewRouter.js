@@ -13,7 +13,11 @@ export class ViewRouter {
   on(fn) { this.listeners.push(fn); }
   _emit(view, params) { this.listeners.forEach(fn => fn(view, params)); }
 
-  init() {
+  init(savedRoute) {
+    // Restore saved route, or default to game view
+    const route = savedRoute || 'game';
+    window.location.hash = route;
+    // Trigger routing even if hash didn't change (e.g. saved route was 'game')
     this._onHashChange();
   }
 

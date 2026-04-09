@@ -14,12 +14,10 @@ import { ProbePlots } from '../ui/probe-plots.js';
 const SCHEM_PW = 70;
 const SCHEM_PH = 30;
 
-// Gap between components in pixels (at base zoom)
-const COMP_GAP = 4;
 
 // Must match beam_physics/gameplay.py
-// 1 tile ≈ 10 ft ≈ 3 m — must match beam_physics/gameplay.py LENGTH_SCALE
-const LENGTH_SCALE = 3.0;
+// 1 tile = 2 m — must match beam_physics/gameplay.py LENGTH_SCALE
+const LENGTH_SCALE = 2.0;
 
 // ---- Schematic rendering ----
 
@@ -48,8 +46,18 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   ctx.save();
   ctx.scale(dpr, dpr);
 
-  // --- Draw lab background ---
-  _drawLabBackground(ctx, W, H);
+  // --- Draw lab background (scrolls with components) ---
+  // We need panOffsetPx early for the background, so compute layout first
+  const _compWidths = this.draftNodes.map(n => {
+    const comp = COMPONENTS[n.type];
+    const len = comp ? comp.length : 1;
+    return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+  });
+  const _totalPW = _compWidths.reduce((s, w) => s + w, 0);
+  const _baseZoom = W / (_totalPW + 40);
+  const _effZoom = this.viewZoom * _baseZoom;
+  const _panPx = -this.viewX * _effZoom;
+  _drawLabBackground(ctx, W, H, _panPx);
 
   if (this.draftNodes.length === 0) {
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
@@ -60,13 +68,13 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     return;
   }
 
-  // Calculate per-component pixel widths based on length, scaled by zoom
+  // Calculate per-component pixel widths based on length (edge-to-edge, no gap)
   const compWidths = this.draftNodes.map(n => {
     const comp = COMPONENTS[n.type];
     const len = comp ? comp.length : 1;
     return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
   });
-  const totalPixelWidth = compWidths.reduce((s, w) => s + w + COMP_GAP, -COMP_GAP);
+  const totalPixelWidth = compWidths.reduce((s, w) => s + w, 0);
 
   // Auto-fit zoom if viewZoom is 1 (initial)
   const baseZoom = W / (totalPixelWidth + 40);
@@ -79,26 +87,11 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   const beamY = H * 0.55;
   const schematicH = SCHEM_PH * effectiveZoom;
 
-  // --- Beamline rail / beam pipe on the floor ---
   // Support stands
   const railY = beamY + schematicH / 2 + 2;
   const floorY = H * 0.88;
 
-  // Beam pipe background (long horizontal tube)
-  ctx.fillStyle = 'rgba(40, 50, 65, 0.6)';
-  ctx.fillRect(0, beamY - 2, W, 4);
-
-  // Beam dashes through the pipe
-  ctx.strokeStyle = 'rgba(34, 200, 100, 0.25)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([8, 5]);
-  ctx.beginPath();
-  ctx.moveTo(0, beamY);
-  ctx.lineTo(W, beamY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Draw each component
+  // Draw each component (edge-to-edge, no gaps)
   let xPos = 20 + panOffsetPx;
   this._compRegions = [];
 
@@ -162,24 +155,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     ctx.textAlign = 'center';
     ctx.fillText(`${i + 1}`, xPos + compW / 2, compTop + compH + 14);
 
-    // Beam pipe connector to next component
-    if (i < this.draftNodes.length - 1) {
-      const gapW = COMP_GAP * effectiveZoom;
-      // Pipe segment
-      ctx.fillStyle = 'rgba(45, 55, 70, 0.5)';
-      ctx.fillRect(xPos + compW, beamY - 2, gapW, 4);
-      // Beam dash
-      ctx.strokeStyle = 'rgba(34, 200, 100, 0.2)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath();
-      ctx.moveTo(xPos + compW, beamY);
-      ctx.lineTo(xPos + compW + gapW, beamY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    xPos += compW + COMP_GAP * effectiveZoom;
+    xPos += compW;
   }
 
   // Store total rendered width for viewport calculations
@@ -202,7 +178,6 @@ BeamlineDesigner.prototype._renderSchematic = function() {
       // Scale so per-component lengths sum to this.totalLength
       const compLen = (tileLen / tileLenSum) * this.totalLength;
       const compW = compWidths[i] * effectiveZoom;
-      const gapW = COMP_GAP * effectiveZoom;
 
       if (this.markerS <= cumS + compLen) {
         const frac = (this.markerS - cumS) / compLen;
@@ -210,7 +185,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
         break;
       }
       cumS += compLen;
-      markerXPos += compW + gapW;
+      markerXPos += compW;
     }
 
     // Marker line from top to floor
@@ -236,90 +211,67 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   ctx.restore();
 };
 
-// --- Lab background rendering ---
+// --- Lab background rendering (simple procedural walls + concrete) ---
 
-function _drawLabBackground(ctx, W, H) {
-  // Concrete floor
+function _drawLabBackground(ctx, W, H, panOffset) {
+  const pan = panOffset || 0;
   const floorY = H * 0.88;
-  ctx.fillStyle = 'rgba(35, 38, 48, 0.95)';
+
+  // Back wall — dark gradient
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
+  wallGrad.addColorStop(0, '#12141e');
+  wallGrad.addColorStop(1, '#191c26');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, W, floorY);
+
+  // Concrete floor
+  ctx.fillStyle = '#232630';
   ctx.fillRect(0, floorY, W, H - floorY);
+
   // Floor line
-  ctx.strokeStyle = 'rgba(70, 75, 90, 0.6)';
+  ctx.strokeStyle = 'rgba(70, 75, 90, 0.5)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, floorY);
   ctx.lineTo(W, floorY);
   ctx.stroke();
 
-  // Floor tiles pattern
-  ctx.strokeStyle = 'rgba(50, 55, 68, 0.3)';
+  // Floor tile joints — scroll with pan
+  ctx.strokeStyle = 'rgba(50, 55, 68, 0.25)';
   ctx.lineWidth = 0.5;
   const tileW = 40;
-  for (let x = 0; x < W; x += tileW) {
+  const floorOff = ((pan % tileW) + tileW) % tileW;
+  for (let x = floorOff - tileW; x < W + tileW; x += tileW) {
     ctx.beginPath();
     ctx.moveTo(x, floorY);
     ctx.lineTo(x, H);
     ctx.stroke();
   }
 
-  // Back wall — subtle gradient
-  const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
-  wallGrad.addColorStop(0, 'rgba(18, 20, 30, 0.95)');
-  wallGrad.addColorStop(1, 'rgba(25, 28, 38, 0.95)');
-  ctx.fillStyle = wallGrad;
-  ctx.fillRect(0, 0, W, floorY);
-
-  // Wall panel lines (vertical girders/pillars)
-  ctx.strokeStyle = 'rgba(45, 50, 65, 0.4)';
+  // Wall pillars — scroll with pan
+  ctx.strokeStyle = 'rgba(40, 44, 58, 0.35)';
   ctx.lineWidth = 2;
   const pillarSpacing = 120;
-  for (let x = pillarSpacing / 2; x < W; x += pillarSpacing) {
+  const pillarOff = ((pan % pillarSpacing) + pillarSpacing) % pillarSpacing;
+  for (let x = pillarOff - pillarSpacing; x < W + pillarSpacing; x += pillarSpacing) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, floorY);
     ctx.stroke();
-    // Pillar base bracket
-    ctx.fillStyle = 'rgba(50, 55, 70, 0.3)';
-    ctx.fillRect(x - 6, floorY - 8, 12, 8);
+    // Pillar base
+    ctx.fillStyle = 'rgba(45, 50, 62, 0.25)';
+    ctx.fillRect(x - 5, floorY - 6, 10, 6);
   }
 
-  // Horizontal wall stripe (cable tray / conduit)
-  const traysY = [H * 0.12, H * 0.25];
-  for (const ty of traysY) {
-    ctx.fillStyle = 'rgba(40, 45, 58, 0.35)';
-    ctx.fillRect(0, ty, W, 3);
-  }
+  // Horizontal cable tray
+  ctx.fillStyle = 'rgba(35, 40, 52, 0.3)';
+  ctx.fillRect(0, H * 0.18, W, 2);
 
-  // Ceiling-mounted cable runs (small dashes across top)
-  ctx.strokeStyle = 'rgba(60, 70, 90, 0.2)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([12, 8]);
-  for (let y = 8; y < H * 0.15; y += 10) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(W, y);
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-
-  // Radiation warning signs on wall (small yellow triangles at intervals)
-  const signSpacing = 240;
-  for (let x = signSpacing; x < W - 20; x += signSpacing) {
-    const sy = H * 0.32;
-    ctx.fillStyle = 'rgba(200, 180, 40, 0.25)';
-    ctx.beginPath();
-    ctx.moveTo(x, sy - 6);
-    ctx.lineTo(x + 5, sy + 4);
-    ctx.lineTo(x - 5, sy + 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = 'rgba(200, 180, 40, 0.15)';
-    ctx.fillRect(x - 1, sy - 2, 2, 3);
-  }
-
-  // Safety stripe along floor edge
-  ctx.fillStyle = 'rgba(180, 160, 40, 0.12)';
-  for (let x = 0; x < W; x += 16) {
+  // Safety stripe along floor edge — scroll with pan
+  ctx.fillStyle = 'rgba(160, 140, 30, 0.1)';
+  const stripeW = 16;
+  const stripeOff = ((pan % stripeW) + stripeW) % stripeW;
+  for (let x = stripeOff - stripeW; x < W + stripeW; x += stripeW) {
     ctx.fillRect(x, floorY, 8, 2);
   }
 }
@@ -445,6 +397,21 @@ BeamlineDesigner.prototype._renderTuning = function() {
     for (const [key, def] of Object.entries(paramDefs)) {
       if (def.derived) continue;
       const val = node.params[key] ?? def.default;
+
+      // Binary params with labels → toggle buttons instead of slider
+      if (def.labels && def.min === 0 && def.max === 1 && def.step === 1) {
+        html += `<div class="param-toggle-row">`;
+        html += `<span class="param-label">${_paramLabel(key)}</span>`;
+        html += `<div class="param-toggle-group" data-toggle-param="${key}">`;
+        for (const [lv, ll] of Object.entries(def.labels)) {
+          const active = Math.round(val) === Number(lv) ? ' active' : '';
+          html += `<button class="param-toggle-btn${active}" data-toggle-val="${lv}">${ll}</button>`;
+        }
+        html += `</div>`;
+        html += `</div>`;
+        continue;
+      }
+
       html += `<div class="param-slider-row">`;
       html += `<span class="param-label">${_paramLabel(key)}</span>`;
       html += `<input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${val}" data-param="${key}">`;
@@ -544,6 +511,39 @@ BeamlineDesigner.prototype._wireTuningSliders = function(node, paramDefs, contai
         this._updateDraftBar();
         this._renderPlots();
       }, 150);
+    });
+  });
+
+  // Wire up toggle button events (binary params like polarity)
+  container.querySelectorAll('.param-toggle-group[data-toggle-param]').forEach(group => {
+    const key = group.dataset.toggleParam;
+    group.querySelectorAll('.param-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = Number(btn.dataset.toggleVal);
+        node.params[key] = val;
+        // Update active state
+        group.querySelectorAll('.param-toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Recompute derived + physics
+        const computed = computeStats(node.type, node.params);
+        if (computed) {
+          node.computedStats = computed;
+          for (const [dKey, dDef] of Object.entries(paramDefs)) {
+            if (!dDef.derived) continue;
+            const dDisplay = container.querySelector(`[data-derived-display="${dKey}"]`);
+            const dUnit = container.querySelector(`[data-derived-unit="${dKey}"]`);
+            if (dDisplay && computed[dKey] != null) {
+              const isEnergy = dDef.unit === 'GeV' || dDef.unit === 'GeV/c';
+              const suffix = dDef.unit === 'GeV/c' ? '/c' : '';
+              dDisplay.textContent = isEnergy ? formatEnergy(computed[dKey], suffix).val : _fmtParam(computed[dKey]);
+              if (dUnit) dUnit.textContent = isEnergy ? formatEnergy(computed[dKey], suffix).unit : dDef.unit;
+            }
+          }
+        }
+        this._recalcDraft();
+        this._updateDraftBar();
+        this._renderPlots();
+      });
     });
   });
 };
@@ -731,6 +731,7 @@ BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
 BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
   const card = document.createElement('div');
   card.className = 'dsgn-palette-card';
+  card.dataset.compType = key;
 
   // Schematic canvas
   const canvasWrap = document.createElement('div');
@@ -803,7 +804,9 @@ BeamlineDesigner.prototype._setupDesignerTabs = function() {
     btn.addEventListener('click', () => {
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
+      this.designerPaletteIndex = 0;
       this._renderDesignerPalette(key);
+      this._applyDesignerPaletteFocus();
     });
     tabsContainer.appendChild(btn);
   });

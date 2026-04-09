@@ -206,6 +206,15 @@ export const RESEARCH = {
     unlocks: ['srf650Cavity'],
     requires: 'srfTechnology',
   },
+  nDopedSrf: {
+    id: 'nDopedSrf', category: 'rf',
+    name: 'Nitrogen-Doped SRF',
+    desc: 'Pioneer nitrogen-doping surface treatment for niobium SRF cavities. Controlled nitrogen diffusion into the cavity surface dramatically increases the quality factor Q₀ while maintaining high gradients of 31+ MV/m. This enables the TESLA 9-cell cavity to deliver 3 GeV per unit at lower cryogenic losses — the pinnacle of SRF performance.',
+    cost: { data: 100, funding: 20000000, reputation: 15 },
+    duration: 120,
+    unlocks: ['tesla9Cell'],
+    requires: 'srfTechnology',
+  },
   energyRecovery: {
     id: 'energyRecovery', category: 'rf',
     name: 'Energy Recovery',

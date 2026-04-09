@@ -1,6 +1,6 @@
 import numpy as np
 from beam_physics.beam import BeamState, create_initial_beam
-from beam_physics.constants import DEFAULT_SOURCE
+from beam_physics.constants import DEFAULT_APERTURE, DEFAULT_SOURCE
 from beam_physics.context import PropagationContext
 from beam_physics.machines import get_machine_config
 
@@ -75,14 +75,27 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     luminosities = []
     collision_rates = []
     n_focusing = 0
+    prev_max_sigma = None  # for divergence rate estimation
+    prev_s = 0.0
 
     for i, element in enumerate(beamline_config):
         context.element_index = i
         etype = element.get("type", "drift")
 
         if etype == "source":
-            context.snapshots.append(beam.snapshot(i, etype, 0.0, extra={
+            source_len = element.get("length", 0.0)
+            context.cumulative_s += source_len
+            sx = beam.beam_size_x()
+            sy = beam.beam_size_y()
+            max_sigma = max(sx, sy, 1e-15)
+            prev_max_sigma = max_sigma
+            prev_s = context.cumulative_s
+            aperture = element.get("aperture", DEFAULT_APERTURE)
+            focus_margin = 1.0 - (max_sigma / aperture)
+            context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": 0.0, "eta_xp": 0.0,
+                "focus_margin": float(focus_margin),
+                "focus_urgency": 0.0,
             }))
             continue
 
@@ -129,10 +142,38 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
             context.cumulative_s += sub_el.get("length", 0.0)
 
+            # Compute focus margin and urgency for FODO advisor
+            aperture = element.get("aperture", DEFAULT_APERTURE)
+            sx = beam.beam_size_x()
+            sy = beam.beam_size_y()
+            max_sigma = max(sx, sy, 1e-15)
+            focus_margin = 1.0 - (max_sigma / aperture)
+
+            # Focus urgency: how soon does this beam need focusing?
+            focus_urgency = 0.0
+            if prev_max_sigma is not None and context.cumulative_s > prev_s:
+                ds = context.cumulative_s - prev_s
+                divergence_rate = (max_sigma - prev_max_sigma) / ds
+                if divergence_rate > 0:
+                    remaining = aperture - max_sigma
+                    if remaining > 0:
+                        meters_to_loss = remaining / divergence_rate
+                    else:
+                        meters_to_loss = 0.0
+                    p_gev = beam.energy
+                    ref_focal = p_gev / (0.2998 * 20.0 * 3.0)
+                    ref_scale = max(ref_focal, 1.0)
+                    focus_urgency = max(0.0, min(1.0, 1.0 - meters_to_loss / ref_scale))
+
+            prev_max_sigma = max_sigma
+            prev_s = context.cumulative_s
+
             # Snapshot after each sub-step
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
                 "eta_xp": float(context.dispersion[1]),
+                "focus_margin": float(focus_margin),
+                "focus_urgency": float(focus_urgency),
             }))
 
             if not beam.alive:

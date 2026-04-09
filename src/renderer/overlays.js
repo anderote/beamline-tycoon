@@ -13,6 +13,7 @@ import { ZONES } from '../data/infrastructure.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
+import { tileCenterIso } from './grid.js';
 
 // --- Component popup ---
 
@@ -333,7 +334,7 @@ Renderer.prototype.drawSchematic = function(canvas, componentType) {
     // Utility pipe colors
     pipeRF:      '#cc4444',
     pipeCryo:    '#44aacc',
-    pipeVacuum:  '#999999',
+    pipeVacuum:  '#555555',
     pipeCooling: '#4488cc',
     pipePower:   '#44cc44',
     pipeData:    '#eeeeee',
@@ -478,9 +479,48 @@ Renderer.prototype.drawSchematic = function(canvas, componentType) {
   ctx.drawImage(off, 0, 0, PW, PH, 0, 0, dw * dpr, dh * dpr);
 };
 
+// Standard beam pipe dimensions for consistent schematic rendering
+const PIPE_HALF = 3;    // pipe walls at cy ± 3
+const FLANGE_HALF = 5;  // flange extends to cy ± 5
+const FLANGE_W = 2;     // flange width in pixels
+
+// Draw standard beam pipe walls and flanges for consistent component-to-component alignment.
+// Options: leftFlange/rightFlange (bool), skipFrom/skipTo (x range to omit walls for cavities)
+function _drawBeamPipe(px, dot, W, cy, C, opts = {}) {
+  const { leftFlange = true, rightFlange = true, skipFrom, skipTo } = opts;
+
+  // Pipe walls (1px lines at cy ± PIPE_HALF, full width or with cavity gap)
+  if (skipFrom != null && skipTo != null) {
+    if (skipFrom > 0) {
+      px(0, cy - PIPE_HALF, skipFrom, 1, C.wallDk);
+      px(0, cy + PIPE_HALF, skipFrom, 1, C.wallDk);
+    }
+    if (skipTo < W) {
+      px(skipTo, cy - PIPE_HALF, W - skipTo, 1, C.wallDk);
+      px(skipTo, cy + PIPE_HALF, W - skipTo, 1, C.wallDk);
+    }
+  } else {
+    px(0, cy - PIPE_HALF, W, 1, C.wallDk);
+    px(0, cy + PIPE_HALF, W, 1, C.wallDk);
+  }
+
+  // Left flange
+  if (leftFlange) {
+    px(0, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+    px(FLANGE_W, cy - FLANGE_HALF + 1, 1, FLANGE_HALF * 2 - 1, C.wallDk);
+  }
+
+  // Right flange
+  if (rightFlange) {
+    px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+    px(W - FLANGE_W - 1, cy - FLANGE_HALF + 1, 1, FLANGE_HALF * 2 - 1, C.wallDk);
+  }
+}
+
 Renderer.prototype._schematicDrawers = {
   // === SOURCE (cathode ray / electron gun style) ===
   source(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
     const cathX = 12;  // cathode plate x position
     const anodeX = 42; // anode plate x position
     const focusX = 20; // focus electrode x position
@@ -562,52 +602,38 @@ Renderer.prototype._schematicDrawers = {
 
   // === DRIFT TUBE ===
   drift(p, px, dot, W, H, cy, C) {
-    const L = 10, R = 60, T = cy - 6, B = cy + 6;
-    px(L, T, R - L, 1, C.wall);
-    px(L, B, R - L, 1, C.wall);
-    px(L, T - 2, 1, B - T + 5, C.wallHi);
-    px(L + 1, T - 2, 1, B - T + 5, C.wallDk);
-    px(R, T - 2, 1, B - T + 5, C.wallHi);
-    px(R - 1, T - 2, 1, B - T + 5, C.wallDk);
-    for (const [dx, dy] of [[18, -2], [30, 1], [42, -3], [25, 3], [50, -1], [37, 2]]) {
-      dot(L + dx - 8, cy + dy, '#1a1a33');
+    _drawBeamPipe(px, dot, W, cy, C);
+    // Vacuum interior between pipe walls
+    px(FLANGE_W + 1, cy - PIPE_HALF + 1, W - 2 * FLANGE_W - 2, PIPE_HALF * 2 - 1, '#0d0d22');
+    // Vacuum specks
+    for (const [dx, dy] of [[18, -1], [30, 0], [42, -2], [25, 1], [50, -1], [37, 1]]) {
+      if (Math.abs(dy) < PIPE_HALF) dot(dx, cy + dy, '#1a1a33');
     }
-    dot(L, T - 1, C.metal);
-    dot(L, B + 1, C.metal);
-    dot(R, T - 1, C.metal);
-    dot(R, B + 1, C.metal);
-
   },
 
   // === BELLOWS ===
   bellows(p, px, dot, W, H, cy, C) {
-    const L = 14, R = 56, T = cy - 7, B = cy + 7;
-    px(L, T - 1, 2, B - T + 3, C.wallHi);
-    px(R, T - 1, 2, B - T + 3, C.wallHi);
-    const folds = 8;
-    const step = (R - L - 4) / folds;
-    for (let i = 0; i < folds; i++) {
-      const x = L + 2 + Math.floor(i * step);
-      const bulge = (i % 2 === 0) ? -2 : 0;
-      px(x, T + bulge, Math.ceil(step), 1, C.wall);
-      px(x, B - bulge, Math.ceil(step), 1, C.wall);
-      if (i > 0) {
-        const px2 = L + 2 + Math.floor(i * step);
-        const prevBulge = ((i - 1) % 2 === 0) ? -2 : 0;
-        const curBulge = (i % 2 === 0) ? -2 : 0;
-        const yTop = Math.min(T + prevBulge, T + curBulge);
-        const yBot = T + Math.max(prevBulge, curBulge);
-        px(px2, yTop, 1, yBot - yTop + 1, C.wallDk);
-        const yBotA = Math.min(B - prevBulge, B - curBulge);
-        const yBotB = B - Math.min(prevBulge, curBulge);
-        px(px2, yBotA, 1, yBotB - yBotA + 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
+    // Corrugated bellows folds on the pipe surface
+    const L = FLANGE_W + 2, R = W - FLANGE_W - 2;
+    const folds = 10;
+    const step = (R - L) / folds;
+    for (let i = 0; i <= folds; i++) {
+      const x = L + Math.floor(i * step);
+      const bulge = (i % 2 === 0) ? 1 : 0;
+      dot(x, cy - PIPE_HALF - bulge, C.wall);
+      dot(x, cy + PIPE_HALF + bulge, C.wall);
+      if (i > 0 && i % 2 === 0) {
+        // Vertical fold lines connecting corrugations
+        dot(x, cy - PIPE_HALF - 1, C.wallDk);
+        dot(x, cy + PIPE_HALF + 1, C.wallDk);
       }
     }
-
   },
 
   // === DIPOLE ===
   dipole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 16, R = 54, T = cy - 12, B = cy + 12;
     px(L, T, R - L, 2, C.wallHi);
     px(L, B - 1, R - L, 2, C.wallHi);
@@ -651,9 +677,8 @@ Renderer.prototype._schematicDrawers = {
 
   // === QUADRUPOLE ===
   quadrupole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     px(cx - 8, cy - 11, 16, 5, C.magnet);
     px(cx - 5, cy - 7, 10, 3, C.magnetDk);
     px(cx - 8, cy + 7, 16, 5, C.magnet);
@@ -710,6 +735,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SOLENOID ===
   solenoid(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 12, R = 58;
     px(L, cy - 9, R - L, 1, C.coil);
     px(L, cy + 9, R - L, 1, C.coil);
@@ -717,8 +743,6 @@ Renderer.prototype._schematicDrawers = {
       px(x, cy - 9, 1, 19, C.coilDk);
       px(x + 1, cy - 8, 1, 17, '#aa6633');
     }
-    px(L - 1, cy - 3, R - L + 2, 1, C.wallDk);
-    px(L - 1, cy + 3, R - L + 2, 1, C.wallDk);
 
     const fieldColor = '#3366bb';
     const fieldDim = '#223366';
@@ -762,6 +786,7 @@ Renderer.prototype._schematicDrawers = {
   // === RF CAVITY ===
   rfCavity(p, px, dot, W, H, cy, C) {
     const L = 10, R = 60;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     // Outer vessel walls
     px(L, cy - 10, R - L, 1, C.wall);
     px(L, cy + 10, R - L, 1, C.wall);
@@ -789,9 +814,6 @@ Renderer.prototype._schematicDrawers = {
         }
       }
     }
-    // Beam pipe
-    px(L, cy - 2, R - L, 1, C.wallDk);
-    px(L, cy + 2, R - L, 1, C.wallDk);
     // RF field lines
     for (let i = 0; i < cells; i++) {
       const cx2 = L + 1 + Math.floor(cellW * (i + 0.5));
@@ -805,6 +827,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === FARADAY CUP ===
   faradayCup(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const L = 20, R = 50;
     // Cup shape — open on left
     px(R - 2, cy - 8, 2, 17, C.metal);
@@ -828,6 +851,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === BEAM STOP ===
   beamStop(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const L = 24, R = 50;
     // Thick absorber block
     px(L, cy - 10, R - L, 21, C.metalDk);
@@ -847,6 +871,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === DETECTOR ===
   detector(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const cx = 35;
     // Concentric detector layers
     for (const r of [12, 9, 6, 3]) {
@@ -868,6 +893,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SPLITTER ===
   splitter(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     // Incoming beam
     for (let x = 4; x < 30; x++) dot(x, cy, C.beam);
     // Junction point
@@ -893,6 +919,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === APERTURE / COLLIMATOR ===
   aperture(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Upper jaw
     px(cx - 2, cy - 12, 4, 8, C.metal);
@@ -905,11 +932,6 @@ Renderer.prototype._schematicDrawers = {
     dot(cx, cy - 4, C.metal);
     dot(cx - 1, cy + 4, C.metal);
     dot(cx, cy + 4, C.metal);
-    // Beam pipe walls
-    px(10, cy - 3, cx - 12, 1, C.wallDk);
-    px(10, cy + 3, cx - 12, 1, C.wallDk);
-    px(cx + 4, cy - 3, 20, 1, C.wallDk);
-    px(cx + 4, cy + 3, 20, 1, C.wallDk);
     // Beam narrowing through gap
     for (let x = 4; x < cx - 2; x++) {
       const t = (x - 4) / (cx - 6);
@@ -923,6 +945,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === VELOCITY SELECTOR ===
   velocitySelector(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 14, R = 56;
     // E-field plates (top/bottom)
     px(L, cy - 8, R - L, 2, '#cc4444');
@@ -932,9 +955,6 @@ Renderer.prototype._schematicDrawers = {
       dot(x, cy - 5, C.magnetLt);
       dot(x, cy + 5, C.magnetLt);
     }
-    // Beam pipe
-    px(L - 2, cy - 3, R - L + 4, 1, C.wallDk);
-    px(L - 2, cy + 3, R - L + 4, 1, C.wallDk);
     // Beam — selected velocities pass through
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Rejected particles deflected
@@ -947,6 +967,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === EMITTANCE FILTER ===
   emittanceFilter(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Slit pair
     px(cx - 6, cy - 10, 2, 7, C.metal);
@@ -969,6 +990,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === UNDULATOR ===
   undulator(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 8, R = 62;
     // Alternating N/S magnet blocks
     const nBlocks = 8;
@@ -980,9 +1002,6 @@ Renderer.prototype._schematicDrawers = {
       px(x, cy - 10, w, 4, isN ? '#cc4444' : '#4444cc');
       px(x, cy + 7, w, 4, isN ? '#4444cc' : '#cc4444');
     }
-    // Beam pipe walls
-    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
-    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
     // Sinusoidal beam path
     for (let x = 4; x < W - 4; x++) {
       const phase = (x - L) / (R - L) * nBlocks * Math.PI;
@@ -999,6 +1018,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === COLLIMATOR ===
   collimator(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Two jaws
     px(cx - 1, cy - 12, 2, 9, C.metal);
@@ -1008,15 +1028,13 @@ Renderer.prototype._schematicDrawers = {
     dot(cx, cy - 3, C.metalDk);
     dot(cx - 1, cy + 3, C.metalDk);
     dot(cx, cy + 3, C.metalDk);
-    // Beam pipe
-    px(10, cy - 2, 50, 1, C.wallDk);
-    px(10, cy + 2, 50, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
   // === CRYOMODULE ===
   cryomodule(p, px, dot, W, H, cy, C) {
     const L = 6, R = 64;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     // Outer vacuum vessel
     px(L, cy - 12, R - L, 1, C.wall);
     px(L, cy + 12, R - L, 1, C.wall);
@@ -1046,6 +1064,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SEXTUPOLE ===
   sextupole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Six pole tips at 60-degree intervals
     for (let i = 0; i < 6; i++) {
@@ -1056,9 +1075,6 @@ Renderer.prototype._schematicDrawers = {
       const color = i % 2 === 0 ? '#cc4444' : '#4444cc';
       px(tipX - 1, tipY - 1, 3, 3, color);
     }
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     // Yoke ring
     for (let a = 0; a < Math.PI * 2; a += 0.2) {
       const rx = Math.round(cx + Math.cos(a) * 11);
@@ -1070,6 +1086,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === DC PHOTO GUN ===
   dcPhotoGun(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
     const cathX = 14, anodeX = 40;
     // Cathode plate
     for (let dy = -7; dy <= 7; dy++) {
@@ -1096,6 +1113,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === NC RF GUN ===
   ncRfGun(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
     const L = 12, R = 50;
     // Half-cell + full cell cavity
     px(L, cy - 9, 1, 19, C.wallHi);
@@ -1125,6 +1143,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SRF GUN ===
   srfGun(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
     const L = 12, R = 52;
     // SRF cavity shape (rounder)
     for (let dx = 0; dx < R - L; dx++) {
@@ -1147,15 +1166,13 @@ Renderer.prototype._schematicDrawers = {
 
   // === CORRECTOR ===
   corrector(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Small H/V corrector coils
     px(cx - 5, cy - 7, 3, 4, '#cc6644');
     px(cx + 3, cy - 7, 3, 4, '#cc6644');
     px(cx - 5, cy + 4, 3, 4, '#4466cc');
     px(cx + 3, cy + 4, 3, 4, '#4466cc');
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     // Correction arrows
     dot(cx, cy - 5, '#ffaa44');
     dot(cx, cy - 6, '#ffaa44');
@@ -1166,6 +1183,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === OCTUPOLE ===
   octupole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     for (let i = 0; i < 8; i++) {
       const angle = i * Math.PI / 4;
@@ -1175,13 +1193,12 @@ Renderer.prototype._schematicDrawers = {
       const color = i % 2 === 0 ? '#cc4444' : '#4444cc';
       px(tipX - 1, tipY - 1, 2, 2, color);
     }
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
   // === SC QUAD ===
   scQuad(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Superconducting quad — like quad but with cryo layer
     for (let a = 0; a < Math.PI * 2; a += 0.2) {
@@ -1193,13 +1210,12 @@ Renderer.prototype._schematicDrawers = {
     px(cx - 5, cy - 7, 10, 3, C.scMagDk);
     px(cx - 8, cy + 7, 16, 4, C.scMagnet);
     px(cx - 5, cy + 5, 10, 3, C.scMagDk);
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
   // === SC DIPOLE ===
   scDipole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 16, R = 54, T = cy - 12, B = cy + 12;
     px(L, T, R - L, 2, C.scMagnet);
     px(L, B - 1, R - L, 2, C.scMagnet);
@@ -1212,6 +1228,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === COMBINED FUNCTION MAGNET ===
   combinedFunctionMagnet(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 14, R = 56, T = cy - 11, B = cy + 11;
     px(L, T, R - L, 2, C.magnet);
     px(L, B - 1, R - L, 2, C.magnet);
@@ -1229,10 +1246,8 @@ Renderer.prototype._schematicDrawers = {
 
   // === BPM ===
   bpm(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
-    // Four button pickups around beam pipe
-    px(10, cy - 4, 50, 1, C.wallDk);
-    px(10, cy + 4, 50, 1, C.wallDk);
     // Buttons
     px(cx - 1, cy - 6, 3, 2, '#ccaa44');
     px(cx - 1, cy + 5, 3, 2, '#ccaa44');
@@ -1248,6 +1263,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SCREEN ===
   screen(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Insertable phosphor screen (angled)
     for (let i = -8; i <= 8; i++) {
@@ -1262,13 +1278,11 @@ Renderer.prototype._schematicDrawers = {
     dot(cx + 1, cy, '#88ffaa');
     dot(cx - 1, cy - 1, '#66cc88');
     dot(cx + 1, cy + 1, '#66cc88');
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
   },
 
   // === ICT ===
   ict(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Toroidal transformer ring
     for (let a = 0; a < Math.PI * 2; a += 0.15) {
@@ -1289,6 +1303,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === WIRE SCANNER ===
   wireScanner(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Wire crossing beam
     for (let i = -6; i <= 6; i++) {
@@ -1298,17 +1313,12 @@ Renderer.prototype._schematicDrawers = {
     px(cx - 4, cy - 10, 2, 5, C.metalDk);
     px(cx + 3, cy - 10, 2, 5, C.metalDk);
     px(cx - 4, cy - 11, 10, 1, C.metal);
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
   // === BUNCH LENGTH MONITOR ===
   bunchLengthMonitor(p, px, dot, W, H, cy, C) {
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Streak display — pulse shape above
     const baseY = cy - 8;
@@ -1323,6 +1333,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === ENERGY SPECTROMETER ===
   energySpectrometer(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     // Bending magnet section
     px(20, cy - 10, 20, 3, C.magnetDk);
     px(20, cy + 8, 20, 3, C.magnetDk);
@@ -1345,6 +1356,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === BEAM LOSS MONITOR ===
   beamLossMonitor(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Ionization chamber
     px(cx - 4, cy - 8, 8, 16, C.metalDk);
@@ -1354,9 +1366,6 @@ Renderer.prototype._schematicDrawers = {
     px(cx + 2, cy - 6, 1, 12, '#ccaa44');
     // Cable out
     px(cx, cy - 8, 1, -4, C.coil);
-    // Beam pipe (beam passes by, not through)
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Radiation particles hitting detector
     dot(cx - 1, cy - 4, C.glow);
@@ -1365,9 +1374,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SR LIGHT MONITOR ===
   srLightMonitor(p, px, dot, W, H, cy, C) {
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Viewport window
     px(34, cy - 3, 3, 1, '#446688');
@@ -1384,6 +1391,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === HELICAL UNDULATOR ===
   helicalUndulator(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 8, R = 62;
     const nBlocks = 8;
     const step = (R - L) / nBlocks;
@@ -1399,8 +1407,6 @@ Renderer.prototype._schematicDrawers = {
         dot(x, cy + 5, '#44cccc');
       }
     }
-    px(L - 1, cy - 3, R - L + 2, 1, C.wallDk);
-    px(L - 1, cy + 3, R - L + 2, 1, C.wallDk);
     // Helical beam
     for (let x = 4; x < W - 4; x++) {
       const phase = (x - L) / (R - L) * nBlocks * Math.PI;
@@ -1411,6 +1417,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === WIGGLER ===
   wiggler(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 10, R = 60;
     const nBlocks = 5;
     const step = (R - L) / nBlocks;
@@ -1420,8 +1427,6 @@ Renderer.prototype._schematicDrawers = {
       px(x, cy - 11, w, 5, i % 2 === 0 ? '#cc4444' : '#4444cc');
       px(x, cy + 7, w, 5, i % 2 === 0 ? '#4444cc' : '#cc4444');
     }
-    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
-    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
     // Larger amplitude oscillation
     for (let x = 4; x < W - 4; x++) {
       const phase = (x - L) / (R - L) * nBlocks * Math.PI;
@@ -1437,6 +1442,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === APPLE-2 UNDULATOR ===
   apple2Undulator(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 8, R = 62;
     const nBlocks = 6;
     const step = (R - L) / nBlocks;
@@ -1449,8 +1455,6 @@ Renderer.prototype._schematicDrawers = {
       px(x, cy + 7, w, 2, '#4444cc');
       px(x + 1, cy + 9, w, 2, '#44cccc');
     }
-    px(L - 1, cy - 4, R - L + 2, 1, C.wallDk);
-    px(L - 1, cy + 4, R - L + 2, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) {
       const phase = (x - L) / (R - L) * nBlocks * Math.PI;
       dot(x, cy + Math.round(Math.sin(phase) * 2), C.beam);
@@ -1459,6 +1463,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === KICKER MAGNET ===
   kickerMagnet(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 18, R = 52;
     px(L, cy - 8, R - L, 2, C.magnet);
     px(L, cy + 7, R - L, 2, C.magnet);
@@ -1482,6 +1487,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === SEPTUM MAGNET ===
   septumMagnet(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Thin septum wall
     px(cx, cy - 10, 1, 21, C.metal);
@@ -1499,6 +1505,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === CHICANE ===
   chicane(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     // Four-dipole chicane for bunch compression
     const dipoles = [14, 26, 38, 50];
     for (const dx of dipoles) {
@@ -1521,6 +1528,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === DOGLEG ===
   dogleg(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const d1 = 20, d2 = 44;
     px(d1, cy - 6, 4, 3, C.magnet);
     px(d1, cy + 4, 4, 3, C.magnet);
@@ -1536,6 +1544,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === STRIPPER FOIL ===
   stripperFoil(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Thin foil
     px(cx, cy - 8, 1, 17, '#ccaa44');
@@ -1556,6 +1565,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === FIXED TARGET (Advanced) ===
   fixedTargetAdv(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const cx = 30;
     // Target block
     px(cx, cy - 6, 4, 13, C.metalDk);
@@ -1577,9 +1587,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === PHOTON PORT ===
   photonPort(p, px, dot, W, H, cy, C) {
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Viewport/window
     px(33, cy - 3, 4, 1, '#446688');
@@ -1595,6 +1603,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === POSITRON TARGET ===
   positronTarget(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const cx = 30;
     // Converter target
     px(cx, cy - 5, 3, 11, C.metalDk);
@@ -1614,9 +1623,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === COMPTON IP ===
   comptonIP(p, px, dot, W, H, cy, C) {
-    // Beam pipe
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Laser beam crossing vertically
     for (let y = 2; y < H - 2; y++) {
@@ -1632,6 +1639,7 @@ Renderer.prototype._schematicDrawers = {
   // === PILLBOX CAVITY ===
   pillboxCavity(p, px, dot, W, H, cy, C) {
     const L = 18, R = 52;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 8, R - L, 1, C.wall);
     px(L, cy + 8, R - L, 1, C.wall);
     px(L, cy - 8, 1, 17, C.wallHi);
@@ -1642,15 +1650,13 @@ Renderer.prototype._schematicDrawers = {
     for (let dy = -5; dy <= 5; dy++) {
       dot(35, cy + dy, C.hot);
     }
-    // Beam pipe
-    px(L, cy - 2, R - L, 1, C.wallDk);
-    px(L, cy + 2, R - L, 1, C.wallDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
   // === RFQ ===
   rfq(p, px, dot, W, H, cy, C) {
     const L = 10, R = 60;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 10, R - L, 1, C.wall);
     px(L, cy + 10, R - L, 1, C.wall);
     px(L, cy - 10, 1, 21, C.wallHi);
@@ -1669,6 +1675,7 @@ Renderer.prototype._schematicDrawers = {
   // === DTL ===
   dtl(p, px, dot, W, H, cy, C) {
     const L = 8, R = 62;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 10, R - L, 1, C.wall);
     px(L, cy + 10, R - L, 1, C.wall);
     px(L, cy - 10, 1, 21, C.wallHi);
@@ -1690,6 +1697,7 @@ Renderer.prototype._schematicDrawers = {
   // === DTL CAVITY ===
   dtlCavity(p, px, dot, W, H, cy, C) {
     const L = 10, R = 60;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 9, R - L, 1, C.wall);
     px(L, cy + 9, R - L, 1, C.wall);
     px(L, cy - 9, 1, 19, C.wallHi);
@@ -1708,6 +1716,7 @@ Renderer.prototype._schematicDrawers = {
   // === BUNCHER ===
   buncher(p, px, dot, W, H, cy, C) {
     const L = 18, R = 52;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 7, R - L, 1, C.wall);
     px(L, cy + 7, R - L, 1, C.wall);
     px(L, cy - 7, 1, 15, C.wallHi);
@@ -1730,6 +1739,7 @@ Renderer.prototype._schematicDrawers = {
   // === HARMONIC LINEARIZER ===
   harmonicLinearizer(p, px, dot, W, H, cy, C) {
     const L = 14, R = 56;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 8, R - L, 1, C.wall);
     px(L, cy + 8, R - L, 1, C.wall);
     px(L, cy - 8, 1, 17, C.wallHi);
@@ -1752,6 +1762,7 @@ Renderer.prototype._schematicDrawers = {
   // === S-BAND STRUCTURE ===
   sbandStructure(p, px, dot, W, H, cy, C) {
     const L = 8, R = 62;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 9, R - L, 1, C.wall);
     px(L, cy + 9, R - L, 1, C.wall);
     px(L, cy - 9, 1, 19, C.wallHi);
@@ -1772,6 +1783,7 @@ Renderer.prototype._schematicDrawers = {
   // === C-BAND CAVITY ===
   cbandCavity(p, px, dot, W, H, cy, C) {
     const L = 12, R = 58;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 8, R - L, 1, C.wall);
     px(L, cy + 8, R - L, 1, C.wall);
     px(L, cy - 8, 1, 17, C.wallHi);
@@ -1791,6 +1803,7 @@ Renderer.prototype._schematicDrawers = {
   // === X-BAND CAVITY ===
   xbandCavity(p, px, dot, W, H, cy, C) {
     const L = 12, R = 58;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 7, R - L, 1, C.wall);
     px(L, cy + 7, R - L, 1, C.wall);
     px(L, cy - 7, 1, 15, C.wallHi);
@@ -1808,6 +1821,7 @@ Renderer.prototype._schematicDrawers = {
   // === SRF 650 CAVITY (Tesla 9-cell shares) ===
   srf650Cavity(p, px, dot, W, H, cy, C) {
     const L = 8, R = 62;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
     px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
     // Large elliptical cells
@@ -1828,6 +1842,7 @@ Renderer.prototype._schematicDrawers = {
   // === TESLA 9-CELL (uses same as srf650Cavity basically) ===
   tesla9Cell(p, px, dot, W, H, cy, C) {
     const L = 4, R = 66;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
     px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
     const cells = 9;
@@ -2611,9 +2626,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === LASER HEATER ===
   laserHeater(p, px, dot, W, H, cy, C) {
-    // Beam pipe — this IS a beamline component despite being in power category
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
+    _drawBeamPipe(px, dot, W, cy, C);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
     // Laser beam crossing
     for (let y = 2; y < H - 2; y++) {
@@ -2668,6 +2681,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === ION SOURCE ===
   ionSource(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
     const L = 10, R = 46;
     // Plasma chamber
     px(L, cy - 9, R - L, 19, C.metalDk);
@@ -2688,6 +2702,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === PROTON DIPOLE ===
   protonDipole(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const L = 14, R = 56, T = cy - 12, B = cy + 12;
     px(L, T, R - L, 2, C.magnet);
     px(L, B - 1, R - L, 2, C.magnet);
@@ -2704,9 +2719,8 @@ Renderer.prototype._schematicDrawers = {
 
   // === PROTON QUAD ===
   protonQuad(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
-    px(10, cy - 3, 50, 1, C.wallDk);
-    px(10, cy + 3, 50, 1, C.wallDk);
     px(cx - 8, cy - 11, 16, 5, C.magnet);
     px(cx - 5, cy - 7, 10, 3, C.magnetDk);
     px(cx - 8, cy + 7, 16, 5, C.magnet);
@@ -2718,6 +2732,7 @@ Renderer.prototype._schematicDrawers = {
   // === SPOKE CAVITY ===
   spokeCavity(p, px, dot, W, H, cy, C) {
     const L = 14, R = 56;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 10, R - L, 1, C.scMagnet);
     px(L, cy + 10, R - L, 1, C.scMagnet);
     px(L, cy - 10, 1, 21, C.scMagDk);
@@ -2732,6 +2747,7 @@ Renderer.prototype._schematicDrawers = {
   // === HALF WAVE RESONATOR ===
   halfWaveResonator(p, px, dot, W, H, cy, C) {
     const L = 14, R = 56;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
     px(L, cy - 10, R - L, 21, '#0d1a2a');
     px(L, cy - 10, R - L, 1, C.scMagnet);
     px(L, cy + 10, R - L, 1, C.scMagnet);
@@ -2781,6 +2797,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === BEAM DUMP ===
   beamDump(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const L = 22, R = 54, my = cy - 3;
     // Large water-cooled absorber
     px(L, my - 8, R - L, 18, C.metalDk);
@@ -2797,6 +2814,7 @@ Renderer.prototype._schematicDrawers = {
 
   // === TARGET (shared sprite) ===
   target(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const cx = 35;
     // Target block
     px(cx - 3, cy - 8, 6, 17, C.metalDk);
@@ -3388,8 +3406,29 @@ Renderer.prototype._openBeamlineWindow = function(beamlineId) {
   }
   const bw = new BeamlineWindow(this.game, beamlineId);
   this._beamlineWindows[beamlineId] = bw;
-  const origClose = bw.ctx.onClose;
-  bw.ctx.onClose = () => {
+
+  // Anchor the window to the beamline's center in world space
+  const entry = this.game.registry.get(beamlineId);
+  if (entry && bw.ctx) {
+    const nodes = entry.beamline.getAllNodes();
+    if (nodes.length > 0) {
+      let sumX = 0, sumY = 0, count = 0;
+      for (const node of nodes) {
+        for (const t of node.tiles) {
+          const iso = tileCenterIso(t.col, t.row);
+          sumX += iso.x;
+          sumY += iso.y;
+          count++;
+        }
+      }
+      // Anchor slightly above and to the right of center
+      bw.ctx.setWorldAnchor(sumX / count + 60, sumY / count - 80);
+      bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+    }
+  }
+
+  const origClose = bw.ctx._onClose;
+  bw.ctx._onClose = () => {
     delete this._beamlineWindows[beamlineId];
     if (origClose) origClose();
   };
@@ -3416,9 +3455,21 @@ Renderer.prototype._openMachineWindow = function(machineInstanceId) {
 
 Renderer.prototype._refreshContextWindows = function() {
   if (this._beamlineWindows) {
-    for (const bw of Object.values(this._beamlineWindows)) bw.refresh();
+    for (const bw of Object.values(this._beamlineWindows)) {
+      bw.refresh();
+      if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+    }
   }
   if (this._machineWindows) {
     for (const mw of Object.values(this._machineWindows)) mw.refresh();
+  }
+};
+
+// Update anchored window positions (called on pan/zoom for smooth tracking)
+Renderer.prototype._updateAnchoredWindows = function() {
+  if (this._beamlineWindows) {
+    for (const bw of Object.values(this._beamlineWindows)) {
+      if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+    }
   }
 };

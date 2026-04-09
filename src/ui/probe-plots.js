@@ -3,7 +3,7 @@
 export const ProbePlots = (() => {
   const PAD = { top: 18, right: 10, bottom: 20, left: 46 };
 
-  function draw(canvas, type, envelope, pins, activePin) {
+  function draw(canvas, type, envelope, pins, activePin, xRange, yScale) {
     const ctx = canvas.getContext('2d');
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -26,7 +26,7 @@ export const ProbePlots = (() => {
     };
 
     const fn = fns[type];
-    if (fn) fn(ctx, canvas, envelope, pins, activePin);
+    if (fn) fn(ctx, canvas, envelope, pins, activePin, xRange, yScale);
     else _msg(ctx, canvas, 'Unknown: ' + type);
   }
 
@@ -63,6 +63,20 @@ export const ProbePlots = (() => {
 
   function _xRange(env) {
     return _range(env.map(d => d.s != null ? d.s : d.index));
+  }
+
+  /** Apply y-scale to an auto-computed [yMin, yMax] range.
+   *  yScale: null=auto, 0.5=half, number>1=fixed max from 0 */
+  function _applyYScale(yMin, yMax, yScale) {
+    if (yScale == null) return [yMin, yMax];
+    if (yScale === 0.5) {
+      const mid = (yMin + yMax) / 2;
+      const half = (yMax - yMin) / 4;
+      return [mid - half, mid + half];
+    }
+    // Fixed range: show [0, yScale] (or [-yScale, yScale] if data goes negative)
+    if (yMin < 0) return [-yScale, yScale];
+    return [0, yScale];
   }
 
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax) {
@@ -136,9 +150,15 @@ export const ProbePlots = (() => {
 
   function _pinMarkers(ctx, a, env, pins, xMin, xMax) {
     for (const pin of pins) {
-      const d = env[pin.elementIndex];
-      if (!d) continue;
-      const xV = d.s != null ? d.s : pin.elementIndex;
+      // Use explicit s position if provided, otherwise look up from envelope
+      let xV;
+      if (pin.s != null) {
+        xV = pin.s;
+      } else {
+        const d = env[pin.elementIndex];
+        if (!d) continue;
+        xV = d.s != null ? d.s : pin.elementIndex;
+      }
       const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
       ctx.strokeStyle = pin.color; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, a.y); ctx.lineTo(x, a.y + a.h); ctx.stroke();
@@ -168,11 +188,11 @@ export const ProbePlots = (() => {
 
   // --- "Along beamline" plots ---
 
-  function _drawBeamEnvelope(ctx, canvas, env, pins) {
+  function _drawBeamEnvelope(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
-    const [xMin, xMax] = _xRange(env);
+    const [xMin, xMax] = xRange || _xRange(env);
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
-    const [yMin, yMax] = _range(scaled.flatMap(d => [d.sx_mm, d.sy_mm]));
+    const [yMin, yMax] = _applyYScale(..._range(scaled.flatMap(d => [d.sx_mm, d.sy_mm])), yScale);
     _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
     _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false);
     _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true);
@@ -180,10 +200,10 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03c3_x' }, { color: '#ff6644', label: '\u03c3_y' }]);
   }
 
-  function _drawCurrentLoss(ctx, canvas, env, pins) {
+  function _drawCurrentLoss(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
-    const [xMin, xMax] = _xRange(env);
-    const [yMin, yMax] = _range(env.map(d => d.current).filter(v => v != null));
+    const [xMin, xMax] = xRange || _xRange(env);
+    const [yMin, yMax] = _applyYScale(..._range(env.map(d => d.current).filter(v => v != null)), yScale);
     _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
     // Shade loss regions
     for (let i = 1; i < env.length; i++) {
@@ -202,12 +222,12 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#ddaa44', label: 'Current' }]);
   }
 
-  function _drawEmittance(ctx, canvas, env, pins) {
+  function _drawEmittance(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
-    const [xMin, xMax] = _xRange(env);
+    const [xMin, xMax] = xRange || _xRange(env);
     // Use normalized emittance — the conserved quantity
     const vals = env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)));
-    const [yMin, yMax] = _range(vals);
+    const [yMin, yMax] = _applyYScale(..._range(vals), yScale);
     _axes(ctx, a, 's (m)', '\u03b5_n (m\u00b7rad)', yMin, yMax);
     _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false);
     _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true);
@@ -215,11 +235,11 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
   }
 
-  function _drawEnergyDispersion(ctx, canvas, env, pins) {
+  function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
     // Shrink plot area slightly for right axis labels
     const aR = { ...a, w: a.w - 30 };
-    const [xMin, xMax] = _xRange(env);
+    const [xMin, xMax] = xRange || _xRange(env);
 
     // Left axis: energy with smart unit scaling
     const eVals = env.map(d => d.energy).filter(v => v != null && isFinite(v));
@@ -240,9 +260,9 @@ export const ProbePlots = (() => {
     _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
   }
 
-  function _drawPeakCurrent(ctx, canvas, env, pins) {
+  function _drawPeakCurrent(ctx, canvas, env, pins, activePin, xRange, yScale) {
     const a = _area(canvas);
-    const [xMin, xMax] = _xRange(env);
+    const [xMin, xMax] = xRange || _xRange(env);
     const vals = env.map(d => d.peak_current).filter(v => v != null && isFinite(v) && v > 0);
     if (vals.length === 0) {
       _msg(ctx, canvas, 'No peak current data');

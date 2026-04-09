@@ -30,6 +30,10 @@ export class ContextWindow {
     this._tabRenderers = new Map(); // key -> fn(container)
     this._actions = [];
 
+    // World-space anchor: if set, window tracks this position on the iso grid
+    this._worldAnchor = null;   // { x, y } in world (PIXI) coordinates
+    this._dragOffset = { x: 0, y: 0 }; // user drag offset from anchor screen pos
+
     this._build();
     registry.set(id, this);
   }
@@ -150,7 +154,7 @@ export class ContextWindow {
 
   _initDrag(handle) {
     let dragging = false;
-    let startX, startY, origLeft, origTop;
+    let startX, startY, origLeft, origTop, origOffsetX, origOffsetY;
 
     handle.addEventListener('mousedown', (e) => {
       if (e.target.classList.contains('ctx-close')) return;
@@ -159,14 +163,24 @@ export class ContextWindow {
       startY = e.clientY;
       origLeft = parseInt(this._el.style.left, 10) || 0;
       origTop = parseInt(this._el.style.top, 10) || 0;
+      origOffsetX = this._dragOffset.x;
+      origOffsetY = this._dragOffset.y;
       handle.style.cursor = 'grabbing';
       e.preventDefault();
     });
 
     document.addEventListener('mousemove', (e) => {
       if (!dragging) return;
-      this._el.style.left = (origLeft + e.clientX - startX) + 'px';
-      this._el.style.top = (origTop + e.clientY - startY) + 'px';
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (this._worldAnchor) {
+        // Update drag offset so the window stays put relative to its anchor
+        this._dragOffset.x = origOffsetX + dx;
+        this._dragOffset.y = origOffsetY + dy;
+      } else {
+        this._el.style.left = (origLeft + dx) + 'px';
+        this._el.style.top = (origTop + dy) + 'px';
+      }
     });
 
     document.addEventListener('mouseup', () => {
@@ -258,6 +272,30 @@ export class ContextWindow {
   /** Re-render the active tab content. */
   update() {
     this._renderBody();
+  }
+
+  /**
+   * Anchor this window to a world-space position.
+   * @param {number} wx - World X coordinate
+   * @param {number} wy - World Y coordinate
+   */
+  setWorldAnchor(wx, wy) {
+    this._worldAnchor = { x: wx, y: wy };
+  }
+
+  /**
+   * Update the window's screen position from its world anchor.
+   * Call each frame with the current camera transform.
+   * @param {number} worldX - world container screen X (renderer.world.x)
+   * @param {number} worldY - world container screen Y (renderer.world.y)
+   * @param {number} zoom   - current zoom level
+   */
+  updateScreenPosition(worldX, worldY, zoom) {
+    if (!this._worldAnchor || !this._el) return;
+    const sx = this._worldAnchor.x * zoom + worldX + this._dragOffset.x;
+    const sy = this._worldAnchor.y * zoom + worldY + this._dragOffset.y;
+    this._el.style.left = sx + 'px';
+    this._el.style.top = sy + 'px';
   }
 
   /** Bring this window to the front. */

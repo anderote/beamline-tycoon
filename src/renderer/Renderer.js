@@ -84,9 +84,11 @@ export class Renderer {
     this.infraLayer = null;
     this.wallLayer = null;
     this.wallGraphics = {};        // keyed by "col,row,edge" -> PIXI.Graphics
-    this.wallVisibilityMode = 'up'; // 'up' | 'cutaway' | 'transparent' | 'down'
+    this.wallVisibilityMode = 'cutaway'; // 'up' | 'cutaway' | 'transparent' | 'down'
     this._cutawayRoom = null;       // Set of "col,row" strings for current room
     this._cutawayHoverKey = null;   // "col,row" of last hover that triggered room detection
+    this._transparentTiles = null;  // Set of "col,row" strings for current contiguous tile region
+    this._transparentHoverKey = null; // "col,row" of last hover for transparent mode
     this.doorLayer = null;
     this.dragPreviewLayer = null;
     this.facilityLayer = null;
@@ -324,11 +326,13 @@ export class Renderer {
     this.world.y = screenY - worldY * scale;
 
     this.world.scale.set(this.zoom);
+    this._updateAnchoredWindows();
   }
 
   panBy(dx, dy) {
     this.world.x -= dx;
     this.world.y -= dy;
+    this._updateAnchoredWindows();
   }
 
   // --- Grid rendering ---
@@ -382,6 +386,7 @@ export class Renderer {
     }
     if (this.wallVisibilityMode === 'cutaway') {
       this._applyWallVisibility();
+      this._applyDoorVisibility();
     }
   }
 

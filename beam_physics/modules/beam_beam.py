@@ -54,5 +54,5 @@ class BeamBeamModule(PhysicsModule):
         return EffectReport(self.name, context.element_index, {
             "luminosity": L, "tune_shift_y": xi_y, "disruption_y": D_y,
             "pinch_enhancement": H_D, "piwinski_factor": S,
-            "beam_stable": xi_y < 0.05, "n_particles": N,
+            "beam_stable": bool(xi_y < 0.05), "n_particles": N,
         })

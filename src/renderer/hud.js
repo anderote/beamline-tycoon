@@ -5,7 +5,7 @@
 import { Renderer, isFacilityCategory } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
-import { MODES, CONNECTION_TYPES } from '../data/modes.js';
+import { MODES, CONNECTION_TYPES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
@@ -612,6 +612,48 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
+  // Wall tabs (Grounds mode — hedges, fencing): show wall items using wall tool
+  const wallCatDef = MODES.grounds?.categories?.[compCategory];
+  if (wallCatDef?.isWallTab) {
+    const sub = wallCatDef.wallSubsection;
+    const wallItems = Object.entries(WALL_TYPES).filter(([, w]) => w.subsection === sub);
+    for (const [key, infra] of wallItems) {
+      const item = document.createElement('div');
+      item.className = 'palette-item';
+      item.dataset.paletteIndex = paletteIdx;
+      const idx = paletteIdx++;
+
+      const affordable = this.game.state.resources.funding >= infra.cost;
+      if (!affordable) item.classList.add('unaffordable');
+
+      const previewEl = document.createElement('div');
+      previewEl.className = 'palette-preview';
+      const swatch = document.createElement('div');
+      const c = infra.topColor || infra.color || 0x888888;
+      swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+      previewEl.appendChild(swatch);
+      item.appendChild(previewEl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'palette-name';
+      nameEl.textContent = infra.name;
+      item.appendChild(nameEl);
+
+      const costEl = document.createElement('div');
+      costEl.className = 'palette-cost';
+      costEl.textContent = `$${infra.cost}`;
+      item.appendChild(costEl);
+
+      item.addEventListener('click', () => {
+        if (this._onPaletteClick) this._onPaletteClick(idx);
+        if (this._onWallSelect) this._onWallSelect(key);
+      });
+
+      palette.appendChild(item);
+    }
+    return;
+  }
+
   // Decoration tabs (Grounds mode): show decoration items for this category
   const decCatDef = MODES.grounds?.categories?.[compCategory];
   if (decCatDef?.isDecorationTab) {
@@ -690,20 +732,12 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     const hex = '#' + zone.color.toString(16).padStart(6, '0');
     zoneItem.style.borderLeft = `4px solid ${hex}`;
 
-    // Zone tile preview
+    // Zone tile preview — simple colored diamond
     const zPreviewEl = document.createElement('div');
     zPreviewEl.className = 'palette-preview';
-    const zoneVarPath = this.sprites.getZoneVariantPath(zoneType, 0, 0);
-    if (zoneVarPath) {
-      const img = document.createElement('img');
-      img.src = zoneVarPath;
-      img.alt = zone.name;
-      zPreviewEl.appendChild(img);
-    } else {
-      const swatch = document.createElement('div');
-      swatch.style.cssText = `width:48px;height:24px;background:${hex};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);opacity:0.7;`;
-      zPreviewEl.appendChild(swatch);
-    }
+    const swatch = document.createElement('div');
+    swatch.style.cssText = `width:48px;height:24px;background:${hex};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);opacity:0.7;`;
+    zPreviewEl.appendChild(swatch);
     zoneItem.appendChild(zPreviewEl);
 
     const zoneName = document.createElement('div');
@@ -844,10 +878,56 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         if (comp.subsection) return comp.subsection === subKey;
         return subIdx === 0; // default to first subsection
       });
-      if (subComps.length === 0) return;
+
+      // Check for infra distribution connection tools in this subsection
+      const infraConnKeys = (subKey === 'distribution' && this.activeMode === 'infra' && INFRA_DISTRIBUTION[compCategory]) || [];
+
+      if (subComps.length === 0 && infraConnKeys.length === 0) return;
 
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
+
+      // Render connection tool buttons first in distribution subsection
+      for (const connKey of infraConnKeys) {
+        const conn = CONNECTION_TYPES[connKey];
+        if (!conn) continue;
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const hex = '#' + conn.color.toString(16).padStart(6, '0');
+        const swatch = document.createElement('div');
+        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;margin:9px auto;box-shadow:0 0 6px ${hex};`;
+        previewEl.appendChild(swatch);
+        item.appendChild(previewEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = conn.name;
+        item.appendChild(nameEl);
+
+        const descEl = document.createElement('div');
+        descEl.className = 'palette-cost';
+        descEl.textContent = '(click to draw)';
+        item.appendChild(descEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          // Activate this connection type the same way the top bar does
+          const connContainer = document.getElementById('connection-tools');
+          if (connContainer) {
+            connContainer.querySelectorAll('.conn-btn').forEach(b => b.classList.remove('active'));
+            const matchBtn = connContainer.querySelector(`[data-conn-type="${connKey}"]`);
+            if (matchBtn) matchBtn.classList.add('active');
+          }
+          if (this._onConnSelect) this._onConnSelect(connKey);
+        });
+
+        itemsContainer.appendChild(item);
+      }
 
       for (const { key, comp } of subComps) {
         const item = this._createPaletteItem(key, comp, paletteIdx);
@@ -1209,7 +1289,9 @@ Renderer.prototype._bindHUDEvents = function() {
       btn.classList.add('active');
       this.wallVisibilityMode = btn.dataset.wallMode;
       this._cutawayHoverKey = null; // force room re-detection
+      this._transparentHoverKey = null; // force tile region re-detection
       this._applyWallVisibility();
+      this._applyDoorVisibility();
     });
   });
 

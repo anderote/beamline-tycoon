@@ -7,8 +7,8 @@ import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 
 // Must match beam_physics/gameplay.py LENGTH_SCALE
-// 1 tile ≈ 10 ft ≈ 3 m
-const LENGTH_SCALE = 3.0;
+// 1 tile = 2 m
+const LENGTH_SCALE = 2.0;
 
 export class BeamlineDesigner {
   constructor(game, renderer) {
@@ -38,11 +38,18 @@ export class BeamlineDesigner {
     this._markerDir = 0;      // -1, 0, or +1 for continuous panning
     this._markerAnimId = null; // requestAnimationFrame id
 
-    // Focus row: 0 = schematic, 1 = plots, 2 = palette
+    // Focus row: 0 = beamline stackup, 1 = component palette
     this.focusRow = 0;
+
+    // Palette keyboard index when focusRow=1
+    this.designerPaletteIndex = -1;
 
     // Insert mode: null, 'before', or 'after'
     this.insertMode = null;
+
+    // Undo stack (max 3 snapshots)
+    this._undoStack = [];
+    this._UNDO_MAX = 3;
 
     // Plot range modes
     this.plotRangeMode = 'full';   // x: 'full', '30', '9'
@@ -63,12 +70,12 @@ export class BeamlineDesigner {
     document.getElementById('dsgn-confirm').addEventListener('click', () => this.confirm());
     document.getElementById('dsgn-cancel').addEventListener('click', () => this.cancel());
     document.getElementById('dsgn-close').addEventListener('click', () => this.close());
-    document.getElementById('dsgn-insert-before').addEventListener('click', () => {
-      this.insertMode = this.insertMode === 'before' ? null : 'before';
+    document.getElementById('dsgn-action-replace').addEventListener('click', () => {
+      this.insertMode = null;
       this._updateInsertButtons();
     });
-    document.getElementById('dsgn-insert-after').addEventListener('click', () => {
-      this.insertMode = this.insertMode === 'after' ? null : 'after';
+    document.getElementById('dsgn-action-insert').addEventListener('click', () => {
+      this.insertMode = 'nearest';
       this._updateInsertButtons();
     });
     document.getElementById('dsgn-save-design').addEventListener('click', () => this.saveDesign());
@@ -82,16 +89,36 @@ export class BeamlineDesigner {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+      // Ctrl+Z → undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.undo();
+        return;
+      }
+
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault();
           e.stopPropagation();
-          this._startMarkerMove(-1);
+          if (this.focusRow === 0) {
+            this._startMarkerMove(-1);
+          } else if (this.focusRow === 1) {
+            this._navigateDesignerTab(-1);
+          } else if (this.focusRow === 2) {
+            this._navigateDesignerPalette(-1);
+          }
           break;
         case 'ArrowRight':
           e.preventDefault();
           e.stopPropagation();
-          this._startMarkerMove(1);
+          if (this.focusRow === 0) {
+            this._startMarkerMove(1);
+          } else if (this.focusRow === 1) {
+            this._navigateDesignerTab(1);
+          } else if (this.focusRow === 2) {
+            this._navigateDesignerPalette(1);
+          }
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -102,6 +129,28 @@ export class BeamlineDesigner {
           e.preventDefault();
           e.stopPropagation();
           this.focusRowDown();
+          break;
+        case 'Tab':
+          e.preventDefault();
+          e.stopPropagation();
+          // Cycle between replace and insert mode
+          this.insertMode = this.insertMode ? null : 'nearest';
+          this._updateInsertButtons();
+          break;
+        case 'Enter': case ' ':
+          if (this.focusRow === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Select tab and move down to palette
+            this._activateCurrentTab();
+            this.focusRow = 2;
+            this.designerPaletteIndex = 0;
+            this._updateFocusRowVisuals();
+          } else if (this.focusRow === 2) {
+            e.preventDefault();
+            e.stopPropagation();
+            this._confirmPaletteSelection();
+          }
           break;
         case 'a': case 'A':
           e.preventDefault();
@@ -121,7 +170,13 @@ export class BeamlineDesigner {
         case 'Escape':
           e.preventDefault();
           e.stopPropagation();
-          this.close();
+          if (this.focusRow > 0) {
+            this.focusRow--;
+            if (this.focusRow < 2) this.designerPaletteIndex = -1;
+            this._updateFocusRowVisuals();
+          } else {
+            this.close();
+          }
           break;
         case 'c': case 'C':
           e.preventDefault();
@@ -135,7 +190,7 @@ export class BeamlineDesigner {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         e.stopPropagation();
-        this._stopMarkerMove();
+        if (this.focusRow === 0) this._stopMarkerMove();
       }
     };
     // Use capture phase so we intercept before InputHandler
@@ -162,6 +217,7 @@ export class BeamlineDesigner {
         const dx = e.clientX - dragStartX;
         dragDistance = Math.abs(dx);
         this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
+        this._clampViewX();
         this._renderAll();
       });
       window.addEventListener('mouseup', () => { dragging = false; });
@@ -169,12 +225,10 @@ export class BeamlineDesigner {
       schematicCanvas.addEventListener('click', (e) => {
         if (!this.isOpen) return;
         if (dragDistance > 5) return;  // was a drag, not a click
-        const idx = this._hitTestSchematic(e.clientX, e.clientY);
-        if (idx >= 0) {
-          this.selectedIndex = idx;
-          this._updateMarkerToComponentCenter();
-          this._renderAll();
-        }
+        const rect = schematicCanvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        this._placeMarkerAtClickX(clickX);
+        this._renderAll();
       });
 
       // Mousewheel zoom
@@ -279,6 +333,7 @@ export class BeamlineDesigner {
     }
     this.markerS = 0;
     this.focusRow = 0;
+    this.designerPaletteIndex = -1;
     this.insertMode = null;
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
@@ -304,6 +359,8 @@ export class BeamlineDesigner {
     this.overlay.classList.remove('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '260';
+    const paletteActions = document.getElementById('dsgn-palette-actions');
+    if (paletteActions) paletteActions.classList.remove('hidden');
 
     // Set up beamline-only palette with preview cards
     this._setupDesignerTabs();
@@ -367,6 +424,7 @@ export class BeamlineDesigner {
     this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
     this.markerS = 0;
     this.focusRow = 0;
+    this.designerPaletteIndex = -1;
     this.insertMode = null;
     this.plotRangeMode = 'full';
     this._nextTempId = this.draftNodes.length;
@@ -380,6 +438,8 @@ export class BeamlineDesigner {
     this.overlay.classList.remove('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '260';
+    const paletteActions = document.getElementById('dsgn-palette-actions');
+    if (paletteActions) paletteActions.classList.remove('hidden');
 
     this._setupDesignerTabs();
     this._updateDesignerHeader();
@@ -579,6 +639,8 @@ export class BeamlineDesigner {
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
+    const paletteActions = document.getElementById('dsgn-palette-actions');
+    if (paletteActions) paletteActions.classList.add('hidden');
     if (!this._suppressHashUpdate && window.location.hash.startsWith('#designer')) {
       window.location.hash = 'game';
     }
@@ -587,12 +649,42 @@ export class BeamlineDesigner {
     this._restoreNormalTabs();
   }
 
+  // --- Undo ---
+
+  _pushUndo() {
+    this._undoStack.push({
+      draftNodes: this.draftNodes.map(n => this._cloneNode(n)),
+      selectedIndex: this.selectedIndex,
+      markerS: this.markerS,
+    });
+    if (this._undoStack.length > this._UNDO_MAX) {
+      this._undoStack.shift();
+    }
+  }
+
+  undo() {
+    if (this._undoStack.length === 0) {
+      this.game.log('Nothing to undo', 'info');
+      return;
+    }
+    const snap = this._undoStack.pop();
+    this.draftNodes = snap.draftNodes;
+    this.selectedIndex = snap.selectedIndex;
+    this.markerS = snap.markerS;
+    this._lastTuningKey = null; // force tuning panel rebuild
+    this._updateTotalLength();
+    this._recalcDraft();
+    this._updateDraftBar();
+    this._renderAll();
+  }
+
   // --- Draft operations ---
 
   replaceComponent(index, newType) {
     if (index < 0 || index >= this.draftNodes.length) return;
     const comp = COMPONENTS[newType];
     if (!comp) return;
+    this._pushUndo();
 
     const node = this.draftNodes[index];
     node.type = newType;
@@ -619,6 +711,7 @@ export class BeamlineDesigner {
   insertComponent(index, type, position) {
     const comp = COMPONENTS[type];
     if (!comp) return;
+    this._pushUndo();
 
     const newNode = {
       id: -(this._nextTempId = (this._nextTempId || 0) + 1),  // unique negative ID for draft
@@ -651,6 +744,7 @@ export class BeamlineDesigner {
 
   removeComponent(index) {
     if (index < 0 || index >= this.draftNodes.length) return;
+    this._pushUndo();
     this.draftNodes.splice(index, 1);
     if (this.selectedIndex >= this.draftNodes.length) {
       this.selectedIndex = this.draftNodes.length - 1;
@@ -670,9 +764,11 @@ export class BeamlineDesigner {
     if (!comp) return false;
 
     if (this.insertMode) {
-      const idx = this.selectedIndex >= 0 ? this.selectedIndex : this.draftNodes.length - 1;
-      this.insertComponent(idx, componentType, this.insertMode);
+      // Find closest edge using marker position
+      const { index, position } = this._findClosestEdge();
+      this.insertComponent(index, componentType, position);
       this.insertMode = null;
+      this._updateInsertButtons();
       return true;
     }
 
@@ -682,6 +778,35 @@ export class BeamlineDesigner {
     }
 
     return false;
+  }
+
+  /** Find the closest component boundary to the current marker position.
+   *  Returns { index, position } for use with insertComponent. */
+  _findClosestEdge() {
+    if (this.draftNodes.length === 0) {
+      return { index: 0, position: 'before' };
+    }
+    const lengths = this._compPhysLengths();
+    let cumS = 0;
+    let bestDist = Infinity;
+    let bestIdx = 0;
+    let bestPos = 'before';
+
+    // Check left edge of first component
+    const d0 = Math.abs(this.markerS);
+    if (d0 < bestDist) { bestDist = d0; bestIdx = 0; bestPos = 'before'; }
+
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      cumS += lengths[i];
+      // Right edge of component i = left edge of i+1
+      const dist = Math.abs(this.markerS - cumS);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+        bestPos = 'after';
+      }
+    }
+    return { index: bestIdx, position: bestPos };
   }
 
   // --- Selection / Navigation ---
@@ -809,6 +934,36 @@ export class BeamlineDesigner {
     this.markerS = s;
   }
 
+  /** Place marker at exact click X pixel position in the schematic canvas.
+   *  Uses _compRegions from the renderer to map pixel → fractional position → physical s. */
+  _placeMarkerAtClickX(clickX) {
+    if (!this._compRegions || this._compRegions.length === 0 || this.draftNodes.length === 0) return;
+    const lengths = this._compPhysLengths();
+
+    // Find which region the click falls in and compute fractional position
+    for (const region of this._compRegions) {
+      if (clickX >= region.x && clickX <= region.x + region.w) {
+        const frac = region.w > 0 ? (clickX - region.x) / region.w : 0.5;
+        let s = 0;
+        for (let i = 0; i < region.index; i++) s += lengths[i];
+        s += frac * lengths[region.index];
+        this.markerS = Math.max(0, Math.min(this.totalLength, s));
+        this._updateSelectionFromMarker();
+        return;
+      }
+    }
+
+    // Click outside any component — snap to nearest edge
+    const first = this._compRegions[0];
+    const last = this._compRegions[this._compRegions.length - 1];
+    if (clickX < first.x) {
+      this.markerS = 0;
+    } else {
+      this.markerS = this.totalLength;
+    }
+    this._updateSelectionFromMarker();
+  }
+
   /** Update selectedIndex based on current markerS position. */
   _updateSelectionFromMarker() {
     if (this.draftNodes.length === 0) { this.selectedIndex = -1; return; }
@@ -848,23 +1003,143 @@ export class BeamlineDesigner {
   }
 
   focusRowUp() {
-    this.focusRow = Math.max(this.focusRow - 1, 0);
+    if (this.focusRow > 0) {
+      this.focusRow--;
+      this._stopMarkerMove();
+      this._updateFocusRowVisuals();
+    }
   }
 
   focusRowDown() {
-    this.focusRow = Math.min(this.focusRow + 1, 2);
+    if (this.focusRow < 2) {
+      this.focusRow++;
+      // Initialize palette index if entering palette row
+      if (this.focusRow === 2 && this.designerPaletteIndex < 0) this.designerPaletteIndex = 0;
+      this._updateFocusRowVisuals();
+    }
+  }
+
+  _updateFocusRowVisuals() {
+    // Highlight focused row: 0=schematic, 1=tabs, 2=palette
+    const schematic = document.getElementById('dsgn-schematic-canvas');
+    const tabsContainer = document.getElementById('category-tabs');
+    const palette = document.getElementById('component-palette');
+    if (schematic) {
+      schematic.parentElement.classList.toggle('dsgn-focus-active', this.focusRow === 0);
+    }
+    if (tabsContainer) {
+      tabsContainer.classList.toggle('dsgn-focus-active', this.focusRow === 1);
+      tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('kb-focus'));
+      if (this.focusRow === 1) {
+        const activeTab = tabsContainer.querySelector('.cat-tab.active');
+        if (activeTab) activeTab.classList.add('kb-focus');
+      }
+    }
+    if (palette) {
+      palette.classList.toggle('dsgn-focus-active', this.focusRow === 2);
+    }
+    // Update palette kb-focus
+    this._applyDesignerPaletteFocus();
+  }
+
+  _navigateDesignerTab(dir) {
+    const tabsContainer = document.getElementById('category-tabs');
+    if (!tabsContainer) return;
+    const tabs = Array.from(tabsContainer.querySelectorAll('.cat-tab'));
+    if (tabs.length === 0) return;
+    const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+    const newIdx = Math.max(0, Math.min(tabs.length - 1, activeIdx + dir));
+    if (newIdx !== activeIdx) {
+      tabs[newIdx].click();
+      tabs.forEach(t => t.classList.remove('kb-focus'));
+      tabs[newIdx].classList.add('kb-focus');
+    }
+  }
+
+  _activateCurrentTab() {
+    // Tab is already active from navigation; no-op
+  }
+
+  _navigateDesignerPalette(dir) {
+    const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+    if (cards.length === 0) return;
+    if (this.designerPaletteIndex < 0) this.designerPaletteIndex = 0;
+    const newIdx = this.designerPaletteIndex + dir;
+    // Wrap to next/prev tab when going past edges
+    if (newIdx < 0) {
+      this._navigateDesignerTab(-1);
+      const newCards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+      this.designerPaletteIndex = Math.max(0, newCards.length - 1);
+      this._applyDesignerPaletteFocus();
+      return;
+    }
+    if (newIdx >= cards.length) {
+      this._navigateDesignerTab(1);
+      this.designerPaletteIndex = 0;
+      this._applyDesignerPaletteFocus();
+      return;
+    }
+    this.designerPaletteIndex = newIdx;
+    this._applyDesignerPaletteFocus();
+  }
+
+  _applyDesignerPaletteFocus() {
+    const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+    cards.forEach(c => c.classList.remove('kb-focus'));
+    if (this.focusRow === 2 && this.designerPaletteIndex >= 0 && this.designerPaletteIndex < cards.length) {
+      const focused = cards[this.designerPaletteIndex];
+      focused.classList.add('kb-focus');
+      focused.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    }
+  }
+
+  _getDesignerPaletteKeys() {
+    const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+    const keys = [];
+    cards.forEach(card => {
+      // Cards fire renderer._onToolSelect(key) on click, key stored in closure
+      // We need to extract the component type — stored as data attribute
+      if (card.dataset.compType) keys.push(card.dataset.compType);
+    });
+    return keys;
+  }
+
+  _confirmPaletteSelection() {
+    // Default action: replace if component selected, insert after if at end
+    if (this.insertMode) {
+      this._paletteInsert();
+    } else {
+      this._paletteReplace();
+    }
+  }
+
+  _paletteReplace() {
+    const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+    if (this.designerPaletteIndex < 0 || this.designerPaletteIndex >= cards.length) return;
+    // Simulate click to trigger replace
+    cards[this.designerPaletteIndex].click();
+  }
+
+  _paletteInsert() {
+    const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
+    if (this.designerPaletteIndex < 0 || this.designerPaletteIndex >= cards.length) return;
+    // Set insert mode to nearest edge and click
+    this.insertMode = 'nearest';
+    this._updateInsertButtons();
+    cards[this.designerPaletteIndex].click();
   }
 
   // --- Pan / Zoom ---
 
-  panLeft() { this.viewX -= 2 / this.viewZoom; this._renderAll(); }
-  panRight() { this.viewX += 2 / this.viewZoom; this._renderAll(); }
+  panLeft() { this.viewX -= 8 / this.viewZoom; this._clampViewX(); this._renderAll(); }
+  panRight() { this.viewX += 8 / this.viewZoom; this._clampViewX(); this._renderAll(); }
 
   zoomAt(delta, cursorFraction) {
     const oldZoom = this.viewZoom;
     this.viewZoom = Math.max(0.5, Math.min(10, this.viewZoom * (1 - delta * 0.001)));
     const viewWidth = this.totalLength / this.viewZoom;
     this.viewX += (cursorFraction * this.totalLength / oldZoom) - (cursorFraction * viewWidth);
+    this._clampViewX();
     this._renderAll();
   }
 
@@ -893,6 +1168,35 @@ export class BeamlineDesigner {
       if (comp) this.totalLength += comp.length * LENGTH_SCALE;
     }
     if (this.totalLength === 0) this.totalLength = 1;
+  }
+
+  /** Clamp viewX so scrolling can't go past the start or end of the beamline. */
+  _clampViewX() {
+    if (this.draftNodes.length === 0) { this.viewX = 0; return; }
+    const canvas = document.getElementById('dsgn-schematic-canvas');
+    if (!canvas) return;
+    const W = canvas.parentElement.getBoundingClientRect().width;
+    const SCHEM_PW = 70;
+    const compWidths = this.draftNodes.map(n => {
+      const comp = COMPONENTS[n.type];
+      const len = comp ? comp.length : 1;
+      return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+    });
+    const totalPW = compWidths.reduce((s, w) => s + w, 0);
+    const baseZoom = W / (totalPW + 40);
+    const effZoom = this.viewZoom * baseZoom;
+    // viewX is in "beamline-meters" scaled by effectiveZoom to get panOffsetPx
+    // panOffsetPx = -viewX * effZoom; xPos starts at 20 + panOffsetPx
+    // Left edge: first component at x=20+panOffsetPx >= -margin
+    // Right edge: last component ends at 20+panOffsetPx+totalPW*effZoom <= W+margin
+    const margin = W * 0.15;
+    const totalRenderedW = totalPW * effZoom;
+    const minPanPx = -(totalRenderedW - W + 20 + margin);
+    const maxPanPx = 20 + margin;
+    // panOffsetPx = -viewX * effZoom
+    const maxViewX = -minPanPx / effZoom;
+    const minViewX = -maxPanPx / effZoom;
+    this.viewX = Math.max(minViewX, Math.min(maxViewX, this.viewX));
   }
 
   _recalcDraft() {
@@ -1005,10 +1309,10 @@ export class BeamlineDesigner {
   }
 
   _updateInsertButtons() {
-    const beforeBtn = document.getElementById('dsgn-insert-before');
-    const afterBtn = document.getElementById('dsgn-insert-after');
-    if (beforeBtn) beforeBtn.classList.toggle('active', this.insertMode === 'before');
-    if (afterBtn) afterBtn.classList.toggle('active', this.insertMode === 'after');
+    const replaceBtn = document.getElementById('dsgn-action-replace');
+    const insertBtn = document.getElementById('dsgn-action-insert');
+    if (replaceBtn) replaceBtn.classList.toggle('active', !this.insertMode);
+    if (insertBtn) insertBtn.classList.toggle('active', !!this.insertMode);
   }
 
   _applyDraftToBeamline(entry) {

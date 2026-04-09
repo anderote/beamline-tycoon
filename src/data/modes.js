@@ -5,40 +5,59 @@ export const MODES = {
     categories: {
       source:     { name: 'Sources',     color: '#4c4', subsections: { electron: { name: 'Electron' }, utility: { name: 'Utility' } } },
       focusing:   { name: 'Focusing',    color: '#48c', subsections: { normalConducting: { name: 'Normal' }, superconducting: { name: 'Superconducting' } } },
-      rf:         { name: 'RF / Accel',  color: '#c44', subsections: { lowEnergy: { name: 'Low Energy' }, highEnergy: { name: 'High Energy' } } },
+      rf:         { name: 'RF / Accel',  color: '#c44', subsections: { normalConducting: { name: 'Normal Conducting' }, superconducting: { name: 'Superconducting' } } },
       diagnostic: { name: 'Diagnostics', color: '#eee', subsections: { monitors: { name: 'Beam Monitors' }, spectrometers: { name: 'Spectrometers' } } },
       beamOptics: { name: 'Beam Optics', color: '#4ac', subsections: { insertionDevices: { name: 'Insertion Devices' }, manipulation: { name: 'Manipulation' } } },
       endpoint:   { name: 'Endpoints',   color: '#999', subsections: { detectors: { name: 'Detectors' }, targets: { name: 'Targets' }, photon: { name: 'Photon' } } },
     },
   },
+  infra: {
+    name: 'Infra',
+    categories: {
+      power:        { name: 'Power',           color: '#4c4', subsections: { distribution: { name: 'Distribution' }, electrical: { name: 'Electrical' }, specialty: { name: 'Specialty' } } },
+      vacuum:       { name: 'Vacuum',          color: '#999', subsections: { distribution: { name: 'Distribution' }, pumps: { name: 'Pumps' }, gauges: { name: 'Gauges' }, hardware: { name: 'Hardware' } } },
+      rfPower:      { name: 'RF Power',        color: '#c44', subsections: { distribution: { name: 'Distribution' }, sources: { name: 'RF Sources' }, controls: { name: 'Controls' } } },
+      cooling:      { name: 'Cooling',         color: '#48c', subsections: { distribution: { name: 'Distribution' }, plant: { name: 'Plant' }, cryogenics: { name: 'Cryogenics' } } },
+      dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
+      ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
+    },
+  },
   facility: {
     name: 'Facility',
     categories: {
-      vacuum:       { name: 'Vacuum',          color: '#999', subsections: { pumps: { name: 'Pumps' }, gauges: { name: 'Gauges' }, hardware: { name: 'Hardware' } } },
-      rfPower:      { name: 'RF Power',        color: '#c44', subsections: { sources: { name: 'RF Sources' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' } } },
-      cooling:      { name: 'Cooling',         color: '#48c', subsections: { plant: { name: 'Plant' }, distribution: { name: 'Distribution' }, cryogenics: { name: 'Cryogenics' } } },
-      dataControls: { name: 'Data & Controls', color: '#eee', subsections: { controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
-      power:        { name: 'Power',           color: '#4c4', subsections: { electrical: { name: 'Electrical' }, specialty: { name: 'Specialty' } } },
-      ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
+      // --- Labs ---
+      rfLab:       { name: 'RF Lab',         color: '#a83', isZoneTab: true, zoneType: 'rfLab' },
+      coolingLab:  { name: 'Cooling Lab',    color: '#3aa', isZoneTab: true, zoneType: 'coolingLab' },
+      vacuumLab:   { name: 'Vacuum Lab',     color: '#74a', isZoneTab: true, zoneType: 'vacuumLab' },
+      opticsLab:   { name: 'Optics Lab',     color: '#4ac', isZoneTab: true, zoneType: 'opticsLab' },
+      diagnosticsLab: { name: 'Diagnostics Lab', color: '#ac4', isZoneTab: true, zoneType: 'diagnosticsLab' },
+      machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop' },
+      maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
+      // --- Operations ---
+      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom', separatorBefore: true },
+      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace' },
+      meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom' },
+      cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria' },
     },
   },
   structure: {
     name: 'Structure',
     categories: {
-      flooring:    { name: 'Flooring',      color: '#999', subsections: { surfaces: { name: 'Surfaces' }, foundations: { name: 'Foundations' } } },
-      rfLab:       { name: 'RF Lab',         color: '#a83', isZoneTab: true, zoneType: 'rfLab' },
-      coolingLab:  { name: 'Cooling Lab',    color: '#3aa', isZoneTab: true, zoneType: 'coolingLab' },
-      vacuumLab:   { name: 'Vacuum Lab',     color: '#74a', isZoneTab: true, zoneType: 'vacuumLab' },
-      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace' },
-      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom' },
-      machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop' },
-      opticsLab:   { name: 'Optics Lab',     color: '#4ac', isZoneTab: true, zoneType: 'opticsLab' },
-      diagnosticsLab: { name: 'Diagnostics Lab', color: '#ac4', isZoneTab: true, zoneType: 'diagnosticsLab' },
-      maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
+      flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' } } },
+      walls:       { name: 'Walls',         color: '#887', subsections: { exterior: { name: 'Exterior' }, interior: { name: 'Interior' }, shielding: { name: 'Shielding' } } },
+      doors:       { name: 'Doors',         color: '#689', subsections: { exterior: { name: 'Exterior' }, interior: { name: 'Interior' }, gates: { name: 'Fence Gates' } } },
+    },
+  },
+  grounds: {
+    name: 'Grounds',
+    categories: {
+      surfaces:    { name: 'Surfaces',       color: '#997', isSurfaceTab: true },
       treesPlants: { name: 'Trees & Plants', color: '#4a4', isDecorationTab: true },
+      hedges:      { name: 'Hedges',         color: '#5a5', isWallTab: true, wallSubsection: 'hedges' },
+      fencing:     { name: 'Fencing',        color: '#686', isWallTab: true, wallSubsection: 'fencing' },
       furniture:   { name: 'Furniture',      color: '#864', isDecorationTab: true },
       lighting:    { name: 'Lighting',       color: '#aa8', isDecorationTab: true },
-      fencing:     { name: 'Fencing',        color: '#686', isDecorationTab: true },
+      bins:        { name: 'Bins & Signs',   color: '#888', isDecorationTab: true },
     },
   },
   demolish: {
@@ -55,12 +74,21 @@ for (const mode of Object.values(MODES)) {
   Object.assign(CATEGORIES, mode.categories);
 }
 
+// Map each infra category to its relevant connection/pipe types
+export const INFRA_DISTRIBUTION = {
+  vacuum:       ['vacuumPipe'],
+  rfPower:      ['rfWaveguide'],
+  cooling:      ['coolingWater', 'cryoTransfer'],
+  dataControls: ['dataFiber'],
+  power:        ['powerCable'],
+};
+
 // Utility connection types drawn as thin lines between facility equipment and beamline
 export const CONNECTION_TYPES = {
   vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x555555, validTargets: 'any' },
   rfWaveguide:  { name: 'RF Waveguide',  color: 0xcc4444, validTargets: { categoryMatch: ['rf'] } },
   coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'focusing'], idMatch: ['target', 'fixedTargetAdv', 'positronTarget', 'beamStop', 'detector'] } },
-  cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { idMatch: ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'scQuad', 'scDipole'] } },
+  cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { idMatch: ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'halfWaveResonator', 'spokeCavity', 'harmonicLinearizer', 'scQuad', 'scDipole'] } },
   powerCable:   { name: 'Power Cable',   color: 0x44cc44, validTargets: 'any' },
   dataFiber:    { name: 'Data/Fiber',    color: 0xeeeeee, validTargets: { categoryMatch: ['diagnostic', 'endpoint'] } },
 };

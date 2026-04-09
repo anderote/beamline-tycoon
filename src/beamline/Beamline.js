@@ -62,14 +62,14 @@ export class Beamline {
 
   // --- Public API ---
 
-  placeSource(col, row, dir) {
-    const comp = COMPONENTS.source;
+  placeSource(col, row, dir, sourceType = 'source') {
+    const comp = COMPONENTS[sourceType] || COMPONENTS.source;
     const tiles = this._calcTiles(col, row, dir, comp.trackLength, comp.trackWidth);
     if (!this._tilesAvailable(tiles)) return null;
 
     const node = {
       id: this.nextId++,
-      type: 'source',
+      type: sourceType,
       col: col,
       row: row,
       dir: dir,
@@ -79,9 +79,9 @@ export class Beamline {
       tiles: tiles,
     };
     // Initialize tunable params from PARAM_DEFS defaults
-    if (PARAM_DEFS['source']) {
+    if (PARAM_DEFS[sourceType]) {
       node.params = {};
-      for (const [k, def] of Object.entries(PARAM_DEFS['source'])) {
+      for (const [k, def] of Object.entries(PARAM_DEFS[sourceType])) {
         if (!def.derived) node.params[k] = def.default;
       }
     }
