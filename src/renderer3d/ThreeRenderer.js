@@ -1,6 +1,10 @@
 // src/renderer3d/ThreeRenderer.js — Three.js scaffold with isometric camera
 // THREE is loaded as a CDN global — do NOT import it
 
+import { TextureManager } from './texture-manager.js';
+import { TerrainBuilder } from './terrain-builder.js';
+import { buildWorldSnapshot } from './world-snapshot.js';
+
 export class ThreeRenderer {
   constructor(game) {
     this.game = game;
@@ -27,6 +31,10 @@ export class ThreeRenderer {
     this.decorationGroup = null;
 
     this._boundOnResize = this._onResize.bind(this);
+
+    this.textureManager = new TextureManager();
+    this.terrainBuilder = new TerrainBuilder(this.textureManager);
+    this._snapshot = null;
   }
 
   async init() {
@@ -237,6 +245,21 @@ export class ThreeRenderer {
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
     this.renderer.render(this.scene, this.camera);
+  }
+
+  async loadAssets() {
+    await this.textureManager.loadTileManifest();
+    await this.textureManager.loadDecorationManifest();
+  }
+
+  applySnapshot(snapshot) {
+    this._snapshot = snapshot;
+    this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
+  }
+
+  refresh() {
+    const snapshot = buildWorldSnapshot(this.game);
+    this.applySnapshot(snapshot);
   }
 
   dispose() {

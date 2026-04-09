@@ -51,6 +51,8 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   // Temporary: test Three.js renderer alongside PixiJS
   const threeRenderer = new ThreeRenderer(game);
   await threeRenderer.init();
+  await threeRenderer.loadAssets();
+  threeRenderer.refresh();
   window._three = threeRenderer;
 
   await spriteManager.loadTileSprites();
