@@ -5,6 +5,7 @@ import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
 import { InfraBuilder } from './infra-builder.js';
 import { WallBuilder } from './wall-builder.js';
+import { ComponentBuilder } from './component-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 
 export class ThreeRenderer {
@@ -38,6 +39,7 @@ export class ThreeRenderer {
     this.terrainBuilder = new TerrainBuilder(this.textureManager);
     this.infraBuilder = new InfraBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
+    this.componentBuilder = new ComponentBuilder();
     this.wallVisibilityMode = 'up';
     this._snapshot = null;
   }
@@ -262,6 +264,7 @@ export class ThreeRenderer {
     this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
     this.infraBuilder.build(snapshot.infrastructure, this.infrastructureGroup);
     this.wallBuilder.build(snapshot.walls, snapshot.doors, this.wallGroup, this.wallVisibilityMode);
+    this.componentBuilder.build(snapshot.components, this.componentGroup);
   }
 
   refresh() {
