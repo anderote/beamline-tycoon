@@ -46,10 +46,10 @@ export class Overlay {
 
   /**
    * Draw the isometric grid into gridLayer.
-   * @param {Array} infraOccupied - array of infrastructure tile objects with col/row
-   * @param {Set} noGridSet - Set of "col,row" strings for tiles that suppress the grid
+   * @param {Set<string>} infraSet - "col,row" strings for all infrastructure tiles
+   * @param {Set<string>} noGridSet - "col,row" strings for tiles that suppress grid (e.g. labFloor)
    */
-  drawGrid(infraOccupied, noGridSet) {
+  drawGrid(infraSet, noGridSet) {
     this.gridLayer.removeChildren();
 
     const g = new PIXI.Graphics();
@@ -58,24 +58,41 @@ export class Overlay {
     for (let i = -range; i <= range; i++) {
       // Column lines — line at col=i borders tiles (i-1, j) and (i, j)
       for (let j = -range; j < range; j++) {
-        const bothNoGrid = noGridSet.has(`${i - 1},${j}`) && noGridSet.has(`${i},${j}`);
-        if (bothNoGrid) continue;
+        const k1 = `${i - 1},${j}`;
+        const k2 = `${i},${j}`;
+        // Skip if both sides are noGrid tiles
+        if (noGridSet.has(k1) && noGridSet.has(k2)) continue;
+
         const start = gridToIso(i, j);
         const end = gridToIso(i, j + 1);
         g.moveTo(start.x, start.y);
         g.lineTo(end.x, end.y);
-        g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+
+        // Interior flooring gets light gray visible grid lines
+        // Grass/outside gets faint white grid lines
+        if (infraSet.has(k1) || infraSet.has(k2)) {
+          g.stroke({ color: 0xcccccc, width: 1, alpha: 0.15 });
+        } else {
+          g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+        }
       }
 
       // Row lines — line at row=i borders tiles (j, i-1) and (j, i)
       for (let j = -range; j < range; j++) {
-        const bothNoGrid = noGridSet.has(`${j},${i - 1}`) && noGridSet.has(`${j},${i}`);
-        if (bothNoGrid) continue;
+        const k1 = `${j},${i - 1}`;
+        const k2 = `${j},${i}`;
+        if (noGridSet.has(k1) && noGridSet.has(k2)) continue;
+
         const rStart = gridToIso(j, i);
         const rEnd = gridToIso(j + 1, i);
         g.moveTo(rStart.x, rStart.y);
         g.lineTo(rEnd.x, rEnd.y);
-        g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+
+        if (infraSet.has(k1) || infraSet.has(k2)) {
+          g.stroke({ color: 0xcccccc, width: 1, alpha: 0.15 });
+        } else {
+          g.stroke({ color: 0xffffff, width: 1, alpha: 0.04 });
+        }
       }
     }
 

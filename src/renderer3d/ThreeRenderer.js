@@ -476,7 +476,21 @@ export class ThreeRenderer {
   _applyDoorVisibility() { /* future */ }
 
   // Grid stub (overlay handles the grid)
-  _drawGrid() { /* handled by overlay */ }
+  _drawGrid() {
+    if (this._snapshot) this._refreshGrid(this._snapshot);
+  }
+
+  _refreshGrid(snapshot) {
+    if (!this.overlay) return;
+    const infraSet = new Set();
+    const noGridSet = new Set();
+    for (const tile of (snapshot.infrastructure || [])) {
+      const key = `${tile.col},${tile.row}`;
+      infraSet.add(key);
+      if (tile.noGrid) noGridSet.add(key);
+    }
+    this.overlay.drawGrid(infraSet, noGridSet);
+  }
 
   // --- Helpers (copied from legacy Renderer) ---
 
@@ -551,6 +565,7 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.connectionBuilder.build(snapshot.connections, this.connectionGroup);
+    this._refreshGrid(snapshot);
   }
 
   refresh() {
@@ -566,6 +581,7 @@ export class ThreeRenderer {
   _refreshInfra() {
     const snap = buildWorldSnapshot(this.game);
     this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup);
+    this._refreshGrid(snap);
   }
 
   _refreshWalls() {

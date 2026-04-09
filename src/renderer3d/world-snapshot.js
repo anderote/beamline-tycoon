@@ -2,6 +2,8 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
+import { INFRASTRUCTURE } from '../data/infrastructure.js';
+
 const GRASS_RANGE = 20;
 
 // --- Terrain hash ---
@@ -53,14 +55,18 @@ function buildTerrain(game) {
 }
 
 function buildInfrastructure(game) {
-  return (game.state.infrastructure || []).map(tile => ({
-    col: tile.col,
-    row: tile.row,
-    type: tile.type,
-    orientation: tile.orientation ?? null,
-    variant: tile.variant ?? null,
-    tint: tile.tint ?? null,
-  }));
+  return (game.state.infrastructure || []).map(tile => {
+    const def = INFRASTRUCTURE[tile.type];
+    return {
+      col: tile.col,
+      row: tile.row,
+      type: tile.type,
+      orientation: tile.orientation ?? null,
+      variant: tile.variant ?? null,
+      tint: tile.tint ?? null,
+      noGrid: def?.noGrid ?? false,
+    };
+  });
 }
 
 function buildWalls(game) {
