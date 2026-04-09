@@ -167,7 +167,6 @@ export class ThreeRenderer {
     this.camera.rotation.y = Math.PI / 4;
     this.camera.rotation.x = -Math.atan(Math.sin(Math.atan(1)));
     this.camera.position.set(50, 50, 50);
-    this.camera.lookAt(this._panX, 0, this._panY);
 
     // Lighting
     const ambient = new THREE.AmbientLight(0xfff5e6, 0.4);
@@ -518,8 +517,10 @@ export class ThreeRenderer {
   }
 
   _updateCameraLookAt() {
+    // Move camera position to follow pan, keeping the fixed isometric offset.
+    // Do NOT call camera.lookAt() — it resets the isometric rotation.
+    // The rotation was set once in init() and must stay fixed.
     this.camera.position.set(50 + this._panX, 50, 50 + this._panY);
-    this.camera.lookAt(this._panX, 0, this._panY);
   }
 
   _onResize() {
