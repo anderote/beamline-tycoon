@@ -119,7 +119,7 @@ export class DesignLibrary {
     const compCount = design.components.length;
     const totalLength = design.components.reduce((sum, c) => {
       const comp = COMPONENTS[c.type];
-      return sum + (comp ? comp.length : 0);
+      return sum + (comp ? (comp.subL || 4) * 0.5 : 0);
     }, 0);
     const totalCost = design.components.reduce((sum, c) => {
       const comp = COMPONENTS[c.type];

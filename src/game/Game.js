@@ -1603,7 +1603,7 @@ export class Game {
     for (const node of ordered) {
       const t = COMPONENTS[node.type];
       if (!t) continue;
-      tLen += t.length;
+      tLen += (t.subL || 4) * 0.5;
       tCost += t.energyCost * ecm;
       if (t.isSource) hasSrc = true;
     }
@@ -1630,7 +1630,7 @@ export class Game {
         }
         const el = {
           type: node.type,
-          length: t.length,
+          subL: t.subL || 4,
           stats: effectiveStats,
           params: node.params || {},
         };
