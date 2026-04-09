@@ -15,22 +15,21 @@ export class Beamline {
 
   // --- Internal helpers ---
 
-  _calcTiles(col, row, dir, trackLength, trackWidth) {
+  _calcTiles(col, row, dir, subL, subW) {
     const tiles = [];
     const delta = DIR_DELTA[dir];
-    const w = trackWidth || 1;
+    const tilesAlong = Math.ceil(subL / 4);
+    const tilesAcross = Math.ceil(subW / 4);
 
-    // Perpendicular direction (turn left from beam dir)
     const perpDir = turnLeft(dir);
     const perpDelta = DIR_DELTA[perpDir];
 
-    // Width offsets centered on beam: e.g. width=2 → [-0.5, 0.5]
     const widthOffsets = [];
-    for (let j = 0; j < w; j++) {
-      widthOffsets.push(j - (w - 1) / 2);
+    for (let j = 0; j < tilesAcross; j++) {
+      widthOffsets.push(j - (tilesAcross - 1) / 2);
     }
 
-    for (let i = 0; i < trackLength; i++) {
+    for (let i = 0; i < tilesAlong; i++) {
       for (const wOff of widthOffsets) {
         tiles.push({
           col: col + delta.dc * i + perpDelta.dc * wOff,
@@ -64,7 +63,7 @@ export class Beamline {
 
   placeSource(col, row, dir, sourceType = 'source') {
     const comp = COMPONENTS[sourceType] || COMPONENTS.source;
-    const tiles = this._calcTiles(col, row, dir, comp.trackLength, comp.trackWidth);
+    const tiles = this._calcTiles(col, row, dir, comp.subL || 4, comp.subW || 4);
     if (!this._tilesAvailable(tiles)) return null;
 
     const node = {
@@ -109,7 +108,7 @@ export class Beamline {
       exitDir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
     }
 
-    const tiles = this._calcTiles(col, row, exitDir, comp.trackLength, comp.trackWidth);
+    const tiles = this._calcTiles(col, row, exitDir, comp.subL || 4, comp.subW || 2);
     if (!this._tilesAvailable(tiles)) return null;
 
     const node = {
