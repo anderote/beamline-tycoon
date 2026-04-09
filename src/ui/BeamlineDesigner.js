@@ -6,9 +6,6 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 
-// Must match beam_physics/gameplay.py LENGTH_SCALE
-// 1 tile = 2 m
-const LENGTH_SCALE = 2.0;
 
 export class BeamlineDesigner {
   constructor(game, renderer) {

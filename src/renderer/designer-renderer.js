@@ -15,9 +15,6 @@ const SCHEM_PW = 70;
 const SCHEM_PH = 30;
 
 
-// Must match beam_physics/gameplay.py
-// 1 tile = 2 m — must match beam_physics/gameplay.py LENGTH_SCALE
-const LENGTH_SCALE = 2.0;
 
 // ---- Schematic rendering ----
 
