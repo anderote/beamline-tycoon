@@ -7,7 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
-import { tileCenterIso } from './grid.js';
+import { tileCenterIso, subGridToIso, gridToIso } from './grid.js';
 import { Networks } from '../networks/networks.js';
 
 // --- Infrastructure rendering ---
@@ -840,7 +840,6 @@ Renderer.prototype._drawZoneLabels = function(zones, connectivity) {
 // --- Zone furnishing rendering ---
 
 Renderer.prototype._renderZoneFurnishings = function() {
-  // Zone furnishings render into the zoneLayer (after zones are drawn)
   const furnishings = this.game.state.zoneFurnishings || [];
   for (const furn of furnishings) {
     const furnDef = ZONE_FURNISHINGS[furn.type];
@@ -848,23 +847,96 @@ Renderer.prototype._renderZoneFurnishings = function() {
     const texture = this.sprites.getTexture(furn.type);
     if (!texture) continue;
 
-    const sprite = new PIXI.Sprite(texture);
-    sprite.anchor.set(0.5, 0.7);
-    const pos = tileCenterIso(furn.col, furn.row);
-    sprite.x = pos.x;
-    sprite.y = pos.y;
-    sprite.zIndex = furn.col + furn.row;
-    this.zoneLayer.addChild(sprite);
+    const gw = furn.rotated ? furnDef.gridH : furnDef.gridW;
+    const gh = furn.rotated ? furnDef.gridW : furnDef.gridH;
 
-    const label = new PIXI.Text({
-      text: furnDef.name,
-      style: { fontFamily: 'monospace', fontSize: 9, fill: 0xcccccc },
-    });
-    label.anchor.set(0.5, 0);
-    label.x = pos.x;
-    label.y = pos.y + 8;
-    this.labelLayer.addChild(label);
+    const sprite = new PIXI.Sprite(texture);
+    // Anchor at bottom-center of the iso box for proper depth overlap
+    sprite.anchor.set(0.5, 1.0);
+
+    // Position: tile origin + sub-grid offset to the CENTER-BOTTOM of the item footprint
+    const tilePos = gridToIso(furn.col, furn.row);
+    const subOffset = subGridToIso(furn.subCol + gw / 2, furn.subRow + gh);
+    sprite.x = tilePos.x + subOffset.x;
+    sprite.y = tilePos.y + subOffset.y;
+
+    // Depth: base tile depth + sub-row for within-tile ordering
+    sprite.zIndex = (furn.col + furn.row) * 16 + (furn.subRow + gh);
+    this.zoneLayer.addChild(sprite);
   }
+};
+
+Renderer.prototype._renderSubgridOverlay = function(col, row) {
+  // Draw 4x4 iso sub-grid lines on the given tile
+  const tilePos = gridToIso(col, row);
+  const gfx = new PIXI.Graphics();
+  gfx.setStrokeStyle({ width: 0.5, color: 0x4a9eff, alpha: 0.4 });
+
+  // Draw lines along each iso axis
+  for (let i = 0; i <= 4; i++) {
+    // Lines parallel to NE-SW axis (varying subRow)
+    const startNE = subGridToIso(0, i);
+    const endNE = subGridToIso(4, i);
+    gfx.moveTo(tilePos.x + startNE.x, tilePos.y + startNE.y);
+    gfx.lineTo(tilePos.x + endNE.x, tilePos.y + endNE.y);
+    gfx.stroke();
+
+    // Lines parallel to NW-SE axis (varying subCol)
+    const startNW = subGridToIso(i, 0);
+    const endNW = subGridToIso(i, 4);
+    gfx.moveTo(tilePos.x + startNW.x, tilePos.y + startNW.y);
+    gfx.lineTo(tilePos.x + endNW.x, tilePos.y + endNW.y);
+    gfx.stroke();
+  }
+
+  gfx.zIndex = (col + row) * 16 + 20; // Above furnishings
+  this.zoneLayer.addChild(gfx);
+};
+
+Renderer.prototype._renderFurnishingGhost = function(col, row, subCol, subRow, furnType, rotated) {
+  const furnDef = ZONE_FURNISHINGS[furnType];
+  if (!furnDef) return;
+
+  const gw = rotated ? furnDef.gridH : furnDef.gridW;
+  const gh = rotated ? furnDef.gridW : furnDef.gridH;
+
+  // Check if placement is valid
+  const key = col + ',' + row;
+  const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+  let valid = subCol >= 0 && subRow >= 0 && subCol + gw <= 4 && subRow + gh <= 4;
+  if (valid && subgrid) {
+    for (let r = subRow; r < subRow + gh && valid; r++) {
+      for (let c = subCol; c < subCol + gw && valid; c++) {
+        if (subgrid[r][c] !== 0) valid = false;
+      }
+    }
+  }
+
+  const tilePos = gridToIso(col, row);
+  const color = valid ? 0x44ff44 : 0xff4444;
+  const gfx = new PIXI.Graphics();
+
+  // Draw filled iso diamond for each cell in the footprint
+  for (let r = subRow; r < subRow + gh; r++) {
+    for (let c = subCol; c < subCol + gw; c++) {
+      const top = subGridToIso(c, r);
+      const right = subGridToIso(c + 1, r);
+      const bottom = subGridToIso(c + 1, r + 1);
+      const left = subGridToIso(c, r + 1);
+
+      gfx.poly([
+        tilePos.x + top.x, tilePos.y + top.y,
+        tilePos.x + right.x, tilePos.y + right.y,
+        tilePos.x + bottom.x, tilePos.y + bottom.y,
+        tilePos.x + left.x, tilePos.y + left.y,
+      ]);
+      gfx.fill({ color, alpha: 0.3 });
+      gfx.stroke({ width: 1, color, alpha: 0.6 });
+    }
+  }
+
+  gfx.zIndex = (col + row) * 16 + 20;
+  this.zoneLayer.addChild(gfx);
 };
 
 // --- Facility equipment rendering ---
