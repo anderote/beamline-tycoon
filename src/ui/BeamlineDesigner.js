@@ -21,6 +21,7 @@ export class BeamlineDesigner {
     this.draftNodes = [];       // cloned ordered node list
     this.originalNodes = [];    // snapshot for diffing
     this.draftEnvelope = null;  // physics result for draft
+    this.ghostQuads = [];      // suggested quad positions [{s, nodeIndex, polarity}]
     this.selectedIndex = -1;    // index into draftNodes
 
     // Mode: 'edit' (from placed beamline) or 'design' (standalone sandbox)
@@ -1247,6 +1248,81 @@ export class BeamlineDesigner {
     if (this.draftEnvelope && this.draftEnvelope.length > 0) {
       const maxS = this.draftEnvelope[this.draftEnvelope.length - 1].s;
       if (maxS > 0) this.totalLength = maxS;
+    }
+
+    // Compute ghost quad suggestions from focus urgency
+    this._computeGhostQuads();
+  }
+
+  /**
+   * Compute suggested quad positions from focus urgency data.
+   * Returns array of { s, nodeIndex, polarity } objects.
+   */
+  _computeGhostQuads() {
+    this.ghostQuads = [];
+    const env = this.draftEnvelope;
+    if (!env || env.length < 2) return;
+
+    const URGENCY_THRESHOLD = 0.7;
+
+    // Find s-positions of existing quads
+    const quadTypes = new Set([
+      'quadrupole', 'scQuad', 'protonQuad', 'combinedFunctionMagnet',
+    ]);
+    const existingQuadS = [];
+    let lastQuadPolarity = 1; // default: first ghost is Focus X
+    let cumS = 0;
+    for (const node of this.draftNodes) {
+      const comp = COMPONENTS[node.type];
+      const compLen = (comp ? comp.length : 1) * LENGTH_SCALE;
+      if (quadTypes.has(node.type)) {
+        existingQuadS.push(cumS + compLen / 2);
+        // Track last quad polarity for alternation
+        const p = node.params?.polarity;
+        lastQuadPolarity = (p === 1) ? -1 : 1; // next should be opposite
+      }
+      cumS += compLen;
+    }
+
+    // Estimate one cell length for "nearby" check
+    // Use ref_focal from the beam energy at midpoint
+    const midEnv = env[Math.floor(env.length / 2)];
+    const pGev = midEnv ? midEnv.energy : 0.01;
+    const refFocal = pGev / (0.2998 * 20.0 * 3.0);
+    const cellLength = Math.max(refFocal * 2, 3.0);
+
+    let inUrgentRegion = false;
+    for (let i = 0; i < env.length; i++) {
+      const d = env[i];
+      const urgency = d.focus_urgency || 0;
+
+      if (urgency >= URGENCY_THRESHOLD && !inUrgentRegion) {
+        inUrgentRegion = true;
+        const ghostS = d.s || 0;
+
+        // Check if an existing quad is nearby (within one cell length ahead)
+        const hasNearbyQuad = existingQuadS.some(qs =>
+          qs >= ghostS && qs <= ghostS + cellLength
+        );
+        if (hasNearbyQuad) continue;
+
+        // Map s-position to node index
+        let nodeIdx = 0;
+        let accS = 0;
+        for (let j = 0; j < this.draftNodes.length; j++) {
+          const comp = COMPONENTS[this.draftNodes[j].type];
+          accS += (comp ? comp.length : 1) * LENGTH_SCALE;
+          if (accS >= ghostS) { nodeIdx = j; break; }
+        }
+
+        // Alternate polarity from last real or ghost quad
+        const polarity = lastQuadPolarity;
+        lastQuadPolarity = polarity === 1 ? -1 : 1;
+
+        this.ghostQuads.push({ s: ghostS, nodeIndex: nodeIdx, polarity });
+      } else if (urgency < URGENCY_THRESHOLD * 0.8) {
+        inUrgentRegion = false;
+      }
     }
   }
 

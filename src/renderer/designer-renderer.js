@@ -94,6 +94,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // Draw each component (edge-to-edge, no gaps)
   let xPos = 20 + panOffsetPx;
   this._compRegions = [];
+  this._ghostRegions = [];
 
   for (let i = 0; i < this.draftNodes.length; i++) {
     const node = this.draftNodes[i];
@@ -160,6 +161,69 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   // Store total rendered width for viewport calculations
   this._renderedWidth = xPos - 20 - panOffsetPx;
+
+  // --- Ghost quad markers (FODO advisor) ---
+  if (this.ghostQuads && this.ghostQuads.length > 0 && this.totalLength > 0) {
+    const tileLenSum = this.draftNodes.reduce((s, n) => {
+      const c = COMPONENTS[n.type];
+      return s + (c ? c.length : 1);
+    }, 0) || 1;
+
+    for (const ghost of this.ghostQuads) {
+      // Map ghost.s to pixel position (same logic as marker)
+      let ghostXPos = 20 + panOffsetPx;
+      let cumS = 0;
+      for (let i = 0; i < this.draftNodes.length; i++) {
+        const comp = COMPONENTS[this.draftNodes[i].type];
+        const tileLen = comp ? comp.length : 1;
+        const compLen = (tileLen / tileLenSum) * this.totalLength;
+        const cW = compWidths[i] * effectiveZoom;
+
+        if (ghost.s <= cumS + compLen) {
+          const frac = (ghost.s - cumS) / compLen;
+          ghostXPos += frac * cW;
+          break;
+        }
+        cumS += compLen;
+        ghostXPos += cW;
+      }
+
+      // Draw ghost quad box
+      const ghostW = Math.max(SCHEM_PW * 0.6, 30) * effectiveZoom;
+      const ghostH = schematicH * 0.8;
+      const ghostX = ghostXPos - ghostW / 2;
+      const ghostY = beamY - ghostH / 2;
+
+      // Dashed outline
+      ctx.strokeStyle = 'rgba(68, 136, 255, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(ghostX, ghostY, ghostW, ghostH);
+      ctx.setLineDash([]);
+
+      // Semi-transparent fill
+      ctx.fillStyle = 'rgba(68, 136, 255, 0.08)';
+      ctx.fillRect(ghostX, ghostY, ghostW, ghostH);
+
+      // Polarity label
+      ctx.fillStyle = 'rgba(68, 136, 255, 0.6)';
+      ctx.font = `${Math.max(9, 11 * effectiveZoom)}px monospace`;
+      ctx.textAlign = 'center';
+      const label = ghost.polarity === 1 ? 'F' : 'D';
+      ctx.fillText(label, ghostXPos, beamY + 4);
+
+      // "+" icon above
+      ctx.fillStyle = 'rgba(68, 136, 255, 0.5)';
+      ctx.font = `${Math.max(10, 14 * effectiveZoom)}px monospace`;
+      ctx.fillText('+', ghostXPos, ghostY - 4);
+
+      // Store click region for ghost interaction
+      this._ghostRegions.push({
+        x: ghostX, y: ghostY, w: ghostW, h: ghostH,
+        ghost,
+      });
+    }
+  }
 
   // Draw marker line at markerS position (in physical meters)
   // Use totalLength (from envelope) to derive per-component s-lengths so the
