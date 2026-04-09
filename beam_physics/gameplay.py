@@ -12,17 +12,17 @@ from beam_physics.constants import DEFAULT_APERTURE
 # Default stats per component type, matching data.js COMPONENTS
 COMPONENT_DEFAULTS = {
     # === Electron Sources ===
-    "source":       {"length": 1.0},
-    "dcPhotoGun":   {"length": 1.0, "emittance": 1e-6},
-    "ncRfGun":      {"length": 1.0, "emittance": 0.5e-6},
-    "srfGun":       {"length": 2.0, "emittance": 0.3e-6},
+    "source":       {"length": 2.0},
+    "dcPhotoGun":   {"length": 2.0, "emittance": 1e-6},
+    "ncRfGun":      {"length": 2.0, "emittance": 0.5e-6},
+    "srfGun":       {"length": 3.0, "emittance": 0.3e-6},
     # === Beam Pipe ===
-    "drift":        {"length": 5.0},
-    "driftVert":    {"length": 5.0},
-    "bellows":      {"length": 0.3},
+    "drift":        {"length": 2.0},
+    "driftVert":    {"length": 2.0},
+    "bellows":      {"length": 0.5},
     # === RF Cavities ===
     "rfCavity":     {"length": 3.0, "energyGain": 0.5},
-    "cryomodule":   {"length": 5.0, "energyGain": 2.0},
+    "cryomodule":   {"length": 8.0, "energyGain": 2.0},
     "buncher":      {"length": 1.0, "energyGain": 0.05},
     "harmonicLinearizer": {"length": 2.0, "energyGain": 0.02},
     "cbandCavity":  {"length": 2.0, "energyGain": 0.8},
@@ -31,22 +31,22 @@ COMPONENT_DEFAULTS = {
     # === Magnets ===
     "dipole":       {"length": 3.0, "bendAngle": 90.0},
     "quadrupole":   {"length": 1.0, "focusStrength": 1.0},
-    "solenoid":     {"length": 1.0, "field": 0.2},
-    "corrector":    {"length": 1.0},
+    "solenoid":     {"length": 1.5, "field": 0.2},
+    "corrector":    {"length": 0.5},
     "sextupole":    {"length": 1.0, "focusStrength": 0.5, "beamQuality": 0.3},
     "octupole":     {"length": 1.0},
     "scQuad":       {"length": 1.0, "focusStrength": 2.0},
-    "scDipole":     {"length": 3.0, "bendAngle": 90.0},
-    "combinedFunctionMagnet": {"length": 1.0, "focusStrength": 0.5, "bendAngle": 45.0},
+    "scDipole":     {"length": 4.0, "bendAngle": 90.0},
+    "combinedFunctionMagnet": {"length": 1.5, "focusStrength": 0.5, "bendAngle": 45.0},
     # === Diagnostics ===
-    "bpm":          {"length": 0.1},
-    "screen":       {"length": 0.1},
-    "ict":          {"length": 0.1},
-    "wireScanner":  {"length": 0.2},
-    "bunchLengthMonitor": {"length": 0.2},
-    "energySpectrometer": {"length": 1.0},
-    "beamLossMonitor": {"length": 0.1},
-    "srLightMonitor": {"length": 0.2},
+    "bpm":          {"length": 0.5},
+    "screen":       {"length": 0.5},
+    "ict":          {"length": 0.5},
+    "wireScanner":  {"length": 0.5},
+    "bunchLengthMonitor": {"length": 0.5},
+    "energySpectrometer": {"length": 2.0},
+    "beamLossMonitor": {"length": 0.5},
+    "srLightMonitor": {"length": 0.5},
     # === Insertion Devices ===
     "undulator":    {"length": 5.0, "photonRate": 1.0},
     "helicalUndulator": {"length": 5.0, "photonRate": 1.2},
@@ -58,17 +58,17 @@ COMPONENT_DEFAULTS = {
     "septumMagnet": {"length": 1.0},
     "chicane":      {"length": 4.0, "r56": -0.05},
     "dogleg":       {"length": 3.0},
-    "stripperFoil": {"length": 0.1},
+    "stripperFoil": {"length": 0.5},
     # === Targets & Endpoints ===
     "detector":     {"length": 6.0, "dataRate": 1.0},
-    "target":       {"length": 3.0, "collisionRate": 2.0},
+    "target":       {"length": 2.0, "collisionRate": 2.0},
     "fixedTargetAdv": {"length": 3.0, "collisionRate": 5.0},
     "photonPort":   {"length": 2.0, "photonRate": 0.5},
     "positronTarget": {"length": 3.0, "collisionRate": 3.0},
     "comptonIP":    {"length": 3.0, "photonRate": 1.0},
     "splitter":     {"length": 2.0},
-    # === Infrastructure (no beam physics, just present in beamline) ===
-    "beamDump":     {"length": 1.0},
+    # === Infrastructure ===
+    "beamDump":     {"length": 2.0},
 }
 
 # Source types that produce initial beam
@@ -150,7 +150,13 @@ def beamline_config_from_game(game_beamline):
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
-        el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
+        # subL sub-units × 0.5m per sub-unit
+        sub_l = comp.get("subL", None)
+        if sub_l is not None:
+            el["length"] = sub_l * 0.5
+        else:
+            # Fallback for components not yet migrated
+            el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
 
         if physics_type == "source":
             # Read emittance from computed stats if available, else use defaults per gun type
