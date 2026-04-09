@@ -78,11 +78,13 @@ export class InfraBuilder {
         texGeo.rotateX(-Math.PI / 2);
 
         // Remap UVs: tile textures are isometric diamond images.
+        // Shrink UVs slightly inward to scale texture up ~3%, closing gaps between tiles.
+        const S = 0.03; // overshoot factor
         const uvs = texGeo.attributes.uv;
-        uvs.setXY(0, 0.5, 1.0);
-        uvs.setXY(1, 1.0, 0.5);
-        uvs.setXY(2, 0.0, 0.5);
-        uvs.setXY(3, 0.5, 0.0);
+        uvs.setXY(0, 0.5, 1.0 + S);
+        uvs.setXY(1, 1.0 + S, 0.5);
+        uvs.setXY(2, 0.0 - S, 0.5);
+        uvs.setXY(3, 0.5, 0.0 - S);
         uvs.needsUpdate = true;
 
         const texMat = new THREE.MeshStandardMaterial({

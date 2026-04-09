@@ -45,6 +45,7 @@ export class ThreeRenderer {
     this.equipmentGroup = null;
     this.componentGroup = null;
     this.decorationGroup = null;
+    this.previewGroup = null;
 
     this._boundOnResize = this._onResize.bind(this);
 
@@ -86,7 +87,7 @@ export class ThreeRenderer {
     this.zoneLayer = null;
     this.wallLayer = null;
     this.doorLayer = null;
-    this.dragPreviewLayer = null;
+    this.dragPreviewLayer = { removeChildren() {} }; // safe stub for InputHandler calls
     this.facilityLayer = null;
     this.connectionLayer = null;
     this.beamLayer = null;
@@ -218,6 +219,12 @@ export class ThreeRenderer {
     this.decorationGroup = new THREE.Group();
     this.decorationGroup.name = 'decorations';
     this.scene.add(this.decorationGroup);
+
+    // Preview group — semi-transparent geometry for placement/demolish feedback
+    this.previewGroup = new THREE.Group();
+    this.previewGroup.name = 'preview';
+    this.previewGroup.renderOrder = 999;
+    this.scene.add(this.previewGroup);
 
     window.addEventListener('resize', this._boundOnResize);
 
@@ -453,21 +460,283 @@ export class ThreeRenderer {
   _renderDecorations() { this._refreshDecorations(); }
   _renderZoneFurnishings() { this._refreshEquipment(); }
   _renderNetworkOverlay() { /* future */ }
-  _renderSubtilePreview() { /* future */ }
   renderConnLinePreview() { /* future */ }
-  renderLinePreview() { /* future */ }
   _renderProbeFlags() { /* future */ }
 
-  // Preview / highlight stubs (called by InputHandler for drag-based placement)
-  renderDragPreview() { /* future */ }
-  clearDragPreview() { /* future */ }
-  renderDemolishPreview() { /* future */ }
-  renderWallPreview() { /* future */ }
-  renderDoorPreview() { /* future */ }
-  renderWallEdgeHighlight() { /* future */ }
-  renderInfraHoverCursor() { /* future */ }
-  _renderDemolishFurnishingHighlight() { /* future */ }
-  _renderDemolishEquipmentHighlight() { /* future */ }
+  // --- Preview / highlight methods ---
+
+  /** Clear all preview geometry from the scene. */
+  _clearPreview() {
+    if (!this.previewGroup) return;
+    while (this.previewGroup.children.length > 0) {
+      const child = this.previewGroup.children[0];
+      this.previewGroup.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+        else child.material.dispose();
+      }
+    }
+  }
+
+  /** Shared material factories for previews. */
+  _previewMat(color = 0x44aaff, opacity = 0.35) {
+    return new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity, depthTest: true, side: THREE.DoubleSide,
+    });
+  }
+  _previewEdgeMat(color = 0x44aaff) {
+    return new THREE.LineBasicMaterial({ color, linewidth: 2, transparent: true, opacity: 0.8 });
+  }
+
+  /**
+   * Render a rectangular drag preview for infrastructure / zone placement.
+   * Shows semi-transparent quads over each tile in the rectangle.
+   */
+  renderDragPreview(col1, row1, col2, row2, toolType, isZone) {
+    this._clearPreview();
+    const minC = Math.min(col1, col2), maxC = Math.max(col1, col2);
+    const minR = Math.min(row1, row2), maxR = Math.max(row1, row2);
+    const color = isZone ? 0x44cc88 : 0x44aaff;
+    const mat = this._previewMat(color, 0.3);
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(c * 2 + 1, 0.02, r * 2 + 1);
+        this.previewGroup.add(mesh);
+      }
+    }
+    // Wireframe border around full rectangle
+    const edgeMat = this._previewEdgeMat(color);
+    const x0 = minC * 2, x1 = (maxC + 1) * 2;
+    const z0 = minR * 2, z1 = (maxR + 1) * 2;
+    const pts = [
+      new THREE.Vector3(x0, 0.04, z0),
+      new THREE.Vector3(x1, 0.04, z0),
+      new THREE.Vector3(x1, 0.04, z1),
+      new THREE.Vector3(x0, 0.04, z1),
+      new THREE.Vector3(x0, 0.04, z0),
+    ];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    this.previewGroup.add(new THREE.Line(lineGeo, edgeMat));
+  }
+
+  clearDragPreview() { this._clearPreview(); }
+
+  /**
+   * Render a line-based infrastructure preview (paths, conduits).
+   * Shows a coloured strip along the path tiles.
+   */
+  renderLinePreview(path, infraType) {
+    this._clearPreview();
+    if (!path || path.length === 0) return;
+    const mat = this._previewMat(0x44aaff, 0.35);
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    for (const tile of path) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(tile.col * 2 + 1, 0.02, tile.row * 2 + 1);
+      this.previewGroup.add(mesh);
+    }
+  }
+
+  /**
+   * Render a sub-tile placement preview for furnishings / decorations.
+   * Shows a small highlighted quad within the tile's sub-grid.
+   */
+  _renderSubtilePreview(col, row, subCol, subRow, gridW, gridH, rotated) {
+    this._clearPreview();
+    const w = rotated ? gridH : gridW;
+    const h = rotated ? gridW : gridH;
+    // Each tile is 2 world units, sub-grid is 4x4 → each sub-cell is 0.5 units
+    const subSize = 2 / 4; // 0.5
+    const mat = this._previewMat(0x88ccff, 0.4);
+    const geo = new THREE.PlaneGeometry(w * subSize, h * subSize);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    // Position: tile origin + sub-cell offset + half the preview size
+    const tileX = col * 2;
+    const tileZ = row * 2;
+    mesh.position.set(
+      tileX + subCol * subSize + (w * subSize) / 2,
+      0.03,
+      tileZ + subRow * subSize + (h * subSize) / 2
+    );
+    this.previewGroup.add(mesh);
+    // Wireframe outline
+    const edgeMat = this._previewEdgeMat(0x88ccff);
+    const x0 = tileX + subCol * subSize;
+    const z0 = tileZ + subRow * subSize;
+    const x1 = x0 + w * subSize;
+    const z1 = z0 + h * subSize;
+    const pts = [
+      new THREE.Vector3(x0, 0.04, z0), new THREE.Vector3(x1, 0.04, z0),
+      new THREE.Vector3(x1, 0.04, z1), new THREE.Vector3(x0, 0.04, z1),
+      new THREE.Vector3(x0, 0.04, z0),
+    ];
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+  }
+
+  /**
+   * Render demolish preview — red translucent rectangle over the drag area.
+   */
+  renderDemolishPreview(col1, row1, col2, row2) {
+    this._clearPreview();
+    const minC = Math.min(col1, col2), maxC = Math.max(col1, col2);
+    const minR = Math.min(row1, row2), maxR = Math.max(row1, row2);
+    const mat = this._previewMat(0xff4444, 0.3);
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(c * 2 + 1, 0.02, r * 2 + 1);
+        this.previewGroup.add(mesh);
+      }
+    }
+    // Red border
+    const edgeMat = this._previewEdgeMat(0xff4444);
+    const x0 = minC * 2, x1 = (maxC + 1) * 2;
+    const z0 = minR * 2, z1 = (maxR + 1) * 2;
+    const pts = [
+      new THREE.Vector3(x0, 0.04, z0), new THREE.Vector3(x1, 0.04, z0),
+      new THREE.Vector3(x1, 0.04, z1), new THREE.Vector3(x0, 0.04, z1),
+      new THREE.Vector3(x0, 0.04, z0),
+    ];
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+  }
+
+  /**
+   * Render wall placement preview — semi-transparent wall slabs along the path.
+   */
+  renderWallPreview(path, wallType) {
+    this._clearPreview();
+    if (!path || path.length === 0) return;
+    const mat = this._previewMat(0xffffff, 0.4);
+    const wallH = 0.75; // half-height preview walls (world units)
+    for (const seg of path) {
+      const isNS = seg.edge === 'n' || seg.edge === 's';
+      const geo = isNS
+        ? new THREE.BoxGeometry(2, wallH, 0.08)
+        : new THREE.BoxGeometry(0.08, wallH, 2);
+      const mesh = new THREE.Mesh(geo, mat);
+      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      mesh.position.set(pos.x, wallH / 2, pos.z);
+      this.previewGroup.add(mesh);
+    }
+  }
+
+  /**
+   * Render door placement preview — semi-transparent door frames along the path.
+   */
+  renderDoorPreview(path, doorType) {
+    this._clearPreview();
+    if (!path || path.length === 0) return;
+    const mat = this._previewMat(0x88ff88, 0.4);
+    const doorH = 0.6;
+    for (const seg of path) {
+      const isNS = seg.edge === 'n' || seg.edge === 's';
+      const geo = isNS
+        ? new THREE.BoxGeometry(1.0, doorH, 0.06)
+        : new THREE.BoxGeometry(0.06, doorH, 1.0);
+      const mesh = new THREE.Mesh(geo, mat);
+      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      mesh.position.set(pos.x, doorH / 2, pos.z);
+      this.previewGroup.add(mesh);
+    }
+  }
+
+  /**
+   * Highlight a single wall edge — white cross / edge marker on hover.
+   */
+  renderWallEdgeHighlight(col, row, edge, color = 0xffffff) {
+    this._clearPreview();
+    if (col === undefined || row === undefined || !edge) return;
+    const pos = this._wallEdgePosition(col, row, edge);
+    // Cross marker at the edge midpoint
+    const size = 0.3;
+    const y = 0.05;
+    const crossMat = this._previewEdgeMat(color);
+    // Horizontal bar
+    const h1 = [new THREE.Vector3(pos.x - size, y, pos.z), new THREE.Vector3(pos.x + size, y, pos.z)];
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(h1), crossMat));
+    // Vertical bar
+    const h2 = [new THREE.Vector3(pos.x, y, pos.z - size), new THREE.Vector3(pos.x, y, pos.z + size)];
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(h2), crossMat));
+    // Small filled quad on the edge
+    const quadMat = this._previewMat(color, 0.25);
+    const isNS = edge === 'n' || edge === 's';
+    const quadGeo = isNS
+      ? new THREE.PlaneGeometry(1.6, 0.3)
+      : new THREE.PlaneGeometry(0.3, 1.6);
+    quadGeo.rotateX(-Math.PI / 2);
+    const quad = new THREE.Mesh(quadGeo, quadMat);
+    quad.position.set(pos.x, 0.03, pos.z);
+    this.previewGroup.add(quad);
+  }
+
+  /** Hover cursor for infrastructure placement — single tile highlight. */
+  renderInfraHoverCursor(col, row, color) {
+    this._clearPreview();
+    const tileColor = (typeof color === 'number') ? color : 0x44aaff;
+    const mat = this._previewMat(tileColor, 0.25);
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(col * 2 + 1, 0.02, row * 2 + 1);
+    this.previewGroup.add(mesh);
+  }
+
+  /** Highlight a furnishing for demolish — red tinted box over its bounds. */
+  _renderDemolishFurnishingHighlight(entry) {
+    this._clearPreview();
+    if (!entry) return;
+    const subSize = 2 / 4;
+    const w = (entry.rotated ? entry.gridH : entry.gridW) || 1;
+    const h = (entry.rotated ? entry.gridW : entry.gridH) || 1;
+    const mat = this._previewMat(0xff4444, 0.35);
+    const geo = new THREE.PlaneGeometry(w * subSize, h * subSize);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    const tileX = entry.col * 2;
+    const tileZ = entry.row * 2;
+    mesh.position.set(
+      tileX + entry.subCol * subSize + (w * subSize) / 2,
+      0.03,
+      tileZ + entry.subRow * subSize + (h * subSize) / 2
+    );
+    this.previewGroup.add(mesh);
+  }
+
+  /** Highlight equipment for demolish — red box at equipment tile. */
+  _renderDemolishEquipmentHighlight(equip) {
+    this._clearPreview();
+    if (!equip) return;
+    const col = equip.col ?? 0;
+    const row = equip.row ?? 0;
+    const mat = this._previewMat(0xff4444, 0.35);
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(col * 2 + 1, 0.02, row * 2 + 1);
+    this.previewGroup.add(mesh);
+  }
+
+  /** Returns world-space XZ position of a wall edge midpoint. */
+  _wallEdgePosition(col, row, edge) {
+    const cx = col * 2 + 1;
+    const cz = row * 2 + 1;
+    switch (edge) {
+      case 'n': return { x: cx, z: row * 2 };
+      case 's': return { x: cx, z: row * 2 + 2 };
+      case 'e': return { x: col * 2 + 2, z: cz };
+      case 'w': return { x: col * 2, z: cz };
+      default:  return { x: cx, z: cz };
+    }
+  }
+
   showNetworkOverlay() { /* future */ }
   clearNetworkOverlay() { /* future */ }
 
@@ -475,22 +744,7 @@ export class ThreeRenderer {
   _applyWallVisibility() { /* future */ }
   _applyDoorVisibility() { /* future */ }
 
-  // Grid stub (overlay handles the grid)
-  _drawGrid() {
-    if (this._snapshot) this._refreshGrid(this._snapshot);
-  }
-
-  _refreshGrid(snapshot) {
-    if (!this.overlay) return;
-    const infraSet = new Set();
-    const noGridSet = new Set();
-    for (const tile of (snapshot.infrastructure || [])) {
-      const key = `${tile.col},${tile.row}`;
-      infraSet.add(key);
-      if (tile.noGrid) noGridSet.add(key);
-    }
-    this.overlay.drawGrid(infraSet, noGridSet);
-  }
+  _drawGrid() { /* future */ }
 
   // --- Helpers (copied from legacy Renderer) ---
 
@@ -565,7 +819,6 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.connectionBuilder.build(snapshot.connections, this.connectionGroup);
-    this._refreshGrid(snapshot);
   }
 
   refresh() {
