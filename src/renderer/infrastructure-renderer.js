@@ -851,12 +851,11 @@ Renderer.prototype._renderZoneFurnishings = function() {
     const gh = furn.rotated ? furnDef.gridW : furnDef.gridH;
 
     const sprite = new PIXI.Sprite(texture);
-    // Anchor at bottom-center of the iso box for proper depth overlap
-    sprite.anchor.set(0.5, 1.0);
+    sprite.anchor.set(0.5, 0.5);
 
-    // Position: tile origin + sub-grid offset to the CENTER-BOTTOM of the item footprint
+    // Position: tile origin + sub-grid offset to the CENTER of the item footprint
     const tilePos = gridToIso(furn.col, furn.row);
-    const subOffset = subGridToIso(furn.subCol + gw / 2, furn.subRow + gh);
+    const subOffset = subGridToIso(furn.subCol + gw / 2, furn.subRow + gh / 2);
     sprite.x = tilePos.x + subOffset.x;
     sprite.y = tilePos.y + subOffset.y;
 
