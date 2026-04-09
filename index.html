@@ -65,14 +65,15 @@
       </div>
     </div>
 
-    <!-- Beam parameters panel (top-left, transparent) -->
+    <!-- Facility overview panel (top-left, transparent) -->
     <div id="beam-stats-panel">
-      <div class="bsp-row"><span class="bsp-label">Energy</span><span class="bsp-val" id="stat-beam-energy">0.0</span><span class="bsp-unit" id="stat-beam-energy-unit">GeV</span></div>
-      <div class="bsp-row"><span class="bsp-label">Quality</span><span class="bsp-val" id="stat-beam-quality">--</span></div>
-      <div class="bsp-row"><span class="bsp-label">Current</span><span class="bsp-val" id="stat-beam-current">--</span><span class="bsp-unit">mA</span></div>
-      <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
-      <div class="bsp-row"><span class="bsp-label">Length</span><span class="bsp-val" id="stat-length">0</span><span class="bsp-unit">m</span></div>
-      <div class="bsp-row"><span class="bsp-label">E Cost</span><span class="bsp-val" id="stat-energy-cost">0</span><span class="bsp-unit">kW</span></div>
+      <div class="bsp-row"><span class="bsp-label">Power</span><span class="bsp-val" id="stat-total-power">0</span><span class="bsp-unit">kW</span></div>
+      <div class="bsp-row"><span class="bsp-label">RF Power</span><span class="bsp-val" id="stat-rf-power">0</span><span class="bsp-unit">kW</span></div>
+      <div class="bsp-row"><span class="bsp-label">Beam Power</span><span class="bsp-val" id="stat-beam-power">0</span><span class="bsp-unit">kW</span></div>
+      <div class="bsp-row"><span class="bsp-label">Cooling</span><span class="bsp-val" id="stat-cooling-power">0</span><span class="bsp-unit">kW</span></div>
+      <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
+      <div class="bsp-row"><span class="bsp-label">Peak Energy</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
+      <div class="bsp-row"><span class="bsp-label">Data Rate</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
     </div>
 
     <!-- Beamline warnings panel (top-right) -->
@@ -113,8 +114,8 @@
     <div id="bottom-hud">
       <div id="dsgn-palette-actions" class="dsgn-palette-actions hidden">
         <span class="dsgn-palette-hint">Click component to:</span>
-        <button class="dsgn-action-btn active" id="dsgn-action-replace" title="Replace selected component (Tab to toggle)">Replace</button>
-        <button class="dsgn-action-btn" id="dsgn-action-insert" title="Insert at nearest edge (Tab to toggle)">Insert</button>
+        <button class="dsgn-action-btn active" id="dsgn-action-insert" title="Insert at nearest edge (Tab to toggle)">Insert</button>
+        <button class="dsgn-action-btn" id="dsgn-action-replace" title="Replace selected component (Tab to toggle)">Replace</button>
       </div>
       <div id="hud-controls">
         <div id="hud-top-row">
@@ -276,6 +277,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.170/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>

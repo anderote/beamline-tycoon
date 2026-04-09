@@ -24,6 +24,7 @@ import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
 import { Networks } from './networks/networks.js';
+import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -46,6 +47,11 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const renderer = new Renderer(game, spriteManager);
   window._renderer = renderer;
   await renderer.init();
+
+  // Temporary: test Three.js renderer alongside PixiJS
+  const threeRenderer = new ThreeRenderer(game);
+  await threeRenderer.init();
+  window._three = threeRenderer;
 
   await spriteManager.loadTileSprites();
   await spriteManager.loadDecorationSprites();
