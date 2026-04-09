@@ -26,10 +26,25 @@ export class TerrainBuilder {
     const geo = new THREE.PlaneGeometry(2, 2);
     geo.rotateX(-Math.PI / 2);
 
-    // Material: solid color — existing tile textures are isometric diamond sprites
-    // which don't work on 3D planes. Flat textures will be generated via PixelLab later.
+    // Remap UVs: the tile textures are isometric diamond images.
+    // Rotate UV coords 45° so the diamond texture aligns with the square plane.
+    // After rotateX(-PI/2), vertices are:
+    //   0: (-1,0,-1) top-of-diamond    → UV (0.5, 1.0)
+    //   1: ( 1,0,-1) right-of-diamond  → UV (1.0, 0.5)
+    //   2: (-1,0, 1) left-of-diamond   → UV (0.0, 0.5)
+    //   3: ( 1,0, 1) bottom-of-diamond → UV (0.5, 0.0)
+    const uvs = geo.attributes.uv;
+    uvs.setXY(0, 0.5, 1.0);  // was (0, 1)
+    uvs.setXY(1, 1.0, 0.5);  // was (1, 1)
+    uvs.setXY(2, 0.0, 0.5);  // was (0, 0)
+    uvs.setXY(3, 0.5, 0.0);  // was (1, 0)
+    uvs.needsUpdate = true;
+
+    // Material: use grass texture if available, else fallback color
+    const grassTex = this._textureManager.get('assets/tiles/grass_tile_0.png');
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x338833,
+      map: grassTex || undefined,
+      color: grassTex ? 0xffffff : 0x338833,
       roughness: 1.0,
       metalness: 0.0,
       side: THREE.FrontSide,

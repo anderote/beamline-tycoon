@@ -49,10 +49,20 @@ export class InfraBuilder {
       const geo = new THREE.PlaneGeometry(2, 2);
       geo.rotateX(-Math.PI / 2);
 
-      // Material: solid color — existing tile textures are isometric diamond sprites
-      // which don't work on 3D planes. Flat textures will be generated via PixelLab later.
+      // Remap UVs: tile textures are isometric diamond images.
+      // Rotate UV coords 45° so diamond texture aligns with square plane.
+      const uvs = geo.attributes.uv;
+      uvs.setXY(0, 0.5, 1.0);
+      uvs.setXY(1, 1.0, 0.5);
+      uvs.setXY(2, 0.0, 0.5);
+      uvs.setXY(3, 0.5, 0.0);
+      uvs.needsUpdate = true;
+
+      // Material: use tile texture if available, else fallback color
+      const tileInfo = this._textureManager.getTileInfo(type);
       const mat = new THREE.MeshStandardMaterial({
-        color: infra.topColor ?? infra.color ?? 0x888888,
+        map: (tileInfo && tileInfo.texture) ? tileInfo.texture : undefined,
+        color: (tileInfo && tileInfo.texture) ? 0xffffff : (infra.topColor ?? infra.color ?? 0x888888),
         roughness: 0.9,
         metalness: 0.0,
       });
