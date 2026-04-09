@@ -1847,7 +1847,7 @@ export class InputHandler {
     const statEntries = [
       ['Cost', costs],
       ['Energy Cost', `${comp.energyCost} kW`],
-      ['Length', `${comp.length} m`],
+      ['Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`],
     ];
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {

@@ -50,14 +50,18 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // We need panOffsetPx early for the background, so compute layout first
   const _compWidths = this.draftNodes.map(n => {
     const comp = COMPONENTS[n.type];
-    const len = comp ? comp.length : 1;
+    const len = comp ? 1 : 1;
     return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
   });
   const _totalPW = _compWidths.reduce((s, w) => s + w, 0);
-  const _baseZoom = W / (_totalPW + 40);
+  const _baseZoom = W / (5 * SCHEM_PW + 40);
   const _effZoom = this.viewZoom * _baseZoom;
   const _panPx = -this.viewX * _effZoom;
-  _drawLabBackground(ctx, W, H, _panPx);
+  // Compute floorY early for background (must match the main layout)
+  const _schH = SCHEM_PH * _effZoom;
+  const _railY = H * 0.50 + _schH / 2 + 2;
+  const _floorY = _railY + 20 * _effZoom;
+  _drawLabBackground(ctx, W, H, _panPx, _floorY);
 
   if (this.draftNodes.length === 0) {
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
@@ -71,25 +75,26 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // Calculate per-component pixel widths based on length (edge-to-edge, no gap)
   const compWidths = this.draftNodes.map(n => {
     const comp = COMPONENTS[n.type];
-    const len = comp ? comp.length : 1;
+    const len = comp ? 1 : 1;
     return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
   });
   const totalPixelWidth = compWidths.reduce((s, w) => s + w, 0);
 
-  // Auto-fit zoom if viewZoom is 1 (initial)
-  const baseZoom = W / (totalPixelWidth + 40);
+  // Fixed base zoom at ~5-component density; user controls additional zoom via viewZoom
+  const baseZoom = W / (5 * SCHEM_PW + 40);
   const effectiveZoom = this.viewZoom * baseZoom;
 
   // Calculate pan offset in pixels
   const panOffsetPx = -this.viewX * effectiveZoom;
 
-  // Components sit on the floor — position beam line at ~60% height
-  const beamY = H * 0.55;
+  // Components sit on the floor — beam line centered, everything scales with zoom
+  const beamY = H * 0.50;
   const schematicH = SCHEM_PH * effectiveZoom;
 
-  // Support stands
+  // Support stands and floor scale with zoom, relative to component bottom
   const railY = beamY + schematicH / 2 + 2;
-  const floorY = H * 0.88;
+  const supportH = 20 * effectiveZoom;   // support height scales with zoom
+  const floorY = railY + supportH;
 
   // Draw each component (edge-to-edge, no gaps)
   let xPos = 20 + panOffsetPx;
@@ -111,21 +116,8 @@ BeamlineDesigner.prototype._renderSchematic = function() {
       index: i,
     });
 
-    // Support stand under each component
-    ctx.fillStyle = 'rgba(50, 55, 70, 0.7)';
-    const standW = Math.max(4, compW * 0.15);
-    const standX = xPos + compW / 2 - standW / 2;
-    ctx.fillRect(standX, railY, standW, floorY - railY);
-    // Stand base
-    ctx.fillStyle = 'rgba(60, 65, 80, 0.6)';
-    ctx.fillRect(standX - 2, floorY - 3, standW + 4, 3);
-
-    // Shadow under the component
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    ctx.fillRect(xPos + 2, compTop + compH + 1, compW, 3);
-
-    // Draw component using existing schematic drawer
-    const offscreen = this._drawComponentOffscreen(node.type);
+    // Draw component using existing schematic drawer (pass params for polarity-aware rendering)
+    const offscreen = this._drawComponentOffscreen(node.type, node.params);
     if (offscreen) {
       ctx.drawImage(offscreen, xPos, compTop, compW, compH);
     }
@@ -162,11 +154,73 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // Store total rendered width for viewport calculations
   this._renderedWidth = xPos - 20 - panOffsetPx;
 
+  // --- Reorder drop indicator ---
+  if (this._reorderDropIndex >= 0 && this._compRegions && this._compRegions.length > 0) {
+    let dropX;
+    if (this._reorderDropIndex < this._compRegions.length) {
+      dropX = this._compRegions[this._reorderDropIndex].x;
+    } else {
+      const last = this._compRegions[this._compRegions.length - 1];
+      dropX = last.x + last.w;
+    }
+    const compTop = beamY - schematicH / 2;
+    // Glowing vertical line
+    ctx.save();
+    ctx.strokeStyle = '#ffaa22';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffaa22';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(dropX, compTop - 10);
+    ctx.lineTo(dropX, compTop + schematicH + 10);
+    ctx.stroke();
+    ctx.restore();
+    // Arrow triangles pointing inward
+    ctx.fillStyle = '#ffaa22';
+    const arrowY = beamY;
+    // Left-pointing arrow
+    ctx.beginPath();
+    ctx.moveTo(dropX + 8, arrowY - 5);
+    ctx.lineTo(dropX + 8, arrowY + 5);
+    ctx.lineTo(dropX + 2, arrowY);
+    ctx.closePath();
+    ctx.fill();
+    // Right-pointing arrow
+    ctx.beginPath();
+    ctx.moveTo(dropX - 8, arrowY - 5);
+    ctx.lineTo(dropX - 8, arrowY + 5);
+    ctx.lineTo(dropX - 2, arrowY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Periodic support stands (fixed in beamline world-space) ---
+  const beamlineStartX = 20 + panOffsetPx;
+  const beamlineEndX = xPos;
+  const supportSpacingWorld = 60 * effectiveZoom;  // scale with zoom
+  const standW = Math.max(3, 5 * effectiveZoom);
+  // Horizontal rail under beamline
+  ctx.fillStyle = 'rgba(90, 95, 110, 0.5)';
+  ctx.fillRect(beamlineStartX, railY - 2, beamlineEndX - beamlineStartX, 2);
+  // Supports at fixed world positions starting from beamline start
+  for (let sx = beamlineStartX; sx < beamlineEndX; sx += supportSpacingWorld) {
+    if (sx < -standW || sx > W + standW) continue;  // cull offscreen
+    // Vertical column
+    ctx.fillStyle = 'rgba(70, 75, 90, 0.6)';
+    ctx.fillRect(sx - standW / 2, railY, standW, floorY - railY);
+    // Top bracket
+    ctx.fillStyle = 'rgba(90, 95, 110, 0.5)';
+    ctx.fillRect(sx - standW, railY - 1, standW * 2, 3);
+    // Base plate
+    ctx.fillStyle = 'rgba(80, 85, 100, 0.5)';
+    ctx.fillRect(sx - standW - 1, floorY - 2, standW * 2 + 2, 2);
+  }
+
   // --- Ghost quad markers (FODO advisor) ---
   if (this.ghostQuads && this.ghostQuads.length > 0 && this.totalLength > 0) {
     const tileLenSum = this.draftNodes.reduce((s, n) => {
       const c = COMPONENTS[n.type];
-      return s + (c ? c.length : 1);
+      return s + (c ? (c.subL || 4) * 0.5 : 1);
     }, 0) || 1;
 
     for (const ghost of this.ghostQuads) {
@@ -175,7 +229,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
       let cumS = 0;
       for (let i = 0; i < this.draftNodes.length; i++) {
         const comp = COMPONENTS[this.draftNodes[i].type];
-        const tileLen = comp ? comp.length : 1;
+        const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
         const compLen = (tileLen / tileLenSum) * this.totalLength;
         const cW = compWidths[i] * effectiveZoom;
 
@@ -231,14 +285,14 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   if (this.markerS >= 0 && this.totalLength > 0) {
     const tileLenSum = this.draftNodes.reduce((s, n) => {
       const c = COMPONENTS[n.type];
-      return s + (c ? c.length : 1);
+      return s + (c ? (c.subL || 4) * 0.5 : 1);
     }, 0) || 1;
 
     let markerXPos = 20 + panOffsetPx;
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
       const comp = COMPONENTS[this.draftNodes[i].type];
-      const tileLen = comp ? comp.length : 1;
+      const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
       // Scale so per-component lengths sum to this.totalLength
       const compLen = (tileLen / tileLenSum) * this.totalLength;
       const compW = compWidths[i] * effectiveZoom;
@@ -277,9 +331,9 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
 // --- Lab background rendering (simple procedural walls + concrete) ---
 
-function _drawLabBackground(ctx, W, H, panOffset) {
+function _drawLabBackground(ctx, W, H, panOffset, floorY) {
   const pan = panOffset || 0;
-  const floorY = H * 0.88;
+  floorY = floorY || H * 0.90;
 
   // Back wall — dark gradient
   const wallGrad = ctx.createLinearGradient(0, 0, 0, floorY);
@@ -340,10 +394,12 @@ function _drawLabBackground(ctx, W, H, panOffset) {
   }
 }
 
-BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType) {
-  // Cache offscreen canvases per component type
+BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType, params) {
+  // Cache offscreen canvases per component type + polarity
   if (!this._schematicCache) this._schematicCache = {};
-  if (this._schematicCache[componentType]) return this._schematicCache[componentType];
+  const polarity = params?.polarity;
+  const cacheKey = polarity != null ? `${componentType}_p${polarity}` : componentType;
+  if (this._schematicCache[cacheKey]) return this._schematicCache[cacheKey];
 
   // Create a tiny canvas and use Renderer's drawSchematic to generate pixel art
   const tiny = document.createElement('canvas');
@@ -351,9 +407,9 @@ BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType) {
   tiny.height = SCHEM_PH;
   tiny.style.width = SCHEM_PW + 'px';
   tiny.style.height = SCHEM_PH + 'px';
-  this.renderer.drawSchematic(tiny, componentType);
+  this.renderer.drawSchematic(tiny, componentType, params);
 
-  this._schematicCache[componentType] = tiny;
+  this._schematicCache[cacheKey] = tiny;
   return tiny;
 };
 
@@ -395,7 +451,7 @@ BeamlineDesigner.prototype._renderTuning = function() {
   ).join(', ') : '--';
   statsHtml += `<div class="ts-row"><span class="ts-label">Cost</span><span class="ts-val">${costStr}</span></div>`;
   statsHtml += `<div class="ts-row"><span class="ts-label">Energy Cost</span><span class="ts-val">${comp.energyCost} <span class="ts-unit">kW</span></span></div>`;
-  statsHtml += `<div class="ts-row"><span class="ts-label">Length</span><span class="ts-val">${(comp.length * LENGTH_SCALE).toFixed(1)} <span class="ts-unit">m</span></span></div>`;
+  statsHtml += `<div class="ts-row"><span class="ts-label">Length</span><span class="ts-val">${((comp.subL || 4) * 0.5).toFixed(1)} <span class="ts-unit">m</span></span></div>`;
 
   // Component-specific base stats
   if (comp.stats) {
@@ -573,6 +629,7 @@ BeamlineDesigner.prototype._wireTuningSliders = function(node, paramDefs, contai
         // Recalc physics and update plots
         this._recalcDraft();
         this._updateDraftBar();
+        this._renderSchematic();
         this._renderPlots();
       }, 150);
     });
@@ -604,8 +661,17 @@ BeamlineDesigner.prototype._wireTuningSliders = function(node, paramDefs, contai
             }
           }
         }
+        // Invalidate schematic cache so polarity change is visible
+        if (this._schematicCache) {
+          for (const k of Object.keys(this._schematicCache)) {
+            if (k === node.type || k.startsWith(node.type + '_')) {
+              delete this._schematicCache[k];
+            }
+          }
+        }
         this._recalcDraft();
         this._updateDraftBar();
+        this._renderSchematic();
         this._renderPlots();
       });
     });
@@ -831,7 +897,7 @@ BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
   ).join(', ');
   const cost = document.createElement('div');
   cost.className = 'dsgn-card-cost';
-  cost.textContent = `${costs}  ·  ${comp.energyCost}kW  ·  ${comp.length}m`;
+  cost.textContent = `${costs}  ·  ${comp.energyCost}kW  ·  ${((comp.subL || 4) * 0.5).toFixed(1)}m`;
   info.appendChild(cost);
 
   card.appendChild(info);

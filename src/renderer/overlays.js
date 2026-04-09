@@ -53,7 +53,7 @@ Renderer.prototype.showPopup = function(node, screenX, screenY) {
     html += '<div class="popup-section-label">Info</div>';
     html += row('Direction', DIR_NAMES[node.dir] || '--', '');
     html += row('Energy Cost', comp.energyCost, 'kW');
-    html += row('Length', comp.length, 'm');
+    html += row('Length', ((comp.subL || 4) * 0.5).toFixed(1), 'm');
     html += '</div>';
 
     // Parameter dropdowns (if component has paramOptions)
@@ -144,7 +144,7 @@ Renderer.prototype.showPopup = function(node, screenX, screenY) {
     // Draw schematic if present
     const popupSchematic = document.getElementById('popup-schematic');
     if (popupSchematic) {
-      this.drawSchematic(popupSchematic, node.type);
+      this.drawSchematic(popupSchematic, node.type, node.params);
     }
 
     // Wire up slider events
@@ -296,7 +296,7 @@ Renderer.prototype.hidePopup = function() {
 
 // --- Schematic drawing ---
 
-Renderer.prototype.drawSchematic = function(canvas, componentType) {
+Renderer.prototype.drawSchematic = function(canvas, componentType, params) {
   // We draw at a tiny resolution (70x30 pixels) then scale up crispy
   const PW = 70, PH = 30;
   const off = document.createElement('canvas');
@@ -465,7 +465,7 @@ Renderer.prototype.drawSchematic = function(canvas, componentType) {
 
   // Dispatch to specific component drawer
   const drawFn = this._schematicDrawers[componentType];
-  if (drawFn) drawFn(p, px, dot, PW, PH, cy, C);
+  if (drawFn) drawFn(p, px, dot, PW, PH, cy, C, params);
 
   // Scale up to display canvas
   const dpr = window.devicePixelRatio || 1;
@@ -520,7 +520,15 @@ function _drawBeamPipe(px, dot, W, cy, C, opts = {}) {
 Renderer.prototype._schematicDrawers = {
   // === SOURCE (cathode ray / electron gun style) ===
   source(p, px, dot, W, H, cy, C) {
-    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false });
+    // Clear pre-drawn beam dashes on the left side (source generates its own beam)
+    px(0, cy - 1, 45, 3, C.bg);
+    // Beam pipe only on the right (from anode onwards)
+    const pipeStart = 43;
+    px(pipeStart, cy - PIPE_HALF, W - pipeStart, 1, C.wallDk);
+    px(pipeStart, cy + PIPE_HALF, W - pipeStart, 1, C.wallDk);
+    // Right flange only
+    px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+    px(W - FLANGE_W - 1, cy - FLANGE_HALF + 1, 1, FLANGE_HALF * 2 - 1, C.wallDk);
     const cathX = 12;  // cathode plate x position
     const anodeX = 42; // anode plate x position
     const focusX = 20; // focus electrode x position
@@ -580,27 +588,22 @@ Renderer.prototype._schematicDrawers = {
       }
     }
 
-    // --- Electron beam envelope ---
-    for (const startDy of [-6, -3, 0, 3, 6]) {
-      for (let x = cathX + 4; x <= W - 4; x++) {
-        let y;
-        if (x <= anodeX) {
-          const t = (x - cathX - 4) / (anodeX - cathX - 4);
-          y = cy + Math.round(startDy * (1 - t * 0.85));
-        } else {
-          const t2 = (x - anodeX) / (W - 4 - anodeX);
-          const residual = Math.round(startDy * 0.15 * (1 - t2 * 0.5));
-          y = cy + residual;
-        }
+    // --- Electron beam envelope (left of anode: dim traces converging) ---
+    for (const startDy of [-6, -3, 3, 6]) {
+      for (let x = cathX + 4; x <= anodeX; x++) {
+        const t = (x - cathX - 4) / (anodeX - cathX - 4);
+        const y = cy + Math.round(startDy * (1 - t * 0.85));
         if (y >= 1 && y < H - 1) {
-          dot(x, y, startDy === 0 ? C.beam : C.beamDim);
+          dot(x, y, C.beamDim);
         }
       }
     }
+    // --- Solid beam line (right of anode: focused beam in pipe) ---
+    px(anodeX + 2, cy, W - FLANGE_W - 2 - (anodeX + 2), 1, C.beam);
 
   },
 
-  // === DRIFT TUBE ===
+  // === BEAM PIPE ===
   drift(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C);
     // Vacuum interior between pipe walls
@@ -609,6 +612,8 @@ Renderer.prototype._schematicDrawers = {
     for (const [dx, dy] of [[18, -1], [30, 0], [42, -2], [25, 1], [50, -1], [37, 1]]) {
       if (Math.abs(dy) < PIPE_HALF) dot(dx, cy + dy, '#1a1a33');
     }
+    // Solid beam line (vacuum fill covers pre-drawn dashes)
+    px(FLANGE_W + 2, cy, W - 2 * FLANGE_W - 4, 1, C.beam);
   },
 
   // === BELLOWS ===
@@ -629,6 +634,8 @@ Renderer.prototype._schematicDrawers = {
         dot(x, cy + PIPE_HALF + 1, C.wallDk);
       }
     }
+    // Solid beam line
+    px(FLANGE_W + 2, cy, W - 2 * FLANGE_W - 4, 1, C.beam);
   },
 
   // === DIPOLE ===
@@ -676,7 +683,7 @@ Renderer.prototype._schematicDrawers = {
   },
 
   // === QUADRUPOLE ===
-  quadrupole(p, px, dot, W, H, cy, C) {
+  quadrupole(p, px, dot, W, H, cy, C, params) {
     _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     px(cx - 8, cy - 11, 16, 5, C.magnet);
@@ -703,34 +710,45 @@ Renderer.prototype._schematicDrawers = {
       }
     }
 
-    for (let x = 4; x < W - 4; x++) {
-      const t = (x - 4) / (W - 8);
-      let y;
-      if (t < 0.45) {
-        y = cy - 5 + Math.round(t / 0.45 * 4);
-      } else if (t < 0.55) {
-        y = cy - 1;
-      } else {
-        y = cy - 1 + Math.round((t - 0.55) / 0.45 * 1);
-      }
-      dot(x, y, C.beamDim);
-    }
-    for (let x = 4; x < W - 4; x++) {
-      dot(x, cy, C.beam);
-    }
-    for (let x = 4; x < W - 4; x++) {
-      const t = (x - 4) / (W - 8);
-      let y;
-      if (t < 0.45) {
-        y = cy + 5 - Math.round(t / 0.45 * 4);
-      } else if (t < 0.55) {
-        y = cy + 1;
-      } else {
-        y = cy + 1 - Math.round((t - 0.55) / 0.45 * 1);
-      }
-      dot(x, y, C.beamDim);
-    }
+    // Solid beam line
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
 
+    // Polarity arrows at cx+12: Focus X (polarity 0) = vertical, Focus Y (polarity 1) = horizontal
+    const polarity = params?.polarity;
+    const ax = cx + 12;
+    if (polarity === 0 || polarity == null) {
+      // Focus X: red inward vertical arrows
+      const col = '#ff4466';
+      // Top arrow pointing down
+      dot(ax, cy - 8, col);
+      dot(ax, cy - 9, col);
+      dot(ax, cy - 10, col);
+      dot(ax - 1, cy - 8, col);
+      dot(ax + 1, cy - 8, col);
+      // Bottom arrow pointing up
+      dot(ax, cy + 8, col);
+      dot(ax, cy + 9, col);
+      dot(ax, cy + 10, col);
+      dot(ax - 1, cy + 8, col);
+      dot(ax + 1, cy + 8, col);
+    }
+    if (polarity === 1 || polarity == null) {
+      // Focus Y: blue inward horizontal arrows (same x region)
+      const col = '#4488ff';
+      const yOff = polarity == null ? 6 : 0;
+      // Left arrow pointing right (above or at beam)
+      dot(ax - 3, cy - yOff, col);
+      dot(ax - 2, cy - yOff, col);
+      dot(ax - 1, cy - yOff, col);
+      dot(ax - 1, cy - yOff - 1, col);
+      dot(ax - 1, cy - yOff + 1, col);
+      // Right arrow pointing left (below or at beam)
+      dot(ax + 3, cy + yOff, col);
+      dot(ax + 2, cy + yOff, col);
+      dot(ax + 1, cy + yOff, col);
+      dot(ax + 1, cy + yOff - 1, col);
+      dot(ax + 1, cy + yOff + 1, col);
+    }
   },
 
   // === SOLENOID ===
@@ -755,32 +773,36 @@ Renderer.prototype._schematicDrawers = {
       dot(R - 3, fy + 1, fieldDim);
     }
 
-    for (let x = 4; x < W - 4; x++) {
-      const t = (x - 4) / (W - 8);
-      let y;
-      if (t < 0.42) {
-        y = cy - 6 + Math.round(t / 0.42 * 5);
-      } else if (t < 0.58) {
-        y = cy - 1;
-      } else {
-        y = cy - 1 + Math.round((t - 0.58) / 0.42 * 1);
-      }
-      dot(x, y, C.beamDim);
-    }
+    // Solid beam line
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
-    for (let x = 4; x < W - 4; x++) {
-      const t = (x - 4) / (W - 8);
-      let y;
-      if (t < 0.42) {
-        y = cy + 6 - Math.round(t / 0.42 * 5);
-      } else if (t < 0.58) {
-        y = cy + 1;
-      } else {
-        y = cy + 1 - Math.round((t - 0.58) / 0.42 * 1);
-      }
-      dot(x, y, C.beamDim);
-    }
 
+    // Symmetric focusing arrows (solenoid focuses both planes)
+    const ax = 35 + 12;
+    const arrowRed = '#ff4466';
+    const arrowBlue = '#4488ff';
+    // Vertical red arrows (inward)
+    dot(ax, cy - 10, arrowRed);
+    dot(ax, cy - 9, arrowRed);
+    dot(ax, cy - 8, arrowRed);
+    dot(ax - 1, cy - 10, arrowRed);
+    dot(ax + 1, cy - 10, arrowRed);
+    dot(ax, cy + 10, arrowRed);
+    dot(ax, cy + 9, arrowRed);
+    dot(ax, cy + 8, arrowRed);
+    dot(ax - 1, cy + 10, arrowRed);
+    dot(ax + 1, cy + 10, arrowRed);
+    // Horizontal blue arrows (inward)
+    const cx = 35;
+    dot(cx - 18, cy, arrowBlue);
+    dot(cx - 17, cy, arrowBlue);
+    dot(cx - 16, cy, arrowBlue);
+    dot(cx - 18, cy - 1, arrowBlue);
+    dot(cx - 18, cy + 1, arrowBlue);
+    dot(cx + 18, cy, arrowBlue);
+    dot(cx + 17, cy, arrowBlue);
+    dot(cx + 16, cy, arrowBlue);
+    dot(cx + 18, cy - 1, arrowBlue);
+    dot(cx + 18, cy + 1, arrowBlue);
   },
 
   // === RF CAVITY ===
@@ -1197,7 +1219,7 @@ Renderer.prototype._schematicDrawers = {
   },
 
   // === SC QUAD ===
-  scQuad(p, px, dot, W, H, cy, C) {
+  scQuad(p, px, dot, W, H, cy, C, params) {
     _drawBeamPipe(px, dot, W, cy, C);
     const cx = 35;
     // Superconducting quad — like quad but with cryo layer
@@ -1211,6 +1233,37 @@ Renderer.prototype._schematicDrawers = {
     px(cx - 8, cy + 7, 16, 4, C.scMagnet);
     px(cx - 5, cy + 5, 10, 3, C.scMagDk);
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+
+    // Polarity arrows (same layout as normal quad)
+    const polarity = params?.polarity;
+    const ax = cx + 12;
+    if (polarity === 0 || polarity == null) {
+      const col = '#ff4466';
+      dot(ax, cy - 8, col);
+      dot(ax, cy - 9, col);
+      dot(ax, cy - 10, col);
+      dot(ax - 1, cy - 8, col);
+      dot(ax + 1, cy - 8, col);
+      dot(ax, cy + 8, col);
+      dot(ax, cy + 9, col);
+      dot(ax, cy + 10, col);
+      dot(ax - 1, cy + 8, col);
+      dot(ax + 1, cy + 8, col);
+    }
+    if (polarity === 1 || polarity == null) {
+      const col = '#4488ff';
+      const yOff = polarity == null ? 6 : 0;
+      dot(ax - 3, cy - yOff, col);
+      dot(ax - 2, cy - yOff, col);
+      dot(ax - 1, cy - yOff, col);
+      dot(ax - 1, cy - yOff - 1, col);
+      dot(ax - 1, cy - yOff + 1, col);
+      dot(ax + 3, cy + yOff, col);
+      dot(ax + 2, cy + yOff, col);
+      dot(ax + 1, cy + yOff, col);
+      dot(ax + 1, cy + yOff - 1, col);
+      dot(ax + 1, cy + yOff + 1, col);
+    }
   },
 
   // === SC DIPOLE ===
@@ -1264,6 +1317,8 @@ Renderer.prototype._schematicDrawers = {
   // === SCREEN ===
   screen(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C);
+    // Solid beam line
+    px(FLANGE_W + 2, cy, W - 2 * FLANGE_W - 4, 1, C.beam);
     const cx = 35;
     // Insertable phosphor screen (angled)
     for (let i = -8; i <= 8; i++) {
@@ -2816,22 +2871,16 @@ Renderer.prototype._schematicDrawers = {
   target(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
     const cx = 35;
+    // Clear right side (no pipe or beam past target)
+    px(cx + 4, 0, W - cx - 4, H, C.bg);
     // Target block
     px(cx - 3, cy - 8, 6, 17, C.metalDk);
     px(cx - 2, cy - 7, 4, 15, C.metal);
-    // Beam in
-    for (let x = 4; x < cx - 3; x++) dot(x, cy, C.beam);
-    // Impact
+    // Solid beam in
+    px(FLANGE_W + 2, cy, cx - 3 - FLANGE_W - 2, 1, C.beam);
+    // Impact glow
     dot(cx - 2, cy, C.glow);
     dot(cx - 1, cy, C.hotBright);
-    // Products out
-    for (let i = -3; i <= 3; i++) {
-      for (let r = 1; r < 8; r++) {
-        const px2 = cx + 3 + r;
-        const py = cy + Math.round(i * r * 0.3);
-        if (px2 < W - 2 && py >= 1 && py < H - 1) dot(px2, py, C.beamDim);
-      }
-    }
   },
 
   // === TARGET HANDLING ===

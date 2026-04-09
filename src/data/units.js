@@ -23,8 +23,8 @@ export const UNITS = {
   cost:            'funding',
   energyCost:      'kW',
   length:          'm',
-  trackLength:     'tiles',
-  trackWidth:      'tiles',
+  subL:            'sub-units',
+  subW:            'sub-units',
   interiorVolume:  'L',
   powerCapacity:   'kW',
   // Beam stats

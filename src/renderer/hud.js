@@ -1162,7 +1162,7 @@ Renderer.prototype._showPalettePreview = function(comp) {
     let html = '';
     html += statRow('Cost', costs);
     html += statRow('Energy Cost', `${comp.energyCost} kW`);
-    html += statRow('Length', `${comp.length} m`);
+    html += statRow('Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`);
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {
         const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());

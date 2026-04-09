@@ -31,7 +31,7 @@ export class BeamlineDesigner {
 
     // Viewport (shared between schematic and along-s plots)
     this.viewX = 0;             // horizontal pan offset in beamline-meters
-    this.viewZoom = 1;          // zoom level (1 = fit-all)
+    this.viewZoom = 0.7;          // zoom level (1 = fit-all)
     this.totalLength = 0;       // total beamline length in meters
 
     // Continuous marker position along s (meters)
@@ -45,8 +45,11 @@ export class BeamlineDesigner {
     // Palette keyboard index when focusRow=1
     this.designerPaletteIndex = -1;
 
-    // Insert mode: null, 'before', or 'after'
-    this.insertMode = null;
+    // Insert mode: null (replace), 'nearest', 'before', or 'after'
+    this.insertMode = 'nearest';
+
+    // Drag-reorder drop target index (-1 = inactive)
+    this._reorderDropIndex = -1;
 
     // Undo stack (max 3 snapshots)
     this._undoStack = [];
@@ -198,22 +201,73 @@ export class BeamlineDesigner {
     window.addEventListener('keydown', this._onKeyDown, true);
     window.addEventListener('keyup', this._onKeyUp, true);
 
-    // Schematic click + drag panning
+    // Schematic click + drag panning / component reorder
     const schematicCanvas = document.getElementById('dsgn-schematic-canvas');
     if (schematicCanvas) {
       let dragging = false;
+      let reorderDragging = false;   // true when dragging a selected component
+      let reorderSourceIndex = -1;
       let dragStartX = 0;
       let dragStartViewX = 0;
       let dragDistance = 0;
 
       schematicCanvas.addEventListener('mousedown', (e) => {
         if (!this.isOpen) return;
-        dragging = true;
         dragStartX = e.clientX;
-        dragStartViewX = this.viewX;
         dragDistance = 0;
+
+        // Check if mousedown is on the currently selected component
+        const rect = schematicCanvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        let hitSelected = false;
+        if (this.selectedIndex >= 0 && this._compRegions) {
+          const r = this._compRegions[this.selectedIndex];
+          if (r && clickX >= r.x && clickX <= r.x + r.w &&
+              clickY >= r.y && clickY <= r.y + r.h) {
+            hitSelected = true;
+          }
+        }
+
+        if (hitSelected) {
+          reorderDragging = true;
+          reorderSourceIndex = this.selectedIndex;
+          this._reorderDropIndex = -1;
+          dragging = false;
+        } else {
+          dragging = true;
+          reorderDragging = false;
+          dragStartViewX = this.viewX;
+        }
       });
       window.addEventListener('mousemove', (e) => {
+        if (reorderDragging) {
+          const dx = e.clientX - dragStartX;
+          dragDistance = Math.abs(dx);
+          if (dragDistance <= 5) return;  // not dragging yet
+          // Find drop position from mouse X
+          const rect = schematicCanvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          let dropIdx = this.draftNodes.length;  // default: after last
+          if (this._compRegions) {
+            for (const r of this._compRegions) {
+              const cx = r.x + r.w / 2;
+              if (mouseX < cx) {
+                dropIdx = r.index;
+                break;
+              }
+            }
+          }
+          // Don't show indicator at current position or adjacent (no-op)
+          if (dropIdx === reorderSourceIndex || dropIdx === reorderSourceIndex + 1) {
+            dropIdx = -1;
+          }
+          if (this._reorderDropIndex !== dropIdx) {
+            this._reorderDropIndex = dropIdx;
+            this._renderAll();
+          }
+          return;
+        }
         if (!dragging) return;
         const dx = e.clientX - dragStartX;
         dragDistance = Math.abs(dx);
@@ -221,7 +275,16 @@ export class BeamlineDesigner {
         this._clampViewX();
         this._renderAll();
       });
-      window.addEventListener('mouseup', () => { dragging = false; });
+      window.addEventListener('mouseup', () => {
+        if (reorderDragging && dragDistance > 5 && this._reorderDropIndex >= 0) {
+          this._reorderComponent(reorderSourceIndex, this._reorderDropIndex);
+        }
+        this._reorderDropIndex = -1;
+        dragging = false;
+        reorderDragging = false;
+        reorderSourceIndex = -1;
+        this._renderAll();
+      });
 
       schematicCanvas.addEventListener('click', (e) => {
         if (!this.isOpen) return;
@@ -339,17 +402,17 @@ export class BeamlineDesigner {
       }));
       this.selectedIndex = savedDraft.selectedIndex ?? 0;
       this.viewX = savedDraft.viewX ?? 0;
-      this.viewZoom = savedDraft.viewZoom ?? 1;
+      this.viewZoom = savedDraft.viewZoom ?? 0.7;
     } else {
       this.draftNodes = ordered.map(n => this._cloneNode(n));
       this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
       this.viewX = 0;
-      this.viewZoom = 1;
+      this.viewZoom = 0.7;
     }
     this.markerS = 0;
     this.focusRow = 0;
     this.designerPaletteIndex = -1;
-    this.insertMode = null;
+    this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
     // Reset range button UI
@@ -413,7 +476,7 @@ export class BeamlineDesigner {
       }));
       this.selectedIndex = savedDraft.selectedIndex ?? 0;
       this.viewX = savedDraft.viewX ?? 0;
-      this.viewZoom = savedDraft.viewZoom ?? 1;
+      this.viewZoom = savedDraft.viewZoom ?? 0.7;
     } else if (design) {
       this.designId = design.id;
       this.designName = design.name;
@@ -427,20 +490,20 @@ export class BeamlineDesigner {
       }));
       this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
       this.viewX = 0;
-      this.viewZoom = 1;
+      this.viewZoom = 0.7;
     } else {
       this.designId = null;
       this.designName = 'New Design';
       this.draftNodes = [];
       this.selectedIndex = -1;
       this.viewX = 0;
-      this.viewZoom = 1;
+      this.viewZoom = 0.7;
     }
     this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
     this.markerS = 0;
     this.focusRow = 0;
     this.designerPaletteIndex = -1;
-    this.insertMode = null;
+    this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
     this._nextTempId = this.draftNodes.length;
 
@@ -771,6 +834,22 @@ export class BeamlineDesigner {
     this._renderAll();
   }
 
+  /** Move a component from one index to a new position via drag reorder. */
+  _reorderComponent(fromIndex, toIndex) {
+    if (fromIndex < 0 || fromIndex >= this.draftNodes.length) return;
+    if (toIndex < 0 || toIndex > this.draftNodes.length) return;
+    this._pushUndo();
+    const [node] = this.draftNodes.splice(fromIndex, 1);
+    // After removing, adjust toIndex if it was after the removed element
+    const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
+    this.draftNodes.splice(insertAt, 0, node);
+    this.selectedIndex = insertAt;
+    this._updateTotalLength();
+    this._recalcDraft();
+    this._updateDraftBar();
+    this._renderAll();
+  }
+
   // --- Palette integration ---
 
   handlePaletteClick(componentType) {
@@ -782,8 +861,11 @@ export class BeamlineDesigner {
       // Find closest edge using marker position
       const { index, position } = this._findClosestEdge();
       this.insertComponent(index, componentType, position);
-      this.insertMode = null;
-      this._updateInsertButtons();
+      // Advance marker past the inserted component so the next click places after it
+      const lengths = this._compPhysLengths();
+      let s = 0;
+      for (let i = 0; i <= this.selectedIndex && i < lengths.length; i++) s += lengths[i];
+      this.markerS = s;
       return true;
     }
 
@@ -888,7 +970,7 @@ export class BeamlineDesigner {
     let totalVisual = 0;
     for (const node of this.draftNodes) {
       const comp = COMPONENTS[node.type];
-      const len = comp ? comp.length : 1;
+      const len = comp ? (comp.subL || 4) * 0.5 : 1;
       const visualW = Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
       const physLen = (len / tileLenSum) * this.totalLength;
       entries.push({ visualW, physLen });
@@ -1146,8 +1228,14 @@ export class BeamlineDesigner {
 
   // --- Pan / Zoom ---
 
-  panLeft() { this.viewX -= 8 / this.viewZoom; this._clampViewX(); this._renderAll(); }
-  panRight() { this.viewX += 8 / this.viewZoom; this._clampViewX(); this._renderAll(); }
+  panLeft() {
+    const speed = Math.max(8, this.draftNodes.length * 3) / this.viewZoom;
+    this.viewX -= speed; this._clampViewX(); this._renderAll();
+  }
+  panRight() {
+    const speed = Math.max(8, this.draftNodes.length * 3) / this.viewZoom;
+    this.viewX += speed; this._clampViewX(); this._renderAll();
+  }
 
   zoomAt(delta, cursorFraction) {
     const oldZoom = this.viewZoom;
@@ -1180,7 +1268,7 @@ export class BeamlineDesigner {
     this.totalLength = 0;
     for (const node of this.draftNodes) {
       const comp = COMPONENTS[node.type];
-      if (comp) this.totalLength += comp.length * LENGTH_SCALE;
+      if (comp) this.totalLength += (comp.subL || 4) * 0.5;
     }
     if (this.totalLength === 0) this.totalLength = 1;
   }
@@ -1194,11 +1282,11 @@ export class BeamlineDesigner {
     const SCHEM_PW = 70;
     const compWidths = this.draftNodes.map(n => {
       const comp = COMPONENTS[n.type];
-      const len = comp ? comp.length : 1;
+      const len = comp ? (comp.subL || 4) * 0.5 : 1;
       return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
     });
     const totalPW = compWidths.reduce((s, w) => s + w, 0);
-    const baseZoom = W / (totalPW + 40);
+    const baseZoom = W / (5 * SCHEM_PW + 40);
     const effZoom = this.viewZoom * baseZoom;
     // viewX is in "beamline-meters" scaled by effectiveZoom to get panOffsetPx
     // panOffsetPx = -viewX * effZoom; xPos starts at 20 + panOffsetPx
@@ -1230,7 +1318,7 @@ export class BeamlineDesigner {
       }
       const el = {
         type: node.type,
-        length: comp.length,
+        subL: comp.subL || 4,
         stats: effectiveStats,
         params: node.params || {},
       };
@@ -1288,7 +1376,7 @@ export class BeamlineDesigner {
     let cumS = 0;
     for (const node of this.draftNodes) {
       const comp = COMPONENTS[node.type];
-      const compLen = (comp ? comp.length : 1) * LENGTH_SCALE;
+      const compLen = (comp ? comp.subL || 4 : 4) * 0.5;
       if (quadTypes.has(node.type)) {
         existingQuadS.push(cumS + compLen / 2);
         // Track last quad polarity for alternation
@@ -1302,7 +1390,7 @@ export class BeamlineDesigner {
     // Use ref_focal from the beam energy at midpoint
     const midEnv = env[Math.floor(env.length / 2)];
     const pGev = midEnv ? midEnv.energy : 0.01;
-    const refFocal = pGev / (0.2998 * 20.0 * 3.0);
+    const refFocal = pGev / (0.2998 * 20.0 * 2.0);
     const cellLength = Math.max(refFocal * 2, 3.0);
 
     let inUrgentRegion = false;
@@ -1325,7 +1413,7 @@ export class BeamlineDesigner {
         let accS = 0;
         for (let j = 0; j < this.draftNodes.length; j++) {
           const comp = COMPONENTS[this.draftNodes[j].type];
-          accS += (comp ? comp.length : 1) * LENGTH_SCALE;
+          accS += (comp ? comp.subL || 4 : 4) * 0.5;
           if (accS >= ghostS) { nodeIdx = j; break; }
         }
 

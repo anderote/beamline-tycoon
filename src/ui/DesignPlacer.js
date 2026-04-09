@@ -85,8 +85,8 @@ export class DesignPlacer {
       }
 
       const delta = DIR_DELTA[exitDir];
-      const trackLen = comp.trackLength || 1;
-      const trackW = comp.trackWidth || 1;
+      const trackLen = Math.ceil((comp.subL || 4) / 4);
+      const trackW = Math.ceil((comp.subW || 2) / 4);
       const perpDir = turnLeft(exitDir);
       const perpDelta = DIR_DELTA[perpDir];
 
@@ -191,7 +191,7 @@ export class DesignPlacer {
 
       // Advance cursor
       const delta = DIR_DELTA[exitDir];
-      const trackLen = comp.trackLength || 1;
+      const trackLen = Math.ceil((comp.subL || 4) / 4);
       col += delta.dc * trackLen;
       row += delta.dr * trackLen;
       dir = exitDir;
