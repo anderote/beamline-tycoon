@@ -695,3 +695,102 @@ if (qFailed > 0) {
 } else {
   console.log('\n=== ALL NETWORK QUALITY TESTS PASSED ===');
 }
+
+// === Per-Node Quality Tests ===
+let nqPassed = 0;
+let nqFailed = 0;
+function nqassert(cond, msg) {
+  if (!cond) { console.log('FAIL: ' + msg); nqFailed++; }
+  else { nqPassed++; }
+}
+
+console.log('\n=== Per-Node Quality Tests ===');
+
+// 1. Node on power network with substation → powerQuality = 1.0
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'powerCable');
+  placeConn(state, 5, 6, 'powerCable');
+  placeEquip(state, 'sub1', 'substation', 5, 4);
+  placeBeamlineNode(state, 'q1', 'quadrupole', 5, 7);
+  const nets = Networks.discoverAll(state);
+  const labBonuses = { powerCable: [], rfWaveguide: [], coolingWater: [], vacuumPipe: [], cryoTransfer: [], dataFiber: [] };
+  const qualities = Networks.computeNodeQualities(nets, labBonuses, state.beamline);
+  nqassert(qualities['q1'] !== undefined, 'NQ1: node q1 should be in qualities');
+  nqassert(qualities['q1'].powerQuality === 1.0, 'NQ1: powerQuality should be 1.0, got ' + (qualities['q1'] && qualities['q1'].powerQuality));
+}
+
+// 2. Node not on any network → all defaults (1.0, no quench)
+{
+  const state = mockGameState();
+  placeBeamlineNode(state, 'lonely1', 'drift', 50, 50);
+  const nets = Networks.discoverAll(state);
+  const labBonuses = { powerCable: [], rfWaveguide: [], coolingWater: [], vacuumPipe: [], cryoTransfer: [], dataFiber: [] };
+  const qualities = Networks.computeNodeQualities(nets, labBonuses, state.beamline);
+  nqassert(qualities['lonely1'] !== undefined, 'NQ2: lonely node should be in qualities');
+  var q = qualities['lonely1'];
+  nqassert(q.powerQuality === 1.0, 'NQ2: powerQuality default 1.0, got ' + q.powerQuality);
+  nqassert(q.rfQuality === 1.0, 'NQ2: rfQuality default 1.0, got ' + q.rfQuality);
+  nqassert(q.coolingQuality === 1.0, 'NQ2: coolingQuality default 1.0, got ' + q.coolingQuality);
+  nqassert(q.vacuumQuality === 1.0, 'NQ2: vacuumQuality default 1.0, got ' + q.vacuumQuality);
+  nqassert(q.cryoQuality === 1.0, 'NQ2: cryoQuality default 1.0, got ' + q.cryoQuality);
+  nqassert(q.cryoQuenched === false, 'NQ2: cryoQuenched default false, got ' + q.cryoQuenched);
+  nqassert(q.dataQuality === 1.0, 'NQ2: dataQuality default 1.0, got ' + q.dataQuality);
+}
+
+// 3. Verify return structure has all expected fields for every node
+{
+  const state = mockGameState();
+  placeBeamlineNode(state, 'n1', 'source', 5, 5);
+  placeBeamlineNode(state, 'n2', 'quadrupole', 6, 5);
+  const nets = Networks.discoverAll(state);
+  const labBonuses = { powerCable: [], rfWaveguide: [], coolingWater: [], vacuumPipe: [], cryoTransfer: [], dataFiber: [] };
+  const qualities = Networks.computeNodeQualities(nets, labBonuses, state.beamline);
+  var expectedFields = ['powerQuality', 'rfQuality', 'coolingQuality', 'vacuumQuality', 'cryoQuality', 'cryoQuenched', 'dataQuality'];
+  for (var ni = 0; ni < state.beamline.length; ni++) {
+    var nodeId = state.beamline[ni].id;
+    for (var fi = 0; fi < expectedFields.length; fi++) {
+      nqassert(qualities[nodeId][expectedFields[fi]] !== undefined,
+        'NQ3: node ' + nodeId + ' should have field ' + expectedFields[fi]);
+    }
+  }
+}
+
+// 4. Cryo quench: node on quenched cryo network → cryoQuality = 0, cryoQuenched = true
+{
+  const state = mockGameState();
+  for (var r = 3; r <= 10; r++) {
+    placeConn(state, 5, r, 'cryoTransfer');
+  }
+  placeEquip(state, 'cc1', 'cryocooler', 5, 2);
+  placeBeamlineNode(state, 'cm1', 'cryomodule', 6, 3);
+  placeBeamlineNode(state, 'cm2', 'cryomodule', 6, 4);
+  placeBeamlineNode(state, 'cm3', 'cryomodule', 6, 5);
+  placeBeamlineNode(state, 'cm4', 'cryomodule', 6, 6);
+  placeBeamlineNode(state, 'cm5', 'cryomodule', 6, 7);
+  placeBeamlineNode(state, 'cm6', 'cryomodule', 6, 8);
+  const nets = Networks.discoverAll(state);
+  const labBonuses = { powerCable: [], rfWaveguide: [], coolingWater: [], vacuumPipe: [], cryoTransfer: [], dataFiber: [] };
+  const qualities = Networks.computeNodeQualities(nets, labBonuses, state.beamline);
+  nqassert(qualities['cm1'].cryoQuenched === true, 'NQ4: cryoQuenched should be true, got ' + qualities['cm1'].cryoQuenched);
+  nqassert(qualities['cm1'].cryoQuality === 0, 'NQ4: cryoQuality should be 0, got ' + qualities['cm1'].cryoQuality);
+}
+
+// 5. Data fiber: base quality 1.0 (no capacity/demand concept)
+{
+  const state = mockGameState();
+  placeConn(state, 5, 5, 'dataFiber');
+  placeBeamlineNode(state, 'df1', 'bpm', 5, 6);
+  const nets = Networks.discoverAll(state);
+  const labBonuses = { powerCable: [], rfWaveguide: [], coolingWater: [], vacuumPipe: [], cryoTransfer: [], dataFiber: [] };
+  const qualities = Networks.computeNodeQualities(nets, labBonuses, state.beamline);
+  nqassert(qualities['df1'].dataQuality === 1.0, 'NQ5: dataQuality should be 1.0, got ' + qualities['df1'].dataQuality);
+}
+
+console.log('Passed: ' + nqPassed + '  Failed: ' + nqFailed);
+if (nqFailed > 0) {
+  console.log('\n=== PER-NODE QUALITY TESTS FAILED ===');
+  process.exit(1);
+} else {
+  console.log('\n=== ALL PER-NODE QUALITY TESTS PASSED ===');
+}

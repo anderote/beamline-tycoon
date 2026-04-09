@@ -745,6 +745,163 @@ export const Networks = {
     };
   },
 
+  /**
+   * Compute per-beamline-node quality multipliers from all network validations.
+   * @param {object} allNetworks - Output of discoverAll()
+   * @param {object} labBonuses - Output of findLabNetworkBonuses()
+   * @param {Array} allBeamline - state.beamline array (needed for vacuum validation)
+   * @returns {object} nodeId -> { powerQuality, rfQuality, coolingQuality, vacuumQuality, cryoQuality, cryoQuenched, dataQuality }
+   */
+  computeNodeQualities: function(allNetworks, labBonuses, allBeamline) {
+    var qualities = {};
+
+    // Initialize defaults for every beamline node
+    for (var b = 0; b < allBeamline.length; b++) {
+      var nid = allBeamline[b].id;
+      qualities[nid] = {
+        powerQuality: 1.0,
+        rfQuality: 1.0,
+        coolingQuality: 1.0,
+        vacuumQuality: 1.0,
+        cryoQuality: 1.0,
+        cryoQuenched: false,
+        dataQuality: 1.0,
+      };
+    }
+
+    // --- Power ---
+    var powerNets = allNetworks.powerCable || [];
+    for (var pi = 0; pi < powerNets.length; pi++) {
+      var pResult = Networks.validatePowerNetwork(powerNets[pi]);
+      var pBonuses = [];
+      if (labBonuses && labBonuses.powerCable) {
+        for (var pb = 0; pb < labBonuses.powerCable.length; pb++) {
+          if (labBonuses.powerCable[pb].clusterIndex === pi) {
+            pBonuses.push(labBonuses.powerCable[pb]);
+          }
+        }
+      }
+      var pQuality = Networks.computeNetworkQuality(pResult.capacity, pResult.draw, pBonuses);
+      for (var pn = 0; pn < powerNets[pi].beamlineNodes.length; pn++) {
+        var pNodeId = powerNets[pi].beamlineNodes[pn].id;
+        if (qualities[pNodeId]) {
+          qualities[pNodeId].powerQuality = pQuality;
+        }
+      }
+    }
+
+    // --- RF ---
+    var rfNets = allNetworks.rfWaveguide || [];
+    for (var ri = 0; ri < rfNets.length; ri++) {
+      var rResult = Networks.validateRfNetwork(rfNets[ri]);
+      var rBonuses = [];
+      if (labBonuses && labBonuses.rfWaveguide) {
+        for (var rb = 0; rb < labBonuses.rfWaveguide.length; rb++) {
+          if (labBonuses.rfWaveguide[rb].clusterIndex === ri) {
+            rBonuses.push(labBonuses.rfWaveguide[rb]);
+          }
+        }
+      }
+      var rQuality = Networks.computeNetworkQuality(rResult.forwardPower, rResult.totalDemand, rBonuses);
+      for (var rn = 0; rn < rfNets[ri].beamlineNodes.length; rn++) {
+        var rNodeId = rfNets[ri].beamlineNodes[rn].id;
+        if (qualities[rNodeId]) {
+          qualities[rNodeId].rfQuality = rQuality;
+        }
+      }
+    }
+
+    // --- Cooling ---
+    var coolNets = allNetworks.coolingWater || [];
+    for (var ci = 0; ci < coolNets.length; ci++) {
+      var cResult = Networks.validateCoolingNetwork(coolNets[ci]);
+      var cBonuses = [];
+      if (labBonuses && labBonuses.coolingWater) {
+        for (var cb = 0; cb < labBonuses.coolingWater.length; cb++) {
+          if (labBonuses.coolingWater[cb].clusterIndex === ci) {
+            cBonuses.push(labBonuses.coolingWater[cb]);
+          }
+        }
+      }
+      var cQuality = Networks.computeNetworkQuality(cResult.capacity, cResult.heatLoad, cBonuses);
+      for (var cn = 0; cn < coolNets[ci].beamlineNodes.length; cn++) {
+        var cNodeId = coolNets[ci].beamlineNodes[cn].id;
+        if (qualities[cNodeId]) {
+          qualities[cNodeId].coolingQuality = cQuality;
+        }
+      }
+    }
+
+    // --- Vacuum (special: quality from pressureQuality string, not capacity/demand) ---
+    var vacNets = allNetworks.vacuumPipe || [];
+    for (var vi = 0; vi < vacNets.length; vi++) {
+      var vResult = Networks.validateVacuumNetwork(vacNets[vi], allBeamline);
+      var vBonuses = [];
+      if (labBonuses && labBonuses.vacuumPipe) {
+        for (var vb = 0; vb < labBonuses.vacuumPipe.length; vb++) {
+          if (labBonuses.vacuumPipe[vb].clusterIndex === vi) {
+            vBonuses.push(labBonuses.vacuumPipe[vb]);
+          }
+        }
+      }
+      var vQuality = Networks.computeNetworkQuality(vResult.quality, 1.0, vBonuses);
+      for (var vn = 0; vn < vacNets[vi].beamlineNodes.length; vn++) {
+        var vNodeId = vacNets[vi].beamlineNodes[vn].id;
+        if (qualities[vNodeId]) {
+          qualities[vNodeId].vacuumQuality = vQuality;
+        }
+      }
+    }
+
+    // --- Cryo (special: quench if ratio < 0.5) ---
+    var cryoNets = allNetworks.cryoTransfer || [];
+    for (var cri = 0; cri < cryoNets.length; cri++) {
+      var crResult = Networks.validateCryoNetwork(cryoNets[cri]);
+      var crBonuses = [];
+      if (labBonuses && labBonuses.cryoTransfer) {
+        for (var crb = 0; crb < labBonuses.cryoTransfer.length; crb++) {
+          if (labBonuses.cryoTransfer[crb].clusterIndex === cri) {
+            crBonuses.push(labBonuses.cryoTransfer[crb]);
+          }
+        }
+      }
+      var crQuality = Networks.computeNetworkQuality(crResult.capacity, crResult.heatLoad, crBonuses);
+      var crQuenched = crResult.quenched || false;
+      if (crQuenched) {
+        crQuality = 0;
+      }
+      for (var crn = 0; crn < cryoNets[cri].beamlineNodes.length; crn++) {
+        var crNodeId = cryoNets[cri].beamlineNodes[crn].id;
+        if (qualities[crNodeId]) {
+          qualities[crNodeId].cryoQuality = crQuality;
+          qualities[crNodeId].cryoQuenched = crQuenched;
+        }
+      }
+    }
+
+    // --- Data fiber (no capacity/demand, base quality 1.0 + lab bonus) ---
+    var dataNets = allNetworks.dataFiber || [];
+    for (var di = 0; di < dataNets.length; di++) {
+      var dBonuses = [];
+      if (labBonuses && labBonuses.dataFiber) {
+        for (var db = 0; db < labBonuses.dataFiber.length; db++) {
+          if (labBonuses.dataFiber[db].clusterIndex === di) {
+            dBonuses.push(labBonuses.dataFiber[db]);
+          }
+        }
+      }
+      var dQuality = Networks.computeNetworkQuality(1, 1, dBonuses);
+      for (var dn = 0; dn < dataNets[di].beamlineNodes.length; dn++) {
+        var dNodeId = dataNets[di].beamlineNodes[dn].id;
+        if (qualities[dNodeId]) {
+          qualities[dNodeId].dataQuality = dQuality;
+        }
+      }
+    }
+
+    return qualities;
+  },
+
   validateCryoNetwork: function(network) {
     var SRF_TYPES = ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'srfGun', 'scQuad', 'scDipole'];
     var SRF_HEAT_W = 18;

@@ -6,6 +6,7 @@ import { CONNECTION_TYPES } from '../data/modes.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
+import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { Beamline } from '../beamline/Beamline.js';
 
@@ -2165,12 +2166,26 @@ export class Game {
       facilityEquipment: this.state.facilityEquipment,
       facilityGrid: this.state.facilityGrid,
       beamline: this.state.beamline,
+      infrastructure: this.state.infrastructure,
+      infraOccupied: this.state.infraOccupied,
+      walls: this.state.walls,
+      wallOccupied: this.state.wallOccupied,
+      doors: this.state.doors,
+      doorOccupied: this.state.doorOccupied,
+      zoneOccupied: this.state.zoneOccupied,
+      zoneFurnishings: this.state.zoneFurnishings,
+      machines: this.state.machines,
     };
 
     const result = Networks.validate(validationState);
     this.state.infraBlockers = result.blockers;
     this.state.infraCanRun = result.canRun;
     this.state.networkData = result.networks;
+
+    const labBonuses = findLabNetworkBonuses(validationState, result.networks);
+    const nodeQualities = Networks.computeNodeQualities(result.networks, labBonuses, this.state.beamline);
+    this.state.nodeQualities = nodeQualities;
+    this.state.labBonuses = labBonuses;
 
     // Per-beamline fault attribution: if a blocker references a node, fault that beamline
     for (const blocker of result.blockers) {
