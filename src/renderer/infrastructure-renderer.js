@@ -247,6 +247,73 @@ Renderer.prototype._detectRoom = function(startCol, startRow) {
   return room;
 };
 
+Renderer.prototype._applyWallVisibility = function() {
+  const mode = this.wallVisibilityMode;
+
+  if (mode === 'down') {
+    this.wallLayer.visible = false;
+    return;
+  }
+
+  this.wallLayer.visible = true;
+
+  if (mode === 'up') {
+    for (const key in this.wallGraphics) {
+      const g = this.wallGraphics[key];
+      g.visible = true;
+      g.alpha = 1.0;
+    }
+    return;
+  }
+
+  if (mode === 'transparent') {
+    for (const key in this.wallGraphics) {
+      const g = this.wallGraphics[key];
+      g.visible = true;
+      // e and s edges are near-facing in iso view
+      const edge = key.split(',')[2];
+      g.alpha = (edge === 'e' || edge === 's') ? 0.25 : 1.0;
+    }
+    return;
+  }
+
+  if (mode === 'cutaway') {
+    const hoverKey = `${this.hoverCol},${this.hoverRow}`;
+    if (hoverKey !== this._cutawayHoverKey) {
+      this._cutawayHoverKey = hoverKey;
+      this._cutawayRoom = this._detectRoom(this.hoverCol, this.hoverRow);
+    }
+    const room = this._cutawayRoom;
+    if (!room) {
+      // No room detected, show all
+      for (const key in this.wallGraphics) {
+        this.wallGraphics[key].visible = true;
+        this.wallGraphics[key].alpha = 1.0;
+      }
+      return;
+    }
+
+    const walls = this.game.state.walls || [];
+    for (const wall of walls) {
+      const wKey = `${wall.col},${wall.row},${wall.edge}`;
+      const g = this.wallGraphics[wKey];
+      if (!g) continue;
+
+      // A wall borders the room if either of its neighboring tiles is in the room
+      let bordersRoom = false;
+      if (wall.edge === 'e') {
+        bordersRoom = room.has(`${wall.col},${wall.row}`) || room.has(`${wall.col + 1},${wall.row}`);
+      } else {
+        bordersRoom = room.has(`${wall.col},${wall.row}`) || room.has(`${wall.col},${wall.row + 1}`);
+      }
+
+      g.visible = !bordersRoom;
+      g.alpha = 1.0;
+    }
+    return;
+  }
+};
+
 Renderer.prototype.renderWallPreview = function(path, wallType) {
   this.dragPreviewLayer.removeChildren();
   if (!path || path.length === 0) return;
