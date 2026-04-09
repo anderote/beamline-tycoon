@@ -77,6 +77,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     n_focusing = 0
     prev_max_sigma = None  # for divergence rate estimation
     prev_s = 0.0
+    last_focus_s = 0.0  # s position of last focusing element
 
     for i, element in enumerate(beamline_config):
         context.element_index = i
@@ -101,6 +102,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
         if etype in ("quadrupole", "sextupole"):
             n_focusing += 1
+            last_focus_s = context.cumulative_s
 
         length = element.get("length", 0.0)
 
@@ -150,6 +152,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             focus_margin = 1.0 - (max_sigma / aperture)
 
             # Focus urgency: how soon does this beam need focusing?
+            # Combines beam growth rate with distance since last focusing
             focus_urgency = 0.0
             if prev_max_sigma is not None and context.cumulative_s > prev_s:
                 ds = context.cumulative_s - prev_s
@@ -160,10 +163,18 @@ def propagate(beamline_config, machine_type=None, source_params=None):
                         meters_to_loss = remaining / divergence_rate
                     else:
                         meters_to_loss = 0.0
+                    # Distance since last focusing element
+                    drift_since_focus = context.cumulative_s - last_focus_s
+                    # Reference scale based on energy (practical FODO half-cell)
                     p_gev = beam.energy
                     ref_focal = p_gev / (0.2998 * 20.0 * 3.0)
                     ref_scale = max(ref_focal, 1.0)
-                    focus_urgency = max(0.0, min(1.0, 1.0 - meters_to_loss / ref_scale))
+                    # Component 1: proximity to beam loss
+                    loss_urgency = max(0.0, min(1.0, 1.0 - meters_to_loss / (ref_scale * 100.0)))
+                    # Component 2: drift distance without focusing (saturates ~20m)
+                    drift_urgency = min(1.0, drift_since_focus / 20.0)
+                    # Take the max: either close to loss or long unfocused drift
+                    focus_urgency = max(0.0, min(1.0, max(loss_urgency, drift_urgency)))
 
             prev_max_sigma = max_sigma
             prev_s = context.cumulative_s
