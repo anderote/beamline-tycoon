@@ -163,10 +163,11 @@ export class ThreeRenderer {
       0.1,
       1000
     );
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = Math.PI / 4;
-    this.camera.rotation.x = -Math.atan(Math.sin(Math.atan(1)));
+    // Isometric view: position camera at equal X/Y/Z offset from origin
+    // and lookAt the origin. This produces the standard isometric projection
+    // where X and Z axes are equally foreshortened.
     this.camera.position.set(50, 50, 50);
+    this.camera.lookAt(0, 0, 0);
 
     // Lighting
     const ambient = new THREE.AmbientLight(0xfff5e6, 0.4);
@@ -517,10 +518,9 @@ export class ThreeRenderer {
   }
 
   _updateCameraLookAt() {
-    // Move camera position to follow pan, keeping the fixed isometric offset.
-    // Do NOT call camera.lookAt() — it resets the isometric rotation.
-    // The rotation was set once in init() and must stay fixed.
+    // Move both position and target by pan offset — maintains isometric angle
     this.camera.position.set(50 + this._panX, 50, 50 + this._panY);
+    this.camera.lookAt(this._panX, 0, this._panY);
   }
 
   _onResize() {
