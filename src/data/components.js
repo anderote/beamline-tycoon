@@ -1,4 +1,4 @@
-// Components — trackLength replaces w/h; icon and connectDirs removed
+// Components — subL/subW define size in sub-units (1 sub-unit = 50cm)
 export const COMPONENTS = {
   source: {
     id: 'source',
