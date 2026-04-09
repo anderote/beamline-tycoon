@@ -170,7 +170,12 @@ export class SpriteManager {
       for (const key of Object.keys(ZONE_FURNISHINGS)) {
         const furn = ZONE_FURNISHINGS[key];
         const color = furn.spriteColor || 0x888888;
-        const gfx = this._drawIsoBox(TILE_W, TILE_H, color);
+        const gw = furn.gridW || 1;
+        const gh = furn.gridH || 1;
+        // Sub-cell size: TILE_W/4 per grid unit wide, TILE_H/4 per grid unit tall
+        const boxW = (TILE_W / 4) * gw;
+        const boxH = (TILE_H / 4) * gh;
+        const gfx = this._drawIsoBox(boxW, boxH, color);
         this.textures[key] = app.renderer.generateTexture(gfx);
       }
     }
