@@ -1011,7 +1011,7 @@ export class Game {
       }
       this.state.zoneFurnishings = this.state.zoneFurnishings.filter(e => !(e.col === col && e.row === row));
       delete this.state.zoneFurnishingSubgrids[key];
-      this._reindexFurnishingSubgrids();
+      this._syncLegacyPlaceableState();
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
       return true;
@@ -1146,145 +1146,19 @@ export class Game {
   // === ZONE FURNISHINGS ===
 
   placeZoneFurnishing(col, row, furnType, subCol, subRow, rotated = false) {
-    const furn = ZONE_FURNISHINGS[furnType];
-    if (!furn) return false;
-    if (!this.canAfford(furn.cost)) {
-      this.log(`Can't afford ${furn.name}!`, 'bad');
-      return false;
-    }
-
-    const key = col + ',' + row;
-    // Must be on an infrastructure tile
-    if (!this.state.infraOccupied[key]) {
-      this.log('Must place on infrastructure!', 'bad');
-      return false;
-    }
-
-    const gw = rotated ? furn.gridH : furn.gridW;
-    const gh = rotated ? furn.gridW : furn.gridH;
-
-    // Validate sub-grid bounds
-    if (subCol < 0 || subRow < 0 || subCol + gw > 4 || subRow + gh > 4) {
-      this.log('Doesn\'t fit here!', 'bad');
-      return false;
-    }
-
-    // Ensure subgrid exists for this tile
-    if (!this.state.zoneFurnishingSubgrids[key]) {
-      this.state.zoneFurnishingSubgrids[key] = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-    }
-    const subgrid = this.state.zoneFurnishingSubgrids[key];
-
-    // Check for collisions in the sub-grid
-    for (let r = subRow; r < subRow + gh; r++) {
-      for (let c = subCol; c < subCol + gw; c++) {
-        if (subgrid[r][c] !== 0) {
-          this.log('Space occupied!', 'bad');
-          return false;
-        }
-      }
-    }
-
-    // Place it
-    const id = 'zf_' + this.state.zoneFurnishingNextId++;
-    this.spend(furn.cost);
-
-    const entry = { id, type: furnType, col, row, subCol, subRow, rotated };
-    this.state.zoneFurnishings.push(entry);
-
-    // Mark sub-grid cells
-    const furnIdx = this.state.zoneFurnishings.length; // nonzero index
-    for (let r = subRow; r < subRow + gh; r++) {
-      for (let c = subCol; c < subCol + gw; c++) {
-        subgrid[r][c] = furnIdx;
-      }
-    }
-
-    // Zone bonus logging
-    const zoneType = this.state.zoneOccupied[key];
-    if (zoneType === furn.zoneType) {
-      this.log(`Built ${furn.name} (zone bonus active)`, 'good');
-    } else {
-      this.log(`Built ${furn.name}`, 'good');
-    }
-
-    this.computeSystemStats();
-    this.emit('zonesChanged');
-    return true;
+    return this.placePlaceable({
+      type: furnType,
+      category: 'furnishing',
+      col,
+      row,
+      subCol,
+      subRow,
+      rotated,
+    });
   }
 
   removeZoneFurnishing(furnId) {
-    const idx = this.state.zoneFurnishings.findIndex(e => e.id === furnId);
-    if (idx === -1) return false;
-
-    const entry = this.state.zoneFurnishings[idx];
-    const furn = ZONE_FURNISHINGS[entry.type];
-
-    // 50% refund
-    if (furn) {
-      for (const [r, a] of Object.entries(furn.cost))
-        this.state.resources[r] += Math.floor(a * 0.5);
-    }
-
-    // Clear sub-grid cells
-    const key = entry.col + ',' + entry.row;
-    const subgrid = this.state.zoneFurnishingSubgrids[key];
-    if (subgrid) {
-      const gw = entry.rotated ? furn.gridH : furn.gridW;
-      const gh = entry.rotated ? furn.gridW : furn.gridH;
-      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
-        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
-          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = 0;
-        }
-      }
-      // Clean up empty subgrids
-      if (subgrid.every(row => row.every(cell => cell === 0))) {
-        delete this.state.zoneFurnishingSubgrids[key];
-      }
-    }
-
-    this.state.zoneFurnishings.splice(idx, 1);
-
-    // Re-index subgrid references (since indices shifted after splice)
-    this._reindexFurnishingSubgrids();
-
-    this.log(`Removed ${furn ? furn.name : 'furnishing'} (50% refund)`, 'info');
-    this.computeSystemStats();
-    this.emit('zonesChanged');
-    return true;
-  }
-
-  _reindexFurnishingSubgrids() {
-    // Rebuild all subgrids from the furnishings array
-    const subgrids = {};
-    for (let i = 0; i < this.state.zoneFurnishings.length; i++) {
-      const entry = this.state.zoneFurnishings[i];
-      const furn = ZONE_FURNISHINGS[entry.type];
-      if (!furn) continue;
-      const key = entry.col + ',' + entry.row;
-      if (!subgrids[key]) {
-        subgrids[key] = [
-          [0, 0, 0, 0],
-          [0, 0, 0, 0],
-          [0, 0, 0, 0],
-          [0, 0, 0, 0],
-        ];
-      }
-      const gw = entry.rotated ? furn.gridH : furn.gridW;
-      const gh = entry.rotated ? furn.gridW : furn.gridH;
-      const furnIdx = i + 1; // 1-based index
-      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
-        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
-          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrids[key][r][c] = furnIdx;
-        }
-      }
-    }
-    this.state.zoneFurnishingSubgrids = subgrids;
+    return this.removePlaceable(furnId);
   }
 
   // === UNIFIED PLACEMENT SYSTEM ===
@@ -1709,7 +1583,7 @@ export class Game {
       }
     }
     // Also rebuild furnishing indices
-    this._reindexFurnishingSubgrids();
+    this._syncLegacyPlaceableState();
   }
 
   hasBlockingDecoration(col, row) {
