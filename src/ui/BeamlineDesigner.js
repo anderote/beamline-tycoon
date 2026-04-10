@@ -5,6 +5,7 @@ import { COMPONENTS } from '../data/components.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
+import { flattenPath, findReachableEndpoints } from '../beamline/path-flattener.js';
 
 
 export class BeamlineDesigner {
@@ -13,6 +14,14 @@ export class BeamlineDesigner {
     this.renderer = renderer;
     this.isOpen = false;
     this.beamlineId = null;
+
+    // Pipe-graph edit mode state (set by openFromSource, null otherwise).
+    // When editSourceId is non-null, confirm() reconciles to pipe graph
+    // instead of the legacy registry.
+    this.editSourceId = null;
+    this.editEndpointId = null;
+    this.availableEndpoints = [];
+    this._originalAttachmentIds = new Set();
 
     // Draft state
     this.draftNodes = [];       // cloned ordered node list
@@ -449,6 +458,111 @@ export class BeamlineDesigner {
     window.location.hash = `designer?edit=${beamlineId}`;
   }
 
+  /**
+   * Open edit mode for a beamline rooted at the given source placeable.
+   * Walks the pipe graph via flattenPath and populates draftNodes.
+   *
+   * This is an alternative entry point to `open(beamlineId)`. Use this
+   * for beamlines built on the main map via the pipe-centric model.
+   * The existing `open(beamlineId)` path is preserved for designer-placed
+   * beamlines that still use the old Beamline/Registry classes.
+   *
+   * @param {string} sourceId - placeable id of the source module
+   * @param {string} [endpointId] - optional endpoint id (if the source has
+   *   multiple reachable endpoints, the designer walks the path toward this
+   *   one). Defaults to the first reachable endpoint.
+   */
+  openFromSource(sourceId, endpointId = null) {
+    if (!sourceId) return;
+
+    this.isOpen = true;
+    this.mode = 'edit';
+    this.beamlineId = null;  // not a registry-backed beamline
+    this.designId = null;
+    this.designName = '';
+    this.editSourceId = sourceId;
+
+    // Find reachable endpoints; default to the first one
+    const endpoints = findReachableEndpoints(this.game.state, sourceId);
+    this.availableEndpoints = endpoints;
+    if (!endpointId && endpoints.length > 0) {
+      endpointId = endpoints[0].id;
+    }
+    this.editEndpointId = endpointId;
+
+    // Walk the pipe graph
+    const flat = flattenPath(this.game.state, sourceId, endpointId);
+
+    // Convert flattener entries to draftNodes format
+    this.draftNodes = flat.map((entry, idx) => ({
+      // Use a negative id for drift nodes (they don't have stable identity)
+      id: entry.kind === 'module' ? entry.id
+          : entry.kind === 'attachment' ? entry.id
+          : -1000 - idx,  // synthetic drift id
+      type: entry.kind === 'drift' ? 'drift' : entry.type,
+      col: 0, row: 0, dir: 0, entryDir: 0,
+      parentId: null,
+      bendDir: null,
+      tiles: [],
+      params: { ...(entry.params || {}) },
+      computedStats: null,
+      beamStart: entry.beamStart,
+      subL: entry.subL,
+      // Back-reference so reconciliation can find the underlying object
+      _pipeKind: entry.kind,
+      _sourceRef: entry.kind === 'module'
+                  ? { placeableId: entry.id }
+                  : entry.kind === 'attachment'
+                    ? { pipeId: entry.pipeId, attachmentId: entry.id, position: entry.position }
+                    : { pipeId: entry.pipeId },
+    }));
+
+    // Snapshot original attachment IDs so confirm can detect deletions
+    this._originalAttachmentIds = new Set();
+    for (const entry of flat) {
+      if (entry.kind === 'attachment') {
+        this._originalAttachmentIds.add(entry.id);
+      }
+    }
+
+    // Snapshot originalNodes for diff (cost delta etc.)
+    this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+
+    this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
+    this.viewX = 0;
+    this.viewZoom = 0.7;
+    this.markerS = 0;
+    this.focusRow = 0;
+    this.designerPaletteIndex = -1;
+    this.insertMode = 'nearest';
+    this.plotRangeMode = 'full';
+    this.plotYRangeMode = 'full';
+
+    // TODO(Task 11 follow-up): restrict palette to attachment tools only while
+    // in pipe-graph edit mode. Modules must be placed on the main map.
+
+    this._updateTotalLength();
+    this._recalcDraft();
+
+    // Close any popups
+    ContextWindow.closeAll();
+    this.renderer.hidePopup();
+
+    // Show overlay
+    this.overlay.classList.remove('hidden');
+    const bottomHud = document.getElementById('bottom-hud');
+    if (bottomHud) bottomHud.style.zIndex = '260';
+    const paletteActions = document.getElementById('dsgn-palette-actions');
+    if (paletteActions) paletteActions.classList.remove('hidden');
+
+    this._setupDesignerTabs();
+    this._updateDesignerHeader();
+    this._updateDraftBar();
+    this._renderAll();
+
+    window.location.hash = `designer?src=${sourceId}`;
+  }
+
   openDesign(design = null) {
     this.mode = 'design';
     this.beamlineId = null;
@@ -633,7 +747,17 @@ export class BeamlineDesigner {
 
   confirm() {
     if (!this.isOpen) return;
-    if (this.mode === 'design') return;
+    if (this.mode === 'design') return; // designs are saved, not confirmed
+
+    // Pipe-graph mode: route to reconciler
+    if (this.editSourceId) {
+      this._reconcileToPipeGraph();
+      this._clearDraftState();
+      this._cleanup();
+      return;
+    }
+
+    // Legacy registry mode: existing code path (unchanged)
     const entry = this.game.registry.get(this.beamlineId);
     if (!entry) { this._cleanup(); return; }
 
@@ -698,9 +822,75 @@ export class BeamlineDesigner {
     this.game.state.designerState = null;
   }
 
+  /**
+   * Apply draft edits back to the pipe graph.
+   *
+   * Supported operations:
+   *   - Tune params on existing modules (writes to placeable.params)
+   *   - Tune params on existing attachments (writes to pipe.attachments[i].params)
+   *   - Add new attachment (inserted into draft during editing — must carry
+   *     _targetPipeId on the draft node)
+   *   - Remove existing attachment (was in _originalAttachmentIds, not in draft)
+   *
+   * Adding/removing modules from the designer is NOT supported in pipe-graph
+   * mode — modules live on the main map.
+   */
+  _reconcileToPipeGraph() {
+    const stillPresentAttachmentIds = new Set();
+
+    for (const node of this.draftNodes) {
+      if (node._pipeKind === 'module' && node._sourceRef?.placeableId) {
+        // Apply param edits to the placeable
+        const p = this.game.getPlaceable(node._sourceRef.placeableId);
+        if (p) {
+          p.params = { ...(p.params || {}), ...node.params };
+        }
+      } else if (node._pipeKind === 'attachment' && node._sourceRef?.attachmentId) {
+        // Apply param edits to the existing attachment
+        const pipe = this.game.state.beamPipes.find(
+          pp => pp.id === node._sourceRef.pipeId,
+        );
+        if (pipe) {
+          const att = pipe.attachments.find(a => a.id === node._sourceRef.attachmentId);
+          if (att) {
+            att.params = { ...(att.params || {}), ...node.params };
+            stillPresentAttachmentIds.add(node._sourceRef.attachmentId);
+          }
+        }
+      } else if (node._pipeKind === 'attachment' && !node._sourceRef?.attachmentId) {
+        // Newly added attachment in the draft (needs _targetPipeId to know where)
+        if (node._targetPipeId) {
+          this.game.addAttachmentToPipe(
+            node._targetPipeId,
+            node.type,
+            node._targetPosition ?? 0.5,
+            node.params,
+          );
+        }
+      }
+      // drift nodes are ignored — they're derived from pipes, not editable
+    }
+
+    // Remove attachments that were in the original but no longer in the draft
+    for (const pipe of this.game.state.beamPipes) {
+      for (const att of [...pipe.attachments]) {
+        if (this._originalAttachmentIds.has(att.id) && !stillPresentAttachmentIds.has(att.id)) {
+          this.game.removeAttachment(pipe.id, att.id);
+        }
+      }
+    }
+
+    this.game.recalcBeamline();
+    this.game.emit('beamlineChanged');
+  }
+
   _cleanup() {
     this.isOpen = false;
     this.beamlineId = null;
+    this.editSourceId = null;
+    this.editEndpointId = null;
+    this.availableEndpoints = [];
+    this._originalAttachmentIds = new Set();
     this.draftNodes = [];
     this.originalNodes = [];
     this.draftEnvelope = null;
