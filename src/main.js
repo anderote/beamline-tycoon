@@ -53,6 +53,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer.refresh();
 
   const input = new InputHandler(renderer, game);
+  renderer._inputHandler = input;
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
   const designLibrary = new DesignLibrary(game, designer, renderer);
