@@ -655,6 +655,30 @@ export class InputHandler {
   }
 
   /**
+   * Walk upstream through beamPipes from a placeable to find the source it
+   * belongs to. Returns the source placeable id, or the input id if it is
+   * already a source, or null if no source is reachable.
+   */
+  _findUpstreamSource(placeableId) {
+    const visited = new Set();
+    let currentId = placeableId;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const p = this.game.getPlaceable(currentId);
+      if (!p) return null;
+      const def = COMPONENTS[p.type];
+      if (def && def.isSource) return currentId;
+
+      // Find a pipe whose toId is this placeable (incoming edge)
+      const incoming = this.game.state.beamPipes.find(pp => pp.toId === currentId);
+      if (!incoming) return null;
+      currentId = incoming.fromId;
+    }
+    return null;
+  }
+
+  /**
    * Return the nearest edge of the cursor's tile, preferring edges that sit
    * on a flooring boundary (one side has infrastructure, the other doesn't).
    */
@@ -1068,17 +1092,30 @@ export class InputHandler {
           return;
         }
 
-        // Left-click: must start on a module
-        const startComp = this._findBeamlineComponentAt(grid.col, grid.row);
-        if (!startComp) return; // can't start pipe in empty space
+        // Left-click: start on (or near) a module. Snap to nearest within 2 tiles.
+        let startComp = this._findBeamlineComponentAt(grid.col, grid.row);
+        if (!startComp) {
+          startComp = this._findNearestBeamlineComponent(grid.col, grid.row, 2);
+        }
+        if (!startComp) {
+          this.game.log('Start beam pipe on a module (source/cavity/etc.)', 'bad');
+          return;
+        }
 
         const startDef = COMPONENTS[startComp.type];
-        if (!startDef || startDef.placement !== 'module') return; // must be a module
+        if (!startDef || startDef.placement !== 'module') {
+          this.game.log('Beam pipe must start on a module', 'bad');
+          return;
+        }
+
+        // Snap start tile to the module's origin so the path anchors cleanly
+        const startCol = startComp.col != null ? startComp.col : grid.col;
+        const startRow = startComp.row != null ? startComp.row : grid.row;
 
         this.drawingBeamPipe = true;
         this.beamPipeDrawMode = 'add';
         this.beamPipeStartId = startComp.id;
-        this.beamPipePath = [{ col: grid.col, row: grid.row }];
+        this.beamPipePath = [{ col: startCol, row: startRow }];
         this.renderer.renderBeamPipePreview(this.beamPipePath, 'add');
         return;
       }
@@ -1422,15 +1459,31 @@ export class InputHandler {
             }
           }
         } else {
-          // Left-click: connect two modules via their ports
-          const endComp = this._findBeamlineComponentAt(grid.col, grid.row);
+          // Left-click: connect two modules via their ports. Snap to nearest.
+          let endComp = this._findBeamlineComponentAt(grid.col, grid.row);
+          if (!endComp) {
+            endComp = this._findNearestBeamlineComponent(grid.col, grid.row, 2);
+          }
 
-          if (this.beamPipeStartId && endComp && endComp.id !== this.beamPipeStartId) {
+          if (!this.beamPipeStartId) {
+            // No valid start — mousedown already logged, just cancel
+          } else if (!endComp) {
+            this.game.log('Release on a module to finish the beam pipe', 'bad');
+          } else if (endComp.id === this.beamPipeStartId) {
+            this.game.log("Can't connect a module to itself (rings come later)", 'bad');
+          } else {
             const endDef = COMPONENTS[endComp.type];
             if (!endDef || endDef.placement !== 'module') {
               this.game.log('Pipes must connect modules', 'bad');
             } else {
-              // Auto-pick ports: first available exit on start, first available entry on end
+              // Re-anchor path to the snapped end tile
+              const endCol = endComp.col != null ? endComp.col : grid.col;
+              const endRow = endComp.row != null ? endComp.row : grid.row;
+              this.beamPipePath = this._buildStraightPath(
+                this.beamPipePath[0],
+                { col: endCol, row: endRow },
+              );
+              // Auto-pick ports
               const fromPort = this._findAvailablePort(this.beamPipeStartId, 'exit');
               const toPort = this._findAvailablePort(endComp.id, 'entry');
 
@@ -1646,10 +1699,28 @@ export class InputHandler {
       e.preventDefault();
     });
 
-    // Double-click: enter edit mode for the clicked beamline and open its window
+    // Double-click: open the designer for the clicked beamline.
+    // Prefers main-map (pipe graph) placeables; falls back to legacy registry.
     canvas.addEventListener('dblclick', (e) => {
       const world = this.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
+
+      // Main-map: click on any beamline placeable opens the designer via
+      // openFromSource, walking upstream to find the source.
+      const placeable = this._findBeamlineComponentAt(grid.col, grid.row);
+      if (placeable && placeable.id && !String(placeable.id).startsWith('node_')) {
+        const sourceId = this._findUpstreamSource(placeable.id);
+        if (sourceId && this.game._designer) {
+          const endpointId = placeable.id !== sourceId ? placeable.id : null;
+          const def = COMPONENTS[placeable.type];
+          // Only pass endpointId if clicked thing is an endpoint module
+          const useEndpoint = def && def.isEndpoint ? placeable.id : null;
+          this.game._designer.openFromSource(sourceId, useEndpoint);
+          return;
+        }
+      }
+
+      // Legacy registry fallback
       const clickedNode = this._getNodeAtScreenOrGrid(e.clientX, e.clientY, grid.col, grid.row);
       if (clickedNode) {
         const entry = this.game.registry.getBeamlineForNode(clickedNode.id);
