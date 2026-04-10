@@ -446,7 +446,7 @@ export class Game {
     if (!removed) {
       // Re-occupy tiles since removal failed
       this.registry.occupyTiles(entry.id, node);
-      this.log('Can only remove end pieces!', 'bad');
+      this.log('Cannot remove that component!', 'bad');
       return false;
     }
 
@@ -465,6 +465,67 @@ export class Game {
 
     this.recalcAllBeamlines();
     this.log(`Demolished ${template ? template.name : 'component'} (50% refund)`, 'info');
+    this.emit('beamlineChanged');
+    return true;
+  }
+
+  /**
+   * Move a beamline component to a new tile position (no cost).
+   * Keeps the node's direction, params, and parent/child relationships intact.
+   * Returns true on success.
+   */
+  moveComponent(nodeId, newCol, newRow) {
+    const entry = this.registry.getBeamlineForNode(nodeId);
+    if (!entry) return false;
+    const node = entry.beamline.nodes.find(n => n.id === nodeId);
+    if (!node) return false;
+    const comp = COMPONENTS[node.type];
+    if (!comp) return false;
+
+    // Free old tiles
+    entry.beamline._freeTiles(node.tiles);
+    this.registry.freeTiles(node);
+
+    // Calculate new tiles
+    const dir = node.dir || node.entryDir || 0;
+    const newTiles = entry.beamline._calcTiles(newCol, newRow, dir, comp.subL || 4, comp.subW || 2);
+
+    // Check availability in both beamline and shared grid
+    for (const t of newTiles) {
+      const bKey = t.col + ',' + t.row;
+      if (entry.beamline.occupied[bKey] !== undefined) {
+        // Conflict — restore old position
+        entry.beamline._occupyTiles(node.tiles, node.id);
+        this.registry.occupyTiles(entry.id, node);
+        this.log("Can't place there!", 'bad');
+        return false;
+      }
+      if (this.registry.isTileOccupied(t.col, t.row)) {
+        entry.beamline._occupyTiles(node.tiles, node.id);
+        this.registry.occupyTiles(entry.id, node);
+        this.log("Can't place there!", 'bad');
+        return false;
+      }
+      // Check facility/machine grid
+      if (this.state.facilityGrid[bKey] || this.state.machineGrid[bKey]) {
+        entry.beamline._occupyTiles(node.tiles, node.id);
+        this.registry.occupyTiles(entry.id, node);
+        this.log('Tile occupied!', 'bad');
+        return false;
+      }
+    }
+
+    // Apply new position
+    node.col = newCol;
+    node.row = newRow;
+    node.tiles = newTiles;
+
+    // Re-occupy
+    entry.beamline._occupyTiles(newTiles, node.id);
+    this.registry.occupyTiles(entry.id, node);
+
+    this.recalcAllBeamlines();
+    this.log(`Moved ${comp.name}`, 'good');
     this.emit('beamlineChanged');
     return true;
   }
@@ -1136,7 +1197,7 @@ export class Game {
   placeZoneFurnishing(col, row, furnType, subCol, subRow, rotated = false) {
     const furn = ZONE_FURNISHINGS[furnType];
     if (!furn) return false;
-    if (!this.canAfford({ funding: furn.cost })) {
+    if (!this.canAfford(furn.cost)) {
       this.log(`Can't afford ${furn.name}!`, 'bad');
       return false;
     }
@@ -1180,7 +1241,7 @@ export class Game {
 
     // Place it
     const id = 'zf_' + this.state.zoneFurnishingNextId++;
-    this.spend({ funding: furn.cost });
+    this.spend(furn.cost);
 
     const entry = { id, type: furnType, col, row, subCol, subRow, rotated };
     this.state.zoneFurnishings.push(entry);
@@ -1215,7 +1276,8 @@ export class Game {
 
     // 50% refund
     if (furn) {
-      this.state.resources.funding += Math.floor(furn.cost * 0.5);
+      for (const [r, a] of Object.entries(furn.cost))
+        this.state.resources[r] += Math.floor(a * 0.5);
     }
 
     // Clear sub-grid cells
