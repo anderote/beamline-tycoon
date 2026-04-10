@@ -584,6 +584,77 @@ export class InputHandler {
   }
 
   /**
+   * Find an available (unconnected) port on a module.
+   * @param {string} placeableId
+   * @param {'entry'|'exit'} direction - 'exit' for source-side ports, 'entry' for dest-side ports
+   * @returns {string|null} port name or null if all matching ports are taken
+   */
+  _findAvailablePort(placeableId, direction) {
+    const placeable = this.game.getPlaceable(placeableId);
+    if (!placeable) return null;
+    const def = COMPONENTS[placeable.type];
+    if (!def || !def.ports) return null;
+
+    const connectedPorts = new Set();
+    for (const pipe of this.game.state.beamPipes) {
+      if (pipe.fromId === placeableId) connectedPorts.add(pipe.fromPort);
+      if (pipe.toId === placeableId) connectedPorts.add(pipe.toPort);
+    }
+
+    for (const [portName, portDef] of Object.entries(def.ports)) {
+      if (connectedPorts.has(portName)) continue;
+      if (direction === 'exit') {
+        // Exit ports: name starts with 'exit', or side is 'front' / 'left' / 'right'
+        if (portName.startsWith('exit') || portDef.side === 'front' || portDef.side === 'left' || portDef.side === 'right') return portName;
+      } else {
+        // Entry ports: name is 'entry', or side is 'back'
+        if (portName === 'entry' || portDef.side === 'back') return portName;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find the beam pipe closest to the given grid position.
+   * Returns null if no pipe is within 1 tile of the position.
+   */
+  _findNearestPipe(col, row) {
+    let bestPipe = null;
+    let bestDist = Infinity;
+
+    for (const pipe of this.game.state.beamPipes) {
+      for (const pt of pipe.path) {
+        const dist = Math.abs(pt.col - col) + Math.abs(pt.row - row);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPipe = pipe;
+        }
+      }
+    }
+
+    return bestDist <= 1 ? bestPipe : null;
+  }
+
+  /**
+   * Get the normalized 0..1 position along a pipe for a given grid coordinate.
+   */
+  _getPipePosition(pipe, col, row) {
+    if (pipe.path.length <= 1) return 0.5;
+
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < pipe.path.length; i++) {
+      const dist = Math.abs(pipe.path[i].col - col) + Math.abs(pipe.path[i].row - row);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+
+    return bestIdx / (pipe.path.length - 1);
+  }
+
+  /**
    * Return the nearest edge of the cursor's tile, preferring edges that sit
    * on a flooring boundary (one side has infrastructure, the other doesn't).
    */
@@ -690,8 +761,16 @@ export class InputHandler {
           if (this.selectedTool) {
             const comp = COMPONENTS[this.selectedTool];
             if (comp && !comp.isDrawnConnection) {
-              // Free placement — any component can be placed anywhere on flooring
-              if (comp.isSource) {
+              if (comp.placement === 'attachment') {
+                // Attachment: snap to the nearest pipe
+                const pipe = this._findNearestPipe(this.renderer.hoverCol, this.renderer.hoverRow);
+                if (pipe) {
+                  const position = this._getPipePosition(pipe, this.renderer.hoverCol, this.renderer.hoverRow);
+                  this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
+                } else {
+                  this.game.log('Must place on a beam pipe!', 'bad');
+                }
+              } else if (comp.isSource) {
                 // Sources are regular beamline placeables (isSource=true on the definition)
                 const entryId = this.game.placePlaceable({
                   type: this.selectedTool,
@@ -709,7 +788,7 @@ export class InputHandler {
                   this.selectTool('drift');
                 }
               } else {
-                // Non-source beamline components use unified placement
+                // Non-source module — unified placement
                 this.game.placePlaceable({
                   type: this.selectedTool,
                   category: 'beamline',
@@ -974,20 +1053,33 @@ export class InputHandler {
         return;
       }
 
-      // Beam pipe drawing start (left click = place, right click = remove)
+      // Beam pipe drawing start
       if ((e.button === 0 || e.button === 2) && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        this.drawingBeamPipe = true;
-        this.beamPipeDrawMode = e.button === 0 ? 'add' : 'remove';
-        if (e.button === 0) {
-          const startComp = this._findBeamlineComponentAt(grid.col, grid.row);
-          this.beamPipeStartId = startComp ? startComp.id : null;
-        } else {
+
+        if (e.button === 2) {
+          // Right-click on pipe to remove (drag to select multiple)
+          this.drawingBeamPipe = true;
+          this.beamPipeDrawMode = 'remove';
           this.beamPipeStartId = null;
+          this.beamPipePath = [{ col: grid.col, row: grid.row }];
+          this.renderer.renderBeamPipePreview(this.beamPipePath, 'remove');
+          return;
         }
+
+        // Left-click: must start on a module
+        const startComp = this._findBeamlineComponentAt(grid.col, grid.row);
+        if (!startComp) return; // can't start pipe in empty space
+
+        const startDef = COMPONENTS[startComp.type];
+        if (!startDef || startDef.placement !== 'module') return; // must be a module
+
+        this.drawingBeamPipe = true;
+        this.beamPipeDrawMode = 'add';
+        this.beamPipeStartId = startComp.id;
         this.beamPipePath = [{ col: grid.col, row: grid.row }];
-        this.renderer.renderBeamPipePreview(this.beamPipePath, this.beamPipeDrawMode);
+        this.renderer.renderBeamPipePreview(this.beamPipePath, 'add');
         return;
       }
 
@@ -1310,77 +1402,48 @@ export class InputHandler {
       if (this.drawingBeamPipe) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        // Update path to final cursor position
         this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
 
         if (this.beamPipeDrawMode === 'remove') {
-          // Right-click drag: remove beamline placeables along the path
-          const toRemove = new Set();
-          for (const pt of this.beamPipePath) {
-            // Check all sub-cells in this tile for beamline placeables
-            for (let sc = 0; sc < 4; sc++) {
-              for (let sr = 0; sr < 4; sr++) {
-                const occ = this.game.state.subgridOccupied[pt.col + ',' + pt.row + ',' + sc + ',' + sr];
-                if (occ && occ.category === 'beamline') toRemove.add(occ.id);
+          // Right-click drag: find and remove pipes whose path intersects the drawn path
+          const pipesToRemove = new Set();
+          for (const pipe of this.game.state.beamPipes) {
+            for (const pt of this.beamPipePath) {
+              if (pipe.path.some(pp => pp.col === pt.col && pp.row === pt.row)) {
+                pipesToRemove.add(pipe.id);
+                break;
               }
             }
           }
-          if (toRemove.size > 0) {
+          if (pipesToRemove.size > 0) {
             this.game._pushUndo();
-            for (const id of toRemove) {
-              this.game.removePlaceable(id);
+            for (const id of pipesToRemove) {
+              this.game.removeBeamPipe(id);
             }
           }
         } else {
-          // Left-click: place beam pipes
-          // Find end component — only exact tile match, no snapping
-          const endComponent = this._findBeamlineComponentAt(grid.col, grid.row);
+          // Left-click: connect two modules via their ports
+          const endComp = this._findBeamlineComponentAt(grid.col, grid.row);
 
-          if (this.beamPipeStartId && endComponent && endComponent.id !== this.beamPipeStartId) {
-            this.game._pushUndo();
-            this.game.createBeamPipe(this.beamPipeStartId, endComponent.id, this.beamPipePath);
-          } else if (this.beamPipePath.length > 1) {
-            const startIdx = this.beamPipeStartId ? 1 : 0;
-            // Skip the last tile if it belongs to an existing component
-            const endIdx = endComponent ? this.beamPipePath.length - 1 : this.beamPipePath.length;
-            this.game._pushUndo();
-            for (let i = startIdx; i < endIdx; i++) {
-              const pt = this.beamPipePath[i];
-              const ref = i > 0 ? this.beamPipePath[i - 1] : this.beamPipePath[i + 1];
-              let pipeDir = this.placementDir;
-              if (ref) {
-                const dc = pt.col - ref.col;
-                const dr = pt.row - ref.row;
-                if (dc > 0) pipeDir = DIR.SE;
-                else if (dc < 0) pipeDir = DIR.NW;
-                else if (dr > 0) pipeDir = DIR.SW;
-                else if (dr < 0) pipeDir = DIR.NE;
+          if (this.beamPipeStartId && endComp && endComp.id !== this.beamPipeStartId) {
+            const endDef = COMPONENTS[endComp.type];
+            if (!endDef || endDef.placement !== 'module') {
+              this.game.log('Pipes must connect modules', 'bad');
+            } else {
+              // Auto-pick ports: first available exit on start, first available entry on end
+              const fromPort = this._findAvailablePort(this.beamPipeStartId, 'exit');
+              const toPort = this._findAvailablePort(endComp.id, 'entry');
+
+              if (fromPort && toPort) {
+                this.game._pushUndo();
+                this.game.createBeamPipe(this.beamPipeStartId, fromPort, endComp.id, toPort, this.beamPipePath);
+              } else {
+                this.game.log('No available ports on modules!', 'bad');
               }
-              this.game.placePlaceable({
-                type: 'drift',
-                category: 'beamline',
-                col: pt.col,
-                row: pt.row,
-                subCol: 0,
-                subRow: 0,
-                rotated: false,
-                dir: pipeDir,
-              });
             }
-          } else {
-            this.game._pushUndo();
-            this.game.placePlaceable({
-              type: 'drift',
-              category: 'beamline',
-              col: grid.col,
-              row: grid.row,
-              subCol: 0,
-              subRow: 0,
-              rotated: false,
-              dir: this.placementDir,
-            });
           }
         }
+
         this.drawingBeamPipe = false;
         this.beamPipeStartId = null;
         this.beamPipePath = [];
@@ -1825,7 +1888,16 @@ export class InputHandler {
       const comp = COMPONENTS[this.selectedTool];
       if (comp && !comp.isDrawnConnection) {
         this.game._pushUndo();
-        if (comp.isSource) {
+        if (comp.placement === 'attachment') {
+          // Attachment: snap to the nearest pipe
+          const pipe = this._findNearestPipe(col, row);
+          if (pipe) {
+            const position = this._getPipePosition(pipe, col, row);
+            this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
+          } else {
+            this.game.log('Must place on a beam pipe!', 'bad');
+          }
+        } else if (comp.isSource) {
           const entryId = this.game.placePlaceable({
             type: this.selectedTool,
             category: 'beamline',
