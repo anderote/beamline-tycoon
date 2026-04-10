@@ -2837,6 +2837,71 @@ export class Game {
       if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
       if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
 
+      // Ensure unified placement state exists
+      if (!this.state.placeables) this.state.placeables = [];
+      if (!this.state.placeableIndex) this.state.placeableIndex = {};
+      if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
+      if (!this.state.placeableNextId) this.state.placeableNextId = 1;
+      if (!this.state.beamPipes) this.state.beamPipes = [];
+      if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
+
+      // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
+      if (this.state.placeables.length === 0) {
+        // Migrate facility equipment
+        if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
+          for (const eq of this.state.facilityEquipment) {
+            const def = COMPONENTS[eq.type];
+            const gw = def ? (def.gridW || def.subW || 4) : 4;
+            const gh = def ? (def.gridH || def.subL || 4) : 4;
+            const id = 'eq_' + this.state.placeableNextId++;
+            const cells = [];
+            for (let dr = 0; dr < gh; dr++) {
+              for (let dc = 0; dc < gw; dc++) {
+                cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
+              }
+            }
+            const entry = {
+              id, type: eq.type, category: 'equipment',
+              col: eq.col, row: eq.row, subCol: 0, subRow: 0,
+              rotated: false, dir: null, params: null, cells,
+            };
+            this.state.placeables.push(entry);
+            this.state.placeableIndex[id] = this.state.placeables.length - 1;
+            for (const cell of cells) {
+              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
+            }
+          }
+        }
+
+        // Migrate zone furnishings
+        if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
+          for (const zf of this.state.zoneFurnishings) {
+            const def = ZONE_FURNISHINGS[zf.type];
+            const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
+            const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
+            const id = 'fn_' + this.state.placeableNextId++;
+            const cells = [];
+            for (let dr = 0; dr < gh; dr++) {
+              for (let dc = 0; dc < gw; dc++) {
+                const sc = (zf.subCol || 0) + dc;
+                const sr = (zf.subRow || 0) + dr;
+                cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
+              }
+            }
+            const entry = {
+              id, type: zf.type, category: 'furnishing',
+              col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
+              rotated: zf.rotated || false, dir: null, params: null, cells,
+            };
+            this.state.placeables.push(entry);
+            this.state.placeableIndex[id] = this.state.placeables.length - 1;
+            for (const cell of cells) {
+              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
+            }
+          }
+        }
+      }
+
       // Restore decoration state
       this.state.decorations = data.state.decorations || [];
       this.state.decorationNextId = data.state.decorationNextId || 1;
@@ -2981,6 +3046,71 @@ export class Game {
     if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
     if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
     if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+    // Ensure unified placement state exists
+    if (!this.state.placeables) this.state.placeables = [];
+    if (!this.state.placeableIndex) this.state.placeableIndex = {};
+    if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
+    if (!this.state.placeableNextId) this.state.placeableNextId = 1;
+    if (!this.state.beamPipes) this.state.beamPipes = [];
+    if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
+
+    // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
+    if (this.state.placeables.length === 0) {
+      // Migrate facility equipment
+      if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
+        for (const eq of this.state.facilityEquipment) {
+          const def = COMPONENTS[eq.type];
+          const gw = def ? (def.gridW || def.subW || 4) : 4;
+          const gh = def ? (def.gridH || def.subL || 4) : 4;
+          const id = 'eq_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
+            }
+          }
+          const entry = {
+            id, type: eq.type, category: 'equipment',
+            col: eq.col, row: eq.row, subCol: 0, subRow: 0,
+            rotated: false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
+          }
+        }
+      }
+
+      // Migrate zone furnishings
+      if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
+        for (const zf of this.state.zoneFurnishings) {
+          const def = ZONE_FURNISHINGS[zf.type];
+          const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
+          const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
+          const id = 'fn_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              const sc = (zf.subCol || 0) + dc;
+              const sr = (zf.subRow || 0) + dr;
+              cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
+            }
+          }
+          const entry = {
+            id, type: zf.type, category: 'furnishing',
+            col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
+            rotated: zf.rotated || false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
+          }
+        }
+      }
+    }
 
     // Rebuild wall state
     this.state.walls = this.state.walls || [];
