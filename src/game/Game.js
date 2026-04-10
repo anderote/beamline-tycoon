@@ -3293,6 +3293,15 @@ export class Game {
       if (!this.state.beamPipes) this.state.beamPipes = [];
       if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
 
+      // Migrate beam pipes added before Task 2 (ports + attachments):
+      if (this.state.beamPipes) {
+        for (const pipe of this.state.beamPipes) {
+          if (!pipe.fromPort) pipe.fromPort = 'exit';
+          if (!pipe.toPort) pipe.toPort = 'entry';
+          if (!pipe.attachments) pipe.attachments = [];
+        }
+      }
+
       // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
       if (this.state.placeables.length === 0) {
         // Migrate facility equipment
