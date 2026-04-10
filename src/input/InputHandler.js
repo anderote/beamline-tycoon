@@ -692,8 +692,18 @@ export class InputHandler {
             if (comp && !comp.isDrawnConnection) {
               // Free placement — any component can be placed anywhere on flooring
               if (comp.isSource) {
-                // Sources still use the old path to create beamline entries
-                const entryId = this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+                // Sources are regular beamline placeables (isSource=true on the definition)
+                const entryId = this.game.placePlaceable({
+                  type: this.selectedTool,
+                  category: 'beamline',
+                  col: this.renderer.hoverCol,
+                  row: this.renderer.hoverRow,
+                  subCol: 0,
+                  subRow: 0,
+                  rotated: false,
+                  dir: this.placementDir,
+                  params: this.selectedParamOverrides,
+                });
                 if (entryId) {
                   // Auto-switch to beam pipe tool after placing source
                   this.selectTool('drift');
@@ -1816,7 +1826,17 @@ export class InputHandler {
       if (comp && !comp.isDrawnConnection) {
         this.game._pushUndo();
         if (comp.isSource) {
-          const entryId = this.game.placeSource(col, row, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+          const entryId = this.game.placePlaceable({
+            type: this.selectedTool,
+            category: 'beamline',
+            col,
+            row,
+            subCol: 0,
+            subRow: 0,
+            rotated: false,
+            dir: this.placementDir,
+            params: this.selectedParamOverrides,
+          });
           if (entryId) {
             // Auto-switch to beam pipe tool after placing source
             this.selectTool('drift');
