@@ -220,6 +220,58 @@ function buildBeamPaths(game) {
   return beamPaths;
 }
 
+function buildPipeAttachments(game) {
+  const result = [];
+  const pipes = game.state.beamPipes || [];
+  for (const pipe of pipes) {
+    const atts = pipe.attachments || [];
+    if (atts.length === 0) continue;
+    const path = pipe.path || [];
+    const pathLen = path.length;
+    if (pathLen === 0) continue;
+
+    for (const att of atts) {
+      const t = Math.max(0, Math.min(1, att.position ?? 0));
+      const exactIdx = t * (pathLen - 1);
+      const idx0 = Math.floor(exactIdx);
+      const idx1 = Math.min(idx0 + 1, pathLen - 1);
+      const frac = exactIdx - idx0;
+
+      const p0 = path[idx0];
+      const p1 = path[idx1];
+      const col = p0.col + (p1.col - p0.col) * frac;
+      const row = p0.row + (p1.row - p0.row) * frac;
+
+      // Direction from segment the attachment sits on.
+      // dir convention matches node.dir: 0=NE, 1=SE, 2=SW, 3=NW
+      let dir = 0;
+      const dc = p1.col - p0.col;
+      const dr = p1.row - p0.row;
+      if (dc > 0) dir = 1;       // SE
+      else if (dc < 0) dir = 3;  // NW
+      else if (dr > 0) dir = 2;  // SW
+      else if (dr < 0) dir = 0;  // NE
+
+      result.push({
+        id: att.id,
+        type: att.type,
+        col,
+        row,
+        subCol: null,
+        subRow: null,
+        direction: dir,
+        tiles: [{ col: Math.round(col), row: Math.round(row) }],
+        dimmed: false,
+        health: undefined,
+        pipeId: pipe.id,
+        position: t,
+        params: att.params,
+      });
+    }
+  }
+  return result;
+}
+
 function buildFurnishings(game) {
   return (game.state.zoneFurnishings || []).map(f => ({
     col: f.col,
@@ -252,5 +304,6 @@ export function buildWorldSnapshot(game) {
     connections: buildConnections(game),
     beamPaths: buildBeamPaths(game),
     furnishings: buildFurnishings(game),
+    pipeAttachments: buildPipeAttachments(game),
   };
 }

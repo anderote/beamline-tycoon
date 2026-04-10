@@ -59,6 +59,7 @@ export class ThreeRenderer {
     this.infraBuilder = new InfraBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
+    this.pipeAttachmentBuilder = new ComponentBuilder();
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
@@ -231,6 +232,10 @@ export class ThreeRenderer {
     this.componentGroup = new THREE.Group();
     this.componentGroup.name = 'components';
     this.scene.add(this.componentGroup);
+
+    this.pipeAttachmentGroup = new THREE.Group();
+    this.pipeAttachmentGroup.name = 'pipeAttachments';
+    this.scene.add(this.pipeAttachmentGroup);
 
     this.beamPipeGroup = new THREE.Group();
     this.beamPipeGroup.name = 'beampipes';
@@ -1599,6 +1604,7 @@ export class ThreeRenderer {
     }
     this.wallBuilder.build(snapshot.walls, snapshot.doors, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
     this.componentBuilder.build(snapshot.components, this.componentGroup);
+    this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
@@ -1825,6 +1831,10 @@ export class ThreeRenderer {
 
       this.beamPipeGroup.add(pipeWrapper);
     }
+
+    // Rebuild inline attachments — their positions depend on pipe paths.
+    const snap = buildWorldSnapshot(this.game);
+    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
   }
 
   renderBeamPipePreview(path, mode) {
@@ -1943,6 +1953,7 @@ export class ThreeRenderer {
   _refreshComponents() {
     const snap = buildWorldSnapshot(this.game);
     this.componentBuilder.build(snap.components, this.componentGroup);
+    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
   }
 
   screenToGrid(screenX, screenY) {
