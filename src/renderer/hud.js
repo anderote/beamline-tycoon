@@ -1002,6 +1002,13 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   if (!affordable) item.classList.add('unaffordable');
   if (zoneBlocked) item.classList.add('zone-blocked');
 
+  // Visually distinguish attachment-type components (placed on beam pipes)
+  // from module-type components (placed on the grid).
+  if (comp.placement === 'attachment') {
+    item.classList.add('attachment-tool');
+    item.title = `${comp.name} — attaches to beam pipe`;
+  }
+
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch
   const previewEl = document.createElement('div');
   previewEl.className = 'palette-preview';

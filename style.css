@@ -587,6 +587,23 @@ body {
   cursor: not-allowed;
 }
 
+/* Attachment-type components (placed inline on beam pipes) */
+.palette-item.attachment-tool {
+  border-left: 3px solid #44cc44;
+  position: relative;
+}
+.palette-item.attachment-tool::after {
+  content: 'INLINE';
+  font-size: 8px;
+  color: #44cc44;
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  pointer-events: none;
+  letter-spacing: 0.5px;
+  font-weight: bold;
+}
+
 
 /* === OVERLAYS === */
 .overlay {
