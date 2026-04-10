@@ -144,68 +144,132 @@ export class DesignPlacer {
       this.game.state.infraOccupied[key] = 'concrete';
     }
 
-    const machineType = this.design.category || 'linac';
-    const entry = this.game.registry.createBeamline(machineType);
-
+    // Walk the design and emit modules + pipes + attachments
     let col = this.startCol;
     let row = this.startRow;
     let dir = this.direction;
+    let prevModuleId = null;
+    let prevModuleExitPort = null;
+    const pendingAttachments = [];
+    let lastPipeId = null;
 
-    for (let idx = 0; idx < this.design.components.length; idx++) {
-      const c = this.design.components[idx];
+    for (const c of this.design.components) {
       const comp = COMPONENTS[c.type];
       if (!comp) continue;
 
+      // Attachment: queue for the next pipe
+      if (comp.placement === 'attachment') {
+        pendingAttachments.push(c);
+        continue;
+      }
+
+      // Reflect dipole bend direction if the placer is reflected
       let bendDir = c.bendDir;
       if (this.reflected && bendDir) {
         bendDir = bendDir === 'left' ? 'right' : 'left';
       }
 
-      let exitDir = dir;
+      // Place the module as a placeable
+      const placeableId = this.game.placePlaceable({
+        type: c.type,
+        category: 'beamline',
+        col,
+        row,
+        subCol: 0,
+        subRow: 0,
+        rotated: false,
+        dir,
+        params: c.params,
+      });
+
+      if (!placeableId) {
+        this.game.log(`Design placement failed at ${c.type}`, 'bad');
+        return false;
+      }
+
+      // Connect to previous module via a pipe
+      if (prevModuleId) {
+        const pipePath = this._buildPipePath(prevModuleId, placeableId);
+        // Use default exit/entry port names (linac phase: single port per direction)
+        const ok = this.game.createBeamPipe(
+          prevModuleId, prevModuleExitPort || 'exit',
+          placeableId, 'entry',
+          pipePath,
+        );
+        if (ok) {
+          // The most recent pipe is the last one added
+          lastPipeId = this.game.state.beamPipes[this.game.state.beamPipes.length - 1]?.id || null;
+
+          // Drain pending attachments onto this pipe at evenly-spaced positions
+          if (lastPipeId && pendingAttachments.length > 0) {
+            const n = pendingAttachments.length;
+            pendingAttachments.forEach((att, i) => {
+              const pos = (i + 1) / (n + 1); // evenly spaced in (0, 1)
+              this.game.addAttachmentToPipe(lastPipeId, att.type, pos, att.params);
+            });
+            pendingAttachments.length = 0;
+          }
+        }
+      } else if (pendingAttachments.length > 0) {
+        // Attachments before any module — discard with a warning
+        this.game.log('Attachments placed before first module discarded', 'bad');
+        pendingAttachments.length = 0;
+      }
+
+      prevModuleId = placeableId;
+      prevModuleExitPort = 'exit';
+
+      // Handle dipole bend: change exit direction for subsequent placements
       if (comp.isDipole && bendDir) {
-        exitDir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
+        dir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
       }
 
-      let nodeId;
-      if (idx === 0) {
-        // First component — place as source (even if not a source type, we need a starting node)
-        nodeId = entry.beamline.placeSource(col, row, exitDir);
-        if (nodeId != null && c.type !== 'source') {
-          const node = entry.beamline.nodes.find(n => n.id === nodeId);
-          if (node) node.type = c.type;
-        }
-      } else {
-        const cursors = entry.beamline.getBuildCursors();
-        if (cursors.length > 0) {
-          nodeId = entry.beamline.placeAt(cursors[0], c.type, bendDir);
-        }
-      }
-
-      if (nodeId != null) {
-        const node = entry.beamline.nodes.find(n => n.id === nodeId);
-        if (node) {
-          if (c.params) node.params = { ...c.params };
-          this.game.registry.occupyTiles(entry.id, node);
-        }
-      }
-
-      // Advance cursor
-      const delta = DIR_DELTA[exitDir];
+      // Advance cursor past this module
+      const delta = DIR_DELTA[dir];
       const trackLen = Math.ceil((comp.subL || 4) / 4);
-      col += delta.dc * trackLen;
-      row += delta.dr * trackLen;
-      dir = exitDir;
+      col += delta.dc * (trackLen + 1); // +1 for pipe gap
+      row += delta.dr * (trackLen + 1);
+    }
+
+    // Any remaining pending attachments after the last module are discarded
+    if (pendingAttachments.length > 0) {
+      this.game.log(`${pendingAttachments.length} trailing attachments discarded (no pipe to attach to)`, 'bad');
     }
 
     this.game.state.resources.funding -= this.totalCost;
-    this.game.editingBeamlineId = entry.id;
-    this.game.selectedBeamlineId = entry.id;
-
-    this.game.recalcBeamline(entry.id);
-    this.game.emit('beamlineChanged');
     this.game.log(`Placed design "${this.design.name}" ($${this.totalCost.toLocaleString()})`, 'good');
+
+    this.game.recalcBeamline();
+    this.game.emit('beamlineChanged');
 
     this.cancel();
     return true;
+  }
+
+  /**
+   * Build an L-shaped straight-line path between two modules for a pipe.
+   * Walks col first, then row. Returns a dense per-tile path.
+   */
+  _buildPipePath(fromId, toId) {
+    const from = this.game.getPlaceable(fromId);
+    const to = this.game.getPlaceable(toId);
+    if (!from || !to) return [];
+
+    const path = [];
+    let c = from.col;
+    let r = from.row;
+    const endCol = to.col;
+    const endRow = to.row;
+
+    path.push({ col: c, row: r });
+    while (c !== endCol) {
+      c += Math.sign(endCol - c);
+      path.push({ col: c, row: r });
+    }
+    while (r !== endRow) {
+      r += Math.sign(endRow - r);
+      path.push({ col: c, row: r });
+    }
+    return path;
   }
 }
