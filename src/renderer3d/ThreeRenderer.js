@@ -1779,11 +1779,18 @@ export class ThreeRenderer {
 
     const PIPE_RADIUS = 0.08;
     const PIPE_Y = 1.0;
+    const FLANGE_R = 0.16;
+    const FLANGE_W = 0.045;
+    const STAND_W = 0.06;
 
     const pipeMat = new THREE.MeshStandardMaterial({
-      color: 0x99aabb,
-      roughness: 0.3,
-      metalness: 0.5,
+      color: 0x99aabb, roughness: 0.3, metalness: 0.5,
+    });
+    const flangeMat = new THREE.MeshStandardMaterial({
+      color: 0xbbbbbb, roughness: 0.3, metalness: 0.6,
+    });
+    const standMat = new THREE.MeshStandardMaterial({
+      color: 0x555555, roughness: 0.7, metalness: 0.1,
     });
 
     for (const pipe of pipes) {
@@ -1807,25 +1814,50 @@ export class ThreeRenderer {
         const length = Math.sqrt(dx * dx + dz * dz);
         if (length < 0.01) continue;
 
-        const geo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 6);
+        const angle = -Math.atan2(dz, dx);
+        const cx = (x1 + x2) / 2;
+        const cz = (z1 + z2) / 2;
+
+        const geo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
         geo.rotateZ(Math.PI / 2);
 
-        const mesh = new THREE.Mesh(geo, pipeMat.clone());
-        mesh.position.set((x1 + x2) / 2, PIPE_Y, (z1 + z2) / 2);
-        mesh.rotation.y = -Math.atan2(dz, dx);
+        const mesh = new THREE.Mesh(geo, pipeMat);
+        mesh.position.set(cx, PIPE_Y, cz);
+        mesh.rotation.y = angle;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        pipeWrapper.add(mesh);
+        this._beamPipeMeshes.push(mesh);
+
+        // CF flanges at each segment end
+        const flangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
+        flangeGeo.rotateZ(Math.PI / 2);
+        for (const [fx, fz] of [[x1, z1], [x2, z2]]) {
+          const flange = new THREE.Mesh(flangeGeo, flangeMat);
+          flange.position.set(fx, PIPE_Y, fz);
+          flange.rotation.y = angle;
+          flange.castShadow = true;
+          pipeWrapper.add(flange);
+          this._beamPipeMeshes.push(flange);
+        }
+
+        // Support stand at segment midpoint
+        const standH = PIPE_Y - PIPE_RADIUS;
+        const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
+        const stand = new THREE.Mesh(standGeo, standMat);
+        stand.position.set(cx, standH / 2, cz);
+        stand.castShadow = true;
+        stand.receiveShadow = true;
+        pipeWrapper.add(stand);
+        this._beamPipeMeshes.push(stand);
 
         // Invisible hitbox for easier click detection
         const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
         hitGeo.rotateZ(Math.PI / 2);
         const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
-        hitMesh.position.copy(mesh.position);
-        hitMesh.rotation.copy(mesh.rotation);
-
-        pipeWrapper.add(mesh);
+        hitMesh.position.set(cx, PIPE_Y, cz);
+        hitMesh.rotation.y = angle;
         pipeWrapper.add(hitMesh);
-        this._beamPipeMeshes.push(mesh);
         this._beamPipeMeshes.push(hitMesh);
       }
 
