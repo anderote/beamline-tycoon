@@ -9,6 +9,7 @@ import { Networks } from '../networks/networks.js';
 import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { Beamline } from '../beamline/Beamline.js';
+import { flattenPath } from '../beamline/path-flattener.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { generateStartingMap } from './map-generator.js';
@@ -1639,177 +1640,49 @@ export class Game {
    */
   _deriveBeamGraph() {
     const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
-
-    // Build adjacency from beam pipes
-    // adj maps placeableId -> [{ neighborId, pipeId, subL, attachments, reversed }]
-    const adj = {};
-    for (const pipe of this.state.beamPipes) {
-      if (!adj[pipe.fromId]) adj[pipe.fromId] = [];
-      adj[pipe.fromId].push({
-        neighborId: pipe.toId,
-        pipeId: pipe.id,
-        subL: pipe.subL,
-        attachments: pipe.attachments || [],
-        reversed: false,
-      });
-      // Also allow reverse traversal
-      if (!adj[pipe.toId]) adj[pipe.toId] = [];
-      adj[pipe.toId].push({
-        neighborId: pipe.fromId,
-        pipeId: pipe.id,
-        subL: pipe.subL,
-        attachments: [...(pipe.attachments || [])].reverse(),
-        reversed: true,
-      });
-    }
-
-    // Find sources
-    const placeableSources = beamItems.filter(p => {
+    const sources = beamItems.filter(p => {
       const def = COMPONENTS[p.type];
       return def && def.isSource;
     });
 
-    // BFS from each source
-    // LIMITATION (linac phase): the BFS marks neighbors visited on first pipe,
-    // so if two pipes connect the same pair of modules via different ports,
-    // only one pipe contributes its drift + attachments to the derived graph.
-    // Fixing this for splitter support (future) will require tracking visited
-    // PIPES rather than visited modules.
     const allOrdered = [];
-    const visited = new Set();
-
-    for (const source of placeableSources) {
-      if (visited.has(source.id)) continue;
-      visited.add(source.id);
-
-      const queue = [{ item: source, beamStart: 0 }];
-
-      while (queue.length > 0) {
-        const { item, beamStart } = queue.shift();
-        const def = COMPONENTS[item.type];
-        const itemSubL = def ? (def.subL || 4) : 4;
-
-        // Add the module node
+    for (const source of sources) {
+      const flat = flattenPath(this.state, source.id);
+      // Convert flattener entries to the shape physics expects.
+      // Every entry needs: type, subL, stats, params, beamStart, tiles.
+      for (const entry of flat) {
+        const def = COMPONENTS[entry.type] || COMPONENTS.drift;
         allOrdered.push({
-          id: item.id,
-          type: item.type,
-          col: item.col,
-          row: item.row,
-          dir: item.dir,
-          params: item.params,
-          tiles: (item.cells || []).map(c => ({ col: c.col, row: c.row })),
-          beamStart,
-          subL: itemSubL,
+          id: entry.id,
+          type: entry.kind === 'drift' ? 'drift' : entry.type,
+          col: entry.placeable?.col ?? 0,
+          row: entry.placeable?.row ?? 0,
+          dir: entry.placeable?.dir ?? 0,
+          params: entry.params || {},
+          tiles: entry.placeable?.cells?.map(c => ({ col: c.col, row: c.row })) || [],
+          beamStart: entry.beamStart,
+          subL: entry.subL,
+          // Pass through stats from the component template so physics can read them
+          stats: def ? { ...def.stats } : {},
+          isAttachment: entry.kind === 'attachment',
+          pipeId: entry.pipeId || null,
         });
-
-        const nextBeamStart = beamStart + itemSubL * 0.5;
-
-        // Follow pipes to neighbors (prefer non-reversed edges first, i.e., follow beam direction)
-        const neighbors = (adj[item.id] || []).filter(e => !visited.has(e.neighborId));
-        // Sort: follow fromId→toId direction first
-        neighbors.sort((a, b) => (a.reversed ? 1 : 0) - (b.reversed ? 1 : 0));
-
-        for (const edge of neighbors) {
-          if (visited.has(edge.neighborId)) continue;
-          visited.add(edge.neighborId);
-
-          // Interleave drift + attachments along the pipe.
-          // Attachments are sorted by position (already, from addAttachmentToPipe insert logic).
-          // pipe.subL is in sub-units. Each attachment has its own subL.
-          // Drift length between attachments = (pipe.subL * position_delta) - prev attachment subL.
-          const pipeBeamLen = edge.subL * 0.5; // metres
-          let pipeCursor = nextBeamStart;
-          let attCursor = 0; // metres consumed so far on this pipe
-
-          const sortedAtts = edge.reversed
-            ? edge.attachments  // already reversed above
-            : [...edge.attachments].sort((a, b) => a.position - b.position);
-
-          for (const att of sortedAtts) {
-            const attDef = COMPONENTS[att.type];
-            const attSubL = attDef ? (attDef.subL || 1) : 1;
-            const attBeamLen = attSubL * 0.5;
-            // Position along pipe (flip for reversed traversal)
-            const effPos = edge.reversed ? (1 - att.position) : att.position;
-
-            // Drift segment before this attachment
-            const targetPos = effPos * pipeBeamLen;
-            const driftBeamLen = targetPos - attCursor;
-            if (driftBeamLen > 0) {
-              allOrdered.push({
-                id: edge.pipeId + '_d' + attCursor.toFixed(3),
-                type: 'drift',
-                col: item.col,
-                row: item.row,
-                dir: item.dir,
-                params: {},
-                tiles: [],
-                beamStart: pipeCursor,
-                subL: driftBeamLen * 2,
-                pipeId: edge.pipeId,
-              });
-              pipeCursor += driftBeamLen;
-              attCursor += driftBeamLen;
-            }
-
-            // The attachment itself
-            allOrdered.push({
-              id: att.id,
-              type: att.type,
-              col: item.col,
-              row: item.row,
-              dir: item.dir,
-              params: att.params || {},
-              tiles: [],
-              beamStart: pipeCursor,
-              subL: attSubL,
-              isAttachment: true,
-              pipeId: edge.pipeId,
-            });
-            pipeCursor += attBeamLen;
-            attCursor += attBeamLen;
-          }
-
-          // Tail drift to end of pipe
-          const tailBeamLen = pipeBeamLen - attCursor;
-          if (tailBeamLen > 0) {
-            allOrdered.push({
-              id: edge.pipeId + '_dtail',
-              type: 'drift',
-              col: item.col,
-              row: item.row,
-              dir: item.dir,
-              params: {},
-              tiles: [],
-              beamStart: pipeCursor,
-              subL: tailBeamLen * 2,
-              pipeId: edge.pipeId,
-            });
-            pipeCursor += tailBeamLen;
-          }
-
-          // Queue the neighbor module
-          const neighbor = this.getPlaceable(edge.neighborId);
-          if (neighbor) {
-            queue.push({ item: neighbor, beamStart: pipeCursor });
-          }
-        }
       }
     }
 
-    // Also keep registry beamline nodes that aren't in placeables (legacy compatibility)
+    // Keep legacy registry compatibility: merge in any designer-placed beamline
+    // nodes that aren't already in placeables.
     if (this.registry) {
       for (const entry of this.registry.getAll()) {
         const ordered = entry.beamline.getOrderedComponents();
         for (const node of ordered) {
-          if (!visited.has(node.id) && !allOrdered.some(n => n.id === node.id)) {
+          if (!allOrdered.some(n => n.id === node.id)) {
             allOrdered.push(node);
           }
         }
       }
     }
 
-    // Update aggregate beamline state
     this.state.beamline = allOrdered;
   }
 

@@ -1569,6 +1569,23 @@ export class BeamlineDesigner {
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;
 
+    // S-axis alignment assertion (dev check).
+    // Both draftNodes[i].beamStart and draftEnvelope[i].s should be in metres.
+    // If they drift, the schematic x-axis and plot x-axis will misalign.
+    if (this.draftEnvelope && Array.isArray(this.draftEnvelope)) {
+      const env = this.draftEnvelope;
+      for (let i = 0; i < Math.min(env.length, this.draftNodes.length); i++) {
+        const expectedS = this.draftNodes[i].beamStart;
+        const actualS = env[i].s;
+        if (expectedS != null && actualS != null && Math.abs(expectedS - actualS) > 0.01) {
+          console.warn(
+            `[designer] s-axis misalignment at element ${i}: ` +
+            `schematic=${expectedS.toFixed(3)}m envelope=${actualS.toFixed(3)}m`
+          );
+        }
+      }
+    }
+
     // Update totalLength from envelope to stay in sync with physics s-values
     if (this.draftEnvelope && this.draftEnvelope.length > 0) {
       const maxS = this.draftEnvelope[this.draftEnvelope.length - 1].s;
