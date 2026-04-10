@@ -1421,6 +1421,178 @@ export class Game {
     return this.getPlaceable(occ.id);
   }
 
+  // === BEAM PIPE ===
+
+  /**
+   * Create a beam pipe connection between two beamline placeables.
+   * @param {string} fromId - placeable id of source-side component
+   * @param {string} toId - placeable id of destination component
+   * @param {Array} path - array of {col, row} tile positions along the pipe route
+   * @returns {boolean}
+   */
+  createBeamPipe(fromId, toId, path) {
+    const from = this.getPlaceable(fromId);
+    const to = this.getPlaceable(toId);
+    if (!from || !to) return false;
+    if (from.category !== 'beamline' || to.category !== 'beamline') return false;
+
+    // Check no duplicate
+    const existing = this.state.beamPipes.find(
+      p => (p.fromId === fromId && p.toId === toId) || (p.fromId === toId && p.toId === fromId)
+    );
+    if (existing) {
+      this.log('Already connected!', 'bad');
+      return false;
+    }
+
+    // Compute length from path (each tile = 2m along beam axis, i.e. 4 sub-units)
+    const subL = Math.max(1, (path.length - 1) * 4);
+
+    // Cost scales with length
+    const driftDef = COMPONENTS.drift;
+    const costPerTile = driftDef ? driftDef.cost.funding : 10000;
+    const totalCost = { funding: Math.max(costPerTile, Math.floor(costPerTile * (path.length - 1))) };
+
+    if (!this.canAfford(totalCost)) {
+      this.log("Can't afford beam pipe!", 'bad');
+      return false;
+    }
+
+    this.spend(totalCost);
+
+    const id = 'bp_' + this.state.beamPipeNextId++;
+    const pipe = {
+      id,
+      fromId,
+      toId,
+      path: path.map(p => ({ col: p.col, row: p.row })),
+      subL,
+    };
+
+    this.state.beamPipes.push(pipe);
+    this.log(`Connected beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
+    this._deriveBeamGraph();
+    this.emit('beamlineChanged');
+    return true;
+  }
+
+  removeBeamPipe(pipeId) {
+    const idx = this.state.beamPipes.findIndex(p => p.id === pipeId);
+    if (idx === -1) return false;
+
+    const pipe = this.state.beamPipes[idx];
+
+    // 50% refund
+    const driftDef = COMPONENTS.drift;
+    const costPerTile = driftDef ? driftDef.cost.funding : 10000;
+    const tileCost = Math.max(costPerTile, Math.floor(costPerTile * ((pipe.path.length - 1) || 1)));
+    this.state.resources.funding += Math.floor(tileCost * 0.5);
+
+    this.state.beamPipes.splice(idx, 1);
+    this.log('Removed beam pipe (50% refund)', 'info');
+    this._deriveBeamGraph();
+    this.emit('beamlineChanged');
+    return true;
+  }
+
+  /**
+   * Derive beam graph from pipe connectivity.
+   * Traverses from sources through beam pipes to build ordered component lists.
+   * Updates state.beamline for physics simulation.
+   */
+  _deriveBeamGraph() {
+    const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
+
+    // Build adjacency from beam pipes
+    const adj = {};  // placeableId -> [{ neighborId, pipeId, subL }]
+    for (const pipe of this.state.beamPipes) {
+      if (!adj[pipe.fromId]) adj[pipe.fromId] = [];
+      if (!adj[pipe.toId]) adj[pipe.toId] = [];
+      adj[pipe.fromId].push({ neighborId: pipe.toId, pipeId: pipe.id, subL: pipe.subL });
+      adj[pipe.toId].push({ neighborId: pipe.fromId, pipeId: pipe.id, subL: pipe.subL });
+    }
+
+    // Find sources from placeables
+    const placeableSources = beamItems.filter(p => {
+      const def = COMPONENTS[p.type];
+      return def && def.isSource;
+    });
+
+    // BFS from each source through pipe connections
+    const allOrdered = [];
+    const visited = new Set();
+
+    for (const source of placeableSources) {
+      if (visited.has(source.id)) continue;
+      visited.add(source.id);
+
+      const queue = [{ item: source, beamStart: 0 }];
+
+      while (queue.length > 0) {
+        const { item, beamStart } = queue.shift();
+        const def = COMPONENTS[item.type];
+        const itemSubL = def ? (def.subL || 4) : 4;
+
+        // Create a beam node entry compatible with existing physics
+        allOrdered.push({
+          id: item.id,
+          type: item.type,
+          col: item.col,
+          row: item.row,
+          dir: item.dir,
+          params: item.params,
+          tiles: (item.cells || []).map(c => ({ col: c.col, row: c.row })),
+          beamStart,
+          subL: itemSubL,
+        });
+
+        const nextBeamStart = beamStart + itemSubL * 0.5;
+
+        // Follow pipes to neighbors
+        const neighbors = adj[item.id] || [];
+        for (const edge of neighbors) {
+          if (visited.has(edge.neighborId)) continue;
+          visited.add(edge.neighborId);
+
+          // The pipe itself acts as a drift section
+          const driftStart = nextBeamStart;
+          allOrdered.push({
+            id: edge.pipeId,
+            type: 'drift',
+            col: item.col,
+            row: item.row,
+            dir: item.dir,
+            params: {},
+            tiles: [],
+            beamStart: driftStart,
+            subL: edge.subL,
+          });
+
+          const afterDrift = driftStart + edge.subL * 0.5;
+
+          // Queue the neighbor component
+          const neighbor = this.getPlaceable(edge.neighborId);
+          if (neighbor) {
+            queue.push({ item: neighbor, beamStart: afterDrift });
+          }
+        }
+      }
+    }
+
+    // Also keep registry beamline nodes that aren't in placeables (legacy compatibility)
+    for (const entry of this.registry.getAll()) {
+      const ordered = entry.beamline.getOrderedComponents();
+      for (const node of ordered) {
+        if (!visited.has(node.id) && !allOrdered.some(n => n.id === node.id)) {
+          allOrdered.push(node);
+        }
+      }
+    }
+
+    // Update aggregate beamline state
+    this.state.beamline = allOrdered;
+  }
+
   // === DECORATIONS ===
 
   placeDecoration(col, row, decType, subCol, subRow, rotated = false) {

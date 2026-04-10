@@ -94,6 +94,11 @@ export class InputHandler {
     this._movePayload = null; // { kind, data } of picked-up object
     // Probe placement mode
     this.probeMode = false;
+    // Beam pipe drawing
+    this.beamPipeMode = false;
+    this.drawingBeamPipe = false;
+    this.beamPipeStartId = null;
+    this.beamPipePath = [];
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     // Hover tooltip state
@@ -459,6 +464,53 @@ export class InputHandler {
   }
 
   /**
+   * Find a beamline placeable occupying the given tile.
+   */
+  _findBeamlineComponentAt(col, row) {
+    // Check placeables
+    const placeables = this.game.state.placeables;
+    for (const p of placeables) {
+      if (p.category !== 'beamline') continue;
+      if (p.cells && p.cells.some(c => c.col === col && c.row === row)) {
+        return p;
+      }
+      if (p.col === col && p.row === row) return p;
+    }
+    // Also check registry beamline nodes
+    for (const entry of this.game.registry.getAll()) {
+      for (const node of entry.beamline.nodes) {
+        if (node.tiles && node.tiles.some(t => t.col === col && t.row === row)) {
+          return { id: node.id, type: node.type, col: node.col, row: node.row, category: 'beamline' };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Build an L-shaped path from one tile to another (col axis first, then row).
+   */
+  _buildStraightPath(from, to) {
+    const path = [];
+    const dc = Math.sign(to.col - from.col);
+    const dr = Math.sign(to.row - from.row);
+
+    let c = from.col, r = from.row;
+    path.push({ col: c, row: r });
+
+    while (c !== to.col) {
+      c += dc;
+      path.push({ col: c, row: r });
+    }
+    while (r !== to.row) {
+      r += dr;
+      path.push({ col: c, row: r });
+    }
+
+    return path;
+  }
+
+  /**
    * Return the nearest edge of the cursor's tile, preferring edges that sit
    * on a flooring boundary (one side has infrastructure, the other doesn't).
    */
@@ -808,6 +860,19 @@ export class InputHandler {
         return;
       }
 
+      // Beam pipe drawing start
+      if (e.button === 0 && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        const clickedPlaceable = this._findBeamlineComponentAt(grid.col, grid.row);
+        if (clickedPlaceable) {
+          this.drawingBeamPipe = true;
+          this.beamPipeStartId = clickedPlaceable.id;
+          this.beamPipePath = [{ col: grid.col, row: grid.row }];
+        }
+        return;
+      }
+
       // Demolish drag start
       if (e.button === 0 && this.demolishMode) {
         if (this.demolishType === 'demolishWall') {
@@ -990,6 +1055,13 @@ export class InputHandler {
           }
           this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
         }
+      } else if (this.drawingBeamPipe) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        const last = this.beamPipePath[this.beamPipePath.length - 1];
+        if (last && (last.col !== grid.col || last.row !== grid.row)) {
+          this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
+        }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1110,6 +1182,22 @@ export class InputHandler {
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
+        return;
+      }
+
+      // Beam pipe drawing end
+      if (this.drawingBeamPipe) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const grid = isoToGrid(world.x, world.y);
+        const endComponent = this._findBeamlineComponentAt(grid.col, grid.row);
+        if (endComponent && endComponent.id !== this.beamPipeStartId) {
+          this.beamPipePath.push({ col: grid.col, row: grid.row });
+          this.game._pushUndo();
+          this.game.createBeamPipe(this.beamPipeStartId, endComponent.id, this.beamPipePath);
+        }
+        this.drawingBeamPipe = false;
+        this.beamPipeStartId = null;
+        this.beamPipePath = [];
         return;
       }
 
