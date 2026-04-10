@@ -2417,3 +2417,17 @@ body {
   border-color: rgba(180, 60, 60, 0.6);
   background: rgba(32, 12, 12, 0.94);
 }
+.dsgn-endpoint-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  font-size: 12px;
+}
+.dsgn-endpoint-selector select {
+  font-size: 12px;
+  padding: 2px 4px;
+  background: #222;
+  color: #eee;
+  border: 1px solid #555;
+}

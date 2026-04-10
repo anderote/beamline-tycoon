@@ -671,6 +671,42 @@ export class BeamlineDesigner {
       if (saveAsBtn) saveAsBtn.style.display = 'none';
       if (costEl) costEl.style.display = '';
     }
+
+    // Endpoint selector — only shown when multiple reachable endpoints exist
+    const headerEl = this.overlay?.querySelector('.dsgn-header-right') || this.overlay?.querySelector('.dsgn-header') || this.overlay;
+    if (headerEl) {
+      let sel = document.getElementById('designer-endpoint-selector');
+      const hasMulti = Array.isArray(this.availableEndpoints) && this.availableEndpoints.length > 1;
+
+      if (hasMulti) {
+        if (!sel) {
+          sel = document.createElement('div');
+          sel.id = 'designer-endpoint-selector';
+          sel.className = 'dsgn-endpoint-selector';
+          sel.innerHTML = '<label>Path to:</label><select></select>';
+          headerEl.appendChild(sel);
+          const select = sel.querySelector('select');
+          select.addEventListener('change', (e) => {
+            const newId = e.target.value;
+            if (this.editSourceId) {
+              this.openFromSource(this.editSourceId, newId);
+            }
+          });
+        }
+        const select = sel.querySelector('select');
+        if (select) {
+          select.innerHTML = this.availableEndpoints.map(ep => {
+            const def = COMPONENTS[ep.type];
+            const label = def ? def.name : ep.type;
+            const selected = ep.id === this.editEndpointId ? 'selected' : '';
+            return `<option value="${ep.id}" ${selected}>${label}</option>`;
+          }).join('');
+        }
+        sel.style.display = '';
+      } else if (sel) {
+        sel.style.display = 'none';
+      }
+    }
   }
 
   saveDesign() {
