@@ -1128,76 +1128,19 @@ export class Game {
   // === FACILITY EQUIPMENT ===
 
   placeFacilityEquipment(col, row, compType) {
-    const comp = COMPONENTS[compType];
-    if (!comp) return false;
-    if (!this.isComponentUnlocked(comp)) return false;
-    if (!this.canAfford(comp.cost)) {
-      this.log(`Can't afford ${comp.name}!`, 'bad');
-      return false;
-    }
-
-    // Zone gating
-    const zoneTier = this.getZoneTierForCategory(comp.category);
-    const compTier = comp.zoneTier != null ? comp.zoneTier : 1;
-    if (zoneTier < compTier) {
-      this.log(`Need more zone area for ${comp.name}!`, 'bad');
-      return false;
-    }
-
-    const key = col + ',' + row;
-    // Require concrete flooring
-    const floor = this.state.infraOccupied[key];
-    if (floor !== 'concrete') {
-      this.log(floor ? 'Need concrete flooring!' : 'Must build on concrete flooring!', 'bad');
-      return false;
-    }
-    if (this.state.facilityGrid[key]) {
-      this.log('Tile occupied!', 'bad');
-      return false;
-    }
-    // Check shared beamline tile occupancy
-    if (this.registry.isTileOccupied(col, row)) {
-      this.log('Tile occupied by beamline!', 'bad');
-      return false;
-    }
-    if (this.state.machineGrid[key]) {
-      this.log('Tile occupied!', 'bad');
-      return false;
-    }
-
-    const id = 'fac_' + this.state.facilityNextId++;
-    this.spend(comp.cost);
-    const entry = { id, type: compType, col, row };
-    this.state.facilityEquipment.push(entry);
-    this.state.facilityGrid[key] = id;
-    this.log(`Built ${comp.name}`, 'good');
-    this.computeSystemStats();
-    this.emit('facilityChanged');
-    this.validateInfrastructure();
-    return true;
+    return this.placePlaceable({
+      type: compType,
+      category: 'equipment',
+      col,
+      row,
+      subCol: 0,
+      subRow: 0,
+      rotated: false,
+    });
   }
 
   removeFacilityEquipment(equipId) {
-    const idx = this.state.facilityEquipment.findIndex(e => e.id === equipId);
-    if (idx === -1) return false;
-
-    const entry = this.state.facilityEquipment[idx];
-    const comp = COMPONENTS[entry.type];
-
-    // 50% refund
-    if (comp) {
-      for (const [r, a] of Object.entries(comp.cost))
-        this.state.resources[r] += Math.floor(a * 0.5);
-    }
-
-    const key = entry.col + ',' + entry.row;
-    delete this.state.facilityGrid[key];
-    this.state.facilityEquipment.splice(idx, 1);
-    this.log(`Removed ${comp ? comp.name : 'equipment'} (50% refund)`, 'info');
-    this.computeSystemStats();
-    this.emit('facilityChanged');
-    this.validateInfrastructure();
-    return true;
+    return this.removePlaceable(equipId);
   }
 
   // === ZONE FURNISHINGS ===
@@ -1488,6 +1431,9 @@ export class Game {
 
     this.computeSystemStats();
     this.emit('placeableChanged');
+    if (category === 'equipment') this.emit('facilityChanged');
+    if (category === 'furnishing') this.emit('zonesChanged');
+    this._syncLegacyPlaceableState();
     return id;
   }
 
@@ -1538,6 +1484,9 @@ export class Game {
     this.log(`Removed ${def ? def.name : 'item'} (50% refund)`, 'info');
     this.computeSystemStats();
     this.emit('placeableChanged');
+    if (entry.category === 'equipment') this.emit('facilityChanged');
+    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    this._syncLegacyPlaceableState();
     return true;
   }
 
@@ -1555,6 +1504,40 @@ export class Game {
 
   getPlaceablesByCategory(category) {
     return this.state.placeables.filter(p => p.category === category);
+  }
+
+  _syncLegacyPlaceableState() {
+    // Keep legacy arrays in sync for renderers/systems not yet migrated
+    this.state.facilityEquipment = this.state.placeables.filter(p => p.category === 'equipment');
+    this.state.facilityGrid = {};
+    for (const eq of this.state.facilityEquipment) {
+      this.state.facilityGrid[eq.col + ',' + eq.row] = eq.id;
+    }
+    this.state.zoneFurnishings = this.state.placeables.filter(p => p.category === 'furnishing');
+    this.state.zoneFurnishingSubgrids = this._getLegacyFurnishingSubgrids();
+  }
+
+  _getLegacyFurnishingSubgrids() {
+    const subgrids = {};
+    const furnishings = this.state.placeables.filter(p => p.category === 'furnishing');
+    for (let i = 0; i < furnishings.length; i++) {
+      const entry = furnishings[i];
+      const def = ZONE_FURNISHINGS[entry.type];
+      if (!def) continue;
+      const key = entry.col + ',' + entry.row;
+      if (!subgrids[key]) {
+        subgrids[key] = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+      }
+      const gw = entry.rotated ? (def.gridH || 1) : (def.gridW || 1);
+      const gh = entry.rotated ? (def.gridW || 1) : (def.gridH || 1);
+      const furnIdx = i + 1;
+      for (let r = entry.subRow; r < entry.subRow + gh && r < 4; r++) {
+        for (let c = entry.subCol; c < entry.subCol + gw && c < 4; c++) {
+          subgrids[key][r][c] = furnIdx;
+        }
+      }
+    }
+    return subgrids;
   }
 
   getPlaceableAtSubgrid(col, row, subCol, subRow) {

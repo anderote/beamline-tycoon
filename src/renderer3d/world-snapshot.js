@@ -130,29 +130,17 @@ function buildComponents(game) {
 }
 
 function buildEquipment(game) {
-  // facilityGrid is an object keyed by "col,row" -> equipment id
-  // facilityEquipment holds the actual equipment objects
-  const facilityGrid = game.state.facilityGrid || {};
-  const facilityEquipment = game.state.facilityEquipment || [];
+  const equip = (game.state.placeables || []).filter(p => p.category === 'equipment');
 
-  // Build a lookup from id -> equipment object
-  const byId = {};
-  for (const eq of facilityEquipment) {
-    byId[eq.id] = eq;
-  }
-
-  return Object.entries(facilityGrid).map(([key, id]) => {
-    const eq = byId[id] || {};
-    return {
-      key,
-      id,
-      type: eq.type ?? null,
-      col: eq.col ?? null,
-      row: eq.row ?? null,
-      subCol: eq.subCol ?? null,
-      subRow: eq.subRow ?? null,
-    };
-  });
+  return equip.map(eq => ({
+    key: eq.col + ',' + eq.row,
+    id: eq.id,
+    type: eq.type ?? null,
+    col: eq.col ?? null,
+    row: eq.row ?? null,
+    subCol: eq.subCol ?? null,
+    subRow: eq.subRow ?? null,
+  }));
 }
 
 function buildDecorations(game) {

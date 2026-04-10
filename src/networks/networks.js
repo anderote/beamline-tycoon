@@ -78,19 +78,16 @@ export const Networks = {
    */
   _findAdjacentEquipment(state, tileSet) {
     var found = [];
-    for (var i = 0; i < state.facilityEquipment.length; i++) {
-      var eq = state.facilityEquipment[i];
-      var eqTiles = eq.tiles || [{ col: eq.col, row: eq.row }];
+    var equip = (state.placeables || []).filter(function(p) { return p.category === 'equipment'; });
+    for (var i = 0; i < equip.length; i++) {
+      var eq = equip[i];
+      var tc = eq.col;
+      var tr = eq.row;
       var adjacent = false;
-      for (var t = 0; t < eqTiles.length && !adjacent; t++) {
-        var tc = eqTiles[t].col;
-        var tr = eqTiles[t].row;
-        // Check overlap
-        if (tileSet.has(tc + ',' + tr)) {
-          adjacent = true;
-          break;
-        }
-        // Check cardinal neighbors
+      if (tileSet.has(tc + ',' + tr)) {
+        adjacent = true;
+      }
+      if (!adjacent) {
         for (var d = 0; d < CARDINAL.length; d++) {
           if (tileSet.has((tc + CARDINAL[d][0]) + ',' + (tr + CARDINAL[d][1]))) {
             adjacent = true;

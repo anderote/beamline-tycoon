@@ -2,7 +2,7 @@ import { COMPONENTS } from '../data/components.js';
 import { Networks } from '../networks/networks.js';
 
 export function computeSystemStats(state) {
-  const equip = state.facilityEquipment || [];
+  const equip = (state.placeables || []).filter(p => p.category === 'equipment');
   const beamline = state.beamline || [];
   const nets = state.networkData; // may be null if Networks not loaded yet
 
