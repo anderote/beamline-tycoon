@@ -2059,6 +2059,10 @@ export class Game {
     }
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.state.mainBeamState = result || null;
+    // Also expose envelope for probe.js, which reads state.physicsEnvelope
+    if (result && result.envelope) {
+      this.state.physicsEnvelope = result.envelope;
+    }
     this.emit('physicsUpdated');
   }
 

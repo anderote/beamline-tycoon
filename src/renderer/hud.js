@@ -32,16 +32,25 @@ Renderer.prototype._updateHUD = function() {
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
 
-  // Facility overview (top-left panel) — aggregated stats across all beamlines/machines
+  // Facility overview (top-left panel) — aggregated stats across all beamlines/machines.
+  // Aggregate both legacy registry-backed beamlines and the main-map pipe graph.
   {
     const entries = this.game.registry.getAll();
-    const totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.dataRate || 0), 0);
-    const totalBeamPower = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
-    const totalLength = entries.reduce((sum, e) => sum + (e.beamState.totalLength || 0), 0);
+    const mbs = this.game.state.mainBeamState || {};
+
+    let totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.dataRate || 0), 0);
+    let totalBeamPower = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
+    let totalLength = entries.reduce((sum, e) => sum + (e.beamState.totalLength || 0), 0);
     let peakEnergy = 0;
     for (const e of entries) {
       if ((e.beamState.beamEnergy || 0) > peakEnergy) peakEnergy = e.beamState.beamEnergy;
     }
+
+    // Add main-map pipe-graph contribution
+    totalDataRate += mbs.dataRate || 0;
+    totalBeamPower += mbs.totalEnergyCost || 0;
+    totalLength += mbs.totalLength || 0;
+    if ((mbs.beamEnergy || 0) > peakEnergy) peakEnergy = mbs.beamEnergy;
 
     // Power stats from systemStats
     const totalPower = ss && ss.power ? Math.round(ss.power.totalDraw) : 0;

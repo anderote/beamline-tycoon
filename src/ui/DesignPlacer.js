@@ -74,20 +74,23 @@ export class DesignPlacer {
       const comp = COMPONENTS[c.type];
       if (!comp) continue;
 
-      // Calculate exit direction for dipoles
-      let exitDir = dir;
+      // Attachments don't occupy grid tiles — they live on pipes.
+      // Still add their cost to the total.
+      if (comp.placement === 'attachment') {
+        componentCost += comp.cost?.funding || 0;
+        continue;
+      }
+
+      // Reflect dipole bend direction
       let bendDir = c.bendDir;
       if (this.reflected && bendDir) {
         bendDir = bendDir === 'left' ? 'right' : 'left';
       }
-      if (comp.isDipole && bendDir) {
-        exitDir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
-      }
 
-      const delta = DIR_DELTA[exitDir];
+      const delta = DIR_DELTA[dir];
       const trackLen = Math.ceil((comp.subL || 4) / 4);
       const trackW = Math.ceil((comp.subW || 2) / 4);
-      const perpDir = turnLeft(exitDir);
+      const perpDir = turnLeft(dir);
       const perpDelta = DIR_DELTA[perpDir];
 
       const widthOffsets = [];
@@ -95,17 +98,27 @@ export class DesignPlacer {
         widthOffsets.push(j - (trackW - 1) / 2);
       }
 
+      // Module footprint tiles
       for (let i = 0; i < trackLen; i++) {
         for (const wOff of widthOffsets) {
           const tc = col + delta.dc * i + perpDelta.dc * wOff;
           const tr = row + delta.dr * i + perpDelta.dr * wOff;
           this.previewTiles.push({ col: tc, row: tr, type: c.type });
 
+          // Collision check via sub-grid placeables
           const key = tc + ',' + tr;
-          if (this.game.registry.isTileOccupied(tc, tr)) {
-            this.valid = false;
+          for (let sc = 0; sc < 4; sc++) {
+            for (let sr = 0; sr < 4; sr++) {
+              const k = `${tc},${tr},${sc},${sr}`;
+              if (this.game.state.subgridOccupied && this.game.state.subgridOccupied[k]) {
+                this.valid = false;
+                break;
+              }
+            }
+            if (!this.valid) break;
           }
 
+          // Foundation check
           const hasFoundation = this.game.state.infraOccupied[key];
           if (!hasFoundation) {
             const alreadyPlanned = this.foundationTiles.some(f => f.col === tc && f.row === tr);
@@ -119,9 +132,15 @@ export class DesignPlacer {
 
       componentCost += comp.cost?.funding || 0;
 
-      col += delta.dc * trackLen;
-      row += delta.dr * trackLen;
-      dir = exitDir;
+      // Handle dipole bend: change direction for subsequent placements
+      if (comp.isDipole && bendDir) {
+        dir = bendDir === 'left' ? turnLeft(dir) : turnRight(dir);
+      }
+
+      // Advance cursor past this module PLUS one tile gap for the pipe
+      const advDelta = DIR_DELTA[dir];
+      col += advDelta.dc * (trackLen + 1);
+      row += advDelta.dr * (trackLen + 1);
     }
 
     this.totalCost = componentCost + foundationCost;
