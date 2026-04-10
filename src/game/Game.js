@@ -1528,6 +1528,17 @@ export class Game {
       return false;
     }
 
+    // Overlength check: new attachment must fit in the remaining pipe length
+    const existingAttSubL = pipe.attachments.reduce((sum, a) => {
+      const d = COMPONENTS[a.type];
+      return sum + (d ? (d.subL || 1) : 1);
+    }, 0);
+    const newAttSubL = def.subL || 1;
+    if (existingAttSubL + newAttSubL > pipe.subL) {
+      this.log(`Not enough pipe length for ${def.name}!`, 'bad');
+      return false;
+    }
+
     this.spend(def.cost);
 
     const attId = 'att_' + this.state.placeableNextId++;
@@ -1659,6 +1670,11 @@ export class Game {
     });
 
     // BFS from each source
+    // LIMITATION (linac phase): the BFS marks neighbors visited on first pipe,
+    // so if two pipes connect the same pair of modules via different ports,
+    // only one pipe contributes its drift + attachments to the derived graph.
+    // Fixing this for splitter support (future) will require tracking visited
+    // PIPES rather than visited modules.
     const allOrdered = [];
     const visited = new Set();
 
