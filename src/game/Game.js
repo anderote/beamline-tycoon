@@ -58,8 +58,8 @@ export class Game {
       placeableIndex: {},           // id -> index in placeables array
       subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
       placeableNextId: 1,
-      // Beam pipe connections (drawn between beamline component ports)
-      beamPipes: [],                // [{ id, fromId, toId, path: [{col,row,subCol,subRow}], subL }]
+      // Beam pipe connections (drawn between module ports)
+      beamPipes: [],                // [{ id, fromId, fromPort, toId, toPort, path: [{col,row}], subL, attachments: [{id, type, position, params}] }]
       beamPipeNextId: 1,
       // Decorations (trees, shrubs, benches, etc.)
       decorations: [],              // [{ id, type, col, row }]
@@ -1428,24 +1428,42 @@ export class Game {
   // === BEAM PIPE ===
 
   /**
-   * Create a beam pipe connection between two beamline placeables.
+   * Create a beam pipe connection between two beamline placeable ports.
    * @param {string} fromId - placeable id of source-side component
+   * @param {string} fromPort - port name on the from component
    * @param {string} toId - placeable id of destination component
+   * @param {string} toPort - port name on the to component
    * @param {Array} path - array of {col, row} tile positions along the pipe route
    * @returns {boolean}
    */
-  createBeamPipe(fromId, toId, path) {
+  createBeamPipe(fromId, fromPort, toId, toPort, path) {
     const from = this.getPlaceable(fromId);
     const to = this.getPlaceable(toId);
     if (!from || !to) return false;
     if (from.category !== 'beamline' || to.category !== 'beamline') return false;
 
-    // Check no duplicate
+    const fromDef = COMPONENTS[from.type];
+    const toDef = COMPONENTS[to.type];
+
+    // Validate ports exist
+    if (!fromDef.ports || !fromDef.ports[fromPort]) {
+      this.log('Invalid source port!', 'bad');
+      return false;
+    }
+    if (!toDef.ports || !toDef.ports[toPort]) {
+      this.log('Invalid destination port!', 'bad');
+      return false;
+    }
+
+    // Check no duplicate connection on same ports
     const existing = this.state.beamPipes.find(
-      p => (p.fromId === fromId && p.toId === toId) || (p.fromId === toId && p.toId === fromId)
+      p => (p.fromId === fromId && p.fromPort === fromPort) ||
+           (p.toId === fromId && p.toPort === fromPort) ||
+           (p.fromId === toId && p.fromPort === toPort) ||
+           (p.toId === toId && p.toPort === toPort)
     );
     if (existing) {
-      this.log('Already connected!', 'bad');
+      this.log('Port already connected!', 'bad');
       return false;
     }
 
@@ -1468,13 +1486,107 @@ export class Game {
     const pipe = {
       id,
       fromId,
+      fromPort,
       toId,
+      toPort,
       path: path.map(p => ({ col: p.col, row: p.row })),
       subL,
+      attachments: [],
     };
 
     this.state.beamPipes.push(pipe);
     this.log(`Connected beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
+    this._deriveBeamGraph();
+    this.emit('beamlineChanged');
+    return true;
+  }
+
+  /**
+   * Add an attachment (inline component) to an existing beam pipe.
+   * @param {string} pipeId - beam pipe ID
+   * @param {string} type - component type (must be placement: 'attachment')
+   * @param {number} position - 0..1 normalized position along pipe
+   * @param {Object} params - optional parameter overrides
+   */
+  addAttachmentToPipe(pipeId, type, position, params) {
+    const pipe = this.state.beamPipes.find(p => p.id === pipeId);
+    if (!pipe) return false;
+
+    const def = COMPONENTS[type];
+    if (!def || def.placement !== 'attachment') {
+      this.log('Not an attachment component!', 'bad');
+      return false;
+    }
+
+    if (!this.isComponentUnlocked(def)) {
+      this.log(`${def.name} not unlocked!`, 'bad');
+      return false;
+    }
+
+    if (!this.canAfford(def.cost)) {
+      this.log(`Can't afford ${def.name}!`, 'bad');
+      return false;
+    }
+
+    this.spend(def.cost);
+
+    const attId = 'att_' + this.state.placeableNextId++;
+    const attachment = {
+      id: attId,
+      type,
+      position: Math.max(0, Math.min(1, position)),
+      params: {},
+    };
+
+    // Initialize params from PARAM_DEFS and component definition
+    if (PARAM_DEFS[type]) {
+      for (const [k, pdef] of Object.entries(PARAM_DEFS[type])) {
+        if (!pdef.derived) attachment.params[k] = pdef.default;
+      }
+    }
+    if (def.params) {
+      for (const [k, v] of Object.entries(def.params)) {
+        if (!(k in attachment.params)) attachment.params[k] = v;
+      }
+    }
+    if (params) Object.assign(attachment.params, params);
+
+    // Insert sorted by position
+    const insertIdx = pipe.attachments.findIndex(a => a.position > attachment.position);
+    if (insertIdx === -1) {
+      pipe.attachments.push(attachment);
+    } else {
+      pipe.attachments.splice(insertIdx, 0, attachment);
+    }
+
+    this.log(`Attached ${def.name}`, 'good');
+    this._deriveBeamGraph();
+    this.emit('beamlineChanged');
+    return attId;
+  }
+
+  /**
+   * Remove an attachment from a pipe.
+   */
+  removeAttachment(pipeId, attachmentId) {
+    const pipe = this.state.beamPipes.find(p => p.id === pipeId);
+    if (!pipe) return false;
+
+    const idx = pipe.attachments.findIndex(a => a.id === attachmentId);
+    if (idx === -1) return false;
+
+    const att = pipe.attachments[idx];
+    const def = COMPONENTS[att.type];
+
+    // 50% refund
+    if (def && def.cost) {
+      for (const [r, a] of Object.entries(def.cost)) {
+        this.state.resources[r] += Math.floor(a * 0.5);
+      }
+    }
+
+    pipe.attachments.splice(idx, 1);
+    this.log(`Removed ${def ? def.name : 'attachment'} (50% refund)`, 'info');
     this._deriveBeamGraph();
     this.emit('beamlineChanged');
     return true;
@@ -1486,11 +1598,21 @@ export class Game {
 
     const pipe = this.state.beamPipes[idx];
 
-    // 50% refund
+    // Refund pipe cost (50%)
     const driftDef = COMPONENTS.drift;
     const costPerTile = driftDef ? driftDef.cost.funding : 10000;
     const tileCost = Math.max(costPerTile, Math.floor(costPerTile * ((pipe.path.length - 1) || 1)));
     this.state.resources.funding += Math.floor(tileCost * 0.5);
+
+    // Refund all attachments on this pipe (50%)
+    for (const att of (pipe.attachments || [])) {
+      const attDef = COMPONENTS[att.type];
+      if (attDef && attDef.cost) {
+        for (const [r, a] of Object.entries(attDef.cost)) {
+          this.state.resources[r] += Math.floor(a * 0.5);
+        }
+      }
+    }
 
     this.state.beamPipes.splice(idx, 1);
     this.log('Removed beam pipe (50% refund)', 'info');
@@ -1508,21 +1630,35 @@ export class Game {
     const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
 
     // Build adjacency from beam pipes
-    const adj = {};  // placeableId -> [{ neighborId, pipeId, subL }]
+    // adj maps placeableId -> [{ neighborId, pipeId, subL, attachments, reversed }]
+    const adj = {};
     for (const pipe of this.state.beamPipes) {
       if (!adj[pipe.fromId]) adj[pipe.fromId] = [];
+      adj[pipe.fromId].push({
+        neighborId: pipe.toId,
+        pipeId: pipe.id,
+        subL: pipe.subL,
+        attachments: pipe.attachments || [],
+        reversed: false,
+      });
+      // Also allow reverse traversal
       if (!adj[pipe.toId]) adj[pipe.toId] = [];
-      adj[pipe.fromId].push({ neighborId: pipe.toId, pipeId: pipe.id, subL: pipe.subL });
-      adj[pipe.toId].push({ neighborId: pipe.fromId, pipeId: pipe.id, subL: pipe.subL });
+      adj[pipe.toId].push({
+        neighborId: pipe.fromId,
+        pipeId: pipe.id,
+        subL: pipe.subL,
+        attachments: [...(pipe.attachments || [])].reverse(),
+        reversed: true,
+      });
     }
 
-    // Find sources from placeables
+    // Find sources
     const placeableSources = beamItems.filter(p => {
       const def = COMPONENTS[p.type];
       return def && def.isSource;
     });
 
-    // BFS from each source through pipe connections
+    // BFS from each source
     const allOrdered = [];
     const visited = new Set();
 
@@ -1537,7 +1673,7 @@ export class Game {
         const def = COMPONENTS[item.type];
         const itemSubL = def ? (def.subL || 4) : 4;
 
-        // Create a beam node entry compatible with existing physics
+        // Add the module node
         allOrdered.push({
           id: item.id,
           type: item.type,
@@ -1552,43 +1688,107 @@ export class Game {
 
         const nextBeamStart = beamStart + itemSubL * 0.5;
 
-        // Follow pipes to neighbors
-        const neighbors = adj[item.id] || [];
+        // Follow pipes to neighbors (prefer non-reversed edges first, i.e., follow beam direction)
+        const neighbors = (adj[item.id] || []).filter(e => !visited.has(e.neighborId));
+        // Sort: follow fromId→toId direction first
+        neighbors.sort((a, b) => (a.reversed ? 1 : 0) - (b.reversed ? 1 : 0));
+
         for (const edge of neighbors) {
           if (visited.has(edge.neighborId)) continue;
           visited.add(edge.neighborId);
 
-          // The pipe itself acts as a drift section
-          const driftStart = nextBeamStart;
-          allOrdered.push({
-            id: edge.pipeId,
-            type: 'drift',
-            col: item.col,
-            row: item.row,
-            dir: item.dir,
-            params: {},
-            tiles: [],
-            beamStart: driftStart,
-            subL: edge.subL,
-          });
+          // Interleave drift + attachments along the pipe.
+          // Attachments are sorted by position (already, from addAttachmentToPipe insert logic).
+          // pipe.subL is in sub-units. Each attachment has its own subL.
+          // Drift length between attachments = (pipe.subL * position_delta) - prev attachment subL.
+          const pipeBeamLen = edge.subL * 0.5; // metres
+          let pipeCursor = nextBeamStart;
+          let attCursor = 0; // metres consumed so far on this pipe
 
-          const afterDrift = driftStart + edge.subL * 0.5;
+          const sortedAtts = edge.reversed
+            ? edge.attachments  // already reversed above
+            : [...edge.attachments].sort((a, b) => a.position - b.position);
 
-          // Queue the neighbor component
+          for (const att of sortedAtts) {
+            const attDef = COMPONENTS[att.type];
+            const attSubL = attDef ? (attDef.subL || 1) : 1;
+            const attBeamLen = attSubL * 0.5;
+            // Position along pipe (flip for reversed traversal)
+            const effPos = edge.reversed ? (1 - att.position) : att.position;
+
+            // Drift segment before this attachment
+            const targetPos = effPos * pipeBeamLen;
+            const driftBeamLen = targetPos - attCursor;
+            if (driftBeamLen > 0) {
+              allOrdered.push({
+                id: edge.pipeId + '_d' + attCursor.toFixed(3),
+                type: 'drift',
+                col: item.col,
+                row: item.row,
+                dir: item.dir,
+                params: {},
+                tiles: [],
+                beamStart: pipeCursor,
+                subL: driftBeamLen * 2,
+                pipeId: edge.pipeId,
+              });
+              pipeCursor += driftBeamLen;
+              attCursor += driftBeamLen;
+            }
+
+            // The attachment itself
+            allOrdered.push({
+              id: att.id,
+              type: att.type,
+              col: item.col,
+              row: item.row,
+              dir: item.dir,
+              params: att.params || {},
+              tiles: [],
+              beamStart: pipeCursor,
+              subL: attSubL,
+              isAttachment: true,
+              pipeId: edge.pipeId,
+            });
+            pipeCursor += attBeamLen;
+            attCursor += attBeamLen;
+          }
+
+          // Tail drift to end of pipe
+          const tailBeamLen = pipeBeamLen - attCursor;
+          if (tailBeamLen > 0) {
+            allOrdered.push({
+              id: edge.pipeId + '_dtail',
+              type: 'drift',
+              col: item.col,
+              row: item.row,
+              dir: item.dir,
+              params: {},
+              tiles: [],
+              beamStart: pipeCursor,
+              subL: tailBeamLen * 2,
+              pipeId: edge.pipeId,
+            });
+            pipeCursor += tailBeamLen;
+          }
+
+          // Queue the neighbor module
           const neighbor = this.getPlaceable(edge.neighborId);
           if (neighbor) {
-            queue.push({ item: neighbor, beamStart: afterDrift });
+            queue.push({ item: neighbor, beamStart: pipeCursor });
           }
         }
       }
     }
 
     // Also keep registry beamline nodes that aren't in placeables (legacy compatibility)
-    for (const entry of this.registry.getAll()) {
-      const ordered = entry.beamline.getOrderedComponents();
-      for (const node of ordered) {
-        if (!visited.has(node.id) && !allOrdered.some(n => n.id === node.id)) {
-          allOrdered.push(node);
+    if (this.registry) {
+      for (const entry of this.registry.getAll()) {
+        const ordered = entry.beamline.getOrderedComponents();
+        for (const node of ordered) {
+          if (!visited.has(node.id) && !allOrdered.some(n => n.id === node.id)) {
+            allOrdered.push(node);
+          }
         }
       }
     }
