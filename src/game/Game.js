@@ -53,6 +53,14 @@ export class Game {
       zoneFurnishings: [],           // [{ id, type, col, row, subCol, subRow, rotated }]
       zoneFurnishingSubgrids: {},    // "col,row" -> [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
       zoneFurnishingNextId: 1,
+      // Unified placement system
+      placeables: [],              // [{ id, type, category, col, row, subCol, subRow, rotated, dir, params, cells }]
+      placeableIndex: {},           // id -> index in placeables array
+      subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
+      placeableNextId: 1,
+      // Beam pipe connections (drawn between beamline component ports)
+      beamPipes: [],                // [{ id, fromId, toId, path: [{col,row,subCol,subRow}], subL }]
+      beamPipeNextId: 1,
       // Decorations (trees, shrubs, benches, etc.)
       decorations: [],              // [{ id, type, col, row }]
       decorationOccupied: {},       // "col,row" -> decoration id
@@ -1334,6 +1342,226 @@ export class Game {
       }
     }
     this.state.zoneFurnishingSubgrids = subgrids;
+  }
+
+  // === UNIFIED PLACEMENT SYSTEM ===
+
+  /**
+   * Place any item on the unified sub-grid.
+   * @param {Object} opts - { type, category, col, row, subCol, subRow, rotated, dir, params }
+   *   category: "beamline" | "equipment" | "furnishing"
+   * @returns {string|false} The placeable id, or false on failure
+   */
+  placePlaceable(opts) {
+    const { type, category, col, row, subCol, subRow, rotated, dir, params } = opts;
+
+    // Look up definition
+    let def;
+    if (category === 'furnishing') {
+      def = ZONE_FURNISHINGS[type];
+    } else {
+      def = COMPONENTS[type];
+    }
+    if (!def) return false;
+
+    // Unlock check (beamline and equipment)
+    if (category !== 'furnishing' && !this.isComponentUnlocked(def)) return false;
+
+    // Afford check
+    if (!this.canAfford(def.cost)) {
+      this.log(`Can't afford ${def.name}!`, 'bad');
+      return false;
+    }
+
+    // Compute effective grid dimensions
+    const gw = rotated ? (def.gridH || def.subW || 1) : (def.gridW || def.subW || 1);
+    const gh = rotated ? (def.gridW || def.subL || 1) : (def.gridH || def.subL || 1);
+
+    // Build list of occupied cells
+    const cells = [];
+    for (let dr = 0; dr < gh; dr++) {
+      for (let dc = 0; dc < gw; dc++) {
+        const sc = (subCol || 0) + dc;
+        const sr = (subRow || 0) + dr;
+        // Convert to absolute tile + subtile
+        const absCol = col + Math.floor(sc / 4);
+        const absRow = row + Math.floor(sr / 4);
+        const absSC = sc % 4;
+        const absSR = sr % 4;
+        cells.push({ col: absCol, row: absRow, subCol: absSC, subRow: absSR });
+      }
+    }
+
+    // Floor check — all cells must be on infrastructure
+    for (const cell of cells) {
+      const tileKey = cell.col + ',' + cell.row;
+      if (!this.state.infraOccupied[tileKey]) {
+        this.log('Must place on flooring!', 'bad');
+        return false;
+      }
+    }
+
+    // Collision check — no cell can be already occupied
+    for (const cell of cells) {
+      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      if (this.state.subgridOccupied[cellKey]) {
+        this.log('Space occupied!', 'bad');
+        return false;
+      }
+    }
+
+    // Zone tier gating (equipment only)
+    if (category === 'equipment' && def.zoneTier != null) {
+      const zoneTier = this.getZoneTierForCategory(def.category);
+      if (zoneTier < def.zoneTier) {
+        this.log(`Need more zone area for ${def.name}!`, 'bad');
+        return false;
+      }
+    }
+
+    // Max count check (beamline only)
+    if (category === 'beamline' && def.maxCount) {
+      const count = this.state.placeables.filter(
+        p => p.category === 'beamline' && p.type === type
+      ).length;
+      if (count >= def.maxCount) {
+        this.log(`Max ${def.name} reached.`, 'bad');
+        return false;
+      }
+    }
+
+    // Assign ID
+    const prefix = category === 'beamline' ? 'bl_' : category === 'equipment' ? 'eq_' : 'fn_';
+    const id = prefix + this.state.placeableNextId++;
+
+    // Deduct cost
+    this.spend(def.cost);
+
+    // Create entry
+    const entry = {
+      id,
+      type,
+      category,
+      col,
+      row,
+      subCol: subCol || 0,
+      subRow: subRow || 0,
+      rotated: rotated || false,
+      dir: dir || null,
+      params: null,
+      cells,
+    };
+
+    // Initialize params for beamline components
+    if (category === 'beamline') {
+      entry.params = {};
+      if (PARAM_DEFS[type]) {
+        for (const [k, pdef] of Object.entries(PARAM_DEFS[type])) {
+          if (!pdef.derived) entry.params[k] = pdef.default;
+        }
+      }
+      if (def.params) {
+        for (const [k, v] of Object.entries(def.params)) {
+          if (!(k in entry.params)) entry.params[k] = v;
+        }
+      }
+      if (params) Object.assign(entry.params, params);
+    }
+
+    // Store
+    this.state.placeables.push(entry);
+    this.state.placeableIndex[id] = this.state.placeables.length - 1;
+
+    // Occupy sub-grid cells
+    for (const cell of cells) {
+      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      this.state.subgridOccupied[cellKey] = { id, category };
+    }
+
+    // Logging
+    const zoneType = this.state.zoneOccupied[col + ',' + row];
+    if (category === 'furnishing' && def.zoneType && zoneType === def.zoneType) {
+      this.log(`Built ${def.name} (zone bonus active)`, 'good');
+    } else {
+      this.log(`Built ${def.name}`, 'good');
+    }
+
+    this.computeSystemStats();
+    this.emit('placeableChanged');
+    return id;
+  }
+
+  /**
+   * Remove a placeable by ID. Refunds 50% of cost.
+   */
+  removePlaceable(placeableId) {
+    const idx = this.state.placeableIndex[placeableId];
+    if (idx === undefined) return false;
+
+    const entry = this.state.placeables[idx];
+    if (!entry) return false;
+
+    // Look up definition for refund
+    let def;
+    if (entry.category === 'furnishing') {
+      def = ZONE_FURNISHINGS[entry.type];
+    } else {
+      def = COMPONENTS[entry.type];
+    }
+
+    // 50% refund
+    if (def && def.cost) {
+      for (const [r, a] of Object.entries(def.cost)) {
+        this.state.resources[r] += Math.floor(a * 0.5);
+      }
+    }
+
+    // Free sub-grid cells
+    for (const cell of entry.cells) {
+      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      delete this.state.subgridOccupied[cellKey];
+    }
+
+    // Remove beam pipes connected to this placeable (beamline only)
+    if (entry.category === 'beamline') {
+      this.state.beamPipes = this.state.beamPipes.filter(
+        p => p.fromId !== placeableId && p.toId !== placeableId
+      );
+    }
+
+    // Remove from array
+    this.state.placeables.splice(idx, 1);
+
+    // Rebuild index
+    this._rebuildPlaceableIndex();
+
+    this.log(`Removed ${def ? def.name : 'item'} (50% refund)`, 'info');
+    this.computeSystemStats();
+    this.emit('placeableChanged');
+    return true;
+  }
+
+  _rebuildPlaceableIndex() {
+    this.state.placeableIndex = {};
+    for (let i = 0; i < this.state.placeables.length; i++) {
+      this.state.placeableIndex[this.state.placeables[i].id] = i;
+    }
+  }
+
+  getPlaceable(id) {
+    const idx = this.state.placeableIndex[id];
+    return idx !== undefined ? this.state.placeables[idx] : null;
+  }
+
+  getPlaceablesByCategory(category) {
+    return this.state.placeables.filter(p => p.category === category);
+  }
+
+  getPlaceableAtSubgrid(col, row, subCol, subRow) {
+    const key = col + ',' + row + ',' + subCol + ',' + subRow;
+    const occ = this.state.subgridOccupied[key];
+    if (!occ) return null;
+    return this.getPlaceable(occ.id);
   }
 
   // === DECORATIONS ===
