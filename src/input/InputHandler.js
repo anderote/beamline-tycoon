@@ -10,6 +10,39 @@ import { NetworkWindow } from '../ui/NetworkWindow.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
+function _demolishRefund(compOrDef) {
+  if (!compOrDef) return 0;
+  const cost = typeof compOrDef.cost === 'object' ? compOrDef.cost.funding || 0 : compOrDef.cost || 0;
+  return Math.floor(cost * 0.5);
+}
+
+function _categoryColor(category) {
+  const colors = {
+    rfPower:       0xcc4444, // red
+    rf:            0xcc4444, // red
+    cooling:       0x4488cc, // blue
+    vacuum:        0x999999, // grey
+    power:         0xccaa44, // amber/yellow
+    dataControls:  0x44cc88, // green
+    ops:           0xcc8844, // orange
+    diagnostic:    0x44aacc, // teal
+    focusing:      0x8866cc, // purple
+    source:        0xcccc44, // yellow
+    beamOptics:    0x6688cc, // steel blue
+    endpoint:      0xcc6688, // pink
+  };
+  return colors[category] || 0x88aaff;
+}
+
+function _effectLabel(key) {
+  const labels = {
+    zoneOutput: 'Zone Output', morale: 'Morale', research: 'Research',
+    rfPower: 'RF Power', vacuumCapacity: 'Vacuum', coolingCapacity: 'Cooling',
+    cryoCapacity: 'Cryo', powerCapacity: 'Power', dataCapacity: 'Data',
+  };
+  return labels[key] || key;
+}
+
 export class InputHandler {
   constructor(renderer, game) {
     this.renderer = renderer;
@@ -56,13 +89,300 @@ export class InputHandler {
     this.keysDown = new Set();
     // Bulldozer mode
     this.bulldozerMode = false;
+    // Move mode
+    this.moveMode = false;
+    this._movePayload = null; // { kind, data } of picked-up object
     // Probe placement mode
     this.probeMode = false;
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
+    // Hover tooltip state
+    this._hoverTooltipTimer = null;
+    this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
+    this._tooltipEl = null;
     this._bindKeyboard();
     this._bindMouse();
     this._startPanLoop();
+  }
+
+  // --- Hover tooltip ---
+
+  _showTooltip(text, screenX, screenY) {
+    this._hideTooltip();
+    const el = document.createElement('div');
+    el.className = 'hover-tooltip';
+    el.innerHTML = text;
+    el.style.left = (screenX + 12) + 'px';
+    el.style.top = (screenY - 8) + 'px';
+    document.body.appendChild(el);
+    this._tooltipEl = el;
+  }
+
+  _hideTooltip() {
+    if (this._tooltipEl) {
+      this._tooltipEl.remove();
+      this._tooltipEl = null;
+    }
+    if (this._hoverTooltipTimer) {
+      clearTimeout(this._hoverTooltipTimer);
+      this._hoverTooltipTimer = null;
+    }
+    this._hoverTooltipTarget = null;
+  }
+
+  _checkHoverTooltip(world, grid, screenX, screenY) {
+    const col = grid.col, row = grid.row;
+    const key = col + ',' + row;
+
+    // Check furnishings (sub-tile)
+    const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+    if (subgrid) {
+      const tilePos = gridToIso(col, row);
+      const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
+      const sc = Math.floor(sub.subCol);
+      const sr = Math.floor(sub.subRow);
+      if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+        const furnIdx = subgrid[sr][sc];
+        if (furnIdx > 0) {
+          const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+          if (entry) {
+            const targetId = 'furn:' + entry.id;
+            if (this._hoverTooltipTarget !== targetId) {
+              this._hideTooltip();
+              this._hoverTooltipTarget = targetId;
+              this._hoverTooltipTimer = setTimeout(() => {
+                const def = ZONE_FURNISHINGS[entry.type];
+                if (!def) return;
+                let html = `<b>${def.name}</b>`;
+                if (def.effects) {
+                  for (const [ek, ev] of Object.entries(def.effects)) {
+                    if (ev === 0) continue;
+                    const sign = ev > 0 ? '+' : '';
+                    const label = _effectLabel(ek);
+                    const val = typeof ev === 'number' && Math.abs(ev) < 1
+                      ? (ev * 100).toFixed(0) + '%'
+                      : String(ev);
+                    html += `<br><span style="color:#8f8">${label}: ${sign}${val}</span>`;
+                  }
+                }
+                this._showTooltip(html, screenX, screenY);
+              }, 500);
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    // Check facility equipment
+    const equipId = this.game.state.facilityGrid[key];
+    if (equipId) {
+      const targetId = 'equip:' + equipId;
+      if (this._hoverTooltipTarget !== targetId) {
+        this._hideTooltip();
+        this._hoverTooltipTarget = targetId;
+        this._hoverTooltipTimer = setTimeout(() => {
+          const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+          if (!equip) return;
+          const comp = COMPONENTS[equip.type];
+          if (!comp) return;
+          let html = `<b>${comp.name}</b>`;
+          if (comp.category) html += `<br><span style="color:#888">${comp.category}</span>`;
+          if (comp.energyCost) html += `<br><span style="color:#cc8">${comp.energyCost} kW</span>`;
+          this._showTooltip(html, screenX, screenY);
+        }, 500);
+      }
+      return;
+    }
+
+    // Nothing hovered — clear
+    if (this._hoverTooltipTarget) {
+      this._hideTooltip();
+    }
+  }
+
+  // --- Demolish hover ---
+
+  _updateDemolishHover(world, grid, screenX, screenY) {
+    const col = grid.col, row = grid.row;
+    const key = col + ',' + row;
+    const dt = this.demolishType;
+
+    // --- 3D raycast for components, equipment, furnishings ---
+    // These are best detected by what's actually under the cursor in 3D.
+    if (dt === 'demolishComponent' || dt === 'demolishFurnishing' || dt === 'demolishAll') {
+      const hit = this.renderer.raycastScreen(screenX, screenY);
+      if (hit) {
+        const info = this.renderer.identifyHit(hit);
+        if (info) {
+          // Component
+          if (info.group === 'component' && (dt === 'demolishComponent' || dt === 'demolishAll')) {
+            let node = null;
+            if (info.nodeId) {
+              const nodes = this.game.registry.getAllNodes();
+              node = nodes.find(n => n.id === info.nodeId);
+            }
+            // Fallback: derive tile from 3D position
+            if (!node) {
+              const p = info.rootObj.position;
+              const hCol = Math.floor(p.x / 2);
+              const hRow = Math.floor(p.z / 2);
+              node = this._getNodeAtGrid(hCol, hRow);
+            }
+            if (!node) node = this._getNodeAtGrid(col, row);
+            if (node) {
+              const comp = COMPONENTS[node.type];
+              this.renderer._clearPreview();
+              this.renderer._outlineObject(info.rootObj);
+              this._showDemolishTooltip(comp ? comp.name : node.type, _demolishRefund(comp), screenX, screenY);
+              return;
+            }
+          }
+          // Equipment or furnishing — derive tile from 3D position, not iso grid
+          if (info.group === 'equipment' && (dt === 'demolishFurnishing' || dt === 'demolishAll')) {
+            const p = info.rootObj.position;
+            const hitCol = Math.floor(p.x / 2);
+            const hitRow = Math.floor(p.z / 2);
+            const hitKey = hitCol + ',' + hitRow;
+
+            // Check facility equipment at hit tile
+            const equipId = this.game.state.facilityGrid[hitKey];
+            if (equipId) {
+              const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+              if (equip) {
+                const comp = COMPONENTS[equip.type];
+                this.renderer._clearPreview();
+                this.renderer._outlineObject(info.rootObj);
+                this._showDemolishTooltip(comp ? comp.name : equip.type, _demolishRefund(comp), screenX, screenY);
+                return;
+              }
+            }
+
+            // Check furnishings — find the entry whose sub-tile position matches
+            const subgrid = this.game.state.zoneFurnishingSubgrids[hitKey];
+            if (subgrid) {
+              const subX = Math.floor((p.x - hitCol * 2) / 0.5);
+              const subZ = Math.floor((p.z - hitRow * 2) / 0.5);
+              if (subX >= 0 && subX < 4 && subZ >= 0 && subZ < 4) {
+                const furnIdx = subgrid[subZ][subX];
+                if (furnIdx > 0) {
+                  const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+                  if (entry) {
+                    const def = ZONE_FURNISHINGS[entry.type];
+                    this.renderer._clearPreview();
+                    this.renderer._outlineObject(info.rootObj);
+                    this._showDemolishTooltip(def ? def.name : entry.type, def ? Math.floor((def.cost || 0) * 0.5) : 0, screenX, screenY);
+                    return;
+                  }
+                }
+              }
+            }
+
+            // Last resort — scan all facility equipment for closest match
+            let bestEquip = null, bestDist = Infinity;
+            for (const eq of this.game.state.facilityEquipment) {
+              const ex = eq.col * 2 + 1, ez = eq.row * 2 + 1;
+              const d = Math.abs(p.x - ex) + Math.abs(p.z - ez);
+              if (d < bestDist) { bestDist = d; bestEquip = eq; }
+            }
+            if (bestEquip && bestDist < 3) {
+              const comp = COMPONENTS[bestEquip.type];
+              this.renderer._clearPreview();
+              this.renderer._outlineObject(info.rootObj);
+              this._showDemolishTooltip(comp ? comp.name : bestEquip.type, _demolishRefund(comp), screenX, screenY);
+              return;
+            }
+
+            // Scan furnishings
+            let bestFurn = null, bestFDist = Infinity;
+            for (const f of this.game.state.zoneFurnishings) {
+              if (!f) continue;
+              const fx = f.col * 2 + (f.subCol || 0) * 0.5 + 0.25;
+              const fz = f.row * 2 + (f.subRow || 0) * 0.5 + 0.25;
+              const d = Math.abs(p.x - fx) + Math.abs(p.z - fz);
+              if (d < bestFDist) { bestFDist = d; bestFurn = f; }
+            }
+            if (bestFurn && bestFDist < 3) {
+              const def = ZONE_FURNISHINGS[bestFurn.type];
+              this.renderer._clearPreview();
+              this.renderer._outlineObject(info.rootObj);
+              this._showDemolishTooltip(def ? def.name : bestFurn.type, def ? Math.floor((def.cost || 0) * 0.5) : 0, screenX, screenY);
+              return;
+            }
+
+            // Truly unknown — still outline it but show generic
+            this.renderer._clearPreview();
+            this.renderer._outlineObject(info.rootObj);
+            this._showDemolishTooltip('Unknown', 0, screenX, screenY);
+            return;
+          }
+        }
+      }
+    }
+
+    // --- Tile-based fallback for flat objects (zones, floors, connections) ---
+    let found = false;
+
+    // Zones
+    if (!found && (dt === 'demolishZone' || dt === 'demolishAll')) {
+      const zoneType = this.game.state.zoneOccupied[key];
+      if (zoneType) {
+        const zone = ZONES[zoneType];
+        this.renderer.renderDemolishPreview(col, row, col, row);
+        this._showDemolishTooltip(zone ? zone.name : zoneType, 0, screenX, screenY);
+        found = true;
+      }
+    }
+
+    // Connections
+    if (!found && (dt === 'demolishConnection' || dt === 'demolishAll')) {
+      const connTypes = this.game.state.connections.get(key);
+      if (connTypes && connTypes.size > 0) {
+        this.renderer.renderDemolishPreview(col, row, col, row);
+        this._showDemolishTooltip([...connTypes].join(', '), 0, screenX, screenY);
+        found = true;
+      }
+    }
+
+    // Infrastructure / floor
+    if (!found && (dt === 'demolishFloor' || dt === 'demolishAll')) {
+      const infraType = this.game.state.infraOccupied[key];
+      if (infraType) {
+        const infra = INFRASTRUCTURE[infraType];
+        this.renderer.renderDemolishPreview(col, row, col, row);
+        this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
+        found = true;
+      }
+    }
+
+    if (!found) {
+      this.renderer.clearDragPreview();
+      this._hideDemolishTooltip();
+    }
+  }
+
+  _showDemolishTooltip(name, refund, screenX, screenY) {
+    if (!this._demolishTooltipEl) {
+      const el = document.createElement('div');
+      el.className = 'hover-tooltip demolish-tooltip';
+      document.body.appendChild(el);
+      this._demolishTooltipEl = el;
+    }
+    const el = this._demolishTooltipEl;
+    let html = `<span style="color:#ff6666">${name}</span>`;
+    if (refund > 0) {
+      html += `<br><span style="color:#66ff88">+$${refund.toLocaleString()}</span>`;
+    }
+    el.innerHTML = html;
+    el.style.left = (screenX + 14) + 'px';
+    el.style.top = (screenY - 10) + 'px';
+    el.style.display = 'block';
+  }
+
+  _hideDemolishTooltip() {
+    if (this._demolishTooltipEl) {
+      this._demolishTooltipEl.style.display = 'none';
+    }
   }
 
   // --- Helper methods for multi-beamline support ---
@@ -243,21 +563,25 @@ export class InputHandler {
           e.preventDefault();
           this.game._pushUndo();
           if (this.selectedTool) {
-            // Place at cursor position
-            const nodes = this._getActiveBeamlineNodes();
-            if (nodes.length === 0) {
-              const comp = COMPONENTS[this.selectedTool];
-              if (comp && comp.isSource) {
+            const comp = COMPONENTS[this.selectedTool];
+            if (comp && !comp.isDrawnConnection) {
+              // Free placement — any component can be placed anywhere on flooring
+              if (comp.isSource) {
+                // Sources still use the old path to create beamline entries
                 this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir, this.selectedTool, this.selectedParamOverrides);
-              }
-            } else {
-              const cursors = this._getActiveBuildCursors();
-              // If only one cursor, place there; otherwise place at hovered cursor
-              const cursor = cursors.length === 1
-                ? cursors[0]
-                : cursors.find(c => c.col === this.renderer.hoverCol && c.row === this.renderer.hoverRow);
-              if (cursor) {
-                this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir, this.selectedParamOverrides);
+              } else {
+                // Non-source beamline components use unified placement
+                this.game.placePlaceable({
+                  type: this.selectedTool,
+                  category: 'beamline',
+                  col: this.renderer.hoverCol,
+                  row: this.renderer.hoverRow,
+                  subCol: 0,
+                  subRow: 0,
+                  rotated: false,
+                  dir: this.placementDir,
+                  params: this.selectedParamOverrides,
+                });
               }
             }
           } else if (this.selectedFacilityTool) {
@@ -276,6 +600,10 @@ export class InputHandler {
           }
           break;
         case 'r': case 'R': {
+          if (this.moveMode && this._movePayload && this._movePayload.kind === 'furnishing') {
+            this._movePayload.rotated = !this._movePayload.rotated;
+            return;
+          }
           if (this.selectedFurnishingTool) {
             this.furnishingRotated = !this.furnishingRotated;
             return;
@@ -297,6 +625,11 @@ export class InputHandler {
           break;
         }
         case 'Escape':
+          // Exit move mode
+          if (this.moveMode) {
+            this._exitMoveMode();
+            break;
+          }
           // If in context-aware demolish (mode didn't change), just deselect
           if (this.demolishMode && this.activeMode !== 'demolish') {
             this.deselectDemolishTool();
@@ -410,6 +743,9 @@ export class InputHandler {
           this._showToast(`Zones: ${visible ? 'On' : 'Off'}`);
           break;
         }
+        case 'm': case 'M':
+          this._toggleMoveMode();
+          break;
         case 'Delete': case 'Backspace':
           e.preventDefault();
           // Toggle context-aware demolish without leaving current menu
@@ -488,8 +824,8 @@ export class InputHandler {
           this.doorPath = [edge];
           return;
         }
-        // Furnishing demolish is click-on-object, not drag-based
-        if (this.demolishType === 'demolishFurnishing') {
+        // Component and furnishing demolish are click-on-object, not drag-based
+        if (this.demolishType === 'demolishFurnishing' || this.demolishType === 'demolishComponent') {
           return; // handled in _handleClick
         }
         this.isDragging = true;
@@ -658,12 +994,16 @@ export class InputHandler {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
-        // Show cross cursor when an infra/zone tool is selected
+        // Show cross cursor when an infra/zone/facility tool is selected
         if (this.selectedInfraTool || this.selectedZoneTool) {
           const infra = this.selectedInfraTool ? INFRASTRUCTURE[this.selectedInfraTool] : null;
           const zone = this.selectedZoneTool ? ZONES[this.selectedZoneTool] : null;
           const color = infra?.topColor || zone?.color || 0xffffff;
           this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
+        } else if (this.selectedFacilityTool) {
+          const comp = COMPONENTS[this.selectedFacilityTool];
+          const color = comp ? _categoryColor(comp.category) : 0x88aaff;
+          this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedFacilityTool, color);
         }
         // Sub-grid hover: calculate which sub-cell the cursor is over
         if (this.selectedFurnishingTool && this.renderer.hoverCol !== undefined) {
@@ -678,15 +1018,15 @@ export class InputHandler {
             this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
             this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
           }
-          // Render furnishing placement preview
+          // Render furnishing placement ghost preview
           const key = grid.col + ',' + grid.row;
           if (this.game.state.infraOccupied[key]) {
-            this.renderer._renderSubtilePreview(
+            this.renderer.renderFurnishingGhost(
               grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
-              furnDef.gridW, furnDef.gridH, this.furnishingRotated
+              this.selectedFurnishingTool, this.furnishingRotated, 0x88ccff
             );
           } else {
-            this.renderer.dragPreviewLayer.removeChildren();
+            this.renderer._clearPreview();
           }
         }
         // Sub-grid hover for sub-tile decorations
@@ -707,49 +1047,60 @@ export class InputHandler {
             );
           }
         }
-        // Demolish furnishing hover: highlight hovered item with red tint and refund label
-        if (this.demolishMode && this.demolishType === 'demolishFurnishing') {
-          const col = grid.col, row = grid.row;
-          const key = col + ',' + row;
-          const subgrid = this.game.state.zoneFurnishingSubgrids[key];
-          let found = false;
-          if (subgrid) {
-            const tilePos = gridToIso(col, row);
-            const offsetX = world.x - tilePos.x;
-            const offsetY = world.y - tilePos.y;
-            const sub = isoToSubGrid(offsetX, offsetY);
-            const sc = Math.floor(sub.subCol);
-            const sr = Math.floor(sub.subRow);
-            if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
-              const furnIdx = subgrid[sr][sc];
-              if (furnIdx > 0) {
-                const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-                if (entry) {
-                  this.renderer._renderDemolishFurnishingHighlight(entry);
-                  found = true;
-                }
+        // Demolish hover: highlight the object under cursor with red + show tooltip
+        if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
+          this._updateDemolishHover(world, grid, e.clientX, e.clientY);
+        }
+        // Move mode hover: outline objects that can be picked up
+        if (this.moveMode && !this._movePayload) {
+          this._updateMoveHover(grid, e.clientX, e.clientY);
+        } else if (this.moveMode && this._movePayload) {
+          // Show placement preview matching normal build previews
+          const mp = this._movePayload;
+          if (mp.kind === 'component') {
+            const comp = COMPONENTS[mp.type];
+            const color = comp ? _categoryColor(comp.category) : 0x88aaff;
+            this.renderer.renderComponentGhost(grid.col, grid.row, mp.type, mp.direction, color);
+          } else if (mp.kind === 'furnishing') {
+            const furnDef = ZONE_FURNISHINGS[mp.type];
+            if (furnDef) {
+              const tilePos = gridToIso(grid.col, grid.row);
+              const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
+              const gw = mp.rotated ? furnDef.gridH : furnDef.gridW;
+              const gh = mp.rotated ? furnDef.gridW : furnDef.gridH;
+              mp._hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
+              mp._hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
+              const key = grid.col + ',' + grid.row;
+              if (this.game.state.infraOccupied[key]) {
+                this.renderer.renderFurnishingGhost(
+                  grid.col, grid.row, mp._hoverSubCol, mp._hoverSubRow,
+                  mp.type, mp.rotated, 0x88ccff
+                );
+              } else {
+                this.renderer._clearPreview();
               }
             }
-          }
-          // Check facility equipment if no furnishing found
-          if (!found) {
-            const equipId = this.game.state.facilityGrid[key];
-            if (equipId) {
-              const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
-              if (equip) {
-                this.renderer._renderDemolishEquipmentHighlight(equip);
-                found = true;
-              }
-            }
-          }
-          if (!found) {
-            this.renderer.dragPreviewLayer.removeChildren();
+          } else if (mp.kind === 'facility') {
+            const comp = COMPONENTS[mp.type];
+            const color = comp ? _categoryColor(comp.category) : 0x88aaff;
+            this.renderer.renderEquipmentGhost(grid.col, grid.row, mp.type, color);
+          } else {
+            this.renderer.renderInfraHoverCursor(grid.col, grid.row, 0x88aaff);
           }
         }
         // Update design placer position
         if (this.game._designPlacer && this.game._designPlacer.active) {
           this.game._designPlacer.setPosition(grid.col, grid.row);
           this.renderer._renderCursors();
+        }
+        // Hover tooltip for furnishings/equipment (when no tool active)
+        if (!this.selectedTool && !this.selectedInfraTool && !this.selectedFacilityTool &&
+            !this.selectedFurnishingTool && !this.selectedDecorationTool &&
+            !this.selectedWallTool && !this.selectedDoorTool && !this.selectedConnTool &&
+            !this.selectedZoneTool && !this.demolishMode && !this.bulldozerMode) {
+          this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
+        } else if (this._hoverTooltipTarget) {
+          this._hideTooltip();
         }
       }
     });
@@ -993,6 +1344,12 @@ export class InputHandler {
       return;
     }
 
+    // Move mode handling
+    if (this.moveMode) {
+      this._handleMoveClick(col, row, screenX, screenY);
+      return;
+    }
+
     if (this.bulldozerMode) {
       this.game._pushUndo();
       if (this.bulldozerConnType) {
@@ -1073,7 +1430,18 @@ export class InputHandler {
       this.game._pushUndo();
       const key = col + ',' + row;
       if (this.demolishType === 'demolishComponent') {
-        const node = this._getNodeAtGrid(col, row);
+        // Raycast to find the component under the cursor
+        const hit = this.renderer.raycastScreen(screenX, screenY);
+        let node = null;
+        if (hit) {
+          const info = this.renderer.identifyHit(hit);
+          if (info && info.group === 'component' && info.nodeId) {
+            const nodes = this.game.registry.getAllNodes();
+            node = nodes.find(n => n.id === info.nodeId);
+          }
+        }
+        // Fallback to tile-based lookup
+        if (!node) node = this._getNodeAtGrid(col, row);
         if (node) {
           if (this.game.editingBeamlineId) {
             const entry = this.game.registry.getBeamlineForNode(node.id);
@@ -1173,32 +1541,34 @@ export class InputHandler {
     }
 
     if (this.selectedTool) {
-      // Placement mode
-      this.game._pushUndo();
-      const nodes = this._getActiveBeamlineNodes();
-      if (nodes.length === 0) {
-        // Place first component (must be a source type)
-        const comp = COMPONENTS[this.selectedTool];
-        if (comp && comp.isSource) {
+      const comp = COMPONENTS[this.selectedTool];
+      if (comp && !comp.isDrawnConnection) {
+        this.game._pushUndo();
+        if (comp.isSource) {
           this.game.placeSource(col, row, this.placementDir, this.selectedTool, this.selectedParamOverrides);
-        }
-      } else {
-        // Find matching cursor
-        const cursors = this._getActiveBuildCursors();
-        const cursor = cursors.find(c => c.col === col && c.row === row);
-        if (cursor) {
-          this.game.placeComponent(cursor, this.selectedTool, this.dipoleBendDir, this.selectedParamOverrides);
         } else {
-          // Clicked an existing component — open its beamline window
-          const node = this._getNodeAtGrid(col, row);
-          if (node) {
-            this.selectedNodeId = node.id;
-            const entry = this.game.registry.getBeamlineForNode(node.id);
+          // Check if clicking an existing component (to open its window)
+          const existingNode = this._getNodeAtGrid(col, row);
+          if (existingNode) {
+            this.selectedNodeId = existingNode.id;
+            const entry = this.game.registry.getBeamlineForNode(existingNode.id);
             if (entry) {
               this.game.selectedBeamlineId = entry.id;
               this.renderer._openBeamlineWindow(entry.id);
               this.game.emit('beamlineSelected', entry.id);
             }
+          } else {
+            this.game.placePlaceable({
+              type: this.selectedTool,
+              category: 'beamline',
+              col,
+              row,
+              subCol: 0,
+              subRow: 0,
+              rotated: false,
+              dir: this.placementDir,
+              params: this.selectedParamOverrides,
+            });
           }
         }
       }
@@ -1253,7 +1623,7 @@ export class InputHandler {
             const comp = COMPONENTS[equip.type];
             if (comp) {
               this.renderer.showNetworkOverlay(facId);
-              this.renderer.showFacilityPopup(equip, comp, screenX, screenY);
+              this.renderer._openEquipmentWindow(equip);
               return;
             }
           }
@@ -1461,12 +1831,15 @@ export class InputHandler {
     this.deselectZoneTool();
     this.demolishMode = true;
     this.demolishType = demolishType || 'demolishFloor';
+    this.renderer.canvas.style.cursor = 'crosshair';
   }
 
   deselectDemolishTool() {
     this.demolishMode = false;
     this.demolishType = null;
     this.renderer.clearDragPreview();
+    this._hideDemolishTooltip();
+    this.renderer.canvas.style.cursor = '';
   }
 
   _demolishEverythingAt(col, row) {
@@ -1521,6 +1894,237 @@ export class InputHandler {
       if (catDef?.isDecorationTab) return 'demolishFurnishing';
     }
     return null;
+  }
+
+  // --- Move mode ---
+
+  _toggleMoveMode() {
+    if (this.moveMode) {
+      this._exitMoveMode();
+      return;
+    }
+    // Enter move mode — clear all other tools
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.deselectDemolishTool();
+    this.bulldozerMode = false;
+    this.renderer.setBulldozerMode(false);
+    this.probeMode = false;
+    this.renderer.setProbeMode(false);
+    this.moveMode = true;
+    this._movePayload = null;
+    this.renderer.canvas.style.cursor = 'grab';
+    this._showToast('Move mode (click to pick up, ESC to exit)');
+  }
+
+  _exitMoveMode() {
+    // If carrying an object, put it back where it came from
+    // Components haven't been removed from the beamline, so nothing to restore
+    if (this._movePayload && this._movePayload.kind !== 'component') {
+      this._placeMovedObject(this._movePayload.originCol, this._movePayload.originRow);
+    }
+    this.moveMode = false;
+    this._movePayload = null;
+    this.renderer.canvas.style.cursor = '';
+    this.renderer._clearPreview();
+    this._showToast('Move mode off');
+  }
+
+  _handleMoveClick(col, row, screenX, screenY) {
+    const key = col + ',' + row;
+
+    if (this._movePayload) {
+      // We're carrying something — try to place it
+      if (this._placeMovedObject(col, row)) {
+        this._movePayload = null;
+        this.renderer._clearPreview();
+        this.renderer.canvas.style.cursor = 'grab';
+        // Immediately try to pick up whatever is at the destination
+        // (allows chaining: place then pick up the next thing)
+      } else {
+        // Placement failed — try picking up something else at this tile instead
+        const picked = this._pickUpAt(col, row, screenX, screenY);
+        if (picked) {
+          // Put the old one back first (not needed for components — they're still in place)
+          if (this._movePayload.kind !== 'component') {
+            this._placeMovedObject(this._movePayload.originCol, this._movePayload.originRow);
+          }
+          this._movePayload = picked;
+          this.renderer.canvas.style.cursor = 'grabbing';
+        }
+      }
+      return;
+    }
+
+    // Not carrying anything — try to pick something up
+    const picked = this._pickUpAt(col, row, screenX, screenY);
+    if (picked) {
+      this._movePayload = picked;
+      this.renderer.canvas.style.cursor = 'grabbing';
+    }
+  }
+
+  _pickUpAt(col, row, screenX, screenY) {
+    const key = col + ',' + row;
+
+    // Beamline component (not removed on pickup — moved on placement)
+    const node = this._getNodeAtGrid(col, row);
+    if (node) {
+      const comp = COMPONENTS[node.type];
+      this._showToast(`Moving ${comp ? comp.name : node.type}`);
+      return { kind: 'component', nodeId: node.id, type: node.type, direction: node.dir, originCol: node.col, originRow: node.row };
+    }
+
+    // Facility equipment
+    const equipId = this.game.state.facilityGrid[key];
+    if (equipId) {
+      const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+      if (equip) {
+        const comp = COMPONENTS[equip.type];
+        this.game._pushUndo();
+        // Remove without refund — we'll re-place it
+        delete this.game.state.facilityGrid[key];
+        const idx = this.game.state.facilityEquipment.findIndex(e => e.id === equipId);
+        if (idx !== -1) this.game.state.facilityEquipment.splice(idx, 1);
+        this.game.computeSystemStats();
+        this.game.emit('facilityChanged');
+        this._showToast(`Moving ${comp ? comp.name : equip.type}`);
+        return { kind: 'facility', type: equip.type, originCol: col, originRow: row };
+      }
+    }
+
+    // Zone furnishing
+    const subgrid = this.game.state.zoneFurnishingSubgrids[key];
+    if (subgrid) {
+      const tilePos = gridToIso(col, row);
+      const world = this.renderer.screenToWorld(screenX, screenY);
+      const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
+      const sc = Math.floor(sub.subCol);
+      const sr = Math.floor(sub.subRow);
+      if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+        const furnIdx = subgrid[sr][sc];
+        if (furnIdx > 0) {
+          const entry = this.game.state.zoneFurnishings[furnIdx - 1];
+          if (entry) {
+            const def = ZONE_FURNISHINGS[entry.type];
+            this.game._pushUndo();
+            this.game.removeZoneFurnishing(entry.id);
+            this._showToast(`Moving ${def ? def.name : entry.type}`);
+            return {
+              kind: 'furnishing', type: entry.type,
+              originCol: col, originRow: row,
+              subCol: entry.subCol || 0, subRow: entry.subRow || 0,
+              rotated: entry.rotated || false,
+            };
+          }
+        }
+      }
+    }
+
+    // Machine
+    const machineId = this.game.state.machineGrid[key];
+    if (machineId) {
+      // Machines are complex — skip for now
+    }
+
+    return null;
+  }
+
+  _updateMoveHover(grid, screenX, screenY) {
+    // Only highlight when raycast actually hits a moveable object (like demolish mode)
+    const hit = this.renderer.raycastScreen(screenX, screenY);
+    if (hit) {
+      const info = this.renderer.identifyHit(hit);
+      if (info && info.group === 'component') {
+        // Beamline component
+        const comp = info.nodeId ? COMPONENTS[this.game.registry.getAllNodes().find(n => n.id === info.nodeId)?.type] : null;
+        const color = comp ? _categoryColor(comp.category) : 0x88aaff;
+        this.renderer._clearPreview();
+        this.renderer._outlineObject(info.rootObj, color);
+        return;
+      }
+      if (info && info.group === 'equipment') {
+        // Derive tile from 3D position to find the equipment entry
+        const p = info.rootObj.position;
+        const hitCol = Math.floor(p.x / 2);
+        const hitRow = Math.floor(p.z / 2);
+        const hitKey = hitCol + ',' + hitRow;
+        const equipId = this.game.state.facilityGrid[hitKey];
+        if (equipId) {
+          const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+          const comp = equip ? COMPONENTS[equip.type] : null;
+          const color = comp ? _categoryColor(comp.category) : 0x88aaff;
+          this.renderer._clearPreview();
+          this.renderer._outlineObject(info.rootObj, color);
+          return;
+        }
+        // Furnishing hit
+        const subgrid = this.game.state.zoneFurnishingSubgrids[hitKey];
+        if (subgrid) {
+          this.renderer._clearPreview();
+          this.renderer._outlineObject(info.rootObj, 0x88ccff);
+          return;
+        }
+      }
+    }
+    this.renderer._clearPreview();
+  }
+
+  _placeMovedObject(col, row) {
+    const p = this._movePayload;
+    if (!p) return false;
+
+    if (p.kind === 'component') {
+      this.game._pushUndo();
+      return this.game.moveComponent(p.nodeId, col, row);
+    }
+
+    if (p.kind === 'facility') {
+      const key = col + ',' + row;
+      const comp = COMPONENTS[p.type];
+      // Check placement validity (same checks as placeFacilityEquipment but without cost)
+      const floor = this.game.state.infraOccupied[key];
+      if (floor !== 'concrete') {
+        this.game.log('Need concrete flooring!', 'bad');
+        return false;
+      }
+      if (this.game.state.facilityGrid[key]) {
+        this.game.log('Tile occupied!', 'bad');
+        return false;
+      }
+      if (this.game.registry.isTileOccupied(col, row)) {
+        this.game.log('Tile occupied by beamline!', 'bad');
+        return false;
+      }
+      if (this.game.state.machineGrid[key]) {
+        this.game.log('Tile occupied!', 'bad');
+        return false;
+      }
+      // Place without cost
+      const id = 'fac_' + this.game.state.facilityNextId++;
+      const entry = { id, type: p.type, col, row };
+      this.game.state.facilityEquipment.push(entry);
+      this.game.state.facilityGrid[key] = id;
+      this.game.log(`Placed ${comp ? comp.name : p.type}`, 'good');
+      this.game.computeSystemStats();
+      this.game.emit('facilityChanged');
+      this.game.validateInfrastructure();
+      return true;
+    }
+
+    if (p.kind === 'furnishing') {
+      // Use live hover sub-coords if available, otherwise fall back to original
+      const sc = p._hoverSubCol != null ? p._hoverSubCol : p.subCol;
+      const sr = p._hoverSubRow != null ? p._hoverSubRow : p.subRow;
+      const placed = this.game.placeZoneFurnishing(col, row, p.type, sc, sr, p.rotated);
+      return placed !== false;
+    }
+
+    return false;
   }
 
   _showToast(msg) {
