@@ -326,6 +326,64 @@ export class Game {
     return this.state.completedResearch.includes(comp.requires);
   }
 
+  placeSource(col, row, dir, sourceType = 'source', paramOverrides = null) {
+    const template = COMPONENTS[sourceType];
+    if (!template) return false;
+    if (!template.isSource) return false;
+    if (!this.isComponentUnlocked(template)) return false;
+    if (!this.canAfford(template.cost)) { this.log(`Can't afford ${template.name}!`, 'bad'); return false; }
+
+    // Check shared tile occupancy
+    if (this.registry.isTileOccupied(col, row)) {
+      this.log("Can't place there!", 'bad');
+      return false;
+    }
+
+    // Determine machine type from source type
+    let machineType = 'linac';
+    if (sourceType === 'dcPhotoGun' || sourceType === 'ncRfGun' || sourceType === 'srfGun') {
+      machineType = 'photoinjector';
+    }
+
+    // Create new beamline entry
+    const entry = this.registry.createBeamline(machineType);
+
+    // Place source on the entry's beamline
+    const nodeId = entry.beamline.placeSource(col, row, dir, sourceType);
+    if (nodeId == null) {
+      // Failed to place - remove the entry
+      this.registry.removeBeamline(entry.id);
+      this.log("Can't place there!", 'bad');
+      return false;
+    }
+
+    // Apply param overrides from palette flyout (e.g. particleType)
+    if (paramOverrides) {
+      const node = entry.beamline.nodes.find(n => n.id === nodeId);
+      if (node) {
+        if (!node.params) node.params = {};
+        Object.assign(node.params, paramOverrides);
+      }
+    }
+
+    // Register tiles in shared grid
+    const node = entry.beamline.nodes.find(n => n.id === nodeId);
+    if (node) {
+      this.registry.occupyTiles(entry.id, node);
+    }
+
+    this.spend(template.cost);
+
+    // Auto-enter edit mode for this beamline
+    this.editingBeamlineId = entry.id;
+    this.selectedBeamlineId = entry.id;
+
+    this.recalcBeamline(entry.id);
+    this.log(`Built ${template.name}`, 'good');
+    this.emit('beamlineChanged');
+    return entry.id;
+  }
+
   placeComponent(cursor, compType, bendDir, paramOverrides = null) {
     const template = COMPONENTS[compType];
     if (!template) return false;

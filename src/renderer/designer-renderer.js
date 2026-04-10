@@ -807,16 +807,11 @@ BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   const catDef = mode?.categories?.[category];
   if (!catDef) return;
 
-  // In pipe-graph edit mode, only attachment-type components are insertable.
-  // Modules must be placed on the main map, not the designer.
-  const attachmentsOnly = !!this.editSourceId;
-
   const catComps = [];
   for (const [key, comp] of Object.entries(COMPONENTS)) {
     if (comp.category !== category) continue;
     if (!this.game.isComponentUnlocked(comp)) continue;
     if (isFacilityCategory(comp.category)) continue;
-    if (attachmentsOnly && comp.placement !== 'attachment') continue;
     catComps.push({ key, comp });
   }
 
