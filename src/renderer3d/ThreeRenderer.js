@@ -5,7 +5,7 @@ import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
 import { InfraBuilder } from './infra-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder } from './component-builder.js';
+import { ComponentBuilder, createBeamlineGhost } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -48,6 +48,7 @@ export class ThreeRenderer {
     this.connectionGroup = null;
     this.equipmentGroup = null;
     this.componentGroup = null;
+    this.beamPipeGroup = null;
     this.decorationGroup = null;
     this.previewGroup = null;
 
@@ -141,7 +142,7 @@ export class ThreeRenderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setClearColor(0x1a1a2e);
 
     const threeCanvas = this.renderer.domElement;
@@ -184,10 +185,10 @@ export class ThreeRenderer {
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
     this._sunLight.position.set(-30, 40, -30);
     this._sunLight.castShadow = true;
-    this._sunLight.shadow.mapSize.width = 2048;
-    this._sunLight.shadow.mapSize.height = 2048;
-    this._sunLight.shadow.bias = -0.002;
-    this._sunLight.shadow.normalBias = 0.05;
+    this._sunLight.shadow.mapSize.width = 4096;
+    this._sunLight.shadow.mapSize.height = 4096;
+    this._sunLight.shadow.bias = -0.0005;
+    this._sunLight.shadow.normalBias = 0.01;
     this._sunLight.shadow.camera.near = 0.5;
     this._sunLight.shadow.camera.far = 500;
     this._sunLight.shadow.camera.left = -60;
@@ -200,6 +201,7 @@ export class ThreeRenderer {
     this._sunAngle = 0;
     this._sunCycleSpeed = (2 * Math.PI) / (60 * 60); // radians per second — full cycle in 1 hour
     this._lastSunTime = performance.now();
+    this._lastLodDetail = undefined; // force first LOD update
 
     // Scene groups
     this.terrainGroup = new THREE.Group();
@@ -230,6 +232,10 @@ export class ThreeRenderer {
     this.componentGroup.name = 'components';
     this.scene.add(this.componentGroup);
 
+    this.beamPipeGroup = new THREE.Group();
+    this.beamPipeGroup.name = 'beampipes';
+    this.scene.add(this.beamPipeGroup);
+
     this.decorationGroup = new THREE.Group();
     this.decorationGroup.name = 'decorations';
     this.scene.add(this.decorationGroup);
@@ -239,6 +245,12 @@ export class ThreeRenderer {
     this.previewGroup.name = 'preview';
     this.previewGroup.renderOrder = 999;
     this.scene.add(this.previewGroup);
+
+    // Grid overlay group — placement grid lines (separate from preview so _clearPreview doesn't wipe them)
+    this.gridOverlayGroup = new THREE.Group();
+    this.gridOverlayGroup.name = 'gridOverlay';
+    this.gridOverlayGroup.renderOrder = 997;
+    this.scene.add(this.gridOverlayGroup);
 
     window.addEventListener('resize', this._boundOnResize);
 
@@ -354,7 +366,7 @@ export class ThreeRenderer {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
     // Only test component, equipment, and connection groups
-    const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup];
+    const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup];
     const all = [];
     for (const g of targets) {
       if (g) all.push(...raycaster.intersectObjects(g.children, true));
@@ -404,6 +416,9 @@ export class ThreeRenderer {
       if (obj.parent === this.connectionGroup) {
         return { group: 'connection', rootObj: obj };
       }
+      if (obj.parent === this.beamPipeGroup) {
+        return { group: 'beampipe', rootObj: obj, pipeId: obj.userData.pipeId || null };
+      }
       obj = obj.parent;
     }
     return null;
@@ -413,7 +428,7 @@ export class ThreeRenderer {
 
   zoomAt(screenX, screenY, delta) {
     const oldZoom = this.zoom;
-    this.zoom = Math.max(0.2, Math.min(5, this.zoom + delta));
+    this.zoom = Math.max(0.2, Math.min(8, this.zoom + delta));
 
     // Zoom toward cursor position
     const worldX = screenX - this.world.x;
@@ -544,6 +559,13 @@ export class ThreeRenderer {
   _renderCursors() {
     this._clearPreview();
 
+    // Show grid lines around cursor when in any placement mode
+    const placer = this.game._designPlacer;
+    const inPlaceMode = this.buildMode || this.bulldozerMode || (placer && placer.active);
+    if (inPlaceMode) {
+      this._renderGridAroundCursor(this.hoverCol, this.hoverRow);
+    }
+
     // Bulldozer mode — red highlight on hover tile
     if (this.bulldozerMode) {
       const key = this.hoverCol + ',' + this.hoverRow;
@@ -567,44 +589,94 @@ export class ThreeRenderer {
     }
 
     if (nodes.length === 0) {
-      // Draw hover cursor showing full footprint of selected component
       const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
-      const trackLength = comp ? Math.ceil((comp.subL || 4) / 4) : 1;
-      const trackWidth = comp ? Math.ceil((comp.subW || 2) / 4) : 1;
+      const isDrawn = comp && comp.isDrawnConnection;
       const dir = this.placementDir || DIR.NE;
       const delta = DIR_DELTA[dir];
       const perpDelta = DIR_DELTA[turnLeft(dir)];
-      const widthOffsets = [];
-      for (let j = 0; j < trackWidth; j++) {
-        widthOffsets.push(j - (trackWidth - 1) / 2);
-      }
-      const tiles = [];
-      for (let i = 0; i < trackLength; i++) {
-        for (const wOff of widthOffsets) {
-          tiles.push({
-            col: this.hoverCol + delta.dc * i + Math.round(perpDelta.dc * wOff),
-            row: this.hoverRow + delta.dr * i + Math.round(perpDelta.dr * wOff),
-          });
-        }
-      }
-      // Check availability
-      const available = tiles.every(t =>
-        this.game.registry.sharedOccupied[t.col + ',' + t.row] === undefined
-      );
-      const color = available ? 0x4488ff : 0xff4444;
-      for (const tile of tiles) {
-        this._previewTileHighlight(tile.col, tile.row, color, 0.35);
-      }
-      // Direction arrow
-      if (tiles.length > 0) {
-        const last = tiles[tiles.length - 1];
+
+      // Center of hover tile in world coords
+      const cx = this.hoverCol * 2 + 1;
+      const cz = this.hoverRow * 2 + 1;
+
+      // Direction vectors
+      const dx = delta.dc, dz = delta.dr;
+      const px = perpDelta.dc, pz = perpDelta.dr;
+
+      if (!isDrawn) {
+        // Draw hover cursor showing footprint of selected component using sub-unit dims
+        const subL = comp ? (comp.subL || 4) : 4;
+        const subW = comp ? (comp.subW || 4) : 4;
+
+        // Dimensions in world units (1 tile = 2 world units = 4 sub-units, so 1 sub = 0.5 world)
+        const wLen = subL * 0.5;   // length in world units
+        const wWid = subW * 0.5;   // width in world units
+
+        // Rectangle: centered on tile, extends wLen along dir, wWid perpendicular
+        const x0 = cx - px * wWid / 2;
+        const z0 = cz - pz * wWid / 2;
+        const x1 = cx + px * wWid / 2;
+        const z1 = cz + pz * wWid / 2;
+        const x2 = cx + dx * wLen + px * wWid / 2;
+        const z2 = cz + dz * wLen + pz * wWid / 2;
+        const x3 = cx + dx * wLen - px * wWid / 2;
+        const z3 = cz + dz * wLen - pz * wWid / 2;
+
+        // Check tile availability
+        const available = this.game.registry.sharedOccupied[this.hoverCol + ',' + this.hoverRow] === undefined;
+        const color = available ? 0x4488ff : 0xff4444;
+
+        // Draw filled preview quad
+        const mat = this._previewMat(color, 0.35);
+        const geo = new THREE.BufferGeometry();
+        const vertices = new Float32Array([
+          x0, 0.1, z0,  x1, 0.1, z1,  x2, 0.1, z2,
+          x0, 0.1, z0,  x2, 0.1, z2,  x3, 0.1, z3,
+        ]);
+        geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        this._addPreviewMesh(new THREE.Mesh(geo, mat));
+
+        // Wireframe border
+        const edgeMat = this._previewEdgeMat(color);
+        const pts = [
+          new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z1),
+          new THREE.Vector3(x2, 0.12, z2), new THREE.Vector3(x3, 0.12, z3),
+          new THREE.Vector3(x0, 0.12, z0),
+        ];
+        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+
+        // Direction arrow on base tile (shows output direction)
         const arrowMat = this._previewEdgeMat(0x88bbff);
-        const cx = last.col * 2 + 1;
-        const cz = last.row * 2 + 1;
-        const ax = cx + delta.dc * 0.8;
-        const az = cz + delta.dr * 0.8;
-        const pts = [new THREE.Vector3(cx, 0.15, cz), new THREE.Vector3(ax, 0.15, az)];
-        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), arrowMat));
+        const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
+        const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
+        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
+        // Arrowhead chevron
+        const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
+        const chevLen = 0.3;
+        const chevPts = [
+          new THREE.Vector3(tipX - dx * chevLen + px * chevLen, 0.15, tipZ - dz * chevLen + pz * chevLen),
+          new THREE.Vector3(tipX, 0.15, tipZ),
+          new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
+        ];
+        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+      } else {
+        // Drawn connection (beam pipe): bidirectional arrow only, no tile highlight
+        const arrowMat = this._previewEdgeMat(0x88bbff);
+        const halfLen = 0.6;
+        const arrowStart = new THREE.Vector3(cx - dx * halfLen, 0.15, cz - dz * halfLen);
+        const arrowEnd = new THREE.Vector3(cx + dx * halfLen, 0.15, cz + dz * halfLen);
+        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
+        // Chevron on both ends
+        const chevLen = 0.25;
+        for (const sign of [1, -1]) {
+          const tipX = cx + sign * dx * halfLen, tipZ = cz + sign * dz * halfLen;
+          const chevPts = [
+            new THREE.Vector3(tipX - sign * dx * chevLen + px * chevLen, 0.15, tipZ - sign * dz * chevLen + pz * chevLen),
+            new THREE.Vector3(tipX, 0.15, tipZ),
+            new THREE.Vector3(tipX - sign * dx * chevLen - px * chevLen, 0.15, tipZ - sign * dz * chevLen - pz * chevLen),
+          ];
+          this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+        }
       }
       return;
     }
@@ -633,7 +705,6 @@ export class ThreeRenderer {
     }
 
     // Design placer ghost preview
-    const placer = this.game._designPlacer;
     if (placer && placer.active) {
       for (const ft of placer.foundationTiles) {
         this._previewTileHighlight(ft.col, ft.row, 0x999999, 0.25);
@@ -664,6 +735,7 @@ export class ThreeRenderer {
 
   /** Clear all preview geometry from the scene. */
   _clearPreview() {
+    this._clearGridOverlay();
     if (!this.previewGroup) return;
     while (this.previewGroup.children.length > 0) {
       const child = this.previewGroup.children[0];
@@ -784,6 +856,7 @@ export class ThreeRenderer {
    */
   renderDragPreview(col1, row1, col2, row2, toolType, isZone) {
     this._clearPreview();
+    this._renderGridAroundCursor(col2, row2);
     const minC = Math.min(col1, col2), maxC = Math.max(col1, col2);
     const minR = Math.min(row1, row2), maxR = Math.max(row1, row2);
     const color = isZone ? 0x44cc88 : 0x44aaff;
@@ -969,6 +1042,7 @@ export class ThreeRenderer {
   /** Hover cursor for infrastructure placement — single tile highlight. */
   renderInfraHoverCursor(col, row, color) {
     this._clearPreview();
+    this._renderGridAroundCursor(col, row);
     const tileColor = (typeof color === 'number') ? color : 0x44aaff;
     const mat = this._previewMat(tileColor, 0.25);
     const geo = new THREE.PlaneGeometry(2, 2);
@@ -994,6 +1068,7 @@ export class ThreeRenderer {
    */
   renderComponentGhost(col, row, compType, direction, color) {
     this._clearPreview();
+    this._renderGridAroundCursor(col, row);
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
     // Build the real geometry via component builder
@@ -1036,6 +1111,26 @@ export class ThreeRenderer {
       fill.position.set(t.col * 2 + 1, 0.1, t.row * 2 + 1);
       this._addPreviewMesh(fill);
     }
+
+    // Direction arrow on base tile (shows output direction)
+    const dir = direction || 0;
+    const delta = DIR_DELTA[dir];
+    const perpDelta = DIR_DELTA[turnLeft(dir)];
+    const cx = col * 2 + 1, cz = row * 2 + 1;
+    const dx = delta.dc, dz = delta.dr;
+    const px = perpDelta.dc, pz = perpDelta.dr;
+    const arrowMat = this._previewEdgeMat(0x88bbff);
+    const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
+    const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
+    const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
+    const chevLen = 0.3;
+    const chevPts = [
+      new THREE.Vector3(tipX - dx * chevLen + px * chevLen, 0.15, tipZ - dz * chevLen + pz * chevLen),
+      new THREE.Vector3(tipX, 0.15, tipZ),
+      new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
+    ];
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
   }
 
   /** Calculate the tile footprint for a component ghost preview. */
@@ -1067,30 +1162,50 @@ export class ThreeRenderer {
   }
 
   /**
-   * Render a ghost (transparent) equipment box at a tile position.
-   * Also draws a floor-tile outline in the given color.
+   * Render a ghost (transparent) equipment at a tile position.
+   * Beamline components use actual 3D model with green wireframe edges.
+   * Other components use a simple translucent box.
    */
   renderEquipmentGhost(col, row, compType, color) {
     this._clearPreview();
+    this._renderGridAroundCursor(col, row);
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
-    const SUB_UNIT = 0.5;
-    const w = (compDef.subW || 2) * SUB_UNIT;
-    const h = (compDef.subH || 2) * SUB_UNIT;
-    const l = (compDef.subL || 2) * SUB_UNIT;
-    const ghostMat = new THREE.MeshBasicMaterial({
-      color: compDef.spriteColor || 0x888888,
-      transparent: true, opacity: 0.4,
-      depthTest: true, depthWrite: false,
-    });
-    const geo = new THREE.BoxGeometry(w, h, l);
-    const mesh = new THREE.Mesh(geo, ghostMat);
+
     const tileX = col * 2;
     const tileZ = row * 2;
-    mesh.position.set(tileX + 1, h / 2, tileZ + 1);
-    this._addPreviewMesh(mesh);
-    // Floor outline
     const tileColor = (typeof color === 'number') ? color : 0x88aaff;
+
+    const isBeamline = compDef.category === 'source' || compDef.category === 'focusing'
+      || compDef.category === 'acceleration' || compDef.category === 'diagnostics'
+      || compDef.isDrawnConnection;
+
+    if (isBeamline) {
+      // Use actual 3D model ghost with green wireframe
+      const ghost = createBeamlineGhost(compType);
+      if (ghost) {
+        ghost.position.set(tileX + 1, 0, tileZ + 1);
+        ghost.rotation.y = -(this.placementDir || 0) * (Math.PI / 2);
+        this._addPreviewMesh(ghost);
+      }
+    } else {
+      // Non-beamline: simple translucent box
+      const SUB_UNIT = 0.5;
+      const w = (compDef.subW || 2) * SUB_UNIT;
+      const h = (compDef.subH || 2) * SUB_UNIT;
+      const l = (compDef.subL || 2) * SUB_UNIT;
+      const ghostMat = new THREE.MeshBasicMaterial({
+        color: compDef.spriteColor || 0x888888,
+        transparent: true, opacity: 0.4,
+        depthTest: true, depthWrite: false,
+      });
+      const geo = new THREE.BoxGeometry(w, h, l);
+      const mesh = new THREE.Mesh(geo, ghostMat);
+      mesh.position.set(tileX + 1, h / 2, tileZ + 1);
+      this._addPreviewMesh(mesh);
+    }
+
+    // Floor outline
     const edgeMat = this._previewEdgeMat(tileColor);
     const x0 = tileX, x1 = tileX + 2, z0 = tileZ, z1 = tileZ + 2;
     const pts = [
@@ -1114,6 +1229,7 @@ export class ThreeRenderer {
    */
   renderFurnishingGhost(col, row, subCol, subRow, furnType, rotated, color) {
     this._clearPreview();
+    this._renderGridAroundCursor(col, row);
     const furnDef = ZONE_FURNISHINGS[furnType];
     if (!furnDef) return;
     const SUB_UNIT = 0.5;
@@ -1193,6 +1309,83 @@ export class ThreeRenderer {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(col * 2 + 1, 0.1, row * 2 + 1);
     this._addPreviewMesh(mesh);
+  }
+
+  /** Clear grid overlay lines. */
+  _clearGridOverlay() {
+    if (!this.gridOverlayGroup) return;
+    while (this.gridOverlayGroup.children.length > 0) {
+      const child = this.gridOverlayGroup.children[0];
+      this.gridOverlayGroup.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    }
+  }
+
+  /**
+   * Render major grid lines and sub-grid lines in an area around the cursor.
+   * Major lines = tile boundaries (every 2 world units).
+   * Sub-grid lines = quarter-tile divisions (every 0.5 world units).
+   * Uses LineSegments for efficient batched rendering.
+   * Renders into gridOverlayGroup (not previewGroup) so _clearPreview doesn't wipe them.
+   */
+  _renderGridAroundCursor(col, row) {
+    this._clearGridOverlay();
+
+    const majorRadius = 6;   // tiles around cursor for major grid
+    const subRadius = 3;     // tiles around cursor for sub-grid
+    const y = 0.06;          // slightly above ground plane
+
+    // --- Major grid (tile boundaries) as a single LineSegments ---
+    const majorVerts = [];
+    const mMin = -majorRadius, mMax = majorRadius + 1;
+    const mx0 = (col + mMin) * 2, mx1 = (col + mMax) * 2;
+    const mz0 = (row + mMin) * 2, mz1 = (row + mMax) * 2;
+    for (let dr = mMin; dr <= mMax; dr++) {
+      const z = (row + dr) * 2;
+      majorVerts.push(mx0, y, z, mx1, y, z);
+    }
+    for (let dc = mMin; dc <= mMax; dc++) {
+      const x = (col + dc) * 2;
+      majorVerts.push(x, y, mz0, x, y, mz1);
+    }
+    const majorGeo = new THREE.BufferGeometry();
+    majorGeo.setAttribute('position', new THREE.Float32BufferAttribute(majorVerts, 3));
+    const majorMat = new THREE.LineBasicMaterial({
+      color: 0x88ccff, transparent: true, opacity: 0.35,
+      depthTest: false, depthWrite: false,
+    });
+    const majorLines = new THREE.LineSegments(majorGeo, majorMat);
+    majorLines.renderOrder = 997;
+    this.gridOverlayGroup.add(majorLines);
+
+    // --- Sub-grid (4 divisions per tile) as a single LineSegments ---
+    const subVerts = [];
+    const sMin = col - subRadius, sMax = col + subRadius + 1;
+    const srMin = row - subRadius, srMax = row + subRadius + 1;
+    const sx0 = sMin * 2, sx1 = sMax * 2;
+    const sz0 = srMin * 2, sz1 = srMax * 2;
+    for (let r = srMin; r <= srMax; r++) {
+      for (let sub = 1; sub <= 3; sub++) {
+        const z = r * 2 + sub * 0.5;
+        subVerts.push(sx0, y, z, sx1, y, z);
+      }
+    }
+    for (let c = sMin; c <= sMax; c++) {
+      for (let sub = 1; sub <= 3; sub++) {
+        const x = c * 2 + sub * 0.5;
+        subVerts.push(x, y, sz0, x, y, sz1);
+      }
+    }
+    const subGeo = new THREE.BufferGeometry();
+    subGeo.setAttribute('position', new THREE.Float32BufferAttribute(subVerts, 3));
+    const subMat = new THREE.LineBasicMaterial({
+      color: 0x88ccff, transparent: true, opacity: 0.15,
+      depthTest: false, depthWrite: false,
+    });
+    const subLines = new THREE.LineSegments(subGeo, subMat);
+    subLines.renderOrder = 997;
+    this.gridOverlayGroup.add(subLines);
   }
 
   /** Highlight a single tile with a coloured quad + wireframe border. */
@@ -1301,13 +1494,29 @@ export class ThreeRenderer {
     // Keep anchored windows tracking during mouse-drag panning
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
+    this._updateLOD();
     // Beam pipe drawing preview
-    if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length > 1) {
-      this._renderBeamPipePreview(this._inputHandler.beamPipePath);
+    if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
+      this._renderBeamPipePreview(this._inputHandler.beamPipePath, this._inputHandler.beamPipeDrawMode);
     } else {
       this._clearBeamPipePreview();
     }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Toggle visibility of detail meshes (userData.lod === 'detail') based on zoom.
+   * Only runs when zoom level changes to avoid per-frame traversal cost.
+   */
+  _updateLOD() {
+    const showDetail = this.zoom >= 2.0;
+    if (showDetail === this._lastLodDetail) return;
+    this._lastLodDetail = showDetail;
+    this.componentGroup.traverse((child) => {
+      if (child.isMesh && child.userData.lod === 'detail') {
+        child.visible = showDetail;
+      }
+    });
   }
 
   _updateSunCycle() {
@@ -1323,7 +1532,28 @@ export class ThreeRenderer {
     // Sun height: peaks at noon (angle=0), lowest at midnight (angle=π)
     // Range from 10 (low sun / long shadows) to 50 (high noon)
     const elevation = 30 + 20 * Math.cos(this._sunAngle);
-    this._sunLight.position.set(x, elevation, z);
+    // Offset sun position and shadow target to follow the camera center
+    // Snap target in light-space to texel grid to prevent shadow swimming
+    const cx = this._panX || 0;
+    const cz = this._panY || 0;
+    this._sunLight.position.set(x + cx, elevation, z + cz);
+    this._sunLight.target.position.set(cx, 0, cz);
+    this._sunLight.target.updateMatrixWorld();
+    this._sunLight.updateMatrixWorld();
+    const shadowCam = this._sunLight.shadow.camera;
+    shadowCam.updateMatrixWorld();
+    const texelsPerUnit = 4096 / (shadowCam.right - shadowCam.left);
+    const shadowMatrix = shadowCam.matrixWorldInverse;
+    // Project target into light space, snap, project back
+    const targetPos = this._sunLight.target.position.clone().applyMatrix4(shadowMatrix);
+    targetPos.x = Math.round(targetPos.x * texelsPerUnit) / texelsPerUnit;
+    targetPos.y = Math.round(targetPos.y * texelsPerUnit) / texelsPerUnit;
+    const snapped = targetPos.applyMatrix4(shadowCam.matrixWorld);
+    const dx = snapped.x - cx;
+    const dz = snapped.z - cz;
+    this._sunLight.position.set(x + snapped.x, elevation, z + snapped.z);
+    this._sunLight.target.position.set(snapped.x, 0, snapped.z);
+    this._sunLight.target.updateMatrixWorld();
 
     // Intensity: bright at noon, dim at night
     // cos goes from 1 (noon) to -1 (midnight)
@@ -1523,12 +1753,17 @@ export class ThreeRenderer {
   }
 
   _refreshBeamPipes() {
-    // Remove old beam pipe meshes
-    if (this._beamPipeMeshes) {
-      for (const mesh of this._beamPipeMeshes) {
-        this.scene.remove(mesh);
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) mesh.material.dispose();
+    // Remove old beam pipe meshes from group
+    if (this.beamPipeGroup) {
+      while (this.beamPipeGroup.children.length > 0) {
+        const child = this.beamPipeGroup.children[0];
+        this.beamPipeGroup.remove(child);
+        child.traverse(obj => {
+          if (obj.isMesh) {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+          }
+        });
       }
     }
     this._beamPipeMeshes = [];
@@ -1540,15 +1775,17 @@ export class ThreeRenderer {
     const PIPE_Y = 1.0;
 
     const pipeMat = new THREE.MeshStandardMaterial({
-      color: 0x44cc44,
+      color: 0x99aabb,
       roughness: 0.3,
-      metalness: 0.6,
-      transparent: true,
-      opacity: 0.8,
+      metalness: 0.5,
     });
 
     for (const pipe of pipes) {
       if (!pipe.path || pipe.path.length < 2) continue;
+
+      // Create a wrapper group for this pipe so all segments share the same pipeId
+      const pipeWrapper = new THREE.Group();
+      pipeWrapper.userData.pipeId = pipe.id;
 
       for (let i = 0; i < pipe.path.length - 1; i++) {
         const a = pipe.path[i];
@@ -1573,25 +1810,123 @@ export class ThreeRenderer {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        this.scene.add(mesh);
+        // Invisible hitbox for easier click detection
+        const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
+        hitGeo.rotateZ(Math.PI / 2);
+        const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
+        hitMesh.position.copy(mesh.position);
+        hitMesh.rotation.copy(mesh.rotation);
+
+        pipeWrapper.add(mesh);
+        pipeWrapper.add(hitMesh);
         this._beamPipeMeshes.push(mesh);
+        this._beamPipeMeshes.push(hitMesh);
+      }
+
+      this.beamPipeGroup.add(pipeWrapper);
+    }
+  }
+
+  renderBeamPipePreview(path, mode) {
+    this._renderBeamPipePreview(path, mode);
+  }
+
+  _renderBeamPipePreview(path, mode) {
+    this._clearBeamPipePreview();
+    if (!path || path.length < 1) return;
+
+    const isRemove = mode === 'remove';
+    const wireColor = isRemove ? 0xff4444 : 0x44ff44;
+
+    const PIPE_RADIUS = 0.08;
+    const PIPE_Y = 1.0;
+    const STAND_W = 0.06;
+
+    const pipeMat = new THREE.MeshStandardMaterial({
+      color: isRemove ? 0xaa4444 : 0x99aabb, roughness: 0.3, metalness: 0.5,
+      transparent: true, opacity: 0.3, depthWrite: false,
+    });
+    const wireframeMat = new THREE.MeshBasicMaterial({
+      color: wireColor, wireframe: true,
+      transparent: true, opacity: 0.5, depthWrite: false,
+    });
+    const flangeMat = new THREE.MeshStandardMaterial({
+      color: isRemove ? 0xaa4444 : 0xbbbbbb, roughness: 0.3, metalness: 0.6,
+      transparent: true, opacity: 0.3, depthWrite: false,
+    });
+    const standMat = new THREE.MeshStandardMaterial({
+      color: isRemove ? 0x664444 : 0x555555, roughness: 0.7, metalness: 0.1,
+      transparent: true, opacity: 0.2, depthWrite: false,
+    });
+
+    this._beamPipePreviewMeshes = [];
+
+    // Helper to add a pipe segment with flanges and support stand
+    const addSegment = (x1, z1, x2, z2) => {
+      const dx = x2 - x1;
+      const dz = z2 - z1;
+      const length = Math.sqrt(dx * dx + dz * dz);
+      if (length < 0.01) return;
+
+      const pipeGeo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
+      pipeGeo.rotateZ(Math.PI / 2);
+      const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+      pipe.position.set((x1 + x2) / 2, PIPE_Y, (z1 + z2) / 2);
+      pipe.rotation.y = -Math.atan2(dz, dx);
+      this.scene.add(pipe);
+      this._beamPipePreviewMeshes.push(pipe);
+      const pipeWire = new THREE.Mesh(pipeGeo, wireframeMat);
+      pipeWire.position.copy(pipe.position);
+      pipeWire.rotation.copy(pipe.rotation);
+      this.scene.add(pipeWire);
+      this._beamPipePreviewMeshes.push(pipeWire);
+
+      // CF flanges at each end
+      const flangeGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.045, 8);
+      flangeGeo.rotateZ(Math.PI / 2);
+      for (const [fx, fz] of [[x1, z1], [x2, z2]]) {
+        const flange = new THREE.Mesh(flangeGeo, flangeMat);
+        flange.position.set(fx, PIPE_Y, fz);
+        flange.rotation.y = -Math.atan2(dz, dx);
+        this.scene.add(flange);
+        this._beamPipePreviewMeshes.push(flange);
+      }
+
+      // Support stand at midpoint
+      const standH = PIPE_Y - PIPE_RADIUS;
+      const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
+      const stand = new THREE.Mesh(standGeo, standMat);
+      stand.position.set((x1 + x2) / 2, standH / 2, (z1 + z2) / 2);
+      this.scene.add(stand);
+      this._beamPipePreviewMeshes.push(stand);
+    };
+
+    if (path.length === 1) {
+      // Single tile preview: show one pipe segment centered on the tile
+      const cx = path[0].col * 2 + 1;
+      const cz = path[0].row * 2 + 1;
+      const dir = this.placementDir || 0;
+      const delta = DIR_DELTA[dir];
+      const dx = delta.dc, dz = delta.dr;
+      addSegment(cx - dx * 0.9, cz - dz * 0.9, cx + dx * 0.9, cz + dz * 0.9);
+    } else {
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i];
+        const b = path[i + 1];
+        addSegment(a.col * 2 + 1, a.row * 2 + 1, b.col * 2 + 1, b.row * 2 + 1);
       }
     }
   }
 
-  _renderBeamPipePreview(path) {
-    this._clearBeamPipePreview();
-    if (!path || path.length < 2) return;
-
-    const points = path.map(p => new THREE.Vector3(p.col * 2 + 1, 1.0, p.row * 2 + 1));
-    const geo = new THREE.BufferGeometry().setFromPoints(points);
-    const mat = new THREE.LineBasicMaterial({ color: 0x44ff44, transparent: true, opacity: 0.5 });
-    const line = new THREE.Line(geo, mat);
-    this.scene.add(line);
-    this._beamPipePreviewLine = line;
-  }
-
   _clearBeamPipePreview() {
+    if (this._beamPipePreviewMeshes) {
+      for (const mesh of this._beamPipePreviewMeshes) {
+        this.scene.remove(mesh);
+        if (mesh.geometry) mesh.geometry.dispose();
+      }
+      this._beamPipePreviewMeshes = null;
+    }
+    // Clean up old line preview if still around
     if (this._beamPipePreviewLine) {
       this.scene.remove(this._beamPipePreviewLine);
       if (this._beamPipePreviewLine.geometry) this._beamPipePreviewLine.geometry.dispose();
