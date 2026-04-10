@@ -2120,6 +2120,7 @@ export class Game {
       return;
     }
     this._updateAggregateBeamline();
+    this._recalcMainBeamGraph();
     this.checkInjectorLinks();
     this.validateInfrastructure();
   }
@@ -2129,8 +2130,63 @@ export class Game {
       this._recalcSingleBeamline(entry);
     }
     this._updateAggregateBeamline();
+    this._recalcMainBeamGraph();
     this.checkInjectorLinks();
     this.validateInfrastructure();
+  }
+
+  // Physics pass for the unified main-map pipe graph. Runs additively on top
+  // of the per-registry-entry physics used by designer-placed beamlines.
+  // Derives state.beamline from the pipe graph (via _deriveBeamGraph) and
+  // runs BeamPhysics.compute() once over the ordered modules + drift + attachments.
+  // Result is stored in state.mainBeamState so renderers / HUD can read it
+  // without clobbering per-entry beamState data.
+  _recalcMainBeamGraph() {
+    // _deriveBeamGraph writes the unified ordered list into state.beamline
+    // (overwriting the registry-node snapshot _updateAggregateBeamline set).
+    this._deriveBeamGraph();
+    const ordered = this.state.beamline || [];
+    if (ordered.length === 0) {
+      this.state.mainBeamState = null;
+      return;
+    }
+
+    // Contract check: every entry must have a positive subL so physics s-axis is correct
+    for (const node of ordered) {
+      if (!node.subL || node.subL <= 0) {
+        console.warn('[physics] element with bad subL', node);
+      }
+    }
+
+    // Build physics input from ordered entries. Each entry already has subL
+    // in sub-units, params, and the component type. Physics multiplies subL
+    // by 0.5 to get metres.
+    const physicsBeamline = ordered.map(node => {
+      const def = COMPONENTS[node.type];
+      return {
+        type: node.type,
+        subL: node.subL,
+        stats: def && def.stats ? { ...def.stats } : {},
+        params: node.params || {},
+      };
+    });
+
+    // Collect research effects
+    const researchEffects = {};
+    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
+                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
+                        'beamLifetimeMult', 'diagnosticPrecision']) {
+      const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
+      researchEffects[key] = v;
+    }
+
+    if (!BeamPhysics.isReady()) {
+      this.state.mainBeamState = null;
+      return;
+    }
+    const result = BeamPhysics.compute(physicsBeamline, researchEffects);
+    this.state.mainBeamState = result || null;
+    this.emit('physicsUpdated');
   }
 
   _recalcSingleBeamline(entry) {
