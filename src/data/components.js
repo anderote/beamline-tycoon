@@ -21,6 +21,10 @@ export const COMPONENTS = {
     spriteColor: 0x44cc44,
     params: { particleType: 'electron' },
     paramOptions: { particleType: ['electron', 'proton'] },
+    placement: 'module',
+    ports: {
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -41,6 +45,11 @@ export const COMPONENTS = {
     spriteKey: 'drift',
     spriteColor: 0x44cc44,
     isDrawnConnection: true,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: [],
   },
@@ -61,6 +70,11 @@ export const COMPONENTS = {
     isDipole: true,
     spriteKey: 'dipole',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -80,6 +94,7 @@ export const COMPONENTS = {
     unlocked: true,
     spriteKey: 'quadrupole',
     spriteColor: 0x4488cc,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -100,6 +115,10 @@ export const COMPONENTS = {
     isEndpoint: true,
     spriteKey: 'detector',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -120,6 +139,10 @@ export const COMPONENTS = {
     isEndpoint: true,
     spriteKey: 'target',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['coolingWater'],
   },
@@ -139,6 +162,10 @@ export const COMPONENTS = {
     unlocked: true,
     spriteKey: 'detector',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
@@ -159,6 +186,12 @@ export const COMPONENTS = {
     isSplitter: true,
     spriteKey: 'splitter',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {
+      entry:        { side: 'back' },
+      exitStraight: { side: 'front' },
+      exitBranch:   { side: 'left' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -178,6 +211,7 @@ export const COMPONENTS = {
     unlocked: true,
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -198,6 +232,7 @@ export const COMPONENTS = {
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
     params: { eField: 50, bField: 0.1 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -217,6 +252,7 @@ export const COMPONENTS = {
     unlocked: true,
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -236,6 +272,11 @@ export const COMPONENTS = {
     requires: 'synchrotronLight',
     spriteKey: 'undulator',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -255,6 +296,7 @@ export const COMPONENTS = {
     requires: 'beamOptics',
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
+    placement: 'attachment',
 
     requiredConnections: ['coolingWater'],
   },
@@ -275,6 +317,10 @@ export const COMPONENTS = {
     isEndpoint: true,
     spriteKey: 'target',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['coolingWater', 'dataFiber'],
   },
@@ -294,6 +340,7 @@ export const COMPONENTS = {
     requires: 'advancedOptics',
     spriteKey: 'sextupole',
     spriteColor: 0x44aacc,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -319,6 +366,10 @@ export const COMPONENTS = {
     spriteKey: 'dcPhotoGun',
     spriteColor: 0x44cc44,
     params: { laserWavelength: 532, cathodeQE: 0.01 },
+    placement: 'module',
+    ports: {
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -342,6 +393,10 @@ export const COMPONENTS = {
     spriteKey: 'ncRfGun',
     spriteColor: 0x44cc44,
     params: { rfFrequency: 2856, peakField: 120 },
+    placement: 'module',
+    ports: {
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
@@ -366,6 +421,10 @@ export const COMPONENTS = {
     spriteKey: 'srfGun',
     spriteColor: 0x44cc44,
     params: { rfFrequency: 1300, cathodeType: 'Cs2Te' },
+    placement: 'module',
+    ports: {
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
@@ -387,6 +446,7 @@ export const COMPONENTS = {
     interiorVolume: 0.8,
     spriteKey: 'bellows',
     spriteColor: 0x44cc44,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -409,6 +469,11 @@ export const COMPONENTS = {
     spriteKey: 'pillboxCavity',
     spriteColor: 0xcc4444,
     params: { voltage: 0.5, rfPhase: 0 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'rfWaveguide'],
     rfFrequency: 200,
@@ -430,6 +495,11 @@ export const COMPONENTS = {
     spriteKey: 'buncher',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 650, voltage: 0.1 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'rfWaveguide'],
     rfFrequency: 2856,
@@ -451,6 +521,11 @@ export const COMPONENTS = {
     spriteKey: 'rfq',
     spriteColor: 0xcc4444,
     params: { intervaneVoltage: 80, rfPhase: -30 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 400,
@@ -472,6 +547,11 @@ export const COMPONENTS = {
     spriteKey: 'dtl',
     spriteColor: 0xcc4444,
     params: { gradient: 3, rfPhase: -25 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 400,
@@ -492,6 +572,11 @@ export const COMPONENTS = {
     unlocked: true,
     spriteKey: 'rfCavity',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
@@ -513,6 +598,11 @@ export const COMPONENTS = {
     spriteKey: 'rfCavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 2856, gradient: 17 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
@@ -534,6 +624,11 @@ export const COMPONENTS = {
     spriteKey: 'cbandCavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 5712, gradient: 35 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 5712,
@@ -555,6 +650,11 @@ export const COMPONENTS = {
     spriteKey: 'xbandCavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 11424, gradient: 65 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 11424,
@@ -578,6 +678,11 @@ export const COMPONENTS = {
     spriteKey: 'pillboxCavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 161, voltage: 1.0 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 161,
@@ -599,6 +704,11 @@ export const COMPONENTS = {
     spriteKey: 'rfCavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 325, gradient: 8 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 325,
@@ -620,6 +730,11 @@ export const COMPONENTS = {
     spriteKey: 'harmonicLinearizer',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 3900, voltage: 0.05 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 3900,
@@ -641,6 +756,11 @@ export const COMPONENTS = {
     spriteKey: 'srf650Cavity',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 650, gradient: 18, qext: 1e7 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 650,
@@ -662,6 +782,11 @@ export const COMPONENTS = {
     spriteKey: 'cryomodule',
     spriteColor: 0xcc4444,
     params: { rfFrequency: 1300, gradient: 31.5, qext: 2e7 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
@@ -682,6 +807,11 @@ export const COMPONENTS = {
     requires: 'srfTechnology',
     spriteKey: 'cryomodule',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
@@ -704,6 +834,11 @@ export const COMPONENTS = {
     spriteKey: 'solenoid',
     spriteColor: 0x4488cc,
     params: { fieldStrength: 0.2 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -723,6 +858,7 @@ export const COMPONENTS = {
     spriteKey: 'corrector',
     spriteColor: 0x4488cc,
     params: { kickAngle: 0.5 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -743,6 +879,7 @@ export const COMPONENTS = {
     spriteKey: 'octupole',
     spriteColor: 0x4488cc,
     params: { fieldStrength: 200 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -763,6 +900,7 @@ export const COMPONENTS = {
     spriteKey: 'scQuad',
     spriteColor: 0x4488cc,
     params: { gradient: 150 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'coolingWater'],
   },
@@ -784,6 +922,11 @@ export const COMPONENTS = {
     spriteKey: 'scDipole',
     spriteColor: 0x4488cc,
     params: { fieldStrength: 6.0 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'coolingWater'],
   },
@@ -804,6 +947,11 @@ export const COMPONENTS = {
     spriteKey: 'combinedFunctionMagnet',
     spriteColor: 0x4488cc,
     params: { dipoleField: 1.2, quadGradient: 20 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -824,6 +972,7 @@ export const COMPONENTS = {
     interiorVolume: 0.5,
     spriteKey: 'bpm',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -842,6 +991,7 @@ export const COMPONENTS = {
     interiorVolume: 2,
     spriteKey: 'screen',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -860,6 +1010,7 @@ export const COMPONENTS = {
     interiorVolume: 0.5,
     spriteKey: 'ict',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -879,6 +1030,7 @@ export const COMPONENTS = {
     requires: 'beamDiagnostics',
     spriteKey: 'wireScanner',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -898,6 +1050,7 @@ export const COMPONENTS = {
     requires: 'beamDiagnostics',
     spriteKey: 'bunchLengthMonitor',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -917,6 +1070,7 @@ export const COMPONENTS = {
     requires: 'beamDiagnostics',
     spriteKey: 'energySpectrometer',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -936,6 +1090,7 @@ export const COMPONENTS = {
     requires: 'machineProtection',
     spriteKey: 'beamLossMonitor',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -955,6 +1110,7 @@ export const COMPONENTS = {
     requires: 'synchrotronLight',
     spriteKey: 'srLightMonitor',
     spriteColor: 0xeeeeee,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -977,6 +1133,11 @@ export const COMPONENTS = {
     spriteKey: 'helicalUndulator',
     spriteColor: 0x44aacc,
     params: { period: 30, kParameter: 1.5 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -997,6 +1158,11 @@ export const COMPONENTS = {
     spriteKey: 'wiggler',
     spriteColor: 0x44aacc,
     params: { period: 80, kParameter: 10 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -1017,6 +1183,11 @@ export const COMPONENTS = {
     spriteKey: 'apple2Undulator',
     spriteColor: 0x44aacc,
     params: { period: 40, kParameter: 2.5, polarization: 'variable' },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -1039,6 +1210,7 @@ export const COMPONENTS = {
     spriteKey: 'kickerMagnet',
     spriteColor: 0x44aacc,
     params: { riseTime: 25, kickAngle: 5 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1059,6 +1231,7 @@ export const COMPONENTS = {
     spriteKey: 'septumMagnet',
     spriteColor: 0x44aacc,
     params: { septumThickness: 2, fieldStrength: 1.0 },
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1079,6 +1252,11 @@ export const COMPONENTS = {
     spriteKey: 'chicane',
     spriteColor: 0x44aacc,
     params: { r56: -50, bendAngle: 10 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -1099,6 +1277,11 @@ export const COMPONENTS = {
     spriteKey: 'dogleg',
     spriteColor: 0x44aacc,
     params: { offset: 0.1, bendAngle: 5 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -1119,6 +1302,7 @@ export const COMPONENTS = {
     spriteKey: 'stripperFoil',
     spriteColor: 0x44aacc,
     params: { material: 'carbon', thickness: 200 },
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -1142,6 +1326,10 @@ export const COMPONENTS = {
     spriteKey: 'fixedTargetAdv',
     spriteColor: 0x999999,
     params: { material: 'tungsten', length: 30 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['coolingWater', 'dataFiber'],
   },
@@ -1162,6 +1350,10 @@ export const COMPONENTS = {
     isEndpoint: true,
     spriteKey: 'photonPort',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['dataFiber'],
   },
@@ -1183,6 +1375,10 @@ export const COMPONENTS = {
     spriteKey: 'positronTarget',
     spriteColor: 0x999999,
     params: { material: 'tungsten', thickness: 14 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
@@ -1204,6 +1400,10 @@ export const COMPONENTS = {
     spriteKey: 'comptonIP',
     spriteColor: 0x999999,
     params: { laserWavelength: 1064, crossingAngle: 5 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+    },
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -1226,6 +1426,8 @@ export const COMPONENTS = {
     spriteKey: 'solidStateAmp',
     spriteColor: 0xcc4444,
     params: { peakPower: 2, stability: 'low' },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 2856,
@@ -1242,6 +1444,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'solidStateAmp',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
@@ -1259,6 +1463,8 @@ export const COMPONENTS = {
     spriteKey: 'solidStateAmp',
     spriteColor: 0xcc4444,
     params: { peakPower: 10, bandwidth: 'wide' },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
@@ -1276,6 +1482,8 @@ export const COMPONENTS = {
     spriteKey: 'pulsedKlystron',
     spriteColor: 0xcc4444,
     params: { peakPower: 50, pulseLength: 5 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 2856,
@@ -1293,6 +1501,8 @@ export const COMPONENTS = {
     spriteKey: 'cwKlystron',
     spriteColor: 0xcc4444,
     params: { cwPower: 10, efficiency: 0.55 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 1300,
@@ -1309,6 +1519,8 @@ export const COMPONENTS = {
     zoneTier: 4,
     spriteKey: 'modulator',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1325,6 +1537,8 @@ export const COMPONENTS = {
     spriteKey: 'iot',
     spriteColor: 0xcc4444,
     params: { cwPower: 80, efficiency: 0.70 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 1300,
@@ -1341,6 +1555,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'circulator',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1356,6 +1572,8 @@ export const COMPONENTS = {
     zoneTier: 3,
     spriteKey: 'rfCoupler',
     spriteColor: 0xcc4444,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1372,6 +1590,8 @@ export const COMPONENTS = {
     spriteKey: 'llrfController',
     spriteColor: 0xcc4444,
     params: { bandwidth: 1e6, loopGain: 30 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -1388,6 +1608,8 @@ export const COMPONENTS = {
     spriteKey: 'multibeamKlystron',
     spriteColor: 0xcc4444,
     params: { peakPower: 100, efficiency: 0.65 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 11424,
@@ -1405,6 +1627,8 @@ export const COMPONENTS = {
     spriteKey: 'highPowerSSA',
     spriteColor: 0xcc4444,
     params: { cwPower: 300, efficiency: 0.60 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
@@ -1424,6 +1648,8 @@ export const COMPONENTS = {
     spriteKey: 'cryocooler',
     spriteColor: 0x4488cc,
     params: { temperature: 77, capacity: 50 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1440,6 +1666,8 @@ export const COMPONENTS = {
     spriteKey: 'cryocooler',
     spriteColor: 0x44aacc,
     params: { temperature: 40, coolingCapacity: 20 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1455,6 +1683,8 @@ export const COMPONENTS = {
     zoneTier: 3,
     spriteKey: 'ln2Precooler',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1470,6 +1700,8 @@ export const COMPONENTS = {
     requires: 'srfTechnology',
     spriteKey: 'heCompressor',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -1486,6 +1718,8 @@ export const COMPONENTS = {
     spriteKey: 'coldBox4K',
     spriteColor: 0x44aacc,
     params: { coolingCapacity: 500, temperature: 4.5 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1502,6 +1736,8 @@ export const COMPONENTS = {
     spriteKey: 'coldBox2K',
     spriteColor: 0x44aacc,
     params: { coolingCapacity: 200, temperature: 2.0 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1517,6 +1753,8 @@ export const COMPONENTS = {
     requires: 'srfTechnology',
     spriteKey: 'cryomoduleHousing',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1532,6 +1770,8 @@ export const COMPONENTS = {
     requires: 'cryoOptimization',
     spriteKey: 'heRecovery',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1549,6 +1789,8 @@ export const COMPONENTS = {
     zoneTier: 0,
     spriteKey: 'roughingPump',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1564,6 +1806,7 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'turboPump',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1580,6 +1823,7 @@ export const COMPONENTS = {
     requires: 'uhvSystems',
     spriteKey: 'ionPump',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1595,6 +1839,7 @@ export const COMPONENTS = {
     requires: 'uhvSystems',
     spriteKey: 'negPump',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -1610,6 +1855,7 @@ export const COMPONENTS = {
     requires: 'uhvSystems',
     spriteKey: 'tiSubPump',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -1625,6 +1871,7 @@ export const COMPONENTS = {
     zoneTier: 1,
     spriteKey: 'piraniGauge',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -1640,6 +1887,7 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'coldCathodeGauge',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1655,6 +1903,7 @@ export const COMPONENTS = {
     requires: 'uhvSystems',
     spriteKey: 'baGauge',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: ['powerCable'],
   },
@@ -1670,6 +1919,7 @@ export const COMPONENTS = {
     zoneTier: 3,
     spriteKey: 'gateValve',
     spriteColor: 0x999999,
+    placement: 'attachment',
 
     requiredConnections: [],
   },
@@ -1685,6 +1935,8 @@ export const COMPONENTS = {
     requires: 'uhvSystems',
     spriteKey: 'bakeoutSystem',
     spriteColor: 0x999999,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1702,6 +1954,8 @@ export const COMPONENTS = {
     zoneTier: 1,
     spriteKey: 'heatExchanger',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1717,6 +1971,8 @@ export const COMPONENTS = {
     zoneTier: 1,
     spriteKey: 'waterLoad',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1732,6 +1988,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'lcwSkid',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1747,6 +2005,8 @@ export const COMPONENTS = {
     zoneTier: 0,
     spriteKey: 'chiller',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1762,6 +2022,8 @@ export const COMPONENTS = {
     zoneTier: 3,
     spriteKey: 'coolingTower',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1777,6 +2039,8 @@ export const COMPONENTS = {
     requires: 'facilitySystems',
     spriteKey: 'deionizer',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1792,6 +2056,8 @@ export const COMPONENTS = {
     requires: 'machineProtection',
     spriteKey: 'emergencyCooling',
     spriteColor: 0x4488cc,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1809,6 +2075,8 @@ export const COMPONENTS = {
     zoneTier: 0,
     spriteKey: 'rackIoc',
     spriteColor: 0xeeeeee,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1824,6 +2092,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'ppsInterlock',
     spriteColor: 0xeeeeee,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1839,6 +2109,8 @@ export const COMPONENTS = {
     zoneTier: 0,
     spriteKey: 'shielding',
     spriteColor: 0x888888,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1854,6 +2126,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'shielding',
     spriteColor: 0x888888,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1869,6 +2143,8 @@ export const COMPONENTS = {
     zoneTier: 0,
     spriteKey: 'shielding',
     spriteColor: 0x888888,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['coolingWater'],
   },
@@ -1884,6 +2160,8 @@ export const COMPONENTS = {
     zoneTier: 3,
     spriteKey: 'shielding',
     spriteColor: 0x888888,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1899,6 +2177,8 @@ export const COMPONENTS = {
     requires: 'machineProtection',
     spriteKey: 'mps',
     spriteColor: 0xeeeeee,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -1914,6 +2194,8 @@ export const COMPONENTS = {
     zoneTier: 2,
     spriteKey: 'areaMonitor',
     spriteColor: 0xeeeeee,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1929,6 +2211,8 @@ export const COMPONENTS = {
     requires: 'digitalLlrf',
     spriteKey: 'timingSystem',
     spriteColor: 0xeeeeee,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -1945,6 +2229,8 @@ export const COMPONENTS = {
     spriteKey: 'laserSystem',
     spriteColor: 0x44cc44,
     params: { wavelength: 266, pulseEnergy: 50 },
+    placement: 'module',
+    ports: {},
 
     requiredConnections: ['powerCable'],
   },
@@ -1963,6 +2249,11 @@ export const COMPONENTS = {
     requires: 'felPhysics',
     spriteKey: 'laserHeater',
     spriteColor: 0x44aacc,
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -1979,6 +2270,8 @@ export const COMPONENTS = {
     subL: 2, subW: 1, subH: 3, gridW: 1, gridH: 2, geometryType: 'box',
     spriteKey: 'powerPanel',
     spriteColor: 0x44cc44,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -1994,6 +2287,8 @@ export const COMPONENTS = {
     subL: 8, subW: 6, subH: 4, gridW: 6, gridH: 8, geometryType: 'box',
     spriteKey: 'substation',
     spriteColor: 0x44cc44,
+    placement: 'module',
+    ports: {},
 
     requiredConnections: [],
   },
@@ -2019,6 +2314,10 @@ export const COMPONENTS = {
     extractionEnergy: 0.000035, // GeV (35 keV H- ion source)
     requires: 'protonAcceleration',
     connectDirs: ['right'],
+    placement: 'module',
+    ports: {
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable'],
   },
@@ -2038,6 +2337,11 @@ export const COMPONENTS = {
     w: 4, h: 1,
     requires: 'protonAcceleration',
     connectDirs: ['left', 'right'],
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 400,
@@ -2058,6 +2362,7 @@ export const COMPONENTS = {
     w: 1, h: 1,
     requires: 'protonAcceleration',
     connectDirs: ['left', 'right', 'up', 'down'],
+    placement: 'attachment',
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -2077,7 +2382,22 @@ export const COMPONENTS = {
     w: 2, h: 2,
     requires: 'protonAcceleration',
     connectDirs: ['left', 'right', 'up', 'down'],
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
 };
+
+// Validate: every component must have a placement type
+for (const [key, comp] of Object.entries(COMPONENTS)) {
+  if (!comp.placement) {
+    console.warn(`Component '${key}' missing placement type`);
+  }
+  if (comp.placement === 'module' && !comp.ports) {
+    console.warn(`Module '${key}' missing ports definition`);
+  }
+}
