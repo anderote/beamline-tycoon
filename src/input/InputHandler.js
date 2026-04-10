@@ -1068,16 +1068,10 @@ export class InputHandler {
           return;
         }
 
-        // Left-click: must start on a module
-        const startComp = this._findBeamlineComponentAt(grid.col, grid.row);
-        if (!startComp) return; // can't start pipe in empty space
-
-        const startDef = COMPONENTS[startComp.type];
-        if (!startDef || startDef.placement !== 'module') return; // must be a module
-
+        // Left-click: start drawing anywhere. Endpoints resolve on mouseup.
         this.drawingBeamPipe = true;
         this.beamPipeDrawMode = 'add';
-        this.beamPipeStartId = startComp.id;
+        this.beamPipeStartId = null;
         this.beamPipePath = [{ col: grid.col, row: grid.row }];
         this.renderer.renderBeamPipePreview(this.beamPipePath, 'add');
         return;
@@ -1422,26 +1416,33 @@ export class InputHandler {
             }
           }
         } else {
-          // Left-click: connect two modules via their ports
-          const endComp = this._findBeamlineComponentAt(grid.col, grid.row);
-
-          if (this.beamPipeStartId && endComp && endComp.id !== this.beamPipeStartId) {
-            const endDef = COMPONENTS[endComp.type];
-            if (!endDef || endDef.placement !== 'module') {
-              this.game.log('Pipes must connect modules', 'bad');
-            } else {
-              // Auto-pick ports: first available exit on start, first available entry on end
-              const fromPort = this._findAvailablePort(this.beamPipeStartId, 'exit');
-              const toPort = this._findAvailablePort(endComp.id, 'entry');
-
-              if (fromPort && toPort) {
-                this.game._pushUndo();
-                this.game.createBeamPipe(this.beamPipeStartId, fromPort, endComp.id, toPort, this.beamPipePath);
-              } else {
-                this.game.log('No available ports on modules!', 'bad');
-              }
-            }
+          // Left-click: place the pipe. Auto-link endpoints to modules if
+          // the path starts/ends on a module's tile; otherwise create a
+          // free-standing pipe.
+          // Single-click (no drag): extend to a 1-tile segment along placementDir
+          if (this.beamPipePath.length === 1) {
+            const start = this.beamPipePath[0];
+            const delta = DIR_DELTA[this.placementDir || 0];
+            this.beamPipePath.push({ col: start.col + delta.dc, row: start.row + delta.dr });
           }
+          const startTile = this.beamPipePath[0];
+          const endTile = this.beamPipePath[this.beamPipePath.length - 1];
+          const startComp = this._findBeamlineComponentAt(startTile.col, startTile.row);
+          const endComp = this._findBeamlineComponentAt(endTile.col, endTile.row);
+
+          let fromId = null, fromPort = null;
+          if (startComp && COMPONENTS[startComp.type]?.placement === 'module') {
+            fromId = startComp.id;
+            fromPort = this._findAvailablePort(fromId, 'exit');
+          }
+          let toId = null, toPort = null;
+          if (endComp && COMPONENTS[endComp.type]?.placement === 'module' && endComp.id !== fromId) {
+            toId = endComp.id;
+            toPort = this._findAvailablePort(toId, 'entry');
+          }
+
+          this.game._pushUndo();
+          this.game.createBeamPipe(fromId, fromPort, toId, toPort, this.beamPipePath);
         }
 
         this.drawingBeamPipe = false;

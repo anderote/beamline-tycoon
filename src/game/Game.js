@@ -1429,43 +1429,51 @@ export class Game {
   // === BEAM PIPE ===
 
   /**
-   * Create a beam pipe connection between two beamline placeable ports.
-   * @param {string} fromId - placeable id of source-side component
-   * @param {string} fromPort - port name on the from component
-   * @param {string} toId - placeable id of destination component
-   * @param {string} toPort - port name on the to component
+   * Create a beam pipe. Pipes can be free-standing (fromId/toId null) or
+   * connect two beamline modules via named ports.
+   * @param {string|null} fromId - placeable id of source-side module, or null
+   * @param {string|null} fromPort - port name, or null when fromId is null
+   * @param {string|null} toId - placeable id of destination module, or null
+   * @param {string|null} toPort - port name, or null when toId is null
    * @param {Array} path - array of {col, row} tile positions along the pipe route
    * @returns {boolean}
    */
   createBeamPipe(fromId, fromPort, toId, toPort, path) {
-    const from = this.getPlaceable(fromId);
-    const to = this.getPlaceable(toId);
-    if (!from || !to) return false;
-    if (from.category !== 'beamline' || to.category !== 'beamline') return false;
-
-    const fromDef = COMPONENTS[from.type];
-    const toDef = COMPONENTS[to.type];
-
-    // Validate ports exist
-    if (!fromDef.ports || !fromDef.ports[fromPort]) {
-      this.log('Invalid source port!', 'bad');
-      return false;
+    // Validate endpoints only when they're provided
+    if (fromId) {
+      const from = this.getPlaceable(fromId);
+      if (!from || from.category !== 'beamline') return false;
+      const fromDef = COMPONENTS[from.type];
+      if (!fromDef || !fromDef.ports || !fromDef.ports[fromPort]) {
+        this.log('Invalid source port!', 'bad');
+        return false;
+      }
+      // Duplicate port check
+      const dup = this.state.beamPipes.find(
+        p => (p.fromId === fromId && p.fromPort === fromPort) ||
+             (p.toId === fromId && p.toPort === fromPort)
+      );
+      if (dup) {
+        this.log('Port already connected!', 'bad');
+        return false;
+      }
     }
-    if (!toDef.ports || !toDef.ports[toPort]) {
-      this.log('Invalid destination port!', 'bad');
-      return false;
-    }
-
-    // Check no duplicate connection on same ports
-    const existing = this.state.beamPipes.find(
-      p => (p.fromId === fromId && p.fromPort === fromPort) ||
-           (p.toId === fromId && p.toPort === fromPort) ||
-           (p.fromId === toId && p.fromPort === toPort) ||
-           (p.toId === toId && p.toPort === toPort)
-    );
-    if (existing) {
-      this.log('Port already connected!', 'bad');
-      return false;
+    if (toId) {
+      const to = this.getPlaceable(toId);
+      if (!to || to.category !== 'beamline') return false;
+      const toDef = COMPONENTS[to.type];
+      if (!toDef || !toDef.ports || !toDef.ports[toPort]) {
+        this.log('Invalid destination port!', 'bad');
+        return false;
+      }
+      const dup = this.state.beamPipes.find(
+        p => (p.fromId === toId && p.fromPort === toPort) ||
+             (p.toId === toId && p.toPort === toPort)
+      );
+      if (dup) {
+        this.log('Port already connected!', 'bad');
+        return false;
+      }
     }
 
     // Compute length from path (each tile = 2m along beam axis, i.e. 4 sub-units)
@@ -1486,17 +1494,18 @@ export class Game {
     const id = 'bp_' + this.state.beamPipeNextId++;
     const pipe = {
       id,
-      fromId,
-      fromPort,
-      toId,
-      toPort,
+      fromId: fromId || null,
+      fromPort: fromId ? fromPort : null,
+      toId: toId || null,
+      toPort: toId ? toPort : null,
       path: path.map(p => ({ col: p.col, row: p.row })),
       subL,
       attachments: [],
     };
 
     this.state.beamPipes.push(pipe);
-    this.log(`Connected beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
+    const label = (fromId && toId) ? 'Connected' : 'Placed';
+    this.log(`${label} beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
     this._deriveBeamGraph();
     this.emit('beamlineChanged');
     return true;
