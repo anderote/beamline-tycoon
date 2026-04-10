@@ -1,3 +1,9 @@
+// === LEGACY: designer-internal use only ===
+// This multi-beamline registry is no longer used by the main map. It survives
+// because BeamlineDesigner and DesignPlacer still operate on Beamline instances
+// internally. The main map's source of truth is Game.state.beamPipes +
+// state.placeables (derived into state.beamline by Game._deriveBeamGraph).
+
 // === BEAMLINE REGISTRY ===
 // Manages multiple independent Beamline instances with shared tile occupancy.
 

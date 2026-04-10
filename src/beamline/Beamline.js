@@ -1,3 +1,11 @@
+// === LEGACY: designer-internal use only ===
+// This class is no longer used by the main map. The pipe-centric beam graph
+// in Game.state.beamPipes + state.placeables is the source of truth for the
+// placed world. This class survives because BeamlineDesigner still uses a
+// linear parent-child draft for its schematic editor. See path-flattener.js
+// (Task 10) for the bridge between the pipe graph and the designer's flat
+// draft format.
+
 // === BEAMLINE DIRECTED GRAPH ===
 // Core data model: directed graph of placed components with grid positions.
 // Nodes are components with tiles; edges connect parent -> child.
