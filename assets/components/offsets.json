@@ -14,20 +14,20 @@
     "scale": 1
   },
   "/assets/components/drift_0.png": {
-    "x": -4,
-    "y": 8,
+    "x": -2,
+    "y": 12,
     "rotation": 0,
     "scale": 0.8
   },
   "/assets/components/drift_NWSE_0.png": {
-    "x": 3,
-    "y": 4,
+    "x": 1,
+    "y": 8,
     "rotation": 0,
     "scale": 0.8
   },
   "/assets/components/drift_NESW_0.png": {
     "x": 0,
-    "y": 0,
+    "y": 8,
     "rotation": 0,
     "scale": 1
   },
@@ -40,5 +40,35 @@
     "x": 0,
     "y": 7,
     "scale": 1
+  },
+  "/assets/components/source_0.png": {
+    "x": 0,
+    "y": 0,
+    "scale": 1
+  },
+  "/assets/components/source_NESW_3.png": {
+    "x": 0,
+    "y": 0,
+    "scale": 1
+  },
+  "/assets/components/drift_NWSE_1.png": {
+    "x": 0,
+    "y": 10,
+    "scale": 1
+  },
+  "/assets/components/drift_NESW_1.png": {
+    "x": 1,
+    "y": 8,
+    "scale": 0.9
+  },
+  "/api/proxy-image?url=https%3A%2F%2Fapi.pixellab.ai%2Fmcp%2Fmap-objects%2Ff22e2280-0c1a-498b-b5f6-79b355c7e79f%2Fdownload": {
+    "x": -1,
+    "y": 9,
+    "scale": 0.8
+  },
+  "/api/proxy-image?url=https%3A%2F%2Fapi.pixellab.ai%2Fmcp%2Fmap-objects%2Fe09bb1a3-1d00-4715-ad59-e8eb8ad23281%2Fdownload": {
+    "x": -1,
+    "y": 9,
+    "scale": 0.7
   }
 }

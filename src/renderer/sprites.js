@@ -165,18 +165,21 @@ export class SpriteManager {
       this.textures[spriteKey] = app.renderer.generateTexture(gfx);
     }
 
-    // Generate placeholders for zone furnishings
+    // Generate placeholders for zone furnishings using proper isometric projection
     if (typeof ZONE_FURNISHINGS !== 'undefined') {
       for (const key of Object.keys(ZONE_FURNISHINGS)) {
         const furn = ZONE_FURNISHINGS[key];
         const color = furn.spriteColor || 0x888888;
         const gw = furn.gridW || 1;
         const gh = furn.gridH || 1;
-        // Sub-cell size: TILE_W/4 per grid unit wide, TILE_H/4 per grid unit tall
-        const boxW = (TILE_W / 4) * gw;
-        const boxH = (TILE_H / 4) * gh;
-        const gfx = this._drawIsoBox(boxW, boxH, color);
+        const gfx = this._drawIsoSubgridBox(gw, gh, color);
         this.textures[key] = app.renderer.generateTexture(gfx);
+
+        // Generate rotated variant for non-square furnishings
+        if (gw !== gh) {
+          const rotGfx = this._drawIsoSubgridBox(gh, gw, color);
+          this.textures[key + '_rotated'] = app.renderer.generateTexture(rotGfx);
+        }
       }
     }
   }
@@ -263,6 +266,44 @@ export class SpriteManager {
 
     // Top edge highlight stroke
     g.poly([0, 0, hw, -hh, w, 0, hw, hh]);
+    g.stroke({ color: this._lighten(color, 1.3), width: 1 });
+
+    return g;
+  }
+
+  /**
+   * Draw an isometric box for a sub-grid furnishing using proper isometric projection.
+   * gw/gh are sub-grid cell counts. The diamond matches subGridToIso math.
+   */
+  _drawIsoSubgridBox(gw, gh, color) {
+    const g = new PIXI.Graphics();
+    const subW = TILE_W / 4;
+    const subH = TILE_H / 4;
+
+    // Top face corners via isometric projection (matching subGridToIso)
+    const top   = { x: 0, y: 0 };
+    const right = { x:  gw * subW / 2, y: gw * subH / 2 };
+    const bot   = { x: (gw - gh) * subW / 2, y: (gw + gh) * subH / 2 };
+    const left  = { x: -gh * subW / 2, y: gh * subH / 2 };
+
+    const depth = Math.max(gw, gh) * subH / 2;
+
+    // Top face
+    g.poly([top.x, top.y, right.x, right.y, bot.x, bot.y, left.x, left.y]);
+    g.fill({ color });
+
+    // Left face (left → bottom, extend down)
+    const darkColor = this._darken(color, 0.7);
+    g.poly([left.x, left.y, bot.x, bot.y, bot.x, bot.y + depth, left.x, left.y + depth]);
+    g.fill({ color: darkColor });
+
+    // Right face (right → bottom, extend down)
+    const rightColor = this._darken(color, 0.85);
+    g.poly([right.x, right.y, bot.x, bot.y, bot.x, bot.y + depth, right.x, right.y + depth]);
+    g.fill({ color: rightColor });
+
+    // Top edge highlight
+    g.poly([top.x, top.y, right.x, right.y, bot.x, bot.y, left.x, left.y]);
     g.stroke({ color: this._lighten(color, 1.3), width: 1 });
 
     return g;

@@ -54,6 +54,24 @@ export class ContextWindow {
     }
   }
 
+  /** Close the topmost (highest z-index) window. Returns true if a window was closed. */
+  static closeTopmost() {
+    if (registry.size === 0) return false;
+    let topWin = null;
+    let topZ = -Infinity;
+    for (const win of registry.values()) {
+      const z = parseInt(win._el?.style.zIndex, 10) || 0;
+      if (z > topZ) { topZ = z; topWin = win; }
+    }
+    if (topWin) { topWin.close(); return true; }
+    return false;
+  }
+
+  /** Returns true if any context windows are open. */
+  static get hasOpenWindows() {
+    return registry.size > 0;
+  }
+
   // ---------------------------------------------------------------------------
   // Build DOM
   // ---------------------------------------------------------------------------

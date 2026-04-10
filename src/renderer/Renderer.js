@@ -81,6 +81,10 @@ export class Renderer {
     this.selectedToolType = null; // current component type for preview
     this.placementDir = 0;       // DIR.NE — rotated with F key
     this.bulldozerMode = false;
+    // Label visibility: 0=everything, 1=equip+beam+furn (no zone labels),
+    // 2=equip+beam (no furnishings), 3=beam only, 4=nothing
+    this.labelLevel = 0;
+    this.zoneOverlayVisible = true; // 'z' toggles zone coloring + labels
     this.infraLayer = null;
     this.wallLayer = null;
     this.wallGraphics = {};        // keyed by "col,row,edge" -> PIXI.Graphics
@@ -414,6 +418,22 @@ export class Renderer {
     if (indicator) {
       indicator.classList.toggle('hidden', !active);
     }
+  }
+
+  cycleLabelLevel() {
+    const LABEL_NAMES = ['Everything', 'Furniture + Equipment + Beamline', 'Equipment + Beamline', 'Beamline', 'Nothing'];
+    this.labelLevel = (this.labelLevel + 1) % 5;
+    // Re-render affected layers (components first since it clears labelLayer)
+    this._renderComponents();
+    this._renderZones();
+    this._renderFacilityEquipment();
+    return LABEL_NAMES[this.labelLevel];
+  }
+
+  toggleZoneOverlay() {
+    this.zoneOverlayVisible = !this.zoneOverlayVisible;
+    this._renderZones();
+    return this.zoneOverlayVisible;
   }
 
   updateCursorBendDir(dir) {

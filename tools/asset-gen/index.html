@@ -22,6 +22,7 @@
   .nav-item:hover { background: #21262d; }
   .nav-item.active { background: #1f6feb33; color: #58a6ff; }
   .nav-item .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .nav-item .sz { font-size: 9px; color: #8b949e; margin-left: 2px; }
   .nav-item .cnt { margin-left: auto; font-size: 9px; color: #8b949e; background: #21262d; padding: 0 4px; border-radius: 8px; min-width: 16px; text-align: center; }
   .nav-item .cnt.has { background: #238636; color: #fff; }
   .nav-item .spin { margin-left: 4px; width: 8px; height: 8px; border: 1.5px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.6s linear infinite; display: none; }
@@ -99,10 +100,7 @@
   <div class="sidebar">
     <h1>Asset Generator</h1>
     <div class="sub">Beamline Tycoon</div>
-    <div class="sidebar-actions">
-      <button class="btn btn-blue" onclick="genCurrent()" id="genBtn" style="flex:1;text-align:center;" type="button">Generate 5</button>
-      <button class="btn btn-ghost" onclick="genReverse()" id="revBtn" style="text-align:center;" type="button" title="Generate NW→SE view using selected ref as guide">Reverse</button>
-    </div>
+    <!-- generate buttons moved to top of generate panel -->
     <div id="sidebarNav" style="flex:1;overflow-y:auto;"></div>
   </div>
 
@@ -152,6 +150,11 @@
     <div style="display:flex;flex:1;overflow:hidden;">
       <!-- Generate panel -->
       <div class="content" id="tab-generate" style="flex:1;border-right:1px solid #30363d;">
+        <div style="display:flex;gap:6px;margin-bottom:10px;position:sticky;top:0;background:#0d1117;padding:4px 0;z-index:5;">
+          <button class="btn btn-blue" onclick="genCurrent()" id="genBtn" style="flex:1;text-align:center;" type="button">Generate 5</button>
+          <button class="btn btn-ghost" onclick="genReverse()" id="revBtn" style="text-align:center;" type="button" title="Generate NW→SE view using selected ref as guide">Reverse</button>
+          <button class="btn btn-ghost" onclick="clearAllSelections()" style="text-align:center;" type="button">Clear</button>
+        </div>
         <div class="empty" id="emptyState">
           <h3>Select a component, then Generate</h3>
           <p>All batches persist here. Double-click sidebar items to generate instantly.</p>
@@ -162,35 +165,33 @@
 
       <!-- Preview panel -->
       <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-        <div style="display:flex;flex:1;overflow:hidden;">
-          <!-- Canvas area -->
-          <div style="flex:1;position:relative;overflow:hidden;background:#1a1e26;">
-            <canvas id="previewCanvas" style="cursor:crosshair;"></canvas>
-            <!-- Nudge controls - fixed bottom bar, not overlay -->
-            <div id="nudgePanel" style="position:absolute;bottom:0;left:0;right:0;background:#161b22;border-top:1px solid #30363d;padding:6px 10px;display:none;font-size:11px;z-index:10;">
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <span style="color:#58a6ff;font-weight:600;margin-right:4px;" id="nudgeLabel">—</span>
-                <span style="color:#8b949e;">X:</span>
-                <button class="btn btn-ghost" onclick="nudge(-1,0)" style="padding:2px 6px;font-size:10px;">-1</button>
-                <span id="nudgeX" style="min-width:20px;text-align:center;">0</span>
-                <button class="btn btn-ghost" onclick="nudge(1,0)" style="padding:2px 6px;font-size:10px;">+1</button>
-                <span style="color:#8b949e;margin-left:4px;">Y:</span>
-                <button class="btn btn-ghost" onclick="nudge(0,-1)" style="padding:2px 6px;font-size:10px;">-1</button>
-                <span id="nudgeY" style="min-width:20px;text-align:center;">0</span>
-                <button class="btn btn-ghost" onclick="nudge(0,1)" style="padding:2px 6px;font-size:10px;">+1</button>
-                <button class="btn btn-ghost" onclick="nudge(0,0,true)" style="margin-left:4px;padding:2px 6px;font-size:10px;">Reset</button>
-                <button class="btn btn-red" onclick="removePreviewItem()" style="margin-left:4px;padding:2px 6px;">Del</button>
-              </div>
-            </div>
-            <!-- Instructions -->
-            <div id="previewHelp" style="position:absolute;top:8px;left:8px;color:#484f58;font-size:10px;">
-              WASD=pan, scroll=zoom, F=flip, arrows=nudge, T/G=scale
-            </div>
+        <!-- Canvas -->
+        <div style="flex:1;position:relative;overflow:hidden;background:#1a1e26;">
+          <canvas id="previewCanvas" style="cursor:crosshair;"></canvas>
+          <!-- Instructions -->
+          <div id="previewHelp" style="position:absolute;top:8px;left:8px;color:#484f58;font-size:10px;pointer-events:none;">
+            WASD=pan  scroll=zoom  F=flip  arrows=nudge  T/G=scale  C=copy  Del=remove
           </div>
-          <!-- Asset palette -->
-          <div id="previewPalette" style="width:200px;background:#161b22;border-left:1px solid #30363d;overflow-y:auto;padding:6px;">
-            <div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Palette</div>
-            <div id="paletteGrid" style="display:flex;flex-direction:column;gap:4px;"></div>
+          <!-- Selected item indicator -->
+          <div id="previewSelection" style="position:absolute;top:8px;right:8px;color:#58a6ff;font-size:11px;display:none;background:#161b22cc;padding:4px 8px;border-radius:4px;">
+            <span id="previewSelLabel">—</span>
+          </div>
+        </div>
+        <!-- Nudge bar - always visible at bottom -->
+        <div id="nudgePanel" style="background:#161b22;border-top:1px solid #30363d;padding:6px 10px;font-size:11px;flex-shrink:0;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span style="color:#58a6ff;font-weight:600;margin-right:4px;" id="nudgeLabel">Click asset in left panel, then click grid to place</span>
+            <span style="color:#8b949e;">X:</span>
+            <button class="btn btn-ghost" onclick="nudge(-1,0)" style="padding:2px 6px;font-size:10px;">-1</button>
+            <span id="nudgeX" style="min-width:20px;text-align:center;">0</span>
+            <button class="btn btn-ghost" onclick="nudge(1,0)" style="padding:2px 6px;font-size:10px;">+1</button>
+            <span style="color:#8b949e;margin-left:4px;">Y:</span>
+            <button class="btn btn-ghost" onclick="nudge(0,-1)" style="padding:2px 6px;font-size:10px;">-1</button>
+            <span id="nudgeY" style="min-width:20px;text-align:center;">0</span>
+            <button class="btn btn-ghost" onclick="nudge(0,1)" style="padding:2px 6px;font-size:10px;">+1</button>
+            <button class="btn btn-ghost" onclick="nudge(0,0,true)" style="margin-left:4px;padding:2px 6px;font-size:10px;">Reset</button>
+            <button class="btn btn-red" onclick="removePreviewItem()" style="margin-left:4px;padding:2px 6px;">Del</button>
+            <span style="color:#484f58;margin-left:auto;font-size:9px;" id="nudgeHint">F=flip T=grow G=shrink</span>
           </div>
         </div>
       </div>
@@ -236,6 +237,7 @@ async function aiImproveGlobal() {
 let batches = [];
 let allAssets = {};
 let catalog = {};
+let currentSPW = 64, currentSPH = 48;
 let pollTimer = null;
 
 // Hard-coded descriptions for items not easily parsed from source
@@ -370,8 +372,9 @@ function buildSidebar() {
     for (const c of items) {
       const n = (allAssets[c.spriteKey] || []).length;
       const desc = customPrompts[c.spriteKey] || DESC_OVERRIDES[c.spriteKey] || `${c.name}, ${c.spriteKey} beamline component on metal support stand, with beam pipe`;
-      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc}" data-type="object">
-        <div class="dot" style="background:${cat.color}"></div>${c.name}<div class="spin"></div>
+      const sizeLabel = c.subL && c.subW ? `<span class="sz">${c.subL}x${c.subW}</span>` : '';
+      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc}" data-type="object" data-spw="${c.spritePixelW||64}" data-sph="${c.spritePixelH||48}">
+        <div class="dot" style="background:${cat.color}"></div>${c.name}${sizeLabel}<div class="spin"></div>
         <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
     }
     html += '</div>';
@@ -385,8 +388,9 @@ function buildSidebar() {
       used.add(c.spriteKey);
       const n = (allAssets[c.spriteKey] || []).length;
       const desc2 = customPrompts[c.spriteKey] || DESC_OVERRIDES[c.spriteKey] || `${c.name}, ${c.spriteKey} beamline component on metal support stand, with beam pipe`;
-      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc2}" data-type="object">
-        <div class="dot" style="background:#888"></div>${c.name}<div class="spin"></div>
+      const sizeLabel2 = c.subL && c.subW ? `<span class="sz">${c.subL}x${c.subW}</span>` : '';
+      html += `<div class="nav-item" data-key="${c.spriteKey}" data-desc="${desc2}" data-type="object" data-spw="${c.spritePixelW||64}" data-sph="${c.spritePixelH||48}">
+        <div class="dot" style="background:#888"></div>${c.name}${sizeLabel2}<div class="spin"></div>
         <span class="cnt ${n > 0 ? 'has' : ''}">${n}</span></div>`;
     }
     html += '</div>';
@@ -453,12 +457,16 @@ function buildSidebar() {
       currentKey = el.dataset.key;
       currentDesc = el.dataset.desc;
       currentType = el.dataset.type || 'object';
+      currentSPW = parseInt(el.dataset.spw) || 64;
+      currentSPH = parseInt(el.dataset.sph) || 48;
       showPromptBar(currentKey, currentDesc);
     });
     el.addEventListener('dblclick', () => {
       currentKey = el.dataset.key;
       currentDesc = el.dataset.desc;
       currentType = el.dataset.type || 'object';
+      currentSPW = parseInt(el.dataset.spw) || 64;
+      currentSPH = parseInt(el.dataset.sph) || 48;
       genForKey(currentKey, currentDesc, currentType);
     });
   });
@@ -506,7 +514,7 @@ function renderBrowser() {
     html += `<div class="asset-group"><div class="asset-group-title">${key} (${allAssets[key].length})</div><div class="asset-row">`;
     for (const a of allAssets[key]) {
       html += `<div class="asset-card">
-        <div class="iw" onclick="setRef('${a.file}','${a.path}')"><img src="${a.path}"/></div>
+        <div class="iw" onclick="pickOrRef(event,'${key}','${a.file}','${a.path}')"><img src="${a.path}"/></div>
         <button class="del" onclick="delAsset('${a.file}','${a.assetDir}')">&times;</button>
         <div class="lbl">${a.file}</div></div>`;
     }
@@ -516,6 +524,26 @@ function renderBrowser() {
 }
 
 function setRef(file, path) { selectedRef = { file, path }; renderRefBar(); }
+
+function pickOrRef(event, key, file, path) {
+  if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    // Modifier click = set as style ref
+    setRef(file, path);
+  } else {
+    // Normal click = pick for preview placement
+    palettePick = { key, path };
+    document.getElementById('nudgeLabel').textContent = `Placing: ${key} (click grid)`;
+  }
+}
+
+function clearAllSelections() {
+  for (const batch of batches) {
+    batch.jobs.forEach(j => j.selected = false);
+  }
+  palettePick = null;
+  showNudgePanel();
+  renderBatches();
+}
 
 async function delAsset(file, assetDir) {
   if (!confirm(`Delete ${file}?`)) return;
@@ -608,7 +636,8 @@ function showPromptBar(key, defaultDesc) {
   const label = document.getElementById('promptLabel');
   const text = document.getElementById('promptText');
   bar.style.display = 'block';
-  label.textContent = key;
+  const sizeInfo = currentSPW !== 64 || currentSPH !== 48 ? ` (${currentSPW}x${currentSPH}px)` : '';
+  label.textContent = key + sizeInfo;
   text.value = customPrompts[key] || defaultDesc;
   text.dataset.defaultDesc = defaultDesc;
   showRefPreview(key);
@@ -720,7 +749,9 @@ async function genForKey(key, desc, type, direction) {
         assetType: type,
         direction: direction,
         refImage: selectedRef ? selectedRef.file : null,
-        globalStyle: globalStyle || ''
+        globalStyle: globalStyle || '',
+        spritePixelW: currentSPW,
+        spritePixelH: currentSPH
       })
     });
     const data = await res.json();
@@ -758,7 +789,6 @@ function renderBatches() {
         <button class="btn btn-ghost" onclick="selAll('${batch.id}')">All</button>
         <button class="btn btn-ghost" onclick="selNone('${batch.id}')">None</button>
         <div style="flex:1"></div>
-        <span style="font-size:10px;color:#484f58;">${ASYMMETRIC[batch.key] ? 'Asymmetric — use Reverse for other direction' : 'Symmetric — flipped copy auto-saved'}</span>
         <button class="btn btn-red" onclick="rmBatch('${batch.id}')">Dismiss</button>
       </div>`;
 
@@ -769,7 +799,16 @@ function renderBatches() {
 
       if (job.status === 'completed' && job.downloadUrl) {
         card.innerHTML = `<div class="iw"><img src="/api/proxy-image?url=${encodeURIComponent(job.downloadUrl)}"/></div><div class="chk">✓</div>`;
-        card.onclick = () => { job.selected = !job.selected; renderBatches(); };
+        card.onclick = (e) => {
+          // Toggle selection for save
+          job.selected = !job.selected;
+          // Last clicked completed item becomes the preview placement pick
+          if (job.selected) {
+            palettePick = { key: batch.key, path: `/api/proxy-image?url=${encodeURIComponent(job.downloadUrl)}`, downloadUrl: job.downloadUrl };
+            document.getElementById('nudgeLabel').textContent = `Placing: ${batch.key} (click grid)`;
+          }
+          renderBatches();
+        };
       } else if (job.status === 'failed') {
         card.innerHTML = '<div class="iw"><div class="ph" style="color:#da3633;">✗</div></div>';
       } else {
@@ -941,7 +980,7 @@ function initPreview() {
 
     // Deselect
     selectedPlaced = null;
-    document.getElementById('nudgePanel').style.display = 'none';
+    showNudgePanel();
     drawPreview();
   };
 
@@ -980,7 +1019,7 @@ function initPreview() {
     camLoop();
   }
 
-  renderPalette();
+  // palette removed — assets picked from left panel
   drawPreview();
 }
 
@@ -1071,12 +1110,16 @@ async function drawPreview() {
 }
 
 function showNudgePanel() {
-  if (selectedPlaced === null) return;
+  if (selectedPlaced === null) {
+    document.getElementById('nudgeLabel').textContent = palettePick ? `Placing: ${palettePick.key} (click grid)` : 'Click asset in left panel, then click grid to place';
+    document.getElementById('nudgeX').textContent = '—';
+    document.getElementById('nudgeY').textContent = '—';
+    return;
+  }
   const item = placedItems[selectedPlaced];
   const off = getOffset(item.path);
   const fname = item.path.split('/').pop();
-  document.getElementById('nudgePanel').style.display = 'block';
-  document.getElementById('nudgeLabel').textContent = `${fname}  ${item.flipped ? 'flipped' : ''}  scale:${(off.scale||1).toFixed(1)}x`;
+  document.getElementById('nudgeLabel').textContent = `${fname}  ${item.flipped ? '[flipped]' : ''}  scale:${(off.scale||1).toFixed(1)}x`;
   document.getElementById('nudgeX').textContent = off.x || 0;
   document.getElementById('nudgeY').textContent = off.y || 0;
 }
@@ -1151,11 +1194,18 @@ function persistState() {
   }, 500);
 }
 
+function copyPreviewItem() {
+  if (selectedPlaced === null) return;
+  const item = placedItems[selectedPlaced];
+  palettePick = { key: item.key, path: item.path };
+  showNudgePanel();
+}
+
 function removePreviewItem() {
   if (selectedPlaced === null) return;
   placedItems.splice(selectedPlaced, 1);
   selectedPlaced = null;
-  document.getElementById('nudgePanel').style.display = 'none';
+  showNudgePanel();
   persistState();
   drawPreview();
 }
@@ -1172,59 +1222,7 @@ async function saveOffsets() {
   }
 }
 
-function renderPalette() {
-  const grid = document.getElementById('paletteGrid');
-  grid.innerHTML = '';
-
-  // Get sidebar order
-  const sidebarOrder = [];
-  document.querySelectorAll('.nav-item[data-key]').forEach(nav => sidebarOrder.push(nav.dataset.key));
-
-  const assetKeys = Object.keys(allAssets).filter(k => allAssets[k].length > 0);
-  assetKeys.sort((a, b) => {
-    const ai = sidebarOrder.indexOf(a); const bi = sidebarOrder.indexOf(b);
-    if (ai === -1 && bi === -1) return a.localeCompare(b);
-    if (ai === -1) return 1; if (bi === -1) return -1;
-    return ai - bi;
-  });
-
-  for (const key of assetKeys) {
-    const assets = allAssets[key];
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:3px;align-items:center;flex-wrap:wrap;';
-    const label = document.createElement('div');
-    label.style.cssText = 'font-size:9px;color:#58a6ff;width:100%;';
-    label.textContent = key;
-    row.appendChild(label);
-
-    for (const a of assets) {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;display:inline-block;';
-      const thumb = document.createElement('div');
-      const isSel = palettePick && palettePick.path === a.path;
-      thumb.style.cssText = `width:80px;height:80px;background:repeating-conic-gradient(#21262d 0% 25%,#161b22 0% 50%) 0 0/6px 6px;border-radius:4px;cursor:pointer;border:2px solid ${isSel ? '#238636' : 'transparent'};padding:2px;`;
-      thumb.innerHTML = `<img src="${a.path}" style="width:100%;height:100%;image-rendering:pixelated;object-fit:contain;"/>`;
-      thumb.onclick = (e) => {
-        e.stopPropagation();
-        palettePick = { key, path: a.path };
-        renderPalette();
-      };
-      const del = document.createElement('button');
-      del.style.cssText = 'position:absolute;top:2px;right:2px;width:18px;height:18px;background:#da363399;border:none;color:white;border-radius:50%;cursor:pointer;font-size:10px;display:none;align-items:center;justify-content:center;line-height:1;z-index:1;';
-      del.textContent = '\u00d7';
-      del.onclick = (e) => {
-        e.stopPropagation();
-        delAsset(a.file, a.assetDir);
-      };
-      wrap.onmouseenter = () => del.style.display = 'flex';
-      wrap.onmouseleave = () => del.style.display = 'none';
-      wrap.appendChild(thumb);
-      wrap.appendChild(del);
-      row.appendChild(wrap);
-    }
-    grid.appendChild(row);
-  }
-}
+// Palette removed — assets picked from left panel generate view or browser
 
 // Keyboard: WASD=pan, arrows=nudge selected, delete=remove
 document.addEventListener('keydown', (e) => {
@@ -1242,11 +1240,12 @@ document.addEventListener('keydown', (e) => {
       case 'f': case 'F': rotatePreviewItem(); e.preventDefault(); return;
       case 't': case 'T': scalePreviewItem(0.1); e.preventDefault(); return;
       case 'g': case 'G': scalePreviewItem(-0.1); e.preventDefault(); return;
+      case 'c': case 'C': copyPreviewItem(); e.preventDefault(); return;
     }
   }
 
   // Escape deselects palette pick
-  if (e.key === 'Escape') { palettePick = null; renderPalette(); }
+  if (e.key === 'Escape') { palettePick = null; showNudgePanel(); }
 });
 document.addEventListener('keyup', (e) => { keysDown.delete(e.key); });
 

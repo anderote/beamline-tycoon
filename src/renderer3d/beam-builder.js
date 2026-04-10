@@ -37,11 +37,11 @@ export class BeamBuilder {
         if (!tileA || !tileB) continue;
 
         const x1 = tileA.col * 2 + 1;
-        const y1 = 0.5;
+        const y1 = 1.0;
         const z1 = tileA.row * 2 + 1;
 
         const x2 = tileB.col * 2 + 1;
-        const y2 = 0.5;
+        const y2 = 1.0;
         const z2 = tileB.row * 2 + 1;
 
         const dx = x2 - x1;

@@ -9,6 +9,7 @@ import { OBJECTIVES } from '../data/objectives.js';
 import { MACHINES } from '../data/machines.js';
 import { MachineWindow } from '../ui/MachineWindow.js';
 import { BeamlineWindow } from '../ui/BeamlineWindow.js';
+import { EquipmentWindow } from '../ui/EquipmentWindow.js';
 import { ZONES } from '../data/infrastructure.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
@@ -3502,6 +3503,30 @@ Renderer.prototype._openMachineWindow = function(machineInstanceId) {
   };
 };
 
+// --- Equipment context windows ---
+
+Renderer.prototype._openEquipmentWindow = function(equip) {
+  if (!this._equipmentWindows) this._equipmentWindows = {};
+  if (this._equipmentWindows[equip.id]) {
+    this._equipmentWindows[equip.id].ctx.focus();
+    return;
+  }
+  const ew = new EquipmentWindow(this.game, equip);
+  if (!ew.ctx) return;
+  this._equipmentWindows[equip.id] = ew;
+
+  // Anchor to equipment tile
+  const iso = tileCenterIso(equip.col, equip.row);
+  ew.ctx.setWorldAnchor(iso.x + 40, iso.y - 60);
+  ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+
+  const origClose = ew.ctx._onClose;
+  ew.ctx._onClose = () => {
+    delete this._equipmentWindows[equip.id];
+    if (origClose) origClose();
+  };
+};
+
 Renderer.prototype._refreshContextWindows = function() {
   if (this._beamlineWindows) {
     for (const bw of Object.values(this._beamlineWindows)) {
@@ -3512,6 +3537,12 @@ Renderer.prototype._refreshContextWindows = function() {
   if (this._machineWindows) {
     for (const mw of Object.values(this._machineWindows)) mw.refresh();
   }
+  if (this._equipmentWindows) {
+    for (const ew of Object.values(this._equipmentWindows)) {
+      ew.refresh();
+      if (ew.ctx) ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+    }
+  }
 };
 
 // Update anchored window positions (called on pan/zoom for smooth tracking)
@@ -3519,6 +3550,11 @@ Renderer.prototype._updateAnchoredWindows = function() {
   if (this._beamlineWindows) {
     for (const bw of Object.values(this._beamlineWindows)) {
       if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+    }
+  }
+  if (this._equipmentWindows) {
+    for (const ew of Object.values(this._equipmentWindows)) {
+      if (ew.ctx) ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
     }
   }
 };

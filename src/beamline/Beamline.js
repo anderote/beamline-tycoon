@@ -200,14 +200,21 @@ export class Beamline {
   }
 
   removeNode(nodeId) {
-    // Only remove if leaf (no children reference it as parentId)
-    const hasChildren = this.nodes.some(n => n.parentId === nodeId);
-    if (hasChildren) return false;
-
     const idx = this.nodes.findIndex(n => n.id === nodeId);
     if (idx === -1) return false;
 
     const node = this.nodes[idx];
+
+    // Disconnect children — they become gap-orphans (parentId points to removed node).
+    // Re-parent them to the removed node's parent so the chain stays connected
+    // across the gap, or set parentId to null if the removed node was a source.
+    for (const child of this.nodes) {
+      if (child.parentId === nodeId) {
+        child.parentId = node.parentId || null;
+        child.hasGap = true; // flag: there's a gap before this component
+      }
+    }
+
     this._freeTiles(node.tiles);
     this.nodes.splice(idx, 1);
     return true;

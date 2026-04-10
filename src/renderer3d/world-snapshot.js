@@ -99,7 +99,7 @@ function buildComponents(game) {
   const nodes = game.registry.getAllNodes();
   const editingId = game.editingBeamlineId;
 
-  return nodes.map(node => {
+  const result = nodes.map(node => {
     // Determine dimmed: node belongs to a different beamline than the one being edited
     let dimmed = false;
     if (editingId) {
@@ -121,12 +121,33 @@ function buildComponents(game) {
       row: node.row,
       subCol: node.subCol ?? null,
       subRow: node.subRow ?? null,
-      direction: node.direction ?? null,
+      direction: node.dir ?? node.direction ?? null,
       tiles: node.tiles ? node.tiles.map(t => ({ col: t.col, row: t.row })) : [{ col: node.col, row: node.row }],
       dimmed,
       health,
     };
   });
+
+  // Include beamline placeables (drift pipes etc.) placed via unified system
+  const seenIds = new Set(result.map(r => r.id));
+  const placeables = (game.state.placeables || []).filter(p => p.category === 'beamline');
+  for (const p of placeables) {
+    if (seenIds.has(p.id)) continue;
+    result.push({
+      id: p.id,
+      type: p.type,
+      col: p.col,
+      row: p.row,
+      subCol: p.subCol ?? null,
+      subRow: p.subRow ?? null,
+      direction: p.dir ?? null,
+      tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
+      dimmed: false,
+      health: undefined,
+    });
+  }
+
+  return result;
 }
 
 function buildEquipment(game) {

@@ -2,11 +2,12 @@ import { COMPONENTS } from '../data/components.js';
 import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
-import { DIR } from '../data/directions.js';
+import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { NetworkWindow } from '../ui/NetworkWindow.js';
+import { ContextWindow } from '../ui/ContextWindow.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -97,6 +98,7 @@ export class InputHandler {
     // Beam pipe drawing
     this.beamPipeMode = false;
     this.drawingBeamPipe = false;
+    this.beamPipeDrawMode = 'add'; // 'add' or 'remove'
     this.beamPipeStartId = null;
     this.beamPipePath = [];
     // Palette keyboard navigation
@@ -241,6 +243,22 @@ export class InputHandler {
               this.renderer._outlineObject(info.rootObj);
               this._showDemolishTooltip(comp ? comp.name : node.type, _demolishRefund(comp), screenX, screenY);
               return;
+            }
+          }
+          // Beam pipe
+          if (info.group === 'beampipe' && (dt === 'demolishComponent' || dt === 'demolishAll')) {
+            if (info.pipeId) {
+              const pipe = (this.game.state.beamPipes || []).find(p => p.id === info.pipeId);
+              if (pipe) {
+                const segCount = Math.max(1, (pipe.path.length - 1) || 1);
+                const driftDef = COMPONENTS.drift;
+                const costPerTile = driftDef ? driftDef.cost.funding : 10000;
+                const refund = Math.floor(costPerTile * segCount * 0.5);
+                this.renderer._clearPreview();
+                this.renderer._outlineObject(info.rootObj);
+                this._showDemolishTooltip('Beam Pipe', refund, screenX, screenY);
+                return;
+              }
             }
           }
           // Equipment or furnishing — derive tile from 3D position, not iso grid
@@ -402,6 +420,26 @@ export class InputHandler {
     ) || null;
   }
 
+  /**
+   * Find a beamline node by raycasting the 3D scene first, then falling back to tile lookup.
+   */
+  _getNodeAtScreenOrGrid(screenX, screenY, col, row) {
+    // Try 3D raycast first (picks the visible object under the cursor)
+    if (this.renderer.raycastScreen) {
+      const hit = this.renderer.raycastScreen(screenX, screenY);
+      if (hit) {
+        const info = this.renderer.identifyHit(hit);
+        if (info && info.group === 'component' && info.nodeId) {
+          const nodes = this.game.registry.getAllNodes();
+          const node = nodes.find(n => n.id === info.nodeId);
+          if (node) return node;
+        }
+      }
+    }
+    // Fallback to tile-based lookup
+    return this._getNodeAtGrid(col, row);
+  }
+
   _getActiveBuildCursors() {
     if (!this.game.editingBeamlineId) return [];
     const entry = this.game.registry.get(this.game.editingBeamlineId);
@@ -480,11 +518,46 @@ export class InputHandler {
     for (const entry of this.game.registry.getAll()) {
       for (const node of entry.beamline.nodes) {
         if (node.tiles && node.tiles.some(t => t.col === col && t.row === row)) {
-          return { id: node.id, type: node.type, col: node.col, row: node.row, category: 'beamline' };
+          return { id: node.id, type: node.type, col: node.col, row: node.row, dir: node.dir, category: 'beamline' };
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Find the nearest beamline component within a search radius.
+   */
+  _findNearestBeamlineComponent(col, row, radius = 3) {
+    let best = null;
+    let bestDist = Infinity;
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        const comp = this._findBeamlineComponentAt(col + dc, row + dr);
+        if (comp) {
+          const dist = Math.abs(dc) + Math.abs(dr);
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = comp;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Check if a beam pipe approaching from (approachDc, approachDr) is aligned
+   * with a component's beam axis. Returns true if the pipe arrives along the
+   * component's axis (either end), false if perpendicular.
+   */
+  _isPipeAlignedWithComponent(comp, approachDc, approachDr) {
+    const dir = comp.dir;
+    if (dir === undefined || dir === null) return true; // no direction info, allow
+    const axis = DIR_DELTA[dir]; // e.g. NE={dc:0,dr:-1}
+    // Pipe is aligned if its approach vector is parallel to the component axis
+    // (same or opposite direction). Check via cross product = 0.
+    return (approachDc * axis.dr - approachDr * axis.dc) === 0;
   }
 
   /**
@@ -620,7 +693,11 @@ export class InputHandler {
               // Free placement — any component can be placed anywhere on flooring
               if (comp.isSource) {
                 // Sources still use the old path to create beamline entries
-                this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+                const entryId = this.game.placeSource(this.renderer.hoverCol, this.renderer.hoverRow, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+                if (entryId) {
+                  // Auto-switch to beam pipe tool after placing source
+                  this.selectTool('drift');
+                }
               } else {
                 // Non-source beamline components use unified placement
                 this.game.placePlaceable({
@@ -677,6 +754,8 @@ export class InputHandler {
           break;
         }
         case 'Escape':
+          // Close topmost context window first
+          if (ContextWindow.closeTopmost()) break;
           // Exit move mode
           if (this.moveMode) {
             this._exitMoveMode();
@@ -743,9 +822,34 @@ export class InputHandler {
           // Rotate placement direction (cycles NE→SE→SW→NW)
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
+          // Re-render equipment ghost so the 3D preview rotates immediately
+          if (this.selectedTool && this.renderer.hoverCol !== undefined) {
+            const comp = COMPONENTS[this.selectedTool];
+            if (comp && comp.isDrawnConnection) {
+              this.renderer.renderEquipmentGhost(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedTool, 0x44cc44);
+            }
+          }
           // Also toggle dipole bend direction
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
+          // Rotate furnishings and decorations
+          if (this.selectedFurnishingTool) {
+            this.furnishingRotated = !this.furnishingRotated;
+          }
+          if (this.selectedDecorationTool) {
+            const dd = DECORATIONS[this.selectedDecorationTool];
+            if (dd && dd.gridW && dd.gridH) {
+              this.furnishingRotated = !this.furnishingRotated;
+            }
+          }
+          // Rotate move payload
+          if (this.moveMode && this._movePayload) {
+            if (this._movePayload.kind === 'furnishing') {
+              this._movePayload.rotated = !this._movePayload.rotated;
+            } else if (this._movePayload.kind === 'component') {
+              this._movePayload.direction = ((this._movePayload.direction || 0) + 1) % 4;
+            }
+          }
           break;
         case 'c': case 'C':
           if (this.game._designer && !this.game._designer.isOpen) {
@@ -860,16 +964,20 @@ export class InputHandler {
         return;
       }
 
-      // Beam pipe drawing start
-      if (e.button === 0 && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
+      // Beam pipe drawing start (left click = place, right click = remove)
+      if ((e.button === 0 || e.button === 2) && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        const clickedPlaceable = this._findBeamlineComponentAt(grid.col, grid.row);
-        if (clickedPlaceable) {
-          this.drawingBeamPipe = true;
-          this.beamPipeStartId = clickedPlaceable.id;
-          this.beamPipePath = [{ col: grid.col, row: grid.row }];
+        this.drawingBeamPipe = true;
+        this.beamPipeDrawMode = e.button === 0 ? 'add' : 'remove';
+        if (e.button === 0) {
+          const startComp = this._findBeamlineComponentAt(grid.col, grid.row);
+          this.beamPipeStartId = startComp ? startComp.id : null;
+        } else {
+          this.beamPipeStartId = null;
         }
+        this.beamPipePath = [{ col: grid.col, row: grid.row }];
+        this.renderer.renderBeamPipePreview(this.beamPipePath, this.beamPipeDrawMode);
         return;
       }
 
@@ -1061,6 +1169,7 @@ export class InputHandler {
         const last = this.beamPipePath[this.beamPipePath.length - 1];
         if (last && (last.col !== grid.col || last.row !== grid.row)) {
           this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
+          this.renderer.renderBeamPipePreview(this.beamPipePath, this.beamPipeDrawMode);
         }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -1076,6 +1185,8 @@ export class InputHandler {
           const comp = COMPONENTS[this.selectedFacilityTool];
           const color = comp ? _categoryColor(comp.category) : 0x88aaff;
           this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedFacilityTool, color);
+        } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
+          this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedTool, 0x44cc44);
         }
         // Sub-grid hover: calculate which sub-cell the cursor is over
         if (this.selectedFurnishingTool && this.renderer.hoverCol !== undefined) {
@@ -1189,15 +1300,82 @@ export class InputHandler {
       if (this.drawingBeamPipe) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        const endComponent = this._findBeamlineComponentAt(grid.col, grid.row);
-        if (endComponent && endComponent.id !== this.beamPipeStartId) {
-          this.beamPipePath.push({ col: grid.col, row: grid.row });
-          this.game._pushUndo();
-          this.game.createBeamPipe(this.beamPipeStartId, endComponent.id, this.beamPipePath);
+        // Update path to final cursor position
+        this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
+
+        if (this.beamPipeDrawMode === 'remove') {
+          // Right-click drag: remove beamline placeables along the path
+          const toRemove = new Set();
+          for (const pt of this.beamPipePath) {
+            // Check all sub-cells in this tile for beamline placeables
+            for (let sc = 0; sc < 4; sc++) {
+              for (let sr = 0; sr < 4; sr++) {
+                const occ = this.game.state.subgridOccupied[pt.col + ',' + pt.row + ',' + sc + ',' + sr];
+                if (occ && occ.category === 'beamline') toRemove.add(occ.id);
+              }
+            }
+          }
+          if (toRemove.size > 0) {
+            this.game._pushUndo();
+            for (const id of toRemove) {
+              this.game.removePlaceable(id);
+            }
+          }
+        } else {
+          // Left-click: place beam pipes
+          // Find end component — only exact tile match, no snapping
+          const endComponent = this._findBeamlineComponentAt(grid.col, grid.row);
+
+          if (this.beamPipeStartId && endComponent && endComponent.id !== this.beamPipeStartId) {
+            this.game._pushUndo();
+            this.game.createBeamPipe(this.beamPipeStartId, endComponent.id, this.beamPipePath);
+          } else if (this.beamPipePath.length > 1) {
+            const startIdx = this.beamPipeStartId ? 1 : 0;
+            // Skip the last tile if it belongs to an existing component
+            const endIdx = endComponent ? this.beamPipePath.length - 1 : this.beamPipePath.length;
+            this.game._pushUndo();
+            for (let i = startIdx; i < endIdx; i++) {
+              const pt = this.beamPipePath[i];
+              const ref = i > 0 ? this.beamPipePath[i - 1] : this.beamPipePath[i + 1];
+              let pipeDir = this.placementDir;
+              if (ref) {
+                const dc = pt.col - ref.col;
+                const dr = pt.row - ref.row;
+                if (dc > 0) pipeDir = DIR.SE;
+                else if (dc < 0) pipeDir = DIR.NW;
+                else if (dr > 0) pipeDir = DIR.SW;
+                else if (dr < 0) pipeDir = DIR.NE;
+              }
+              this.game.placePlaceable({
+                type: 'drift',
+                category: 'beamline',
+                col: pt.col,
+                row: pt.row,
+                subCol: 0,
+                subRow: 0,
+                rotated: false,
+                dir: pipeDir,
+              });
+            }
+          } else {
+            this.game._pushUndo();
+            this.game.placePlaceable({
+              type: 'drift',
+              category: 'beamline',
+              col: grid.col,
+              row: grid.row,
+              subCol: 0,
+              subRow: 0,
+              rotated: false,
+              dir: this.placementDir,
+            });
+          }
         }
         this.drawingBeamPipe = false;
         this.beamPipeStartId = null;
         this.beamPipePath = [];
+        this.beamPipeDrawMode = 'add';
+        this.renderer.clearDragPreview();
         return;
       }
 
@@ -1399,7 +1577,7 @@ export class InputHandler {
     canvas.addEventListener('dblclick', (e) => {
       const world = this.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
-      const clickedNode = this._getNodeAtGrid(grid.col, grid.row);
+      const clickedNode = this._getNodeAtScreenOrGrid(e.clientX, e.clientY, grid.col, grid.row);
       if (clickedNode) {
         const entry = this.game.registry.getBeamlineForNode(clickedNode.id);
         if (entry) {
@@ -1518,11 +1696,16 @@ export class InputHandler {
       this.game._pushUndo();
       const key = col + ',' + row;
       if (this.demolishType === 'demolishComponent') {
-        // Raycast to find the component under the cursor
+        // Raycast to find the component or beam pipe under the cursor
         const hit = this.renderer.raycastScreen(screenX, screenY);
         let node = null;
         if (hit) {
           const info = this.renderer.identifyHit(hit);
+          // Beam pipe hit
+          if (info && info.group === 'beampipe' && info.pipeId) {
+            this.game.removeBeamPipe(info.pipeId);
+            return;
+          }
           if (info && info.group === 'component' && info.nodeId) {
             const nodes = this.game.registry.getAllNodes();
             node = nodes.find(n => n.id === info.nodeId);
@@ -1633,10 +1816,14 @@ export class InputHandler {
       if (comp && !comp.isDrawnConnection) {
         this.game._pushUndo();
         if (comp.isSource) {
-          this.game.placeSource(col, row, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+          const entryId = this.game.placeSource(col, row, this.placementDir, this.selectedTool, this.selectedParamOverrides);
+          if (entryId) {
+            // Auto-switch to beam pipe tool after placing source
+            this.selectTool('drift');
+          }
         } else {
           // Check if clicking an existing component (to open its window)
-          const existingNode = this._getNodeAtGrid(col, row);
+          const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
           if (existingNode) {
             this.selectedNodeId = existingNode.id;
             const entry = this.game.registry.getBeamlineForNode(existingNode.id);
@@ -1669,7 +1856,7 @@ export class InputHandler {
       return;
     } else {
       // Selection mode
-      const node = this._getNodeAtGrid(col, row);
+      const node = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
       if (node) {
         this.selectedNodeId = node.id;
         // Select the beamline this node belongs to and open its context window
@@ -2024,7 +2211,6 @@ export class InputHandler {
 
   _handleMoveClick(col, row, screenX, screenY) {
     const key = col + ',' + row;
-
     if (this._movePayload) {
       // We're carrying something — try to place it
       if (this._placeMovedObject(col, row)) {
@@ -2168,7 +2354,7 @@ export class InputHandler {
 
     if (p.kind === 'component') {
       this.game._pushUndo();
-      return this.game.moveComponent(p.nodeId, col, row);
+      return this.game.moveComponent(p.nodeId, col, row, p.direction);
     }
 
     if (p.kind === 'facility') {
@@ -2253,7 +2439,7 @@ export class InputHandler {
     this.bulldozerMode = false;
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
-    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: 'Remove Component', demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
+    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: 'Delete Beamline', demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
     this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
@@ -2527,7 +2713,7 @@ export class InputHandler {
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
+      const names = { demolishComponent: 'Remove Components', demolishConnection: 'Remove Pipes', demolishFurnishing: 'Remove Furniture', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
       this._renderPreview(names[key] || 'Demolish', '', []);
       return;
     }
@@ -2606,7 +2792,7 @@ export class InputHandler {
       return Object.keys(DOOR_TYPES);
     }
     if (category === 'demolish') {
-      return ['demolishFloor', 'demolishZone', 'demolishFurnishing', 'demolishWall', 'demolishDoor', 'demolishAll'];
+      return ['demolishComponent', 'demolishConnection', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);

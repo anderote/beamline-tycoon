@@ -482,7 +482,7 @@ export class Game {
    * Keeps the node's direction, params, and parent/child relationships intact.
    * Returns true on success.
    */
-  moveComponent(nodeId, newCol, newRow) {
+  moveComponent(nodeId, newCol, newRow, newDir) {
     const entry = this.registry.getBeamlineForNode(nodeId);
     if (!entry) return false;
     const node = entry.beamline.nodes.find(n => n.id === nodeId);
@@ -494,8 +494,8 @@ export class Game {
     entry.beamline._freeTiles(node.tiles);
     this.registry.freeTiles(node);
 
-    // Calculate new tiles
-    const dir = node.dir || node.entryDir || 0;
+    // Calculate new tiles (use new direction if provided)
+    const dir = newDir != null ? newDir : (node.dir || node.entryDir || 0);
     const newTiles = entry.beamline._calcTiles(newCol, newRow, dir, comp.subL || 4, comp.subW || 2);
 
     // Check availability in both beamline and shared grid
@@ -523,9 +523,13 @@ export class Game {
       }
     }
 
-    // Apply new position
+    // Apply new position and direction
     node.col = newCol;
     node.row = newRow;
+    if (newDir != null) {
+      node.dir = dir;
+      if (node.entryDir != null) node.entryDir = dir;
+    }
     node.tiles = newTiles;
 
     // Re-occupy

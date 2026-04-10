@@ -9,6 +9,7 @@ import { MODES, CONNECTION_TYPES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
+import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 
 // --- HUD updates ---
 
@@ -1001,21 +1002,31 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   if (!affordable) item.classList.add('unaffordable');
   if (zoneBlocked) item.classList.add('zone-blocked');
 
-  // Sprite preview — isometric box swatch from component color
+  // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch
   const previewEl = document.createElement('div');
   previewEl.className = 'palette-preview';
-  const color = comp.spriteColor || 0x888888;
-  const hex = '#' + color.toString(16).padStart(6, '0');
-  const darkHex = '#' + this.sprites._darken(color, 0.7).toString(16).padStart(6, '0');
-  const rightHex = '#' + this.sprites._darken(color, 0.85).toString(16).padStart(6, '0');
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '48');
-  svg.setAttribute('height', '40');
-  svg.setAttribute('viewBox', '0 0 48 40');
-  svg.innerHTML = `<polygon points="24,4 44,14 24,24 4,14" fill="${hex}"/>` +
-    `<polygon points="4,14 24,24 24,36 4,26" fill="${darkHex}"/>` +
-    `<polygon points="44,14 24,24 24,36 44,26" fill="${rightHex}"/>`;
-  previewEl.appendChild(svg);
+  const thumbUrl = renderComponentThumbnail(key);
+  if (thumbUrl) {
+    const img = document.createElement('img');
+    img.src = thumbUrl;
+    img.width = 48;
+    img.height = 48;
+    img.style.objectFit = 'contain';
+    previewEl.appendChild(img);
+  } else {
+    const color = comp.spriteColor || 0x888888;
+    const hex = '#' + color.toString(16).padStart(6, '0');
+    const darkHex = '#' + this.sprites._darken(color, 0.7).toString(16).padStart(6, '0');
+    const rightHex = '#' + this.sprites._darken(color, 0.85).toString(16).padStart(6, '0');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '48');
+    svg.setAttribute('height', '40');
+    svg.setAttribute('viewBox', '0 0 48 40');
+    svg.innerHTML = `<polygon points="24,4 44,14 24,24 4,14" fill="${hex}"/>` +
+      `<polygon points="4,14 24,24 24,36 4,26" fill="${darkHex}"/>` +
+      `<polygon points="44,14 24,24 24,36 44,26" fill="${rightHex}"/>`;
+    previewEl.appendChild(svg);
+  }
   item.appendChild(previewEl);
 
   // Name
@@ -1056,6 +1067,19 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
     if (comp.paramOptions && Object.keys(comp.paramOptions).length > 0) {
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
+        // Immediately select the tool with default params so preview shows
+        if (!this._selectedParamOverrides) this._selectedParamOverrides = {};
+        if (!this._selectedParamOverrides[key]) this._selectedParamOverrides[key] = {};
+        for (const [pk, opts] of Object.entries(comp.paramOptions)) {
+          if (!this._selectedParamOverrides[key][pk]) {
+            this._selectedParamOverrides[key][pk] = comp.params?.[pk] ?? opts[0];
+          }
+        }
+        if (isFacility) {
+          if (this._onFacilitySelect) this._onFacilitySelect(key);
+        } else {
+          if (this._onToolSelect) this._onToolSelect(key);
+        }
         // Toggle flyout — remove any existing one first
         this._removeParamFlyout();
         const flyout = document.createElement('div');

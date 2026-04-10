@@ -20,7 +20,7 @@ Every component has a `requiredConnections` array that explicitly lists which co
 ### Drift / Beam Pipe
 | Component | Power | Cooling | RF | Cryo | Data |
 |-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Drift Tube | | | | | |
+| Beam Pipe | | | | | |
 | Beam Pipe | | | | | |
 
 ### RF / Accelerating

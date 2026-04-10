@@ -18,7 +18,7 @@ A hybrid Python+JS focus advisor that:
 
 Magnets and sources shortened to realistic proportions so FODO cells have room for payload:
 
-| Component | Old length (tiles) | New length (tiles) | Physical (m) |
+| Component | Old length (tiles) | New length (tiles) | Physical (m, @2m/tile) |
 |---|---|---|---|
 | quadrupole | 2 | 1 | 3 |
 | sextupole | 2 | 1 | 3 |
@@ -56,7 +56,7 @@ meters_to_loss = (aperture - max_sigma) / max_divergence_rate
 focus_urgency = clamp(1.0 - meters_to_loss / reference_scale, 0, 1)
 ```
 
-Where `reference_scale` is the max stable half-cell length at the current energy, estimated as `reference_scale = sqrt(2 * f)` with `f = p / (q * G * ℓ)` using a default quad gradient G=20 T/m and length ℓ=3m. This scales naturally with energy — higher energy beams tolerate longer cells. The divergence rate is estimated from the difference between consecutive snapshots' beam sizes divided by the s-step between them.
+Where `reference_scale` is the max stable half-cell length at the current energy, estimated as `reference_scale = sqrt(2 * f)` with `f = p / (q * G * ℓ)` using a default quad gradient G=20 T/m and length ℓ=2m. This scales naturally with energy — higher energy beams tolerate longer cells. The divergence rate is estimated from the difference between consecutive snapshots' beam sizes divided by the s-step between them.
 
 ### Changes to `beam_physics/gameplay.py`
 
