@@ -66,14 +66,15 @@ function _mergeGeometries(geometries) {
   }
 
   const positions = new Float32Array(posCount);
-  const normals = normCount > 0 ? new Float32Array(normCount) : null;
+  const allHaveNormals = flat.every(g => g.attributes.normal);
+  const normals = allHaveNormals ? new Float32Array(normCount) : null;
 
   let posOff = 0;
   let normOff = 0;
   for (const g of flat) {
     positions.set(g.attributes.position.array, posOff);
     posOff += g.attributes.position.array.length;
-    if (normals && g.attributes.normal) {
+    if (normals) {
       normals.set(g.attributes.normal.array, normOff);
       normOff += g.attributes.normal.array.length;
     }
