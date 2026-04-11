@@ -1196,23 +1196,30 @@ export class ThreeRenderer {
 
   /**
    * Render demolish preview — red translucent rectangle over the drag area.
+   * Uses depth-tested materials so the highlight is occluded by walls/objects
+   * sitting on top of the floor it marks.
    */
   renderDemolishPreview(col1, row1, col2, row2) {
     this._clearPreview();
     const minC = Math.min(col1, col2), maxC = Math.max(col1, col2);
     const minR = Math.min(row1, row2), maxR = Math.max(row1, row2);
-    const mat = this._previewMat(0xff4444, 0.3);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff4444, transparent: true, opacity: 0.35,
+      side: THREE.DoubleSide,
+    });
     const geo = new THREE.PlaneGeometry(2, 2);
     geo.rotateX(-Math.PI / 2);
     for (let c = minC; c <= maxC; c++) {
       for (let r = minR; r <= maxR; r++) {
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(c * 2 + 1, 0.1, r * 2 + 1);
-        this._addPreviewMesh(mesh);
+        this.previewGroup.add(mesh);
       }
     }
     // Red border
-    const edgeMat = this._previewEdgeMat(0xff4444);
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0xff4444, transparent: true, opacity: 0.9,
+    });
     const x0 = minC * 2, x1 = (maxC + 1) * 2;
     const z0 = minR * 2, z1 = (maxR + 1) * 2;
     const pts = [
@@ -1220,7 +1227,7 @@ export class ThreeRenderer {
       new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
       new THREE.Vector3(x0, 0.12, z0),
     ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
   }
 
   /**
