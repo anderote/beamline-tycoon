@@ -1942,23 +1942,6 @@ export const COMPONENTS_RAW = {
   },
 
   // ── Cooling Water ─────────────────────────────────────────────────
-  heatExchanger: {
-    id: 'heatExchanger',
-    name: 'Heat Exchanger',
-    desc: 'Transfers heat between isolated cooling loops without mixing the fluids. Use to connect the beamline LCW circuit to the facility chilled water, or to isolate sensitive equipment from the main cooling system. Compact and cheap.',
-    category: 'cooling', subsection: 'distribution',
-    cost: { funding: 200000 },
-    stats: {},
-    energyCost: 0,
-    subL: 2, subW: 2, subH: 3, gridW: 2, gridH: 2, geometryType: 'box',
-    zoneTier: 1,
-    spriteKey: 'heatExchanger',
-    spriteColor: 0x4488cc,
-    placement: 'module',
-    ports: {},
-
-    requiredConnections: [],
-  },
   waterLoad: {
     id: 'waterLoad',
     name: 'High-Power Water Load',

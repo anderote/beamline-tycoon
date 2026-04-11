@@ -536,15 +536,14 @@ export const ZONE_TIER_THRESHOLDS = [4, 8, 16, 20]; // Tier 1: 4 tiles, Tier 2: 
 // Furnishing count -> tier thresholds for research tier calculation
 export const FURNISHING_TIER_THRESHOLDS = [1, 3, 5]; // Tier 1: 1-2, Tier 2: 3-4, Tier 3: 5+
 
+// Legacy shim. Every entry that lived in ZONE_FURNISHINGS_RAW is now
+// wrapped as a Placeable with either kind 'furnishing' (social zones)
+// or kind 'equipment' (lab / shop / maintenance zones). Legacy consumers
+// of ZONE_FURNISHINGS look things up by id regardless of the taxonomy,
+// so we expose both kinds here.
 export const ZONE_FURNISHINGS = {};
-// Start with raw entries so any id that collides with a beamline module
-// (and is therefore not wrapped into PLACEABLES) is still present.
-for (const [id, raw] of Object.entries(ZONE_FURNISHINGS_RAW)) {
-  ZONE_FURNISHINGS[id] = raw;
-}
-// Overlay wrapped Placeable instances from the registry.
 for (const p of Object.values(PLACEABLES)) {
-  if (p.kind === 'furnishing') {
+  if (p.kind === 'furnishing' || p.kind === 'equipment') {
     ZONE_FURNISHINGS[p.id] = p;
   }
 }

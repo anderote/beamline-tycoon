@@ -1,11 +1,23 @@
 // src/data/placeables/equipment.js
 //
-// Equipment defs derived from COMPONENTS_RAW entries that are not modules,
-// not attachments, and not drawn connections. In the current data, no
-// entry matches these criteria, so EQUIPMENT_DEFS is empty. Kept for
-// future use.
+// Equipment = buildable items in lab / machine shop / maintenance zones.
+// These are the things the player places via the facility tabs —
+// oscilloscopes, vacuum pumps, lathes, etc. They live in the same raw
+// file as furnishings (ZONE_FURNISHINGS_RAW) but are partitioned out by
+// zoneType so the unified placement system can treat them as their own
+// kind.
 
-import { COMPONENTS_RAW } from '../components.raw.js';
+import { ZONE_FURNISHINGS_RAW } from '../zone-furnishings.raw.js';
+
+const EQUIPMENT_ZONE_TYPES = new Set([
+  'coolingLab',
+  'diagnosticsLab',
+  'machineShop',
+  'maintenance',
+  'opticsLab',
+  'rfLab',
+  'vacuumLab',
+]);
 
 function toSubtiles(raw) {
   if (raw.subW != null && (raw.subL != null || raw.subH != null)) {
@@ -14,13 +26,9 @@ function toSubtiles(raw) {
   return { subW: (raw.gridW ?? 1) * 4, subH: (raw.gridH ?? 1) * 4 };
 }
 
-const EQUIPMENT_IDS = Object.keys(COMPONENTS_RAW).filter((id) => {
-  const c = COMPONENTS_RAW[id];
-  return c.placement !== 'module' && !c.isDrawnConnection && c.placement !== 'attachment';
-});
-
-export const EQUIPMENT_DEFS = EQUIPMENT_IDS.map((id) => {
-  const raw = COMPONENTS_RAW[id];
-  const { subW, subH } = toSubtiles(raw);
-  return { ...raw, kind: 'equipment', subW, subH };
-});
+export const EQUIPMENT_DEFS = Object.values(ZONE_FURNISHINGS_RAW)
+  .filter((raw) => EQUIPMENT_ZONE_TYPES.has(raw.zoneType))
+  .map((raw) => {
+    const { subW, subH } = toSubtiles(raw);
+    return { ...raw, kind: 'equipment', subW, subH };
+  });
