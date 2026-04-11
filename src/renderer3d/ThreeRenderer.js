@@ -315,6 +315,14 @@ export class ThreeRenderer {
         case 'doorsChanged':
           this._refreshWalls();
           break;
+        case 'placeableChanged':
+          // Unified placeable system emits this on every place/remove.
+          // Rebuild equipment (includes furnishings), decorations, and
+          // components so any kind shows up immediately.
+          this._refreshEquipment();
+          this._refreshDecorations();
+          this._refreshComponents();
+          break;
         case 'facilityChanged':
           this._refreshEquipment();
           this._refreshComponents(); // recheck connection warnings
