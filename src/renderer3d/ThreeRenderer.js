@@ -1040,6 +1040,11 @@ export class ThreeRenderer {
 
     sourceObj.traverse(child => {
       if (!child.isMesh || !child.geometry) return;
+      // Skip invisible hitbox meshes (used for raycasting only — see
+      // ComponentBuilder._createObject which adds a larger Box hitbox).
+      if (child.visible === false) return;
+      const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+      if (mat && mat.visible === false) return;
       const edges = new THREE.EdgesGeometry(child.geometry, 20);
       const line = new THREE.LineSegments(edges, lineMat);
       // Copy child's local transform relative to source
