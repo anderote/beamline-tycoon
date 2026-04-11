@@ -322,7 +322,8 @@ function gen_pavement() {
 // Palette tuned to match the original groomedGrass_0.png — a warm
 // mid-green slightly lighter than the default ground grass. Mowing rows
 // alternate every 16 px (~0.5m, one mower-deck width) by shifting the
-// base brightness ±5 in even/odd row bands.
+// base brightness ±6 in even/odd row bands. No discrete blade flecks —
+// just the soft per-pixel noise so the lawn reads as uniform.
 function gen_groomedGrass() {
   const png = makePng();
   const rand = mulberry32(808);
@@ -332,28 +333,15 @@ function gen_groomedGrass() {
     const stripeBand = Math.floor(y / ROW) % 2;
     const stripeShift = stripeBand === 0 ? 6 : -6;
     for (let x = 0; x < SIZE; x++) {
-      const n = (rand() - 0.5) * 20;
-      const nr = n + (rand() - 0.5) * 5;
-      const ng = n + (rand() - 0.5) * 7;
-      const nb = n + (rand() - 0.5) * 4;
+      const n = (rand() - 0.5) * 16;
+      const nr = n + (rand() - 0.5) * 4;
+      const ng = n + (rand() - 0.5) * 5;
+      const nb = n + (rand() - 0.5) * 3;
       setPx(png, x, y,
         baseR + stripeShift + nr,
         baseG + stripeShift + ng,
         baseB + stripeShift + nb);
     }
-  }
-  const total = SIZE * SIZE;
-  // Sparse darker blade flecks
-  for (let i = 0; i < total * 0.04; i++) {
-    const x = Math.floor(rand() * SIZE);
-    const y = Math.floor(rand() * SIZE);
-    setPx(png, x, y, 65, 105, 35);
-  }
-  // Sparse lighter blade flecks
-  for (let i = 0; i < total * 0.04; i++) {
-    const x = Math.floor(rand() * SIZE);
-    const y = Math.floor(rand() * SIZE);
-    setPx(png, x, y, 130, 180, 85);
   }
   writePng(png, 'tile_groomedGrass');
 }
@@ -389,34 +377,35 @@ function gen_grass() {
   writePng(png, 'tile_grass');
 }
 
-// ── tile_hardwood: parquet-style hardwood planks ─────────────────────
-// Vertical planks 16 px wide (~0.5m at TEXEL_SCALE=32). Each plank has
-// a base wood tone with grain noise; thin darker seams between planks;
-// occasional cross-grain bands every ~32 px to suggest plank ends.
+// ── tile_hardwood: thin hardwood planks ──────────────────────────────
+// Vertical planks 8 px wide (= half a subtile = 0.25m at TEXEL_SCALE=32),
+// 32 px long. Each plank has a base wood tone with grain noise; thin
+// darker seams between planks; cross-cut seams every plank-length to
+// suggest plank ends.
 function gen_hardwood() {
   const png = makePng();
   const rand = mulberry32(1010);
-  // Wood-tone palette: alternating planks slightly different colors.
+  // Wood-tone palette: 6 slight variations cycled through the planks
+  // so neighbors are usually distinguishable.
   const planks = [
     [148, 100, 58],
     [158, 108, 64],
     [142, 95, 54],
     [165, 112, 68],
+    [152, 102, 60],
+    [138, 92, 52],
   ];
-  const PLANK_W = 16;
+  const PLANK_W = 8;
   const PLANK_H = 32;
-  // Seam color (between planks)
   const seamR = 90, seamG = 60, seamB = 32;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const plankCol = Math.floor(x / PLANK_W);
       const plankRow = Math.floor(y / PLANK_H);
-      const plankId = (plankCol + plankRow * 7) % planks.length;
+      const plankId = (plankCol + plankRow * 11) % planks.length;
       const tx = x % PLANK_W;
       const ty = y % PLANK_H;
-      // Vertical plank seams (right edge of each plank)
       const onPlankSeam = (tx === PLANK_W - 1);
-      // Horizontal cross-cut seam (every PLANK_H rows)
       const onCrossSeam = (ty === PLANK_H - 1);
       if (onPlankSeam || onCrossSeam) {
         const n = (rand() - 0.5) * 6;
@@ -424,9 +413,9 @@ function gen_hardwood() {
         continue;
       }
       const [pr, pg, pb] = planks[plankId];
-      // Wood grain: per-pixel jitter biased horizontally (longer streaks).
-      const grain = Math.sin(ty * 0.6 + plankCol * 1.7) * 8;
-      const n = (rand() - 0.5) * 14;
+      // Wood grain: subtle horizontal streaks within each plank.
+      const grain = Math.sin(ty * 0.6 + plankCol * 1.7) * 7;
+      const n = (rand() - 0.5) * 12;
       setPx(png, x, y, pr + grain + n, pg + grain * 0.7 + n, pb + grain * 0.5 + n);
     }
   }
