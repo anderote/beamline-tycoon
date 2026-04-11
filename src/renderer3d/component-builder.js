@@ -78,6 +78,94 @@ function getAccentMaterial(compType, colorHex) {
   return m;
 }
 
+// ── Template-and-tint infrastructure ────────────────────────────────
+// A "role-based" builder returns { accent: [geoms], iron: [geoms], ... }
+// where each array holds already-transformed BufferGeometries ready to
+// be merged. We merge each role's list once per component type and cache
+// the resulting meshes as a "template". Per-placement instantiation then
+// creates lightweight Mesh wrappers that share the template's geometry
+// and (for non-accent roles) the template's material.
+
+/** @type {Map<string, Record<string, THREE.Mesh>>} */
+const _templateCache = new Map();
+
+/**
+ * Registry of role-based builders. Unlike DETAIL_BUILDERS (legacy — returns
+ * a fully assembled THREE.Group), these return a role bucket object.
+ *
+ * A builder may omit roles it doesn't use — the template-cache step only
+ * processes roles with at least one geometry.
+ *
+ * @type {Record<string, () => Record<string, THREE.BufferGeometry[]>>}
+ */
+const ROLE_BUILDERS = {};
+
+/**
+ * Build (or fetch) the template for a role-based component type.
+ * Returns a map of role -> Mesh. The meshes own merged geometry but use
+ * placeholder/shared materials. Callers clone the meshes per placement.
+ */
+function _getRoleTemplate(compType) {
+  if (_templateCache.has(compType)) return _templateCache.get(compType);
+  const builder = ROLE_BUILDERS[compType];
+  if (!builder) return null;
+
+  const buckets = builder();
+  const template = {};
+  for (const role of ROLES) {
+    const list = buckets[role];
+    if (!list || list.length === 0) continue;
+    const merged = _mergeGeometries(list);
+    // Dispose the source geometries — we own `merged` now.
+    for (const g of list) g.dispose();
+    const mat = role === 'accent'
+      ? SHARED_MATERIALS.pipe // placeholder; replaced per placement
+      : SHARED_MATERIALS[role];
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.userData.role = role;
+    if (role === 'detail') mesh.userData.lod = 'detail';
+    template[role] = mesh;
+  }
+
+  _templateCache.set(compType, template);
+  return template;
+}
+
+/**
+ * Instantiate a placed component from its role template. Returns a Group
+ * containing one Mesh per role, where meshes share the template's merged
+ * geometry and a cached material. Cheap to call repeatedly.
+ *
+ * @param {string} compType
+ * @param {number} accentColorHex
+ * @returns {THREE.Group|null} null if no role builder exists for this type
+ */
+function _instantiateRoleTemplate(compType, accentColorHex) {
+  const template = _getRoleTemplate(compType);
+  if (!template) return null;
+
+  const group = new THREE.Group();
+  for (const role of ROLES) {
+    const tplMesh = template[role];
+    if (!tplMesh) continue;
+    const mat = role === 'accent'
+      ? getAccentMaterial(compType, accentColorHex)
+      : SHARED_MATERIALS[role];
+    const mesh = new THREE.Mesh(tplMesh.geometry, mat);
+    mesh.userData.role = role;
+    if (role === 'detail') {
+      mesh.userData.lod = 'detail';
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+    } else {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
+    group.add(mesh);
+  }
+  return group;
+}
+
 function _addShadow(mesh) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
