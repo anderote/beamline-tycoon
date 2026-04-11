@@ -1330,6 +1330,42 @@ export class Game {
   }
 
   /**
+   * Unified delete entry point. Accepts a `target` produced by
+   * InputHandler._findDeletablePlaceable (or constructed by a context menu)
+   * and dispatches to the right per-kind remove method. All delete code
+   * paths in the UI route through this so refund/log/event/undo are uniform.
+   *
+   * @param {object} target - { kind, id?, entry?, node?, pipeId?, attachmentId? }
+   * @returns {boolean} true if anything was removed
+   */
+  demolishTarget(target) {
+    if (!target) return false;
+    switch (target.kind) {
+      case 'beamline': {
+        // Two shapes: legacy registry node (target.node) or unified placeable (target.entry).
+        if (target.node) return this.removeComponent(target.node.id);
+        if (target.entry) return this.removePlaceable(target.entry.id);
+        if (target.id) return this.removePlaceable(target.id);
+        return false;
+      }
+      case 'beampipe':
+        return this.removeBeamPipe(target.pipeId || target.id);
+      case 'attachment':
+        return this.removeAttachment(target.pipeId, target.attachmentId);
+      case 'equipment':
+      case 'furnishing':
+      case 'decoration': {
+        const id = target.entry?.id || target.id;
+        return id ? this.removePlaceable(id) : false;
+      }
+      case 'machine':
+        return this.removeMachine(target.id || target.machineId);
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Remove every placed instance of a given kind. Used by the
    * "delete all furnishings" / "delete all beamline" UI tools.
    */
