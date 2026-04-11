@@ -103,6 +103,16 @@ export class MachineWindow {
       });
     }
 
+    // Demolish — 50% refund. Routes through unified delete path.
+    actions.push({
+      label: 'Demolish (50% refund)',
+      style: 'color:#f88',
+      onClick: () => {
+        this.game.demolishTarget({ kind: 'machine', id: this.machineId });
+        this.ctx.close();
+      },
+    });
+
     this.ctx.setActions(actions);
   }
 
