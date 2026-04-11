@@ -12,6 +12,7 @@ import { Beamline } from '../beamline/Beamline.js';
 import { flattenPath } from '../beamline/path-flattener.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import { generateStartingMap } from './map-generator.js';
 
 import { computeSystemStats } from './economy.js';
@@ -1175,143 +1176,81 @@ export class Game {
    * @returns {string|false} The placeable id, or false on failure
    */
   placePlaceable(opts) {
-    const { type, category, col, row, subCol, subRow, rotated, dir, params } = opts;
+    const { type, col, row, subCol, subRow, dir = 0, params } = opts;
 
-    // Look up definition
-    let def;
-    if (category === 'furnishing') {
-      def = ZONE_FURNISHINGS[type];
-    } else {
-      def = COMPONENTS[type];
-    }
-    if (!def) return false;
+    const placeable = PLACEABLES[type];
+    if (!placeable) return false;
+    const kind = placeable.kind;
 
-    // Unlock check (beamline and equipment)
-    if (category !== 'furnishing' && !this.isComponentUnlocked(def)) return false;
-
-    // Afford check
-    if (!this.canAfford(def.cost)) {
-      this.log(`Can't afford ${def.name}!`, 'bad');
+    if (!this.canAfford(placeable.cost)) {
+      this.log(`Can't afford ${placeable.name}!`, 'bad');
       return false;
     }
 
-    // Compute effective grid dimensions
-    const gw = rotated ? (def.gridH || def.subW || 1) : (def.gridW || def.subW || 1);
-    const gh = rotated ? (def.gridW || def.subL || 1) : (def.gridH || def.subL || 1);
-
-    // Build list of occupied cells
-    const cells = [];
-    for (let dr = 0; dr < gh; dr++) {
-      for (let dc = 0; dc < gw; dc++) {
-        const sc = (subCol || 0) + dc;
-        const sr = (subRow || 0) + dr;
-        // Convert to absolute tile + subtile
-        const absCol = col + Math.floor(sc / 4);
-        const absRow = row + Math.floor(sr / 4);
-        const absSC = sc % 4;
-        const absSR = sr % 4;
-        cells.push({ col: absCol, row: absRow, subCol: absSC, subRow: absSR });
-      }
-    }
-
-    // Floor check — all cells must be on infrastructure
-    for (const cell of cells) {
-      const tileKey = cell.col + ',' + cell.row;
-      if (!this.state.infraOccupied[tileKey]) {
-        this.log('Must place on flooring!', 'bad');
-        return false;
-      }
-    }
-
-    // Collision check — no cell can be already occupied
-    for (const cell of cells) {
-      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-      if (this.state.subgridOccupied[cellKey]) {
+    // The ONLY placement constraint: subtile footprint collision.
+    const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
+    for (const c of cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      if (this.state.subgridOccupied[k]) {
         this.log('Space occupied!', 'bad');
         return false;
       }
     }
 
-    // Zone tier gating (equipment only)
-    if (category === 'equipment' && def.zoneTier != null) {
-      const zoneTier = this.getZoneTierForCategory(def.category);
-      if (zoneTier < def.zoneTier) {
-        this.log(`Need more zone area for ${def.name}!`, 'bad');
-        return false;
-      }
-    }
-
-    // Max count check (beamline only)
-    if (category === 'beamline' && def.maxCount) {
-      const count = this.state.placeables.filter(
-        p => p.category === 'beamline' && p.type === type
-      ).length;
-      if (count >= def.maxCount) {
-        this.log(`Max ${def.name} reached.`, 'bad');
-        return false;
-      }
-    }
-
-    // Assign ID
-    const prefix = category === 'beamline' ? 'bl_' : category === 'equipment' ? 'eq_' : 'fn_';
+    // Allocate id.
+    const prefix = kind === 'beamline' ? 'bl_'
+      : kind === 'furnishing' ? 'fn_'
+      : kind === 'decoration' ? 'dc_'
+      : 'eq_';
     const id = prefix + this.state.placeableNextId++;
 
-    // Deduct cost
-    this.spend(def.cost);
+    this.spend(placeable.cost);
 
-    // Create entry
     const entry = {
       id,
       type,
-      category,
+      category: kind,            // legacy alias for downstream consumers
+      kind,
       col,
       row,
       subCol: subCol || 0,
       subRow: subRow || 0,
-      rotated: rotated || false,
-      dir: dir || null,
+      dir,
       params: null,
       cells,
     };
 
-    // Initialize params for beamline components
-    if (category === 'beamline') {
+    // Beamline param init (was previously inline; only kind that needs it).
+    if (kind === 'beamline') {
       entry.params = {};
       if (PARAM_DEFS[type]) {
         for (const [k, pdef] of Object.entries(PARAM_DEFS[type])) {
           if (!pdef.derived) entry.params[k] = pdef.default;
         }
       }
-      if (def.params) {
-        for (const [k, v] of Object.entries(def.params)) {
+      if (placeable.params) {
+        for (const [k, v] of Object.entries(placeable.params)) {
           if (!(k in entry.params)) entry.params[k] = v;
         }
       }
       if (params) Object.assign(entry.params, params);
     }
 
-    // Store
     this.state.placeables.push(entry);
     this.state.placeableIndex[id] = this.state.placeables.length - 1;
 
-    // Occupy sub-grid cells
-    for (const cell of cells) {
-      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-      this.state.subgridOccupied[cellKey] = { id, category };
+    for (const c of cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      this.state.subgridOccupied[k] = { id, kind };
     }
 
-    // Logging
-    const zoneType = this.state.zoneOccupied[col + ',' + row];
-    if (category === 'furnishing' && def.zoneType && zoneType === def.zoneType) {
-      this.log(`Built ${def.name} (zone bonus active)`, 'good');
-    } else {
-      this.log(`Built ${def.name}`, 'good');
-    }
+    placeable.onPlaced(this, entry);
 
+    this.log(`Built ${placeable.name}`, 'good');
     this.computeSystemStats();
     this.emit('placeableChanged');
-    if (category === 'equipment') this.emit('facilityChanged');
-    if (category === 'furnishing') this.emit('zonesChanged');
+    if (kind === 'equipment') this.emit('facilityChanged');
+    if (kind === 'furnishing') this.emit('zonesChanged');
     this._syncLegacyPlaceableState();
     return id;
   }
@@ -1326,20 +1265,19 @@ export class Game {
     const entry = this.state.placeables[idx];
     if (!entry) return false;
 
-    // Look up definition for refund
-    let def;
-    if (entry.category === 'furnishing') {
-      def = ZONE_FURNISHINGS[entry.type];
-    } else {
-      def = COMPONENTS[entry.type];
-    }
+    const placeable = PLACEABLES[entry.type];
+    if (!placeable) return false;
 
     // 50% refund
-    if (def && def.cost) {
-      for (const [r, a] of Object.entries(def.cost)) {
+    if (placeable.cost) {
+      for (const [r, a] of Object.entries(placeable.cost)) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
     }
+
+    // Lifecycle hook — runs before we clear cells / remove the entry so
+    // subclasses (e.g. BeamlineModule) can still see the instance in place.
+    placeable.onRemoved(this, entry);
 
     // Free sub-grid cells
     for (const cell of entry.cells) {
@@ -1360,7 +1298,7 @@ export class Game {
     // Rebuild index
     this._rebuildPlaceableIndex();
 
-    this.log(`Removed ${def ? def.name : 'item'} (50% refund)`, 'info');
+    this.log(`Removed ${placeable.name} (50% refund)`, 'info');
     this.computeSystemStats();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
