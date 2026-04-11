@@ -8,7 +8,7 @@
 // Manages multiple independent Beamline instances with shared tile occupancy.
 
 import { Beamline } from './Beamline.js';
-import { canonicalAccentFor, CANONICAL_ACCENTS } from './accent-colors.js';
+import { canonicalAccentFor } from './accent-colors.js';
 
 /**
  * Returns a default beam state object for a given machine type.
@@ -140,6 +140,7 @@ export class BeamlineRegistry {
       entries.push({
         id: entry.id,
         name: entry.name,
+        accentColor: entry.accentColor,
         status: entry.status,
         beamline: entry.beamline.toJSON(),
         beamState: JSON.parse(JSON.stringify(entry.beamState)),
@@ -161,9 +162,16 @@ export class BeamlineRegistry {
     for (const e of data.entries) {
       const beamline = new Beamline();
       beamline.fromJSON(e.beamline);
+      let accentColor = e.accentColor;
+      if (accentColor == null) {
+        const match = /^bl-(\d+)$/.exec(e.id);
+        const ordinal = match ? parseInt(match[1], 10) - 1 : 0;
+        accentColor = canonicalAccentFor(ordinal);
+      }
       this.beamlines.set(e.id, {
         id: e.id,
         name: e.name,
+        accentColor,
         status: e.status,
         beamline,
         beamState: e.beamState,
