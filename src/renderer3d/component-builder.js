@@ -968,7 +968,9 @@ export class ComponentBuilder {
 
       const compDef = COMPONENTS[type] || {};
       const subH = compDef.subH || 2;
-      const isDetailed = !!DETAIL_BUILDERS[type];
+      // Both legacy DETAIL_BUILDERS and new ROLE_BUILDERS bake BEAM_HEIGHT
+      // into their geometry, so their wrappers should sit at y=0.
+      const isDetailed = !!DETAIL_BUILDERS[type] || !!ROLE_BUILDERS[type];
 
       // Create object if not already in map
       if (!this._meshMap.has(id)) {
