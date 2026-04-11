@@ -919,14 +919,35 @@ export class ComponentBuilder {
 
   /**
    * Set opacity on an object (works for both Mesh and Group).
+   *
+   * Role-tagged meshes share their material across every placement, so
+   * we can't mutate the shared material directly — we'd dim everything.
+   * For those we clone once per mesh on first dim and cache the clone on
+   * userData, swapping between shared and clone as the dim state toggles.
    */
   _setDimmed(obj, dimmed) {
     const opacity = dimmed ? 0.3 : 1.0;
-    const transparent = dimmed;
     obj.traverse((child) => {
-      if (child.isMesh) {
+      if (!child.isMesh) return;
+      const role = child.userData.role;
+      if (role) {
+        // Shared material — clone-on-dim so we never mutate the shared one.
+        if (dimmed) {
+          if (!child.userData._dimMat) {
+            const clone = child.material.clone();
+            clone.transparent = true;
+            clone.opacity = opacity;
+            child.userData._dimMat = clone;
+            child.userData._baseMat = child.material;
+          }
+          child.material = child.userData._dimMat;
+        } else if (child.userData._baseMat) {
+          child.material = child.userData._baseMat;
+        }
+      } else {
+        // Legacy / fallback meshes own their own material.
         child.material.opacity = opacity;
-        child.material.transparent = transparent;
+        child.material.transparent = dimmed;
       }
     });
   }
@@ -983,19 +1004,42 @@ export class ComponentBuilder {
       obj.updateMatrix();
     }
 
-    // Remove stale objects
+    // Remove stale objects. Role-tagged meshes share merged template
+    // geometry and shared materials with every other placement of the
+    // same type, so we must NOT dispose them — only dispose the per-dim
+    // material clone (if any) and the hitbox, plus legacy/fallback meshes
+    // which own their geometry & material outright.
     for (const [id, obj] of this._meshMap) {
       if (!seen.has(id)) {
         if (obj.parent) obj.parent.remove(obj);
-        obj.traverse((child) => {
-          if (child.isMesh) {
-            child.geometry.dispose();
-            child.material.dispose();
-          }
-        });
+        this._disposeWrapper(obj);
         this._meshMap.delete(id);
       }
     }
+  }
+
+  /**
+   * Dispose a wrapper without touching shared template resources.
+   * Only disposes:
+   *   - per-wrapper dim material clones (`child.userData._dimMat`)
+   *   - the hitbox geometry and material (owned per wrapper)
+   *   - legacy / fallback meshes that have no role tag (they own their own)
+   */
+  _disposeWrapper(obj) {
+    obj.traverse((child) => {
+      if (!child.isMesh) return;
+      if (child.userData._dimMat) {
+        child.userData._dimMat.dispose();
+        child.userData._dimMat = null;
+      }
+      if (child.userData.role) {
+        // Shared — do not dispose geometry or base material.
+        return;
+      }
+      // Legacy/fallback mesh or hitbox — owned geometry/material, safe.
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
   }
 
   /**
@@ -1004,12 +1048,7 @@ export class ComponentBuilder {
   dispose(parentGroup) {
     for (const [, obj] of this._meshMap) {
       if (parentGroup) parentGroup.remove(obj);
-      obj.traverse((child) => {
-        if (child.isMesh) {
-          child.geometry.dispose();
-          child.material.dispose();
-        }
-      });
+      this._disposeWrapper(obj);
     }
     this._meshMap.clear();
   }
