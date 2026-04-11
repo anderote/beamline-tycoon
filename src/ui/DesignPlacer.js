@@ -156,9 +156,7 @@ export class DesignPlacer {
     // Place foundation tiles
     for (const ft of this.foundationTiles) {
       const key = ft.col + ',' + ft.row;
-      if (this.game.state.decorationOccupied[key]) {
-        this.game.removeDecoration(ft.col, ft.row);
-      }
+      this.game.removeDecoration(ft.col, ft.row);
       this.game.state.infrastructure.push({ type: 'concrete', col: ft.col, row: ft.row, variant: 0 });
       this.game.state.infraOccupied[key] = 'concrete';
     }

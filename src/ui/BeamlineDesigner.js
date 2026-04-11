@@ -818,9 +818,7 @@ export class BeamlineDesigner {
       for (const tile of node.tiles) {
         const key = tile.col + ',' + tile.row;
         if (!this.game.state.infraOccupied[key]) {
-          if (this.game.state.decorationOccupied[key]) {
-            this.game.removeDecoration(tile.col, tile.row);
-          }
+          this.game.removeDecoration(tile.col, tile.row);
           this.game.state.infrastructure.push({ type: 'concrete', col: tile.col, row: tile.row, variant: 0 });
           this.game.state.infraOccupied[key] = 'concrete';
           this.game.state.resources.funding -= 10;

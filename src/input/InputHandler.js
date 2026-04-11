@@ -1776,9 +1776,7 @@ export class InputHandler {
           }
         }
         // Remove decorations
-        if (this.game.state.decorationOccupied[key]) {
-          this.game.removeDecoration(col, row);
-        }
+        this.game.removeDecoration(col, row);
         // Remove zone furnishings
         const subgrid = this.game.state.zoneFurnishingSubgrids[key];
         if (subgrid) {
@@ -2299,7 +2297,7 @@ export class InputHandler {
       }
     }
     // Remove decorations
-    if (this.game.state.decorationOccupied[key]) this.game.removeDecoration(col, row);
+    this.game.removeDecoration(col, row);
     // Remove zones
     if (this.game.state.zoneOccupied[key]) this.game.removeZoneTile(col, row);
     // Remove walls and doors on both edges of this tile

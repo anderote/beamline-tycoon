@@ -65,7 +65,6 @@ export class Game {
       beamPipeNextId: 1,
       // Decorations (trees, shrubs, benches, etc.)
       decorations: [],              // [{ id, type, col, row }]
-      decorationOccupied: {},       // "col,row" -> decoration id
       decorationNextId: 1,
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
@@ -106,9 +105,6 @@ export class Game {
     const startMap = generateStartingMap(this.state.terrainSeed);
     this.state.decorations = startMap.decorations;
     this.state.decorationNextId = startMap.nextId;
-    for (const dec of this.state.decorations) {
-      this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
-    }
   }
 
   _generateTerrainBlobs(seed) {
@@ -179,7 +175,6 @@ export class Game {
       doors: this.state.doors.map(d => ({ ...d })),
       doorOccupied: { ...this.state.doorOccupied },
       decorations: this.state.decorations.map(d => ({ ...d })),
-      decorationOccupied: { ...this.state.decorationOccupied },
       decorationNextId: this.state.decorationNextId,
       facilityEquipment: this.state.facilityEquipment.map(e => ({ ...e })),
       facilityGrid: { ...this.state.facilityGrid },
@@ -272,7 +267,6 @@ export class Game {
     this.state.doors = snap.doors;
     this.state.doorOccupied = snap.doorOccupied;
     this.state.decorations = snap.decorations;
-    this.state.decorationOccupied = snap.decorationOccupied;
     this.state.decorationNextId = snap.decorationNextId;
     this.state.facilityEquipment = snap.facilityEquipment;
     this.state.facilityGrid = snap.facilityGrid;
@@ -580,14 +574,13 @@ export class Game {
     }
     // Auto-remove any decoration (including trees) — include removal cost
     let totalCost = infra.cost;
-    const decId = this.state.decorationOccupied[key];
-    if (decId) {
-      const dec = this.state.decorations.find(d => d.id === decId);
-      const def = dec ? DECORATIONS[dec.type] : null;
+    const existingDec = this._decorationAtTile(col, row);
+    if (existingDec) {
+      const def = DECORATIONS[existingDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
     }
     if (this.state.resources.funding < totalCost) return false;
-    if (decId) this.removeDecoration(col, row);
+    if (existingDec) this.removeDecoration(col, row);
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
     if (infra.requiresFoundation && existing) {
@@ -658,10 +651,9 @@ export class Game {
         }
         newTiles++;
         totalCost += infra.cost;
-        const decId = this.state.decorationOccupied[tileKey];
-        if (decId) {
-          const dec = this.state.decorations.find(d => d.id === decId);
-          const def = dec ? DECORATIONS[dec.type] : null;
+        const existingDec = this._decorationAtTile(c, r);
+        if (existingDec) {
+          const def = DECORATIONS[existingDec.type];
           totalCost += def ? (def.removeCost || 0) : 0;
         }
       }
@@ -705,7 +697,7 @@ export class Game {
           if (baseType !== infra.requiresFoundation) continue;
         }
         // Auto-remove any decoration (including trees)
-        if (this.state.decorationOccupied[key]) this.removeDecoration(c, r);
+        if (this._decorationAtTile(c, r)) this.removeDecoration(c, r);
         // Track foundation for surface tiles
         let foundation = null;
         if (infra.requiresFoundation && existing) {
@@ -1662,189 +1654,68 @@ export class Game {
 
   // === DECORATIONS ===
 
-  placeDecoration(col, row, decType, subCol, subRow, rotated = false) {
-    const dec = DECORATIONS[decType];
-    if (!dec) return false;
-    const key = col + ',' + row;
-
-    // Sub-tile decoration (has gridW/gridH)
-    if (dec.gridW && dec.gridH) {
-      if (this.state.resources.funding < dec.cost) return false;
-
-      const gw = rotated ? dec.gridH : dec.gridW;
-      const gh = rotated ? dec.gridW : dec.gridH;
-
-      if (subCol < 0 || subRow < 0 || subCol + gw > 4 || subRow + gh > 4) return false;
-
-      if (!this.state.zoneFurnishingSubgrids[key]) {
-        this.state.zoneFurnishingSubgrids[key] = [
-          [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
-        ];
+  /**
+   * Returns the placed decoration instance at (col,row), or null. Used by
+   * crop/clear/bulldozer code that needs "is there a decoration on this
+   * tile?" semantics.
+   */
+  _decorationAtTile(col, row) {
+    for (let sr = 0; sr < 4; sr++) {
+      for (let sc = 0; sc < 4; sc++) {
+        const k = col + ',' + row + ',' + sc + ',' + sr;
+        const occ = this.state.subgridOccupied[k];
+        if (!occ || occ.kind !== 'decoration') continue;
+        const idx = this.state.placeableIndex[occ.id];
+        if (idx === undefined) continue;
+        return this.state.placeables[idx];
       }
-      const subgrid = this.state.zoneFurnishingSubgrids[key];
-      for (let r = subRow; r < subRow + gh; r++) {
-        for (let c = subCol; c < subCol + gw; c++) {
-          if (subgrid[r][c] !== 0) return false;
-        }
-      }
-
-      const id = 'dec_' + (this.state.decorationNextId++);
-      this.state.resources.funding -= dec.cost;
-      const entry = { id, type: decType, col, row, subCol, subRow, rotated, isSubtile: true };
-      this.state.decorations.push(entry);
-
-      // Mark sub-grid cells (use negative indices to distinguish from furnishings)
-      const decIdx = -(this.state.decorations.length);
-      for (let r = subRow; r < subRow + gh; r++) {
-        for (let c = subCol; c < subCol + gw; c++) {
-          subgrid[r][c] = decIdx;
-        }
-      }
-
-      this.emit('decorationsChanged');
-      return true;
     }
-
-    // Full-tile decoration (no gridW/gridH — trees, etc.)
-    if (this.state.decorationOccupied[key]) return false;
-    if (dec.placement === 'outdoor') {
-      if (this.state.infraOccupied[key] || this.state.zoneOccupied[key]) return false;
-    } else if (dec.placement === 'indoor') {
-      if (!this.state.infraOccupied[key]) return false;
-    }
-    if (this.state.facilityGrid[key]) return false;
-    if (this.state.zoneFurnishingSubgrids[key]) return false;
-    if (this.state.resources.funding < dec.cost) return false;
-
-    const id = 'dec_' + (this.state.decorationNextId++);
-    this.state.resources.funding -= dec.cost;
-    this.state.decorations.push({ id, type: decType, col, row });
-    this.state.decorationOccupied[key] = id;
-    this.emit('decorationsChanged');
-    return true;
+    return null;
   }
 
-  removeDecoration(col, row, subCol, subRow) {
-    const key = col + ',' + row;
+  placeDecoration(col, row, decType, subCol = 0, subRow = 0, rotated = false) {
+    // Legacy signature kept for existing callers. Routes through the
+    // unified placement path. The `rotated` boolean is translated to dir:
+    // rotated=true → dir=1 (90° CW). Four-way rotation is handled at the
+    // unified call sites in InputHandler (Task 9).
+    const dir = rotated ? 1 : 0;
+    return this.placePlaceable({
+      type: decType,
+      col,
+      row,
+      subCol,
+      subRow,
+      dir,
+    });
+  }
 
-    // Try sub-tile removal first
-    if (subCol !== undefined && subRow !== undefined) {
-      const subgrid = this.state.zoneFurnishingSubgrids[key];
-      if (subgrid && subCol >= 0 && subCol < 4 && subRow >= 0 && subRow < 4) {
-        const cellVal = subgrid[subRow][subCol];
-        if (cellVal < 0) {
-          // Negative value = decoration index (negated)
-          const decIdx = (-cellVal) - 1;
-          const entry = this.state.decorations[decIdx];
-          if (entry && entry.isSubtile) {
-            const def = DECORATIONS[entry.type];
-            const removeCost = def ? def.removeCost : 0;
-            if (removeCost > 0 && this.state.resources.funding < removeCost) {
-              this.log(`Need $${removeCost} to remove ${def.name}!`, 'bad');
-              return false;
-            }
-            if (removeCost > 0) this.state.resources.funding -= removeCost;
-
-            // Clear sub-grid cells
-            const gw = entry.rotated ? def.gridH : def.gridW;
-            const gh = entry.rotated ? def.gridW : def.gridH;
-            for (let r = entry.subRow; r < entry.subRow + gh; r++) {
-              for (let c = entry.subCol; c < entry.subCol + gw; c++) {
-                if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = 0;
-              }
-            }
-            if (subgrid.every(row => row.every(cell => cell === 0))) {
-              delete this.state.zoneFurnishingSubgrids[key];
-            }
-
-            this.state.decorations.splice(decIdx, 1);
-            this._reindexSubgridDecorations();
-            this.emit('decorationsChanged');
-            return true;
-          }
-        }
-      }
-    }
-
-    // Full-tile removal
-    const decId = this.state.decorationOccupied[key];
-    if (!decId) return false;
-    const idx = this.state.decorations.findIndex(d => d.id === decId);
-    if (idx === -1) return false;
-    const dec = this.state.decorations[idx];
-    const def = DECORATIONS[dec.type];
-    const removeCost = def ? def.removeCost : 0;
-    if (removeCost > 0 && this.state.resources.funding < removeCost) {
-      this.log(`Need $${removeCost} to remove ${def.name}!`, 'bad');
+  removeDecoration(col, row, subCol = 0, subRow = 0) {
+    // Legacy signature. Look up the instance occupying the tile and route
+    // through the unified removePlaceable path.
+    if (arguments.length >= 4) {
+      const key = col + ',' + row + ',' + subCol + ',' + subRow;
+      const occ = this.state.subgridOccupied[key];
+      if (occ) return this.removePlaceable(occ.id);
       return false;
     }
-    if (removeCost > 0) {
-      this.state.resources.funding -= removeCost;
-      this.log(`Removed ${def.name} ($${removeCost})`, '');
-    }
-    this.state.decorations.splice(idx, 1);
-    delete this.state.decorationOccupied[key];
-    this.emit('decorationsChanged');
-    return true;
-  }
-
-  _reindexSubgridDecorations() {
-    // Rebuild negative indices in subgrids for sub-tile decorations
-    // First clear all negative values
-    for (const key in this.state.zoneFurnishingSubgrids) {
-      const subgrid = this.state.zoneFurnishingSubgrids[key];
-      for (let r = 0; r < 4; r++) {
-        for (let c = 0; c < 4; c++) {
-          if (subgrid[r][c] < 0) subgrid[r][c] = 0;
-        }
-      }
-    }
-    // Re-insert decoration indices
-    for (let i = 0; i < this.state.decorations.length; i++) {
-      const entry = this.state.decorations[i];
-      if (!entry.isSubtile) continue;
-      const def = DECORATIONS[entry.type];
-      if (!def) continue;
-      const key = entry.col + ',' + entry.row;
-      if (!this.state.zoneFurnishingSubgrids[key]) {
-        this.state.zoneFurnishingSubgrids[key] = [
-          [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
-        ];
-      }
-      const subgrid = this.state.zoneFurnishingSubgrids[key];
-      const gw = entry.rotated ? def.gridH : def.gridW;
-      const gh = entry.rotated ? def.gridW : def.gridH;
-      const decIdx = -(i + 1);
-      for (let r = entry.subRow; r < entry.subRow + gh; r++) {
-        for (let c = entry.subCol; c < entry.subCol + gw; c++) {
-          if (r >= 0 && r < 4 && c >= 0 && c < 4) subgrid[r][c] = decIdx;
-        }
-      }
-    }
-    // Also rebuild furnishing indices
-    this._syncLegacyPlaceableState();
+    const inst = this._decorationAtTile(col, row);
+    if (!inst) return false;
+    return this.removePlaceable(inst.id);
   }
 
   hasBlockingDecoration(col, row) {
-    const key = col + ',' + row;
-    const decId = this.state.decorationOccupied[key];
-    if (!decId) return false;
-    const dec = this.state.decorations.find(d => d.id === decId);
-    if (!dec) return false;
-    const def = DECORATIONS[dec.type];
+    const inst = this._decorationAtTile(col, row);
+    if (!inst) return false;
+    const def = DECORATIONS[inst.type];
     return def ? def.blocksBuild : false;
   }
 
   _clearNonBlockingDecoration(col, row) {
-    const key = col + ',' + row;
-    const decId = this.state.decorationOccupied[key];
-    if (!decId) return;
-    const dec = this.state.decorations.find(d => d.id === decId);
-    if (!dec) return;
-    const def = DECORATIONS[dec.type];
+    const inst = this._decorationAtTile(col, row);
+    if (!inst) return;
+    const def = DECORATIONS[inst.type];
     if (def && !def.blocksBuild) {
-      this.state.decorations = this.state.decorations.filter(d => d.id !== decId);
-      delete this.state.decorationOccupied[key];
+      this.removePlaceable(inst.id);
     }
   }
 
@@ -3213,10 +3084,6 @@ export class Game {
       // Restore decoration state
       this.state.decorations = data.state.decorations || [];
       this.state.decorationNextId = data.state.decorationNextId || 1;
-      this.state.decorationOccupied = {};
-      for (const dec of this.state.decorations) {
-        this.state.decorationOccupied[dec.col + ',' + dec.row] = dec.id;
-      }
 
       // Rebuild wall state
       this.state.walls = this.state.walls || [];
