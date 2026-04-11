@@ -607,6 +607,87 @@ function _buildQuadrupoleRoles() {
 
 ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
 
+/**
+ * Build the role buckets for a dipole bending magnet.
+ *
+ * Physical layout (3m x 1.5m x 2m, beam along local +Z):
+ *   - H-frame painted iron yoke: top slab, bottom slab, two side posts
+ *   - Fixed orange accent stripe along the top edge (iron role, not accent)
+ *   - Dark iron pole face visible in the gap between coils
+ *   - Two copper coil bundles at the ends of the pole gap
+ *   - Row of bolts along the visible yoke edge (detail LOD)
+ *   - Straight beam pipe through the gap
+ *
+ * Note: the actual 90-degree beam bend is handled by the beam graph
+ * logic, not this geometry — the model is visually straight.
+ */
+function _buildDipoleRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], detail: [] };
+  const m4 = new THREE.Matrix4();
+
+  const yokeW = 1.4;
+  const yokeH = 1.6;
+  const yokeL = 2.2;
+  const wall = 0.22;
+
+  // --- Painted H-frame slabs (accent role) ---
+  const slabs = [
+    // [w, h, l, x, y, z]
+    [yokeW, wall, yokeL, 0,  yokeH / 2 - wall / 2,  0],  // top
+    [yokeW, wall, yokeL, 0, -yokeH / 2 + wall / 2,  0],  // bottom
+    [wall, yokeH, yokeL, -yokeW / 2 + wall / 2, 0, 0],   // left post
+    [wall, yokeH, yokeL,  yokeW / 2 - wall / 2, 0, 0],   // right post
+  ];
+  for (const [w, h, l, x, y, z] of slabs) {
+    const g = new THREE.BoxGeometry(w, h, l);
+    m4.makeTranslation(x, BEAM_HEIGHT + y, z);
+    _pushTransformed(buckets.accent, g, m4);
+  }
+
+  // --- Fixed contrast stripe (iron role — not recolored) ---
+  // We want this to stay visible regardless of the accent paint color,
+  // so we bucket it as a dark element rather than accent.
+  const stripeGeom = new THREE.BoxGeometry(yokeW + 0.02, 0.08, yokeL * 0.9);
+  m4.makeTranslation(0, BEAM_HEIGHT + yokeH / 2 + 0.04, 0);
+  _pushTransformed(buckets.iron, stripeGeom, m4);
+
+  // --- Dark iron pole face in the gap ---
+  const poleFace = new THREE.BoxGeometry(yokeW - wall * 2 - 0.15, 0.4, yokeL - 0.3);
+  m4.makeTranslation(0, BEAM_HEIGHT - 0.2, 0);
+  _pushTransformed(buckets.iron, poleFace, m4);
+
+  // --- Copper coil bundles at each end of the pole ---
+  for (const sign of [-1, 1]) {
+    const g = new THREE.BoxGeometry(yokeW - wall * 2 - 0.05, 0.28, 0.18);
+    m4.makeTranslation(0, BEAM_HEIGHT + 0.1, sign * (yokeL / 2 - 0.09));
+    _pushTransformed(buckets.copper, g, m4);
+  }
+
+  // --- Straight beam pipe through the gap ---
+  const pipeL = yokeL + 0.6;
+  const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS);
+  const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+  const full = new THREE.Matrix4().multiplyMatrices(trans, rot);
+  _pushTransformed(buckets.pipe, pipeGeom, full);
+
+  // --- Bolts along the visible upper yoke edge (detail LOD) ---
+  for (let i = -2; i <= 2; i++) {
+    const g = new THREE.BoxGeometry(0.07, 0.07, 0.04);
+    m4.makeTranslation(
+      yokeW / 2 + 0.012,
+      BEAM_HEIGHT + yokeH / 2 - wall - 0.08,
+      i * 0.45
+    );
+    _pushTransformed(buckets.detail, g, m4);
+  }
+
+  return buckets;
+}
+
+ROLE_BUILDERS.dipole = _buildDipoleRoles;
+
 // Registry: component type id → builder function
 const DETAIL_BUILDERS = {
   source: _buildSource,
