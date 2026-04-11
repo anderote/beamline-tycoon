@@ -10,6 +10,7 @@ import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
+import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 
 // --- HUD updates ---
 
@@ -865,15 +866,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
   // Demolish mode tools
   if (compCategory === 'demolish') {
-    const demolishTools = [
-      { key: 'demolishBeamline', name: 'Remove Components', desc: 'Click beamline components to remove', color: '#c44' },
-      { key: 'demolishConnection', name: 'Remove Pipes', desc: 'Click utility pipes/cables to remove', color: '#c84' },
-      { key: 'demolishFurnishing', name: 'Remove Furniture', desc: 'Click to remove placed furnishings', color: '#a48' },
-      { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },
-      { key: 'demolishFloor', name: 'Remove Floor', desc: 'Click or drag to remove flooring tiles', color: '#a44' },
-      { key: 'demolishWall', name: 'Remove Walls', desc: 'Click or drag to remove wall segments', color: '#a86' },
-      { key: 'demolishAll', name: 'Clear Everything', desc: 'Strip tiles back to natural grass', color: '#c22' },
-    ];
+    const demolishTools = DEMOLISH_BUTTONS;
 
     for (const tool of demolishTools) {
       const item = document.createElement('div');
