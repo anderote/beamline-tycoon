@@ -771,22 +771,46 @@ export function renderComponentThumbnail(compType, size = 64) {
 
   const compDef = COMPONENTS[compType];
   if (!compDef) return null;
-  const builder = DETAIL_BUILDERS[compDef.id || compType];
-  if (!builder) return null;
 
-  // Create a temporary renderer, render, then dispose immediately
+  // Prefer role builders (template-based); fall back to legacy detail builders.
+  const hasRole = !!ROLE_BUILDERS[compDef.id || compType];
+  const legacyBuilder = DETAIL_BUILDERS[compDef.id || compType];
+  if (!hasRole && !legacyBuilder) return null;
+
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(size * 2, size * 2);
 
   const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(3, 5, 2);
-  scene.add(dirLight);
 
-  const model = builder();
+  // Match game lighting: warm ambient, cool-key sun from upper-left-back,
+  // cool fill from front-right, plus a neutral floor so GI bounces aren't
+  // pure black.
+  scene.add(new THREE.AmbientLight(0xfff5e6, 0.55));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+  sun.position.set(-6, 10, -4);
+  scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x88aaff, 0.25);
+  fill.position.set(6, 4, 6);
+  scene.add(fill);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(6, 6),
+    new THREE.MeshStandardMaterial({ color: 0x262a48, roughness: 0.9, metalness: 0.0 }),
+  );
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  // Build the model. Role-based builders get the default APS-red accent;
+  // legacy builders return their own fully assembled group.
+  const defaultAccent = 0xc62828;
+  let model;
+  if (hasRole) {
+    model = _instantiateRoleTemplate(compDef.id || compType, defaultAccent);
+  } else {
+    model = legacyBuilder();
+  }
   scene.add(model);
 
+  // Frame the camera around the model's bounding box.
   const box = new THREE.Box3().setFromObject(model);
   const center = box.getCenter(new THREE.Vector3());
   const bSize = box.getSize(new THREE.Vector3());
@@ -805,13 +829,10 @@ export function renderComponentThumbnail(compType, size = 64) {
   const dataUrl = renderer.domElement.toDataURL('image/png');
   _thumbCache.set(compType, dataUrl);
 
-  // Clean up everything
-  model.traverse((child) => {
-    if (child.isMesh) {
-      child.geometry.dispose();
-      child.material.dispose();
-    }
-  });
+  // Clean up — note we do NOT dispose template geometries (they're cached).
+  // We only dispose the per-thumbnail materials we created (floor).
+  floor.geometry.dispose();
+  floor.material.dispose();
   renderer.dispose();
 
   return dataUrl;
