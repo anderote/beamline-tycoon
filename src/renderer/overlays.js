@@ -164,7 +164,7 @@ Renderer.prototype.showPopup = function(node, screenX, screenY) {
     });
 
     document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
-      this.game.removeComponent(node.id);
+      this.game.demolishTarget({ kind: 'beamline', node });
       this.hidePopup();
     });
 
@@ -277,7 +277,7 @@ Renderer.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
     body.innerHTML = html;
 
     document.getElementById('popup-remove-facility-btn')?.addEventListener('click', () => {
-      this.game.removeFacilityEquipment(equip.id);
+      this.game.demolishTarget({ kind: 'equipment', id: equip.id });
       this.hidePopup();
     });
   }

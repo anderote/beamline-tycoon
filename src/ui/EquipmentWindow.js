@@ -31,8 +31,8 @@ export class EquipmentWindow {
     this.ctx.onTabRender('info', (container) => this._renderInfo(container));
 
     this.ctx.setActions([
-      { label: 'Remove (50% refund)', style: 'color:#f88', onClick: () => {
-        this.game.removeFacilityEquipment(equip.id);
+      { label: 'Demolish (50% refund)', style: 'color:#f88', onClick: () => {
+        this.game.demolishTarget({ kind: 'equipment', id: equip.id });
         this.ctx.close();
       }},
     ]);
