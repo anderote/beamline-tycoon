@@ -1117,18 +1117,6 @@ export class Game {
 
   // === FACILITY EQUIPMENT ===
 
-  placeFacilityEquipment(col, row, compType) {
-    return this.placePlaceable({
-      type: compType,
-      category: 'equipment',
-      col,
-      row,
-      subCol: 0,
-      subRow: 0,
-      rotated: false,
-    });
-  }
-
   removeFacilityEquipment(equipId) {
     return this.removePlaceable(equipId);
   }
@@ -1663,22 +1651,6 @@ export class Game {
       }
     }
     return null;
-  }
-
-  placeDecoration(col, row, decType, subCol = 0, subRow = 0, rotated = false) {
-    // Legacy signature kept for existing callers. Routes through the
-    // unified placement path. The `rotated` boolean is translated to dir:
-    // rotated=true → dir=1 (90° CW). Four-way rotation is handled at the
-    // unified call sites in InputHandler (Task 9).
-    const dir = rotated ? 1 : 0;
-    return this.placePlaceable({
-      type: decType,
-      col,
-      row,
-      subCol,
-      subRow,
-      dir,
-    });
   }
 
   removeDecoration(col, row, subCol = 0, subRow = 0) {

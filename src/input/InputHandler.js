@@ -605,29 +605,6 @@ export class InputHandler {
   }
 
   /**
-   * Snap a beamline module to the nearest integer sub-cell under the cursor.
-   * Works at sub-tile resolution without clamping to the hovered tile, so
-   * large modules (undulator, linacCell) can span tile boundaries at 0.5m
-   * granularity. Returns the origin {col,row,subCol,subRow} expected by
-   * Game.placePlaceable.
-   */
-  _computeModuleSubSnap(worldX, worldY, compDef) {
-    const gw = compDef.gridW || compDef.subW || 4;
-    const gh = compDef.gridH || compDef.subL || 4;
-    const fc = isoToGridFloat(worldX, worldY);
-    // Cursor in absolute sub-cell units (4 sub-cells per tile along each axis)
-    const subCenterCol = fc.col * 4;
-    const subCenterRow = fc.row * 4;
-    const topLeftSubCol = Math.round(subCenterCol - gw / 2);
-    const topLeftSubRow = Math.round(subCenterRow - gh / 2);
-    const col = Math.floor(topLeftSubCol / 4);
-    const row = Math.floor(topLeftSubRow / 4);
-    const subCol = topLeftSubCol - col * 4;
-    const subRow = topLeftSubRow - row * 4;
-    return { col, row, subCol, subRow };
-  }
-
-  /**
    * Find an available (unconnected) port on a module.
    * @param {string} placeableId
    * @param {'entry'|'exit'} direction - 'exit' for source-side ports, 'entry' for dest-side ports
@@ -1673,13 +1650,6 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
-    // Recompute sub-tile snap fresh from the click position so the build
-    // agrees with the hover preview even if the cursor crossed a tile edge
-    // between the last mousemove and the click.
-    if (this.selectedTool && COMPONENTS[this.selectedTool] && !COMPONENTS[this.selectedTool].isDrawnConnection && COMPONENTS[this.selectedTool].placement !== 'attachment') {
-      this.hoverCompSnap = this._computeModuleSubSnap(world.x, world.y, COMPONENTS[this.selectedTool]);
-    }
-
     console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.registry.getAllNodes().length });
 
     // DesignPlacer confirmation
@@ -1982,7 +1952,6 @@ export class InputHandler {
     this.selectedFacilityTool = null;
     this.selectedDecorationTool = null;
     this.hoverPlaceable = null;
-    this.hoverCompSnap = null;
     this.renderer._clearPreview?.();
   }
 
@@ -2424,7 +2393,7 @@ export class InputHandler {
     if (p.kind === 'facility') {
       const key = col + ',' + row;
       const comp = COMPONENTS[p.type];
-      // Check placement validity (same checks as placeFacilityEquipment but without cost)
+      // Check placement validity (mirrors the equipment placement checks but without cost)
       const floor = this.game.state.infraOccupied[key];
       if (floor !== 'concrete') {
         this.game.log('Need concrete flooring!', 'bad');
