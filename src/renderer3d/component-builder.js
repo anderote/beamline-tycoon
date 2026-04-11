@@ -36,6 +36,59 @@ function _addShadow(mesh) {
   return mesh;
 }
 
+/**
+ * Merge a list of non-indexed BufferGeometries with matching attributes into
+ * a single BufferGeometry. Only handles `position` and `normal` attributes
+ * (all the primitives we use — Box/Cylinder/Torus/Plane — expose these).
+ *
+ * Each input geometry is consumed: we assume the caller has already applied
+ * any world-space transform via `.applyMatrix4()`. The result is a fresh
+ * non-indexed BufferGeometry owning its own buffers.
+ *
+ * @param {THREE.BufferGeometry[]} geometries
+ * @returns {THREE.BufferGeometry}
+ */
+function _mergeGeometries(geometries) {
+  if (geometries.length === 0) {
+    return new THREE.BufferGeometry();
+  }
+
+  // First pass — make sure every input is non-indexed so we can concat directly.
+  const flat = geometries.map(g => g.index ? g.toNonIndexed() : g);
+
+  // Sum sizes.
+  let posCount = 0;
+  let normCount = 0;
+  for (const g of flat) {
+    posCount += g.attributes.position.array.length;
+    const na = g.attributes.normal;
+    if (na) normCount += na.array.length;
+  }
+
+  const positions = new Float32Array(posCount);
+  const normals = normCount > 0 ? new Float32Array(normCount) : null;
+
+  let posOff = 0;
+  let normOff = 0;
+  for (const g of flat) {
+    positions.set(g.attributes.position.array, posOff);
+    posOff += g.attributes.position.array.length;
+    if (normals && g.attributes.normal) {
+      normals.set(g.attributes.normal.array, normOff);
+      normOff += g.attributes.normal.array.length;
+    }
+  }
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (normals) {
+    merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  } else {
+    merged.computeVertexNormals();
+  }
+  return merged;
+}
+
 // ── Detailed geometry builders ───────────────────────────────────────
 // Each returns a THREE.Group whose local origin is centered at the
 // component's footprint center, Y=0 at floor level.
