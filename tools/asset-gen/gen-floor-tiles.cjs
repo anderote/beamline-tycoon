@@ -280,75 +280,157 @@ function gen_dirt() {
   writePng(png, 'tile_dirt');
 }
 
-// ── tile_pavement: dark asphalt slabs with joint lines ───────────────
+// ── tile_pavement: dark asphalt slabs with dotted faint joint lines ──
 function gen_pavement() {
   const png = makePng();
   const rand = mulberry32(707);
   const baseR = 105, baseG = 105, baseB = 108;
-  // Dark joint color.
-  const jointR = 50, jointG = 50, jointB = 55;
-  // Slab grid: 32×32 slabs (so a 2×2 grid in 64×64). Joint = 1 px wide on
-  // the right and bottom edges of each slab.
+  // Faint joint: only ~15 brightness below base, not jet-black.
+  const jointR = 88, jointG = 88, jointB = 92;
   const SLAB = 32;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const tx = x % SLAB;
       const ty = y % SLAB;
-      const onJoint = (tx === SLAB - 1) || (ty === SLAB - 1);
-      if (onJoint) {
-        const n = (rand() - 0.5) * 6;
-        setPx(png, x, y, jointR + n, jointG + n, jointB + n);
-        continue;
+      const onSeam = (tx === SLAB - 1) || (ty === SLAB - 1);
+      if (onSeam) {
+        // Dotted: every other pixel along the seam is the faint joint color.
+        const seamPos = (tx === SLAB - 1) ? y : x;
+        if (seamPos % 2 === 0) {
+          const n = (rand() - 0.5) * 6;
+          setPx(png, x, y, jointR + n, jointG + n, jointB + n);
+          continue;
+        }
+        // odd pixels fall through to base
       }
-      // Asphalt aggregate: dense fine speckle.
       const n = (rand() - 0.5) * 16;
       setPx(png, x, y, baseR + n, baseG + n, baseB + n);
     }
   }
-  // Sparse brighter aggregate flecks (~2%) for variety.
+  // Sparse brighter aggregate flecks (~2%).
   const total = SIZE * SIZE;
   for (let i = 0; i < total * 0.02; i++) {
     const x = Math.floor(rand() * SIZE);
     const y = Math.floor(rand() * SIZE);
-    // Skip if on a joint line.
-    if (x % SLAB === SLAB - 1 || y % SLAB === SLAB - 1) continue;
     const v = 145 + Math.floor(rand() * 25);
     setPx(png, x, y, v, v, v + 2);
   }
   writePng(png, 'tile_pavement');
 }
 
-// ── tile_groomedGrass: dense lawn pixel-blade noise ──────────────────
+// ── tile_groomedGrass: manicured lawn with mowing-row stripes ────────
+// Palette tuned to match the original groomedGrass_0.png — a warm
+// mid-green slightly lighter than the default ground grass. Mowing rows
+// alternate every 16 px (~0.5m, one mower-deck width) by shifting the
+// base brightness ±5 in even/odd row bands.
 function gen_groomedGrass() {
   const png = makePng();
   const rand = mulberry32(808);
-  const baseR = 80, baseG = 130, baseB = 50;
+  const baseR = 95, baseG = 140, baseB = 60;
+  const ROW = 16;
+  for (let y = 0; y < SIZE; y++) {
+    const stripeBand = Math.floor(y / ROW) % 2;
+    const stripeShift = stripeBand === 0 ? 6 : -6;
+    for (let x = 0; x < SIZE; x++) {
+      const n = (rand() - 0.5) * 20;
+      const nr = n + (rand() - 0.5) * 5;
+      const ng = n + (rand() - 0.5) * 7;
+      const nb = n + (rand() - 0.5) * 4;
+      setPx(png, x, y,
+        baseR + stripeShift + nr,
+        baseG + stripeShift + ng,
+        baseB + stripeShift + nb);
+    }
+  }
+  const total = SIZE * SIZE;
+  // Sparse darker blade flecks
+  for (let i = 0; i < total * 0.04; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    setPx(png, x, y, 65, 105, 35);
+  }
+  // Sparse lighter blade flecks
+  for (let i = 0; i < total * 0.04; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    setPx(png, x, y, 130, 180, 85);
+  }
+  writePng(png, 'tile_groomedGrass');
+}
+
+// ── tile_grass: default ground grass (replaces 24-variant terrain) ──
+// Olive-toned mid-green matching grass_tile_0.png. No mowing rows,
+// more chaos than the manicured lawn.
+function gen_grass() {
+  const png = makePng();
+  const rand = mulberry32(909);
+  const baseR = 80, baseG = 115, baseB = 50;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      // Strong per-pixel noise to read as individual grass blades.
-      const n = (rand() - 0.5) * 24;
-      // Per-channel jitter shifts hue slightly so noise looks organic.
+      const n = (rand() - 0.5) * 26;
       const nr = n + (rand() - 0.5) * 6;
       const ng = n + (rand() - 0.5) * 8;
-      const nb = n + (rand() - 0.5) * 4;
+      const nb = n + (rand() - 0.5) * 5;
       setPx(png, x, y, baseR + nr, baseG + ng, baseB + nb);
     }
   }
-  // Sparse darker blades (~5%) and lighter blades (~5%) for variety.
   const total = SIZE * SIZE;
   for (let i = 0; i < total * 0.05; i++) {
     const x = Math.floor(rand() * SIZE);
     const y = Math.floor(rand() * SIZE);
-    setPx(png, x, y, 55, 95, 30);
-    // Occasional 2-pixel vertical "blade" for shape variety.
-    if (rand() < 0.3) setPx(png, x, y + 1, 60, 100, 32);
+    setPx(png, x, y, 55, 88, 30);
+    if (rand() < 0.3) setPx(png, x, y + 1, 60, 92, 32);
   }
-  for (let i = 0; i < total * 0.05; i++) {
+  for (let i = 0; i < total * 0.04; i++) {
     const x = Math.floor(rand() * SIZE);
     const y = Math.floor(rand() * SIZE);
-    setPx(png, x, y, 120, 170, 75);
+    setPx(png, x, y, 110, 150, 70);
   }
-  writePng(png, 'tile_groomedGrass');
+  writePng(png, 'tile_grass');
+}
+
+// ── tile_hardwood: parquet-style hardwood planks ─────────────────────
+// Vertical planks 16 px wide (~0.5m at TEXEL_SCALE=32). Each plank has
+// a base wood tone with grain noise; thin darker seams between planks;
+// occasional cross-grain bands every ~32 px to suggest plank ends.
+function gen_hardwood() {
+  const png = makePng();
+  const rand = mulberry32(1010);
+  // Wood-tone palette: alternating planks slightly different colors.
+  const planks = [
+    [148, 100, 58],
+    [158, 108, 64],
+    [142, 95, 54],
+    [165, 112, 68],
+  ];
+  const PLANK_W = 16;
+  const PLANK_H = 32;
+  // Seam color (between planks)
+  const seamR = 90, seamG = 60, seamB = 32;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const plankCol = Math.floor(x / PLANK_W);
+      const plankRow = Math.floor(y / PLANK_H);
+      const plankId = (plankCol + plankRow * 7) % planks.length;
+      const tx = x % PLANK_W;
+      const ty = y % PLANK_H;
+      // Vertical plank seams (right edge of each plank)
+      const onPlankSeam = (tx === PLANK_W - 1);
+      // Horizontal cross-cut seam (every PLANK_H rows)
+      const onCrossSeam = (ty === PLANK_H - 1);
+      if (onPlankSeam || onCrossSeam) {
+        const n = (rand() - 0.5) * 6;
+        setPx(png, x, y, seamR + n, seamG + n, seamB + n);
+        continue;
+      }
+      const [pr, pg, pb] = planks[plankId];
+      // Wood grain: per-pixel jitter biased horizontally (longer streaks).
+      const grain = Math.sin(ty * 0.6 + plankCol * 1.7) * 8;
+      const n = (rand() - 0.5) * 14;
+      setPx(png, x, y, pr + grain + n, pg + grain * 0.7 + n, pb + grain * 0.5 + n);
+    }
+  }
+  writePng(png, 'tile_hardwood');
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -363,5 +445,7 @@ gen_cobblestone();
 gen_dirt();
 gen_pavement();
 gen_groomedGrass();
+gen_grass();
+gen_hardwood();
 
 console.log('done.');

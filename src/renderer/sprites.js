@@ -5,7 +5,7 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { ZONE_FURNISHINGS, INFRASTRUCTURE } from '../data/infrastructure.js';
 import { tileCenterIso } from './grid.js';
 
 export class SpriteManager {
@@ -199,6 +199,14 @@ export class SpriteManager {
   }
 
   getTilePath(gameId) {
+    // Prefer the new texture-material PNG if the INFRASTRUCTURE entry
+    // declares one — these are the same square seamless textures the
+    // 3D renderer applies to floors, and read better as palette
+    // previews than the old isometric diamond images.
+    const infra = INFRASTRUCTURE[gameId];
+    if (infra && infra.texture) {
+      return `assets/textures/materials/${infra.texture}.png`;
+    }
     return this.tilePaths[gameId] || null;
   }
 
