@@ -14,17 +14,12 @@ const TILES_DIR = path.join(__dirname, '..', '..', 'assets', 'tiles');
 const OUT_DIR   = path.join(__dirname, '..', '..', 'assets', 'textures', 'materials');
 const OUT_SIZE  = 64;
 
-// Floor surface tiles only — these are flat-content 2:1 iso diamonds.
-// Zone tiles (rfLab_0, etc.) are 3D scenes and excluded intentionally.
+// Only hallway is cropped from a diamond source — its terrazzo speckle
+// happens to read well after diamond unprojection. All other floor
+// surface materials are hand-authored procedurally in
+// tools/asset-gen/gen-floor-tiles.cjs.
 const SOURCES = [
-  'brick.png',
-  'cobblestone.png',
-  'concrete.png',
-  'dirt.png',
   'hallway.png',
-  'labFloor.png',
-  'officeFloor.png',
-  'pavement.png',
 ];
 
 function readPng(filePath) {
