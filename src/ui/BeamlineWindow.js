@@ -3,6 +3,7 @@
 import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { formatEnergy } from '../data/units.js';
+import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -284,13 +285,31 @@ export class BeamlineWindow {
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
     const nodeCount = entry.beamline.getAllNodes().length;
-    const statusColor = entry.status === 'running' ? '#44dd66' : entry.status === 'faulted' ? '#ff4444' : '#8888aa';
+    const statusColor = entry.status === 'running' ? '#44dd66'
+      : entry.status === 'faulted' ? '#ff4444'
+      : '#8888aa';
+
+    const swatchHtml = CANONICAL_ACCENTS.map((sw, i) => {
+      const hexStr = '#' + sw.hex.toString(16).padStart(6, '0');
+      const selected = entry.accentColor === sw.hex ? ' selected' : '';
+      return `<button class="beamline-accent-swatch${selected}" data-hex="${sw.hex}" title="${sw.name}" style="background:${hexStr}"></button>`;
+    }).join('');
+
+    const currentHex = '#' + (entry.accentColor || 0xc62828).toString(16).padStart(6, '0');
 
     el.innerHTML = `
       <div class="ctx-section-label">Configuration</div>
       <div class="ctx-stats-grid">
         <div class="ctx-stat"><div class="ctx-stat-label">Machine Type</div><div class="ctx-stat-val neutral">${bs.machineType || '--'}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Status</div><div class="ctx-stat-val" style="color:${statusColor}">${entry.status ? entry.status.toUpperCase() : '--'}</div></div>
+      </div>
+      <div class="ctx-section-label">Accent Color</div>
+      <div class="beamline-accent-row">
+        ${swatchHtml}
+        <label class="beamline-accent-custom" title="Custom color">
+          <input type="color" value="${currentHex}" data-role="accent-custom">
+          <span>+</span>
+        </label>
       </div>
       <div class="ctx-section-label">Layout</div>
       <div class="ctx-stats-grid three-col">
@@ -299,6 +318,32 @@ export class BeamlineWindow {
         <div class="ctx-stat"><div class="ctx-stat-label">Tiles</div><div class="ctx-stat-val neutral">${entry.beamline.getAllNodes().reduce((s, n) => s + (n.tiles ? n.tiles.length : 0), 0)}</div></div>
       </div>
     `;
+
+    // Wire up swatch clicks and custom picker.
+    const applyAccent = (hex) => {
+      entry.accentColor = hex;
+      if (this.game.renderer && typeof this.game.renderer.updateBeamlineAccent === 'function') {
+        this.game.renderer.updateBeamlineAccent(this.beamlineId, hex);
+      }
+      // Re-render to update the "selected" outline.
+      this._renderSettings(el);
+    };
+
+    el.querySelectorAll('.beamline-accent-swatch').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const hex = parseInt(btn.dataset.hex, 10);
+        if (!Number.isNaN(hex)) applyAccent(hex);
+      });
+    });
+
+    const customInput = el.querySelector('input[data-role="accent-custom"]');
+    if (customInput) {
+      customInput.addEventListener('input', (e) => {
+        // e.target.value is "#rrggbb"
+        const hex = parseInt(e.target.value.slice(1), 16);
+        if (!Number.isNaN(hex)) applyAccent(hex);
+      });
+    }
   }
 
   _renderFinance(el) {
