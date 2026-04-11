@@ -51,14 +51,14 @@ A new module `src/renderer/demolishHover.js` owns the hover presentation. It ren
 - **White name** label above the target
 - **Green "+$N (recycle)"** price label below
 
-This object-shaped overlay is used by all placeable-tier modes (`demolishBeamline`, `demolishEquipment`, `demolishFurnishing`, `demolishDecoration`, `demolishAll` when hovering a placeable, plus `demolishUtility` and `demolishDoor` since those feel object-like).
+This object-shaped overlay is used by all placeable-tier modes (`demolishBeamline`, `demolishEquipment`, `demolishFurnishing`, `demolishDecoration`, and `demolishAll` when hovering a placeable).
 
-**Floor/wall variant** — same module, different geometry, since floors and walls *are* the grid:
+**Tile / edge variants** — same module, different geometry, for kinds that don't have an object sprite to outline:
 
-- `demolishFloor`: red-tinted tile fill + "+$N" label centered on the tile
-- `demolishWall`: red thick-line along the specific edge being hovered + "+$N" label
+- `demolishFloor`, `demolishZone`, `demolishUtility`: red-tinted tile fill + "+$N" label centered on the tile
+- `demolishWall`, `demolishDoor`: red thick-line along the specific edge being hovered + "+$N" label
 
-Both variants share color, font, and refund logic via a single module so styling stays unified.
+All variants share color, font, name/refund label logic, and the `demolishRefund()` util via a single module so styling stays unified.
 
 The overlay only renders when `state.demolishMode` is set and the hit test returns a non-null target. No false-positive red boxes.
 
