@@ -271,7 +271,7 @@ export class InputHandler {
       const zoneType = this.game.state.zoneOccupied[key];
       if (zoneType) {
         const zone = ZONES[zoneType];
-        this.renderer.renderDemolishPreview(col, row, col, row);
+        this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(zone ? zone.name : zoneType, 0, screenX, screenY);
         found = true;
       }
@@ -281,7 +281,7 @@ export class InputHandler {
     if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
       const connTypes = this.game.state.connections.get(key);
       if (connTypes && connTypes.size > 0) {
-        this.renderer.renderDemolishPreview(col, row, col, row);
+        this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip([...connTypes].join(', '), 0, screenX, screenY);
         found = true;
       }
@@ -292,7 +292,7 @@ export class InputHandler {
       const infraType = this.game.state.infraOccupied[key];
       if (infraType) {
         const infra = INFRASTRUCTURE[infraType];
-        this.renderer.renderDemolishPreview(col, row, col, row);
+        this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
         found = true;
       }
@@ -306,7 +306,7 @@ export class InputHandler {
         const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
         const wallType = this.game.state.wallOccupied?.[ekey];
         if (wallType) {
-          this.renderer.renderDemolishPreview(edge.col, edge.row, edge.col, edge.row);
+          this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
           const def = WALL_TYPES[wallType];
           this._showDemolishTooltip(def?.name || 'Wall', demolishRefund(def), screenX, screenY);
           found = true;
@@ -322,7 +322,7 @@ export class InputHandler {
         const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
         const doorType = this.game.state.doorOccupied?.[ekey];
         if (doorType) {
-          this.renderer.renderDemolishPreview(edge.col, edge.row, edge.col, edge.row);
+          this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
           const def = DOOR_TYPES[doorType];
           this._showDemolishTooltip(def?.name || 'Door', demolishRefund(def), screenX, screenY);
           found = true;

@@ -1195,9 +1195,54 @@ export class ThreeRenderer {
   }
 
   /**
+   * Demolish hover for a single tile-shaped object (floor, zone, utility).
+   * Draws just the wireframe border at floor level — no filled plane — so
+   * the highlight reads as "this tile" without a fill that smears past the
+   * actual object footprint.
+   */
+  renderDemolishTileOutline(col, row) {
+    this._clearPreview();
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0xff4444, transparent: true, opacity: 0.95,
+    });
+    const x0 = col * 2, x1 = col * 2 + 2;
+    const z0 = row * 2, z1 = row * 2 + 2;
+    const y = 0.05;
+    const pts = [
+      new THREE.Vector3(x0, y, z0), new THREE.Vector3(x1, y, z0),
+      new THREE.Vector3(x1, y, z1), new THREE.Vector3(x0, y, z1),
+      new THREE.Vector3(x0, y, z0),
+    ];
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+  }
+
+  /**
+   * Demolish hover for a wall/door edge. Draws a thin red line along the
+   * wall's footprint at floor level. Half-tile long, oriented with the edge.
+   */
+  renderDemolishEdgeOutline(col, row, edge) {
+    this._clearPreview();
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0xff4444, transparent: true, opacity: 0.95,
+    });
+    const y = 0.05;
+    const pos = this._wallEdgePosition(col, row, edge);
+    const isNS = edge === 'n' || edge === 's';
+    let p0, p1;
+    if (isNS) {
+      p0 = new THREE.Vector3(pos.x - 1, y, pos.z);
+      p1 = new THREE.Vector3(pos.x + 1, y, pos.z);
+    } else {
+      p0 = new THREE.Vector3(pos.x, y, pos.z - 1);
+      p1 = new THREE.Vector3(pos.x, y, pos.z + 1);
+    }
+    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), edgeMat));
+  }
+
+  /**
    * Render demolish preview — red translucent rectangle over the drag area.
-   * Uses depth-tested materials so the highlight is occluded by walls/objects
-   * sitting on top of the floor it marks.
+   * Used by drag-select multi-tile demolish; single-tile hover uses
+   * renderDemolishTileOutline instead so it reads as a thin object outline.
    */
   renderDemolishPreview(col1, row1, col2, row2) {
     this._clearPreview();
