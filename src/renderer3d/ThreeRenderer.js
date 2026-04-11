@@ -5,7 +5,7 @@ import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
 import { InfraBuilder } from './infra-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, createBeamlineGhost } from './component-builder.js';
+import { ComponentBuilder, createBeamlineGhost, getAccentMaterial } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -600,6 +600,29 @@ export class ThreeRenderer {
 
   updateCursorBendDir(dir) { this.cursorBendDir = dir; }
   updatePlacementDir(dir) { this.placementDir = dir; this._renderCursors(); }
+
+  /**
+   * Swap the accent material on every placed component belonging to the
+   * given beamline. O(N) in placements on that beamline; O(1) new materials.
+   *
+   * @param {string} beamlineId
+   * @param {number} colorHex  24-bit color integer
+   */
+  updateBeamlineAccent(beamlineId, colorHex) {
+    if (!this.componentBuilder || !this.componentBuilder._meshMap) return;
+    for (const wrapper of this.componentBuilder._meshMap.values()) {
+      if (wrapper.userData.beamlineId !== beamlineId) continue;
+      const compType = wrapper.userData.compType;
+      if (!compType) continue;
+      // Walk the wrapper (Group -> visual Group -> role meshes) and swap
+      // the material on any mesh tagged with userData.role === 'accent'.
+      wrapper.traverse((child) => {
+        if (child.isMesh && child.userData.role === 'accent') {
+          child.material = getAccentMaterial(compType, colorHex);
+        }
+      });
+    }
+  }
 
   // --- Render delegation methods (called by game events and legacy code) ---
   // These bridge calls from code that expects the old Renderer API.

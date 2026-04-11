@@ -64,7 +64,7 @@ const _accentMatCache = new Map();
  * The `compType` is part of the key so future components can tweak
  * roughness/metalness per type without affecting others.
  */
-function getAccentMaterial(compType, colorHex) {
+export function getAccentMaterial(compType, colorHex) {
   const key = compType + '|' + colorHex.toString(16).padStart(6, '0');
   let m = _accentMatCache.get(key);
   if (!m) {
