@@ -1030,13 +1030,13 @@ export class ThreeRenderer {
    */
   _outlineObject(sourceObj, color = 0xff4444) {
     if (!sourceObj) return;
+    // Depth-tested outline so back edges of the box are hidden behind the
+    // front faces. Without this, every edge renders through the mesh and
+    // the back-top edges look like a phantom duplicate floating above.
     const lineMat = new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: 0.9,
-      depthTest: false, depthWrite: false,
+      color, transparent: true, opacity: 0.95,
     });
-    // Wrap all outlines in a group at the source object's world position/rotation
     const wrapper = new THREE.Group();
-    wrapper.renderOrder = 999;
 
     sourceObj.traverse(child => {
       if (!child.isMesh || !child.geometry) return;
