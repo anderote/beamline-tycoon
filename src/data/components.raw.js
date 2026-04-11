@@ -56,16 +56,16 @@ export const COMPONENTS_RAW = {
   dipole: {
     id: 'dipole',
     name: 'Dipole',
-    desc: 'Bending magnet that deflects the beam 90 degrees. Use dipoles to route your beamline around corners and build compact layouts. Press F to flip the bend direction (left/right) before placing. Essential for creating rings or redirecting beam paths.',
+    desc: 'C-clamp bending magnet that deflects the beam 90 degrees toward the open side of the yoke. Use dipoles to route your beamline around corners and build compact layouts. Essential for creating rings or redirecting beam paths.',
     category: 'focusing',
     subsection: 'normalConducting',
     cost: { funding: 300000 },
     stats: { bendAngle: 90 },
     energyCost: 8,
-    subL: 6,
-    subW: 3,
-    subH: 4, gridW: 3, gridH: 6, geometryType: 'box',
-    interiorVolume: 8,
+    subL: 2,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
+    interiorVolume: 2,
     unlocked: true,
     isDipole: true,
     spriteKey: 'dipole',
@@ -73,7 +73,9 @@ export const COMPONENTS_RAW = {
     placement: 'module',
     ports: {
       entry: { side: 'back' },
-      exit: { side: 'front' },
+      // Exit is on the left side of the yoke — the open side of the
+      // C-clamp — so the connected pipe bends 90° toward the C opening.
+      exit: { side: 'left' },
     },
 
     requiredConnections: ['powerCable', 'coolingWater'],
@@ -89,7 +91,7 @@ export const COMPONENTS_RAW = {
     energyCost: 6,
     subL: 2,
     subW: 2,
-    subH: 3, gridW: 2, gridH: 2, geometryType: 'cylinder',
+    subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
     interiorVolume: 2,
     unlocked: true,
     spriteKey: 'quadrupole',

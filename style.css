@@ -429,6 +429,24 @@ body {
   margin: 2px 4px;
 }
 
+.facility-group-toggle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  padding: 6px 10px;
+  background: rgba(70, 50, 100, 0.85);
+  color: #ddccff;
+  border: 1px solid rgba(140, 100, 200, 0.6);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+
+.facility-group-toggle:hover {
+  background: rgba(90, 65, 130, 0.9);
+  color: #f0e4ff;
+}
+
 /* HUD buttons */
 #hud-buttons {
   display: flex;
@@ -1608,7 +1626,7 @@ body {
 /* === COMPONENT PREVIEW PANEL === */
 #component-preview {
   position: absolute;
-  bottom: 230px;
+  bottom: 280px;
   left: 12px;
   z-index: 110;
   background: rgba(15, 15, 35, 0.92);
@@ -1850,6 +1868,7 @@ body {
 .ctx-tab:hover { color:#aaaacc; background:rgba(50, 50, 80, 0.5); }
 .ctx-tab.active { color:#ccddff; border-bottom-color:rgba(68, 136, 255, 0.6); background:rgba(60, 80, 140, 0.4); }
 .ctx-body { padding:10px 12px; height:410px; overflow-y:auto; }
+.ctx-window[data-ctx-id^="bl-"] .ctx-body { height:350px; }
 .ctx-actions { padding:8px 12px 10px; display:flex; gap:6px; border-top:1px solid rgba(80, 80, 120, 0.3); }
 .ctx-action-btn { flex:1; text-align:center; padding:6px 10px; border:1px solid rgba(80, 80, 120, 0.4); border-radius:3px; font-family:'Press Start 2P', monospace; font-size:8px; cursor:pointer; background:rgba(30, 30, 55, 0.7); color:#aaaacc; transition:background 0.15s, color 0.15s; }
 .ctx-action-btn:hover { background:rgba(50, 50, 80, 0.8); color:#ccccee; }
@@ -2426,6 +2445,10 @@ body {
 .demolish-tooltip {
   border-color: rgba(180, 60, 60, 0.6);
   background: rgba(32, 12, 12, 0.94);
+}
+.drag-cost-tooltip {
+  border-color: rgba(80, 200, 120, 0.6);
+  background: rgba(12, 28, 16, 0.94);
 }
 .dsgn-endpoint-selector {
   display: inline-flex;

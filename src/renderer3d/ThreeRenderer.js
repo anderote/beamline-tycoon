@@ -13,8 +13,8 @@ import { ConnectionBuilder } from './connection-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
 import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
-import { tileCenterIso } from '../renderer/grid.js';
-import { WALL_TYPES } from '../data/infrastructure.js';
+import { tileCenterIso, gridToIso } from '../renderer/grid.js';
+import { WALL_TYPES, ZONES } from '../data/infrastructure.js';
 import { COMPONENTS } from '../data/components.js';
 import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
@@ -60,6 +60,16 @@ export class ThreeRenderer {
     this._panX = 0;
     this._panY = 0;
     this.zoom = 1;
+
+    // View rotation (RCT2-style Q/E 90° orbit). Angle is in radians around
+    // the Y axis, camera orbits around (_panX, _panY) at the dimetric elevation.
+    this._viewRotationIndex = 0;      // 0..3 (current snap target)
+    this._viewRotationAngle = 0;      // current animated angle (rad)
+    this._viewRotFromAngle = 0;
+    this._viewRotToAngle = 0;
+    this._viewRotStartMs = 0;
+    this._viewRotDurationMs = 400;
+    this._viewRotating = false;
 
     this._frustumSize = 20;
     this._animFrameId = null;
@@ -309,6 +319,7 @@ export class ThreeRenderer {
           break;
         case 'zonesChanged':
           this._refreshTerrain();
+          this._refreshZones();
           if (this._refreshPalette) this._refreshPalette();
           break;
         case 'wallsChanged':
@@ -359,9 +370,20 @@ export class ThreeRenderer {
     // Make overlay canvas interactive (receives pointer events)
     this.canvas.style.pointerEvents = 'auto';
 
-    // Set initial world position (same as old Renderer)
-    this.world.x = this.app.screen.width / 2;
-    this.world.y = this.app.screen.height / 3;
+    // Set initial camera pan target (matches the old "iso origin at
+    // screen.width/2, screen.height/3" offset). Derive panX/panY from that
+    // offset using the rotation=0 iso math, then apply.
+    {
+      const screenW = this.app.screen.width;
+      const screenH = this.app.screen.height;
+      const isoCenterY = (screenH / 2 - screenH / 3) / this.zoom;
+      const col = (isoCenterY / 16) / 2;
+      const row = col;
+      this._panX = col * 2;
+      this._panY = row * 2;
+      this._syncOverlayFromPan();
+      this._updateCameraLookAt();
+    }
 
     // Generate placeholder sprites
     this.sprites.generatePlaceholders(this.app);
@@ -393,10 +415,22 @@ export class ThreeRenderer {
   // --- Coordinate conversion (PixiJS-compatible) ---
 
   screenToWorld(screenX, screenY) {
-    return {
-      x: (screenX - this.world.x) / this.zoom,
-      y: (screenY - this.world.y) / this.zoom,
-    };
+    // Raycast the ground plane through the current camera so this respects
+    // view rotation. Returns iso-pixel coords (the downstream isoToGrid /
+    // isoToSubGrid helpers expect base-iso coordinates, so we convert the
+    // fractional grid position back through gridToIso).
+    const hit = this._raycastGround(screenX, screenY);
+    if (!hit) {
+      // Fallback before the camera is ready.
+      return {
+        x: (screenX - (this.world?.x || 0)) / this.zoom,
+        y: (screenY - (this.world?.y || 0)) / this.zoom,
+      };
+    }
+    // Terrain tile (col, row) is placed at world (col*2, 0, row*2)..(+2, +2).
+    const fCol = hit.x / 2;
+    const fRow = hit.z / 2;
+    return gridToIso(fCol, fRow);
   }
 
   /**
@@ -412,7 +446,7 @@ export class ThreeRenderer {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
     // Only test component, equipment, and connection groups
-    const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup];
+    const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup, this.pipeAttachmentGroup];
     const all = [];
     for (const g of targets) {
       if (g) all.push(...raycaster.intersectObjects(g.children, true));
@@ -453,6 +487,15 @@ export class ThreeRenderer {
         }
         return { group: 'component', rootObj: obj };
       }
+      if (obj.parent === this.pipeAttachmentGroup) {
+        // Reverse-lookup the attachment id from the pipeAttachmentBuilder's
+        // mesh map. pipeId is stored on userData by component-builder.
+        let attachmentId = null;
+        for (const [id, mesh] of this.pipeAttachmentBuilder._meshMap) {
+          if (mesh === obj) { attachmentId = id; break; }
+        }
+        return { group: 'attachment', rootObj: obj, attachmentId, pipeId: obj.userData.pipeId || null };
+      }
       if (obj.parent === this.equipmentGroup) {
         return { group: 'equipment', rootObj: obj };
       }
@@ -475,27 +518,159 @@ export class ThreeRenderer {
 
   // --- Camera controls (PixiJS-compatible, syncs to Three.js) ---
 
-  zoomAt(screenX, screenY, delta) {
-    const oldZoom = this.zoom;
-    this.zoom = Math.max(0.2, Math.min(8, this.zoom + delta));
+  /**
+   * Raycast a screen pixel to the y=0 plane. Returns a THREE.Vector3 or null.
+   * Uses the current camera orientation, so it respects view rotation.
+   */
+  _raycastGround(screenX, screenY) {
+    if (!this.camera || !this.renderer) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hit = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
+  }
 
-    // Zoom toward cursor position
-    const worldX = screenX - this.world.x;
-    const worldY = screenY - this.world.y;
-    const scale = this.zoom / oldZoom;
-    this.world.x = screenX - worldX * scale;
-    this.world.y = screenY - worldY * scale;
-
+  /**
+   * Keep the PixiJS world.x/y/scale in sync with the current pan/zoom. These
+   * are legacy bookkeeping readers (save/load, some debug paths). They use
+   * the rotation=0 iso formula regardless of current rotation, since nothing
+   * is drawn through the overlay.
+   */
+  _syncOverlayFromPan() {
+    if (!this.app || !this.world) return;
+    const screenW = this.app.screen.width;
+    const screenH = this.app.screen.height;
+    // Convert world XZ pan → grid → iso pixel coords via the base formula.
+    const col = this._panX / 2;
+    const row = this._panY / 2;
+    const isoX = (col - row) * 32;
+    const isoY = (col + row) * 16;
+    this.world.x = screenW / 2 - this.zoom * isoX;
+    this.world.y = screenH / 2 - this.zoom * isoY;
     this.world.scale.set(this.zoom);
-    this._syncThreeCameraFromOverlay();
+    this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
+    this._updateCameraFrustum();
+  }
+
+  zoomAt(screenX, screenY, delta) {
+    // Remember which world point is under the cursor before the zoom.
+    const before = this._raycastGround(screenX, screenY);
+    this.zoom = Math.max(0.2, Math.min(8, this.zoom + delta));
+    // Rebuild frustum from new zoom so the subsequent raycast uses the new view.
+    const screenH = this.app.screen.height;
+    this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
+    this._updateCameraFrustum();
+    // Find where the cursor now lands, and shift the pan so the original
+    // world point ends up back under the cursor.
+    if (before) {
+      const after = this._raycastGround(screenX, screenY);
+      if (after) {
+        this._panX += (before.x - after.x);
+        this._panY += (before.z - after.z);
+      }
+    }
+    this._updateCameraLookAt();
+    this._syncOverlayFromPan();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
   }
 
-  panBy(dx, dy) {
-    this.world.x -= dx;
-    this.world.y -= dy;
-    this._syncThreeCameraFromOverlay();
+  /**
+   * Pan the scene by (dxScreen, dyScreen) screen pixels. Works for any view
+   * rotation because it derives the world XZ delta via raycasting.
+   *
+   * Convention: positive dxScreen means "content follows cursor to the right"
+   * (natural mouse-drag semantics). WASD callers pass inverted deltas so that
+   * D = camera moves right (content shifts left) feels correct.
+   */
+  panBy(dxScreen, dyScreen) {
+    if (!this.camera) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const p0 = this._raycastGround(cx, cy);
+    const p1 = this._raycastGround(cx + dxScreen, cy + dyScreen);
+    if (!p0 || !p1) return;
+    // p1 - p0 is the world delta that the offset cursor corresponds to.
+    // Subtract so that dragging the cursor right shifts the lookAt LEFT,
+    // making the scene follow the cursor (natural drag feel).
+    this._panX -= (p1.x - p0.x);
+    this._panY -= (p1.z - p0.z);
+    this._updateCameraLookAt();
+    this._syncOverlayFromPan();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+  }
+
+  /**
+   * Pan the camera by screen-aligned deltas expressed in world-pan units:
+   *   dxRight > 0 moves the camera right (content shifts LEFT on screen)
+   *   dyUp    > 0 moves the camera up/forward (content shifts DOWN on screen)
+   * Computed directly from the current view rotation angle — no raycast, so
+   * it isn't affected by stale camera.matrixWorld between frames.
+   */
+  panScreenAligned(dxRight, dyUp) {
+    const a = this._viewRotationAngle;
+    const cosA = Math.cos(a);
+    const sinA = Math.sin(a);
+    // Ground-projected camera axes for the dimetric rig (pre-normalized by √2):
+    //   right   = Ry(a) · (1, 0, -1)/√2 → ((cos - sin), -(cos + sin))/√2
+    //   forward = Ry(a) · (-1, 0, -1)/√2 → (-(cos + sin), (sin - cos))/√2
+    const INV_SQRT2 = 1 / Math.SQRT2;
+    const rx = (cosA - sinA) * INV_SQRT2;
+    const rz = -(cosA + sinA) * INV_SQRT2;
+    const fx = -(cosA + sinA) * INV_SQRT2;
+    const fz = (sinA - cosA) * INV_SQRT2;
+    this._panX += dxRight * rx + dyUp * fx;
+    this._panY += dxRight * rz + dyUp * fz;
+    this._updateCameraLookAt();
+    this._syncOverlayFromPan();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+  }
+
+  /**
+   * Absolute drag pan: given the pan state at drag start and the cumulative
+   * mouse pixel delta, restore-and-shift so repeated calls produce stable
+   * behaviour independent of per-frame drift.
+   */
+  setPanFromDragDelta(startPanX, startPanY, dxTotal, dyTotal) {
+    this._panX = startPanX;
+    this._panY = startPanY;
+    this._updateCameraLookAt();
+    this.panBy(dxTotal, dyTotal);
+  }
+
+  /**
+   * Rotate the view by ±90° (RCT2-style). Animates to the new rest angle.
+   */
+  rotateView(delta) {
+    if (this._viewRotating) return;
+    const step = delta > 0 ? 1 : -1;
+    this._viewRotationIndex = (((this._viewRotationIndex + step) % 4) + 4) % 4;
+    this._viewRotFromAngle = this._viewRotationAngle;
+    this._viewRotToAngle = this._viewRotFromAngle + step * Math.PI / 2;
+    this._viewRotStartMs = performance.now();
+    this._viewRotating = true;
+    // Hide the PixiJS overlay during the animation. Nothing is currently
+    // drawn through it in the 3D renderer, but this keeps the door open.
+    if (this.world) this.world.visible = false;
+  }
+
+  _tickViewRotation() {
+    if (!this._viewRotating) return;
+    const t = Math.min(1, (performance.now() - this._viewRotStartMs) / this._viewRotDurationMs);
+    // easeInOutQuad
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    this._viewRotationAngle = this._viewRotFromAngle + (this._viewRotToAngle - this._viewRotFromAngle) * ease;
+    this._updateCameraLookAt();
+    if (t >= 1) {
+      this._viewRotating = false;
+      this._viewRotationAngle = this._viewRotToAngle;
+      this._updateCameraLookAt();
+      if (this.world) this.world.visible = true;
+    }
   }
 
   /**
@@ -595,6 +770,7 @@ export class ThreeRenderer {
 
   toggleZoneOverlay() {
     this.zoneOverlayVisible = !this.zoneOverlayVisible;
+    if (this.zoneGroup) this.zoneGroup.visible = this.zoneOverlayVisible;
     return this.zoneOverlayVisible;
   }
 
@@ -796,7 +972,7 @@ export class ThreeRenderer {
   _renderComponents() { this._refreshComponents(); }
   _renderBeam() { this._refreshBeam(); }
   _renderInfrastructure() { this._refreshInfra(); }
-  _renderZones() { /* zone overlays — future (3D handles terrain coloring) */ }
+  _renderZones() { this._refreshZones(); }
   _renderWalls() { this._refreshWalls(); }
   _renderDoors() { this._refreshWalls(); }
   _renderFacilityEquipment() { this._refreshEquipment(); }
@@ -1171,19 +1347,26 @@ export class ThreeRenderer {
         child.material.transparent = true;
         child.material.opacity = 0.4;
         child.material.depthWrite = false;
+        child.material.depthTest = false;
         if (child.material.color) {
           child.material.color.setHex(valid ? 0x44ff44 : 0xff4444);
         }
         child.castShadow = false;
         child.receiveShadow = false;
+        child.renderOrder = 999;
       }
     });
 
     const isDetailed = !!obj.children?.length;
     const SUB_UNIT = 0.5;
     // Mirror renderComponentGhost: prefer gridW/gridH (legacy) then subW/subL.
-    const gwSub = placeable.gridW || placeable.subW || 4;
-    const ghSub = placeable.gridH || placeable.subL || placeable.subH || 4;
+    // snapForPlaceable swaps w/h for dir 1/3, so the footprint outline and
+    // mesh center must swap too or they diverge from the reserved subcells.
+    const gwRaw = placeable.gridW || placeable.subW || 4;
+    const ghRaw = placeable.gridH || placeable.subL || placeable.subH || 4;
+    const swap = (hover.dir === 1 || hover.dir === 3);
+    const gwSub = swap ? ghRaw : gwRaw;
+    const ghSub = swap ? gwRaw : ghRaw;
     const sc = hover.subCol || 0;
     const sr = hover.subRow || 0;
     const footW = gwSub * SUB_UNIT;
@@ -1237,15 +1420,21 @@ export class ThreeRenderer {
         child.material.transparent = true;
         child.material.opacity = 0.4;
         child.material.depthWrite = false;
+        child.material.depthTest = false;
         child.castShadow = false;
         child.receiveShadow = false;
+        child.renderOrder = 999;
       }
     });
     const isDetailed = !!obj.children?.length; // groups are detailed, bare meshes are fallbacks
     const SUB_UNIT = 0.5;
-    // Footprint in sub-units (gridW/gridH store sub-cell counts).
-    const gwSub = compDef.gridW || compDef.subW || 4;
-    const ghSub = compDef.gridH || compDef.subL || 4;
+    // Footprint in sub-units (gridW/gridH store sub-cell counts). snapForPlaceable
+    // swaps w/h for dir 1/3 so outline + mesh center must swap to match.
+    const gwRaw = compDef.gridW || compDef.subW || 4;
+    const ghRaw = compDef.gridH || compDef.subL || 4;
+    const swap = (direction === 1 || direction === 3);
+    const gwSub = swap ? ghRaw : gwRaw;
+    const ghSub = swap ? gwRaw : ghRaw;
     const sc = subCol || 0;
     const sr = subRow || 0;
     const footW = gwSub * SUB_UNIT; // world units
@@ -1296,6 +1485,70 @@ export class ThreeRenderer {
       new THREE.Vector3(tipX - dx * chevLen - perpX * chevLen, 0.15, tipZ - dz * chevLen - perpZ * chevLen),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+  }
+
+  /**
+   * Render a transparent ghost of an attachment component at a fractional
+   * position along a beam pipe. Mirrors `renderComponentGhost` but treats
+   * `col`/`row` as world-centered fractional coordinates (matching the
+   * world-snapshot convention for placed attachments) rather than tile
+   * top-left + sub-tile offset.
+   */
+  renderAttachmentGhost(col, row, compType, direction, valid) {
+    this._clearPreview();
+    const compDef = COMPONENTS[compType];
+    if (!compDef) return;
+    const obj = this.componentBuilder._createObject(compDef);
+    if (!obj) return;
+    obj.traverse(child => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        child.material.transparent = true;
+        child.material.opacity = 0.4;
+        child.material.depthWrite = false;
+        if (child.material.color) {
+          child.material.color.setHex(valid ? 0x44ff44 : 0xff4444);
+        }
+        child.castShadow = false;
+        child.receiveShadow = false;
+      }
+    });
+    const isDetailed = !!obj.children?.length;
+    const SUB_UNIT = 0.5;
+    // Attachments use `col * 2 + 1` (fractional col is already the
+    // world-centered tile coordinate from the pipe projection).
+    const px = col * 2 + 1;
+    const pz = row * 2 + 1;
+    const y = isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2;
+    obj.position.set(px, y, pz);
+    obj.rotation.y = -(direction || 0) * (Math.PI / 2);
+    obj.renderOrder = 999;
+    this.previewGroup.add(obj);
+
+    // Footprint outline (same size as the component's sub-tile footprint,
+    // centered on the projected point).
+    const gwSub = compDef.gridW || compDef.subW || 4;
+    const ghSub = compDef.gridH || compDef.subL || 4;
+    const footW = gwSub * SUB_UNIT;
+    const footH = ghSub * SUB_UNIT;
+    const tileColor = valid ? 0x44ff44 : 0xff4444;
+    const edgeMat = this._previewEdgeMat(tileColor);
+    const fillMat = this._previewMat(tileColor, 0.15);
+    const x0 = px - footW / 2;
+    const x1 = px + footW / 2;
+    const z0 = pz - footH / 2;
+    const z1 = pz + footH / 2;
+    const pts = [
+      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
+      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
+      new THREE.Vector3(x0, 0.12, z0),
+    ];
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    const fillGeo = new THREE.PlaneGeometry(footW, footH);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(fillGeo, fillMat);
+    fill.position.set(px, 0.1, pz);
+    this._addPreviewMesh(fill);
   }
 
   /** Calculate the tile footprint for a component ghost preview. */
@@ -1639,10 +1892,17 @@ export class ThreeRenderer {
   }
 
   _updateCameraLookAt() {
-    // Move both position and target by pan offset — maintains dimetric angle
+    // Orbit the dimetric camera around (_panX, _panY) by the current view rotation.
+    // Y axis rotation of the default offset (CAM_D, 0, CAM_D).
     const CAM_D = 50;
     const CAM_H = CAM_D * Math.sqrt(6) / 3;
-    this.camera.position.set(CAM_D + this._panX, CAM_H, CAM_D + this._panY);
+    const a = this._viewRotationAngle;
+    const cosA = Math.cos(a);
+    const sinA = Math.sin(a);
+    // Ry(a) · (CAM_D, 0, CAM_D) → (D·cos + D·sin, 0, -D·sin + D·cos)
+    const offX = CAM_D * cosA + CAM_D * sinA;
+    const offZ = -CAM_D * sinA + CAM_D * cosA;
+    this.camera.position.set(this._panX + offX, CAM_H, this._panY + offZ);
     this.camera.lookAt(this._panX, 0, this._panY);
   }
 
@@ -1653,9 +1913,8 @@ export class ThreeRenderer {
 
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
-    // Sync Three.js camera from PixiJS world container every frame
-    // (InputHandler may directly set world.x/y without calling panBy)
-    this._syncThreeCameraFromOverlay();
+    // Advance the Q/E rotation animation (orbits camera around pan target).
+    this._tickViewRotation();
     // Keep anchored windows tracking during mouse-drag panning
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
@@ -1733,10 +1992,10 @@ export class ThreeRenderer {
     const dayness = Math.max(0, sunFactor); // 0 at night, 1 at noon
 
     // Directional light: strong sunlight, gentle fade at night
-    this._sunLight.intensity = 0.6 + 0.8 * dayness;
+    this._sunLight.intensity = 0.8 + 1.0 * dayness;
 
     // Ambient light: generous baseline so it never gets too dark
-    this._ambientLight.intensity = 0.5 + 0.3 * dayness;
+    this._ambientLight.intensity = 0.7 + 0.4 * dayness;
 
     // Color temperature shift: warm orange at sunrise/sunset, bright white at noon, soft blue at night
     if (dayness > 0.01) {
@@ -1777,6 +2036,7 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.connectionBuilder.build(snapshot.connections, this.connectionGroup);
     this._refreshBeamPipes();
+    this._refreshZones();
   }
 
   refresh() {
@@ -1792,7 +2052,143 @@ export class ThreeRenderer {
   _refreshInfra() {
     const snap = buildWorldSnapshot(this.game);
     this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup);
-    this._refreshGrid(snap);
+  }
+
+  _refreshZones() {
+    if (!this.zoneGroup) return;
+    while (this.zoneGroup.children.length > 0) {
+      const child = this.zoneGroup.children[0];
+      this.zoneGroup.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    }
+
+    const zones = this.game.state.zones || [];
+    if (zones.length === 0) return;
+
+    const byType = new Map();
+    for (const z of zones) {
+      if (!byType.has(z.type)) byType.set(z.type, []);
+      byType.get(z.type).push(z);
+    }
+
+    for (const [type, tiles] of byType) {
+      const def = ZONES[type];
+      if (!def) continue;
+
+      const quadGeo = new THREE.PlaneGeometry(2, 2);
+      quadGeo.rotateX(-Math.PI / 2);
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(def.color),
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
+
+      const mesh = new THREE.InstancedMesh(quadGeo, mat, tiles.length);
+      mesh.matrixAutoUpdate = false;
+      mesh.renderOrder = 2;
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        dummy.position.set(t.col * 2 + 1, 0.02, t.row * 2 + 1);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      this.zoneGroup.add(mesh);
+
+      const clusters = this._clusterZoneTiles(tiles);
+      for (const cluster of clusters) {
+        let cx = 0, cz = 0;
+        for (const t of cluster) { cx += t.col; cz += t.row; }
+        cx = cx / cluster.length * 2 + 1;
+        cz = cz / cluster.length * 2 + 1;
+        const label = `${def.name} [${cluster.length}]`;
+        const sprite = this._makeLabelSprite(label);
+        sprite.position.set(cx, 0.4, cz);
+        this.zoneGroup.add(sprite);
+      }
+    }
+
+    this.zoneGroup.visible = this.zoneOverlayVisible !== false;
+  }
+
+  _clusterZoneTiles(tiles) {
+    const keyOf = (c, r) => c + ',' + r;
+    const remaining = new Map();
+    for (const t of tiles) remaining.set(keyOf(t.col, t.row), t);
+    const clusters = [];
+    while (remaining.size > 0) {
+      const first = remaining.values().next().value;
+      remaining.delete(keyOf(first.col, first.row));
+      const cluster = [first];
+      const queue = [first];
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        const neighbors = [
+          [cur.col + 1, cur.row], [cur.col - 1, cur.row],
+          [cur.col, cur.row + 1], [cur.col, cur.row - 1],
+        ];
+        for (const [nc, nr] of neighbors) {
+          const k = keyOf(nc, nr);
+          if (remaining.has(k)) {
+            const n = remaining.get(k);
+            remaining.delete(k);
+            cluster.push(n);
+            queue.push(n);
+          }
+        }
+      }
+      clusters.push(cluster);
+    }
+    return clusters;
+  }
+
+  _makeLabelSprite(text) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const fontSize = 8;
+    const font = `${fontSize}px 'Press Start 2P', monospace`;
+    const measureCanvas = document.createElement('canvas');
+    const mctx = measureCanvas.getContext('2d');
+    mctx.font = font;
+    const textW = mctx.measureText(text).width;
+    const padX = 4;
+    const padY = 4;
+    const cssW = Math.ceil(textW + padX * 2);
+    const cssH = Math.ceil(fontSize + padY * 2);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.font = font;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(text, cssW / 2, cssH / 2);
+    ctx.fillText(text, cssW / 2, cssH / 2);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    const worldH = 0.42;
+    sprite.scale.set(worldH * (cssW / cssH), worldH, 1);
+    sprite.renderOrder = 10;
+    return sprite;
   }
 
   _refreshWalls() {

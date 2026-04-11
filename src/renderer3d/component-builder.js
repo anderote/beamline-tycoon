@@ -508,185 +508,130 @@ function _pushTransformed(bucket, geom, matrix) {
 }
 
 /**
- * Build the role buckets for a quadrupole magnet.
+ * Build the role buckets for a C-clamp magnet. The C opens toward local
+ * -X. Dipoles use `bentPipe: true`, which routes the internal beam pipe
+ * as an L (entry on local -Z, exit on local -X), visually showing the
+ * 90° bend toward the open side of the C. Quadrupoles share the same
+ * yoke/coils/supports as a placeholder but keep a straight pipe.
  *
- * Physical layout (1m x 1m x 1.5m, beam along local +Z):
- *   - 4 painted iron yoke slabs forming a square frame
- *   - 4 dark iron pole tips pointing inward
- *   - 4 copper coil rings wrapped around the poles
- *   - Bolts at the yoke corners (detail LOD)
- *   - Beam pipe straight through the center
+ * Physical layout (1m × 1m × 1m, beam along local +Z):
+ *   - C-shaped painted iron clamp: a spine on +X with top and bottom arms
+ *     extending toward -X, forming a gap the beam pipe passes through.
+ *   - Two rectangular copper coil bars on the inner faces of the arms,
+ *     running the full length of the magnet.
+ *   - Beam pipe: straight for quads, L-shaped 90° bend for dipoles.
+ *   - Simple pedestal supports at each end: foot plate with two columns
+ *     rising to the underside of the bottom arm.
  */
-function _buildQuadrupoleRoles() {
+function _buildCClampRoles(bentPipe) {
   /** @type {Record<string, THREE.BufferGeometry[]>} */
-  const buckets = { accent: [], iron: [], copper: [], pipe: [], detail: [] };
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
   const m4 = new THREE.Matrix4();
 
-  const yokeOuter = 0.55;       // half width of the square yoke
-  const wall = 0.14;            // yoke slab thickness
-  const magL = 0.9;             // length along beam axis
+  // 1-tile footprint: 2×2 sub-units (1m) in both X and Z.
+  const yokeOuter = 0.4;    // half-extent of the yoke in X and Y
+  const wall      = 0.12;   // yoke slab thickness
+  const magL      = 1.0;    // full tile depth — adjacent quads touch face-to-face
+  const backX     = yokeOuter - wall / 2;    // X center of the C's spine (+X side)
+  const armY      = yokeOuter - wall / 2;    // Y offset of the top/bottom arm centers
+  const armW      = 2 * yokeOuter - wall;    // X span of the arms (stops at spine's inner face)
+  const armCx     = -wall / 2;               // X center of the arms
 
-  // --- Painted yoke slabs (accent role) ---
-  // Each slab: [x, y, width, height]
-  const slabs = [
-    [0,  yokeOuter - wall / 2, yokeOuter * 2, wall],   // top
-    [0, -yokeOuter + wall / 2, yokeOuter * 2, wall],   // bottom
-    [ yokeOuter - wall / 2, 0, wall, yokeOuter * 2],   // right
-    [-yokeOuter + wall / 2, 0, wall, yokeOuter * 2],   // left
-  ];
-  for (const [x, y, w, h] of slabs) {
-    const g = new THREE.BoxGeometry(w, h, magL);
-    m4.makeTranslation(x, BEAM_HEIGHT + y, 0);
+  // --- Painted yoke (accent role) ---
+  // Spine: vertical slab on +X
+  {
+    const g = new THREE.BoxGeometry(wall, 2 * yokeOuter, magL);
+    m4.makeTranslation(backX, BEAM_HEIGHT, 0);
+    _pushTransformed(buckets.accent, g, m4);
+  }
+  // Top and bottom arms: horizontal slabs forming the C's jaws
+  for (const sign of [1, -1]) {
+    const g = new THREE.BoxGeometry(armW, wall, magL);
+    m4.makeTranslation(armCx, BEAM_HEIGHT + sign * armY, 0);
     _pushTransformed(buckets.accent, g, m4);
   }
 
-  // --- Dark iron pole tips (iron role) ---
-  // Each pole points inward along (dx, dy). Exactly one of dx/dy is nonzero.
-  const poleLen = 0.28;
-  const poleHalf = 0.13;
-  const poles = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-  for (const [dx, dy] of poles) {
-    const g = new THREE.BoxGeometry(
-      dx !== 0 ? poleLen : poleHalf * 2,
-      dy !== 0 ? poleLen : poleHalf * 2,
-      magL * 0.85
-    );
-    const off = yokeOuter - wall - poleLen / 2;
-    m4.makeTranslation(dx * off, BEAM_HEIGHT + dy * off, 0);
-    _pushTransformed(buckets.iron, g, m4);
-  }
-
-  // --- Copper coils wrapping each pole base (copper role) ---
-  // Torus oriented so its hole aligns with the pole axis.
-  for (const [dx, dy] of poles) {
-    const g = new THREE.TorusGeometry(poleHalf + 0.05, 0.05, 10, 24);
-    m4.identity();
-    // Rotate torus ring so its axis matches the pole (default is Z-axis).
-    if (dx !== 0) {
-      // pole axis along X
-      m4.makeRotationY(Math.PI / 2);
-    } else {
-      // pole axis along Y
-      m4.makeRotationX(Math.PI / 2);
-    }
-    const trans = new THREE.Matrix4().makeTranslation(
-      dx * (yokeOuter - wall - poleLen / 2 - 0.06),
-      BEAM_HEIGHT + dy * (yokeOuter - wall - poleLen / 2 - 0.06),
-      0
-    );
-    const full = new THREE.Matrix4().multiplyMatrices(trans, m4);
-    _pushTransformed(buckets.copper, g, full);
-  }
-
-  // --- Beam pipe through the center (pipe role) ---
-  const pipeL = magL + 0.4; // slightly longer than the magnet to meet neighbors
-  const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS);
-  m4.identity();
-  m4.makeRotationX(Math.PI / 2);
-  const pipeT = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
-  const pipeFull = new THREE.Matrix4().multiplyMatrices(pipeT, m4);
-  _pushTransformed(buckets.pipe, pipeGeom, pipeFull);
-
-  // --- Bolts at yoke corners (detail role, LOD-hidden) ---
-  const boltOffsets = [
-    [ yokeOuter - 0.05,  yokeOuter - 0.05],
-    [-yokeOuter + 0.05,  yokeOuter - 0.05],
-    [ yokeOuter - 0.05, -yokeOuter + 0.05],
-    [-yokeOuter + 0.05, -yokeOuter + 0.05],
-  ];
-  for (const [x, y] of boltOffsets) {
-    for (const sign of [-1, 1]) {
-      const g = new THREE.BoxGeometry(0.05, 0.05, 0.03);
-      m4.makeTranslation(x, BEAM_HEIGHT + y, sign * (magL / 2 + 0.015));
-      _pushTransformed(buckets.detail, g, m4);
-    }
-  }
-
-  return buckets;
-}
-
-ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
-
-/**
- * Build the role buckets for a dipole bending magnet.
- *
- * Physical layout (3m x 1.5m x 2m, beam along local +Z):
- *   - H-frame painted iron yoke: top slab, bottom slab, two side posts
- *   - Fixed orange accent stripe along the top edge (iron role, not accent)
- *   - Dark iron pole face visible in the gap between coils
- *   - Two copper coil bundles at the ends of the pole gap
- *   - Row of bolts along the visible yoke edge (detail LOD)
- *   - Straight beam pipe through the gap
- *
- * Note: the actual 90-degree beam bend is handled by the beam graph
- * logic, not this geometry — the model is visually straight.
- */
-function _buildDipoleRoles() {
-  /** @type {Record<string, THREE.BufferGeometry[]>} */
-  const buckets = { accent: [], iron: [], copper: [], pipe: [], detail: [] };
-  const m4 = new THREE.Matrix4();
-
-  const yokeW = 1.4;
-  const yokeH = 1.6;
-  const yokeL = 2.2;
-  const wall = 0.22;
-
-  // --- Painted H-frame slabs (accent role) ---
-  const slabs = [
-    // [w, h, l, x, y, z]
-    [yokeW, wall, yokeL, 0,  yokeH / 2 - wall / 2,  0],  // top
-    [yokeW, wall, yokeL, 0, -yokeH / 2 + wall / 2,  0],  // bottom
-    [wall, yokeH, yokeL, -yokeW / 2 + wall / 2, 0, 0],   // left post
-    [wall, yokeH, yokeL,  yokeW / 2 - wall / 2, 0, 0],   // right post
-  ];
-  for (const [w, h, l, x, y, z] of slabs) {
-    const g = new THREE.BoxGeometry(w, h, l);
-    m4.makeTranslation(x, BEAM_HEIGHT + y, z);
-    _pushTransformed(buckets.accent, g, m4);
-  }
-
-  // --- Fixed contrast stripe (iron role — not recolored) ---
-  // We want this to stay visible regardless of the accent paint color,
-  // so we bucket it as a dark element rather than accent.
-  const stripeGeom = new THREE.BoxGeometry(yokeW + 0.02, 0.08, yokeL * 0.9);
-  m4.makeTranslation(0, BEAM_HEIGHT + yokeH / 2 + 0.04, 0);
-  _pushTransformed(buckets.iron, stripeGeom, m4);
-
-  // --- Dark iron pole face in the gap ---
-  const poleFace = new THREE.BoxGeometry(yokeW - wall * 2 - 0.15, 0.4, yokeL - 0.3);
-  m4.makeTranslation(0, BEAM_HEIGHT - 0.2, 0);
-  _pushTransformed(buckets.iron, poleFace, m4);
-
-  // --- Copper coil bundles at each end of the pole ---
-  for (const sign of [-1, 1]) {
-    const g = new THREE.BoxGeometry(yokeW - wall * 2 - 0.05, 0.28, 0.18);
-    m4.makeTranslation(0, BEAM_HEIGHT + 0.1, sign * (yokeL / 2 - 0.09));
+  // --- Copper coils (copper role) ---
+  // Two rectangular copper bars sitting on the inner faces of the top and
+  // bottom arms, running the full length of the magnet.
+  const coilW = 0.26;
+  const coilH = 0.1;
+  const coilYOff = yokeOuter - wall - coilH / 2;
+  for (const sign of [1, -1]) {
+    const g = new THREE.BoxGeometry(coilW, coilH, magL);
+    m4.makeTranslation(armCx, BEAM_HEIGHT + sign * coilYOff, 0);
     _pushTransformed(buckets.copper, g, m4);
   }
 
-  // --- Straight beam pipe through the gap ---
-  const pipeL = yokeL + 0.6;
-  const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS);
-  const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
-  const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
-  const full = new THREE.Matrix4().multiplyMatrices(trans, rot);
-  _pushTransformed(buckets.pipe, pipeGeom, full);
+  // --- Beam pipe through the C gap (pipe role) ---
+  if (bentPipe) {
+    // Dipole: L-shaped 90° bend. Entry half runs from the yoke's back
+    // face (local -Z) to the centre; exit half runs from the centre out
+    // to the open side of the C (local -X). Each half is magL/2 long so
+    // the full arc sits inside the yoke footprint.
+    const halfL = magL / 2;
+    // Entry segment along +Z (cylinder default axis is +Y, rotate X +90°)
+    {
+      const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, halfL, SEGS);
+      const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+      const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, -halfL / 2);
+      _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+    }
+    // Exit segment along -X (rotate Z +90° — the cylinder axis becomes the X axis)
+    {
+      const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, halfL, SEGS);
+      const rot = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
+      const trans = new THREE.Matrix4().makeTranslation(-halfL / 2, BEAM_HEIGHT, 0);
+      _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+    }
+    // Small spherical joint at the bend corner to hide the seam
+    {
+      const g = new THREE.SphereGeometry(PIPE_R, SEGS, SEGS);
+      m4.makeTranslation(0, BEAM_HEIGHT, 0);
+      _pushTransformed(buckets.pipe, g, m4);
+    }
+  } else {
+    // Quadrupole (placeholder): straight pipe through the centre.
+    const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, magL, SEGS);
+    m4.identity();
+    m4.makeRotationX(Math.PI / 2);
+    const pipeT = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+    const pipeFull = new THREE.Matrix4().multiplyMatrices(pipeT, m4);
+    _pushTransformed(buckets.pipe, pipeGeom, pipeFull);
+  }
 
-  // --- Bolts along the visible upper yoke edge (detail LOD) ---
-  for (let i = -2; i <= 2; i++) {
-    const g = new THREE.BoxGeometry(0.07, 0.07, 0.04);
-    m4.makeTranslation(
-      yokeW / 2 + 0.012,
-      BEAM_HEIGHT + yokeH / 2 - wall - 0.08,
-      i * 0.45
-    );
-    _pushTransformed(buckets.detail, g, m4);
+  // --- Pedestal supports (stand role) ---
+  // Simple pedestal at each end: wide foot plate with two thin columns
+  // rising to the underside of the bottom arm.
+  const sBaseH = 0.06;
+  const sColW  = 0.1;
+  const sColD  = 0.16;
+  const sColX  = 0.24;
+  const sTopY  = BEAM_HEIGHT - yokeOuter;   // bottom face of the C's bottom arm
+  const sColH  = sTopY - sBaseH;
+  for (const zSign of [-1, 1]) {
+    const zPos = zSign * (magL / 2 - sColD / 2 - 0.04);
+    const base = new THREE.BoxGeometry(sColX * 2 + sColW + 0.12, sBaseH, sColD + 0.04);
+    m4.makeTranslation(0, sBaseH / 2, zPos);
+    _pushTransformed(buckets.stand, base, m4);
+    for (const side of [-1, 1]) {
+      const col = new THREE.BoxGeometry(sColW, sColH, sColD);
+      m4.makeTranslation(side * sColX, sBaseH + sColH / 2, zPos);
+      _pushTransformed(buckets.stand, col, m4);
+    }
   }
 
   return buckets;
 }
 
+// Dipole: C-clamp with an L-shaped beam pipe (bent toward the open side).
+// Quadrupole: same yoke as a placeholder, straight pipe through the centre.
+// Distinct builder functions so the role-template cache gives each variant
+// its own merged geometry.
+function _buildDipoleRoles() { return _buildCClampRoles(true); }
+function _buildQuadrupoleRoles() { return _buildCClampRoles(false); }
 ROLE_BUILDERS.dipole = _buildDipoleRoles;
+ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
 
 // Registry: component type id → builder function
 const DETAIL_BUILDERS = {
@@ -979,6 +924,7 @@ export class ComponentBuilder {
         obj.matrixAutoUpdate = false;
         obj.userData.beamlineId = comp.beamlineId || null;
         obj.userData.compType = type;
+        obj.userData.pipeId = comp.pipeId || null;
         this._meshMap.set(id, obj);
         parentGroup.add(obj);
       }
@@ -987,12 +933,29 @@ export class ComponentBuilder {
 
       // Position: center of sub-tile footprint within the tile.
       // gridW/gridH store sub-cell counts (1 sub-cell = 0.5 world units).
-      const gwSub = compDef.gridW || compDef.subW || 4;
-      const ghSub = compDef.gridH || compDef.subL || 4;
-      const sc = comp.subCol || 0;
-      const sr = comp.subRow || 0;
-      const x = col * 2 + (sc + gwSub / 2) * SUB_UNIT;
-      const z = row * 2 + (sr + ghSub / 2) * SUB_UNIT;
+      // Pipe attachments are an exception: their col/row are interpolated
+      // float coordinates along a pipe path, so we center the mesh directly
+      // on that point (col*2+1, row*2+1) regardless of the component's
+      // sub-tile footprint. subCol === null is the marker set by
+      // world-snapshot's buildPipeAttachments.
+      const gwRaw = compDef.gridW || compDef.subW || 4;
+      const ghRaw = compDef.gridH || compDef.subL || 4;
+      // snapForPlaceable swaps w/h for dir 1/3 when computing the top-left
+      // subtile origin, so the render center must swap too or committed
+      // meshes will drift from the reserved subcells.
+      const swap = (direction === 1 || direction === 3);
+      const gwSub = swap ? ghRaw : gwRaw;
+      const ghSub = swap ? gwRaw : ghRaw;
+      let x, z;
+      if (comp.subCol == null && comp.subRow == null) {
+        x = col * 2 + 1;
+        z = row * 2 + 1;
+      } else {
+        const sc = comp.subCol || 0;
+        const sr = comp.subRow || 0;
+        x = col * 2 + (sc + gwSub / 2) * SUB_UNIT;
+        z = row * 2 + (sr + ghSub / 2) * SUB_UNIT;
+      }
       // Detailed builders place Y=0 at floor; fallbacks center vertically
       const y = isDetailed ? 0 : (subH * SUB_UNIT) / 2;
       obj.position.set(x, y, z);

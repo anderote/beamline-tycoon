@@ -242,6 +242,15 @@ export class InputHandler {
         this.renderer._clearPreview();
         if (found.rootObj) this.renderer._outlineObject(found.rootObj);
 
+        // Attachments: refund is 50% of the attachment component's cost.
+        if (found.kind === 'attachment') {
+          const def = found.placeable;
+          const name = def?.name || found.attachment?.type || 'Attachment';
+          const cost = def?.cost?.funding || 0;
+          const refund = Math.floor(cost * 0.5);
+          this._showDemolishTooltip(name, refund, screenX, screenY);
+          return;
+        }
         // Beam pipes have their own name/refund computation.
         if (found.kind === 'beampipe') {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === found.pipeId);
@@ -326,6 +335,43 @@ export class InputHandler {
   _hideDemolishTooltip() {
     if (this._demolishTooltipEl) {
       this._demolishTooltipEl.style.display = 'none';
+    }
+  }
+
+  /**
+   * Show a green-dollar cost tooltip next to the cursor during infra drag.
+   * Passing cost=0 shows "Free". Passing a non-zero skippedNoFoundation also
+   * shows a red warning line about missing foundation.
+   */
+  _showDragCostTooltip(cost, screenX, screenY, opts = {}) {
+    if (!this._dragCostTooltipEl) {
+      const el = document.createElement('div');
+      el.className = 'hover-tooltip drag-cost-tooltip';
+      document.body.appendChild(el);
+      this._dragCostTooltipEl = el;
+    }
+    const el = this._dragCostTooltipEl;
+    let html;
+    if (cost > 0) {
+      html = `<span style="color:#66ff88">$${cost.toLocaleString()}</span>`;
+    } else {
+      html = `<span style="color:#88ccff">Free</span>`;
+    }
+    if (opts.skippedNoFoundation > 0) {
+      html += `<br><span style="color:#ff6666">${opts.skippedNoFoundation} tile(s) need ${opts.foundationName || 'foundation'}</span>`;
+    }
+    if (opts.insufficientFunding) {
+      html += `<br><span style="color:#ff6666">Insufficient funds</span>`;
+    }
+    el.innerHTML = html;
+    el.style.left = (screenX + 14) + 'px';
+    el.style.top = (screenY - 10) + 'px';
+    el.style.display = 'block';
+  }
+
+  _hideDragCostTooltip() {
+    if (this._dragCostTooltipEl) {
+      this._dragCostTooltipEl.style.display = 'none';
     }
   }
 
@@ -447,6 +493,46 @@ export class InputHandler {
   }
 
   /**
+   * Find a beamline component at a half-tile endpoint by checking the
+   * floor/ceil candidates of the coordinate (up to 4 adjacent tiles).
+   * Returns `{ comp, cell }` where `cell.col/row` is the component's
+   * *actual visual centre* expressed in pipe.col/row coordinates (i.e.
+   * the inverse of the `col*2+1` renderer formula). This ensures pipe
+   * paths terminate at the module's true centre rather than the tile
+   * centre, which matters for subgrid-placed modules whose footprint is
+   * smaller than a full tile.
+   */
+  _findBeamlineComponentNearEndpoint(col, row) {
+    const cFloor = Math.floor(col);
+    const cCeil = Math.ceil(col);
+    const rFloor = Math.floor(row);
+    const rCeil = Math.ceil(row);
+    const cols = cFloor === cCeil ? [cFloor] : [cFloor, cCeil];
+    const rows = rFloor === rCeil ? [rFloor] : [rFloor, rCeil];
+    for (const c of cols) {
+      for (const r of rows) {
+        const comp = this._findBeamlineComponentAt(c, r);
+        if (!comp) continue;
+        const def = COMPONENTS[comp.type];
+        const gwSub = def?.gridW || def?.subW || 4;
+        const ghSub = def?.gridH || def?.subL || def?.subH || 4;
+        const sc = comp.subCol || 0;
+        const sr = comp.subRow || 0;
+        // World-centre of the module (same formula ComponentBuilder.build
+        // uses for subgrid-placed components):
+        //   x = col*2 + (subCol + gwSub/2) * 0.5
+        // Converted to pipe.col coordinates via `pipe_col = (world_x - 1) / 2`.
+        const worldX = comp.col * 2 + (sc + gwSub / 2) * 0.5;
+        const worldZ = comp.row * 2 + (sr + ghSub / 2) * 0.5;
+        const pipeCol = (worldX - 1) / 2;
+        const pipeRow = (worldZ - 1) / 2;
+        return { comp, cell: { col: pipeCol, row: pipeRow } };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Find the nearest beamline component within a search radius.
    */
   _findNearestBeamlineComponent(col, row, radius = 3) {
@@ -482,26 +568,33 @@ export class InputHandler {
   }
 
   /**
-   * Build an L-shaped path from one point to another in 0.5-tile (half-tile)
-   * steps so pipes snap to sub-tile gridlines (2 sub-units per step).
+   * Build an L-shaped path from one point to another in 0.25-tile (single
+   * sub-tile) steps so pipes snap to the sub-tile grid.
    */
   _buildStraightPath(from, to) {
-    const STEP = 0.5;
+    const STEP = 0.25;
     const EPS = 0.001;
-    const path = [];
-    const dc = to.col > from.col + EPS ? STEP : (to.col < from.col - EPS ? -STEP : 0);
-    const dr = to.row > from.row + EPS ? STEP : (to.row < from.row - EPS ? -STEP : 0);
+    // Constrain the path to a single straight line: keep whichever axis
+    // has the larger drag delta and lock the other to `from`. This
+    // prevents accidental L-shaped bends while click-dragging pipes.
+    const dCol = to.col - from.col;
+    const dRow = to.row - from.row;
+    const useCol = Math.abs(dCol) >= Math.abs(dRow);
+    const targetCol = useCol ? to.col : from.col;
+    const targetRow = useCol ? from.row : to.row;
 
+    const path = [{ col: from.col, row: from.row }];
     let c = from.col, r = from.row;
-    path.push({ col: c, row: r });
+    const dc = targetCol > c + EPS ? STEP : (targetCol < c - EPS ? -STEP : 0);
+    const dr = targetRow > r + EPS ? STEP : (targetRow < r - EPS ? -STEP : 0);
 
     let safety = 2048;
-    while (dc !== 0 && Math.abs(c - to.col) > EPS && safety-- > 0) {
-      c += dc;
-      path.push({ col: c, row: r });
-    }
-    while (dr !== 0 && Math.abs(r - to.row) > EPS && safety-- > 0) {
-      r += dr;
+    while (safety-- > 0) {
+      const moreCol = dc !== 0 && Math.abs(c - targetCol) > EPS;
+      const moreRow = dr !== 0 && Math.abs(r - targetRow) > EPS;
+      if (!moreCol && !moreRow) break;
+      if (moreCol) c += dc;
+      if (moreRow) r += dr;
       path.push({ col: c, row: r });
     }
 
@@ -509,13 +602,19 @@ export class InputHandler {
   }
 
   /**
-   * Snap a world position to the nearest half-tile gridline for beam pipes.
+   * Snap a world position to the nearest sub-tile gridline for beam pipes
+   * (quarter-tile / 1 sub-unit resolution).
+   *
+   * Emits tile-index coordinates so that integer values correspond to
+   * tile centres — i.e. `col=0` renders at world x=1 via the pipe
+   * renderer's `col*2+1` formula. `isoToGridFloat` gives world-corner
+   * fractions (0.5 = tile centre), so we subtract 0.5 to convert.
    */
   _snapPipePoint(worldX, worldY) {
     const fc = isoToGridFloat(worldX, worldY);
     return {
-      col: Math.round(fc.col * 2) / 2,
-      row: Math.round(fc.row * 2) / 2,
+      col: Math.round((fc.col - 0.5) * 4) / 4,
+      row: Math.round((fc.row - 0.5) * 4) / 4,
     };
   }
 
@@ -572,22 +671,133 @@ export class InputHandler {
   }
 
   /**
-   * Get the normalized 0..1 position along a pipe for a given grid coordinate.
+   * Project a 3D world-space point onto a pipe polyline. Uses the same
+   * `col*2+1, row*2+1` formula the renderer uses, so the projection is
+   * grounded in where each path node is actually *drawn*. Both DesignPlacer
+   * and `_snapPipePoint` emit pipe.path col/row in the same tile-index
+   * coordinate system, so integer values correspond to tile centres.
+   *
+   * Returns `{ position, col, row, worldX, worldZ, dir }` where `position`
+   * is the 0..1 arc-length fraction along the pipe in world metres, and
+   * `col`/`row` are the interpolated pipe.path coordinates of the hit.
    */
-  _getPipePosition(pipe, col, row) {
-    if (pipe.path.length <= 1) return 0.5;
-
-    let bestIdx = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < pipe.path.length; i++) {
-      const dist = Math.abs(pipe.path[i].col - col) + Math.abs(pipe.path[i].row - row);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = i;
-      }
+  _projectOntoPipe(pipe, worldX, worldZ) {
+    const path = pipe.path;
+    if (!path || path.length === 0) return null;
+    if (path.length === 1) {
+      const wx = path[0].col * 2 + 1;
+      const wz = path[0].row * 2 + 1;
+      return { position: 0.5, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
     }
 
-    return bestIdx / (pipe.path.length - 1);
+    // Cumulative arc length (in world units) up to each node
+    const cum = [0];
+    for (let i = 1; i < path.length; i++) {
+      const dwx = (path[i].col - path[i - 1].col) * 2;
+      const dwz = (path[i].row - path[i - 1].row) * 2;
+      cum.push(cum[i - 1] + Math.hypot(dwx, dwz));
+    }
+    const total = cum[path.length - 1];
+    if (total <= 0) {
+      const wx = path[0].col * 2 + 1;
+      const wz = path[0].row * 2 + 1;
+      return { position: 0, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
+    }
+
+    let bestDist = Infinity;
+    let bestLen = 0;
+    let bestCol = path[0].col;
+    let bestRow = path[0].row;
+    let bestWx = path[0].col * 2 + 1;
+    let bestWz = path[0].row * 2 + 1;
+    let bestDir = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      const ax = path[i].col * 2 + 1;
+      const az = path[i].row * 2 + 1;
+      const bx = path[i + 1].col * 2 + 1;
+      const bz = path[i + 1].row * 2 + 1;
+      const dx = bx - ax, dz = bz - az;
+      const segLen2 = dx * dx + dz * dz;
+      let t = 0;
+      if (segLen2 > 0) {
+        t = ((worldX - ax) * dx + (worldZ - az) * dz) / segLen2;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+      }
+      const hx = ax + t * dx;
+      const hz = az + t * dz;
+      const dist = Math.hypot(worldX - hx, worldZ - hz);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestLen = cum[i] + t * Math.sqrt(segLen2);
+        bestCol = path[i].col + t * (path[i + 1].col - path[i].col);
+        bestRow = path[i].row + t * (path[i + 1].row - path[i].row);
+        bestWx = hx;
+        bestWz = hz;
+        const dcol = path[i + 1].col - path[i].col;
+        const drow = path[i + 1].row - path[i].row;
+        if (dcol > 0) bestDir = 1;       // SE
+        else if (dcol < 0) bestDir = 3;  // NW
+        else if (drow > 0) bestDir = 2;  // SW
+        else if (drow < 0) bestDir = 0;  // NE
+      }
+    }
+    return {
+      position: bestLen / total,
+      col: bestCol,
+      row: bestRow,
+      worldX: bestWx,
+      worldZ: bestWz,
+      dir: bestDir,
+    };
+  }
+
+  /**
+   * Given a cursor world position (iso-pixel — i.e. the output of
+   * `screenToWorld`), snap the attachment footprint to the subgrid using
+   * the unified placement system, then project the snap center onto the
+   * nearest pipe. Returns `{ snap, pipe, proj }` or null if no pipe is
+   * within reach.
+   */
+  _snapAttachmentToPipe(worldX, worldY) {
+    const compDef = COMPONENTS[this.selectedTool];
+    if (!compDef) return null;
+    const snap = snapForPlaceable(worldX, worldY, compDef, this.placementDir || 0);
+    const swap = (this.placementDir || 0) === 1 || (this.placementDir || 0) === 3;
+    const subW = swap ? (compDef.subH || 2) : (compDef.subW || 2);
+    const subH = swap ? (compDef.subW || 2) : (compDef.subH || 2);
+    // Footprint center in 3D world coordinates (matches placeable formula)
+    const wx = snap.col * 2 + (snap.subCol + subW / 2) * 0.5;
+    const wz = snap.row * 2 + (snap.subRow + subH / 2) * 0.5;
+    // Find nearest pipe. _findNearestPipe uses integer tile col/row as a
+    // rough Manhattan filter, so pass the tile containing the footprint
+    // center.
+    const intCol = Math.floor(wx / 2);
+    const intRow = Math.floor(wz / 2);
+    const pipe = this._findNearestPipe(intCol, intRow);
+    if (!pipe) return null;
+    const proj = this._projectOntoPipe(pipe, wx, wz);
+    if (!proj) return null;
+    return { snap, pipe, proj };
+  }
+
+  /**
+   * Update the transparent hover ghost for the currently selected
+   * attachment tool. Uses the unified subgrid snap for the footprint and
+   * the pipe projection for pipe-alignment.
+   */
+  _updateAttachmentPreview(worldX, worldY) {
+    const hit = this._snapAttachmentToPipe(worldX, worldY);
+    if (!hit) {
+      this.renderer._clearPreview?.();
+      return;
+    }
+    this.renderer.renderAttachmentGhost(
+      hit.proj.col, hit.proj.row,
+      this.selectedTool,
+      hit.proj.dir,
+      true,
+    );
   }
 
   /**
@@ -695,11 +905,18 @@ export class InputHandler {
           e.preventDefault();
           this.game._pushUndo();
           if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
-            // Attachment: snap to the nearest pipe (not a PLACEABLES entry)
-            const pipe = this._findNearestPipe(this.renderer.hoverCol, this.renderer.hoverRow);
-            if (pipe) {
-              const position = this._getPipePosition(pipe, this.renderer.hoverCol, this.renderer.hoverRow);
-              this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
+            // Attachment: snap footprint to subgrid, project onto nearest
+            // pipe so the keyboard placement matches the hover ghost.
+            const wx = this.lastMouseWorldX ?? 0;
+            const wy = this.lastMouseWorldY ?? 0;
+            const hit = this._snapAttachmentToPipe(wx, wy);
+            if (hit) {
+              this.game.addAttachmentToPipe(
+                hit.pipe.id,
+                this.selectedTool,
+                hit.proj.position,
+                this.selectedParamOverrides,
+              );
             } else {
               this.game.log('Must place on a beam pipe!', 'bad');
             }
@@ -749,6 +966,16 @@ export class InputHandler {
         case 'g': case 'G': {
           const overlay = document.getElementById('goals-overlay');
           if (overlay) overlay.classList.toggle('hidden');
+          break;
+        }
+        case 'q': case 'Q': {
+          e.preventDefault();
+          this.renderer.rotateView(-1);
+          break;
+        }
+        case 'e': case 'E': {
+          e.preventDefault();
+          this.renderer.rotateView(+1);
           break;
         }
         case 'Escape':
@@ -927,15 +1154,18 @@ export class InputHandler {
   }
 
   _startPanLoop() {
-    const PAN_SPEED = 5;
+    const PAN_SPEED_BASE = 0.15; // world-pan units per frame at zoom=1
     const loop = () => {
-      let dx = 0, dy = 0;
-      if (this.keysDown.has('w') || this.keysDown.has('W')) dy -= PAN_SPEED;
-      if (this.keysDown.has('s') || this.keysDown.has('S')) dy += PAN_SPEED;
-      if (this.keysDown.has('a') || this.keysDown.has('A')) dx -= PAN_SPEED;
-      if (this.keysDown.has('d') || this.keysDown.has('D')) dx += PAN_SPEED;
-      if (dx !== 0 || dy !== 0) {
-        this.renderer.panBy(dx, dy);
+      // Scale inversely with zoom so screen-space pan speed stays consistent
+      // (at high zoom, world-space motion is slower).
+      const speed = PAN_SPEED_BASE / (this.renderer.zoom || 1);
+      let dxRight = 0, dyUp = 0;
+      if (this.keysDown.has('w') || this.keysDown.has('W')) dyUp += speed;
+      if (this.keysDown.has('s') || this.keysDown.has('S')) dyUp -= speed;
+      if (this.keysDown.has('d') || this.keysDown.has('D')) dxRight += speed;
+      if (this.keysDown.has('a') || this.keysDown.has('A')) dxRight -= speed;
+      if (dxRight !== 0 || dyUp !== 0) {
+        this.renderer.panScreenAligned(dxRight, dyUp);
       }
       requestAnimationFrame(loop);
     };
@@ -958,7 +1188,7 @@ export class InputHandler {
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         this.isPanning = true;
         this.panStart = { x: e.clientX, y: e.clientY };
-        this.worldStart = { x: this.renderer.world.x, y: this.renderer.world.y };
+        this.panStartPan = { x: this.renderer._panX, y: this.renderer._panY };
         canvas.style.cursor = 'grabbing';
         e.preventDefault();
         return;
@@ -1078,6 +1308,16 @@ export class InputHandler {
           this.dragStart = { col: grid.col, row: grid.row };
           this.dragEnd = { col: grid.col, row: grid.row };
           this.renderer.renderDragPreview(grid.col, grid.row, grid.col, grid.row, this.selectedInfraTool);
+          const cost = this.game.computeInfraRectCost(
+            grid.col, grid.row, grid.col, grid.row, this.selectedInfraTool, this.selectedInfraVariant,
+          );
+          this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
+            skippedNoFoundation: cost.skippedNoFoundation,
+            foundationName: infra.requiresFoundation
+              ? (INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation)
+              : null,
+            insufficientFunding: this.game.state.resources.funding < cost.totalCost,
+          });
         }
       }
     });
@@ -1086,8 +1326,7 @@ export class InputHandler {
       if (this.isPanning) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
-        this.renderer.world.x = this.worldStart.x + dx;
-        this.renderer.world.y = this.worldStart.y + dy;
+        this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
       } else if (this.isDragging && this.dragStart) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1107,6 +1346,19 @@ export class InputHandler {
             this.dragStart.col, this.dragStart.row,
             grid.col, grid.row, this.selectedInfraTool
           );
+          // Cost tooltip for infra drag placement
+          const cost = this.game.computeInfraRectCost(
+            this.dragStart.col, this.dragStart.row,
+            grid.col, grid.row, this.selectedInfraTool, this.selectedInfraVariant,
+          );
+          const def = INFRASTRUCTURE[this.selectedInfraTool];
+          this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
+            skippedNoFoundation: cost.skippedNoFoundation,
+            foundationName: def?.requiresFoundation
+              ? (INFRASTRUCTURE[def.requiresFoundation]?.name || def.requiresFoundation)
+              : null,
+            insufficientFunding: this.game.state.resources.funding < cost.totalCost,
+          });
         }
       } else if (this.isDrawingLine && this.selectedInfraTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -1132,6 +1384,18 @@ export class InputHandler {
           }
           this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
         }
+        // Cost tooltip for line placement (hallway)
+        const lineCost = this.game.computeInfraLineCost(
+          this.linePath, this.selectedInfraTool, this.selectedInfraVariant,
+        );
+        const lineDef = INFRASTRUCTURE[this.selectedInfraTool];
+        this._showDragCostTooltip(lineCost.totalCost, e.clientX, e.clientY, {
+          skippedNoFoundation: lineCost.skippedNoFoundation,
+          foundationName: lineDef?.requiresFoundation
+            ? (INFRASTRUCTURE[lineDef.requiresFoundation]?.name || lineDef.requiresFoundation)
+            : null,
+          insufficientFunding: this.game.state.resources.funding < lineCost.totalCost,
+        });
       } else if (this.isDrawingWall && this.selectedWallTool) {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
@@ -1211,6 +1475,11 @@ export class InputHandler {
         this.lastMouseWorldX = world.x;
         this.lastMouseWorldY = world.y;
         this._updatePlaceablePreview();
+        // Attachment hover preview: snap footprint to subgrid, project
+        // onto the nearest pipe, render a transparent ghost on top of it.
+        if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
+          this._updateAttachmentPreview(world.x, world.y);
+        }
         // Demolish hover: highlight the object under cursor with red + show tooltip
         if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
           this._updateDemolishHover(world, grid, e.clientX, e.clientY);
@@ -1270,7 +1539,7 @@ export class InputHandler {
     });
 
     canvas.addEventListener('mouseup', (e) => {
-      console.log('[MOUSEUP]', { button: e.button, isPanning: this.isPanning, isDrawingConn: this.isDrawingConn, isDragging: this.isDragging });
+      this._hideDragCostTooltip();
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
@@ -1286,7 +1555,7 @@ export class InputHandler {
         if (this.beamPipeDrawMode === 'remove') {
           // Right-click drag: find and remove pipes whose path intersects the drawn path
           const pipesToRemove = new Set();
-          const EPS = 0.26; // allow half-tile tolerance for matching
+          const EPS = 0.13; // allow quarter-tile tolerance for matching
           for (const pipe of this.game.state.beamPipes) {
             for (const pt of this.beamPipePath) {
               if (pipe.path.some(pp => Math.abs(pp.col - pt.col) < EPS && Math.abs(pp.row - pt.row) < EPS)) {
@@ -1305,16 +1574,39 @@ export class InputHandler {
           // Left-click: place the pipe. Auto-link endpoints to modules if
           // the path starts/ends on a module's tile; otherwise create a
           // free-standing pipe.
-          // Single-click (no drag): extend to a half-tile segment along placementDir
+          // Single-click (no drag): extend by one sub-tile along placementDir
           if (this.beamPipePath.length === 1) {
             const start = this.beamPipePath[0];
             const delta = DIR_DELTA[this.placementDir || 0];
-            this.beamPipePath.push({ col: start.col + delta.dc * 0.5, row: start.row + delta.dr * 0.5 });
+            this.beamPipePath.push({ col: start.col + delta.dc * 0.25, row: start.row + delta.dr * 0.25 });
           }
-          const startTile = this.beamPipePath[0];
-          const endTile = this.beamPipePath[this.beamPipePath.length - 1];
-          const startComp = this._findBeamlineComponentAt(Math.round(startTile.col), Math.round(startTile.row));
-          const endComp = this._findBeamlineComponentAt(Math.round(endTile.col), Math.round(endTile.row));
+          let startTile = this.beamPipePath[0];
+          let endTile = this.beamPipePath[this.beamPipePath.length - 1];
+          const startHit = this._findBeamlineComponentNearEndpoint(startTile.col, startTile.row);
+          const endHit = this._findBeamlineComponentNearEndpoint(endTile.col, endTile.row);
+
+          // Fill gaps: extend the pipe path so it actually touches the matched
+          // component cell when the endpoint lands on a half-tile between major
+          // tiles. Only runs when the user dragged the pipe onto the component.
+          if (startHit) {
+            const cell = startHit.cell;
+            if (cell.col !== startTile.col || cell.row !== startTile.row) {
+              const prefix = this._buildStraightPath({ col: cell.col, row: cell.row }, startTile);
+              this.beamPipePath = [...prefix.slice(0, -1), ...this.beamPipePath];
+              startTile = this.beamPipePath[0];
+            }
+          }
+          if (endHit) {
+            const cell = endHit.cell;
+            if (cell.col !== endTile.col || cell.row !== endTile.row) {
+              const suffix = this._buildStraightPath(endTile, { col: cell.col, row: cell.row });
+              this.beamPipePath = [...this.beamPipePath, ...suffix.slice(1)];
+              endTile = this.beamPipePath[this.beamPipePath.length - 1];
+            }
+          }
+
+          const startComp = startHit?.comp || null;
+          const endComp = endHit?.comp || null;
 
           let fromId = null, fromPort = null;
           if (startComp && COMPONENTS[startComp.type]?.placement === 'module') {
@@ -1666,6 +1958,11 @@ export class InputHandler {
             this.game.removeBeamPipe(found.pipeId);
             return;
           }
+          if (found.kind === 'attachment') {
+            this.game._pushUndo();
+            this.game.removeAttachment(found.pipeId, found.attachmentId);
+            return;
+          }
           if (found.node) {
             if (this.game.editingBeamlineId) {
               const entry = this.game.registry.getBeamlineForNode(found.node.id);
@@ -1717,13 +2014,19 @@ export class InputHandler {
 
     // Beamline attachment placement (attachments are not PLACEABLES entries —
     // they snap to an existing beam pipe). Keep this branch separate from the
-    // unified hoverPlaceable commit below.
+    // unified hoverPlaceable commit below. The click path mirrors the hover
+    // ghost: snap the footprint to the subgrid, project onto the nearest
+    // pipe, and store the projected position along that pipe.
     if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
       this.game._pushUndo();
-      const pipe = this._findNearestPipe(col, row);
-      if (pipe) {
-        const position = this._getPipePosition(pipe, col, row);
-        this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
+      const hit = this._snapAttachmentToPipe(world.x, world.y);
+      if (hit) {
+        this.game.addAttachmentToPipe(
+          hit.pipe.id,
+          this.selectedTool,
+          hit.proj.position,
+          this.selectedParamOverrides,
+        );
       } else {
         this.game.log('Must place on a beam pipe!', 'bad');
       }
@@ -1736,7 +2039,7 @@ export class InputHandler {
       // For beamline modules, check if the click landed on an existing node
       // (opens its beamline window instead of placing).
       const comp = COMPONENTS[this.hoverPlaceable.id];
-      if (comp && !comp.isDrawnConnection && !comp.isSource && comp.placement !== 'attachment') {
+      if (comp && !comp.isDrawnConnection && comp.placement !== 'attachment') {
         const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
         if (existingNode) {
           this.selectedNodeId = existingNode.id;
@@ -1892,6 +2195,19 @@ export class InputHandler {
         if (info.group === 'beampipe' && scope.has('beamline')) {
           return { kind: 'beampipe', pipeId: info.pipeId, rootObj: info.rootObj };
         }
+        // Beam-pipe attachments piggyback on 'beamline' scope.
+        if (info.group === 'attachment' && scope.has('beamline')) {
+          const pipe = (this.game.state.beamPipes || []).find(p => p.id === info.pipeId);
+          const att = pipe?.attachments?.find(a => a.id === info.attachmentId) || null;
+          return {
+            kind: 'attachment',
+            pipeId: info.pipeId,
+            attachmentId: info.attachmentId,
+            attachment: att,
+            placeable: att ? COMPONENTS[att.type] : null,
+            rootObj: info.rootObj,
+          };
+        }
         // Equipment / furnishing / decoration all route through the same
         // unified subgridOccupied probe, using the hit mesh's world
         // position as the probe point.
@@ -1911,6 +2227,9 @@ export class InputHandler {
     }
 
     // --- 2. Fallback: probe the subgrid cell under the cursor ---
+    // Used when the raycast missed the mesh (e.g. hovering over a hollow
+    // region of a multi-tile beamline module that's on legs). Resolve the
+    // rootObj from the component builder so the outline can still render.
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       const tilePos = gridToIso(grid.col, grid.row);
       const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
@@ -1922,13 +2241,35 @@ export class InputHandler {
         if (occ && scope.has(occ.kind)) {
           const entry = this.game.getPlaceable(occ.id);
           if (entry) {
+            const rootObj = this.renderer.componentBuilder?._meshMap?.get(entry.id) || null;
             return {
               kind: occ.kind,
               entry,
               placeable: PLACEABLES[entry.type],
-              rootObj: null,
+              rootObj,
             };
           }
+        }
+      }
+    }
+
+    // --- 3. Tile-level fallback for beamline components ---
+    // If the cursor is over a major tile occupied by a beamline placeable
+    // (checked via p.cells, not just subgrid), highlight it. This covers
+    // the case where a large module spans a tile the raycast/subgrid probe
+    // didn't resolve (e.g. hollow leg regions not registered to subgrid).
+    if (grid && grid.col !== undefined && grid.row !== undefined && scope.has('beamline')) {
+      for (const p of this.game.state.placeables) {
+        if (p.category !== 'beamline') continue;
+        if (!p.cells) continue;
+        if (p.cells.some(c => c.col === grid.col && c.row === grid.row)) {
+          const rootObj = this.renderer.componentBuilder?._meshMap?.get(p.id) || null;
+          return {
+            kind: 'beamline',
+            entry: p,
+            placeable: PLACEABLES[p.type] || COMPONENTS[p.type],
+            rootObj,
+          };
         }
       }
     }
@@ -1959,6 +2300,12 @@ export class InputHandler {
    */
   _updatePlaceablePreview() {
     if (!this.selectedPlaceableId) {
+      this.hoverPlaceable = null;
+      return;
+    }
+    // Drawn connections (beam pipes) have their own preview system; skip the
+    // full-tile ghost/grid overlay so hovering with the pipe tool stays clean.
+    if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
       this.hoverPlaceable = null;
       return;
     }
@@ -2217,7 +2564,7 @@ export class InputHandler {
     const cat = this.selectedCategory;
     const catDef = MODES[mode]?.categories?.[cat];
     if (mode === 'beamline') return 'demolishComponent';
-    if (mode === 'infra') return 'demolishConnection';
+    if (mode === 'infra') return 'demolishComponent';
     if (mode === 'facility') return 'demolishFurnishing';
     if (mode === 'structure') {
       if (cat === 'flooring') return 'demolishFloor';
@@ -2500,7 +2847,8 @@ export class InputHandler {
     this.bulldozerMode = false;
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
-    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: 'Delete Beamline', demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
+    const componentLabel = this.activeMode === 'infra' ? 'Remove Equipment' : 'Delete Beamline';
+    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: componentLabel, demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
     this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 

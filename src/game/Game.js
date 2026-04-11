@@ -604,22 +604,18 @@ export class Game {
     return true;
   }
 
-  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0) {
+  /**
+   * Cost-only computation for a rectangular infra drag. Returns
+   * { newTiles, totalCost, skippedNoFoundation } so the UI can show cost
+   * during drag without mutating state. Shares logic with placeInfraRect.
+   */
+  computeInfraRectCost(startCol, startRow, endCol, endRow, infraType, variant = 0) {
     const infra = INFRASTRUCTURE[infraType];
-    if (!infra) return false;
-
-    // Determine orientation from drag direction for orientable tiles
-    const orientation = infra.orientable
-      ? (Math.abs(endCol - startCol) >= Math.abs(endRow - startRow) ? 0 : 1)
-      : 0;
-
+    if (!infra) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
-
-    // Count new tiles and total cost (skip tiles that already have the same floor)
-    // Include tree removal costs; skip tiles missing required foundation
     let totalCost = 0;
     let newTiles = 0;
     let skippedNoFoundation = 0;
@@ -627,14 +623,13 @@ export class Game {
       for (let r = minRow; r <= maxRow; r++) {
         const tileKey = c + ',' + r;
         const existing = this.state.infraOccupied[tileKey];
+        // Same type + same variant: skip entirely (no cost, no action).
         if (existing === infraType && !infra.orientable) {
-          // Still count as a tile to process if variant differs (free recolor)
           const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
           if (!existingTile || existingTile.variant === variant) continue;
           newTiles++;
           continue;
         }
-        // Same-type orientable re-placement is free (just updates orientation)
         if (existing === infraType && infra.orientable) { newTiles++; continue; }
         if (infra.requiresFoundation) {
           const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
@@ -650,6 +645,58 @@ export class Game {
         }
       }
     }
+    return { newTiles, totalCost, skippedNoFoundation };
+  }
+
+  /**
+   * Cost-only computation for a line (hallway) placement. Returns
+   * { newTiles, totalCost, skippedNoFoundation }.
+   */
+  computeInfraLineCost(path, infraType, variant = 0) {
+    const infra = INFRASTRUCTURE[infraType];
+    if (!infra || !path || path.length === 0) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
+    let totalCost = 0;
+    let newTiles = 0;
+    let skippedNoFoundation = 0;
+    const seen = new Set();
+    for (const pt of path) {
+      const k = pt.col + ',' + pt.row;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const existing = this.state.infraOccupied[k];
+      if (existing === infraType) {
+        const existingTile = this.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+        if (!existingTile || existingTile.variant === variant) continue;
+        newTiles++;
+        continue;
+      }
+      if (infra.requiresFoundation) {
+        const existingTile = this.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+        const baseType = existingTile?.foundation || existing;
+        if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
+      }
+      newTiles++;
+      totalCost += infra.cost;
+    }
+    return { newTiles, totalCost, skippedNoFoundation };
+  }
+
+  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0) {
+    const infra = INFRASTRUCTURE[infraType];
+    if (!infra) return false;
+
+    const orientation = infra.orientable
+      ? (Math.abs(endCol - startCol) >= Math.abs(endRow - startRow) ? 0 : 1)
+      : 0;
+
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+
+    const { newTiles, totalCost, skippedNoFoundation } = this.computeInfraRectCost(
+      startCol, startRow, endCol, endRow, infraType, variant,
+    );
     if (newTiles === 0) {
       if (skippedNoFoundation > 0) {
         this.log(`${infra.name} requires ${INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
@@ -936,6 +983,9 @@ export class Game {
       this.log(`Assigned ${placed} ${zone.name} tiles`, 'good');
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
+    } else {
+      const floorName = INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor;
+      this.log(`${zone.name} needs ${floorName} underneath`, 'bad');
     }
     return placed > 0;
   }
@@ -1790,6 +1840,74 @@ export class Game {
   }
 
   // === STATS ===
+
+  /**
+   * Lazily create a legacy registry entry for a source placeable so the
+   * existing click/window flow (_getNodeAtGrid → registry → BeamlineWindow)
+   * can find it. Sources placed via the unified placeable system have no
+   * registry representation by default; this bridges the gap. Idempotent.
+   */
+  _ensureBeamlineForSourcePlaceable(instance) {
+    if (!instance) return null;
+    const comp = COMPONENTS[instance.type];
+    if (!comp?.isSource) return null;
+    if (instance.beamlineId && this.registry.get(instance.beamlineId)) {
+      return instance.beamlineId;
+    }
+    let machineType = 'linac';
+    if (instance.type === 'dcPhotoGun' || instance.type === 'ncRfGun' || instance.type === 'srfGun') {
+      machineType = 'photoinjector';
+    }
+    const entry = this.registry.createBeamline(machineType);
+
+    // Build a unique tile set from the placeable's footprint.
+    const tileKeys = new Set();
+    const tiles = [];
+    const cells = instance.cells && instance.cells.length
+      ? instance.cells
+      : [{ col: instance.col, row: instance.row }];
+    for (const c of cells) {
+      const key = c.col + ',' + c.row;
+      if (tileKeys.has(key)) continue;
+      tileKeys.add(key);
+      tiles.push({ col: c.col, row: c.row });
+    }
+
+    // Build the registry node. Reuse the placeable id so the component-builder
+    // mesh map (keyed by node.id) dedupes with the placeable mesh path.
+    const node = {
+      id: instance.id,
+      type: instance.type,
+      col: instance.col,
+      row: instance.row,
+      subCol: instance.subCol ?? 0,
+      subRow: instance.subRow ?? 0,
+      dir: instance.dir ?? 0,
+      entryDir: null,
+      parentId: null,
+      bendDir: null,
+      tiles,
+      params: instance.params ? { ...instance.params } : {},
+    };
+    entry.beamline.nodes.push(node);
+    for (const t of tiles) {
+      entry.beamline.occupied[t.col + ',' + t.row] = node.id;
+    }
+    this.registry.occupyTiles(entry.id, node);
+    instance.beamlineId = entry.id;
+
+    this.recalcBeamline(entry.id);
+    return entry.id;
+  }
+
+  /**
+   * Tear down the registry entry created for a source placeable.
+   */
+  _removeBeamlineForSourcePlaceable(instance) {
+    if (!instance || !instance.beamlineId) return;
+    this.registry.removeBeamline(instance.beamlineId);
+    instance.beamlineId = null;
+  }
 
   recalcBeamline(beamlineId) {
     if (beamlineId) {
@@ -3078,6 +3196,16 @@ export class Game {
             }
           }
         }
+      }
+
+      // Bridge any source placeables from older saves that don't yet have
+      // a registry entry (so clicks can open their beamline window).
+      for (const p of this.state.placeables || []) {
+        if (p.category !== 'beamline') continue;
+        const comp = COMPONENTS[p.type];
+        if (!comp?.isSource) continue;
+        if (p.beamlineId && this.registry.get(p.beamlineId)) continue;
+        this._ensureBeamlineForSourcePlaceable(p);
       }
 
       this.recalcAllBeamlines();

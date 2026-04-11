@@ -26,18 +26,18 @@ export const MODES = {
     name: 'Facility',
     categories: {
       // --- Labs ---
-      rfLab:       { name: 'RF Lab',         color: '#a83', isZoneTab: true, zoneType: 'rfLab' },
-      coolingLab:  { name: 'Cooling Lab',    color: '#3aa', isZoneTab: true, zoneType: 'coolingLab' },
-      vacuumLab:   { name: 'Vacuum Lab',     color: '#74a', isZoneTab: true, zoneType: 'vacuumLab' },
-      opticsLab:   { name: 'Optics Lab',     color: '#4ac', isZoneTab: true, zoneType: 'opticsLab' },
-      diagnosticsLab: { name: 'Diagnostics Lab', color: '#ac4', isZoneTab: true, zoneType: 'diagnosticsLab' },
-      machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop' },
-      maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance' },
-      // --- Operations ---
-      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom', separatorBefore: true },
-      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace' },
-      meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom' },
-      cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria' },
+      rfLab:       { name: 'RF Lab',         color: '#a83', isZoneTab: true, zoneType: 'rfLab',        group: 'labs' },
+      coolingLab:  { name: 'Cooling Lab',    color: '#3aa', isZoneTab: true, zoneType: 'coolingLab',   group: 'labs' },
+      vacuumLab:   { name: 'Vacuum Lab',     color: '#74a', isZoneTab: true, zoneType: 'vacuumLab',    group: 'labs' },
+      opticsLab:   { name: 'Optics Lab',     color: '#4ac', isZoneTab: true, zoneType: 'opticsLab',    group: 'labs' },
+      diagnosticsLab: { name: 'Diagnostics Lab', color: '#ac4', isZoneTab: true, zoneType: 'diagnosticsLab', group: 'labs' },
+      machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop',  group: 'labs' },
+      maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance',  group: 'labs' },
+      // --- Rooms ---
+      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms' },
+      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms' },
+      meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms' },
+      cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms' },
     },
   },
   structure: {

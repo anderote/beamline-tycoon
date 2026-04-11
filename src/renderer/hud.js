@@ -124,7 +124,25 @@ Renderer.prototype._generateCategoryTabs = function() {
   const mode = MODES[this.activeMode];
   if (!mode || mode.disabled) return;
 
-  const catKeys = Object.keys(mode.categories);
+  // Facility mode has a Labs/Rooms toggle that filters visible tabs
+  const isFacility = this.activeMode === 'facility';
+  if (isFacility && !this._facilityGroup) this._facilityGroup = 'labs';
+
+  let catKeys = Object.keys(mode.categories);
+  if (isFacility) {
+    const group = this._facilityGroup;
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'facility-group-toggle';
+    toggleBtn.textContent = group === 'labs' ? 'Labs ▸' : 'Rooms ▸';
+    toggleBtn.title = 'Toggle Labs / Rooms';
+    toggleBtn.addEventListener('click', () => {
+      this._facilityGroup = this._facilityGroup === 'labs' ? 'rooms' : 'labs';
+      this._generateCategoryTabs();
+    });
+    tabsContainer.appendChild(toggleBtn);
+    catKeys = catKeys.filter(k => mode.categories[k].group === group);
+  }
+
   catKeys.forEach((key, idx) => {
     const cat = mode.categories[key];
     if (cat.separatorBefore) {
@@ -170,6 +188,7 @@ Renderer.prototype._generateCategoryTabs = function() {
   if (catKeys.length > 0) {
     this._renderPalette(catKeys[0]);
     this._updateSystemStatsContent(catKeys[0]);
+    if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
 
   // Machine type selector — only visible in beamline mode

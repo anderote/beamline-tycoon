@@ -44,6 +44,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
 
   const renderer = new ThreeRenderer(game, spriteManager);
   window._renderer = renderer;
+  window.game = game;
   await renderer.init();
 
   await spriteManager.loadTileSprites();
@@ -102,6 +103,9 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
       zoom: renderer.zoom,
       worldX: renderer.world.x,
       worldY: renderer.world.y,
+      panX: renderer._panX,
+      panY: renderer._panY,
+      viewRotationIndex: renderer._viewRotationIndex,
       activeMode: input.activeMode,
       selectedCategory: input.selectedCategory,
       route: window.location.hash.slice(1) || 'game',
@@ -120,12 +124,31 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
 
   if (game.state.view) {
     renderer.zoom = game.state.view.zoom;
-    renderer.world.x = game.state.view.worldX;
-    renderer.world.y = game.state.view.worldY;
-    renderer.world.scale.set(renderer.zoom);
-    renderer._syncThreeCameraFromOverlay();
+    if (typeof game.state.view.panX === 'number') {
+      renderer._panX = game.state.view.panX;
+      renderer._panY = game.state.view.panY;
+      renderer._viewRotationIndex = game.state.view.viewRotationIndex || 0;
+      renderer._viewRotationAngle = renderer._viewRotationIndex * Math.PI / 2;
+    } else {
+      // Legacy save: derive pan from the old world.x/y offset (rotation=0 math).
+      const screenW = renderer.app.screen.width;
+      const screenH = renderer.app.screen.height;
+      const centerIsoX = (screenW / 2 - game.state.view.worldX) / renderer.zoom;
+      const centerIsoY = (screenH / 2 - game.state.view.worldY) / renderer.zoom;
+      const col = (centerIsoX / 32 + centerIsoY / 16) / 2;
+      const row = (centerIsoY / 16 - centerIsoX / 32) / 2;
+      renderer._panX = col * 2;
+      renderer._panY = row * 2;
+    }
+    renderer._syncOverlayFromPan();
+    renderer._updateCameraLookAt();
     // Restore active mode and selected category/tab
     if (game.state.view.activeMode && MODES[game.state.view.activeMode]) {
+      // For facility mode, restore the Labs/Rooms group toggle before regenerating tabs
+      if (game.state.view.activeMode === 'facility' && game.state.view.selectedCategory) {
+        const restoredCat = MODES.facility.categories[game.state.view.selectedCategory];
+        if (restoredCat?.group) renderer._facilityGroup = restoredCat.group;
+      }
       input.setActiveMode(game.state.view.activeMode);
       if (game.state.view.selectedCategory) {
         input.selectedCategory = game.state.view.selectedCategory;

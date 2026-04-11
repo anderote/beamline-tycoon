@@ -48,10 +48,14 @@ export class Placeable {
 
 export class BeamlineModule extends Placeable {
   onPlaced(game, instance) {
-    // Beam graph hookup happens here in a later task.
+    if (typeof game._ensureBeamlineForSourcePlaceable === 'function') {
+      game._ensureBeamlineForSourcePlaceable(instance);
+    }
   }
   onRemoved(game, instance) {
-    // Beam graph teardown.
+    if (typeof game._removeBeamlineForSourcePlaceable === 'function') {
+      game._removeBeamlineForSourcePlaceable(instance);
+    }
   }
 }
 
