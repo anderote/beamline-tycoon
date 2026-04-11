@@ -376,40 +376,36 @@ function gen_grass() {
   writePng(png, 'tile_grass');
 }
 
-// ── tile_hardwood: thin planks of mixed lengths with dotted tan seams ─
+// ── tile_hardwood: thin planks of mixed lengths, color-only boundaries ─
 // 8-pixel-wide vertical planks (~0.25m each = half a subtile). Each
-// column has its own random sequence of plank lengths chosen from
+// column has a random sequence of plank lengths chosen from
 // {16, 24, 32, 40} px (~0.5–1.25m) and a random Y offset, so cross-cuts
-// in different columns don't align horizontally. Segments wrap across
-// the texture's vertical edge as a single continuous plank, so when
-// the texture tiles vertically, planks read as continuing across the
-// tile boundary instead of all ending at it.
+// in different columns don't align. Segments wrap across the texture
+// edge as one continuous plank so tiling reads as boards spanning tile
+// boundaries.
 //
-// Plank seams (right edge of column) and cross-cut seams (end of a
-// plank within a column) are both dotted light tan (every other pixel
-// is tan, the rest fall through to the wood color).
+// No seam lines — each plank's color (with neighbor avoidance in both
+// directions) is what makes adjacent planks distinguishable.
 function gen_hardwood() {
   const png = makePng();
   const rand = mulberry32(1010);
   const planks = [
     [148, 100, 58],
-    [158, 108, 64],
-    [142, 95, 54],
-    [165, 112, 68],
+    [165, 115, 70],
+    [135, 88, 50],
+    [172, 122, 78],
     [152, 102, 60],
-    [138, 92, 52],
+    [125, 80, 45],
+    [180, 130, 85],
+    [142, 95, 54],
   ];
   const PLANK_W = 8;
   const NUM_COLS = SIZE / PLANK_W;
-  const SEAM_R = 198, SEAM_G = 170, SEAM_B = 118; // light tan
   const LENGTHS = [16, 24, 32, 40];
 
-  // Pre-compute per-column segment list. Each segment may wrap across
-  // the texture edge (y0 > y1 means the segment spans from y0 down to
-  // SIZE-1 then 0 up to y1-1).
+  // Pre-compute per-column segment list.
   const columns = [];
   for (let c = 0; c < NUM_COLS; c++) {
-    // Pick lengths summing to >= SIZE, then trim the last to fit.
     const lengths = [];
     let total = 0;
     while (total < SIZE) {
@@ -421,21 +417,34 @@ function gen_hardwood() {
     if (lengths[lengths.length - 1] < 8 && lengths.length > 1) {
       lengths[lengths.length - 2] += lengths.pop();
     }
-    // Random vertical offset so the first cut isn't at y=0.
     const offset = Math.floor(rand() * SIZE);
     const segs = [];
     let y = offset;
     let lastColor = -1;
+    // Track the previous column's color choices at each y to avoid
+    // matches with the immediate left neighbor as well.
+    const prevCol = c > 0 ? columns[c - 1] : null;
     for (let i = 0; i < lengths.length; i++) {
       const y0 = y % SIZE;
       const y1 = (y + lengths[i]) % SIZE;
-      // Pick a plank color, avoiding immediate-neighbor repeats.
+      // Find the left-neighbor color at this segment's start y, if any.
+      let leftColor = -1;
+      if (prevCol) {
+        const ly = y0;
+        for (const s of prevCol) {
+          if (s.y0 <= s.y1) {
+            if (ly >= s.y0 && ly < s.y1) { leftColor = s.colorIdx; break; }
+          } else {
+            if (ly >= s.y0 || ly < s.y1) { leftColor = s.colorIdx; break; }
+          }
+        }
+      }
       let colorIdx;
       let attempts = 0;
       do {
         colorIdx = Math.floor(rand() * planks.length);
         attempts++;
-      } while (colorIdx === lastColor && attempts < 5);
+      } while ((colorIdx === lastColor || colorIdx === leftColor) && attempts < 8);
       lastColor = colorIdx;
       segs.push({ y0, y1, colorIdx });
       y += lengths[i];
@@ -447,9 +456,7 @@ function gen_hardwood() {
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const c = Math.floor(x / PLANK_W);
-      const tx = x % PLANK_W;
       const segs = columns[c];
-      // Find the segment containing this y.
       let seg = null;
       for (const s of segs) {
         if (s.y0 <= s.y1) {
@@ -458,24 +465,7 @@ function gen_hardwood() {
           if (y >= s.y0 || y < s.y1) { seg = s; break; }
         }
       }
-      if (!seg) seg = segs[0]; // fallback (shouldn't happen)
-
-      // Cross-seam: last pixel of the segment in this column (just before the next plank).
-      const lastPx = (seg.y1 - 1 + SIZE) % SIZE;
-      const onCrossSeam = (y === lastPx);
-      // Vertical plank seam: right edge of the column.
-      const onPlankSeam = (tx === PLANK_W - 1);
-
-      if (onCrossSeam || onPlankSeam) {
-        // Dotted: every other pixel along the seam is tan.
-        const seamPos = onPlankSeam ? y : x;
-        if (seamPos % 2 === 0) {
-          const n = (rand() - 0.5) * 6;
-          setPx(png, x, y, SEAM_R + n, SEAM_G + n, SEAM_B + n);
-          continue;
-        }
-        // odd pixels fall through to wood color
-      }
+      if (!seg) seg = segs[0];
 
       const [pr, pg, pb] = planks[seg.colorIdx];
       // Wood grain: per-column horizontal streaks.
