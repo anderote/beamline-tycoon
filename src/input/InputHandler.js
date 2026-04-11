@@ -19,6 +19,17 @@ function _demolishRefund(compOrDef) {
   return Math.floor(cost * 0.5);
 }
 
+// Demolish mode hierarchy. Each mode can delete placeables of its own
+// kind and every kind below it in the chain.
+//   beamline > equipment > furnishing > decoration
+const DEMOLISH_PLACEABLE_SCOPE = {
+  demolishComponent:  new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
+  demolishEquipment:  new Set(['equipment', 'furnishing', 'decoration']),
+  demolishFurnishing: new Set(['furnishing', 'decoration']),
+  demolishDecoration: new Set(['decoration']),
+  demolishAll:        new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
+};
+
 function _categoryColor(category) {
   const colors = {
     rfPower:       0xcc4444, // red
@@ -221,131 +232,35 @@ export class InputHandler {
     const key = col + ',' + row;
     const dt = this.demolishType;
 
-    // --- 3D raycast for components, equipment, furnishings ---
-    // These are best detected by what's actually under the cursor in 3D.
-    if (dt === 'demolishComponent' || dt === 'demolishFurnishing' || dt === 'demolishAll') {
-      const hit = this.renderer.raycastScreen(screenX, screenY);
-      if (hit) {
-        const info = this.renderer.identifyHit(hit);
-        if (info) {
-          // Component
-          if (info.group === 'component' && (dt === 'demolishComponent' || dt === 'demolishAll')) {
-            let node = null;
-            if (info.nodeId) {
-              const nodes = this.game.registry.getAllNodes();
-              node = nodes.find(n => n.id === info.nodeId);
-            }
-            // Fallback: derive tile from 3D position
-            if (!node) {
-              const p = info.rootObj.position;
-              const hCol = Math.floor(p.x / 2);
-              const hRow = Math.floor(p.z / 2);
-              node = this._getNodeAtGrid(hCol, hRow);
-            }
-            if (!node) node = this._getNodeAtGrid(col, row);
-            if (node) {
-              const comp = COMPONENTS[node.type];
-              this.renderer._clearPreview();
-              this.renderer._outlineObject(info.rootObj);
-              this._showDemolishTooltip(comp ? comp.name : node.type, _demolishRefund(comp), screenX, screenY);
-              return;
-            }
+    // --- Unified placeable detection ---
+    // Any demolish mode with a placeable scope uses the same hover UX:
+    // outline the mesh and show a tooltip with the refund.
+    const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
+    if (scope) {
+      const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope);
+      if (found) {
+        this.renderer._clearPreview();
+        if (found.rootObj) this.renderer._outlineObject(found.rootObj);
+
+        // Beam pipes have their own name/refund computation.
+        if (found.kind === 'beampipe') {
+          const pipe = (this.game.state.beamPipes || []).find(p => p.id === found.pipeId);
+          if (pipe) {
+            const segCount = Math.max(1, (pipe.path.length - 1) || 1);
+            const driftDef = COMPONENTS.drift;
+            const costPerTile = driftDef ? driftDef.cost.funding : 10000;
+            const refund = Math.floor(costPerTile * segCount * 0.5);
+            this._showDemolishTooltip('Beam Pipe', refund, screenX, screenY);
+          } else {
+            this._showDemolishTooltip('Beam Pipe', 0, screenX, screenY);
           }
-          // Beam pipe
-          if (info.group === 'beampipe' && (dt === 'demolishComponent' || dt === 'demolishAll')) {
-            if (info.pipeId) {
-              const pipe = (this.game.state.beamPipes || []).find(p => p.id === info.pipeId);
-              if (pipe) {
-                const segCount = Math.max(1, (pipe.path.length - 1) || 1);
-                const driftDef = COMPONENTS.drift;
-                const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-                const refund = Math.floor(costPerTile * segCount * 0.5);
-                this.renderer._clearPreview();
-                this.renderer._outlineObject(info.rootObj);
-                this._showDemolishTooltip('Beam Pipe', refund, screenX, screenY);
-                return;
-              }
-            }
-          }
-          // Equipment or furnishing — derive tile from 3D position, not iso grid
-          if (info.group === 'equipment' && (dt === 'demolishFurnishing' || dt === 'demolishAll')) {
-            const p = info.rootObj.position;
-            const hitCol = Math.floor(p.x / 2);
-            const hitRow = Math.floor(p.z / 2);
-            const hitKey = hitCol + ',' + hitRow;
-
-            // Check facility equipment at hit tile
-            const equipId = this.game.state.facilityGrid[hitKey];
-            if (equipId) {
-              const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
-              if (equip) {
-                const comp = COMPONENTS[equip.type];
-                this.renderer._clearPreview();
-                this.renderer._outlineObject(info.rootObj);
-                this._showDemolishTooltip(comp ? comp.name : equip.type, _demolishRefund(comp), screenX, screenY);
-                return;
-              }
-            }
-
-            // Check furnishings — find the entry whose sub-tile position matches
-            const subgrid = this.game.state.zoneFurnishingSubgrids[hitKey];
-            if (subgrid) {
-              const subX = Math.floor((p.x - hitCol * 2) / 0.5);
-              const subZ = Math.floor((p.z - hitRow * 2) / 0.5);
-              if (subX >= 0 && subX < 4 && subZ >= 0 && subZ < 4) {
-                const furnIdx = subgrid[subZ][subX];
-                if (furnIdx > 0) {
-                  const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-                  if (entry) {
-                    const def = ZONE_FURNISHINGS[entry.type];
-                    this.renderer._clearPreview();
-                    this.renderer._outlineObject(info.rootObj);
-                    this._showDemolishTooltip(def ? def.name : entry.type, def ? Math.floor((def.cost || 0) * 0.5) : 0, screenX, screenY);
-                    return;
-                  }
-                }
-              }
-            }
-
-            // Last resort — scan all facility equipment for closest match
-            let bestEquip = null, bestDist = Infinity;
-            for (const eq of this.game.state.facilityEquipment) {
-              const ex = eq.col * 2 + 1, ez = eq.row * 2 + 1;
-              const d = Math.abs(p.x - ex) + Math.abs(p.z - ez);
-              if (d < bestDist) { bestDist = d; bestEquip = eq; }
-            }
-            if (bestEquip && bestDist < 3) {
-              const comp = COMPONENTS[bestEquip.type];
-              this.renderer._clearPreview();
-              this.renderer._outlineObject(info.rootObj);
-              this._showDemolishTooltip(comp ? comp.name : bestEquip.type, _demolishRefund(comp), screenX, screenY);
-              return;
-            }
-
-            // Scan furnishings
-            let bestFurn = null, bestFDist = Infinity;
-            for (const f of this.game.state.zoneFurnishings) {
-              if (!f) continue;
-              const fx = f.col * 2 + (f.subCol || 0) * 0.5 + 0.25;
-              const fz = f.row * 2 + (f.subRow || 0) * 0.5 + 0.25;
-              const d = Math.abs(p.x - fx) + Math.abs(p.z - fz);
-              if (d < bestFDist) { bestFDist = d; bestFurn = f; }
-            }
-            if (bestFurn && bestFDist < 3) {
-              const def = ZONE_FURNISHINGS[bestFurn.type];
-              this.renderer._clearPreview();
-              this.renderer._outlineObject(info.rootObj);
-              this._showDemolishTooltip(def ? def.name : bestFurn.type, def ? Math.floor((def.cost || 0) * 0.5) : 0, screenX, screenY);
-              return;
-            }
-
-            // Truly unknown — still outline it but show generic
-            this.renderer._clearPreview();
-            this.renderer._outlineObject(info.rootObj);
-            this._showDemolishTooltip('Unknown', 0, screenX, screenY);
-            return;
-          }
+          return;
         }
+
+        const def = found.placeable;
+        const name = def?.name ?? found.entry?.type ?? found.node?.type ?? 'Unknown';
+        this._showDemolishTooltip(name, _demolishRefund(def), screenX, screenY);
+        return;
       }
     }
 
@@ -1738,57 +1653,44 @@ export class InputHandler {
     if (this.demolishMode) {
       this.game._pushUndo();
       const key = col + ',' + row;
-      if (this.demolishType === 'demolishComponent') {
-        // Raycast to find the component or beam pipe under the cursor
-        const hit = this.renderer.raycastScreen(screenX, screenY);
-        let node = null;
-        if (hit) {
-          const info = this.renderer.identifyHit(hit);
-          // Beam pipe hit
-          if (info && info.group === 'beampipe' && info.pipeId) {
-            this.game.removeBeamPipe(info.pipeId);
+      // Unified placeable delete path. Any demolish mode with a scope
+      // routes through _findDeletablePlaceable for consistent hover UX
+      // and click behavior. Mode-specific non-placeable branches
+      // (connections, zones, floors, walls, doors) still fall through
+      // below.
+      const scope = DEMOLISH_PLACEABLE_SCOPE[this.demolishType];
+      if (scope) {
+        const found = this._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
+        if (found) {
+          if (found.kind === 'beampipe') {
+            this.game.removeBeamPipe(found.pipeId);
             return;
           }
-          if (info && info.group === 'component' && info.nodeId) {
-            const nodes = this.game.registry.getAllNodes();
-            node = nodes.find(n => n.id === info.nodeId);
-          }
-        }
-        // Fallback to tile-based lookup
-        if (!node) node = this._getNodeAtGrid(col, row);
-        if (node) {
-          if (this.game.editingBeamlineId) {
-            const entry = this.game.registry.getBeamlineForNode(node.id);
-            if (entry && entry.id === this.game.editingBeamlineId) {
-              this.game.removeComponent(node.id);
+          if (found.node) {
+            if (this.game.editingBeamlineId) {
+              const entry = this.game.registry.getBeamlineForNode(found.node.id);
+              if (entry && entry.id === this.game.editingBeamlineId) {
+                this.game.removeComponent(found.node.id);
+              }
+            } else {
+              this.game.removeComponent(found.node.id);
             }
-          } else {
-            this.game.removeComponent(node.id);
+            return;
+          }
+          if (found.entry) {
+            this.game.removePlaceable(found.entry.id);
+            return;
           }
         }
-      } else if (this.demolishType === 'demolishConnection') {
+        // For the top-level demolish modes we treat "clicked nothing
+        // deletable" as a no-op and let the click fall through to any
+        // non-placeable tile branches below (walls/zones/floors).
+      }
+      if (this.demolishType === 'demolishConnection') {
         // Remove all connection types at this tile
         const conns = this.game.getConnectionsAt(col, row);
         for (const ct of [...conns]) {
           this.game.removeConnection(col, row, ct);
-        }
-      } else if (this.demolishType === 'demolishFurnishing') {
-        // Unified placeable delete: probe the subtile under the cursor
-        // in subgridOccupied. Works for furnishings, equipment, and
-        // decorations (any kind except beamline, which has its own
-        // demolishComponent path because of the beam graph plumbing).
-        const tilePos = gridToIso(col, row);
-        const offsetX = world.x - tilePos.x;
-        const offsetY = world.y - tilePos.y;
-        const sub = isoToSubGrid(offsetX, offsetY);
-        const sc = Math.floor(sub.subCol);
-        const sr = Math.floor(sub.subRow);
-        if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
-          const cellKey = col + ',' + row + ',' + sc + ',' + sr;
-          const occ = this.game.state.subgridOccupied[cellKey];
-          if (occ && occ.kind !== 'beamline') {
-            this.game.removePlaceable(occ.id);
-          }
         }
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
@@ -1946,6 +1848,108 @@ export class InputHandler {
     this.selectedDecorationTool = null;
     this.hoverPlaceable = null;
     this.renderer._clearPreview?.();
+  }
+
+  /**
+   * Locate a deletable placeable under the cursor, honoring the demolish
+   * mode's kind scope. Returns { kind, placeable, entry?, node?, rootObj? }
+   * or null. Strategy:
+   *   1. Raycast. If it hits a beamline component and 'beamline' is in
+   *      scope, return the registry node + root mesh for outlining.
+   *   2. If raycast hits equipment / decoration, derive the world (x,z)
+   *      from the root mesh position and probe subgridOccupied.
+   *   3. If raycast missed, fall back to probing the subgrid cell under
+   *      the cursor world position.
+   * Never returns an entry whose kind isn't in the scope set.
+   */
+  _findDeletablePlaceable(world, grid, screenX, screenY, scope) {
+    if (!scope) return null;
+
+    // --- 1. Raycast for precise 3D hit detection ---
+    const hit = this.renderer.raycastScreen(screenX, screenY);
+    if (hit) {
+      const info = this.renderer.identifyHit(hit);
+      if (info) {
+        // Beamline components go through the legacy beam-graph registry
+        // because their lifecycle is tracked there, not only in state.placeables.
+        if (info.group === 'component' && scope.has('beamline')) {
+          let node = null;
+          if (info.nodeId) {
+            node = this.game.registry.getAllNodes().find(n => n.id === info.nodeId);
+          }
+          if (!node) {
+            const p = info.rootObj.position;
+            node = this._getNodeAtGrid(Math.floor(p.x / 2), Math.floor(p.z / 2));
+          }
+          if (!node) node = this._getNodeAtGrid(grid.col, grid.row);
+          if (node) {
+            const placeable = PLACEABLES[node.type] || COMPONENTS[node.type];
+            return { kind: 'beamline', node, placeable, rootObj: info.rootObj };
+          }
+        }
+        // Beam pipes are handled separately from kind-based scope — still
+        // reachable from any mode that allows beamline.
+        if (info.group === 'beampipe' && scope.has('beamline')) {
+          return { kind: 'beampipe', pipeId: info.pipeId, rootObj: info.rootObj };
+        }
+        // Equipment / furnishing / decoration all route through the same
+        // unified subgridOccupied probe, using the hit mesh's world
+        // position as the probe point.
+        if (info.group === 'equipment' || info.group === 'decoration') {
+          const p = info.rootObj.position;
+          const entry = this._placeableAtWorldPos(p.x, p.z);
+          if (entry && scope.has(entry.kind)) {
+            return {
+              kind: entry.kind,
+              entry,
+              placeable: PLACEABLES[entry.type],
+              rootObj: info.rootObj,
+            };
+          }
+        }
+      }
+    }
+
+    // --- 2. Fallback: probe the subgrid cell under the cursor ---
+    if (grid && grid.col !== undefined && grid.row !== undefined) {
+      const tilePos = gridToIso(grid.col, grid.row);
+      const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
+      const sc = Math.floor(sub.subCol);
+      const sr = Math.floor(sub.subRow);
+      if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+        const k = grid.col + ',' + grid.row + ',' + sc + ',' + sr;
+        const occ = this.game.state.subgridOccupied[k];
+        if (occ && scope.has(occ.kind)) {
+          const entry = this.game.getPlaceable(occ.id);
+          if (entry) {
+            return {
+              kind: occ.kind,
+              entry,
+              placeable: PLACEABLES[entry.type],
+              rootObj: null,
+            };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Look up a placed instance whose footprint contains the given
+   * world-space (x, z) point. Used by _findDeletablePlaceable to map a
+   * raycast hit's rootObj.position back to the placeable that owns it.
+   */
+  _placeableAtWorldPos(worldX, worldZ) {
+    const col = Math.floor(worldX / 2);
+    const row = Math.floor(worldZ / 2);
+    const subCol = Math.max(0, Math.min(3, Math.floor((worldX - col * 2) / 0.5)));
+    const subRow = Math.max(0, Math.min(3, Math.floor((worldZ - row * 2) / 0.5)));
+    const k = col + ',' + row + ',' + subCol + ',' + subRow;
+    const occ = this.game.state.subgridOccupied[k];
+    if (occ) return this.game.getPlaceable(occ.id);
+    return null;
   }
 
   /**

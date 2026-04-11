@@ -456,6 +456,9 @@ export class ThreeRenderer {
       if (obj.parent === this.equipmentGroup) {
         return { group: 'equipment', rootObj: obj };
       }
+      if (obj.parent === this.decorationGroup) {
+        return { group: 'decoration', rootObj: obj };
+      }
       if (obj.parent === this.wallGroup) {
         return { group: 'wall', rootObj: obj };
       }
