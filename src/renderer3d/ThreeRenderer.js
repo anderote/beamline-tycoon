@@ -670,11 +670,6 @@ export class ThreeRenderer {
       this._viewRotationAngle = this._viewRotToAngle;
       this._updateCameraLookAt();
       if (this.world) this.world.visible = true;
-      // Floor diamond UVs depend on view rotation — rebuild now that it has settled.
-      if (this.infraBuilder && this._snapshot && this._snapshot.infrastructure) {
-        this.infraBuilder._cacheKey = null;
-        this.infraBuilder.build(this._snapshot.infrastructure, this.infrastructureGroup, this._viewRotationIndex);
-      }
     }
   }
 
@@ -2028,7 +2023,7 @@ export class ThreeRenderer {
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
     this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
-    this.infraBuilder.build(snapshot.infrastructure, this.infrastructureGroup, this._viewRotationIndex);
+    this.infraBuilder.build(snapshot.infrastructure, this.infrastructureGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
@@ -2056,7 +2051,7 @@ export class ThreeRenderer {
 
   _refreshInfra() {
     const snap = buildWorldSnapshot(this.game);
-    this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup, this._viewRotationIndex);
+    this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup);
   }
 
   _refreshZones() {
