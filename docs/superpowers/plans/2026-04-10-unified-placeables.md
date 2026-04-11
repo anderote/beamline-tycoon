@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Collapse three divergent placement code paths (beamline modules, facility equipment, zone furnishings) into a single subtile-based pipeline so every placeable uses the same snap, validation, ghost preview, commit, and delete logic.
+**Goal:** Collapse four divergent placement code paths (beamline modules, facility equipment, zone furnishings, decorations) into a single subtile-based pipeline so every placeable uses the same snap, validation, ghost preview, commit, and delete logic.
 
-**Architecture:** A single `PLACEABLES` registry aggregates entries from per-kind data files and wraps each in a `Placeable` subclass (`BeamlineModule`, `Furnishing`, `Equipment`). A new `src/game/placement.js` module owns the pure placement primitives (snap, footprint, collision). `Game.placePlaceable` becomes kind-agnostic — its only constraint is subtile footprint collision. `InputHandler` carries one `hoverPlaceable` and one `selectedPlaceableId`. `ThreeRenderer` exposes one `renderPlaceableGhost`. Beam pipes and pipe attachments keep their existing special paths.
+**Architecture:** A single `PLACEABLES` registry aggregates entries from per-kind data files and wraps each in a `Placeable` subclass (`BeamlineModule`, `Furnishing`, `Equipment`, `Decoration`). A new `src/game/placement.js` module owns the pure placement primitives (snap, footprint, collision). `Game.placePlaceable` becomes kind-agnostic — its only constraint is subtile footprint collision. `InputHandler` carries one `hoverPlaceable` and one `selectedPlaceableId`. `ThreeRenderer` exposes one `renderPlaceableGhost`. Decorations migrate from the tile-level `decorationOccupied` map to the unified `subgridOccupied` map; the tile-scale decoration footprints become 4×4 subtile footprints. Beam pipes and pipe attachments keep their existing special paths.
 
 **Tech Stack:** Vanilla JS modules (ES2022), Vite dev server, Three.js for 3D rendering. **No test runner exists in this project** — verification is via `npm run dev` smoke tests in the browser, plus visual inspection. The plan accepts this and uses smoke tests as the verification gate per task.
 
@@ -23,22 +23,24 @@
 ## File Structure
 
 **New files:**
-- `src/game/Placeable.js` — base class + `BeamlineModule`, `Furnishing`, `Equipment` subclasses
+- `src/game/Placeable.js` — base class + `BeamlineModule`, `Furnishing`, `Equipment`, `Decoration` subclasses
 - `src/game/placement.js` — pure placement primitives (snap, footprint, collision, place, remove)
 - `src/data/placeables/index.js` — exports `PLACEABLES` (id → wrapped instance) by aggregating per-kind files
 - `src/data/placeables/beamline-modules.js` — beamline-kind entries
 - `src/data/placeables/furnishings.js` — furnishing-kind entries
 - `src/data/placeables/equipment.js` — equipment-kind entries
+- `src/data/placeables/decorations.js` — decoration-kind entries (trees, shrubs, etc.)
 
 **Modified files:**
-- `src/game/Game.js` — strip kind-branching from `placePlaceable`; add `removePlaceableById`, `removePlaceablesByKind`; route registry lookups through `PLACEABLES`
-- `src/input/InputHandler.js` — collapse three preview branches and three commit branches; unify selection state to `selectedPlaceableId`; unify rotation to `placementDir`
-- `src/renderer3d/ThreeRenderer.js` — add `renderPlaceableGhost`; delete the three legacy ghost renderers
+- `src/game/Game.js` — strip kind-branching from `placePlaceable`; add `removePlaceableById`, `removePlaceablesByKind`; route registry lookups through `PLACEABLES`; migrate decoration placement away from `decorationOccupied`
+- `src/input/InputHandler.js` — collapse four preview branches and four commit branches; unify selection state to `selectedPlaceableId`; unify rotation to `placementDir`
+- `src/renderer3d/ThreeRenderer.js` — add `renderPlaceableGhost`; delete the legacy ghost renderers (three beamline/equipment/furnishing plus any decoration ghost)
 - `src/renderer/hud.js` — read build menu from `PLACEABLES` grouped by kind; set `selectedPlaceableId` on click; per-kind delete buttons
 
 **Files left intact (registry shims for transition only — see Task 4):**
 - `src/data/components.js` — exports `COMPONENTS` re-derived from `PLACEABLES`
 - `src/data/infrastructure.js` — exports `ZONE_FURNISHINGS` re-derived from `PLACEABLES` (other exports — `INFRASTRUCTURE`, `WALL_TYPES`, `DOOR_TYPES`, `ZONES`, `ZONE_TIER_THRESHOLDS`, `FURNISHING_TIER_THRESHOLDS` — are untouched)
+- `src/data/decorations.js` — exports `DECORATIONS` re-derived from `PLACEABLES` (keeps `computeMoraleMultiplier` and `getReputationTier` exports intact)
 
 ---
 
@@ -70,7 +72,7 @@ export class Placeable {
     if (this.subW == null || this.subH == null) {
       throw new Error(`Placeable ${def.id}: missing subW/subH`);
     }
-    if (!['beamline', 'furnishing', 'equipment'].includes(this.kind)) {
+    if (!['beamline', 'furnishing', 'equipment', 'decoration'].includes(this.kind)) {
       throw new Error(`Placeable ${def.id}: invalid kind ${this.kind}`);
     }
   }
@@ -117,11 +119,13 @@ export class BeamlineModule extends Placeable {
 
 export class Furnishing extends Placeable {}
 export class Equipment extends Placeable {}
+export class Decoration extends Placeable {}
 
 export const PLACEABLE_CLASS_BY_KIND = {
   beamline: BeamlineModule,
   furnishing: Furnishing,
   equipment: Equipment,
+  decoration: Decoration,
 };
 ```
 
@@ -234,6 +238,7 @@ git commit -m "feat(placeables): add pure placement primitives (snap, canPlace)"
 - Create: `src/data/placeables/beamline-modules.js`
 - Create: `src/data/placeables/furnishings.js`
 - Create: `src/data/placeables/equipment.js`
+- Create: `src/data/placeables/decorations.js`
 
 - [ ] **Step 1: Write the per-kind files (empty arrays for now)**
 
@@ -252,6 +257,11 @@ export const FURNISHING_DEFS = [];
 export const EQUIPMENT_DEFS = [];
 ```
 
+```javascript
+// src/data/placeables/decorations.js
+export const DECORATION_DEFS = [];
+```
+
 - [ ] **Step 2: Write the index**
 
 ```javascript
@@ -265,11 +275,13 @@ import { PLACEABLE_CLASS_BY_KIND } from '../../game/Placeable.js';
 import { BEAMLINE_MODULE_DEFS } from './beamline-modules.js';
 import { FURNISHING_DEFS } from './furnishings.js';
 import { EQUIPMENT_DEFS } from './equipment.js';
+import { DECORATION_DEFS } from './decorations.js';
 
 const ALL_DEFS = [
   ...BEAMLINE_MODULE_DEFS,
   ...FURNISHING_DEFS,
   ...EQUIPMENT_DEFS,
+  ...DECORATION_DEFS,
 ];
 
 export const PLACEABLES = {};
@@ -437,6 +449,45 @@ export const EQUIPMENT_DEFS = EQUIPMENT_IDS.map(id => {
 });
 ```
 
+- [ ] **Step 4b: Populate decorations.js**
+
+Unlike components and zone-furnishings, `src/data/decorations.js` is small (~160 lines) and also exports helper functions (`computeMoraleMultiplier`, `getReputationTier`) that must remain. So: **do not** rename it. Instead, create the per-kind file that imports from it:
+
+```javascript
+// src/data/placeables/decorations.js
+import { DECORATIONS as DECORATIONS_RAW } from '../decorations.js';
+
+function toSubtiles(raw) {
+  if (raw.subW != null && (raw.subL != null || raw.subH != null)) {
+    return { subW: raw.subW, subH: raw.subL ?? raw.subH };
+  }
+  // Decorations are tile-scale; default 1 tile = 4 subtiles.
+  return { subW: (raw.gridW ?? 1) * 4, subH: (raw.gridH ?? 1) * 4 };
+}
+
+export const DECORATION_DEFS = Object.values(DECORATIONS_RAW).map(raw => {
+  const { subW, subH } = toSubtiles(raw);
+  return { ...raw, kind: 'decoration', subW, subH };
+});
+```
+
+**Important circular-dep consideration:** `decorations.js` will later be turned into a shim that imports from `PLACEABLES` (Step 5 below), which imports from `placeables/decorations.js`, which imports from `decorations.js`. To break the cycle, Step 5 uses a direct re-export from `decorations.raw.js` OR reads `DECORATIONS_RAW` via a side-exported internal symbol.
+
+**Cleanest approach:** rename `src/data/decorations.js` → `src/data/decorations.raw.js` (same pattern as components), then create a new `src/data/decorations.js` shim. The helper functions `computeMoraleMultiplier` and `getReputationTier` get re-exported from the shim:
+
+```bash
+git mv src/data/decorations.js src/data/decorations.raw.js
+```
+
+Inside `decorations.raw.js`, rename `export const DECORATIONS` to `export const DECORATIONS_RAW`. Leave `computeMoraleMultiplier` and `getReputationTier` exports unchanged.
+
+Update `src/data/placeables/decorations.js` to import from the raw file:
+
+```javascript
+import { DECORATIONS_RAW } from '../decorations.raw.js';
+// ... rest unchanged
+```
+
 - [ ] **Step 5: Re-export legacy registries from PLACEABLES**
 
 Create a new `src/data/components.js` (the original file is now `components.raw.js`):
@@ -487,6 +538,26 @@ for (const p of Object.values(PLACEABLES)) {
 ```
 
 This restores the `ZONE_FURNISHINGS` export that Step 1 removed, but now derived from `PLACEABLES`.
+
+Create a new `src/data/decorations.js` shim (the original file is now `decorations.raw.js`):
+
+```javascript
+// src/data/decorations.js
+//
+// LEGACY SHIM: DECORATIONS re-derives from PLACEABLES. Helper functions
+// are re-exported from decorations.raw.js unchanged.
+
+import { PLACEABLES } from './placeables/index.js';
+
+export const DECORATIONS = {};
+for (const p of Object.values(PLACEABLES)) {
+  if (p.kind === 'decoration') {
+    DECORATIONS[p.id] = p;
+  }
+}
+
+export { computeMoraleMultiplier, getReputationTier } from './decorations.raw.js';
+```
 
 - [ ] **Step 6: Smoke test**
 
@@ -677,6 +748,122 @@ git commit -m "feat(placeables): add removePlaceablesByKind for bulk delete by k
 
 ---
 
+## Task 6b: Migrate decoration placement to the unified path
+
+**Files:**
+- Modify: `src/game/Game.js` — `placeDecoration`, `removeDecoration`, `decorationOccupied` usages
+- Modify: `src/input/InputHandler.js` — decoration demolish paths (line ~1779, ~2302)
+
+This task replaces the tile-level `decorationOccupied` map with the unified `subgridOccupied` map for decoration instances. After this task, every decoration instance lives on `state.placeables` with `kind: 'decoration'`, its footprint cells are written to `subgridOccupied`, and `decorationOccupied` is deleted.
+
+- [ ] **Step 1: Read the decoration code paths**
+
+Read these sections to understand current behavior:
+- `src/game/Game.js:1712-1810` (`placeDecoration` and `removeDecoration`)
+- `src/game/Game.js:580-595` and `src/game/Game.js:655-670` (crop/clear loops that read `decorationOccupied`)
+- `src/game/Game.js:700-715` (bulldozer iteration)
+- `src/game/Game.js:67` (state init), `:109` (hydration), `:181` (snapshot), `:274` (restore), `:3263-3265` (load migration)
+
+Note which sites read `decorationOccupied` for "is there a decoration here?" and which write to it.
+
+- [ ] **Step 2: Replace `Game.placeDecoration` with a shim that routes through `placePlaceable`**
+
+Replace the body of `placeDecoration(col, row, decType, subCol = 0, subRow = 0, rotated = false)` with:
+
+```javascript
+placeDecoration(col, row, decType, subCol = 0, subRow = 0, rotated = false) {
+  // Legacy signature kept for existing callers. Routes through the
+  // unified placement path. The `rotated` boolean is translated to dir:
+  // rotated=true → dir=1 (90° CW). Four-way rotation is handled at the
+  // unified call sites in InputHandler (Task 9).
+  const dir = rotated ? 1 : 0;
+  return this.placePlaceable({
+    type: decType,
+    col,
+    row,
+    subCol,
+    subRow,
+    dir,
+  });
+}
+```
+
+- [ ] **Step 3: Replace `Game.removeDecoration` with an id-based shim**
+
+The current `removeDecoration(col, row, subCol, subRow)` looks up by tile key. Replace with:
+
+```javascript
+removeDecoration(col, row, subCol = 0, subRow = 0) {
+  // Legacy signature. Look up the instance occupying the cell and route
+  // through the unified removePlaceable path.
+  const key = col + ',' + row + ',' + subCol + ',' + subRow;
+  const occ = this.state.subgridOccupied[key];
+  if (!occ) return false;
+  return this.removePlaceable(occ.id);
+}
+```
+
+- [ ] **Step 4: Delete `decorationOccupied` from game state**
+
+In `src/game/Game.js`:
+
+- Line ~67: remove `decorationOccupied: {},` from the state initializer
+- Lines ~109, ~181, ~274: remove the snapshot/hydration/restore entries for `decorationOccupied`
+- Lines ~3263-3265: remove the load-migration that populates it
+
+For the crop/clear read sites (lines ~582, ~660, ~707 and others that use `state.decorationOccupied[key]`), replace each with a subgrid scan. Define a small helper on `Game`:
+
+```javascript
+// Returns the placed decoration instance at (col,row), or null. Used by
+// crop/clear/bulldozer code that needs "is there a decoration on this
+// tile?" semantics.
+_decorationAtTile(col, row) {
+  for (let sr = 0; sr < 4; sr++) {
+    for (let sc = 0; sc < 4; sc++) {
+      const k = col + ',' + row + ',' + sc + ',' + sr;
+      const occ = this.state.subgridOccupied[k];
+      if (!occ) continue;
+      const entry = this.state.placeables[this.state.placeableIndex[occ.id]];
+      if (entry && entry.kind === 'decoration') return entry;
+    }
+  }
+  return null;
+}
+```
+
+Replace each former `state.decorationOccupied[key]` read with a call to `this._decorationAtTile(col, row)`. The truthiness check (`if (state.decorationOccupied[key])`) becomes `if (this._decorationAtTile(col, row))`. Places that need the decoration id should use `inst.id` from the returned instance.
+
+- [ ] **Step 5: Update InputHandler decoration demolish sites**
+
+In `src/input/InputHandler.js:1779` (and similar ~2302), replace:
+```javascript
+if (this.game.state.decorationOccupied[key]) this.game.removeDecoration(col, row);
+```
+with:
+```javascript
+if (this.game._decorationAtTile(col, row)) this.game.removeDecoration(col, row);
+```
+
+Or simpler — skip the existence check entirely since `removeDecoration` now returns `false` if there's nothing there. `this.game.removeDecoration(col, row);` is enough.
+
+- [ ] **Step 6: Smoke test**
+
+Run `npm run dev`:
+- Place a tree → succeeds, ghost appears at tile scale (4×4 subtiles)
+- Place a magnetron through a tree → **rejected** (this is a NEW behavior — previously they had separate occupancy maps and wouldn't block each other)
+- Place a tree, click-delete it → removes
+- Crop/clear tools that were supposed to remove decorations still work
+- Save/load: save the game with decorations placed, reload → decorations reappear in the same spots (the save now stores them on `state.placeables` via the legacy migration path in `_loadState`; if decorations don't reappear, add a hydration fallback that converts old `decorationOccupied` saves into new placeables entries, or simply wipe save state for this test)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/game/Game.js src/input/InputHandler.js
+git commit -m "refactor(placeables): migrate decorations from decorationOccupied to unified subgridOccupied"
+```
+
+---
+
 ## Task 7: Add `ThreeRenderer.renderPlaceableGhost`
 
 **Files:**
@@ -832,9 +1019,9 @@ git commit -m "feat(placeables): add unified selection state alongside legacy"
 
 Read `src/input/InputHandler.js:1300-1380` to see the full mouse-move handler context.
 
-- [ ] **Step 2: Replace the three preview branches**
+- [ ] **Step 2: Replace the four preview branches**
 
-Find the block that contains the equipment preview (line ~1322), beamline preview (line ~1331), and furnishing preview (line ~1345). Replace the entire three-branch block with a single unified branch:
+Find the block that contains the equipment preview (line ~1322), beamline preview (line ~1331), furnishing preview (line ~1345), and decoration preview (line ~1369). Replace the entire four-branch block with a single unified branch:
 
 ```javascript
 // Unified placeable preview. Replaces the previous three branches
@@ -870,9 +1057,9 @@ Add at the top of the file:
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 ```
 
-- [ ] **Step 3: Replace the three commit branches at lines 832-849**
+- [ ] **Step 3: Replace the four commit branches**
 
-Find the click handler block at `src/input/InputHandler.js:832-849`. Replace all three commit branches (beamline at 832, equipment at 847, furnishing at 849) with a single commit:
+Find the click handler block at `src/input/InputHandler.js:832-849` (beamline at 832, equipment at 847, furnishing at 849) and the decoration commit at ~1922-1932. Replace all four with a single unified commit at the first location, and **delete** the decoration commit block at ~1922:
 
 ```javascript
 if (this.hoverPlaceable) {
@@ -933,6 +1120,7 @@ In every click handler that currently does one of:
 - `inputHandler.selectedTool = key`
 - `inputHandler.selectedFurnishingTool = key`
 - `inputHandler.selectedFacilityTool = key`
+- `inputHandler.selectedDecorationTool = key`
 
 Replace with:
 ```javascript
@@ -941,13 +1129,13 @@ inputHandler.selectPlaceable(key);
 
 - [ ] **Step 3: Add per-kind delete buttons**
 
-Find where the demolish/delete UI is rendered in `hud.js` (likely a tool palette or top bar). Add three buttons:
+Find where the demolish/delete UI is rendered in `hud.js` (likely a tool palette or top bar). Add four buttons:
 
 ```javascript
 // Per-kind bulk delete buttons.
 const bulkDeleteRow = document.createElement('div');
 bulkDeleteRow.className = 'bulk-delete-row';
-for (const kind of ['beamline', 'furnishing', 'equipment']) {
+for (const kind of ['beamline', 'furnishing', 'equipment', 'decoration']) {
   const btn = document.createElement('button');
   btn.textContent = `Delete all ${kind}`;
   btn.onclick = () => {
@@ -1038,10 +1226,11 @@ Remove from the constructor and from `selectPlaceable`:
 - `this.selectedTool` (search for all reads/writes — must all be gone)
 - `this.selectedFurnishingTool`
 - `this.selectedFacilityTool`
+- `this.selectedDecorationTool`
 - `this.furnishingRotated`
 - `this.hoverCompSnap`
 - `this.hoverFurnishing*`
-- `this.hoverSubCol`, `this.hoverSubRow` (if only used by furnishing path)
+- `this.hoverSubCol`, `this.hoverSubRow` (if only used by furnishing/decoration path)
 
 For each: grep the file for the field name. If any reads remain that aren't in the dead branches, leave the field and add a TODO comment — those reads belong to a path that wasn't fully migrated.
 
@@ -1071,8 +1260,9 @@ Delete:
 - `removeFacilityEquipment` (line 1147)
 - `placeZoneFurnishing` (line 1153)
 - `removeZoneFurnishing` (line 1165)
+- `placeDecoration` and `removeDecoration` legacy shims (from Task 6b) — only if no remaining callers exist; grep first
 
-Grep for callers: `grep -rn 'placeFacilityEquipment\|placeZoneFurnishing\|removeFacilityEquipment\|removeZoneFurnishing' src/`. Replace any remaining callers with the unified `placePlaceable` / `removePlaceable`.
+Grep for callers: `grep -rn 'placeFacilityEquipment\|placeZoneFurnishing\|removeFacilityEquipment\|removeZoneFurnishing\|placeDecoration\|removeDecoration' src/`. Replace any remaining callers with the unified `placePlaceable` / `removePlaceable`. If some call sites (especially crop/clear paths) still rely on `removeDecoration(col, row)`'s convenient tile-based lookup, leave the shim in place and note it.
 
 - [ ] **Step 4: Smoke test**
 
@@ -1102,8 +1292,10 @@ Run `npm run dev`. In a fresh browser load (cleared local storage), run the foll
 **Placement (footprint collision is the only constraint):**
 - [ ] Place a magnetron on bare ground (no floor) — succeeds
 - [ ] Place an oscilloscope on bare ground — succeeds
+- [ ] Place a tree/decoration — succeeds
 - [ ] Place a magnetron, then try to place another magnetron overlapping it — rejected with "Space occupied!"
 - [ ] Place a magnetron, then try to place an oscilloscope overlapping its subtiles — rejected
+- [ ] Place a tree, then try to place a magnetron on the same tile — rejected (NEW cross-kind collision)
 - [ ] Place an oscilloscope, then a magnetron next to it (no overlap) — both succeed
 - [ ] Place an equipment-kind item — succeeds
 - [ ] Place an equipment-kind item overlapping a magnetron — rejected
@@ -1118,12 +1310,14 @@ Run `npm run dev`. In a fresh browser load (cleared local storage), run the foll
 - [ ] Click-delete on a magnetron — removes
 - [ ] Click-delete on an oscilloscope — removes
 - [ ] Click-delete on equipment — removes
+- [ ] Click-delete on a tree — removes
 
 **Delete (bulk by kind):**
-- [ ] Place 3 magnetrons, 2 oscilloscopes, 1 equipment item
+- [ ] Place 3 magnetrons, 2 oscilloscopes, 1 equipment item, 2 trees
 - [ ] "Delete all furnishing" → only oscilloscopes vanish
 - [ ] "Delete all beamline" → only magnetrons vanish
 - [ ] "Delete all equipment" → only equipment vanishes
+- [ ] "Delete all decoration" → only trees vanish
 
 **Beam pipes (regression check):**
 - [ ] Draw a beam pipe between two magnetrons — works as before
@@ -1142,8 +1336,9 @@ Run these greps. Each should return zero results (or only results inside `compon
 grep -rn 'placeZoneFurnishing\|placeFacilityEquipment\|removeFacilityEquipment\|removeZoneFurnishing' src/
 grep -rn 'renderComponentGhost\|renderEquipmentGhost\|renderFurnishingGhost' src/
 grep -rn '_computeModuleSubSnap' src/
-grep -rn 'selectedFurnishingTool\|selectedFacilityTool\|furnishingRotated' src/
+grep -rn 'selectedFurnishingTool\|selectedFacilityTool\|selectedDecorationTool\|furnishingRotated' src/
 grep -rn 'hoverCompSnap\|hoverFurnishing' src/
+grep -rn 'decorationOccupied' src/
 ```
 
 If any of these return code-path hits (not raw-data files, not comments), file a follow-up task — the migration is incomplete.
