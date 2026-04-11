@@ -1307,6 +1307,21 @@ export class Game {
     return true;
   }
 
+  /**
+   * Remove every placed instance of a given kind. Used by the
+   * "delete all furnishings" / "delete all beamline" UI tools.
+   */
+  removePlaceablesByKind(kind) {
+    const ids = this.state.placeables
+      .filter(p => p.kind === kind || p.category === kind)
+      .map(p => p.id);
+    let n = 0;
+    for (const id of ids) {
+      if (this.removePlaceable(id)) n++;
+    }
+    return n;
+  }
+
   _rebuildPlaceableIndex() {
     this.state.placeableIndex = {};
     for (let i = 0; i < this.state.placeables.length; i++) {
