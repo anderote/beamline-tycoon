@@ -165,15 +165,17 @@ function buildEquipment(game) {
 }
 
 function buildDecorations(game) {
-  return (game.state.decorations || []).map(d => ({
-    col: d.col,
-    row: d.row,
-    type: d.type,
-    subCol: d.subCol ?? null,
-    subRow: d.subRow ?? null,
-    variant: d.variant ?? null,
-    tall: d.tall ?? false,
-  }));
+  return (game.state.placeables || [])
+    .filter(p => p.kind === 'decoration')
+    .map(d => ({
+      col: d.col,
+      row: d.row,
+      type: d.type,
+      subCol: d.subCol ?? null,
+      subRow: d.subRow ?? null,
+      variant: d.variant ?? null,
+      tall: d.tall ?? false,
+    }));
 }
 
 function buildConnections(game) {

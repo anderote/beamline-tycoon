@@ -63,9 +63,6 @@ export class Game {
       // Beam pipe connections (drawn between module ports)
       beamPipes: [],                // [{ id, fromId, fromPort, toId, toPort, path: [{col,row}], subL, attachments: [{id, type, position, params}] }]
       beamPipeNextId: 1,
-      // Decorations (trees, shrubs, benches, etc.)
-      decorations: [],              // [{ id, type, col, row }]
-      decorationNextId: 1,
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
@@ -101,10 +98,9 @@ export class Game {
     this.state.terrainSeed = Date.now();
     this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
 
-    // Generate starting map
-    const startMap = generateStartingMap(this.state.terrainSeed);
-    this.state.decorations = startMap.decorations;
-    this.state.decorationNextId = startMap.nextId;
+    // Generate starting map (currently a stub returning an empty decoration
+    // set; kept as a hook for future terrain generation).
+    generateStartingMap(this.state.terrainSeed);
   }
 
   _generateTerrainBlobs(seed) {
@@ -174,8 +170,6 @@ export class Game {
       wallOccupied: { ...this.state.wallOccupied },
       doors: this.state.doors.map(d => ({ ...d })),
       doorOccupied: { ...this.state.doorOccupied },
-      decorations: this.state.decorations.map(d => ({ ...d })),
-      decorationNextId: this.state.decorationNextId,
       facilityEquipment: this.state.facilityEquipment.map(e => ({ ...e })),
       facilityGrid: { ...this.state.facilityGrid },
       facilityNextId: this.state.facilityNextId,
@@ -266,8 +260,6 @@ export class Game {
     this.state.wallOccupied = snap.wallOccupied;
     this.state.doors = snap.doors;
     this.state.doorOccupied = snap.doorOccupied;
-    this.state.decorations = snap.decorations;
-    this.state.decorationNextId = snap.decorationNextId;
     this.state.facilityEquipment = snap.facilityEquipment;
     this.state.facilityGrid = snap.facilityGrid;
     this.state.facilityNextId = snap.facilityNextId;
@@ -2313,14 +2305,15 @@ export class Game {
     this.state.tick++;
 
     // Decoration effects
-    this.state.moraleMultiplier = computeMoraleMultiplier(this.state.decorations);
+    const decorationInstances = this.state.placeables.filter(p => p.kind === 'decoration');
+    this.state.moraleMultiplier = computeMoraleMultiplier(decorationInstances);
     const roomMorale = this.computeRoomMorale();
     let totalFurnishingMorale = 0;
     for (const [, morale] of roomMorale) {
       totalFurnishingMorale += morale;
     }
     this.state.furnishingMorale = totalFurnishingMorale;
-    this.state.reputationTier = getReputationTier(this.state.decorations.length);
+    this.state.reputationTier = getReputationTier(decorationInstances.length);
 
     // === Revenue ===
     const passiveIncome = this.getEffect('passiveFunding', 0);
@@ -2929,8 +2922,6 @@ export class Game {
       connObj[key] = Array.from(set);
     }
     const saveState = { ...this.state, connections: connObj };
-    saveState.decorations = this.state.decorations;
-    saveState.decorationNextId = this.state.decorationNextId;
     localStorage.setItem('beamlineTycoon', JSON.stringify({
       version: 6,
       state: saveState,
@@ -3080,10 +3071,6 @@ export class Game {
           }
         }
       }
-
-      // Restore decoration state
-      this.state.decorations = data.state.decorations || [];
-      this.state.decorationNextId = data.state.decorationNextId || 1;
 
       // Rebuild wall state
       this.state.walls = this.state.walls || [];
