@@ -844,6 +844,13 @@ export class InputHandler {
             this._exitMoveMode();
             break;
           }
+          // If a placeable is armed, exit placement mode without clearing
+          // the rest of the tool state.
+          if (this.selectedPlaceableId) {
+            this.selectPlaceable(null);
+            this._hidePreview();
+            break;
+          }
           // If in context-aware demolish (mode didn't change), just deselect
           if (this.demolishMode && this.activeMode !== 'demolish') {
             this.deselectDemolishTool();
@@ -864,6 +871,20 @@ export class InputHandler {
           if (this.renderer.activeNetworkType) {
             this.renderer.clearNetworkOverlay();
             // Don't return — let other Escape handling also run
+          }
+          // If nothing else was active, Escape enters generic delete mode
+          // so the user can click-to-delete any placeable without having
+          // to pick a specific demolish tool from the HUD.
+          if (
+            !this.selectedTool && !this.selectedInfraTool &&
+            !this.selectedFacilityTool && !this.selectedFurnishingTool &&
+            !this.selectedDecorationTool && !this.selectedConnTool &&
+            !this.selectedZoneTool && !this.selectedWallTool &&
+            !this.selectedDoorTool && !this.demolishMode &&
+            !this.bulldozerMode && !this.probeMode
+          ) {
+            this.selectDemolishTool('demolishAll');
+            break;
           }
           // Close all overlays
           document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
@@ -905,7 +926,9 @@ export class InputHandler {
           // Rotate placement direction (cycles NE→SE→SW→NW)
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
-          // Re-render equipment ghost so the 3D preview rotates immediately
+          // Re-render unified ghost so the preview rotates immediately.
+          this._updatePlaceablePreview();
+          // Beam pipe drawn connections still use the legacy ghost path.
           if (this.selectedTool && this.renderer.hoverCol !== undefined) {
             const comp = COMPONENTS[this.selectedTool];
             if (comp && comp.isDrawnConnection) {
@@ -915,16 +938,6 @@ export class InputHandler {
           // Also toggle dipole bend direction
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
-          // Rotate furnishings and decorations
-          if (this.selectedFurnishingTool) {
-            this.furnishingRotated = !this.furnishingRotated;
-          }
-          if (this.selectedDecorationTool) {
-            const dd = DECORATIONS[this.selectedDecorationTool];
-            if (dd && dd.gridW && dd.gridH) {
-              this.furnishingRotated = !this.furnishingRotated;
-            }
-          }
           // Rotate move payload
           if (this.moveMode && this._movePayload) {
             if (this._movePayload.kind === 'furnishing') {
@@ -1280,29 +1293,9 @@ export class InputHandler {
         }
         // Unified placeable preview. Replaces the previous four branches
         // (equipment / beamline / furnishing / decoration).
-        if (this.selectedPlaceableId) {
-          const placeable = PLACEABLES[this.selectedPlaceableId];
-          if (placeable) {
-            const snap = snapForPlaceable(world.x, world.y, placeable, this.placementDir);
-            this.hoverPlaceable = {
-              id: this.selectedPlaceableId,
-              col: snap.col,
-              row: snap.row,
-              subCol: snap.subCol,
-              subRow: snap.subRow,
-              dir: this.placementDir,
-            };
-            const { ok } = canPlace(
-              this.game,
-              placeable,
-              snap.col, snap.row, snap.subCol, snap.subRow,
-              this.placementDir,
-            );
-            this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
-          }
-        } else {
-          this.hoverPlaceable = null;
-        }
+        this.lastMouseWorldX = world.x;
+        this.lastMouseWorldY = world.y;
+        this._updatePlaceablePreview();
         // Demolish hover: highlight the object under cursor with red + show tooltip
         if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
           this._updateDemolishHover(world, grid, e.clientX, e.clientY);
@@ -1953,6 +1946,37 @@ export class InputHandler {
     this.selectedDecorationTool = null;
     this.hoverPlaceable = null;
     this.renderer._clearPreview?.();
+  }
+
+  /**
+   * Recompute the unified placeable ghost from the last known cursor
+   * world position. Called from the mousemove handler and from the
+   * rotation key so rotating refreshes the preview immediately.
+   */
+  _updatePlaceablePreview() {
+    if (!this.selectedPlaceableId) {
+      this.hoverPlaceable = null;
+      return;
+    }
+    const placeable = PLACEABLES[this.selectedPlaceableId];
+    if (!placeable) return;
+    const wx = this.lastMouseWorldX ?? 0;
+    const wy = this.lastMouseWorldY ?? 0;
+    const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
+    this.hoverPlaceable = {
+      id: this.selectedPlaceableId,
+      col: snap.col,
+      row: snap.row,
+      subCol: snap.subCol,
+      subRow: snap.subRow,
+      dir: this.placementDir,
+    };
+    const { ok } = canPlace(
+      this.game, placeable,
+      snap.col, snap.row, snap.subCol, snap.subRow,
+      this.placementDir,
+    );
+    this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
   }
 
   selectTool(compType, paramOverrides) {

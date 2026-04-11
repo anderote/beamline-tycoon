@@ -2,8 +2,7 @@
 // Renders equipment and zone furnishings as 3D boxes.
 // THREE is a CDN global — do NOT import it.
 
-import { COMPONENTS } from '../data/components.js';
-import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 
 const SUB_UNIT = 0.5;
 
@@ -24,16 +23,16 @@ export class EquipmentBuilder {
 
     if (equipmentData) {
       for (const eq of equipmentData) {
-        const compDef = COMPONENTS[eq.type];
+        const compDef = PLACEABLES[eq.type];
         if (!compDef) continue;
 
         const w = (compDef.subW || 2) * SUB_UNIT;
         const h = (compDef.subH || 2) * SUB_UNIT;
-        const l = (compDef.subL || 2) * SUB_UNIT;
+        const l = (compDef.subL || compDef.subH || 2) * SUB_UNIT;
 
         const geo = new THREE.BoxGeometry(w, h, l);
         const mat = new THREE.MeshStandardMaterial({
-          color: compDef.spriteColor || 0x888888,
+          color: compDef.spriteColor || compDef.color || 0x888888,
           roughness: 0.7,
           metalness: 0.1,
         });
@@ -57,11 +56,11 @@ export class EquipmentBuilder {
 
     if (furnishingData) {
       for (const furn of furnishingData) {
-        const furnDef = ZONE_FURNISHINGS?.[furn.type];
+        const furnDef = PLACEABLES[furn.type];
 
         const w = (furnDef?.subW || 1) * SUB_UNIT;
         const h = (furnDef?.subH || 1) * SUB_UNIT;
-        const l = (furnDef?.subL || 1) * SUB_UNIT;
+        const l = (furnDef?.subL || furnDef?.subH || 1) * SUB_UNIT;
 
         const geo = new THREE.BoxGeometry(w, h, l);
         const mat = new THREE.MeshStandardMaterial({
