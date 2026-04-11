@@ -542,13 +542,13 @@ export const DOOR_TYPES = {
 };
 
 export const ZONES = {
-  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',      subsection: 'laboratories', texture: 'tile_rfLab' },
+  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',      subsection: 'laboratories', texture: 'tile_floor_white' },
   coolingLab:  { id: 'coolingLab',  name: 'Cooling Lab',    color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cooling',      subsection: 'laboratories', texture: 'tile_floor_white' },
-  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories', texture: 'tile_vacuumLab' },
-  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'tile_officeSpace' },
-  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations',   texture: 'tile_controlRoom' },
-  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'labFloor',    gatesCategory: 'beamline',     subsection: 'industrial',   texture: 'tile_machineShop' },
-  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',          subsection: 'industrial',   texture: 'tile_maintenance' },
+  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories', texture: 'tile_floor_white' },
+  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'drywall_painted'  },
+  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations',   texture: 'tile_floor_white' },
+  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'labFloor',    gatesCategory: 'beamline',     subsection: 'industrial',   texture: 'concrete_floor'   },
+  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',          subsection: 'industrial',   texture: 'concrete_floor'   },
   opticsLab:   { id: 'opticsLab',   name: 'Optics Lab',     color: 0x44aacc, requiredFloor: 'labFloor',    gatesCategory: null,           subsection: 'laboratories', texture: 'tile_floor_white' },
   diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,      subsection: 'laboratories', texture: 'tile_floor_white' },
   cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'tile_floor_white' },

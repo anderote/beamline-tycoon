@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-// Extract seamless 64x64 material textures from the existing isometric
-// diamond tile PNGs in assets/tiles/. The diamond's interior pixel art
-// is the source; we extract the inscribed axis-aligned square and
-// nearest-neighbor upscale to 64x64. Output goes to
-// assets/textures/materials/tile_<basename>.png.
+// Reproject existing 2:1 isometric flat-content diamond tile PNGs into
+// seamless 64×64 axis-aligned material textures using parametric
+// diamond unprojection. Output goes to assets/textures/materials/
+// prefixed with tile_.
 //
 // Run: node tools/asset-gen/gen-tiles-from-diamonds.cjs
 
@@ -15,15 +14,9 @@ const TILES_DIR = path.join(__dirname, '..', '..', 'assets', 'tiles');
 const OUT_DIR   = path.join(__dirname, '..', '..', 'assets', 'textures', 'materials');
 const OUT_SIZE  = 64;
 
+// Floor surface tiles only — these are flat-content 2:1 iso diamonds.
+// Zone tiles (rfLab_0, etc.) are 3D scenes and excluded intentionally.
 const SOURCES = [
-  // Zone tiles
-  'controlRoom_0.png',
-  'machineShop_0.png',
-  'maintenance_0.png',
-  'officeSpace_0.png',
-  'rfLab_0.png',
-  'vacuumLab_0.png',
-  // Floor surface tiles
   'brick.png',
   'cobblestone.png',
   'concrete.png',
@@ -40,7 +33,10 @@ function readPng(filePath) {
 }
 
 function getPx(png, x, y) {
-  const idx = (y * png.width + x) * 4;
+  // Clamp to image bounds.
+  const cx = Math.max(0, Math.min(png.width - 1, x | 0));
+  const cy = Math.max(0, Math.min(png.height - 1, y | 0));
+  const idx = (cy * png.width + cx) * 4;
   return [png.data[idx], png.data[idx + 1], png.data[idx + 2], png.data[idx + 3]];
 }
 
@@ -62,17 +58,16 @@ function processSource(filename) {
   const src = readPng(inPath);
   const W = src.width, H = src.height;
 
-  // Inscribed axis-aligned square: side = floor(min(W, H) / 2), centered.
-  const side = Math.floor(Math.min(W, H) / 2);
-  const x0 = Math.floor((W - side) / 2);
-  const y0 = Math.floor((H - side) / 2);
+  // Sanity: warn if not roughly 2:1 (the iso ratio).
+  const ratio = W / H;
+  if (ratio < 1.7 || ratio > 2.3) {
+    console.warn(`  ${filename}: unexpected aspect ratio ${W}x${H} (=${ratio.toFixed(2)}), expected ~2:1`);
+  }
 
-  console.log(`  ${filename}: ${W}x${H}, inscribed square ${side}x${side} at (${x0},${y0})`);
-
-  // Compute average opaque color across the inscribed square as a fallback.
+  // Pass 1: collect all opaque source pixels for fallback average.
   let aggR = 0, aggG = 0, aggB = 0, aggCount = 0;
-  for (let y = y0; y < y0 + side; y++) {
-    for (let x = x0; x < x0 + side; x++) {
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
       const [r, g, b, a] = getPx(src, x, y);
       if (a > 8) {
         aggR += r; aggG += g; aggB += b; aggCount++;
@@ -83,37 +78,43 @@ function processSource(filename) {
   const avgG = aggCount > 0 ? Math.round(aggG / aggCount) : 128;
   const avgB = aggCount > 0 ? Math.round(aggB / aggCount) : 128;
 
-  // Build the 64x64 output via nearest-neighbor upscale of the inscribed square.
+  // Pass 2: parametric diamond unprojection.
+  // Diamond corners: TOP=(W/2, 0), RIGHT=(W, H/2), BOTTOM=(W/2, H), LEFT=(0, H/2)
+  // For (u,v) in [0,1]²: dx = (W/2)*(1 + u - v), dy = (H/2)*(u + v)
   const out = new PNG({ width: OUT_SIZE, height: OUT_SIZE, colorType: 6 });
-  for (let oy = 0; oy < OUT_SIZE; oy++) {
-    for (let ox = 0; ox < OUT_SIZE; ox++) {
-      const sx = x0 + Math.floor(ox * side / OUT_SIZE);
-      const sy = y0 + Math.floor(oy * side / OUT_SIZE);
-      const [r, g, b, a] = getPx(src, sx, sy);
+  for (let sy = 0; sy < OUT_SIZE; sy++) {
+    for (let sx = 0; sx < OUT_SIZE; sx++) {
+      const u = sx / OUT_SIZE;
+      const v = sy / OUT_SIZE;
+      let dx = (W / 2) * (1 + u - v);
+      let dy = (H / 2) * (u + v);
+      if (dx >= W) dx = W - 1;
+      if (dy >= H) dy = H - 1;
+      if (dx < 0) dx = 0;
+      if (dy < 0) dy = 0;
+      const [r, g, b, a] = getPx(src, dx, dy);
       if (a > 8) {
-        setPx(out, ox, oy, r, g, b, 255);
+        setPx(out, sx, sy, r, g, b, 255);
       } else {
-        // Transparent pixel inside the inscribed square — fall back to avg color.
-        setPx(out, ox, oy, avgR, avgG, avgB, 255);
+        setPx(out, sx, sy, avgR, avgG, avgB, 255);
       }
     }
   }
 
-  // Output filename: strip _0 and extension, add tile_ prefix
-  const base = filename.replace(/_0\.png$/, '').replace(/\.png$/, '');
+  const base = filename.replace(/\.png$/, '');
   const outName = 'tile_' + base + '.png';
   const outPath = path.join(OUT_DIR, outName);
   fs.writeFileSync(outPath, PNG.sync.write(out));
   console.log('wrote', outPath);
-  return 'tile_' + base;
+  return base;
 }
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
 const generated = [];
 for (const f of SOURCES) {
-  const name = processSource(f);
-  if (name) generated.push(name);
+  const base = processSource(f);
+  if (base) generated.push('tile_' + base);
 }
 
 console.log('\nGenerated', generated.length, 'tile materials:');
