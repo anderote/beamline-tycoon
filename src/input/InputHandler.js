@@ -8,6 +8,8 @@ import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { NetworkWindow } from '../ui/NetworkWindow.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
+import { PLACEABLES } from '../data/placeables/index.js';
+import { snapForPlaceable, canPlace } from '../game/placement.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -71,6 +73,9 @@ export class InputHandler {
     this.hoverSubCol = -1;              // sub-grid column under cursor
     this.hoverSubRow = -1;              // sub-grid row under cursor
     this.selectedDecorationTool = null; // decoration type or null
+    // Unified placeable selection (Task 8)
+    this.selectedPlaceableId = null;
+    this.hoverPlaceable = null; // { id, col, row, subCol, subRow, dir } | null
     this.selectedConnTool = null;
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
@@ -797,56 +802,31 @@ export class InputHandler {
         case ' ':
           e.preventDefault();
           this.game._pushUndo();
-          if (this.selectedTool) {
-            const comp = COMPONENTS[this.selectedTool];
-            if (comp && !comp.isDrawnConnection) {
-              if (comp.placement === 'attachment') {
-                // Attachment: snap to the nearest pipe
-                const pipe = this._findNearestPipe(this.renderer.hoverCol, this.renderer.hoverRow);
-                if (pipe) {
-                  const position = this._getPipePosition(pipe, this.renderer.hoverCol, this.renderer.hoverRow);
-                  this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
-                } else {
-                  this.game.log('Must place on a beam pipe!', 'bad');
-                }
-              } else if (comp.isSource) {
-                // Sources are regular beamline placeables (isSource=true on the definition)
-                const snap = this.hoverCompSnap || { col: this.renderer.hoverCol, row: this.renderer.hoverRow, subCol: 0, subRow: 0 };
-                const entryId = this.game.placePlaceable({
-                  type: this.selectedTool,
-                  category: 'beamline',
-                  col: snap.col,
-                  row: snap.row,
-                  subCol: snap.subCol,
-                  subRow: snap.subRow,
-                  rotated: false,
-                  dir: this.placementDir,
-                  params: this.selectedParamOverrides,
-                });
-                if (entryId) {
-                  // Auto-switch to beam pipe tool after placing source
-                  this.selectTool('drift');
-                }
-              } else {
-                // Non-source module — unified placement
-                const snap = this.hoverCompSnap || { col: this.renderer.hoverCol, row: this.renderer.hoverRow, subCol: 0, subRow: 0 };
-                this.game.placePlaceable({
-                  type: this.selectedTool,
-                  category: 'beamline',
-                  col: snap.col,
-                  row: snap.row,
-                  subCol: snap.subCol,
-                  subRow: snap.subRow,
-                  rotated: false,
-                  dir: this.placementDir,
-                  params: this.selectedParamOverrides,
-                });
-              }
+          if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
+            // Attachment: snap to the nearest pipe (not a PLACEABLES entry)
+            const pipe = this._findNearestPipe(this.renderer.hoverCol, this.renderer.hoverRow);
+            if (pipe) {
+              const position = this._getPipePosition(pipe, this.renderer.hoverCol, this.renderer.hoverRow);
+              this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
+            } else {
+              this.game.log('Must place on a beam pipe!', 'bad');
             }
-          } else if (this.selectedFacilityTool) {
-            this.game.placeFacilityEquipment(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFacilityTool);
-          } else if (this.selectedFurnishingTool) {
-            this.game.placeZoneFurnishing(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedFurnishingTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated);
+          } else if (this.hoverPlaceable) {
+            // Unified placement — handles beamline / equipment / furnishing / decoration.
+            const placedId = this.game.placePlaceable({
+              type: this.hoverPlaceable.id,
+              col: this.hoverPlaceable.col,
+              row: this.hoverPlaceable.row,
+              subCol: this.hoverPlaceable.subCol,
+              subRow: this.hoverPlaceable.subRow,
+              dir: this.hoverPlaceable.dir,
+              params: this.selectedParamOverrides,
+            });
+            // Auto-switch to beam pipe tool after placing a source.
+            const comp = COMPONENTS[this.hoverPlaceable.id];
+            if (placedId && comp?.isSource) {
+              this.selectTool('drift');
+            }
           } else if (this.selectedInfraTool) {
             const infra = INFRASTRUCTURE[this.selectedInfraTool];
             if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
@@ -863,16 +843,12 @@ export class InputHandler {
             this._movePayload.rotated = !this._movePayload.rotated;
             return;
           }
-          if (this.selectedFurnishingTool) {
-            this.furnishingRotated = !this.furnishingRotated;
+          // Unified rotation: R always advances placementDir when a placeable
+          // is selected. The legacy furnishingRotated toggle is gone.
+          if (this.selectedPlaceableId) {
+            this.placementDir = (this.placementDir + 1) % 4;
+            this.renderer.updatePlacementDir?.(this.placementDir);
             return;
-          }
-          if (this.selectedDecorationTool) {
-            const dd = DECORATIONS[this.selectedDecorationTool];
-            if (dd && dd.gridW && dd.gridH) {
-              this.furnishingRotated = !this.furnishingRotated;
-              return;
-            }
           }
           const overlay = document.getElementById('research-overlay');
           if (overlay) overlay.classList.toggle('hidden');
@@ -1319,69 +1295,36 @@ export class InputHandler {
           const zone = this.selectedZoneTool ? ZONES[this.selectedZoneTool] : null;
           const color = infra?.topColor || zone?.color || 0xffffff;
           this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
-        } else if (this.selectedFacilityTool) {
-          const comp = COMPONENTS[this.selectedFacilityTool];
-          const color = comp ? _categoryColor(comp.category) : 0x88aaff;
-          this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedFacilityTool, color);
         } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
           // Hover preview for beam pipe: snap to sub-tile so it matches where
           // the pipe will actually be drawn on click. Stored on the input
           // handler so the animate loop can keep the preview alive across frames.
           this.hoverPipePoint = this._snapPipePoint(world.x, world.y);
-        } else if (this.selectedTool && COMPONENTS[this.selectedTool] && !COMPONENTS[this.selectedTool].isDrawnConnection && COMPONENTS[this.selectedTool].placement !== 'attachment') {
-          // Non-drawn beamline module: snap to sub-cell under cursor, allow
-          // footprint to cross tile boundaries.
-          const compDef = COMPONENTS[this.selectedTool];
-          const color = _categoryColor(compDef.category);
-          const snap = this._computeModuleSubSnap(world.x, world.y, compDef);
-          this.hoverCompSnap = snap;
-          this.renderer.renderComponentGhost(
-            snap.col, snap.row, this.selectedTool,
-            this.placementDir || 0, color,
-            snap.subCol, snap.subRow,
-          );
         }
-        // Sub-grid hover: calculate which sub-cell the cursor is over
-        if (this.selectedFurnishingTool && this.renderer.hoverCol !== undefined) {
-          const tilePos = gridToIso(this.renderer.hoverCol, this.renderer.hoverRow);
-          const offsetX = world.x - tilePos.x;
-          const offsetY = world.y - tilePos.y;
-          const sub = isoToSubGrid(offsetX, offsetY);
-          const furnDef = ZONE_FURNISHINGS[this.selectedFurnishingTool];
-          if (furnDef) {
-            const gw = this.furnishingRotated ? furnDef.gridH : furnDef.gridW;
-            const gh = this.furnishingRotated ? furnDef.gridW : furnDef.gridH;
-            this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
-            this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
-          }
-          // Render furnishing placement ghost preview
-          const key = grid.col + ',' + grid.row;
-          if (this.game.state.infraOccupied[key]) {
-            this.renderer.renderFurnishingGhost(
-              grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
-              this.selectedFurnishingTool, this.furnishingRotated, 0x88ccff
+        // Unified placeable preview. Replaces the previous four branches
+        // (equipment / beamline / furnishing / decoration).
+        if (this.selectedPlaceableId) {
+          const placeable = PLACEABLES[this.selectedPlaceableId];
+          if (placeable) {
+            const snap = snapForPlaceable(world.x, world.y, placeable, this.placementDir);
+            this.hoverPlaceable = {
+              id: this.selectedPlaceableId,
+              col: snap.col,
+              row: snap.row,
+              subCol: snap.subCol,
+              subRow: snap.subRow,
+              dir: this.placementDir,
+            };
+            const { ok } = canPlace(
+              this.game,
+              placeable,
+              snap.col, snap.row, snap.subCol, snap.subRow,
+              this.placementDir,
             );
-          } else {
-            this.renderer._clearPreview();
+            this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
           }
-        }
-        // Sub-grid hover for sub-tile decorations
-        if (this.selectedDecorationTool && this.renderer.hoverCol !== undefined) {
-          const decDef = DECORATIONS[this.selectedDecorationTool];
-          if (decDef && decDef.gridW && decDef.gridH) {
-            const tilePos = gridToIso(this.renderer.hoverCol, this.renderer.hoverRow);
-            const offsetX = world.x - tilePos.x;
-            const offsetY = world.y - tilePos.y;
-            const sub = isoToSubGrid(offsetX, offsetY);
-            const gw = this.furnishingRotated ? decDef.gridH : decDef.gridW;
-            const gh = this.furnishingRotated ? decDef.gridW : decDef.gridH;
-            this.hoverSubCol = Math.max(0, Math.min(4 - gw, Math.floor(sub.subCol)));
-            this.hoverSubRow = Math.max(0, Math.min(4 - gh, Math.floor(sub.subRow)));
-            this.renderer._renderSubtilePreview(
-              grid.col, grid.row, this.hoverSubCol, this.hoverSubRow,
-              decDef.gridW, decDef.gridH, this.furnishingRotated
-            );
-          }
+        } else {
+          this.hoverPlaceable = null;
         }
         // Demolish hover: highlight the object under cursor with red + show tooltip
         if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
@@ -1916,96 +1859,58 @@ export class InputHandler {
       return;
     }
 
-    // Decoration placement
-    if (this.selectedDecorationTool) {
+    // Beamline attachment placement (attachments are not PLACEABLES entries —
+    // they snap to an existing beam pipe). Keep this branch separate from the
+    // unified hoverPlaceable commit below.
+    if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
       this.game._pushUndo();
-      const decDef = DECORATIONS[this.selectedDecorationTool];
-      if (decDef && decDef.gridW && decDef.gridH) {
-        // Sub-tile decoration
-        if (this.game.placeDecoration(col, row, this.selectedDecorationTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated)) {
-          this.game.emit('decorationsChanged');
-        }
+      const pipe = this._findNearestPipe(col, row);
+      if (pipe) {
+        const position = this._getPipePosition(pipe, col, row);
+        this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
       } else {
-        // Full-tile decoration
-        if (this.game.placeDecoration(col, row, this.selectedDecorationTool)) {
-          this.game.emit('decorationsChanged');
-        }
+        this.game.log('Must place on a beam pipe!', 'bad');
       }
       return;
     }
 
-    // Zone furnishing placement
-    if (this.selectedFurnishingTool) {
-      this.game._pushUndo();
-      this.game.placeZoneFurnishing(col, row, this.selectedFurnishingTool, this.hoverSubCol, this.hoverSubRow, this.furnishingRotated);
-      return;
-    }
-
-    // Facility equipment placement
-    if (this.selectedFacilityTool) {
-      this.game._pushUndo();
-      this.game.placeFacilityEquipment(col, row, this.selectedFacilityTool);
-      return;
-    }
-
-    if (this.selectedTool) {
-      const comp = COMPONENTS[this.selectedTool];
-      if (comp && !comp.isDrawnConnection) {
-        this.game._pushUndo();
-        if (comp.placement === 'attachment') {
-          // Attachment: snap to the nearest pipe
-          const pipe = this._findNearestPipe(col, row);
-          if (pipe) {
-            const position = this._getPipePosition(pipe, col, row);
-            this.game.addAttachmentToPipe(pipe.id, this.selectedTool, position, this.selectedParamOverrides);
-          } else {
-            this.game.log('Must place on a beam pipe!', 'bad');
+    // Unified placeable commit — handles beamline / equipment / furnishing / decoration.
+    // Replaces the four legacy commit branches (beamline, equipment, furnishing, decoration).
+    if (this.hoverPlaceable) {
+      // For beamline modules, check if the click landed on an existing node
+      // (opens its beamline window instead of placing).
+      const comp = COMPONENTS[this.hoverPlaceable.id];
+      if (comp && !comp.isDrawnConnection && !comp.isSource && comp.placement !== 'attachment') {
+        const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
+        if (existingNode) {
+          this.selectedNodeId = existingNode.id;
+          const entry = this.game.registry.getBeamlineForNode(existingNode.id);
+          if (entry) {
+            this.game.selectedBeamlineId = entry.id;
+            this.renderer._openBeamlineWindow(entry.id);
+            this.game.emit('beamlineSelected', entry.id);
           }
-        } else if (comp.isSource) {
-          const snap = this.hoverCompSnap || { col, row, subCol: 0, subRow: 0 };
-          const entryId = this.game.placePlaceable({
-            type: this.selectedTool,
-            category: 'beamline',
-            col: snap.col,
-            row: snap.row,
-            subCol: snap.subCol,
-            subRow: snap.subRow,
-            rotated: false,
-            dir: this.placementDir,
-            params: this.selectedParamOverrides,
-          });
-          if (entryId) {
-            // Auto-switch to beam pipe tool after placing source
-            this.selectTool('drift');
-          }
-        } else {
-          // Check if clicking an existing component (to open its window)
-          const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
-          if (existingNode) {
-            this.selectedNodeId = existingNode.id;
-            const entry = this.game.registry.getBeamlineForNode(existingNode.id);
-            if (entry) {
-              this.game.selectedBeamlineId = entry.id;
-              this.renderer._openBeamlineWindow(entry.id);
-              this.game.emit('beamlineSelected', entry.id);
-            }
-          } else {
-            const snap = this.hoverCompSnap || { col, row, subCol: 0, subRow: 0 };
-            this.game.placePlaceable({
-              type: this.selectedTool,
-              category: 'beamline',
-              col: snap.col,
-              row: snap.row,
-              subCol: snap.subCol,
-              subRow: snap.subRow,
-              rotated: false,
-              dir: this.placementDir,
-              params: this.selectedParamOverrides,
-            });
-          }
+          return;
         }
       }
-    } else if (this.probeMode) {
+      this.game._pushUndo();
+      const placedId = this.game.placePlaceable({
+        type: this.hoverPlaceable.id,
+        col: this.hoverPlaceable.col,
+        row: this.hoverPlaceable.row,
+        subCol: this.hoverPlaceable.subCol,
+        subRow: this.hoverPlaceable.subRow,
+        dir: this.hoverPlaceable.dir,
+        params: this.selectedParamOverrides,
+      });
+      // Auto-switch to beam pipe tool after placing a source.
+      if (placedId && comp?.isSource) {
+        this.selectTool('drift');
+      }
+      return;
+    }
+
+    if (this.probeMode) {
       // Probe placement mode — click nodes to add probes
       const node = this._getNodeAtGrid(col, row);
       if (node && this.renderer.onProbeClick) {
@@ -2075,16 +1980,32 @@ export class InputHandler {
 
   // --- Tool selection ---
 
+  /**
+   * Unified placeable selection. Clears legacy per-kind fields so only the
+   * new unified preview/commit path is active.
+   */
+  selectPlaceable(id) {
+    this.selectedPlaceableId = id;
+    this.selectedTool = null;
+    this.selectedFurnishingTool = null;
+    this.selectedFacilityTool = null;
+    this.selectedDecorationTool = null;
+    this.hoverPlaceable = null;
+    this.hoverCompSnap = null;
+    this.renderer._clearPreview?.();
+  }
+
   selectTool(compType, paramOverrides) {
     this.selectedInfraTool = null;
-    this.selectedFacilityTool = null;
-    this.selectedFurnishingTool = null;
-    this.furnishingRotated = false;
-    this.selectedDecorationTool = null;
     this.bulldozerMode = false;
-    this.selectedTool = compType;
     this.selectedParamOverrides = paramOverrides || null;
     this.selectedNodeId = null;
+    // Route through unified selection...
+    this.selectPlaceable(compType);
+    // ...but beam pipes (drawn connections) still run through the legacy
+    // selectedTool path, so keep the legacy field set as a shadow copy.
+    // Harmless for non-drawn tools since Task 12 removes these reads.
+    this.selectedTool = compType;
     this.renderer.hidePopup();
     this.renderer.setBuildMode(true, compType);
   }
@@ -2163,13 +2084,11 @@ export class InputHandler {
   }
 
   selectFacilityTool(compType) {
-    this.deselectTool();
     this.deselectInfraTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
     this.deselectConnTool();
-    this.selectedFacilityTool = compType;
     this.selectedNodeId = null;
+    // Route through unified selection.
+    this.selectPlaceable(compType);
     this.renderer.hidePopup();
   }
 
@@ -2212,14 +2131,12 @@ export class InputHandler {
   }
 
   selectFurnishingTool(furnType) {
-    this.deselectTool();
     this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectDecorationTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.demolishMode = false;
-    this.selectedFurnishingTool = furnType;
+    // Route through unified selection.
+    this.selectPlaceable(furnType);
   }
 
   deselectFurnishingTool() {
@@ -2228,14 +2145,12 @@ export class InputHandler {
   }
 
   selectDecorationTool(decType) {
-    this.deselectTool();
     this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
     this.deselectConnTool();
     this.deselectZoneTool();
     this.demolishMode = false;
-    this.selectedDecorationTool = decType;
+    // Route through unified selection.
+    this.selectPlaceable(decType);
   }
 
   deselectDecorationTool() {

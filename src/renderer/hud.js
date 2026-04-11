@@ -880,6 +880,26 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       palette.appendChild(item);
     }
+
+    // Bulk delete buttons — one per placeable kind. Functional placeholder
+    // so the unified removePlaceablesByKind path has UI.
+    const game = this.game;
+    const bulkDeleteRow = document.createElement('div');
+    bulkDeleteRow.className = 'bulk-delete-row';
+    bulkDeleteRow.style.cssText = 'display:flex; flex-wrap:wrap; gap:4px; padding:8px 4px;';
+    for (const kind of ['beamline', 'furnishing', 'equipment', 'decoration']) {
+      const btn = document.createElement('button');
+      btn.textContent = `Delete all ${kind}`;
+      btn.style.cssText = 'flex:1 1 45%; font-size:11px; padding:4px;';
+      btn.onclick = () => {
+        if (confirm(`Delete all ${kind} placeables? This cannot be undone.`)) {
+          const n = game.removePlaceablesByKind(kind);
+          game.log(`Removed ${n} ${kind} placeables`, 'good');
+        }
+      };
+      bulkDeleteRow.appendChild(btn);
+    }
+    palette.appendChild(bulkDeleteRow);
     return;
   }
 
