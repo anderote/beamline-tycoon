@@ -1476,13 +1476,20 @@ export class Game {
       }
     }
 
-    // Compute length from path (each tile = 2m along beam axis, i.e. 4 sub-units)
-    const subL = Math.max(1, (path.length - 1) * 4);
+    // Compute length from actual path geometry — paths may use sub-tile
+    // (0.5) steps so counting segments would undercount/overcount length.
+    // 1 tile = 2m = 4 sub-units along beam axis.
+    let tileDist = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1];
+      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
+    }
+    const subL = Math.max(1, Math.round(tileDist * 4));
 
     // Cost scales with length
     const driftDef = COMPONENTS.drift;
     const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-    const totalCost = { funding: Math.max(costPerTile, Math.floor(costPerTile * (path.length - 1))) };
+    const totalCost = { funding: Math.max(costPerTile, Math.floor(costPerTile * tileDist)) };
 
     if (!this.canAfford(totalCost)) {
       this.log("Can't afford beam pipe!", 'bad');
@@ -1619,10 +1626,15 @@ export class Game {
 
     const pipe = this.state.beamPipes[idx];
 
-    // Refund pipe cost (50%)
+    // Refund pipe cost (50%) — compute from actual path geometry
     const driftDef = COMPONENTS.drift;
     const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-    const tileCost = Math.max(costPerTile, Math.floor(costPerTile * ((pipe.path.length - 1) || 1)));
+    let tileDist = 0;
+    for (let i = 0; i < (pipe.path?.length || 0) - 1; i++) {
+      const a = pipe.path[i], b = pipe.path[i + 1];
+      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
+    }
+    const tileCost = Math.max(costPerTile, Math.floor(costPerTile * (tileDist || 1)));
     this.state.resources.funding += Math.floor(tileCost * 0.5);
 
     // Refund all attachments on this pipe (50%)

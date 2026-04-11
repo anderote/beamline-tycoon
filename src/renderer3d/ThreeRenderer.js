@@ -19,6 +19,38 @@ import { COMPONENTS } from '../data/components.js';
 import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 
+/**
+ * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
+ * Returns an array of { start, end } in grid coords. A straight path yields
+ * one run; an L-shape yields two.
+ */
+function pipePathRuns(path) {
+  if (!path || path.length < 2) return [];
+  const runs = [];
+  let runStart = path[0];
+  let prev = path[0];
+  let prevDc = null, prevDr = null;
+  const EPS = 1e-6;
+  for (let i = 1; i < path.length; i++) {
+    const curr = path[i];
+    const dc = curr.col - prev.col;
+    const dr = curr.row - prev.row;
+    if (Math.abs(dc) < EPS && Math.abs(dr) < EPS) continue;
+    const ndc = Math.sign(dc);
+    const ndr = Math.sign(dr);
+    if (prevDc === null) {
+      prevDc = ndc; prevDr = ndr;
+    } else if (ndc !== prevDc || ndr !== prevDr) {
+      runs.push({ start: runStart, end: prev });
+      runStart = prev;
+      prevDc = ndc; prevDr = ndr;
+    }
+    prev = curr;
+  }
+  if (prevDc !== null) runs.push({ start: runStart, end: prev });
+  return runs;
+}
+
 export class ThreeRenderer {
   constructor(game, spriteManager) {
     this.game = game;
@@ -596,6 +628,11 @@ export class ThreeRenderer {
     if (nodes.length === 0) {
       const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
       const isDrawn = comp && comp.isDrawnConnection;
+      // Beamline component placement is handled by the sub-tile ghost preview
+      // drawn from InputHandler.mousemove. Skip the legacy integer-tile cursor
+      // here so the two don't disagree on placement position.
+      if (comp && comp.placement === 'module' && !isDrawn) return;
+      if (isDrawn) return;
       const dir = this.placementDir || DIR.NE;
       const delta = DIR_DELTA[dir];
       const perpDelta = DIR_DELTA[turnLeft(dir)];
@@ -1071,7 +1108,7 @@ export class ThreeRenderer {
    * Render a ghost (transparent) beamline component at a tile position.
    * Uses the real component geometry from the component builder.
    */
-  renderComponentGhost(col, row, compType, direction, color) {
+  renderComponentGhost(col, row, compType, direction, color, subCol, subRow) {
     this._clearPreview();
     this._renderGridAroundCursor(col, row);
     const compDef = COMPONENTS[compType];
@@ -1091,39 +1128,47 @@ export class ThreeRenderer {
     });
     const isDetailed = !!obj.children?.length; // groups are detailed, bare meshes are fallbacks
     const SUB_UNIT = 0.5;
+    // Footprint in sub-units (gridW/gridH store sub-cell counts).
+    const gwSub = compDef.gridW || compDef.subW || 4;
+    const ghSub = compDef.gridH || compDef.subL || 4;
+    const sc = subCol || 0;
+    const sr = subRow || 0;
+    const footW = gwSub * SUB_UNIT; // world units
+    const footH = ghSub * SUB_UNIT;
+    const px = col * 2 + sc * SUB_UNIT + footW / 2;
+    const pz = row * 2 + sr * SUB_UNIT + footH / 2;
     const y = isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2;
-    obj.position.set(col * 2 + 1, y, row * 2 + 1);
+    obj.position.set(px, y, pz);
     obj.rotation.y = -(direction || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
-    // Floor outline showing tile footprint
+    // Floor outline at sub-tile footprint
     const tileColor = (typeof color === 'number') ? color : 0x88aaff;
-    const tiles = this._ghostComponentTiles(col, row, direction, compDef);
     const edgeMat = this._previewEdgeMat(tileColor);
     const fillMat = this._previewMat(tileColor, 0.15);
-    for (const t of tiles) {
-      const x0 = t.col * 2, x1 = t.col * 2 + 2;
-      const z0 = t.row * 2, z1 = t.row * 2 + 2;
-      const pts = [
-        new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-        new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-        new THREE.Vector3(x0, 0.12, z0),
-      ];
-      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-      const fillGeo = new THREE.PlaneGeometry(2, 2);
-      fillGeo.rotateX(-Math.PI / 2);
-      const fill = new THREE.Mesh(fillGeo, fillMat);
-      fill.position.set(t.col * 2 + 1, 0.1, t.row * 2 + 1);
-      this._addPreviewMesh(fill);
-    }
+    const x0 = col * 2 + sc * SUB_UNIT;
+    const x1 = x0 + footW;
+    const z0 = row * 2 + sr * SUB_UNIT;
+    const z1 = z0 + footH;
+    const pts = [
+      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
+      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
+      new THREE.Vector3(x0, 0.12, z0),
+    ];
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    const fillGeo = new THREE.PlaneGeometry(footW, footH);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(fillGeo, fillMat);
+    fill.position.set(px, 0.1, pz);
+    this._addPreviewMesh(fill);
 
     // Direction arrow on base tile (shows output direction)
     const dir = direction || 0;
     const delta = DIR_DELTA[dir];
     const perpDelta = DIR_DELTA[turnLeft(dir)];
-    const cx = col * 2 + 1, cz = row * 2 + 1;
+    const cx = px, cz = pz;
     const dx = delta.dc, dz = delta.dr;
-    const px = perpDelta.dc, pz = perpDelta.dr;
+    const perpX = perpDelta.dc, perpZ = perpDelta.dr;
     const arrowMat = this._previewEdgeMat(0x88bbff);
     const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
     const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
@@ -1131,9 +1176,9 @@ export class ThreeRenderer {
     const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
     const chevLen = 0.3;
     const chevPts = [
-      new THREE.Vector3(tipX - dx * chevLen + px * chevLen, 0.15, tipZ - dz * chevLen + pz * chevLen),
+      new THREE.Vector3(tipX - dx * chevLen + perpX * chevLen, 0.15, tipZ - dz * chevLen + perpZ * chevLen),
       new THREE.Vector3(tipX, 0.15, tipZ),
-      new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
+      new THREE.Vector3(tipX - dx * chevLen - perpX * chevLen, 0.15, tipZ - dz * chevLen - perpZ * chevLen),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
   }
@@ -1503,6 +1548,13 @@ export class ThreeRenderer {
     // Beam pipe drawing preview
     if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
       this._renderBeamPipePreview(this._inputHandler.beamPipePath, this._inputHandler.beamPipeDrawMode);
+    } else if (
+      this._inputHandler &&
+      this._inputHandler.selectedTool &&
+      COMPONENTS[this._inputHandler.selectedTool]?.isDrawnConnection &&
+      this._inputHandler.hoverPipePoint
+    ) {
+      this._renderBeamPipePreview([this._inputHandler.hoverPipePoint], 'add');
     } else {
       this._clearBeamPipePreview();
     }
@@ -1793,21 +1845,47 @@ export class ThreeRenderer {
       color: 0x555555, roughness: 0.7, metalness: 0.1,
     });
 
+    // Collect all pipe endpoints so adjacent pipes can have shared flanges
+    // suppressed, merging them visually into continuous runs.
+    const endpointKey = (col, row) => `${Math.round(col * 4)},${Math.round(row * 4)}`;
+    const endpointCounts = new Map();
+    for (const pipe of pipes) {
+      if (!pipe.path || pipe.path.length < 2) continue;
+      const first = pipe.path[0];
+      const last = pipe.path[pipe.path.length - 1];
+      for (const p of [first, last]) {
+        const k = endpointKey(p.col, p.row);
+        endpointCounts.set(k, (endpointCounts.get(k) || 0) + 1);
+      }
+    }
+    // Also mark any tile occupied by a beamline module as a "touched" endpoint
+    // so we skip the flange where the pipe meets the module body.
+    const moduleTiles = new Set();
+    for (const p of (this.game.state.placeables || [])) {
+      if (p.category !== 'beamline') continue;
+      const def = COMPONENTS[p.type];
+      if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
+      for (const c of (p.cells || [{ col: p.col, row: p.row }])) {
+        moduleTiles.add(`${c.col},${c.row}`);
+      }
+    }
+    const isModuleAt = (col, row) => moduleTiles.has(`${Math.round(col)},${Math.round(row)}`);
+
     for (const pipe of pipes) {
       if (!pipe.path || pipe.path.length < 2) continue;
 
-      // Create a wrapper group for this pipe so all segments share the same pipeId
       const pipeWrapper = new THREE.Group();
       pipeWrapper.userData.pipeId = pipe.id;
 
-      for (let i = 0; i < pipe.path.length - 1; i++) {
-        const a = pipe.path[i];
-        const b = pipe.path[i + 1];
+      const runs = pipePathRuns(pipe.path);
+      const runCount = runs.length;
 
-        const x1 = a.col * 2 + 1;
-        const z1 = a.row * 2 + 1;
-        const x2 = b.col * 2 + 1;
-        const z2 = b.row * 2 + 1;
+      for (let r = 0; r < runCount; r++) {
+        const { start, end } = runs[r];
+        const x1 = start.col * 2 + 1;
+        const z1 = start.row * 2 + 1;
+        const x2 = end.col * 2 + 1;
+        const z2 = end.row * 2 + 1;
 
         const dx = x2 - x1;
         const dz = z2 - z1;
@@ -1829,27 +1907,65 @@ export class ThreeRenderer {
         pipeWrapper.add(mesh);
         this._beamPipeMeshes.push(mesh);
 
-        // CF flanges at each segment end
+        // Flange emission rules:
+        //  - start flange only on the first run (at pipe's start)
+        //  - end flange only on the last run (at pipe's end)
+        //  - corners (between runs) always get a flange
+        // Additionally suppress the start/end flange if another pipe shares
+        // that endpoint or if it sits on a beamline module tile.
         const flangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
         flangeGeo.rotateZ(Math.PI / 2);
-        for (const [fx, fz] of [[x1, z1], [x2, z2]]) {
+
+        const addFlange = (fx, fz) => {
           const flange = new THREE.Mesh(flangeGeo, flangeMat);
           flange.position.set(fx, PIPE_Y, fz);
           flange.rotation.y = angle;
           flange.castShadow = true;
           pipeWrapper.add(flange);
           this._beamPipeMeshes.push(flange);
+        };
+
+        if (r === 0) {
+          const sharesEnd = (endpointCounts.get(endpointKey(start.col, start.row)) || 0) > 1;
+          const onModule = isModuleAt(start.col, start.row);
+          if (!sharesEnd && !onModule) addFlange(x1, z1);
+        } else {
+          // corner flange — between previous run end and this run start (same point)
+          addFlange(x1, z1);
+        }
+        if (r === runCount - 1) {
+          const sharesEnd = (endpointCounts.get(endpointKey(end.col, end.row)) || 0) > 1;
+          const onModule = isModuleAt(end.col, end.row);
+          if (!sharesEnd && !onModule) addFlange(x2, z2);
+        }
+        // Intermediate flanges every 2 world units (1 tile = 2m) along the run
+        const MAX_UNFLANGED = 2;
+        if (length > MAX_UNFLANGED + 0.01) {
+          const nInterior = Math.floor(length / MAX_UNFLANGED - 1e-3);
+          for (let k = 1; k <= nInterior; k++) {
+            const t = (k * MAX_UNFLANGED) / length;
+            const fx = x1 + dx * t;
+            const fz = z1 + dz * t;
+            addFlange(fx, fz);
+          }
         }
 
-        // Support stand at segment midpoint
+        // Support stands every ~2 world units along the run
         const standH = PIPE_Y - PIPE_RADIUS;
         const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
-        const stand = new THREE.Mesh(standGeo, standMat);
-        stand.position.set(cx, standH / 2, cz);
-        stand.castShadow = true;
-        stand.receiveShadow = true;
-        pipeWrapper.add(stand);
-        this._beamPipeMeshes.push(stand);
+        const standStep = 2;
+        const nStands = Math.max(1, Math.round(length / standStep));
+        for (let k = 0; k < nStands; k++) {
+          const t = (k + 0.5) / nStands;
+          const sx = x1 + dx * t;
+          const sz = z1 + dz * t;
+          const stand = new THREE.Mesh(standGeo, standMat);
+          stand.position.set(sx, standH / 2, sz);
+          stand.castShadow = true;
+          stand.receiveShadow = true;
+          pipeWrapper.add(stand);
+          this._beamPipeMeshes.push(stand);
+        }
 
         // Invisible hitbox for easier click detection
         const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
@@ -1903,8 +2019,8 @@ export class ThreeRenderer {
 
     this._beamPipePreviewMeshes = [];
 
-    // Helper to add a pipe segment with flanges and support stand
-    const addSegment = (x1, z1, x2, z2) => {
+    // Helper to add a single collinear pipe run with flanges at each end.
+    const addRun = (x1, z1, x2, z2) => {
       const dx = x2 - x1;
       const dz = z2 - z1;
       const length = Math.sqrt(dx * dx + dz * dz);
@@ -1923,10 +2039,19 @@ export class ThreeRenderer {
       this.scene.add(pipeWire);
       this._beamPipePreviewMeshes.push(pipeWire);
 
-      // CF flanges at each end
+      // CF flanges at each end + every 2m (1 tile) along the run
       const flangeGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.045, 8);
       flangeGeo.rotateZ(Math.PI / 2);
-      for (const [fx, fz] of [[x1, z1], [x2, z2]]) {
+      const flangePositions = [[x1, z1], [x2, z2]];
+      const MAX_UNFLANGED = 2;
+      if (length > MAX_UNFLANGED + 0.01) {
+        const nInterior = Math.floor(length / MAX_UNFLANGED - 1e-3);
+        for (let k = 1; k <= nInterior; k++) {
+          const t = (k * MAX_UNFLANGED) / length;
+          flangePositions.push([x1 + dx * t, z1 + dz * t]);
+        }
+      }
+      for (const [fx, fz] of flangePositions) {
         const flange = new THREE.Mesh(flangeGeo, flangeMat);
         flange.position.set(fx, PIPE_Y, fz);
         flange.rotation.y = -Math.atan2(dz, dx);
@@ -1934,28 +2059,33 @@ export class ThreeRenderer {
         this._beamPipePreviewMeshes.push(flange);
       }
 
-      // Support stand at midpoint
+      // Support stands every ~2 world units along the run
       const standH = PIPE_Y - PIPE_RADIUS;
       const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
-      const stand = new THREE.Mesh(standGeo, standMat);
-      stand.position.set((x1 + x2) / 2, standH / 2, (z1 + z2) / 2);
-      this.scene.add(stand);
-      this._beamPipePreviewMeshes.push(stand);
+      const nStands = Math.max(1, Math.round(length / 2));
+      for (let k = 0; k < nStands; k++) {
+        const t = (k + 0.5) / nStands;
+        const sx = x1 + dx * t;
+        const sz = z1 + dz * t;
+        const stand = new THREE.Mesh(standGeo, standMat);
+        stand.position.set(sx, standH / 2, sz);
+        this.scene.add(stand);
+        this._beamPipePreviewMeshes.push(stand);
+      }
     };
 
     if (path.length === 1) {
-      // Single tile preview: show one pipe segment centered on the tile
+      // Single click preview: show a half-tile (2 sub-unit) stub
       const cx = path[0].col * 2 + 1;
       const cz = path[0].row * 2 + 1;
       const dir = this.placementDir || 0;
       const delta = DIR_DELTA[dir];
       const dx = delta.dc, dz = delta.dr;
-      addSegment(cx - dx * 0.9, cz - dz * 0.9, cx + dx * 0.9, cz + dz * 0.9);
+      addRun(cx - dx * 0.5, cz - dz * 0.5, cx + dx * 0.5, cz + dz * 0.5);
     } else {
-      for (let i = 0; i < path.length - 1; i++) {
-        const a = path[i];
-        const b = path[i + 1];
-        addSegment(a.col * 2 + 1, a.row * 2 + 1, b.col * 2 + 1, b.row * 2 + 1);
+      const runs = pipePathRuns(path);
+      for (const { start, end } of runs) {
+        addRun(start.col * 2 + 1, start.row * 2 + 1, end.col * 2 + 1, end.row * 2 + 1);
       }
     }
   }

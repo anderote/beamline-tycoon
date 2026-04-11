@@ -291,26 +291,36 @@ body {
 .bsp-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
   padding: 2px 0;
   font-size: 9px;
+  transition: opacity 0.3s;
+}
+
+.bsp-row.hidden {
+  display: none;
 }
 
 .bsp-label {
   color: rgba(140, 140, 180, 0.8);
-  min-width: 68px;
+  width: 72px;
+  flex-shrink: 0;
 }
 
 .bsp-val {
   color: #aaddff;
   font-weight: bold;
-  min-width: 45px;
+  width: 48px;
+  flex-shrink: 0;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .bsp-unit {
   color: rgba(120, 120, 160, 0.7);
   font-size: 7px;
+  width: 24px;
+  flex-shrink: 0;
 }
 
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
@@ -506,7 +516,7 @@ body {
 .palette-item {
   width: 140px;
   min-width: 140px;
-  height: 140px;
+  height: 180px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -539,8 +549,8 @@ body {
 }
 
 .palette-item .palette-preview {
-  width: 64px;
-  height: 64px;
+  width: 112px;
+  height: 112px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -549,8 +559,8 @@ body {
 }
 
 .palette-item .palette-preview img {
-  max-width: 64px;
-  max-height: 64px;
+  max-width: 112px;
+  max-height: 112px;
   image-rendering: pixelated;
 }
 

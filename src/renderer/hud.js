@@ -57,20 +57,36 @@ Renderer.prototype._updateHUD = function() {
     const rfPower = ss && ss.rfPower ? Math.round(ss.rfPower.totalFwdPower || 0) : 0;
     const coolingPower = ss && ss.cooling ? Math.round(ss.cooling.energyDraw || 0) : 0;
 
-    setEl('stat-total-power', totalPower);
-    setEl('stat-rf-power', rfPower);
-    setEl('stat-beam-power', Math.round(totalBeamPower));
-    setEl('stat-cooling-power', coolingPower);
-    setEl('stat-total-length', Math.round(totalLength));
+    // Helper: set value and show/hide row based on whether stat is live
+    const setStatRow = (id, val, show) => {
+      setEl(id, val);
+      const el = document.getElementById(id);
+      if (el) {
+        const row = el.closest('.bsp-row');
+        if (row) row.classList.toggle('hidden', !show);
+      }
+    };
+
+    setStatRow('stat-total-power', totalPower, totalPower > 0);
+    setStatRow('stat-rf-power', rfPower, rfPower > 0);
+    setStatRow('stat-beam-power', Math.round(totalBeamPower), totalBeamPower > 0);
+    setStatRow('stat-cooling-power', coolingPower, coolingPower > 0);
+    setStatRow('stat-total-length', Math.round(totalLength), totalLength > 0);
     if (peakEnergy > 0) {
       const e = formatEnergy(peakEnergy);
-      setEl('stat-peak-energy', e.val);
+      setStatRow('stat-peak-energy', e.val, true);
       setEl('stat-peak-energy-unit', e.unit);
     } else {
-      setEl('stat-peak-energy', '0');
-      setEl('stat-peak-energy-unit', 'GeV');
+      setStatRow('stat-peak-energy', '0', false);
     }
-    setEl('stat-data-rate', totalDataRate ? totalDataRate.toFixed(1) : '0');
+    setStatRow('stat-data-rate', totalDataRate ? totalDataRate.toFixed(1) : '0', totalDataRate > 0);
+
+    // Hide entire panel if nothing is live
+    const panel = document.getElementById('beam-stats-panel');
+    if (panel) {
+      const hasVisible = panel.querySelector('.bsp-row:not(.hidden)');
+      panel.style.display = hasVisible ? '' : 'none';
+    }
   }
 
   this._updateBeamSummary();
@@ -1021,12 +1037,12 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch
   const previewEl = document.createElement('div');
   previewEl.className = 'palette-preview';
-  const thumbUrl = renderComponentThumbnail(key);
+  const thumbUrl = renderComponentThumbnail(key, 96);
   if (thumbUrl) {
     const img = document.createElement('img');
     img.src = thumbUrl;
-    img.width = 48;
-    img.height = 48;
+    img.width = 96;
+    img.height = 96;
     img.style.objectFit = 'contain';
     previewEl.appendChild(img);
   } else {

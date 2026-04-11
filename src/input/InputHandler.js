@@ -101,6 +101,7 @@ export class InputHandler {
     this.beamPipeDrawMode = 'add'; // 'add' or 'remove'
     this.beamPipeStartId = null;
     this.beamPipePath = [];
+    this.hoverPipePoint = null;
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     // Hover tooltip state
@@ -561,26 +562,64 @@ export class InputHandler {
   }
 
   /**
-   * Build an L-shaped path from one tile to another (col axis first, then row).
+   * Build an L-shaped path from one point to another in 0.5-tile (half-tile)
+   * steps so pipes snap to sub-tile gridlines (2 sub-units per step).
    */
   _buildStraightPath(from, to) {
+    const STEP = 0.5;
+    const EPS = 0.001;
     const path = [];
-    const dc = Math.sign(to.col - from.col);
-    const dr = Math.sign(to.row - from.row);
+    const dc = to.col > from.col + EPS ? STEP : (to.col < from.col - EPS ? -STEP : 0);
+    const dr = to.row > from.row + EPS ? STEP : (to.row < from.row - EPS ? -STEP : 0);
 
     let c = from.col, r = from.row;
     path.push({ col: c, row: r });
 
-    while (c !== to.col) {
+    let safety = 2048;
+    while (dc !== 0 && Math.abs(c - to.col) > EPS && safety-- > 0) {
       c += dc;
       path.push({ col: c, row: r });
     }
-    while (r !== to.row) {
+    while (dr !== 0 && Math.abs(r - to.row) > EPS && safety-- > 0) {
       r += dr;
       path.push({ col: c, row: r });
     }
 
     return path;
+  }
+
+  /**
+   * Snap a world position to the nearest half-tile gridline for beam pipes.
+   */
+  _snapPipePoint(worldX, worldY) {
+    const fc = isoToGridFloat(worldX, worldY);
+    return {
+      col: Math.round(fc.col * 2) / 2,
+      row: Math.round(fc.row * 2) / 2,
+    };
+  }
+
+  /**
+   * Snap a beamline module to the nearest integer sub-cell under the cursor.
+   * Works at sub-tile resolution without clamping to the hovered tile, so
+   * large modules (undulator, linacCell) can span tile boundaries at 0.5m
+   * granularity. Returns the origin {col,row,subCol,subRow} expected by
+   * Game.placePlaceable.
+   */
+  _computeModuleSubSnap(worldX, worldY, compDef) {
+    const gw = compDef.gridW || compDef.subW || 4;
+    const gh = compDef.gridH || compDef.subL || 4;
+    const fc = isoToGridFloat(worldX, worldY);
+    // Cursor in absolute sub-cell units (4 sub-cells per tile along each axis)
+    const subCenterCol = fc.col * 4;
+    const subCenterRow = fc.row * 4;
+    const topLeftSubCol = Math.round(subCenterCol - gw / 2);
+    const topLeftSubRow = Math.round(subCenterRow - gh / 2);
+    const col = Math.floor(topLeftSubCol / 4);
+    const row = Math.floor(topLeftSubRow / 4);
+    const subCol = topLeftSubCol - col * 4;
+    const subRow = topLeftSubRow - row * 4;
+    return { col, row, subCol, subRow };
   }
 
   /**
@@ -772,13 +811,14 @@ export class InputHandler {
                 }
               } else if (comp.isSource) {
                 // Sources are regular beamline placeables (isSource=true on the definition)
+                const snap = this.hoverCompSnap || { col: this.renderer.hoverCol, row: this.renderer.hoverRow, subCol: 0, subRow: 0 };
                 const entryId = this.game.placePlaceable({
                   type: this.selectedTool,
                   category: 'beamline',
-                  col: this.renderer.hoverCol,
-                  row: this.renderer.hoverRow,
-                  subCol: 0,
-                  subRow: 0,
+                  col: snap.col,
+                  row: snap.row,
+                  subCol: snap.subCol,
+                  subRow: snap.subRow,
                   rotated: false,
                   dir: this.placementDir,
                   params: this.selectedParamOverrides,
@@ -789,13 +829,14 @@ export class InputHandler {
                 }
               } else {
                 // Non-source module — unified placement
+                const snap = this.hoverCompSnap || { col: this.renderer.hoverCol, row: this.renderer.hoverRow, subCol: 0, subRow: 0 };
                 this.game.placePlaceable({
                   type: this.selectedTool,
                   category: 'beamline',
-                  col: this.renderer.hoverCol,
-                  row: this.renderer.hoverRow,
-                  subCol: 0,
-                  subRow: 0,
+                  col: snap.col,
+                  row: snap.row,
+                  subCol: snap.subCol,
+                  subRow: snap.subRow,
                   rotated: false,
                   dir: this.placementDir,
                   params: this.selectedParamOverrides,
@@ -1056,14 +1097,14 @@ export class InputHandler {
       // Beam pipe drawing start
       if ((e.button === 0 || e.button === 2) && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
+        const startPt = this._snapPipePoint(world.x, world.y);
 
         if (e.button === 2) {
           // Right-click on pipe to remove (drag to select multiple)
           this.drawingBeamPipe = true;
           this.beamPipeDrawMode = 'remove';
           this.beamPipeStartId = null;
-          this.beamPipePath = [{ col: grid.col, row: grid.row }];
+          this.beamPipePath = [startPt];
           this.renderer.renderBeamPipePreview(this.beamPipePath, 'remove');
           return;
         }
@@ -1072,7 +1113,7 @@ export class InputHandler {
         this.drawingBeamPipe = true;
         this.beamPipeDrawMode = 'add';
         this.beamPipeStartId = null;
-        this.beamPipePath = [{ col: grid.col, row: grid.row }];
+        this.beamPipePath = [startPt];
         this.renderer.renderBeamPipePreview(this.beamPipePath, 'add');
         return;
       }
@@ -1261,16 +1302,17 @@ export class InputHandler {
         }
       } else if (this.drawingBeamPipe) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
+        const pt = this._snapPipePoint(world.x, world.y);
         const last = this.beamPipePath[this.beamPipePath.length - 1];
-        if (last && (last.col !== grid.col || last.row !== grid.row)) {
-          this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
+        if (last && (last.col !== pt.col || last.row !== pt.row)) {
+          this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], pt);
           this.renderer.renderBeamPipePreview(this.beamPipePath, this.beamPipeDrawMode);
         }
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
+        this.hoverPipePoint = null;
         // Show cross cursor when an infra/zone/facility tool is selected
         if (this.selectedInfraTool || this.selectedZoneTool) {
           const infra = this.selectedInfraTool ? INFRASTRUCTURE[this.selectedInfraTool] : null;
@@ -1282,7 +1324,22 @@ export class InputHandler {
           const color = comp ? _categoryColor(comp.category) : 0x88aaff;
           this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedFacilityTool, color);
         } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-          this.renderer.renderEquipmentGhost(grid.col, grid.row, this.selectedTool, 0x44cc44);
+          // Hover preview for beam pipe: snap to sub-tile so it matches where
+          // the pipe will actually be drawn on click. Stored on the input
+          // handler so the animate loop can keep the preview alive across frames.
+          this.hoverPipePoint = this._snapPipePoint(world.x, world.y);
+        } else if (this.selectedTool && COMPONENTS[this.selectedTool] && !COMPONENTS[this.selectedTool].isDrawnConnection && COMPONENTS[this.selectedTool].placement !== 'attachment') {
+          // Non-drawn beamline module: snap to sub-cell under cursor, allow
+          // footprint to cross tile boundaries.
+          const compDef = COMPONENTS[this.selectedTool];
+          const color = _categoryColor(compDef.category);
+          const snap = this._computeModuleSubSnap(world.x, world.y, compDef);
+          this.hoverCompSnap = snap;
+          this.renderer.renderComponentGhost(
+            snap.col, snap.row, this.selectedTool,
+            this.placementDir || 0, color,
+            snap.subCol, snap.subRow,
+          );
         }
         // Sub-grid hover: calculate which sub-cell the cursor is over
         if (this.selectedFurnishingTool && this.renderer.hoverCol !== undefined) {
@@ -1395,15 +1452,16 @@ export class InputHandler {
       // Beam pipe drawing end
       if (this.drawingBeamPipe) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], { col: grid.col, row: grid.row });
+        const endPt = this._snapPipePoint(world.x, world.y);
+        this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], endPt);
 
         if (this.beamPipeDrawMode === 'remove') {
           // Right-click drag: find and remove pipes whose path intersects the drawn path
           const pipesToRemove = new Set();
+          const EPS = 0.26; // allow half-tile tolerance for matching
           for (const pipe of this.game.state.beamPipes) {
             for (const pt of this.beamPipePath) {
-              if (pipe.path.some(pp => pp.col === pt.col && pp.row === pt.row)) {
+              if (pipe.path.some(pp => Math.abs(pp.col - pt.col) < EPS && Math.abs(pp.row - pt.row) < EPS)) {
                 pipesToRemove.add(pipe.id);
                 break;
               }
@@ -1419,16 +1477,16 @@ export class InputHandler {
           // Left-click: place the pipe. Auto-link endpoints to modules if
           // the path starts/ends on a module's tile; otherwise create a
           // free-standing pipe.
-          // Single-click (no drag): extend to a 1-tile segment along placementDir
+          // Single-click (no drag): extend to a half-tile segment along placementDir
           if (this.beamPipePath.length === 1) {
             const start = this.beamPipePath[0];
             const delta = DIR_DELTA[this.placementDir || 0];
-            this.beamPipePath.push({ col: start.col + delta.dc, row: start.row + delta.dr });
+            this.beamPipePath.push({ col: start.col + delta.dc * 0.5, row: start.row + delta.dr * 0.5 });
           }
           const startTile = this.beamPipePath[0];
           const endTile = this.beamPipePath[this.beamPipePath.length - 1];
-          const startComp = this._findBeamlineComponentAt(startTile.col, startTile.row);
-          const endComp = this._findBeamlineComponentAt(endTile.col, endTile.row);
+          const startComp = this._findBeamlineComponentAt(Math.round(startTile.col), Math.round(startTile.row));
+          const endComp = this._findBeamlineComponentAt(Math.round(endTile.col), Math.round(endTile.row));
 
           let fromId = null, fromPort = null;
           if (startComp && COMPONENTS[startComp.type]?.placement === 'module') {
@@ -1672,6 +1730,13 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
+    // Recompute sub-tile snap fresh from the click position so the build
+    // agrees with the hover preview even if the cursor crossed a tile edge
+    // between the last mousemove and the click.
+    if (this.selectedTool && COMPONENTS[this.selectedTool] && !COMPONENTS[this.selectedTool].isDrawnConnection && COMPONENTS[this.selectedTool].placement !== 'attachment') {
+      this.hoverCompSnap = this._computeModuleSubSnap(world.x, world.y, COMPONENTS[this.selectedTool]);
+    }
+
     console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.registry.getAllNodes().length });
 
     // DesignPlacer confirmation
@@ -1899,13 +1964,14 @@ export class InputHandler {
             this.game.log('Must place on a beam pipe!', 'bad');
           }
         } else if (comp.isSource) {
+          const snap = this.hoverCompSnap || { col, row, subCol: 0, subRow: 0 };
           const entryId = this.game.placePlaceable({
             type: this.selectedTool,
             category: 'beamline',
-            col,
-            row,
-            subCol: 0,
-            subRow: 0,
+            col: snap.col,
+            row: snap.row,
+            subCol: snap.subCol,
+            subRow: snap.subRow,
             rotated: false,
             dir: this.placementDir,
             params: this.selectedParamOverrides,
@@ -1926,13 +1992,14 @@ export class InputHandler {
               this.game.emit('beamlineSelected', entry.id);
             }
           } else {
+            const snap = this.hoverCompSnap || { col, row, subCol: 0, subRow: 0 };
             this.game.placePlaceable({
               type: this.selectedTool,
               category: 'beamline',
-              col,
-              row,
-              subCol: 0,
-              subRow: 0,
+              col: snap.col,
+              row: snap.row,
+              subCol: snap.subCol,
+              subRow: snap.subRow,
               rotated: false,
               dir: this.placementDir,
               params: this.selectedParamOverrides,

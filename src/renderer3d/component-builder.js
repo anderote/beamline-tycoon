@@ -547,9 +547,14 @@ export class ComponentBuilder {
 
       const obj = this._meshMap.get(id);
 
-      // Position: center of tile
-      const x = col * 2 + 1;
-      const z = row * 2 + 1;
+      // Position: center of sub-tile footprint within the tile.
+      // gridW/gridH store sub-cell counts (1 sub-cell = 0.5 world units).
+      const gwSub = compDef.gridW || compDef.subW || 4;
+      const ghSub = compDef.gridH || compDef.subL || 4;
+      const sc = comp.subCol || 0;
+      const sr = comp.subRow || 0;
+      const x = col * 2 + (sc + gwSub / 2) * SUB_UNIT;
+      const z = row * 2 + (sr + ghSub / 2) * SUB_UNIT;
       // Detailed builders place Y=0 at floor; fallbacks center vertically
       const y = isDetailed ? 0 : (subH * SUB_UNIT) / 2;
       obj.position.set(x, y, z);
