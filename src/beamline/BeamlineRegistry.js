@@ -8,6 +8,7 @@
 // Manages multiple independent Beamline instances with shared tile occupancy.
 
 import { Beamline } from './Beamline.js';
+import { canonicalAccentFor, CANONICAL_ACCENTS } from './accent-colors.js';
 
 /**
  * Returns a default beam state object for a given machine type.
@@ -53,11 +54,15 @@ export class BeamlineRegistry {
   createBeamline(machineType) {
     const id = `bl-${this.nextBeamlineId}`;
     const name = `Beamline-${this.nextBeamlineId}`;
+    // Default color rotates through the 8 canonical swatches so the first
+    // 8 beamlines are visually distinct without the player picking anything.
+    const accentColor = canonicalAccentFor(this.nextBeamlineId - 1);
     this.nextBeamlineId++;
 
     const entry = {
       id,
       name,
+      accentColor,
       status: 'stopped',
       beamline: new Beamline(),
       beamState: makeDefaultBeamState(machineType),
