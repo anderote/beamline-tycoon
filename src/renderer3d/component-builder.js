@@ -858,16 +858,26 @@ export class ComponentBuilder {
   /**
    * Create the 3D object (Group or Mesh) for a given component type.
    * Wraps in a group with an invisible hitbox for easier click detection.
+   *
+   * Prefers the role-based template path if a builder is registered; falls
+   * back to the legacy DETAIL_BUILDERS (source/drift/pillbox); finally
+   * falls back to a generic fallback mesh.
    */
-  _createObject(compDef) {
-    let visual;
-    const builder = DETAIL_BUILDERS[compDef.id];
-    if (builder) {
-      console.log(`[ComponentBuilder] Using detail builder for: ${compDef.id}`);
-      visual = builder();
-    } else {
-      console.log(`[ComponentBuilder] Using fallback for: ${compDef.id || compDef.name || 'unknown'}`);
-      visual = this._createFallbackMesh(compDef);
+  _createObject(compDef, accentColorHex = 0xc62828) {
+    const compType = compDef.id;
+    let visual = null;
+
+    if (ROLE_BUILDERS[compType]) {
+      visual = _instantiateRoleTemplate(compType, accentColorHex);
+    }
+
+    if (!visual) {
+      const legacyBuilder = DETAIL_BUILDERS[compType];
+      if (legacyBuilder) {
+        visual = legacyBuilder();
+      } else {
+        visual = this._createFallbackMesh(compDef);
+      }
     }
 
     // Wrap with invisible hitbox for easier raycasting
@@ -920,8 +930,11 @@ export class ComponentBuilder {
 
       // Create object if not already in map
       if (!this._meshMap.has(id)) {
-        const obj = this._createObject(compDef);
+        const accent = comp.accentColor ?? 0xc62828;
+        const obj = this._createObject(compDef, accent);
         obj.matrixAutoUpdate = false;
+        obj.userData.beamlineId = comp.beamlineId || null;
+        obj.userData.compType = type;
         this._meshMap.set(id, obj);
         parentGroup.add(obj);
       }
