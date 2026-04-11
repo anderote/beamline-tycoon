@@ -2242,6 +2242,58 @@ export class InputHandler {
       }
     }
 
+    // --- 4. Generous beam-pipe fallback ---
+    // Beam pipes are long and narrow; if nothing else matched but the cursor
+    // is close to a pipe segment, prefer that pipe. Only when 'beamline' is in scope.
+    // world.x and world.y are isometric screen-space coords (pixels).
+    if (scope.has('beamline') && world && typeof world.x === 'number') {
+      const pipe = this._beamPipeNearWorldPos(world.x, world.y, 0.5);
+      if (pipe) {
+        return { kind: 'beampipe', pipeId: pipe.id, rootObj: null };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Generous beam-pipe hit test. Beam pipes are narrow, so the raycast may
+   * miss them when the cursor is just to the side. Returns the first pipe
+   * whose path has any segment within `pad` tile units of the cursor.
+   *
+   * @param {number} isoX  - isometric screen-space X (world.x)
+   * @param {number} isoY  - isometric screen-space Y (world.y)
+   * @param {number} pad   - perpendicular tolerance in tile units (default 0.5 = half tile)
+   * @returns {object|null} the pipe entry, or null
+   */
+  _beamPipeNearWorldPos(isoX, isoY, pad = 0.5) {
+    const pipes = this.game.state.beamPipes || [];
+    // Convert isometric screen coords to fractional tile coords.
+    const fc = isoToGridFloat(isoX, isoY);
+    // isoToGridFloat returns col/row of the cursor in tile space.
+    const cx = fc.col;
+    const cz = fc.row;
+    for (const pipe of pipes) {
+      if (!pipe.path || pipe.path.length < 2) continue;
+      for (let i = 0; i < pipe.path.length - 1; i++) {
+        const a = pipe.path[i];
+        const b = pipe.path[i + 1];
+        // Segment endpoints in tile space (tile centers at col+0.5, row+0.5).
+        const ax = a.col + 0.5, az = a.row + 0.5;
+        const bx = b.col + 0.5, bz = b.row + 0.5;
+        // Distance from cursor tile point to segment (a, b).
+        const dx = bx - ax, dz = bz - az;
+        const len2 = dx * dx + dz * dz;
+        if (len2 === 0) continue;
+        let t = ((cx - ax) * dx + (cz - az) * dz) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + t * dx, pz = az + t * dz;
+        const ddx = cx - px, ddz = cz - pz;
+        if (ddx * ddx + ddz * ddz <= pad * pad) {
+          return pipe;
+        }
+      }
+    }
     return null;
   }
 
