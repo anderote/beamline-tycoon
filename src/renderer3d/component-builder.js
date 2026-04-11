@@ -30,6 +30,54 @@ function _mat(color, roughness = 0.5, metalness = 0.3) {
   return _matCache.get(key).clone();
 }
 
+// ── Role-based material system ───────────────────────────────────────
+// Detail builders that use the new template pattern return meshes
+// bucketed into one of these roles. Each role maps to a shared material
+// (or a per-color cached material for 'accent').
+
+const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail']);
+
+// Paint-on-iron for the accent role. The color is overridden per beamline;
+// this base exists only to be cloned.
+const ACCENT_BASE_ROUGHNESS = 0.6;
+const ACCENT_BASE_METALNESS = 0.12;
+
+const SHARED_MATERIALS = {
+  iron:   new THREE.MeshStandardMaterial({ color: 0x2b2d35, roughness: 0.5,  metalness: 0.4 }),
+  copper: new THREE.MeshStandardMaterial({ color: 0xd4721a, roughness: 0.4,  metalness: 0.5 }),
+  pipe:   new THREE.MeshStandardMaterial({ color: PIPE_COLOR,  roughness: 0.3,  metalness: 0.5 }),
+  stand:  new THREE.MeshStandardMaterial({ color: STAND_COLOR, roughness: 0.7,  metalness: 0.1 }),
+  // 'detail' pieces each decide their own material at build time — bolts
+  // use a dark steel, small coil rings use copper. We store the bolt one
+  // here because it's the most common detail material.
+  detail: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7,  metalness: 0.3 }),
+};
+
+/** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
+const _accentMatCache = new Map();
+
+/**
+ * Get or create a painted-metal material for a given component type at a
+ * given accent color. Cached so that all placements of the same type on
+ * the same beamline share one material instance.
+ *
+ * The `compType` is part of the key so future components can tweak
+ * roughness/metalness per type without affecting others.
+ */
+function getAccentMaterial(compType, colorHex) {
+  const key = compType + '|' + colorHex.toString(16);
+  let m = _accentMatCache.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      roughness: ACCENT_BASE_ROUGHNESS,
+      metalness: ACCENT_BASE_METALNESS,
+    });
+    _accentMatCache.set(key, m);
+  }
+  return m;
+}
+
 function _addShadow(mesh) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
