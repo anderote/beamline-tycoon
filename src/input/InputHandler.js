@@ -10,25 +10,15 @@ import { NetworkWindow } from '../ui/NetworkWindow.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
+import {
+  DEMOLISH_PLACEABLE_SCOPE,
+  DEMOLISH_STANDALONE,
+  demolishRefund,
+  refundForFound,
+  nameForFound,
+} from './demolishScopes.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
-
-function _demolishRefund(compOrDef) {
-  if (!compOrDef) return 0;
-  const cost = typeof compOrDef.cost === 'object' ? compOrDef.cost.funding || 0 : compOrDef.cost || 0;
-  return Math.floor(cost * 0.5);
-}
-
-// Demolish mode hierarchy. Each mode can delete placeables of its own
-// kind and every kind below it in the chain.
-//   beamline > equipment > furnishing > decoration
-const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishBeamline:  new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
-  demolishEquipment:  new Set(['equipment', 'furnishing', 'decoration']),
-  demolishFurnishing: new Set(['furnishing', 'decoration']),
-  demolishDecoration: new Set(['decoration']),
-  demolishAll:        new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
-};
 
 function _categoryColor(category) {
   const colors = {
@@ -268,7 +258,7 @@ export class InputHandler {
 
         const def = found.placeable;
         const name = def?.name ?? found.entry?.type ?? found.node?.type ?? 'Unknown';
-        this._showDemolishTooltip(name, _demolishRefund(def), screenX, screenY);
+        this._showDemolishTooltip(name, demolishRefund(def), screenX, screenY);
         return;
       }
     }
