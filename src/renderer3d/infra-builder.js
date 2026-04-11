@@ -3,6 +3,7 @@
 // THREE is a CDN global — do NOT import it.
 
 import { INFRASTRUCTURE } from '../data/infrastructure.js';
+import { TEXEL_SCALE } from './materials/index.js';
 
 export class InfraBuilder {
   constructor(textureManager) {
@@ -87,12 +88,33 @@ export class InfraBuilder {
         uvs.setXY(3, 0.5, 0.0 + S);
         uvs.needsUpdate = true;
 
+        // Scale UVs by world size so texel density stays constant.
+        // Each tile is 2×2 world meters; METERS_PER_TILE = 64 / TEXEL_SCALE (currently 2m).
+        const METERS_PER_TILE = 64 / TEXEL_SCALE;
+        const tileWorldSize = 2; // each infra tile is 2×2 world units
+        const sx = tileWorldSize / METERS_PER_TILE;
+        const sz = tileWorldSize / METERS_PER_TILE;
+        const uvAttr = texGeo.attributes.uv;
+        const uvArr = uvAttr.array;
+        for (let i = 0; i < uvArr.length; i += 2) {
+          uvArr[i + 0] = (uvArr[i + 0] - 0.5) * sx + 0.5;
+          uvArr[i + 1] = (uvArr[i + 1] - 0.5) * sz + 0.5;
+        }
+        uvAttr.needsUpdate = true;
+
         const texMat = new THREE.MeshStandardMaterial({
           map: tileInfo.texture,
           transparent: true, // diamond texture has transparent corners
           roughness: 0.9,
           metalness: 0.0,
         });
+
+        // Ensure texture tiles correctly when UVs exceed [0,1].
+        if (texMat.map) {
+          texMat.map.wrapS = THREE.RepeatWrapping;
+          texMat.map.wrapT = THREE.RepeatWrapping;
+          texMat.map.needsUpdate = true;
+        }
 
         const texMesh = new THREE.InstancedMesh(texGeo, texMat, tiles.length);
         texMesh.receiveShadow = true;
