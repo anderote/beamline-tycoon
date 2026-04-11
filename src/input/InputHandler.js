@@ -1810,31 +1810,22 @@ export class InputHandler {
           this.game.removeConnection(col, row, ct);
         }
       } else if (this.demolishType === 'demolishFurnishing') {
-        // Click-on-object: check furnishings first, then facility equipment
-        let removed = false;
-        const subgrid = this.game.state.zoneFurnishingSubgrids[key];
-        if (subgrid) {
-          const tilePos = gridToIso(col, row);
-          const offsetX = world.x - tilePos.x;
-          const offsetY = world.y - tilePos.y;
-          const sub = isoToSubGrid(offsetX, offsetY);
-          const sc = Math.floor(sub.subCol);
-          const sr = Math.floor(sub.subRow);
-          if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
-            const furnIdx = subgrid[sr][sc];
-            if (furnIdx > 0) {
-              const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-              if (entry) {
-                this.game.removeZoneFurnishing(entry.id);
-                removed = true;
-              }
-            }
+        // Unified placeable delete: probe the subtile under the cursor
+        // in subgridOccupied. Works for furnishings, equipment, and
+        // decorations (any kind except beamline, which has its own
+        // demolishComponent path because of the beam graph plumbing).
+        const tilePos = gridToIso(col, row);
+        const offsetX = world.x - tilePos.x;
+        const offsetY = world.y - tilePos.y;
+        const sub = isoToSubGrid(offsetX, offsetY);
+        const sc = Math.floor(sub.subCol);
+        const sr = Math.floor(sub.subRow);
+        if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
+          const cellKey = col + ',' + row + ',' + sc + ',' + sr;
+          const occ = this.game.state.subgridOccupied[cellKey];
+          if (occ && occ.kind !== 'beamline') {
+            this.game.removePlaceable(occ.id);
           }
-        }
-        // Also check facility equipment on this tile
-        if (!removed) {
-          const equipId = this.game.state.facilityGrid[key];
-          if (equipId) this.game.removeFacilityEquipment(equipId);
         }
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
