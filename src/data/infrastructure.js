@@ -70,7 +70,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Groomed Grass', 'Groomed Grass (light)'],
-    // no texture — bgMesh solid color only (no grass material)
+    texture: 'tile_groomedGrass',
   },
   pavement: {
     id: 'pavement',

@@ -53,76 +53,66 @@ function writePng(png, name) {
   console.log('wrote', out);
 }
 
-// ── tile_labFloor: light blue-gray epoxy tiles, 2×2 of 32×32 ────────
+// ── tile_labFloor: light blue-gray linoleum subtiles ────────────────
+// 4×4 grid of 16×16 subtiles (each subtile = 0.5m at TEXEL_SCALE=32).
+// Dotted grout lines between subtiles (every other pixel along the seam).
 function gen_labFloor() {
   const png = makePng();
   const rand = mulberry32(101);
-  // Base epoxy color: cool light blue-gray with slight noise per pixel.
   const baseR = 175, baseG = 188, baseB = 208;
-  // Grout (between tiles): one shade darker.
   const groutR = 130, groutG = 142, groutB = 162;
-  // Highlight: a subtle diagonal sheen on each tile, brighter top-left.
-  const TILE = 32;
+  const SUBTILE = 16;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const tx = x % TILE;
-      const ty = y % TILE;
-      // Grout lines on the seam (1 pixel wide on the high edge of each tile).
-      const onGrout = (tx === TILE - 1) || (ty === TILE - 1);
-      if (onGrout) {
-        const n = (rand() - 0.5) * 8;
-        setPx(png, x, y, groutR + n, groutG + n, groutB + n);
-        continue;
+      const tx = x % SUBTILE;
+      const ty = y % SUBTILE;
+      // Subtile seam: right edge or bottom edge of each subtile.
+      const onSeam = (tx === SUBTILE - 1) || (ty === SUBTILE - 1);
+      if (onSeam) {
+        // Dotted: every other pixel along the seam is grout, the rest base.
+        const seamPos = (tx === SUBTILE - 1) ? y : x;
+        if (seamPos % 2 === 0) {
+          const n = (rand() - 0.5) * 6;
+          setPx(png, x, y, groutR + n, groutG + n, groutB + n);
+          continue;
+        }
+        // fall through to base for the off-pixel
       }
-      // Subtle diagonal sheen: brighter near top-left of each tile.
-      // Use distance from (0,0) of the tile, normalized.
-      const sheen = (1 - (tx + ty) / (2 * TILE)) * 12; // 0..12 brighter
-      // Per-pixel noise to break flatness.
+      // Subtle per-pixel noise on the linoleum surface.
       const n = (rand() - 0.5) * 10;
-      setPx(png, x, y,
-        baseR + sheen + n,
-        baseG + sheen + n,
-        baseB + sheen + n);
+      setPx(png, x, y, baseR + n, baseG + n, baseB + n);
     }
   }
   writePng(png, 'tile_labFloor');
 }
 
 // ── tile_concrete: medium-gray speckled aggregate ────────────────────
+// Flat base color (no low-frequency variation) plus per-pixel noise and
+// scattered aggregate flecks. The previous sin-blob version read as wavy.
 function gen_concrete() {
   const png = makePng();
   const rand = mulberry32(202);
   const baseR = 152, baseG = 152, baseB = 150;
-  // First pass: base color with low-frequency variation.
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      // Mild blob noise: a couple of overlapping sin waves give patchiness
-      // that doesn't read as a grid.
-      const blob = Math.sin(x * 0.18 + y * 0.11) * 6
-                 + Math.sin(x * 0.07 - y * 0.21) * 4;
       const n = (rand() - 0.5) * 14;
-      setPx(png, x, y,
-        baseR + blob + n,
-        baseG + blob + n,
-        baseB + blob + n - 1);
+      setPx(png, x, y, baseR + n, baseG + n, baseB + n - 1);
     }
   }
-  // Second pass: scatter dark aggregate flecks (~5%) and a few bright highlights (~1.5%).
   const total = SIZE * SIZE;
-  const darkCount = Math.floor(total * 0.05);
-  const brightCount = Math.floor(total * 0.015);
-  for (let i = 0; i < darkCount; i++) {
+  // Dark aggregate flecks (~5%)
+  for (let i = 0; i < total * 0.05; i++) {
     const x = Math.floor(rand() * SIZE);
     const y = Math.floor(rand() * SIZE);
-    const v = 80 + Math.floor(rand() * 25); // 80..105
-    // Make some flecks 2 pixels wide for variety.
+    const v = 80 + Math.floor(rand() * 25);
     setPx(png, x, y, v, v, v - 4);
     if (rand() < 0.3) setPx(png, x + 1, y, v + 5, v + 5, v + 1);
   }
-  for (let i = 0; i < brightCount; i++) {
+  // Bright highlights (~1.5%)
+  for (let i = 0; i < total * 0.015; i++) {
     const x = Math.floor(rand() * SIZE);
     const y = Math.floor(rand() * SIZE);
-    const v = 195 + Math.floor(rand() * 20); // 195..215
+    const v = 195 + Math.floor(rand() * 20);
     setPx(png, x, y, v, v, v - 6);
   }
   writePng(png, 'tile_concrete');
@@ -262,23 +252,18 @@ function gen_cobblestone() {
 }
 
 // ── tile_dirt: warm packed earth, speckled ───────────────────────────
+// Flat base, per-pixel noise, sparse dark grit and light grains. The
+// previous sin-blob version read as wavy patches.
 function gen_dirt() {
   const png = makePng();
   const rand = mulberry32(606);
   const baseR = 150, baseG = 115, baseB = 75;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      // Slow blob variation gives the look of patches of dryer/damper earth.
-      const blob = Math.sin(x * 0.13 + y * 0.09) * 8
-                 + Math.sin(x * 0.21 - y * 0.15) * 5;
       const n = (rand() - 0.5) * 18;
-      setPx(png, x, y,
-        baseR + blob + n,
-        baseG + blob * 0.7 + n,
-        baseB + blob * 0.4 + n);
+      setPx(png, x, y, baseR + n, baseG + n, baseB + n);
     }
   }
-  // Sparse pebbles and grit.
   const total = SIZE * SIZE;
   // Dark grit (~4%)
   for (let i = 0; i < total * 0.04; i++) {
@@ -333,6 +318,39 @@ function gen_pavement() {
   writePng(png, 'tile_pavement');
 }
 
+// ── tile_groomedGrass: dense lawn pixel-blade noise ──────────────────
+function gen_groomedGrass() {
+  const png = makePng();
+  const rand = mulberry32(808);
+  const baseR = 80, baseG = 130, baseB = 50;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      // Strong per-pixel noise to read as individual grass blades.
+      const n = (rand() - 0.5) * 24;
+      // Per-channel jitter shifts hue slightly so noise looks organic.
+      const nr = n + (rand() - 0.5) * 6;
+      const ng = n + (rand() - 0.5) * 8;
+      const nb = n + (rand() - 0.5) * 4;
+      setPx(png, x, y, baseR + nr, baseG + ng, baseB + nb);
+    }
+  }
+  // Sparse darker blades (~5%) and lighter blades (~5%) for variety.
+  const total = SIZE * SIZE;
+  for (let i = 0; i < total * 0.05; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    setPx(png, x, y, 55, 95, 30);
+    // Occasional 2-pixel vertical "blade" for shape variety.
+    if (rand() < 0.3) setPx(png, x, y + 1, 60, 100, 32);
+  }
+  for (let i = 0; i < total * 0.05; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    setPx(png, x, y, 120, 170, 75);
+  }
+  writePng(png, 'tile_groomedGrass');
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -344,5 +362,6 @@ gen_brick();
 gen_cobblestone();
 gen_dirt();
 gen_pavement();
+gen_groomedGrass();
 
 console.log('done.');
