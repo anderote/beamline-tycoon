@@ -1944,30 +1944,8 @@ export class InputHandler {
       if (scope) {
         const found = this._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
         if (found) {
-          if (found.kind === 'beampipe') {
-            this.game.removeBeamPipe(found.pipeId);
-            return;
-          }
-          if (found.kind === 'attachment') {
-            this.game._pushUndo();
-            this.game.removeAttachment(found.pipeId, found.attachmentId);
-            return;
-          }
-          if (found.node) {
-            if (this.game.editingBeamlineId) {
-              const entry = this.game.registry.getBeamlineForNode(found.node.id);
-              if (entry && entry.id === this.game.editingBeamlineId) {
-                this.game.removeComponent(found.node.id);
-              }
-            } else {
-              this.game.removeComponent(found.node.id);
-            }
-            return;
-          }
-          if (found.entry) {
-            this.game.removePlaceable(found.entry.id);
-            return;
-          }
+          this.game.demolishTarget(found);
+          return;
         }
         // For the top-level demolish modes we treat "clicked nothing
         // deletable" as a no-op and let the click fall through to any
