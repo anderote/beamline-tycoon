@@ -320,28 +320,34 @@ export class BeamlineWindow {
     `;
 
     // Wire up swatch clicks and custom picker.
-    const applyAccent = (hex) => {
+    // rerender: true for swatch clicks (to move the selected outline);
+    // false for live color-picker drags (so we don't destroy the input
+    // mid-drag — the native picker keeps firing events into a detached DOM).
+    const applyAccent = (hex, rerender) => {
       entry.accentColor = hex;
       if (this.game.renderer && typeof this.game.renderer.updateBeamlineAccent === 'function') {
         this.game.renderer.updateBeamlineAccent(this.beamlineId, hex);
       }
-      // Re-render to update the "selected" outline.
-      this._renderSettings(el);
+      if (rerender) this._renderSettings(el);
     };
 
     el.querySelectorAll('.beamline-accent-swatch').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         const hex = parseInt(btn.dataset.hex, 10);
-        if (!Number.isNaN(hex)) applyAccent(hex);
+        if (!Number.isNaN(hex)) applyAccent(hex, true);
       });
     });
 
     const customInput = el.querySelector('input[data-role="accent-custom"]');
     if (customInput) {
       customInput.addEventListener('input', (e) => {
-        // e.target.value is "#rrggbb"
         const hex = parseInt(e.target.value.slice(1), 16);
-        if (!Number.isNaN(hex)) applyAccent(hex);
+        if (!Number.isNaN(hex)) applyAccent(hex, false);
+      });
+      // Re-render once the picker closes so the "selected" outline clears.
+      customInput.addEventListener('change', (e) => {
+        const hex = parseInt(e.target.value.slice(1), 16);
+        if (!Number.isNaN(hex)) applyAccent(hex, true);
       });
     }
   }
