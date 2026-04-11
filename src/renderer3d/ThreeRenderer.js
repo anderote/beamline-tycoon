@@ -18,6 +18,7 @@ import { WALL_TYPES } from '../data/infrastructure.js';
 import { COMPONENTS } from '../data/components.js';
 import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -1102,6 +1103,86 @@ export class ThreeRenderer {
       new THREE.Vector3(x0, 0.12, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+  }
+
+  /**
+   * Unified ghost renderer for any placeable. Looks up the entry in
+   * PLACEABLES, builds the same 3D mesh that the committed instance will
+   * use via componentBuilder._createObject, tints it green (valid) or red
+   * (invalid), and positions it on the subtile grid with 4-way rotation.
+   *
+   * Positioning math mirrors renderComponentGhost exactly so beamline
+   * items land in identical world positions under the unified path.
+   *
+   * @param {{id:string,col:number,row:number,subCol:number,subRow:number,dir:number}} hover
+   * @param {boolean} valid
+   */
+  renderPlaceableGhost(hover, valid) {
+    this._clearPreview();
+    this._renderGridAroundCursor(hover.col, hover.row);
+
+    const placeable = PLACEABLES[hover.id];
+    if (!placeable) return;
+
+    // PLACEABLES entries are Placeable instances which structurally
+    // extend the legacy def shape (Object.assign in the constructor
+    // preserves all original fields), so _createObject works uniformly
+    // across beamline / furnishing / equipment / decoration.
+    const obj = this.componentBuilder._createObject(placeable);
+    if (!obj) return;
+
+    obj.traverse(child => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        child.material.transparent = true;
+        child.material.opacity = 0.4;
+        child.material.depthWrite = false;
+        if (child.material.color) {
+          child.material.color.setHex(valid ? 0x44ff44 : 0xff4444);
+        }
+        child.castShadow = false;
+        child.receiveShadow = false;
+      }
+    });
+
+    const isDetailed = !!obj.children?.length;
+    const SUB_UNIT = 0.5;
+    // Mirror renderComponentGhost: prefer gridW/gridH (legacy) then subW/subL.
+    const gwSub = placeable.gridW || placeable.subW || 4;
+    const ghSub = placeable.gridH || placeable.subL || placeable.subH || 4;
+    const sc = hover.subCol || 0;
+    const sr = hover.subRow || 0;
+    const footW = gwSub * SUB_UNIT;
+    const footH = ghSub * SUB_UNIT;
+    const col = hover.col;
+    const row = hover.row;
+    const px = col * 2 + sc * SUB_UNIT + footW / 2;
+    const pz = row * 2 + sr * SUB_UNIT + footH / 2;
+    const y = isDetailed ? 0 : ((placeable.subH || 2) * SUB_UNIT) / 2;
+    obj.position.set(px, y, pz);
+    obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
+    obj.renderOrder = 999;
+    this.previewGroup.add(obj);
+
+    // Floor outline at sub-tile footprint (matches renderComponentGhost).
+    const tileColor = valid ? 0x44ff44 : 0xff4444;
+    const edgeMat = this._previewEdgeMat(tileColor);
+    const fillMat = this._previewMat(tileColor, 0.15);
+    const x0 = col * 2 + sc * SUB_UNIT;
+    const x1 = x0 + footW;
+    const z0 = row * 2 + sr * SUB_UNIT;
+    const z1 = z0 + footH;
+    const pts = [
+      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
+      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
+      new THREE.Vector3(x0, 0.12, z0),
+    ];
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    const fillGeo = new THREE.PlaneGeometry(footW, footH);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(fillGeo, fillMat);
+    fill.position.set(px, 0.1, pz);
+    this._addPreviewMesh(fill);
   }
 
   /**
