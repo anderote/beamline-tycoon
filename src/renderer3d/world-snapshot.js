@@ -100,16 +100,16 @@ function buildComponents(game) {
   const editingId = game.editingBeamlineId;
 
   const result = nodes.map(node => {
-    // Determine dimmed: node belongs to a different beamline than the one being edited
+    const entry = game.registry.getBeamlineForNode(node.id);
+    const beamlineId = entry ? entry.id : null;
+    const accentColor = entry ? entry.accentColor : 0xc62828;
+
+    // Dimmed: node belongs to a different beamline than the one being edited
     let dimmed = false;
-    if (editingId) {
-      const entry = game.registry.getBeamlineForNode(node.id);
-      if (entry && entry.id !== editingId) {
-        dimmed = true;
-      }
+    if (editingId && entry && entry.id !== editingId) {
+      dimmed = true;
     }
 
-    // Health — use game.getComponentHealth if available
     const health = typeof game.getComponentHealth === 'function'
       ? game.getComponentHealth(node.id)
       : undefined;
@@ -125,10 +125,12 @@ function buildComponents(game) {
       tiles: node.tiles ? node.tiles.map(t => ({ col: t.col, row: t.row })) : [{ col: node.col, row: node.row }],
       dimmed,
       health,
+      beamlineId,
+      accentColor,
     };
   });
 
-  // Include beamline placeables (drift pipes etc.) placed via unified system
+  // Unified-system beamline placeables (drift pipes placed outside the registry)
   const seenIds = new Set(result.map(r => r.id));
   const placeables = (game.state.placeables || []).filter(p => p.category === 'beamline');
   for (const p of placeables) {
@@ -144,6 +146,8 @@ function buildComponents(game) {
       tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
       dimmed: false,
       health: undefined,
+      beamlineId: p.beamlineId ?? null,
+      accentColor: 0xc62828,
     });
   }
 
