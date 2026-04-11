@@ -866,7 +866,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
   // Demolish mode tools
   if (compCategory === 'demolish') {
     const demolishTools = [
-      { key: 'demolishComponent', name: 'Remove Components', desc: 'Click beamline components to remove', color: '#c44' },
+      { key: 'demolishBeamline', name: 'Remove Components', desc: 'Click beamline components to remove', color: '#c44' },
       { key: 'demolishConnection', name: 'Remove Pipes', desc: 'Click utility pipes/cables to remove', color: '#c84' },
       { key: 'demolishFurnishing', name: 'Remove Furniture', desc: 'Click to remove placed furnishings', color: '#a48' },
       { key: 'demolishZone', name: 'Remove Zone', desc: 'Click or drag to remove zone overlays', color: '#a84' },

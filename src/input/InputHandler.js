@@ -23,7 +23,7 @@ function _demolishRefund(compOrDef) {
 // kind and every kind below it in the chain.
 //   beamline > equipment > furnishing > decoration
 const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishComponent:  new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
+  demolishBeamline:  new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
   demolishEquipment:  new Set(['equipment', 'furnishing', 'decoration']),
   demolishFurnishing: new Set(['furnishing', 'decoration']),
   demolishDecoration: new Set(['decoration']),
@@ -1246,7 +1246,7 @@ export class InputHandler {
           return;
         }
         // Component and furnishing demolish are click-on-object, not drag-based
-        if (this.demolishType === 'demolishFurnishing' || this.demolishType === 'demolishComponent') {
+        if (this.demolishType === 'demolishFurnishing' || this.demolishType === 'demolishBeamline') {
           return; // handled in _handleClick
         }
         this.isDragging = true;
@@ -1713,7 +1713,7 @@ export class InputHandler {
           const minRow = Math.min(this.dragStart.row, this.dragEnd.row);
           const maxRow = Math.max(this.dragStart.row, this.dragEnd.row);
 
-          if (this.demolishType === 'demolishComponent') {
+          if (this.demolishType === 'demolishBeamline') {
             // Remove beamline components in rect
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
@@ -2563,8 +2563,8 @@ export class InputHandler {
     const mode = this.activeMode;
     const cat = this.selectedCategory;
     const catDef = MODES[mode]?.categories?.[cat];
-    if (mode === 'beamline') return 'demolishComponent';
-    if (mode === 'infra') return 'demolishComponent';
+    if (mode === 'beamline') return 'demolishBeamline';
+    if (mode === 'infra') return 'demolishBeamline';
     if (mode === 'facility') return 'demolishFurnishing';
     if (mode === 'structure') {
       if (cat === 'flooring') return 'demolishFloor';
@@ -2848,7 +2848,7 @@ export class InputHandler {
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
     const componentLabel = this.activeMode === 'infra' ? 'Remove Equipment' : 'Delete Beamline';
-    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishComponent: componentLabel, demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
+    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishBeamline: componentLabel, demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
     this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
@@ -3122,7 +3122,7 @@ export class InputHandler {
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishComponent: 'Remove Components', demolishConnection: 'Remove Pipes', demolishFurnishing: 'Remove Furniture', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
+      const names = { demolishBeamline: 'Remove Components', demolishConnection: 'Remove Pipes', demolishFurnishing: 'Remove Furniture', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
       this._renderPreview(names[key] || 'Demolish', '', []);
       return;
     }
@@ -3201,7 +3201,7 @@ export class InputHandler {
       return Object.keys(DOOR_TYPES);
     }
     if (category === 'demolish') {
-      return ['demolishComponent', 'demolishConnection', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
+      return ['demolishBeamline', 'demolishConnection', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);
