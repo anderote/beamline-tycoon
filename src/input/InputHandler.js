@@ -277,8 +277,8 @@ export class InputHandler {
       }
     }
 
-    // Connections
-    if (!found && (dt === 'demolishConnection' || dt === 'demolishAll')) {
+    // Utility connections (formerly demolishConnection)
+    if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
       const connTypes = this.game.state.connections.get(key);
       if (connTypes && connTypes.size > 0) {
         this.renderer.renderDemolishPreview(col, row, col, row);
@@ -295,6 +295,38 @@ export class InputHandler {
         this.renderer.renderDemolishPreview(col, row, col, row);
         this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
         found = true;
+      }
+    }
+
+    // Walls — edge-based hover. Walls live on tile edges in state.wallOccupied
+    // keyed by 'col,row,edge'. Highlight the matched edge.
+    if (!found && (dt === 'demolishWall' || dt === 'demolishAll')) {
+      const edge = this._getNearestEdge?.(screenX, screenY);
+      if (edge) {
+        const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
+        const wallType = this.game.state.wallOccupied?.[ekey];
+        if (wallType) {
+          this.renderer.renderDemolishPreview(edge.col, edge.row, edge.col, edge.row);
+          const def = WALL_TYPES[wallType];
+          this._showDemolishTooltip(def?.name || 'Wall', demolishRefund(def), screenX, screenY);
+          found = true;
+        }
+      }
+    }
+
+    // Doors — edge-based hover. Doors live on tile edges in state.doorOccupied
+    // keyed by 'col,row,edge'. Highlight the matched edge.
+    if (!found && (dt === 'demolishDoor' || dt === 'demolishAll')) {
+      const edge = this._getNearestEdge?.(screenX, screenY);
+      if (edge) {
+        const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
+        const doorType = this.game.state.doorOccupied?.[ekey];
+        if (doorType) {
+          this.renderer.renderDemolishPreview(edge.col, edge.row, edge.col, edge.row);
+          const def = DOOR_TYPES[doorType];
+          this._showDemolishTooltip(def?.name || 'Door', demolishRefund(def), screenX, screenY);
+          found = true;
+        }
       }
     }
 
@@ -1717,7 +1749,7 @@ export class InputHandler {
                 }
               }
             }
-          } else if (this.demolishType === 'demolishConnection') {
+          } else if (this.demolishType === 'demolishUtility') {
             // Remove utility connections in rect
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
@@ -1951,7 +1983,7 @@ export class InputHandler {
         // deletable" as a no-op and let the click fall through to any
         // non-placeable tile branches below (walls/zones/floors).
       }
-      if (this.demolishType === 'demolishConnection') {
+      if (this.demolishType === 'demolishUtility') {
         // Remove all connection types at this tile
         const conns = this.game.getConnectionsAt(col, row);
         for (const ct of [...conns]) {
@@ -2868,7 +2900,7 @@ export class InputHandler {
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
     const componentLabel = this.activeMode === 'infra' ? 'Remove Equipment' : 'Delete Beamline';
-    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishBeamline: componentLabel, demolishConnection: 'Remove Connection', demolishAll: 'Clear Everything' };
+    const names = { demolishFloor: 'Remove Floor', demolishZone: 'Remove Zone', demolishFurnishing: 'Remove Furniture', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishBeamline: componentLabel, demolishUtility: 'Remove Utilities', demolishAll: 'Clear Everything' };
     this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
@@ -3142,7 +3174,7 @@ export class InputHandler {
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishBeamline: 'Remove Components', demolishConnection: 'Remove Pipes', demolishFurnishing: 'Remove Furniture', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
+      const names = { demolishBeamline: 'Remove Components', demolishUtility: 'Remove Utilities', demolishFurnishing: 'Remove Furniture', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
       this._renderPreview(names[key] || 'Demolish', '', []);
       return;
     }
@@ -3221,7 +3253,7 @@ export class InputHandler {
       return Object.keys(DOOR_TYPES);
     }
     if (category === 'demolish') {
-      return ['demolishBeamline', 'demolishConnection', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
+      return ['demolishBeamline', 'demolishUtility', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
     }
     if (category === 'infrastructure') {
       return Object.keys(INFRASTRUCTURE);
