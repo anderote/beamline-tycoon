@@ -497,6 +497,116 @@ function _buildPillboxCavity() {
   return group;
 }
 
+// ── Role-based builders (template pattern) ──────────────────────────
+// These return BufferGeometry buckets rather than assembled Groups.
+// Individual primitives are built, positioned via a Matrix4, and baked
+// into the geometry so they can be merged per role.
+
+function _pushTransformed(bucket, geom, matrix) {
+  geom.applyMatrix4(matrix);
+  bucket.push(geom);
+}
+
+/**
+ * Build the role buckets for a quadrupole magnet.
+ *
+ * Physical layout (1m x 1m x 1.5m, beam along local +Z):
+ *   - 4 painted iron yoke slabs forming a square frame
+ *   - 4 dark iron pole tips pointing inward
+ *   - 4 copper coil rings wrapped around the poles
+ *   - Bolts at the yoke corners (detail LOD)
+ *   - Beam pipe straight through the center
+ */
+function _buildQuadrupoleRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], detail: [] };
+  const m4 = new THREE.Matrix4();
+
+  const yokeOuter = 0.55;       // half width of the square yoke
+  const wall = 0.14;            // yoke slab thickness
+  const magL = 0.9;             // length along beam axis
+
+  // --- Painted yoke slabs (accent role) ---
+  // Each slab: [x, y, width, height]
+  const slabs = [
+    [0,  yokeOuter - wall / 2, yokeOuter * 2, wall],   // top
+    [0, -yokeOuter + wall / 2, yokeOuter * 2, wall],   // bottom
+    [ yokeOuter - wall / 2, 0, wall, yokeOuter * 2],   // right
+    [-yokeOuter + wall / 2, 0, wall, yokeOuter * 2],   // left
+  ];
+  for (const [x, y, w, h] of slabs) {
+    const g = new THREE.BoxGeometry(w, h, magL);
+    m4.makeTranslation(x, BEAM_HEIGHT + y, 0);
+    _pushTransformed(buckets.accent, g, m4);
+  }
+
+  // --- Dark iron pole tips (iron role) ---
+  // Each pole points inward along (dx, dy). Exactly one of dx/dy is nonzero.
+  const poleLen = 0.28;
+  const poleHalf = 0.13;
+  const poles = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  for (const [dx, dy] of poles) {
+    const g = new THREE.BoxGeometry(
+      dx !== 0 ? poleLen : poleHalf * 2,
+      dy !== 0 ? poleLen : poleHalf * 2,
+      magL * 0.85
+    );
+    const off = yokeOuter - wall - poleLen / 2;
+    m4.makeTranslation(dx * off, BEAM_HEIGHT + dy * off, 0);
+    _pushTransformed(buckets.iron, g, m4);
+  }
+
+  // --- Copper coils wrapping each pole base (copper role) ---
+  // Torus oriented so its hole aligns with the pole axis.
+  for (const [dx, dy] of poles) {
+    const g = new THREE.TorusGeometry(poleHalf + 0.05, 0.05, 10, 24);
+    m4.identity();
+    // Rotate torus ring so its axis matches the pole (default is Z-axis).
+    if (dx !== 0) {
+      // pole axis along X
+      m4.makeRotationY(Math.PI / 2);
+    } else {
+      // pole axis along Y
+      m4.makeRotationX(Math.PI / 2);
+    }
+    const trans = new THREE.Matrix4().makeTranslation(
+      dx * (yokeOuter - wall - poleLen / 2 - 0.06),
+      BEAM_HEIGHT + dy * (yokeOuter - wall - poleLen / 2 - 0.06),
+      0
+    );
+    const full = new THREE.Matrix4().multiplyMatrices(trans, m4);
+    _pushTransformed(buckets.copper, g, full);
+  }
+
+  // --- Beam pipe through the center (pipe role) ---
+  const pipeL = magL + 0.4; // slightly longer than the magnet to meet neighbors
+  const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS);
+  m4.identity();
+  m4.makeRotationX(Math.PI / 2);
+  const pipeT = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+  const pipeFull = new THREE.Matrix4().multiplyMatrices(pipeT, m4);
+  _pushTransformed(buckets.pipe, pipeGeom, pipeFull);
+
+  // --- Bolts at yoke corners (detail role, LOD-hidden) ---
+  const boltOffsets = [
+    [ yokeOuter - 0.05,  yokeOuter - 0.05],
+    [-yokeOuter + 0.05,  yokeOuter - 0.05],
+    [ yokeOuter - 0.05, -yokeOuter + 0.05],
+    [-yokeOuter + 0.05, -yokeOuter + 0.05],
+  ];
+  for (const [x, y] of boltOffsets) {
+    for (const sign of [-1, 1]) {
+      const g = new THREE.BoxGeometry(0.05, 0.05, 0.03);
+      m4.makeTranslation(x, BEAM_HEIGHT + y, sign * (magL / 2 + 0.015));
+      _pushTransformed(buckets.detail, g, m4);
+    }
+  }
+
+  return buckets;
+}
+
+ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
+
 // Registry: component type id → builder function
 const DETAIL_BUILDERS = {
   source: _buildSource,
