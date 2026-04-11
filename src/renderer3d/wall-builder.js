@@ -3,6 +3,8 @@
 // THREE is a CDN global — do NOT import it.
 
 import { WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
+import { MATERIALS } from './materials/index.js';
+import { applyTiledBoxUVs } from './uv-utils.js';
 
 const TILE_SIZE = 2;          // world units per tile (2m real)
 const M = TILE_SIZE / 2;     // 1 world unit = 2m, so 1m = 0.5 world units
@@ -71,8 +73,10 @@ export class WallBuilder {
       // In cutaway mode, walls need per-wall materials (some opaque, some transparent)
       const matKey = isCutawayWall ? `${type}_cutaway` : type;
       if (!matCache[matKey]) {
+        const baseMat = def && def.texture ? MATERIALS[def.texture] : null;
         matCache[matKey] = new THREE.MeshStandardMaterial({
-          color,
+          map: baseMat ? baseMat.map : null,
+          color: baseMat ? 0xffffff : color, // tint white if textured so map shows true colors
           roughness: 0.8,
           transparent: wallTransparent,
           opacity: wallTransparent ? 0.3 : 1.0,
@@ -85,6 +89,11 @@ export class WallBuilder {
       const geo = isNS
         ? new THREE.BoxGeometry(length, height, thickness)
         : new THREE.BoxGeometry(thickness, height, length);
+      if (isNS) {
+        applyTiledBoxUVs(geo, length, height, thickness);
+      } else {
+        applyTiledBoxUVs(geo, thickness, height, length);
+      }
       const mesh = new THREE.Mesh(geo, matCache[matKey]);
       // Position at the center of the merged span
       const pos = this._wallPosition(col, row, edge, height);
@@ -219,6 +228,11 @@ export class WallBuilder {
           const sideGeo = isNS
             ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
             : new THREE.BoxGeometry(wallThickness, wallHeight, sideWidth);
+          if (isNS) {
+            applyTiledBoxUVs(sideGeo, sideWidth, wallHeight, wallThickness);
+          } else {
+            applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, sideWidth);
+          }
 
           // Side A (negative direction)
           const sideA = new THREE.Mesh(sideGeo, sideMat);
@@ -262,6 +276,11 @@ export class WallBuilder {
         const aboveGeo = isNS
           ? new THREE.BoxGeometry(TILE_SIZE, aboveDoorHeight, wallThickness)
           : new THREE.BoxGeometry(wallThickness, aboveDoorHeight, TILE_SIZE);
+        if (isNS) {
+          applyTiledBoxUVs(aboveGeo, TILE_SIZE, aboveDoorHeight, wallThickness);
+        } else {
+          applyTiledBoxUVs(aboveGeo, wallThickness, aboveDoorHeight, TILE_SIZE);
+        }
         const aboveMesh = new THREE.Mesh(aboveGeo, aboveMat);
         aboveMesh.position.set(
           edgeCenter.x,
