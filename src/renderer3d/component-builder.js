@@ -3,6 +3,8 @@
 // THREE is a CDN global — do NOT import it.
 
 import { COMPONENTS } from '../data/components.js';
+import { MATERIALS } from './materials/index.js';
+import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 
 const SUB_UNIT = 0.5; // 1 sub-unit = 0.5m in world space
 const SEGS = 16;      // cylinder segment count for smooth round shapes
@@ -22,10 +24,14 @@ const STAND_COLOR  = 0x555555;  // dark gray support structure
 
 const _matCache = new Map();
 
-function _mat(color, roughness = 0.5, metalness = 0.3) {
-  const key = `${color}-${roughness}-${metalness}`;
+function _mat(color, roughness = 0.5, metalness = 0.3, textureName = null) {
+  const key = `${color}-${roughness}-${metalness}-${textureName ?? ''}`;
   if (!_matCache.has(key)) {
-    _matCache.set(key, new THREE.MeshStandardMaterial({ color, roughness, metalness }));
+    const opts = { color, roughness, metalness };
+    if (textureName && MATERIALS[textureName]) {
+      opts.map = MATERIALS[textureName].map;
+    }
+    _matCache.set(key, new THREE.MeshStandardMaterial(opts));
   }
   return _matCache.get(key).clone();
 }
@@ -42,15 +48,19 @@ const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand'
 const ACCENT_BASE_ROUGHNESS = 0.6;
 const ACCENT_BASE_METALNESS = 0.12;
 
+// SHARED_MATERIALS now derive their .map from MATERIALS but keep their
+// own roughness/metalness and color tint. Per-role default texture:
+//   iron   -> metal_dark
+//   copper -> copper
+//   pipe   -> metal_brushed
+//   stand  -> metal_painted_white  (tinted dark gray via color)
+//   detail -> metal_dark
 const SHARED_MATERIALS = {
-  iron:   new THREE.MeshStandardMaterial({ color: 0x2b2d35, roughness: 0.5,  metalness: 0.4 }),
-  copper: new THREE.MeshStandardMaterial({ color: 0xd4721a, roughness: 0.4,  metalness: 0.5 }),
-  pipe:   new THREE.MeshStandardMaterial({ color: PIPE_COLOR,  roughness: 0.3,  metalness: 0.5 }),
-  stand:  new THREE.MeshStandardMaterial({ color: STAND_COLOR, roughness: 0.7,  metalness: 0.1 }),
-  // 'detail' pieces each decide their own material at build time — bolts
-  // use a dark steel, small coil rings use copper. We store the bolt one
-  // here because it's the most common detail material.
-  detail: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7,  metalness: 0.3 }),
+  iron:   new THREE.MeshStandardMaterial({ map: MATERIALS.metal_dark.map,          color: 0xffffff,    roughness: 0.5, metalness: 0.4 }),
+  copper: new THREE.MeshStandardMaterial({ map: MATERIALS.copper.map,              color: 0xffffff,    roughness: 0.4, metalness: 0.5 }),
+  pipe:   new THREE.MeshStandardMaterial({ map: MATERIALS.metal_brushed.map,       color: 0xffffff,    roughness: 0.3, metalness: 0.5 }),
+  stand:  new THREE.MeshStandardMaterial({ map: MATERIALS.metal_painted_white.map, color: STAND_COLOR, roughness: 0.7, metalness: 0.1 }),
+  detail: new THREE.MeshStandardMaterial({ map: MATERIALS.metal_dark.map,          color: 0xffffff,    roughness: 0.7, metalness: 0.3 }),
 };
 
 /** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
@@ -69,6 +79,7 @@ export function getAccentMaterial(compType, colorHex) {
   let m = _accentMatCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
+      map: MATERIALS.metal_painted_white.map,  // neutral tintable base
       color: colorHex,
       roughness: ACCENT_BASE_ROUGHNESS,
       metalness: ACCENT_BASE_METALNESS,
@@ -195,24 +206,34 @@ function _mergeGeometries(geometries) {
   // Sum sizes.
   let posCount = 0;
   let normCount = 0;
+  let uvCount = 0;
   for (const g of flat) {
     posCount += g.attributes.position.array.length;
     const na = g.attributes.normal;
     if (na) normCount += na.array.length;
+    const ua = g.attributes.uv;
+    if (ua) uvCount += ua.array.length;
   }
 
   const positions = new Float32Array(posCount);
   const allHaveNormals = flat.every(g => g.attributes.normal);
   const normals = allHaveNormals ? new Float32Array(normCount) : null;
+  const allHaveUVs = flat.every(g => g.attributes.uv);
+  const uvs = allHaveUVs ? new Float32Array(uvCount) : null;
 
   let posOff = 0;
   let normOff = 0;
+  let uvOff = 0;
   for (const g of flat) {
     positions.set(g.attributes.position.array, posOff);
     posOff += g.attributes.position.array.length;
     if (normals) {
       normals.set(g.attributes.normal.array, normOff);
       normOff += g.attributes.normal.array.length;
+    }
+    if (uvs) {
+      uvs.set(g.attributes.uv.array, uvOff);
+      uvOff += g.attributes.uv.array.length;
     }
   }
 
@@ -222,6 +243,9 @@ function _mergeGeometries(geometries) {
     merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   } else {
     merged.computeVertexNormals();
+  }
+  if (uvs) {
+    merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   }
   return merged;
 }
@@ -239,19 +263,17 @@ function _buildSource() {
   // Main gun housing — centered so beam exit aligns with BEAM_HEIGHT
   const bodyW = 0.9, bodyH = 0.9, bodyL = 1.2;
   const bodyY = BEAM_HEIGHT; // center of body at beam height
-  const body = _addShadow(new THREE.Mesh(
-    new THREE.BoxGeometry(bodyW, bodyH, bodyL),
-    _mat(bodyColor, 0.6, 0.2),
-  ));
+  const bodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyL);
+  applyTiledBoxUVs(bodyGeo, bodyW, bodyH, bodyL);
+  const body = _addShadow(new THREE.Mesh(bodyGeo, _mat(bodyColor, 0.6, 0.2)));
   body.position.set(0, bodyY, -0.15);
   group.add(body);
 
   // HV insulator dome on top — a squat cylinder
   const insR = 0.25, insH = 0.3;
-  const insulator = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(insR * 0.6, insR, insH, SEGS),
-    _mat(insulatorColor, 0.4, 0.05),
-  ));
+  const insulatorGeo = new THREE.CylinderGeometry(insR * 0.6, insR, insH, SEGS);
+  applyTiledCylinderUVs(insulatorGeo, insR, insH, SEGS);
+  const insulator = _addShadow(new THREE.Mesh(insulatorGeo, _mat(insulatorColor, 0.4, 0.05)));
   insulator.position.set(0, bodyY + bodyH / 2 + insH / 2, -0.3);
   group.add(insulator);
 
@@ -259,19 +281,17 @@ function _buildSource() {
   const portEnd = 1.0; // tile edge
   const portStart = bodyL / 2 - 0.15;
   const portL = portEnd - portStart;
-  const port = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(PIPE_R, PIPE_R, portL, SEGS),
-    _mat(PIPE_COLOR, 0.3, 0.5),
-  ));
+  const portGeo = new THREE.CylinderGeometry(PIPE_R, PIPE_R, portL, SEGS);
+  applyTiledCylinderUVs(portGeo, PIPE_R, portL, SEGS);
+  const port = _addShadow(new THREE.Mesh(portGeo, _mat(PIPE_COLOR, 0.3, 0.5)));
   port.rotation.x = Math.PI / 2;
   port.position.set(0, BEAM_HEIGHT, (portStart + portEnd) / 2);
   group.add(port);
 
   // Flange ring at beam exit — at tile edge so it meets adjacent pipe
-  const flange = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS),
-    _mat(FLANGE_COLOR, 0.3, 0.5),
-  ));
+  const sourceFlangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+  applyTiledCylinderUVs(sourceFlangeGeo, FLANGE_R, FLANGE_H, SEGS);
+  const flange = _addShadow(new THREE.Mesh(sourceFlangeGeo, _mat(FLANGE_COLOR, 0.3, 0.5)));
   flange.rotation.x = Math.PI / 2;
   flange.position.set(0, BEAM_HEIGHT, portEnd);
   group.add(flange);
@@ -280,10 +300,9 @@ function _buildSource() {
   const legW = 0.08, legH = bodyY - bodyH / 2;
   for (const xOff of [-bodyW / 2 + legW, bodyW / 2 - legW]) {
     for (const zOff of [-0.35, 0.25]) {
-      const leg = _addShadow(new THREE.Mesh(
-        new THREE.BoxGeometry(legW, legH, legW),
-        _mat(STAND_COLOR, 0.7, 0.1),
-      ));
+      const srcLegGeo = new THREE.BoxGeometry(legW, legH, legW);
+      applyTiledBoxUVs(srcLegGeo, legW, legH, legW);
+      const leg = _addShadow(new THREE.Mesh(srcLegGeo, _mat(STAND_COLOR, 0.7, 0.1)));
       leg.position.set(xOff, legH / 2, zOff);
       group.add(leg);
     }
@@ -302,20 +321,18 @@ function _buildDrift() {
   const pipeL = 2.0; // full tile length so adjacent pipes meet flush
 
   // Main vacuum pipe — standard bore at standard height
-  const pipe = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS),
-    _mat(PIPE_COLOR, 0.3, 0.5),
-  ));
+  const driftPipeGeo = new THREE.CylinderGeometry(PIPE_R, PIPE_R, pipeL, SEGS);
+  applyTiledCylinderUVs(driftPipeGeo, PIPE_R, pipeL, SEGS);
+  const pipe = _addShadow(new THREE.Mesh(driftPipeGeo, _mat(PIPE_COLOR, 0.3, 0.5)));
   pipe.rotation.x = Math.PI / 2;
   pipe.position.set(0, BEAM_HEIGHT, 0);
   group.add(pipe);
 
   // CF flanges at each end with bolt holes and bore opening
   for (const sign of [-1, 1]) {
-    const flange = _addShadow(new THREE.Mesh(
-      new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS),
-      _mat(FLANGE_COLOR, 0.3, 0.6),
-    ));
+    const driftFlangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(driftFlangeGeo, FLANGE_R, FLANGE_H, SEGS);
+    const flange = _addShadow(new THREE.Mesh(driftFlangeGeo, _mat(FLANGE_COLOR, 0.3, 0.6)));
     flange.rotation.x = Math.PI / 2;
     flange.position.set(0, BEAM_HEIGHT, sign * pipeL / 2);
     group.add(flange);
@@ -356,10 +373,9 @@ function _addBoltHoles(group, x, y, z, sign) {
     const angle = (i / boltCount) * Math.PI * 2;
     const bx = x + Math.cos(angle) * boltCircleR;
     const by = y + Math.sin(angle) * boltCircleR;
-    const bolt = new THREE.Mesh(
-      new THREE.CylinderGeometry(boltR, boltR, boltDepth, 6),
-      boltMat,
-    );
+    const boltGeo = new THREE.CylinderGeometry(boltR, boltR, boltDepth, 6);
+    applyTiledCylinderUVs(boltGeo, boltR, boltDepth, 6);
+    const bolt = new THREE.Mesh(boltGeo, boltMat);
     bolt.rotation.x = Math.PI / 2;
     bolt.position.set(bx, by, z + sign * (FLANGE_H / 2 + 0.001));
     bolt.userData.lod = 'detail'; // only visible when zoomed in
@@ -383,44 +399,39 @@ function _addBeamSupport(group, zPos) {
 
   // Two vertical legs — full height from floor to top crossbar
   for (const side of [-1, 1]) {
-    const leg = _addShadow(new THREE.Mesh(
-      new THREE.BoxGeometry(legW, legH, legW),
-      _mat(STAND_COLOR, 0.7, 0.1),
-    ));
+    const supportLegGeo = new THREE.BoxGeometry(legW, legH, legW);
+    applyTiledBoxUVs(supportLegGeo, legW, legH, legW);
+    const leg = _addShadow(new THREE.Mesh(supportLegGeo, _mat(STAND_COLOR, 0.7, 0.1)));
     leg.position.set(side * legSpacing / 2, legH / 2, zPos);
     group.add(leg);
   }
 
   // Top crossbar — sits just above the pipe
-  const topBar = _addShadow(new THREE.Mesh(
-    new THREE.BoxGeometry(barW, barH, barD),
-    _mat(STAND_COLOR, 0.7, 0.1),
-  ));
+  const topBarGeo = new THREE.BoxGeometry(barW, barH, barD);
+  applyTiledBoxUVs(topBarGeo, barW, barH, barD);
+  const topBar = _addShadow(new THREE.Mesh(topBarGeo, _mat(STAND_COLOR, 0.7, 0.1)));
   topBar.position.set(0, topOfPipe + barH / 2, zPos);
   group.add(topBar);
 
   // Bottom crossbar — sits just below the pipe
-  const bottomBar = _addShadow(new THREE.Mesh(
-    new THREE.BoxGeometry(barW, barH, barD),
-    _mat(STAND_COLOR, 0.7, 0.1),
-  ));
+  const bottomBarGeo = new THREE.BoxGeometry(barW, barH, barD);
+  applyTiledBoxUVs(bottomBarGeo, barW, barH, barD);
+  const bottomBar = _addShadow(new THREE.Mesh(bottomBarGeo, _mat(STAND_COLOR, 0.7, 0.1)));
   bottomBar.position.set(0, BEAM_HEIGHT - PIPE_R - barH / 2, zPos);
   group.add(bottomBar);
 
   // Lower brace (near floor)
-  const lowerBar = _addShadow(new THREE.Mesh(
-    new THREE.BoxGeometry(barW, barH, barD),
-    _mat(STAND_COLOR, 0.7, 0.1),
-  ));
+  const lowerBarGeo = new THREE.BoxGeometry(barW, barH, barD);
+  applyTiledBoxUVs(lowerBarGeo, barW, barH, barD);
+  const lowerBar = _addShadow(new THREE.Mesh(lowerBarGeo, _mat(STAND_COLOR, 0.7, 0.1)));
   lowerBar.position.set(0, 0.08, zPos);
   group.add(lowerBar);
 
   // Small foot plate
   const footW = legSpacing + legW + 0.04;
-  const foot = _addShadow(new THREE.Mesh(
-    new THREE.BoxGeometry(footW, 0.02, 0.08),
-    _mat(STAND_COLOR, 0.7, 0.1),
-  ));
+  const footGeo = new THREE.BoxGeometry(footW, 0.02, 0.08);
+  applyTiledBoxUVs(footGeo, footW, 0.02, 0.08);
+  const foot = _addShadow(new THREE.Mesh(footGeo, _mat(STAND_COLOR, 0.7, 0.1)));
   foot.position.set(0, 0.01, zPos);
   group.add(foot);
 }
@@ -431,20 +442,18 @@ function _buildPillboxCavity() {
 
   // Central pillbox — short wide cylinder (the resonant cavity cell)
   const cellR = 0.35, cellL = 0.4;
-  const cell = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(cellR, cellR, cellL, SEGS),
-    _mat(cavityColor, 0.35, 0.5),
-  ));
+  const cellGeo = new THREE.CylinderGeometry(cellR, cellR, cellL, SEGS);
+  applyTiledCylinderUVs(cellGeo, cellR, cellL, SEGS);
+  const cell = _addShadow(new THREE.Mesh(cellGeo, _mat(cavityColor, 0.35, 0.5)));
   cell.rotation.x = Math.PI / 2;
   cell.position.set(0, BEAM_HEIGHT, 0);
   group.add(cell);
 
   // End caps — slightly wider rings to show the cavity boundary
   for (const sign of [-1, 1]) {
-    const cap = _addShadow(new THREE.Mesh(
-      new THREE.CylinderGeometry(cellR + 0.03, cellR + 0.03, 0.03, SEGS),
-      _mat(0x995522, 0.3, 0.6),
-    ));
+    const capGeo = new THREE.CylinderGeometry(cellR + 0.03, cellR + 0.03, 0.03, SEGS);
+    applyTiledCylinderUVs(capGeo, cellR + 0.03, 0.03, SEGS);
+    const cap = _addShadow(new THREE.Mesh(capGeo, _mat(0x995522, 0.3, 0.6)));
     cap.rotation.x = Math.PI / 2;
     cap.position.set(0, BEAM_HEIGHT, sign * cellL / 2);
     group.add(cap);
@@ -455,19 +464,17 @@ function _buildPillboxCavity() {
   for (const sign of [-1, 1]) {
     const stubStart = cellL / 2;
     const stubL = tileEdge - stubStart;
-    const stub = _addShadow(new THREE.Mesh(
-      new THREE.CylinderGeometry(PIPE_R, PIPE_R, stubL, SEGS),
-      _mat(PIPE_COLOR, 0.3, 0.5),
-    ));
+    const stubGeo = new THREE.CylinderGeometry(PIPE_R, PIPE_R, stubL, SEGS);
+    applyTiledCylinderUVs(stubGeo, PIPE_R, stubL, SEGS);
+    const stub = _addShadow(new THREE.Mesh(stubGeo, _mat(PIPE_COLOR, 0.3, 0.5)));
     stub.rotation.x = Math.PI / 2;
     stub.position.set(0, BEAM_HEIGHT, sign * (stubStart + stubL / 2));
     group.add(stub);
 
     // Standard CF flanges at tile edge
-    const flange = _addShadow(new THREE.Mesh(
-      new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS),
-      _mat(FLANGE_COLOR, 0.3, 0.6),
-    ));
+    const pillboxFlangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(pillboxFlangeGeo, FLANGE_R, FLANGE_H, SEGS);
+    const flange = _addShadow(new THREE.Mesh(pillboxFlangeGeo, _mat(FLANGE_COLOR, 0.3, 0.6)));
     flange.rotation.x = Math.PI / 2;
     flange.position.set(0, BEAM_HEIGHT, sign * tileEdge);
     group.add(flange);
@@ -475,18 +482,16 @@ function _buildPillboxCavity() {
 
   // RF coupler port on top — a small cylinder stub pointing upward
   const couplerR = 0.08, couplerH = 0.25;
-  const coupler = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(couplerR, couplerR, couplerH, SEGS),
-    _mat(cavityColor, 0.35, 0.5),
-  ));
+  const couplerGeo = new THREE.CylinderGeometry(couplerR, couplerR, couplerH, SEGS);
+  applyTiledCylinderUVs(couplerGeo, couplerR, couplerH, SEGS);
+  const coupler = _addShadow(new THREE.Mesh(couplerGeo, _mat(cavityColor, 0.35, 0.5)));
   coupler.position.set(0, BEAM_HEIGHT + cellR + couplerH / 2, 0);
   group.add(coupler);
 
   // Coupler flange
-  const cFlange = _addShadow(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.14, 0.14, 0.03, SEGS),
-    _mat(FLANGE_COLOR, 0.3, 0.6),
-  ));
+  const cFlangeGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.03, SEGS);
+  applyTiledCylinderUVs(cFlangeGeo, 0.14, 0.03, SEGS);
+  const cFlange = _addShadow(new THREE.Mesh(cFlangeGeo, _mat(FLANGE_COLOR, 0.3, 0.6)));
   cFlange.position.set(0, BEAM_HEIGHT + cellR + couplerH, 0);
   group.add(cFlange);
 
@@ -541,12 +546,14 @@ function _buildCClampRoles(bentPipe) {
   // Spine: vertical slab on +X
   {
     const g = new THREE.BoxGeometry(wall, 2 * yokeOuter, magL);
+    applyTiledBoxUVs(g, wall, 2 * yokeOuter, magL);
     m4.makeTranslation(backX, BEAM_HEIGHT, 0);
     _pushTransformed(buckets.accent, g, m4);
   }
   // Top and bottom arms: horizontal slabs forming the C's jaws
   for (const sign of [1, -1]) {
     const g = new THREE.BoxGeometry(armW, wall, magL);
+    applyTiledBoxUVs(g, armW, wall, magL);
     m4.makeTranslation(armCx, BEAM_HEIGHT + sign * armY, 0);
     _pushTransformed(buckets.accent, g, m4);
   }
@@ -559,6 +566,7 @@ function _buildCClampRoles(bentPipe) {
   const coilYOff = yokeOuter - wall - coilH / 2;
   for (const sign of [1, -1]) {
     const g = new THREE.BoxGeometry(coilW, coilH, magL);
+    applyTiledBoxUVs(g, coilW, coilH, magL);
     m4.makeTranslation(armCx, BEAM_HEIGHT + sign * coilYOff, 0);
     _pushTransformed(buckets.copper, g, m4);
   }
@@ -573,6 +581,7 @@ function _buildCClampRoles(bentPipe) {
     // Entry segment along +Z (cylinder default axis is +Y, rotate X +90°)
     {
       const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, halfL, SEGS);
+      applyTiledCylinderUVs(g, PIPE_R, halfL, SEGS);
       const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
       const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, -halfL / 2);
       _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
@@ -580,6 +589,7 @@ function _buildCClampRoles(bentPipe) {
     // Exit segment along -X (rotate Z +90° — the cylinder axis becomes the X axis)
     {
       const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, halfL, SEGS);
+      applyTiledCylinderUVs(g, PIPE_R, halfL, SEGS);
       const rot = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
       const trans = new THREE.Matrix4().makeTranslation(-halfL / 2, BEAM_HEIGHT, 0);
       _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
@@ -593,6 +603,7 @@ function _buildCClampRoles(bentPipe) {
   } else {
     // Quadrupole (placeholder): straight pipe through the centre.
     const pipeGeom = new THREE.CylinderGeometry(PIPE_R, PIPE_R, magL, SEGS);
+    applyTiledCylinderUVs(pipeGeom, PIPE_R, magL, SEGS);
     m4.identity();
     m4.makeRotationX(Math.PI / 2);
     const pipeT = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
@@ -611,11 +622,15 @@ function _buildCClampRoles(bentPipe) {
   const sColH  = sTopY - sBaseH;
   for (const zSign of [-1, 1]) {
     const zPos = zSign * (magL / 2 - sColD / 2 - 0.04);
-    const base = new THREE.BoxGeometry(sColX * 2 + sColW + 0.12, sBaseH, sColD + 0.04);
+    const baseW = sColX * 2 + sColW + 0.12;
+    const baseD = sColD + 0.04;
+    const base = new THREE.BoxGeometry(baseW, sBaseH, baseD);
+    applyTiledBoxUVs(base, baseW, sBaseH, baseD);
     m4.makeTranslation(0, sBaseH / 2, zPos);
     _pushTransformed(buckets.stand, base, m4);
     for (const side of [-1, 1]) {
       const col = new THREE.BoxGeometry(sColW, sColH, sColD);
+      applyTiledBoxUVs(col, sColW, sColH, sColD);
       m4.makeTranslation(side * sColX, sBaseH + sColH / 2, zPos);
       _pushTransformed(buckets.stand, col, m4);
     }
@@ -661,9 +676,11 @@ export function createBeamlineGhost(compType) {
     if (compDef.geometryType === 'cylinder') {
       const radius = Math.min(w, h) / 2;
       geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
+      applyTiledCylinderUVs(geometry, radius, l, 8);
       geometry.rotateZ(Math.PI / 2);
     } else {
       geometry = new THREE.BoxGeometry(w, h, l);
+      applyTiledBoxUVs(geometry, w, h, l);
     }
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x888888 }));
     group = new THREE.Group();
@@ -803,9 +820,11 @@ export class ComponentBuilder {
     if (compDef.geometryType === 'cylinder') {
       const radius = Math.min(w, h) / 2;
       geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
+      applyTiledCylinderUVs(geometry, radius, l, 8);
       geometry.rotateZ(Math.PI / 2);
     } else {
       geometry = new THREE.BoxGeometry(w, h, l);
+      applyTiledBoxUVs(geometry, w, h, l);
     }
 
     const color = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
@@ -853,7 +872,9 @@ export class ComponentBuilder {
     const w = (compDef.subW || 2) * SUB_UNIT;
     const h = Math.max((compDef.subH || 2) * SUB_UNIT, 1.0);
     const l = (compDef.subL || 2) * SUB_UNIT;
-    const hitGeo = new THREE.BoxGeometry(Math.max(w, 0.8), h, Math.max(l, 0.8));
+    const hitW = Math.max(w, 0.8), hitL = Math.max(l, 0.8);
+    const hitGeo = new THREE.BoxGeometry(hitW, h, hitL);
+    applyTiledBoxUVs(hitGeo, hitW, h, hitL);
     const hitMat = new THREE.MeshBasicMaterial({ visible: false });
     const hitbox = new THREE.Mesh(hitGeo, hitMat);
     hitbox.position.y = BEAM_HEIGHT;
