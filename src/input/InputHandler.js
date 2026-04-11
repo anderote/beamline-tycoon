@@ -2611,26 +2611,6 @@ export class InputHandler {
     if (this.game.state.infraOccupied[key]) this.game.removeInfraTile(col, row);
   }
 
-  _contextDemolishType() {
-    const mode = this.activeMode;
-    const cat = this.selectedCategory;
-    const catDef = MODES[mode]?.categories?.[cat];
-    if (mode === 'beamline') return 'demolishBeamline';
-    if (mode === 'infra') return 'demolishBeamline';
-    if (mode === 'facility') return 'demolishFurnishing';
-    if (mode === 'structure') {
-      if (cat === 'flooring') return 'demolishFloor';
-      if (cat === 'walls') return 'demolishWall';
-      if (cat === 'doors') return 'demolishDoor';
-    }
-    if (mode === 'grounds') {
-      if (cat === 'surfaces') return 'demolishFloor';
-      if (catDef?.isWallTab) return 'demolishWall';
-      if (catDef?.isDecorationTab) return 'demolishFurnishing';
-    }
-    return null;
-  }
-
   // --- Move mode ---
 
   _toggleMoveMode() {
@@ -2881,13 +2861,8 @@ export class InputHandler {
       this._hidePreview();
       return;
     }
-    // Determine the right demolish type for current context
-    const demolishType = this._contextDemolishType();
-    if (!demolishType) {
-      // No context (e.g. already on demolish tab) — fall through to full demolish menu
-      this._switchToDemolishMode();
-      return;
-    }
+    // Default to demolish beamline as the selected tool
+    const demolishType = 'demolishBeamline';
     // Activate demolish in-place without changing mode/menu
     this.deselectTool();
     this.deselectInfraTool();
