@@ -65,7 +65,7 @@ const _accentMatCache = new Map();
  * roughness/metalness per type without affecting others.
  */
 function getAccentMaterial(compType, colorHex) {
-  const key = compType + '|' + colorHex.toString(16);
+  const key = compType + '|' + colorHex.toString(16).padStart(6, '0');
   let m = _accentMatCache.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
