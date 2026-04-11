@@ -142,6 +142,28 @@ function _getRoleTemplate(compType) {
   return template;
 }
 
+// Per-component override material cache. Key: compType + '|' + role + '|' + textureName.
+// Each entry mirrors a role's SHARED_MATERIAL but swaps the .map to a
+// different MATERIALS entry while preserving the role's color/roughness/metalness.
+const _overrideRoleMatCache = new Map();
+
+function _getOverrideRoleMaterial(compType, role, textureName) {
+  const key = `${compType}|${role}|${textureName}`;
+  let m = _overrideRoleMatCache.get(key);
+  if (m) return m;
+  const base = SHARED_MATERIALS[role];
+  const tex = MATERIALS[textureName];
+  if (!base || !tex) return base ?? null;
+  m = new THREE.MeshStandardMaterial({
+    map: tex.map,
+    color: base.color.clone(),
+    roughness: base.roughness,
+    metalness: base.metalness,
+  });
+  _overrideRoleMatCache.set(key, m);
+  return m;
+}
+
 /**
  * Instantiate a placed component from its role template. Returns a Group
  * containing one Mesh per role, where meshes share the template's merged
@@ -156,12 +178,20 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
   if (!template) return null;
 
   const group = new THREE.Group();
+  // Resolve per-role material, honoring an optional per-component override.
+  const compDef = COMPONENTS[compType];
+  const overrides = (compDef && compDef.textures) || null;
   for (const role of ROLES) {
     const tplMesh = template[role];
     if (!tplMesh) continue;
-    const mat = role === 'accent'
-      ? getAccentMaterial(compType, accentColorHex)
-      : SHARED_MATERIALS[role];
+    let mat;
+    if (role === 'accent') {
+      mat = getAccentMaterial(compType, accentColorHex);
+    } else if (overrides && overrides[role]) {
+      mat = _getOverrideRoleMaterial(compType, role, overrides[role]);
+    } else {
+      mat = SHARED_MATERIALS[role];
+    }
     const mesh = new THREE.Mesh(tplMesh.geometry, mat);
     mesh.userData.role = role;
     if (role === 'detail') {

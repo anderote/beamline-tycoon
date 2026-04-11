@@ -78,6 +78,7 @@ export const COMPONENTS_RAW = {
       exit: { side: 'left' },
     },
 
+    textures: { iron: 'metal_painted_white' },
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   quadrupole: {
@@ -97,7 +98,7 @@ export const COMPONENTS_RAW = {
     spriteKey: 'quadrupole',
     spriteColor: 0x4488cc,
     placement: 'attachment',
-
+    textures: { iron: 'metal_brushed' },
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   faradayCup: {
