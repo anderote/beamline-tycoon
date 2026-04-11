@@ -2016,7 +2016,6 @@ export class ThreeRenderer {
   }
 
   async loadAssets() {
-    await this.textureManager.loadTileManifest();
     await this.textureManager.loadDecorationManifest();
   }
 

@@ -11,7 +11,7 @@ export const INFRASTRUCTURE = {
     color: 0x887766,
     topColor: 0x998877,
     subH: 0,
-    texture: 'concrete_floor',
+    texture: 'tile_pavement',
   },
   concrete: {
     id: 'concrete',
@@ -24,7 +24,7 @@ export const INFRASTRUCTURE = {
     isDragPlacement: true,
     subsection: 'foundations',
     variants: ['Standard', 'Light', 'Dark', 'Warm'],
-    texture: 'concrete_floor',
+    texture: 'tile_concrete',
   },
   labFloor: {
     id: 'labFloor',
@@ -40,7 +40,7 @@ export const INFRASTRUCTURE = {
     noGrid: true,
     variants: ['Blue-Gray Epoxy', 'White Epoxy', 'Green Epoxy', 'Dark Epoxy'],
     variantTints: [0x99aacc, 0xdddddd, 0x88bb99, 0x777788],
-    texture: 'tile_floor_white',
+    texture: 'tile_labFloor',
   },
   officeFloor: {
     id: 'officeFloor',
@@ -54,7 +54,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     variants: ['Tan Carpet', 'Blue-Gray Carpet', 'Hardwood', 'Charcoal Carpet'],
-    texture: 'drywall_painted',
+    texture: 'tile_officeFloor',
   },
   groomedGrass: {
     id: 'groomedGrass',
@@ -85,7 +85,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Standard', 'Light', 'Dark', 'Weathered'],
-    texture: 'concrete_floor',
+    texture: 'tile_pavement',
   },
   dirt: {
     id: 'dirt',
@@ -100,7 +100,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Packed Dirt', 'Sandy', 'Dark Earth', 'Red Clay'],
-    // no texture — bgMesh solid color only (no dirt material)
+    texture: 'tile_dirt',
   },
   cobblestone: {
     id: 'cobblestone',
@@ -115,7 +115,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Gray Stone', 'Light Stone', 'Dark Stone', 'Warm Stone'],
-    texture: 'concrete_wall',
+    texture: 'tile_cobblestone',
   },
   brick: {
     id: 'brick',
@@ -131,7 +131,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Red Brick', 'Tan Brick', 'Dark Brick', 'Weathered Brick'],
-    texture: 'concrete_wall', // placeholder until a brick material is added
+    texture: 'tile_brick',
   },
   hallway: {
     id: 'hallway',
@@ -145,7 +145,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     variants: ['Gray Checked', 'Cream Checked', 'Blue Checked', 'Green Checked'],
-    texture: 'tile_floor_white',
+    texture: 'tile_hallway',
   },
 };
 
@@ -542,13 +542,13 @@ export const DOOR_TYPES = {
 };
 
 export const ZONES = {
-  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',      subsection: 'laboratories', texture: 'tile_floor_white' },
+  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',      subsection: 'laboratories', texture: 'tile_rfLab' },
   coolingLab:  { id: 'coolingLab',  name: 'Cooling Lab',    color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cooling',      subsection: 'laboratories', texture: 'tile_floor_white' },
-  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories', texture: 'tile_floor_white' },
-  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'drywall_painted'  },
-  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations',   texture: 'tile_floor_white' },
-  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'labFloor',    gatesCategory: 'beamline',     subsection: 'industrial',   texture: 'concrete_floor'   },
-  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',          subsection: 'industrial',   texture: 'concrete_floor'   },
+  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories', texture: 'tile_vacuumLab' },
+  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'tile_officeSpace' },
+  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations',   texture: 'tile_controlRoom' },
+  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'labFloor',    gatesCategory: 'beamline',     subsection: 'industrial',   texture: 'tile_machineShop' },
+  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',          subsection: 'industrial',   texture: 'tile_maintenance' },
   opticsLab:   { id: 'opticsLab',   name: 'Optics Lab',     color: 0x44aacc, requiredFloor: 'labFloor',    gatesCategory: null,           subsection: 'laboratories', texture: 'tile_floor_white' },
   diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,      subsection: 'laboratories', texture: 'tile_floor_white' },
   cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations',   texture: 'tile_floor_white' },
