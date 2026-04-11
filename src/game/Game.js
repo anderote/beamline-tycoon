@@ -1348,6 +1348,21 @@ export class Game {
         if (target.id) return this.removePlaceable(target.id);
         return false;
       }
+      case 'beamlineWhole': {
+        // Remove an entire beamline (all its nodes) via the registry. Used by
+        // BeamlineWindow's demolish button. The per-node 'beamline' case
+        // above is used by demolish-mode clicks on a single component.
+        if (!target.beamlineId) return false;
+        const removed = this.registry.removeBeamline(target.beamlineId);
+        if (!removed) return false;
+        if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
+        if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
+        this.recalcAllBeamlines();
+        this.computeSystemStats();
+        this.log('Demolished beamline (50% refund)', 'info');
+        this.emit('beamlineChanged');
+        return true;
+      }
       case 'beampipe':
         return this.removeBeamPipe(target.pipeId || target.id);
       case 'attachment':
