@@ -1353,14 +1353,24 @@ export class Game {
         // BeamlineWindow's demolish button. The per-node 'beamline' case
         // above is used by demolish-mode clicks on a single component.
         if (!target.beamlineId) return false;
-        const removed = this.registry.removeBeamline(target.beamlineId);
-        if (!removed) return false;
+        const entry = this.registry.get(target.beamlineId);
+        if (!entry) return false;
+        // Sum 50% of every contained node's funding cost.
+        let refund = 0;
+        for (const node of entry.beamline.nodes) {
+          const def = COMPONENTS[node.type];
+          const cost = def?.cost?.funding || 0;
+          refund += Math.floor(cost * 0.5);
+        }
+        this.state.resources.funding += refund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
         if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
+        this.registry.removeBeamline(target.beamlineId);
+        this.log(`Demolished beamline (+$${refund.toLocaleString()})`, 'good');
         this.recalcAllBeamlines();
         this.computeSystemStats();
-        this.log('Demolished beamline (50% refund)', 'info');
         this.emit('beamlineChanged');
+        this.emit('placeableChanged');
         return true;
       }
       case 'beampipe':
