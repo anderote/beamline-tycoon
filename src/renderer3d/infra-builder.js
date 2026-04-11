@@ -17,16 +17,17 @@ export class InfraBuilder {
    * Build (or rebuild) infrastructure floor tiles from infraData.
    * @param {Array<{ col: number, row: number, type: string, orientation: string, variant: number, tint: number|null }>} infraData
    * @param {THREE.Group} parentGroup
+   * @param {number} viewRotationIndex 0..3 — camera rotation index used to orient diamond UVs
    */
-  build(infraData, parentGroup) {
+  build(infraData, parentGroup, viewRotationIndex = 0) {
     if (!infraData || infraData.length === 0) {
       this._cleanup(parentGroup);
       this._cacheKey = '';
       return;
     }
 
-    // Cache key: stringify the data to detect changes
-    const newKey = JSON.stringify(infraData);
+    // Cache key: stringify the data + rotation index to detect changes
+    const newKey = JSON.stringify(infraData) + '|rot' + viewRotationIndex;
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     // Dispose old meshes before rebuilding
@@ -80,12 +81,27 @@ export class InfraBuilder {
 
         // Remap UVs: tile textures are isometric diamond images.
         // Shrink UVs slightly inward to scale texture up ~3%, closing gaps between tiles.
+        // The diamond corners are rotated by viewRotationIndex quarter-turns so the
+        // correct diamond face always aligns with the camera's "north".
         const S = 0.03; // overshoot factor
+        const TOP    = [0.5,       1.0 - S];
+        const RIGHT  = [1.0 - S,   0.5    ];
+        const LEFT   = [0.0 + S,   0.5    ];
+        const BOTTOM = [0.5,       0.0 + S];
+        // Each row is [v0, v1, v2, v3] for rotation indices 0..3.
+        // Rotating the camera clockwise shifts which diamond corner faces "up" on screen.
+        const DIAMOND_ROTATIONS = [
+          [TOP,    RIGHT,  LEFT,   BOTTOM], // rot 0
+          [LEFT,   TOP,    BOTTOM, RIGHT ], // rot 1
+          [BOTTOM, LEFT,   RIGHT,  TOP   ], // rot 2
+          [RIGHT,  BOTTOM, TOP,    LEFT  ], // rot 3
+        ];
+        const corners = DIAMOND_ROTATIONS[((viewRotationIndex % 4) + 4) % 4];
         const uvs = texGeo.attributes.uv;
-        uvs.setXY(0, 0.5, 1.0 - S);
-        uvs.setXY(1, 1.0 - S, 0.5);
-        uvs.setXY(2, 0.0 + S, 0.5);
-        uvs.setXY(3, 0.5, 0.0 + S);
+        uvs.setXY(0, corners[0][0], corners[0][1]);
+        uvs.setXY(1, corners[1][0], corners[1][1]);
+        uvs.setXY(2, corners[2][0], corners[2][1]);
+        uvs.setXY(3, corners[3][0], corners[3][1]);
         uvs.needsUpdate = true;
 
         // Scale UVs by world size so texel density stays constant.

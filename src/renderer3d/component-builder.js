@@ -24,7 +24,7 @@ const STAND_COLOR  = 0x555555;  // dark gray support structure
 
 const _matCache = new Map();
 
-function _mat(color, roughness = 0.5, metalness = 0.3, textureName = null) {
+function _mat(color, roughness = 0.5, metalness = 0.3, textureName = 'metal_painted_white') {
   const key = `${color}-${roughness}-${metalness}-${textureName ?? ''}`;
   if (!_matCache.has(key)) {
     const opts = { color, roughness, metalness };
