@@ -2197,12 +2197,7 @@ export class InputHandler {
         // non-placeable tile branches below (walls/zones/floors).
       }
       if (this.demolishType === 'demolishUtility') {
-        // Remove all connection types at this tile
-        const conns = this.game.getConnectionsAt(col, row);
-        for (const ct of [...conns]) {
-          this.game.removeConnection(col, row, ct);
-        }
-        // Also remove rack segment if present
+        // Remove rack segment (and all its utilities) at this tile
         this.game.removeRackSegment(col, row);
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
@@ -2309,12 +2304,12 @@ export class InputHandler {
           this.game.emit('beamlineSelected', entry.id);
         }
       } else {
-        // Check for connection tile click (network info)
+        // Check for rack segment click (network info)
         const connKey = col + ',' + row;
-        const connTypes = this.game.state.connections.get(connKey);
-        if (connTypes && connTypes.size > 0) {
+        const rackSeg = this.game.state.rackSegments.get(connKey);
+        if (rackSeg && rackSeg.utilities.size > 0) {
           const networkData = this.game.state.networkData || {};
-          for (const connType of connTypes) {
+          for (const connType of rackSeg.utilities) {
             const clusters = networkData[connType] || [];
             for (let ci = 0; ci < clusters.length; ci++) {
               const inCluster = clusters[ci].tiles.some(t => t.col === col && t.row === row);
@@ -2879,9 +2874,8 @@ export class InputHandler {
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
     if (node) this.game.removeComponent(node.id);
-    // Remove utility connections
-    const conns = this.game.getConnectionsAt(col, row);
-    for (const ct of [...conns]) this.game.removeConnection(col, row, ct);
+    // Remove rack segment (and its utilities)
+    this.game.removeRackSegment(col, row);
     // Remove furnishings
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
     if (subgrid) {

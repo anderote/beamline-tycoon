@@ -83,7 +83,6 @@ export class Game {
       doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
       doorOccupied: {},       // "col,row,edge" -> doorType
       // Utility connections
-      connections: new Map(),     // "col,row" -> Set of connection type keys
       rackSegments: new Map(),    // "col,row" -> { utilities: Set<connType> }
       // Machines (cyclotrons, stalls, rings)
       machines: [],             // machine instances
@@ -204,7 +203,6 @@ export class Game {
       zoneFurnishingNextId: this.state.zoneFurnishingNextId,
       machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
       machineGrid: { ...this.state.machineGrid },
-      connections: new Map([...this.state.connections].map(([k, v]) => [k, new Set(v)])),
       rackSegments: new Map([...this.state.rackSegments].map(([k, v]) => [k, { utilities: new Set(v.utilities) }])),
       editingBeamlineId: this.editingBeamlineId,
       selectedBeamlineId: this.selectedBeamlineId,
@@ -295,7 +293,6 @@ export class Game {
     this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
     this.state.machines = snap.machines;
     this.state.machineGrid = snap.machineGrid;
-    this.state.connections = snap.connections;
     this.state.rackSegments = snap.rackSegments;
     this.editingBeamlineId = snap.editingBeamlineId;
     this.selectedBeamlineId = snap.selectedBeamlineId;
@@ -2243,37 +2240,6 @@ export class Game {
     }
   }
 
-  // === CONNECTIONS ===
-
-  placeConnection(col, row, connType) {
-    const key = col + ',' + row;
-    if (!this.state.connections.has(key)) {
-      this.state.connections.set(key, new Set());
-    }
-    const set = this.state.connections.get(key);
-    if (set.has(connType)) return false; // already exists
-    set.add(connType);
-    this.emit('connectionsChanged');
-    this.validateInfrastructure();
-    return true; // added
-  }
-
-  removeConnection(col, row, connType) {
-    const key = col + ',' + row;
-    const set = this.state.connections.get(key);
-    if (!set || !set.has(connType)) return false;
-    set.delete(connType);
-    if (set.size === 0) this.state.connections.delete(key);
-    this.emit('connectionsChanged');
-    this.validateInfrastructure();
-    return true; // removed
-  }
-
-  getConnectionsAt(col, row) {
-    const key = col + ',' + row;
-    return this.state.connections.get(key) || new Set();
-  }
-
   // === CARRIER RACK ===
 
   placeRackSegment(col, row) {
@@ -2330,78 +2296,14 @@ export class Game {
   }
 
   // Check if a beamline component has a valid connection of the given type
+  // (now checks carrier rack segments instead of legacy floor connections)
   hasValidConnection(node, connType) {
-    const conn = CONNECTION_TYPES[connType];
-    if (!conn) return false;
-
-    // Check tiles adjacent to ALL occupied tiles of this component
-    const occupied = new Set((node.tiles || [{ col: node.col, row: node.row }])
-      .map(t => t.col + ',' + t.row));
-    const dirs = [{ dc: 0, dr: -1 }, { dc: 0, dr: 1 }, { dc: 1, dr: 0 }, { dc: -1, dr: 0 }];
-
-    for (const tile of (node.tiles || [{ col: node.col, row: node.row }])) {
-      for (const d of dirs) {
-        const ac = tile.col + d.dc, ar = tile.row + d.dr;
-        if (occupied.has(ac + ',' + ar)) continue; // skip own tiles
-        const connSet = this.getConnectionsAt(ac, ar);
-        if (!connSet.has(connType)) continue;
-        if (this._traceConnectionToSource(ac, ar, connType)) return true;
-      }
+    const tiles = node.tiles || [{ col: node.col, row: node.row }];
+    for (const t of tiles) {
+      const rackSeg = this.getRackSegmentAt(t.col, t.row);
+      if (rackSeg && rackSeg.utilities && rackSeg.utilities.has(connType)) return true;
     }
     return false;
-  }
-
-  _traceConnectionToSource(startCol, startRow, connType) {
-    // BFS from the tile adjacent to the beamline component, following
-    // connected tiles of the same type, looking for facility equipment
-    const visited = new Set();
-    const queue = [{ col: startCol, row: startRow }];
-
-    while (queue.length > 0) {
-      const { col, row } = queue.shift();
-      const key = col + ',' + row;
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      // Check if there's facility equipment here
-      const equipId = this.state.facilityGrid[key];
-      if (equipId) {
-        const equip = this.state.facilityEquipment.find(e => e.id === equipId);
-        if (equip) {
-          const equipConn = this._getEquipmentConnectionType(equip.type);
-          if (equipConn === connType) return true;
-        }
-      }
-
-      // Expand to neighbors that have this connection type
-      const neighbors = [
-        { col: col, row: row - 1 },
-        { col: col, row: row + 1 },
-        { col: col + 1, row: row },
-        { col: col - 1, row: row },
-      ];
-      for (const n of neighbors) {
-        const nKey = n.col + ',' + n.row;
-        if (!visited.has(nKey) && this.getConnectionsAt(n.col, n.row).has(connType)) {
-          queue.push(n);
-        }
-      }
-    }
-    return false;
-  }
-
-  _getEquipmentConnectionType(compType) {
-    const comp = COMPONENTS[compType];
-    if (!comp) return null;
-    if (comp.category === 'cooling' && comp.subsection === 'cryogenics') return 'cryoTransfer';
-    switch (comp.category) {
-      case 'vacuum': return 'vacuumPipe';
-      case 'rfPower': return 'rfWaveguide';
-      case 'cooling': return 'coolingWater';
-      case 'power': return 'powerCable';
-      case 'dataControls': return 'dataFiber';
-      default: return null;
-    }
   }
 
   // === STATS ===
@@ -3177,7 +3079,6 @@ export class Game {
 
   validateInfrastructure() {
     const validationState = {
-      connections: this.state.connections,
       facilityEquipment: this.state.facilityEquipment,
       facilityGrid: this.state.facilityGrid,
       beamline: this.state.beamline,
@@ -3600,16 +3501,11 @@ export class Game {
   // === SAVE / LOAD ===
 
   save() {
-    // Convert connections Map to serializable format
-    const connObj = {};
-    for (const [key, set] of this.state.connections) {
-      connObj[key] = Array.from(set);
-    }
     const rackObj = {};
     for (const [key, seg] of this.state.rackSegments) {
       rackObj[key] = [...seg.utilities];
     }
-    const saveState = { ...this.state, connections: connObj, rackSegments: rackObj };
+    const saveState = { ...this.state, rackSegments: rackObj };
     localStorage.setItem('beamlineTycoon', JSON.stringify({
       version: 6,
       state: saveState,
@@ -3665,16 +3561,8 @@ export class Game {
               this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
         }
       } else { this.state.machines = []; }
-      // Restore connections Map from serialized format
-      if (this.state.connections && !(this.state.connections instanceof Map)) {
-        const map = new Map();
-        for (const [key, arr] of Object.entries(this.state.connections)) {
-          map.set(key, new Set(arr));
-        }
-        this.state.connections = map;
-      } else if (!this.state.connections) {
-        this.state.connections = new Map();
-      }
+      // Discard legacy connections data from old saves
+      delete this.state.connections;
       // Restore rackSegments Map from serialized format
       if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
         const map = new Map();
@@ -3898,16 +3786,8 @@ export class Game {
             this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
       }
     } else { this.state.machines = []; }
-    // Restore connections Map
-    if (this.state.connections && !(this.state.connections instanceof Map)) {
-      const map = new Map();
-      for (const [key, arr] of Object.entries(this.state.connections)) {
-        map.set(key, new Set(arr));
-      }
-      this.state.connections = map;
-    } else if (!this.state.connections) {
-      this.state.connections = new Map();
-    }
+    // Discard legacy connections data from old saves
+    delete this.state.connections;
     // Restore rackSegments Map
     if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
       const map = new Map();

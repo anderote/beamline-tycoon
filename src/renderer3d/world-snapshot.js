@@ -191,24 +191,6 @@ function buildDecorations(game) {
     }));
 }
 
-function buildConnections(game) {
-  // connections is a Map of "col,row" -> Set<connType>
-  // Flatten into one entry per (tile, type) pair
-  const connections = game.state.connections;
-  if (!connections || connections.size === 0) return [];
-
-  const result = [];
-  for (const [key, typeSet] of connections) {
-    const [colStr, rowStr] = key.split(',');
-    const col = parseInt(colStr, 10);
-    const row = parseInt(rowStr, 10);
-    for (const type of typeSet) {
-      result.push({ col, row, type });
-    }
-  }
-  return result;
-}
-
 function buildRackSegments(game) {
   const segs = game.state.rackSegments;
   if (!segs || segs.size === 0) return [];
@@ -446,7 +428,6 @@ export function buildWorldSnapshot(game) {
     components: buildComponents(game),
     equipment: buildEquipment(game),
     decorations: buildDecorations(game),
-    connections: buildConnections(game),
     rackSegments: buildRackSegments(game),
     beamPaths: buildBeamPaths(game),
     furnishings: buildFurnishings(game),
