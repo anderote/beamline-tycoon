@@ -94,6 +94,7 @@ export class InputHandler {
     this.wallPath = [];
     // Door placement (edge-based, like walls)
     this.selectedDoorTool = null;
+    this.selectedDoorVariant = 0;
     this.isDrawingDoor = false;
     this.doorPath = [];
     // Continuous panning
@@ -1426,8 +1427,8 @@ export class InputHandler {
       if (this.selectedRackTool && e.button === 0) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        const col = Math.floor(grid.col / 2) * 2;
-        const row = Math.floor(grid.row / 2) * 2;
+        const col = Math.floor(grid.col);
+        const row = Math.floor(grid.row);
         this.game._pushUndo();
         this.game.placeRackSegment(col, row);
         return;
@@ -1932,7 +1933,7 @@ export class InputHandler {
       // Door placement end
       if (this.isDrawingDoor && this.doorPath.length > 0) {
         this.game._pushUndo();
-        this.game.placeDoorPath(this.doorPath, this.selectedDoorTool);
+        this.game.placeDoorPath(this.doorPath, this.selectedDoorTool, this.selectedDoorVariant);
         this.isDrawingDoor = false;
         this.doorPath = [];
         this.renderer.clearDragPreview();
@@ -2850,10 +2851,11 @@ export class InputHandler {
     this.selectedWallVariant = variant;
   }
 
-  selectDoorTool(doorType) {
+  selectDoorTool(doorType, variant = 0) {
     this.deselectInfraTool();
     this.selectedWallTool = null;
     this.selectedDoorTool = doorType;
+    this.selectedDoorVariant = variant;
   }
 
   selectDemolishTool(demolishType) {

@@ -1,19 +1,18 @@
 // src/renderer3d/utility-pipe-builder.js
 //
-// Renders utility pipes in carrier rack slots and vertical drops to component ports.
+// Renders utility pipes inside carrier rack tray and vertical drops
+// to component ports. All pipes ride in the tray at PIPE_Y.
 // THREE is a CDN global — do NOT import it.
 
 import { UTILITY_PORT_PROFILES } from '../data/utility-ports.js';
 import {
-  RACK_RAIL_HEIGHT, RACK_TRAY_HEIGHT, RACK_PIPE_CENTER_Y,
-  RACK_SIZE, BOTTOM_SLOTS, TOP_SLOTS, ALL_SLOTS,
+  RACK_SIZE, PIPE_SLOTS, PIPE_Y,
 } from '../data/carrier-rack.js';
 
 const PORT_Y = 0.5;
-const STUB_OUT = 0.15;
 const SEGS = 8;
 const TILE_W = 2.0;
-const RACK_WORLD_SIZE = RACK_SIZE * TILE_W;
+const SEG_LEN = RACK_SIZE * TILE_W;
 
 const _matCache = {};
 
@@ -25,13 +24,6 @@ function getMat(connType) {
     color: p.color, roughness: 0.5, metalness: 0.3,
   });
   return _matCache[connType];
-}
-
-function pipeWidth(connType) {
-  const p = UTILITY_PORT_PROFILES[connType];
-  if (!p) return 0.04;
-  if (p.shape === 'rect') return p.width;
-  return p.radius * 2;
 }
 
 function createPipeSegment(connType, length) {
@@ -64,50 +56,54 @@ export class UtilityPipeBuilder {
   }
 
   _buildRackPipes(rackPipes, parentGroup) {
+    const halfSeg = SEG_LEN / 2;
+
     for (const pipe of rackPipes) {
       const mat = getMat(pipe.type);
       if (!mat) continue;
       const profile = UTILITY_PORT_PROFILES[pipe.type];
 
-      const cx = pipe.col * TILE_W + RACK_WORLD_SIZE / 2;
-      const cz = pipe.row * TILE_W + RACK_WORLD_SIZE / 2;
+      // Segment center in world coords (sub-grid to world)
+      const cx = pipe.col * TILE_W + TILE_W / 2;
+      const cz = pipe.row * TILE_W + TILE_W / 2;
 
-      const slotX = ALL_SLOTS[pipe.type] ?? 0;
-      const pipeY = pipe.isBottom ? RACK_PIPE_CENTER_Y : RACK_TRAY_HEIGHT + 0.03;
+      const slotX = PIPE_SLOTS[pipe.type] ?? 0;
+      const pipeYPos = PIPE_Y;
 
       const { north, south, east, west } = pipe.neighbors;
 
+      // No neighbors — short marker
       if (!north && !south && !east && !west) {
-        const geo = createPipeSegment(pipe.type, 1.0);
+        const geo = createPipeSegment(pipe.type, SEG_LEN * 0.6);
         const mesh = new THREE.Mesh(geo, mat);
         mesh.matrixAutoUpdate = false;
         if (profile.shape === 'rect') {
-          mesh.position.set(cx + slotX, pipeY, cz);
+          mesh.position.set(cx + slotX, pipeYPos, cz);
         } else {
           mesh.rotation.z = Math.PI / 2;
-          mesh.position.set(cx + slotX, pipeY, cz);
+          mesh.position.set(cx + slotX, pipeYPos, cz);
         }
         mesh.updateMatrix();
         this._addMesh(mesh, parentGroup);
-        this._maybeAddJacket(pipe.type, mesh, 1.0, parentGroup);
+        this._maybeAddJacket(pipe.type, mesh, SEG_LEN * 0.6, parentGroup);
         continue;
       }
 
+      // N-S run
       if (north || south) {
-        const half = RACK_WORLD_SIZE / 2;
-        const startZ = north ? cz - half : cz;
-        const endZ = south ? cz + half : cz;
+        const startZ = north ? cz - halfSeg : cz;
+        const endZ = south ? cz + halfSeg : cz;
         const length = endZ - startZ;
         if (length > 0.01) {
           const geo = createPipeSegment(pipe.type, length);
           const mesh = new THREE.Mesh(geo, mat);
           mesh.matrixAutoUpdate = false;
           if (profile.shape === 'rect') {
-            mesh.position.set(cx + slotX, pipeY, (startZ + endZ) / 2);
+            mesh.position.set(cx + slotX, pipeYPos, (startZ + endZ) / 2);
             mesh.rotation.y = Math.PI / 2;
           } else {
             mesh.rotation.x = Math.PI / 2;
-            mesh.position.set(cx + slotX, pipeY, (startZ + endZ) / 2);
+            mesh.position.set(cx + slotX, pipeYPos, (startZ + endZ) / 2);
           }
           mesh.updateMatrix();
           this._addMesh(mesh, parentGroup);
@@ -115,20 +111,20 @@ export class UtilityPipeBuilder {
         }
       }
 
+      // E-W run
       if (east || west) {
-        const half = RACK_WORLD_SIZE / 2;
-        const startX = west ? cx - half : cx;
-        const endX = east ? cx + half : cx;
+        const startX = west ? cx - halfSeg : cx;
+        const endX = east ? cx + halfSeg : cx;
         const length = endX - startX;
         if (length > 0.01) {
           const geo = createPipeSegment(pipe.type, length);
           const mesh = new THREE.Mesh(geo, mat);
           mesh.matrixAutoUpdate = false;
           if (profile.shape === 'rect') {
-            mesh.position.set((startX + endX) / 2, pipeY, cz + slotX);
+            mesh.position.set((startX + endX) / 2, pipeYPos, cz + slotX);
           } else {
             mesh.rotation.z = Math.PI / 2;
-            mesh.position.set((startX + endX) / 2, pipeY, cz + slotX);
+            mesh.position.set((startX + endX) / 2, pipeYPos, cz + slotX);
           }
           mesh.updateMatrix();
           this._addMesh(mesh, parentGroup);
@@ -163,14 +159,15 @@ export class UtilityPipeBuilder {
       if (!profile) continue;
       const mat = getMat(route.portType);
 
-      const slotX = ALL_SLOTS[route.portType] ?? 0;
-      const isBottom = route.portType in BOTTOM_SLOTS;
-      const rackY = isBottom ? RACK_PIPE_CENTER_Y : RACK_TRAY_HEIGHT;
+      const slotX = PIPE_SLOTS[route.portType] ?? 0;
 
-      const rackCx = route.rackCol * TILE_W + RACK_WORLD_SIZE / 2;
-      const rackCz = route.rackRow * TILE_W + RACK_WORLD_SIZE / 2;
+      // Rack segment center in world coords
+      const rackCx = route.rackCol * TILE_W + TILE_W / 2;
+      const rackCz = route.rackRow * TILE_W + TILE_W / 2;
 
-      const dropLen = rackY - PORT_Y;
+      const dropLen = PIPE_Y - PORT_Y;
+
+      // Component center in world coords
       const compCx = route.col * 2 + 1;
       const compCz = route.row * 2 + 1;
 

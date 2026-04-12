@@ -57,8 +57,8 @@ export const Networks = {
         cluster.push({ col: col, row: row });
 
         var neighbors = [
-          [col, row - 2], [col, row + 2],
-          [col - 2, row], [col + 2, row],
+          [col, row - 1], [col, row + 1],
+          [col - 1, row], [col + 1, row],
         ];
         for (var n = 0; n < neighbors.length; n++) {
           var nc = neighbors[n][0], nr = neighbors[n][1];
@@ -72,14 +72,10 @@ export const Networks = {
         }
       }
 
-      // Build tileSet from each segment's 2x2 footprint
+      // Build tileSet from each segment's 1x1 footprint
       var tileSet = new Set();
       for (var c = 0; c < cluster.length; c++) {
-        var cx = cluster[c].col, cy = cluster[c].row;
-        tileSet.add(cx + ',' + cy);
-        tileSet.add((cx + 1) + ',' + cy);
-        tileSet.add(cx + ',' + (cy + 1));
-        tileSet.add((cx + 1) + ',' + (cy + 1));
+        tileSet.add(cluster[c].col + ',' + cluster[c].row);
       }
 
       networks.push({

@@ -940,12 +940,19 @@ export class Game {
 
   // === DOORS (EDGE-BASED) ===
 
-  placeDoor(col, row, edge, doorType) {
+  placeDoor(col, row, edge, doorType, variant = 0) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
     const key = `${col},${row},${edge}`;
     if (!this.state.wallOccupied[key]) return false;
-    if (this.state.doorOccupied[key] === doorType) return true;
+    if (this.state.doorOccupied[key] === doorType) {
+      const existing = this.state.doors.find(d => d.col === col && d.row === row && d.edge === edge);
+      if (existing && existing.variant !== variant) {
+        existing.variant = variant;
+        this.emit('doorsChanged');
+      }
+      return true;
+    }
     if (this.state.doorOccupied[key]) {
       this.state.doors = this.state.doors.filter(
         d => !(d.col === col && d.row === row && d.edge === edge)
@@ -953,12 +960,12 @@ export class Game {
     }
     if (this.state.resources.funding < dt.cost) return false;
     this.state.resources.funding -= dt.cost;
-    this.state.doors.push({ type: doorType, col, row, edge });
+    this.state.doors.push({ type: doorType, col, row, edge, variant });
     this.state.doorOccupied[key] = doorType;
     return true;
   }
 
-  placeDoorPath(path, doorType) {
+  placeDoorPath(path, doorType, variant = 0) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
     let placed = 0;
@@ -973,7 +980,7 @@ export class Game {
         );
       }
       this.state.resources.funding -= dt.cost;
-      this.state.doors.push({ type: doorType, col: pt.col, row: pt.row, edge: pt.edge });
+      this.state.doors.push({ type: doorType, col: pt.col, row: pt.row, edge: pt.edge, variant });
       this.state.doorOccupied[key] = doorType;
       placed++;
     }
@@ -2286,12 +2293,8 @@ export class Game {
   }
 
   getRackSegmentAt(tileCol, tileRow) {
-    for (const [key, seg] of this.state.rackSegments) {
-      const [c, r] = key.split(',').map(Number);
-      if (tileCol >= c && tileCol < c + 2 && tileRow >= r && tileRow < r + 2) {
-        return { col: c, row: r, ...seg };
-      }
-    }
+    const seg = this.state.rackSegments.get(tileCol + ',' + tileRow);
+    if (seg) return { col: tileCol, row: tileRow, ...seg };
     return null;
   }
 

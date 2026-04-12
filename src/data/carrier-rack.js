@@ -1,51 +1,41 @@
 // src/data/carrier-rack.js
 //
 // Carrier rack data: constants, slot positions, adjacency logic.
-// Rack segments are 2x2 tiles (4m × 4m). The anchor is the top-left tile.
+// Rack segments are 1×1 tile (2m × 2m), directional.
+// Visually a narrow wire cable tray on support legs at ~3m height.
 
-export const RACK_HEIGHT = 4.0;
-export const RACK_TRAY_HEIGHT = 4.0;
-export const RACK_RAIL_HEIGHT = 3.7;
-export const RACK_PIPE_CENTER_Y = 3.5;
-export const RACK_SUPPORT_WIDTH = 0.1;
-export const RACK_SIZE = 2; // tiles per side
+export const RACK_HEIGHT = 3.0;       // top of tray (m)
+export const RACK_TRAY_WIDTH = 0.8;   // lateral width of wire tray (m)
+export const RACK_TRAY_DEPTH = 0.1;   // tray side wall height (m)
+export const RACK_SUPPORT_WIDTH = 0.04;
+export const RACK_SIZE = 1;           // tiles per segment side
 
-export const RACK_COST = { funding: 5000 };
+export const RACK_COST = { funding: 2000 };
 
-// Fixed slot positions for bottom-rail pipes.
-// X offset from rack center, looking down the primary axis.
-// Ordered left-to-right: cryo, vacuum, RF, cooling.
-export const BOTTOM_SLOTS = {
-  cryoTransfer: -0.6,
-  vacuumPipe:   -0.2,
-  rfWaveguide:   0.2,
-  coolingWater:   0.6,
+// Slot X offsets from tray center for each utility type.
+// Everything rides inside the tray.
+export const PIPE_SLOTS = {
+  cryoTransfer: -0.25,
+  vacuumPipe:   -0.12,
+  rfWaveguide:   0.0,
+  coolingWater:   0.12,
+  powerCable:   -0.30,
+  dataFiber:     0.30,
 };
 
-// Top tray cable positions (X offset from center).
-export const TOP_SLOTS = {
-  powerCable: -0.3,
-  dataFiber:   0.3,
-};
+// Pipe Y: everything rests on the tray bottom
+export const PIPE_Y = RACK_HEIGHT - RACK_TRAY_DEPTH;
 
-// All slot types (bottom + top) for iteration.
-export const ALL_SLOTS = { ...BOTTOM_SLOTS, ...TOP_SLOTS };
-
-export function rackTiles(col, row) {
-  return [
-    { col, row },
-    { col: col + 1, row },
-    { col, row: row + 1 },
-    { col: col + 1, row: row + 1 },
-  ];
-}
-
+/**
+ * Neighbor anchor positions for a rack segment at (col, row) in tile coords.
+ * Segments are 1 tile apart.
+ */
 export function rackNeighborAnchors(col, row) {
   return {
-    north: { col, row: row - RACK_SIZE },
-    south: { col, row: row + RACK_SIZE },
-    west:  { col: col - RACK_SIZE, row },
-    east:  { col: col + RACK_SIZE, row },
+    north: { col, row: row - 1 },
+    south: { col, row: row + 1 },
+    west:  { col: col - 1, row },
+    east:  { col: col + 1, row },
   };
 }
 

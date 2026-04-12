@@ -88,6 +88,7 @@ function buildDoors(game) {
     row: d.row,
     edge: d.edge,
     type: d.type,
+    variant: d.variant || 0,
   }));
 }
 
@@ -290,12 +291,12 @@ function buildUtilityRouting(game) {
 
     let rackSeg = null;
     for (const t of comp.tiles) {
-      for (const [key, seg] of segs) {
-        const [rc, rr] = key.split(',').map(Number);
-        if (t.col >= rc && t.col < rc + 2 && t.row >= rr && t.row < rr + 2) {
-          rackSeg = { col: rc, row: rr, seg };
-          break;
-        }
+      const seg = segs.get(`${t.col},${t.row}`);
+      if (seg) { rackSeg = { col: t.col, row: t.row, seg }; break; }
+      // Also check cardinal neighbors (rack adjacent to component)
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        const ns = segs.get(`${t.col+dc},${t.row+dr}`);
+        if (ns) { rackSeg = { col: t.col+dc, row: t.row+dr, seg: ns }; break; }
       }
       if (rackSeg) break;
     }
