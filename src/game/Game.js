@@ -3658,6 +3658,22 @@ export class Game {
         }
       }
 
+      // Rebuild subgridOccupied from loaded placeables (for v6+ saves that weren't migrated)
+      // Also ensure stacking fields have defaults for backward compatibility
+      if (this.state.placeables.length > 0) {
+        this.state.subgridOccupied = {};
+        for (const entry of this.state.placeables) {
+          if (entry.placeY == null) entry.placeY = 0;
+          if (!entry.stackParentId) entry.stackParentId = null;
+          if (!entry.stackChildren) entry.stackChildren = [];
+          if (entry.cells && !entry.stackParentId) {
+            for (const cell of entry.cells) {
+              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
+            }
+          }
+        }
+      }
+
       // Rebuild wall state
       this.state.walls = this.state.walls || [];
       this.state.wallOccupied = {};
@@ -3869,6 +3885,15 @@ export class Game {
             this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
           }
         }
+      }
+    }
+
+    // Ensure stacking fields have defaults for backward compatibility
+    if (this.state.placeables.length > 0) {
+      for (const entry of this.state.placeables) {
+        if (entry.placeY == null) entry.placeY = 0;
+        if (!entry.stackParentId) entry.stackParentId = null;
+        if (!entry.stackChildren) entry.stackChildren = [];
       }
     }
 
