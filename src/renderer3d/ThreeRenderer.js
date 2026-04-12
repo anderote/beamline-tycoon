@@ -10,6 +10,7 @@ import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityPipeBuilder } from './utility-pipe-builder.js';
+import { RackBuilder } from './rack-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
 import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
@@ -108,6 +109,7 @@ export class ThreeRenderer {
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
     this.utilityPipeBuilder = new UtilityPipeBuilder();
+    this.rackBuilder = new RackBuilder();
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
@@ -276,6 +278,10 @@ export class ThreeRenderer {
     this.connectionGroup = new THREE.Group();
     this.connectionGroup.name = 'connections';
     this.scene.add(this.connectionGroup);
+
+    this.rackGroup = new THREE.Group();
+    this.rackGroup.name = 'carrierRacks';
+    this.scene.add(this.rackGroup);
 
     this.equipmentGroup = new THREE.Group();
     this.equipmentGroup.name = 'equipment';
@@ -1394,6 +1400,9 @@ export class ThreeRenderer {
    * @param {boolean} valid
    */
   renderPlaceableGhost(hover, valid) {
+    try { return this._renderPlaceableGhostInner(hover, valid); } catch(e) { console.error('[renderPlaceableGhost] CRASH:', e); }
+  }
+  _renderPlaceableGhostInner(hover, valid) {
     this._clearPreview();
     this._renderGridAroundCursor(hover.col, hover.row);
 
@@ -2128,6 +2137,7 @@ export class ThreeRenderer {
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
+    this.rackBuilder.build(snapshot.rackSegments, this.rackGroup);
     this.utilityPipeBuilder.build(snapshot.utilityRouting, this.connectionGroup);
     this._refreshBeamPipes();
     this._refreshZones();
@@ -2412,6 +2422,7 @@ export class ThreeRenderer {
 
   _refreshConnections() {
     const snap = buildWorldSnapshot(this.game);
+    this.rackBuilder.build(snap.rackSegments, this.rackGroup);
     this.utilityPipeBuilder.build(snap.utilityRouting, this.connectionGroup);
   }
 
@@ -2718,9 +2729,11 @@ export class ThreeRenderer {
   }
 
   _refreshComponents() {
+    try {
     const snap = buildWorldSnapshot(this.game);
     this.componentBuilder.build(snap.components, this.componentGroup);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+    } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
   }
 
   screenToGrid(screenX, screenY) {
