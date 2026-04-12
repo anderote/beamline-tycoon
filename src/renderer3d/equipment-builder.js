@@ -8,6 +8,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
+import { buildPortStubs } from './utility-port-builder.js';
 
 // BoxGeometry face order is [+X, -X, +Y, -Y, +Z, -Z]; each face has 4 UVs,
 // 8 floats per face in the uv attribute array.
@@ -46,10 +47,14 @@ function _faceMaterial(compType, faceKey, baseName, faceOverride, fallbackColor)
   let m = _equipMatCache.get(cacheKey);
   if (m) return m;
 
-  // Decal override: reuse the shared DECALS material directly so we don't
-  // duplicate textures. UVs for this face are rewritten to 0→1 by the caller.
   if (faceOverride && faceOverride.decal && DECALS[faceOverride.decal]) {
     m = DECALS[faceOverride.decal];
+    _equipMatCache.set(cacheKey, m);
+    return m;
+  }
+
+  if (faceOverride && faceOverride.material && MATERIALS[faceOverride.material]) {
+    m = MATERIALS[faceOverride.material];
     _equipMatCache.set(cacheKey, m);
     return m;
   }
@@ -107,9 +112,15 @@ export class EquipmentBuilder {
       const compDef = PLACEABLES[item.type];
       if (!compDef && !isFurnishing) return;
 
-      // Footprint (in world units) — what the item occupies on the grid.
-      const footW = (compDef?.subW || (isFurnishing ? 1 : 2)) * SUB_UNIT;
-      const footL = (compDef?.subL || compDef?.subH || (isFurnishing ? 1 : 2)) * SUB_UNIT;
+      // Footprint (in subtiles) — must match Placeable.footprintCells, which
+      // swaps subW/subL when dir is 1 or 3. The visual mesh/group is then
+      // rotated around its center (set below) so geometry matches occupancy.
+      const dir = item.dir || 0;
+      const swapFoot = (dir === 1 || dir === 3);
+      const defW = compDef?.subW || (isFurnishing ? 1 : 2);
+      const defL = compDef?.subL || compDef?.subH || (isFurnishing ? 1 : 2);
+      const footW = (swapFoot ? defL : defW) * SUB_UNIT;
+      const footL = (swapFoot ? defW : defL) * SUB_UNIT;
 
       const tileX = (item.col ?? 0) * 2;
       const tileZ = (item.row ?? 0) * 2;
@@ -117,6 +128,7 @@ export class EquipmentBuilder {
       const subZ = (item.subRow || 0) * SUB_UNIT;
       const centerX = tileX + subX + footW / 2;
       const centerZ = tileZ + subZ + footL / 2;
+      const rotY = -dir * (Math.PI / 2);
       const fallbackColor = compDef?.spriteColor || compDef?.color || 0x888888;
       const baseName = compDef?.baseMaterial || null;
 
@@ -152,8 +164,17 @@ export class EquipmentBuilder {
           group.add(mesh);
         }
         group.position.set(centerX, 0, centerZ);
+        group.rotation.y = rotY;
         group.matrixAutoUpdate = false;
         group.updateMatrix();
+        if (!isFurnishing) {
+          const portStubs = buildPortStubs(
+            item.type,
+            ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
+            (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
+          );
+          if (portStubs) group.add(portStubs);
+        }
         parentGroup.add(group);
         this._meshes.push(group);
         return;
@@ -187,11 +208,26 @@ export class EquipmentBuilder {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
-      mesh.position.set(centerX, h / 2, centerZ);
+      mesh.position.set(0, h / 2, 0);
       mesh.updateMatrix();
 
-      parentGroup.add(mesh);
-      this._meshes.push(mesh);
+      const wrapper = new THREE.Group();
+      wrapper.position.set(centerX, 0, centerZ);
+      wrapper.rotation.y = rotY;
+      wrapper.matrixAutoUpdate = false;
+      wrapper.add(mesh);
+      if (!isFurnishing) {
+        const portStubs = buildPortStubs(
+          item.type,
+          ((compDef?.subW || compDef?.gridW || 2) * SUB_UNIT) / 2,
+          (compDef?.subL || compDef?.gridH || 2) * SUB_UNIT,
+        );
+        if (portStubs) wrapper.add(portStubs);
+      }
+      wrapper.updateMatrix();
+
+      parentGroup.add(wrapper);
+      this._meshes.push(wrapper);
     };
 
     if (equipmentData) for (const eq of equipmentData) placeOne(eq, false);
