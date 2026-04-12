@@ -1118,4 +1118,24 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: [],
   },
+
+  // ── Distribution ─────────────────────────────────────────────────────
+  carrierRack: {
+    id: 'carrierRack',
+    name: 'Carrier Rack',
+    desc: 'Elevated utility rack at 4m height carrying pipes and cables to beamline components. Place rack segments first, then paint utility types onto them. Heavy pipes (cryo, vacuum, RF, cooling) hang below; power and data cables sit in the top tray.',
+    category: 'distribution', subsection: 'structure',
+    cost: { funding: 50000 },
+    stats: {},
+    energyCost: 0,
+    subL: 8, subW: 8, subH: 8, gridW: 8, gridH: 8, geometryType: 'box',
+    baseMaterial: 'metal_dark',
+    spriteKey: 'carrierRack',
+    spriteColor: 0xaa88aa,
+    placement: 'module',
+    ports: {},
+    requiredConnections: [],
+    unlocked: true,
+    isRack: true,
+  },
 };

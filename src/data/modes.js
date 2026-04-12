@@ -19,7 +19,7 @@ export const MODES = {
       cooling:      { name: 'Cooling',         color: '#48c', subsections: { distribution: { name: 'Distribution' }, plant: { name: 'Plant' }, cryogenics: { name: 'Cryogenics' } } },
       dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
-      distribution: { name: 'Distribution',    color: '#a8a', items: ['carrierRack'] },
+      distribution: { name: 'Distribution',    color: '#a8a', subsections: { structure: { name: 'Structure' }, distribution: { name: 'Utility Pipes' } }, items: ['carrierRack'] },
     },
   },
   facility: {
@@ -81,6 +81,7 @@ export const INFRA_DISTRIBUTION = {
   cooling:      ['coolingWater', 'cryoTransfer'],
   dataControls: ['dataFiber'],
   power:        ['powerCable'],
+  distribution: ['powerCable', 'coolingWater', 'cryoTransfer', 'rfWaveguide', 'vacuumPipe', 'dataFiber'],
 };
 
 // Utility connection types drawn as thin lines between facility equipment and beamline

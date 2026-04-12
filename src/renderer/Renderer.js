@@ -78,6 +78,7 @@ export class Renderer {
     this.activeMode = 'beamline';
     this._onFacilitySelect = null;
     this._onConnSelect = null;
+    this._onRackSelect = null;
     this.selectedToolType = null; // current component type for preview
     this.placementDir = 0;       // DIR.NE — rotated with F key
     this.bulldozerMode = false;

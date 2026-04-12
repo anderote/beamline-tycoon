@@ -171,6 +171,7 @@ export class ThreeRenderer {
     this._onInfraSelect = null;
     this._onFacilitySelect = null;
     this._onConnSelect = null;
+    this._onRackSelect = null;
     this._onZoneSelect = null;
     this._onWallSelect = null;
     this._onDoorSelect = null;

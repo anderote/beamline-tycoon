@@ -13,6 +13,14 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 
+function _costVal(cost) {
+  return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
+}
+function _costLabel(cost) {
+  const v = _costVal(cost);
+  return v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`;
+}
+
 // Build a 12×12 swatch span for a variant. `color` may be:
 //   - a single hex number: solid dot
 //   - an array [lightHex, darkHex]: split swatch (light left, dark right),
@@ -234,7 +242,7 @@ Renderer.prototype._generateCategoryTabs = function() {
     tabsContainer.appendChild(btn);
   });
 
-  // Generate connection tool buttons (always visible)
+  // Generate connection tool buttons (visible only in infra mode)
   const connContainer = document.getElementById('connection-tools');
   if (connContainer && connContainer.children.length === 0) {
     for (const [key, conn] of Object.entries(CONNECTION_TYPES)) {
@@ -253,6 +261,7 @@ Renderer.prototype._generateCategoryTabs = function() {
       connContainer.appendChild(btn);
     }
   }
+  if (connContainer) connContainer.style.display = this.activeMode === 'infra' ? '' : 'none';
 
   // Render palette for first category in mode
   if (catKeys.length > 0) {
@@ -299,7 +308,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       item.dataset.paletteIndex = paletteIdx;
       const idx = paletteIdx++;
 
-      const affordable = this.game.state.resources.funding >= infra.cost;
+      const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
       if (!affordable) item.classList.add('unaffordable');
 
       // Tile preview
@@ -328,7 +337,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       const costEl = document.createElement('div');
       costEl.className = 'palette-cost';
-      costEl.textContent = `$${infra.cost}/tile`;
+      costEl.textContent = `${_costLabel(infra.cost)}/tile`;
       item.appendChild(costEl);
 
       const descEl = document.createElement('div');
@@ -382,7 +391,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         item.dataset.paletteIndex = paletteIdx;
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= infra.cost;
+        const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
         if (!affordable) item.classList.add('unaffordable');
 
         // Wall preview (variant-aware via remembered selection)
@@ -411,7 +420,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `$${infra.cost}/seg`;
+        costEl.textContent = `${_costLabel(infra.cost)}/seg`;
         item.appendChild(costEl);
 
         if (infra.variants && infra.variants.length > 1) {
@@ -519,7 +528,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         item.dataset.paletteIndex = paletteIdx;
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= door.cost;
+        const affordable = this.game.state.resources.funding >= _costVal(door.cost);
         if (!affordable) item.classList.add('unaffordable');
 
         const previewEl = document.createElement('div');
@@ -537,7 +546,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `$${door.cost}/seg`;
+        costEl.textContent = `${_costLabel(door.cost)}/seg`;
         item.appendChild(costEl);
 
         item.addEventListener('click', () => {
@@ -589,7 +598,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         item.dataset.paletteIndex = paletteIdx;
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= infra.cost;
+        const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
         if (!affordable) item.classList.add('unaffordable');
 
         // Tile preview — use the remembered variant so the thumbnail
@@ -620,7 +629,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `$${infra.cost}/tile`;
+        costEl.textContent = `${_costLabel(infra.cost)}/tile`;
         item.appendChild(costEl);
 
         // If this floor has variants, show a flyout above the item on click
@@ -709,7 +718,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       item.dataset.paletteIndex = paletteIdx;
       const idx = paletteIdx++;
 
-      const affordable = this.game.state.resources.funding >= infra.cost;
+      const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
       if (!affordable) item.classList.add('unaffordable');
 
       // Tile preview (variant-aware via remembered selection)
@@ -738,7 +747,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       const costEl = document.createElement('div');
       costEl.className = 'palette-cost';
-      costEl.textContent = `$${infra.cost}/tile`;
+      costEl.textContent = `${_costLabel(infra.cost)}/tile`;
       item.appendChild(costEl);
 
       if (infra.variants && infra.variants.length > 1) {
@@ -817,7 +826,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       item.dataset.paletteIndex = paletteIdx;
       const idx = paletteIdx++;
 
-      const affordable = this.game.state.resources.funding >= infra.cost;
+      const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
       if (!affordable) item.classList.add('unaffordable');
 
       const previewEl = document.createElement('div');
@@ -835,7 +844,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       const costEl = document.createElement('div');
       costEl.className = 'palette-cost';
-      costEl.textContent = `$${infra.cost}`;
+      costEl.textContent = `${_costLabel(infra.cost)}`;
       item.appendChild(costEl);
 
       item.addEventListener('click', () => {
@@ -860,7 +869,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       item.dataset.paletteIndex = paletteIdx;
       const idx = paletteIdx++;
 
-      const affordable = this.game.state.resources.funding >= dec.cost;
+      const affordable = this.game.state.resources.funding >= _costVal(dec.cost);
       if (!affordable) item.classList.add('unaffordable');
 
       // Sprite preview
@@ -888,7 +897,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
       const costEl = document.createElement('div');
       costEl.className = 'palette-cost';
-      costEl.textContent = `$${dec.cost}`;
+      costEl.textContent = `${_costLabel(dec.cost)}`;
       item.appendChild(costEl);
 
       item.addEventListener('click', () => {
@@ -975,7 +984,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         item.dataset.paletteIndex = paletteIdx;
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= furn.cost;
+        const affordable = this.game.state.resources.funding >= _costVal(furn.cost);
         if (!affordable) item.classList.add('unaffordable');
 
         // Furnishing preview — prefer a 3D thumbnail (parts-based multi-
@@ -1008,7 +1017,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `$${furn.cost}`;
+        costEl.textContent = `${_costLabel(furn.cost)}`;
         item.appendChild(costEl);
 
         item.addEventListener('click', () => {
@@ -1254,6 +1263,34 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   }
   item.appendChild(previewEl);
 
+  // RF band badge (top-right corner)
+  const bandLabels = { vhf: 'VHF', lband: 'L-band', sband: 'S-band' };
+  const bands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
+  if (bands) {
+    const bandEl = document.createElement('div');
+    bandEl.className = 'palette-rf-band';
+    for (const b of bands) {
+      const line = document.createElement('div');
+      line.textContent = bandLabels[b] || b;
+      bandEl.appendChild(line);
+    }
+    // RF output power (green) for infra RF sources
+    if (comp.category === 'rfPower' && comp.params?.power) {
+      const pwrLine = document.createElement('div');
+      pwrLine.className = 'palette-rf-output';
+      pwrLine.textContent = `${comp.params.power} kW`;
+      bandEl.appendChild(pwrLine);
+    }
+    // RF power draw (red) for beamline accel components
+    if (comp.rfPowerRequired) {
+      const rfLine = document.createElement('div');
+      rfLine.className = 'palette-rf-draw';
+      rfLine.textContent = `${comp.rfPowerRequired} kW`;
+      bandEl.appendChild(rfLine);
+    }
+    item.appendChild(bandEl);
+  }
+
   // Name
   const nameEl = document.createElement('div');
   nameEl.className = 'palette-name';
@@ -1362,6 +1399,8 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
         if (this._onPaletteClick) this._onPaletteClick(idx);
         if (isFacility) {
           if (this._onFacilitySelect) this._onFacilitySelect(key);
+        } else if (comp.isRack && this._onRackSelect) {
+          this._onRackSelect();
         } else {
           if (this._onToolSelect) this._onToolSelect(key);
         }
@@ -1469,6 +1508,8 @@ Renderer.prototype._bindHUDEvents = function() {
       this.activeMode = mode;
       this._generateCategoryTabs();
       this._updateSystemStatsVisibility();
+      const connTools = document.getElementById('connection-tools');
+      if (connTools) connTools.style.display = mode === 'infra' ? '' : 'none';
     });
   });
 
