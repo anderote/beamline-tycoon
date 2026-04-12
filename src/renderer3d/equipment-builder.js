@@ -35,8 +35,9 @@ function _partMaterial(baseName, colorHex) {
     map = MATERIALS[baseName].map;
     if (colorHex == null) color = 0xffffff;
   }
+  const roughness = map ? 0.7 : 0.45;
   m = new THREE.MeshStandardMaterial({
-    map, color, roughness: 0.7, metalness: 0.15,
+    map, color, roughness, metalness: 0.15,
   });
   _partMatCache.set(key, m);
   return m;
@@ -111,6 +112,7 @@ export class EquipmentBuilder {
     const placeOne = (item, isFurnishing) => {
       const compDef = PLACEABLES[item.type];
       if (!compDef && !isFurnishing) return;
+      if (compDef && compDef.isRack) return;
 
       // Footprint (in subtiles) — must match Placeable.footprintCells, which
       // swaps subW/subL when dir is 1 or 3. The visual mesh/group is then
