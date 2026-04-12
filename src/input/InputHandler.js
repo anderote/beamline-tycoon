@@ -85,7 +85,7 @@ export class InputHandler {
     this.connPath = [];
     this.selectedRackTool = false;
     this.isDrawingRack = false;
-    this.rackPath = [];
+    this._rackLastPlaced = null;
     // Line placement (hallway)
     this.isDrawingLine = false;
     this.linePath = [];
@@ -1425,12 +1425,16 @@ export class InputHandler {
         return;
       }
 
-      // Rack placement start (click-drag to place segments in a line)
+      // Rack placement start (click-drag places segments live)
       if (this.selectedRackTool && e.button === 0) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
+        const col = Math.floor(grid.col);
+        const row = Math.floor(grid.row);
         this.isDrawingRack = true;
-        this.rackPath = [{ col: Math.floor(grid.col), row: Math.floor(grid.row) }];
+        this._rackLastPlaced = col + ',' + row;
+        this.game._pushUndo();
+        this.game.placeRackSegment(col, row);
         return;
       }
 
@@ -1675,19 +1679,19 @@ export class InputHandler {
         const grid = isoToGrid(world.x, world.y);
         const col = Math.floor(grid.col);
         const row = Math.floor(grid.row);
-        const last = this.rackPath[this.rackPath.length - 1];
-        if (col !== last.col || row !== last.row) {
-          const dc = Math.abs(col - last.col);
-          const dr = Math.abs(row - last.row);
+        const key = col + ',' + row;
+        if (key !== this._rackLastPlaced) {
+          // Fill in any gaps between last placed and current cursor
+          const [lc, lr] = this._rackLastPlaced.split(',').map(Number);
+          const dc = Math.abs(col - lc);
+          const dr = Math.abs(row - lr);
           const steps = Math.max(dc, dr);
           for (let i = 1; i <= steps; i++) {
-            const ic = last.col + Math.round((col - last.col) * i / steps);
-            const ir = last.row + Math.round((row - last.row) * i / steps);
-            const prev = this.rackPath[this.rackPath.length - 1];
-            if (ic !== prev.col || ir !== prev.row) {
-              this.rackPath.push({ col: ic, row: ir });
-            }
+            const ic = lc + Math.round((col - lc) * i / steps);
+            const ir = lr + Math.round((row - lr) * i / steps);
+            this.game.placeRackSegment(ic, ir);
           }
+          this._rackLastPlaced = key;
         }
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -1869,14 +1873,10 @@ export class InputHandler {
         return;
       }
 
-      // Rack drawing end — commit all segments on release
+      // Rack drawing end
       if (this.isDrawingRack) {
-        this.game._pushUndo();
-        for (const pt of this.rackPath) {
-          this.game.placeRackSegment(pt.col, pt.row);
-        }
         this.isDrawingRack = false;
-        this.rackPath = [];
+        this._rackLastPlaced = null;
         return;
       }
 
@@ -2827,7 +2827,7 @@ export class InputHandler {
   deselectRackTool() {
     this.selectedRackTool = false;
     this.isDrawingRack = false;
-    this.rackPath = [];
+    this._rackLastPlaced = null;
   }
 
   selectZoneTool(zoneType) {
