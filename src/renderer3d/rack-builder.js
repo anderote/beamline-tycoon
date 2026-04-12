@@ -58,27 +58,23 @@ export class RackBuilder {
     const sw = RACK_SUPPORT_WIDTH;
     const trayBot = RACK_HEIGHT - RACK_TRAY_DEPTH;
 
-    // ── Support legs on both sides of the tray ──
+    // ── Two support legs (one on each side of the tray, centered) ──
     const legGeo = new THREE.BoxGeometry(sw, RACK_HEIGHT, sw);
     for (const sx of [-halfW - sw / 2, halfW + sw / 2]) {
-      for (const sz of [-halfLen + sw * 2, halfLen - sw * 2]) {
-        const leg = new THREE.Mesh(legGeo, _supportMat);
-        leg.position.set(sx, RACK_HEIGHT / 2, sz);
-        leg.matrixAutoUpdate = false;
-        leg.updateMatrix();
-        group.add(leg);
-      }
+      const leg = new THREE.Mesh(legGeo, _supportMat);
+      leg.position.set(sx, RACK_HEIGHT / 2, 0);
+      leg.matrixAutoUpdate = false;
+      leg.updateMatrix();
+      group.add(leg);
     }
 
-    // ── Lateral cross-members connecting left and right supports ──
+    // ── Cross-member connecting the two legs ──
     const crossGeo = new THREE.BoxGeometry(RACK_TRAY_WIDTH + sw * 2, sw, sw);
-    for (const sz of [-halfLen + sw * 2, halfLen - sw * 2]) {
-      const cross = new THREE.Mesh(crossGeo, _supportMat);
-      cross.position.set(0, trayBot - sw / 2, sz);
-      cross.matrixAutoUpdate = false;
-      cross.updateMatrix();
-      group.add(cross);
-    }
+    const cross = new THREE.Mesh(crossGeo, _supportMat);
+    cross.position.set(0, trayBot - sw / 2, 0);
+    cross.matrixAutoUpdate = false;
+    cross.updateMatrix();
+    group.add(cross);
 
     // ── Tray bottom (wire mesh — thin solid panel) ──
     const bottomGeo = new THREE.BoxGeometry(RACK_TRAY_WIDTH, 0.012, SEG_LEN);
