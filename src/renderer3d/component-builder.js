@@ -13,6 +13,38 @@ import {
   _buildScreenRoles,
   _buildWireScannerRoles,
 } from './builders/diagnostic-builder.js';
+import {
+  _buildPiraniGaugeRoles,
+  _buildColdCathodeGaugeRoles,
+  _buildBAGaugeRoles,
+  _buildGateValveRoles,
+  _buildRoughingPumpRoles,
+  _buildTurboPumpRoles,
+  _buildIonPumpRoles,
+  _buildNEGPumpRoles,
+  _buildTiSubPumpRoles,
+} from './builders/vacuum-builder.js';
+import {
+  _buildLN2DewarRoles,
+  _buildCryocoolerRoles,
+  _buildLN2PrecoolerRoles,
+  _buildHeRecoveryRoles,
+  _buildWaterLoadRoles,
+  _buildCoolingTowerRoles,
+  _buildDeioniserRoles,
+} from './builders/cooling-builder.js';
+import {
+  _buildPulsedKlystronRoles,
+  _buildCWKlystronRoles,
+  _buildMultibeamKlystronRoles,
+  _buildMagnetronRoles,
+  _buildTWTRoles,
+  _buildIOTRoles,
+  _buildCirculatorRoles,
+  _buildRFCouplerRoles,
+  _buildGyrotronRoles,
+} from './builders/rf-builder.js';
+import { buildPortStubs } from './utility-port-builder.js';
 
 const SUB_UNIT = 0.5; // 1 sub-unit = 0.5m in world space
 const SEGS = 16;      // cylinder segment count for smooth round shapes
@@ -875,6 +907,31 @@ ROLE_BUILDERS.bpm = _buildBPMRoles;
 ROLE_BUILDERS.ict = _buildICTRoles;
 ROLE_BUILDERS.screen = _buildScreenRoles;
 ROLE_BUILDERS.wireScanner = _buildWireScannerRoles;
+ROLE_BUILDERS.piraniGauge = _buildPiraniGaugeRoles;
+ROLE_BUILDERS.coldCathodeGauge = _buildColdCathodeGaugeRoles;
+ROLE_BUILDERS.baGauge = _buildBAGaugeRoles;
+ROLE_BUILDERS.gateValve = _buildGateValveRoles;
+ROLE_BUILDERS.roughingPump = _buildRoughingPumpRoles;
+ROLE_BUILDERS.turboPump = _buildTurboPumpRoles;
+ROLE_BUILDERS.ionPump = _buildIonPumpRoles;
+ROLE_BUILDERS.negPump = _buildNEGPumpRoles;
+ROLE_BUILDERS.tiSubPump = _buildTiSubPumpRoles;
+ROLE_BUILDERS.ln2Dewar = _buildLN2DewarRoles;
+ROLE_BUILDERS.cryocooler = _buildCryocoolerRoles;
+ROLE_BUILDERS.ln2Precooler = _buildLN2PrecoolerRoles;
+ROLE_BUILDERS.heRecovery = _buildHeRecoveryRoles;
+ROLE_BUILDERS.waterLoad = _buildWaterLoadRoles;
+ROLE_BUILDERS.coolingTower = _buildCoolingTowerRoles;
+ROLE_BUILDERS.deionizer = _buildDeioniserRoles;
+ROLE_BUILDERS.pulsedKlystron = _buildPulsedKlystronRoles;
+ROLE_BUILDERS.cwKlystron = _buildCWKlystronRoles;
+ROLE_BUILDERS.multibeamKlystron = _buildMultibeamKlystronRoles;
+ROLE_BUILDERS.magnetron = _buildMagnetronRoles;
+ROLE_BUILDERS.twt = _buildTWTRoles;
+ROLE_BUILDERS.iot = _buildIOTRoles;
+ROLE_BUILDERS.circulator = _buildCirculatorRoles;
+ROLE_BUILDERS.rfCoupler = _buildRFCouplerRoles;
+ROLE_BUILDERS.gyrotron = _buildGyrotronRoles;
 
 /**
  * RFQ (Radio-Frequency Quadrupole) — long copper accelerating structure.
@@ -1952,9 +2009,14 @@ function _buildPartsOrFallback(compDef) {
 }
 
 // ── Thumbnail renderer ──────────────────────────────────────────────
-// Renders a small preview image of a 3D component for use in the build menu.
-// Uses a temporary WebGL context that is disposed after rendering to avoid
-// exhausting the browser's context limit.
+// Static pre-rendered thumbnails. Vite resolves these at build time so the
+// palette never needs a live WebGL render for components that have a PNG.
+const _staticThumbs = import.meta.glob('/assets/textures/thumbnails/*.png', { eager: true, query: '?url', import: 'default' });
+const _staticThumbMap = {};
+for (const [path, val] of Object.entries(_staticThumbs)) {
+  const id = path.split('/').pop().replace('.png', '');
+  _staticThumbMap[id] = typeof val === 'string' ? val : (val && val.default) || val;
+}
 
 const _thumbCache = new Map();
 
@@ -1962,20 +2024,39 @@ const _thumbCache = new Map();
  * Render a component's 3D model to a data URL thumbnail.
  * Returns null if the component has no detailed 3D model.
  */
+let _thumbRenderer = null;
+let _thumbScene = null;
+let _thumbCamera = null;
+
+function _getThumbRenderer(size) {
+  if (!_thumbRenderer) {
+    _thumbRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    _thumbScene = new THREE.Scene();
+    _thumbScene.add(new THREE.AmbientLight(0xffffff, 1.1));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    keyLight.position.set(-5, 8, 4);
+    _thumbScene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    fillLight.position.set(6, 3, -4);
+    _thumbScene.add(fillLight);
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    rimLight.position.set(0, -4, -2);
+    _thumbScene.add(rimLight);
+    _thumbCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+  }
+  _thumbRenderer.setSize(size * 2, size * 2);
+  _thumbRenderer.setClearColor(0x000000, 0);
+  return { renderer: _thumbRenderer, scene: _thumbScene, camera: _thumbCamera };
+}
+
 export function renderComponentThumbnail(compType, size = 64) {
+  if (_staticThumbMap[compType]) return _staticThumbMap[compType];
   if (typeof THREE === 'undefined') return null;
   if (_thumbCache.has(compType)) return _thumbCache.get(compType);
 
-  // Look up the def. COMPONENTS only holds beamline/infra/equipment kinds;
-  // furnishings + decorations live only in PLACEABLES, so check both.
   const compDef = COMPONENTS[compType] || PLACEABLES[compType];
   if (!compDef) return null;
 
-  // Decide the model source, in priority order:
-  //   1. Role builder   — beamline dipole/quad/cavity etc.
-  //   2. Detail builder — legacy source/drift/pillbox
-  //   3. Parts list     — declarative multi-box furnishings/equipment
-  //   4. Fallback box   — plain single-box placeables with a footprint
   const defId = compDef.id || compType;
   const hasRole = !!ROLE_BUILDERS[defId];
   const legacyBuilder = DETAIL_BUILDERS[defId];
@@ -1983,58 +2064,34 @@ export function renderComponentThumbnail(compType, size = 64) {
   const hasFootprint = !!(compDef.subW || compDef.gridW);
   if (!hasRole && !legacyBuilder && !hasParts && !hasFootprint) return null;
 
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
-  renderer.setSize(size * 2, size * 2);
-  renderer.setClearColor(0x000000, 0);
+  const { renderer, scene, camera } = _getThumbRenderer(size);
 
-  const scene = new THREE.Scene();
-
-  // Thumbnail lighting: bright, neutral, no floor. Ambient carries most
-  // of the brightness so every face is readable; a strong key from the
-  // upper-left and two softer fills round off the form.
-  scene.add(new THREE.AmbientLight(0xffffff, 1.1));
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
-  key.position.set(-5, 8, 4);
-  scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.55);
-  fill.position.set(6, 3, -4);
-  scene.add(fill);
-  const rim = new THREE.DirectionalLight(0xffffff, 0.4);
-  rim.position.set(0, -4, -2);
-  scene.add(rim);
-
-  // Build the model. Priority order matches the decision above.
-  const defaultAccent = 0xc62828;
+  const defaultAccent = (compDef && compDef.accentColor) || 0xc62828;
   let model;
   if (hasRole) {
     model = _instantiateRoleTemplate(defId, defaultAccent);
   } else if (legacyBuilder) {
     model = legacyBuilder();
   } else {
-    // Parts-based or plain footprint — use the shared fallback builder
-    // so the thumbnail matches the committed/ghost geometry exactly.
     model = _buildPartsOrFallback(compDef);
   }
   scene.add(model);
 
-  // Frame an orthographic isometric camera tightly around the bounds.
-  // In true iso projection (camera at (d,d,d) looking at origin) an AABB
-  // of size (sx, sy, sz) projects to a screen rectangle of size
-  //   width  = (sx + sz) / sqrt(2)
-  //   height = (sx + 2*sy + sz) / sqrt(6)
-  // Use that to pick a half-frame that wraps the model with a small pad.
   const box = new THREE.Box3().setFromObject(model);
   const center = box.getCenter(new THREE.Vector3());
   const bSize = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(bSize.x, bSize.y, bSize.z);
   const projW = (bSize.x + bSize.z) / Math.SQRT2;
   const projH = (bSize.x + 2 * bSize.y + bSize.z) / Math.sqrt(6);
-  const halfFrame = Math.max(projW, projH) * 0.55;  // half-dimension + ~10% pad
+  const halfFrame = Math.max(projW, projH) * 0.55;
+
+  camera.left = -halfFrame;
+  camera.right = halfFrame;
+  camera.top = halfFrame;
+  camera.bottom = -halfFrame;
+  camera.updateProjectionMatrix();
 
   const isoDist = maxDim * 4;
-  const camera = new THREE.OrthographicCamera(
-    -halfFrame, halfFrame, halfFrame, -halfFrame, 0.1, 100,
-  );
   camera.position.set(
     center.x + isoDist,
     center.y + isoDist,
@@ -2046,7 +2103,7 @@ export function renderComponentThumbnail(compType, size = 64) {
   const dataUrl = renderer.domElement.toDataURL('image/png');
   _thumbCache.set(compType, dataUrl);
 
-  renderer.dispose();
+  scene.remove(model);
 
   return dataUrl;
 }
@@ -2096,6 +2153,13 @@ export class ComponentBuilder {
     // Wrap with invisible hitbox for easier raycasting
     const wrapper = new THREE.Group();
     wrapper.add(visual);
+
+    const portStubs = buildPortStubs(
+      compDef.id,
+      ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
+      (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
+    );
+    if (portStubs) wrapper.add(portStubs);
 
     const w = (compDef.subW || 2) * SUB_UNIT;
     const h = Math.max((compDef.subH || 2) * SUB_UNIT, 1.0);
