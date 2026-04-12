@@ -9,7 +9,7 @@ import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedCom
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
-import { ConnectionBuilder } from './connection-builder.js';
+import { UtilityPipeBuilder } from './utility-pipe-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
 import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
@@ -107,7 +107,7 @@ export class ThreeRenderer {
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
-    this.connectionBuilder = new ConnectionBuilder();
+    this.utilityPipeBuilder = new UtilityPipeBuilder();
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
@@ -1407,15 +1407,26 @@ export class ThreeRenderer {
     const obj = this.componentBuilder._createObject(placeable);
     if (!obj) return;
 
+    // Ghostify each mesh. Equipment boxes with per-face decals come back
+    // with an ARRAY of 6 face materials (from component-builder's fallback
+    // path), so we have to clone every entry — calling .clone() directly
+    // on an Array throws and kills the preview entirely.
+    const tintHex = valid ? 0x44ff44 : 0xff4444;
+    const ghostifyMat = (mat) => {
+      const c = mat.clone();
+      c.transparent = true;
+      c.opacity = 0.4;
+      c.depthWrite = false;
+      c.depthTest = false;
+      if (c.color) c.color.setHex(tintHex);
+      return c;
+    };
     obj.traverse(child => {
       if (child.isMesh) {
-        child.material = child.material.clone();
-        child.material.transparent = true;
-        child.material.opacity = 0.4;
-        child.material.depthWrite = false;
-        child.material.depthTest = false;
-        if (child.material.color) {
-          child.material.color.setHex(valid ? 0x44ff44 : 0xff4444);
+        if (Array.isArray(child.material)) {
+          child.material = child.material.map(ghostifyMat);
+        } else {
+          child.material = ghostifyMat(child.material);
         }
         child.castShadow = false;
         child.receiveShadow = false;
@@ -1483,13 +1494,21 @@ export class ThreeRenderer {
     // Build the real geometry via component builder
     const obj = this.componentBuilder._createObject(compDef);
     // Make all materials transparent
+    const ghostMat = (mat) => {
+      const c = mat.clone();
+      c.transparent = true;
+      c.opacity = 0.4;
+      c.depthWrite = false;
+      c.depthTest = false;
+      return c;
+    };
     obj.traverse(child => {
       if (child.isMesh) {
-        child.material = child.material.clone();
-        child.material.transparent = true;
-        child.material.opacity = 0.4;
-        child.material.depthWrite = false;
-        child.material.depthTest = false;
+        if (Array.isArray(child.material)) {
+          child.material = child.material.map(ghostMat);
+        } else {
+          child.material = ghostMat(child.material);
+        }
         child.castShadow = false;
         child.receiveShadow = false;
         child.renderOrder = 999;
@@ -1819,8 +1838,8 @@ export class ThreeRenderer {
   _renderGridAroundCursor(col, row) {
     this._clearGridOverlay();
 
-    const majorRadius = 6;   // tiles around cursor for major grid
-    const subRadius = 3;     // tiles around cursor for sub-grid
+    const majorRadius = 3;   // tiles around cursor for major grid
+    const subRadius = 1;     // tiles around cursor for sub-grid
     const y = 0.06;          // slightly above ground plane
 
     // --- Major grid (tile boundaries) as a single LineSegments ---
@@ -2109,7 +2128,7 @@ export class ThreeRenderer {
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
-    this.connectionBuilder.build(snapshot.connections, this.connectionGroup);
+    this.utilityPipeBuilder.build(snapshot.utilityRouting, this.connectionGroup);
     this._refreshBeamPipes();
     this._refreshZones();
   }
@@ -2393,7 +2412,7 @@ export class ThreeRenderer {
 
   _refreshConnections() {
     const snap = buildWorldSnapshot(this.game);
-    this.connectionBuilder.build(snap.connections, this.connectionGroup);
+    this.utilityPipeBuilder.build(snap.utilityRouting, this.connectionGroup);
   }
 
   _refreshBeamPipes() {
