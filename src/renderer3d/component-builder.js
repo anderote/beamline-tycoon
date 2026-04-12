@@ -1882,21 +1882,65 @@ function _buildPartsOrFallback(compDef) {
   const h = vSubH * SUB_UNIT;
   const l = vSubL * SUB_UNIT;
 
+  const fallbackColor = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
+  const baseName = compDef.baseMaterial || null;
+  const faces = compDef.faces || null;
+  const hasBaseOrFaces = !!(baseName || faces);
+
   let geometry;
+  let material;
+
   if (compDef.geometryType === 'cylinder') {
     const radius = Math.min(w, h) / 2;
     geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
     applyTiledCylinderUVs(geometry, radius, l, 8);
     geometry.rotateZ(Math.PI / 2);
+
+    if (baseName && MATERIALS[baseName]) {
+      const cacheKey = `${compDef.id}|cyl|${baseName}`;
+      let m = _infraFaceMatCache.get(cacheKey);
+      if (!m) {
+        m = new THREE.MeshStandardMaterial({
+          map: MATERIALS[baseName].map,
+          color: 0xffffff,
+          roughness: 0.7,
+          metalness: 0.2,
+        });
+        _infraFaceMatCache.set(cacheKey, m);
+      }
+      material = m;
+    } else {
+      material = new THREE.MeshStandardMaterial({
+        color: fallbackColor, roughness: 0.7, metalness: 0.1,
+      });
+    }
   } else {
     geometry = new THREE.BoxGeometry(w, h, l);
     applyTiledBoxUVs(geometry, w, h, l);
-  }
 
-  const color = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
-  const material = new THREE.MeshStandardMaterial({
-    color, roughness: 0.7, metalness: 0.1,
-  });
+    if (hasBaseOrFaces) {
+      if (faces) {
+        for (const key of _INFRA_FACE_KEYS) {
+          if (faces[key] && faces[key].decal) {
+            _setInfraFaceUVsClamped(geometry, key);
+          }
+        }
+      }
+      material = _INFRA_FACE_KEYS.map(key =>
+        _infraFaceMaterial(
+          compDef.id,
+          key,
+          baseName,
+          faces ? faces[key] : null,
+          fallbackColor,
+        )
+      );
+    } else {
+      material = new THREE.MeshStandardMaterial({
+        color: fallbackColor, roughness: 0.7, metalness: 0.1,
+      });
+    }
+  }
 
   // Center the fallback box on the footprint's bottom-center so it sits
   // on y=0, matching the parts-path origin convention.
