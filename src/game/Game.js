@@ -1462,6 +1462,9 @@ export class Game {
    * @returns {string|false} The placeable id, or false on failure
    */
   placePlaceable(opts) {
+    try { return this._placePlaceableInner(opts); } catch(e) { console.error('[placePlaceable] CRASH:', e); return false; }
+  }
+  _placePlaceableInner(opts) {
     const { type, col, row, subCol, subRow, dir = 0, params, free = false, silent = false } = opts;
 
     const placeable = PLACEABLES[type];
@@ -1537,6 +1540,9 @@ export class Game {
       dir,
       params: null,
       cells,
+      placeY: 0,
+      stackParentId: null,
+      stackChildren: [],
     };
 
     // Beamline param init (was previously inline; only kind that needs it).
