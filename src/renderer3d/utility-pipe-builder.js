@@ -172,10 +172,12 @@ export class UtilityPipeBuilder {
     if (connType !== 'cryoTransfer') return;
     const r = UTILITY_PORT_PROFILES.cryoTransfer.radius * 1.5;
     const jacketGeo = new THREE.CylinderGeometry(r, r, length, SEGS);
-    const jacketMat = new THREE.MeshStandardMaterial({
-      color: 0x1a3340, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0.5,
-    });
-    const jacket = new THREE.Mesh(jacketGeo, jacketMat);
+    if (!this._jacketMat) {
+      this._jacketMat = new THREE.MeshStandardMaterial({
+        color: 0x1a3340, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0.5,
+      });
+    }
+    const jacket = new THREE.Mesh(jacketGeo, this._jacketMat);
     jacket.matrixAutoUpdate = false;
     jacket.position.copy(innerMesh.position);
     jacket.rotation.copy(innerMesh.rotation);

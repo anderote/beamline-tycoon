@@ -23,6 +23,7 @@ const BEAMLINE_PORTS = {
   sextupole:           [{ type: 'powerCable', offset: 0.3 }, { type: 'coolingWater', offset: 0.7 }],
   splitter:            [{ type: 'powerCable', offset: 0.5 }],
   velocitySelector:    [{ type: 'powerCable', offset: 0.5 }],
+  emittanceFilter:     [{ type: 'powerCable', offset: 0.5 }],
 
   // RF — normal conducting
   rfq:                 [{ type: 'powerCable', offset: 0.2 }, { type: 'coolingWater', offset: 0.5 }, { type: 'rfWaveguide', offset: 0.8 }],

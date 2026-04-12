@@ -10,6 +10,7 @@ const PORT_Y = 0.5;
 const SEGS = 8;
 
 const _matCache = {};
+const _geoCache = {};
 
 function getPortMaterial(connType) {
   if (_matCache[connType]) return _matCache[connType];
@@ -24,13 +25,15 @@ function getPortMaterial(connType) {
   return mat;
 }
 
-function createStubGeometry(connType) {
+function getStubGeometry(connType) {
+  if (_geoCache[connType]) return _geoCache[connType];
   const profile = UTILITY_PORT_PROFILES[connType];
   if (!profile) return null;
-  if (profile.shape === 'rect') {
-    return new THREE.BoxGeometry(STUB_LENGTH, profile.height, profile.width);
-  }
-  return new THREE.CylinderGeometry(profile.radius, profile.radius, STUB_LENGTH, SEGS);
+  const geo = profile.shape === 'rect'
+    ? new THREE.BoxGeometry(STUB_LENGTH, profile.height, profile.width)
+    : new THREE.CylinderGeometry(profile.radius, profile.radius, STUB_LENGTH, SEGS);
+  _geoCache[connType] = geo;
+  return geo;
 }
 
 /**
@@ -50,7 +53,7 @@ export function buildPortStubs(compId, sideHalfW, sideLength) {
     const profile = UTILITY_PORT_PROFILES[port.type];
     if (!profile) continue;
 
-    const geo = createStubGeometry(port.type);
+    const geo = getStubGeometry(port.type);
     if (!geo) continue;
     const mat = getPortMaterial(port.type);
 
