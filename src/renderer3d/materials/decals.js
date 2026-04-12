@@ -47,6 +47,28 @@ export const DECALS = {
   signal_generator_side:   makeDecal('signal_generator_side.png',   { roughness: 0.7, metalness: 0.15 }),
   spectrum_analyzer_side:  makeDecal('spectrum_analyzer_side.png',  { roughness: 0.7, metalness: 0.1 }),
   network_analyzer_side:   makeDecal('network_analyzer_side.png',   { roughness: 0.7, metalness: 0.1 }),
+
+  // RF power
+  klystron_pulsed_front:    makeDecal('klystron_pulsed_front.png',    { roughness: 0.6, metalness: 0.25 }),
+  klystron_cw_front:        makeDecal('klystron_cw_front.png',        { roughness: 0.6, metalness: 0.25 }),
+  klystron_multibeam_front: makeDecal('klystron_multibeam_front.png', { roughness: 0.6, metalness: 0.25 }),
+  modulator_front:          makeDecal('modulator_front.png',          { roughness: 0.6, metalness: 0.2 }),
+  ssa_rack_front:           makeDecal('ssa_rack_front.png',           { roughness: 0.6, metalness: 0.2 }),
+  iot_front:                makeDecal('iot_front.png',                { roughness: 0.6, metalness: 0.25 }),
+
+  // Cooling
+  cold_box_front:           makeDecal('cold_box_front.png',           { roughness: 0.6, metalness: 0.2 }),
+  he_compressor_front:      makeDecal('he_compressor_front.png',      { roughness: 0.6, metalness: 0.2 }),
+  chiller_front:            makeDecal('chiller_front.png',            { roughness: 0.6, metalness: 0.2 }),
+
+  // Vacuum
+  bakeout_front:            makeDecal('bakeout_front.png',            { roughness: 0.65, metalness: 0.2 }),
+
+  // Controls / safety / power
+  rack_ioc_front:           makeDecal('rack_ioc_front.png',           { roughness: 0.55, metalness: 0.3 }),
+  pps_panel:                makeDecal('pps_panel.png',                { roughness: 0.6, metalness: 0.15 }),
+  mps_panel:                makeDecal('mps_panel.png',                { roughness: 0.6, metalness: 0.15 }),
+  power_panel_front:        makeDecal('power_panel_front.png',        { roughness: 0.6, metalness: 0.2 }),
 };
 
 // Re-export so tests / future code can construct ad-hoc decal materials.
