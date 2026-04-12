@@ -64,4 +64,65 @@ export function buildBeamPipeSegment(buckets, subL) {
   pushT(buckets.pipe, g, m);
 }
 
-// Builders are filled in by subsequent tasks.
+/**
+ * BPM — 1×1 footprint. Low cylindrical block on the beam pipe with
+ * four SMA-style button feedthroughs at 45° and a thin coax tail.
+ * Pipe-mounted, no floor stand.
+ *
+ * Accent: electronics green (applied by the accent material cache).
+ */
+export function _buildBPMRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  // Shared straight beam pipe spanning the whole 0.5 m footprint.
+  buildBeamPipeSegment(buckets, 1);
+
+  // Main button block — cylinder concentric with the pipe.
+  const blockR = 0.12;
+  const blockL = 0.30;
+  {
+    const g = new THREE.CylinderGeometry(blockR, blockR, blockL, SEGS);
+    applyTiledCylinderUVs(g, blockR, blockL, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, BEAM_HEIGHT, 0),
+      rotX(Math.PI / 2),
+    );
+    pushT(buckets.accent, g, m);
+  }
+
+  // Four button feedthroughs at 45° intervals in the transverse plane,
+  // projecting radially outward from the block surface. Each is a short
+  // cylinder whose long axis is the radial direction.
+  const buttonR = 0.02;
+  const buttonL = 0.06;
+  const buttonCenterRadius = blockR + buttonL / 2 - 0.005; // slight embed
+  for (let i = 0; i < 4; i++) {
+    const theta = Math.PI / 4 + (i * Math.PI / 2); // 45, 135, 225, 315 deg
+    const dx = Math.cos(theta) * buttonCenterRadius;
+    const dy = Math.sin(theta) * buttonCenterRadius;
+
+    const g = new THREE.CylinderGeometry(buttonR, buttonR, buttonL, 8);
+    applyTiledCylinderUVs(g, buttonR, buttonL, 8);
+
+    // Default Y-up cylinder — rotate around Z so its long axis points
+    // in the (dx, dy) direction. The rotation angle is (theta - 90°)
+    // because Y rotated by (theta-90°) lands on direction theta.
+    const rZ = new THREE.Matrix4().makeRotationZ(theta - Math.PI / 2);
+    const tr = trans(dx, BEAM_HEIGHT + dy, 0);
+    const m  = new THREE.Matrix4().multiplyMatrices(tr, rZ);
+    pushT(buckets.detail, g, m);
+  }
+
+  // Coax signal tail exiting the top of the block (straight up).
+  {
+    const tailR = 0.015;
+    const tailL = 0.10;
+    const g = new THREE.CylinderGeometry(tailR, tailR, tailL, 8);
+    applyTiledCylinderUVs(g, tailR, tailL, 8);
+    const m = trans(0, BEAM_HEIGHT + blockR + tailL / 2, 0);
+    pushT(buckets.detail, g, m);
+  }
+
+  return buckets;
+}
