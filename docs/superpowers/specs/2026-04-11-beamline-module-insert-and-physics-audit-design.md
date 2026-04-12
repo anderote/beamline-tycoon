@@ -8,13 +8,14 @@
 Two related changes:
 
 1. **Insert-and-split placement.** Clicking a beamline module onto an existing beampipe inserts the module into the pipe: the pipe is split at the module footprint, the two halves reconnect to the module's entry/exit ports, and pipe lengths are recomputed. No special rotation assistance — the user rotates manually.
-2. **Physics length audit (scope: B).** Make `subL` the single source of truth for component length across JS data and the Python physics bridge, remove silent fallbacks, and fix components that are currently treated as thin lenses when they should be distributed — most notably RF cavities.
+2. **Physics length audit (scope: B).** Make `subL` the single source of truth for component length across JS data and the Python physics bridge, remove every silent length fallback (`element.get("length", 0.0)`, `element.get("length", 1.0)`, `COMPONENT_DEFAULTS[...]["length"]`), and verify per-component that the propagator's distributed-vs-thin classification matches physical reality.
 
 ## Motivation
 
 - Today, beamline modules can only be placed on empty subtiles. If a pipe is in the way, placement fails. Real accelerator construction cuts pipe to insert components; the game should support the same workflow.
-- Component length is declared in two places (JS `subL`, Python `COMPONENT_DEFAULTS`) with a silent fallback. Any component missing `subL` silently uses a hardcoded 2m default in Python, diverging from the JS data and causing wrong envelope propagation.
-- Some elements (RF cavities per exploration) are treated as point-like in the propagator even though they have a real physical length. Beam envelope does not evolve through them.
+- Component length is declared in two places (JS `subL`, Python `COMPONENT_DEFAULTS`) with a silent fallback. Any component missing `subL` silently uses a hardcoded default from `COMPONENT_DEFAULTS`, diverging from the JS data and causing wrong envelope propagation.
+- Length fallbacks are sprinkled throughout `elements.py` and `lattice.py` (`element.get("length", 0.0)`, `element.get("length", 1.0)`). A missing length at any point silently becomes zero or one metre instead of failing loudly.
+- `_make_sub_element` in `lattice.py` already scales `bendAngle`, `energyGain`, and `r56` proportionally, so the propagator's distributed treatment is correct *when lengths are right*. The problem is making sure lengths *are* right, not rewriting propagation.
 
 ## Background (current state)
 
@@ -78,42 +79,58 @@ If any step after pipe deletion fails, restore the original pipe and any removed
 
 ### Part 2A — `subL` as single source of truth
 
-1. **Audit `src/data/placeables/beamline-modules.js`.** Every module entry must declare `subL` (and `subW`) explicitly. Add any missing values based on the current Python defaults so behavior is preserved at the point of the change.
-2. **Remove length fallbacks in `beam_physics/gameplay.py`.** Delete the `length` fields from `COMPONENT_DEFAULTS`. In `beamline_config_from_game()`, require every element to carry `subL`; raise `ValueError(f"component '{id}' ({type}) has no subL")` if missing. This surfaces drift immediately instead of silently using 2m.
-3. **Single conversion site.** The rule `length_m = sub_l * 0.5` lives in exactly one function in `gameplay.py`. Remove any other multiplication by `0.5` or references to a `LENGTH_SCALE` constant for length conversion. Downstream code in `lattice.py` / `elements.py` consumes meters only.
-4. **Sync `public/beam_physics/*.py` with `beam_physics/*.py`.** These are the same code; the audit keeps them byte-identical. Any edit to one is mirrored to the other in the same commit.
+Beamline data actually lives in `src/data/beamline-components.raw.js` (628 lines); `src/data/placeables/beamline-modules.js` just filters and normalizes it. The audit happens on the raw file.
 
-### Part 2B — thin-lens vs distributed, per component type
+1. **Audit `src/data/beamline-components.raw.js`.** Every entry that is either `placement: 'module'` or a drawn-connection drift must declare `subL` explicitly. Any entry missing `subL` gets a value matching the current `COMPONENT_DEFAULTS[type]["length"] / 0.5` so behavior is preserved at the point of the change.
+2. **Remove length fallbacks in `beam_physics/gameplay.py`.**
+   - Delete every `"length": <n>` entry from `COMPONENT_DEFAULTS`. Leave non-length defaults (`emittance`, `energyGain`, `focusStrength`, `bendAngle`, etc.) untouched.
+   - In `beamline_config_from_game()`, require `subL` on every element; raise `ValueError(f"component '{ctype}' has no subL")` if missing.
+   - Remove the `comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE` branch entirely.
+3. **Remove length fallbacks in `beam_physics/elements.py` and `beam_physics/lattice.py`.**
+   - `transfer_matrix` uses `element.get("length", 1.0)` — change to `element["length"]` (KeyError surfaces bugs).
+   - `propagate` uses `element.get("length", 0.0)` — change to `element["length"]`.
+   - `_make_sub_element` uses `element.get("length", 0.0)` — change to `element["length"]`.
+4. **Single conversion site.** The rule `length_m = sub_l * 0.5` lives in exactly one place in `gameplay.py`. Remove or repurpose the `LENGTH_SCALE = 2.0` constant (it was part of the fallback and is no longer needed).
+5. **Sync `public/beam_physics/*.py` with `beam_physics/*.py`.** These are the same code served two ways (Pyodide fetches the public copy). Every edit is mirrored in the same commit; at the end of Part 2, a `diff` between the two directories should show no differences.
 
-Classify every element type and fix mismatches:
+### Part 2B — per-component classification check
 
-| Component | Treatment | Notes |
+The exploration subagent suggested RF cavities were silently point-like; direct reading of `elements.py` and `lattice.py` shows they are not. `rf_cavity_matrix` returns `drift_matrix(length)`, and `_make_sub_element` scales `energyGain` by the sub-step fraction — so envelope drift *and* energy gain are both distributed correctly already. The real per-component task is a verification pass, not a rewrite.
+
+| Component | Current treatment | Status |
 |---|---|---|
-| Beampipe (drift) | Distributed | Already correct — verify the drift matrix uses `subL * 0.5`. |
-| Quadrupole | Distributed | `k · L` focusing matrix; verify `k` from `focusStrength` is applied over the full length. |
-| Dipole | Distributed | Sector-bend matrix over L; verify bend-angle scaling is applied across the length, not as a single kick. |
-| Solenoid | Distributed | Rotation + focusing coupled over L. |
-| **RF cavity** | **Distributed (linear energy ramp)** | Currently point-like. Energy gain must be spread linearly across cavity length so envelope evolves through it. |
-| BPM / screen / diagnostic | Thin + drift | Point measurement at element center; drift the rest of the length around it. |
-| Collimator / aperture | Thin + drift | Aperture check at one plane; drift the length. |
-| Source | Audit + document | May be an initial-condition element where "length" is drift from emission point to exit port. Whatever it is today, document it. |
+| Beampipe / drift | Distributed drift matrix | Correct. |
+| Quadrupole | `quadrupole_matrix(k, length)` with sub-stepping | Correct. |
+| Dipole | `dipole_matrix(bendAngle, length)` with `bendAngle` scaled per sub-step | Correct. |
+| Solenoid | `solenoid_matrix(B, p, length)` with sub-stepping | Correct. |
+| RF cavity / cryomodule | `drift_matrix(length)` + `energyGain` scaled per sub-step + `apply_rf_damping` at boundary | Correct. |
+| Source | `np.eye(6)` in `transfer_matrix`; `lattice.propagate` special-cases source to advance `cumulative_s` by `source_len` without sub-stepping | Acceptable — source is an initial-condition emitter. Document in a comment. |
+| Diagnostics (bpm, screen, ict, etc.) | Mapped to `drift` physics type in `gameplay.py`; full drift over declared length | Correct. |
+| Thin effects (chicane, collimator, detector, target, beamStop, fixedTargetAdv, positronTarget, splitter) | In `THIN_EFFECT_TYPES`; `n_steps = 1`, matrix built once | Correct — these are genuinely point interactions in the current model. |
+| Kicker / septum / corrector / octupole / stripperFoil | Mapped to `drift` in `gameplay.py` with declared length | Acceptable simplification; document. |
 
-The propagator `lattice.propagate` already sub-steps at ~0.5 m; the fix is ensuring each element type's transfer matrix is **built from its declared length**, not a hardcoded constant. The sub-step loop then walks the beam envelope through the full length naturally.
+**Verification tests** (Part 2B deliverables):
+
+- A test that propagates a beam through a single RF cavity (`length = 8 m`) and asserts the beam envelope has at least 3 distinct sigma-x snapshot values between the cavity's start and end (i.e. it actually evolves across the length, not a step).
+- A test that builds a beamline config missing `subL` on one element and asserts `beamline_config_from_game` raises `ValueError`.
+- A test that builds a beamline config missing `length` on an element passed directly to `propagate` (bypassing `beamline_config_from_game`) and asserts a `KeyError` or explicit `ValueError`.
 
 ### Part 2C — what is explicitly out of scope
 
 - Re-deriving transfer matrices from scratch.
 - Phase-space / acceptance matching at module interfaces.
-- Revisiting unit conversions for `focusStrength`, `bendAngle`, `energyGain` beyond verifying they are applied over the declared length.
+- Revisiting unit conversions for `focusStrength`, `bendAngle`, `energyGain` beyond the tests in Part 2B.
 - Changes to the Pyodide integration layer.
-- Rewriting the propagator loop.
+- Rewriting the propagator loop or sub-stepping logic.
+- Changing what counts as a thin effect (the classification is correct for the current physics model).
 
 ## Acceptance criteria
 
 - Clicking a beamline module on a tile belonging to a beampipe's straight segment, with matching rotation and a free subtile footprint, inserts the module and splits the pipe into two pipes whose `subL` values sum (with the module's `subL`) to the original pipe's `subL`.
 - Attachments on the old pipe end up on the correct new half or are removed (with a preview warning) if they fell inside the module footprint.
 - Placement on a corner, with mismatched rotation, or with other placeables in the footprint falls through to normal placement (fails cleanly).
-- No component in `src/data/placeables/beamline-modules.js` lacks `subL`.
+- No module-or-drift component in `src/data/beamline-components.raw.js` lacks `subL`.
+- `elements.py::transfer_matrix`, `lattice.py::propagate`, and `lattice.py::_make_sub_element` no longer contain `element.get("length", ...)` — all read `element["length"]` directly.
 - `beam_physics/gameplay.py` raises a clear error if asked to build a lattice from a component without `subL`.
 - `beam_physics/*.py` and `public/beam_physics/*.py` are byte-identical.
 - A beam propagated through an RF cavity shows envelope evolution along the cavity's length (not a step-function jump at a single point).
