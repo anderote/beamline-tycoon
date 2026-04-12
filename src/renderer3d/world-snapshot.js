@@ -174,6 +174,7 @@ function buildEquipment(game) {
     subCol: eq.subCol ?? null,
     subRow: eq.subRow ?? null,
     dir: eq.dir ?? 0,
+    placeY: eq.placeY || 0,
   }));
 }
 
@@ -406,6 +407,7 @@ function buildFurnishings(game) {
     subRow: f.subRow ?? null,
     type: f.type,
     dir: f.dir ?? 0,
+    placeY: f.placeY || 0,
   }));
 }
 

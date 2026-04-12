@@ -128,6 +128,7 @@ export class EquipmentBuilder {
       const subZ = (item.subRow || 0) * SUB_UNIT;
       const centerX = tileX + subX + footW / 2;
       const centerZ = tileZ + subZ + footL / 2;
+      const baseY = (item.placeY || 0) * SUB_UNIT;
       const rotY = -dir * (Math.PI / 2);
       const fallbackColor = compDef?.spriteColor || compDef?.color || 0x888888;
       const baseName = compDef?.baseMaterial || null;
@@ -163,7 +164,7 @@ export class EquipmentBuilder {
           mesh.updateMatrix();
           group.add(mesh);
         }
-        group.position.set(centerX, 0, centerZ);
+        group.position.set(centerX, baseY, centerZ);
         group.rotation.y = rotY;
         group.matrixAutoUpdate = false;
         group.updateMatrix();
@@ -212,7 +213,7 @@ export class EquipmentBuilder {
       mesh.updateMatrix();
 
       const wrapper = new THREE.Group();
-      wrapper.position.set(centerX, 0, centerZ);
+      wrapper.position.set(centerX, baseY, centerZ);
       wrapper.rotation.y = rotY;
       wrapper.matrixAutoUpdate = false;
       wrapper.add(mesh);
