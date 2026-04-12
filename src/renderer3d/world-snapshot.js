@@ -5,7 +5,7 @@
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
-import { rackNeighborAnchors, BOTTOM_SLOTS, TOP_SLOTS, rackTiles } from '../data/carrier-rack.js';
+import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
 
 const GRASS_RANGE = 20;
 
@@ -230,8 +230,7 @@ function buildUtilityRouting(game) {
         if (nseg && nseg.utilities.has(type)) neighbors[dir] = true;
       }
 
-      const isBottom = type in BOTTOM_SLOTS;
-      rackPipes.push({ col, row, type, neighbors, isBottom });
+      rackPipes.push({ col, row, type, neighbors });
     }
   }
 
