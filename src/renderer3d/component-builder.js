@@ -45,6 +45,7 @@ import {
   _buildGyrotronRoles,
 } from './builders/rf-builder.js';
 import { buildPortStubs } from './utility-port-builder.js';
+import { RACK_HEIGHT, RACK_TRAY_WIDTH, RACK_TRAY_DEPTH, RACK_SUPPORT_WIDTH } from '../data/carrier-rack.js';
 
 const SUB_UNIT = 0.5; // 1 sub-unit = 0.5m in world space
 const SEGS = 16;      // cylinder segment count for smooth round shapes
@@ -932,6 +933,51 @@ ROLE_BUILDERS.iot = _buildIOTRoles;
 ROLE_BUILDERS.circulator = _buildCirculatorRoles;
 ROLE_BUILDERS.rfCoupler = _buildRFCouplerRoles;
 ROLE_BUILDERS.gyrotron = _buildGyrotronRoles;
+
+// ── Carrier Rack (wire cable tray on support legs) ────────────────
+function _buildCarrierRackRoles() {
+  const b = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  const halfW = RACK_TRAY_WIDTH / 2;
+  const sw = RACK_SUPPORT_WIDTH;
+  const segLen = 1.0; // half the tile for thumbnail centering
+  const halfLen = segLen / 2;
+  const trayBot = RACK_HEIGHT - RACK_TRAY_DEPTH;
+
+  function push(bucket, geo, mat) {
+    geo.applyMatrix4(mat);
+    bucket.push(geo);
+  }
+  function t(x, y, z) { return new THREE.Matrix4().makeTranslation(x, y, z); }
+
+  // Support legs
+  const legGeo = () => new THREE.BoxGeometry(sw, RACK_HEIGHT, sw);
+  push(b.stand, legGeo(), t(0, RACK_HEIGHT / 2, -halfLen + sw));
+  push(b.stand, legGeo(), t(0, RACK_HEIGHT / 2,  halfLen - sw));
+
+  // Brackets
+  const bracketGeo = () => new THREE.BoxGeometry(RACK_TRAY_WIDTH * 0.5, sw, sw);
+  push(b.iron, bracketGeo(), t(0, trayBot - sw / 2, -halfLen + sw));
+  push(b.iron, bracketGeo(), t(0, trayBot - sw / 2,  halfLen - sw));
+
+  // Tray bottom
+  push(b.iron, new THREE.BoxGeometry(RACK_TRAY_WIDTH, 0.012, segLen), t(0, trayBot, 0));
+
+  // Tray side walls
+  for (const side of [-1, 1]) {
+    push(b.accent, new THREE.BoxGeometry(0.012, RACK_TRAY_DEPTH, segLen),
+      t(side * halfW, trayBot + RACK_TRAY_DEPTH / 2, 0));
+  }
+
+  // Cross rungs
+  const nRungs = Math.floor(segLen / 0.2);
+  for (let i = 0; i <= nRungs; i++) {
+    push(b.detail, new THREE.BoxGeometry(RACK_TRAY_WIDTH, 0.008, 0.008),
+      t(0, trayBot + 0.006, -halfLen + i * 0.2));
+  }
+
+  return b;
+}
+ROLE_BUILDERS.carrierRack = _buildCarrierRackRoles;
 
 /**
  * RFQ (Radio-Frequency Quadrupole) — long copper accelerating structure.
