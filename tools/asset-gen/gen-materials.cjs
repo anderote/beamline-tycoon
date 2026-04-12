@@ -140,6 +140,69 @@ function gen_mesh(name, holeRGB, frameRGB, holeSize, seed) {
   writePng(png, name);
 }
 
+// Vertical corrugated paneling: regular dark/light bands every 4px column,
+// brushed metal feel with tiny per-pixel jitter so it doesn't look flat.
+function gen_corrugated(name, baseRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      // 4px-wide vertical ribs: each rib has a bright crest then dark trough.
+      const phase = (x % 8);
+      let band;
+      if (phase === 0) band = 18;       // crest
+      else if (phase === 2) band = 6;
+      else if (phase === 4) band = -10;
+      else band = -22;                  // trough
+      const n = (rand() - 0.5) * 6;
+      setBlock(png, x, y, baseRGB[0] + band + n, baseRGB[1] + band + n, baseRGB[2] + band + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+// Cryogenic insulation: pale blue-white base with sparse white frost
+// crystals and a faint diagonal quilting pattern.
+function gen_frost(name, baseRGB, crystalRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      // Diagonal quilting: faint ridges every 16px along (x+y)
+      const quilt = ((x + y) % 16 === 0) ? 8 : 0;
+      const n = (rand() - 0.5) * 10;
+      setBlock(png, x, y, baseRGB[0] + quilt + n, baseRGB[1] + quilt + n, baseRGB[2] + quilt + n, CHUNK);
+    }
+  }
+  // Frost crystals: ~25 small bright clusters
+  for (let i = 0; i < 25; i++) {
+    const cx = Math.floor(rand() * SIZE / CHUNK) * CHUNK;
+    const cy = Math.floor(rand() * SIZE / CHUNK) * CHUNK;
+    setBlock(png, cx, cy, crystalRGB[0], crystalRGB[1], crystalRGB[2], CHUNK);
+    if (rand() > 0.4) setBlock(png, (cx + CHUNK) % SIZE, cy, crystalRGB[0], crystalRGB[1], crystalRGB[2], CHUNK);
+    if (rand() > 0.4) setBlock(png, cx, (cy + CHUNK) % SIZE, crystalRGB[0], crystalRGB[1], crystalRGB[2], CHUNK);
+  }
+  writePng(png, name);
+}
+
+// Diagonal hazard stripes: yellow/black every 8px on a 45° diagonal,
+// seamless because the period divides SIZE.
+function gen_hazardStripe(name, yellowRGB, blackRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const period = 16; // two 8-px stripes per period — divides 64 evenly
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const d = (x + y) % period;
+      const isBlack = d < period / 2;
+      const c = isBlack ? blackRGB : yellowRGB;
+      const n = (rand() - 0.5) * 8;
+      setBlock(png, x, y, c[0] + n, c[1] + n, c[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
 // ── Exterior wall variants ───────────────────────────────────────────
 // Each variant produces a seamless 64×64 texture at the 2×2-chunk scale.
 
@@ -357,6 +420,18 @@ gen_grid('tile_floor_white',       [225, 225, 222], [180, 180, 178], 16, 9);
 // Vent mesh + cable tray
 gen_mesh('rack_vent_mesh',         [20, 20, 22], [90, 92, 100], 4, 10);
 gen_grid('cable_tray',             [120, 120, 124], [60, 60, 64], 8, 11);
+
+// Infra category paints (Pass D — infra textures and decals)
+gen_solidNoise('metal_painted_red',    [180, 50, 50],   18, 40);
+gen_solidNoise('metal_painted_blue',   [55, 95, 145],   18, 41);
+gen_solidNoise('metal_painted_green',  [70, 120, 70],   18, 42);
+gen_solidNoise('metal_painted_yellow', [200, 175, 60],  18, 43);
+gen_solidNoise('metal_painted_gray',   [130, 132, 138], 16, 44);
+
+// Infra trims and patterns
+gen_corrugated('metal_corrugated', [128, 132, 138], 45);
+gen_frost('cryo_frost', [200, 215, 230], [240, 248, 255], 46);
+gen_hazardStripe('hazard_stripe', [220, 190, 60], [25, 25, 28], 47);
 
 // Exterior wall variants (concrete pad + cement/shingle/siding/brick)
 gen_wallCement('wall_cement',   20);
