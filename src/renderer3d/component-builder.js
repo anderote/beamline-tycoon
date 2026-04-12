@@ -1840,10 +1840,13 @@ export function createBeamlineGhost(compType) {
 
 // ── Fallback / parts visual builder (standalone) ─────────────────────
 // Builds a Group/Mesh for a placeable using its declared parts[], or
-// a single-box fallback if parts is absent. Used by both
-// ComponentBuilder._createFallbackMesh (for ghost + committed meshes)
-// and renderComponentThumbnail (for build-menu previews) so all three
-// code paths render identical geometry.
+// a single-box/cylinder fallback if parts is absent. Single source of
+// truth for both ComponentBuilder._createFallbackMesh (live + ghost
+// meshes) and renderComponentThumbnail (build-menu previews) so all
+// three code paths render identical geometry. Honors compDef.baseMaterial
+// and compDef.faces for category paint and per-face decals/overrides.
+// Returns the visual at its local origin — callers position it in the
+// world.
 function _buildPartsOrFallback(compDef) {
   if (Array.isArray(compDef.parts) && compDef.parts.length > 0) {
     const group = new THREE.Group();
@@ -1942,10 +1945,9 @@ function _buildPartsOrFallback(compDef) {
     }
   }
 
-  // Center the fallback box on the footprint's bottom-center so it sits
-  // on y=0, matching the parts-path origin convention.
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = h / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   return mesh;
 }
 
@@ -2058,120 +2060,12 @@ export class ComponentBuilder {
   }
 
   /**
-   * Create a fallback mesh for components without a detail builder.
+   * Create a fallback mesh for components without a role or detail
+   * builder. Delegates to the shared standalone builder so live meshes,
+   * ghost previews, and build-menu thumbnails all render identically.
    */
   _createFallbackMesh(compDef) {
-    // Parts path: build a Group from the declarative part list. Part
-    // coords are SUBTILE units, centered on the footprint, y is the
-    // BOTTOM of the part relative to the floor. Matches equipment-
-    // builder's parts logic so ghost previews render identically.
-    if (Array.isArray(compDef.parts) && compDef.parts.length > 0) {
-      const group = new THREE.Group();
-      const baseColor = compDef.spriteColor ?? 0x888888;
-      for (const part of compDef.parts) {
-        const pw = (part.w || 1) * SUB_UNIT;
-        const ph = (part.h || 1) * SUB_UNIT;
-        const pl = (part.l || 1) * SUB_UNIT;
-        const geo = new THREE.BoxGeometry(pw, ph, pl);
-        applyTiledBoxUVs(geo, pw, ph, pl);
-        const mat = new THREE.MeshStandardMaterial({
-          color: part.color ?? baseColor,
-          roughness: 0.7, metalness: 0.15,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(
-          (part.x || 0) * SUB_UNIT,
-          ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
-          (part.z || 0) * SUB_UNIT,
-        );
-        group.add(mesh);
-      }
-      return group;
-    }
-
-    // Visual dims override footprint dims when authored — lets a benchtop
-    // instrument occupy a full subtile slot but render at realistic scale.
-    const vSubW = compDef.visualSubW ?? compDef.subW ?? 2;
-    const vSubH = compDef.visualSubH ?? compDef.subH ?? 2;
-    const vSubL = compDef.visualSubL ?? compDef.subL ?? 2;
-    const w = vSubW * SUB_UNIT;
-    const h = vSubH * SUB_UNIT;
-    const l = vSubL * SUB_UNIT;
-
-    const fallbackColor = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
-    const baseName = compDef.baseMaterial || null;
-    const faces = compDef.faces || null;
-    const hasBaseOrFaces = !!(baseName || faces);
-
-    let geometry;
-    let material;
-
-    if (compDef.geometryType === 'cylinder') {
-      const radius = Math.min(w, h) / 2;
-      geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
-      applyTiledCylinderUVs(geometry, radius, l, 8);
-      geometry.rotateZ(Math.PI / 2);
-
-      if (baseName && MATERIALS[baseName]) {
-        // Cylinders: side + caps share one tiled material. Per-face
-        // decals are not supported for cylinders in this pass.
-        const cacheKey = `${compDef.id}|cyl|${baseName}`;
-        let m = _infraFaceMatCache.get(cacheKey);
-        if (!m) {
-          m = new THREE.MeshStandardMaterial({
-            map: MATERIALS[baseName].map,
-            color: 0xffffff,
-            roughness: 0.7,
-            metalness: 0.2,
-          });
-          _infraFaceMatCache.set(cacheKey, m);
-        }
-        material = m;
-      } else {
-        material = new THREE.MeshStandardMaterial({
-          color: fallbackColor,
-          roughness: 0.7,
-          metalness: 0.1,
-        });
-      }
-    } else {
-      geometry = new THREE.BoxGeometry(w, h, l);
-      applyTiledBoxUVs(geometry, w, h, l);
-
-      if (hasBaseOrFaces) {
-        // Clamp UVs for any face that has a decal override.
-        if (faces) {
-          for (const key of _INFRA_FACE_KEYS) {
-            if (faces[key] && faces[key].decal) {
-              _setInfraFaceUVsClamped(geometry, key);
-            }
-          }
-        }
-        // 6-entry material array, one per face.
-        material = _INFRA_FACE_KEYS.map(key =>
-          _infraFaceMaterial(
-            compDef.id,
-            key,
-            baseName,
-            faces ? faces[key] : null,
-            fallbackColor,
-          )
-        );
-      } else {
-        // Legacy flat-color path — preserved for un-authored infra and
-        // any beamline components that fall through to this branch.
-        material = new THREE.MeshStandardMaterial({
-          color: fallbackColor,
-          roughness: 0.7,
-          metalness: 0.1,
-        });
-      }
-    }
-
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+    return _buildPartsOrFallback(compDef);
   }
 
   /**
