@@ -2,8 +2,8 @@
 //
 // Infrastructure defs — items placed in Infra build mode.
 // Sourced from infrastructure.raw.js (power, vacuum, rfPower, cooling,
-// dataControls, ops). Items with placement === 'attachment' (e.g. turbo
-// pumps that bolt onto vacuum pipes) are excluded — they are not Placeables.
+// dataControls, ops). Items with placement === 'attachment' (e.g. gauges
+// and gate valves that mount on vacuum pipes) are excluded — they are not Placeables.
 
 import { INFRASTRUCTURE_RAW } from '../infrastructure.raw.js';
 
@@ -26,5 +26,5 @@ const INFRASTRUCTURE_IDS = Object.keys(INFRASTRUCTURE_RAW).filter((id) => {
 export const INFRASTRUCTURE_DEFS = INFRASTRUCTURE_IDS.map((id) => {
   const raw = INFRASTRUCTURE_RAW[id];
   const { subW, subL, subH } = toDims(raw);
-  return { ...raw, kind: 'infrastructure', subW, subL, subH };
+  return { ...raw, kind: 'infrastructure', subW, subL, subH, hasSurface: raw.hasSurface ?? true, stackable: raw.stackable ?? false };
 });

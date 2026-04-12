@@ -20,5 +20,5 @@ function toDims(raw) {
 
 export const EQUIPMENT_DEFS = Object.values(FACILITY_LAB_FURNISHINGS_RAW).map((raw) => {
   const { subW, subL, subH } = toDims(raw);
-  return { ...raw, kind: 'equipment', subW, subL, subH };
+  return { ...raw, kind: 'equipment', subW, subL, subH, hasSurface: raw.hasSurface ?? true, stackable: raw.stackable ?? false };
 });
