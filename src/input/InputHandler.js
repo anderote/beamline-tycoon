@@ -802,7 +802,54 @@ export class InputHandler {
     if (!pipe) return null;
     const proj = this._projectOntoPipe(pipe, wx, wz);
     if (!proj) return null;
-    return { snap, pipe, proj };
+    // Compute the subtile cells the attachment will actually occupy at its
+    // projected on-pipe position, then test against subgridOccupied so
+    // attachments can't sit on top of placed modules / equipment.
+    const cells = this._attachmentCellsAtProj(proj, compDef);
+    let collidesWithModule = false;
+    const occ = this.game.state.subgridOccupied || {};
+    for (const c of cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      if (occ[k]) {
+        collidesWithModule = true;
+        break;
+      }
+    }
+    return { snap, pipe, proj, cells, collidesWithModule };
+  }
+
+  /**
+   * Compute the subtile cells an attachment occupies when placed at a
+   * projected on-pipe position. Mirrors the renderer's centering rule
+   * (`col*2+1` world center) and rotates the footprint by `proj.dir`.
+   */
+  _attachmentCellsAtProj(proj, compDef) {
+    const dir = proj.dir || 0;
+    const swap = dir === 1 || dir === 3;
+    // After accounting for orientation: footW is the col-axis extent in
+    // subtiles, footH is the row-axis extent. subL is along the beam.
+    const footW = swap ? (compDef.subL || 1) : (compDef.subW || 1);
+    const footH = swap ? (compDef.subW || 1) : (compDef.subL || 1);
+    // Absolute subtile center: world is (proj.col*2+1, proj.row*2+1) and
+    // 1 subtile = 0.5 world units.
+    const absCenterC = proj.col * 4 + 2;
+    const absCenterR = proj.row * 4 + 2;
+    const absOriginC = Math.round(absCenterC - footW / 2);
+    const absOriginR = Math.round(absCenterR - footH / 2);
+    const cells = [];
+    for (let dr = 0; dr < footH; dr++) {
+      for (let dc = 0; dc < footW; dc++) {
+        const sc = absOriginC + dc;
+        const sr = absOriginR + dr;
+        cells.push({
+          col: Math.floor(sc / 4),
+          row: Math.floor(sr / 4),
+          subCol: ((sc % 4) + 4) % 4,
+          subRow: ((sr % 4) + 4) % 4,
+        });
+      }
+    }
+    return cells;
   }
 
   /**
@@ -820,7 +867,7 @@ export class InputHandler {
       hit.proj.col, hit.proj.row,
       this.selectedTool,
       hit.proj.dir,
-      true,
+      !hit.collidesWithModule,
     );
   }
 
@@ -937,15 +984,18 @@ export class InputHandler {
             const wx = this.lastMouseWorldX ?? 0;
             const wy = this.lastMouseWorldY ?? 0;
             const hit = this._snapAttachmentToPipe(wx, wy);
-            if (hit) {
+            if (!hit) {
+              this.game.log('Must place on a beam pipe!', 'bad');
+            } else if (hit.collidesWithModule) {
+              const def = COMPONENTS[this.selectedTool];
+              this.game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
+            } else {
               this.game.addAttachmentToPipe(
                 hit.pipe.id,
                 this.selectedTool,
                 hit.proj.position,
                 this.selectedParamOverrides,
               );
-            } else {
-              this.game.log('Must place on a beam pipe!', 'bad');
             }
           } else if (this.hoverPlaceable) {
             // Unified placement — handles beamline / equipment / furnishing / decoration.
@@ -2036,18 +2086,23 @@ export class InputHandler {
     // ghost: snap the footprint to the subgrid, project onto the nearest
     // pipe, and store the projected position along that pipe.
     if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
-      this.game._pushUndo();
       const hit = this._snapAttachmentToPipe(world.x, world.y);
-      if (hit) {
-        this.game.addAttachmentToPipe(
-          hit.pipe.id,
-          this.selectedTool,
-          hit.proj.position,
-          this.selectedParamOverrides,
-        );
-      } else {
+      if (!hit) {
         this.game.log('Must place on a beam pipe!', 'bad');
+        return;
       }
+      if (hit.collidesWithModule) {
+        const def = COMPONENTS[this.selectedTool];
+        this.game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
+        return;
+      }
+      this.game._pushUndo();
+      this.game.addAttachmentToPipe(
+        hit.pipe.id,
+        this.selectedTool,
+        hit.proj.position,
+        this.selectedParamOverrides,
+      );
       return;
     }
 
