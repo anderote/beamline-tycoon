@@ -1209,17 +1209,11 @@ export class Game {
     this.state.zoneConnectivity = connectivity;
   }
 
-  // Get the achieved tier for a gated category (0 = no zone, 1-3 = tier)
-  getZoneTierForCategory(category) {
-    for (const zone of Object.values(ZONES)) {
-      const gates = Array.isArray(zone.gatesCategory) ? zone.gatesCategory : [zone.gatesCategory];
-      if (gates.includes(category)) {
-        const conn = this.state.zoneConnectivity?.[zone.id];
-        if (!conn || !conn.active) return 0;
-        return conn.tier;
-      }
-    }
-    return 99; // ungated category
+  // Lab-floorspace/zone gating for infra builds has been removed: every
+  // category is treated as ungated so palette items never show as
+  // zone-blocked. Zones themselves still exist for other systems.
+  getZoneTierForCategory(_category) {
+    return 99;
   }
 
   // === FACILITY EQUIPMENT ===
@@ -1333,6 +1327,16 @@ export class Game {
       return null;
     }
 
+    // Steps 10–13 are wrapped in try/catch so that any unexpected error
+    // after the pipe has been deleted and the module placed can be rolled back
+    // cleanly. On catch: remove the module, restore the original pipe, and
+    // return null (hard failure — caller should NOT fall through to normal
+    // placement as the error may be structural and repeating will likely fail
+    // again).
+    let p1, p2;
+    let droppedAttachments = 0;
+    try {
+
     // 10. Split the expanded tile list into "before module" and "after module".
     const beforeTiles = expandedTiles.slice(0, startIdx);
     const afterTiles  = expandedTiles.slice(endIdx + 1);
@@ -1387,34 +1391,41 @@ export class Game {
       };
     };
 
-    const p1 = makePipe(originalPipe.fromId, originalPipe.fromPort, moduleId, beforePort, beforePath);
-    const p2 = makePipe(moduleId, afterPort, originalPipe.toId, originalPipe.toPort, afterPath);
+    p1 = makePipe(originalPipe.fromId, originalPipe.fromPort, moduleId, beforePort, beforePath);
+    p2 = makePipe(moduleId, afterPort, originalPipe.toId, originalPipe.toPort, afterPath);
     this.state.beamPipes.push(p1, p2);
 
-    // 13. Reassign attachments by tile position. Attachments store position as
-    //     a 0..1 fraction along the original pipe.
-    const tileContains = (path, c, r) => {
-      const tiles = expandPipePath(path);
-      return tiles.some(t => t.col === c && t.row === r);
-    };
-    let droppedAttachments = 0;
-    const origTiles = expandPipePath(originalPipe.path);
+    // 13. Reassign attachments using sub-unit precision so that attachments
+    //     do not drift by rounding to tile indices. Each tile edge = 4 sub-units
+    //     (matches createBeamPipe's tileDist * 4 formula).
+    const moduleSubStart = startIdx * 4;
+    const moduleSubEnd   = (endIdx + 1) * 4;
     for (const att of originalPipe.attachments) {
-      const attTileIdx = Math.min(origTiles.length - 1, Math.max(0, Math.round((att.position || 0) * (origTiles.length - 1))));
-      const attTile = origTiles[attTileIdx];
-      if (tileContains(beforePath, attTile.col, attTile.row)) {
-        const beforeTilesForPos = expandPipePath(beforePath);
-        const newIdx = beforeTilesForPos.findIndex(t => t.col === attTile.col && t.row === attTile.row);
-        att.position = newIdx / Math.max(1, beforeTilesForPos.length - 1);
-        p1.attachments.push(att);
-      } else if (tileContains(afterPath, attTile.col, attTile.row)) {
-        const afterTilesForPos = expandPipePath(afterPath);
-        const newIdx = afterTilesForPos.findIndex(t => t.col === attTile.col && t.row === attTile.row);
-        att.position = newIdx / Math.max(1, afterTilesForPos.length - 1);
-        p2.attachments.push(att);
+      const absSub = (att.position || 0) * originalPipe.subL;
+      if (absSub < moduleSubStart) {
+        // Attachment is on the before-half.
+        const newPos = Math.min(1, Math.max(0, absSub / p1.subL));
+        p1.attachments.push({ ...att, position: newPos });
+      } else if (absSub > moduleSubEnd) {
+        // Attachment is on the after-half.
+        const newPos = Math.min(1, Math.max(0, (absSub - moduleSubEnd) / p2.subL));
+        p2.attachments.push({ ...att, position: newPos });
       } else {
+        // Attachment falls inside the module footprint — drop it.
         droppedAttachments++;
       }
+    }
+
+    } catch (err) {
+      // Rollback: remove any new pipes we pushed, restore the original pipe,
+      // and remove the partially-placed module.
+      this.state.beamPipes = this.state.beamPipes.filter(
+        p => p !== p1 && p !== p2
+      );
+      this.state.beamPipes.splice(pipeIdx, 0, originalPipe);
+      this.removePlaceable(moduleId);
+      this.log('Pipe insertion failed — rolled back', 'bad');
+      return null;
     }
 
     if (droppedAttachments > 0) {
