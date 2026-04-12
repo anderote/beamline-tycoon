@@ -21,6 +21,7 @@ import { generateStartingMap } from './map-generator.js';
 import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
+import { findStackTarget, collapsePlan } from './stacking.js';
 
 export class Game {
   constructor(registry) {
@@ -1484,12 +1485,30 @@ export class Game {
       return false;
     }
 
+    // --- Stack target resolution ---
+    let stackTarget = null;
+    if (placeable.stackable) {
+      const getEntry = (id) => {
+        const idx = this.state.placeableIndex[id];
+        return idx !== undefined ? this.state.placeables[idx] : null;
+      };
+      const getDef = (t) => PLACEABLES[t] || null;
+      stackTarget = findStackTarget(
+        placeable, col, row, subCol || 0, subRow || 0, dir,
+        this.state.subgridOccupied, getEntry, getDef,
+      );
+    }
+
     const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
-    for (const c of cells) {
-      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-      if (this.state.subgridOccupied[k]) {
-        this.log('Space occupied!', 'bad');
-        return false;
+    if (stackTarget) {
+      // Stacking — cells are occupied by the ground item, which is expected.
+    } else {
+      for (const c of cells) {
+        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        if (this.state.subgridOccupied[k]) {
+          this.log('Space occupied!', 'bad');
+          return false;
+        }
       }
     }
 
@@ -1564,9 +1583,18 @@ export class Game {
     this.state.placeables.push(entry);
     this.state.placeableIndex[id] = this.state.placeables.length - 1;
 
-    for (const c of cells) {
-      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-      this.state.subgridOccupied[k] = { id, kind };
+    if (stackTarget) {
+      entry.placeY = stackTarget.placeY;
+      entry.stackParentId = stackTarget.targetEntry.id;
+      entry.cells = [];
+      stackTarget.targetEntry.stackChildren.push(id);
+    }
+
+    if (!stackTarget) {
+      for (const c of cells) {
+        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        this.state.subgridOccupied[k] = { id, kind };
+      }
     }
 
     placeable.onPlaced(this, entry);
@@ -1596,6 +1624,19 @@ export class Game {
     const placeable = PLACEABLES[entry.type];
     if (!placeable) return false;
 
+    // --- Stack collapse check ---
+    const getEntry = (id) => {
+      const idx = this.state.placeableIndex[id];
+      return idx !== undefined ? this.state.placeables[idx] : null;
+    };
+    const getDef = (t) => PLACEABLES[t] || null;
+
+    const updates = collapsePlan(placeableId, getEntry, getDef);
+    if (updates === null) {
+      this.log('Cannot remove — stack would exceed height limit!', 'bad');
+      return false;
+    }
+
     // 50% refund
     if (placeable.cost) {
       for (const [r, a] of Object.entries(placeable.cost)) {
@@ -1611,6 +1652,43 @@ export class Game {
     for (const cell of entry.cells) {
       const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
       delete this.state.subgridOccupied[cellKey];
+    }
+
+    // Apply stack collapse
+    if (entry.stackParentId) {
+      const parent = getEntry(entry.stackParentId);
+      if (parent) {
+        parent.stackChildren = parent.stackChildren.filter(cid => cid !== placeableId);
+      }
+    }
+    for (const childId of (entry.stackChildren || [])) {
+      const child = getEntry(childId);
+      if (child) {
+        child.stackParentId = entry.stackParentId || null;
+        if (entry.stackParentId) {
+          const newParent = getEntry(entry.stackParentId);
+          if (newParent && !newParent.stackChildren.includes(childId)) {
+            newParent.stackChildren.push(childId);
+          }
+        }
+      }
+    }
+    for (const u of updates) {
+      const child = getEntry(u.id);
+      if (!child) continue;
+      child.placeY = u.newPlaceY;
+      child.stackParentId = u.newStackParentId;
+      if (u.newStackParentId === null && child.placeY === 0) {
+        const childDef = getDef(child.type);
+        if (childDef) {
+          const childCells = childDef.footprintCells(child.col, child.row, child.subCol || 0, child.subRow || 0, child.dir || 0);
+          child.cells = childCells;
+          for (const c of childCells) {
+            const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+            this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+          }
+        }
+      }
     }
 
     // Remove beam pipes connected to this placeable (beamline only)
