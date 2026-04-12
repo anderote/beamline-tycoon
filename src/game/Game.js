@@ -83,6 +83,7 @@ export class Game {
       doorOccupied: {},       // "col,row,edge" -> doorType
       // Utility connections
       connections: new Map(),     // "col,row" -> Set of connection type keys
+      rackSegments: new Map(),    // "col,row" -> { utilities: Set<connType> }
       // Machines (cyclotrons, stalls, rings)
       machines: [],             // machine instances
       machineGrid: {},          // "col,row" -> machineId
@@ -203,6 +204,7 @@ export class Game {
       machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
       machineGrid: { ...this.state.machineGrid },
       connections: new Map([...this.state.connections].map(([k, v]) => [k, new Set(v)])),
+      rackSegments: new Map([...this.state.rackSegments].map(([k, v]) => [k, { utilities: new Set(v.utilities) }])),
       editingBeamlineId: this.editingBeamlineId,
       selectedBeamlineId: this.selectedBeamlineId,
       // Beamline registry snapshot
@@ -293,6 +295,7 @@ export class Game {
     this.state.machines = snap.machines;
     this.state.machineGrid = snap.machineGrid;
     this.state.connections = snap.connections;
+    this.state.rackSegments = snap.rackSegments;
     this.editingBeamlineId = snap.editingBeamlineId;
     this.selectedBeamlineId = snap.selectedBeamlineId;
 
@@ -923,6 +926,16 @@ export class Game {
       w => !(w.col === col && w.row === row && w.edge === edge)
     );
     delete this.state.wallOccupied[key];
+    // Remove any orphaned door on this edge
+    if (this.state.doorOccupied[key]) {
+      const dt = DOOR_TYPES[this.state.doorOccupied[key]];
+      if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
+      this.state.doors = this.state.doors.filter(
+        d => !(d.col === col && d.row === row && d.edge === edge)
+      );
+      delete this.state.doorOccupied[key];
+      this.emit('doorsChanged');
+    }
     this.emit('wallsChanged');
     return true;
   }
@@ -933,6 +946,7 @@ export class Game {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
     const key = `${col},${row},${edge}`;
+    if (!this.state.wallOccupied[key]) return false;
     if (this.state.doorOccupied[key] === doorType) return true;
     if (this.state.doorOccupied[key]) {
       this.state.doors = this.state.doors.filter(
@@ -952,6 +966,7 @@ export class Game {
     let placed = 0;
     for (const pt of path) {
       const key = `${pt.col},${pt.row},${pt.edge}`;
+      if (!this.state.wallOccupied[key]) continue;
       if (this.state.doorOccupied[key] === doorType) continue;
       if (this.state.resources.funding < dt.cost) break;
       if (this.state.doorOccupied[key]) {
@@ -1466,13 +1481,37 @@ export class Game {
       return false;
     }
 
-    // The ONLY placement constraint: subtile footprint collision.
     const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
     for (const c of cells) {
       const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
       if (this.state.subgridOccupied[k]) {
         this.log('Space occupied!', 'bad');
         return false;
+      }
+    }
+
+    // Check wall intersection — footprint must not cross any wall edge.
+    const wallSet = new Set(cells.map(c => `${c.col},${c.row},${c.subCol},${c.subRow}`));
+    for (const c of cells) {
+      if (c.subCol === 3) {
+        const nk = `${c.col + 1},${c.row},0,${c.subRow}`;
+        if (wallSet.has(nk)) {
+          if (this.state.wallOccupied[`${c.col},${c.row},e`] ||
+              this.state.wallOccupied[`${c.col + 1},${c.row},w`]) {
+            this.log('Intersects a wall!', 'bad');
+            return false;
+          }
+        }
+      }
+      if (c.subRow === 3) {
+        const nk = `${c.col},${c.row + 1},${c.subCol},0`;
+        if (wallSet.has(nk)) {
+          if (this.state.wallOccupied[`${c.col},${c.row},s`] ||
+              this.state.wallOccupied[`${c.col},${c.row + 1},n`]) {
+            this.log('Intersects a wall!', 'bad');
+            return false;
+          }
+        }
       }
     }
 
@@ -2151,6 +2190,61 @@ export class Game {
     return this.state.connections.get(key) || new Set();
   }
 
+  // === CARRIER RACK ===
+
+  placeRackSegment(col, row) {
+    const key = col + ',' + row;
+    if (this.state.rackSegments.has(key)) return false;
+    this.state.rackSegments.set(key, { utilities: new Set() });
+    this.emit('connectionsChanged');
+    return true;
+  }
+
+  removeRackSegment(col, row) {
+    const key = col + ',' + row;
+    if (!this.state.rackSegments.has(key)) return false;
+    this.state.rackSegments.delete(key);
+    this.emit('connectionsChanged');
+    this.validateInfrastructure();
+    return true;
+  }
+
+  paintRackUtility(col, row, connType) {
+    const key = col + ',' + row;
+    const seg = this.state.rackSegments.get(key);
+    if (!seg) return false;
+    if (seg.utilities.has(connType)) return false;
+    seg.utilities.add(connType);
+    this.emit('connectionsChanged');
+    this.validateInfrastructure();
+    return true;
+  }
+
+  removeRackUtility(col, row, connType) {
+    const key = col + ',' + row;
+    const seg = this.state.rackSegments.get(key);
+    if (!seg) return false;
+    if (!seg.utilities.has(connType)) return false;
+    seg.utilities.delete(connType);
+    this.emit('connectionsChanged');
+    this.validateInfrastructure();
+    return true;
+  }
+
+  getRackSegment(col, row) {
+    return this.state.rackSegments.get(col + ',' + row) || null;
+  }
+
+  getRackSegmentAt(tileCol, tileRow) {
+    for (const [key, seg] of this.state.rackSegments) {
+      const [c, r] = key.split(',').map(Number);
+      if (tileCol >= c && tileCol < c + 2 && tileRow >= r && tileRow < r + 2) {
+        return { col: c, row: r, ...seg };
+      }
+    }
+    return null;
+  }
+
   // Check if a beamline component has a valid connection of the given type
   hasValidConnection(node, connType) {
     const conn = CONNECTION_TYPES[connType];
@@ -2294,6 +2388,23 @@ export class Game {
     if (!instance || !instance.beamlineId) return;
     this.registry.removeBeamline(instance.beamlineId);
     instance.beamlineId = null;
+  }
+
+  _openDesignerForBeamline(beamlineId) {
+    if (!this._designer) return;
+    const entry = this.registry.get(beamlineId);
+    if (!entry) return;
+    const sourceNode = entry.beamline.nodes.find(n => {
+      const def = COMPONENTS[n.type];
+      return def && def.isSource;
+    });
+    if (sourceNode && this.state.beamPipes?.some(
+      p => p.fromId === sourceNode.id || p.toId === sourceNode.id
+    )) {
+      this._designer.openFromSource(sourceNode.id);
+    } else {
+      this._designer.open(beamlineId);
+    }
   }
 
   recalcBeamline(beamlineId) {
@@ -3410,7 +3521,11 @@ export class Game {
     for (const [key, set] of this.state.connections) {
       connObj[key] = Array.from(set);
     }
-    const saveState = { ...this.state, connections: connObj };
+    const rackObj = {};
+    for (const [key, seg] of this.state.rackSegments) {
+      rackObj[key] = [...seg.utilities];
+    }
+    const saveState = { ...this.state, connections: connObj, rackSegments: rackObj };
     localStorage.setItem('beamlineTycoon', JSON.stringify({
       version: 6,
       state: saveState,
@@ -3475,6 +3590,16 @@ export class Game {
         this.state.connections = map;
       } else if (!this.state.connections) {
         this.state.connections = new Map();
+      }
+      // Restore rackSegments Map from serialized format
+      if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
+        const map = new Map();
+        for (const [key, arr] of Object.entries(this.state.rackSegments)) {
+          map.set(key, { utilities: new Set(arr) });
+        }
+        this.state.rackSegments = map;
+      } else if (!this.state.rackSegments) {
+        this.state.rackSegments = new Map();
       }
 
       // Ensure facility arrays exist
@@ -3698,6 +3823,16 @@ export class Game {
       this.state.connections = map;
     } else if (!this.state.connections) {
       this.state.connections = new Map();
+    }
+    // Restore rackSegments Map
+    if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
+      const map = new Map();
+      for (const [key, arr] of Object.entries(this.state.rackSegments)) {
+        map.set(key, { utilities: new Set(arr) });
+      }
+      this.state.rackSegments = map;
+    } else if (!this.state.rackSegments) {
+      this.state.rackSegments = new Map();
     }
 
     // Ensure facility arrays exist
