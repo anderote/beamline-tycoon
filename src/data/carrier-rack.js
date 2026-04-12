@@ -10,7 +10,7 @@ export const RACK_PIPE_CENTER_Y = 3.5;
 export const RACK_SUPPORT_WIDTH = 0.1;
 export const RACK_SIZE = 2; // tiles per side
 
-export const RACK_COST = { funding: 50000 };
+export const RACK_COST = { funding: 5000 };
 
 // Fixed slot positions for bottom-rail pipes.
 // X offset from rack center, looking down the primary axis.
