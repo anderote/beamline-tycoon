@@ -56,7 +56,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
   whiteboard:       { id: 'whiteboard',        name: 'Whiteboard',         zoneType: 'officeSpace', cost: { funding: 25 },   energyCost: 0,   spriteColor: 0xddddee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboard',       effects: { research: 0.02 }, baseMaterial: 'metal_painted_white' },
-  coffeeMachine:    { id: 'coffeeMachine',     name: 'Coffee Machine',     zoneType: 'officeSpace', cost: { funding: 15 },   energyCost: 0.2, spriteColor: 0x664433, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.75, visualSubL: 0.7, spriteKey: 'coffeeMachine',    effects: { morale: 2 }, baseMaterial: 'metal_dark' },
+  coffeeMachine:    { id: 'coffeeMachine',     name: 'Coffee Machine',     zoneType: 'officeSpace', cost: { funding: 15 },   energyCost: 0.2, spriteColor: 0x664433, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.75, visualSubL: 0.7, spriteKey: 'coffeeMachine',    effects: { morale: 2 }, baseMaterial: 'metal_dark', stackable: true },
   monitorBank:      { id: 'monitorBank',       name: 'Monitor Bank',       zoneType: 'controlRoom', cost: { funding: 150 },  energyCost: 0.8, spriteColor: 0x44bb66, gridW: 4, gridH: 2, subH: 1, spriteKey: 'monitorBank',      effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_painted_white' },
   serverRack: {
     id: 'serverRack', name: 'Server Rack', zoneType: 'controlRoom',
@@ -117,7 +117,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   operatorConsole: {
     id: 'operatorConsole', name: 'Operator Console', zoneType: 'controlRoom',
     cost: { funding: 200 }, energyCost: 0.5, spriteColor: 0x2a2c34,
-    gridW: 3, gridH: 2, subH: 2, spriteKey: 'operatorConsole',
+    gridW: 3, gridH: 2, subH: 3, spriteKey: 'operatorConsole',
     effects: { zoneOutput: 0.07 }, baseMaterial: 'metal_painted_white',
     // 3×2 footprint. Console desk + angled monitor bank behind it.
     parts: [
@@ -129,26 +129,34 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'top', x: 0, y: 1.4, z: 0.1, w: 3.0, h: 0.08, l: 1.8, material: 'tile_hardwood' },
       // Keyboard tray inset / dark strip near front
       { name: 'kb', x: 0, y: 1.44, z: -0.7, w: 1.8, h: 0.04, l: 0.3, color: 0x1a1c22 },
-      // Monitor bank back panel
-      { name: 'backPanel', x: 0, y: 1.5, z: 0.92, w: 2.9, h: 1.5, l: 0.08, material: 'metal_dark' },
-      // 3 dark monitors mounted on back panel
-      { name: 'mon1', x: -1.0, y: 1.7, z: 0.86, w: 0.9, h: 0.55, l: 0.04, color: 0x0c0e14 },
-      { name: 'mon2', x:  0.0, y: 1.7, z: 0.86, w: 0.9, h: 0.55, l: 0.04, color: 0x0c0e14 },
-      { name: 'mon3', x:  1.0, y: 1.7, z: 0.86, w: 0.9, h: 0.55, l: 0.04, color: 0x0c0e14 },
-      // Monitor screens (glowing green)
-      { name: 'scr1', x: -1.0, y: 1.72, z: 0.83, w: 0.82, h: 0.47, l: 0.02, color: 0x104018 },
-      { name: 'scr2', x:  0.0, y: 1.72, z: 0.83, w: 0.82, h: 0.47, l: 0.02, color: 0x0a2a14 },
-      { name: 'scr3', x:  1.0, y: 1.72, z: 0.83, w: 0.82, h: 0.47, l: 0.02, color: 0x104018 },
+      // Monitor bank back panel (taller for 2 rows of screens)
+      { name: 'backPanel', x: 0, y: 1.5, z: 0.92, w: 2.9, h: 2.0, l: 0.08, material: 'metal_dark' },
+      // Bottom row — 3 monitors
+      { name: 'mon1', x: -0.95, y: 1.65, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      { name: 'mon2', x:  0.0,  y: 1.65, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      { name: 'mon3', x:  0.95, y: 1.65, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      // Bottom row screens (beam position plot, orbit display, status table)
+      { name: 'scr1', x: -0.95, y: 1.67, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x0a2a14 },
+      { name: 'scr2', x:  0.0,  y: 1.67, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x104018 },
+      { name: 'scr3', x:  0.95, y: 1.67, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x0c1830 },
+      // Top row — 3 monitors
+      { name: 'mon4', x: -0.95, y: 2.25, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      { name: 'mon5', x:  0.0,  y: 2.25, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      { name: 'mon6', x:  0.95, y: 2.25, z: 0.86, w: 0.88, h: 0.55, l: 0.04, color: 0x0c0e14 },
+      // Top row screens (trending charts, alarm summary, beam profile)
+      { name: 'scr4', x: -0.95, y: 2.27, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x182a0c },
+      { name: 'scr5', x:  0.0,  y: 2.27, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x301010 },
+      { name: 'scr6', x:  0.95, y: 2.27, z: 0.83, w: 0.80, h: 0.47, l: 0.02, color: 0x0a2a14 },
       // Row of status lamps along top of back panel
-      { name: 'lampL', x: -1.3, y: 2.4, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0x44ff66 },
-      { name: 'lampM', x:  0.0, y: 2.4, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0xffaa40 },
-      { name: 'lampR', x:  1.3, y: 2.4, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0xff4040 },
+      { name: 'lampL', x: -1.3, y: 2.95, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0x44ff66 },
+      { name: 'lampM', x:  0.0, y: 2.95, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0xffaa40 },
+      { name: 'lampR', x:  1.3, y: 2.95, z: 0.85, w: 0.06, h: 0.06, l: 0.02, color: 0xff4040 },
       // Keyboard + mouse suggestion on worksurface
-      { name: 'kybd',  x: -0.1, y: 1.48, z: -0.5, w: 0.9, h: 0.04, l: 0.3, color: 0x20222a },
-      { name: 'mouse', x:  0.6, y: 1.48, z: -0.5, w: 0.12, h: 0.05, l: 0.18, color: 0x20222a },
+      { name: 'kybd',  x: -0.1, y: 1.50, z: -0.5, w: 0.9, h: 0.04, l: 0.3, color: 0x20222a },
+      { name: 'mouse', x:  0.6, y: 1.505, z: -0.5, w: 0.12, h: 0.05, l: 0.18, color: 0x20222a },
     ],
   },
-  alarmPanel:       { id: 'alarmPanel',        name: 'Alarm Panel',        zoneType: 'controlRoom', cost: { funding: 100 },  energyCost: 0.1, spriteColor: 0xcc5544, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.8, visualSubH: 1.2, visualSubL: 0.2, spriteKey: 'alarmPanel',       effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark' },
+  alarmPanel:       { id: 'alarmPanel',        name: 'Alarm Panel',        zoneType: 'controlRoom', cost: { funding: 100 },  energyCost: 0.1, spriteColor: 0xcc5544, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.8, visualSubH: 1.2, visualSubL: 0.2, spriteKey: 'alarmPanel',       effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', stackable: true },
   diningTable: {
     id: 'diningTable', name: 'Dining Table', zoneType: 'cafeteria',
     cost: { funding: 25 }, energyCost: 0, spriteColor: 0xaa7744,
@@ -197,7 +205,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
   vendingMachine:   { id: 'vendingMachine',    name: 'Vending Machine',    zoneType: 'cafeteria',   cost: { funding: 40 },   energyCost: 0.3, spriteColor: 0x4488aa, gridW: 1, gridH: 1, subH: 3, spriteKey: 'vendingMachine',   effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
-  microwave:        { id: 'microwave',         name: 'Microwave Station',  zoneType: 'cafeteria',   cost: { funding: 20 },   energyCost: 0.3, spriteColor: 0x666666, gridW: 1, gridH: 1, subH: 1, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.75, spriteKey: 'microwave',        effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
+  microwave:        { id: 'microwave',         name: 'Microwave Station',  zoneType: 'cafeteria',   cost: { funding: 20 },   energyCost: 0.3, spriteColor: 0x666666, gridW: 1, gridH: 1, subH: 1, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.75, spriteKey: 'microwave',        effects: { morale: 1 }, baseMaterial: 'metal_painted_white', stackable: true },
   waterCooler:      { id: 'waterCooler',       name: 'Water Cooler',       zoneType: 'cafeteria',   cost: { funding: 10 },   energyCost: 0.1, spriteColor: 0x66aacc, gridW: 1, gridH: 1, subH: 2, visualSubW: 0.6, visualSubH: 2.1, visualSubL: 0.6, spriteKey: 'waterCooler',      effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
   conferenceTable: {
     id: 'conferenceTable', name: 'Conference Table', zoneType: 'meetingRoom',
@@ -220,7 +228,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'cable', x: 0, y: 1.4, z: 0, w: 3.6, h: 0.13, l: 0.2, material: 'metal_dark' },
     ],
   },
-  projector:        { id: 'projector',          name: 'Projector',          zoneType: 'meetingRoom', cost: { funding: 120 },  energyCost: 0.3, spriteColor: 0x444444, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.6, visualSubH: 0.4, visualSubL: 0.6, spriteKey: 'projector',        effects: { research: 0.04 }, baseMaterial: 'metal_dark' },
-  phoneUnit:        { id: 'phoneUnit',          name: 'Conference Phone',   zoneType: 'meetingRoom', cost: { funding: 40 },   energyCost: 0,   spriteColor: 0x333333, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.2, visualSubL: 0.5, spriteKey: 'phoneUnit',        effects: {}, baseMaterial: 'metal_dark' },
+  projector:        { id: 'projector',          name: 'Projector',          zoneType: 'meetingRoom', cost: { funding: 120 },  energyCost: 0.3, spriteColor: 0x444444, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.6, visualSubH: 0.4, visualSubL: 0.6, spriteKey: 'projector',        effects: { research: 0.04 }, baseMaterial: 'metal_dark', stackable: true },
+  phoneUnit:        { id: 'phoneUnit',          name: 'Conference Phone',   zoneType: 'meetingRoom', cost: { funding: 40 },   energyCost: 0,   spriteColor: 0x333333, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.2, visualSubL: 0.5, spriteKey: 'phoneUnit',        effects: {}, baseMaterial: 'metal_dark', stackable: true },
   whiteboardLarge:  { id: 'whiteboardLarge',    name: 'Large Whiteboard',   zoneType: 'meetingRoom', cost: { funding: 35 },   energyCost: 0,   spriteColor: 0xeeeeee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboardLarge',  effects: { research: 0.03 }, baseMaterial: 'metal_painted_white' },
 };
