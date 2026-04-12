@@ -10,65 +10,43 @@ from beam_physics.lattice import propagate
 from beam_physics.constants import DEFAULT_APERTURE
 
 # Default stats per component type, matching data.js COMPONENTS
+# Note: length is NOT stored here — every component must declare subL in JS
 COMPONENT_DEFAULTS = {
     # === Electron Sources ===
-    "source":       {"length": 2.0},
-    "dcPhotoGun":   {"length": 2.0, "emittance": 1e-6},
-    "ncRfGun":      {"length": 2.0, "emittance": 0.5e-6},
-    "srfGun":       {"length": 3.0, "emittance": 0.3e-6},
-    # === Beam Pipe ===
-    "drift":        {"length": 2.0},
-    "driftVert":    {"length": 2.0},
-    "bellows":      {"length": 0.5},
+    "dcPhotoGun":   {"emittance": 1e-6},
+    "ncRfGun":      {"emittance": 0.5e-6},
+    "srfGun":       {"emittance": 0.3e-6},
     # === RF Cavities ===
-    "rfCavity":     {"length": 3.0, "energyGain": 0.5},
-    "cryomodule":   {"length": 8.0, "energyGain": 2.0},
-    "buncher":      {"length": 1.0, "energyGain": 0.05},
-    "harmonicLinearizer": {"length": 2.0, "energyGain": 0.02},
-    "cbandCavity":  {"length": 2.0, "energyGain": 0.8},
-    "xbandCavity":  {"length": 2.0, "energyGain": 1.2},
-    "srf650Cavity": {"length": 4.0, "energyGain": 1.5},
+    "rfCavity":     {"energyGain": 0.5},
+    "cryomodule":   {"energyGain": 2.0},
+    "buncher":      {"energyGain": 0.05},
+    "harmonicLinearizer": {"energyGain": 0.02},
+    "cbandCavity":  {"energyGain": 0.8},
+    "xbandCavity":  {"energyGain": 1.2},
+    "srf650Cavity": {"energyGain": 1.5},
     # === Magnets ===
-    "dipole":       {"length": 3.0, "bendAngle": 90.0},
-    "quadrupole":   {"length": 1.0, "focusStrength": 1.0},
-    "solenoid":     {"length": 1.5, "field": 0.2},
-    "corrector":    {"length": 0.5},
-    "sextupole":    {"length": 1.0, "focusStrength": 0.5, "beamQuality": 0.3},
-    "octupole":     {"length": 1.0},
-    "scQuad":       {"length": 1.0, "focusStrength": 2.0},
-    "scDipole":     {"length": 4.0, "bendAngle": 90.0},
-    "combinedFunctionMagnet": {"length": 1.5, "focusStrength": 0.5, "bendAngle": 45.0},
-    # === Diagnostics ===
-    "bpm":          {"length": 0.5},
-    "screen":       {"length": 0.5},
-    "ict":          {"length": 0.5},
-    "wireScanner":  {"length": 0.5},
-    "bunchLengthMonitor": {"length": 0.5},
-    "energySpectrometer": {"length": 2.0},
-    "beamLossMonitor": {"length": 0.5},
-    "srLightMonitor": {"length": 0.5},
+    "dipole":       {"bendAngle": 90.0},
+    "quadrupole":   {"focusStrength": 1.0},
+    "solenoid":     {"field": 0.2},
+    "sextupole":    {"focusStrength": 0.5, "beamQuality": 0.3},
+    "scQuad":       {"focusStrength": 2.0},
+    "scDipole":     {"bendAngle": 90.0},
+    "combinedFunctionMagnet": {"focusStrength": 0.5, "bendAngle": 45.0},
     # === Insertion Devices ===
-    "undulator":    {"length": 5.0, "photonRate": 1.0},
-    "helicalUndulator": {"length": 5.0, "photonRate": 1.2},
-    "wiggler":      {"length": 5.0, "photonRate": 2.0},
-    "apple2Undulator": {"length": 5.0, "photonRate": 1.5},
+    "undulator":    {"photonRate": 1.0},
+    "helicalUndulator": {"photonRate": 1.2},
+    "wiggler":      {"photonRate": 2.0},
+    "apple2Undulator": {"photonRate": 1.5},
     # === Beam Manipulation ===
-    "collimator":   {"length": 1.0, "beamQuality": 0.2},
-    "kickerMagnet": {"length": 1.0},
-    "septumMagnet": {"length": 1.0},
-    "chicane":      {"length": 4.0, "r56": -0.05},
-    "dogleg":       {"length": 3.0},
-    "stripperFoil": {"length": 0.5},
+    "collimator":   {"beamQuality": 0.2},
+    "chicane":      {"r56": -0.05},
     # === Targets & Endpoints ===
-    "detector":     {"length": 6.0, "dataRate": 1.0},
-    "target":       {"length": 2.0, "collisionRate": 2.0},
-    "fixedTargetAdv": {"length": 3.0, "collisionRate": 5.0},
-    "photonPort":   {"length": 2.0, "photonRate": 0.5},
-    "positronTarget": {"length": 3.0, "collisionRate": 3.0},
-    "comptonIP":    {"length": 3.0, "photonRate": 1.0},
-    "splitter":     {"length": 2.0},
-    # === Infrastructure ===
-    "beamDump":     {"length": 2.0},
+    "detector":     {"dataRate": 1.0},
+    "target":       {"collisionRate": 2.0},
+    "fixedTargetAdv": {"collisionRate": 5.0},
+    "photonPort":   {"photonRate": 0.5},
+    "positronTarget": {"collisionRate": 3.0},
+    "comptonIP":    {"photonRate": 1.0},
 }
 
 # Source types that produce initial beam
@@ -93,7 +71,6 @@ RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
 # Game energyGain stays as-is (already in GeV)
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
 DIPOLE_ANGLE_SCALE = 15.0 / 90.0  # game bendAngle -> physical degrees
-LENGTH_SCALE = 2.0        # game tiles are 2m x 2m
 
 
 def beamline_config_from_game(game_beamline):
@@ -147,18 +124,19 @@ def beamline_config_from_game(game_beamline):
         else:
             physics_type = ctype
 
-        defaults = COMPONENT_DEFAULTS.get(ctype, {"length": 1.0})
+        defaults = COMPONENT_DEFAULTS.get(ctype, {})
         stats = comp.get("stats", {})
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
-        # subL sub-units × 0.5m per sub-unit
+        # subL sub-units × 0.5m per sub-unit — every component must declare subL
         sub_l = comp.get("subL", None)
-        if sub_l is not None:
-            el["length"] = sub_l * 0.5
-        else:
-            # Fallback for components not yet migrated
-            el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
+        if sub_l is None:
+            raise ValueError(
+                f"component '{ctype}' has no subL — every beamline component must "
+                f"declare subL in beamline-components.raw.js"
+            )
+        el["length"] = sub_l * 0.5
 
         if physics_type == "source":
             # Read emittance from computed stats if available, else use defaults per gun type

@@ -63,11 +63,11 @@ from beam_physics.gameplay import compute_beam_for_game
 class TestFocusFieldsInGameOutput(unittest.TestCase):
     def _game_beamline_json(self):
         beamline = [
-            {"type": "source", "length": 1, "stats": {}},
-            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1}, "params": {"polarity": 0}},
-            {"type": "drift", "length": 5, "stats": {}},
-            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1}, "params": {"polarity": 1}},
-            {"type": "drift", "length": 5, "stats": {}},
+            {"type": "source", "subL": 2, "stats": {}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1}, "params": {"polarity": 0}},
+            {"type": "drift", "subL": 10, "stats": {}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1}, "params": {"polarity": 1}},
+            {"type": "drift", "subL": 10, "stats": {}},
         ]
         return json.dumps(beamline)
 
@@ -88,10 +88,10 @@ class TestFocusAdvisorIntegration(unittest.TestCase):
     def test_unfocused_beamline_has_high_urgency(self):
         """A beamline with no quads should show high urgency somewhere."""
         beamline = json.dumps([
-            {"type": "source", "length": 1, "stats": {}},
-            {"type": "drift", "length": 5, "stats": {}},
-            {"type": "drift", "length": 5, "stats": {}},
-            {"type": "drift", "length": 5, "stats": {}},
+            {"type": "source", "subL": 2, "stats": {}},
+            {"type": "drift", "subL": 10, "stats": {}},
+            {"type": "drift", "subL": 10, "stats": {}},
+            {"type": "drift", "subL": 10, "stats": {}},
         ])
         result = json.loads(compute_beam_for_game(beamline))
         max_urgency = max(p["focus_urgency"] for p in result["envelope"])
@@ -101,14 +101,14 @@ class TestFocusAdvisorIntegration(unittest.TestCase):
     def test_well_focused_beamline_has_low_urgency(self):
         """A proper FODO lattice should keep urgency low throughout."""
         beamline = json.dumps([
-            {"type": "source", "length": 1, "stats": {}},
-            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+            {"type": "source", "subL": 2, "stats": {}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1},
              "params": {"polarity": 0}},
-            {"type": "drift", "length": 1, "stats": {}},
-            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+            {"type": "drift", "subL": 2, "stats": {}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1},
              "params": {"polarity": 1}},
-            {"type": "drift", "length": 1, "stats": {}},
-            {"type": "quadrupole", "length": 1, "stats": {"focusStrength": 1},
+            {"type": "drift", "subL": 2, "stats": {}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1},
              "params": {"polarity": 0}},
         ])
         result = json.loads(compute_beam_for_game(beamline))

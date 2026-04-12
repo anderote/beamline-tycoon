@@ -93,11 +93,11 @@ class TestGameplayBridge(unittest.TestCase):
         import json
         from beam_physics.gameplay import compute_beam_for_game
         beamline = [
-            {"type": "source"},
-            {"type": "rfCavity", "stats": {"energyGain": 0.1}},
-            {"type": "quadrupole", "stats": {"focusStrength": 1}},
-            {"type": "drift"},
-            {"type": "target"},
+            {"type": "source", "subL": 4},
+            {"type": "rfCavity", "subL": 6, "stats": {"energyGain": 0.1}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1}},
+            {"type": "drift", "subL": 4},
+            {"type": "target", "subL": 4},
         ]
         result_json = compute_beam_for_game(json.dumps(beamline), json.dumps({}))
         result = json.loads(result_json)
@@ -114,9 +114,9 @@ class TestResearchEffects(unittest.TestCase):
         import json
         from beam_physics.gameplay import compute_beam_for_game
         beamline = [
-            {"type": "source"},
-            {"type": "drift", "length": 5},
-            {"type": "target"},
+            {"type": "source", "subL": 4},
+            {"type": "drift", "subL": 10},
+            {"type": "target", "subL": 4},
         ]
         # Without vacuum research
         r1 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({})))
@@ -130,11 +130,11 @@ class TestResearchEffects(unittest.TestCase):
         import json
         from beam_physics.gameplay import compute_beam_for_game
         beamline = [
-            {"type": "source"},
-            {"type": "rfCavity", "stats": {"energyGain": 0.1}},
-            {"type": "quadrupole", "stats": {"focusStrength": 1}},
-            {"type": "drift"},
-            {"type": "target"},
+            {"type": "source", "subL": 4},
+            {"type": "rfCavity", "subL": 6, "stats": {"energyGain": 0.1}},
+            {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1}},
+            {"type": "drift", "subL": 4},
+            {"type": "target", "subL": 4},
         ]
         r1 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({})))
         r2 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({"beamStability": 0.2})))

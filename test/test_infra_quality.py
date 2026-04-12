@@ -4,8 +4,8 @@ from beam_physics.gameplay import beamline_config_from_game
 def test_quality_derates_rf_gradient():
     """RF cavity with power=0.9, rf=0.85, cooling=1.0 → 76.5% gradient."""
     game_beamline = [
-        {"type": "source", "stats": {"beamCurrent": 1.0}},
-        {"type": "rfCavity", "stats": {"energyGain": 1.0},
+        {"type": "source", "subL": 4, "stats": {"beamCurrent": 1.0}},
+        {"type": "rfCavity", "subL": 6, "stats": {"energyGain": 1.0},
          "infraQuality": {"powerQuality": 0.9, "rfQuality": 0.85, "coolingQuality": 1.0}},
     ]
     elements = beamline_config_from_game(game_beamline)
@@ -16,8 +16,8 @@ def test_quality_derates_rf_gradient():
 def test_quality_derates_quad_strength():
     """Quad with power=0.8 → 80% focus strength."""
     game_beamline = [
-        {"type": "source", "stats": {"beamCurrent": 1.0}},
-        {"type": "quadrupole", "stats": {"focusStrength": 1.0},
+        {"type": "source", "subL": 4, "stats": {"beamCurrent": 1.0}},
+        {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1.0},
          "infraQuality": {"powerQuality": 0.8}},
     ]
     elements = beamline_config_from_game(game_beamline)
@@ -29,8 +29,8 @@ def test_quality_derates_quad_strength():
 def test_cryo_quench_converts_to_drift():
     """SRF cryomodule with cryoQuenched=true → drift."""
     game_beamline = [
-        {"type": "source", "stats": {"beamCurrent": 1.0}},
-        {"type": "cryomodule", "stats": {"energyGain": 2.0},
+        {"type": "source", "subL": 4, "stats": {"beamCurrent": 1.0}},
+        {"type": "cryomodule", "subL": 16, "stats": {"energyGain": 2.0},
          "infraQuality": {"cryoQuenched": True}},
     ]
     elements = beamline_config_from_game(game_beamline)
@@ -41,8 +41,8 @@ def test_cryo_quench_converts_to_drift():
 def test_no_quality_means_full_performance():
     """Components without infraQuality run at full."""
     game_beamline = [
-        {"type": "source", "stats": {"beamCurrent": 1.0}},
-        {"type": "rfCavity", "stats": {"energyGain": 1.0}},
+        {"type": "source", "subL": 4, "stats": {"beamCurrent": 1.0}},
+        {"type": "rfCavity", "subL": 6, "stats": {"energyGain": 1.0}},
     ]
     elements = beamline_config_from_game(game_beamline)
     rf_el = [e for e in elements if e["type"] == "rfCavity"][0]
@@ -51,8 +51,8 @@ def test_no_quality_means_full_performance():
 def test_vacuum_quality_reduces_aperture():
     """Poor vacuum should reduce aperture on elements."""
     game_beamline = [
-        {"type": "source", "stats": {"beamCurrent": 1.0}},
-        {"type": "drift", "stats": {},
+        {"type": "source", "subL": 4, "stats": {"beamCurrent": 1.0}},
+        {"type": "drift", "subL": 4, "stats": {},
          "infraQuality": {"vacuumQuality": 0.5}},
     ]
     elements = beamline_config_from_game(game_beamline)

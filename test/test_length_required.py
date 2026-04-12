@@ -33,5 +33,31 @@ class TestLatticeLengthRequired(unittest.TestCase):
             propagate(config, machine_type="linac")
 
 
+from beam_physics.gameplay import beamline_config_from_game
+
+
+class TestGameplayBridgeLengthRequired(unittest.TestCase):
+    def _source(self):
+        return {"type": "source", "subL": 4}
+
+    def test_missing_subL_raises(self):
+        game_beamline = [
+            self._source(),
+            {"type": "drift"},  # missing subL
+        ]
+        with self.assertRaises(ValueError) as ctx:
+            beamline_config_from_game(game_beamline)
+        self.assertIn("subL", str(ctx.exception))
+
+    def test_subL_converted_to_meters(self):
+        game_beamline_4 = [{"type": "source", "subL": 4}]
+        elements_4 = beamline_config_from_game(game_beamline_4)
+        self.assertAlmostEqual(elements_4[0]["length"], 2.0)
+
+        game_beamline_6 = [{"type": "source", "subL": 6}]
+        elements_6 = beamline_config_from_game(game_beamline_6)
+        self.assertAlmostEqual(elements_6[0]["length"], 3.0)
+
+
 if __name__ == "__main__":
     unittest.main()
