@@ -5,6 +5,7 @@
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
+import { rackNeighborAnchors, BOTTOM_SLOTS, TOP_SLOTS, rackTiles } from '../data/carrier-rack.js';
 
 const GRASS_RANGE = 20;
 
@@ -208,111 +209,116 @@ function buildConnections(game) {
   return result;
 }
 
-function buildUtilityRouting(game) {
-  const connections = game.state.connections;
-  if (!connections || connections.size === 0) return { floorSegments: [], portRoutes: [] };
+function buildRackSegments(game) {
+  const segs = game.state.rackSegments;
+  if (!segs || segs.size === 0) return [];
 
-  const connSet = (col, row) => connections.get(`${col},${row}`) || new Set();
-
-  // ── Floor segments ──
-  // For each connection tile, determine which directions have same-type neighbors.
-  const floorSegments = [];
-  for (const [key, typeSet] of connections) {
+  const result = [];
+  for (const [key, seg] of segs) {
     const [col, row] = key.split(',').map(Number);
-    for (const type of typeSet) {
+    const anchors = rackNeighborAnchors(col, row);
+    const neighbors = {
+      north: segs.has(`${anchors.north.col},${anchors.north.row}`),
+      south: segs.has(`${anchors.south.col},${anchors.south.row}`),
+      east:  segs.has(`${anchors.east.col},${anchors.east.row}`),
+      west:  segs.has(`${anchors.west.col},${anchors.west.row}`),
+    };
+    result.push({ col, row, utilities: [...seg.utilities], neighbors });
+  }
+  return result;
+}
+
+function buildUtilityRouting(game) {
+  const segs = game.state.rackSegments;
+  if (!segs || segs.size === 0) return { rackPipes: [], portRoutes: [] };
+
+  const rackPipes = [];
+  for (const [key, seg] of segs) {
+    const [col, row] = key.split(',').map(Number);
+    const anchors = rackNeighborAnchors(col, row);
+
+    for (const type of seg.utilities) {
       const neighbors = {
-        north: connSet(col, row - 1).has(type),
-        south: connSet(col, row + 1).has(type),
-        west:  connSet(col - 1, row).has(type),
-        east:  connSet(col + 1, row).has(type),
+        north: false, south: false, east: false, west: false,
       };
-      floorSegments.push({ col, row, type, neighbors });
+      for (const [dir, a] of Object.entries(anchors)) {
+        const nseg = segs.get(`${a.col},${a.row}`);
+        if (nseg && nseg.utilities.has(type)) neighbors[dir] = true;
+      }
+
+      const isBottom = type in BOTTOM_SLOTS;
+      rackPipes.push({ col, row, type, neighbors, isBottom });
     }
   }
 
-  // ── Port routes (last-meter connections) ──
   const portRoutes = [];
-
-  // Gather all placed components: beamline nodes + infrastructure placeables
   const placeables = [];
 
-  // Beamline registry nodes
   for (const entry of game.registry.getAll()) {
     for (const node of entry.beamline.getAllNodes()) {
       const def = node.compDef || node;
-      if (!def.id && !node.type) continue;
       const compId = def.id || node.type;
-      const tiles = node.tiles || [{ col: node.col, row: node.row }];
+      if (!compId) continue;
       placeables.push({
         id: compId,
         col: node.col,
         row: node.row,
         dir: node.dir ?? 0,
-        tiles,
+        tiles: node.tiles || [{ col: node.col, row: node.row }],
         subW: def.subW || def.gridW || 2,
         subL: def.subL || def.gridH || 2,
       });
     }
   }
 
-  // Infrastructure placeables
   const infraPlaceables = game.state.placeables || [];
   for (const p of infraPlaceables) {
     if (p.category === 'equipment' || p.category === 'infrastructure') {
       const compId = p.type || p.id;
       if (!compId) continue;
-      const tiles = p.cells
-        ? p.cells.map(c => ({ col: c.col, row: c.row }))
-        : [{ col: p.col, row: p.row }];
       placeables.push({
         id: compId,
         col: p.col,
         row: p.row,
         dir: p.dir ?? 0,
-        tiles,
+        tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
         subW: p.subW || p.gridW || 2,
         subL: p.subL || p.gridH || 2,
       });
     }
   }
 
-  // Direction lookup tables for lateral sides
-  // dir 0: facing front=+row, left=-col, right=+col
-  // dir 1: facing front=-col, left=+row, right=-row  (etc.)
-  const LEFT_OFFSET =  [[-1,0],[0,1],[1,0],[0,-1]];
-  const RIGHT_OFFSET = [[1,0],[0,-1],[-1,0],[0,1]];
+  const pipeAttachments = buildPipeAttachments(game);
+  for (const att of pipeAttachments) {
+    placeables.push({
+      id: att.type,
+      col: att.col,
+      row: att.row,
+      dir: att.direction ?? 0,
+      tiles: [{ col: Math.round(att.col), row: Math.round(att.row) }],
+      subW: 2,
+      subL: 2,
+    });
+  }
 
   for (const comp of placeables) {
     const ports = getUtilityPorts(comp.id);
     if (!ports || ports.length === 0) continue;
 
-    const tileSet = new Set(comp.tiles.map(t => `${t.col},${t.row}`));
-
-    // Find tiles adjacent to left and right sides
-    const leftAdj = new Set();
-    const rightAdj = new Set();
+    let rackSeg = null;
     for (const t of comp.tiles) {
-      const lo = LEFT_OFFSET[comp.dir];
-      const ro = RIGHT_OFFSET[comp.dir];
-      const lk = `${t.col + lo[0]},${t.row + lo[1]}`;
-      const rk = `${t.col + ro[0]},${t.row + ro[1]}`;
-      if (!tileSet.has(lk)) leftAdj.add(lk);
-      if (!tileSet.has(rk)) rightAdj.add(rk);
+      for (const [key, seg] of segs) {
+        const [rc, rr] = key.split(',').map(Number);
+        if (t.col >= rc && t.col < rc + 2 && t.row >= rr && t.row < rr + 2) {
+          rackSeg = { col: rc, row: rr, seg };
+          break;
+        }
+      }
+      if (rackSeg) break;
     }
 
     for (const port of ports) {
-      let connectedSide = null;
-
-      for (const k of leftAdj) {
-        const [ac, ar] = k.split(',').map(Number);
-        if (connSet(ac, ar).has(port.type)) { connectedSide = 'left'; break; }
-      }
-      if (!connectedSide) {
-        for (const k of rightAdj) {
-          const [ac, ar] = k.split(',').map(Number);
-          if (connSet(ac, ar).has(port.type)) { connectedSide = 'right'; break; }
-        }
-      }
+      const connected = rackSeg && rackSeg.seg.utilities.has(port.type);
 
       portRoutes.push({
         compId: comp.id,
@@ -323,46 +329,13 @@ function buildUtilityRouting(game) {
         portOffset: port.offset,
         subW: comp.subW,
         subL: comp.subL,
-        connectedSide,
+        rackCol: connected ? rackSeg.col : null,
+        rackRow: connected ? rackSeg.row : null,
       });
     }
   }
 
-  // Pipe attachments (quads, BPMs, etc.)
-  const pipeAttachments = buildPipeAttachments(game);
-  for (const att of pipeAttachments) {
-    const ports = getUtilityPorts(att.type);
-    if (!ports || ports.length === 0) continue;
-
-    const attDir = att.direction ?? 0;
-    for (const port of ports) {
-      const tileCol = Math.round(att.col);
-      const tileRow = Math.round(att.row);
-
-      let connectedSide = null;
-      const lo = LEFT_OFFSET[attDir];
-      const ro = RIGHT_OFFSET[attDir];
-      const lc = tileCol + lo[0], lr = tileRow + lo[1];
-      const rc = tileCol + ro[0], rr = tileRow + ro[1];
-
-      if (connSet(lc, lr).has(port.type)) connectedSide = 'left';
-      else if (connSet(rc, rr).has(port.type)) connectedSide = 'right';
-
-      portRoutes.push({
-        compId: att.type,
-        col: att.col,
-        row: att.row,
-        dir: attDir,
-        portType: port.type,
-        portOffset: port.offset,
-        subW: 2,
-        subL: 2,
-        connectedSide,
-      });
-    }
-  }
-
-  return { floorSegments, portRoutes };
+  return { rackPipes, portRoutes };
 }
 
 function buildBeamPaths(game) {
@@ -474,6 +447,7 @@ export function buildWorldSnapshot(game) {
     equipment: buildEquipment(game),
     decorations: buildDecorations(game),
     connections: buildConnections(game),
+    rackSegments: buildRackSegments(game),
     beamPaths: buildBeamPaths(game),
     furnishings: buildFurnishings(game),
     pipeAttachments: buildPipeAttachments(game),
