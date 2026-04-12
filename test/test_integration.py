@@ -28,10 +28,10 @@ class TestLinacPropagation(unittest.TestCase):
         result = propagate(self._linac_config(), machine_type="linac")
         self.assertTrue(result["summary"]["alive"])
 
-    def test_snapshots_for_each_element(self):
+    def test_snapshots_resampled(self):
         config = self._linac_config()
         result = propagate(config, machine_type="linac")
-        self.assertEqual(len(result["snapshots"]), len(config))
+        self.assertEqual(len(result["snapshots"]), 1000)
 
     def test_has_summary_keys(self):
         result = propagate(self._linac_config(), machine_type="linac")
@@ -139,6 +139,80 @@ class TestResearchEffects(unittest.TestCase):
         r1 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({})))
         r2 = json.loads(compute_beam_for_game(json.dumps(beamline), json.dumps({"beamStability": 0.2})))
         self.assertGreaterEqual(r2["beamQuality"], r1["beamQuality"])
+
+
+class TestLowBetaAcceleration(unittest.TestCase):
+    """Test realistic low-energy acceleration sequence."""
+
+    # Large aperture (0.5 m) is used throughout so aperture clipping doesn't
+    # kill the beam before it reaches the target; these tests focus on energy
+    # gain, capture efficiency, bunch-frequency assignment, and cavity ordering
+    # rather than transverse halo management.
+    _APERTURE = 0.5
+
+    def _low_beta_config(self):
+        ap = self._APERTURE
+        return [
+            {"type": "source", "length": 2.0},
+            {"type": "rfCavity", "length": 1.0, "energyGain": 0.0001,
+             "rfPhase": -90.0, "game_type": "buncher", "rfFrequency": 200e6,
+             "aperture": ap},
+            {"type": "drift", "length": 0.5, "aperture": ap},
+            {"type": "rfCavity", "length": 3.0, "energyGain": 0.003,
+             "rfPhase": -30.0, "game_type": "rfq", "rfFrequency": 400e6,
+             "aperture": ap},
+            {"type": "quadrupole", "length": 0.5, "focusStrength": 0.3, "polarity": 1,
+             "aperture": ap},
+            {"type": "drift", "length": 1.0, "aperture": ap},
+            {"type": "quadrupole", "length": 0.5, "focusStrength": 0.3, "polarity": -1,
+             "aperture": ap},
+            {"type": "rfCavity", "length": 2.0, "energyGain": 0.01,
+             "rfPhase": -25.0, "game_type": "spokeCavity", "rfFrequency": 325e6,
+             "aperture": ap},
+            {"type": "quadrupole", "length": 0.5, "focusStrength": 0.3, "polarity": 1,
+             "aperture": ap},
+            {"type": "drift", "length": 1.0, "aperture": ap},
+            {"type": "quadrupole", "length": 0.5, "focusStrength": 0.3, "polarity": -1,
+             "aperture": ap},
+            {"type": "rfCavity", "length": 1.5, "energyGain": 0.0375,
+             "rfPhase": 0.0, "game_type": "ellipticalSrfCavity", "rfFrequency": 1.3e9,
+             "aperture": ap},
+            {"type": "target", "length": 0},
+        ]
+
+    def test_beam_gains_energy(self):
+        result = propagate(self._low_beta_config(), machine_type="linac")
+        self.assertGreater(result["summary"]["final_energy"], 0.01)
+        self.assertTrue(result["summary"]["alive"])
+
+    def test_capture_reduces_current(self):
+        result = propagate(self._low_beta_config(), machine_type="linac")
+        self.assertLess(result["summary"]["final_current"],
+                        result["summary"]["initial_current"])
+
+    def test_bunch_frequency_set_by_first_rf(self):
+        """Bunch frequency should be set by buncher (200 MHz), not later cavities."""
+        result = propagate(self._low_beta_config(), machine_type="linac")
+        last_snap = result["snapshots"][-1]
+        self.assertAlmostEqual(last_snap["bunch_frequency"], 200e6)
+
+    def test_wrong_order_loses_more_energy(self):
+        """Putting high-beta cavity first should give less total energy gain."""
+        ap = self._APERTURE
+        wrong_order = [
+            {"type": "source", "length": 2.0},
+            {"type": "rfCavity", "length": 1.5, "energyGain": 0.0375,
+             "rfPhase": 0.0, "game_type": "ellipticalSrfCavity", "rfFrequency": 1.3e9,
+             "aperture": ap},
+            {"type": "rfCavity", "length": 3.0, "energyGain": 0.003,
+             "rfPhase": -30.0, "game_type": "rfq", "rfFrequency": 400e6,
+             "aperture": ap},
+            {"type": "target", "length": 0},
+        ]
+        right = propagate(self._low_beta_config(), machine_type="linac")
+        wrong = propagate(wrong_order, machine_type="linac")
+        self.assertGreater(right["summary"]["final_energy"],
+                           wrong["summary"]["final_energy"])
 
 
 if __name__ == "__main__":

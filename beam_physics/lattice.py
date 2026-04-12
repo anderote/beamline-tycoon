@@ -81,6 +81,9 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     prev_max_sigma = None  # for divergence rate estimation
     prev_s = 0.0
     last_focus_s = 0.0  # s position of last focusing element
+    max_dispersion = 0.0
+    dispersion_warnings = []
+    DISPERSION_WARN_THRESHOLD = 0.1  # metres — flag if |η_x| exceeds this
 
     for i, element in enumerate(beamline_config):
         context.element_index = i
@@ -183,6 +186,19 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             prev_max_sigma = max_sigma
             prev_s = context.cumulative_s
 
+            # Track dispersion for warnings
+            eta_x_abs = abs(context.dispersion[0])
+            if eta_x_abs > max_dispersion:
+                max_dispersion = eta_x_abs
+            if is_last and eta_x_abs > DISPERSION_WARN_THRESHOLD:
+                if etype not in ("dipole", "combined_function"):
+                    dispersion_warnings.append({
+                        "element_index": i,
+                        "element_type": etype,
+                        "eta_x": float(context.dispersion[0]),
+                        "s": context.cumulative_s,
+                    })
+
             # Snapshot after each sub-step
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
@@ -223,6 +239,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         "final_beam_size_y": beam.beam_size_y(),
         "final_bunch_length": beam.bunch_length(),
         "n_focusing": n_focusing,
+        "max_dispersion": max_dispersion,
+        "dispersion_warnings": dispersion_warnings,
     }
 
     # Resample snapshots to fixed 1000-point grid

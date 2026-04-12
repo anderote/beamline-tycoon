@@ -4,7 +4,6 @@ from beam_physics.context import EffectReport
 from beam_physics.constants import ALFVEN_CURRENT
 
 GAMMA_THRESHOLD = 200
-MACHINE_TYPES_WITH_SPACE_CHARGE = {"photoinjector", "fel", "collider"}
 
 
 class SpaceChargeModule(PhysicsModule):
@@ -14,8 +13,6 @@ class SpaceChargeModule(PhysicsModule):
         super().__init__(name="space_charge", order=30)
 
     def applies_to(self, element, machine_type):
-        if machine_type not in MACHINE_TYPES_WITH_SPACE_CHARGE:
-            return False
         return element.get("type", "") not in ("source",)
 
     def apply(self, beam, element, context):

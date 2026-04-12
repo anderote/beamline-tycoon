@@ -102,6 +102,7 @@ class TestFocusAdvisorIntegration(unittest.TestCase):
         """A proper FODO lattice should keep urgency low throughout."""
         beamline = json.dumps([
             {"type": "source", "subL": 2, "stats": {}},
+            {"type": "rfCavity", "subL": 4, "stats": {"energyGain": 0.5}},
             {"type": "quadrupole", "subL": 2, "stats": {"focusStrength": 1},
              "params": {"polarity": 0}},
             {"type": "drift", "subL": 2, "stats": {}},

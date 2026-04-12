@@ -16,9 +16,10 @@ _TIER1_MODULES = [
     SynchrotronRadiationModule(),
     CollimationModule(),
     ApertureLossModule(),
+    SpaceChargeModule(),
 ]
 
-_TIER2_MODULES = _TIER1_MODULES + [SpaceChargeModule()]
+_TIER2_MODULES = _TIER1_MODULES
 _TIER3_MODULES = _TIER2_MODULES + [BunchCompressionModule(), FELGainModule()]
 _TIER4_MODULES = _TIER3_MODULES + [BeamBeamModule()]
 

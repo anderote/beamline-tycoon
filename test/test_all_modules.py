@@ -68,6 +68,101 @@ class TestRFAcceleration(unittest.TestCase):
         self.assertTrue(mod.applies_to({"type": "cryomodule"}, "linac"))
         self.assertFalse(mod.applies_to({"type": "drift"}, "linac"))
 
+    # --- Task 1: DESIGN_BETA table ---
+
+    def test_design_beta_lookup(self):
+        from beam_physics.modules.rf_acceleration import DESIGN_BETA
+        self.assertAlmostEqual(DESIGN_BETA["rfq"], 0.04)
+        self.assertAlmostEqual(DESIGN_BETA["cryomodule"], 0.65)
+        self.assertIn("buncher", DESIGN_BETA)
+
+    # --- Task 2: Transit time factor ---
+
+    def test_transit_time_factor_at_design_beta(self):
+        from beam_physics.modules.rf_acceleration import _transit_time_factor
+        ttf = _transit_time_factor(beam_beta=0.04, design_beta=0.04)
+        self.assertAlmostEqual(ttf, 1.0, places=2)
+
+    def test_transit_time_factor_mismatch(self):
+        from beam_physics.modules.rf_acceleration import _transit_time_factor
+        ttf = _transit_time_factor(beam_beta=0.04, design_beta=0.9)
+        self.assertLess(ttf, 0.3)
+
+    def test_transit_time_factor_high_beta(self):
+        from beam_physics.modules.rf_acceleration import _transit_time_factor
+        ttf = _transit_time_factor(beam_beta=0.99, design_beta=0.9)
+        self.assertGreater(ttf, 0.8)
+
+    def test_energy_gain_derated_by_ttf(self):
+        mod = RFAccelerationModule()
+        beam_matched = make_beam(energy=0.5)
+        beam_low = make_beam(energy=0.001)
+        ctx1 = PropagationContext("linac")
+        ctx2 = PropagationContext("linac")
+        e1 = beam_matched.energy
+        e2 = beam_low.energy
+        el = {"type": "rfCavity", "length": 3.0, "energyGain": 0.045,
+              "rfPhase": 0.0, "game_type": "rfCavity"}
+        mod.apply(beam_matched, el.copy(), ctx1)
+        mod.apply(beam_low, el.copy(), ctx2)
+        gain_matched = beam_matched.energy - e1
+        gain_low = beam_low.energy - e2
+        self.assertGreater(gain_matched, gain_low)
+
+    # --- Task 3: RF capture efficiency ---
+
+    def test_first_rf_applies_capture_loss(self):
+        mod = RFAccelerationModule()
+        beam = make_beam()
+        ctx = PropagationContext("linac")
+        current_before = beam.current
+        mod.apply(beam, {"type": "rfCavity", "length": 3.0, "energyGain": 0.1,
+                         "rfPhase": -30.0, "game_type": "rfCavity"}, ctx)
+        self.assertLess(beam.current, current_before)
+
+    def test_second_rf_no_capture_loss(self):
+        mod = RFAccelerationModule()
+        beam = make_beam()
+        ctx = PropagationContext("linac")
+        mod.apply(beam, {"type": "rfCavity", "length": 3.0, "energyGain": 0.1,
+                         "rfPhase": -30.0, "game_type": "rfCavity"}, ctx)
+        current_after_first = beam.current
+        mod.apply(beam, {"type": "rfCavity", "length": 3.0, "energyGain": 0.1,
+                         "rfPhase": 0.0, "game_type": "rfCavity"}, ctx)
+        self.assertAlmostEqual(beam.current, current_after_first, places=4)
+
+    def test_rfq_better_capture_than_pillbox(self):
+        mod = RFAccelerationModule()
+        beam_rfq = make_beam()
+        beam_pb = make_beam()
+        ctx_rfq = PropagationContext("linac")
+        ctx_pb = PropagationContext("linac")
+        mod.apply(beam_rfq, {"type": "rfCavity", "length": 3.0, "energyGain": 0.003,
+                             "rfPhase": -30.0, "game_type": "rfq"}, ctx_rfq)
+        mod.apply(beam_pb, {"type": "rfCavity", "length": 1.0, "energyGain": 0.0005,
+                            "rfPhase": -30.0, "game_type": "pillboxCavity"}, ctx_pb)
+        self.assertGreater(beam_rfq.current, beam_pb.current)
+
+    # --- Task 4: Beta-mismatch emittance growth ---
+
+    def test_beta_mismatch_grows_emittance(self):
+        mod = RFAccelerationModule()
+        beam_match = make_beam(energy=0.5)
+        beam_mismatch = make_beam(energy=0.0008)
+        ctx1 = PropagationContext("linac")
+        ctx2 = PropagationContext("linac")
+        ctx1.bunch_frequency_set = True
+        ctx2.bunch_frequency_set = True
+        eps_match_before = beam_match.emittance_x()
+        eps_mismatch_before = beam_mismatch.emittance_x()
+        el = {"type": "rfCavity", "length": 3.0, "energyGain": 1e-6,
+              "rfPhase": 0.0, "game_type": "rfCavity"}
+        mod.apply(beam_match, el.copy(), ctx1)
+        mod.apply(beam_mismatch, el.copy(), ctx2)
+        ratio_match = beam_match.emittance_x() / eps_match_before
+        ratio_mismatch = beam_mismatch.emittance_x() / eps_mismatch_before
+        self.assertGreater(ratio_mismatch, ratio_match)
+
 
 # === Synchrotron Radiation ===
 
@@ -213,10 +308,14 @@ class TestSpaceCharge(unittest.TestCase):
         mod.apply(beam_hi, el, ctx_hi)
         self.assertGreater(beam_hi.sigma[1, 1] - d_hi, beam_lo.sigma[1, 1] - d_lo)
 
-    def test_not_active_for_linac(self):
+    def test_active_for_all_machine_types(self):
         mod = SpaceChargeModule()
-        self.assertFalse(mod.applies_to({"type": "drift"}, "linac"))
+        self.assertTrue(mod.applies_to({"type": "drift"}, "linac"))
         self.assertTrue(mod.applies_to({"type": "drift"}, "photoinjector"))
+
+    def test_not_active_for_source(self):
+        mod = SpaceChargeModule()
+        self.assertFalse(mod.applies_to({"type": "source"}, "linac"))
 
 
 # === Bunch Compression ===

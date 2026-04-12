@@ -186,6 +186,12 @@ def beamline_config_from_game(game_beamline):
             params = comp.get("params", {})
             el["rfPhase"] = params.get("rfPhase",
                                        stats.get("rfPhase", 0.0))
+            # rfFrequency: game stores MHz, physics needs Hz
+            raw_freq = (params.get("rfFrequency", None)
+                        or comp.get("rfFrequency", None)
+                        or stats.get("rfFrequency", None))
+            if raw_freq is not None:
+                el["rfFrequency"] = float(raw_freq) * 1e6
 
         elif physics_type == "sextupole":
             el["focusStrength"] = stats.get("focusStrength",
@@ -420,6 +426,10 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
         # Diagnostic coverage
         "nDiagnostics": n_diagnostics,
+
+        # Dispersion warnings
+        "maxDispersion": summary.get("max_dispersion", 0),
+        "dispersionWarnings": summary.get("dispersion_warnings", []),
     }
 
     # Extract FEL data from module reports

@@ -239,7 +239,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── RF / Accel — Normal Conducting ────────────────────────────────
   rfq: {
     id: 'rfq',
-    name: 'RFQ (400 MHz)',
+    name: 'RFQ',
     desc: 'Radio-Frequency Quadrupole that simultaneously bunches and accelerates beam from keV to 3 MeV. The classic first accelerating structure after a source — it captures the DC beam and forms it into bunches while gently accelerating. Normal-conducting copper vanes at ~1 MV/m averaged over 3 m.',
     category: 'rf',
     subsection: 'normalConducting',
@@ -262,10 +262,40 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 400,
+    rfBand: 'vhf',
+    rfPowerRequired: 25,
+  },
+  buncher: {
+    id: 'buncher',
+    name: 'Sub-harmonic Buncher',
+    desc: 'Low-voltage RF cavity that imprints bunch structure onto a DC beam without significant acceleration. Operates at a sub-harmonic of the main linac frequency to give a wide capture window. Place between source and first accelerating cavity to pre-bunch the beam — dramatically improves capture efficiency downstream. Normal-conducting, low power.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 300000 },
+    stats: { energyGain: 0.0001, bunchCompression: 0.3 },
+    energyCost: 2,
+    subL: 2,
+    subW: 3,
+    subH: 4, gridW: 3, gridH: 2, geometryType: 'cylinder',
+    interiorVolume: 3,
+    unlocked: false,
+    spriteKey: 'pillboxCavity',
+    spriteColor: 0xcc6644,
+    params: { voltage: 0.1, rfPhase: -90 },
+    placement: 'module',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    requiredConnections: ['powerCable', 'rfWaveguide'],
+    rfFrequency: 200,
+    rfBand: 'vhf',
+    rfPowerRequired: 2,
   },
   pillboxCavity: {
     id: 'pillboxCavity',
-    name: 'Pillbox Cavity (200 MHz)',
+    name: 'Pillbox Cavity',
     desc: 'Simple single-cell copper cavity for initial low-energy acceleration. ~0.5 MV/m effective gradient over a 1 m footprint delivers 0.5 MeV energy gain. Cheap and compact — a good first accelerating structure right after the source. Normal-conducting, no cryo required.',
     category: 'rf',
     subsection: 'normalConducting',
@@ -288,10 +318,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'rfWaveguide'],
     rfFrequency: 200,
+    rfBand: 'vhf',
+    rfPowerRequired: 5,
   },
   rfCavity: {
     id: 'rfCavity',
-    name: 'NC RF Cavity (2.856 GHz)',
+    name: 'NC RF Cavity',
     desc: 'Normal-conducting S-band copper standing-wave cavity. 15 MV/m accelerating gradient × 3 m physical length = 45 MeV per module. Place many in series for high energy. Thermally limited to short pulses; guzzles RF power and needs aggressive water cooling.',
     category: 'rf',
     subsection: 'normalConducting',
@@ -313,10 +345,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
+    rfBand: 'sband',
+    rfPowerRequired: 40,
   },
   sbandStructure: {
     id: 'sbandStructure',
-    name: 'S-band Structure (2.856 GHz)',
+    name: 'S-band Structure',
     desc: 'SLAC-style constant-gradient traveling-wave normal-conducting structure. 17 MV/m × 3 m = 51 MeV per module — the same spec that powered the original SLAC linac. Cleaner beam dynamics than a standing-wave pillbox chain, but needs a dedicated high-power klystron per section.',
     category: 'rf',
     subsection: 'normalConducting',
@@ -339,12 +373,14 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
+    rfBand: 'sband',
+    rfPowerRequired: 45,
   },
 
   // ── RF / Accel — Superconducting ──────────────────────────────────
   halfWaveResonator: {
     id: 'halfWaveResonator',
-    name: 'Half-Wave Resonator (161 MHz)',
+    name: 'Half-Wave Resonator',
     desc: 'Superconducting coaxial cavity operating at half the RF wavelength. Peak ~5 MV/m in the gap but the active length is tiny compared to the cryostat, giving ~1 MV/m effective over the 1 m footprint → 1 MeV per module. Low per-module gain but near-zero wall losses means CW operation at any duty cycle. Ideal for low-β ion and proton acceleration. Requires cryo.',
     category: 'rf',
     subsection: 'superconducting',
@@ -367,10 +403,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 161,
+    rfBand: 'vhf',
+    rfPowerRequired: 3,
   },
   spokeCavity: {
     id: 'spokeCavity',
-    name: 'Spoke Cavity (325 MHz)',
+    name: 'Spoke Cavity',
     desc: 'Superconducting double-spoke resonator that bridges low-β and high-β acceleration. Peak ~8 MV/m at the spoke irises averages to 5 MV/m effective × 2 m footprint = 10 MeV per module. Compact, mechanically stiff, excellent frequency stability. Requires cryo.',
     category: 'rf',
     subsection: 'superconducting',
@@ -393,10 +431,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 325,
+    rfBand: 'vhf',
+    rfPowerRequired: 8,
   },
   ellipticalSrfCavity: {
     id: 'ellipticalSrfCavity',
-    name: '9-cell Elliptical SRF (1.3 GHz)',
+    name: '9-cell Elliptical SRF',
     desc: 'TESLA/XFEL-style nine-cell niobium elliptical cavity in its own helium vessel. 25 MV/m × 1.5 m footprint = 37.5 MeV per cavity — the workhorse high-β SRF structure used by European XFEL, LCLS-II, and the ILC design. CW-capable with vanishing wall losses, but lives in liquid helium at 2 K. Requires cryo.',
     category: 'rf',
     subsection: 'superconducting',
@@ -419,10 +459,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
+    rfBand: 'lband',
+    rfPowerRequired: 5,
   },
   cryomodule: {
     id: 'cryomodule',
-    name: 'TESLA Cryomodule (1.3 GHz)',
+    name: 'TESLA Cryomodule',
     desc: 'Eight 9-cell niobium elliptical cavities packed into a single 2 K cryostat. 25 MV/m effective × 8 m footprint delivers 200 MeV per module. The standard SRF building block for modern CW linacs (European XFEL, LCLS-II, SHINE). Expensive, thirsty for liquid helium, and worth every penny.',
     category: 'rf',
     subsection: 'superconducting',
@@ -445,6 +487,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
+    rfBand: 'lband',
+    rfPowerRequired: 40,
   },
 
   // ── Diagnostics ───────────────────────────────────────────────────
