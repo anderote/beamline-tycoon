@@ -126,3 +126,41 @@ export function _buildBPMRoles() {
 
   return buckets;
 }
+
+/**
+ * ICT (Integrating Current Transformer) — 1×1 footprint. A toroidal ring
+ * wrapping the beam pipe with a single coax signal tail. Pipe-mounted,
+ * no floor stand. Silhouette must be clearly distinct from BPM's block.
+ *
+ * Uses the `copper` role (no accent tint) since the toroid is visually
+ * a copper winding.
+ */
+export function _buildICTRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  buildBeamPipeSegment(buckets, 1);
+
+  // Toroid wrapping the pipe. TorusGeometry defaults to lying in the XY
+  // plane with its hole axis along Z — that's what we want, since the
+  // beam runs along +Z in component-local space.
+  const torusRadius = 0.14;
+  const torusTube   = 0.04;
+  {
+    const g = new THREE.TorusGeometry(torusRadius, torusTube, 12, SEGS);
+    const m = trans(0, BEAM_HEIGHT, 0);
+    pushT(buckets.copper, g, m);
+  }
+
+  // Coax signal tail exiting the top of the torus.
+  {
+    const tailR = 0.015;
+    const tailL = 0.12;
+    const g = new THREE.CylinderGeometry(tailR, tailR, tailL, 8);
+    applyTiledCylinderUVs(g, tailR, tailL, 8);
+    const m = trans(0, BEAM_HEIGHT + torusRadius + torusTube + tailL / 2, 0);
+    pushT(buckets.detail, g, m);
+  }
+
+  return buckets;
+}

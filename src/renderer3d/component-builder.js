@@ -7,6 +7,7 @@ import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import {
   _buildBPMRoles,
+  _buildICTRoles,
 } from './builders/diagnostic-builder.js';
 
 const SUB_UNIT = 0.5; // 1 sub-unit = 0.5m in world space
@@ -810,6 +811,7 @@ function _buildBellowsRoles() {
 }
 ROLE_BUILDERS.bellows = _buildBellowsRoles;
 ROLE_BUILDERS.bpm = _buildBPMRoles;
+ROLE_BUILDERS.ict = _buildICTRoles;
 
 /**
  * RFQ (Radio-Frequency Quadrupole) — long copper accelerating structure.
