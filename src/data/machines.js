@@ -12,7 +12,6 @@ export const MACHINE_TIER = {
   // Tier 2 — Photoinjector
   dcPhotoGun: 2, ncRfGun: 2, srfGun: 2,
   solenoid: 2,
-  screen: 2, ict: 2, wireScanner: 2,
   laserSystem: 2,
 
   // Tier 3 — FEL
