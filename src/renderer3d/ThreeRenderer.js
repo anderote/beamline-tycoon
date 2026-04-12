@@ -1463,8 +1463,9 @@ export class ThreeRenderer {
     const row = hover.row;
     const px = col * 2 + sc * SUB_UNIT + footW / 2;
     const pz = row * 2 + sr * SUB_UNIT + footH / 2;
+    const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
-    const y = isDetailed ? 0 : (vSubH * SUB_UNIT) / 2;
+    const y = isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -1478,16 +1479,17 @@ export class ThreeRenderer {
     const x1 = x0 + footW;
     const z0 = row * 2 + sr * SUB_UNIT;
     const z1 = z0 + footH;
+    const outlineY = placeYOffset + 0.12;
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, outlineY, z0), new THREE.Vector3(x1, outlineY, z0),
+      new THREE.Vector3(x1, outlineY, z1), new THREE.Vector3(x0, outlineY, z1),
+      new THREE.Vector3(x0, outlineY, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
     const fillGeo = new THREE.PlaneGeometry(footW, footH);
     fillGeo.rotateX(-Math.PI / 2);
     const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(px, 0.1, pz);
+    fill.position.set(px, placeYOffset + 0.1, pz);
     this._addPreviewMesh(fill);
   }
 

@@ -11,6 +11,7 @@ import { NetworkWindow } from '../ui/NetworkWindow.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
+import { findStackTarget } from '../game/stacking.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
   DEMOLISH_STANDALONE,
@@ -280,17 +281,13 @@ export class InputHandler {
       }
     }
 
-    // Utility connections and rack segments (formerly demolishConnection)
+    // Rack segments (formerly demolishConnection / utility connections)
     if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
-      const connTypes = this.game.state.connections.get(key);
-      if (connTypes && connTypes.size > 0) {
+      if (this.game.state.rackSegments.has(key)) {
         this.renderer.renderDemolishTileOutline(col, row);
-        this._showDemolishTooltip([...connTypes].join(', '), 0, screenX, screenY);
-        found = true;
-      }
-      if (!found && this.game.state.rackSegments.has(key)) {
-        this.renderer.renderDemolishTileOutline(col, row);
-        this._showDemolishTooltip('Carrier Rack', 0, screenX, screenY);
+        const seg = this.game.state.rackSegments.get(key);
+        const label = seg.utilities.size > 0 ? [...seg.utilities].join(', ') : 'Carrier Rack';
+        this._showDemolishTooltip(label, 0, screenX, screenY);
         found = true;
       }
     }
@@ -1966,13 +1963,9 @@ export class InputHandler {
               }
             }
           } else if (this.demolishType === 'demolishUtility') {
-            // Remove utility connections and rack segments in rect
+            // Remove rack segments in rect
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
-                const conns = this.game.getConnectionsAt(c, r);
-                for (const ct of [...conns]) {
-                  this.game.removeConnection(c, r, ct);
-                }
                 this.game.removeRackSegment(c, r);
               }
             }
@@ -2113,8 +2106,8 @@ export class InputHandler {
     if (this.bulldozerMode) {
       this.game._pushUndo();
       if (this.bulldozerConnType) {
-        // Pipe-specific bulldozer: only remove the selected connection type
-        this.game.removeConnection(col, row, this.bulldozerConnType);
+        // Pipe-specific bulldozer: only remove the selected utility from the rack
+        this.game.removeRackUtility(col, row, this.bulldozerConnType);
       } else {
         // General bulldozer: remove furniture and components only
         // (does not affect zones, floors/walls, or pipes)
@@ -2610,6 +2603,42 @@ export class InputHandler {
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
+
+    let placeY = 0;
+    let stackTargetId = null;
+    let ok = false;
+
+    if (placeable.stackable) {
+      const getEntry = (id) => {
+        const idx = this.game.state.placeableIndex[id];
+        return idx !== undefined ? this.game.state.placeables[idx] : null;
+      };
+      const getDef = (t) => PLACEABLES[t] || null;
+      const st = findStackTarget(
+        placeable, snap.col, snap.row, snap.subCol, snap.subRow, this.placementDir,
+        this.game.state.subgridOccupied, getEntry, getDef,
+      );
+      if (st) {
+        placeY = st.placeY;
+        stackTargetId = st.targetEntry.id;
+        ok = true;
+      } else {
+        const result = canPlace(
+          this.game, placeable,
+          snap.col, snap.row, snap.subCol, snap.subRow,
+          this.placementDir,
+        );
+        ok = result.ok;
+      }
+    } else {
+      const result = canPlace(
+        this.game, placeable,
+        snap.col, snap.row, snap.subCol, snap.subRow,
+        this.placementDir,
+      );
+      ok = result.ok;
+    }
+
     this.hoverPlaceable = {
       id: this.selectedPlaceableId,
       col: snap.col,
@@ -2617,12 +2646,9 @@ export class InputHandler {
       subCol: snap.subCol,
       subRow: snap.subRow,
       dir: this.placementDir,
+      placeY,
+      stackTargetId,
     };
-    const { ok } = canPlace(
-      this.game, placeable,
-      snap.col, snap.row, snap.subCol, snap.subRow,
-      this.placementDir,
-    );
     this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
   }
 
