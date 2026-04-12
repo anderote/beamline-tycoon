@@ -949,15 +949,17 @@ function _buildCarrierRackRoles() {
   }
   function t(x, y, z) { return new THREE.Matrix4().makeTranslation(x, y, z); }
 
-  // Support legs
+  // Support legs on both sides
   const legGeo = () => new THREE.BoxGeometry(sw, RACK_HEIGHT, sw);
-  push(b.stand, legGeo(), t(0, RACK_HEIGHT / 2, -halfLen + sw));
-  push(b.stand, legGeo(), t(0, RACK_HEIGHT / 2,  halfLen - sw));
+  for (const sx of [-halfW - sw / 2, halfW + sw / 2]) {
+    push(b.stand, legGeo(), t(sx, RACK_HEIGHT / 2, -halfLen + sw));
+    push(b.stand, legGeo(), t(sx, RACK_HEIGHT / 2,  halfLen - sw));
+  }
 
-  // Brackets
-  const bracketGeo = () => new THREE.BoxGeometry(RACK_TRAY_WIDTH * 0.5, sw, sw);
-  push(b.iron, bracketGeo(), t(0, trayBot - sw / 2, -halfLen + sw));
-  push(b.iron, bracketGeo(), t(0, trayBot - sw / 2,  halfLen - sw));
+  // Lateral cross-members
+  const crossGeo = () => new THREE.BoxGeometry(RACK_TRAY_WIDTH + sw * 2, sw, sw);
+  push(b.iron, crossGeo(), t(0, trayBot - sw / 2, -halfLen + sw));
+  push(b.iron, crossGeo(), t(0, trayBot - sw / 2,  halfLen - sw));
 
   // Tray bottom
   push(b.iron, new THREE.BoxGeometry(RACK_TRAY_WIDTH, 0.012, segLen), t(0, trayBot, 0));
