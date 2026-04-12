@@ -3,12 +3,14 @@
 // THREE is a CDN global — do NOT import it.
 
 import { COMPONENTS } from '../data/components.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import {
   _buildBPMRoles,
   _buildICTRoles,
   _buildScreenRoles,
+  _buildWireScannerRoles,
 } from './builders/diagnostic-builder.js';
 
 const SUB_UNIT = 0.5; // 1 sub-unit = 0.5m in world space
@@ -814,6 +816,7 @@ ROLE_BUILDERS.bellows = _buildBellowsRoles;
 ROLE_BUILDERS.bpm = _buildBPMRoles;
 ROLE_BUILDERS.ict = _buildICTRoles;
 ROLE_BUILDERS.screen = _buildScreenRoles;
+ROLE_BUILDERS.wireScanner = _buildWireScannerRoles;
 
 /**
  * RFQ (Radio-Frequency Quadrupole) — long copper accelerating structure.
@@ -1775,6 +1778,73 @@ export function createBeamlineGhost(compType) {
   }
 
   return group;
+}
+
+// ── Fallback / parts visual builder (standalone) ─────────────────────
+// Builds a Group/Mesh for a placeable using its declared parts[], or
+// a single-box fallback if parts is absent. Used by both
+// ComponentBuilder._createFallbackMesh (for ghost + committed meshes)
+// and renderComponentThumbnail (for build-menu previews) so all three
+// code paths render identical geometry.
+function _buildPartsOrFallback(compDef) {
+  if (Array.isArray(compDef.parts) && compDef.parts.length > 0) {
+    const group = new THREE.Group();
+    const baseColor = compDef.spriteColor ?? 0x888888;
+    for (const part of compDef.parts) {
+      const pw = (part.w || 1) * SUB_UNIT;
+      const ph = (part.h || 1) * SUB_UNIT;
+      const pl = (part.l || 1) * SUB_UNIT;
+      const geo = new THREE.BoxGeometry(pw, ph, pl);
+      applyTiledBoxUVs(geo, pw, ph, pl);
+      const partBase = part.material;
+      let map = null;
+      let color = part.color ?? baseColor;
+      if (partBase && MATERIALS[partBase]) {
+        map = MATERIALS[partBase].map;
+        if (part.color == null) color = 0xffffff;
+      }
+      const mat = new THREE.MeshStandardMaterial({
+        map, color, roughness: 0.7, metalness: 0.15,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        (part.x || 0) * SUB_UNIT,
+        ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
+        (part.z || 0) * SUB_UNIT,
+      );
+      group.add(mesh);
+    }
+    return group;
+  }
+
+  const vSubW = compDef.visualSubW ?? compDef.subW ?? 2;
+  const vSubH = compDef.visualSubH ?? compDef.subH ?? 2;
+  const vSubL = compDef.visualSubL ?? compDef.subL ?? 2;
+  const w = vSubW * SUB_UNIT;
+  const h = vSubH * SUB_UNIT;
+  const l = vSubL * SUB_UNIT;
+
+  let geometry;
+  if (compDef.geometryType === 'cylinder') {
+    const radius = Math.min(w, h) / 2;
+    geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
+    applyTiledCylinderUVs(geometry, radius, l, 8);
+    geometry.rotateZ(Math.PI / 2);
+  } else {
+    geometry = new THREE.BoxGeometry(w, h, l);
+    applyTiledBoxUVs(geometry, w, h, l);
+  }
+
+  const color = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
+  const material = new THREE.MeshStandardMaterial({
+    color, roughness: 0.7, metalness: 0.1,
+  });
+
+  // Center the fallback box on the footprint's bottom-center so it sits
+  // on y=0, matching the parts-path origin convention.
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.y = h / 2;
+  return mesh;
 }
 
 // ── Thumbnail renderer ──────────────────────────────────────────────

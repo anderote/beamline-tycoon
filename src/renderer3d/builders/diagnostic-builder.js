@@ -259,3 +259,91 @@ export function _buildScreenRoles() {
 
   return buckets;
 }
+
+/**
+ * Wire Scanner — 3×1 footprint (1.5 m across beam in X, 0.5 m along Z).
+ * A cross chamber on the beam pipe with a long horizontal actuator
+ * housing (orange accent) extending in +X and a stepper motor block
+ * at the far end. Short floor stand under the chamber.
+ */
+export function _buildWireScannerRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  buildBeamPipeSegment(buckets, 1);
+
+  // Cross chamber (slightly smaller than the Screen's — 3D reads as a
+  // different device that way).
+  const chamberR = 0.16;
+  const chamberL = 0.30;
+  {
+    const g = new THREE.CylinderGeometry(chamberR, chamberR, chamberL, SEGS);
+    applyTiledCylinderUVs(g, chamberR, chamberL, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, BEAM_HEIGHT, 0),
+      rotX(Math.PI / 2),
+    );
+    pushT(buckets.pipe, g, m);
+  }
+
+  // CF flanges at the two Z ends.
+  for (const zSign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, BEAM_HEIGHT, zSign * (chamberL / 2 + FLANGE_H / 2)),
+      rotX(Math.PI / 2),
+    );
+    pushT(buckets.detail, g, m);
+  }
+
+  // Side-arm actuator housing: long box extending in +X from the
+  // chamber. Footprint subW=3 gives 1.5 m total width in X, centered
+  // at X=0, so the housing can extend from ~chamberR out to ~+0.7 m.
+  const armStart = chamberR;         // start at chamber outer surface
+  const armEnd   = 0.70;             // stay well inside the +X footprint edge (+0.75)
+  const armLen   = armEnd - armStart;
+  const armH     = 0.12;
+  const armD     = 0.14;
+  {
+    const g = new THREE.BoxGeometry(armLen, armH, armD);
+    applyTiledBoxUVs(g, armLen, armH, armD);
+    const m = trans(armStart + armLen / 2, BEAM_HEIGHT, 0);
+    pushT(buckets.accent, g, m);
+  }
+
+  // Stepper motor block at the far end of the side-arm.
+  {
+    const motorS = 0.18;
+    const g = new THREE.BoxGeometry(motorS, motorS, motorS);
+    applyTiledBoxUVs(g, motorS, motorS, motorS);
+    const m = trans(armEnd + motorS / 2, BEAM_HEIGHT, 0);
+    pushT(buckets.iron, g, m);
+  }
+
+  // Short floor stand under the chamber (same pattern as Screen).
+  const standW = 0.20;
+  const standD = 0.18;
+  const chamberBottomY = BEAM_HEIGHT - chamberR;
+  const standH = chamberBottomY;
+  if (standH > 0.05) {
+    const baseH = 0.05;
+    const baseW = standW + 0.12;
+    const baseD = standD + 0.06;
+    {
+      const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+      applyTiledBoxUVs(g, baseW, baseH, baseD);
+      const m = trans(0, baseH / 2, 0);
+      pushT(buckets.stand, g, m);
+    }
+    {
+      const colH = standH - baseH;
+      const g = new THREE.BoxGeometry(standW, colH, standD);
+      applyTiledBoxUVs(g, standW, colH, standD);
+      const m = trans(0, baseH + colH / 2, 0);
+      pushT(buckets.stand, g, m);
+    }
+  }
+
+  return buckets;
+}
