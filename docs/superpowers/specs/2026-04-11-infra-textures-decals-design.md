@@ -116,7 +116,7 @@ Generated via `mcp__pixellab__create_tiles_pro`, clamp-to-edge, one per hero fac
 | `mps_panel.png` | mps |
 | `power_panel_front.png` | powerPanel, substation |
 
-Total: **11 decal files** for 12 box items with unique fronts; several items share decals by visual similarity.
+Total: **14 decal files** (RF power 6, cooling 3, vacuum 1, controls/safety/power 4); several items share decals by visual similarity.
 
 Cylinder items (ln2Dewar, piraniGauge, coldCathodeGauge, baGauge, areaMonitor, cooling towers, turbo/roughing/NEG/Ti pumps, helium recovery) get **category paint only** this pass — per-face decals on cylinders are out of scope. `ln2Dewar` uses `cryo_frost` tiled; gauges use `metal_painted_gray`; area monitor uses `metal_painted_yellow`.
 
