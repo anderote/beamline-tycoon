@@ -2,8 +2,8 @@
 export const FACILITY_ROOM_FURNISHINGS_RAW = {
   desk: {
     id: 'desk', name: 'Desk', zoneType: 'officeSpace',
-    cost: { funding: 30 }, energyCost: 0.2, spriteColor: 0x7a6a4a,
-    gridW: 3, gridH: 2, subH: 2, spriteKey: 'desk',
+    cost: { funding: 500 }, energyCost: 0.2, spriteColor: 0x7a6a4a,
+    gridW: 3, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'desk',
     effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
     // 3×2 footprint. Desk height ~75cm = 1.5 subtiles. Four-leg design
     // with modesty panel and a drawer pedestal on one side.
@@ -29,8 +29,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   },
   filingCabinet: {
     id: 'filingCabinet', name: 'Filing Cabinet', zoneType: 'officeSpace',
-    cost: { funding: 20 }, energyCost: 0, spriteColor: 0x8a8c94,
-    gridW: 1, gridH: 1, subH: 3, spriteKey: 'filingCabinet',
+    cost: { funding: 200 }, energyCost: 0, spriteColor: 0x8a8c94,
+    gridW: 1, gridH: 1, subH: 3, surfaceY: 2.95, spriteKey: 'filingCabinet',
     effects: {}, baseMaterial: 'metal_painted_white',
     // 1×1 footprint, 1.5 m tall. 4-drawer lateral file cabinet.
     parts: [
@@ -55,12 +55,12 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'l4', x: 0, y: 0.26, z: -0.48, w: 0.28, h: 0.08, l: 0.01, color: 0xfaf4e0 },
     ],
   },
-  whiteboard:       { id: 'whiteboard',        name: 'Whiteboard',         zoneType: 'officeSpace', cost: { funding: 25 },   energyCost: 0,   spriteColor: 0xddddee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboard',       effects: { research: 0.02 }, baseMaterial: 'metal_painted_white' },
-  coffeeMachine:    { id: 'coffeeMachine',     name: 'Coffee Machine',     zoneType: 'officeSpace', cost: { funding: 15 },   energyCost: 0.2, spriteColor: 0x664433, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.75, visualSubL: 0.7, spriteKey: 'coffeeMachine',    effects: { morale: 2 }, baseMaterial: 'metal_dark', stackable: true },
-  monitorBank:      { id: 'monitorBank',       name: 'Monitor Bank',       zoneType: 'controlRoom', cost: { funding: 150 },  energyCost: 0.8, spriteColor: 0x44bb66, gridW: 4, gridH: 2, subH: 1, spriteKey: 'monitorBank',      effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_painted_white' },
+  whiteboard:       { id: 'whiteboard',        name: 'Whiteboard',         zoneType: 'officeSpace', cost: { funding: 150 },   energyCost: 0,   spriteColor: 0xddddee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboard',       effects: { research: 0.02 }, baseMaterial: 'metal_painted_white' },
+  coffeeMachine:    { id: 'coffeeMachine',     name: 'Coffee Machine',     zoneType: 'officeSpace', cost: { funding: 200 },   energyCost: 0.2, spriteColor: 0x664433, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.75, visualSubL: 0.7, spriteKey: 'coffeeMachine',    effects: { morale: 2 }, baseMaterial: 'metal_dark', stackable: true },
+  monitorBank:      { id: 'monitorBank',       name: 'Monitor Bank',       zoneType: 'controlRoom', cost: { funding: 8000 },  energyCost: 0.8, spriteColor: 0x44bb66, gridW: 4, gridH: 2, subH: 1, spriteKey: 'monitorBank',      effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_painted_white' },
   serverRack: {
     id: 'serverRack', name: 'Server Rack', zoneType: 'controlRoom',
-    cost: { funding: 250 }, energyCost: 3.0, spriteColor: 0x1a1c22,
+    cost: { funding: 15000 }, energyCost: 3.0, spriteColor: 0x1a1c22,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.08, research: 0.03 }, baseMaterial: 'metal_dark',
     // 1×2 footprint, 2.5 m tall. 19" cabinet full of 1U servers with
@@ -116,8 +116,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   },
   operatorConsole: {
     id: 'operatorConsole', name: 'Operator Console', zoneType: 'controlRoom',
-    cost: { funding: 200 }, energyCost: 0.5, spriteColor: 0x2a2c34,
-    gridW: 3, gridH: 2, subH: 3, spriteKey: 'operatorConsole',
+    cost: { funding: 25000 }, energyCost: 0.5, spriteColor: 0x2a2c34,
+    gridW: 3, gridH: 2, subH: 3, surfaceY: 1.48, spriteKey: 'operatorConsole',
     effects: { zoneOutput: 0.07 }, baseMaterial: 'metal_painted_white',
     // 3×2 footprint. Console desk + angled monitor bank behind it.
     parts: [
@@ -156,11 +156,11 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'mouse', x:  0.6, y: 1.505, z: -0.5, w: 0.12, h: 0.05, l: 0.18, color: 0x20222a },
     ],
   },
-  alarmPanel:       { id: 'alarmPanel',        name: 'Alarm Panel',        zoneType: 'controlRoom', cost: { funding: 100 },  energyCost: 0.1, spriteColor: 0xcc5544, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.8, visualSubH: 1.2, visualSubL: 0.2, spriteKey: 'alarmPanel',       effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', stackable: true },
+  alarmPanel:       { id: 'alarmPanel',        name: 'Alarm Panel',        zoneType: 'controlRoom', cost: { funding: 3000 },  energyCost: 0.1, spriteColor: 0xcc5544, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.8, visualSubH: 1.2, visualSubL: 0.2, spriteKey: 'alarmPanel',       effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', stackable: true },
   diningTable: {
     id: 'diningTable', name: 'Dining Table', zoneType: 'cafeteria',
-    cost: { funding: 25 }, energyCost: 0, spriteColor: 0xaa7744,
-    gridW: 2, gridH: 2, subH: 2, spriteKey: 'diningTable',
+    cost: { funding: 400 }, energyCost: 0, spriteColor: 0xaa7744,
+    gridW: 2, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'diningTable',
     effects: { morale: 2 }, baseMaterial: 'tile_hardwood',
     // 2×2 footprint. Pedestal-style cafeteria table, ~75cm tall.
     parts: [
@@ -176,8 +176,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   },
   servingCounter: {
     id: 'servingCounter', name: 'Serving Counter', zoneType: 'cafeteria',
-    cost: { funding: 80 }, energyCost: 5.0, spriteColor: 0xb8bac2,
-    gridW: 4, gridH: 1, subH: 2, spriteKey: 'servingCounter',
+    cost: { funding: 5000 }, energyCost: 5.0, spriteColor: 0xb8bac2,
+    gridW: 4, gridH: 1, subH: 2, surfaceY: 1.46, spriteKey: 'servingCounter',
     effects: { morale: 3 }, baseMaterial: 'metal_painted_white',
     // 4×1 footprint. Stainless cafeteria counter with tray rail,
     // heated well inserts on top, and a glass sneeze guard.
@@ -204,13 +204,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'bracket3', x:  1.6, y: 1.25, z: -0.5, w: 0.05, h: 0.1, l: 0.12, material: 'metal_brushed' },
     ],
   },
-  vendingMachine:   { id: 'vendingMachine',    name: 'Vending Machine',    zoneType: 'cafeteria',   cost: { funding: 40 },   energyCost: 0.3, spriteColor: 0x4488aa, gridW: 1, gridH: 1, subH: 3, spriteKey: 'vendingMachine',   effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
-  microwave:        { id: 'microwave',         name: 'Microwave Station',  zoneType: 'cafeteria',   cost: { funding: 20 },   energyCost: 0.3, spriteColor: 0x666666, gridW: 1, gridH: 1, subH: 1, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.75, spriteKey: 'microwave',        effects: { morale: 1 }, baseMaterial: 'metal_painted_white', stackable: true },
-  waterCooler:      { id: 'waterCooler',       name: 'Water Cooler',       zoneType: 'cafeteria',   cost: { funding: 10 },   energyCost: 0.1, spriteColor: 0x66aacc, gridW: 1, gridH: 1, subH: 2, visualSubW: 0.6, visualSubH: 2.1, visualSubL: 0.6, spriteKey: 'waterCooler',      effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
+  vendingMachine:   { id: 'vendingMachine',    name: 'Vending Machine',    zoneType: 'cafeteria',   cost: { funding: 3000 },   energyCost: 0.3, spriteColor: 0x4488aa, gridW: 1, gridH: 1, subH: 3, spriteKey: 'vendingMachine',   effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
+  microwave:        { id: 'microwave',         name: 'Microwave Station',  zoneType: 'cafeteria',   cost: { funding: 150 },   energyCost: 0.3, spriteColor: 0x666666, gridW: 1, gridH: 1, subH: 1, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.75, spriteKey: 'microwave',        effects: { morale: 1 }, baseMaterial: 'metal_painted_white', stackable: true },
+  waterCooler:      { id: 'waterCooler',       name: 'Water Cooler',       zoneType: 'cafeteria',   cost: { funding: 300 },   energyCost: 0.1, spriteColor: 0x66aacc, gridW: 1, gridH: 1, subH: 2, visualSubW: 0.6, visualSubH: 2.1, visualSubL: 0.6, spriteKey: 'waterCooler',      effects: { morale: 1 }, baseMaterial: 'metal_painted_white' },
   conferenceTable: {
     id: 'conferenceTable', name: 'Conference Table', zoneType: 'meetingRoom',
-    cost: { funding: 60 }, energyCost: 0, spriteColor: 0x775533,
-    gridW: 4, gridH: 2, subH: 2, spriteKey: 'conferenceTable',
+    cost: { funding: 2000 }, energyCost: 0, spriteColor: 0x775533,
+    gridW: 4, gridH: 2, subH: 2, surfaceY: 1.52, spriteKey: 'conferenceTable',
     effects: { morale: 1, research: 0.02 }, baseMaterial: 'tile_hardwood',
     // 4×2 footprint. Twin-pedestal boardroom table, ~75cm tall.
     parts: [
@@ -228,7 +228,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'cable', x: 0, y: 1.4, z: 0, w: 3.6, h: 0.13, l: 0.2, material: 'metal_dark' },
     ],
   },
-  projector:        { id: 'projector',          name: 'Projector',          zoneType: 'meetingRoom', cost: { funding: 120 },  energyCost: 0.3, spriteColor: 0x444444, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.6, visualSubH: 0.4, visualSubL: 0.6, spriteKey: 'projector',        effects: { research: 0.04 }, baseMaterial: 'metal_dark', stackable: true },
-  phoneUnit:        { id: 'phoneUnit',          name: 'Conference Phone',   zoneType: 'meetingRoom', cost: { funding: 40 },   energyCost: 0,   spriteColor: 0x333333, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.2, visualSubL: 0.5, spriteKey: 'phoneUnit',        effects: {}, baseMaterial: 'metal_dark', stackable: true },
-  whiteboardLarge:  { id: 'whiteboardLarge',    name: 'Large Whiteboard',   zoneType: 'meetingRoom', cost: { funding: 35 },   energyCost: 0,   spriteColor: 0xeeeeee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboardLarge',  effects: { research: 0.03 }, baseMaterial: 'metal_painted_white' },
+  projector:        { id: 'projector',          name: 'Projector',          zoneType: 'meetingRoom', cost: { funding: 1500 },  energyCost: 0.3, spriteColor: 0x444444, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.6, visualSubH: 0.4, visualSubL: 0.6, spriteKey: 'projector',        effects: { research: 0.04 }, baseMaterial: 'metal_dark', stackable: true },
+  phoneUnit:        { id: 'phoneUnit',          name: 'Conference Phone',   zoneType: 'meetingRoom', cost: { funding: 500 },   energyCost: 0,   spriteColor: 0x333333, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.5, visualSubH: 0.2, visualSubL: 0.5, spriteKey: 'phoneUnit',        effects: {}, baseMaterial: 'metal_dark', stackable: true },
+  whiteboardLarge:  { id: 'whiteboardLarge',    name: 'Large Whiteboard',   zoneType: 'meetingRoom', cost: { funding: 250 },   energyCost: 0,   spriteColor: 0xeeeeee, gridW: 3, gridH: 1, subH: 3, visualSubW: 2.8, visualSubH: 2.4, visualSubL: 0.15, spriteKey: 'whiteboardLarge',  effects: { research: 0.03 }, baseMaterial: 'metal_painted_white' },
 };

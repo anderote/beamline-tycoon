@@ -51,7 +51,8 @@ export function canStack(stackableDef, targetEntry, targetDef, col, row, subCol,
   }
 
   // Height cap
-  const placeY = (targetEntry.placeY || 0) + (targetDef.subH || 1);
+  const surfaceH = targetDef.surfaceY ?? targetDef.subH ?? 1;
+  const placeY = (targetEntry.placeY || 0) + surfaceH;
   if (placeY + stackableDef.subH > MAX_STACK_HEIGHT) {
     return { ok: false, placeY, reason: 'Exceeds height limit' };
   }
@@ -74,7 +75,7 @@ export function collapsePlan(entryId, getEntry, getDef) {
   if (children.length === 0) return [];
 
   const parentId = entry.stackParentId || null;
-  const deletedHeight = def.subH || 1;
+  const deletedHeight = def.surfaceY ?? def.subH ?? 1;
   const updates = [];
 
   function shiftDown(childId, newParentId, yShift) {
