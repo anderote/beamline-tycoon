@@ -24,70 +24,95 @@ export const Networks = {
   },
 
   /**
-   * Flood-fill to find connected clusters for a single connection type.
+   * Flood-fill to find connected clusters of rack segments for a single connection type.
+   * Rack segments are 2x2 and adjacent when their anchors differ by exactly 2 on one axis.
    */
   _discoverType(state, connType) {
-    // Collect all tiles that have this connection type
-    var tilesOfType = new Set();
-    state.connections.forEach(function(typeSet, key) {
-      if (typeSet.has(connType)) {
-        tilesOfType.add(key);
-      }
-    });
+    var segments = state.rackSegments;
+    if (!segments || segments.size === 0) return [];
+
+    var seeds = [];
+    for (var entry of segments) {
+      var key = entry[0], seg = entry[1];
+      if (seg.utilities.has(connType)) seeds.push(key);
+    }
+    if (seeds.length === 0) return [];
 
     var visited = new Set();
     var networks = [];
 
-    tilesOfType.forEach(function(key) {
-      if (visited.has(key)) return;
+    for (var s = 0; s < seeds.length; s++) {
+      var seed = seeds[s];
+      if (visited.has(seed)) continue;
 
-      // Flood-fill from this tile
       var cluster = [];
-      var queue = [key];
-      visited.add(key);
+      var queue = [seed];
+      visited.add(seed);
 
       while (queue.length > 0) {
-        var cur = queue.shift();
-        var parts = cur.split(',');
+        var current = queue.shift();
+        var parts = current.split(',');
         var col = parseInt(parts[0], 10);
         var row = parseInt(parts[1], 10);
         cluster.push({ col: col, row: row });
 
-        for (var d = 0; d < CARDINAL.length; d++) {
-          var nKey = (col + CARDINAL[d][0]) + ',' + (row + CARDINAL[d][1]);
-          if (!visited.has(nKey) && tilesOfType.has(nKey)) {
-            visited.add(nKey);
-            queue.push(nKey);
+        var neighbors = [
+          [col, row - 2], [col, row + 2],
+          [col - 2, row], [col + 2, row],
+        ];
+        for (var n = 0; n < neighbors.length; n++) {
+          var nc = neighbors[n][0], nr = neighbors[n][1];
+          var nk = nc + ',' + nr;
+          if (visited.has(nk)) continue;
+          var nseg = segments.get(nk);
+          if (nseg && nseg.utilities.has(connType)) {
+            visited.add(nk);
+            queue.push(nk);
           }
         }
       }
 
-      var tileSet = new Set(cluster.map(function(t) { return t.col + ',' + t.row; }));
+      // Build tileSet from each segment's 2x2 footprint
+      var tileSet = new Set();
+      for (var c = 0; c < cluster.length; c++) {
+        var cx = cluster[c].col, cy = cluster[c].row;
+        tileSet.add(cx + ',' + cy);
+        tileSet.add((cx + 1) + ',' + cy);
+        tileSet.add(cx + ',' + (cy + 1));
+        tileSet.add((cx + 1) + ',' + (cy + 1));
+      }
+
       networks.push({
         tiles: cluster,
+        tileSet: tileSet,
         equipment: Networks._findAdjacentEquipment(state, tileSet),
         beamlineNodes: Networks._findAdjacentBeamline(state, tileSet),
       });
-    });
+    }
 
     return networks;
   },
 
   /**
-   * Find facility equipment whose tiles are adjacent to or overlapping with network tiles.
+   * Find facility equipment whose tiles overlap with or are adjacent to network tiles.
+   * Checks all cells of multi-tile equipment for overlap or cardinal adjacency.
    */
   _findAdjacentEquipment(state, tileSet) {
     var found = [];
     var equip = (state.placeables || []).filter(function(p) { return p.category === 'equipment'; });
     for (var i = 0; i < equip.length; i++) {
       var eq = equip[i];
-      var tc = eq.col;
-      var tr = eq.row;
+      var eqTiles = eq.tiles || [{ col: eq.col, row: eq.row }];
       var adjacent = false;
-      if (tileSet.has(tc + ',' + tr)) {
-        adjacent = true;
-      }
-      if (!adjacent) {
+      for (var t = 0; t < eqTiles.length && !adjacent; t++) {
+        var tc = eqTiles[t].col;
+        var tr = eqTiles[t].row;
+        // Check overlap
+        if (tileSet.has(tc + ',' + tr)) {
+          adjacent = true;
+          break;
+        }
+        // Check cardinal adjacency
         for (var d = 0; d < CARDINAL.length; d++) {
           if (tileSet.has((tc + CARDINAL[d][0]) + ',' + (tr + CARDINAL[d][1]))) {
             adjacent = true;
