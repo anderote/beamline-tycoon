@@ -164,3 +164,98 @@ export function _buildICTRoles() {
 
   return buckets;
 }
+
+/**
+ * Screen / YAG — 2×1 footprint (1.0 m across beam, 0.5 m along beam).
+ * A 6-way cross chamber with a vertical pneumatic actuator cylinder on
+ * top (amber accent), a small side viewport flange, and a short floor
+ * stand under the chamber.
+ */
+export function _buildScreenRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  // Footprint: subW=2, subL=1 → 1.0 m wide in X, 0.5 m along beam in Z.
+  // Beam pipe segment runs 0.5 m along Z.
+  buildBeamPipeSegment(buckets, 1);
+
+  // Cross chamber: short fat cylinder centered on the pipe, its own
+  // long axis along Z (so the beam passes straight through).
+  const chamberR = 0.18;
+  const chamberL = 0.35;
+  {
+    const g = new THREE.CylinderGeometry(chamberR, chamberR, chamberL, SEGS);
+    applyTiledCylinderUVs(g, chamberR, chamberL, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, BEAM_HEIGHT, 0),
+      rotX(Math.PI / 2),
+    );
+    pushT(buckets.pipe, g, m);
+  }
+
+  // CF flanges at the two Z ends of the chamber where it meets the
+  // drift pipe.
+  for (const zSign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, BEAM_HEIGHT, zSign * (chamberL / 2 + FLANGE_H / 2)),
+      rotX(Math.PI / 2),
+    );
+    pushT(buckets.detail, g, m);
+  }
+
+  // Vertical pneumatic actuator rising from the top of the chamber.
+  // This is the signature silhouette — tall, amber, centered above the
+  // chamber.
+  const actR = 0.07;
+  const actH = 0.55;
+  {
+    const g = new THREE.CylinderGeometry(actR, actR, actH, SEGS);
+    applyTiledCylinderUVs(g, actR, actH, SEGS);
+    const m = trans(0, BEAM_HEIGHT + chamberR + actH / 2, 0);
+    pushT(buckets.accent, g, m);
+  }
+
+  // Small camera viewport flange sticking out the +X side of the chamber.
+  {
+    const viewR = 0.06;
+    const viewL = 0.10;
+    const g = new THREE.CylinderGeometry(viewR, viewR, viewL, 8);
+    applyTiledCylinderUVs(g, viewR, viewL, 8);
+    // Default Y-up cylinder rotated so its axis points along +X.
+    const rZ = new THREE.Matrix4().makeRotationZ(-Math.PI / 2);
+    const tr = trans(chamberR + viewL / 2, BEAM_HEIGHT, 0);
+    const m  = new THREE.Matrix4().multiplyMatrices(tr, rZ);
+    pushT(buckets.detail, g, m);
+  }
+
+  // Short floor stand: a single rectangular post centered under the
+  // chamber, from floor (y=0) up to just under the chamber bottom.
+  const standW = 0.20;
+  const standD = 0.18;
+  const chamberBottomY = BEAM_HEIGHT - chamberR;
+  const standH = chamberBottomY;
+  if (standH > 0.05) {
+    // Base plate (flat pad on the floor)
+    const baseH = 0.05;
+    const baseW = standW + 0.12;
+    const baseD = standD + 0.06;
+    {
+      const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+      applyTiledBoxUVs(g, baseW, baseH, baseD);
+      const m = trans(0, baseH / 2, 0);
+      pushT(buckets.stand, g, m);
+    }
+    // Column up to the chamber
+    {
+      const colH = standH - baseH;
+      const g = new THREE.BoxGeometry(standW, colH, standD);
+      applyTiledBoxUVs(g, standW, colH, standD);
+      const m = trans(0, baseH + colH / 2, 0);
+      pushT(buckets.stand, g, m);
+    }
+  }
+
+  return buckets;
+}
