@@ -3,6 +3,8 @@
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
 import { FLOORS } from '../data/structure.js';
+import { COMPONENTS } from '../data/components.js';
+import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 
 const GRASS_RANGE = 20;
 
@@ -152,7 +154,7 @@ function buildComponents(game) {
       dimmed: false,
       health: undefined,
       beamlineId: p.beamlineId ?? null,
-      accentColor: 0xc62828,
+      accentColor: (COMPONENTS[p.type] && COMPONENTS[p.type].accentColor) || 0xc62828,
     });
   }
 
@@ -170,6 +172,7 @@ function buildEquipment(game) {
     row: eq.row ?? null,
     subCol: eq.subCol ?? null,
     subRow: eq.subRow ?? null,
+    dir: eq.dir ?? 0,
   }));
 }
 
@@ -203,6 +206,163 @@ function buildConnections(game) {
     }
   }
   return result;
+}
+
+function buildUtilityRouting(game) {
+  const connections = game.state.connections;
+  if (!connections || connections.size === 0) return { floorSegments: [], portRoutes: [] };
+
+  const connSet = (col, row) => connections.get(`${col},${row}`) || new Set();
+
+  // ── Floor segments ──
+  // For each connection tile, determine which directions have same-type neighbors.
+  const floorSegments = [];
+  for (const [key, typeSet] of connections) {
+    const [col, row] = key.split(',').map(Number);
+    for (const type of typeSet) {
+      const neighbors = {
+        north: connSet(col, row - 1).has(type),
+        south: connSet(col, row + 1).has(type),
+        west:  connSet(col - 1, row).has(type),
+        east:  connSet(col + 1, row).has(type),
+      };
+      floorSegments.push({ col, row, type, neighbors });
+    }
+  }
+
+  // ── Port routes (last-meter connections) ──
+  const portRoutes = [];
+
+  // Gather all placed components: beamline nodes + infrastructure placeables
+  const placeables = [];
+
+  // Beamline registry nodes
+  for (const entry of game.registry.getAll()) {
+    for (const node of entry.beamline.getAllNodes()) {
+      const def = node.compDef || node;
+      if (!def.id && !node.type) continue;
+      const compId = def.id || node.type;
+      const tiles = node.tiles || [{ col: node.col, row: node.row }];
+      placeables.push({
+        id: compId,
+        col: node.col,
+        row: node.row,
+        dir: node.dir ?? 0,
+        tiles,
+        subW: def.subW || def.gridW || 2,
+        subL: def.subL || def.gridH || 2,
+      });
+    }
+  }
+
+  // Infrastructure placeables
+  const infraPlaceables = game.state.placeables || [];
+  for (const p of infraPlaceables) {
+    if (p.category === 'equipment' || p.category === 'infrastructure') {
+      const compId = p.type || p.id;
+      if (!compId) continue;
+      const tiles = p.cells
+        ? p.cells.map(c => ({ col: c.col, row: c.row }))
+        : [{ col: p.col, row: p.row }];
+      placeables.push({
+        id: compId,
+        col: p.col,
+        row: p.row,
+        dir: p.dir ?? 0,
+        tiles,
+        subW: p.subW || p.gridW || 2,
+        subL: p.subL || p.gridH || 2,
+      });
+    }
+  }
+
+  // Direction lookup tables for lateral sides
+  // dir 0: facing front=+row, left=-col, right=+col
+  // dir 1: facing front=-col, left=+row, right=-row  (etc.)
+  const LEFT_OFFSET =  [[-1,0],[0,1],[1,0],[0,-1]];
+  const RIGHT_OFFSET = [[1,0],[0,-1],[-1,0],[0,1]];
+
+  for (const comp of placeables) {
+    const ports = getUtilityPorts(comp.id);
+    if (!ports || ports.length === 0) continue;
+
+    const tileSet = new Set(comp.tiles.map(t => `${t.col},${t.row}`));
+
+    // Find tiles adjacent to left and right sides
+    const leftAdj = new Set();
+    const rightAdj = new Set();
+    for (const t of comp.tiles) {
+      const lo = LEFT_OFFSET[comp.dir];
+      const ro = RIGHT_OFFSET[comp.dir];
+      const lk = `${t.col + lo[0]},${t.row + lo[1]}`;
+      const rk = `${t.col + ro[0]},${t.row + ro[1]}`;
+      if (!tileSet.has(lk)) leftAdj.add(lk);
+      if (!tileSet.has(rk)) rightAdj.add(rk);
+    }
+
+    for (const port of ports) {
+      let connectedSide = null;
+
+      for (const k of leftAdj) {
+        const [ac, ar] = k.split(',').map(Number);
+        if (connSet(ac, ar).has(port.type)) { connectedSide = 'left'; break; }
+      }
+      if (!connectedSide) {
+        for (const k of rightAdj) {
+          const [ac, ar] = k.split(',').map(Number);
+          if (connSet(ac, ar).has(port.type)) { connectedSide = 'right'; break; }
+        }
+      }
+
+      portRoutes.push({
+        compId: comp.id,
+        col: comp.col,
+        row: comp.row,
+        dir: comp.dir,
+        portType: port.type,
+        portOffset: port.offset,
+        subW: comp.subW,
+        subL: comp.subL,
+        connectedSide,
+      });
+    }
+  }
+
+  // Pipe attachments (quads, BPMs, etc.)
+  const pipeAttachments = buildPipeAttachments(game);
+  for (const att of pipeAttachments) {
+    const ports = getUtilityPorts(att.type);
+    if (!ports || ports.length === 0) continue;
+
+    const attDir = att.direction ?? 0;
+    for (const port of ports) {
+      const tileCol = Math.round(att.col);
+      const tileRow = Math.round(att.row);
+
+      let connectedSide = null;
+      const lo = LEFT_OFFSET[attDir];
+      const ro = RIGHT_OFFSET[attDir];
+      const lc = tileCol + lo[0], lr = tileRow + lo[1];
+      const rc = tileCol + ro[0], rr = tileRow + ro[1];
+
+      if (connSet(lc, lr).has(port.type)) connectedSide = 'left';
+      else if (connSet(rc, rr).has(port.type)) connectedSide = 'right';
+
+      portRoutes.push({
+        compId: att.type,
+        col: att.col,
+        row: att.row,
+        dir: attDir,
+        portType: port.type,
+        portOffset: port.offset,
+        subW: 2,
+        subL: 2,
+        connectedSide,
+      });
+    }
+  }
+
+  return { floorSegments, portRoutes };
 }
 
 function buildBeamPaths(game) {
@@ -290,6 +450,7 @@ function buildFurnishings(game) {
     subCol: f.subCol ?? null,
     subRow: f.subRow ?? null,
     type: f.type,
+    dir: f.dir ?? 0,
   }));
 }
 
@@ -316,5 +477,6 @@ export function buildWorldSnapshot(game) {
     beamPaths: buildBeamPaths(game),
     furnishings: buildFurnishings(game),
     pipeAttachments: buildPipeAttachments(game),
+    utilityRouting: buildUtilityRouting(game),
   };
 }
