@@ -1426,14 +1426,15 @@ export class InputHandler {
         return;
       }
 
-      // Rack placement start (L-path drag, like hallway)
+      // Rack placement start — reuses the line drawing system (like hallway)
       if (this.selectedRackTool && e.button === 0) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
-        this.isDrawingRack = true;
-        this._rackStart = { col: grid.col, row: grid.row };
-        this._rackPath = [{ col: grid.col, row: grid.row }];
-        this.renderer.renderLinePreview(this._rackPath, 'carrierRack');
+        this.isDrawingLine = true;
+        this._isRackLine = true;
+        this.lineStart = { col: grid.col, row: grid.row };
+        this.linePath = [{ col: grid.col, row: grid.row }];
+        this.renderer.renderLinePreview(this.linePath, 'carrierRack');
         return;
       }
 
@@ -1615,12 +1616,12 @@ export class InputHandler {
             insufficientFunding: this.game.state.resources.funding < cost.totalCost,
           });
         }
-      } else if (this.isDrawingLine && this.selectedInfraTool) {
+      } else if (this.isDrawingLine && (this.selectedInfraTool || this._isRackLine)) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         const start = this.lineStart || this.linePath[0];
         this.linePath = this._buildLPath(start, grid);
-        this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
+        this.renderer.renderLinePreview(this.linePath, this._isRackLine ? 'carrierRack' : this.selectedInfraTool);
         // Cost tooltip for line placement (hallway)
         const lineCost = this.game.computeInfraLineCost(
           this.linePath, this.selectedInfraTool, this.selectedInfraVariant,
@@ -1673,11 +1674,6 @@ export class InputHandler {
                  (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
-      } else if (this.isDrawingRack) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this._rackPath = this._buildLPath(this._rackStart, grid);
-        this.renderer.renderLinePreview(this._rackPath, 'carrierRack');
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1858,19 +1854,6 @@ export class InputHandler {
         return;
       }
 
-      // Rack drawing end — commit L-path
-      if (this.isDrawingRack) {
-        this.game._pushUndo();
-        for (const pt of this._rackPath) {
-          this.game.placeRackSegment(pt.col, pt.row);
-        }
-        this.isDrawingRack = false;
-        this._rackPath = [];
-        this._rackStart = null;
-        this.renderer.clearDragPreview();
-        return;
-      }
-
       // Connection drawing end — commit all tiles on release
       if (this.isDrawingConn) {
         this.game._pushUndo();
@@ -1893,14 +1876,21 @@ export class InputHandler {
         return;
       }
 
-      // Line placement end (hallway)
+      // Line placement end (hallway or rack)
       if (this.isDrawingLine && this.linePath.length > 0) {
         this.game._pushUndo();
-        for (const pt of this.linePath) {
-          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
+        if (this._isRackLine) {
+          for (const pt of this.linePath) {
+            this.game.placeRackSegment(pt.col, pt.row);
+          }
+        } else {
+          for (const pt of this.linePath) {
+            this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
+          }
+          this.game.emit('infrastructureChanged');
         }
-        this.game.emit('infrastructureChanged');
         this.isDrawingLine = false;
+        this._isRackLine = false;
         this.linePath = [];
         this.lineStart = null;
         this.renderer.clearDragPreview();
@@ -2817,9 +2807,12 @@ export class InputHandler {
 
   deselectRackTool() {
     this.selectedRackTool = false;
-    this.isDrawingRack = false;
-    this._rackPath = [];
-    this._rackStart = null;
+    if (this._isRackLine) {
+      this.isDrawingLine = false;
+      this._isRackLine = false;
+      this.linePath = [];
+      this.lineStart = null;
+    }
   }
 
   selectZoneTool(zoneType) {
