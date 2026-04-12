@@ -162,11 +162,12 @@ export const Networks = {
    */
   touchesControlRoom(state, network) {
     var zoneOccupied = state.zoneOccupied || {};
-    for (var i = 0; i < network.tiles.length; i++) {
-      var col = network.tiles[i].col;
-      var row = network.tiles[i].row;
-      // Check the tile itself and cardinal neighbors
-      if (zoneOccupied[col + ',' + row] === 'controlRoom') return true;
+    var tilesToCheck = network.tileSet || new Set();
+    for (var key of tilesToCheck) {
+      if (zoneOccupied[key] === 'controlRoom') return true;
+      var parts = key.split(',');
+      var col = +parts[0];
+      var row = +parts[1];
       for (var d = 0; d < CARDINAL.length; d++) {
         if (zoneOccupied[(col + CARDINAL[d][0]) + ',' + (row + CARDINAL[d][1])] === 'controlRoom') return true;
       }

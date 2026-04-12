@@ -125,7 +125,7 @@ export class UtilityPipeBuilder {
           const mesh = new THREE.Mesh(geo, mat);
           mesh.matrixAutoUpdate = false;
           if (profile.shape === 'rect') {
-            mesh.position.set((startX + endX) / 2 + slotX, pipeY, cz);
+            mesh.position.set((startX + endX) / 2, pipeY, cz + slotX);
           } else {
             mesh.rotation.z = Math.PI / 2;
             mesh.position.set((startX + endX) / 2, pipeY, cz + slotX);

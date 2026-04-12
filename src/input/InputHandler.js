@@ -283,10 +283,10 @@ export class InputHandler {
 
     // Rack segments (formerly demolishConnection / utility connections)
     if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
-      if (this.game.state.rackSegments.has(key)) {
+      const rackSeg = this.game.getRackSegmentAt(col, row);
+      if (rackSeg) {
         this.renderer.renderDemolishTileOutline(col, row);
-        const seg = this.game.state.rackSegments.get(key);
-        const label = seg.utilities.size > 0 ? [...seg.utilities].join(', ') : 'Carrier Rack';
+        const label = rackSeg.utilities.size > 0 ? [...rackSeg.utilities].join(', ') : 'Carrier Rack';
         this._showDemolishTooltip(label, 0, screenX, screenY);
         found = true;
       }
@@ -1963,10 +1963,18 @@ export class InputHandler {
               }
             }
           } else if (this.demolishType === 'demolishUtility') {
-            // Remove rack segments in rect
+            // Remove rack segments in rect (resolve anchors and deduplicate)
+            const removedAnchors = new Set();
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
-                this.game.removeRackSegment(c, r);
+                const rackSeg = this.game.getRackSegmentAt(c, r);
+                if (rackSeg) {
+                  const anchorKey = rackSeg.col + ',' + rackSeg.row;
+                  if (!removedAnchors.has(anchorKey)) {
+                    removedAnchors.add(anchorKey);
+                    this.game.removeRackSegment(rackSeg.col, rackSeg.row);
+                  }
+                }
               }
             }
           } else if (this.demolishType === 'demolishEquipment') {
@@ -2107,7 +2115,8 @@ export class InputHandler {
       this.game._pushUndo();
       if (this.bulldozerConnType) {
         // Pipe-specific bulldozer: only remove the selected utility from the rack
-        this.game.removeRackUtility(col, row, this.bulldozerConnType);
+        const rackSeg = this.game.getRackSegmentAt(col, row);
+        if (rackSeg) this.game.removeRackUtility(rackSeg.col, rackSeg.row, this.bulldozerConnType);
       } else {
         // General bulldozer: remove furniture and components only
         // (does not affect zones, floors/walls, or pipes)
@@ -2198,7 +2207,8 @@ export class InputHandler {
       }
       if (this.demolishType === 'demolishUtility') {
         // Remove rack segment (and all its utilities) at this tile
-        this.game.removeRackSegment(col, row);
+        const rackSeg = this.game.getRackSegmentAt(col, row);
+        if (rackSeg) this.game.removeRackSegment(rackSeg.col, rackSeg.row);
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
           this.game.removeZoneTile(col, row);
@@ -2305,8 +2315,7 @@ export class InputHandler {
         }
       } else {
         // Check for rack segment click (network info)
-        const connKey = col + ',' + row;
-        const rackSeg = this.game.state.rackSegments.get(connKey);
+        const rackSeg = this.game.getRackSegmentAt(col, row);
         if (rackSeg && rackSeg.utilities.size > 0) {
           const networkData = this.game.state.networkData || {};
           for (const connType of rackSeg.utilities) {
@@ -2875,7 +2884,8 @@ export class InputHandler {
     const node = this._getNodeAtGrid(col, row);
     if (node) this.game.removeComponent(node.id);
     // Remove rack segment (and its utilities)
-    this.game.removeRackSegment(col, row);
+    const rackSeg = this.game.getRackSegmentAt(col, row);
+    if (rackSeg) this.game.removeRackSegment(rackSeg.col, rackSeg.row);
     // Remove furnishings
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
     if (subgrid) {
