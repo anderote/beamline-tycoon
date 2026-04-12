@@ -2434,9 +2434,9 @@ export class ThreeRenderer {
     const pipes = this.game.state.beamPipes || [];
     if (pipes.length === 0) return;
 
-    const PIPE_RADIUS = 0.08;
+    const PIPE_RADIUS = 0.06;
     const PIPE_Y = 1.0;
-    const FLANGE_R = 0.16;
+    const FLANGE_R = 0.12;
     const FLANGE_W = 0.045;
     const STAND_W = 0.06;
 
@@ -2601,7 +2601,7 @@ export class ThreeRenderer {
     const isRemove = mode === 'remove';
     const wireColor = isRemove ? 0xff4444 : 0x44ff44;
 
-    const PIPE_RADIUS = 0.08;
+    const PIPE_RADIUS = 0.06;
     const PIPE_Y = 1.0;
     const STAND_W = 0.06;
 
