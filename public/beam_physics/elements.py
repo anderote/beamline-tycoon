@@ -213,7 +213,7 @@ def transfer_matrix(element, beam_energy=None, beam_mass=None):
     Returns: 6x6 numpy transfer matrix
     """
     etype = element["type"]
-    length = element.get("length", 1.0)
+    length = element["length"]
 
     if etype == "source":
         return np.eye(6)
