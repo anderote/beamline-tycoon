@@ -1,9 +1,10 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS } from '../data/facility.js';
 import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
 import { CONNECTION_TYPES } from '../data/modes.js';
-import { PARAM_DEFS } from '../beamline/component-physics.js';
+import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
 import { findLabNetworkBonuses } from '../networks/rooms.js';
@@ -27,6 +28,15 @@ export class Game {
     this.editingBeamlineId = null;
     this.selectedBeamlineId = null;
 
+    // Dev mode — unlimited funding, ignores staff/build costs.
+    // Persisted in localStorage, toggled via window.dev.enable() / .disable().
+    this.devMode = (() => {
+      try {
+        if (typeof window !== 'undefined' && window.location?.search.includes('dev=1')) return true;
+        return localStorage.getItem('beamlineTycoon.devMode') === '1';
+      } catch (_) { return false; }
+    })();
+
     this.state = {
       resources: { funding: 3500000, reputation: 0, data: 0 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
@@ -41,7 +51,7 @@ export class Game {
       staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
       staffCosts: { operators: 5, technicians: 8, scientists: 10, engineers: 12 }, // $/tick
       // Infrastructure tiles (paths, concrete pads)
-      infrastructure: [],       // [{ type, col, row }]
+      floors: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
       // Zone overlays
       zones: [],                // [{ type, col, row }]
@@ -156,13 +166,25 @@ export class Game {
     this.emit('log', { msg, type });
   }
 
+  setDevMode(on) {
+    this.devMode = !!on;
+    try { localStorage.setItem('beamlineTycoon.devMode', this.devMode ? '1' : '0'); } catch (_) {}
+    if (this.devMode) {
+      this.state.resources.funding = 1e12;
+      this.log('DEV MODE ON — unlimited funding', 'good');
+    } else {
+      this.log('DEV MODE OFF', '');
+    }
+    this.emit('resourcesChanged');
+  }
+
   // === UNDO ===
 
   /** Snapshot mutable game state onto the undo stack (max 3). */
   _pushUndo() {
     const snap = {
       resources: { ...this.state.resources },
-      infrastructure: this.state.infrastructure.map(t => ({ ...t })),
+      floors: this.state.floors.map(t => ({ ...t })),
       infraOccupied: { ...this.state.infraOccupied },
       zones: this.state.zones.map(z => ({ ...z })),
       zoneOccupied: { ...this.state.zoneOccupied },
@@ -252,7 +274,7 @@ export class Game {
 
     // Restore state
     this.state.resources = snap.resources;
-    this.state.infrastructure = snap.infrastructure;
+    this.state.floors = snap.floors;
     this.state.infraOccupied = snap.infraOccupied;
     this.state.zones = snap.zones;
     this.state.zoneOccupied = snap.zoneOccupied;
@@ -530,16 +552,16 @@ export class Game {
     return true;
   }
 
-  // === INFRASTRUCTURE ===
+  // === FLOORS ===
 
   placeInfraTile(col, row, infraType, variant = 0) {
-    const infra = INFRASTRUCTURE[infraType];
+    const infra = FLOORS[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
     const existing = this.state.infraOccupied[key];
     // For orientable tiles of the same type, toggle orientation for free
     if (existing === infraType && infra.orientable) {
-      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
       if (existingTile) {
         existingTile.orientation = existingTile.orientation ? 0 : 1;
         this.emit('infrastructureChanged');
@@ -548,7 +570,7 @@ export class Game {
     }
     // Same type but different variant — update variant for free
     if (existing === infraType) {
-      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
       if (existingTile && existingTile.variant !== variant) {
         existingTile.variant = variant;
         this.emit('infrastructureChanged');
@@ -557,15 +579,16 @@ export class Game {
     }
     // Check foundation requirement
     if (infra.requiresFoundation) {
-      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
       const baseType = existingTile?.foundation || existing;
       if (baseType !== infra.requiresFoundation) {
-        this.log(`${infra.name} requires ${INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
+        this.log(`${infra.name} requires ${FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
         return false;
       }
     }
     // Auto-remove any decoration (including trees) — include removal cost
-    let totalCost = infra.cost;
+    const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
+    let totalCost = tileCost;
     const existingDec = this._decorationAtTile(col, row);
     if (existingDec) {
       const def = DECORATIONS[existingDec.type];
@@ -576,12 +599,12 @@ export class Game {
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
     if (infra.requiresFoundation && existing) {
-      const existingTile = this.state.infrastructure.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
       foundation = existingTile?.foundation || existing;
     }
     if (existing) {
       // Replace existing floor - remove old tile first
-      this.state.infrastructure = this.state.infrastructure.filter(
+      this.state.floors = this.state.floors.filter(
         t => !(t.col === col && t.row === row)
       );
       // Remove zone on this tile since floor is changing
@@ -592,10 +615,10 @@ export class Game {
       }
     }
 
-    this.state.resources.funding -= infra.cost;
+    this.state.resources.funding -= tileCost;
     const tileEntry = { type: infraType, col, row, variant };
     if (foundation) tileEntry.foundation = foundation;
-    this.state.infrastructure.push(tileEntry);
+    this.state.floors.push(tileEntry);
     this.state.infraOccupied[key] = infraType;
     if (infraType === 'hallway') {
       this.recomputeZoneConnectivity();
@@ -610,12 +633,13 @@ export class Game {
    * during drag without mutating state. Shares logic with placeInfraRect.
    */
   computeInfraRectCost(startCol, startRow, endCol, endRow, infraType, variant = 0) {
-    const infra = INFRASTRUCTURE[infraType];
+    const infra = FLOORS[infraType];
     if (!infra) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
+    const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = 0;
     let newTiles = 0;
     let skippedNoFoundation = 0;
@@ -625,19 +649,19 @@ export class Game {
         const existing = this.state.infraOccupied[tileKey];
         // Same type + same variant: skip entirely (no cost, no action).
         if (existing === infraType && !infra.orientable) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           if (!existingTile || existingTile.variant === variant) continue;
           newTiles++;
           continue;
         }
         if (existing === infraType && infra.orientable) { newTiles++; continue; }
         if (infra.requiresFoundation) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           const baseType = existingTile?.foundation || existing;
           if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
         }
         newTiles++;
-        totalCost += infra.cost;
+        totalCost += tileCost;
         const existingDec = this._decorationAtTile(c, r);
         if (existingDec) {
           const def = DECORATIONS[existingDec.type];
@@ -653,8 +677,9 @@ export class Game {
    * { newTiles, totalCost, skippedNoFoundation }.
    */
   computeInfraLineCost(path, infraType, variant = 0) {
-    const infra = INFRASTRUCTURE[infraType];
+    const infra = FLOORS[infraType];
     if (!infra || !path || path.length === 0) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
+    const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = 0;
     let newTiles = 0;
     let skippedNoFoundation = 0;
@@ -665,28 +690,34 @@ export class Game {
       seen.add(k);
       const existing = this.state.infraOccupied[k];
       if (existing === infraType) {
-        const existingTile = this.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row);
         if (!existingTile || existingTile.variant === variant) continue;
         newTiles++;
         continue;
       }
       if (infra.requiresFoundation) {
-        const existingTile = this.state.infrastructure.find(t => t.col === pt.col && t.row === pt.row);
+        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row);
         const baseType = existingTile?.foundation || existing;
         if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
       }
       newTiles++;
-      totalCost += infra.cost;
+      totalCost += tileCost;
     }
     return { newTiles, totalCost, skippedNoFoundation };
   }
 
-  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0) {
-    const infra = INFRASTRUCTURE[infraType];
+  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0, orientationOverride = null) {
+    const infra = FLOORS[infraType];
     if (!infra) return false;
 
+    const tileCostForVariant = infra.variantCosts?.[variant] ?? infra.cost;
+
+    // Orientable tiles: use the caller's override (F-key rotation) if given,
+    // otherwise auto-detect from the drag rectangle's aspect ratio.
     const orientation = infra.orientable
-      ? (Math.abs(endCol - startCol) >= Math.abs(endRow - startRow) ? 0 : 1)
+      ? (orientationOverride != null
+          ? orientationOverride
+          : (Math.abs(endCol - startCol) >= Math.abs(endRow - startRow) ? 0 : 1))
       : 0;
 
     const minCol = Math.min(startCol, endCol);
@@ -699,7 +730,7 @@ export class Game {
     );
     if (newTiles === 0) {
       if (skippedNoFoundation > 0) {
-        this.log(`${infra.name} requires ${INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
+        this.log(`${infra.name} requires ${FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
       }
       return true;
     }
@@ -716,14 +747,14 @@ export class Game {
         const existing = this.state.infraOccupied[key];
         // Same-type orientable: just update orientation for free
         if (existing === infraType && infra.orientable) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           if (existingTile) existingTile.orientation = orientation;
           placed++;
           continue;
         }
         // Same type — update variant for free if it differs, otherwise skip
         if (existing === infraType) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           if (existingTile && existingTile.variant !== variant) {
             existingTile.variant = variant;
             placed++;
@@ -731,7 +762,7 @@ export class Game {
           continue;
         }
         if (infra.requiresFoundation) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           const baseType = existingTile?.foundation || existing;
           if (baseType !== infra.requiresFoundation) continue;
         }
@@ -740,12 +771,12 @@ export class Game {
         // Track foundation for surface tiles
         let foundation = null;
         if (infra.requiresFoundation && existing) {
-          const existingTile = this.state.infrastructure.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
           foundation = existingTile?.foundation || existing;
         }
         if (existing) {
           // Replace existing floor - remove old tile
-          this.state.infrastructure = this.state.infrastructure.filter(
+          this.state.floors = this.state.floors.filter(
             t => !(t.col === c && t.row === r)
           );
           // Remove zone on this tile since floor is changing
@@ -754,18 +785,18 @@ export class Game {
             this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
           }
         }
-        this.state.resources.funding -= infra.cost;
+        this.state.resources.funding -= tileCostForVariant;
         const tileEntry = { type: infraType, col: c, row: r, variant };
         if (foundation) tileEntry.foundation = foundation;
         if (orientation) tileEntry.orientation = orientation;
-        this.state.infrastructure.push(tileEntry);
+        this.state.floors.push(tileEntry);
         this.state.infraOccupied[key] = infraType;
         placed++;
       }
     }
 
     if (placed > 0) {
-      this.log(`Placed ${placed} ${infra.name} tiles ($${placed * infra.cost})`, 'good');
+      this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
       this.emit('infrastructureChanged');
       // Hallway changes affect zone connectivity
       if (infraType === 'hallway') {
@@ -780,7 +811,7 @@ export class Game {
   removeInfraTile(col, row) {
     const key = col + ',' + row;
     if (!this.state.infraOccupied[key]) return false;
-    const idx = this.state.infrastructure.findIndex(t => t.col === col && t.row === row);
+    const idx = this.state.floors.findIndex(t => t.col === col && t.row === row);
     if (idx === -1) return false;
 
     // Removing flooring also removes any zone on that tile
@@ -788,14 +819,14 @@ export class Game {
       this.removeZoneTile(col, row);
     }
 
-    const tile = this.state.infrastructure[idx];
+    const tile = this.state.floors[idx];
     const foundation = tile.foundation;
-    this.state.infrastructure.splice(idx, 1);
+    this.state.floors.splice(idx, 1);
     const wasHallway = this.state.infraOccupied[key] === 'hallway';
 
     // If the tile had a foundation, revert to the foundation type
     if (foundation) {
-      this.state.infrastructure.push({ type: foundation, col, row, variant: tile.variant });
+      this.state.floors.push({ type: foundation, col, row, variant: tile.variant });
       this.state.infraOccupied[key] = foundation;
     } else {
       delete this.state.infraOccupied[key];
@@ -813,44 +844,68 @@ export class Game {
 
   // === WALLS (PER-TILE EDGE) ===
 
-  placeWall(col, row, edge, wallType) {
+  placeWall(col, row, edge, wallType, variant = 0) {
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
+    const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     const key = `${col},${row},${edge}`;
-    if (this.state.wallOccupied[key] === wallType) return true;
+    if (this.state.wallOccupied[key] === wallType) {
+      // Same type — just update the variant for free.
+      const existing = this.state.walls.find(
+        w => w.col === col && w.row === row && w.edge === edge
+      );
+      if (existing && (existing.variant ?? 0) !== variant) {
+        existing.variant = variant;
+      }
+      return true;
+    }
     if (this.state.wallOccupied[key]) {
       // Replace existing wall on this edge
       this.state.walls = this.state.walls.filter(
         w => !(w.col === col && w.row === row && w.edge === edge)
       );
     }
-    if (this.state.resources.funding < wt.cost) return false;
-    this.state.resources.funding -= wt.cost;
-    this.state.walls.push({ type: wallType, col, row, edge });
+    if (this.state.resources.funding < segCost) return false;
+    this.state.resources.funding -= segCost;
+    const wallEntry = { type: wallType, col, row, edge };
+    if (variant) wallEntry.variant = variant;
+    this.state.walls.push(wallEntry);
     this.state.wallOccupied[key] = wallType;
     return true;
   }
 
-  placeWallPath(path, wallType) {
+  placeWallPath(path, wallType, variant = 0) {
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
+    const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     for (const pt of path) {
       const key = `${pt.col},${pt.row},${pt.edge}`;
-      if (this.state.wallOccupied[key] === wallType) continue;
-      if (this.state.resources.funding < wt.cost) break;
+      if (this.state.wallOccupied[key] === wallType) {
+        const existing = this.state.walls.find(
+          w => w.col === pt.col && w.row === pt.row && w.edge === pt.edge
+        );
+        if (existing && (existing.variant ?? 0) !== variant) {
+          existing.variant = variant;
+          placed++;
+        }
+        continue;
+      }
+      if (this.state.resources.funding < segCost) break;
       if (this.state.wallOccupied[key]) {
         this.state.walls = this.state.walls.filter(
           w => !(w.col === pt.col && w.row === pt.row && w.edge === pt.edge)
         );
       }
-      this.state.resources.funding -= wt.cost;
-      this.state.walls.push({ type: wallType, col: pt.col, row: pt.row, edge: pt.edge });
+      this.state.resources.funding -= segCost;
+      const wallEntry = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
+      if (variant) wallEntry.variant = variant;
+      this.state.walls.push(wallEntry);
       this.state.wallOccupied[key] = wallType;
       placed++;
     }
     if (placed > 0) {
-      this.log(`Placed ${placed} ${wt.name} segments ($${placed * wt.cost})`, 'good');
+      this.log(`Placed ${placed} ${wt.name} segments ($${placed * segCost})`, 'good');
       this.emit('wallsChanged');
     }
     return placed > 0;
@@ -984,7 +1039,7 @@ export class Game {
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
     } else {
-      const floorName = INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor;
+      const floorName = FLOORS[zone.requiredFloor]?.name || zone.requiredFloor;
       this.log(`${zone.name} needs ${floorName} underneath`, 'bad');
     }
     return placed > 0;
@@ -1096,7 +1151,7 @@ export class Game {
 
     // Find all hallway tiles adjacent to Control Room -- seed the flood fill
     const hallwaySet = new Set();
-    for (const tile of this.state.infrastructure) {
+    for (const tile of this.state.floors) {
       if (tile.type === 'hallway') hallwaySet.add(tile.col + ',' + tile.row);
     }
 
@@ -1221,6 +1276,7 @@ export class Game {
 
     // Allocate id.
     const prefix = kind === 'beamline' ? 'bl_'
+      : kind === 'infrastructure' ? 'in_'
       : kind === 'furnishing' ? 'fn_'
       : kind === 'decoration' ? 'dc_'
       : 'eq_';
@@ -1377,6 +1433,7 @@ export class Game {
         return this.removeBeamPipe(target.pipeId || target.id);
       case 'attachment':
         return this.removeAttachment(target.pipeId, target.attachmentId);
+      case 'infrastructure':
       case 'equipment':
       case 'furnishing':
       case 'decoration': {
@@ -1581,16 +1638,37 @@ export class Game {
       return false;
     }
 
-    // Overlength check: new attachment must fit in the remaining pipe length
-    const existingAttSubL = pipe.attachments.reduce((sum, a) => {
-      const d = COMPONENTS[a.type];
-      return sum + (d ? (d.subL || 1) : 1);
-    }, 0);
-    const newAttSubL = def.subL || 1;
-    if (existingAttSubL + newAttSubL > pipe.subL) {
-      this.log(`Not enough pipe length for ${def.name}!`, 'bad');
+    // Overlap / fit check: each attachment occupies a [start, end] interval
+    // along the pipe in metres. The new attachment must fit within the pipe
+    // and must not overlap any existing attachment. Position is normalized
+    // 0..1 along pipeBeamLen and marks the leading edge of the device.
+    const pipeBeamLen = pipe.subL * 0.5; // metres
+    const newLenM = (def.subL || 1) * 0.5;
+    const clampedPos = Math.max(0, Math.min(1, position));
+    let newStartM = clampedPos * pipeBeamLen;
+    let newEndM = newStartM + newLenM;
+    if (newLenM > pipeBeamLen) {
+      this.log(`Pipe too short for ${def.name}!`, 'bad');
       return false;
     }
+    // If the attachment would overrun the pipe end, slide it back so its
+    // tail meets the pipe end. Keeps drag-to-end placement forgiving.
+    if (newEndM > pipeBeamLen) {
+      newEndM = pipeBeamLen;
+      newStartM = newEndM - newLenM;
+    }
+    for (const ex of pipe.attachments) {
+      const exDef = COMPONENTS[ex.type];
+      const exLenM = (exDef ? (exDef.subL || 1) : 1) * 0.5;
+      const exStartM = ex.position * pipeBeamLen;
+      const exEndM = exStartM + exLenM;
+      if (newStartM < exEndM && newEndM > exStartM) {
+        this.log(`${def.name} would overlap existing attachment!`, 'bad');
+        return false;
+      }
+    }
+    // Use the (possibly slid) start as the canonical position for storage.
+    position = newStartM / pipeBeamLen;
 
     this.spend(def.cost);
 
@@ -2085,8 +2163,12 @@ export class Game {
         const t = COMPONENTS[node.type];
         // Use computed stats from slider tuning if available, otherwise template defaults
         const effectiveStats = { ...(t.stats || {}) };
-        if (node.computedStats) {
-          Object.assign(effectiveStats, node.computedStats);
+        let computed = node.computedStats;
+        if (!computed && PARAM_DEFS[node.type] && node.params) {
+          computed = computeStats(node.type, node.params);
+        }
+        if (computed) {
+          Object.assign(effectiveStats, computed);
         }
         const el = {
           type: node.type,
@@ -2094,7 +2176,9 @@ export class Game {
           stats: effectiveStats,
           params: node.params || {},
         };
-        if (t.extractionEnergy !== undefined) {
+        if (computed && computed.extractionEnergy !== undefined) {
+          el.extractionEnergy = computed.extractionEnergy;
+        } else if (t.extractionEnergy !== undefined) {
           el.extractionEnergy = t.extractionEnergy;
         }
         const nq = this.state.nodeQualities?.[node.id];
@@ -2455,6 +2539,12 @@ export class Game {
   tick() {
     this.state.tick++;
 
+    // Dev mode: keep funding pinned at a huge value. Placed at the top so
+    // every cost check inside this tick sees the refilled balance.
+    if (this.devMode) {
+      this.state.resources.funding = 1e12;
+    }
+
     // Decoration effects
     const decorationInstances = this.state.placeables.filter(p => p.kind === 'decoration');
     this.state.moraleMultiplier = computeMoraleMultiplier(decorationInstances);
@@ -2640,7 +2730,7 @@ export class Game {
     }
   }
 
-  // === INFRASTRUCTURE VALIDATION ===
+  // === FLOORS VALIDATION ===
 
   validateInfrastructure() {
     const validationState = {
@@ -2648,7 +2738,7 @@ export class Game {
       facilityEquipment: this.state.facilityEquipment,
       facilityGrid: this.state.facilityGrid,
       beamline: this.state.beamline,
-      infrastructure: this.state.infrastructure,
+      floors: this.state.floors,
       infraOccupied: this.state.infraOccupied,
       walls: this.state.walls,
       wallOccupied: this.state.wallOccupied,
@@ -3105,10 +3195,10 @@ export class Game {
 
       // Rebuild infraOccupied
       this.state.infraOccupied = {};
-      if (this.state.infrastructure) {
-        for (const tile of this.state.infrastructure)
+      if (this.state.floors) {
+        for (const tile of this.state.floors)
           this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
-      } else { this.state.infrastructure = []; }
+      } else { this.state.floors = []; }
       // Rebuild zoneOccupied
       this.state.zones = this.state.zones || [];
       this.state.zoneOccupied = {};
@@ -3328,10 +3418,10 @@ export class Game {
 
     // Rebuild infraOccupied
     this.state.infraOccupied = {};
-    if (this.state.infrastructure) {
-      for (const tile of this.state.infrastructure)
+    if (this.state.floors) {
+      for (const tile of this.state.floors)
         this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
-    } else { this.state.infrastructure = []; }
+    } else { this.state.floors = []; }
     // Rebuild zoneOccupied
     this.state.zones = this.state.zones || [];
     this.state.zoneOccupied = {};
