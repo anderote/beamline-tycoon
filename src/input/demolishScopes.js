@@ -2,9 +2,9 @@
 // of placeable kinds it can delete), a display label, a description, and
 // a swatch color used by the HUD palette.
 //
-// Cascade tiers (each tier deletes its own kind plus all kinds below it):
-//   demolishBeamline > demolishEquipment > demolishFurnishing > demolishDecoration
-// Standalone single-kind modes do NOT cascade.
+// Two-tier hierarchy: demolishBeamline (beamline + all placeables) >
+// demolishEquipment (all non-beamline placeables).
+// Standalone single-kind modes (wall, door, floor, zone, utility) do NOT cascade.
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -22,16 +22,13 @@ export function demolishRefund(compOrDef) {
   return Math.floor(cost * 0.5);
 }
 
-// Cascading placeable scopes. Each tier includes itself and every tier below.
-// Order matters: top-to-bottom is decreasing scope.
+// Two-tier placeable scopes:
+//   demolishBeamline  — beamline components + all placeables
+//   demolishEquipment — all non-beamline placeables
 export const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishBeamline:       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
-  demolishInfrastructure: new Set(['infrastructure', 'equipment', 'furnishing', 'decoration']),
-  demolishEquipment:      new Set(['equipment', 'furnishing', 'decoration']),
-  demolishFurnishing:     new Set(['furnishing', 'decoration']),
-  demolishDecoration:     new Set(['decoration']),
-  // demolishAll behaves like the top tier for placeables, plus standalone systems.
-  demolishAll:            new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishBeamline:  new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishEquipment: new Set(['infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishAll:       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
 };
 
 // Standalone (non-cascading) demolish modes. These each affect exactly one
@@ -46,15 +43,13 @@ export const DEMOLISH_STANDALONE = new Set([
 
 // HUD palette button definitions, in display order.
 export const DEMOLISH_BUTTONS = [
-  // Cascade tiers
-  { key: 'demolishBeamline',   name: 'Demolish Beamline',  desc: 'Beamline + everything below', color: '#c44' },
-  { key: 'demolishEquipment',  name: 'Demolish Equipment', desc: 'Equipment + furnishing + decoration', color: '#a64' },
-  { key: 'demolishFurnishing', name: 'Demolish Furniture', desc: 'Furniture + decoration', color: '#a48' },
-  { key: 'demolishDecoration', name: 'Demolish Decoration', desc: 'Decoration only', color: '#86a' },
+  // Two-tier placeable scopes
+  { key: 'demolishBeamline',   name: 'Demolish Beamline',  desc: 'Beamline components + all equipment', color: '#c44' },
+  { key: 'demolishEquipment',  name: 'Remove Equipment',   desc: 'Infrastructure, equipment, furniture & decorations', color: '#a64' },
   // Standalone
-  { key: 'demolishWall',       name: 'Demolish Walls',     desc: 'Wall segments', color: '#a86' },
+  { key: 'demolishWall',       name: 'Demolish Walls',     desc: 'Walls, fences & hedges', color: '#a86' },
   { key: 'demolishDoor',       name: 'Demolish Doors',     desc: 'Door segments', color: '#88a' },
-  { key: 'demolishFloor',      name: 'Demolish Floor',     desc: 'Flooring tiles', color: '#a44' },
+  { key: 'demolishFloor',      name: 'Demolish Floor',     desc: 'Flooring & ground surfaces', color: '#a44' },
   { key: 'demolishZone',       name: 'Demolish Zone',      desc: 'Zone overlays', color: '#a84' },
   { key: 'demolishUtility',    name: 'Demolish Utilities', desc: 'Utility pipes / cables', color: '#c84' },
   // Sweeper

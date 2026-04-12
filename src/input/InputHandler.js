@@ -280,12 +280,17 @@ export class InputHandler {
       }
     }
 
-    // Utility connections (formerly demolishConnection)
+    // Utility connections and rack segments (formerly demolishConnection)
     if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
       const connTypes = this.game.state.connections.get(key);
       if (connTypes && connTypes.size > 0) {
         this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip([...connTypes].join(', '), 0, screenX, screenY);
+        found = true;
+      }
+      if (!found && this.game.state.rackSegments.has(key)) {
+        this.renderer.renderDemolishTileOutline(col, row);
+        this._showDemolishTooltip('Carrier Rack', 0, screenX, screenY);
         found = true;
       }
     }
@@ -1961,13 +1966,14 @@ export class InputHandler {
               }
             }
           } else if (this.demolishType === 'demolishUtility') {
-            // Remove utility connections in rect
+            // Remove utility connections and rack segments in rect
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
                 const conns = this.game.getConnectionsAt(c, r);
                 for (const ct of [...conns]) {
                   this.game.removeConnection(c, r, ct);
                 }
+                this.game.removeRackSegment(c, r);
               }
             }
           } else if (this.demolishType === 'demolishEquipment') {
@@ -2203,6 +2209,8 @@ export class InputHandler {
         for (const ct of [...conns]) {
           this.game.removeConnection(col, row, ct);
         }
+        // Also remove rack segment if present
+        this.game.removeRackSegment(col, row);
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
           this.game.removeZoneTile(col, row);

@@ -19,6 +19,7 @@ export const MODES = {
       cooling:      { name: 'Cooling',         color: '#48c', subsections: { distribution: { name: 'Distribution' }, plant: { name: 'Plant' }, cryogenics: { name: 'Cryogenics' } } },
       dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
+      distribution: { name: 'Distribution',    color: '#a8a', items: ['carrierRack'] },
     },
   },
   facility: {
