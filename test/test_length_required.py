@@ -16,5 +16,22 @@ class TestLengthRequired(unittest.TestCase):
         self.assertAlmostEqual(R[0, 1], 1.5)
 
 
+from beam_physics.lattice import propagate, _make_sub_element
+
+
+class TestLatticeLengthRequired(unittest.TestCase):
+    def test_make_sub_element_raises_without_length(self):
+        with self.assertRaises(KeyError):
+            _make_sub_element({"type": "drift"}, 0.5)
+
+    def test_propagate_raises_without_length(self):
+        config = [
+            {"type": "source", "length": 1.0},
+            {"type": "drift"},  # missing length
+        ]
+        with self.assertRaises(KeyError):
+            propagate(config, machine_type="linac")
+
+
 if __name__ == "__main__":
     unittest.main()

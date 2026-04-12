@@ -23,7 +23,7 @@ SAMPLE_POINTS = 1000
 def _make_sub_element(element, length_fraction):
     """Create a sub-element with scaled length-proportional properties."""
     sub = dict(element)
-    full_length = element.get("length", 0.0)
+    full_length = element["length"]
     sub["length"] = full_length * length_fraction
 
     # Scale bend angle proportionally for dipoles/combined-function
@@ -87,7 +87,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         etype = element.get("type", "drift")
 
         if etype == "source":
-            source_len = element.get("length", 0.0)
+            source_len = element["length"]
             context.cumulative_s += source_len
             sx = beam.beam_size_x()
             sy = beam.beam_size_y()
@@ -107,7 +107,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             n_focusing += 1
             last_focus_s = context.cumulative_s
 
-        length = element.get("length", 0.0)
+        length = element["length"]
 
         # Determine sub-stepping
         if length > 0 and etype not in THIN_EFFECT_TYPES:
@@ -145,7 +145,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             if etype == "target" and is_last:
                 collision_rates.append(beam.current * element.get("collisionRate", 2.0))
 
-            context.cumulative_s += sub_el.get("length", 0.0)
+            context.cumulative_s += sub_el["length"]
 
             # Compute focus margin and urgency for FODO advisor
             aperture = element.get("aperture", DEFAULT_APERTURE)
