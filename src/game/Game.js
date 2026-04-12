@@ -11,6 +11,8 @@ import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { Beamline } from '../beamline/Beamline.js';
 import { flattenPath } from '../beamline/path-flattener.js';
+import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../beamline/pipe-geometry.js';
+import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -38,7 +40,7 @@ export class Game {
     })();
 
     this.state = {
-      resources: { funding: 3500000, reputation: 0, data: 0 },
+      resources: { funding: 10000000, reputation: 0, data: 0 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,
@@ -1247,19 +1249,208 @@ export class Game {
   // === UNIFIED PLACEMENT SYSTEM ===
 
   /**
+   * Attempt to insert a beamline module into an existing beampipe by
+   * splitting the pipe at the module footprint and reconnecting the two
+   * halves to the module's entry/exit ports.
+   *
+   * Returns the new module id on success, or null to indicate the caller
+   * should fall through to normal placement.
+   */
+  tryInsertOnBeamPipe(opts) {
+    const { type, col, row, dir = 0 } = opts;
+    const placeable = PLACEABLES[type];
+    if (!placeable || placeable.kind !== 'beamline') return null;
+
+    const def = COMPONENTS[type];
+    if (!def || !def.ports) return null;
+
+    // 1. Find a pipe under the cursor tile.
+    const hit = findPipeAtTile(this.state.beamPipes, col, row);
+    if (!hit) return null;
+    const { pipe, tileIndex, expandedTiles } = hit;
+
+    // 2. Pipe must be straight at this tile (no corner).
+    const pipeDir = pipeDirectionAtTile(pipe, tileIndex);
+    if (!pipeDir) return null;
+
+    // 3. Module must have a through-axis and match the pipe direction.
+    const moduleDir = moduleBeamAxis(def, dir);
+    if (!moduleDir) return null;
+    if (!axisMatchesDirection(moduleDir, pipeDir)) return null;
+
+    // 4. Footprint along the beam axis must lie entirely inside a straight
+    //    run of the expanded pipe tiles. Length in tiles = ceil(subL/4).
+    const tileLen = Math.max(1, Math.ceil(placeable.subL / 4));
+    const halfBefore = Math.floor((tileLen - 1) / 2);
+    const startIdx = tileIndex - halfBefore;
+    const endIdx = startIdx + tileLen - 1;
+    if (startIdx <= 0 || endIdx >= expandedTiles.length - 1) return null;
+    // Every tile in [startIdx..endIdx] and one tile on each side must be
+    // collinear (direction from prev to next must be constant).
+    for (let i = startIdx - 1; i <= endIdx + 1; i++) {
+      const d = pipeDirectionAtTile(pipe, i);
+      if (!d || d.dCol !== pipeDir.dCol || d.dRow !== pipeDir.dRow) return null;
+    }
+
+    // 5. Compute the origin tile: footprintCells always places cells with
+    //    offsets +dc/+dr from the origin, so the origin is the tile in the
+    //    window with the minimum col and minimum row regardless of dir.
+    const t0 = expandedTiles[startIdx];
+    const t1 = expandedTiles[endIdx];
+    const originCol = Math.min(t0.col, t1.col);
+    const originRow = Math.min(t0.row, t1.row);
+
+    // 6. No other placeable can occupy the footprint.
+    const cells = placeable.footprintCells(originCol, originRow, 0, 0, dir);
+    for (const c of cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      if (this.state.subgridOccupied[k]) return null;
+    }
+
+    // 7. Save rollback snapshot of the original pipe.
+    const originalPipe = {
+      id: pipe.id,
+      fromId: pipe.fromId, fromPort: pipe.fromPort,
+      toId: pipe.toId,     toPort: pipe.toPort,
+      path: pipe.path.map(p => ({ col: p.col, row: p.row })),
+      subL: pipe.subL,
+      attachments: (pipe.attachments || []).map(a => ({ ...a, params: a.params ? { ...a.params } : {} })),
+    };
+
+    // 8. Delete the original pipe from state.
+    const pipeIdx = this.state.beamPipes.findIndex(p => p.id === pipe.id);
+    if (pipeIdx === -1) return null;
+    this.state.beamPipes.splice(pipeIdx, 1);
+
+    // 9. Place the module via the existing path.
+    const moduleId = this.placePlaceable({
+      type, col: originCol, row: originRow, subCol: 0, subRow: 0, dir,
+      params: opts.params,
+    });
+    if (!moduleId) {
+      // Restore and bail.
+      this.state.beamPipes.splice(pipeIdx, 0, originalPipe);
+      return null;
+    }
+
+    // 10. Split the expanded tile list into "before module" and "after module".
+    const beforeTiles = expandedTiles.slice(0, startIdx);
+    const afterTiles  = expandedTiles.slice(endIdx + 1);
+
+    // Condense consecutive-collinear tiles back into waypoint paths.
+    const condense = (tiles) => {
+      if (tiles.length === 0) return [];
+      if (tiles.length === 1) return [{ col: tiles[0].col, row: tiles[0].row }];
+      const out = [{ col: tiles[0].col, row: tiles[0].row }];
+      let curDir = null;
+      for (let i = 1; i < tiles.length; i++) {
+        const d = { dCol: Math.sign(tiles[i].col - tiles[i-1].col), dRow: Math.sign(tiles[i].row - tiles[i-1].row) };
+        if (curDir && (d.dCol !== curDir.dCol || d.dRow !== curDir.dRow)) {
+          out.push({ col: tiles[i-1].col, row: tiles[i-1].row });
+        }
+        curDir = d;
+      }
+      out.push({ col: tiles[tiles.length-1].col, row: tiles[tiles.length-1].row });
+      return out;
+    };
+
+    const beforePath = condense(beforeTiles);
+    const afterPath  = condense(afterTiles);
+
+    // 11. Determine which module port connects to the "before" pipe vs the
+    //     "after" pipe. The module's world axis points from back (entry) to
+    //     front (exit). If that points from the before-side to the after-side,
+    //     entry connects to beforePath; otherwise they swap.
+    const beforeToAfter = {
+      dCol: Math.sign(expandedTiles[endIdx + 1].col - expandedTiles[startIdx - 1].col),
+      dRow: Math.sign(expandedTiles[endIdx + 1].row - expandedTiles[startIdx - 1].row),
+    };
+    const entryPortName = Object.entries(def.ports).find(([, p]) => p.side === 'back')[0];
+    const exitPortName  = Object.entries(def.ports).find(([, p]) => p.side === 'front')[0];
+    const moduleMatchesFlow = (moduleDir.dCol === beforeToAfter.dCol && moduleDir.dRow === beforeToAfter.dRow);
+    const beforePort = moduleMatchesFlow ? entryPortName : exitPortName;
+    const afterPort  = moduleMatchesFlow ? exitPortName  : entryPortName;
+
+    // 12. Create the two new pipes directly (bypass createBeamPipe's cost
+    //     check and duplicate-port check — this is a split, not a new build).
+    const makePipe = (fromId, fromPort, toId, toPort, path) => {
+      let tileDist = 0;
+      for (let i = 0; i < path.length - 1; i++) {
+        tileDist += Math.abs(path[i+1].col - path[i].col) + Math.abs(path[i+1].row - path[i].row);
+      }
+      return {
+        id: 'bp_' + this.state.beamPipeNextId++,
+        fromId, fromPort, toId, toPort,
+        path: path.map(p => ({ col: p.col, row: p.row })),
+        subL: Math.max(1, Math.round(tileDist * 4)),
+        attachments: [],
+      };
+    };
+
+    const p1 = makePipe(originalPipe.fromId, originalPipe.fromPort, moduleId, beforePort, beforePath);
+    const p2 = makePipe(moduleId, afterPort, originalPipe.toId, originalPipe.toPort, afterPath);
+    this.state.beamPipes.push(p1, p2);
+
+    // 13. Reassign attachments by tile position. Attachments store position as
+    //     a 0..1 fraction along the original pipe.
+    const tileContains = (path, c, r) => {
+      const tiles = expandPipePath(path);
+      return tiles.some(t => t.col === c && t.row === r);
+    };
+    let droppedAttachments = 0;
+    const origTiles = expandPipePath(originalPipe.path);
+    for (const att of originalPipe.attachments) {
+      const attTileIdx = Math.min(origTiles.length - 1, Math.max(0, Math.round((att.position || 0) * (origTiles.length - 1))));
+      const attTile = origTiles[attTileIdx];
+      if (tileContains(beforePath, attTile.col, attTile.row)) {
+        const beforeTilesForPos = expandPipePath(beforePath);
+        const newIdx = beforeTilesForPos.findIndex(t => t.col === attTile.col && t.row === attTile.row);
+        att.position = newIdx / Math.max(1, beforeTilesForPos.length - 1);
+        p1.attachments.push(att);
+      } else if (tileContains(afterPath, attTile.col, attTile.row)) {
+        const afterTilesForPos = expandPipePath(afterPath);
+        const newIdx = afterTilesForPos.findIndex(t => t.col === attTile.col && t.row === attTile.row);
+        att.position = newIdx / Math.max(1, afterTilesForPos.length - 1);
+        p2.attachments.push(att);
+      } else {
+        droppedAttachments++;
+      }
+    }
+
+    if (droppedAttachments > 0) {
+      this.log(`Removed ${droppedAttachments} attachment(s) inside new module footprint`, 'info');
+    }
+    this.log(`Inserted ${placeable.name} into pipe`, 'good');
+
+    this._deriveBeamGraph();
+    this.computeSystemStats();
+    this.emit('beamlineChanged');
+    this.emit('placeableChanged');
+    return moduleId;
+  }
+
+  /**
    * Place any item on the unified sub-grid.
    * @param {Object} opts - { type, category, col, row, subCol, subRow, rotated, dir, params }
    *   category: "beamline" | "equipment" | "furnishing"
    * @returns {string|false} The placeable id, or false on failure
    */
   placePlaceable(opts) {
-    const { type, col, row, subCol, subRow, dir = 0, params } = opts;
+    const { type, col, row, subCol, subRow, dir = 0, params, free = false, silent = false } = opts;
 
     const placeable = PLACEABLES[type];
     if (!placeable) return false;
     const kind = placeable.kind;
 
-    if (!this.canAfford(placeable.cost)) {
+    // If this is a beamline module and the cursor tile is on a pipe with
+    // matching rotation, attempt insert-and-split first. On any failure the
+    // helper returns null and we fall through to normal placement.
+    if (kind === 'beamline') {
+      const inserted = this.tryInsertOnBeamPipe(opts);
+      if (inserted) return inserted;
+    }
+
+    if (!free && !this.canAfford(placeable.cost)) {
       this.log(`Can't afford ${placeable.name}!`, 'bad');
       return false;
     }
@@ -1282,7 +1473,7 @@ export class Game {
       : 'eq_';
     const id = prefix + this.state.placeableNextId++;
 
-    this.spend(placeable.cost);
+    if (!free) this.spend(placeable.cost);
 
     const entry = {
       id,
@@ -1324,12 +1515,15 @@ export class Game {
 
     placeable.onPlaced(this, entry);
 
-    this.log(`Built ${placeable.name}`, 'good');
+    if (!silent) this.log(`Built ${placeable.name}`, 'good');
     this.computeSystemStats();
+    // Sync legacy arrays BEFORE emitting — renderers (via world-snapshot)
+    // read game.state.zoneFurnishings/facilityEquipment on the change event,
+    // so those arrays must already reflect the new entry.
+    this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (kind === 'equipment') this.emit('facilityChanged');
     if (kind === 'furnishing') this.emit('zonesChanged');
-    this._syncLegacyPlaceableState();
     return id;
   }
 
@@ -1378,11 +1572,54 @@ export class Game {
 
     this.log(`Removed ${placeable.name} (50% refund)`, 'info');
     this.computeSystemStats();
+    this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
     if (entry.category === 'furnishing') this.emit('zonesChanged');
-    this._syncLegacyPlaceableState();
     return true;
+  }
+
+  /**
+   * Pick up a placeable for move mode: detach it from the world (free its
+   * cells, drop it from state/index) and return a snapshot of its data so
+   * the caller can re-insert it at a new position with `placePlaceable({
+   * free: true, silent: true, ... })`. No refund, no `onRemoved` side
+   * effects.
+   *
+   * Beamline nodes are NOT handled here — they keep going through
+   * `moveComponent` so attached beam pipes get fixed up.
+   */
+  liftPlaceable(placeableId) {
+    const idx = this.state.placeableIndex[placeableId];
+    if (idx === undefined) return null;
+    const entry = this.state.placeables[idx];
+    if (!entry) return null;
+    if (entry.kind === 'beamline') return null;
+
+    for (const cell of entry.cells) {
+      const k = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      delete this.state.subgridOccupied[k];
+    }
+
+    this.state.placeables.splice(idx, 1);
+    this._rebuildPlaceableIndex();
+
+    const snapshot = {
+      type: entry.type,
+      kind: entry.kind,
+      col: entry.col,
+      row: entry.row,
+      subCol: entry.subCol,
+      subRow: entry.subRow,
+      dir: entry.dir || 0,
+      params: entry.params ? { ...entry.params } : null,
+    };
+
+    this._syncLegacyPlaceableState();
+    this.emit('placeableChanged');
+    if (entry.category === 'equipment') this.emit('facilityChanged');
+    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    return snapshot;
   }
 
   /**
