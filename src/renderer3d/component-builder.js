@@ -5,6 +5,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
+import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import {
   _buildBPMRoles,
@@ -41,6 +42,63 @@ function _mat(color, roughness = 0.5, metalness = 0.3, textureName = 'metal_pain
     _matCache.set(key, new THREE.MeshStandardMaterial(opts));
   }
   return _matCache.get(key).clone();
+}
+
+// ── Infra fallback material cache ──────────────────────────────────
+// Keyed by compType|faceKey|baseName|overrideJSON so identical face
+// configs across instances share one MeshStandardMaterial. Mirrors
+// equipment-builder's _equipMatCache.
+const _infraFaceMatCache = new Map();
+const _INFRA_FACE_KEYS = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
+const _INFRA_FACE_INDEX = { '+X': 0, '-X': 1, '+Y': 2, '-Y': 3, '+Z': 4, '-Z': 5 };
+
+function _infraFaceMaterial(compType, faceKey, baseName, faceOverride, fallbackColor) {
+  const cacheKey = `${compType}|${faceKey}|${baseName || ''}|${faceOverride ? JSON.stringify(faceOverride) : ''}`;
+  let m = _infraFaceMatCache.get(cacheKey);
+  if (m) return m;
+
+  // Decal override: reuse the shared DECALS material. The caller is
+  // responsible for rewriting this face's UVs to 0→1.
+  if (faceOverride && faceOverride.decal && DECALS[faceOverride.decal]) {
+    m = DECALS[faceOverride.decal];
+    _infraFaceMatCache.set(cacheKey, m);
+    return m;
+  }
+
+  // Per-face tiled override or inherited base material
+  const perFaceBase = faceOverride && faceOverride.base;
+  const resolvedBase = perFaceBase || baseName;
+
+  let map = null;
+  let color = fallbackColor;
+  if (resolvedBase && MATERIALS[resolvedBase]) {
+    map = MATERIALS[resolvedBase].map;
+    color = 0xffffff;
+  }
+  m = new THREE.MeshStandardMaterial({
+    map,
+    color,
+    roughness: 0.7,
+    metalness: 0.2,
+  });
+  _infraFaceMatCache.set(cacheKey, m);
+  return m;
+}
+
+// Rewrite a single face's UVs to span 0→1 so the full decal texture
+// shows instead of being cropped by the tiled UV span from applyTiledBoxUVs.
+function _setInfraFaceUVsClamped(geometry, faceKey) {
+  const uv = geometry.attributes.uv;
+  if (!uv) return;
+  const face = _INFRA_FACE_INDEX[faceKey];
+  if (face == null) return;
+  const arr = uv.array;
+  const off = face * 8;
+  arr[off + 0] = 0; arr[off + 1] = 1;
+  arr[off + 2] = 1; arr[off + 3] = 1;
+  arr[off + 4] = 0; arr[off + 5] = 0;
+  arr[off + 6] = 1; arr[off + 7] = 0;
+  uv.needsUpdate = true;
 }
 
 // ── Role-based material system ───────────────────────────────────────
@@ -1996,23 +2054,75 @@ export class ComponentBuilder {
     const h = vSubH * SUB_UNIT;
     const l = vSubL * SUB_UNIT;
 
+    const fallbackColor = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
+    const baseName = compDef.baseMaterial || null;
+    const faces = compDef.faces || null;
+    const hasBaseOrFaces = !!(baseName || faces);
+
     let geometry;
+    let material;
+
     if (compDef.geometryType === 'cylinder') {
       const radius = Math.min(w, h) / 2;
       geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
       applyTiledCylinderUVs(geometry, radius, l, 8);
       geometry.rotateZ(Math.PI / 2);
+
+      if (baseName && MATERIALS[baseName]) {
+        // Cylinders: side + caps share one tiled material. Per-face
+        // decals are not supported for cylinders in this pass.
+        const cacheKey = `${compDef.id}|cyl|${baseName}`;
+        let m = _infraFaceMatCache.get(cacheKey);
+        if (!m) {
+          m = new THREE.MeshStandardMaterial({
+            map: MATERIALS[baseName].map,
+            color: 0xffffff,
+            roughness: 0.7,
+            metalness: 0.2,
+          });
+          _infraFaceMatCache.set(cacheKey, m);
+        }
+        material = m;
+      } else {
+        material = new THREE.MeshStandardMaterial({
+          color: fallbackColor,
+          roughness: 0.7,
+          metalness: 0.1,
+        });
+      }
     } else {
       geometry = new THREE.BoxGeometry(w, h, l);
       applyTiledBoxUVs(geometry, w, h, l);
-    }
 
-    const color = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.7,
-      metalness: 0.1,
-    });
+      if (hasBaseOrFaces) {
+        // Clamp UVs for any face that has a decal override.
+        if (faces) {
+          for (const key of _INFRA_FACE_KEYS) {
+            if (faces[key] && faces[key].decal) {
+              _setInfraFaceUVsClamped(geometry, key);
+            }
+          }
+        }
+        // 6-entry material array, one per face.
+        material = _INFRA_FACE_KEYS.map(key =>
+          _infraFaceMaterial(
+            compDef.id,
+            key,
+            baseName,
+            faces ? faces[key] : null,
+            fallbackColor,
+          )
+        );
+      } else {
+        // Legacy flat-color path — preserved for un-authored infra and
+        // any beamline components that fall through to this branch.
+        material = new THREE.MeshStandardMaterial({
+          color: fallbackColor,
+          roughness: 0.7,
+          metalness: 0.1,
+        });
+      }
+    }
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
