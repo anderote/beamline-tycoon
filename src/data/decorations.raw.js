@@ -60,7 +60,7 @@ export const DECORATIONS_RAW = {
     gridW: 2, gridH: 2,
   },
 
-  // (Hedges and fencing moved to wall system — see WALL_TYPES in infrastructure.js)
+  // (Hedges and fencing live in grounds.js as walls — see GROUNDS_WALLS)
 
   // === Furniture ===
   parkBench: {

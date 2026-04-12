@@ -1,13 +1,26 @@
-import { PLACEABLES } from './placeables/index.js';
-import { ZONE_FURNISHINGS_RAW } from './zone-furnishings.raw.js';
+// src/data/structure.js
+//
+// Structure data — items that appear in the Structure build mode
+// (flooring, walls, doors). Floors all live here so any floor type can
+// be placed in any context (with foundation requirements respected).
+//
+// Hedges and grounds-fencing walls live in grounds.js but are merged
+// into WALL_TYPES below for legacy consumers that look up walls by id.
+//
+// Facility zones (rfLab, controlRoom, etc.) and zone furnishings live
+// in facility.js — they're Facility build-mode concepts.
 
-// Infrastructure items — placed freely on the grid, not part of the beamline
-export const INFRASTRUCTURE = {
+import { GROUNDS_WALLS } from './grounds.js';
+
+// All floor types — placed as full tiles. Indoor floors require a
+// concrete foundation; outdoor floors can sit directly on bare ground
+// or on top of foundations.
+export const FLOORS = {
   path: {
     id: 'path',
     name: 'Walkway',
     desc: 'Paved walkway for staff access between buildings.',
-    cost: 5,   // funding per tile
+    cost: 5,
     color: 0x887766,
     topColor: 0x998877,
     subH: 0,
@@ -17,13 +30,14 @@ export const INFRASTRUCTURE = {
     id: 'concrete',
     name: 'Concrete Pad',
     desc: 'Reinforced concrete foundation. Drag to place a rectangle.',
-    cost: 10,  // funding per tile
+    cost: 10,
     color: 0x777777,
     topColor: 0x999999,
     subH: 0,
     isDragPlacement: true,
     subsection: 'foundations',
     variants: ['Standard', 'Light', 'Dark', 'Warm'],
+    variantPreviewColors: [0x999999, 0xbbbbbb, 0x666666, 0xa89a88],
     texture: 'tile_concrete',
   },
   labFloor: {
@@ -31,30 +45,53 @@ export const INFRASTRUCTURE = {
     name: 'Lab Flooring',
     desc: 'Clean epoxy floor for laboratory zones. Requires concrete foundation. Drag to place.',
     cost: 15,
-    color: 0xbbbbbb,
-    topColor: 0xdddddd,
+    color: 0xdddddd,
+    topColor: 0xeeeeee,
     subH: 0,
     isDragPlacement: true,
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     noGrid: true,
-    variants: ['Blue-Gray Epoxy', 'White Epoxy', 'Green Epoxy', 'Dark Epoxy'],
-    variantTints: [0x99aacc, 0xdddddd, 0x88bb99, 0x777788],
+    variants: ['White Epoxy', 'Blue-Gray Epoxy', 'Green Epoxy', 'Dark Epoxy', 'Black Check', 'Red Check', 'Houndstooth'],
+    // First four epoxy variants share tile_labFloor and tint it. The
+    // check and houndstooth variants use dedicated pre-colored textures.
+    variantTextures: ['tile_labFloor', 'tile_labFloor', 'tile_labFloor', 'tile_labFloor', 'tile_lab_check_black', 'tile_lab_check_red', 'tile_lab_houndstooth'],
+    variantTints: [0xeeeeee, 0x99aacc, 0x88bb99, 0x777788, null, null, null],
+    // HUD preview swatches. Check variants use [light, dark] pairs for
+    // the half-and-half split-swatch rendering.
+    variantPreviewColors: [
+      0xeeeeee,
+      0x99aacc,
+      0x88bb99,
+      0x777788,
+      [0xeeeeee, 0x222222],
+      [0xf0ece8, 0xb22a2a],
+      [0xeeeeee, 0x222222],
+    ],
     texture: 'tile_labFloor',
   },
   officeFloor: {
     id: 'officeFloor',
     name: 'Office Flooring',
-    desc: 'Hardwood flooring for office and admin zones. Requires concrete foundation. Drag to place.',
+    desc: 'Hardwood or carpet flooring for office and admin zones. Requires concrete foundation. Drag to place; F rotates hardwood grain.',
     cost: 12,
     color: 0x8a5a30,
     topColor: 0xa8703c,
     subH: 0,
     isDragPlacement: true,
+    orientable: true,
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
-    variants: ['Hardwood', 'Tan Carpet', 'Blue-Gray Carpet', 'Charcoal Carpet'],
-    texture: 'tile_hardwood',
+    variants: ['Birch Hardwood', 'Oak Hardwood', 'Blue Diamond Carpet', 'Green Diamond Carpet', 'Red Diamond Carpet'],
+    variantTextures: ['tile_hardwood_birch', 'tile_hardwood_oak', 'tile_carpet_diamond', 'tile_carpet_diamond', 'tile_carpet_diamond'],
+    // Wood variants render their PNG directly (null tint). Carpets share
+    // a neutral lattice texture and are tinted for each color.
+    variantTints: [null, null, 0xa8c4e0, 0xb4d8b0, 0xdca8a8],
+    // HUD preview swatches — wood variants need explicit colors since
+    // they have null variantTints.
+    variantPreviewColors: [0xe4d0a5, 0xbe8a54, 0xa8c4e0, 0xb4d8b0, 0xdca8a8],
+    variantCosts: [12, 20, 15, 15, 15],
+    texture: 'tile_hardwood_birch',
   },
   groomedGrass: {
     id: 'groomedGrass',
@@ -70,6 +107,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Groomed Grass', 'Groomed Grass (light)'],
+    variantPreviewColors: [0x77aa44, 0x9ac858],
     texture: 'tile_groomedGrass',
   },
   pavement: {
@@ -85,6 +123,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Standard', 'Light', 'Dark', 'Weathered'],
+    variantPreviewColors: [0x6a6a6d, 0x8a8a8d, 0x3a3a3d, 0x7a7770],
     texture: 'tile_pavement',
   },
   dirt: {
@@ -100,6 +139,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Packed Dirt', 'Sandy', 'Dark Earth', 'Red Clay'],
+    variantPreviewColors: [0x9b7345, 0xd4b880, 0x5a4228, 0xb36a3a],
     texture: 'tile_dirt',
   },
   cobblestone: {
@@ -115,6 +155,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Gray Stone', 'Light Stone', 'Dark Stone', 'Warm Stone'],
+    variantPreviewColors: [0x8a8580, 0xb0aba0, 0x4a4540, 0xa89078],
     texture: 'tile_cobblestone',
   },
   brick: {
@@ -131,6 +172,7 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Red Brick', 'Tan Brick', 'Dark Brick', 'Weathered Brick'],
+    variantPreviewColors: [0xa8523a, 0xc49868, 0x6a3a28, 0x907060],
     texture: 'tile_brick',
   },
   hallway: {
@@ -145,12 +187,20 @@ export const INFRASTRUCTURE = {
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     variants: ['Gray Checked', 'Cream Checked', 'Blue Checked', 'Green Checked'],
+    // Split swatches since all hallway variants are 2-color checker patterns.
+    variantPreviewColors: [
+      [0xdddddd, 0x888888],
+      [0xf4ecd8, 0xc4a878],
+      [0xe4e8f0, 0x6a84b4],
+      [0xe0ecdc, 0x6a9868],
+    ],
     texture: 'tile_hallway',
   },
 };
 
-// Wall types — placed on tile edges, not full tiles
-export const WALL_TYPES = {
+// Structure walls — interior, exterior, shielding. Hedges and fencing
+// live in grounds.js but are merged into WALL_TYPES below.
+export const STRUCTURE_WALLS = {
   officeWall: {
     id: 'officeWall',
     name: 'Office Wall',
@@ -199,7 +249,7 @@ export const WALL_TYPES = {
   exteriorWall: {
     id: 'exteriorWall',
     name: 'Exterior Wall',
-    desc: 'Reinforced concrete building wall for enclosing structures.',
+    desc: 'Reinforced building wall for enclosing structures. Choose a cladding: cement, shingle, siding, or brick.',
     cost: 25,
     color: 0x888888,
     topColor: 0xaaaaaa,
@@ -207,9 +257,13 @@ export const WALL_TYPES = {
     wallHeight: 24,
     thickness: 3,
     material: 'concrete',
-    texture: 'concrete_wall',
+    texture: 'wall_cement',
     subsection: 'exterior',
     isWall: true,
+    variants: ['Cement', 'Wood Shingle', 'Siding', 'Red Brick'],
+    variantTextures: ['wall_cement', 'wall_shingle', 'wall_siding', 'wall_brick'],
+    variantPreviewColors: [0xa8a8ac, 0x9a7858, 0xe0dcc8, 0xa8523a],
+    variantCosts: [25, 32, 28, 35],
   },
   chainLinkFence: {
     id: 'chainLinkFence',
@@ -220,9 +274,10 @@ export const WALL_TYPES = {
     topColor: 0xaabbbb,
     subH: 6,
     wallHeight: 14,
-    thickness: 1,
+    thickness: 0.5,
     material: 'steel',
-    texture: 'metal_brushed',
+    texture: 'wall_chain_link',
+    hasAlpha: true,
     subsection: 'exterior',
     isWall: true,
   },
@@ -235,9 +290,10 @@ export const WALL_TYPES = {
     topColor: 0x99aaaa,
     subH: 6,
     wallHeight: 18,
-    thickness: 1,
+    thickness: 0.5,
     material: 'steel',
-    texture: 'metal_brushed',
+    texture: 'wall_barbed_wire',
+    hasAlpha: true,
     subsection: 'exterior',
     isWall: true,
   },
@@ -301,103 +357,12 @@ export const WALL_TYPES = {
     subsection: 'shielding',
     isWall: true,
   },
-
-  // === Hedges (grounds) ===
-  hedge: {
-    id: 'hedge',
-    name: 'Hedge',
-    desc: 'Low trimmed hedge for garden borders and paths.',
-    cost: 6,
-    color: 0x3a7a3a,
-    topColor: 0x4e9e4e,
-    subH: 6,
-    wallHeight: 8,
-    thickness: 2,
-    material: 'foliage',
-    texture: 'drywall_painted',
-    subsection: 'hedges',
-    isWall: true,
-  },
-  tallHedge: {
-    id: 'tallHedge',
-    name: 'Tall Hedge',
-    desc: 'Tall privacy hedge for screening and wind protection.',
-    cost: 10,
-    color: 0x2e6e2e,
-    topColor: 0x409040,
-    subH: 6,
-    wallHeight: 16,
-    thickness: 3,
-    material: 'foliage',
-    texture: 'drywall_painted',
-    subsection: 'hedges',
-    isWall: true,
-  },
-
-  // === Fencing (grounds) ===
-  ironFence: {
-    id: 'ironFence',
-    name: 'Iron Fence',
-    desc: 'Ornamental wrought iron fence for formal perimeters.',
-    cost: 8,
-    color: 0x333344,
-    topColor: 0x555566,
-    subH: 6,
-    wallHeight: 12,
-    thickness: 0,
-    material: 'iron',
-    texture: 'metal_dark',
-    subsection: 'fencing',
-    isWall: true,
-  },
-  stoneWall: {
-    id: 'stoneWall',
-    name: 'Stone Wall',
-    desc: 'Low dry-stone wall for rustic boundaries.',
-    cost: 12,
-    color: 0x8a8478,
-    topColor: 0xa09888,
-    subH: 6,
-    wallHeight: 10,
-    thickness: 2.5,
-    material: 'stone',
-    texture: 'concrete_wall',
-    subsection: 'fencing',
-    isWall: true,
-  },
-  groundsWoodFence: {
-    id: 'groundsWoodFence',
-    name: 'Wood Fence',
-    desc: 'Simple wooden plank fence for garden boundaries.',
-    cost: 5,
-    color: 0x8a6a42,
-    topColor: 0xa08050,
-    subH: 6,
-    wallHeight: 10,
-    thickness: 1,
-    material: 'wood',
-    texture: 'drywall_painted',
-    subsection: 'fencing',
-    isWall: true,
-  },
-  picketFence: {
-    id: 'picketFence',
-    name: 'Picket Fence',
-    desc: 'Classic white picket fence for a tidy appearance.',
-    cost: 6,
-    color: 0xddddcc,
-    topColor: 0xeeeedd,
-    subH: 6,
-    wallHeight: 8,
-    thickness: 0,
-    material: 'wood',
-    texture: 'metal_painted_white',
-    subsection: 'fencing',
-    isWall: true,
-  },
 };
 
-// Door types — placed on tile edges (like walls), single-segment openings
+// Merged WALL_TYPES for consumers that look up any wall by id.
+export const WALL_TYPES = { ...STRUCTURE_WALLS, ...GROUNDS_WALLS };
+
+// Door types — placed on tile edges, single-segment openings.
 export const DOOR_TYPES = {
   doubleDoor: {
     id: 'doubleDoor',
@@ -541,38 +506,3 @@ export const DOOR_TYPES = {
   },
 };
 
-// Zones are transparent colored filters drawn on top of floor tiles —
-// they do not have their own surface texture. The visible texture comes
-// from whichever floor tile (INFRASTRUCTURE entry) is underneath.
-export const ZONES = {
-  rfLab:       { id: 'rfLab',       name: 'RF Laboratory',  color: 0xaa8833, requiredFloor: 'labFloor',    gatesCategory: 'rfPower',      subsection: 'laboratories' },
-  coolingLab:  { id: 'coolingLab',  name: 'Cooling Lab',    color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cooling',      subsection: 'laboratories' },
-  vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories' },
-  officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
-  controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations'   },
-  machineShop: { id: 'machineShop', name: 'Machine Shop',   color: 0x886655, requiredFloor: 'labFloor',    gatesCategory: 'beamline',     subsection: 'industrial'   },
-  maintenance: { id: 'maintenance', name: 'Maintenance',    color: 0xaa6633, requiredFloor: 'concrete',    gatesCategory: 'ops',          subsection: 'industrial'   },
-  opticsLab:   { id: 'opticsLab',   name: 'Optics Lab',     color: 0x44aacc, requiredFloor: 'labFloor',    gatesCategory: null,           subsection: 'laboratories' },
-  diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,      subsection: 'laboratories' },
-  cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
-  meetingRoom: { id: 'meetingRoom', name: 'Meeting Room',   color: 0x664499, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
-};
-
-export const ZONE_TIER_THRESHOLDS = [4, 8, 16, 20]; // Tier 1: 4 tiles, Tier 2: 8, Tier 3: 16, Tier 4: 20
-
-// Zone furnishings — derived from PLACEABLES registry (see below, after all imports)
-
-// Furnishing count -> tier thresholds for research tier calculation
-export const FURNISHING_TIER_THRESHOLDS = [1, 3, 5]; // Tier 1: 1-2, Tier 2: 3-4, Tier 3: 5+
-
-// Legacy shim. Every entry that lived in ZONE_FURNISHINGS_RAW is now
-// wrapped as a Placeable with either kind 'furnishing' (social zones)
-// or kind 'equipment' (lab / shop / maintenance zones). Legacy consumers
-// of ZONE_FURNISHINGS look things up by id regardless of the taxonomy,
-// so we expose both kinds here.
-export const ZONE_FURNISHINGS = {};
-for (const p of Object.values(PLACEABLES)) {
-  if (p.kind === 'furnishing' || p.kind === 'equipment') {
-    ZONE_FURNISHINGS[p.id] = p;
-  }
-}

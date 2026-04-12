@@ -19,15 +19,19 @@ const mc2_eV = 510998.95;         // eV  — electron rest energy
 export const PARAM_DEFS = {
 
   // ---- Thermionic gun ----
+  // Constant-power source: 50 kW wallplug, 5 kW beam power.
+  // User trades extraction voltage against current: I = P_beam / V.
   source: {
     extractionVoltage: {
-      min: 10, max: 100, default: 50, unit: 'kV', step: 1,
+      min: 25, max: 250, default: 50, unit: 'kV', step: 5,
     },
     cathodeTemperature: {
       min: 600, max: 2000, default: 1200, unit: 'K', step: 10,
     },
-    beamCurrent: { derived: true, unit: 'mA' },
-    emittance:   { derived: true, unit: 'mm·mrad' },
+    beamCurrent:      { derived: true, unit: 'mA' },
+    beamPower:        { derived: true, unit: 'kW' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
+    emittance:        { derived: true, unit: 'mm·mrad' },
   },
 
   // ---- DC photocathode gun ----
@@ -274,36 +278,26 @@ export function getDefaults(type) {
 // COMPUTE_STATS implementations
 // ---------------------------------------------------------------------------
 
-/**
- * Thermionic gun — Child-Langmuir space-charge limited emission.
- *
- * I = P * V^(3/2)   (Child-Langmuir law, planar diode approximation)
- * P ≈ (4ε₀/9) * sqrt(2e/me) * A / d²
- *
- * We use a simplified perveance calibrated so that at V=50 kV we get ~50 mA,
- * which is realistic for a thermionic gun.
- *
- * Thermal emittance (rms, normalised):
- * εₙ = r_cathode * sqrt(k_B * T / (me * c²))
- * where r_cathode is estimated from the extraction voltage (higher V → larger
- * beam optics, we use a fixed cathode radius of 3 mm as representative).
- */
+// Constant-power thermionic source: 50 kW wallplug, 5 kW beam power.
+// P_beam = I * V → I = P_beam / V. Raising V lowers I by the same factor.
+const SOURCE_BEAM_POWER_W = 5000;
+
 function computeSource(params) {
   const V_kV = params.extractionVoltage;  // kV
   const T    = params.cathodeTemperature; // K
 
-  // Child-Langmuir: I [mA] = P_perv * (V[kV])^(3/2)
-  // Calibrated: at 50 kV → ~50 mA  →  P_perv = 50 / 50^1.5 ≈ 0.2828
-  const P_perv = 0.2828; // mA / kV^(3/2)
-  const beamCurrent = P_perv * Math.pow(V_kV, 1.5); // mA
+  const V_V = V_kV * 1e3;
+  const I_A = SOURCE_BEAM_POWER_W / V_V;   // A
+  const beamCurrent = I_A * 1e3;           // mA
+  const beamPower = SOURCE_BEAM_POWER_W / 1e3; // kW (constant)
+  const extractionEnergy = V_kV * 1e-6;    // GeV (V kV = V * 1e-6 GeV)
 
   // Thermal emittance: ε [mm·mrad] = r_mm * sqrt(k_B * T / (me * c²))
-  // r_cathode = 3 mm (fixed representative value)
   const r_mm = 3.0;
-  const kTmc2 = (k_B * T) / (me * c * c); // dimensionless
-  const emittance = r_mm * Math.sqrt(kTmc2) * 1e3; // convert to mm·mrad
+  const kTmc2 = (k_B * T) / (me * c * c);
+  const emittance = r_mm * Math.sqrt(kTmc2) * 1e3;
 
-  return { beamCurrent, emittance };
+  return { beamCurrent, beamPower, extractionEnergy, emittance };
 }
 
 /**

@@ -218,10 +218,9 @@ export class DesignLibrary {
   _getCategoryColor(category) {
     const map = {
       source: 'rgba(68, 204, 68, 0.6)',
-      focusing: 'rgba(68, 136, 204, 0.6)',
+      optics: 'rgba(68, 136, 204, 0.6)',
       rf: 'rgba(204, 68, 68, 0.6)',
       diagnostic: 'rgba(200, 200, 200, 0.4)',
-      beamOptics: 'rgba(68, 170, 204, 0.6)',
       endpoint: 'rgba(150, 150, 150, 0.5)',
     };
     return map[category] || 'rgba(100, 100, 140, 0.4)';

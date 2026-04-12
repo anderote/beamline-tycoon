@@ -4,13 +4,82 @@
 
 import { Renderer, isFacilityCategory } from './Renderer.js';
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/facility.js';
 import { MODES, CONNECTION_TYPES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
+
+// Build a 12×12 swatch span for a variant. `color` may be:
+//   - a single hex number: solid dot
+//   - an array [lightHex, darkHex]: split swatch (light left, dark right),
+//     used for checker patterns to show both colors at once
+//   - null/undefined: returns null (caller omits the swatch)
+function makeVariantSwatch(color) {
+  if (color == null) return null;
+  const dot = document.createElement('span');
+  const base = 'display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,0.3);';
+  if (Array.isArray(color)) {
+    const a = color[0].toString(16).padStart(6, '0');
+    const b = color[1].toString(16).padStart(6, '0');
+    dot.style.cssText = `${base}background:linear-gradient(90deg,#${a} 0%,#${a} 50%,#${b} 50%,#${b} 100%);`;
+  } else {
+    dot.style.cssText = `${base}background:#${color.toString(16).padStart(6, '0')};`;
+  }
+  return dot;
+}
+
+// Resolve a variant's preview color from a floor def. Prefers the explicit
+// variantPreviewColors entry (may be a pair for split swatches), then falls
+// back to variantTints, and finally returns null.
+function resolveVariantPreview(def, vi) {
+  const preview = def.variantPreviewColors?.[vi];
+  if (preview != null) return preview;
+  const tint = def.variantTints?.[vi];
+  return tint != null ? tint : null;
+}
+
+// When multiple variants share a single base texture (e.g. the lab-floor
+// epoxy variants which all use tile_labFloor.png tinted in-engine via
+// variantTints), the palette thumbnail would otherwise look identical
+// across variants. Overlay a multiply-blended tint div so each variant
+// shows its actual in-game color.
+function applyPreviewTint(previewEl, def, vi) {
+  const tint = def?.variantTints?.[vi];
+  if (tint == null) return;
+  previewEl.style.position = previewEl.style.position || 'relative';
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `position:absolute;inset:0;background:#${tint.toString(16).padStart(6,'0')};mix-blend-mode:multiply;pointer-events:none;`;
+  previewEl.appendChild(overlay);
+}
+
+// ── Variant memory ──────────────────────────────────────────────────
+// Persist the last variant selected for each build-item key so that
+// reopening the variant flyout (or reloading the page) defaults to the
+// user's last choice. Backed by localStorage so it survives reloads.
+const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
+let _variantMemoryCache = null;
+function _loadVariantMemory() {
+  if (_variantMemoryCache) return _variantMemoryCache;
+  try {
+    const raw = localStorage.getItem(VARIANT_MEMORY_KEY);
+    _variantMemoryCache = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    _variantMemoryCache = {};
+  }
+  return _variantMemoryCache;
+}
+function recallVariant(key) {
+  return _loadVariantMemory()[key] ?? 0;
+}
+function rememberVariant(key, vi) {
+  const mem = _loadVariantMemory();
+  mem[key] = vi;
+  try { localStorage.setItem(VARIANT_MEMORY_KEY, JSON.stringify(mem)); } catch (e) {}
+}
 
 // --- HUD updates ---
 
@@ -222,9 +291,9 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
   let paletteIdx = 0;
 
-  // Infrastructure tab uses INFRASTRUCTURE items instead of COMPONENTS
+  // Infrastructure tab uses FLOORS items instead of COMPONENTS
   if (compCategory === 'infrastructure') {
-    for (const [key, infra] of Object.entries(INFRASTRUCTURE)) {
+    for (const [key, infra] of Object.entries(FLOORS)) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -236,12 +305,14 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       // Tile preview
       const previewEl = document.createElement('div');
       previewEl.className = 'palette-preview';
-      const tilePath = this.sprites.getTilePath(key);
+      const rememberedViForPreview = recallVariant(key);
+      const tilePath = this.sprites.getTilePath(key, rememberedViForPreview);
       if (tilePath) {
         const img = document.createElement('img');
         img.src = tilePath;
         img.alt = infra.name;
         previewEl.appendChild(img);
+        applyPreviewTint(previewEl, infra, rememberedViForPreview);
       } else {
         const swatch = document.createElement('div');
         const c = infra.topColor || infra.color || 0x888888;
@@ -275,8 +346,8 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
-  // Structure mode — Flooring tab: show flooring INFRASTRUCTURE items
-  // Structure mode — Walls tab: show wall INFRASTRUCTURE items
+  // Structure mode — Flooring tab: show flooring FLOORS items
+  // Structure mode — Walls tab: show wall FLOORS items
   if (compCategory === 'walls') {
     const wallKeys = Object.keys(WALL_TYPES);
     const catDef = MODES.structure.categories.walls;
@@ -314,15 +385,17 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         const affordable = this.game.state.resources.funding >= infra.cost;
         if (!affordable) item.classList.add('unaffordable');
 
-        // Wall preview — color swatch rendered as a tall iso block
+        // Wall preview (variant-aware via remembered selection)
+        const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
-        const tilePath2 = this.sprites.getTilePath(key);
+        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
         if (tilePath2) {
           const img = document.createElement('img');
           img.src = tilePath2;
           img.alt = infra.name;
           previewEl.appendChild(img);
+          applyPreviewTint(previewEl, infra, rememberedVi);
         } else {
           const swatch = document.createElement('div');
           const c = infra.topColor || infra.color || 0x888888;
@@ -341,10 +414,66 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         costEl.textContent = `$${infra.cost}/seg`;
         item.appendChild(costEl);
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onWallSelect) this._onWallSelect(key);
-        });
+        if (infra.variants && infra.variants.length > 1) {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._removeParamFlyout();
+            const flyout = document.createElement('div');
+            flyout.className = 'param-flyout';
+
+            const defaultVi = recallVariant(key);
+            // Pre-select on open so clicks elsewhere still use the remembered variant.
+            if (this._onWallSelect) this._onWallSelect(key, defaultVi);
+
+            for (let vi = 0; vi < infra.variants.length; vi++) {
+              const vBtn = document.createElement('div');
+              vBtn.className = 'param-flyout-btn';
+              const sw = makeVariantSwatch(resolveVariantPreview(infra, vi));
+              if (sw) vBtn.appendChild(sw);
+              vBtn.appendChild(document.createTextNode(infra.variants[vi]));
+              const variantIdx = vi;
+              if (vi === defaultVi) vBtn.classList.add('active');
+              vBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                rememberVariant(key, variantIdx);
+                if (this._onWallSelect) this._onWallSelect(key, variantIdx);
+                const previewElNow = item.querySelector('.palette-preview');
+                const previewImg = previewElNow?.querySelector('img');
+                if (previewImg) {
+                  const newPath = this.sprites.getTilePath(key, variantIdx);
+                  if (newPath) previewImg.src = newPath;
+                }
+                if (previewElNow) {
+                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                  applyPreviewTint(previewElNow, infra, variantIdx);
+                }
+                flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+                vBtn.classList.add('active');
+                this._removeParamFlyout();
+              });
+              flyout.appendChild(vBtn);
+            }
+
+            document.body.appendChild(flyout);
+            const rect = item.getBoundingClientRect();
+            flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+            flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+            this._activeParamFlyout = flyout;
+
+            const closeHandler = (e) => {
+              if (!flyout.contains(e.target) && !item.contains(e.target)) {
+                this._removeParamFlyout();
+                document.removeEventListener('click', closeHandler, true);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+          });
+        } else {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onWallSelect) this._onWallSelect(key);
+          });
+        }
 
         itemsContainer.appendChild(item);
       }
@@ -434,7 +563,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
     let renderedSections = 0;
     for (const subKey of subKeys) {
       const subDef = subsections[subKey];
-      const subItems = flooringKeys.filter(k => INFRASTRUCTURE[k]?.subsection === subKey);
+      const subItems = flooringKeys.filter(k => FLOORS[k]?.subsection === subKey);
       if (subItems.length === 0) continue;
 
       if (renderedSections > 0) {
@@ -454,7 +583,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       itemsContainer.className = 'palette-subsection-items';
 
       for (const key of subItems) {
-        const infra = INFRASTRUCTURE[key];
+        const infra = FLOORS[key];
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
@@ -463,15 +592,18 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         const affordable = this.game.state.resources.funding >= infra.cost;
         if (!affordable) item.classList.add('unaffordable');
 
-        // Tile preview
+        // Tile preview — use the remembered variant so the thumbnail
+        // reflects the user's last choice, not always variant 0.
+        const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
-        const tilePath2 = this.sprites.getTilePath(key);
+        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
         if (tilePath2) {
           const img = document.createElement('img');
           img.src = tilePath2;
           img.alt = infra.name;
           previewEl.appendChild(img);
+          applyPreviewTint(previewEl, infra, rememberedVi);
         } else {
           // Color swatch fallback
           const swatch = document.createElement('div');
@@ -499,22 +631,30 @@ Renderer.prototype._renderPalette = function(tabCategory) {
             const flyout = document.createElement('div');
             flyout.className = 'param-flyout';
 
+            const defaultVi = recallVariant(key);
             for (let vi = 0; vi < infra.variants.length; vi++) {
               const vBtn = document.createElement('div');
               vBtn.className = 'param-flyout-btn';
-              // Add color swatch if variant tints are defined
-              if (infra.variantTints && infra.variantTints[vi] != null) {
-                const dot = document.createElement('span');
-                const c = infra.variantTints[vi];
-                dot.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:50%;background:#${c.toString(16).padStart(6,'0')};margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,0.3);`;
-                vBtn.appendChild(dot);
-              }
+              const swatch = makeVariantSwatch(resolveVariantPreview(infra, vi));
+              if (swatch) vBtn.appendChild(swatch);
               vBtn.appendChild(document.createTextNode(infra.variants[vi]));
               const variantIdx = vi;
+              if (vi === defaultVi) vBtn.classList.add('active');
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                rememberVariant(key, variantIdx);
                 if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
-                // Highlight selected variant
+                // Swap the palette thumbnail to reflect the chosen variant.
+                const previewElNow = item.querySelector('.palette-preview');
+                const previewImg = previewElNow?.querySelector('img');
+                if (previewImg) {
+                  const newPath = this.sprites.getTilePath(key, variantIdx);
+                  if (newPath) previewImg.src = newPath;
+                }
+                if (previewElNow) {
+                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                  applyPreviewTint(previewElNow, infra, variantIdx);
+                }
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
                 this._removeParamFlyout();
@@ -529,9 +669,8 @@ Renderer.prototype._renderPalette = function(tabCategory) {
             flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
             this._activeParamFlyout = flyout;
 
-            // Auto-select first variant
-            if (this._onInfraSelect) this._onInfraSelect(key, 0);
-            flyout.querySelector('.param-flyout-btn')?.classList.add('active');
+            // Auto-select the remembered variant (falls back to 0).
+            if (this._onInfraSelect) this._onInfraSelect(key, defaultVi);
 
             // Close on outside click
             const closeHandler = (e) => {
@@ -562,9 +701,9 @@ Renderer.prototype._renderPalette = function(tabCategory) {
   // Surfaces tab (Grounds mode): show outdoor surface infrastructure items
   const surfaceCatDef = MODES.grounds?.categories?.[compCategory];
   if (surfaceCatDef?.isSurfaceTab) {
-    const surfaceKeys = Object.keys(INFRASTRUCTURE).filter(k => INFRASTRUCTURE[k].groundsSurface);
+    const surfaceKeys = Object.keys(FLOORS).filter(k => FLOORS[k].groundsSurface);
     for (const key of surfaceKeys) {
-      const infra = INFRASTRUCTURE[key];
+      const infra = FLOORS[key];
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -573,15 +712,17 @@ Renderer.prototype._renderPalette = function(tabCategory) {
       const affordable = this.game.state.resources.funding >= infra.cost;
       if (!affordable) item.classList.add('unaffordable');
 
-      // Tile preview
+      // Tile preview (variant-aware via remembered selection)
+      const rememberedVi = recallVariant(key);
       const previewEl = document.createElement('div');
       previewEl.className = 'palette-preview';
-      const tilePath2 = this.sprites.getTilePath(key);
+      const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
       if (tilePath2) {
         const img = document.createElement('img');
         img.src = tilePath2;
         img.alt = infra.name;
         previewEl.appendChild(img);
+        applyPreviewTint(previewEl, infra, rememberedVi);
       } else {
         const swatch = document.createElement('div');
         const c = infra.topColor || infra.color || 0x888888;
@@ -607,20 +748,29 @@ Renderer.prototype._renderPalette = function(tabCategory) {
           const flyout = document.createElement('div');
           flyout.className = 'param-flyout';
 
+          const defaultVi = recallVariant(key);
           for (let vi = 0; vi < infra.variants.length; vi++) {
             const vBtn = document.createElement('div');
             vBtn.className = 'param-flyout-btn';
-            if (infra.variantTints && infra.variantTints[vi] != null) {
-              const dot = document.createElement('span');
-              const c = infra.variantTints[vi];
-              dot.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:50%;background:#${c.toString(16).padStart(6,'0')};margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,0.3);`;
-              vBtn.appendChild(dot);
-            }
+            const swatch = makeVariantSwatch(resolveVariantPreview(infra, vi));
+            if (swatch) vBtn.appendChild(swatch);
             vBtn.appendChild(document.createTextNode(infra.variants[vi]));
             const variantIdx = vi;
+            if (vi === defaultVi) vBtn.classList.add('active');
             vBtn.addEventListener('click', (e) => {
               e.stopPropagation();
+              rememberVariant(key, variantIdx);
               if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
+              const previewElNow = item.querySelector('.palette-preview');
+              const previewImg = previewElNow?.querySelector('img');
+              if (previewImg) {
+                const newPath = this.sprites.getTilePath(key, variantIdx);
+                if (newPath) previewImg.src = newPath;
+              }
+              if (previewElNow) {
+                previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                applyPreviewTint(previewElNow, infra, variantIdx);
+              }
               flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
               vBtn.classList.add('active');
               this._removeParamFlyout();
@@ -634,8 +784,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
           flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
           this._activeParamFlyout = flyout;
 
-          if (this._onInfraSelect) this._onInfraSelect(key, 0);
-          flyout.querySelector('.param-flyout-btn')?.classList.add('active');
+          if (this._onInfraSelect) this._onInfraSelect(key, defaultVi);
 
           const closeHandler = (e) => {
             if (!flyout.contains(e.target) && !item.contains(e.target)) {
@@ -792,7 +941,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
 
     const zoneDesc = document.createElement('div');
     zoneDesc.className = 'palette-cost';
-    zoneDesc.textContent = `Requires: ${INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor} (drag)`;
+    zoneDesc.textContent = `Requires: ${FLOORS[zone.requiredFloor]?.name || zone.requiredFloor} (drag)`;
     zoneItem.appendChild(zoneDesc);
 
     zoneItem.addEventListener('click', () => {
@@ -829,13 +978,25 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         const affordable = this.game.state.resources.funding >= furn.cost;
         if (!affordable) item.classList.add('unaffordable');
 
-        // Furnishing sprite preview
+        // Furnishing preview — prefer a 3D thumbnail (parts-based multi-
+        // mesh items render with their real geometry); fall back to a
+        // hex-clip color swatch for defs without any geometry.
         const fPreviewEl = document.createElement('div');
         fPreviewEl.className = 'palette-preview';
-        const swatch = document.createElement('div');
-        const c = furn.spriteColor || 0x888888;
-        swatch.style.cssText = `width:32px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);`;
-        fPreviewEl.appendChild(swatch);
+        const thumbUrl = renderComponentThumbnail(key, 96);
+        if (thumbUrl) {
+          const img = document.createElement('img');
+          img.src = thumbUrl;
+          img.width = 96;
+          img.height = 96;
+          img.style.objectFit = 'contain';
+          fPreviewEl.appendChild(img);
+        } else {
+          const swatch = document.createElement('div');
+          const c = furn.spriteColor || 0x888888;
+          swatch.style.cssText = `width:32px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);`;
+          fPreviewEl.appendChild(swatch);
+        }
         item.appendChild(fPreviewEl);
 
         const nameEl = document.createElement('div');
@@ -1257,6 +1418,8 @@ Renderer.prototype._showPalettePreview = function(comp) {
         if (k === 'energyGain') {
           const e = formatEnergy(v);
           html += statRow(label, `${e.val} ${e.unit}`);
+        } else if (k === 'gradient') {
+          html += statRow('Gradient', `${v} MV/m`);
         } else {
           const unit = typeof UNITS !== 'undefined' && UNITS[k] ? ` ${UNITS[k]}` : '';
           html += statRow(label, `${v}${unit}`);

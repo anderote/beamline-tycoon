@@ -6,12 +6,14 @@
 
 import { PLACEABLE_CLASS_BY_KIND } from '../../game/Placeable.js';
 import { BEAMLINE_MODULE_DEFS } from './beamline-modules.js';
+import { INFRASTRUCTURE_DEFS } from './infrastructure.js';
 import { FURNISHING_DEFS } from './furnishings.js';
 import { EQUIPMENT_DEFS } from './equipment.js';
 import { DECORATION_DEFS } from './decorations.js';
 
 const ALL_DEFS = [
   ...BEAMLINE_MODULE_DEFS,
+  ...INFRASTRUCTURE_DEFS,
   ...FURNISHING_DEFS,
   ...EQUIPMENT_DEFS,
   ...DECORATION_DEFS,

@@ -45,6 +45,17 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   const renderer = new ThreeRenderer(game, spriteManager);
   window._renderer = renderer;
   window.game = game;
+  window.dev = {
+    enable() { game.setDevMode(true); },
+    disable() { game.setDevMode(false); },
+    toggle() { game.setDevMode(!game.devMode); },
+    get on() { return game.devMode; },
+  };
+  if (game.devMode) {
+    // Apply the unlimited-funding boost immediately so the HUD reflects it
+    // before the first tick. setDevMode also emits resourcesChanged.
+    game.setDevMode(true);
+  }
   await renderer.init();
 
   await spriteManager.loadTileSprites();
@@ -77,7 +88,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
-  renderer._onWallSelect = (wallType) => input.selectWallTool(wallType);
+  renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
   renderer._onDoorSelect = (doorType) => input.selectDoorTool(doorType);
   renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
   renderer._onDecorationSelect = (decType) => input.selectDecorationTool(decType);

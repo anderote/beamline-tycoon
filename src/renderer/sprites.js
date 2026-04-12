@@ -5,7 +5,8 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONE_FURNISHINGS, INFRASTRUCTURE } from '../data/infrastructure.js';
+import { FLOORS, WALL_TYPES } from '../data/structure.js';
+import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { tileCenterIso } from './grid.js';
 
 export class SpriteManager {
@@ -198,14 +199,16 @@ export class SpriteManager {
     return this.spritePaths[key] || null;
   }
 
-  getTilePath(gameId) {
-    // Prefer the new texture-material PNG if the INFRASTRUCTURE entry
-    // declares one — these are the same square seamless textures the
-    // 3D renderer applies to floors, and read better as palette
-    // previews than the old isometric diamond images.
-    const infra = INFRASTRUCTURE[gameId];
-    if (infra && infra.texture) {
-      return `assets/textures/materials/${infra.texture}.png`;
+  getTilePath(gameId, variant = 0) {
+    // Prefer the new texture-material PNG if the FLOORS or WALL_TYPES
+    // entry declares one. Variant-aware: if the def declares
+    // variantTextures, pick the one matching the currently selected
+    // variant so the palette preview mirrors what will be placed.
+    const def = FLOORS[gameId] || WALL_TYPES[gameId];
+    if (def) {
+      const varTex = def.variantTextures?.[variant];
+      if (varTex) return `assets/textures/materials/${varTex}.png`;
+      if (def.texture) return `assets/textures/materials/${def.texture}.png`;
     }
     return this.tilePaths[gameId] || null;
   }

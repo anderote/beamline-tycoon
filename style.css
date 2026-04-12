@@ -1536,7 +1536,10 @@ body {
   border-radius: 4px;
   padding: 3px;
   z-index: 200;
+  /* Vertical column, first variant nearest the palette item (bottom),
+     remaining variants stack upward above it. */
   display: flex;
+  flex-direction: column-reverse;
   gap: 3px;
   white-space: nowrap;
   pointer-events: auto;
@@ -1550,6 +1553,7 @@ body {
   border: 1px solid rgba(50, 50, 80, 0.4);
   border-radius: 3px;
   cursor: pointer;
+  text-align: left;
 }
 .param-flyout-btn:hover {
   background: rgba(40, 50, 80, 0.8);
@@ -1869,6 +1873,8 @@ body {
 .ctx-tab.active { color:#ccddff; border-bottom-color:rgba(68, 136, 255, 0.6); background:rgba(60, 80, 140, 0.4); }
 .ctx-body { padding:10px 12px; height:410px; overflow-y:auto; }
 .ctx-window[data-ctx-id^="bl-"] .ctx-body { height:350px; }
+.ctx-window[data-ctx-id^="equip-"] { width:auto; min-width:220px; max-width:320px; }
+.ctx-window[data-ctx-id^="equip-"] .ctx-body { height:auto; max-height:300px; }
 .ctx-actions { padding:8px 12px 10px; display:flex; gap:6px; border-top:1px solid rgba(80, 80, 120, 0.3); }
 .ctx-action-btn { flex:1; text-align:center; padding:6px 10px; border:1px solid rgba(80, 80, 120, 0.4); border-radius:3px; font-family:'Press Start 2P', monospace; font-size:8px; cursor:pointer; background:rgba(30, 30, 55, 0.7); color:#aaaacc; transition:background 0.15s, color 0.15s; }
 .ctx-action-btn:hover { background:rgba(50, 50, 80, 0.8); color:#ccccee; }

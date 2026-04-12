@@ -1,5 +1,6 @@
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE, ZONES, ZONE_FURNISHINGS, WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { ZONES, ZONE_FURNISHINGS } from '../data/facility.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR, DIR_DELTA } from '../data/directions.js';
@@ -30,9 +31,8 @@ function _categoryColor(category) {
     dataControls:  0x44cc88, // green
     ops:           0xcc8844, // orange
     diagnostic:    0x44aacc, // teal
-    focusing:      0x8866cc, // purple
+    optics:        0x8866cc, // purple
     source:        0xcccc44, // yellow
-    beamOptics:    0x6688cc, // steel blue
     endpoint:      0xcc6688, // pink
   };
   return colors[category] || 0x88aaff;
@@ -62,6 +62,7 @@ export class InputHandler {
     // Infrastructure placement
     this.selectedInfraTool = null;  // infrastructure type or null
     this.selectedInfraVariant = 0;  // floor variant index
+    this.floorOrientationOverride = null; // F-key override for orientable floors: null=auto, 0=horiz, 1=vert
     this.selectedZoneTool = null;    // zone type or null
     this.demolishMode = false;       // structure demolish tool
     this.isDragging = false;
@@ -86,6 +87,7 @@ export class InputHandler {
     this.linePath = [];
     // Wall placement (edge-based)
     this.selectedWallTool = null;
+    this.selectedWallVariant = 0;
     this.isDrawingWall = false;
     this.wallPath = [];
     // Door placement (edge-based, like walls)
@@ -291,7 +293,7 @@ export class InputHandler {
     if (!found && (dt === 'demolishFloor' || dt === 'demolishAll')) {
       const infraType = this.game.state.infraOccupied[key];
       if (infraType) {
-        const infra = INFRASTRUCTURE[infraType];
+        const infra = FLOORS[infraType];
         this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
         found = true;
@@ -871,6 +873,7 @@ export class InputHandler {
 
   _bindKeyboard() {
     window.addEventListener('keydown', (e) => {
+      this._shiftDown = e.shiftKey;
       // Skip if focused on text input
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -914,10 +917,12 @@ export class InputHandler {
         return;
       }
 
-      // Track pan keys for continuous movement (WASD only)
-      const panKeys = ['w','W','s','S','a','A','d','D'];
-      if (panKeys.includes(e.key)) {
-        this.keysDown.add(e.key);
+      // Track pan keys for continuous movement (WASD only).
+      // Normalize to lowercase so Shift toggling mid-press doesn't strand
+      // an uppercase entry in the set.
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (k === 'w' || k === 'a' || k === 's' || k === 'd') {
+        this.keysDown.add(k);
         e.preventDefault();
         return;
       }
@@ -959,7 +964,7 @@ export class InputHandler {
               this.selectTool('drift');
             }
           } else if (this.selectedInfraTool) {
-            const infra = INFRASTRUCTURE[this.selectedInfraTool];
+            const infra = FLOORS[this.selectedInfraTool];
             if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
               if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool, this.selectedInfraVariant)) {
                 this.game.emit('infrastructureChanged');
@@ -1036,20 +1041,6 @@ export class InputHandler {
             this.renderer.clearNetworkOverlay();
             // Don't return — let other Escape handling also run
           }
-          // If nothing else was active, Escape enters generic delete mode
-          // so the user can click-to-delete any placeable without having
-          // to pick a specific demolish tool from the HUD.
-          if (
-            !this.selectedTool && !this.selectedInfraTool &&
-            !this.selectedFacilityTool && !this.selectedFurnishingTool &&
-            !this.selectedDecorationTool && !this.selectedConnTool &&
-            !this.selectedZoneTool && !this.selectedWallTool &&
-            !this.selectedDoorTool && !this.demolishMode &&
-            !this.bulldozerMode && !this.probeMode
-          ) {
-            this.selectDemolishTool('demolishAll');
-            break;
-          }
           // Close all overlays
           document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
           this.deselectTool();
@@ -1087,6 +1078,17 @@ export class InputHandler {
           break;
         }
         case 'f': case 'F':
+          // Orientable floor tool: F toggles texture rotation override.
+          // Takes priority over the generic placeable rotation below because
+          // no placeable ghost is active when an infra tool is selected.
+          if (this.selectedInfraTool) {
+            const infraDef = FLOORS[this.selectedInfraTool];
+            if (infraDef?.orientable) {
+              this.floorOrientationOverride = this.floorOrientationOverride ? 0 : 1;
+              this._showToast(`Orientation: ${this.floorOrientationOverride ? 'vertical' : 'horizontal'}`);
+              break;
+            }
+          }
           // Rotate placement direction (cycles NE→SE→SW→NW)
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
@@ -1171,16 +1173,31 @@ export class InputHandler {
     });
 
     window.addEventListener('keyup', (e) => {
+      this._shiftDown = e.shiftKey;
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      this.keysDown.delete(k);
       this.keysDown.delete(e.key);
+    });
+
+    // Clear all held keys when the window loses focus so pan doesn't stick
+    // if the user alt-tabs, opens devtools, or a modal steals focus.
+    const clearHeldKeys = () => {
+      this.keysDown.clear();
+      this._shiftDown = false;
+    };
+    window.addEventListener('blur', clearHeldKeys);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) clearHeldKeys();
     });
   }
 
   _startPanLoop() {
-    const PAN_SPEED_BASE = 0.15; // world-pan units per frame at zoom=1
+    const PAN_SPEED_BASE = 0.5; // world-pan units per frame at zoom=1
     const loop = () => {
       // Scale inversely with zoom so screen-space pan speed stays consistent
       // (at high zoom, world-space motion is slower).
-      const speed = PAN_SPEED_BASE / (this.renderer.zoom || 1);
+      const shiftMul = this._shiftDown ? 2.5 : 1;
+      const speed = (PAN_SPEED_BASE * shiftMul) / (this.renderer.zoom || 1);
       let dxRight = 0, dyUp = 0;
       if (this.keysDown.has('w') || this.keysDown.has('W')) dyUp += speed;
       if (this.keysDown.has('s') || this.keysDown.has('S')) dyUp -= speed;
@@ -1289,7 +1306,7 @@ export class InputHandler {
 
       // Infrastructure line placement start (hallway)
       if (e.button === 0 && this.selectedInfraTool) {
-        const infra = INFRASTRUCTURE[this.selectedInfraTool];
+        const infra = FLOORS[this.selectedInfraTool];
         if (infra && infra.isLinePlacement) {
           const world = this.renderer.screenToWorld(e.clientX, e.clientY);
           const grid = isoToGrid(world.x, world.y);
@@ -1322,7 +1339,7 @@ export class InputHandler {
 
       // Infrastructure drag start (area placement)
       if (e.button === 0 && this.selectedInfraTool) {
-        const infra = INFRASTRUCTURE[this.selectedInfraTool];
+        const infra = FLOORS[this.selectedInfraTool];
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         if (infra && infra.isDragPlacement) {
@@ -1336,7 +1353,7 @@ export class InputHandler {
           this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
             skippedNoFoundation: cost.skippedNoFoundation,
             foundationName: infra.requiresFoundation
-              ? (INFRASTRUCTURE[infra.requiresFoundation]?.name || infra.requiresFoundation)
+              ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
               : null,
             insufficientFunding: this.game.state.resources.funding < cost.totalCost,
           });
@@ -1373,11 +1390,11 @@ export class InputHandler {
             this.dragStart.col, this.dragStart.row,
             grid.col, grid.row, this.selectedInfraTool, this.selectedInfraVariant,
           );
-          const def = INFRASTRUCTURE[this.selectedInfraTool];
+          const def = FLOORS[this.selectedInfraTool];
           this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
             skippedNoFoundation: cost.skippedNoFoundation,
             foundationName: def?.requiresFoundation
-              ? (INFRASTRUCTURE[def.requiresFoundation]?.name || def.requiresFoundation)
+              ? (FLOORS[def.requiresFoundation]?.name || def.requiresFoundation)
               : null,
             insufficientFunding: this.game.state.resources.funding < cost.totalCost,
           });
@@ -1410,11 +1427,11 @@ export class InputHandler {
         const lineCost = this.game.computeInfraLineCost(
           this.linePath, this.selectedInfraTool, this.selectedInfraVariant,
         );
-        const lineDef = INFRASTRUCTURE[this.selectedInfraTool];
+        const lineDef = FLOORS[this.selectedInfraTool];
         this._showDragCostTooltip(lineCost.totalCost, e.clientX, e.clientY, {
           skippedNoFoundation: lineCost.skippedNoFoundation,
           foundationName: lineDef?.requiresFoundation
-            ? (INFRASTRUCTURE[lineDef.requiresFoundation]?.name || lineDef.requiresFoundation)
+            ? (FLOORS[lineDef.requiresFoundation]?.name || lineDef.requiresFoundation)
             : null,
           insufficientFunding: this.game.state.resources.funding < lineCost.totalCost,
         });
@@ -1482,7 +1499,7 @@ export class InputHandler {
         this.hoverPipePoint = null;
         // Show cross cursor when an infra/zone/facility tool is selected
         if (this.selectedInfraTool || this.selectedZoneTool) {
-          const infra = this.selectedInfraTool ? INFRASTRUCTURE[this.selectedInfraTool] : null;
+          const infra = this.selectedInfraTool ? FLOORS[this.selectedInfraTool] : null;
           const zone = this.selectedZoneTool ? ZONES[this.selectedZoneTool] : null;
           const color = infra?.topColor || zone?.color || 0xffffff;
           this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
@@ -1709,7 +1726,7 @@ export class InputHandler {
       // Wall placement end
       if (this.isDrawingWall && this.wallPath.length > 0) {
         this.game._pushUndo();
-        this.game.placeWallPath(this.wallPath, this.selectedWallTool);
+        this.game.placeWallPath(this.wallPath, this.selectedWallTool, this.selectedWallVariant);
         this.isDrawingWall = false;
         this.wallPath = [];
         this.renderer.clearDragPreview();
@@ -1808,7 +1825,8 @@ export class InputHandler {
             this.dragStart.col, this.dragStart.row,
             this.dragEnd.col, this.dragEnd.row,
             this.selectedInfraTool,
-            this.selectedInfraVariant
+            this.selectedInfraVariant,
+            this.floorOrientationOverride,
           );
         }
         this.isDragging = false;
@@ -1945,7 +1963,7 @@ export class InputHandler {
 
     if (this.selectedInfraTool) {
       // Infrastructure placement (single tile for non-drag items like path)
-      const infra = INFRASTRUCTURE[this.selectedInfraTool];
+      const infra = FLOORS[this.selectedInfraTool];
       if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
         this.game._pushUndo();
         if (this.game.placeInfraTile(col, row, this.selectedInfraTool, this.selectedInfraVariant)) {
@@ -2175,7 +2193,11 @@ export class InputHandler {
       if (info) {
         // Beamline components go through the legacy beam-graph registry
         // because their lifecycle is tracked there, not only in state.placeables.
-        if (info.group === 'component' && scope.has('beamline')) {
+        // Infrastructure modules share the same componentBuilder render path,
+        // so they hit info.group === 'component' too — but they live only in
+        // state.placeables (no registry node), so fall through to the unified
+        // probe below if no node is found.
+        if (info.group === 'component' && (scope.has('beamline') || scope.has('infrastructure'))) {
           let node = null;
           if (info.nodeId) {
             node = this.game.registry.getAllNodes().find(n => n.id === info.nodeId);
@@ -2185,9 +2207,21 @@ export class InputHandler {
             node = this._getNodeAtGrid(Math.floor(p.x / 2), Math.floor(p.z / 2));
           }
           if (!node) node = this._getNodeAtGrid(grid.col, grid.row);
-          if (node) {
+          if (node && scope.has('beamline')) {
             const placeable = PLACEABLES[node.type] || COMPONENTS[node.type];
             return { kind: 'beamline', node, placeable, rootObj: info.rootObj };
+          }
+          // No registry node — likely an infrastructure module. Resolve via
+          // the unified subgridOccupied probe using the hit world position.
+          const p = info.rootObj.position;
+          const entry = this._placeableAtWorldPos(p.x, p.z);
+          if (entry && scope.has(entry.kind)) {
+            return {
+              kind: entry.kind,
+              entry,
+              placeable: PLACEABLES[entry.type],
+              rootObj: info.rootObj,
+            };
           }
         }
         // Beam pipes are handled separately from kind-based scope — still
@@ -2253,19 +2287,20 @@ export class InputHandler {
       }
     }
 
-    // --- 3. Tile-level fallback for beamline components ---
-    // If the cursor is over a major tile occupied by a beamline placeable
-    // (checked via p.cells, not just subgrid), highlight it. This covers
-    // the case where a large module spans a tile the raycast/subgrid probe
-    // didn't resolve (e.g. hollow leg regions not registered to subgrid).
-    if (grid && grid.col !== undefined && grid.row !== undefined && scope.has('beamline')) {
+    // --- 3. Tile-level fallback for beamline + infrastructure modules ---
+    // If the cursor is over a major tile occupied by a beamline or infra
+    // placeable (checked via p.cells, not just subgrid), highlight it. This
+    // covers the case where a large module spans a tile the raycast/subgrid
+    // probe didn't resolve (e.g. hollow leg regions not registered to subgrid).
+    if (grid && grid.col !== undefined && grid.row !== undefined) {
       for (const p of this.game.state.placeables) {
-        if (p.category !== 'beamline') continue;
+        if (p.category !== 'beamline' && p.category !== 'infrastructure') continue;
+        if (!scope.has(p.category)) continue;
         if (!p.cells) continue;
         if (p.cells.some(c => c.col === grid.col && c.row === grid.row)) {
           const rootObj = this.renderer.componentBuilder?._meshMap?.get(p.id) || null;
           return {
-            kind: 'beamline',
+            kind: p.category,
             entry: p,
             placeable: PLACEABLES[p.type] || COMPONENTS[p.type],
             rootObj,
@@ -2448,12 +2483,14 @@ export class InputHandler {
     this.renderer.clearDragPreview();
     this.selectedInfraTool = infraType;
     this.selectedInfraVariant = variant;
+    this.floorOrientationOverride = null;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
   }
 
   deselectInfraTool() {
     this.selectedInfraTool = null;
+    this.floorOrientationOverride = null;
     this.isDragging = false;
     this.dragStart = null;
     this.dragEnd = null;
@@ -2544,10 +2581,11 @@ export class InputHandler {
     this.selectedDecorationTool = null;
   }
 
-  selectWallTool(wallType) {
+  selectWallTool(wallType, variant = 0) {
     this.deselectInfraTool();
     this.selectedDoorTool = null;
     this.selectedWallTool = wallType;
+    this.selectedWallVariant = variant;
   }
 
   selectDoorTool(doorType) {
@@ -3117,7 +3155,7 @@ export class InputHandler {
     }
 
     if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
-      const infra = INFRASTRUCTURE[key];
+      const infra = FLOORS[key];
       if (!infra) { this._hidePreview(); return; }
       this._renderPreview(infra.name, infra.desc || '', [
         ['Cost', `$${infra.cost}/tile`],
@@ -3133,7 +3171,7 @@ export class InputHandler {
         const zone = ZONES[key];
         if (!zone) { this._hidePreview(); return; }
         this._renderPreview(zone.name, '', [
-          ['Requires', INFRASTRUCTURE[zone.requiredFloor]?.name || zone.requiredFloor],
+          ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
           ['Placement', 'Drag area'],
         ]);
       } else {
@@ -3231,7 +3269,7 @@ export class InputHandler {
       return ['demolishBeamline', 'demolishUtility', 'demolishFurnishing', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishAll'];
     }
     if (category === 'infrastructure') {
-      return Object.keys(INFRASTRUCTURE);
+      return Object.keys(FLOORS);
     }
     // Zone tabs: first item is zone type, then furnishings
     const catDef = MODES.facility?.categories?.[category];

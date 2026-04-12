@@ -10,7 +10,7 @@ import { MACHINES } from '../data/machines.js';
 import { MachineWindow } from '../ui/MachineWindow.js';
 import { BeamlineWindow } from '../ui/BeamlineWindow.js';
 import { EquipmentWindow } from '../ui/EquipmentWindow.js';
-import { ZONES } from '../data/infrastructure.js';
+import { ZONES } from '../data/facility.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';

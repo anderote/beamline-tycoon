@@ -4,15 +4,18 @@
 
 import { DECORATIONS_RAW } from '../decorations.raw.js';
 
-function toSubtiles(raw) {
-  if (raw.subW != null && (raw.subL != null || raw.subH != null)) {
-    return { subW: raw.subW, subH: raw.subL ?? raw.subH };
-  }
-  // Decorations are tile-scale; default 1 tile = 4 subtiles.
-  return { subW: (raw.gridW ?? 1) * 4, subH: (raw.gridH ?? 1) * 4 };
+// All dims are in SUB-TILES (1 sub-tile = 0.5m). Decorations rarely author
+// size fields — default to a full tile (4 sub-tiles) on all axes so trees/
+// benches keep their legacy size until authored explicitly.
+function toDims(raw) {
+  return {
+    subW: raw.subW ?? raw.gridW ?? 4,
+    subL: raw.subL ?? raw.gridH ?? 4,
+    subH: raw.subH ?? 4,
+  };
 }
 
 export const DECORATION_DEFS = Object.values(DECORATIONS_RAW).map((raw) => {
-  const { subW, subH } = toSubtiles(raw);
-  return { ...raw, kind: 'decoration', subW, subH };
+  const { subW, subL, subH } = toDims(raw);
+  return { ...raw, kind: 'decoration', subW, subL, subH };
 });

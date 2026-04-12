@@ -3,9 +3,9 @@
 
 import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
-import { InfraBuilder } from './infra-builder.js';
+import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, createBeamlineGhost, getAccentMaterial } from './component-builder.js';
+import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedComponent } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -14,9 +14,10 @@ import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
 import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
-import { WALL_TYPES, ZONES } from '../data/infrastructure.js';
+import { WALL_TYPES } from '../data/structure.js';
+import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
@@ -85,7 +86,7 @@ export class ThreeRenderer {
 
     // Scene groups
     this.terrainGroup = null;
-    this.infrastructureGroup = null;
+    this.floorGroup = null;
     this.wallGroup = null;
     this.zoneGroup = null;
     this.connectionGroup = null;
@@ -99,7 +100,7 @@ export class ThreeRenderer {
 
     this.textureManager = new TextureManager();
     this.terrainBuilder = new TerrainBuilder(this.textureManager);
-    this.infraBuilder = new InfraBuilder(this.textureManager);
+    this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
     this.pipeAttachmentBuilder = new ComponentBuilder();
@@ -182,6 +183,13 @@ export class ThreeRenderer {
   async init() {
     const gameEl = document.getElementById('game');
 
+    // Retro pixelation: render the scene at 1/N of the logical canvas
+    // resolution, then CSS-upscale the canvas back to full size with
+    // `image-rendering: pixelated`. This chunks every material (including
+    // decal textures) uniformly without needing per-asset changes.
+    // Increase for chunkier pixels; 1 disables the effect.
+    this._pixelScale = 2;
+
     // Create WebGL renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
     this.renderer.setPixelRatio(1);
@@ -195,6 +203,7 @@ export class ThreeRenderer {
     threeCanvas.style.left = '0';
     threeCanvas.style.zIndex = '10';
     threeCanvas.style.pointerEvents = 'none';
+    threeCanvas.style.imageRendering = 'pixelated';
     gameEl.insertBefore(threeCanvas, gameEl.firstChild);
 
     this._setSize();
@@ -252,9 +261,9 @@ export class ThreeRenderer {
     this.terrainGroup.name = 'terrain';
     this.scene.add(this.terrainGroup);
 
-    this.infrastructureGroup = new THREE.Group();
-    this.infrastructureGroup.name = 'infrastructure';
-    this.scene.add(this.infrastructureGroup);
+    this.floorGroup = new THREE.Group();
+    this.floorGroup.name = 'floors';
+    this.scene.add(this.floorGroup);
 
     this.wallGroup = new THREE.Group();
     this.wallGroup.name = 'walls';
@@ -1414,11 +1423,13 @@ export class ThreeRenderer {
       }
     });
 
-    const isDetailed = !!obj.children?.length;
+    // obj.children.length is always > 0 because _createObject wraps every
+    // visual in a Group with an invisible hitbox — so children-count cannot
+    // be used to detect detailed geometry. Use the authoritative builder
+    // registry check instead (same source of truth as ComponentBuilder.build
+    // uses when positioning committed meshes).
+    const isDetailed = isDetailedComponent(hover.id, placeable);
     const SUB_UNIT = 0.5;
-    // Mirror renderComponentGhost: prefer gridW/gridH (legacy) then subW/subL.
-    // snapForPlaceable swaps w/h for dir 1/3, so the footprint outline and
-    // mesh center must swap too or they diverge from the reserved subcells.
     const gwRaw = placeable.gridW || placeable.subW || 4;
     const ghRaw = placeable.gridH || placeable.subL || placeable.subH || 4;
     const swap = (hover.dir === 1 || hover.dir === 3);
@@ -1432,7 +1443,8 @@ export class ThreeRenderer {
     const row = hover.row;
     const px = col * 2 + sc * SUB_UNIT + footW / 2;
     const pz = row * 2 + sr * SUB_UNIT + footH / 2;
-    const y = isDetailed ? 0 : ((placeable.subH || 2) * SUB_UNIT) / 2;
+    const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
+    const y = isDetailed ? 0 : (vSubH * SUB_UNIT) / 2;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -1483,10 +1495,8 @@ export class ThreeRenderer {
         child.renderOrder = 999;
       }
     });
-    const isDetailed = !!obj.children?.length; // groups are detailed, bare meshes are fallbacks
+    const isDetailed = isDetailedComponent(compType, compDef);
     const SUB_UNIT = 0.5;
-    // Footprint in sub-units (gridW/gridH store sub-cell counts). snapForPlaceable
-    // swaps w/h for dir 1/3 so outline + mesh center must swap to match.
     const gwRaw = compDef.gridW || compDef.subW || 4;
     const ghRaw = compDef.gridH || compDef.subL || 4;
     const swap = (direction === 1 || direction === 3);
@@ -1651,7 +1661,7 @@ export class ThreeRenderer {
     const tileZ = row * 2;
     const tileColor = (typeof color === 'number') ? color : 0x88aaff;
 
-    const isBeamline = compDef.category === 'source' || compDef.category === 'focusing'
+    const isBeamline = compDef.category === 'source' || compDef.category === 'optics'
       || compDef.category === 'acceleration' || compDef.category === 'diagnostics'
       || compDef.isDrawnConnection;
 
@@ -1664,11 +1674,13 @@ export class ThreeRenderer {
         this._addPreviewMesh(ghost);
       }
     } else {
-      // Non-beamline: simple translucent box
+      // Non-beamline: simple translucent box. Position matches
+      // EquipmentBuilder.placeOne so the ghost lands where the real mesh
+      // will be placed (NW corner of the tile + w/2, l/2 offsets).
       const SUB_UNIT = 0.5;
       const w = (compDef.subW || 2) * SUB_UNIT;
-      const h = (compDef.subH || 2) * SUB_UNIT;
-      const l = (compDef.subL || 2) * SUB_UNIT;
+      const h = (compDef.subH || 1) * SUB_UNIT;
+      const l = (compDef.subL || compDef.subW || 2) * SUB_UNIT;
       const ghostMat = new THREE.MeshBasicMaterial({
         color: compDef.spriteColor || 0x888888,
         transparent: true, opacity: 0.4,
@@ -1676,25 +1688,25 @@ export class ThreeRenderer {
       });
       const geo = new THREE.BoxGeometry(w, h, l);
       const mesh = new THREE.Mesh(geo, ghostMat);
-      mesh.position.set(tileX + 1, h / 2, tileZ + 1);
+      mesh.position.set(tileX + w / 2, h / 2, tileZ + l / 2);
       this._addPreviewMesh(mesh);
     }
 
-    // Floor outline
+    // Floor outline. Y dropped to 0.02/0.01 so small sub-tile ghost meshes
+    // don't get visually submerged by the fill plane.
     const edgeMat = this._previewEdgeMat(tileColor);
     const x0 = tileX, x1 = tileX + 2, z0 = tileZ, z1 = tileZ + 2;
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, 0.02, z0), new THREE.Vector3(x1, 0.02, z0),
+      new THREE.Vector3(x1, 0.02, z1), new THREE.Vector3(x0, 0.02, z1),
+      new THREE.Vector3(x0, 0.02, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    // Translucent fill
     const fillMat = this._previewMat(tileColor, 0.15);
     const fillGeo = new THREE.PlaneGeometry(2, 2);
     fillGeo.rotateX(-Math.PI / 2);
     const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(tileX + 1, 0.1, tileZ + 1);
+    fill.position.set(tileX + 1, 0.01, tileZ + 1);
     this._addPreviewMesh(fill);
   }
 
@@ -1737,9 +1749,9 @@ export class ThreeRenderer {
     const x1 = x0 + gw * subSize;
     const z1 = z0 + gh * subSize;
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, 0.02, z0), new THREE.Vector3(x1, 0.02, z0),
+      new THREE.Vector3(x1, 0.02, z1), new THREE.Vector3(x0, 0.02, z1),
+      new THREE.Vector3(x0, 0.02, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
     // Translucent fill
@@ -1747,7 +1759,7 @@ export class ThreeRenderer {
     const fillGeo = new THREE.PlaneGeometry(gw * subSize, gh * subSize);
     fillGeo.rotateX(-Math.PI / 2);
     const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set((x0 + x1) / 2, 0.1, (z0 + z1) / 2);
+    fill.position.set((x0 + x1) / 2, 0.01, (z0 + z1) / 2);
     this._addPreviewMesh(fill);
   }
 
@@ -1934,7 +1946,14 @@ export class ThreeRenderer {
     const gameEl = document.getElementById('game');
     const w = gameEl.clientWidth;
     const h = gameEl.clientHeight;
-    this.renderer.setSize(w, h);
+    const s = this._pixelScale || 1;
+    // Render at 1/s resolution, then let CSS stretch the canvas back to
+    // full size. `updateStyle=false` prevents three from clobbering the
+    // CSS width/height we set explicitly below.
+    this.renderer.setSize(Math.max(1, Math.floor(w / s)), Math.max(1, Math.floor(h / s)), false);
+    const canvas = this.renderer.domElement;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
   }
 
   _updateCameraFrustum() {
@@ -2079,7 +2098,7 @@ export class ThreeRenderer {
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
     this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
-    this.infraBuilder.build(snapshot.infrastructure, this.infrastructureGroup);
+    this.floorBuilder.build(snapshot.floors, this.floorGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
@@ -2107,7 +2126,7 @@ export class ThreeRenderer {
 
   _refreshInfra() {
     const snap = buildWorldSnapshot(this.game);
-    this.infraBuilder.build(snap.infrastructure, this.infrastructureGroup);
+    this.floorBuilder.build(snap.floors, this.floorGroup);
   }
 
   _refreshZones() {

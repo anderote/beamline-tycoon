@@ -35,7 +35,7 @@ function _compColor(type) {
   const cat = comp.category || '';
   if (comp.isSource) return COMP_COLORS.source;
   if (cat === 'bending')     return COMP_COLORS.dipole;
-  if (cat === 'focusing')    return COMP_COLORS.quad;
+  if (cat === 'optics')      return COMP_COLORS.quad;
   if (cat === 'rf')          return COMP_COLORS.cavity;
   if (cat === 'insertion')   return COMP_COLORS.undulator;
   if (cat === 'diagnostics') return COMP_COLORS.diagnostic;

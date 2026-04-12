@@ -330,9 +330,9 @@ const DESC_OVERRIDES = {
 const SIDEBAR_CATS = [
   { title: 'Sources', color: '#4caf50', filter: c => c.category === 'source' },
   { title: 'Transport', color: '#90a4ae', filter: c => ['drift','bellows'].includes(c.spriteKey) },
-  { title: 'Magnets', color: '#42a5f5', filter: c => c.category === 'focusing' || ['sextupole','solenoid','corrector','octupole','scQuad','scDipole','combinedFunctionMagnet'].includes(c.spriteKey) },
+  { title: 'Magnets', color: '#42a5f5', filter: c => (c.category === 'optics' && c.subsection === 'focusing') || ['sextupole','solenoid','corrector','octupole','scQuad','scDipole','combinedFunctionMagnet'].includes(c.spriteKey) },
   { title: 'RF / Acceleration', color: '#ef5350', filter: c => c.category === 'rf' },
-  { title: 'Beam Optics', color: '#26c6da', filter: c => c.category === 'beamOptics' },
+  { title: 'Beam Optics', color: '#26c6da', filter: c => c.category === 'optics' && c.subsection === 'manipulation' },
   { title: 'Diagnostics', color: '#ffb74d', filter: c => ['bpm','screen','ict','wireScanner','bunchLengthMonitor','energySpectrometer','beamLossMonitor','srLightMonitor'].includes(c.spriteKey) },
   { title: 'Endpoints', color: '#bdbdbd', filter: c => c.category === 'endpoint' },
   { title: 'RF Power', color: '#ff7043', filter: c => ['solidStateAmp','pulsedKlystron','cwKlystron','modulator','iot','circulator','rfCoupler','llrfController','multibeamKlystron','highPowerSSA'].includes(c.spriteKey) },

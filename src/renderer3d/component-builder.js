@@ -1862,13 +1862,22 @@ export function renderComponentThumbnail(compType, size = 64) {
   if (typeof THREE === 'undefined') return null;
   if (_thumbCache.has(compType)) return _thumbCache.get(compType);
 
-  const compDef = COMPONENTS[compType];
+  // Look up the def. COMPONENTS only holds beamline/infra/equipment kinds;
+  // furnishings + decorations live only in PLACEABLES, so check both.
+  const compDef = COMPONENTS[compType] || PLACEABLES[compType];
   if (!compDef) return null;
 
-  // Prefer role builders (template-based); fall back to legacy detail builders.
-  const hasRole = !!ROLE_BUILDERS[compDef.id || compType];
-  const legacyBuilder = DETAIL_BUILDERS[compDef.id || compType];
-  if (!hasRole && !legacyBuilder) return null;
+  // Decide the model source, in priority order:
+  //   1. Role builder   — beamline dipole/quad/cavity etc.
+  //   2. Detail builder — legacy source/drift/pillbox
+  //   3. Parts list     — declarative multi-box furnishings/equipment
+  //   4. Fallback box   — plain single-box placeables with a footprint
+  const defId = compDef.id || compType;
+  const hasRole = !!ROLE_BUILDERS[defId];
+  const legacyBuilder = DETAIL_BUILDERS[defId];
+  const hasParts = Array.isArray(compDef.parts) && compDef.parts.length > 0;
+  const hasFootprint = !!(compDef.subW || compDef.gridW);
+  if (!hasRole && !legacyBuilder && !hasParts && !hasFootprint) return null;
 
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(size * 2, size * 2);
@@ -1890,14 +1899,17 @@ export function renderComponentThumbnail(compType, size = 64) {
   rim.position.set(0, -4, -2);
   scene.add(rim);
 
-  // Build the model. Role-based builders get the default APS-red accent;
-  // legacy builders return their own fully assembled group.
+  // Build the model. Priority order matches the decision above.
   const defaultAccent = 0xc62828;
   let model;
   if (hasRole) {
-    model = _instantiateRoleTemplate(compDef.id || compType, defaultAccent);
-  } else {
+    model = _instantiateRoleTemplate(defId, defaultAccent);
+  } else if (legacyBuilder) {
     model = legacyBuilder();
+  } else {
+    // Parts-based or plain footprint — use the shared fallback builder
+    // so the thumbnail matches the committed/ghost geometry exactly.
+    model = _buildPartsOrFallback(compDef);
   }
   scene.add(model);
 

@@ -223,8 +223,12 @@ def transfer_matrix(element, beam_energy=None, beam_mass=None):
 
     elif etype == "quadrupole":
         k = element.get("focusStrength", 1.0)
-        # Alternate sign for FODO-like behavior based on index
-        sign = 1.0 if element.get("focusing", True) else -1.0
+        # Use polarity (+1/-1) if set, fall back to legacy "focusing" flag
+        polarity = element.get("polarity", None)
+        if polarity is not None:
+            sign = float(polarity)
+        else:
+            sign = 1.0 if element.get("focusing", True) else -1.0
         return quadrupole_matrix(k * sign, length)
 
     elif etype == "dipole":

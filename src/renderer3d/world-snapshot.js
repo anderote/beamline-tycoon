@@ -2,7 +2,7 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
-import { INFRASTRUCTURE } from '../data/infrastructure.js';
+import { FLOORS } from '../data/structure.js';
 
 const GRASS_RANGE = 20;
 
@@ -54,9 +54,9 @@ function buildTerrain(game) {
   return terrain;
 }
 
-function buildInfrastructure(game) {
-  return (game.state.infrastructure || []).map(tile => {
-    const def = INFRASTRUCTURE[tile.type];
+function buildFloors(game) {
+  return (game.state.floors || []).map(tile => {
+    const def = FLOORS[tile.type];
     return {
       col: tile.col,
       row: tile.row,
@@ -75,6 +75,7 @@ function buildWalls(game) {
     row: w.row,
     edge: w.edge,
     type: w.type,
+    variant: w.variant ?? 0,
   }));
 }
 
@@ -130,9 +131,13 @@ function buildComponents(game) {
     };
   });
 
-  // Unified-system beamline placeables (drift pipes placed outside the registry)
+  // Unified-system placeables (drift pipes + infrastructure modules — all
+  // share the componentBuilder rendering path since their COMPONENTS entries
+  // carry the same geometryType / subL / subW / subH shape).
   const seenIds = new Set(result.map(r => r.id));
-  const placeables = (game.state.placeables || []).filter(p => p.category === 'beamline');
+  const placeables = (game.state.placeables || []).filter(
+    p => p.category === 'beamline' || p.category === 'infrastructure'
+  );
   for (const p of placeables) {
     if (seenIds.has(p.id)) continue;
     result.push({
@@ -300,7 +305,7 @@ function buildFurnishings(game) {
 export function buildWorldSnapshot(game) {
   return {
     terrain: buildTerrain(game),
-    infrastructure: buildInfrastructure(game),
+    floors: buildFloors(game),
     walls: buildWalls(game),
     doors: buildDoors(game),
     zones: buildZones(game),

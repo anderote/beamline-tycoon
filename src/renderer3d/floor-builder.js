@@ -1,5 +1,5 @@
-// src/renderer3d/infra-builder.js
-// Renders infrastructure floor tiles as InstancedMesh per type. Each zone
+// src/renderer3d/floor-builder.js
+// Renders floor tiles as InstancedMesh per type. Each zone
 // type may declare a `texture` field referencing a material in MATERIALS;
 // floors use those materials directly with plain 0..1 UVs (each tile is
 // exactly METERS_PER_TILE = 2m on a side, so one full repetition fits).
@@ -7,10 +7,10 @@
 //
 // THREE is a CDN global — do NOT import it.
 
-import { INFRASTRUCTURE } from '../data/infrastructure.js';
+import { FLOORS } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 
-export class InfraBuilder {
+export class FloorBuilder {
   constructor(textureManager) {
     // textureManager is retained for the constructor signature but no
     // longer used by the floor renderer — floors use MATERIALS directly.
@@ -21,38 +21,48 @@ export class InfraBuilder {
   }
 
   /**
-   * Build (or rebuild) infrastructure floor tiles from infraData.
-   * @param {Array<{ col: number, row: number, type: string, orientation: string, variant: number, tint: number|null }>} infraData
+   * Build (or rebuild) floor tiles from floorData.
+   * @param {Array<{ col: number, row: number, type: string, orientation: string, variant: number, tint: number|null }>} floorData
    * @param {THREE.Group} parentGroup
    */
-  build(infraData, parentGroup) {
-    if (!infraData || infraData.length === 0) {
+  build(floorData, parentGroup) {
+    if (!floorData || floorData.length === 0) {
       this._cleanup(parentGroup);
       this._cacheKey = '';
       return;
     }
 
-    const newKey = JSON.stringify(infraData);
+    const newKey = JSON.stringify(floorData);
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     this._cleanup(parentGroup);
 
-    // Group tiles by type
-    const byType = new Map();
-    for (const tile of infraData) {
-      if (!byType.has(tile.type)) byType.set(tile.type, []);
-      byType.get(tile.type).push(tile);
+    // Group tiles by type+variant so each group can resolve its own
+    // texture (via variantTextures) and tint (via variantTints).
+    const byGroup = new Map();
+    for (const tile of floorData) {
+      const variant = tile.variant ?? 0;
+      const groupKey = tile.type + ':' + variant;
+      let group = byGroup.get(groupKey);
+      if (!group) {
+        group = { type: tile.type, variant, tiles: [] };
+        byGroup.set(groupKey, group);
+      }
+      group.tiles.push(tile);
     }
 
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
 
-    for (const [type, tiles] of byType) {
-      const infra = INFRASTRUCTURE[type];
-      if (!infra) continue;
+    for (const group of byGroup.values()) {
+      const { type, variant, tiles } = group;
+      const def = FLOORS[type];
+      if (!def) continue;
 
-      const baseColor = infra.topColor ?? infra.color ?? 0x888888;
-      const matFromCatalog = infra.texture ? MATERIALS[infra.texture] : null;
+      const baseColor = def.topColor ?? def.color ?? 0x888888;
+      const textureName = def.variantTextures?.[variant] ?? def.texture;
+      const matFromCatalog = textureName ? MATERIALS[textureName] : null;
+      const variantTint = def.variantTints?.[variant] ?? null;
 
       // 1) Solid background plane — fills the full square so any transparency
       //    in the textured plane shows the zone's solid color underneath.
@@ -100,13 +110,22 @@ export class InfraBuilder {
         texMesh.matrixAutoUpdate = false;
 
         for (let i = 0; i < tiles.length; i++) {
-          const { col, row, tint } = tiles[i];
+          const { col, row, tint, orientation } = tiles[i];
           dummy.position.set(col * 2 + 1, 0.002, row * 2 + 1); // slightly above bg
+          // Orientable tiles (hardwood, groomed grass, brick paving) rotate
+          // the texture 90° by spinning the instance around Y — the quad is
+          // a 2×2 square centered at origin, so its footprint is unchanged
+          // but the UV-carrying vertices land in a rotated position.
+          dummy.rotation.set(0, orientation ? Math.PI / 2 : 0, 0);
           dummy.updateMatrix();
+          dummy.rotation.set(0, 0, 0);
           texMesh.setMatrixAt(i, dummy.matrix);
 
+          // Per-tile tint takes priority, then variant tint, then white.
           if (tint != null) {
             color.set(tint);
+          } else if (variantTint != null) {
+            color.set(variantTint);
           } else {
             color.set(0xffffff);
           }

@@ -7,10 +7,10 @@
 export class Placeable {
   constructor(def) {
     Object.assign(this, def);
-    if (this.subW == null || this.subH == null) {
-      throw new Error(`Placeable ${def.id}: missing subW/subH`);
+    if (this.subW == null || this.subL == null) {
+      throw new Error(`Placeable ${def.id}: missing subW/subL`);
     }
-    if (!['beamline', 'furnishing', 'equipment', 'decoration'].includes(this.kind)) {
+    if (!['beamline', 'infrastructure', 'furnishing', 'equipment', 'decoration'].includes(this.kind)) {
       throw new Error(`Placeable ${def.id}: invalid kind ${this.kind}`);
     }
   }
@@ -19,12 +19,12 @@ export class Placeable {
    * Returns the list of (col,row,subCol,subRow) cells this placeable would
    * occupy at the given origin and direction. Origin is the dir=0 top-left
    * subtile in absolute subtile-space. Rotation pivots around the footprint
-   * center; for non-square footprints, dir=1/3 swap subW and subH.
+   * center; for non-square footprints, dir=1/3 swap subW and subL.
    */
   footprintCells(col, row, subCol, subRow, dir = 0) {
     const swap = dir === 1 || dir === 3;
-    const w = swap ? this.subH : this.subW;
-    const h = swap ? this.subW : this.subH;
+    const w = swap ? this.subL : this.subW;
+    const h = swap ? this.subW : this.subL;
     const cells = [];
     for (let dr = 0; dr < h; dr++) {
       for (let dc = 0; dc < w; dc++) {
@@ -59,12 +59,14 @@ export class BeamlineModule extends Placeable {
   }
 }
 
+export class Infrastructure extends Placeable {}
 export class Furnishing extends Placeable {}
 export class Equipment extends Placeable {}
 export class Decoration extends Placeable {}
 
 export const PLACEABLE_CLASS_BY_KIND = {
   beamline: BeamlineModule,
+  infrastructure: Infrastructure,
   furnishing: Furnishing,
   equipment: Equipment,
   decoration: Decoration,

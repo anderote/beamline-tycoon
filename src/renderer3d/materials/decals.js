@@ -35,8 +35,18 @@ function makeDecal(file, { roughness = 0.5, metalness = 0.2 } = {}) {
  * Populated incrementally as decals are authored. Module-level singletons.
  */
 export const DECALS = {
-  // Populated in Task 9 onwards. Example shape:
-  // server_rack_front: makeDecal('server_rack_front.png'),
+  scope_screen: makeDecal('scope_screen.png', { roughness: 0.35, metalness: 0.1 }),
+  // RF lab front-panel decals — full instrument face with bezel, screen,
+  // knobs, buttons. PNG aspect matches visualSubW : visualSubH so the
+  // pixel grid stays square when stretched across the 0→1 face UVs.
+  oscilloscope_front:      makeDecal('oscilloscope_front.png',      { roughness: 0.6, metalness: 0.15 }),
+  signal_generator_front:  makeDecal('signal_generator_front.png',  { roughness: 0.6, metalness: 0.2 }),
+  spectrum_analyzer_front: makeDecal('spectrum_analyzer_front.png', { roughness: 0.6, metalness: 0.15 }),
+  network_analyzer_front:  makeDecal('network_analyzer_front.png',  { roughness: 0.6, metalness: 0.15 }),
+  oscilloscope_side:       makeDecal('oscilloscope_side.png',       { roughness: 0.7, metalness: 0.1 }),
+  signal_generator_side:   makeDecal('signal_generator_side.png',   { roughness: 0.7, metalness: 0.15 }),
+  spectrum_analyzer_side:  makeDecal('spectrum_analyzer_side.png',  { roughness: 0.7, metalness: 0.1 }),
+  network_analyzer_side:   makeDecal('network_analyzer_side.png',   { roughness: 0.7, metalness: 0.1 }),
 };
 
 // Re-export so tests / future code can construct ad-hoc decal materials.

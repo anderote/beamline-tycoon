@@ -1,7 +1,7 @@
 // src/ui/DesignPlacer.js — Handles placing a saved design onto the isometric map.
 
 import { COMPONENTS } from '../data/components.js';
-import { INFRASTRUCTURE } from '../data/infrastructure.js';
+import { FLOORS } from '../data/structure.js';
 import { DIR, DIR_DELTA, turnLeft, turnRight } from '../data/directions.js';
 
 export class DesignPlacer {
@@ -66,7 +66,7 @@ export class DesignPlacer {
     let row = this.startRow;
     let dir = this.direction;
 
-    const concreteCost = INFRASTRUCTURE.concrete?.cost || 10;
+    const concreteCost = FLOORS.concrete?.cost || 10;
     let componentCost = 0;
     let foundationCost = 0;
 
@@ -157,7 +157,7 @@ export class DesignPlacer {
     for (const ft of this.foundationTiles) {
       const key = ft.col + ',' + ft.row;
       this.game.removeDecoration(ft.col, ft.row);
-      this.game.state.infrastructure.push({ type: 'concrete', col: ft.col, row: ft.row, variant: 0 });
+      this.game.state.floors.push({ type: 'concrete', col: ft.col, row: ft.row, variant: 0 });
       this.game.state.infraOccupied[key] = 'concrete';
     }
 

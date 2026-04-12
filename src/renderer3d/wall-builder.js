@@ -2,7 +2,7 @@
 // Renders walls and doors as 3D BoxGeometry slabs on tile edges.
 // THREE is a CDN global — do NOT import it.
 
-import { WALL_TYPES, DOOR_TYPES } from '../data/infrastructure.js';
+import { WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 
@@ -51,13 +51,26 @@ export class WallBuilder {
     // Cache materials by wall type to avoid duplicates
     const matCache = {};
 
+    // Build a set of door edge keys so we can skip walls that coincide with
+    // doors — the door builder creates its own side/above wall segments, and
+    // letting the main wall render on top would both block the opening and
+    // double-render the segment (causing z-fighting/shimmer in transparent mode).
+    const doorEdgeSet = new Set();
+    for (const d of (doorData || [])) {
+      doorEdgeSet.add(`${d.col},${d.row},${d.edge}`);
+    }
+    const wallsWithoutDoors = (wallData || []).filter(
+      w => !doorEdgeSet.has(`${w.col},${w.row},${w.edge}`)
+    );
+
     // When transparent, merge adjacent colinear walls of the same type into
     // single longer boxes to eliminate interior end-cap faces that compound
-    // opacity and create dark seams.
-    const wallsToRender = this._mergeWalls(wallData || [], wallVisibility, cutawayRoom);
+    // opacity and create dark seams. Merging must not span a door tile.
+    const wallsToRender = this._mergeWalls(wallsWithoutDoors, wallVisibility, cutawayRoom);
 
     for (const w of wallsToRender) {
       const { col, row, edge, type, span } = w;
+      const variant = w.variant ?? 0;
       const def = WALL_TYPES[type];
       const height = def ? def.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
       const thickness = def
@@ -70,17 +83,26 @@ export class WallBuilder {
         this._wallBordersRoom(col, row, edge, cutawayRoom);
       const wallTransparent = isTransparent || isCutawayWall;
 
-      // In cutaway mode, walls need per-wall materials (some opaque, some transparent)
-      const matKey = isCutawayWall ? `${type}_cutaway` : type;
+      // Materials cache keyed by type+variant+cutaway so walls placed
+      // with different variants (e.g. exterior wall cement vs brick)
+      // render with their own textures.
+      const matKey = `${type}:${variant}${isCutawayWall ? ':cutaway' : ''}`;
       if (!matCache[matKey]) {
-        const baseMat = def && def.texture ? MATERIALS[def.texture] : null;
+        const textureName = def?.variantTextures?.[variant] ?? def?.texture;
+        const baseMat = textureName ? MATERIALS[textureName] : null;
+        // Alpha-cutout materials (chain-link, barbed wire): the PNG has
+        // fully transparent holes, so use alphaTest to discard hole
+        // pixels and render wire strands as opaque from both sides.
+        const useAlpha = def?.hasAlpha === true;
         matCache[matKey] = new THREE.MeshStandardMaterial({
           map: baseMat ? baseMat.map : null,
           color: baseMat ? 0xffffff : color, // tint white if textured so map shows true colors
           roughness: 0.8,
-          transparent: wallTransparent,
+          transparent: wallTransparent || useAlpha,
+          alphaTest: useAlpha ? 0.5 : 0,
           opacity: wallTransparent ? 0.3 : 1.0,
-          depthWrite: !wallTransparent,
+          depthWrite: useAlpha ? true : !wallTransparent,
+          side: useAlpha ? THREE.DoubleSide : THREE.FrontSide,
         });
       }
 
@@ -123,12 +145,16 @@ export class WallBuilder {
     const doorMat = new THREE.MeshStandardMaterial({
       color: 0x8b7355,
       roughness: 0.7,
+      transparent: isTransparent,
+      opacity: isTransparent ? 0.3 : 1.0,
+      depthWrite: !isTransparent,
     });
     const doorMatTransparent = new THREE.MeshStandardMaterial({
       color: 0x8b7355,
       roughness: 0.7,
       transparent: true,
       opacity: 0.3,
+      depthWrite: false,
     });
 
     for (const d of (doorData || [])) {
@@ -158,13 +184,18 @@ export class WallBuilder {
         : DEFAULT_WALL_THICKNESS;
       const wallColor = wallDef ? wallDef.color : 0xcccccc;
 
-      // Get or create wall material for wall segments around the door
+      // Get or create wall material for wall segments around the door.
+      // Match the main wall material — tint white if textured so the map shows
+      // true colors, and disable depthWrite when transparent for consistent sort.
       if (wallType && !matCache[wallType]) {
+        const baseMat = wallDef && wallDef.texture ? MATERIALS[wallDef.texture] : null;
         matCache[wallType] = new THREE.MeshStandardMaterial({
-          color: wallColor,
+          map: baseMat ? baseMat.map : null,
+          color: baseMat ? 0xffffff : wallColor,
           roughness: 0.8,
           transparent: isTransparent,
           opacity: isTransparent ? 0.3 : 1.0,
+          depthWrite: !isTransparent,
         });
       }
 
@@ -224,6 +255,7 @@ export class WallBuilder {
             (matCache['__default'] = new THREE.MeshStandardMaterial({
               color: wallColor, roughness: 0.8,
               transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
+              depthWrite: !isTransparent,
             }));
           const sideGeo = isNS
             ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
@@ -272,6 +304,7 @@ export class WallBuilder {
           (matCache['__default'] = new THREE.MeshStandardMaterial({
             color: wallColor, roughness: 0.8,
             transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
+            depthWrite: !isTransparent,
           }));
         const aboveGeo = isNS
           ? new THREE.BoxGeometry(TILE_SIZE, aboveDoorHeight, wallThickness)
@@ -377,12 +410,16 @@ export class WallBuilder {
       return wallData.map(w => ({ ...w, span: 1 }));
     }
 
-    // Group walls by (edge, type, and the axis-perpendicular coordinate)
-    // N/S walls run along X, grouped by row; E/W walls run along Z, grouped by col
+    // Group walls by (edge, type, variant, and the axis-perpendicular
+    // coordinate). Variant must be part of the key so walls of the same
+    // type but different claddings (e.g. cement vs brick exterior) stay
+    // separate — otherwise a merged span would pick a single texture for
+    // the whole run.
     const groups = {};
     for (const w of wallData) {
       const isNS = w.edge === 'n' || w.edge === 's';
-      const groupKey = `${w.edge},${w.type},${isNS ? w.row : w.col}`;
+      const variant = w.variant ?? 0;
+      const groupKey = `${w.edge},${w.type},${variant},${isNS ? w.row : w.col}`;
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(w);
     }

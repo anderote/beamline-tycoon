@@ -4,10 +4,9 @@ export const MODES = {
     name: 'Beamline',
     categories: {
       source:     { name: 'Sources',     color: '#4c4', subsections: { electron: { name: 'Electron' }, utility: { name: 'Utility' } } },
-      focusing:   { name: 'Focusing',    color: '#48c', subsections: { normalConducting: { name: 'Normal' }, superconducting: { name: 'Superconducting' } } },
+      optics:     { name: 'Optics',      color: '#48c', subsections: { focusing: { name: 'Focusing' }, manipulation: { name: 'Manipulation' } } },
       rf:         { name: 'RF / Accel',  color: '#c44', subsections: { normalConducting: { name: 'Normal Conducting' }, superconducting: { name: 'Superconducting' } } },
       diagnostic: { name: 'Diagnostics', color: '#eee', subsections: { monitors: { name: 'Beam Monitors' }, spectrometers: { name: 'Spectrometers' } } },
-      beamOptics: { name: 'Beam Optics', color: '#4ac', subsections: { insertionDevices: { name: 'Insertion Devices' }, manipulation: { name: 'Manipulation' } } },
       endpoint:   { name: 'Endpoints',   color: '#999', subsections: { detectors: { name: 'Detectors' }, targets: { name: 'Targets' }, photon: { name: 'Photon' } } },
     },
   },
@@ -87,7 +86,7 @@ export const INFRA_DISTRIBUTION = {
 export const CONNECTION_TYPES = {
   vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x555555, validTargets: 'any' },
   rfWaveguide:  { name: 'RF Waveguide',  color: 0xcc4444, validTargets: { categoryMatch: ['rf'] } },
-  coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'focusing'], idMatch: ['target', 'fixedTargetAdv', 'positronTarget', 'beamStop', 'detector'] } },
+  coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'optics'], idMatch: ['target', 'fixedTargetAdv', 'positronTarget', 'beamStop', 'detector'] } },
   cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { idMatch: ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'halfWaveResonator', 'spokeCavity', 'harmonicLinearizer', 'scQuad', 'scDipole'] } },
   powerCable:   { name: 'Power Cable',   color: 0x44cc44, validTargets: 'any' },
   dataFiber:    { name: 'Data/Fiber',    color: 0xeeeeee, validTargets: { categoryMatch: ['diagnostic', 'endpoint'] } },

@@ -83,7 +83,9 @@ INSERTION_DEVICE_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Und
 
 # RF cavity types
 RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                   "cbandCavity", "xbandCavity", "srf650Cavity"}
+                   "cbandCavity", "xbandCavity", "srf650Cavity",
+                   "rfq", "pillboxCavity", "sbandStructure",
+                   "halfWaveResonator", "spokeCavity", "ellipticalSrfCavity"}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
 # Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)

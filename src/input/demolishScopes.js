@@ -25,12 +25,13 @@ export function demolishRefund(compOrDef) {
 // Cascading placeable scopes. Each tier includes itself and every tier below.
 // Order matters: top-to-bottom is decreasing scope.
 export const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishBeamline:   new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
-  demolishEquipment:  new Set(['equipment', 'furnishing', 'decoration']),
-  demolishFurnishing: new Set(['furnishing', 'decoration']),
-  demolishDecoration: new Set(['decoration']),
+  demolishBeamline:       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishInfrastructure: new Set(['infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishEquipment:      new Set(['equipment', 'furnishing', 'decoration']),
+  demolishFurnishing:     new Set(['furnishing', 'decoration']),
+  demolishDecoration:     new Set(['decoration']),
   // demolishAll behaves like the top tier for placeables, plus standalone systems.
-  demolishAll:        new Set(['beamline', 'equipment', 'furnishing', 'decoration']),
+  demolishAll:            new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
 };
 
 // Standalone (non-cascading) demolish modes. These each affect exactly one

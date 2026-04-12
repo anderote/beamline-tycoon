@@ -1,5 +1,5 @@
 // Room detection via flood-fill bounded by walls (with door passthrough)
-import { ZONE_FURNISHINGS } from '../data/infrastructure.js';
+import { ZONE_FURNISHINGS } from '../data/facility.js';
 
 export const LAB_NETWORK_MAP = {
   rfLab: 'rfWaveguide',

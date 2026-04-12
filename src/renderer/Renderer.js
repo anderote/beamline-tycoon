@@ -3,7 +3,7 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { MODES } from '../data/modes.js';
-import { INFRASTRUCTURE } from '../data/infrastructure.js';
+import { FLOORS } from '../data/structure.js';
 import { gridToIso, tileCenterIso } from './grid.js';
 
 // --- Utility functions (exported for use by extension modules) ---
@@ -349,7 +349,7 @@ export class Renderer {
     const noGridSet = new Set();
     const tiles = this.game?.state?.infrastructure || [];
     for (const tile of tiles) {
-      const infra = INFRASTRUCTURE[tile.type];
+      const infra = FLOORS[tile.type];
       if (infra?.noGrid) noGridSet.add(`${tile.col},${tile.row}`);
     }
 

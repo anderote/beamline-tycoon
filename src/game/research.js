@@ -1,6 +1,6 @@
 import { RESEARCH, RESEARCH_LAB_MAP, RESEARCH_SPEED_TABLE } from '../data/research.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS } from '../data/infrastructure.js';
+import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS } from '../data/facility.js';
 import { MACHINES } from '../data/machines.js';
 
 // Module-level caches (reset via resetResearchCache)

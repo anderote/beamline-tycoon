@@ -1,34 +1,24 @@
 // src/data/placeables/equipment.js
 //
-// Equipment = buildable items in lab / machine shop / maintenance zones.
-// These are the things the player places via the facility tabs —
-// oscilloscopes, vacuum pumps, lathes, etc. They live in the same raw
-// file as furnishings (ZONE_FURNISHINGS_RAW) but are partitioned out by
-// zoneType so the unified placement system can treat them as their own
-// kind.
+// Equipment = items placed in lab / machine shop / maintenance facility
+// zones (oscilloscopes, vacuum pumps, lathes, etc.). Sourced from
+// facility-lab-furnishings.raw.js. Together with furnishings.js (room
+// items), these populate the Facility build mode.
 
-import { ZONE_FURNISHINGS_RAW } from '../zone-furnishings.raw.js';
+import { FACILITY_LAB_FURNISHINGS_RAW } from '../facility-lab-furnishings.raw.js';
 
-const EQUIPMENT_ZONE_TYPES = new Set([
-  'coolingLab',
-  'diagnosticsLab',
-  'machineShop',
-  'maintenance',
-  'opticsLab',
-  'rfLab',
-  'vacuumLab',
-]);
-
-function toSubtiles(raw) {
-  if (raw.subW != null && (raw.subL != null || raw.subH != null)) {
-    return { subW: raw.subW, subH: raw.subL ?? raw.subH };
-  }
-  return { subW: (raw.gridW ?? 1) * 4, subH: (raw.gridH ?? 1) * 4 };
+// All dims are in SUB-TILES (1 sub-tile = 0.5m). gridW/gridH in the raw
+// files are authored in sub-tiles too (not whole tiles), matching subW/subL.
+// subW = X footprint, subL = Z footprint, subH = Y height.
+function toDims(raw) {
+  return {
+    subW: raw.subW ?? raw.gridW ?? 4,
+    subL: raw.subL ?? raw.gridH ?? 4,
+    subH: raw.subH ?? 1,
+  };
 }
 
-export const EQUIPMENT_DEFS = Object.values(ZONE_FURNISHINGS_RAW)
-  .filter((raw) => EQUIPMENT_ZONE_TYPES.has(raw.zoneType))
-  .map((raw) => {
-    const { subW, subH } = toSubtiles(raw);
-    return { ...raw, kind: 'equipment', subW, subH };
-  });
+export const EQUIPMENT_DEFS = Object.values(FACILITY_LAB_FURNISHINGS_RAW).map((raw) => {
+  const { subW, subL, subH } = toDims(raw);
+  return { ...raw, kind: 'equipment', subW, subL, subH };
+});

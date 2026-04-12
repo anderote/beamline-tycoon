@@ -7,6 +7,7 @@ applying scaling, clamping, and multipliers from research effects.
 
 import json
 from beam_physics.lattice import propagate
+from beam_physics.constants import DEFAULT_APERTURE
 
 # Default stats per component type, matching data.js COMPONENTS
 COMPONENT_DEFAULTS = {
@@ -16,58 +17,58 @@ COMPONENT_DEFAULTS = {
     "ncRfGun":      {"length": 2.0, "emittance": 0.5e-6},
     "srfGun":       {"length": 3.0, "emittance": 0.3e-6},
     # === Beam Pipe ===
-    "drift":        {"length": 5.0},
-    "driftVert":    {"length": 5.0},
-    "bellows":      {"length": 0.3},
+    "drift":        {"length": 2.0},
+    "driftVert":    {"length": 2.0},
+    "bellows":      {"length": 0.5},
     # === RF Cavities ===
-    "rfCavity":     {"length": 4.0, "energyGain": 0.5},
-    "cryomodule":   {"length": 5.0, "energyGain": 2.0},
-    "buncher":      {"length": 2.0, "energyGain": 0.05},
+    "rfCavity":     {"length": 3.0, "energyGain": 0.5},
+    "cryomodule":   {"length": 8.0, "energyGain": 2.0},
+    "buncher":      {"length": 1.0, "energyGain": 0.05},
     "harmonicLinearizer": {"length": 2.0, "energyGain": 0.02},
     "cbandCavity":  {"length": 2.0, "energyGain": 0.8},
     "xbandCavity":  {"length": 2.0, "energyGain": 1.2},
     "srf650Cavity": {"length": 4.0, "energyGain": 1.5},
     # === Magnets ===
     "dipole":       {"length": 3.0, "bendAngle": 90.0},
-    "quadrupole":   {"length": 2.0, "focusStrength": 1.0},
-    "solenoid":     {"length": 1.0, "field": 0.2},
-    "corrector":    {"length": 1.0},
-    "sextupole":    {"length": 2.0, "focusStrength": 0.5, "beamQuality": 0.3},
+    "quadrupole":   {"length": 1.0, "focusStrength": 1.0},
+    "solenoid":     {"length": 1.5, "field": 0.2},
+    "corrector":    {"length": 0.5},
+    "sextupole":    {"length": 1.0, "focusStrength": 0.5, "beamQuality": 0.3},
     "octupole":     {"length": 1.0},
     "scQuad":       {"length": 1.0, "focusStrength": 2.0},
-    "scDipole":     {"length": 3.0, "bendAngle": 90.0},
-    "combinedFunctionMagnet": {"length": 2.0, "focusStrength": 0.5, "bendAngle": 45.0},
+    "scDipole":     {"length": 4.0, "bendAngle": 90.0},
+    "combinedFunctionMagnet": {"length": 1.5, "focusStrength": 0.5, "bendAngle": 45.0},
     # === Diagnostics ===
-    "bpm":          {"length": 0.1},
-    "screen":       {"length": 0.1},
-    "ict":          {"length": 0.1},
-    "wireScanner":  {"length": 0.2},
-    "bunchLengthMonitor": {"length": 0.2},
-    "energySpectrometer": {"length": 1.0},
-    "beamLossMonitor": {"length": 0.1},
-    "srLightMonitor": {"length": 0.2},
+    "bpm":          {"length": 0.5},
+    "screen":       {"length": 0.5},
+    "ict":          {"length": 0.5},
+    "wireScanner":  {"length": 0.5},
+    "bunchLengthMonitor": {"length": 0.5},
+    "energySpectrometer": {"length": 2.0},
+    "beamLossMonitor": {"length": 0.5},
+    "srLightMonitor": {"length": 0.5},
     # === Insertion Devices ===
     "undulator":    {"length": 5.0, "photonRate": 1.0},
     "helicalUndulator": {"length": 5.0, "photonRate": 1.2},
     "wiggler":      {"length": 5.0, "photonRate": 2.0},
     "apple2Undulator": {"length": 5.0, "photonRate": 1.5},
     # === Beam Manipulation ===
-    "collimator":   {"length": 2.0, "beamQuality": 0.2},
+    "collimator":   {"length": 1.0, "beamQuality": 0.2},
     "kickerMagnet": {"length": 1.0},
-    "septumMagnet": {"length": 2.0},
+    "septumMagnet": {"length": 1.0},
     "chicane":      {"length": 4.0, "r56": -0.05},
     "dogleg":       {"length": 3.0},
-    "stripperFoil": {"length": 0.1},
+    "stripperFoil": {"length": 0.5},
     # === Targets & Endpoints ===
     "detector":     {"length": 6.0, "dataRate": 1.0},
-    "target":       {"length": 3.0, "collisionRate": 2.0},
+    "target":       {"length": 2.0, "collisionRate": 2.0},
     "fixedTargetAdv": {"length": 3.0, "collisionRate": 5.0},
     "photonPort":   {"length": 2.0, "photonRate": 0.5},
     "positronTarget": {"length": 3.0, "collisionRate": 3.0},
     "comptonIP":    {"length": 3.0, "photonRate": 1.0},
     "splitter":     {"length": 2.0},
-    # === Infrastructure (no beam physics, just present in beamline) ===
-    "beamDump":     {"length": 1.0},
+    # === Infrastructure ===
+    "beamDump":     {"length": 2.0},
 }
 
 # Source types that produce initial beam
@@ -82,15 +83,17 @@ INSERTION_DEVICE_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Und
 
 # RF cavity types
 RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                   "cbandCavity", "xbandCavity", "srf650Cavity"}
+                   "cbandCavity", "xbandCavity", "srf650Cavity",
+                   "rfq", "pillboxCavity", "sbandStructure",
+                   "halfWaveResonator", "spokeCavity", "ellipticalSrfCavity"}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
-# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, works with 5m drifts)
+# Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)
 # Game bendAngle=90 -> 15 degrees physically (90 is a routing concept in the grid)
 # Game energyGain stays as-is (already in GeV)
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
 DIPOLE_ANGLE_SCALE = 15.0 / 90.0  # game bendAngle -> physical degrees
-LENGTH_SCALE = 0.5        # game length units -> physical meters (makes beamline more compact)
+LENGTH_SCALE = 2.0        # game tiles are 2m x 2m
 
 
 def beamline_config_from_game(game_beamline):
@@ -149,10 +152,15 @@ def beamline_config_from_game(game_beamline):
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
-        el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
+        # subL sub-units × 0.5m per sub-unit
+        sub_l = comp.get("subL", None)
+        if sub_l is not None:
+            el["length"] = sub_l * 0.5
+        else:
+            # Fallback for components not yet migrated
+            el["length"] = comp.get("length", defaults.get("length", 1.0)) * LENGTH_SCALE
 
         if physics_type == "source":
-            el["length"] = 0
             # Read emittance from computed stats if available, else use defaults per gun type
             default_emit = {"dcPhotoGun": 1e-6, "ncRfGun": 0.5e-6, "srfGun": 0.3e-6}
             # component-physics.js computes emittance in mm·mrad; convert to m·rad
@@ -161,15 +169,21 @@ def beamline_config_from_game(game_beamline):
                 el["emittance"] = raw_emit * 1e-6  # mm·mrad → m·rad
             else:
                 el["emittance"] = default_emit.get(ctype, 1e-6)
+            # Extraction energy from component definition (GeV)
+            if "extractionEnergy" in comp:
+                el["extractionEnergy"] = comp["extractionEnergy"]
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
                               defaults.get("focusStrength", 1.0))
             el["focusStrength"] = raw_k * QUAD_K_SCALE
             # Player-controlled polarity; fall back to auto-alternation
-            polarity = comp.get("polarity", stats.get("polarity", None))
+            # JS param: 0 = Focus X (+1), 1 = Focus Y (-1)
+            params = comp.get("params", {})
+            polarity = params.get("polarity",
+                        comp.get("polarity", stats.get("polarity", None)))
             if polarity is not None:
-                el["polarity"] = polarity
+                el["polarity"] = -1 if polarity == 1 else 1
             else:
                 el["polarity"] = 1 if (quad_index % 2 == 0) else -1
                 quad_index += 1
@@ -237,6 +251,41 @@ def beamline_config_from_game(game_beamline):
                 el["r56"] = raw_r56 * 1e-3  # mm → m
             else:
                 el["r56"] = defaults.get("r56", -0.05)
+
+        # === Infrastructure quality multipliers ===
+        infra_q = comp.get("infraQuality", {})
+        power_q = infra_q.get("powerQuality", 1.0)
+        rf_q = infra_q.get("rfQuality", 1.0)
+        cooling_q = infra_q.get("coolingQuality", 1.0)
+        cryo_q = infra_q.get("cryoQuality", 1.0)
+        cryo_quenched = infra_q.get("cryoQuenched", False)
+
+        # SRF quench: convert to drift (zero acceleration)
+        SRF_TYPES_SET = {"cryomodule", "srf650Cavity", "srfGun"}
+        if cryo_quenched and ctype in SRF_TYPES_SET:
+            el["type"] = "drift"
+            el.pop("energyGain", None)
+            el.pop("focusStrength", None)
+            elements.append(el)
+            continue
+
+        # Derate energy gain: power * rf * cooling * cryo
+        if "energyGain" in el:
+            el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+
+        # Derate focus strength: power only
+        if "focusStrength" in el:
+            el["focusStrength"] *= power_q
+
+        # Cooling degradation: emittance growth factor (stored for potential use)
+        if cooling_q < 1.0:
+            el["coolingDegradation"] = 1.0 + 0.1 * (1.0 - cooling_q)
+
+        # Poor vacuum narrows effective aperture (gas scattering)
+        vac_q = infra_q.get("vacuumQuality", 1.0)
+        if vac_q < 1.0:
+            current_aperture = el.get("aperture", DEFAULT_APERTURE)
+            el["aperture"] = current_aperture * (0.5 + 0.5 * vac_q)
 
         elements.append(el)
 
@@ -375,6 +424,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "eta_x": s.get("eta_x", 0),
                 "eta_xp": s.get("eta_xp", 0),
                 "peak_current": s.get("peak_current", 0),
+                "focus_margin": s.get("focus_margin", 1.0),
+                "focus_urgency": s.get("focus_urgency", 0.0),
             }
             for s in physics_result["snapshots"]
         ],
@@ -437,6 +488,14 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
             if "emittance" in el:
                 source_params["eps_norm_x"] = el["emittance"]
                 source_params["eps_norm_y"] = el["emittance"]
+            # Extraction energy from the source component (GeV)
+            if "extractionEnergy" in el:
+                source_params["energy"] = el["extractionEnergy"]
+            # Set mass for ion sources (proton/H-)
+            game_type = el.get("game_type", "")
+            if game_type == "ionSource":
+                from beam_physics.constants import PROTON_MASS
+                source_params["mass"] = PROTON_MASS
             # Find corresponding game component for beamCurrent
             idx = elements.index(el)
             if idx < len(game_beamline):
@@ -448,7 +507,6 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     # Vacuum quality widens effective aperture during propagation
     vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0
     if vacuum_quality > 0:
-        from beam_physics.constants import DEFAULT_APERTURE
         wider_aperture = DEFAULT_APERTURE * (1.0 + vacuum_quality * 2.0)
         for el in elements:
             if "aperture" not in el:

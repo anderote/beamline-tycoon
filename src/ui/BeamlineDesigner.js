@@ -3,7 +3,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { BeamPhysics } from '../beamline/physics.js';
-import { PARAM_DEFS } from '../beamline/component-physics.js';
+import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath, findReachableEndpoints } from '../beamline/path-flattener.js';
 
@@ -819,7 +819,7 @@ export class BeamlineDesigner {
         const key = tile.col + ',' + tile.row;
         if (!this.game.state.infraOccupied[key]) {
           this.game.removeDecoration(tile.col, tile.row);
-          this.game.state.infrastructure.push({ type: 'concrete', col: tile.col, row: tile.row, variant: 0 });
+          this.game.state.floors.push({ type: 'concrete', col: tile.col, row: tile.row, variant: 0 });
           this.game.state.infraOccupied[key] = 'concrete';
           this.game.state.resources.funding -= 10;
         }
@@ -1534,8 +1534,12 @@ export class BeamlineDesigner {
       const comp = COMPONENTS[node.type];
       if (!comp) return null;
       const effectiveStats = { ...(comp.stats || {}) };
-      if (node.computedStats) {
-        Object.assign(effectiveStats, node.computedStats);
+      let computed = node.computedStats;
+      if (!computed && PARAM_DEFS[node.type] && node.params) {
+        computed = computeStats(node.type, node.params);
+      }
+      if (computed) {
+        Object.assign(effectiveStats, computed);
       }
       const el = {
         type: node.type,
@@ -1543,7 +1547,9 @@ export class BeamlineDesigner {
         stats: effectiveStats,
         params: node.params || {},
       };
-      if (comp.extractionEnergy !== undefined) {
+      if (computed && computed.extractionEnergy !== undefined) {
+        el.extractionEnergy = computed.extractionEnergy;
+      } else if (comp.extractionEnergy !== undefined) {
         el.extractionEnergy = comp.extractionEnergy;
       }
       return el;
