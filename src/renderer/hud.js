@@ -531,12 +531,22 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         const affordable = this.game.state.resources.funding >= _costVal(door.cost);
         if (!affordable) item.classList.add('unaffordable');
 
+        const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
-        const swatch = document.createElement('div');
-        const c = door.topColor || door.color || 0x888888;
-        swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
-        previewEl.appendChild(swatch);
+        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
+        if (tilePath2) {
+          const img = document.createElement('img');
+          img.src = tilePath2;
+          img.alt = door.name;
+          previewEl.appendChild(img);
+          applyPreviewTint(previewEl, door, rememberedVi);
+        } else {
+          const swatch = document.createElement('div');
+          const c = door.topColor || door.color || 0x888888;
+          swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+          previewEl.appendChild(swatch);
+        }
         item.appendChild(previewEl);
 
         const nameEl = document.createElement('div');
@@ -549,10 +559,65 @@ Renderer.prototype._renderPalette = function(tabCategory) {
         costEl.textContent = `${_costLabel(door.cost)}/seg`;
         item.appendChild(costEl);
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onDoorSelect) this._onDoorSelect(key);
-        });
+        if (door.variants && door.variants.length > 1) {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._removeParamFlyout();
+            const flyout = document.createElement('div');
+            flyout.className = 'param-flyout';
+
+            const defaultVi = recallVariant(key);
+            if (this._onDoorSelect) this._onDoorSelect(key, defaultVi);
+
+            for (let vi = 0; vi < door.variants.length; vi++) {
+              const vBtn = document.createElement('div');
+              vBtn.className = 'param-flyout-btn';
+              const sw = makeVariantSwatch(resolveVariantPreview(door, vi));
+              if (sw) vBtn.appendChild(sw);
+              vBtn.appendChild(document.createTextNode(door.variants[vi]));
+              const variantIdx = vi;
+              if (vi === defaultVi) vBtn.classList.add('active');
+              vBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                rememberVariant(key, variantIdx);
+                if (this._onDoorSelect) this._onDoorSelect(key, variantIdx);
+                const previewElNow = item.querySelector('.palette-preview');
+                const previewImg = previewElNow?.querySelector('img');
+                if (previewImg) {
+                  const newPath = this.sprites.getTilePath(key, variantIdx);
+                  if (newPath) previewImg.src = newPath;
+                }
+                if (previewElNow) {
+                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                  applyPreviewTint(previewElNow, door, variantIdx);
+                }
+                flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+                vBtn.classList.add('active');
+                this._removeParamFlyout();
+              });
+              flyout.appendChild(vBtn);
+            }
+
+            document.body.appendChild(flyout);
+            const rect = item.getBoundingClientRect();
+            flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+            flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+            this._activeParamFlyout = flyout;
+
+            const closeHandler = (e) => {
+              if (!flyout.contains(e.target) && !item.contains(e.target)) {
+                this._removeParamFlyout();
+                document.removeEventListener('click', closeHandler, true);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+          });
+        } else {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onDoorSelect) this._onDoorSelect(key);
+          });
+        }
 
         itemsContainer.appendChild(item);
       }
@@ -1399,8 +1464,8 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
         if (this._onPaletteClick) this._onPaletteClick(idx);
         if (isFacility) {
           if (this._onFacilitySelect) this._onFacilitySelect(key);
-        } else if (comp.isRack && this._onRackSelect) {
-          this._onRackSelect();
+        } else if (comp.isRack && this._onInfraSelect) {
+          this._onInfraSelect(key);
         } else {
           if (this._onToolSelect) this._onToolSelect(key);
         }

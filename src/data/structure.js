@@ -38,6 +38,7 @@ export const FLOORS = {
     subsection: 'foundations',
     variants: ['Standard', 'Light', 'Dark', 'Warm'],
     variantPreviewColors: [0x999999, 0xbbbbbb, 0x666666, 0xa89a88],
+    variantTints: [null, 0xf0f0ee, 0x6a6a6a, 0xc8b8a0],
     texture: 'tile_concrete',
   },
   labFloor: {
@@ -108,6 +109,7 @@ export const FLOORS = {
     groundsSurface: true,
     variants: ['Groomed Grass', 'Groomed Grass (light)'],
     variantPreviewColors: [0x77aa44, 0x9ac858],
+    variantTints: [null, 0xd8ff98],
     texture: 'tile_groomedGrass',
   },
   pavement: {
@@ -123,7 +125,8 @@ export const FLOORS = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Standard', 'Light', 'Dark', 'Weathered'],
-    variantPreviewColors: [0x6a6a6d, 0x8a8a8d, 0x3a3a3d, 0x7a7770],
+    variantPreviewColors: [0x8a8a88, 0xa8a6a0, 0x5a5a58, 0x9a9082],
+    variantTints: [null, 0xf4f2ec, 0x6a6a68, 0xbaa894],
     texture: 'tile_pavement',
   },
   dirt: {
@@ -139,7 +142,8 @@ export const FLOORS = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Packed Dirt', 'Sandy', 'Dark Earth', 'Red Clay'],
-    variantPreviewColors: [0x9b7345, 0xd4b880, 0x5a4228, 0xb36a3a],
+    variantPreviewColors: [0xb08858, 0xe4c890, 0x6a4e30, 0xc06a3a],
+    variantTints: [null, 0xf0dcb0, 0x7a5a3c, 0xd07048],
     texture: 'tile_dirt',
   },
   cobblestone: {
@@ -155,7 +159,8 @@ export const FLOORS = {
     subsection: 'surfaces',
     groundsSurface: true,
     variants: ['Gray Stone', 'Light Stone', 'Dark Stone', 'Warm Stone'],
-    variantPreviewColors: [0x8a8580, 0xb0aba0, 0x4a4540, 0xa89078],
+    variantPreviewColors: [0x8a8580, 0xc0bcb0, 0x5a5550, 0xb09878],
+    variantTints: [null, 0xf0ecdc, 0x6a6560, 0xc8a882],
     texture: 'tile_cobblestone',
   },
   brick: {
@@ -173,6 +178,7 @@ export const FLOORS = {
     groundsSurface: true,
     variants: ['Red Brick', 'Tan Brick', 'Dark Brick', 'Weathered Brick'],
     variantPreviewColors: [0xa8523a, 0xc49868, 0x6a3a28, 0x907060],
+    variantTints: [null, 0xe8b888, 0x7a4a38, 0xa89888],
     texture: 'tile_brick',
   },
   hallway: {
@@ -187,6 +193,10 @@ export const FLOORS = {
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     variants: ['Gray Checked', 'Cream Checked', 'Blue Checked', 'Green Checked'],
+    // All variants share tile_hallway.png (neutral gray checker) and tint
+    // it in-engine, matching how labFloor's epoxy variants work.
+    variantTextures: ['tile_hallway', 'tile_hallway', 'tile_hallway', 'tile_hallway'],
+    variantTints: [null, 0xdcc29c, 0xa7b6d2, 0xa5c5a2],
     // Split swatches since all hallway variants are 2-color checker patterns.
     variantPreviewColors: [
       [0xdddddd, 0x888888],
@@ -195,6 +205,18 @@ export const FLOORS = {
       [0xe0ecdc, 0x6a9868],
     ],
     texture: 'tile_hallway',
+  },
+  carrierRack: {
+    id: 'carrierRack',
+    name: 'Carrier Rack',
+    desc: 'Elevated wire tray for utility pipes and cables. Click and drag to place.',
+    cost: 2000,
+    color: 0x88aaaa,
+    topColor: 0x88aaaa,
+    subH: 0,
+    isLinePlacement: true,
+    isRack: true,
+    subsection: 'structure',
   },
 };
 
@@ -375,8 +397,12 @@ export const DOOR_TYPES = {
     wallHeight: 22,
     doorHeight: 12,
     doorWidth: 'double',
+    texture: 'door_double',
     subsection: 'exterior',
     isDoor: true,
+    variants: ['Standard', 'Bronze Tint', 'Blue Tint'],
+    variantPreviewColors: [0x8899aa, 0xa89868, 0x6688bb],
+    variantTints: [null, 0xc8a868, 0x88aadd],
   },
   securityDoor: {
     id: 'securityDoor',
@@ -389,8 +415,12 @@ export const DOOR_TYPES = {
     wallHeight: 22,
     doorHeight: 12,
     doorWidth: 'single',
+    texture: 'door_security',
     subsection: 'exterior',
     isDoor: true,
+    variants: ['Steel', 'Dark Steel', 'White'],
+    variantPreviewColors: [0x778899, 0x445566, 0xcccccc],
+    variantTints: [null, 0x556677, 0xdddddd],
   },
   officeDoor: {
     id: 'officeDoor',
@@ -403,8 +433,12 @@ export const DOOR_TYPES = {
     wallHeight: 14,
     doorHeight: 11,
     doorWidth: 'single',
+    texture: 'door_office',
     subsection: 'interior',
     isDoor: true,
+    variants: ['Oak', 'White', 'Dark Walnut'],
+    variantPreviewColors: [0xccbb99, 0xdddddd, 0x664433],
+    variantTints: [null, 0xdddddd, 0x775544],
   },
   hallwayDoor: {
     id: 'hallwayDoor',
@@ -431,8 +465,12 @@ export const DOOR_TYPES = {
     wallHeight: 20,
     doorHeight: 12,
     doorWidth: 'single',
+    texture: 'door_fire',
     subsection: 'interior',
     isDoor: true,
+    variants: ['Red', 'Gray', 'Orange'],
+    variantPreviewColors: [0xdd7766, 0x999999, 0xdd9944],
+    variantTints: [null, 0x999999, 0xdd9944],
   },
   labDoor: {
     id: 'labDoor',
@@ -445,8 +483,12 @@ export const DOOR_TYPES = {
     wallHeight: 18,
     doorHeight: 12,
     doorWidth: 'single',
+    texture: 'door_lab',
     subsection: 'interior',
     isDoor: true,
+    variants: ['Blue', 'White', 'Green'],
+    variantPreviewColors: [0xbbccdd, 0xdddddd, 0x88ccaa],
+    variantTints: [null, 0xdddddd, 0x88ccaa],
   },
   chainLinkGate: {
     id: 'chainLinkGate',
@@ -459,8 +501,12 @@ export const DOOR_TYPES = {
     wallHeight: 14,
     doorHeight: 14,
     doorWidth: 'single',
+    texture: 'door_chain_link',
     subsection: 'gates',
     isDoor: true,
+    variants: ['Silver', 'Dark', 'Green'],
+    variantPreviewColors: [0xaabbbb, 0x667777, 0x88aa88],
+    variantTints: [null, 0x667777, 0x88bb88],
   },
   woodGate: {
     id: 'woodGate',
@@ -473,8 +519,12 @@ export const DOOR_TYPES = {
     wallHeight: 14,
     doorHeight: 14,
     doorWidth: 'single',
+    texture: 'door_wood_gate',
     subsection: 'gates',
     isDoor: true,
+    variants: ['Natural', 'Dark Stain', 'White Wash'],
+    variantPreviewColors: [0xbb9966, 0x664422, 0xccccbb],
+    variantTints: [null, 0x775533, 0xddddcc],
   },
   securityGate: {
     id: 'securityGate',
@@ -487,8 +537,12 @@ export const DOOR_TYPES = {
     wallHeight: 18,
     doorHeight: 18,
     doorWidth: 'double',
+    texture: 'door_security_gate',
     subsection: 'gates',
     isDoor: true,
+    variants: ['Steel', 'Dark', 'Rust'],
+    variantPreviewColors: [0x889999, 0x445555, 0x995533],
+    variantTints: [null, 0x556666, 0xaa6633],
   },
   rollingShutter: {
     id: 'rollingShutter',
@@ -501,8 +555,12 @@ export const DOOR_TYPES = {
     wallHeight: 24,
     doorHeight: 20,
     doorWidth: 'double',
+    texture: 'door_rolling_shutter',
     subsection: 'exterior',
     isDoor: true,
+    variants: ['Gray', 'Blue', 'White'],
+    variantPreviewColors: [0xaaaaaa, 0x7799bb, 0xdddddd],
+    variantTints: [null, 0x88aacc, 0xdddddd],
   },
 };
 

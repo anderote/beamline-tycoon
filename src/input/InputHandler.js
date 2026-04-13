@@ -83,10 +83,6 @@ export class InputHandler {
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
     this.connPath = [];
-    this.selectedRackTool = false;
-    this.isDrawingRack = false;
-    this._rackPath = [];
-    this._rackStart = null;
     // Line placement (hallway)
     this.isDrawingLine = false;
     this.linePath = [];
@@ -1426,18 +1422,6 @@ export class InputHandler {
         return;
       }
 
-      // Rack placement start — reuses the line drawing system (like hallway)
-      if (this.selectedRackTool && e.button === 0) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.isDrawingLine = true;
-        this._isRackLine = true;
-        this.lineStart = { col: grid.col, row: grid.row };
-        this.linePath = [{ col: grid.col, row: grid.row }];
-        this.renderer.renderLinePreview(this.linePath, 'carrierRack');
-        return;
-      }
-
       // Connection drawing start (left click = add, right click = remove)
       if (this.selectedConnTool && (e.button === 0 || e.button === 2)) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -1616,12 +1600,12 @@ export class InputHandler {
             insufficientFunding: this.game.state.resources.funding < cost.totalCost,
           });
         }
-      } else if (this.isDrawingLine && (this.selectedInfraTool || this._isRackLine)) {
+      } else if (this.isDrawingLine && this.selectedInfraTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         const start = this.lineStart || this.linePath[0];
         this.linePath = this._buildLPath(start, grid);
-        this.renderer.renderLinePreview(this.linePath, this._isRackLine ? 'carrierRack' : this.selectedInfraTool);
+        this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
         // Cost tooltip for line placement (hallway)
         const lineCost = this.game.computeInfraLineCost(
           this.linePath, this.selectedInfraTool, this.selectedInfraVariant,
@@ -1879,7 +1863,8 @@ export class InputHandler {
       // Line placement end (hallway or rack)
       if (this.isDrawingLine && this.linePath.length > 0) {
         this.game._pushUndo();
-        if (this._isRackLine) {
+        const infraDef = FLOORS[this.selectedInfraTool];
+        if (infraDef && infraDef.isRack) {
           for (const pt of this.linePath) {
             this.game.placeRackSegment(pt.col, pt.row);
           }
@@ -1890,7 +1875,6 @@ export class InputHandler {
           this.game.emit('infrastructureChanged');
         }
         this.isDrawingLine = false;
-        this._isRackLine = false;
         this.linePath = [];
         this.lineStart = null;
         this.renderer.clearDragPreview();
@@ -2065,8 +2049,6 @@ export class InputHandler {
           this.deselectFurnishingTool();
         } else if (this.selectedConnTool) {
           this.deselectConnTool();
-        } else if (this.selectedRackTool) {
-          this.deselectRackTool();
         } else if (this.selectedZoneTool) {
           this.deselectZoneTool();
         } else if (this.demolishMode) {
@@ -2793,25 +2775,12 @@ export class InputHandler {
   }
 
   selectRackTool() {
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectConnTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
-    this.selectedRackTool = true;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
+    this.selectInfraTool('carrierRack');
   }
 
   deselectRackTool() {
-    this.selectedRackTool = false;
-    if (this._isRackLine) {
-      this.isDrawingLine = false;
-      this._isRackLine = false;
-      this.linePath = [];
-      this.lineStart = null;
+    if (this.selectedInfraTool === 'carrierRack') {
+      this.deselectInfraTool();
     }
   }
 
