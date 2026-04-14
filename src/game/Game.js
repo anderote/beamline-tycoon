@@ -212,56 +212,11 @@ export class Game {
   }
 
   _snapshotRegistry() {
-    const data = [];
-    for (const entry of this.registry.getAll()) {
-      data.push({
-        id: entry.id,
-        name: entry.name,
-        status: entry.status,
-        beamState: JSON.parse(JSON.stringify(entry.beamState)),
-        nodes: entry.beamline.nodes.map(n => ({
-          id: n.id, type: n.type, col: n.col, row: n.row,
-          dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
-          bendDir: n.bendDir, subL: n.subL, subW: n.subW,
-          tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
-          params: n.params ? { ...n.params } : {},
-          computedStats: n.computedStats ? { ...n.computedStats } : null,
-        })),
-        occupied: { ...entry.beamline.occupied },
-        nextId: entry.beamline.nextId,
-      });
-    }
-    return {
-      entries: data,
-      sharedOccupied: { ...this.registry.sharedOccupied },
-      nextBeamlineId: this.registry.nextBeamlineId,
-    };
+    return this.registry.toJSON();
   }
 
   _restoreRegistryFromSnap(regSnap) {
-    this.registry.beamlines.clear();
-    this.registry.sharedOccupied = { ...regSnap.sharedOccupied };
-    this.registry.nextBeamlineId = regSnap.nextBeamlineId;
-    for (const ed of regSnap.entries) {
-      const bl = new Beamline();
-      bl.nodes = ed.nodes.map(n => ({
-        id: n.id, type: n.type, col: n.col, row: n.row,
-        dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
-        bendDir: n.bendDir, subL: n.subL, subW: n.subW,
-        tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
-        params: n.params ? { ...n.params } : {},
-        computedStats: n.computedStats ? { ...n.computedStats } : null,
-      }));
-      bl.occupied = { ...ed.occupied };
-      bl.nextId = ed.nextId;
-      this.registry.beamlines.set(ed.id, {
-        id: ed.id,
-        name: ed.name,
-        status: ed.status,
-        beamline: bl,
-        beamState: ed.beamState,
-      });
-    }
+    this.registry.fromJSON(regSnap);
   }
 
   undo() {
@@ -332,251 +287,6 @@ export class Game {
       return comp.requires.every(req => this.state.completedResearch.includes(req));
     }
     return this.state.completedResearch.includes(comp.requires);
-  }
-
-  placeSource(col, row, dir, sourceType = 'source', paramOverrides = null) {
-    const template = COMPONENTS[sourceType];
-    if (!template) return false;
-    if (!template.isSource) return false;
-    if (!this.isComponentUnlocked(template)) return false;
-    if (!this.canAfford(template.cost)) { this.log(`Can't afford ${template.name}!`, 'bad'); return false; }
-
-    // Check shared tile occupancy
-    if (this.registry.isTileOccupied(col, row)) {
-      this.log("Can't place there!", 'bad');
-      return false;
-    }
-
-    // Determine machine type from source type
-    let machineType = 'linac';
-    if (sourceType === 'dcPhotoGun' || sourceType === 'ncRfGun' || sourceType === 'srfGun') {
-      machineType = 'photoinjector';
-    }
-
-    // Create new beamline entry
-    const entry = this.registry.createBeamline(machineType);
-
-    // Place source on the entry's beamline
-    const nodeId = entry.beamline.placeSource(col, row, dir, sourceType);
-    if (nodeId == null) {
-      // Failed to place - remove the entry
-      this.registry.removeBeamline(entry.id);
-      this.log("Can't place there!", 'bad');
-      return false;
-    }
-
-    // Apply param overrides from palette flyout (e.g. particleType)
-    if (paramOverrides) {
-      const node = entry.beamline.nodes.find(n => n.id === nodeId);
-      if (node) {
-        if (!node.params) node.params = {};
-        Object.assign(node.params, paramOverrides);
-      }
-    }
-
-    // Register tiles in shared grid
-    const node = entry.beamline.nodes.find(n => n.id === nodeId);
-    if (node) {
-      this.registry.occupyTiles(entry.id, node);
-    }
-
-    this.spend(template.cost);
-
-    // Auto-enter edit mode for this beamline
-    this.editingBeamlineId = entry.id;
-    this.selectedBeamlineId = entry.id;
-
-    this.recalcBeamline(entry.id);
-    this.log(`Built ${template.name}`, 'good');
-    this.emit('beamlineChanged');
-    return entry.id;
-  }
-
-  placeComponent(cursor, compType, bendDir, paramOverrides = null) {
-    const template = COMPONENTS[compType];
-    if (!template) return false;
-    if (!this.isComponentUnlocked(template)) return false;
-    if (!this.canAfford(template.cost)) { this.log(`Can't afford ${template.name}!`, 'bad'); return false; }
-
-    if (!this.editingBeamlineId) {
-      this.log('Select a beamline to edit first!', 'bad');
-      return false;
-    }
-
-    const entry = this.registry.get(this.editingBeamlineId);
-    if (!entry) {
-      this.log('Beamline not found!', 'bad');
-      return false;
-    }
-
-    if (template.maxCount) {
-      const count = entry.beamline.nodes.filter(n => n.type === compType).length;
-      if (count >= template.maxCount) {
-        this.log(`Max ${template.name} reached.`, 'bad'); return false;
-      }
-    }
-
-    const nodeId = entry.beamline.placeAt(cursor, compType, bendDir);
-    if (nodeId == null) { this.log("Can't place there!", 'bad'); return false; }
-
-    // Apply param overrides from palette flyout (e.g. particleType)
-    if (paramOverrides) {
-      const node = entry.beamline.nodes.find(n => n.id === nodeId);
-      if (node) {
-        if (!node.params) node.params = {};
-        Object.assign(node.params, paramOverrides);
-      }
-    }
-
-    // Register tiles in shared grid
-    const node = entry.beamline.nodes.find(n => n.id === nodeId);
-    if (node) {
-      this.registry.occupyTiles(entry.id, node);
-    }
-
-    this.spend(template.cost);
-    this.recalcBeamline(entry.id);
-    this.log(`Built ${template.name}`, 'good');
-    this.emit('beamlineChanged');
-    return true;
-  }
-
-  removeComponent(nodeId) {
-    const entry = this.registry.getBeamlineForNode(nodeId);
-    if (!entry) return false;
-
-    // If editing a different beamline, reject
-    if (this.editingBeamlineId && this.editingBeamlineId !== entry.id) {
-      this.log('Cannot modify a beamline you are not editing!', 'bad');
-      return false;
-    }
-
-    const node = entry.beamline.nodes.find(n => n.id === nodeId);
-    if (!node) return false;
-
-    const template = COMPONENTS[node.type];
-
-    // Free tiles from shared grid before removal
-    this.registry.freeTiles(node);
-
-    const removed = entry.beamline.removeNode(nodeId);
-    if (!removed) {
-      // Re-occupy tiles since removal failed
-      this.registry.occupyTiles(entry.id, node);
-      this.log('Cannot remove that component!', 'bad');
-      return false;
-    }
-
-    // 50% refund
-    if (template) {
-      for (const [r, a] of Object.entries(template.cost))
-        this.state.resources[r] += Math.floor(a * 0.5);
-    }
-
-    // If beamline is now empty, remove it from registry
-    if (entry.beamline.nodes.length === 0) {
-      this.registry.removeBeamline(entry.id);
-      if (this.editingBeamlineId === entry.id) this.editingBeamlineId = null;
-      if (this.selectedBeamlineId === entry.id) this.selectedBeamlineId = null;
-    }
-
-    this.recalcAllBeamlines();
-    this.log(`Demolished ${template ? template.name : 'component'} (50% refund)`, 'info');
-    this.emit('beamlineChanged');
-    return true;
-  }
-
-  /**
-   * Move a beamline component to a new tile position (no cost).
-   * Keeps the node's direction, params, and parent/child relationships intact.
-   * Returns true on success.
-   */
-  moveComponent(nodeId, newCol, newRow, newDir) {
-    const entry = this.registry.getBeamlineForNode(nodeId);
-    if (!entry) return false;
-    const node = entry.beamline.nodes.find(n => n.id === nodeId);
-    if (!node) return false;
-    const comp = COMPONENTS[node.type];
-    if (!comp) return false;
-
-    // Free old tiles
-    entry.beamline._freeTiles(node.tiles);
-    this.registry.freeTiles(node);
-
-    // Calculate new tiles (use new direction if provided)
-    const dir = newDir != null ? newDir : (node.dir || node.entryDir || 0);
-    const newTiles = entry.beamline._calcTiles(newCol, newRow, dir, comp.subL || 4, comp.subW || 2);
-
-    // Check availability in both beamline and shared grid
-    for (const t of newTiles) {
-      const bKey = t.col + ',' + t.row;
-      if (entry.beamline.occupied[bKey] !== undefined) {
-        // Conflict — restore old position
-        entry.beamline._occupyTiles(node.tiles, node.id);
-        this.registry.occupyTiles(entry.id, node);
-        this.log("Can't place there!", 'bad');
-        return false;
-      }
-      if (this.registry.isTileOccupied(t.col, t.row)) {
-        entry.beamline._occupyTiles(node.tiles, node.id);
-        this.registry.occupyTiles(entry.id, node);
-        this.log("Can't place there!", 'bad');
-        return false;
-      }
-      // Check facility/machine grid
-      if (this.state.facilityGrid[bKey] || this.state.machineGrid[bKey]) {
-        entry.beamline._occupyTiles(node.tiles, node.id);
-        this.registry.occupyTiles(entry.id, node);
-        this.log('Tile occupied!', 'bad');
-        return false;
-      }
-    }
-
-    // Apply new position and direction
-    node.col = newCol;
-    node.row = newRow;
-    if (newDir != null) {
-      node.dir = dir;
-      if (node.entryDir != null) node.entryDir = dir;
-    }
-    node.tiles = newTiles;
-
-    // Re-occupy
-    entry.beamline._occupyTiles(newTiles, node.id);
-    this.registry.occupyTiles(entry.id, node);
-
-    // Sync the corresponding unified placeable entry so the pipe-graph
-    // flattener (which reads state.placeables) sees the new position.
-    const plIdx = this.state.placeableIndex[nodeId];
-    if (plIdx !== undefined) {
-      const pe = this.state.placeables[plIdx];
-      // Free old subgrid cells
-      for (const c of (pe.cells || [])) {
-        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-        if (this.state.subgridOccupied[k]?.id === nodeId) {
-          delete this.state.subgridOccupied[k];
-        }
-      }
-      pe.col = newCol;
-      pe.row = newRow;
-      pe.dir = dir;
-      // Recompute footprint cells
-      const placeable = PLACEABLES[pe.type];
-      if (placeable) {
-        pe.cells = placeable.footprintCells(newCol, newRow, pe.subCol || 0, pe.subRow || 0, dir);
-        for (const c of pe.cells) {
-          const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-          this.state.subgridOccupied[k] = { id: nodeId, kind: pe.kind };
-        }
-      }
-    }
-
-    this.recalcAllBeamlines();
-    this._deriveBeamGraph();
-    this.schedulePhysicsRecalc();
-    this.log(`Moved ${comp.name}`, 'good');
-    this.emit('beamlineChanged');
-    return true;
   }
 
   // === FLOORS ===
@@ -1777,8 +1487,8 @@ export class Game {
    * free: true, silent: true, ... })`. No refund, no `onRemoved` side
    * effects.
    *
-   * Beamline nodes are NOT handled here — they keep going through
-   * `moveComponent` so attached beam pipes get fixed up.
+   * Beamline nodes are NOT handled here — they use the placeable move
+   * system so attached beam pipes get fixed up.
    */
   liftPlaceable(placeableId) {
     const idx = this.state.placeableIndex[placeableId];
@@ -1826,25 +1536,30 @@ export class Game {
     if (!target) return false;
     switch (target.kind) {
       case 'beamline': {
-        // Two shapes: legacy registry node (target.node) or unified placeable (target.entry).
-        if (target.node) return this.removeComponent(target.node.id);
         if (target.entry) return this.removePlaceable(target.entry.id);
         if (target.id) return this.removePlaceable(target.id);
         return false;
       }
       case 'beamlineWhole': {
-        // Remove an entire beamline (all its nodes) via the registry. Used by
-        // BeamlineWindow's demolish button. The per-node 'beamline' case
-        // above is used by demolish-mode clicks on a single component.
         if (!target.beamlineId) return false;
         const entry = this.registry.get(target.beamlineId);
         if (!entry) return false;
-        // Sum 50% of every contained node's funding cost.
         let refund = 0;
-        for (const node of entry.beamline.nodes) {
-          const def = COMPONENTS[node.type];
-          const cost = def?.cost?.funding || 0;
-          refund += Math.floor(cost * 0.5);
+        const flat = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+        const placeableIdsToRemove = [];
+        for (const el of flat) {
+          if (el.kind === 'module') {
+            const def = COMPONENTS[el.type];
+            refund += Math.floor((def?.cost?.funding || 0) * 0.5);
+            placeableIdsToRemove.push(el.id);
+          }
+        }
+        const pipeIdsToRemove = (this.state.beamPipes || [])
+          .filter(p => placeableIdsToRemove.includes(p.fromId) || placeableIdsToRemove.includes(p.toId))
+          .map(p => p.id);
+        this.state.beamPipes = (this.state.beamPipes || []).filter(p => !pipeIdsToRemove.includes(p.id));
+        for (const pid of placeableIdsToRemove) {
+          this.removePlaceable(pid);
         }
         this.state.resources.funding += refund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
@@ -2237,25 +1952,6 @@ export class Game {
       }
     }
 
-    // Keep legacy registry compatibility: merge in any designer-placed beamline
-    // nodes that aren't already in placeables.
-    if (this.registry) {
-      for (const entry of this.registry.getAll()) {
-        const ordered = entry.beamline.getOrderedComponents();
-        for (const node of ordered) {
-          if (!allOrdered.some(n => n.id === node.id)) {
-            const def = COMPONENTS[node.type];
-            allOrdered.push({
-              ...node,
-              subL: node.subL || (def ? def.subL : 4) || 4,
-              stats: node.stats || (def ? { ...def.stats } : {}),
-              beamStart: node.beamStart ?? 0,
-            });
-          }
-        }
-      }
-    }
-
     this.state.beamline = allOrdered;
   }
 
@@ -2391,48 +2087,8 @@ export class Game {
     if (instance.type === 'dcPhotoGun' || instance.type === 'ncRfGun' || instance.type === 'srfGun') {
       machineType = 'photoinjector';
     }
-    const entry = this.registry.createBeamline(machineType);
-
-    // Build a unique tile set from the placeable's footprint.
-    const tileKeys = new Set();
-    const tiles = [];
-    const cells = instance.cells && instance.cells.length
-      ? instance.cells
-      : [{ col: instance.col, row: instance.row }];
-    for (const c of cells) {
-      const key = c.col + ',' + c.row;
-      if (tileKeys.has(key)) continue;
-      tileKeys.add(key);
-      tiles.push({ col: c.col, row: c.row });
-    }
-
-    // Build the registry node. Reuse the placeable id so the component-builder
-    // mesh map (keyed by node.id) dedupes with the placeable mesh path.
-    const node = {
-      id: instance.id,
-      type: instance.type,
-      col: instance.col,
-      row: instance.row,
-      subCol: instance.subCol ?? 0,
-      subRow: instance.subRow ?? 0,
-      dir: instance.dir ?? 0,
-      subL: comp.subL || 4,
-      subW: comp.subW || 4,
-      entryDir: null,
-      parentId: null,
-      bendDir: null,
-      tiles,
-      params: instance.params ? { ...instance.params } : {},
-    };
-    entry.beamline.nodes.push(node);
-    for (const t of tiles) {
-      entry.beamline.occupied[t.col + ',' + t.row] = node.id;
-    }
-    this.registry.occupyTiles(entry.id, node);
+    const entry = this.registry.createBeamline(machineType, instance.id);
     instance.beamlineId = entry.id;
-
-    // No recalcBeamline here — placement is just grid placement.
-    // Physics runs when beams are toggled on, or on explicit recalc.
     return entry.id;
   }
 
@@ -2448,18 +2104,8 @@ export class Game {
   _openDesignerForBeamline(beamlineId) {
     if (!this._designer) return;
     const entry = this.registry.get(beamlineId);
-    if (!entry) return;
-    const sourceNode = entry.beamline.nodes.find(n => {
-      const def = COMPONENTS[n.type];
-      return def && def.isSource;
-    });
-    if (sourceNode && this.state.beamPipes?.some(
-      p => p.fromId === sourceNode.id || p.toId === sourceNode.id
-    )) {
-      this._designer.openFromSource(sourceNode.id);
-    } else {
-      this._designer.open(beamlineId);
-    }
+    if (!entry || !entry.sourceId) return;
+    this._designer.openFromSource(entry.sourceId);
   }
 
   recalcBeamline(beamlineId) {
@@ -2560,16 +2206,16 @@ export class Game {
   }
 
   _recalcSingleBeamline(entry) {
-    const ordered = entry.beamline.getOrderedComponents();
+    const ordered = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
 
     // Calculate energy cost and total length from templates
     let tLen = 0, tCost = 0, hasSrc = false;
     const ecm = this.getEffect('energyCostMult', 1);
-    for (const node of ordered) {
-      const t = COMPONENTS[node.type];
+    for (const el of ordered) {
+      const t = COMPONENTS[el.type];
       if (!t) continue;
-      tLen += (t.subL || 4) * 0.5;
-      tCost += t.energyCost * ecm;
+      tLen += (el.subL || t.subL || 4) * 0.5;
+      tCost += (t.energyCost || 0) * ecm;
       if (t.isSource) hasSrc = true;
     }
     entry.beamState.totalLength = tLen;
@@ -2585,35 +2231,35 @@ export class Game {
     }
 
     // Build ordered beamline for physics engine
-    const physicsBeamline = ordered
-      .map(node => {
-        const t = COMPONENTS[node.type];
-        // Use computed stats from slider tuning if available, otherwise template defaults
-        const effectiveStats = { ...(t.stats || {}) };
-        let computed = node.computedStats;
-        if (!computed && PARAM_DEFS[node.type] && node.params) {
-          computed = computeStats(node.type, node.params);
-        }
-        if (computed) {
-          Object.assign(effectiveStats, computed);
-        }
-        const el = {
-          type: node.type,
-          subL: t.subL || 4,
-          stats: effectiveStats,
-          params: node.params || {},
-        };
-        if (computed && computed.extractionEnergy !== undefined) {
-          el.extractionEnergy = computed.extractionEnergy;
-        } else if (t.extractionEnergy !== undefined) {
-          el.extractionEnergy = t.extractionEnergy;
-        }
-        const nq = this.state.nodeQualities?.[node.id];
-        if (nq) {
-          el.infraQuality = nq;
-        }
-        return el;
-      });
+    const physicsBeamline = ordered.map(el => {
+      const t = COMPONENTS[el.type];
+      if (!t) return { type: el.type, subL: el.subL || 4, stats: {}, params: el.params || {} };
+      const effectiveStats = { ...(t.stats || {}) };
+      const params = el.params || {};
+      let computed = null;
+      if (PARAM_DEFS[el.type] && params) {
+        computed = computeStats(el.type, params);
+      }
+      if (computed) {
+        Object.assign(effectiveStats, computed);
+      }
+      const physEl = {
+        type: el.type,
+        subL: el.subL || t.subL || 4,
+        stats: effectiveStats,
+        params,
+      };
+      if (computed && computed.extractionEnergy !== undefined) {
+        physEl.extractionEnergy = computed.extractionEnergy;
+      } else if (t.extractionEnergy !== undefined) {
+        physEl.extractionEnergy = t.extractionEnergy;
+      }
+      const nq = this.state.nodeQualities?.[el.id];
+      if (nq) {
+        physEl.infraQuality = nq;
+      }
+      return physEl;
+    });
 
     // Gather research effects for physics
     const researchEffects = {};
@@ -2780,7 +2426,8 @@ export class Game {
       entry.beamState.continuousBeamTicks = 0;
       this.log('Beam OFF', 'info');
     } else {
-      if (!entry.beamline.nodes.some(n => COMPONENTS[n.type]?.isSource)) {
+      const flat = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+      if (!flat.some(el => COMPONENTS[el.type]?.isSource)) {
         this.log('Need a Source!', 'bad'); return;
       }
       this.validateInfrastructure();
@@ -3073,10 +2720,10 @@ export class Game {
             for (const node of net.beamlineNodes) dataConnected.add(node.id);
           }
         }
-        // Get this beamline's nodes
-        const blNodes = entry.beamline.getAllNodes();
+        // Get this beamline's elements via pipe graph
+        const blElements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
         let totalDiagRate = 0, connDiagRate = 0;
-        for (const node of blNodes) {
+        for (const node of blElements) {
           const comp = COMPONENTS[node.type];
           if (comp && (comp.stats?.dataRate || 0) > 0) {
             totalDiagRate += comp.stats.dataRate;
@@ -3098,8 +2745,8 @@ export class Game {
       if (this.state.nodeQualities) {
         let totalDataQ = 0;
         let dataNodeCount = 0;
-        const qualNodes = entry.beamline.getAllNodes();
-        for (const node of qualNodes) {
+        const qualElements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+        for (const node of qualElements) {
           const comp = COMPONENTS[node.type];
           if (comp && (comp.stats?.dataRate || 0) > 0) {
             const nq = this.state.nodeQualities[node.id];
@@ -3125,7 +2772,7 @@ export class Game {
     }
 
     // User beam hours from photon ports
-    const blNodes = entry.beamline.getAllNodes();
+    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
     const photonPorts = blNodes.filter(c => c.type === 'photonPort');
     if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
       const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
@@ -3187,7 +2834,10 @@ export class Game {
     // Per-beamline fault attribution: only hard blockers stop the beam
     for (const blocker of result.blockers) {
       if (blocker.severity === 'hard' && blocker.nodeId) {
-        const blEntry = this.registry.getBeamlineForNode(blocker.nodeId);
+        // Find the beamline entry for this node via the placeable's beamlineId
+        const plIdx = this.state.placeableIndex?.[blocker.nodeId];
+        const placeable = plIdx !== undefined ? this.state.placeables[plIdx] : null;
+        const blEntry = placeable?.beamlineId ? this.registry.get(placeable.beamlineId) : null;
         if (blEntry && blEntry.status === 'running') {
           blEntry.status = 'stopped';
           blEntry.beamState.continuousBeamTicks = 0;
@@ -3233,7 +2883,7 @@ export class Game {
   // === WEAR & REPAIR ===
 
   _applyWearForBeamline(entry) {
-    const blNodes = entry.beamline.getAllNodes();
+    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
     for (const node of blNodes) {
       const t = COMPONENTS[node.type];
       if (!t) continue;
@@ -3258,9 +2908,10 @@ export class Game {
   _autoRepair() {
     const repairRate = this.state.staff.technicians * 2; // health points per cycle
     let remaining = repairRate;
-    // Iterate all beamlines' nodes
+    // Iterate all beamlines' elements
     for (const entry of this.registry.getAll()) {
-      for (const node of entry.beamline.getAllNodes()) {
+      const elements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+      for (const node of elements) {
         if (remaining <= 0) return;
         const health = entry.beamState.componentHealth[node.id];
         if (health !== undefined && health < 100) {
@@ -3319,7 +2970,6 @@ export class Game {
       for (let dx = 0; dx < def.w; dx++) {
         const key = (col + dx) + ',' + (row + dy);
         if (this.state.machineGrid[key]) return false;
-        if (this.registry.isTileOccupied(col + dx, row + dy)) return false;
       }
     }
     return true;
@@ -3483,12 +3133,21 @@ export class Game {
         for (let dy = -1; dy <= def.h && machine.injectorQuality == null; dy++) {
           if (dx >= 0 && dx < def.w && dy >= 0 && dy < def.h) continue;
           const tileKey = (machine.col + dx) + ',' + (machine.row + dy);
-          // Check shared occupied grid
-          const blId = this.registry.sharedOccupied[tileKey];
-          if (blId !== undefined) {
-            // Look up beam quality from the beamline entry
-            const blEntry = this.registry.get(blId);
-            machine.injectorQuality = blEntry ? (blEntry.beamState.beamQuality || 0) : 0;
+          // Check if there's a beamline placeable on this tile via subgrid
+          for (let sr = 0; sr < 4; sr++) {
+            for (let sc = 0; sc < 4; sc++) {
+              const sk = tileKey + ',' + sc + ',' + sr;
+              const occ = this.state.subgridOccupied[sk];
+              if (occ && occ.category === 'beamline') {
+                const pIdx = this.state.placeableIndex[occ.id];
+                const p = pIdx !== undefined ? this.state.placeables[pIdx] : null;
+                if (p?.beamlineId) {
+                  const blEntry = this.registry.get(p.beamlineId);
+                  machine.injectorQuality = blEntry ? (blEntry.beamState.beamQuality || 0) : 0;
+                }
+              }
+            }
+            if (machine.injectorQuality != null) break;
           }
         }
       }
@@ -3680,6 +3339,16 @@ export class Game {
         this.registry.fromJSON(data.beamlines);
       }
 
+      // Migrate old saves: entries without sourceId need one
+      for (const entry of this.registry.getAll()) {
+        if (!entry.sourceId) {
+          const src = this.state.placeables?.find(p =>
+            p.beamlineId === entry.id && COMPONENTS[p.type]?.isSource
+          );
+          if (src) entry.sourceId = src.id;
+        }
+      }
+
       // Rebuild infraOccupied
       this.state.infraOccupied = {};
       if (this.state.floors) {
@@ -3841,15 +3510,14 @@ export class Game {
       // Ensure designerState exists
       if (!this.state.designerState) this.state.designerState = null;
 
-      // Initialize params for nodes across all beamlines
-      for (const entry of this.registry.getAll()) {
-        for (const node of entry.beamline.nodes) {
-          const defs = PARAM_DEFS[node.type];
-          if (defs && !node.params) {
-            node.params = {};
-            for (const [k, def] of Object.entries(defs)) {
-              if (!def.derived) node.params[k] = def.default;
-            }
+      // Initialize params for beamline placeables
+      for (const p of (this.state.placeables || [])) {
+        if (p.category !== 'beamline') continue;
+        const defs = PARAM_DEFS[p.type];
+        if (defs && !p.params) {
+          p.params = {};
+          for (const [k, def] of Object.entries(defs)) {
+            if (!def.derived) p.params[k] = def.default;
           }
         }
       }
@@ -3879,15 +3547,10 @@ export class Game {
     // Determine machine type from v5 state
     const machineType = data.state.machineType || 'linac';
 
-    // Create a single beamline entry from the v5 data
+    // Create a single beamline entry from the v5 data (legacy node graph
+    // no longer exists, so we just create the registry entry and let the
+    // pipe graph be the source of truth).
     const entry = this.registry.createBeamline(machineType);
-    if (data.beamline) {
-      entry.beamline.fromJSON(data.beamline);
-      // Re-register tiles in shared grid
-      for (const node of entry.beamline.nodes) {
-        this.registry.occupyTiles(entry.id, node);
-      }
-    }
 
     // Move per-beamline fields from state to beamState
     const beamFields = [
@@ -3912,14 +3575,9 @@ export class Game {
     delete this.state.beamOn;
     delete this.state.machineType;
 
-    // If entry has nodes, select it for editing
-    if (entry.beamline.nodes.length > 0) {
-      this.editingBeamlineId = entry.id;
-      this.selectedBeamlineId = entry.id;
-    } else {
-      // Remove empty beamline
-      this.registry.removeBeamline(entry.id);
-    }
+    // Select entry for editing (will be linked to source via migration later)
+    this.editingBeamlineId = entry.id;
+    this.selectedBeamlineId = entry.id;
 
     // Rebuild infraOccupied
     this.state.infraOccupied = {};
@@ -4057,16 +3715,25 @@ export class Game {
     this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
     this.state.networkData = this.state.networkData || null;
 
-    // Initialize params for nodes
-    for (const blEntry of this.registry.getAll()) {
-      for (const node of blEntry.beamline.nodes) {
-        const defs = PARAM_DEFS[node.type];
-        if (defs && !node.params) {
-          node.params = {};
-          for (const [k, pdef] of Object.entries(defs)) {
-            if (!pdef.derived) node.params[k] = pdef.default;
-          }
+    // Initialize params for beamline placeables
+    for (const p of (this.state.placeables || [])) {
+      if (p.category !== 'beamline') continue;
+      const defs = PARAM_DEFS[p.type];
+      if (defs && !p.params) {
+        p.params = {};
+        for (const [k, pdef] of Object.entries(defs)) {
+          if (!pdef.derived) p.params[k] = pdef.default;
         }
+      }
+    }
+
+    // Migrate old saves: entries without sourceId need one
+    for (const blEntry of this.registry.getAll()) {
+      if (!blEntry.sourceId) {
+        const src = this.state.placeables?.find(p =>
+          p.beamlineId === blEntry.id && COMPONENTS[p.type]?.isSource
+        );
+        if (src) blEntry.sourceId = src.id;
       }
     }
 
