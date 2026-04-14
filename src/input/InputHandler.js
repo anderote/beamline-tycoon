@@ -405,13 +405,16 @@ export class InputHandler {
   // --- Helper methods for multi-beamline support ---
 
   _getNodeAtGrid(col, row) {
-    const blId = this.game.registry.sharedOccupied[col + ',' + row];
-    if (!blId) return null;
-    const entry = this.game.registry.get(blId);
-    if (!entry) return null;
-    return entry.beamline.getAllNodes().find(n =>
-      n.tiles.some(t => t.col === col && t.row === row)
-    ) || null;
+    // Find a beamline placeable whose cells cover this tile
+    for (const p of this.game.state.placeables) {
+      const def = COMPONENTS[p.type];
+      if (!def || def.category !== 'beamline') continue;
+      const cells = p.cells || [{ col: p.col, row: p.row }];
+      if (cells.some(c => c.col === col && c.row === row)) {
+        return p;
+      }
+    }
+    return null;
   }
 
   /**
@@ -424,9 +427,8 @@ export class InputHandler {
       if (hit) {
         const info = this.renderer.identifyHit(hit);
         if (info && info.group === 'component' && info.nodeId) {
-          const nodes = this.game.registry.getAllNodes();
-          const node = nodes.find(n => n.id === info.nodeId);
-          if (node) return node;
+          const p = this.game.state.placeables.find(pl => pl.id === info.nodeId);
+          if (p) return p;
         }
       }
     }
@@ -434,18 +436,15 @@ export class InputHandler {
     return this._getNodeAtGrid(col, row);
   }
 
-  _getActiveBuildCursors() {
-    if (!this.game.editingBeamlineId) return [];
-    const entry = this.game.registry.get(this.game.editingBeamlineId);
-    if (!entry) return [];
-    return entry.beamline.getBuildCursors();
-  }
-
   _getActiveBeamlineNodes() {
-    if (!this.game.editingBeamlineId) return [];
-    const entry = this.game.registry.get(this.game.editingBeamlineId);
-    if (!entry) return [];
-    return entry.beamline.getAllNodes();
+    // Return all beamline placeables, optionally filtered by editingBeamlineId
+    const blId = this.game.editingBeamlineId;
+    return this.game.state.placeables.filter(p => {
+      const def = COMPONENTS[p.type];
+      if (!def || def.category !== 'beamline') return false;
+      if (blId && p.beamlineId !== blId) return false;
+      return true;
+    });
   }
 
   _getNearestEdge(screenX, screenY) {
@@ -579,14 +578,6 @@ export class InputHandler {
         return p;
       }
       if (p.col === col && p.row === row) return p;
-    }
-    // Also check registry beamline nodes
-    for (const entry of this.game.registry.getAll()) {
-      for (const node of entry.beamline.nodes) {
-        if (node.tiles && node.tiles.some(t => t.col === col && t.row === row)) {
-          return { id: node.id, type: node.type, col: node.col, row: node.row, dir: node.dir, category: 'beamline' };
-        }
-      }
     }
     return null;
   }
@@ -1950,11 +1941,8 @@ export class InputHandler {
               for (let r = minRow; r <= maxRow; r++) {
                 const node = this._getNodeAtGrid(c, r);
                 if (node) {
-                  if (this.game.editingBeamlineId) {
-                    const entry = this.game.registry.getBeamlineForNode(node.id);
-                    if (!entry || entry.id !== this.game.editingBeamlineId) continue;
-                  }
-                  this.game.removeComponent(node.id);
+                  if (this.game.editingBeamlineId && node.beamlineId !== this.game.editingBeamlineId) continue;
+                  this.game.removePlaceable(node.id);
                 }
               }
             }
@@ -2068,12 +2056,12 @@ export class InputHandler {
       const grid = isoToGrid(world.x, world.y);
       const clickedNode = this._getNodeAtScreenOrGrid(e.clientX, e.clientY, grid.col, grid.row);
       if (clickedNode) {
-        const entry = this.game.registry.getBeamlineForNode(clickedNode.id);
-        if (entry) {
-          this.game.editingBeamlineId = entry.id;
-          this.game.selectedBeamlineId = entry.id;
-          this.renderer._openBeamlineWindow(entry.id);
-          this.game.emit('editModeChanged', entry.id);
+        const blId = clickedNode.beamlineId;
+        if (blId) {
+          this.game.editingBeamlineId = blId;
+          this.game.selectedBeamlineId = blId;
+          this.renderer._openBeamlineWindow(blId);
+          this.game.emit('editModeChanged', blId);
         }
       }
     });
@@ -2087,7 +2075,7 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
-    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, nodes: this.game.registry.getAllNodes().length });
+    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, placeables: this.game.state.placeables.length });
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
@@ -2118,12 +2106,11 @@ export class InputHandler {
         const node = this._getNodeAtGrid(col, row);
         if (node) {
           if (this.game.editingBeamlineId) {
-            const entry = this.game.registry.getBeamlineForNode(node.id);
-            if (entry && entry.id === this.game.editingBeamlineId) {
-              this.game.removeComponent(node.id);
+            if (node.beamlineId === this.game.editingBeamlineId) {
+              this.game.removePlaceable(node.id);
             }
           } else {
-            this.game.removeComponent(node.id);
+            this.game.removePlaceable(node.id);
           }
         }
         // Remove decorations
@@ -2262,11 +2249,11 @@ export class InputHandler {
         const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
         if (existingNode) {
           this.selectedNodeId = existingNode.id;
-          const entry = this.game.registry.getBeamlineForNode(existingNode.id);
-          if (entry) {
-            this.game.selectedBeamlineId = entry.id;
-            this.renderer._openBeamlineWindow(entry.id);
-            this.game.emit('beamlineSelected', entry.id);
+          const blId = existingNode.beamlineId;
+          if (blId) {
+            this.game.selectedBeamlineId = blId;
+            this.renderer._openBeamlineWindow(blId);
+            this.game.emit('beamlineSelected', blId);
           }
           return;
         }
@@ -2301,11 +2288,11 @@ export class InputHandler {
       if (node) {
         this.selectedNodeId = node.id;
         // Select the beamline this node belongs to and open its context window
-        const entry = this.game.registry.getBeamlineForNode(node.id);
-        if (entry) {
-          this.game.selectedBeamlineId = entry.id;
-          this.renderer._openBeamlineWindow(entry.id);
-          this.game.emit('beamlineSelected', entry.id);
+        const blId = node.beamlineId;
+        if (blId) {
+          this.game.selectedBeamlineId = blId;
+          this.renderer._openBeamlineWindow(blId);
+          this.game.emit('beamlineSelected', blId);
         }
       } else {
         // Check for rack segment click (network info)
@@ -2400,7 +2387,7 @@ export class InputHandler {
         if (info.group === 'component' && (scope.has('beamline') || scope.has('infrastructure'))) {
           let node = null;
           if (info.nodeId) {
-            node = this.game.registry.getAllNodes().find(n => n.id === info.nodeId);
+            node = this.game.state.placeables.find(p => p.id === info.nodeId);
           }
           if (!node) {
             const p = info.rootObj.position;
@@ -2870,7 +2857,7 @@ export class InputHandler {
     const key = col + ',' + row;
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
-    if (node) this.game.removeComponent(node.id);
+    if (node) this.game.removePlaceable(node.id);
     // Remove rack segment (and its utilities)
     const rackSeg = this.game.getRackSegmentAt(col, row);
     if (rackSeg) this.game.removeRackSegment(rackSeg.col, rackSeg.row);
@@ -2982,8 +2969,8 @@ export class InputHandler {
   }
 
   _pickUpAt(col, row, screenX, screenY) {
-    // Beamline component (not lifted — moved on placement so attached beam
-    // pipes get fixed up by moveComponent).
+    // Beamline component (moved on placement so attached beam pipes get
+    // rebuilt via _deriveBeamGraph).
     const node = this._getNodeAtGrid(col, row);
     if (node) {
       const comp = COMPONENTS[node.type];
@@ -3047,7 +3034,7 @@ export class InputHandler {
       const info = this.renderer.identifyHit(hit);
       if (info && info.group === 'component') {
         // Beamline component
-        const comp = info.nodeId ? COMPONENTS[this.game.registry.getAllNodes().find(n => n.id === info.nodeId)?.type] : null;
+        const comp = info.nodeId ? COMPONENTS[this.game.state.placeables.find(p => p.id === info.nodeId)?.type] : null;
         const color = comp ? _categoryColor(comp.category) : 0x88aaff;
         this.renderer._clearPreview();
         this.renderer._outlineObject(info.rootObj, color);
@@ -3085,8 +3072,17 @@ export class InputHandler {
     if (!p) return false;
 
     if (p.kind === 'component') {
+      const placeable = this.game.getPlaceable(p.nodeId);
+      if (!placeable) return false;
       this.game._pushUndo();
-      return this.game.moveComponent(p.nodeId, col, row, this.placementDir);
+      placeable.col = col;
+      placeable.row = row;
+      if (this.placementDir != null) placeable.dir = this.placementDir;
+      this.game._rebuildPlaceableCells?.(placeable);
+      this.game._deriveBeamGraph();
+      this.game.recalcAllBeamlines();
+      this.game.emit('placeableChanged');
+      return true;
     }
 
     if (p.kind === 'placeable') {
