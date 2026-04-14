@@ -54,6 +54,59 @@ function pipePathRuns(path) {
   return runs;
 }
 
+/**
+ * Split a straight pipe run into sub-runs that skip tiles occupied by
+ * beamline modules.  Modules already render their own internal beam pipe
+ * geometry, so the connecting beam pipe must stop at the module boundary
+ * to avoid clipping with component flanges.
+ *
+ * Returns an array of { start, end } objects in the same direction as the
+ * original run.  If no module tiles intersect the run, returns the
+ * original run unchanged (single-element array).
+ */
+function splitRunExcludingModules(start, end, moduleTileSet) {
+  const dc = end.col - start.col;
+  const dr = end.row - start.row;
+  const horiz = Math.abs(dc) >= Math.abs(dr);
+  const startV = horiz ? start.col : start.row;
+  const endV   = horiz ? end.col   : end.row;
+  const cross  = horiz ? start.row : start.col;
+  const dir = Math.sign(endV - startV);
+  if (dir === 0) return [{ start, end }];
+
+  const lo = Math.min(startV, endV);
+  const hi = Math.max(startV, endV);
+  const mkPt = v => horiz
+    ? { col: v, row: cross }
+    : { col: cross, row: v };
+
+  // Find integer tile positions along the run that are blocked by modules
+  const blocked = [];
+  for (let t = Math.ceil(lo - 0.01); t <= Math.floor(hi + 0.01); t++) {
+    const c = horiz ? t : Math.round(cross);
+    const r = horiz ? Math.round(cross) : t;
+    if (moduleTileSet.has(`${c},${r}`)) blocked.push(t);
+  }
+  if (blocked.length === 0) return [{ start, end }];
+  blocked.sort((a, b) => dir * (a - b));
+
+  const subRuns = [];
+  let cursor = startV;
+
+  for (const bt of blocked) {
+    const nearEdge = bt - dir * 0.5;
+    if (dir * (nearEdge - cursor) > 0.01) {
+      subRuns.push({ start: mkPt(cursor), end: mkPt(nearEdge) });
+    }
+    cursor = bt + dir * 0.5;
+  }
+  if (dir * (endV - cursor) > 0.01) {
+    subRuns.push({ start: mkPt(cursor), end: mkPt(endV) });
+  }
+
+  return subRuns;
+}
+
 export class ThreeRenderer {
   constructor(game, spriteManager) {
     this.game = game;
@@ -318,8 +371,10 @@ export class ThreeRenderer {
 
     window.addEventListener('resize', this._boundOnResize);
 
-    // Game event listener — rebuilds relevant 3D sections and updates DOM HUD
+    // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
+    // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
+      try {
       switch (event) {
         case 'beamlineChanged':
         case 'loaded':
@@ -343,20 +398,17 @@ export class ThreeRenderer {
           this._refreshWalls();
           break;
         case 'placeableChanged':
-          // Unified placeable system emits this on every place/remove.
-          // Rebuild equipment (includes furnishings), decorations, and
-          // components so any kind shows up immediately.
           this._refreshEquipment();
           this._refreshDecorations();
           this._refreshComponents();
           break;
         case 'facilityChanged':
           this._refreshEquipment();
-          this._refreshComponents(); // recheck connection warnings
+          this._refreshComponents();
           break;
         case 'connectionsChanged':
           this._refreshConnections();
-          this._refreshComponents(); // recheck connection warnings
+          this._refreshComponents();
           break;
         case 'beamToggled':
           this._refreshBeam();
@@ -373,6 +425,7 @@ export class ThreeRenderer {
           if (this._renderGoalsOverlay) this._renderGoalsOverlay();
           break;
       }
+      } catch (e) { console.error(`[ThreeRenderer] event '${event}' handler error:`, e); }
     });
 
     // Initialize PixiJS overlay
@@ -833,7 +886,7 @@ export class ThreeRenderer {
     // Bulldozer mode — red highlight on hover tile
     if (this.bulldozerMode) {
       const key = this.hoverCol + ',' + this.hoverRow;
-      const hasTarget = this.game.registry.sharedOccupied[key] !== undefined ||
+      const hasTarget = this.game.state.placeables.some(p => COMPONENTS[p.type]?.category === 'beamline' && p.cells?.some(c => c.col === this.hoverCol && c.row === this.hoverRow)) ||
         this.game.state.infraOccupied[key] ||
         this.game.state.facilityGrid[key] ||
         this.game.state.machineGrid[key];
@@ -849,7 +902,7 @@ export class ThreeRenderer {
     let nodes = [];
     if (this.game.editingBeamlineId) {
       const entry = this.game.registry.get(this.game.editingBeamlineId);
-      if (entry) nodes = entry.beamline.getAllNodes();
+      if (entry) nodes = this.game.state.placeables.filter(p => p.beamlineId === this.game.editingBeamlineId);
     }
 
     if (nodes.length === 0) {
@@ -892,7 +945,7 @@ export class ThreeRenderer {
         const z3 = cz + dz * wLen - pz * wWid / 2;
 
         // Check tile availability
-        const available = this.game.registry.sharedOccupied[this.hoverCol + ',' + this.hoverRow] === undefined;
+        const available = !this.game.state.placeables.some(p => COMPONENTS[p.type]?.category === 'beamline' && p.cells?.some(c => c.col === this.hoverCol && c.row === this.hoverRow));
         const color = available ? 0x4488ff : 0xff4444;
 
         // Draw filled preview quad
@@ -948,29 +1001,6 @@ export class ThreeRenderer {
         }
       }
       return;
-    }
-
-    // Draw cursors at build positions for the edited beamline
-    let cursors = [];
-    if (this.game.editingBeamlineId) {
-      const entry = this.game.registry.get(this.game.editingBeamlineId);
-      if (entry) cursors = entry.beamline.getBuildCursors();
-    }
-    for (const cursor of cursors) {
-      const isHovered = cursor.col === this.hoverCol && cursor.row === this.hoverRow;
-      const color = isHovered ? 0x44ff44 : 0x4488ff;
-      const opacity = isHovered ? 0.5 : 0.3;
-      this._previewTileHighlight(cursor.col, cursor.row, color, opacity);
-      // Small direction arrow
-      const delta = DIR_DELTA[cursor.dir] || { dc: 0, dr: 0 };
-      const cx = cursor.col * 2 + 1;
-      const cz = cursor.row * 2 + 1;
-      const arrowMat = this._previewEdgeMat(color);
-      const pts = [
-        new THREE.Vector3(cx, 0.15, cz),
-        new THREE.Vector3(cx + delta.dc * 0.7, 0.15, cz + delta.dr * 0.7),
-      ];
-      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), arrowMat));
     }
 
     // Design placer ghost preview
@@ -1410,11 +1440,15 @@ export class ThreeRenderer {
     const placeable = PLACEABLES[hover.id];
     if (!placeable) return;
 
-    // PLACEABLES entries are Placeable instances which structurally
-    // extend the legacy def shape (Object.assign in the constructor
-    // preserves all original fields), so _createObject works uniformly
-    // across beamline / furnishing / equipment / decoration.
-    const obj = this.componentBuilder._createObject(placeable);
+    // Decorations use their own builder (tree/shrub geometry) instead of
+    // the component builder's generic fallback box.
+    let obj;
+    if (placeable.kind === 'decoration') {
+      obj = this.decorationBuilder._createGhost(hover.id, placeable);
+    }
+    if (!obj) {
+      obj = this.componentBuilder._createObject(placeable);
+    }
     if (!obj) return;
 
     // Ghostify each mesh. Equipment boxes with per-face decals come back
@@ -2018,15 +2052,44 @@ export class ThreeRenderer {
     this._updateCameraFrustum();
   }
 
+  /**
+   * Project context window tile anchors through the 3D camera so windows
+   * track correctly at every view rotation — not just rotation 0.
+   */
+  _updateAnchoredWindows() {
+    if (!this.camera) return;
+    const gameEl = document.getElementById('game');
+    const sw = gameEl.clientWidth;
+    const sh = gameEl.clientHeight;
+    const projectFn = (cam, wx, wy, wz, screenW, screenH) => {
+      const vec = new THREE.Vector3(wx, wy, wz);
+      vec.project(cam);
+      return {
+        x: (vec.x * 0.5 + 0.5) * screenW,
+        y: (-vec.y * 0.5 + 0.5) * screenH,
+      };
+    };
+    const updateWin = (w) => {
+      const ctx = w.ctx || w;
+      if (ctx.updateScreenFromCamera) {
+        ctx.updateScreenFromCamera(this.camera, sw, sh, projectFn);
+      }
+    };
+    if (this._beamlineWindows) {
+      for (const bw of Object.values(this._beamlineWindows)) updateWin(bw);
+    }
+    if (this._equipmentWindows) {
+      for (const ew of Object.values(this._equipmentWindows)) updateWin(ew);
+    }
+  }
+
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
-    // Advance the Q/E rotation animation (orbits camera around pan target).
+    try {
     this._tickViewRotation();
-    // Keep anchored windows tracking during mouse-drag panning
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
-    // Beam pipe drawing preview
     if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
       this._renderBeamPipePreview(this._inputHandler.beamPipePath, this._inputHandler.beamPipeDrawMode);
     } else if (
@@ -2040,6 +2103,7 @@ export class ThreeRenderer {
       this._clearBeamPipePreview();
     }
     this.renderer.render(this.scene, this.camera);
+    } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
   }
 
   /**
@@ -2500,100 +2564,119 @@ export class ThreeRenderer {
       const runCount = runs.length;
 
       for (let r = 0; r < runCount; r++) {
-        const { start, end } = runs[r];
-        const x1 = start.col * 2 + 1;
-        const z1 = start.row * 2 + 1;
-        const x2 = end.col * 2 + 1;
-        const z2 = end.row * 2 + 1;
+        const origStart = runs[r].start;
+        const origEnd   = runs[r].end;
 
-        const dx = x2 - x1;
-        const dz = z2 - z1;
-        const length = Math.sqrt(dx * dx + dz * dz);
-        if (length < 0.01) continue;
+        // Split the run into sub-segments that skip module tiles.
+        // Modules already render their own internal pipe + flanges.
+        const subRuns = splitRunExcludingModules(origStart, origEnd, moduleTiles);
 
-        const angle = -Math.atan2(dz, dx);
-        const cx = (x1 + x2) / 2;
-        const cz = (z1 + z2) / 2;
+        for (const sub of subRuns) {
+          const { start, end } = sub;
+          const x1 = start.col * 2 + 1;
+          const z1 = start.row * 2 + 1;
+          const x2 = end.col * 2 + 1;
+          const z2 = end.row * 2 + 1;
 
-        const geo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
-        geo.rotateZ(Math.PI / 2);
+          const dx = x2 - x1;
+          const dz = z2 - z1;
+          const length = Math.sqrt(dx * dx + dz * dz);
+          if (length < 0.01) continue;
 
-        const mesh = new THREE.Mesh(geo, pipeMat);
-        mesh.position.set(cx, PIPE_Y, cz);
-        mesh.rotation.y = angle;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        pipeWrapper.add(mesh);
-        this._beamPipeMeshes.push(mesh);
+          const angle = -Math.atan2(dz, dx);
+          const cx = (x1 + x2) / 2;
+          const cz = (z1 + z2) / 2;
 
-        // Flange emission rules:
-        //  - start flange only on the first run (at pipe's start)
-        //  - end flange only on the last run (at pipe's end)
-        //  - corners (between runs) always get a flange
-        // Additionally suppress the start/end flange if another pipe shares
-        // that endpoint or if it sits on a beamline module tile.
-        const flangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
-        flangeGeo.rotateZ(Math.PI / 2);
+          const geo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
+          geo.rotateZ(Math.PI / 2);
 
-        const addFlange = (fx, fz) => {
-          const flange = new THREE.Mesh(flangeGeo, flangeMat);
-          flange.position.set(fx, PIPE_Y, fz);
-          flange.rotation.y = angle;
-          flange.castShadow = true;
-          pipeWrapper.add(flange);
-          this._beamPipeMeshes.push(flange);
-        };
+          const mesh = new THREE.Mesh(geo, pipeMat);
+          mesh.position.set(cx, PIPE_Y, cz);
+          mesh.rotation.y = angle;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          pipeWrapper.add(mesh);
+          this._beamPipeMeshes.push(mesh);
 
-        if (r === 0) {
-          const sharesEnd = (endpointCounts.get(endpointKey(start.col, start.row)) || 0) > 1;
-          const onModule = isModuleAt(start.col, start.row);
-          if (!sharesEnd && !onModule) addFlange(x1, z1);
-        } else {
-          // corner flange — between previous run end and this run start (same point)
-          addFlange(x1, z1);
-        }
-        if (r === runCount - 1) {
-          const sharesEnd = (endpointCounts.get(endpointKey(end.col, end.row)) || 0) > 1;
-          const onModule = isModuleAt(end.col, end.row);
-          if (!sharesEnd && !onModule) addFlange(x2, z2);
-        }
-        // Intermediate flanges every 2 world units (1 tile = 2m) along the run
-        const MAX_UNFLANGED = 2;
-        if (length > MAX_UNFLANGED + 0.01) {
-          const nInterior = Math.floor(length / MAX_UNFLANGED - 1e-3);
-          for (let k = 1; k <= nInterior; k++) {
-            const t = (k * MAX_UNFLANGED) / length;
-            const fx = x1 + dx * t;
-            const fz = z1 + dz * t;
-            addFlange(fx, fz);
+          // Flange emission — only at original pipe start/end and corners,
+          // never at module boundaries (the module has its own flanges).
+          const flangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
+          flangeGeo.rotateZ(Math.PI / 2);
+
+          const addFlange = (fx, fz) => {
+            const flange = new THREE.Mesh(flangeGeo, flangeMat);
+            flange.position.set(fx, PIPE_Y, fz);
+            flange.rotation.y = angle;
+            flange.castShadow = true;
+            pipeWrapper.add(flange);
+            this._beamPipeMeshes.push(flange);
+          };
+
+          const isOrigStart = Math.abs(start.col - origStart.col) < 0.01
+                           && Math.abs(start.row - origStart.row) < 0.01;
+          const isOrigEnd   = Math.abs(end.col - origEnd.col) < 0.01
+                           && Math.abs(end.row - origEnd.row) < 0.01;
+
+          // Start flange: only on the first run's original start
+          if (isOrigStart && r === 0) {
+            const sharesEnd = (endpointCounts.get(endpointKey(start.col, start.row)) || 0) > 1;
+            const onModule = isModuleAt(start.col, start.row);
+            if (!sharesEnd && !onModule) addFlange(x1, z1);
           }
-        }
+          // Corner flange at original run start (between previous run and this one)
+          if (isOrigStart && r > 0) {
+            addFlange(x1, z1);
+          }
+          // End flange: only on the last run's original end
+          if (isOrigEnd && r === runCount - 1) {
+            const sharesEnd = (endpointCounts.get(endpointKey(end.col, end.row)) || 0) > 1;
+            const onModule = isModuleAt(end.col, end.row);
+            if (!sharesEnd && !onModule) addFlange(x2, z2);
+          }
+          // Intermediate flanges every 2 world units, skipping module tiles
+          const MAX_UNFLANGED = 2;
+          if (length > MAX_UNFLANGED + 0.01) {
+            const nInterior = Math.floor(length / MAX_UNFLANGED - 1e-3);
+            for (let k = 1; k <= nInterior; k++) {
+              const t = (k * MAX_UNFLANGED) / length;
+              const fx = x1 + dx * t;
+              const fz = z1 + dz * t;
+              // Convert world position back to tile coords and skip if on a module
+              const tileC = (fx - 1) / 2;
+              const tileR = (fz - 1) / 2;
+              if (!isModuleAt(tileC, tileR)) addFlange(fx, fz);
+            }
+          }
 
-        // Support stands every ~2 world units along the run
-        const standH = PIPE_Y - PIPE_RADIUS;
-        const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
-        const standStep = 2;
-        const nStands = Math.max(1, Math.round(length / standStep));
-        for (let k = 0; k < nStands; k++) {
-          const t = (k + 0.5) / nStands;
-          const sx = x1 + dx * t;
-          const sz = z1 + dz * t;
-          const stand = new THREE.Mesh(standGeo, standMat);
-          stand.position.set(sx, standH / 2, sz);
-          stand.castShadow = true;
-          stand.receiveShadow = true;
-          pipeWrapper.add(stand);
-          this._beamPipeMeshes.push(stand);
-        }
+          // Support stands every ~2 world units, skipping module tiles
+          const standH = PIPE_Y - PIPE_RADIUS;
+          const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
+          const standStep = 2;
+          const nStands = Math.max(1, Math.round(length / standStep));
+          for (let k = 0; k < nStands; k++) {
+            const t = (k + 0.5) / nStands;
+            const sx = x1 + dx * t;
+            const sz = z1 + dz * t;
+            const tileC = (sx - 1) / 2;
+            const tileR = (sz - 1) / 2;
+            if (isModuleAt(tileC, tileR)) continue;
+            const stand = new THREE.Mesh(standGeo, standMat);
+            stand.position.set(sx, standH / 2, sz);
+            stand.castShadow = true;
+            stand.receiveShadow = true;
+            pipeWrapper.add(stand);
+            this._beamPipeMeshes.push(stand);
+          }
 
-        // Invisible hitbox for easier click detection
-        const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
-        hitGeo.rotateZ(Math.PI / 2);
-        const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
-        hitMesh.position.set(cx, PIPE_Y, cz);
-        hitMesh.rotation.y = angle;
-        pipeWrapper.add(hitMesh);
-        this._beamPipeMeshes.push(hitMesh);
+          // Invisible hitbox for easier click detection
+          const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
+          hitGeo.rotateZ(Math.PI / 2);
+          const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
+          hitMesh.position.set(cx, PIPE_Y, cz);
+          hitMesh.rotation.y = angle;
+          pipeWrapper.add(hitMesh);
+          this._beamPipeMeshes.push(hitMesh);
+        }
       }
 
       this.beamPipeGroup.add(pipeWrapper);
@@ -2782,8 +2865,8 @@ const domMethods = [
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
   '_renderGoalsOverlay',
-  '_openBeamlineWindow', '_openMachineWindow', '_openEquipmentWindow', '_refreshContextWindows',
-  '_updateAnchoredWindows',
+  '_openBeamlineWindow', '_openMachineWindow', '_openEquipmentWindow',
+  '_refreshContextWindows',
 ];
 
 for (const method of domMethods) {

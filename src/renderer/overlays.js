@@ -3436,11 +3436,11 @@ Renderer.prototype._openBeamlineWindow = function(beamlineId) {
   // Anchor the window to the beamline's center in world space
   const entry = this.game.registry.get(beamlineId);
   if (entry && bw.ctx) {
-    const nodes = entry.beamline.getAllNodes();
+    const nodes = this.game.state.placeables.filter(p => p.beamlineId === beamlineId);
     if (nodes.length > 0) {
       let sumX = 0, sumY = 0, sumCol = 0, sumRow = 0, count = 0;
       for (const node of nodes) {
-        for (const t of node.tiles) {
+        for (const t of (node.cells || [{ col: node.col, row: node.row }])) {
           const iso = tileCenterIso(t.col, t.row);
           sumX += iso.x;
           sumY += iso.y;

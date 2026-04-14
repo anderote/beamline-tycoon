@@ -4,10 +4,11 @@
 
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
+import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
 
-const GRASS_RANGE = 20;
+const GRASS_RANGE = 80;
 
 // --- Terrain hash ---
 
@@ -101,12 +102,15 @@ function buildZones(game) {
 }
 
 function buildComponents(game) {
-  const nodes = game.registry.getAllNodes();
   const editingId = game.editingBeamlineId;
 
-  const result = nodes.map(node => {
-    const entry = game.registry.getBeamlineForNode(node.id);
-    const beamlineId = entry ? entry.id : null;
+  // All beamline + infrastructure placeables
+  const placeables = (game.state.placeables || []).filter(
+    p => p.category === 'beamline' || p.category === 'infrastructure'
+  );
+
+  const result = placeables.map(p => {
+    const entry = p.beamlineId ? game.registry.get(p.beamlineId) : null;
     const accentColor = entry ? entry.accentColor : 0xc62828;
 
     // Dimmed: node belongs to a different beamline than the one being edited
@@ -116,35 +120,10 @@ function buildComponents(game) {
     }
 
     const health = typeof game.getComponentHealth === 'function'
-      ? game.getComponentHealth(node.id)
+      ? game.getComponentHealth(p.id)
       : undefined;
 
     return {
-      id: node.id,
-      type: node.type,
-      col: node.col,
-      row: node.row,
-      subCol: node.subCol ?? null,
-      subRow: node.subRow ?? null,
-      direction: node.dir ?? node.direction ?? null,
-      tiles: node.tiles ? node.tiles.map(t => ({ col: t.col, row: t.row })) : [{ col: node.col, row: node.row }],
-      dimmed,
-      health,
-      beamlineId,
-      accentColor,
-    };
-  });
-
-  // Unified-system placeables (drift pipes + infrastructure modules — all
-  // share the componentBuilder rendering path since their COMPONENTS entries
-  // carry the same geometryType / subL / subW / subH shape).
-  const seenIds = new Set(result.map(r => r.id));
-  const placeables = (game.state.placeables || []).filter(
-    p => p.category === 'beamline' || p.category === 'infrastructure'
-  );
-  for (const p of placeables) {
-    if (seenIds.has(p.id)) continue;
-    result.push({
       id: p.id,
       type: p.type,
       col: p.col,
@@ -153,12 +132,12 @@ function buildComponents(game) {
       subRow: p.subRow ?? null,
       direction: p.dir ?? null,
       tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
-      dimmed: false,
-      health: undefined,
+      dimmed,
+      health,
       beamlineId: p.beamlineId ?? null,
-      accentColor: (COMPONENTS[p.type] && COMPONENTS[p.type].accentColor) || 0xc62828,
-    });
-  }
+      accentColor,
+    };
+  });
 
   return result;
 }
@@ -182,15 +161,23 @@ function buildEquipment(game) {
 function buildDecorations(game) {
   return (game.state.placeables || [])
     .filter(p => p.kind === 'decoration')
-    .map(d => ({
-      col: d.col,
-      row: d.row,
-      type: d.type,
-      subCol: d.subCol ?? null,
-      subRow: d.subRow ?? null,
-      variant: d.variant ?? null,
-      tall: d.tall ?? false,
-    }));
+    .map(d => {
+      const raw = DECORATIONS_RAW[d.type];
+      const category = raw?.category ?? 'unknown';
+      return {
+        col: d.col,
+        row: d.row,
+        type: d.type,
+        category,
+        subCol: d.subCol ?? null,
+        subRow: d.subRow ?? null,
+        subW: raw?.subW ?? raw?.gridW ?? 4,
+        subL: raw?.subL ?? raw?.gridH ?? 4,
+        subH: raw?.subH ?? 4,
+        variant: d.variant ?? null,
+        tall: d.tall ?? false,
+      };
+    });
 }
 
 function buildRackSegments(game) {
@@ -237,21 +224,18 @@ function buildUtilityRouting(game) {
   const portRoutes = [];
   const placeables = [];
 
-  for (const entry of game.registry.getAll()) {
-    for (const node of entry.beamline.getAllNodes()) {
-      const def = node.compDef || node;
-      const compId = def.id || node.type;
-      if (!compId) continue;
-      placeables.push({
-        id: compId,
-        col: node.col,
-        row: node.row,
-        dir: node.dir ?? 0,
-        tiles: node.tiles || [{ col: node.col, row: node.row }],
-        subW: def.subW || def.gridW || 2,
-        subL: def.subL || def.gridH || 2,
-      });
-    }
+  for (const p of (game.state.placeables || [])) {
+    if (p.category !== 'beamline') continue;
+    const comp = COMPONENTS[p.type];
+    placeables.push({
+      id: p.id,
+      col: p.col,
+      row: p.row,
+      dir: p.dir ?? 0,
+      tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
+      subW: comp?.subW || comp?.gridW || 2,
+      subL: comp?.subL || comp?.gridH || 2,
+    });
   }
 
   const infraPlaceables = game.state.placeables || [];
@@ -326,10 +310,9 @@ function buildBeamPaths(game) {
   const beamPaths = [];
 
   for (const entry of game.registry.getAll()) {
-    const nodes = entry.beamline.getAllNodes();
-    if (nodes.length < 2) continue;
-    // Only include beamlines with beam on
     if (entry.status !== 'running') continue;
+    const nodes = (game.state.placeables || []).filter(p => p.beamlineId === entry.id);
+    if (nodes.length < 2) continue;
 
     const dimmed = !!(editingId && entry.id !== editingId);
 
@@ -338,7 +321,7 @@ function buildBeamPaths(game) {
       nodePositions: nodes.map(n => ({
         col: n.col,
         row: n.row,
-        tiles: n.tiles ? n.tiles.map(t => ({ col: t.col, row: t.row })) : [{ col: n.col, row: n.row }],
+        tiles: n.cells ? n.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: n.col, row: n.row }],
       })),
       dimmed,
     });

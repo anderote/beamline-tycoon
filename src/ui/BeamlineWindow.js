@@ -4,6 +4,7 @@ import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { formatEnergy } from '../data/units.js';
 import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
+import { flattenPath } from '../beamline/path-flattener.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -129,9 +130,7 @@ export class BeamlineWindow {
       {
         label: 'Designer',
         onClick: () => {
-          if (this.game._designer) {
-            this.game._designer.open(this.beamlineId);
-          }
+          this.game._openDesignerForBeamline(this.beamlineId);
         },
       },
       {
@@ -175,8 +174,10 @@ export class BeamlineWindow {
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
 
-    // Schematic preview
-    const ordered = entry.beamline.getOrderedComponents();
+    // Schematic preview via flattenPath
+    const ordered = entry.sourceId
+      ? flattenPath(this.game.state, entry.sourceId).filter(e => e.kind !== 'drift')
+      : [];
     let schematic = '<div class="ctx-schematic">';
     if (ordered.length === 0) {
       schematic += '<span style="color:#556">No components placed</span>';
@@ -257,7 +258,9 @@ export class BeamlineWindow {
     const entry = this.game.registry.get(this.beamlineId);
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
 
-    const ordered = entry.beamline.getOrderedComponents();
+    const ordered = entry.sourceId
+      ? flattenPath(this.game.state, entry.sourceId).filter(e => e.kind !== 'drift')
+      : [];
     if (ordered.length === 0) {
       el.innerHTML = '<div class="ctx-empty">No components placed.</div>';
       return;
@@ -292,7 +295,8 @@ export class BeamlineWindow {
     const entry = this.game.registry.get(this.beamlineId);
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
-    const nodeCount = entry.beamline.getAllNodes().length;
+    const blPlaceables = this.game.state.placeables.filter(p => p.beamlineId === this.beamlineId);
+    const nodeCount = blPlaceables.length;
     const statusColor = entry.status === 'running' ? '#44dd66'
       : entry.status === 'faulted' ? '#ff4444'
       : '#8888aa';
@@ -322,8 +326,8 @@ export class BeamlineWindow {
       <div class="ctx-section-label">Layout</div>
       <div class="ctx-stats-grid three-col">
         <div class="ctx-stat"><div class="ctx-stat-label">Components</div><div class="ctx-stat-val neutral">${nodeCount}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Sources</div><div class="ctx-stat-val neutral">${entry.beamline.getAllNodes().filter(n => COMPONENTS[n.type]?.isSource).length}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Tiles</div><div class="ctx-stat-val neutral">${entry.beamline.getAllNodes().reduce((s, n) => s + (n.tiles ? n.tiles.length : 0), 0)}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Sources</div><div class="ctx-stat-val neutral">${blPlaceables.filter(n => COMPONENTS[n.type]?.isSource).length}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Tiles</div><div class="ctx-stat-val neutral">${blPlaceables.reduce((s, n) => s + (n.cells ? n.cells.length : 0), 0)}</div></div>
       </div>
     `;
 
@@ -365,7 +369,7 @@ export class BeamlineWindow {
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
     const bs = entry.beamState;
 
-    const nodes = entry.beamline.getAllNodes();
+    const nodes = this.game.state.placeables.filter(p => p.beamlineId === this.beamlineId);
     const buildCost = nodes.reduce((sum, n) => {
       const comp = COMPONENTS[n.type];
       return sum + (comp ? (comp.cost || 0) : 0);
@@ -399,7 +403,7 @@ export class BeamlineWindow {
 
     const entry = this.game.registry.get(this.beamlineId);
     const myNodeIds = entry
-      ? new Set(entry.beamline.getAllNodes().map(n => n.id))
+      ? new Set(this.game.state.placeables.filter(p => p.beamlineId === entry.id).map(p => p.id))
       : new Set();
 
     let connectedCount = 0;
