@@ -23,6 +23,8 @@ import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
 import { Networks } from './networks/networks.js';
+import { SCENARIOS } from './data/scenarios.js';
+import { MusicPlayer } from './ui/MusicPlayer.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -34,6 +36,66 @@ window.Networks = Networks;
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');
 if (oldSave) localStorage.removeItem('beamlineCowboy');
+
+function showScenarioPicker(game) {
+  // Remove existing dialog if any
+  const existing = document.getElementById('scenario-dialog');
+  if (existing) { existing.remove(); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'scenario-dialog';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:24px;max-width:520px;width:90%;color:#ddd;font-family:monospace;';
+
+  let html = '<h2 style="margin:0 0 16px;color:#fff;font-size:18px;">Scenarios</h2>';
+  html += '<p style="margin:0 0 16px;color:#999;font-size:12px;">Start a new game with a pre-built scenario. Current progress will be lost.</p>';
+
+  for (const sc of SCENARIOS) {
+    html += `<div class="scenario-card" data-id="${sc.id}" style="border:1px solid #555;border-radius:6px;padding:12px;margin-bottom:10px;cursor:pointer;transition:border-color 0.15s;">`;
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;">`;
+    html += `<strong style="color:#fff;font-size:14px;">${sc.name}</strong>`;
+    html += `<span style="color:#888;font-size:11px;border:1px solid #555;padding:2px 6px;border-radius:3px;">${sc.difficulty}</span>`;
+    html += `</div>`;
+    html += `<p style="margin:6px 0 0;color:#aaa;font-size:12px;line-height:1.4;">${sc.desc}</p>`;
+    html += `</div>`;
+  }
+
+  html += '<div style="text-align:right;margin-top:12px;"><button id="scenario-cancel" style="background:#333;color:#ddd;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-family:monospace;">Cancel</button></div>';
+
+  panel.innerHTML = html;
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  // Hover effect
+  panel.querySelectorAll('.scenario-card').forEach(card => {
+    card.addEventListener('mouseenter', () => card.style.borderColor = '#88f');
+    card.addEventListener('mouseleave', () => card.style.borderColor = '#555');
+  });
+
+  // Card click
+  panel.addEventListener('click', (e) => {
+    const card = e.target.closest('.scenario-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    const scenario = SCENARIOS.find(s => s.id === id);
+    if (!scenario) return;
+
+    if (!confirm(`Start "${scenario.name}"? Current progress will be lost.`)) return;
+
+    // Clear current save, set pending scenario, reload
+    localStorage.removeItem('beamlineTycoon');
+    if (scenario.generator) {
+      localStorage.setItem('beamlineTycoon.pendingScenario', id);
+    }
+    location.reload();
+  });
+
+  // Cancel / overlay click
+  document.getElementById('scenario-cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
 
 (async function main() {
   const registry = new BeamlineRegistry();
@@ -90,7 +152,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
   renderer._onRackSelect = () => input.selectRackTool();
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
   renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
-  renderer._onDoorSelect = (doorType) => input.selectDoorTool(doorType);
+  renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);
   renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
   renderer._onDecorationSelect = (decType) => input.selectDecorationTool(decType);
   renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
@@ -132,7 +194,29 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     }
   });
 
-  game.load();
+  // Load from localStorage (or dev-save file on disk if available)
+  if (!game.load() && import.meta.hot) {
+    game.loadFromDevSave().then(loaded => {
+      if (loaded) {
+        console.log('[dev-save] Loaded save from disk');
+        renderer._forceFullRedraw?.();
+        game.emit('tick');
+      }
+    });
+  }
+
+  // Apply pending scenario (set by scenario picker before reload)
+  const pendingScenario = localStorage.getItem('beamlineTycoon.pendingScenario');
+  if (pendingScenario) {
+    localStorage.removeItem('beamlineTycoon.pendingScenario');
+    const scenario = SCENARIOS.find(s => s.id === pendingScenario);
+    if (scenario?.generator) {
+      const mapData = scenario.generator();
+      game.applyScenario(mapData);
+      game.save();
+      game.log(`Scenario "${scenario.name}" loaded.`, 'good');
+    }
+  }
 
   if (game.state.view) {
     renderer.zoom = game.state.view.zoom;
@@ -190,8 +274,9 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
       }
       if (params.edit) {
         const blId = parseInt(params.edit, 10);
-        if (!designer.isOpen || designer.beamlineId !== blId) {
-          designer.open(blId);
+        const entry = game.registry.get(`bl-${blId}`);
+        if (entry && entry.sourceId && (!designer.isOpen || designer.editSourceId !== entry.sourceId)) {
+          designer.openFromSource(entry.sourceId);
         }
       } else if (params.design) {
         const designId = parseInt(params.design, 10);
@@ -247,6 +332,8 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
       case 'new-game':
         if (confirm('Start a new game? All progress will be lost.')) {
           localStorage.removeItem('beamlineTycoon');
+          // Also clear the dev-save on disk so it doesn't get restored on reload
+          fetch('/api/dev-save', { method: 'DELETE' }).catch(() => {});
           location.reload();
         }
         break;
@@ -258,7 +345,7 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
         game.log('Load game — coming soon.', 'info');
         break;
       case 'scenarios':
-        game.log('Scenarios — coming soon.', 'info');
+        showScenarioPicker(game);
         break;
       case 'options':
         game.log('Options — coming soon.', 'info');
@@ -268,6 +355,9 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
         break;
     }
   });
+
+  // Music player
+  const musicPlayer = new MusicPlayer();
 
   router.init(game.state.view?.route);
   game.start();
@@ -280,4 +370,14 @@ if (oldSave) localStorage.removeItem('beamlineCowboy');
     game.log('Physics engine failed to load — using simplified model.', 'bad');
     console.error('BeamPhysics init error:', err);
   });
+
+  // Dev-only: hot-reload save from disk when the file changes externally
+  if (import.meta.hot) {
+    import.meta.hot.on('dev-save:changed', () => {
+      console.log('[dev-save] File changed on disk — reloading save…');
+      game.load();
+      renderer._forceFullRedraw?.();
+      game.emit('tick');
+    });
+  }
 })();

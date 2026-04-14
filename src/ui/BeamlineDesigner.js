@@ -5,7 +5,7 @@ import { COMPONENTS } from '../data/components.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
-import { flattenPath, findReachableEndpoints } from '../beamline/path-flattener.js';
+import { flattenPath } from '../beamline/path-flattener.js';
 
 
 export class BeamlineDesigner {
@@ -165,12 +165,22 @@ export class BeamlineDesigner {
         case 'a': case 'A':
           e.preventDefault();
           e.stopPropagation();
-          this.panLeft();
+          this._startPan(-1);
           break;
         case 'd': case 'D':
           e.preventDefault();
           e.stopPropagation();
-          this.panRight();
+          this._startPan(1);
+          break;
+        case 'w': case 'W':
+          e.preventDefault();
+          e.stopPropagation();
+          this.panToStart();
+          break;
+        case 's': case 'S':
+          e.preventDefault();
+          e.stopPropagation();
+          this.panToEnd();
           break;
         case 'Delete': case 'Backspace':
           e.preventDefault();
@@ -201,6 +211,11 @@ export class BeamlineDesigner {
         e.preventDefault();
         e.stopPropagation();
         if (this.focusRow === 0) this._stopMarkerMove();
+      }
+      if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        e.stopPropagation();
+        this._stopPan();
       }
     };
     // Use capture phase so we intercept before InputHandler
@@ -312,6 +327,8 @@ export class BeamlineDesigner {
         }
 
         this._placeMarkerAtClickX(clickX);
+        this.focusRow = 0;
+        this._updateFocusRowVisuals();
         this._renderAll();
       });
 
@@ -378,99 +395,13 @@ export class BeamlineDesigner {
 
   // --- Open / Close ---
 
-  open(beamlineId) {
-    const entry = this.game.registry.get(beamlineId);
-    if (!entry) return;
-
-    this.beamlineId = beamlineId;
-    this.isOpen = true;
-    this.mode = 'edit';
-    this.designId = null;
-    this.designName = '';
-
-    // Check for saved draft state for this beamline
-    const savedDraft = this.game.state.designerState;
-    const hasSavedDraft = savedDraft && savedDraft.mode === 'edit' && savedDraft.beamlineId === beamlineId;
-
-    // Clone the ordered node list as the original (pre-edit) snapshot
-    const ordered = entry.beamline.getOrderedComponents();
-    this.originalNodes = ordered.map(n => this._cloneNode(n));
-
-    if (hasSavedDraft && savedDraft.draftNodes.length > 0) {
-      // Restore saved draft
-      this.draftNodes = savedDraft.draftNodes.map(n => ({
-        id: n.id,
-        type: n.type,
-        col: 0, row: 0, dir: 0, entryDir: 0,
-        parentId: null, bendDir: n.bendDir || null, tiles: [],
-        params: n.params ? { ...n.params } : {},
-        computedStats: null,
-      }));
-      this.selectedIndex = savedDraft.selectedIndex ?? 0;
-      this.viewX = savedDraft.viewX ?? 0;
-      this.viewZoom = savedDraft.viewZoom ?? 0.7;
-    } else {
-      this.draftNodes = ordered.map(n => this._cloneNode(n));
-      this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
-      this.viewX = 0;
-      this.viewZoom = 0.7;
-    }
-    this.markerS = 0;
-    this.focusRow = 0;
-    this.designerPaletteIndex = -1;
-    this.insertMode = 'nearest';
-    this.plotRangeMode = 'full';
-    this.plotYRangeMode = 'full';
-    // Reset range button UI
-    document.querySelectorAll('.dsgn-xrange-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.range === 'full');
-    });
-    document.querySelectorAll('.dsgn-yrange-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.yrange === 'full');
-    });
-
-    // Compute total length
-    this._updateTotalLength();
-
-    // Run initial physics on draft
-    this._recalcDraft();
-
-    // Close all context windows and popups before showing controller
-    ContextWindow.closeAll();
-    this.renderer.hidePopup();
-
-    // Show overlay, ensure bottom HUD stays visible above controller
-    this.overlay.classList.remove('hidden');
-    const bottomHud = document.getElementById('bottom-hud');
-    if (bottomHud) bottomHud.style.zIndex = '260';
-    const paletteActions = document.getElementById('dsgn-palette-actions');
-    if (paletteActions) paletteActions.classList.remove('hidden');
-
-    // Set up beamline-only palette with preview cards
-    this._setupDesignerTabs();
-    this._updateDesignerHeader();
-
-    // Update draft bar
-    this._updateDraftBar();
-
-    // Trigger initial render
-    this._renderAll();
-    window.location.hash = `designer?edit=${beamlineId}`;
-  }
-
   /**
    * Open edit mode for a beamline rooted at the given source placeable.
    * Walks the pipe graph via flattenPath and populates draftNodes.
    *
-   * This is an alternative entry point to `open(beamlineId)`. Use this
-   * for beamlines built on the main map via the pipe-centric model.
-   * The existing `open(beamlineId)` path is preserved for designer-placed
-   * beamlines that still use the old Beamline/Registry classes.
-   *
    * @param {string} sourceId - placeable id of the source module
-   * @param {string} [endpointId] - optional endpoint id (if the source has
-   *   multiple reachable endpoints, the designer walks the path toward this
-   *   one). Defaults to the first reachable endpoint.
+   * @param {string} [endpointId] - optional endpoint id (currently unused,
+   *   retained for future multi-endpoint support).
    */
   openFromSource(sourceId, endpointId = null) {
     if (!sourceId) return;
@@ -482,12 +413,7 @@ export class BeamlineDesigner {
     this.designName = '';
     this.editSourceId = sourceId;
 
-    // Find reachable endpoints; default to the first one
-    const endpoints = findReachableEndpoints(this.game.state, sourceId);
-    this.availableEndpoints = endpoints;
-    if (!endpointId && endpoints.length > 0) {
-      endpointId = endpoints[0].id;
-    }
+    this.availableEndpoints = [];
     this.editEndpointId = endpointId;
 
     // Walk the pipe graph
@@ -792,47 +718,6 @@ export class BeamlineDesigner {
       this._cleanup();
       return;
     }
-
-    // Legacy registry mode: existing code path (unchanged)
-    const entry = this.game.registry.get(this.beamlineId);
-    if (!entry) { this._cleanup(); return; }
-
-    // Calculate cost delta and check funding
-    const costDelta = this._calcCostDelta();
-    if (costDelta > 0 && this.game.state.resources.funding < costDelta) {
-      this.game.log('Not enough funding for these changes!', 'bad');
-      return;
-    }
-
-    // Deduct cost
-    if (costDelta !== 0) {
-      this.game.state.resources.funding -= costDelta;
-    }
-
-    // Apply draft nodes to the real beamline
-    this._applyDraftToBeamline(entry);
-
-    // Auto-place foundation under any beamline tiles that lack it
-    for (const node of entry.beamline.nodes) {
-      if (!node.tiles) continue;
-      for (const tile of node.tiles) {
-        const key = tile.col + ',' + tile.row;
-        if (!this.game.state.infraOccupied[key]) {
-          this.game.removeDecoration(tile.col, tile.row);
-          this.game.state.floors.push({ type: 'concrete', col: tile.col, row: tile.row, variant: 0 });
-          this.game.state.infraOccupied[key] = 'concrete';
-          this.game.state.resources.funding -= 10;
-        }
-      }
-    }
-
-    // Recalculate real physics
-    this.game.recalcBeamline(this.beamlineId);
-    this.game.emit('beamlineChanged');
-
-    // Changes applied — clear draft state
-    this._clearDraftState();
-    this._cleanup();
   }
 
   cancel() {
@@ -1144,13 +1029,10 @@ export class BeamlineDesigner {
   }
 
   _runMarkerAnimation() {
-    // Build visual-to-physical mapping for constant visual speed
     const compMap = this._buildCompVisualMap();
-    // Traverse full visual length in ~3 seconds
     const totalVisual = compMap.totalVisual || 1;
-    const VISUAL_SPEED = totalVisual / 3;
+    const BASE_SPEED = totalVisual / 3;
 
-    // Convert current markerS to visual position
     let visualPos = this._sToVisual(compMap);
 
     const step = (now) => {
@@ -1162,19 +1044,62 @@ export class BeamlineDesigner {
         return;
       }
 
-      // Advance in visual units at constant speed
+      const speed = BASE_SPEED / this.viewZoom;
       visualPos = Math.max(0, Math.min(totalVisual,
-        visualPos + this._markerDir * VISUAL_SPEED * dt));
+        visualPos + this._markerDir * speed * dt));
 
-      // Convert visual position back to physical s
       this.markerS = this._visualToS(compMap, visualPos);
-
       this._updateSelectionFromMarker();
+      this._panToFollowMarker();
       this._renderSchematic();
       this._renderPlots();
       this._markerAnimId = requestAnimationFrame(step);
     };
     this._markerAnimId = requestAnimationFrame(step);
+  }
+
+  _panToFollowMarker() {
+    const canvas = document.getElementById('dsgn-schematic-canvas');
+    if (!canvas || this.draftNodes.length === 0) return;
+    const W = canvas.parentElement.getBoundingClientRect().width;
+    const SCHEM_PW = 70;
+    const baseZoom = W / (5 * SCHEM_PW + 40);
+    const effZoom = this.viewZoom * baseZoom;
+    const panPx = -this.viewX * effZoom;
+
+    const compWidths = this.draftNodes.map(n => {
+      const comp = COMPONENTS[n.type];
+      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
+    });
+    const tileLenSum = this.draftNodes.reduce((s, n) => {
+      const c = COMPONENTS[n.type];
+      return s + (c ? (c.subL || 4) * 0.5 : 1);
+    }, 0) || 1;
+
+    let markerPx = 20 + panPx;
+    let cumS = 0;
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      const comp = COMPONENTS[this.draftNodes[i].type];
+      const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
+      const compLen = (tileLen / tileLenSum) * this.totalLength;
+      const compW = compWidths[i] * effZoom;
+      if (this.markerS <= cumS + compLen) {
+        const frac = compLen > 0 ? (this.markerS - cumS) / compLen : 0;
+        markerPx += frac * compW;
+        break;
+      }
+      cumS += compLen;
+      markerPx += compW;
+    }
+
+    const centerX = W / 2;
+    const deadZone = W * 0.4;
+    const offset = markerPx - centerX;
+    if (Math.abs(offset) > deadZone) {
+      const overshoot = offset > 0 ? offset - deadZone : offset + deadZone;
+      this.viewX += overshoot / effZoom;
+      this._clampViewX();
+    }
   }
 
   /** Build array mapping each component's visual width and physical length.
@@ -1184,7 +1109,7 @@ export class BeamlineDesigner {
     const SCHEM_PW = 70;
     const tileLenSum = this.draftNodes.reduce((s, n) => {
       const c = COMPONENTS[n.type];
-      return s + (c ? c.length : 1);
+      return s + (c ? (c.subL || 4) * 0.5 : 1);
     }, 0) || 1;
 
     const entries = [];
@@ -1192,7 +1117,7 @@ export class BeamlineDesigner {
     for (const node of this.draftNodes) {
       const comp = COMPONENTS[node.type];
       const len = comp ? (comp.subL || 4) * 0.5 : 1;
-      const visualW = Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+      const visualW = this._compPixelWidth(node.type, node.subL || (comp ? comp.subL : undefined));
       const physLen = (len / tileLenSum) * this.totalLength;
       entries.push({ visualW, physLen });
       totalVisual += visualW;
@@ -1230,15 +1155,22 @@ export class BeamlineDesigner {
     return compMap.totalPhysical;
   }
 
+  _compPixelWidth(componentType, subL) {
+    const SCHEM_PW = 70;
+    if (componentType !== 'drift') return SCHEM_PW;
+    const s = subL || 4;
+    return Math.max(Math.round(SCHEM_PW / 2), Math.round((s / 4) * SCHEM_PW));
+  }
+
   /** Compute per-component physical lengths that sum to this.totalLength. */
   _compPhysLengths() {
     const tileLenSum = this.draftNodes.reduce((s, n) => {
       const c = COMPONENTS[n.type];
-      return s + (c ? c.length : 1);
+      return s + (c ? (c.subL || 4) * 0.5 : 1);
     }, 0) || 1;
     return this.draftNodes.map(n => {
       const c = COMPONENTS[n.type];
-      return ((c ? c.length : 1) / tileLenSum) * this.totalLength;
+      return (((c ? (c.subL || 4) * 0.5 : 1)) / tileLenSum) * this.totalLength;
     });
   }
 
@@ -1458,6 +1390,41 @@ export class BeamlineDesigner {
     this.viewX += speed; this._clampViewX(); this._renderAll();
   }
 
+  _startPan(dir) {
+    this._panDir = dir;
+    if (this._panAnimId) return;
+    this._lastPanTime = performance.now();
+    this._runPanAnimation();
+  }
+
+  _stopPan() {
+    this._panDir = 0;
+  }
+
+  _runPanAnimation() {
+    if (!this._panDir) { this._panAnimId = null; return; }
+    const now = performance.now();
+    const dt = (now - this._lastPanTime) / 1000;
+    this._lastPanTime = now;
+    const speed = (this.totalLength || 100) * 2.0;
+    this.viewX += this._panDir * speed * dt;
+    this._clampViewX();
+    this._renderAll();
+    this._panAnimId = requestAnimationFrame(() => this._runPanAnimation());
+  }
+
+  panToStart() {
+    this.viewX = 0;
+    this._clampViewX();
+    this._renderAll();
+  }
+
+  panToEnd() {
+    this.viewX = this.totalLength;
+    this._clampViewX();
+    this._renderAll();
+  }
+
   zoomAt(delta, cursorFraction) {
     const oldZoom = this.viewZoom;
     this.viewZoom = Math.max(0.5, Math.min(10, this.viewZoom * (1 - delta * 0.001)));
@@ -1482,6 +1449,10 @@ export class BeamlineDesigner {
       tiles: node.tiles ? node.tiles.map(t => ({ ...t })) : [],
       params: node.params ? { ...node.params } : {},
       computedStats: node.computedStats ? { ...node.computedStats } : null,
+      subL: node.subL,
+      beamStart: node.beamStart,
+      _pipeKind: node._pipeKind,
+      _sourceRef: node._sourceRef,
     };
   }
 
@@ -1503,8 +1474,7 @@ export class BeamlineDesigner {
     const SCHEM_PW = 70;
     const compWidths = this.draftNodes.map(n => {
       const comp = COMPONENTS[n.type];
-      const len = comp ? (comp.subL || 4) * 0.5 : 1;
-      return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
     });
     const totalPW = compWidths.reduce((s, w) => s + w, 0);
     const baseZoom = W / (5 * SCHEM_PW + 40);
@@ -1759,31 +1729,14 @@ export class BeamlineDesigner {
     if (insertBtn) insertBtn.classList.toggle('active', !!this.insertMode);
   }
 
-  _applyDraftToBeamline(entry) {
-    const bl = entry.beamline;
-
-    // Free all existing tiles
-    for (const node of bl.nodes) {
-      bl._freeTiles(node.tiles);
-    }
-
-    // Replace nodes with draft
-    bl.nodes = this.draftNodes.map(n => this._cloneNode(n));
-
-    // Re-occupy tiles for nodes that have valid tile data
-    for (const node of bl.nodes) {
-      if (node.tiles && node.tiles.length > 0) {
-        bl._occupyTiles(node.tiles, node.id);
-      }
-    }
-  }
-
   serializeState() {
     if (!this.isOpen) return null;
     return {
       isOpen: true,
       mode: this.mode,
       beamlineId: this.beamlineId,
+      editSourceId: this.editSourceId || null,
+      editEndpointId: this.editEndpointId || null,
       designId: this.designId,
       designName: this.designName,
       draftNodes: this.draftNodes.map(n => ({
@@ -1801,11 +1754,9 @@ export class BeamlineDesigner {
   restoreState(state) {
     if (!state || !state.isOpen) return;
 
-    if (state.mode === 'edit' && state.beamlineId) {
-      const entry = this.game.registry.get(state.beamlineId);
-      if (entry) {
-        this.open(state.beamlineId);
-        // Restore draft nodes from saved state
+    if (state.mode === 'edit' && state.editSourceId) {
+      this.openFromSource(state.editSourceId, state.editEndpointId);
+      if (state.draftNodes?.length) {
         this.draftNodes = state.draftNodes.map(n => ({
           id: n.id,
           type: n.type,

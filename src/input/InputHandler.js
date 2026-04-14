@@ -1287,8 +1287,8 @@ export class InputHandler {
             } else {
               // Reopen last designer session or open blank
               const saved = this.game.state.designerState;
-              if (saved && saved.mode === 'edit' && saved.beamlineId) {
-                this.game._designer.open(saved.beamlineId);
+              if (saved && saved.mode === 'edit' && saved.editSourceId) {
+                this.game._designer.openFromSource(saved.editSourceId, saved.editEndpointId);
               } else if (saved && saved.mode === 'design') {
                 const design = saved.designId ? this.game.getDesign(saved.designId) : null;
                 this.game._designer.openDesign(design);
