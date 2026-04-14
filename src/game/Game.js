@@ -9,14 +9,12 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
 import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
-import { Beamline } from '../beamline/Beamline.js';
 import { flattenPath } from '../beamline/path-flattener.js';
 import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../beamline/pipe-geometry.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
-import { generateStartingMap } from './map-generator.js';
 
 import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
@@ -111,9 +109,7 @@ export class Game {
     this.state.terrainSeed = Date.now();
     this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
 
-    // Generate starting map (currently a stub returning an empty decoration
-    // set; kept as a hook for future terrain generation).
-    generateStartingMap(this.state.terrainSeed);
+    // Starter maps loaded via scenarios (Menu > Scenarios).
   }
 
   _generateTerrainBlobs(seed) {
@@ -122,37 +118,37 @@ export class Game {
     const rand = () => { s = (s * 1664525 + 1013904223) | 0; return (s >>> 0) / 4294967296; };
     const blobs = [];
     // Large slow-rolling blobs (broad landscape variation)
-    const largeCt = 4 + Math.floor(rand() * 4);
+    const largeCt = 6 + Math.floor(rand() * 6);
     for (let i = 0; i < largeCt; i++) {
       blobs.push({
-        cx: (rand() - 0.5) * 80,
-        cy: (rand() - 0.5) * 80,
-        sx: 10 + rand() * 18,
-        sy: 10 + rand() * 18,
+        cx: (rand() - 0.5) * 200,
+        cy: (rand() - 0.5) * 200,
+        sx: 15 + rand() * 30,
+        sy: 15 + rand() * 30,
         angle: rand() * Math.PI,
         brightness: (rand() * 2 - 1) * 0.8,
       });
     }
     // Medium blobs (patches of lighter/darker grass)
-    const medCt = 6 + Math.floor(rand() * 6);
+    const medCt = 10 + Math.floor(rand() * 8);
     for (let i = 0; i < medCt; i++) {
       blobs.push({
-        cx: (rand() - 0.5) * 60,
-        cy: (rand() - 0.5) * 60,
-        sx: 3 + rand() * 8,
-        sy: 3 + rand() * 8,
+        cx: (rand() - 0.5) * 160,
+        cy: (rand() - 0.5) * 160,
+        sx: 5 + rand() * 12,
+        sy: 5 + rand() * 12,
         angle: rand() * Math.PI,
         brightness: (rand() * 2 - 1) * 1.2,
       });
     }
     // Small tight blobs (individual spots, puddles of color)
-    const smallCt = 8 + Math.floor(rand() * 10);
+    const smallCt = 14 + Math.floor(rand() * 14);
     for (let i = 0; i < smallCt; i++) {
       blobs.push({
-        cx: (rand() - 0.5) * 50,
-        cy: (rand() - 0.5) * 50,
-        sx: 1.5 + rand() * 4,
-        sy: 1.5 + rand() * 4,
+        cx: (rand() - 0.5) * 140,
+        cy: (rand() - 0.5) * 140,
+        sx: 2 + rand() * 5,
+        sy: 2 + rand() * 5,
         angle: rand() * Math.PI,
         brightness: (rand() * 2 - 1) * 1.5,
       });
@@ -226,7 +222,7 @@ export class Game {
         nodes: entry.beamline.nodes.map(n => ({
           id: n.id, type: n.type, col: n.col, row: n.row,
           dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
-          bendDir: n.bendDir,
+          bendDir: n.bendDir, subL: n.subL, subW: n.subW,
           tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
           params: n.params ? { ...n.params } : {},
           computedStats: n.computedStats ? { ...n.computedStats } : null,
@@ -251,7 +247,7 @@ export class Game {
       bl.nodes = ed.nodes.map(n => ({
         id: n.id, type: n.type, col: n.col, row: n.row,
         dir: n.dir, entryDir: n.entryDir, parentId: n.parentId,
-        bendDir: n.bendDir,
+        bendDir: n.bendDir, subL: n.subL, subW: n.subW,
         tiles: n.tiles ? n.tiles.map(t => ({ ...t })) : [],
         params: n.params ? { ...n.params } : {},
         computedStats: n.computedStats ? { ...n.computedStats } : null,
@@ -549,7 +545,35 @@ export class Game {
     entry.beamline._occupyTiles(newTiles, node.id);
     this.registry.occupyTiles(entry.id, node);
 
+    // Sync the corresponding unified placeable entry so the pipe-graph
+    // flattener (which reads state.placeables) sees the new position.
+    const plIdx = this.state.placeableIndex[nodeId];
+    if (plIdx !== undefined) {
+      const pe = this.state.placeables[plIdx];
+      // Free old subgrid cells
+      for (const c of (pe.cells || [])) {
+        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        if (this.state.subgridOccupied[k]?.id === nodeId) {
+          delete this.state.subgridOccupied[k];
+        }
+      }
+      pe.col = newCol;
+      pe.row = newRow;
+      pe.dir = dir;
+      // Recompute footprint cells
+      const placeable = PLACEABLES[pe.type];
+      if (placeable) {
+        pe.cells = placeable.footprintCells(newCol, newRow, pe.subCol || 0, pe.subRow || 0, dir);
+        for (const c of pe.cells) {
+          const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+          this.state.subgridOccupied[k] = { id: nodeId, kind: pe.kind };
+        }
+      }
+    }
+
     this.recalcAllBeamlines();
+    this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.log(`Moved ${comp.name}`, 'good');
     this.emit('beamlineChanged');
     return true;
@@ -1293,8 +1317,9 @@ export class Game {
     if (!axisMatchesDirection(moduleDir, pipeDir)) return null;
 
     // 4. Footprint along the beam axis must lie entirely inside a straight
-    //    run of the expanded pipe tiles. Length in tiles = ceil(subL/4).
-    const tileLen = Math.max(1, Math.ceil(placeable.subL / 4));
+    //    run of the expanded pipe tiles. expandPipePath now returns sub-tile
+    //    entries (0.25 grid-units each = 1 sub-unit), so tileLen is just subL.
+    const tileLen = Math.max(1, placeable.subL);
     const halfBefore = Math.floor((tileLen - 1) / 2);
     const startIdx = tileIndex - halfBefore;
     const endIdx = startIdx + tileLen - 1;
@@ -1309,13 +1334,19 @@ export class Game {
     // 5. Compute the origin tile: footprintCells always places cells with
     //    offsets +dc/+dr from the origin, so the origin is the tile in the
     //    window with the minimum col and minimum row regardless of dir.
+    //    Expanded tiles are at sub-tile (0.25) precision, so convert to
+    //    integer tile + sub-tile offset for the placement system.
     const t0 = expandedTiles[startIdx];
     const t1 = expandedTiles[endIdx];
-    const originCol = Math.min(t0.col, t1.col);
-    const originRow = Math.min(t0.row, t1.row);
+    const rawOriginCol = Math.min(t0.col, t1.col);
+    const rawOriginRow = Math.min(t0.row, t1.row);
+    const originCol = Math.floor(rawOriginCol + 1e-6);
+    const originRow = Math.floor(rawOriginRow + 1e-6);
+    const originSubCol = Math.round((rawOriginCol - originCol) * 4);
+    const originSubRow = Math.round((rawOriginRow - originRow) * 4);
 
     // 6. No other placeable can occupy the footprint.
-    const cells = placeable.footprintCells(originCol, originRow, 0, 0, dir);
+    const cells = placeable.footprintCells(originCol, originRow, originSubCol, originSubRow, dir);
     for (const c of cells) {
       const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
       if (this.state.subgridOccupied[k]) return null;
@@ -1338,7 +1369,7 @@ export class Game {
 
     // 9. Place the module via the existing path.
     const moduleId = this.placePlaceable({
-      type, col: originCol, row: originRow, subCol: 0, subRow: 0, dir,
+      type, col: originCol, row: originRow, subCol: originSubCol, subRow: originSubRow, dir,
       params: opts.params,
     });
     if (!moduleId) {
@@ -1416,10 +1447,10 @@ export class Game {
     this.state.beamPipes.push(p1, p2);
 
     // 13. Reassign attachments using sub-unit precision so that attachments
-    //     do not drift by rounding to tile indices. Each tile edge = 4 sub-units
-    //     (matches createBeamPipe's tileDist * 4 formula).
-    const moduleSubStart = startIdx * 4;
-    const moduleSubEnd   = (endIdx + 1) * 4;
+    //     do not drift by rounding to tile indices. Expanded tiles are now at
+    //     sub-tile resolution (1 entry = 1 sub-unit), so indices map directly.
+    const moduleSubStart = startIdx;
+    const moduleSubEnd   = endIdx + 1;
     for (const att of originalPipe.attachments) {
       const absSub = (att.position || 0) * originalPipe.subL;
       if (absSub < moduleSubStart) {
@@ -1454,6 +1485,7 @@ export class Game {
     this.log(`Inserted ${placeable.name} into pipe`, 'good');
 
     this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.computeSystemStats();
     this.emit('beamlineChanged');
     this.emit('placeableChanged');
@@ -1476,12 +1508,18 @@ export class Game {
     if (!placeable) return false;
     const kind = placeable.kind;
 
-    // If this is a beamline module and the cursor tile is on a pipe with
-    // matching rotation, attempt insert-and-split first. On any failure the
-    // helper returns null and we fall through to normal placement.
+    // If this is a beamline module and the cursor tile is on a pipe,
+    // attempt insert-and-split. Try the requested direction first, then
+    // the other three rotations so the module auto-aligns to the pipe.
     if (kind === 'beamline') {
       const inserted = this.tryInsertOnBeamPipe(opts);
       if (inserted) return inserted;
+      // Auto-rotate: try remaining directions
+      for (const tryDir of [0, 1, 2, 3]) {
+        if (tryDir === dir) continue;
+        const inserted2 = this.tryInsertOnBeamPipe({ ...opts, dir: tryDir });
+        if (inserted2) return inserted2;
+      }
     }
 
     if (!free && !this.canAfford(placeable.cost)) {
@@ -1604,10 +1642,20 @@ export class Game {
     placeable.onPlaced(this, entry);
 
     if (!silent) this.log(`Built ${placeable.name}`, 'good');
+
+    // For beamline components: create registry entry for sources (needed for
+    // beam toggle / BeamlineWindow), update the beam graph ordering, and
+    // schedule a physics recalc so the new component affects the beam.
+    if (kind === 'beamline') {
+      const compDef = COMPONENTS[type];
+      if (compDef?.isSource) {
+        this._ensureBeamlineForSourcePlaceable(entry);
+      }
+      this._deriveBeamGraph();
+      this.schedulePhysicsRecalc();
+    }
+
     this.computeSystemStats();
-    // Sync legacy arrays BEFORE emitting — renderers (via world-snapshot)
-    // read game.state.zoneFurnishings/facilityEquipment on the change event,
-    // so those arrays must already reflect the new entry.
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (kind === 'equipment') this.emit('facilityChanged');
@@ -1709,6 +1757,11 @@ export class Game {
     this._rebuildPlaceableIndex();
 
     this.log(`Removed ${placeable.name} (50% refund)`, 'info');
+
+    if (entry.category === 'beamline') {
+      this._deriveBeamGraph();
+    }
+
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
@@ -1982,6 +2035,7 @@ export class Game {
     const label = (fromId && toId) ? 'Connected' : 'Placed';
     this.log(`${label} beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
     this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
     return true;
   }
@@ -2078,6 +2132,7 @@ export class Game {
 
     this.log(`Attached ${def.name}`, 'good');
     this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
     return attId;
   }
@@ -2105,6 +2160,7 @@ export class Game {
     pipe.attachments.splice(idx, 1);
     this.log(`Removed ${def ? def.name : 'attachment'} (50% refund)`, 'info');
     this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
     return true;
   }
@@ -2139,6 +2195,7 @@ export class Game {
     this.state.beamPipes.splice(idx, 1);
     this.log('Removed beam pipe (50% refund)', 'info');
     this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
     return true;
   }
@@ -2187,7 +2244,13 @@ export class Game {
         const ordered = entry.beamline.getOrderedComponents();
         for (const node of ordered) {
           if (!allOrdered.some(n => n.id === node.id)) {
-            allOrdered.push(node);
+            const def = COMPONENTS[node.type];
+            allOrdered.push({
+              ...node,
+              subL: node.subL || (def ? def.subL : 4) || 4,
+              stats: node.stats || (def ? { ...def.stats } : {}),
+              beamStart: node.beamStart ?? 0,
+            });
           }
         }
       }
@@ -2353,6 +2416,8 @@ export class Game {
       subCol: instance.subCol ?? 0,
       subRow: instance.subRow ?? 0,
       dir: instance.dir ?? 0,
+      subL: comp.subL || 4,
+      subW: comp.subW || 4,
       entryDir: null,
       parentId: null,
       bendDir: null,
@@ -2366,7 +2431,8 @@ export class Game {
     this.registry.occupyTiles(entry.id, node);
     instance.beamlineId = entry.id;
 
-    this.recalcBeamline(entry.id);
+    // No recalcBeamline here — placement is just grid placement.
+    // Physics runs when beams are toggled on, or on explicit recalc.
     return entry.id;
   }
 
@@ -2452,7 +2518,7 @@ export class Game {
       const def = COMPONENTS[node.type];
       return {
         type: node.type,
-        subL: node.subL,
+        subL: node.subL || (def ? def.subL : 4) || 4,
         stats: def && def.stats ? { ...def.stats } : {},
         params: node.params || {},
       };
@@ -2478,6 +2544,19 @@ export class Game {
       this.state.physicsEnvelope = result.envelope;
     }
     this.emit('physicsUpdated');
+  }
+
+  schedulePhysicsRecalc() {
+    if (this._physicsRecalcPending) return;
+    this._physicsRecalcPending = true;
+    queueMicrotask(() => {
+      this._physicsRecalcPending = false;
+      try {
+        this._recalcMainBeamGraph();
+      } catch (e) {
+        console.warn('[physics] deferred recalc failed:', e);
+      }
+    });
   }
 
   _recalcSingleBeamline(entry) {
@@ -2551,9 +2630,8 @@ export class Game {
   }
 
   _updateAggregateBeamline() {
-    this.state.beamline = this.registry.getAllNodes();
-
-    // Aggregate per-beamline stats into state for objectives/economy/renderers
+    // state.beamline is set by _deriveBeamGraph (pipe/placement changes).
+    // Don't overwrite it here — just aggregate per-beamline stats from the registry.
     const entries = this.registry.getAll();
     let totalLength = 0, totalEnergyCost = 0;
     let beamOn = false;
@@ -3136,13 +3214,15 @@ export class Game {
 
     // If global canRun is false, stop all running beamlines
     if (!result.canRun) {
+      let stoppedAny = false;
       for (const entry of this.registry.getAll()) {
         if (entry.status === 'running') {
           entry.status = 'stopped';
           entry.beamState.continuousBeamTicks = 0;
+          stoppedAny = true;
         }
       }
-      if (this.registry.getAll().some(e => e.status === 'stopped')) {
+      if (stoppedAny) {
         this.emit('beamToggled');
       }
     }
@@ -3501,6 +3581,47 @@ export class Game {
     return this.state.savedDesigns.filter(d => d.category === category);
   }
 
+  // === SCENARIOS ===
+
+  applyScenario(scenarioData) {
+    // Apply a generated scenario map to state
+    this.state.floors = scenarioData.floors;
+    this.state.zones = scenarioData.zones;
+    this.state.walls = scenarioData.walls;
+    this.state.doors = scenarioData.doors;
+    this.state.placeables = scenarioData.placeables;
+    this.state.placeableNextId = scenarioData.placeableNextId;
+    if (scenarioData.staff) this.state.staff = scenarioData.staff;
+    if (scenarioData.resources) Object.assign(this.state.resources, scenarioData.resources);
+
+    // Rebuild lookup tables
+    this.state.infraOccupied = {};
+    for (const tile of this.state.floors)
+      this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+    this.state.zoneOccupied = {};
+    for (const z of this.state.zones)
+      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+    this.state.wallOccupied = {};
+    for (const w of this.state.walls)
+      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    this.state.doorOccupied = {};
+    for (const d of this.state.doors)
+      this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    this.state.placeableIndex = {};
+    this.state.subgridOccupied = {};
+    for (let i = 0; i < this.state.placeables.length; i++) {
+      const entry = this.state.placeables[i];
+      this.state.placeableIndex[entry.id] = i;
+      if (entry.cells && !entry.stackParentId) {
+        for (const cell of entry.cells) {
+          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
+        }
+      }
+    }
+    this.recomputeZoneConnectivity();
+    this.validateInfrastructure();
+  }
+
   // === SAVE / LOAD ===
 
   save() {
@@ -3509,11 +3630,31 @@ export class Game {
       rackObj[key] = [...seg.utilities];
     }
     const saveState = { ...this.state, rackSegments: rackObj };
-    localStorage.setItem('beamlineTycoon', JSON.stringify({
+    const payload = JSON.stringify({
       version: 6,
       state: saveState,
       beamlines: this.registry.toJSON(),
-    }));
+    });
+    localStorage.setItem('beamlineTycoon', payload);
+    // In dev, also persist to disk
+    if (import.meta.hot) {
+      fetch('/api/dev-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      }).catch(() => {});
+    }
+  }
+
+  async loadFromDevSave() {
+    try {
+      const res = await fetch('/api/dev-save');
+      if (res.status === 404) return false;
+      const raw = await res.text();
+      if (!raw || raw === '{}') return false;
+      localStorage.setItem('beamlineTycoon', raw);
+      return this.load();
+    } catch (_) { return false; }
   }
 
   load() {

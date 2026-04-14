@@ -1,13 +1,10 @@
-// === LEGACY: designer-internal use only ===
-// This multi-beamline registry is no longer used by the main map. It survives
-// because BeamlineDesigner and DesignPlacer still operate on Beamline instances
-// internally. The main map's source of truth is Game.state.beamPipes +
-// state.placeables (derived into state.beamline by Game._deriveBeamGraph).
-
 // === BEAMLINE REGISTRY ===
-// Manages multiple independent Beamline instances with shared tile occupancy.
+// Lightweight metadata store for beamline identity, status, and physics state.
+// The pipe graph (state.beamPipes + state.placeables) is the source of truth
+// for component ordering. This registry holds per-beamline metadata that
+// doesn't belong on individual placeables: name, accent color, run status,
+// and aggregated physics results (beamState).
 
-import { Beamline } from './Beamline.js';
 import { canonicalAccentFor } from './accent-colors.js';
 
 /**
@@ -42,20 +39,14 @@ export function makeDefaultBeamState(machineType) {
 
 export class BeamlineRegistry {
   constructor() {
-    this.beamlines = new Map();       // id -> { id, name, status, beamline, beamState }
-    this.sharedOccupied = {};         // "col,row" -> beamlineId
+    this.beamlines = new Map();  // id -> { id, name, accentColor, status, sourceId, beamState }
     this.nextBeamlineId = 1;
   }
 
-  /**
-   * Create a new beamline entry and add it to the registry.
-   * Returns the entry object.
-   */
-  createBeamline(machineType) {
+  /** Create a new beamline entry. */
+  createBeamline(machineType, sourceId = null) {
     const id = `bl-${this.nextBeamlineId}`;
     const name = `Beamline-${this.nextBeamlineId}`;
-    // Default color rotates through the 8 canonical swatches so the first
-    // 8 beamlines are visually distinct without the player picking anything.
     const accentColor = canonicalAccentFor(this.nextBeamlineId - 1);
     this.nextBeamlineId++;
 
@@ -64,7 +55,7 @@ export class BeamlineRegistry {
       name,
       accentColor,
       status: 'stopped',
-      beamline: new Beamline(),
+      sourceId,
       beamState: makeDefaultBeamState(machineType),
     };
 
@@ -72,68 +63,21 @@ export class BeamlineRegistry {
     return entry;
   }
 
-  /** Get a beamline entry by id. */
-  get(id) {
-    return this.beamlines.get(id);
-  }
+  get(id) { return this.beamlines.get(id); }
+  getAll() { return Array.from(this.beamlines.values()); }
 
-  /** Get all beamline entries as an array. */
-  getAll() {
-    return Array.from(this.beamlines.values());
-  }
-
-  /** Get all nodes across all beamlines. */
-  getAllNodes() {
-    const all = [];
+  /** Find the registry entry whose sourceId matches. */
+  getBySourceId(sourceId) {
     for (const entry of this.beamlines.values()) {
-      all.push(...entry.beamline.getAllNodes());
+      if (entry.sourceId === sourceId) return entry;
     }
-    return all;
+    return null;
   }
 
-  /** Find which beamline entry owns a given node ID. */
-  getBeamlineForNode(nodeId) {
-    for (const entry of this.beamlines.values()) {
-      const found = entry.beamline.getAllNodes().some(n => n.id === nodeId);
-      if (found) return entry;
-    }
-    return undefined;
-  }
-
-  /** Mark tiles as occupied in the shared grid. */
-  occupyTiles(beamlineId, node) {
-    for (const t of node.tiles) {
-      this.sharedOccupied[t.col + ',' + t.row] = beamlineId;
-    }
-  }
-
-  /** Free tiles from the shared grid. */
-  freeTiles(node) {
-    for (const t of node.tiles) {
-      delete this.sharedOccupied[t.col + ',' + t.row];
-    }
-  }
-
-  /** Check if a tile is occupied in the shared grid. */
-  isTileOccupied(col, row) {
-    return this.sharedOccupied[col + ',' + row] !== undefined;
-  }
-
-  /** Remove a beamline and free all its tiles from the shared grid. */
   removeBeamline(id) {
-    const entry = this.beamlines.get(id);
-    if (!entry) return false;
-
-    // Free all tiles owned by this beamline's nodes
-    for (const node of entry.beamline.getAllNodes()) {
-      this.freeTiles(node);
-    }
-
-    this.beamlines.delete(id);
-    return true;
+    return this.beamlines.delete(id);
   }
 
-  /** Serialize the registry to a plain JSON-safe object. */
   toJSON() {
     const entries = [];
     for (const entry of this.beamlines.values()) {
@@ -142,26 +86,18 @@ export class BeamlineRegistry {
         name: entry.name,
         accentColor: entry.accentColor,
         status: entry.status,
-        beamline: entry.beamline.toJSON(),
+        sourceId: entry.sourceId,
         beamState: JSON.parse(JSON.stringify(entry.beamState)),
       });
     }
-    return {
-      entries,
-      sharedOccupied: { ...this.sharedOccupied },
-      nextBeamlineId: this.nextBeamlineId,
-    };
+    return { entries, nextBeamlineId: this.nextBeamlineId };
   }
 
-  /** Restore registry state from serialized data. */
   fromJSON(data) {
     this.beamlines = new Map();
     this.nextBeamlineId = data.nextBeamlineId;
-    this.sharedOccupied = { ...data.sharedOccupied };
 
     for (const e of data.entries) {
-      const beamline = new Beamline();
-      beamline.fromJSON(e.beamline);
       let accentColor = e.accentColor;
       if (accentColor == null) {
         const match = /^bl-(\d+)$/.exec(e.id);
@@ -173,7 +109,7 @@ export class BeamlineRegistry {
         name: e.name,
         accentColor,
         status: e.status,
-        beamline,
+        sourceId: e.sourceId ?? null,
         beamState: e.beamState,
       });
     }
