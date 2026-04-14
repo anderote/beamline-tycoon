@@ -4,9 +4,8 @@
 // PHYSICS CONTRACT — read before modifying
 //
 // The flattener is the single source of truth for beam element ordering.
-// Both the main map's Game._deriveBeamGraph() and BeamlineDesigner's edit
-// mode call flattenPath() and consume its output directly. Any consumer
-// that builds its own ordered list will desync from the physics envelope.
+// Game._deriveBeamGraph(), _recalcSingleBeamline(), and BeamlineDesigner's
+// edit mode all call flattenPath() and consume its output directly.
 //
 // Every entry has:
 //   - beamStart: cumulative METRE position of the element's START from the source
@@ -14,9 +13,6 @@
 //
 // Invariant: envelope[i].s (metres) === entries[i].beamStart (metres)
 //            for every physics-generated envelope snapshot.
-//
-// When adding new entry kinds, preserve
-// the index-per-entry mapping so the designer plots stay aligned.
 // ---------------------------------------------------------------------------
 
 import { COMPONENTS } from '../data/components.js';
@@ -26,8 +22,8 @@ import { COMPONENTS } from '../data/components.js';
  *
  * @param {Object} gameState - game.state (reads placeables + beamPipes)
  * @param {string} sourceId - placeable id of the source module to start from
- * @param {string} [endpointId] - optional endpoint id; if omitted, picks the
- *   first reachable endpoint via BFS (works for single-path linacs)
+ * @param {string} [endpointId] - optional endpoint id; if omitted, walks
+ *   until the first endpoint component or end of pipe chain
  * @returns {Array} ordered entries, each with:
  *   { kind: 'module', id, type, params, beamStart, subL, placeable }
  *   { kind: 'attachment', id, type, params, beamStart, subL, pipeId, position }
@@ -37,10 +33,7 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
   const placeableById = {};
   for (const p of gameState.placeables) placeableById[p.id] = p;
 
-  // Directed adjacency: follow pipes in the direction fromId → toId.
-  // For linacs this is unambiguous. Reverse edges are included so the
-  // walker can traverse pipes drawn toward the source if needed, but
-  // this task keeps the logic linac-first and ignores reverse edges.
+  // Directed adjacency: follow pipes fromId → toId.
   const outEdges = {};
   for (const pipe of gameState.beamPipes || []) {
     if (!outEdges[pipe.fromId]) outEdges[pipe.fromId] = [];
@@ -48,13 +41,10 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
   }
 
   const result = [];
-  const visited = new Set();
   let beamStart = 0;
 
   let currentId = sourceId;
   while (currentId) {
-    if (visited.has(currentId)) break; // cycle — bail (rings come later)
-    visited.add(currentId);
 
     const placeable = placeableById[currentId];
     if (!placeable) break;
@@ -78,9 +68,8 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
     // If this is an endpoint component and no target specified, stop
     if (!endpointId && def && def.isEndpoint) break;
 
-    // Pick next pipe: exactly one outgoing (linac). Skip pipes pointing
-    // to already-visited modules.
-    const edges = (outEdges[currentId] || []).filter(e => !visited.has(e.toId));
+    // Pick next pipe: single-path linac, exactly one outgoing edge.
+    const edges = outEdges[currentId] || [];
     if (edges.length === 0) break;
 
     const pipe = edges[0];
@@ -145,38 +134,4 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
   }
 
   return result;
-}
-
-/**
- * Find all reachable endpoints from a source in the pipe graph.
- * Used by the designer to populate an endpoint selector and to validate source selection.
- *
- * @param {Object} gameState - game.state
- * @param {string} sourceId - placeable id of the source
- * @returns {Array} array of placeable objects that are reachable endpoints
- */
-export function findReachableEndpoints(gameState, sourceId) {
-  const placeableById = {};
-  for (const p of gameState.placeables) placeableById[p.id] = p;
-
-  const adj = {};
-  for (const pipe of gameState.beamPipes || []) {
-    if (!adj[pipe.fromId]) adj[pipe.fromId] = [];
-    adj[pipe.fromId].push(pipe.toId);
-  }
-
-  const endpoints = [];
-  const visited = new Set();
-  const queue = [sourceId];
-  while (queue.length) {
-    const id = queue.shift();
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const p = placeableById[id];
-    if (!p) continue;
-    const def = COMPONENTS[p.type];
-    if (def && def.isEndpoint) endpoints.push(p);
-    for (const nxt of (adj[id] || [])) queue.push(nxt);
-  }
-  return endpoints;
 }
