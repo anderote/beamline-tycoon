@@ -21,7 +21,6 @@ const BEAMLINE_PORTS = {
   dipole:              [{ type: 'powerCable', offset: 0.3 }, { type: 'coolingWater', offset: 0.7 }],
   quadrupole:          [{ type: 'powerCable', offset: 0.3 }, { type: 'coolingWater', offset: 0.7 }],
   sextupole:           [{ type: 'powerCable', offset: 0.3 }, { type: 'coolingWater', offset: 0.7 }],
-  splitter:            [{ type: 'powerCable', offset: 0.5 }],
   velocitySelector:    [{ type: 'powerCable', offset: 0.5 }],
   emittanceFilter:     [{ type: 'powerCable', offset: 0.5 }],
 
@@ -51,8 +50,12 @@ const BEAMLINE_PORTS = {
 };
 
 const INFRA_OUTPUT_PORTS = {
-  substation:          [{ type: 'powerCable', offset: 0.5 }],
+  hvTransformer:       [{ type: 'powerCable', offset: 0.5 }],
+  padMountTransformer: [{ type: 'powerCable', offset: 0.5 }],
+  switchgear:          [{ type: 'powerCable', offset: 0.5 }],
   powerPanel:          [{ type: 'powerCable', offset: 0.5 }],
+  mcc:                 [{ type: 'powerCable', offset: 0.5 }],
+  ups:                 [{ type: 'powerCable', offset: 0.5 }],
   magnetron:           [{ type: 'rfWaveguide', offset: 0.5 }],
   solidStateAmp:       [{ type: 'rfWaveguide', offset: 0.5 }],
   twt:                 [{ type: 'rfWaveguide', offset: 0.5 }],

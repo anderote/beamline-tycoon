@@ -160,48 +160,16 @@ export class Beamline {
       const comp = COMPONENTS[node.type];
       if (comp.isEndpoint) continue;
 
-      if (comp.isSplitter) {
-        // Splitters need TWO cursors: straight + branched (turnLeft)
-        // Check how many children already exist for this node
-        const children = this.nodes.filter(n => n.parentId === node.id);
-        const childDirs = new Set(children.map(c => c.entryDir));
-
+      // Regular component: one cursor if no child
+      if (!childParentIds.has(node.id)) {
         const lastTile = node.tiles[node.tiles.length - 1];
-
-        // Straight cursor (same dir as node)
-        const straightDelta = DIR_DELTA[node.dir];
-        const straightCursor = {
-          col: lastTile.col + straightDelta.dc,
-          row: lastTile.row + straightDelta.dr,
+        const delta = DIR_DELTA[node.dir];
+        cursors.push({
+          col: lastTile.col + delta.dc,
+          row: lastTile.row + delta.dr,
           dir: node.dir,
           parentId: node.id,
-        };
-
-        // Branched cursor (turnLeft from node dir)
-        const branchDir = turnLeft(node.dir);
-        const branchDelta = DIR_DELTA[branchDir];
-        const branchCursor = {
-          col: lastTile.col + branchDelta.dc,
-          row: lastTile.row + branchDelta.dr,
-          dir: branchDir,
-          parentId: node.id,
-        };
-
-        // Only add cursors for directions without children
-        if (!childDirs.has(node.dir)) cursors.push(straightCursor);
-        if (!childDirs.has(branchDir)) cursors.push(branchCursor);
-      } else {
-        // Regular component: one cursor if no child
-        if (!childParentIds.has(node.id)) {
-          const lastTile = node.tiles[node.tiles.length - 1];
-          const delta = DIR_DELTA[node.dir];
-          cursors.push({
-            col: lastTile.col + delta.dc,
-            row: lastTile.row + delta.dr,
-            dir: node.dir,
-            parentId: node.id,
-          });
-        }
+        });
       }
     }
     return cursors;

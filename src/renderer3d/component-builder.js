@@ -44,6 +44,26 @@ import {
   _buildRFCouplerRoles,
   _buildGyrotronRoles,
 } from './builders/rf-builder.js';
+import {
+  _buildApertureRoles,
+  _buildVelocitySelectorRoles,
+  _buildEmittanceFilterRoles,
+  _buildSextupoleRoles,
+} from './builders/optics-builder.js';
+import {
+  _buildHVTransformerRoles,
+  _buildDisconnectSwitchRoles,
+  _buildSwitchgearRoles,
+  _buildPadMountTransformerRoles,
+  _buildMCCRoles,
+  _buildUPSRoles,
+} from './builders/power-builder.js';
+import {
+  _buildFaradayCupRoles,
+  _buildBeamStopRoles,
+  _buildDetectorRoles,
+  _buildTargetRoles,
+} from './builders/endpoint-builder.js';
 import { buildPortStubs } from './utility-port-builder.js';
 import { RACK_HEIGHT, RACK_TRAY_WIDTH, RACK_TRAY_DEPTH, RACK_SUPPORT_WIDTH } from '../data/carrier-rack.js';
 
@@ -385,59 +405,171 @@ function _mergeGeometries(geometries) {
 
 function _buildSource() {
   const group = new THREE.Group();
-  const bodyColor = 0x557755;   // dark steel-green gun housing
-  const insulatorColor = 0xcc8833; // HV insulator (ceramic amber)
+  const bodyColor    = 0x4a6b4a; // dark steel-green gun chamber
+  const insulatorC   = 0xcc8833; // ceramic amber for HV insulators
+  const copperC      = 0xb87333; // copper anode/cathode hardware
+  const solenoidC    = 0x8b4513; // dark copper solenoid winding
 
-  // Main gun housing — centered so beam exit aligns with BEAM_HEIGHT
-  const bodyW = 0.9, bodyH = 0.9, bodyL = 1.2;
-  const bodyY = BEAM_HEIGHT; // center of body at beam height
-  const bodyGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyL);
-  applyTiledBoxUVs(bodyGeo, bodyW, bodyH, bodyL);
-  const body = _addShadow(new THREE.Mesh(bodyGeo, _mat(bodyColor, 0.6, 0.2)));
-  body.position.set(0, bodyY, -0.15);
-  group.add(body);
+  // ── Gun vacuum chamber — main cylindrical vessel ──
+  const chamberR = 0.4, chamberH = 0.9;
+  const chamberGeo = new THREE.CylinderGeometry(chamberR, chamberR, chamberH, SEGS);
+  applyTiledCylinderUVs(chamberGeo, chamberR, chamberH, SEGS);
+  const chamber = _addShadow(new THREE.Mesh(chamberGeo, _mat(bodyColor, 0.5, 0.25)));
+  chamber.rotation.x = Math.PI / 2;
+  chamber.position.set(0, BEAM_HEIGHT, -0.2);
+  group.add(chamber);
 
-  // HV insulator dome on top — a squat cylinder
-  const insR = 0.25, insH = 0.3;
-  const insulatorGeo = new THREE.CylinderGeometry(insR * 0.6, insR, insH, SEGS);
-  applyTiledCylinderUVs(insulatorGeo, insR, insH, SEGS);
-  const insulator = _addShadow(new THREE.Mesh(insulatorGeo, _mat(insulatorColor, 0.4, 0.05)));
-  insulator.position.set(0, bodyY + bodyH / 2 + insH / 2, -0.3);
-  group.add(insulator);
+  // Chamber end caps (front and rear flanges)
+  const capR = 0.43, capH = 0.04;
+  for (const zOff of [-0.2 - chamberH / 2, -0.2 + chamberH / 2]) {
+    const g = new THREE.CylinderGeometry(capR, capR, capH, SEGS);
+    applyTiledCylinderUVs(g, capR, capH, SEGS);
+    const cap = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
+    cap.rotation.x = Math.PI / 2;
+    cap.position.set(0, BEAM_HEIGHT, zOff);
+    group.add(cap);
+  }
 
-  // Beam exit port — standard pipe extending from front face to tile edge
-  const portEnd = 1.0; // tile edge
-  const portStart = bodyL / 2 - 0.15;
+  // ── HV insulator stack on top — 4 ceramic rings ──
+  const stackBase = BEAM_HEIGHT + chamberR;
+  const ringR = 0.18, ringH = 0.08, ringGap = 0.03;
+  for (let i = 0; i < 4; i++) {
+    const y = stackBase + i * (ringH + ringGap) + ringH / 2;
+    const g = new THREE.CylinderGeometry(ringR, ringR, ringH, SEGS);
+    applyTiledCylinderUVs(g, ringR, ringH, SEGS);
+    const ring = _addShadow(new THREE.Mesh(g, _mat(insulatorC, 0.35, 0.05)));
+    ring.position.set(0, y, -0.45);
+    group.add(ring);
+    // Steel spacer between rings
+    if (i < 3) {
+      const sg = new THREE.CylinderGeometry(ringR + 0.02, ringR + 0.02, ringGap, SEGS);
+      applyTiledCylinderUVs(sg, ringR + 0.02, ringGap, SEGS);
+      const spacer = _addShadow(new THREE.Mesh(sg, _mat(FLANGE_COLOR, 0.3, 0.5)));
+      spacer.position.set(0, y + ringH / 2 + ringGap / 2, -0.45);
+      group.add(spacer);
+    }
+  }
+
+  // HV cable bushing on top of insulator stack
+  const bushingR = 0.08, bushingH = 0.15;
+  const bushingY = stackBase + 4 * (ringH + ringGap);
+  {
+    const g = new THREE.CylinderGeometry(bushingR, bushingR * 1.3, bushingH, SEGS);
+    applyTiledCylinderUVs(g, bushingR, bushingH, SEGS);
+    const bushing = _addShadow(new THREE.Mesh(g, _mat(0x333333, 0.8, 0.05)));
+    bushing.position.set(0, bushingY + bushingH / 2, -0.45);
+    group.add(bushing);
+  }
+
+  // ── HV feedthrough at rear — thick insulated cylinder ──
+  {
+    const ftR = 0.12, ftH = 0.3;
+    const g = new THREE.CylinderGeometry(ftR, ftR, ftH, SEGS);
+    applyTiledCylinderUVs(g, ftR, ftH, SEGS);
+    const ft = _addShadow(new THREE.Mesh(g, _mat(insulatorC, 0.35, 0.05)));
+    ft.rotation.x = Math.PI / 2;
+    ft.position.set(0, BEAM_HEIGHT + 0.15, -0.2 - chamberH / 2 - ftH / 2);
+    group.add(ft);
+  }
+
+  // ── Wehnelt/anode assembly — copper cylinder at front of chamber ──
+  {
+    const anodeR = 0.14, anodeH = 0.12;
+    const g = new THREE.CylinderGeometry(anodeR, anodeR * 0.9, anodeH, SEGS);
+    applyTiledCylinderUVs(g, anodeR, anodeH, SEGS);
+    const anode = _addShadow(new THREE.Mesh(g, _mat(copperC, 0.35, 0.6)));
+    anode.rotation.x = Math.PI / 2;
+    anode.position.set(0, BEAM_HEIGHT, -0.2 + chamberH / 2 + anodeH / 2);
+    group.add(anode);
+  }
+
+  // ── Focusing solenoid around beam exit ──
+  const solR = 0.16, solH = 0.3;
+  const solZ = 0.45;
+  {
+    const g = new THREE.CylinderGeometry(solR, solR, solH, SEGS);
+    applyTiledCylinderUVs(g, solR, solH, SEGS);
+    const sol = _addShadow(new THREE.Mesh(g, _mat(solenoidC, 0.5, 0.3)));
+    sol.rotation.x = Math.PI / 2;
+    sol.position.set(0, BEAM_HEIGHT, solZ);
+    group.add(sol);
+  }
+  // Solenoid end rings
+  for (const zOff of [solZ - solH / 2, solZ + solH / 2]) {
+    const g = new THREE.CylinderGeometry(solR + 0.02, solR + 0.02, 0.02, SEGS);
+    applyTiledCylinderUVs(g, solR + 0.02, 0.02, SEGS);
+    const endRing = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
+    endRing.rotation.x = Math.PI / 2;
+    endRing.position.set(0, BEAM_HEIGHT, zOff);
+    group.add(endRing);
+  }
+
+  // ── Beam exit pipe through solenoid to tile edge ──
+  const portEnd = 1.0;
+  const portStart = -0.2 + chamberH / 2 + 0.12;
   const portL = portEnd - portStart;
-  const portGeo = new THREE.CylinderGeometry(PIPE_R, PIPE_R, portL, SEGS);
-  applyTiledCylinderUVs(portGeo, PIPE_R, portL, SEGS);
-  const port = _addShadow(new THREE.Mesh(portGeo, _mat(PIPE_COLOR, 0.3, 0.5)));
-  port.rotation.x = Math.PI / 2;
-  port.position.set(0, BEAM_HEIGHT, (portStart + portEnd) / 2);
-  group.add(port);
+  {
+    const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, portL, SEGS);
+    applyTiledCylinderUVs(g, PIPE_R, portL, SEGS);
+    const port = _addShadow(new THREE.Mesh(g, _mat(PIPE_COLOR, 0.3, 0.5)));
+    port.rotation.x = Math.PI / 2;
+    port.position.set(0, BEAM_HEIGHT, (portStart + portEnd) / 2);
+    group.add(port);
+  }
 
-  // Flange ring at beam exit — at tile edge so it meets adjacent pipe
-  const sourceFlangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
-  applyTiledCylinderUVs(sourceFlangeGeo, FLANGE_R, FLANGE_H, SEGS);
-  const flange = _addShadow(new THREE.Mesh(sourceFlangeGeo, _mat(FLANGE_COLOR, 0.3, 0.5)));
-  flange.rotation.x = Math.PI / 2;
-  flange.position.set(0, BEAM_HEIGHT, portEnd);
-  group.add(flange);
+  // Exit flange at tile edge
+  {
+    const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
+    const fl = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
+    fl.rotation.x = Math.PI / 2;
+    fl.position.set(0, BEAM_HEIGHT, portEnd);
+    group.add(fl);
+  }
 
-  // Support legs — four posts under the gun body (one at each corner)
-  const legW = 0.08, legH = bodyY - bodyH / 2;
-  for (const xOff of [-bodyW / 2 + legW, bodyW / 2 - legW]) {
-    for (const zOff of [-0.35, 0.25]) {
-      const srcLegGeo = new THREE.BoxGeometry(legW, legH, legW);
-      applyTiledBoxUVs(srcLegGeo, legW, legH, legW);
-      const leg = _addShadow(new THREE.Mesh(srcLegGeo, _mat(STAND_COLOR, 0.7, 0.1)));
+  // ── Cooling water fittings on chamber sides ──
+  for (const xSign of [-1, 1]) {
+    for (const zOff of [-0.35, -0.05]) {
+      const g = new THREE.CylinderGeometry(0.02, 0.02, 0.12, 8);
+      applyTiledCylinderUVs(g, 0.02, 0.12, 8);
+      const fitting = _addShadow(new THREE.Mesh(g, _mat(PIPE_COLOR, 0.3, 0.5)));
+      fitting.rotation.z = Math.PI / 2;
+      fitting.position.set(xSign * (chamberR + 0.06), BEAM_HEIGHT - 0.1, zOff);
+      group.add(fitting);
+    }
+  }
+
+  // ── Support structure — cradle frame ──
+  const cradleW = 0.9, cradleD = 1.0;
+  const legH = BEAM_HEIGHT - chamberR - 0.05;
+  // Four vertical legs
+  const legW = 0.06;
+  for (const xOff of [-cradleW / 2 + legW, cradleW / 2 - legW]) {
+    for (const zOff of [-0.55, 0.15]) {
+      const g = new THREE.BoxGeometry(legW, legH, legW);
+      applyTiledBoxUVs(g, legW, legH, legW);
+      const leg = _addShadow(new THREE.Mesh(g, _mat(STAND_COLOR, 0.7, 0.1)));
       leg.position.set(xOff, legH / 2, zOff);
       group.add(leg);
     }
   }
+  // Cross-braces front and back
+  for (const zOff of [-0.55, 0.15]) {
+    const g = new THREE.BoxGeometry(cradleW, 0.04, legW);
+    applyTiledBoxUVs(g, cradleW, 0.04, legW);
+    const brace = _addShadow(new THREE.Mesh(g, _mat(STAND_COLOR, 0.7, 0.1)));
+    brace.position.set(0, legH, zOff);
+    group.add(brace);
+  }
+  // Side rails connecting front/back braces
+  for (const xOff of [-cradleW / 2 + legW, cradleW / 2 - legW]) {
+    const g = new THREE.BoxGeometry(legW, 0.04, cradleD);
+    applyTiledBoxUVs(g, legW, 0.04, cradleD);
+    const rail = _addShadow(new THREE.Mesh(g, _mat(STAND_COLOR, 0.7, 0.1)));
+    rail.position.set(xOff, legH, -0.2);
+    group.add(rail);
+  }
 
-  // Beam travels along -Z in world space for dir=0 (NE), so flip the model
-  // so the beam exit faces -Z instead of +Z.
   group.rotation.y = Math.PI;
 
   return group;
@@ -847,6 +979,10 @@ function _buildQuadrupoleRoles() {
   return buckets;
 }
 ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
+ROLE_BUILDERS.sextupole = _buildSextupoleRoles;
+ROLE_BUILDERS.aperture = _buildApertureRoles;
+ROLE_BUILDERS.velocitySelector = _buildVelocitySelectorRoles;
+ROLE_BUILDERS.emittanceFilter = _buildEmittanceFilterRoles;
 
 /**
  * Bellows Section — 1 m long (2 sub-units) corrugated vacuum coupling.
@@ -933,6 +1069,12 @@ ROLE_BUILDERS.iot = _buildIOTRoles;
 ROLE_BUILDERS.circulator = _buildCirculatorRoles;
 ROLE_BUILDERS.rfCoupler = _buildRFCouplerRoles;
 ROLE_BUILDERS.gyrotron = _buildGyrotronRoles;
+ROLE_BUILDERS.hvTransformer = _buildHVTransformerRoles;
+ROLE_BUILDERS.disconnectSwitch = _buildDisconnectSwitchRoles;
+ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;
+ROLE_BUILDERS.padMountTransformer = _buildPadMountTransformerRoles;
+ROLE_BUILDERS.mcc = _buildMCCRoles;
+ROLE_BUILDERS.ups = _buildUPSRoles;
 
 // ── Carrier Rack (wire cable tray on support legs) ────────────────
 function _buildCarrierRackRoles() {
@@ -1674,6 +1816,91 @@ function _buildPillboxCavityRoles() {
   return buckets;
 }
 ROLE_BUILDERS.pillboxCavity = _buildPillboxCavityRoles;
+/**
+ * Buncher — smaller, simpler single-gap RF cavity.
+ *
+ * Visually distinct from the pillbox: shorter copper cell with a smaller
+ * radius, a single small RF coupler on top, and a compact single-pedestal
+ * stand.  No cooling tubes or bottom probe — it's a low-power device.
+ */
+function _buildBuncherRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const tileHalf   = 0.5;
+  const cellR      = 0.28;
+  const cellL      = 0.36;
+  const shoulderR  = cellR + 0.04;
+  const shoulderL  = 0.04;
+
+  // Main copper cell body
+  {
+    const g = new THREE.CylinderGeometry(cellR, cellR, cellL, SEGS);
+    applyTiledCylinderUVs(g, cellR, cellL, SEGS);
+    const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+    _pushTransformed(buckets.copper, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+  }
+
+  // Shoulder rings
+  for (const sign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(shoulderR, shoulderR, shoulderL, SEGS);
+    applyTiledCylinderUVs(g, shoulderR, shoulderL, SEGS);
+    const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, sign * (cellL / 2 + shoulderL / 2));
+    _pushTransformed(buckets.copper, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+  }
+
+  // Beam pipe stubs + CF end flanges
+  for (const sign of [-1, 1]) {
+    const stubStart = cellL / 2 + shoulderL;
+    const stubL = tileHalf - stubStart;
+    if (stubL > 0.001) {
+      const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, stubL, SEGS);
+      applyTiledCylinderUVs(g, PIPE_R, stubL, SEGS);
+      const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+      const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, sign * (stubStart + stubL / 2));
+      _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+    }
+    const fg = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(fg, FLANGE_R, FLANGE_H, SEGS);
+    const frot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const ftrans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, sign * tileHalf);
+    _pushTransformed(buckets.detail, fg, new THREE.Matrix4().multiplyMatrices(ftrans, frot));
+  }
+
+  // Small top RF coupler — single stub, no cap
+  {
+    const couplerR = 0.06, couplerH = 0.18;
+    const g = new THREE.CylinderGeometry(couplerR, couplerR, couplerH, SEGS);
+    applyTiledCylinderUVs(g, couplerR, couplerH, SEGS);
+    const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT + cellR + couplerH / 2, 0);
+    _pushTransformed(buckets.copper, g, trans);
+  }
+
+  // Single compact support pedestal — centered under the cell
+  {
+    const sBaseH = 0.05;
+    const sTopY  = BEAM_HEIGHT - cellR - 0.02;
+    const sColH  = sTopY - sBaseH;
+    const sColW  = 0.08;
+    const sColD  = 0.12;
+    const baseW  = 0.32;
+    const baseD  = 0.16;
+    const base = new THREE.BoxGeometry(baseW, sBaseH, baseD);
+    applyTiledBoxUVs(base, baseW, sBaseH, baseD);
+    _pushTransformed(buckets.stand, base, new THREE.Matrix4().makeTranslation(0, sBaseH / 2, 0));
+    for (const side of [-1, 1]) {
+      const col = new THREE.BoxGeometry(sColW, sColH, sColD);
+      applyTiledBoxUVs(col, sColW, sColH, sColD);
+      const ct = new THREE.Matrix4().makeTranslation(side * 0.1, sBaseH + sColH / 2, 0);
+      _pushTransformed(buckets.stand, col, ct);
+    }
+  }
+
+  return buckets;
+}
+ROLE_BUILDERS.buncher = _buildBuncherRoles;
 
 /**
  * 9-cell Elliptical SRF Cavity (ellipticalSrfCavity) — TESLA/XFEL-style
@@ -1859,6 +2086,12 @@ function _buildEllipticalSrfCavityRoles() {
 }
 ROLE_BUILDERS.ellipticalSrfCavity = _buildEllipticalSrfCavityRoles;
 
+// ── Endpoint builders ───────────────────────────────────────────────
+ROLE_BUILDERS.faradayCup = _buildFaradayCupRoles;
+ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;
+ROLE_BUILDERS.detector   = _buildDetectorRoles;
+ROLE_BUILDERS.target     = _buildTargetRoles;
+
 // Registry: component type id → builder function (legacy path for builders
 // that still return a fully-assembled THREE.Group rather than role buckets).
 const DETAIL_BUILDERS = {
@@ -1983,9 +2216,10 @@ function _buildPartsOrFallback(compDef) {
   const vSubW = compDef.visualSubW ?? compDef.subW ?? 2;
   const vSubH = compDef.visualSubH ?? compDef.subH ?? 2;
   const vSubL = compDef.visualSubL ?? compDef.subL ?? 2;
-  const w = vSubW * SUB_UNIT;
+  const INSET = 0.06;
+  const w = vSubW * SUB_UNIT - INSET;
   const h = vSubH * SUB_UNIT;
-  const l = vSubL * SUB_UNIT;
+  const l = vSubL * SUB_UNIT - INSET;
 
   const fallbackColor = compDef.spriteColor !== undefined ? compDef.spriteColor : 0x888888;
   const baseName = compDef.baseMaterial || null;
@@ -2199,12 +2433,13 @@ export class ComponentBuilder {
     const wrapper = new THREE.Group();
     wrapper.add(visual);
 
-    const portStubs = buildPortStubs(
-      compDef.id,
-      ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
-      (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
-    );
-    if (portStubs) wrapper.add(portStubs);
+    // PORT STUBS disabled — will revisit with connected routing
+    // const portStubs = buildPortStubs(
+    //   compDef.id,
+    //   ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
+    //   (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
+    // );
+    // if (portStubs) wrapper.add(portStubs);
 
     const w = (compDef.subW || 2) * SUB_UNIT;
     const h = Math.max((compDef.subH || 2) * SUB_UNIT, 1.0);

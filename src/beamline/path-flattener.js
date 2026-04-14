@@ -15,7 +15,7 @@
 // Invariant: envelope[i].s (metres) === entries[i].beamStart (metres)
 //            for every physics-generated envelope snapshot.
 //
-// When adding new entry kinds (e.g. splitter branches later), preserve
+// When adding new entry kinds, preserve
 // the index-per-entry mapping so the designer plots stay aligned.
 // ---------------------------------------------------------------------------
 
@@ -83,7 +83,6 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
     const edges = (outEdges[currentId] || []).filter(e => !visited.has(e.toId));
     if (edges.length === 0) break;
 
-    // TODO(splitter): when splitters arrive, use pathHint to pick branches.
     const pipe = edges[0];
 
     // Emit attachments + drift interleaved. Attachments are sorted by position.
@@ -150,8 +149,7 @@ export function flattenPath(gameState, sourceId, endpointId = null) {
 
 /**
  * Find all reachable endpoints from a source in the pipe graph.
- * Used by the designer to populate an endpoint selector for future
- * splitter support, and to validate source selection.
+ * Used by the designer to populate an endpoint selector and to validate source selection.
  *
  * @param {Object} gameState - game.state
  * @param {string} sourceId - placeable id of the source

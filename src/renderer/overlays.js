@@ -297,9 +297,9 @@ Renderer.prototype.hidePopup = function() {
 
 // --- Schematic drawing ---
 
-Renderer.prototype.drawSchematic = function(canvas, componentType, params) {
+Renderer.prototype.drawSchematic = function(canvas, componentType, params, options) {
   // We draw at a tiny resolution (70x30 pixels) then scale up crispy
-  const PW = 70, PH = 30;
+  const PW = (options && options.pixelWidth) || 70, PH = 30;
   const off = document.createElement('canvas');
   off.width = PW; off.height = PH;
   const p = off.getContext('2d');
@@ -609,9 +609,11 @@ Renderer.prototype._schematicDrawers = {
     _drawBeamPipe(px, dot, W, cy, C);
     // Vacuum interior between pipe walls
     px(FLANGE_W + 1, cy - PIPE_HALF + 1, W - 2 * FLANGE_W - 2, PIPE_HALF * 2 - 1, '#0d0d22');
-    // Vacuum specks
-    for (const [dx, dy] of [[18, -1], [30, 0], [42, -2], [25, 1], [50, -1], [37, 1]]) {
-      if (Math.abs(dy) < PIPE_HALF) dot(dx, cy + dy, '#1a1a33');
+    // Vacuum specks — distribute proportionally, skip any outside bounds
+    const innerL = FLANGE_W + 2, innerR = W - FLANGE_W - 2;
+    for (const [frac, dy] of [[0.26, -1], [0.43, 0], [0.60, -2], [0.36, 1], [0.71, -1], [0.53, 1]]) {
+      const dx = Math.round(frac * W);
+      if (dx >= innerL && dx < innerR && Math.abs(dy) < PIPE_HALF) dot(dx, cy + dy, '#1a1a33');
     }
     // Solid beam line (vacuum fill covers pre-drawn dashes)
     px(FLANGE_W + 2, cy, W - 2 * FLANGE_W - 4, 1, C.beam);
@@ -912,32 +914,6 @@ Renderer.prototype._schematicDrawers = {
     dot(cx, cy, '#ffffff');
     dot(cx - 1, cy, C.hotBright);
     dot(cx + 1, cy, C.hotBright);
-  },
-
-  // === SPLITTER ===
-  splitter(p, px, dot, W, H, cy, C) {
-    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
-    // Incoming beam
-    for (let x = 4; x < 30; x++) dot(x, cy, C.beam);
-    // Junction point
-    dot(30, cy, '#ffffff');
-    // Upper branch
-    for (let x = 30; x < W - 4; x++) {
-      const t = (x - 30) / (W - 34);
-      const y = Math.round(cy - t * 8);
-      dot(x, y, C.beamDim);
-      if (y > 0) { dot(x, y - 1, '#0d0d22'); }
-    }
-    // Lower branch
-    for (let x = 30; x < W - 4; x++) {
-      const t = (x - 30) / (W - 34);
-      const y = Math.round(cy + t * 8);
-      dot(x, y, C.beamDim);
-    }
-    // Septum magnet at split
-    px(29, cy - 2, 2, 5, C.magnetDk);
-    dot(30, cy - 1, C.magnetLt);
-    dot(30, cy + 1, C.magnetLt);
   },
 
   // === APERTURE / COLLIMATOR ===
@@ -2714,8 +2690,8 @@ Renderer.prototype._schematicDrawers = {
     px(39, my - 5, 1, 13, '#ccaa44');
   },
 
-  // === SUBSTATION ===
-  substation(p, px, dot, W, H, cy, C) {
+  // === HV TRANSFORMER ===
+  hvTransformer(p, px, dot, W, H, cy, C) {
     const my = cy - 3;
     // Transformer
     px(16, my - 7, 14, 15, C.metalDk);
@@ -3462,17 +3438,20 @@ Renderer.prototype._openBeamlineWindow = function(beamlineId) {
   if (entry && bw.ctx) {
     const nodes = entry.beamline.getAllNodes();
     if (nodes.length > 0) {
-      let sumX = 0, sumY = 0, count = 0;
+      let sumX = 0, sumY = 0, sumCol = 0, sumRow = 0, count = 0;
       for (const node of nodes) {
         for (const t of node.tiles) {
           const iso = tileCenterIso(t.col, t.row);
           sumX += iso.x;
           sumY += iso.y;
+          sumCol += t.col + 0.5;
+          sumRow += t.row + 0.5;
           count++;
         }
       }
       // Anchor slightly above and to the right of center
       bw.ctx.setWorldAnchor(sumX / count + 60, sumY / count - 80);
+      bw.ctx.setTileAnchor(sumCol / count, sumRow / count, 60, -80);
       bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
     }
   }
@@ -3518,6 +3497,7 @@ Renderer.prototype._openEquipmentWindow = function(equip) {
   // Anchor to equipment tile
   const iso = tileCenterIso(equip.col, equip.row);
   ew.ctx.setWorldAnchor(iso.x + 40, iso.y - 60);
+  ew.ctx.setTileAnchor(equip.col + 0.5, equip.row + 0.5, 40, -60);
   ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
 
   const origClose = ew.ctx._onClose;
