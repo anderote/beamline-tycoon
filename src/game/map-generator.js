@@ -27,42 +27,33 @@ function sampleTerrainBrightness(col, row, blobs) {
   return Math.max(-1, Math.min(1, val));
 }
 
-// ── Species table — brightness bin → { primaries, secondaries, primaryFrac } ─
-// Within a bin, pick primaries with probability `primaryFrac`, secondaries
-// otherwise. Within a pool, pick uniformly.
+// ── Per-clump species assignment ─────────────────────────────────────
+// Each forest clump is dominated by one species (a pine grove, an oak
+// stand, a birch copse, etc.) with a secondary species mixed in and a
+// small amount of shrub understory. Clumps cycle through this table by
+// index, so seeing clumps side-by-side shows visibly different forests.
 
-const SPECIES_BINS = [
-  {
-    maxBrightness: -0.6,
-    primaryFrac: 0.80,
-    primaries: ['pineTree', 'cedarTree'],
-    secondaries: ['oakTree', 'mapleTree'],
-  },
-  {
-    maxBrightness: -0.3,
-    primaryFrac: 0.70,
-    primaries: ['oakTree', 'mapleTree', 'elmTree', 'willowTree'],
-    secondaries: ['pineTree', 'cedarTree'],
-  },
-  {
-    maxBrightness: 0.2,
-    primaryFrac: 0.70,
-    primaries: ['oakTree', 'mapleTree', 'smallTree'],
-    secondaries: ['birchTree'],
-  },
-  {
-    maxBrightness: Infinity,
-    primaryFrac: 0.75,
-    primaries: ['birchTree', 'smallTree'],
-    secondaries: ['birchTree', 'smallTree'],
-  },
+const CLUMP_SPECIES = [
+  { primary: 'pineTree',    secondary: 'cedarTree' },
+  { primary: 'oakTree',     secondary: 'mapleTree' },
+  { primary: 'birchTree',   secondary: 'smallTree' },
+  { primary: 'mapleTree',   secondary: 'elmTree' },
+  { primary: 'cedarTree',   secondary: 'pineTree' },
+  { primary: 'willowTree',  secondary: 'birchTree' },
+  { primary: 'elmTree',     secondary: 'oakTree' },
+  { primary: 'smallTree',   secondary: 'mapleTree' },
 ];
 
-function pickSpeciesForBrightness(brightness, rng) {
-  const bin = SPECIES_BINS.find(b => brightness < b.maxBrightness) || SPECIES_BINS[SPECIES_BINS.length - 1];
-  const pool = rng() < bin.primaryFrac ? bin.primaries : bin.secondaries;
-  return pool[Math.floor(rng() * pool.length)];
+function pickClumpSpecies(clumpEntry, rng) {
+  const r = rng();
+  if (r < 0.75) return clumpEntry.primary;
+  if (r < 0.95) return clumpEntry.secondary;
+  return 'shrub';
 }
+
+// Lonely-tree scatter uses a mixed pool that reads as "wild individual
+// trees" rather than re-asserting any of the named clump species.
+const SCATTER_POOL = ['shrub', 'smallTree', 'birchTree'];
 
 // ── Decoration placement ────────────────────────────────────────────
 
@@ -94,8 +85,9 @@ function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdR
 
 const WORLD_BOUND = 30;       // sampling bounds for placement (matches GRASS_RANGE in world-snapshot.js)
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
-const MAX_CLUSTERS = 6;       // a few Gaussian forest regions, not a uniform blanket
-const DARK_CLUSTER_THRESHOLD = -0.3;
+const MAX_CLUSTERS = 8;       // a handful of distinct, notable forest clumps
+const DARK_CLUSTER_THRESHOLD = -0.1;
+const CLUMP_RADIUS_CAP = 14;  // cap clump radius so large blobs don't produce diffuse forests
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
@@ -157,18 +149,24 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   const treeCells = new Set();
   const nextIdRef = { value: 1 };
 
-  // 1. Select dark-soil cluster centers: brightness <= -0.3, darkest first,
-  //    up to 8 clusters.
+  // 1. Select forest-clump centers from the darker terrain blobs. Up to 8,
+  //    darkest first. Each clump becomes one notable grove.
   const clusters = terrainBlobs
     .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD)
     .slice()
     .sort((a, b) => a.brightness - b.brightness)
     .slice(0, MAX_CLUSTERS);
 
-  // 2. Per cluster: Gaussian-ish scatter inside the blob's rotated frame.
-  for (const blob of clusters) {
-    const count = Math.min(40, Math.max(12, Math.round(blob.sx * blob.sy * 0.8)));
-    const r = Math.min(blob.sx, blob.sy) * 1.1;
+  // 2. Per clump: dense Gaussian scatter in the blob's rotated frame.
+  //    Each clump is assigned a primary species from CLUMP_SPECIES by index,
+  //    so neighboring clumps look visibly distinct.
+  for (let ci = 0; ci < clusters.length; ci++) {
+    const blob = clusters[ci];
+    const clumpEntry = CLUMP_SPECIES[ci % CLUMP_SPECIES.length];
+    const r = Math.min(Math.min(blob.sx, blob.sy) * 1.1, CLUMP_RADIUS_CAP);
+    // Area-driven density: aim for ~0.5 trees per square unit of clump area.
+    const area = Math.PI * r * r;
+    const count = Math.min(140, Math.max(35, Math.round(area * 0.5)));
     const cos = Math.cos(blob.angle);
     const sin = Math.sin(blob.angle);
 
@@ -187,25 +185,22 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
       if (outOfBounds(col, row)) continue;
       if (inClearing(col, row)) continue;
 
-      const localB = sampleTerrainBrightness(col, row, terrainBlobs);
-      const type = pickSpeciesForBrightness(localB, rng);
+      const type = pickClumpSpecies(clumpEntry, rng);
       if (tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng)) {
         placed++;
       }
     }
   }
 
-  // 3. Lonely-tree scatter: a small handful of individual trees sprinkled
-  //    across the map, so the area between forest clumps isn't bare. Kept
-  //    deliberately sparse — the user wants distinct Gaussian forest regions,
-  //    not a uniform blanket. Skipped when terrainBlobs is empty so
+  // 3. Lonely-tree scatter: a small handful of individual trees (shrubs,
+  //    smallTree, birch) sprinkled across the map so the area between
+  //    clumps isn't completely bare. Skipped when terrainBlobs is empty so
   //    generateStartingMap(seed, []) returns an empty map for testing.
   if (terrainBlobs.length > 0) {
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 20; i++) {
       const col = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
       const row = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
-      const b = sampleTerrainBrightness(col, row, terrainBlobs);
-      const type = pickSpeciesForBrightness(b, rng);
+      const type = SCATTER_POOL[Math.floor(rng() * SCATTER_POOL.length)];
       tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng);
     }
   }
