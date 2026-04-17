@@ -27,28 +27,32 @@ function sampleTerrainBrightness(col, row, blobs) {
   return Math.max(-1, Math.min(1, val));
 }
 
-// ── Species table — brightness bin → { primaries, secondaries } ─────
-// Primary pool = 75% pick; secondary pool = 25% pick. Within a pool,
-// pick uniformly.
+// ── Species table — brightness bin → { primaries, secondaries, primaryFrac } ─
+// Within a bin, pick primaries with probability `primaryFrac`, secondaries
+// otherwise. Within a pool, pick uniformly.
 
 const SPECIES_BINS = [
   {
     maxBrightness: -0.6,
+    primaryFrac: 0.80,
     primaries: ['pineTree', 'cedarTree'],
     secondaries: ['oakTree', 'mapleTree'],
   },
   {
     maxBrightness: -0.3,
+    primaryFrac: 0.70,
     primaries: ['oakTree', 'mapleTree', 'elmTree', 'willowTree'],
     secondaries: ['pineTree', 'cedarTree'],
   },
   {
     maxBrightness: 0.2,
+    primaryFrac: 0.70,
     primaries: ['oakTree', 'mapleTree', 'smallTree'],
     secondaries: ['birchTree'],
   },
   {
     maxBrightness: Infinity,
+    primaryFrac: 0.75,
     primaries: ['birchTree', 'smallTree'],
     secondaries: ['birchTree', 'smallTree'],
   },
@@ -56,7 +60,7 @@ const SPECIES_BINS = [
 
 function pickSpeciesForBrightness(brightness, rng) {
   const bin = SPECIES_BINS.find(b => brightness < b.maxBrightness) || SPECIES_BINS[SPECIES_BINS.length - 1];
-  const pool = rng() < 0.75 ? bin.primaries : bin.secondaries;
+  const pool = rng() < bin.primaryFrac ? bin.primaries : bin.secondaries;
   return pool[Math.floor(rng() * pool.length)];
 }
 
