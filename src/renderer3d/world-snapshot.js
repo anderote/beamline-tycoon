@@ -119,6 +119,7 @@ function buildFloors(game) {
       variant: tile.variant ?? null,
       tint: tile.tint ?? null,
       noGrid: def?.noGrid ?? false,
+      cornersY: getTileCornersY(game.state, tile.col, tile.row),
     };
   });
 }
