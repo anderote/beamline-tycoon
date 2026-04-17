@@ -3,6 +3,7 @@
 
 import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
+import { WildflowerBuilder } from './wildflower-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
 import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedComponent } from './component-builder.js';
@@ -154,6 +155,7 @@ export class ThreeRenderer {
 
     this.textureManager = new TextureManager();
     this.terrainBuilder = new TerrainBuilder(this.textureManager);
+    this.wildflowerBuilder = new WildflowerBuilder();
     this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
@@ -316,6 +318,7 @@ export class ThreeRenderer {
     this.terrainGroup = new THREE.Group();
     this.terrainGroup.name = 'terrain';
     this.scene.add(this.terrainGroup);
+    this.wildflowerBuilder.add(this.terrainGroup);
 
     this.floorGroup = new THREE.Group();
     this.floorGroup.name = 'floors';
@@ -2193,6 +2196,7 @@ export class ThreeRenderer {
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
     this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
+    this.wildflowerBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
@@ -2218,6 +2222,7 @@ export class ThreeRenderer {
   _refreshTerrain() {
     const snap = buildWorldSnapshot(this.game);
     this.terrainBuilder.build(snap.terrain, this.terrainGroup);
+    this.wildflowerBuilder.rebuild(snap);
   }
 
   _refreshInfra() {

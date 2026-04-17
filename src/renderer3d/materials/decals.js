@@ -31,6 +31,37 @@ function makeDecal(file, { roughness = 0.5, metalness = 0.2 } = {}) {
 }
 
 /**
+ * Creates a soft-radial-gradient alpha texture used for ground flower decals.
+ * White with alpha fading from 1.0 at center to 0.0 at edge. Small (32x32)
+ * since it's rendered at ~0.2 world units.
+ */
+function gen_radialDot(size = 32) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const r = size / 2;
+  const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1.0)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+/** Shared procedural textures (not loaded from PNGs). Module-level singletons. */
+export const PROC_DECAL_TEXTURES = {
+  flower_dot: gen_radialDot(32),
+};
+
+/**
  * Map of decal name -> shared MeshStandardMaterial instance.
  * Populated incrementally as decals are authored. Module-level singletons.
  */
