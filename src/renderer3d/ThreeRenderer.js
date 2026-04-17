@@ -597,7 +597,9 @@ export class ThreeRenderer {
   // --- Camera controls (PixiJS-compatible, syncs to Three.js) ---
 
   /**
-   * Raycast a screen pixel to the y=0 plane. Returns a THREE.Vector3 or null.
+   * Raycast a screen pixel to the terrain surface. Returns a THREE.Vector3 or
+   * null. Falls back to the y=0 plane when the terrain mesh is absent (e.g.
+   * pre-first-snapshot) or when the ray misses the mesh (e.g. aimed at sky).
    * Uses the current camera orientation, so it respects view rotation.
    */
   _raycastGround(screenX, screenY) {
@@ -607,6 +609,10 @@ export class ThreeRenderer {
     const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    if (this._terrainMesh) {
+      const intersections = raycaster.intersectObject(this._terrainMesh);
+      if (intersections.length > 0) return intersections[0].point;
+    }
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hit = new THREE.Vector3();
     return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
