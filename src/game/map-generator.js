@@ -91,6 +91,7 @@ const CLUMP_RADIUS_MIN = 10;  // even a tiny blob gets a real grove, not 2 trees
 const CLUMP_RADIUS_MAX = 16;  // cap clump radius so large blobs don't produce diffuse forests
 const CLUMP_MIN_BLOB_SIZE = 3;   // filter out blobs too small to anchor a clump
 const CLUMP_CENTER_BOUND = 40;   // require blob center within WORLD_BOUND+10 so the clump's on-map portion is substantial
+const CLUMP_MIN_SEPARATION = 30; // minimum distance between clump centers, so groves don't bunch up
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
@@ -154,16 +155,23 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
 
   // 1. Select forest-clump centers from the darker terrain blobs. Filter out
   //    tiny blobs (can't anchor a real grove) and blobs centered too far
-  //    outside world bounds (their on-map portion would be vestigial).
-  //    Darkest-first, up to MAX_CLUSTERS.
-  const clusters = terrainBlobs
+  //    outside world bounds. Then greedily pick darkest-first up to
+  //    MAX_CLUSTERS, enforcing CLUMP_MIN_SEPARATION between chosen centers
+  //    so groves don't visually bunch up.
+  const candidates = terrainBlobs
     .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD
       && Math.min(b.sx, b.sy) >= CLUMP_MIN_BLOB_SIZE
       && Math.abs(b.cx) <= CLUMP_CENTER_BOUND
       && Math.abs(b.cy) <= CLUMP_CENTER_BOUND)
     .slice()
-    .sort((a, b) => a.brightness - b.brightness)
-    .slice(0, MAX_CLUSTERS);
+    .sort((a, b) => a.brightness - b.brightness);
+  const clusters = [];
+  for (const cand of candidates) {
+    if (clusters.length >= MAX_CLUSTERS) break;
+    const tooClose = clusters.some(c =>
+      Math.hypot(c.cx - cand.cx, c.cy - cand.cy) < CLUMP_MIN_SEPARATION);
+    if (!tooClose) clusters.push(cand);
+  }
 
   // 2. Per clump: dense Gaussian scatter in the blob's rotated frame.
   //    Each clump is assigned a primary species from CLUMP_SPECIES by index,
