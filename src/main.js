@@ -5,13 +5,10 @@ import { BeamPhysics } from './beamline/physics.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
 import { SpriteManager } from './renderer/sprites.js';
-// Legacy Renderer — needed so hud.js/overlays.js can attach methods to its prototype
-import { Renderer } from './renderer/Renderer.js';
-// Renderer prototype extensions — must import AFTER Renderer.js to avoid circular TDZ
-import './renderer/hud.js';
-import './renderer/overlays.js';
+// designer-renderer attaches methods to BeamlineDesigner.prototype.
 import './renderer/designer-renderer.js';
-// ThreeRenderer imports LegacyRenderer and bridges the DOM methods onto its own prototype
+// ThreeRenderer transitively loads UIHost + hud.js + overlays.js, which
+// attach DOM-side UI methods to UIHost.prototype.
 import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
