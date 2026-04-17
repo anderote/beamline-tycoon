@@ -553,7 +553,7 @@ body {
   bottom: 321px;
   right: 23px;
   width: 96px;
-  height: 116px;
+  height: 122px;
   z-index: 101;
   pointer-events: auto;
   user-select: none;
@@ -561,12 +561,12 @@ body {
 .view-cube-host {
   position: relative;
   width: 96px;
-  height: 116px;
+  height: 122px;
 }
 .view-cube-host .vc-cube-canvas {
   position: absolute;
   left: 0;
-  top: 20px;
+  top: 25px;
   width: 96px;
   height: 96px;
   cursor: pointer;
@@ -574,7 +574,7 @@ body {
 .view-cube-host .vc-rotate-bar {
   position: absolute;
   left: 0;
-  top: 95px;
+  top: 100px;
   width: 96px;
   height: 22px;
   overflow: visible;
@@ -586,7 +586,7 @@ body {
 }
 .view-cube-host .vc-rot path {
   stroke: rgba(180, 200, 240, 0.55);
-  stroke-width: 1.2;
+  stroke-width: 1.4;
   fill: none;
   transition: stroke 120ms ease;
 }
@@ -596,7 +596,7 @@ body {
   transition: fill 120ms ease;
 }
 .view-cube-host .vc-rot text.vc-rot-label {
-  font: bold 8px sans-serif;
+  font: bold 10px sans-serif;
   fill: rgba(180, 200, 240, 0.7);
   transition: fill 120ms ease;
 }

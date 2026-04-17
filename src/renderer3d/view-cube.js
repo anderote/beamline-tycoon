@@ -86,16 +86,18 @@ export class ViewCube {
       width: '96',
       height: '22',
     });
-    // Imaginary rotation circle: center above the SVG so its lower portion
-    // dips into our 22px band. Radius chosen so the 30° arcs span ~14px of
-    // chord length — small and subtle.
-    const CX = 48, CY = -10, R = 28;
+    // Both arrows are 30° segments on the SAME imaginary circle. The circle
+    // is centered horizontally over the cube (CX = 48) and sized at 1.2x
+    // the cube canvas radius — so the visible arcs feel like they're
+    // wrapping a pedestal slightly larger than the cube. Center is above
+    // the SVG so the circle's lowest 30°-each on each side dips in.
+    const CX = 48, CY = -36, R = 58;
     const makeArrow = (dir, label) => {
       // dir = -1 → Q (counterclockwise / left); +1 → E (clockwise / right).
-      // Q sweeps from 130° → 160° (CCW). E sweeps from 50° → 20° (CW).
+      // Q: 105° → 135°. E: 75° → 45°. Gap of 30° centered at the bottom.
       const g = svgEl('g', { class: `vc-rot vc-rot-${label.toLowerCase()}` });
-      const startDeg = dir < 0 ? 130 : 50;
-      const endDeg = dir < 0 ? 160 : 20;
+      const startDeg = dir < 0 ? 105 : 75;
+      const endDeg = dir < 0 ? 135 : 45;
       const ccw = dir < 0;
       const sweep = ccw ? 1 : 0; // SVG sweep flag in Y-down system
       const sx = CX + R * Math.cos(startDeg * Math.PI / 180);
@@ -111,7 +113,7 @@ export class ViewCube {
       const a = endDeg * Math.PI / 180;
       const tx = ccw ? -Math.sin(a) : Math.sin(a);
       const ty = ccw ?  Math.cos(a) : -Math.cos(a);
-      const HL = 4.5, HW = 2.2;
+      const HL = 5.4, HW = 2.6;
       const baseX = ex - tx * HL;
       const baseY = ey - ty * HL;
       const px = -ty, py = tx; // perpendicular
@@ -120,11 +122,12 @@ export class ViewCube {
       const head = svgEl('polygon', {
         points: `${ex.toFixed(2)},${ey.toFixed(2)} ${b1x.toFixed(2)},${b1y.toFixed(2)} ${b2x.toFixed(2)},${b2y.toFixed(2)}`,
       });
-      // Letter label sits at the start side of the arc.
+      // Labels at the outer corners of the arrow band, away from the arc
+      // tips which now reach near the SVG's left/right edges at the top.
       const text = svgEl('text', {
-        x: dir < 0 ? Math.max(2, sx - 6) : Math.min(94, sx + 6),
-        y: sy + 4,
-        'text-anchor': dir < 0 ? 'end' : 'start',
+        x: dir < 0 ? 2 : 94,
+        y: 20,
+        'text-anchor': dir < 0 ? 'start' : 'end',
         class: 'vc-rot-label',
       });
       text.textContent = label;
