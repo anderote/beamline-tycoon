@@ -84,14 +84,10 @@ function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdR
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// Map shape is a long, narrow oblique rectangle oriented along the NE–SW
-// diagonal. u = col - row is the signed position along NE(+)/SW(-);
-// v = col + row is the signed position along SE(+)/NW(-). A cell is
-// inside the map if |u| <= LONG_EXTENT && |v| <= NARROW_EXTENT.
-// WORLD_BOUND is the axis-aligned bounding box for iteration loops —
-// any cell outside the box is definitely outside the oblique region.
-const LONG_EXTENT = 50;       // half-length along NE–SW diagonal (cells)
-const NARROW_EXTENT = 14;     // half-width along NW–SE perpendicular (cells)
+// Map shape is a long, narrow axis-aligned rectangle. Long axis is col
+// (E–W); short axis is row (N–S). WORLD_BOUND matches LONG_EXTENT.
+const LONG_EXTENT = 35;       // half-length along col (E–W) — map spans col in [-35, +35]
+const NARROW_EXTENT = 10;     // half-width along row (N–S) — map spans row in [-10, +10]
 const WORLD_BOUND = 35;       // axis-aligned iteration bound; matches GRASS_RANGE in world-snapshot.js
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
 const MAX_CLUSTERS = 10;      // a handful of distinct, notable forest clumps
@@ -99,15 +95,13 @@ const DARK_CLUSTER_THRESHOLD = -0.1;
 const CLUMP_RADIUS_MIN = 10;  // even a tiny blob gets a real grove, not 2 trees
 const CLUMP_RADIUS_MAX = 16;  // cap clump radius so large blobs don't produce diffuse forests
 const CLUMP_MIN_BLOB_SIZE = 3;   // filter out blobs too small to anchor a clump
-const CLUMP_CENTER_MARGIN = 10;  // blob center allowed up to this far outside the oblique region
+const CLUMP_CENTER_MARGIN = 10;  // blob center allowed up to this far outside the map region
 const CLUMP_MIN_SEPARATION = 30; // minimum distance between clump centers, so groves don't bunch up
 
-/** True if (col, row) lies inside the oblique NE–SW map region. Exported
- * so the renderer-side snapshot can mask grass to the same shape. */
+/** True if (col, row) lies inside the axis-aligned long-narrow map region.
+ * Exported so the renderer-side snapshot can mask grass to the same shape. */
 export function inMapRegion(col, row) {
-  const u = col - row;
-  const v = col + row;
-  return Math.abs(u) <= LONG_EXTENT && Math.abs(v) <= NARROW_EXTENT;
+  return Math.abs(col) <= LONG_EXTENT && Math.abs(row) <= NARROW_EXTENT;
 }
 
 function inClearing(col, row) {
@@ -115,7 +109,6 @@ function inClearing(col, row) {
 }
 
 function outOfBounds(col, row) {
-  if (Math.abs(col) > WORLD_BOUND || Math.abs(row) > WORLD_BOUND) return true;
   return !inMapRegion(col, row);
 }
 
@@ -253,8 +246,8 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   const candidates = terrainBlobs
     .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD
       && Math.min(b.sx, b.sy) >= CLUMP_MIN_BLOB_SIZE
-      && Math.abs(b.cx - b.cy) <= LONG_EXTENT + CLUMP_CENTER_MARGIN
-      && Math.abs(b.cx + b.cy) <= NARROW_EXTENT + CLUMP_CENTER_MARGIN)
+      && Math.abs(b.cx) <= LONG_EXTENT + CLUMP_CENTER_MARGIN
+      && Math.abs(b.cy) <= NARROW_EXTENT + CLUMP_CENTER_MARGIN)
     .slice()
     .sort((a, b) => a.brightness - b.brightness);
   const clusters = [];
