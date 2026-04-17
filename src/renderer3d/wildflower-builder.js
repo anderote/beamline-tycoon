@@ -59,8 +59,11 @@ function clamp(v, lo, hi) {
  * @returns {Array<{x:number,y:number,z:number,scale:number,rotY:number,colorHex:number}>}
  */
 export function computeFlowerInstancesForCell(col, row, hash, brightness) {
-  // Density rises with brightness (lighter grass -> denser flowers).
-  const density = clamp(0.15 + 0.55 * (brightness + 1) / 2, 0.05, 0.7);
+  // Meadow-clump density: flowers only appear where terrain brightness
+  // exceeds ~0.25 (the peaks of bright terrain blobs). Below threshold =
+  // zero flowers, so flowers cluster in discrete meadows instead of
+  // scattering uniformly across every grass cell.
+  const density = clamp((brightness - 0.25) * 2.0, 0, 0.9);
   const hash01 = (hash & 0xFFFF) / 0xFFFF;
   const n = Math.floor(hash01 * density * 3);
 
