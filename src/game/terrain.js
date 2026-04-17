@@ -67,23 +67,20 @@ function enforceInvariant(arr, anchorIdx, anchorValue) {
       if (d > worstDist) { worstDist = d; worstIdx = i; }
     }
     if (worstIdx < 0) return; // defensive
+    // Invariant (pigeonhole): since max − min > 1 and arr[anchorIdx] ===
+    // anchorValue, at least one non-anchor corner must differ from the
+    // anchor by more than 1 — so arr[worstIdx] !== anchorValue here. If
+    // a future change to the caller contract ever breaks this assumption,
+    // fail loudly rather than silently spinning to MAX_PASSES.
+    if (arr[worstIdx] === anchorValue) {
+      throw new Error(
+        `[terrain] enforceInvariant: unreachable state — worst non-anchor corner equals anchor ` +
+        `(anchorIdx=${anchorIdx}, anchorValue=${anchorValue}, arr=[${arr[0]},${arr[1]},${arr[2]},${arr[3]}])`
+      );
+    }
     // Step one toward anchor.
     if (arr[worstIdx] < anchorValue) arr[worstIdx] += 1;
-    else if (arr[worstIdx] > anchorValue) arr[worstIdx] -= 1;
-    else {
-      // Equal to anchor but invariant still violated — means some other
-      // corner is the offender. Pick furthest-from-anchor among non-equal.
-      let altIdx = -1, altDist = -1;
-      for (let i = 0; i < 4; i++) {
-        if (i === anchorIdx) continue;
-        if (arr[i] === anchorValue) continue;
-        const d = Math.abs(arr[i] - anchorValue);
-        if (d > altDist) { altDist = d; altIdx = i; }
-      }
-      if (altIdx < 0) return;
-      if (arr[altIdx] < anchorValue) arr[altIdx] += 1;
-      else arr[altIdx] -= 1;
-    }
+    else arr[worstIdx] -= 1;
   }
 }
 
@@ -139,10 +136,26 @@ export function setCornerHeight(state, col, row, cornerIdx, value) {
 }
 
 /**
- * Bulk-sets all 4 corners of a tile. Each value is clamped to the height
- * range. After writing, the invariant is enforced (anchored on the NW
- * corner — arbitrary but deterministic). Bumps revision. If the final
- * state is all zeros, removes the entry.
+ * Bulk-sets all 4 corners of a tile.
+ *
+ * Semantics:
+ *  1. Each input value (nw, ne, se, sw) is first clamped to
+ *     `[HEIGHT_MIN, HEIGHT_MAX]`.
+ *  2. If the post-clamp set violates the per-tile invariant
+ *     (max − min > 1 step), the invariant is enforced by cascading the
+ *     OTHER THREE corners toward the NW value. **NW is the anchor — its
+ *     value wins in any conflict**, and the other three are clamped
+ *     (one step at a time, furthest-from-anchor first) until the
+ *     invariant holds.
+ *
+ * Landmine: if a caller passes e.g. `{nw: 0, ne: 0, se: 0, sw: 3}`, SW is
+ * silently clamped DOWN to 1 — the caller's SW=3 is discarded because NW
+ * is the anchor. Callers that need a different anchor (e.g. "SW wins")
+ * must pre-resolve conflicts themselves before calling, or use
+ * `setCornerHeight` with the desired anchor corner.
+ *
+ * After enforcement the revision counter is bumped and, if the final
+ * state is all zeros, the sparse-map entry is removed.
  */
 export function setTileCorners(state, col, row, { nw, ne, se, sw }) {
   const arr = getOrCreate(state, col, row);
@@ -183,11 +196,20 @@ export function serializeCornerHeights(map) {
 
 /**
  * Inverse of serializeCornerHeights. Returns a fresh Map.
+ *
+ * Defensive against malformed entries (old/corrupted saves): any entry
+ * that is not a length-≥6 array is skipped with a console warning rather
+ * than thrown — old-save leniency matches the project's Game.load
+ * backward-compat pattern.
  */
 export function deserializeCornerHeights(array) {
   const map = new Map();
   if (!array || !array.length) return map;
   for (const entry of array) {
+    if (!Array.isArray(entry) || entry.length < 6) {
+      console.warn('[terrain] skipping malformed cornerHeights entry', entry);
+      continue;
+    }
     const [col, row, nw, ne, se, sw] = entry;
     const arr = new Int8Array(4);
     arr[NW] = nw; arr[NE] = ne; arr[SE] = se; arr[SW] = sw;

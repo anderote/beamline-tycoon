@@ -112,6 +112,27 @@ assert(NW === 0 && NE === 1 && SE === 2 && SW === 3, 'corner indices NW=0, NE=1,
   assert(mx - mn <= 1, `setTileCorners invariant cascade keeps diff ≤ 1 (got ${mx - mn})`);
 }
 
+// --- setTileCorners with MAX-SPREAD input must converge (NW-anchored) ---
+// Worst legal input: corners alternate HEIGHT_MAX/HEIGHT_MIN. Full spread is
+// HEIGHT_MAX − HEIGHT_MIN = 10 steps. Cascading the 3 non-anchor corners
+// toward NW must converge without hitting the MAX_PASSES fuse.
+{
+  const s = makeState();
+  setTileCorners(s, 0, 0, {
+    nw: HEIGHT_MAX,
+    ne: HEIGHT_MIN,
+    se: HEIGHT_MAX,
+    sw: HEIGHT_MIN,
+  });
+  const c = getTileCorners(s, 0, 0);
+  const vals = [c.nw, c.ne, c.se, c.sw];
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  assert(mx - mn <= 1,
+    `max-spread cascade: invariant holds after convergence (nw=${c.nw} ne=${c.ne} se=${c.se} sw=${c.sw}, diff=${mx - mn})`);
+  assert(c.nw === HEIGHT_MAX,
+    `max-spread cascade: NW retains anchor value HEIGHT_MAX (got ${c.nw})`);
+}
+
 // --- all-zeros setTileCorners removes map entry (sparsity) ---
 {
   const s = makeState();
