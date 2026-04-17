@@ -50,7 +50,13 @@ function buildTerrain(game) {
     for (let row = -GRASS_RANGE; row <= GRASS_RANGE; row++) {
       if (!inMapRegion(col, row)) continue;
       const key = col + ',' + row;
-      if (infraOccupied[key] || zoneOccupied[key]) continue;
+      // Grass-kind placements (grass/wildgrass/tallgrass) do NOT displace the
+      // default terrain mesh — they just tag the cell for per-kind tuft
+      // density. This keeps the brightness-blob vertex colouring continuous
+      // across placed grass patches so they blend with the surrounding map.
+      const occupant = infraOccupied[key];
+      if (occupant && !GRASS_SURFACE_KINDS.has(occupant)) continue;
+      if (zoneOccupied[key]) continue;
 
       const hash = grassHash(col, row);
       const brightness = sampleTerrainBrightness(col, row, blobs);
@@ -110,10 +116,38 @@ function buildCliffs(game) {
   return cliffs;
 }
 
+const GRASS_SURFACE_KINDS = new Set(['grass', 'wildgrass', 'tallgrass']);
+
+/**
+ * Placed grass-kind floors with per-tile hash + brightness, so the tuft
+ * builder can render tufts on them at a per-kind density. Returned as a
+ * separate snapshot field to keep other floor consumers uninvolved.
+ */
+function buildGrassSurfaces(game) {
+  const blobs = game.state.terrainBlobs || [];
+  const out = [];
+  for (const tile of game.state.floors || []) {
+    if (!GRASS_SURFACE_KINDS.has(tile.type)) continue;
+    out.push({
+      col: tile.col,
+      row: tile.row,
+      kind: tile.type,
+      hash: grassHash(tile.col, tile.row),
+      brightness: sampleTerrainBrightness(tile.col, tile.row, blobs),
+    });
+  }
+  return out;
+}
+
 function buildFloors(game) {
-  return (game.state.floors || []).map(tile => {
+  const out = [];
+  for (const tile of game.state.floors || []) {
+    // Grass-kind surfaces render via the terrain mesh (which still covers
+    // these cells) plus the tuft builder — skip emitting a floor tile so the
+    // FloorBuilder doesn't stamp a flat texture on top.
+    if (GRASS_SURFACE_KINDS.has(tile.type)) continue;
     const def = FLOORS[tile.type];
-    return {
+    out.push({
       col: tile.col,
       row: tile.row,
       type: tile.type,
@@ -122,8 +156,9 @@ function buildFloors(game) {
       tint: tile.tint ?? null,
       noGrid: def?.noGrid ?? false,
       cornersY: getTileCornersY(game.state, tile.col, tile.row),
-    };
-  });
+    });
+  }
+  return out;
 }
 
 function buildWalls(game) {
@@ -484,6 +519,7 @@ export function buildWorldSnapshot(game) {
     cliffs: buildCliffs(game),
     cornerHeightsRevision: game.state.cornerHeightsRevision | 0,
     floors: buildFloors(game),
+    grassSurfaces: buildGrassSurfaces(game),
     walls: buildWalls(game),
     doors: buildDoors(game),
     zones: buildZones(game),
