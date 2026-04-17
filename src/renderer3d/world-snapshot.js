@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
+import { getTileCornersY } from '../game/terrain.js';
 
 const GRASS_RANGE = 30;
 
@@ -51,11 +52,60 @@ function buildTerrain(game) {
 
       const hash = grassHash(col, row);
       const brightness = sampleTerrainBrightness(col, row, blobs);
-      terrain.push({ col, row, hash, brightness });
+      const cornersY = getTileCornersY(game.state, col, row);
+      terrain.push({ col, row, hash, brightness, cornersY });
     }
   }
 
   return terrain;
+}
+
+/**
+ * Emit vertical cliff-face quads between adjacent tiles whose shared edge
+ * corners differ in Y. For each tile in the rendered range, check its east
+ * and south neighbors (avoids double-counting edges). A neighbor outside
+ * the rendered range is skipped — only edges between two rendered tiles
+ * emit cliffs.
+ *
+ * Edge 'e' (east, between (c,r) and (c+1,r)):
+ *   tile's NE/SE corners form selfY = [NE.y, SE.y] (north end, south end)
+ *   neighbor's NW/SW corners form neighborY = [NW.y, SW.y]
+ *
+ * Edge 's' (south, between (c,r) and (c,r+1)):
+ *   tile's SW/SE corners form selfY = [SW.y, SE.y] (west end, east end)
+ *   neighbor's NW/NE corners form neighborY = [NW.y, NE.y]
+ */
+function buildCliffs(game) {
+  const state = game.state;
+  const cliffs = [];
+
+  for (let col = -GRASS_RANGE; col <= GRASS_RANGE; col++) {
+    for (let row = -GRASS_RANGE; row <= GRASS_RANGE; row++) {
+      const self = getTileCornersY(state, col, row);
+
+      // East edge — neighbor at (col+1, row). Skip if neighbor is outside range.
+      if (col + 1 <= GRASS_RANGE) {
+        const east = getTileCornersY(state, col + 1, row);
+        const selfY = [self.ne, self.se];
+        const neighborY = [east.nw, east.sw];
+        if (selfY[0] !== neighborY[0] || selfY[1] !== neighborY[1]) {
+          cliffs.push({ col, row, edge: 'e', selfY, neighborY });
+        }
+      }
+
+      // South edge — neighbor at (col, row+1). Skip if neighbor is outside range.
+      if (row + 1 <= GRASS_RANGE) {
+        const south = getTileCornersY(state, col, row + 1);
+        const selfY = [self.sw, self.se];
+        const neighborY = [south.nw, south.ne];
+        if (selfY[0] !== neighborY[0] || selfY[1] !== neighborY[1]) {
+          cliffs.push({ col, row, edge: 's', selfY, neighborY });
+        }
+      }
+    }
+  }
+
+  return cliffs;
 }
 
 function buildFloors(game) {
@@ -406,6 +456,8 @@ function buildFurnishings(game) {
 export function buildWorldSnapshot(game) {
   return {
     terrain: buildTerrain(game),
+    cliffs: buildCliffs(game),
+    cornerHeightsRevision: game.state.cornerHeightsRevision | 0,
     floors: buildFloors(game),
     walls: buildWalls(game),
     doors: buildDoors(game),

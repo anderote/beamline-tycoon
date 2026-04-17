@@ -3,6 +3,7 @@
 
 import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
+import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
@@ -155,6 +156,11 @@ export class ThreeRenderer {
 
     this.textureManager = new TextureManager();
     this.terrainBuilder = new TerrainBuilder(this.textureManager);
+    this.cliffBuilder = new CliffBuilder(this.textureManager);
+    // Terrain mesh reference — populated by applySnapshot / _refreshTerrain
+    // via terrainBuilder.getMesh(). Used by Task 4's _raycastGround against
+    // the actual surface (rather than the y=0 plane fallback).
+    this._terrainMesh = null;
     this.wildflowerBuilder = new WildflowerBuilder();
     this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
@@ -2195,7 +2201,9 @@ export class ThreeRenderer {
 
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
-    this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
+    this.terrainBuilder.build(snapshot.terrain, this.terrainGroup, snapshot.cornerHeightsRevision);
+    this.cliffBuilder.build(snapshot.cliffs || [], this.terrainGroup, snapshot.cornerHeightsRevision);
+    this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
     let cutawayRoom = null;
@@ -2221,7 +2229,9 @@ export class ThreeRenderer {
 
   _refreshTerrain() {
     const snap = buildWorldSnapshot(this.game);
-    this.terrainBuilder.build(snap.terrain, this.terrainGroup);
+    this.terrainBuilder.build(snap.terrain, this.terrainGroup, snap.cornerHeightsRevision);
+    this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup, snap.cornerHeightsRevision);
+    this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snap);
   }
 
