@@ -85,9 +85,12 @@ function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdR
 
 const WORLD_BOUND = 30;       // sampling bounds for placement (matches GRASS_RANGE in world-snapshot.js)
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
-const MAX_CLUSTERS = 8;       // a handful of distinct, notable forest clumps
+const MAX_CLUSTERS = 10;      // a handful of distinct, notable forest clumps
 const DARK_CLUSTER_THRESHOLD = -0.1;
-const CLUMP_RADIUS_CAP = 14;  // cap clump radius so large blobs don't produce diffuse forests
+const CLUMP_RADIUS_MIN = 7;   // even a tiny blob gets a real grove, not 2 trees
+const CLUMP_RADIUS_MAX = 16;  // cap clump radius so large blobs don't produce diffuse forests
+const CLUMP_MIN_BLOB_SIZE = 3;   // filter out blobs too small to anchor a clump
+const CLUMP_CENTER_BOUND = 40;   // require blob center within WORLD_BOUND+10 so the clump's on-map portion is substantial
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
@@ -149,24 +152,32 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   const treeCells = new Set();
   const nextIdRef = { value: 1 };
 
-  // 1. Select forest-clump centers from the darker terrain blobs. Up to 8,
-  //    darkest first. Each clump becomes one notable grove.
+  // 1. Select forest-clump centers from the darker terrain blobs. Filter out
+  //    tiny blobs (can't anchor a real grove) and blobs centered too far
+  //    outside world bounds (their on-map portion would be vestigial).
+  //    Darkest-first, up to MAX_CLUSTERS.
   const clusters = terrainBlobs
-    .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD)
+    .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD
+      && Math.min(b.sx, b.sy) >= CLUMP_MIN_BLOB_SIZE
+      && Math.abs(b.cx) <= CLUMP_CENTER_BOUND
+      && Math.abs(b.cy) <= CLUMP_CENTER_BOUND)
     .slice()
     .sort((a, b) => a.brightness - b.brightness)
     .slice(0, MAX_CLUSTERS);
 
   // 2. Per clump: dense Gaussian scatter in the blob's rotated frame.
   //    Each clump is assigned a primary species from CLUMP_SPECIES by index,
-  //    so neighboring clumps look visibly distinct.
+  //    so neighboring clumps look visibly distinct. Radius is clamped to
+  //    [CLUMP_RADIUS_MIN, CLUMP_RADIUS_MAX] so even tiny blobs produce a
+  //    substantial grove instead of 2 lonely trees.
   for (let ci = 0; ci < clusters.length; ci++) {
     const blob = clusters[ci];
     const clumpEntry = CLUMP_SPECIES[ci % CLUMP_SPECIES.length];
-    const r = Math.min(Math.min(blob.sx, blob.sy) * 1.1, CLUMP_RADIUS_CAP);
-    // Area-driven density: aim for ~0.5 trees per square unit of clump area.
+    const r = Math.max(CLUMP_RADIUS_MIN,
+      Math.min(Math.min(blob.sx, blob.sy) * 1.3, CLUMP_RADIUS_MAX));
+    // Area-driven density: aim for ~0.55 trees per square unit of clump area.
     const area = Math.PI * r * r;
-    const count = Math.min(140, Math.max(35, Math.round(area * 0.5)));
+    const count = Math.min(160, Math.max(50, Math.round(area * 0.55)));
     const cos = Math.cos(blob.angle);
     const sin = Math.sin(blob.angle);
 
