@@ -16,6 +16,8 @@ const MIN_THICKNESS = 0.05 * M;  // 5cm min for fences/cubicles
 const DOOR_HEIGHT = 1.2 * M;     // 1.2m door
 const POST_WIDTH = 0.1 * M;      // 10cm posts
 const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
+const PANEL_THICKNESS = 0.04 * M; // 4cm door panel
+const PANEL_GAP = 0.02 * M;       // gap between panel and frame
 
 export class WallBuilder {
   constructor(textureManager) {
@@ -116,9 +118,64 @@ export class WallBuilder {
       } else {
         applyTiledBoxUVs(geo, thickness, height, length);
       }
+
+      // --- Trapezoidal base: deform box vertices so bottom follows terrain ---
+      // The box is centered at the origin in its geometry space — vertices at
+      // y=-H/2 are the bottom, y=+H/2 are the top. We convert those to
+      // absolute world-Y values so the bottom slopes with terrain corners and
+      // the top stays horizontal at max(baseY.a, baseY.b) + wallHeight. The
+      // mesh is then placed with y=0 (absolute Y is baked into the geometry).
+      //
+      // Endpoint convention (from buildWalls in world-snapshot.js):
+      //   'n': a=NW (low X), b=NE (high X)
+      //   's': a=SE (high X), b=SW (low X)
+      //   'e': a=NE (low Z), b=SE (high Z)
+      //   'w': a=SW (high Z), b=NW (low Z)
+      const baseY = w.baseY || { a: 0, b: 0 };
+      const topY = Math.max(baseY.a, baseY.b) + height;
+      // yLow = baseY at the vertex end with lower local coord along the wall's
+      // long axis; yHigh = baseY at the end with higher local coord.
+      let yLow, yHigh;
+      if (edge === 'n' || edge === 'e') {
+        yLow = baseY.a;
+        yHigh = baseY.b;
+      } else {
+        // 's' and 'w' have reversed a/b relative to axis direction
+        yLow = baseY.b;
+        yHigh = baseY.a;
+      }
+      const posAttr = geo.attributes.position;
+      const arr = posAttr.array;
+      const halfLen = length / 2;
+      const EPS = 1e-6;
+      for (let vi = 0; vi < posAttr.count; vi++) {
+        const ix = vi * 3;
+        const vy = arr[ix + 1];
+        if (vy > 0) {
+          // Top vertex — flat at topY.
+          arr[ix + 1] = topY;
+        } else {
+          // Bottom vertex — interpolate between yLow and yHigh by the
+          // long-axis coord. For isNS the long axis is X; else it's Z.
+          const along = isNS ? arr[ix + 0] : arr[ix + 2];
+          // along is in [-halfLen, +halfLen]
+          const t = halfLen > EPS ? (along + halfLen) / (2 * halfLen) : 0;
+          arr[ix + 1] = yLow + (yHigh - yLow) * t;
+        }
+      }
+      posAttr.needsUpdate = true;
+      geo.computeVertexNormals();
+      // Bounding volumes auto-computed by BoxGeometry are stale after we
+      // moved the top and bottom vertices; recompute so frustum culling
+      // and raycasts are accurate.
+      geo.computeBoundingBox();
+      geo.computeBoundingSphere();
+
       const mesh = new THREE.Mesh(geo, matCache[matKey]);
-      // Position at the center of the merged span
+      // Position at the center of the merged span. Y=0 since absolute Y is
+      // now baked into geometry vertices.
       const pos = this._wallPosition(col, row, edge, height);
+      pos.y = 0;
       if (span && span > 1) {
         if (isNS) {
           pos.x += (span - 1) * TILE_SIZE / 2;
@@ -158,7 +215,7 @@ export class WallBuilder {
     });
 
     for (const d of (doorData || [])) {
-      const { col, row, edge, type } = d;
+      const { col, row, edge, type, variant } = d;
 
       const isDoorCutaway = wallVisibility === 'cutaway' && cutawayRoom &&
         this._wallBordersRoom(col, row, edge, cutawayRoom);
@@ -327,6 +384,69 @@ export class WallBuilder {
         parentGroup.add(aboveMesh);
         this._meshes.push(aboveMesh);
       }
+
+      // --- Door panel mesh (skip hallwayDoor — open passthrough) ---
+      if (type !== 'hallwayDoor' && doorDef) {
+        const texName = doorDef.texture;
+        const baseMat = texName ? MATERIALS[texName] : null;
+        const panelW = doorOpeningWidth - PANEL_GAP * 2;
+        const panelH = doorHeight - PANEL_GAP;
+
+        const variantTint = doorDef.variantTints?.[variant || 0];
+        const makePanelMat = () => {
+          let panelColor = baseMat ? 0xffffff : (doorDef.color || 0x8b7355);
+          if (variantTint && baseMat) panelColor = variantTint;
+          else if (variantTint && !baseMat) panelColor = variantTint;
+          const opts = {
+            map: baseMat ? baseMat.map : null,
+            color: panelColor,
+            roughness: baseMat ? baseMat.roughness : 0.7,
+            metalness: baseMat ? baseMat.metalness : 0.0,
+            transparent: isTransparent || isDoorCutaway || (baseMat && baseMat.transparent),
+            opacity: (isTransparent || isDoorCutaway) ? 0.3 : 1.0,
+            depthWrite: !(isTransparent || isDoorCutaway),
+          };
+          if (baseMat && baseMat.alphaTest > 0) {
+            opts.alphaTest = baseMat.alphaTest;
+            opts.transparent = true;
+          }
+          return new THREE.MeshStandardMaterial(opts);
+        };
+
+        if (isDouble) {
+          const halfW = panelW / 2 - PANEL_GAP / 2;
+          for (const sign of [-1, 1]) {
+            const geo = isNS
+              ? new THREE.BoxGeometry(halfW, panelH, PANEL_THICKNESS)
+              : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, halfW);
+            const panel = new THREE.Mesh(geo, makePanelMat());
+            const offset = sign * (halfW / 2 + PANEL_GAP / 4);
+            panel.position.set(
+              edgeCenter.x + (isNS ? offset : 0),
+              panelH / 2,
+              edgeCenter.z + (isNS ? 0 : offset)
+            );
+            panel.castShadow = !(isTransparent || isDoorCutaway);
+            panel.receiveShadow = true;
+            panel.matrixAutoUpdate = false;
+            panel.updateMatrix();
+            parentGroup.add(panel);
+            this._meshes.push(panel);
+          }
+        } else {
+          const geo = isNS
+            ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
+            : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
+          const panel = new THREE.Mesh(geo, makePanelMat());
+          panel.position.set(edgeCenter.x, panelH / 2, edgeCenter.z);
+          panel.castShadow = !(isTransparent || isDoorCutaway);
+          panel.receiveShadow = true;
+          panel.matrixAutoUpdate = false;
+          panel.updateMatrix();
+          parentGroup.add(panel);
+          this._meshes.push(panel);
+        }
+      }
     }
 
     this._cacheKey = newKey;
@@ -402,6 +522,21 @@ export class WallBuilder {
    * Merge adjacent colinear walls of the same type into longer spans.
    * When transparent, this eliminates interior end-cap faces that compound
    * opacity. In opaque mode, walls are returned as-is (single-tile spans).
+   *
+   * Merge constraint (terrain slope): two colinear walls only merge when
+   * the shared endpoint's Y is identical on both sides. Each wall's baseY
+   * reads from its OWN tile's corners, so neighboring walls sharing a
+   * world-space corner may disagree if the two tiles have different corner
+   * heights. In that case we break the merge there — the segments render
+   * as independent trapezoids.
+   *
+   * Endpoint convention (matches world-snapshot.buildWalls):
+   *   'n': a=NW (low col end),  b=NE (high col end)
+   *   's': a=SE (high col end), b=SW (low col end)
+   *   'e': a=NE (low row end),  b=SE (high row end)
+   *   'w': a=SW (high row end), b=NW (low row end)
+   * After ascending sort by the varying axis, the "high-axis end" of the
+   * earlier wall meets the "low-axis end" of the later wall.
    */
   _mergeWalls(wallData, wallVisibility, cutawayRoom) {
     const isTransparent = wallVisibility === 'transparent';
@@ -438,15 +573,57 @@ export class WallBuilder {
         const consecutive = cur && (isNS
           ? cur.col === prev.col + 1
           : cur.row === prev.row + 1);
-        if (!consecutive) {
-          // Emit merged span from spanStart to i-1
+        // Shared-endpoint Y must match. For 'n' and 'e' edges, prev's b
+        // (high-axis end) meets cur's a (low-axis end). For 's' and 'w'
+        // edges, prev's a (high-axis end) meets cur's b (low-axis end).
+        let heightsMatch = false;
+        if (consecutive) {
+          const prevBY = prev.baseY || { a: 0, b: 0 };
+          const curBY = cur.baseY || { a: 0, b: 0 };
+          const edge = prev.edge;
+          if (edge === 'n' || edge === 'e') {
+            heightsMatch = prevBY.b === curBY.a;
+          } else {
+            // 's' or 'w'
+            heightsMatch = prevBY.a === curBY.b;
+          }
+        }
+        if (!consecutive || !heightsMatch) {
+          // Emit merged span from spanStart to i-1. When merging N > 1
+          // walls, the merged segment's endpoints read from the outermost
+          // walls: the low-axis end from walls[spanStart], the high-axis
+          // end from walls[i-1]. Synthesize a merged baseY accordingly.
           const origin = walls[spanStart];
-          result.push({ ...origin, span: i - spanStart });
+          const last = walls[i - 1];
+          const mergedBaseY = this._mergeBaseY(origin, last);
+          result.push({ ...origin, span: i - spanStart, baseY: mergedBaseY });
           spanStart = i;
         }
       }
     }
     return result;
+  }
+
+  /**
+   * Compute the merged span's baseY by combining the outermost walls'
+   * endpoint Y values. The merged wall's a/b keep the same edge convention
+   * as a single wall (a = first-listed corner, b = second-listed).
+   * Endpoint convention:
+   *   'n': a=NW (low col),  b=NE (high col)   — span a=first.a, b=last.b
+   *   'e': a=NE (low row),  b=SE (high row)   — span a=first.a, b=last.b
+   *   's': a=SE (high col), b=SW (low col)    — span a=last.a,  b=first.b
+   *   'w': a=SW (high row), b=NW (low row)    — span a=last.a,  b=first.b
+   */
+  _mergeBaseY(first, last) {
+    const f = first.baseY || { a: 0, b: 0 };
+    const l = last.baseY || { a: 0, b: 0 };
+    if (first === last) return { a: f.a, b: f.b };
+    const edge = first.edge;
+    if (edge === 'n' || edge === 'e') {
+      return { a: f.a, b: l.b };
+    }
+    // 's' or 'w'
+    return { a: l.a, b: f.b };
   }
 
   _cleanup(parentGroup) {

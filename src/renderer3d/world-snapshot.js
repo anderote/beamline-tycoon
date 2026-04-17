@@ -125,13 +125,30 @@ function buildFloors(game) {
 }
 
 function buildWalls(game) {
-  return (game.state.walls || []).map(w => ({
-    col: w.col,
-    row: w.row,
-    edge: w.edge,
-    type: w.type,
-    variant: w.variant ?? 0,
-  }));
+  return (game.state.walls || []).map(w => {
+    const c = getTileCornersY(game.state, w.col, w.row);
+    // Endpoints per edge — a = first-listed corner, b = second.
+    //   'n': NW -> NE
+    //   'e': NE -> SE
+    //   's': SE -> SW
+    //   'w': SW -> NW
+    let a, b;
+    switch (w.edge) {
+      case 'n': a = c.nw; b = c.ne; break;
+      case 'e': a = c.ne; b = c.se; break;
+      case 's': a = c.se; b = c.sw; break;
+      case 'w': a = c.sw; b = c.nw; break;
+      default:  a = 0;    b = 0;    break;
+    }
+    return {
+      col: w.col,
+      row: w.row,
+      edge: w.edge,
+      type: w.type,
+      variant: w.variant ?? 0,
+      baseY: { a, b },
+    };
+  });
 }
 
 function buildDoors(game) {
