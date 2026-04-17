@@ -542,68 +542,62 @@ body {
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
 
 /* === CAMERA VIEW-CUBE WIDGET === */
-/* 80px wide. Cube canvas (64x64) sits at the top; Q/E rotate-arrow SVG
- * (80x22) sits flush below it. */
+/* 96px wide. Cube canvas (96x96) on top; Q/E rotate-arrow SVG (96x22) sits
+ * just below, slightly overlapping the cube's lower edge. */
 #view-cube-widget {
   position: absolute;
-  bottom: 312px;
+  bottom: 296px;
   right: 8px;
-  width: 80px;
-  height: 88px;
+  width: 96px;
+  height: 116px;
   z-index: 101;
   pointer-events: auto;
   user-select: none;
 }
 .view-cube-host {
   position: relative;
-  width: 80px;
-  height: 88px;
+  width: 96px;
+  height: 116px;
 }
 .view-cube-host .vc-cube-canvas {
   position: absolute;
-  left: 8px;
+  left: 0;
   top: 0;
-  width: 64px;
-  height: 64px;
+  width: 96px;
+  height: 96px;
   cursor: pointer;
 }
 .view-cube-host .vc-rotate-bar {
   position: absolute;
   left: 0;
-  top: 56px;
-  width: 80px;
+  top: 92px;
+  width: 96px;
   height: 22px;
   overflow: visible;
   pointer-events: none;
 }
 .view-cube-host .vc-rotate-bar .vc-rot {
   pointer-events: auto;
-}
-.view-cube-host .vc-rot {
   cursor: pointer;
 }
 .view-cube-host .vc-rot path {
-  stroke: rgba(180, 200, 240, 0.7);
-  stroke-width: 1.6;
+  stroke: rgba(180, 200, 240, 0.55);
+  stroke-width: 1.2;
   fill: none;
   transition: stroke 120ms ease;
 }
 .view-cube-host .vc-rot polygon {
-  fill: rgba(180, 200, 240, 0.7);
+  fill: rgba(180, 200, 240, 0.55);
   stroke: none;
   transition: fill 120ms ease;
 }
 .view-cube-host .vc-rot text.vc-rot-label {
-  font: bold 9px sans-serif;
-  fill: rgba(180, 200, 240, 0.85);
+  font: bold 8px sans-serif;
+  fill: rgba(180, 200, 240, 0.7);
   transition: fill 120ms ease;
 }
-.view-cube-host .vc-rot:hover path,
-.view-cube-host .vc-rot:hover polygon {
-  stroke: #ffd86b;
-  fill: #ffd86b;
-}
-.view-cube-host .vc-rot:hover path { fill: none; }
+.view-cube-host .vc-rot:hover path { stroke: #ffd86b; }
+.view-cube-host .vc-rot:hover polygon { fill: #ffd86b; }
 .view-cube-host .vc-rot:hover text.vc-rot-label { fill: #ffd86b; }
 
 /* === WALL VISIBILITY CONTROL === */
