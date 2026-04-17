@@ -176,7 +176,7 @@ function showScenarioPicker(game) {
       worldY: renderer.world.y,
       panX: renderer._panX,
       panY: renderer._panY,
-      viewRotationIndex: renderer._viewRotationIndex,
+      viewRotationIndex: renderer._isoYawIdx,
       activeMode: input.activeMode,
       selectedCategory: input.selectedCategory,
       route: window.location.hash.slice(1) || 'game',
@@ -211,8 +211,8 @@ function showScenarioPicker(game) {
     if (typeof game.state.view.panX === 'number') {
       renderer._panX = game.state.view.panX;
       renderer._panY = game.state.view.panY;
-      renderer._viewRotationIndex = game.state.view.viewRotationIndex || 0;
-      renderer._viewRotationAngle = renderer._viewRotationIndex * Math.PI / 2;
+      renderer._isoYawIdx = game.state.view.viewRotationIndex || 0;
+      renderer._viewRotationAngle = renderer._isoYawIdx * Math.PI / 2;
     } else {
       // Legacy save: derive pan from the old world.x/y offset (rotation=0 math).
       const screenW = renderer.app.screen.width;

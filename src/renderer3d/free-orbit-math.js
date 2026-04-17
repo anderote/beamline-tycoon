@@ -14,8 +14,17 @@ export const CAM_D = 50;
 export const ORBIT_RADIUS = (2 * CAM_D * Math.sqrt(6)) / 3;
 
 export const PITCH_REST = Math.atan(1 / Math.sqrt(3));
+// Top-down view sits just below π/2 to avoid the lookAt(up=+Y) gimbal
+// degeneracy. cos(89°) ≈ 0.0175, nonzero, so the look direction stays
+// well-defined and yaw remains meaningful.
+export const PITCH_TOP = (89 * Math.PI) / 180;
 export const PITCH_MIN = (5 * Math.PI) / 180;
-export const PITCH_MAX = (80 * Math.PI) / 180;
+// Free-orbit drag can now reach top-down so MMB-release can snap into the
+// top mode (it picks the closer of PITCH_REST / PITCH_TOP by midpoint).
+export const PITCH_MAX = PITCH_TOP;
+// Midpoint between the two preset pitches; used by pickSnapMode to decide
+// which mode the player landed closer to during a free-orbit drag.
+export const PITCH_THRESHOLD = (PITCH_REST + PITCH_TOP) / 2;
 
 // Default tuning. Pixel-to-radian scalars; adjust to taste during playtest.
 export const ORBIT_YAW_SENSITIVITY = 0.005;
@@ -58,4 +67,14 @@ export function cameraOffset(yaw, pitch) {
 // Matches the easing used by _tickViewRotation in ThreeRenderer.
 export function easeInOutQuad(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+// Decide which preset view a free-orbit release should land in, based on
+// the pitch at release time. Crossing PITCH_THRESHOLD flips the mode.
+export function pickSnapMode(pitch) {
+  return pitch < PITCH_THRESHOLD ? 'iso' : 'top';
+}
+
+export function targetPitchForMode(mode) {
+  return mode === 'top' ? PITCH_TOP : PITCH_REST;
 }

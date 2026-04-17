@@ -5,6 +5,7 @@ import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
 import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
+import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
 import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedComponent } from './component-builder.js';
@@ -29,6 +30,7 @@ import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
   PITCH_REST,
+  PITCH_TOP,
   PITCH_MIN,
   PITCH_MAX,
   ORBIT_RADIUS,
@@ -38,7 +40,10 @@ import {
   snapYaw,
   cameraOffset,
   easeInOutQuad,
+  pickSnapMode,
+  targetPitchForMode,
 } from './free-orbit-math.js';
+import { ViewCube } from './view-cube.js';
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -166,10 +171,16 @@ export class ThreeRenderer {
     this._panY = 0;
     this.zoom = 1;
 
-    // View rotation (RCT2-style Q/E 90° orbit). Angle is in radians around
-    // the Y axis, camera orbits around (_panX, _panY) at the dimetric elevation.
-    this._viewRotationIndex = 0;      // 0..3 (current snap target)
-    this._viewRotationAngle = 0;      // current animated angle (rad)
+    // Two canonical view modes: dimetric ('iso') and near-top-down ('top').
+    // Each mode has its own yaw index 0..3 — switching modes restores that
+    // mode's last facing rather than syncing yaw across both.
+    this.viewMode = 'iso';
+    this._isoYawIdx = 0;
+    this._topYawIdx = 0;
+
+    // View rotation (RCT2-style Q/E 90° orbit). _viewRotationAngle is the
+    // live, animated yaw — it's mode-independent (mode determines pitch only).
+    this._viewRotationAngle = 0;
     this._viewRotFromAngle = 0;
     this._viewRotToAngle = 0;
     this._viewRotStartMs = 0;
@@ -177,7 +188,8 @@ export class ThreeRenderer {
     this._viewRotating = false;
 
     // Free-orbit state (middle-mouse drag orbits yaw + pitch around the
-    // pan center; release animates back to the nearest iso view).
+    // pan center; release animates back to nearest iso *or* top-down view
+    // depending on which preset pitch the player ended closer to).
     this._freeOrbiting = false;
     this._freeYaw = 0;
     this._freePitch = PITCH_REST;
@@ -188,6 +200,9 @@ export class ThreeRenderer {
     this._snapToPitch = PITCH_REST;
     this._snapStartMs = 0;
     this._snapDurationMs = 400;
+    // Mode the active snap animation will commit to on completion. Set by
+    // endFreeOrbit() and setViewMode(); read by _tickFreeOrbitSnap().
+    this._snapTargetMode = 'iso';
 
     this._frustumSize = 20;
     this._animFrameId = null;
@@ -223,6 +238,7 @@ export class ThreeRenderer {
     // the actual surface (rather than the y=0 plane fallback).
     this._terrainMesh = null;
     this.wildflowerBuilder = new WildflowerBuilder();
+    this.grassTuftBuilder = new GrassTuftBuilder();
     this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
@@ -402,6 +418,7 @@ export class ThreeRenderer {
     this.terrainGroup.name = 'terrain';
     this.scene.add(this.terrainGroup);
     this.wildflowerBuilder.add(this.terrainGroup);
+    this.grassTuftBuilder.add(this.terrainGroup);
 
     this.floorGroup = new THREE.Group();
     this.floorGroup.name = 'floors';
@@ -563,6 +580,13 @@ export class ThreeRenderer {
     if (this._renderTechTree) this._renderTechTree();
     if (this._renderGoalsOverlay) this._renderGoalsOverlay();
     if (this._updateHUD) this._updateHUD();
+
+    // Mount the live view-cube widget if its DOM host exists. (It's a
+    // bottom-right HUD element wired into index.html.)
+    const cubeHost = document.getElementById('view-cube-widget');
+    if (cubeHost) {
+      this._viewCube = new ViewCube(this, cubeHost);
+    }
 
     this._animate();
   }
@@ -805,17 +829,67 @@ export class ThreeRenderer {
 
   /**
    * Rotate the view by ±90° (RCT2-style). Animates to the new rest angle.
+   * Operates on the active mode's yaw index — iso and top-down keep
+   * independent facings.
    */
   rotateView(delta) {
-    if (this._viewRotating) return;
+    if (this._viewRotating || this._snapping) return;
     const step = delta > 0 ? 1 : -1;
-    this._viewRotationIndex = (((this._viewRotationIndex + step) % 4) + 4) % 4;
+    const nextIdx = (((this._currentYawIdx() + step) % 4) + 4) % 4;
+    this._setCurrentYawIdx(nextIdx);
     this._viewRotFromAngle = this._viewRotationAngle;
     this._viewRotToAngle = this._viewRotFromAngle + step * Math.PI / 2;
     this._viewRotStartMs = performance.now();
     this._viewRotating = true;
-    // Hide the PixiJS overlay during the animation. Nothing is currently
-    // drawn through it in the 3D renderer, but this keeps the door open.
+    if (this.world) this.world.visible = false;
+  }
+
+  _currentYawIdx() {
+    return this.viewMode === 'top' ? this._topYawIdx : this._isoYawIdx;
+  }
+
+  _setCurrentYawIdx(i) {
+    if (this.viewMode === 'top') this._topYawIdx = i;
+    else this._isoYawIdx = i;
+  }
+
+  /**
+   * Animated transition to a target view (mode + optional yaw index).
+   * Reuses the free-orbit snap machinery. Ignored if a free-orbit drag
+   * is active or any view animation is already in flight.
+   */
+  setViewMode(mode, yawIdx) {
+    if (mode !== 'iso' && mode !== 'top') return;
+    if (this._freeOrbiting || this._viewRotating || this._snapping) return;
+    const fromYaw = this._viewRotationAngle;
+    const fromPitch = this._effectivePitch();
+    const toPitch = targetPitchForMode(mode);
+    let toYaw = fromYaw;
+    if (yawIdx !== undefined && yawIdx !== null) {
+      // Shortest signed delta: choose the multiple of 2π so the animation
+      // takes the short way around the yaw circle.
+      const target = yawIdx * Math.PI / 2;
+      const k = Math.round((fromYaw - target) / (2 * Math.PI));
+      toYaw = target + k * 2 * Math.PI;
+    }
+    if (
+      Math.abs(toYaw - fromYaw) < 1e-9 &&
+      Math.abs(toPitch - fromPitch) < 1e-9 &&
+      this.viewMode === mode
+    ) {
+      return;
+    }
+    this._snapFromYaw = fromYaw;
+    this._snapToYaw = toYaw;
+    this._snapFromPitch = fromPitch;
+    this._snapToPitch = toPitch;
+    this._snapStartMs = performance.now();
+    this._snapTargetMode = mode;
+    this._snapping = true;
+    // _effectiveYaw/_effectivePitch read _freeYaw/_freePitch while
+    // _snapping is true, so seed them with the current orientation.
+    this._freeYaw = fromYaw;
+    this._freePitch = fromPitch;
     if (this.world) this.world.visible = false;
   }
 
@@ -853,19 +927,22 @@ export class ThreeRenderer {
   }
 
   /**
-   * End a free-orbit drag. Kicks off a 400ms easeInOutQuad animation back
-   * to the nearest iso view: yaw snaps to nearest π/2 multiple, pitch
-   * restores to PITCH_REST. On completion, _viewRotationIndex and
-   * _viewRotationAngle are updated so Q/E continues from the snapped pose.
+   * End a free-orbit drag. Picks the closer preset (iso vs top-down) by
+   * release pitch and kicks off a 400ms easeInOutQuad animation back to
+   * that view. Yaw snaps to the nearest π/2 multiple. On completion,
+   * viewMode and the destination mode's yaw index are updated so Q/E
+   * continues from the snapped pose.
    */
   endFreeOrbit() {
     if (!this._freeOrbiting) return;
     this._freeOrbiting = false;
+    const targetMode = pickSnapMode(this._freePitch);
     this._snapFromYaw = this._freeYaw;
     this._snapFromPitch = this._freePitch;
     this._snapToYaw = snapYaw(this._freeYaw);
-    this._snapToPitch = PITCH_REST;
+    this._snapToPitch = targetPitchForMode(targetMode);
     this._snapStartMs = performance.now();
+    this._snapTargetMode = targetMode;
     this._snapping = true;
   }
 
@@ -878,10 +955,12 @@ export class ThreeRenderer {
     this._updateCameraLookAt();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     if (t >= 1) {
-      // Hand control back to the Q/E system at the snapped pose.
+      // Commit the target mode and write the snapped yaw into that mode's index.
+      this.viewMode = this._snapTargetMode;
       this._viewRotationAngle = this._snapToYaw;
-      this._viewRotationIndex = ((Math.round(this._snapToYaw / (Math.PI / 2)) % 4) + 4) % 4;
-      this._freePitch = PITCH_REST;
+      const idx = ((Math.round(this._snapToYaw / (Math.PI / 2)) % 4) + 4) % 4;
+      this._setCurrentYawIdx(idx);
+      this._freePitch = targetPitchForMode(this.viewMode);
       this._snapping = false;
       if (this.world) this.world.visible = true;
     }
@@ -1451,6 +1530,40 @@ export class ThreeRenderer {
   }
 
   /**
+   * Red-highlight every edge in a wall/door path. Used for shift-hover in
+   * demolish mode to preview a whole connected segment before click.
+   */
+  renderDemolishPathPreview(path) {
+    this._clearPreview();
+    if (!path || path.length === 0) return;
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0xff4444, transparent: true, opacity: 0.95,
+    });
+    const quadMat = this._previewMat(0xff4444, 0.3);
+    const y = 0.06;
+    for (const seg of path) {
+      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      const isNS = seg.edge === 'n' || seg.edge === 's';
+      let p0, p1;
+      if (isNS) {
+        p0 = new THREE.Vector3(pos.x - 1, y, pos.z);
+        p1 = new THREE.Vector3(pos.x + 1, y, pos.z);
+      } else {
+        p0 = new THREE.Vector3(pos.x, y, pos.z - 1);
+        p1 = new THREE.Vector3(pos.x, y, pos.z + 1);
+      }
+      this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), edgeMat));
+      const quadGeo = isNS
+        ? new THREE.PlaneGeometry(2, 0.25)
+        : new THREE.PlaneGeometry(0.25, 2);
+      quadGeo.rotateX(-Math.PI / 2);
+      const quad = new THREE.Mesh(quadGeo, quadMat);
+      quad.position.set(pos.x, 0.05, pos.z);
+      this._addPreviewMesh(quad);
+    }
+  }
+
+  /**
    * Render demolish preview — red translucent rectangle over the drag area.
    * Used by drag-select multi-tile demolish; single-tile hover uses
    * renderDemolishTileOutline instead so it reads as a thin object outline.
@@ -1593,10 +1706,29 @@ export class ThreeRenderer {
   renderPlaceableGhost(hover, valid) {
     try { return this._renderPlaceableGhostInner(hover, valid); } catch(e) { console.error('[renderPlaceableGhost] CRASH:', e); }
   }
+  /**
+   * Render multiple placeable ghosts at once (used for shift+drag line
+   * placement of decorations). Clears preview once, draws grid around the
+   * last hover, then adds each ghost additively.
+   * @param {Array<{hover:object, valid:boolean}>} list
+   */
+  renderPlaceableGhosts(list) {
+    try {
+      this._clearPreview();
+      if (!list || list.length === 0) return;
+      const last = list[list.length - 1].hover;
+      this._renderGridAroundCursor(last.col, last.row);
+      for (const item of list) {
+        this._addPlaceableGhostMeshes(item.hover, item.valid);
+      }
+    } catch (e) { console.error('[renderPlaceableGhosts] CRASH:', e); }
+  }
   _renderPlaceableGhostInner(hover, valid) {
     this._clearPreview();
     this._renderGridAroundCursor(hover.col, hover.row);
-
+    this._addPlaceableGhostMeshes(hover, valid);
+  }
+  _addPlaceableGhostMeshes(hover, valid) {
     const placeable = PLACEABLES[hover.id];
     if (!placeable) return;
 
@@ -1604,7 +1736,7 @@ export class ThreeRenderer {
     // the component builder's generic fallback box.
     let obj;
     if (placeable.kind === 'decoration') {
-      obj = this.decorationBuilder._createGhost(hover.id, placeable);
+      obj = this.decorationBuilder._createGhost(hover.id, placeable, hover.variant ?? 0);
     }
     if (!obj) {
       obj = this.componentBuilder._createObject(placeable);
@@ -2234,7 +2366,7 @@ export class ThreeRenderer {
   _effectivePitch() {
     return (this._freeOrbiting || this._snapping)
       ? this._freePitch
-      : PITCH_REST;
+      : targetPitchForMode(this.viewMode);
   }
 
   _updateCameraLookAt() {
@@ -2306,6 +2438,7 @@ export class ThreeRenderer {
       this._clearPipeHoverMarker();
     }
     this.renderer.render(this.scene, this.camera);
+    if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
   }
 
@@ -2399,6 +2532,7 @@ export class ThreeRenderer {
     this.cliffBuilder.build(snapshot.cliffs || [], this.terrainGroup, snapshot.cornerHeightsRevision);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snapshot);
+    this.grassTuftBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
@@ -2427,6 +2561,7 @@ export class ThreeRenderer {
     this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup, snap.cornerHeightsRevision);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snap);
+    this.grassTuftBuilder.rebuild(snap);
   }
 
   _refreshInfra() {
@@ -2679,10 +2814,7 @@ export class ThreeRenderer {
     const def = WALL_TYPES[wallType];
     if (!def) return true; // unknown type — treat as solid
     const sub = def.subsection;
-    // Fences and hedges don't form rooms
     if (sub === 'fencing' || sub === 'hedges') return false;
-    // Exterior subsection includes both real walls and fences — filter by id
-    if (sub === 'exterior' && wallType !== 'exteriorWall') return false;
     return true;
   }
 
@@ -3104,6 +3236,10 @@ export class ThreeRenderer {
       this._animFrameId = null;
     }
     window.removeEventListener('resize', this._boundOnResize);
+    if (this._viewCube) {
+      this._viewCube.dispose();
+      this._viewCube = null;
+    }
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);

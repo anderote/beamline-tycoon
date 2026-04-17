@@ -140,15 +140,88 @@ body {
   padding: 4px 8px;
 }
 
+.mp-track-name-wrap {
+  position: relative;
+  width: 140px;
+  padding: 0 4px;
+}
+
 .mp-track-name {
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
   color: #aaaacc;
-  max-width: 140px;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  display: block;
+}
+
+.mp-track-name:hover { color: #ccccee; }
+
+.mp-track-name-inner {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.mp-track-name-wrap.mp-scrolling .mp-track-name-inner {
+  animation: mp-scroll var(--mp-scroll-duration, 12s) linear infinite;
+}
+
+@keyframes mp-scroll {
+  0%, 8%   { transform: translateX(0); }
+  50%      { transform: translateX(var(--mp-scroll-end, 0)); }
+  92%, 100% { transform: translateX(0); }
+}
+
+.mp-track-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: rgba(20, 20, 40, 0.98);
+  border: 1px solid rgba(100, 100, 160, 0.5);
+  border-radius: 3px;
+  z-index: 120;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.mp-track-list[hidden] { display: none; }
+
+.mp-track-list-item {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #aaaacc;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 0 4px;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  display: block;
+  line-height: 1.4;
+}
+
+.mp-track-list-item:hover {
+  background: rgba(60, 60, 100, 0.8);
+  color: #ccccee;
+}
+
+.mp-track-list-item.current {
+  background: rgba(80, 80, 140, 0.6);
+  color: #ccccee;
 }
 
 .mp-btn {
@@ -230,7 +303,7 @@ body {
   color: #ccccee;
 }
 
-#music-player.minimized .mp-track-name,
+#music-player.minimized .mp-track-name-wrap,
 #music-player.minimized .mp-shuffle,
 #music-player.minimized .mp-theme,
 #music-player.minimized .mp-volume {
@@ -468,6 +541,58 @@ body {
 
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
 
+/* === CAMERA VIEW-CUBE WIDGET === */
+#view-cube-widget {
+  position: absolute;
+  bottom: 312px;
+  right: 4px;
+  width: 132px;
+  height: 132px;
+  z-index: 101;
+  pointer-events: auto;
+  user-select: none;
+}
+.view-cube-host {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+.view-cube-host .vc-cube-canvas {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  width: 96px;
+  height: 96px;
+  cursor: pointer;
+}
+.view-cube-host .vc-compass {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  font: bold 11px sans-serif;
+  color: rgba(180, 200, 240, 0.65);
+  background: rgba(20, 20, 40, 0.7);
+  border: 1px solid rgba(100, 100, 160, 0.35);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.view-cube-host .vc-compass:hover {
+  color: #fff;
+  background: rgba(60, 80, 140, 0.9);
+}
+.view-cube-host .vc-compass.vc-active {
+  color: #ffd86b;
+  border-color: rgba(255, 216, 107, 0.6);
+}
+.view-cube-host .vc-compass-n { left: 57px; top: 0; }
+.view-cube-host .vc-compass-s { left: 57px; bottom: 0; }
+.view-cube-host .vc-compass-e { right: 0; top: 57px; }
+.view-cube-host .vc-compass-w { left: 0; top: 57px; }
+
 /* === WALL VISIBILITY CONTROL === */
 #wall-visibility-control {
   position: absolute;
@@ -519,6 +644,29 @@ body {
   background: rgba(20, 20, 40, 0.92);
   border-top: 1px solid rgba(100, 100, 160, 0.3);
   padding: 6px 12px 8px;
+}
+
+#shift-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: #ccccee;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  white-space: nowrap;
+}
+#shift-hint.hidden { display: none; }
+#shift-hint .k {
+  color: #ffe38a;
+}
+#shift-hint .sep {
+  color: rgba(180, 180, 220, 0.45);
+  margin: 0 6px;
 }
 
 /* HUD controls — two rows: modes+pipes on top, category tabs below */
