@@ -414,6 +414,16 @@ export class InputHandler {
         return p;
       }
     }
+    // Check beam pipe paths — resolve to a connected beamline node
+    for (const pipe of this.game.state.beamPipes) {
+      if (pipe.path && pipe.path.some(t => t.col === col && t.row === row)) {
+        const nodeId = pipe.fromId || pipe.toId;
+        if (nodeId) {
+          const p = this.game.state.placeables.find(pl => pl.id === nodeId);
+          if (p) return p;
+        }
+      }
+    }
     return null;
   }
 
@@ -426,9 +436,22 @@ export class InputHandler {
       const hit = this.renderer.raycastScreen(screenX, screenY);
       if (hit) {
         const info = this.renderer.identifyHit(hit);
-        if (info && info.group === 'component' && info.nodeId) {
-          const p = this.game.state.placeables.find(pl => pl.id === info.nodeId);
-          if (p) return p;
+        if (info) {
+          if (info.group === 'component' && info.nodeId) {
+            const p = this.game.state.placeables.find(pl => pl.id === info.nodeId);
+            if (p) return p;
+          }
+          // Attachment or beam pipe click — resolve to a connected beamline node
+          if ((info.group === 'attachment' || info.group === 'beampipe') && info.pipeId) {
+            const pipe = this.game.state.beamPipes.find(bp => bp.id === info.pipeId);
+            if (pipe) {
+              const nodeId = pipe.fromId || pipe.toId;
+              if (nodeId) {
+                const p = this.game.state.placeables.find(pl => pl.id === nodeId);
+                if (p) return p;
+              }
+            }
+          }
         }
       }
     }
@@ -593,33 +616,39 @@ export class InputHandler {
    * smaller than a full tile.
    */
   _findBeamlineComponentNearEndpoint(col, row) {
-    const cFloor = Math.floor(col);
-    const cCeil = Math.ceil(col);
-    const rFloor = Math.floor(row);
-    const rCeil = Math.ceil(row);
-    const cols = cFloor === cCeil ? [cFloor] : [cFloor, cCeil];
-    const rows = rFloor === rCeil ? [rFloor] : [rFloor, rCeil];
-    for (const c of cols) {
-      for (const r of rows) {
-        const comp = this._findBeamlineComponentAt(c, r);
+    // Search nearby tiles (up to 2-tile radius) for a beamline module.
+    // The wider search ensures pipe endpoints connect to modules even when
+    // the user starts/ends drawing slightly off the module's exact tile.
+    const centerCol = Math.round(col);
+    const centerRow = Math.round(row);
+    let bestComp = null;
+    let bestDist = Infinity;
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        const comp = this._findBeamlineComponentAt(centerCol + dc, centerRow + dr);
         if (!comp) continue;
-        const def = COMPONENTS[comp.type];
-        const gwSub = def?.gridW || def?.subW || 4;
-        const ghSub = def?.gridH || def?.subL || def?.subH || 4;
-        const sc = comp.subCol || 0;
-        const sr = comp.subRow || 0;
-        // World-centre of the module (same formula ComponentBuilder.build
-        // uses for subgrid-placed components):
-        //   x = col*2 + (subCol + gwSub/2) * 0.5
-        // Converted to pipe.col coordinates via `pipe_col = (world_x - 1) / 2`.
-        const worldX = comp.col * 2 + (sc + gwSub / 2) * 0.5;
-        const worldZ = comp.row * 2 + (sr + ghSub / 2) * 0.5;
-        const pipeCol = (worldX - 1) / 2;
-        const pipeRow = (worldZ - 1) / 2;
-        return { comp, cell: { col: pipeCol, row: pipeRow } };
+        const dist = Math.abs(dc) + Math.abs(dr);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestComp = comp;
+        }
       }
     }
-    return null;
+    if (!bestComp) return null;
+    const def = COMPONENTS[bestComp.type];
+    const gwSub = def?.gridW || def?.subW || 4;
+    const ghSub = def?.gridH || def?.subL || def?.subH || 4;
+    const sc = bestComp.subCol || 0;
+    const sr = bestComp.subRow || 0;
+    // World-centre of the module (same formula ComponentBuilder.build
+    // uses for subgrid-placed components):
+    //   x = col*2 + (subCol + gwSub/2) * 0.5
+    // Converted to pipe.col coordinates via `pipe_col = (world_x - 1) / 2`.
+    const worldX = bestComp.col * 2 + (sc + gwSub / 2) * 0.5;
+    const worldZ = bestComp.row * 2 + (sr + ghSub / 2) * 0.5;
+    const pipeCol = (worldX - 1) / 2;
+    const pipeRow = (worldZ - 1) / 2;
+    return { comp: bestComp, cell: { col: pipeCol, row: pipeRow } };
   }
 
   /**
@@ -1398,7 +1427,10 @@ export class InputHandler {
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      // Multiplicative step: each tick changes zoom by a constant ratio so the
+      // perceived zoom rate is the same at any zoom level.
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      const delta = (this.renderer.zoom || 1) * (factor - 1);
       this.renderer.zoomAt(e.clientX, e.clientY, delta);
     }, { passive: false });
 
@@ -1769,56 +1801,18 @@ export class InputHandler {
             }
           }
         } else {
-          // Left-click: place the pipe. Auto-link endpoints to modules if
-          // the path starts/ends on a module's tile; otherwise create a
-          // free-standing pipe.
+          // Left-click: place the pipe exactly as drawn — no auto-connecting
+          // to nearby modules, no path extension. Pipes are always straight
+          // (single axis) as enforced by _buildStraightPath.
           // Single-click (no drag): extend by one sub-tile along placementDir
           if (this.beamPipePath.length === 1) {
             const start = this.beamPipePath[0];
             const delta = DIR_DELTA[this.placementDir || 0];
             this.beamPipePath.push({ col: start.col + delta.dc * 0.25, row: start.row + delta.dr * 0.25 });
           }
-          let startTile = this.beamPipePath[0];
-          let endTile = this.beamPipePath[this.beamPipePath.length - 1];
-          const startHit = this._findBeamlineComponentNearEndpoint(startTile.col, startTile.row);
-          const endHit = this._findBeamlineComponentNearEndpoint(endTile.col, endTile.row);
-
-          // Fill gaps: extend the pipe path so it actually touches the matched
-          // component cell when the endpoint lands on a half-tile between major
-          // tiles. Only runs when the user dragged the pipe onto the component.
-          if (startHit) {
-            const cell = startHit.cell;
-            if (cell.col !== startTile.col || cell.row !== startTile.row) {
-              const prefix = this._buildStraightPath({ col: cell.col, row: cell.row }, startTile);
-              this.beamPipePath = [...prefix.slice(0, -1), ...this.beamPipePath];
-              startTile = this.beamPipePath[0];
-            }
-          }
-          if (endHit) {
-            const cell = endHit.cell;
-            if (cell.col !== endTile.col || cell.row !== endTile.row) {
-              const suffix = this._buildStraightPath(endTile, { col: cell.col, row: cell.row });
-              this.beamPipePath = [...this.beamPipePath, ...suffix.slice(1)];
-              endTile = this.beamPipePath[this.beamPipePath.length - 1];
-            }
-          }
-
-          const startComp = startHit?.comp || null;
-          const endComp = endHit?.comp || null;
-
-          let fromId = null, fromPort = null;
-          if (startComp && COMPONENTS[startComp.type]?.placement === 'module') {
-            fromId = startComp.id;
-            fromPort = this._findAvailablePort(fromId, 'exit');
-          }
-          let toId = null, toPort = null;
-          if (endComp && COMPONENTS[endComp.type]?.placement === 'module' && endComp.id !== fromId) {
-            toId = endComp.id;
-            toPort = this._findAvailablePort(toId, 'entry');
-          }
 
           this.game._pushUndo();
-          this.game.createBeamPipe(fromId, fromPort, toId, toPort, this.beamPipePath);
+          this.game.createBeamPipe(null, null, null, null, this.beamPipePath);
         }
 
         this.drawingBeamPipe = false;
@@ -2528,7 +2522,14 @@ export class InputHandler {
     const cx = fc.col;
     const cz = fc.row;
     for (const pipe of pipes) {
-      if (!pipe.path || pipe.path.length < 2) continue;
+      if (!pipe.path || pipe.path.length === 0) continue;
+      // Single-point pipes (tiny remnants after splitting): treat as a point hit
+      if (pipe.path.length === 1) {
+        const a = pipe.path[0];
+        const dx = cx - (a.col + 0.5), dz = cz - (a.row + 0.5);
+        if (dx * dx + dz * dz <= pad * pad) return pipe;
+        continue;
+      }
       for (let i = 0; i < pipe.path.length - 1; i++) {
         const a = pipe.path[i];
         const b = pipe.path[i + 1];
@@ -2538,7 +2539,12 @@ export class InputHandler {
         // Distance from cursor tile point to segment (a, b).
         const dx = bx - ax, dz = bz - az;
         const len2 = dx * dx + dz * dz;
-        if (len2 === 0) continue;
+        if (len2 === 0) {
+          // Zero-length segment: treat as point hit
+          const ddx2 = cx - ax, ddz2 = cz - az;
+          if (ddx2 * ddx2 + ddz2 * ddz2 <= pad * pad) return pipe;
+          continue;
+        }
         let t = ((cx - ax) * dx + (cz - az) * dz) / len2;
         t = Math.max(0, Math.min(1, t));
         const px = ax + t * dx, pz = az + t * dz;

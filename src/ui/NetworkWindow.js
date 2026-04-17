@@ -80,19 +80,21 @@ export class NetworkWindow {
     ctx.onTabRender('equipment', (el) => this._renderEquipment(el));
 
     // Auto-refresh on tick
-    this._tickHandler = () => {
+    this._tickHandler = (event) => {
+      if (event !== 'tick') return;
       if (this.ctx && this.ctx._el) {
         this.ctx.update();
       }
     };
-    this.game.on('tick', this._tickHandler);
+    this.game.on(this._tickHandler);
 
     ctx.update();
   }
 
   _cleanup() {
     if (this._tickHandler) {
-      this.game.off('tick', this._tickHandler);
+      const idx = this.game.listeners.indexOf(this._tickHandler);
+      if (idx !== -1) this.game.listeners.splice(idx, 1);
       this._tickHandler = null;
     }
   }

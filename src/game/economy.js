@@ -230,7 +230,7 @@ export function computeSystemStats(state) {
   };
 
   // === POWER ===
-  const substations = counts.substation || 0;
+  const substations = (counts.hvTransformer || 0) + (counts.padMountTransformer || 0);
   const panels = counts.powerPanel || 0;
   const laserSystems = counts.laserSystem || 0;
 

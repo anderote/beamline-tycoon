@@ -120,20 +120,20 @@ function gen_grid(name, bgRGB, lineRGB, cellSize, seed) {
   writePng(png, name);
 }
 
-function gen_mesh(name, holeRGB, frameRGB, holeSize, seed) {
+function gen_mesh(name, darkRGB, lightRGB, slotW, seed) {
   const png = makePng();
   const rand = mulberry32(seed);
-  const period = holeSize * 2;
+  const period = slotW + CHUNK;
   for (let y = 0; y < SIZE; y += CHUNK) {
     for (let x = 0; x < SIZE; x += CHUNK) {
       const ix = x % period;
-      const iy = y % period;
-      const inHole = ix < holeSize && iy < holeSize;
-      if (inHole) {
-        setBlock(png, x, y, holeRGB[0], holeRGB[1], holeRGB[2], CHUNK);
+      const isSlot = ix < CHUNK;
+      const n = (rand() - 0.5) * 10;
+      if (isSlot) {
+        setBlock(png, x, y, darkRGB[0] + n * 0.3, darkRGB[1] + n * 0.3, darkRGB[2] + n * 0.3, CHUNK);
       } else {
-        const n = (rand() - 0.5) * 12;
-        setBlock(png, x, y, frameRGB[0] + n, frameRGB[1] + n, frameRGB[2] + n, CHUNK);
+        const shade = ((ix - CHUNK) / (period - CHUNK)) * 12 - 6;
+        setBlock(png, x, y, lightRGB[0] + n + shade, lightRGB[1] + n + shade, lightRGB[2] + n + shade, CHUNK);
       }
     }
   }
@@ -401,7 +401,7 @@ function gen_wallBrick(name, seed) {
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
 // Metals
-gen_brushed('metal_dark',          [55, 58, 66],   1);
+gen_solidNoise('metal_dark',       [55, 58, 66],   6, 1);
 gen_brushed('metal_brushed',       [140, 145, 155], 2);
 gen_solidNoise('metal_painted_white', [220, 222, 218], 18, 3);
 gen_brushed('copper',              [180, 110, 50], 4);
@@ -418,7 +418,7 @@ gen_solidNoise('rubber_mat',       [40, 42, 44], 14, 8);
 gen_grid('tile_floor_white',       [225, 225, 222], [180, 180, 178], 16, 9);
 
 // Vent mesh + cable tray
-gen_mesh('rack_vent_mesh',         [20, 20, 22], [90, 92, 100], 4, 10);
+gen_mesh('rack_vent_mesh',         [25, 25, 30], [100, 102, 110], 6, 10);
 gen_grid('cable_tray',             [120, 120, 124], [60, 60, 64], 8, 11);
 
 // Infra category paints (Pass D — infra textures and decals)

@@ -1,26 +1,31 @@
 // src/renderer3d/cliff-builder.js
-// Renders vertical dirt cliff faces at inter-tile edges where the two
-// tiles' shared-edge corners differ in Y. One merged BufferGeometry for
-// the whole map, one MeshStandardMaterial (dirt brown, no texture).
+// Renders vertical rocky-dirt cliff faces at inter-tile edges where the
+// two tiles' shared-edge corners differ in Y. One merged BufferGeometry
+// for the whole map, one tiled MeshStandardMaterial (tile_rocky_dirt).
+//
+// UVs are keyed to world coords so tiling stays consistent across
+// adjacent cliff segments: u runs along the edge (X for south edges,
+// Z for east edges), v runs along world-Y; both divided by 2 so one
+// 64-px texture repetition covers 2 m (one tile) on every axis.
 //
 // THREE is a CDN global — do NOT import it.
 
-const CLIFF_COLOR = 0x6b4a2e;
+import { MATERIALS } from './materials/index.js';
 
 /**
  * Push a vertical quad (two triangles) onto the running arrays.
- * A quad has 4 corners named by side ('left'/'right' along the edge) and
- * height ('top'/'bottom'):
  *
  *   leftTop ---- rightTop
  *      |              |
  *   leftBot ---- rightBot
  *
- * Winding is chosen so the front face points outward; we use DoubleSide
- * on the material, so both orderings render, but keeping a consistent
- * CCW winding lets `computeVertexNormals` produce sensible lighting.
+ * uv* arrays are [u, v] pairs in the same corner order.
  */
-function pushQuad(positions, indices, leftTop, rightTop, leftBot, rightBot) {
+function pushQuad(
+  positions, uvs, indices,
+  leftTop, rightTop, leftBot, rightBot,
+  uvLT, uvRT, uvLB, uvRB,
+) {
   const vBase = positions.length / 3;
   positions.push(
     leftTop[0],  leftTop[1],  leftTop[2],   // 0: LT
@@ -28,7 +33,12 @@ function pushQuad(positions, indices, leftTop, rightTop, leftBot, rightBot) {
     rightBot[0], rightBot[1], rightBot[2],  // 2: RB
     leftBot[0],  leftBot[1],  leftBot[2],   // 3: LB
   );
-  // Two triangles: (LT, LB, RT) + (RT, LB, RB)
+  uvs.push(
+    uvLT[0], uvLT[1],
+    uvRT[0], uvRT[1],
+    uvRB[0], uvRB[1],
+    uvLB[0], uvLB[1],
+  );
   indices.push(vBase + 0, vBase + 3, vBase + 1);
   indices.push(vBase + 1, vBase + 3, vBase + 2);
 }
@@ -42,16 +52,11 @@ function pushQuad(positions, indices, leftTop, rightTop, leftBot, rightBot) {
  *   - Edge 's': horizontal line at Z = (row+1)*2, running from
  *     X = col*2     (west  end = "left") to X = col*2 + 2 (east  end = "right").
  *
- * At each end of the edge we have two Y values — `selfY` and `neighborY`.
- * The cliff quad spans from the lower Y up to the higher Y at each end.
- *
  * Sign flip handling: if `selfY[0] - neighborY[0]` and `selfY[1] -
  * neighborY[1]` have opposite signs, the two sides cross somewhere along
- * the edge. Emit two sub-quads meeting at the crossing point (linear
- * interpolation along the edge).
+ * the edge. Emit two sub-quads meeting at the crossing point.
  */
-function appendCliff(positions, indices, col, row, edge, selfY, neighborY) {
-  // World coords of the edge endpoints.
+function appendCliff(positions, uvs, indices, col, row, edge, selfY, neighborY) {
   let leftX, leftZ, rightX, rightZ;
   if (edge === 'e') {
     leftX  = (col + 1) * 2; leftZ  = row * 2;
@@ -62,39 +67,50 @@ function appendCliff(positions, indices, col, row, edge, selfY, neighborY) {
     rightX = col * 2 + 2;   rightZ = (row + 1) * 2;
   }
 
+  // World-coord → UV mapping. One 2m tile covers one texture repetition.
+  const uLeft  = edge === 'e' ? leftZ  * 0.5 : leftX  * 0.5;
+  const uRight = edge === 'e' ? rightZ * 0.5 : rightX * 0.5;
+  const vOf = (y) => y * 0.5;
+
   const dLeft  = selfY[0] - neighborY[0];
   const dRight = selfY[1] - neighborY[1];
 
-  // Sign-flip: the two ends rank differently. Split at the crossing point.
-  // Linear interpolation: t in [0, 1] along left→right where the two
-  // surfaces meet. dLeft + t*(dRight - dLeft) = 0 → t = dLeft/(dLeft-dRight).
   if ((dLeft > 0 && dRight < 0) || (dLeft < 0 && dRight > 0)) {
     const t = dLeft / (dLeft - dRight);
     const midX = leftX + (rightX - leftX) * t;
     const midZ = leftZ + (rightZ - leftZ) * t;
     const selfMid = selfY[0] + (selfY[1] - selfY[0]) * t;
-    // At the crossing, selfY === neighborY, so no vertical gap.
+    const uMid = uLeft + (uRight - uLeft) * t;
+    const vMid = vOf(selfMid);
 
     // Sub-quad 1: left → mid
     const lTop = Math.max(selfY[0], neighborY[0]);
     const lBot = Math.min(selfY[0], neighborY[0]);
     pushQuad(
-      positions, indices,
+      positions, uvs, indices,
       [leftX, lTop, leftZ],
       [midX, selfMid, midZ],
       [leftX, lBot, leftZ],
       [midX, selfMid, midZ],
+      [uLeft, vOf(lTop)],
+      [uMid,  vMid],
+      [uLeft, vOf(lBot)],
+      [uMid,  vMid],
     );
 
     // Sub-quad 2: mid → right
     const rTop = Math.max(selfY[1], neighborY[1]);
     const rBot = Math.min(selfY[1], neighborY[1]);
     pushQuad(
-      positions, indices,
+      positions, uvs, indices,
       [midX, selfMid, midZ],
       [rightX, rTop, rightZ],
       [midX, selfMid, midZ],
       [rightX, rBot, rightZ],
+      [uMid,   vMid],
+      [uRight, vOf(rTop)],
+      [uMid,   vMid],
+      [uRight, vOf(rBot)],
     );
     return;
   }
@@ -105,18 +121,20 @@ function appendCliff(positions, indices, col, row, edge, selfY, neighborY) {
   const rTop = Math.max(selfY[1], neighborY[1]);
   const rBot = Math.min(selfY[1], neighborY[1]);
   pushQuad(
-    positions, indices,
+    positions, uvs, indices,
     [leftX, lTop, leftZ],
     [rightX, rTop, rightZ],
     [leftX, lBot, leftZ],
     [rightX, rBot, rightZ],
+    [uLeft,  vOf(lTop)],
+    [uRight, vOf(rTop)],
+    [uLeft,  vOf(lBot)],
+    [uRight, vOf(rBot)],
   );
 }
 
 export class CliffBuilder {
   constructor(textureManager) {
-    // textureManager retained for constructor-signature parity with the
-    // other builders — cliff faces use a solid color in Phase 1.
     this._textureManager = textureManager;
     /** @type {THREE.Mesh | null} */
     this._mesh = null;
@@ -142,10 +160,11 @@ export class CliffBuilder {
     }
 
     const positions = [];
+    const uvs = [];
     const indices = [];
     for (let i = 0; i < len; i++) {
       const c = cliffData[i];
-      appendCliff(positions, indices, c.col, c.row, c.edge, c.selfY, c.neighborY);
+      appendCliff(positions, uvs, indices, c.col, c.row, c.edge, c.selfY, c.neighborY);
     }
 
     if (positions.length === 0) {
@@ -155,11 +174,14 @@ export class CliffBuilder {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('uv',       new THREE.BufferAttribute(new Float32Array(uvs), 2));
     geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
     geo.computeVertexNormals();
 
+    const rockyMat = MATERIALS.tile_rocky_dirt;
     const mat = new THREE.MeshStandardMaterial({
-      color: CLIFF_COLOR,
+      map: rockyMat?.map ?? null,
+      color: 0xffffff,
       roughness: 1.0,
       metalness: 0.0,
       side: THREE.DoubleSide,

@@ -47,16 +47,8 @@ export class Placeable {
 }
 
 export class BeamlineModule extends Placeable {
-  onPlaced(game, instance) {
-    if (typeof game._ensureBeamlineForSourcePlaceable === 'function') {
-      game._ensureBeamlineForSourcePlaceable(instance);
-    }
-  }
-  onRemoved(game, instance) {
-    if (typeof game._removeBeamlineForSourcePlaceable === 'function') {
-      game._removeBeamlineForSourcePlaceable(instance);
-    }
-  }
+  // Placement is just adding to the grid. Registry entries and physics are
+  // built lazily — when beams are toggled on, pipes change, or the UI needs them.
 }
 
 export class Infrastructure extends Placeable {}

@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import erf
 from beam_physics.modules.base import PhysicsModule
 from beam_physics.context import EffectReport
-from beam_physics.constants import DEFAULT_APERTURE, TRIP_THRESHOLD
+from beam_physics.constants import DEFAULT_APERTURE
 
 
 class ApertureLossModule(PhysicsModule):
@@ -28,11 +28,6 @@ class ApertureLossModule(PhysicsModule):
 
         beam.current *= (1.0 - loss)
         beam._update_bunch_properties()
-
-        if beam.initial_current > 0:
-            total_loss = 1.0 - (beam.current / beam.initial_current)
-            if total_loss > TRIP_THRESHOLD:
-                beam.alive = False
 
         return EffectReport(self.name, context.element_index,
                            {"loss_fraction": loss, "aperture": aperture})

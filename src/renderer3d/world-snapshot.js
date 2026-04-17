@@ -234,6 +234,10 @@ function buildDecorations(game) {
     .map(d => {
       const raw = DECORATIONS_RAW[d.type];
       const category = raw?.category ?? 'unknown';
+      // Sit the decoration on the terrain: use the tile's min corner so
+      // trunks on sloped corners don't float. Flat tiles resolve to 0.
+      const c = getTileCornersY(game.state, d.col, d.row);
+      const y = Math.min(c.nw, c.ne, c.se, c.sw);
       return {
         col: d.col,
         row: d.row,
@@ -246,6 +250,7 @@ function buildDecorations(game) {
         subH: raw?.subH ?? 4,
         variant: d.variant ?? null,
         tall: d.tall ?? false,
+        y,
       };
     });
 }

@@ -215,17 +215,79 @@ function modulatorFront() {
   const png = makePng(w, h);
   shadedRect(png, 0, 0, w, h, RED_BODY);
   rect(png, 0, 1, w, 1, RED_HIGHLIGHT);
-  // Two analog meters at the top
-  gauge(png, 14, 12, 5, 220);
-  gauge(png, 34, 12, 5, 290);
-  // DANGER placard middle
-  rect(png, 6, 24, 36, 10, RED_HIGHLIGHT);
-  stroke(png, 6, 24, 36, 10, DARK_TRIM);
-  // Three black bars suggesting "DANGER HIGH VOLTAGE" text
-  rect(png, 10, 27, 28, 1, DARK_TRIM);
-  rect(png, 10, 30, 28, 1, DARK_TRIM);
-  // Vent at bottom
-  venting(png, 6, 40, 36, 18, DARK_TRIM, [70, 72, 78]);
+
+  // ── Top section: HV warning + digital display ──
+  warningSticker(png, 3, 3, 12, 8);
+  // Digital readout panel (kV display)
+  rect(png, 18, 3, 26, 8, [20, 22, 28]);
+  stroke(png, 18, 3, 26, 8, [60, 64, 72]);
+  // Green 7-seg style digits "045.0"
+  const digC = [60, 220, 80];
+  rect(png, 20, 5, 2, 4, digC);
+  rect(png, 24, 5, 2, 4, digC);
+  rect(png, 28, 5, 2, 4, digC);
+  px(png, 31, 8, digC[0], digC[1], digC[2]);
+  rect(png, 33, 5, 2, 4, digC);
+  // "kV" label
+  rect(png, 38, 6, 1, 3, [140, 140, 150]);
+  rect(png, 40, 6, 1, 3, [140, 140, 150]);
+
+  // ── PFN capacitor bank behind mesh (mid section) ──
+  const capY = 13, capH = 20;
+  rect(png, 3, capY, 42, capH, [50, 52, 58]);
+  stroke(png, 3, capY, 42, capH, DARK_TRIM);
+  // Capacitor cylinders (4 columns × 2 rows)
+  const capC = [100, 90, 60];
+  const capHi = [130, 120, 80];
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 4; col++) {
+      const cx = 8 + col * 10, cy = capY + 5 + row * 10;
+      disc(png, cx, cy, 3, capC);
+      disc(png, cx, cy, 2, capHi);
+      px(png, cx, cy, capC[0], capC[1], capC[2]);
+    }
+  }
+  // Mesh overlay lines (horizontal)
+  for (let my = capY + 1; my < capY + capH; my += 2) {
+    for (let mx = 4; mx < 44; mx += 2) {
+      px(png, mx, my, 35, 37, 42, 120);
+    }
+  }
+
+  // ── Control panel strip ──
+  const ctrlY = 35;
+  rect(png, 3, ctrlY, 42, 8, [60, 62, 68]);
+  stroke(png, 3, ctrlY, 42, 8, DARK_TRIM);
+  // Interlock key switch
+  disc(png, 9, ctrlY + 4, 2, [160, 155, 140]);
+  px(png, 9, ctrlY + 3, 80, 80, 85);
+  px(png, 9, ctrlY + 2, 80, 80, 85);
+  // Status LEDs: HV ON (green), FAULT (red), READY (amber), INTERLOCK (red)
+  rect(png, 16, ctrlY + 2, 2, 2, [80, 230, 90]);
+  rect(png, 21, ctrlY + 2, 2, 2, [230, 60, 50]);
+  rect(png, 26, ctrlY + 2, 2, 2, [255, 180, 50]);
+  rect(png, 31, ctrlY + 2, 2, 2, [230, 60, 50]);
+  // Pushbuttons (ON / OFF)
+  disc(png, 38, ctrlY + 3, 2, [60, 180, 70]);
+  disc(png, 43, ctrlY + 3, 2, [200, 55, 50]);
+
+  // ── HV output section at bottom ──
+  const hvY = 45;
+  // HV cable connector (large circular)
+  rect(png, 3, hvY, 20, 14, [45, 47, 52]);
+  stroke(png, 3, hvY, 20, 14, DARK_TRIM);
+  disc(png, 13, hvY + 7, 5, [70, 65, 55]);
+  disc(png, 13, hvY + 7, 3, [40, 38, 35]);
+  disc(png, 13, hvY + 7, 1, [180, 170, 140]);
+  // DANGER HIGH VOLTAGE placard
+  rect(png, 25, hvY, 20, 7, [220, 190, 60]);
+  stroke(png, 25, hvY, 20, 7, [25, 25, 28]);
+  rect(png, 28, hvY + 2, 14, 1, [25, 25, 28]);
+  rect(png, 28, hvY + 4, 14, 1, [25, 25, 28]);
+  // Vent slats below placard
+  venting(png, 25, hvY + 9, 20, 5, DARK_TRIM, [70, 72, 78]);
+
+  // Corner screws
   screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
   screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
   screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
@@ -516,6 +578,394 @@ function powerPanelFront() {
   save(png, 'power_panel_front.png');
 }
 
+// ── DATA / CONTROLS — Distribution ───────────────────────────────
+
+// Patch panel — fiber junction box with rows of colored fiber ports
+// and cable management loops. Gray body, passive device.
+function patchPanelFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, GRAY_BODY);
+  // Label strip at top
+  nameplate(png, 8, 4, 32, 6);
+  // Four rows of fiber ports (colored dots)
+  const portColors = [
+    [80, 180, 255],   // blue SC
+    [80, 230, 90],    // green LC
+    [255, 180, 50],   // amber OM3
+    [240, 70, 70],    // red SM
+  ];
+  for (let row = 0; row < 4; row++) {
+    const ry = 14 + row * 11;
+    rect(png, 4, ry, w - 8, 9, [50, 52, 58]);
+    stroke(png, 4, ry, w - 8, 9, [80, 84, 92]);
+    for (let col = 0; col < 8; col++) {
+      const cx = 7 + col * 5;
+      disc(png, cx, ry + 4, 1, portColors[row]);
+    }
+  }
+  // Cable management loops at bottom
+  for (let i = 0; i < 3; i++) {
+    const cx = 12 + i * 12;
+    stroke(png, cx - 3, 58, 6, 4, [100, 104, 112]);
+  }
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'patch_panel_front.png');
+}
+
+// Network switch — managed Ethernet switch with rows of RJ45 ports
+// and link/activity LEDs. Dark gray 1U-style body.
+function networkSwitchFront() {
+  const w = 48, h = 32;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, [50, 52, 58]);
+  // Top row: 12 RJ45 ports
+  for (let col = 0; col < 12; col++) {
+    const px0 = 3 + col * 3 + (col >= 6 ? 2 : 0);
+    rect(png, px0, 4, 2, 4, [30, 32, 38]);
+    stroke(png, px0, 4, 2, 4, [70, 72, 80]);
+  }
+  // Link LEDs under each port
+  for (let col = 0; col < 12; col++) {
+    const px0 = 3 + col * 3 + (col >= 6 ? 2 : 0);
+    const c = (col % 3 === 0) ? [255, 180, 50] : [80, 230, 90];
+    rect(png, px0, 10, 2, 1, c);
+  }
+  // Bottom row: 12 more ports
+  for (let col = 0; col < 12; col++) {
+    const px0 = 3 + col * 3 + (col >= 6 ? 2 : 0);
+    rect(png, px0, 14, 2, 4, [30, 32, 38]);
+    stroke(png, px0, 14, 2, 4, [70, 72, 80]);
+  }
+  // Status LED strip at bottom
+  rect(png, 4, 22, 2, 2, [80, 230, 90]);
+  rect(png, 8, 22, 2, 2, [80, 230, 90]);
+  rect(png, 12, 22, 2, 2, [255, 180, 50]);
+  // Nameplate right side
+  nameplate(png, 24, 22, 20, 5);
+  // Management port (console)
+  rect(png, 42, 4, 3, 4, [80, 180, 255]);
+  stroke(png, 42, 4, 3, 4, DARK_TRIM);
+  screw(png, 1, 1, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 2, 1, SCREW_BODY, SCREW_SLOT);
+  screw(png, 1, h - 2, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 2, h - 2, SCREW_BODY, SCREW_SLOT);
+  save(png, 'network_switch_front.png');
+}
+
+// ── DATA / CONTROLS — Controls (additional) ──────────────────────
+
+// BLM readout — small electronics crate with signal bar-graph display
+// and channel indicator LEDs. Reads beam-loss ionization chambers.
+function blmReadoutFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, GRAY_BODY);
+  // Nameplate at top
+  nameplate(png, 8, 4, 32, 6);
+  // Bar-graph display area (dark inset)
+  rect(png, 4, 14, 40, 24, [30, 32, 38]);
+  stroke(png, 4, 14, 40, 24, [70, 72, 80]);
+  // 8 vertical bar-graph channels at varying heights
+  const barH = [16, 8, 20, 4, 12, 6, 18, 10];
+  for (let i = 0; i < 8; i++) {
+    const bx = 7 + i * 5;
+    const bh = barH[i];
+    const c = bh > 14 ? [240, 70, 70] : bh > 10 ? [255, 180, 50] : [80, 230, 90];
+    rect(png, bx, 34 - bh, 3, bh, c);
+  }
+  // Channel status LEDs below display
+  for (let i = 0; i < 8; i++) {
+    rect(png, 7 + i * 5, 42, 3, 2, [80, 230, 90]);
+  }
+  // Warning sticker
+  warningSticker(png, 4, 50, 14, 8);
+  // Threshold trim pots at bottom right
+  for (let i = 0; i < 3; i++) {
+    disc(png, 30 + i * 6, 54, 2, [60, 64, 72]);
+    px(png, 30 + i * 6, 54, DARK_TRIM[0], DARK_TRIM[1], DARK_TRIM[2]);
+  }
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'blm_readout_front.png');
+}
+
+// BPM electronics — digitizer crate with ADC channel indicators
+// and signal strength bars. Reads beam position monitors.
+function bpmElectronicsFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, [60, 64, 72]);
+  // Top and bottom rack rails
+  rect(png, 0, 0, w, 3, [90, 94, 102]);
+  rect(png, 0, h - 3, w, 3, [90, 94, 102]);
+  // 4 ADC channel modules stacked
+  for (let i = 0; i < 4; i++) {
+    const sy = 5 + i * 14;
+    rect(png, 4, sy, w - 8, 12, [35, 38, 44]);
+    stroke(png, 4, sy, w - 8, 12, [70, 72, 80]);
+    // Channel label
+    rect(png, 6, sy + 2, 14, 3, [180, 175, 155]);
+    // Signal strength indicator (horizontal bar)
+    const barW = 10 + (i * 4);
+    rect(png, 6, sy + 7, barW, 2, [80, 200, 255]);
+    // Status LED
+    rect(png, w - 10, sy + 4, 2, 2, [80, 230, 90]);
+  }
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'bpm_electronics_front.png');
+}
+
+// Archiver / data logger — server with disk activity LEDs, HMI screen
+// showing a trend plot, and network port.
+function archiverFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, [50, 52, 58]);
+  // Top rack rail
+  rect(png, 0, 0, w, 3, [90, 94, 102]);
+  // Small HMI screen at top
+  rect(png, 6, 5, 36, 20, DARK_TRIM);
+  rect(png, 7, 6, 34, 18, [30, 50, 30]);
+  // Trend plot lines inside screen
+  for (let x = 0; x < 30; x++) {
+    const y1 = 10 + Math.floor(Math.sin(x * 0.5) * 4 + 4);
+    const y2 = 10 + Math.floor(Math.cos(x * 0.3) * 3 + 6);
+    px(png, 9 + x, y1, 80, 230, 90);
+    px(png, 9 + x, y2, 80, 180, 255);
+  }
+  // Four disk drive bays
+  for (let i = 0; i < 4; i++) {
+    const dy = 28 + i * 8;
+    rect(png, 4, dy, w - 8, 6, [35, 38, 44]);
+    stroke(png, 4, dy, w - 8, 6, [70, 72, 80]);
+    // Drive handle
+    rect(png, 6, dy + 1, 28, 4, [60, 64, 72]);
+    // Activity LED
+    const c = (i === 1) ? [80, 230, 90] : [40, 42, 48];
+    rect(png, w - 10, dy + 2, 2, 2, c);
+  }
+  // Bottom rack rail
+  rect(png, 0, h - 3, w, 3, [90, 94, 102]);
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'archiver_front.png');
+}
+
+// ── DATA / CONTROLS — Safety (additional) ────────────────────────
+
+// Search & secure panel — wall-mounted button station with illuminated
+// push buttons used during the radiation area sweep procedure.
+function searchSecurePanel() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, [220, 215, 200]);
+  // Title placard at top
+  rect(png, 8, 4, 32, 8, [200, 60, 60]);
+  stroke(png, 8, 4, 32, 8, DARK_TRIM);
+  // "SEARCH" text hint (dark bar)
+  rect(png, 12, 7, 24, 2, [240, 230, 220]);
+  // Three illuminated push buttons in a column
+  // SEARCH button (green)
+  disc(png, 24, 22, 7, DARK_TRIM);
+  disc(png, 24, 22, 6, [60, 180, 70]);
+  disc(png, 24, 22, 4, [80, 230, 90]);
+  // SECURE button (amber)
+  disc(png, 24, 38, 7, DARK_TRIM);
+  disc(png, 24, 38, 6, [200, 140, 30]);
+  disc(png, 24, 38, 4, [255, 180, 60]);
+  // EMERGENCY STOP button (red, mushroom cap style)
+  disc(png, 24, 54, 6, DARK_TRIM);
+  disc(png, 24, 54, 5, [180, 30, 30]);
+  disc(png, 24, 54, 3, [240, 70, 70]);
+  // Status indicator on the right
+  rect(png, 38, 20, 4, 4, [80, 230, 90]);
+  stroke(png, 38, 20, 4, 4, DARK_TRIM);
+  rect(png, 38, 36, 4, 4, [60, 64, 72]);
+  stroke(png, 38, 36, 4, 4, DARK_TRIM);
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'search_secure_panel.png');
+}
+
+// Access control panel — badge reader with card slot, keypad, and
+// status display for zone entry permissions.
+function accessControlPanel() {
+  const w = 32, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, [180, 185, 195]);
+  // Status display at top
+  rect(png, 4, 4, 24, 10, DARK_TRIM);
+  rect(png, 5, 5, 22, 8, [40, 58, 32]);
+  // "READY" text hint
+  rect(png, 7, 8, 18, 2, [80, 230, 90]);
+  // Card reader slot
+  rect(png, 6, 18, 20, 8, [60, 64, 72]);
+  stroke(png, 6, 18, 20, 8, DARK_TRIM);
+  // Card insertion arrow hint
+  rect(png, 14, 20, 4, 1, [180, 175, 155]);
+  rect(png, 15, 21, 2, 3, [180, 175, 155]);
+  // 3×4 keypad
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 3; col++) {
+      const kx = 6 + col * 7;
+      const ky = 30 + row * 7;
+      rect(png, kx, ky, 5, 5, [140, 144, 152]);
+      stroke(png, kx, ky, 5, 5, [100, 104, 112]);
+    }
+  }
+  // Status LED at bottom
+  disc(png, 16, 60, 2, [80, 230, 90]);
+  screw(png, 2, 2, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 3, 2, SCREW_BODY, SCREW_SLOT);
+  screw(png, 2, h - 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 3, h - 3, SCREW_BODY, SCREW_SLOT);
+  save(png, 'access_control_panel.png');
+}
+
+// ── Power / Electrical ───────────────────────────────────────────────
+
+// Switchgear cabinet front — outdoor metal-clad enclosure with breaker compartments
+function switchgearFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, GREEN_BODY);
+  rect(png, 0, 1, w, 1, GREEN_HIGHLIGHT);
+  // HV warning placard top center
+  warningSticker(png, 10, 3, 28, 8);
+  // 3 breaker compartment doors stacked vertically
+  for (let row = 0; row < 3; row++) {
+    const dy = 14 + row * 15;
+    rect(png, 4, dy, 40, 12, [55, 100, 55]);
+    stroke(png, 4, dy, 40, 12, DARK_TRIM);
+    // Nameplate on each door
+    nameplate(png, 8, dy + 2, 16, 4);
+    // Status LED
+    rect(png, 36, dy + 3, 2, 2, (row === 1) ? [230, 60, 50] : [80, 230, 90]);
+    // Door handle
+    rect(png, 38, dy + 6, 2, 4, [120, 124, 130]);
+  }
+  // Bottom vent
+  venting(png, 6, 58, 36, 4, DARK_TRIM, [70, 72, 78]);
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'switchgear_front.png');
+}
+
+// Motor Control Center front — rows of starter buckets with handle and LEDs
+function mccFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, GRAY_BODY);
+  rect(png, 0, 1, w, 1, [160, 162, 168]);
+  // 6 starter bucket compartments (2 columns × 3 rows)
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 2; col++) {
+      const bx = 3 + col * 22;
+      const by = 4 + row * 19;
+      rect(png, bx, by, 20, 16, [110, 112, 118]);
+      stroke(png, bx, by, 20, 16, DARK_TRIM);
+      // Bucket handle (rotary disconnect)
+      disc(png, bx + 6, by + 8, 3, [50, 52, 58]);
+      disc(png, bx + 6, by + 8, 2, [80, 82, 88]);
+      rect(png, bx + 5, by + 6, 3, 1, [40, 42, 48]);
+      // Nameplate
+      nameplate(png, bx + 10, by + 2, 8, 3);
+      // Status LEDs — RUN (green) and FAULT (red)
+      rect(png, bx + 14, by + 7, 2, 2, [80, 230, 90]);
+      rect(png, bx + 14, by + 11, 2, 2, [230, 60, 50]);
+      // Current display
+      rect(png, bx + 10, by + 10, 8, 4, [20, 22, 28]);
+      stroke(png, bx + 10, by + 10, 8, 4, [60, 64, 72]);
+      const digC = [60, 220, 80];
+      rect(png, bx + 12, by + 11, 2, 2, digC);
+      rect(png, bx + 15, by + 11, 2, 2, digC);
+    }
+  }
+  // Bottom label strip
+  rect(png, 3, 61, 42, 2, [180, 175, 155]);
+  stroke(png, 3, 61, 42, 2, DARK_TRIM);
+  save(png, 'mcc_front.png');
+}
+
+// UPS / Battery Bank front — status display, battery gauge, breaker section
+function upsFront() {
+  const w = 48, h = 64;
+  const png = makePng(w, h);
+  shadedRect(png, 0, 0, w, h, GRAY_BODY);
+  rect(png, 0, 1, w, 1, [160, 162, 168]);
+
+  // Top: LCD status display
+  rect(png, 6, 4, 36, 12, [20, 22, 28]);
+  stroke(png, 6, 4, 36, 12, [60, 64, 72]);
+  // "ONLINE" text hint
+  const digC = [60, 220, 80];
+  for (let i = 0; i < 5; i++) {
+    rect(png, 10 + i * 5, 7, 3, 5, digC);
+  }
+  // Load bar graph
+  rect(png, 10, 13, 20, 2, [40, 42, 48]);
+  rect(png, 10, 13, 12, 2, [60, 180, 70]);
+
+  // Middle: battery level indicators (4 battery icons)
+  const batY = 20;
+  for (let i = 0; i < 4; i++) {
+    const bx = 6 + i * 10;
+    rect(png, bx, batY, 8, 12, [50, 52, 58]);
+    stroke(png, bx, batY, 8, 12, DARK_TRIM);
+    // Battery fill level (descending)
+    const fill = 12 - i * 2;
+    rect(png, bx + 1, batY + 12 - fill, 6, fill, [80, 200, 90]);
+    // Terminal nub
+    rect(png, bx + 2, batY - 1, 4, 1, DARK_TRIM);
+  }
+
+  // Control panel strip
+  const ctrlY = 36;
+  rect(png, 4, ctrlY, 40, 8, [70, 72, 78]);
+  stroke(png, 4, ctrlY, 40, 8, DARK_TRIM);
+  // Power button
+  disc(png, 12, ctrlY + 4, 2, [60, 180, 70]);
+  // Bypass switch
+  disc(png, 24, ctrlY + 4, 2, [200, 175, 60]);
+  // Status LEDs
+  rect(png, 32, ctrlY + 2, 2, 2, [80, 230, 90]);
+  rect(png, 36, ctrlY + 2, 2, 2, [80, 230, 90]);
+  rect(png, 32, ctrlY + 5, 2, 2, [255, 180, 50]);
+  rect(png, 36, ctrlY + 5, 2, 2, [230, 60, 50]);
+
+  // Bottom: breaker section
+  rect(png, 4, 47, 40, 14, [60, 62, 68]);
+  stroke(png, 4, 47, 40, 14, DARK_TRIM);
+  for (let i = 0; i < 5; i++) {
+    const bx = 7 + i * 7;
+    rect(png, bx, 49, 4, 8, [40, 42, 48]);
+    stroke(png, bx, 49, 4, 8, [80, 84, 92]);
+    const up = (i % 2 === 0);
+    rect(png, bx + 1, 49 + (up ? 1 : 5), 2, 2, up ? [80, 230, 90] : [240, 70, 70]);
+  }
+
+  screw(png, 3, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, 3, SCREW_BODY, SCREW_SLOT);
+  screw(png, 3, h - 4, SCREW_BODY, SCREW_SLOT);
+  screw(png, w - 4, h - 4, SCREW_BODY, SCREW_SLOT);
+  save(png, 'ups_front.png');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 klystronPulsedFront();
@@ -532,4 +982,14 @@ rackIocFront();
 ppsPanel();
 mpsPanel();
 powerPanelFront();
+patchPanelFront();
+networkSwitchFront();
+blmReadoutFront();
+bpmElectronicsFront();
+archiverFront();
+searchSecurePanel();
+accessControlPanel();
+switchgearFront();
+mccFront();
+upsFront();
 console.log('done.');

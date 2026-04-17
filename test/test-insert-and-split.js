@@ -60,14 +60,12 @@ assert(p2 && p2.toId === dumpId, 'p2 connects quad → dump');
 assert(p1.toPort && COMPONENTS[quadType].ports[p1.toPort]?.side === 'back', 'p1 attaches to module entry (back) port');
 assert(p2.fromPort && COMPONENTS[quadType].ports[p2.fromPort]?.side === 'front', 'p2 attaches to module exit (front) port');
 
-// --- 4. Length conservation. A module occupying tileLen tiles removes
-//     (tileLen + 1) tile-spacings worth of pipe from the original, i.e.
-//     (tileLen + 1) * 4 sub-units. The module's own subL is separate from
-//     the pipe accounting — it represents the active element's length,
-//     not the tile footprint.
+// --- 4. Length conservation. The pipe split uses the module's world-space
+//     footprint to find the exact split indices, and includes the trailing
+//     edge entry for the 3D renderer to cut at the module boundary.
 const placeable = PLACEABLES[quadType];
-const tileLen = Math.max(1, Math.ceil(placeable.subL / 4));
-const expectedRemovedSubL = (tileLen + 1) * 4;
+const tileLen = Math.max(1, placeable.subL);
+const expectedRemovedSubL = tileLen;
 const remainingSubL = p1.subL + p2.subL;
 assert(
   Math.abs(remainingSubL - (originalSubL - expectedRemovedSubL)) <= 1,
@@ -135,11 +133,13 @@ assert(g2.state.beamPipes.length === 1, 'pipe unchanged on failed insert');
   attPipe.attachments.push({ id: 'att_test_a', position: 0.2, type: 'bpm' });
   attPipe.attachments.push({ id: 'att_test_b', position: 0.8, type: 'bpm' });
 
-  // Insert at tile (2,9) (index 5 in the 10-tile path: rows 4..13).
-  // tileLen = ceil(2/4) = 1, startIdx = 5, endIdx = 5.
-  // moduleSubStart = 5*4 = 20, moduleSubEnd = 6*4 = 24.
-  // att_a: absSub = 0.2*36 = 7.2 < 20 → p1, newPos = 7.2/p1.subL
-  // att_b: absSub = 0.8*36 = 28.8 > 24 → p2, newPos = (28.8-24)/p2.subL
+  // Insert at tile (2,9) — expandPipePath is now sub-tile (0.25-step).
+  // Expanded tiles: {2,4},{2,4.25},...,{2,13} = 37 entries.
+  // tileIndex for row=9: index 20, tileLen = subL = 2.
+  // halfBefore = floor(2/2) = 1, startIdx = 19, endIdx = 20.
+  // moduleSubStart = 19, moduleSubEnd = 21.
+  // att_a: absSub = 0.2*36 = 7.2 < 19 → p1, newPos = 7.2/p1.subL
+  // att_b: absSub = 0.8*36 = 28.8 > 21 → p2, newPos = (28.8-21)/p2.subL
   const insertResultA = ga.tryInsertOnBeamPipe({ type: quadType, col: 2, row: 9, dir: 0 });
   assert(insertResultA, 'attachment precision: insertion succeeded');
 
@@ -155,10 +155,10 @@ assert(g2.state.beamPipes.length === 1, 'pipe unchanged on failed insert');
   assert(Math.abs(attA.position - expectedPosA) < 0.02,
     `attachment precision: att_a position ${attA.position.toFixed(4)} ≈ ${expectedPosA.toFixed(4)} (within 0.02)`);
 
-  // att_b should be on p2. Its original absSub = 28.8; moduleSubEnd=24, p2 covers remainder.
-  // p2 subL = (13-9-1)*4 = ... let's just check it's within sub-unit tolerance of lossless.
+  // att_b should be on p2. Its original absSub = 28.8; moduleSubEnd=21, p2 covers remainder.
   const attB = pa2.attachments[0];
-  const moduleSubEnd = 6 * 4; // (endIdx+1)*4 with endIdx=5
+  // moduleSubEnd = endIdx + 1 = 21 (sub-tile entries, 1 entry = 1 sub-unit)
+  const moduleSubEnd = 21;
   const expectedPosB = (0.8 * 36 - moduleSubEnd) / pa2.subL;
   assert(Math.abs(attB.position - expectedPosB) < 0.02,
     `attachment precision: att_b position ${attB.position.toFixed(4)} ≈ ${expectedPosB.toFixed(4)} (within 0.02)`);
@@ -254,6 +254,93 @@ assert(g2.state.beamPipes.length === 1, 'pipe unchanged on failed insert');
     assert(r3 === null, 'rotation: dir=3 (-col) on +row pipe rejected');
     assert(g3.state.beamPipes.length === 1, 'rotation: dir=3 leaves pipe unchanged');
   }
+}
+
+// --- Fix 4: Dense sub-tile pipe path (as created by the game UI) ---
+// Pipe paths drawn in-game use 0.25-step dense format. This test verifies
+// that tryInsertOnBeamPipe works with dense paths, not just waypoint paths.
+{
+  const gd = makeGame();
+  const sd = gd.placePlaceable({ type: sourceType, col: 2, row: 2, subCol: 0, subRow: 0, dir: 0 });
+  const dd = gd.placePlaceable({ type: dumpType, col: 2, row: 14, subCol: 0, subRow: 0, dir: 0 });
+
+  // Build a dense 0.25-step path (matching _buildStraightPath output)
+  const densePath = [];
+  for (let r = 4; r <= 13; r += 0.25) {
+    densePath.push({ col: 2, row: r });
+  }
+  gd.createBeamPipe(sd, sourcePort, dd, dumpPort, densePath);
+  assert(gd.state.beamPipes.length === 1, 'dense path: pipe created');
+
+  const insertId = gd.tryInsertOnBeamPipe({ type: quadType, col: 2, row: 9, dir: 0 });
+  assert(insertId !== null, 'dense path: module inserted on dense sub-tile pipe');
+  assert(gd.state.beamPipes.length === 2, `dense path: pipe split into 2 (got ${gd.state.beamPipes.length})`);
+
+  const dp1 = gd.state.beamPipes.find(p => p.toId === insertId);
+  const dp2 = gd.state.beamPipes.find(p => p.fromId === insertId);
+  assert(dp1 && dp1.fromId === sd, 'dense path: p1 connects source → module');
+  assert(dp2 && dp2.toId === dd, 'dense path: p2 connects module → dump');
+}
+
+// --- Source insertion on pipe: cut gap, connect exit to forward pipe ---
+{
+  const gs = makeGame();
+  gs.createBeamPipe(null, null, null, null, [{ col: 2, row: 2 }, { col: 2, row: 13 }]);
+  assert(gs.state.beamPipes.length === 1, 'source-insert: pipe created');
+
+  // Insert a source mid-pipe. Both halves should survive, but only the
+  // forward half connects to the source's exit port.
+  const srcId = gs.tryInsertOnBeamPipe({ type: sourceType, col: 2, row: 6, dir: 0 });
+  assert(srcId !== null, 'source-insert: source placed on pipe');
+  assert(gs.state.beamPipes.length === 2, `source-insert: 2 pipes remain (got ${gs.state.beamPipes.length})`);
+  const srcDef = COMPONENTS[sourceType];
+  const srcExitPort = Object.entries(srcDef.ports).find(([, p]) => p.side === 'front')[0];
+  // One pipe should connect FROM source (exit), the other is disconnected.
+  const connected = gs.state.beamPipes.find(p => p.fromId === srcId);
+  const disconnected = gs.state.beamPipes.find(p => p.fromId !== srcId && p.toId !== srcId);
+  assert(connected !== undefined, 'source-insert: forward pipe connects FROM source');
+  assert(connected.fromPort === srcExitPort, 'source-insert: forward pipe uses exit port');
+  assert(disconnected !== undefined, 'source-insert: backward pipe kept as disconnected');
+}
+
+// --- Endpoint insertion on pipe: cut gap, connect entry to backward pipe ---
+{
+  const ge = makeGame();
+  ge.createBeamPipe(null, null, null, null, [{ col: 2, row: 2 }, { col: 2, row: 13 }]);
+  assert(ge.state.beamPipes.length === 1, 'endpoint-insert: pipe created');
+
+  const endId = ge.tryInsertOnBeamPipe({ type: dumpType, col: 2, row: 7, dir: 0 });
+  assert(endId !== null, 'endpoint-insert: endpoint placed on pipe');
+  assert(ge.state.beamPipes.length === 2, `endpoint-insert: 2 pipes remain (got ${ge.state.beamPipes.length})`);
+  const dumpDef = COMPONENTS[dumpType];
+  const dumpEntryPort = Object.entries(dumpDef.ports).find(([, p]) => p.side === 'back')[0];
+  // One pipe should connect TO endpoint (entry), the other is disconnected.
+  const connected = ge.state.beamPipes.find(p => p.toId === endId);
+  const disconnected = ge.state.beamPipes.find(p => p.fromId !== endId && p.toId !== endId);
+  assert(connected !== undefined, 'endpoint-insert: backward pipe connects TO endpoint');
+  assert(connected.toPort === dumpEntryPort, 'endpoint-insert: backward pipe uses entry port');
+  assert(disconnected !== undefined, 'endpoint-insert: forward pipe kept as disconnected');
+}
+
+// --- Pipe overlap prevention ---
+{
+  const go = makeGame();
+  go.createBeamPipe(null, null, null, null, [{ col: 2, row: 2 }, { col: 2, row: 6 }]);
+  assert(go.state.beamPipes.length === 1, 'overlap: initial pipe created');
+  // Draw a pipe that partially overlaps the existing one.
+  const ok = go.createBeamPipe(null, null, null, null, [{ col: 2, row: 4 }, { col: 2, row: 8 }]);
+  assert(ok === true, 'overlap: partial overlap pipe created (gap-fill)');
+  assert(go.state.beamPipes.length === 2, `overlap: now 2 pipes (got ${go.state.beamPipes.length})`);
+  // The new pipe should only contain the uncovered portion (row 6 to 8).
+  const newPipe = go.state.beamPipes[1];
+  const newStart = newPipe.path[0];
+  const newEnd = newPipe.path[newPipe.path.length - 1];
+  // The start should be around row 6 (end of existing pipe) not row 4.
+  assert(newStart.row >= 5.75, `overlap: new pipe starts past existing (row ${newStart.row})`);
+  // Drawing fully overlapping pipe should fail (nothing new to add).
+  const nope = go.createBeamPipe(null, null, null, null, [{ col: 2, row: 3 }, { col: 2, row: 5 }]);
+  assert(nope === false, 'overlap: fully covered pipe rejected');
+  assert(go.state.beamPipes.length === 2, 'overlap: pipe count unchanged after rejection');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

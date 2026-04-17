@@ -264,8 +264,9 @@ export class DesignPlacer {
   }
 
   /**
-   * Build an L-shaped straight-line path between two modules for a pipe.
-   * Walks col first, then row. Returns a dense per-tile path.
+   * Build a straight-line path between two modules for a pipe.
+   * Walks along the dominant axis only (no L-shaped bends).
+   * Returns a dense per-tile path.
    */
   _buildPipePath(fromId, toId) {
     const from = this.game.getPlaceable(fromId);
@@ -278,14 +279,21 @@ export class DesignPlacer {
     const endCol = to.col;
     const endRow = to.row;
 
+    // Pick the dominant axis and walk only along it (straight line, no bends)
+    const dCol = Math.abs(endCol - c);
+    const dRow = Math.abs(endRow - r);
+
     path.push({ col: c, row: r });
-    while (c !== endCol) {
-      c += Math.sign(endCol - c);
-      path.push({ col: c, row: r });
-    }
-    while (r !== endRow) {
-      r += Math.sign(endRow - r);
-      path.push({ col: c, row: r });
+    if (dCol >= dRow) {
+      while (c !== endCol) {
+        c += Math.sign(endCol - c);
+        path.push({ col: c, row: r });
+      }
+    } else {
+      while (r !== endRow) {
+        r += Math.sign(endRow - r);
+        path.push({ col: c, row: r });
+      }
     }
     return path;
   }

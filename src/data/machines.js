@@ -15,7 +15,7 @@ export const MACHINE_TIER = {
   laserSystem: 2,
 
   // Tier 3 — FEL
-  chicane: 3, buncher: 3, harmonicLinearizer: 3, dogleg: 3, laserHeater: 3,
+  chicane: 3, harmonicLinearizer: 3, dogleg: 3, laserHeater: 3,
   undulator: 3, helicalUndulator: 3, wiggler: 3, apple2Undulator: 3,
   photonPort: 3,
   bunchLengthMonitor: 3, energySpectrometer: 3,

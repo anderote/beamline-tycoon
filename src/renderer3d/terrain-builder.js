@@ -97,13 +97,14 @@ export class TerrainBuilder {
       uvs[(vBase + 2) * 2 + 0] = 1; uvs[(vBase + 2) * 2 + 1] = 0; // SE
       uvs[(vBase + 3) * 2 + 0] = 0; uvs[(vBase + 3) * 2 + 1] = 0; // SW
 
-      // Brightness tint — identical formula to the old InstancedMesh
-      // setColorAt path. All 4 vertices of the tile share the tint.
-      const tintFactor = 0.88 + brightness * 0.12;
-      const warmth = brightness * 0.05;
-      const r = Math.max(0, Math.min(1, (0.94 + warmth) * tintFactor));
+      // Brightness tint. brightness ∈ [-1,1] from gaussian blobs;
+      // wider luminance + warm/cool spread than before so patches read
+      // clearly instead of blurring into a flat green.
+      const tintFactor = 0.80 + brightness * 0.22;
+      const warmth = brightness * 0.12;
+      const r = Math.max(0, Math.min(1, (0.90 + warmth) * tintFactor));
       const g = Math.max(0, Math.min(1, tintFactor));
-      const b = Math.max(0, Math.min(1, (0.94 - warmth) * tintFactor));
+      const b = Math.max(0, Math.min(1, (0.90 - warmth) * tintFactor));
       for (let k = 0; k < 4; k++) {
         colors[(vBase + k) * 3 + 0] = r;
         colors[(vBase + k) * 3 + 1] = g;

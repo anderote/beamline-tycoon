@@ -41,31 +41,15 @@
     "category": "hedge",
     "source": "rct2-g1:21182"
   },
-  "oak_tree": { "file": "assets/decorations/oak_tree.png", "size": [44, 62], "category": "tree", "source": "procedural-pixelart" },
-  "maple_tree": { "file": "assets/decorations/maple_tree.png", "size": [42, 58], "category": "tree", "source": "procedural-pixelart" },
-  "elm_tree": { "file": "assets/decorations/elm_tree.png", "size": [48, 66], "category": "tree", "source": "procedural-pixelart" },
-  "birch_tree": { "file": "assets/decorations/birch_tree.png", "size": [38, 56], "category": "tree", "source": "procedural-pixelart" },
-  "pine_tree": { "file": "assets/decorations/pine_tree.png", "size": [28, 64], "category": "tree", "source": "procedural-pixelart" },
-  "cedar_tree": { "file": "assets/decorations/cedar_tree.png", "size": [32, 58], "category": "tree", "source": "procedural-pixelart" },
-  "small_tree": { "file": "assets/decorations/small_tree.png", "size": [28, 40], "category": "tree", "source": "procedural-pixelart" },
-  "shrub": {
-    "file": "assets/decorations/shrub.png",
-    "size": [
-      10,
-      8
-    ],
-    "category": "shrub",
-    "source": "procedural"
-  },
-  "flower_bed": {
-    "file": "assets/decorations/flower_bed.png",
-    "size": [
-      12,
-      8
-    ],
-    "category": "shrub",
-    "source": "procedural"
-  },
+  "oak_tree": { "file": "assets/decorations/oak_tree.png", "size": [64, 64], "category": "tree", "source": "pixellab" },
+  "maple_tree": { "file": "assets/decorations/maple_tree.png", "size": [60, 60], "category": "tree", "source": "pixellab" },
+  "elm_tree": { "file": "assets/decorations/elm_tree.png", "size": [64, 64], "category": "tree", "source": "pixellab" },
+  "birch_tree": { "file": "assets/decorations/birch_tree.png", "size": [48, 48], "category": "tree", "source": "pixellab" },
+  "pine_tree": { "file": "assets/decorations/pine_tree.png", "size": [44, 44], "category": "tree", "source": "pixellab" },
+  "cedar_tree": { "file": "assets/decorations/cedar_tree.png", "size": [48, 48], "category": "tree", "source": "pixellab" },
+  "small_tree": { "file": "assets/decorations/small_tree.png", "size": [40, 40], "category": "tree", "source": "pixellab" },
+  "shrub": { "file": "assets/decorations/shrub.png", "size": [36, 36], "category": "shrub", "source": "pixellab" },
+  "flower_bed": { "file": "assets/decorations/flower_bed.png", "size": [40, 40], "category": "shrub", "source": "pixellab" },
   "park_bench": {
     "file": "assets/decorations/park_bench.png",
     "size": [
@@ -90,13 +74,8 @@
     "category": "fence",
     "source": "procedural"
   },
-  "willow_tree": { "file": "assets/decorations/willow_tree.png", "size": [50, 68], "category": "tree", "source": "procedural-pixelart" },
-  "flower_garden": {
-    "file": "assets/decorations/flower_garden.png",
-    "size": [16, 10],
-    "category": "shrub",
-    "source": "procedural"
-  },
+  "willow_tree": { "file": "assets/decorations/willow_tree.png", "size": [72, 72], "category": "tree", "source": "pixellab" },
+  "flower_garden": { "file": "assets/decorations/flower_garden.png", "size": [48, 48], "category": "shrub", "source": "pixellab" },
   "tall_hedge": {
     "file": "assets/decorations/tall_hedge.png",
     "size": [32, 20],

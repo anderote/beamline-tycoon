@@ -44,8 +44,8 @@ export const MODES = {
     name: 'Structure',
     categories: {
       flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' } } },
-      walls:       { name: 'Walls',         color: '#887', subsections: { exterior: { name: 'Exterior' }, interior: { name: 'Interior' }, shielding: { name: 'Shielding' } } },
-      doors:       { name: 'Doors',         color: '#689', subsections: { exterior: { name: 'Exterior' }, interior: { name: 'Interior' }, gates: { name: 'Fence Gates' } } },
+      walls:       { name: 'Walls',         color: '#887', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielding: { name: 'Shielding' } } },
+      doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
     },
   },
   grounds: {

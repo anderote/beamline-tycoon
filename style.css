@@ -221,6 +221,20 @@ body {
   color: #aaaacc;
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
+  padding: 4px 6px;
+}
+
+.mp-theme option:checked,
+.mp-theme option:hover {
+  background: rgba(80, 80, 140, 0.9);
+  color: #ccccee;
+}
+
+#music-player.minimized .mp-track-name,
+#music-player.minimized .mp-shuffle,
+#music-player.minimized .mp-theme,
+#music-player.minimized .mp-volume {
+  display: none;
 }
 
 .mp-volume {
