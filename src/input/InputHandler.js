@@ -58,6 +58,8 @@ export class InputHandler {
     this.placementDir = DIR.NE;     // direction for source/free placement
     this.selectedNodeId = null;
     this.isPanning = false;
+    this.isFreeOrbiting = false;
+    this.freeOrbitLast = { x: 0, y: 0 };
     this.panStart = { x: 0, y: 0 };
     this.worldStart = { x: 0, y: 0 };
     // Infrastructure placement
@@ -1198,12 +1200,16 @@ export class InputHandler {
         }
         case 'q': case 'Q': {
           e.preventDefault();
-          this.renderer.rotateView(-1);
+          if (!this.isFreeOrbiting && !this.renderer._snapping) {
+            this.renderer.rotateView(-1);
+          }
           break;
         }
         case 'e': case 'E': {
           e.preventDefault();
-          this.renderer.rotateView(+1);
+          if (!this.isFreeOrbiting && !this.renderer._snapping) {
+            this.renderer.rotateView(+1);
+          }
           break;
         }
         case 'Escape':
@@ -1435,8 +1441,18 @@ export class InputHandler {
     }, { passive: false });
 
     canvas.addEventListener('mousedown', (e) => {
-      // Middle mouse button or alt+left click → start panning
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      // Middle mouse: free-orbit camera drag. Release snaps to nearest iso view.
+      if (e.button === 1) {
+        this.isFreeOrbiting = true;
+        this.freeOrbitLast = { x: e.clientX, y: e.clientY };
+        this.renderer.startFreeOrbit();
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+
+      // Alt + left drag: pan (unchanged).
+      if (e.button === 0 && e.altKey) {
         this.isPanning = true;
         this.panStart = { x: e.clientX, y: e.clientY };
         this.panStartPan = { x: this.renderer._panX, y: this.renderer._panY };
@@ -1586,6 +1602,13 @@ export class InputHandler {
     });
 
     canvas.addEventListener('mousemove', (e) => {
+      if (this.isFreeOrbiting) {
+        const dx = e.clientX - this.freeOrbitLast.x;
+        const dy = e.clientY - this.freeOrbitLast.y;
+        this.freeOrbitLast = { x: e.clientX, y: e.clientY };
+        this.renderer.orbitBy(dx, dy);
+        return;
+      }
       if (this.isPanning) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
@@ -1770,6 +1793,12 @@ export class InputHandler {
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();
+      if (this.isFreeOrbiting) {
+        this.isFreeOrbiting = false;
+        this.renderer.endFreeOrbit();
+        canvas.style.cursor = '';
+        return;
+      }
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
@@ -2057,6 +2086,17 @@ export class InputHandler {
           this.renderer._openBeamlineWindow(blId);
           this.game.emit('editModeChanged', blId);
         }
+      }
+    });
+
+    // Window-level fallback: if the user releases the middle mouse
+    // button while the cursor is off the canvas, end the orbit cleanly
+    // so the snap animation still runs.
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 1 && this.isFreeOrbiting) {
+        this.isFreeOrbiting = false;
+        this.renderer.endFreeOrbit();
+        canvas.style.cursor = '';
       }
     });
   }

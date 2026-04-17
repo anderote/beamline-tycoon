@@ -27,6 +27,18 @@ import { COMPONENTS } from '../data/components.js';
 import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import {
+  PITCH_REST,
+  PITCH_MIN,
+  PITCH_MAX,
+  ORBIT_RADIUS,
+  ORBIT_YAW_SENSITIVITY,
+  ORBIT_PITCH_SENSITIVITY,
+  clampPitch,
+  snapYaw,
+  cameraOffset,
+  easeInOutQuad,
+} from './free-orbit-math.js';
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -163,6 +175,19 @@ export class ThreeRenderer {
     this._viewRotStartMs = 0;
     this._viewRotDurationMs = 400;
     this._viewRotating = false;
+
+    // Free-orbit state (middle-mouse drag orbits yaw + pitch around the
+    // pan center; release animates back to the nearest iso view).
+    this._freeOrbiting = false;
+    this._freeYaw = 0;
+    this._freePitch = PITCH_REST;
+    this._snapping = false;
+    this._snapFromYaw = 0;
+    this._snapToYaw = 0;
+    this._snapFromPitch = PITCH_REST;
+    this._snapToPitch = PITCH_REST;
+    this._snapStartMs = 0;
+    this._snapDurationMs = 400;
 
     this._frustumSize = 20;
     this._animFrameId = null;
@@ -748,7 +773,7 @@ export class ThreeRenderer {
    * it isn't affected by stale camera.matrixWorld between frames.
    */
   panScreenAligned(dxRight, dyUp) {
-    const a = this._viewRotationAngle;
+    const a = this._effectiveYaw();
     const cosA = Math.cos(a);
     const sinA = Math.sin(a);
     // Ground-projected camera axes for the dimetric rig (pre-normalized by √2):
@@ -792,6 +817,74 @@ export class ThreeRenderer {
     // Hide the PixiJS overlay during the animation. Nothing is currently
     // drawn through it in the 3D renderer, but this keeps the door open.
     if (this.world) this.world.visible = false;
+  }
+
+  /**
+   * Begin a free-orbit drag. Called on middle-mouse-down. Cancels any
+   * in-flight Q/E rotation or release snap and seeds the free yaw/pitch
+   * from the current effective orientation so there is no visible jump.
+   */
+  startFreeOrbit() {
+    // Snapshot current orientation BEFORE flipping mode flags, so
+    // _effectiveYaw returns the pre-transition value.
+    const yaw = this._effectiveYaw();
+    const pitch = this._effectivePitch();
+    this._viewRotating = false;
+    this._snapping = false;
+    this._freeYaw = yaw;
+    this._freePitch = pitch;
+    this._freeOrbiting = true;
+    // Match the behavior of rotateView: the PixiJS overlay is hidden
+    // during any camera animation. Restored when _tickFreeOrbitSnap ends.
+    if (this.world) this.world.visible = false;
+  }
+
+  /**
+   * Apply a mouse-delta during a free-orbit drag. dxPx/dyPx are raw pixel
+   * deltas since the last mousemove. Drag up tilts up toward top-down.
+   */
+  orbitBy(dxPx, dyPx) {
+    if (!this._freeOrbiting) return;
+    this._freeYaw += dxPx * ORBIT_YAW_SENSITIVITY;
+    this._freePitch = clampPitch(this._freePitch - dyPx * ORBIT_PITCH_SENSITIVITY);
+    this._updateCameraLookAt();
+    this._syncOverlayFromPan();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+  }
+
+  /**
+   * End a free-orbit drag. Kicks off a 400ms easeInOutQuad animation back
+   * to the nearest iso view: yaw snaps to nearest π/2 multiple, pitch
+   * restores to PITCH_REST. On completion, _viewRotationIndex and
+   * _viewRotationAngle are updated so Q/E continues from the snapped pose.
+   */
+  endFreeOrbit() {
+    if (!this._freeOrbiting) return;
+    this._freeOrbiting = false;
+    this._snapFromYaw = this._freeYaw;
+    this._snapFromPitch = this._freePitch;
+    this._snapToYaw = snapYaw(this._freeYaw);
+    this._snapToPitch = PITCH_REST;
+    this._snapStartMs = performance.now();
+    this._snapping = true;
+  }
+
+  _tickFreeOrbitSnap() {
+    if (!this._snapping) return;
+    const t = Math.min(1, (performance.now() - this._snapStartMs) / this._snapDurationMs);
+    const k = easeInOutQuad(t);
+    this._freeYaw = this._snapFromYaw + (this._snapToYaw - this._snapFromYaw) * k;
+    this._freePitch = this._snapFromPitch + (this._snapToPitch - this._snapFromPitch) * k;
+    this._updateCameraLookAt();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+    if (t >= 1) {
+      // Hand control back to the Q/E system at the snapped pose.
+      this._viewRotationAngle = this._snapToYaw;
+      this._viewRotationIndex = ((Math.round(this._snapToYaw / (Math.PI / 2)) % 4) + 4) % 4;
+      this._freePitch = PITCH_REST;
+      this._snapping = false;
+      if (this.world) this.world.visible = true;
+    }
   }
 
   _tickViewRotation() {
@@ -2127,18 +2220,30 @@ export class ThreeRenderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Yaw used for camera placement and screen-aligned panning. During a
+   * free-orbit drag or its release snap, this is the free yaw; otherwise
+   * it's the Q/E rotation angle.
+   */
+  _effectiveYaw() {
+    return (this._freeOrbiting || this._snapping)
+      ? this._freeYaw
+      : this._viewRotationAngle;
+  }
+
+  _effectivePitch() {
+    return (this._freeOrbiting || this._snapping)
+      ? this._freePitch
+      : PITCH_REST;
+  }
+
   _updateCameraLookAt() {
-    // Orbit the dimetric camera around (_panX, _panY) by the current view rotation.
-    // Y axis rotation of the default offset (CAM_D, 0, CAM_D).
-    const CAM_D = 50;
-    const CAM_H = CAM_D * Math.sqrt(6) / 3;
-    const a = this._viewRotationAngle;
-    const cosA = Math.cos(a);
-    const sinA = Math.sin(a);
-    // Ry(a) · (CAM_D, 0, CAM_D) → (D·cos + D·sin, 0, -D·sin + D·cos)
-    const offX = CAM_D * cosA + CAM_D * sinA;
-    const offZ = -CAM_D * sinA + CAM_D * cosA;
-    this.camera.position.set(this._panX + offX, CAM_H, this._panY + offZ);
+    // Spherical orbit around (_panX, 0, _panY). cameraOffset(yaw=0, pitch=PITCH_REST)
+    // reproduces the historical rest position exactly.
+    const yaw = this._effectiveYaw();
+    const pitch = this._effectivePitch();
+    const off = cameraOffset(yaw, pitch);
+    this.camera.position.set(this._panX + off.x, off.y, this._panY + off.z);
     this.camera.lookAt(this._panX, 0, this._panY);
   }
 
@@ -2182,6 +2287,7 @@ export class ThreeRenderer {
     this._animFrameId = requestAnimationFrame(() => this._animate());
     try {
     this._tickViewRotation();
+    this._tickFreeOrbitSnap();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
