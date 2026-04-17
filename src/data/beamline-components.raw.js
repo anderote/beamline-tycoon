@@ -26,6 +26,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     params: { particleType: 'electron', extractionVoltage: 50, cathodeTemperature: 1200 },
     paramOptions: { particleType: ['electron', 'proton'] },
     placement: 'module',
+    role: 'junction',
+    routing: [],
     ports: {
       exit: { side: 'front' },
     },
@@ -73,6 +75,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'bellows',
     spriteColor: 0x44cc44,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: [],
   },
@@ -96,6 +99,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'dipole',
     spriteColor: 0x4488cc,
     placement: 'module',
+    role: 'junction',
+    routing: [{ from: 'entry', to: 'exit' }],
     ports: {
       entry: { side: 'back' },
       // Exit is on the left side of the yoke — the open side of the
@@ -123,6 +128,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'quadrupole',
     spriteColor: 0x4488cc,
     placement: 'attachment',
+    role: 'placement',
     textures: { iron: 'metal_brushed' },
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -143,6 +149,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'sextupole',
     spriteColor: 0x44aacc,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable', 'coolingWater'],
   },
@@ -165,6 +172,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: [],
   },
@@ -186,6 +194,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0x44aacc,
     params: { eField: 50, bField: 0.1 },
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable'],
   },
@@ -206,6 +215,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'collimator',
     spriteColor: 0x44aacc,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: [],
   },
@@ -229,6 +239,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc6644,
     params: { voltage: 0.1, rfPhase: -90 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -257,6 +268,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc4444,
     params: { voltage: 0.5, rfPhase: 0 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -284,6 +296,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'rfCavity',
     spriteColor: 0xcc4444,
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -312,6 +325,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc4444,
     params: { rfFrequency: 2856, gradient: 17 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -340,6 +354,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc4444,
     params: { intervaneVoltage: 80, rfPhase: -30 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -370,6 +385,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc4444,
     params: { rfFrequency: 161, voltage: 1.0 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -398,6 +414,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xcc4444,
     params: { rfFrequency: 325, gradient: 8 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -426,6 +443,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xaabbd0,
     params: { rfFrequency: 1300, gradient: 25, rfPhase: 0 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -454,6 +472,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xaabbd0,
     params: { rfFrequency: 1300, gradient: 25, rfPhase: 0 },
     placement: 'module',
+    role: 'placement',
     ports: {
       entry: { side: 'back' },
       exit: { side: 'front' },
@@ -483,6 +502,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'bpm',
     spriteColor: 0xeeeeee,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -503,6 +523,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'screen',
     spriteColor: 0xeeeeee,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -523,6 +544,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'ict',
     spriteColor: 0xeeeeee,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -543,6 +565,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'wireScanner',
     spriteColor: 0xeeeeee,
     placement: 'attachment',
+    role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
   },
@@ -566,6 +589,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'detector',
     spriteColor: 0x999999,
     placement: 'module',
+    role: 'junction',
+    routing: [],
     ports: {
       entry: { side: 'back' },
     },
@@ -590,6 +615,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'target',
     spriteColor: 0x999999,
     placement: 'module',
+    role: 'junction',
+    routing: [],
     ports: {
       entry: { side: 'back' },
     },
@@ -613,6 +640,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'detector',
     spriteColor: 0x999999,
     placement: 'module',
+    role: 'junction',
+    routing: [],
     ports: {
       entry: { side: 'back' },
     },
@@ -637,6 +666,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'target',
     spriteColor: 0x999999,
     placement: 'module',
+    role: 'junction',
+    routing: [],
     ports: {
       entry: { side: 'back' },
     },
