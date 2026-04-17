@@ -5,7 +5,7 @@ import { COMPONENTS } from '../data/components.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
-import { flattenPath } from '../beamline/path-flattener.js';
+import { flattenPath } from '../beamline/flattener.js';
 
 
 export class BeamlineDesigner {

@@ -4,7 +4,7 @@ import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { formatEnergy } from '../data/units.js';
 import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
-import { flattenPath } from '../beamline/path-flattener.js';
+import { flattenPath } from '../beamline/flattener.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
