@@ -26,9 +26,11 @@ if (typeof document !== 'undefined' && typeof THREE !== 'undefined') {
   try {
     const mod = await import('./materials/decals.js');
     _procDecalTextures = mod.PROC_DECAL_TEXTURES;
-  } catch (_) {
+  } catch (err) {
     // If the decals module fails to load for any reason, the class rebuild
-    // will no-op rather than crash the whole renderer.
+    // will no-op rather than crash the whole renderer. Log so a broken
+    // import doesn't silently disable the wildflower layer.
+    console.warn('[wildflower-builder] failed to load decals.js:', err);
   }
 }
 
@@ -70,7 +72,7 @@ export function computeFlowerInstancesForCell(col, row, hash, brightness) {
     const fh = (Math.imul(hash, 0x27d4eb2d) + Math.imul(i, 0x9e3779b9)) | 0;
     const ufh = fh >>> 0;
 
-    const offX   = (((ufh >>> 0)  & 0xFF) / 255 - 0.5) * 0.8;   // ±0.4
+    const offX   = ((ufh         & 0xFF) / 255 - 0.5) * 0.8;   // ±0.4
     const offZ   = (((ufh >>> 8)  & 0xFF) / 255 - 0.5) * 0.8;
     const colorIdx = (ufh >>> 16) & 0x7;
     const scale  = 0.8 + (((ufh >>> 19) & 0xF) / 15) * 0.5;     // 0.8..1.3
@@ -129,7 +131,7 @@ export class WildflowerBuilder {
       map: _procDecalTextures.flower_dot,
       transparent: true,
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
     });
 
     // Upper bound: at most 3 flowers per cell (floor(density*3)).
