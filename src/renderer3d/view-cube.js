@@ -16,6 +16,7 @@
 import {
   cameraOffset,
   PITCH_REST,
+  yawStepForMode,
 } from './free-orbit-math.js';
 
 // Side-face mapping. Keys are the cube's local face axes, values are the
@@ -31,20 +32,21 @@ const FACE_TO_YAW = {
   posZ: 3,  // North
 };
 
+// Top face renders a cross icon instead of a text label; encoded as a
+// sentinel that makeFaceTexture recognises.
 const FACE_LABELS = {
   posX: 'E',
   negZ: 'S',
   negX: 'W',
   posZ: 'N',
-  posY: 'TOP',
+  posY: '__cross__',
   negY: '',
 };
 
 // Material order for THREE.BoxGeometry: [+X, -X, +Y, -Y, +Z, -Z].
 const FACE_MAT_ORDER = ['posX', 'negX', 'posY', 'negY', 'posZ', 'negZ'];
 
-const CUBE_CANVAS_PX = 96;
-const RING_PX = 132;
+const CUBE_CANVAS_PX = 64;
 const CUBE_RADIUS = 2.4; // distance from cube center for the mirror camera
 
 export class ViewCube {
@@ -63,14 +65,19 @@ export class ViewCube {
     this.host.classList.add('view-cube-host');
 
     // Compass ring labels (DOM, click to snap yaw within current mode).
+    // Cardinal yaws (radians) — stable across modes; per-mode yawIdx is
+    // computed from the current mode's step at click time.
+    const dirYaw = { E: 0, S: Math.PI / 2, W: Math.PI, N: 3 * Math.PI / 2 };
     this.compass = {};
     for (const dir of ['N', 'E', 'S', 'W']) {
       const el = document.createElement('div');
       el.className = `vc-compass vc-compass-${dir.toLowerCase()}`;
       el.textContent = dir;
       el.addEventListener('click', () => {
-        const idx = { N: 3, E: 0, S: 1, W: 2 }[dir];
-        this.renderer.setViewMode(this.renderer.viewMode, idx);
+        const mode = this.renderer.viewMode;
+        const stepRad = yawStepForMode(mode);
+        const idx = Math.round(dirYaw[dir] / stepRad);
+        this.renderer.setViewMode(mode, idx);
       });
       this.host.appendChild(el);
       this.compass[dir] = el;
@@ -79,8 +86,6 @@ export class ViewCube {
     // Inner canvas wrapper centers the cube canvas inside the compass ring.
     this.cubeCanvas = document.createElement('canvas');
     this.cubeCanvas.className = 'vc-cube-canvas';
-    this.cubeCanvas.width = CUBE_CANVAS_PX * (window.devicePixelRatio || 1);
-    this.cubeCanvas.height = CUBE_CANVAS_PX * (window.devicePixelRatio || 1);
     this.cubeCanvas.style.width = CUBE_CANVAS_PX + 'px';
     this.cubeCanvas.style.height = CUBE_CANVAS_PX + 'px';
     this.host.appendChild(this.cubeCanvas);
@@ -236,7 +241,17 @@ function makeFaceTexture(label) {
   ctx.strokeStyle = '#2a2a3a';
   ctx.lineWidth = 4;
   ctx.strokeRect(2, 2, size - 4, size - 4);
-  if (label) {
+  if (label === '__cross__') {
+    // Plus-sign / cross glyph for the top face.
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'square';
+    const pad = 30;
+    ctx.beginPath();
+    ctx.moveTo(size / 2, pad); ctx.lineTo(size / 2, size - pad);
+    ctx.moveTo(pad, size / 2); ctx.lineTo(size - pad, size / 2);
+    ctx.stroke();
+  } else if (label) {
     ctx.fillStyle = '#1a1a2e';
     ctx.font = 'bold 56px sans-serif';
     ctx.textAlign = 'center';

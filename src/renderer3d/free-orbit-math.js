@@ -36,12 +36,21 @@ export function clampPitch(p) {
   return p;
 }
 
-// Snap yaw to the nearest multiple of π/2. Preserves large winding numbers
-// (e.g. snapYaw(3π + 0.05) = 3π) so _viewRotationAngle stays continuous
-// after a release.
-export function snapYaw(yaw) {
-  const step = Math.PI / 2;
+// Snap yaw to the nearest multiple of `step` (default π/2 for iso). Preserves
+// large winding numbers (e.g. snapYaw(3π + 0.05) = 3π) so _viewRotationAngle
+// stays continuous after a release.
+export function snapYaw(yaw, step = Math.PI / 2) {
   return Math.round(yaw / step) * step;
+}
+
+// Yaw step for each view mode: iso uses 4 cardinal facings (90°), top-down
+// uses 8 cardinal+intercardinal facings (45°) for finer in-plan rotation.
+export function yawStepForMode(mode) {
+  return mode === 'top' ? Math.PI / 4 : Math.PI / 2;
+}
+
+export function yawDivisionsForMode(mode) {
+  return mode === 'top' ? 8 : 4;
 }
 
 // Camera position relative to lookAt, on a sphere of radius ORBIT_RADIUS.
