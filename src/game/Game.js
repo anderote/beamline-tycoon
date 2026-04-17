@@ -21,6 +21,7 @@ import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { generateStartingMap } from './map-generator.js';
+import { serializeCornerHeights, deserializeCornerHeights } from './terrain.js';
 
 export class Game {
   constructor(registry) {
@@ -55,6 +56,9 @@ export class Game {
       // Infrastructure tiles (paths, concrete pads)
       floors: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
+      // Per-corner terrain heights (RCT2-style). Sparse: absent tile = flat.
+      cornerHeights: new Map(),   // "col,row" -> Int8Array(4): [nw, ne, se, sw]
+      cornerHeightsRevision: 0,   // bumped by every mutation; renderer cache key
       // Zone overlays
       zones: [],                // [{ type, col, row }]
       zoneOccupied: {},         // "col,row" -> zoneType
@@ -3296,7 +3300,13 @@ export class Game {
     for (const [key, seg] of this.state.rackSegments) {
       rackObj[key] = [...seg.utilities];
     }
-    const saveState = { ...this.state, rackSegments: rackObj };
+    const saveState = {
+      ...this.state,
+      rackSegments: rackObj,
+      cornerHeights: serializeCornerHeights(this.state.cornerHeights),
+    };
+    // cornerHeightsRevision is transient (renderer cache key); don't persist.
+    delete saveState.cornerHeightsRevision;
     const payload = JSON.stringify({
       version: 6,
       state: saveState,
@@ -3341,6 +3351,12 @@ export class Game {
       }
 
       Object.assign(this.state, data.state);
+
+      // Rehydrate per-corner terrain heightmap. Old saves lack the field —
+      // treat as empty (fully flat world). Revision always resets to 0 on
+      // load so renderer builders rebuild on the first frame.
+      this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
+      this.state.cornerHeightsRevision = 0;
 
       // Restore registry from saved beamlines data
       if (data.beamlines) {
@@ -3551,6 +3567,10 @@ export class Game {
   _migrateV5(data) {
     // Migrate a v5 save: single beamline stored at data.beamline, beam fields on data.state
     Object.assign(this.state, data.state);
+
+    // v5 saves predate the terrain heightmap — always start flat.
+    this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
+    this.state.cornerHeightsRevision = 0;
 
     // Determine machine type from v5 state
     const machineType = data.state.machineType || 'linac';
