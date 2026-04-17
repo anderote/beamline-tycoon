@@ -141,7 +141,7 @@ export class Game {
 
     // BeamlineSystem owns mutations for junctions, pipes, and pipe-placements.
     // skipBeamlineRoute on placePlaceable avoids recursion back into the
-    // legacy tryInsertOnBeamPipe branch still present in _placePlaceableInner.
+    // role-based routing branch in _placePlaceableInner.
     this.beamline = new BeamlineSystem({
       state: this.state,
       emit: this.emit.bind(this),
@@ -1056,273 +1056,6 @@ export class Game {
   // === UNIFIED PLACEMENT SYSTEM ===
 
   /**
-   * Attempt to insert a beamline module into an existing beampipe by
-   * splitting the pipe at the module footprint and reconnecting the two
-   * halves to the module's entry/exit ports.
-   *
-   * Returns the new module id on success, or null to indicate the caller
-   * should fall through to normal placement.
-   */
-  tryInsertOnBeamPipe(opts) {
-    const { type, col, row, subCol = 0, subRow = 0, dir = 0 } = opts;
-    const placeable = PLACEABLES[type];
-    if (!placeable || placeable.kind !== 'beamline') return null;
-
-    const def = COMPONENTS[type];
-    if (!def || !def.ports) return null;
-
-    // 1. Find a pipe under the cursor tile. Use subtile-precise coordinates
-    //    so the hit aligns with the preview snap position.
-    const preciseCol = col + subCol / 4;
-    const preciseRow = row + subRow / 4;
-    const hit = findPipeAtTile(this.state.beamPipes, preciseCol, preciseRow);
-    if (!hit) return null;
-    const { pipe, tileIndex, expandedTiles } = hit;
-
-    // 2. Pipe must be straight at this tile (no corner).
-    const pipeDir = pipeDirectionAtTile(pipe, tileIndex);
-    if (!pipeDir) return null;
-
-    // 3. Module must have a beam axis (through or single-ended) matching
-    //    the pipe direction. Sources/endpoints have only one port, so we
-    //    compute the axis from whichever port exists.
-    let moduleDir = moduleBeamAxis(def, dir);
-    const isSinglePort = !moduleDir && def.ports;
-    if (isSinglePort) {
-      // Single-port modules (sources/endpoints) still have a beam axis —
-      // it always points back→front (+row in dir=0 local space), matching
-      // the two-port convention. This ensures the port-assignment logic
-      // correctly identifies which pipe half to keep vs drop.
-      const hasPort = Object.values(def.ports).some(p => p.side === 'front' || p.side === 'back');
-      if (hasPort) {
-        const local = { dCol: 0, dRow: 1 };
-        const d = ((dir % 4) + 4) % 4;
-        const rotated = d === 0 ? local
-          : d === 1 ? { dCol: -local.dRow, dRow: local.dCol }
-          : d === 2 ? { dCol: -local.dCol, dRow: -local.dRow }
-          : { dCol: local.dRow, dRow: -local.dCol };
-        moduleDir = rotated;
-      }
-    }
-    if (!moduleDir) return null;
-    if (!axisMatchesDirection(moduleDir, pipeDir)) return null;
-
-    // 4. Compute the module's world-space footprint along the beam axis
-    //    and find the pipe entries that bound it. This avoids the coordinate
-    //    offset between pipe coords and module subtile coords.
-    const swap = (dir === 1 || dir === 3);
-    const footW = swap ? placeable.subL : placeable.subW;
-    const footL = swap ? placeable.subW : placeable.subL;
-    // Module world-space leading edge along each axis
-    const worldZ0 = row * 2 + subRow * 0.5;
-    const worldZ1 = worldZ0 + footL * 0.5;
-    const worldX0 = col * 2 + subCol * 0.5;
-    const worldX1 = worldX0 + footW * 0.5;
-    // Convert to pipe coords (pipe world = coord*2+1)
-    const beamHoriz = Math.abs(pipeDir.dCol) > 0;
-    const pipeLeading  = beamHoriz ? (worldX0 - 1) / 2 : (worldZ0 - 1) / 2;
-    const pipeTrailing = beamHoriz ? (worldX1 - 1) / 2 : (worldZ1 - 1) / 2;
-    // Find the first and last expanded-path indices that fall within the
-    // module's pipe-coord range. Clamp with a small epsilon.
-    const EPS_FOOT = 0.01;
-    let startIdx = -1, endIdx = -1;
-    for (let i = 0; i < expandedTiles.length; i++) {
-      const v = beamHoriz ? expandedTiles[i].col : expandedTiles[i].row;
-      if (v >= pipeLeading - EPS_FOOT && v <= pipeTrailing + EPS_FOOT) {
-        if (startIdx === -1) startIdx = i;
-        endIdx = i;
-      }
-    }
-    if (startIdx <= 0 || endIdx >= expandedTiles.length - 1) return null;
-    // Every tile in [startIdx..endIdx] and one tile on each side must be
-    // collinear (direction from prev to next must be constant).
-    for (let i = startIdx - 1; i <= endIdx + 1; i++) {
-      const d = pipeDirectionAtTile(pipe, i);
-      if (!d || d.dCol !== pipeDir.dCol || d.dRow !== pipeDir.dRow) return null;
-    }
-
-    // 5. Use the caller's snap position directly (no pipe-center re-snap)
-    //    so the placed module lands exactly where the preview ghost was.
-    const originCol = col;
-    const originRow = row;
-    const originSubCol = subCol;
-    const originSubRow = subRow;
-
-    // 6. No other placeable can occupy the footprint.
-    const cells = placeable.footprintCells(originCol, originRow, originSubCol, originSubRow, dir);
-    for (const c of cells) {
-      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-      if (this.state.subgridOccupied[k]) return null;
-    }
-
-    // 7. Save rollback snapshot of the original pipe.
-    const originalPipe = {
-      id: pipe.id,
-      start: pipe.start ? { ...pipe.start } : null,
-      end:   pipe.end   ? { ...pipe.end   } : null,
-      path: pipe.path.map(p => ({ col: p.col, row: p.row })),
-      subL: pipe.subL,
-      placements: (pipe.placements || []).map(a => ({ ...a, params: a.params ? { ...a.params } : {} })),
-    };
-
-    // 8. Delete the original pipe from state.
-    const pipeIdx = this.state.beamPipes.findIndex(p => p.id === pipe.id);
-    if (pipeIdx === -1) return null;
-    this.state.beamPipes.splice(pipeIdx, 1);
-
-    // 9. Place the module via the existing path.
-    const moduleId = this.placePlaceable({
-      type, col: originCol, row: originRow, subCol: originSubCol, subRow: originSubRow, dir,
-      params: opts.params,
-    });
-    if (!moduleId) {
-      // Restore and bail.
-      this.state.beamPipes.splice(pipeIdx, 0, originalPipe);
-      return null;
-    }
-
-    // Steps 10–13 are wrapped in try/catch so that any unexpected error
-    // after the pipe has been deleted and the module placed can be rolled back
-    // cleanly. On catch: remove the module, restore the original pipe, and
-    // return null (hard failure — caller should NOT fall through to normal
-    // placement as the error may be structural and repeating will likely fail
-    // again).
-    let p1, p2;
-    let droppedAttachments = 0;
-    try {
-
-    // 10. Split the expanded tile list into "before module" and "after module".
-    // Both pipes extend to the module boundary (startIdx / endIdx) so the
-    // 3D renderer's splitRunExcludingModules can cut the visual pipe at the
-    // exact module edge using cell-based blocking.
-    const beforeTiles = expandedTiles.slice(0, startIdx + 1);
-    const afterTiles  = expandedTiles.slice(endIdx);
-
-    // Condense consecutive-collinear tiles back into waypoint paths.
-    const condense = (tiles) => {
-      if (tiles.length === 0) return [];
-      if (tiles.length === 1) return [{ col: tiles[0].col, row: tiles[0].row }];
-      const out = [{ col: tiles[0].col, row: tiles[0].row }];
-      let curDir = null;
-      for (let i = 1; i < tiles.length; i++) {
-        const d = { dCol: Math.sign(tiles[i].col - tiles[i-1].col), dRow: Math.sign(tiles[i].row - tiles[i-1].row) };
-        if (curDir && (d.dCol !== curDir.dCol || d.dRow !== curDir.dRow)) {
-          out.push({ col: tiles[i-1].col, row: tiles[i-1].row });
-        }
-        curDir = d;
-      }
-      out.push({ col: tiles[tiles.length-1].col, row: tiles[tiles.length-1].row });
-      return out;
-    };
-
-    const beforePath = condense(beforeTiles);
-    const afterPath  = condense(afterTiles);
-
-    // 11. Determine which module port connects to the "before" pipe vs the
-    //     "after" pipe. For two-port modules the axis points back→front. For
-    //     single-port modules (source/endpoint) only one side gets a pipe.
-    const beforeToAfter = {
-      dCol: Math.sign(expandedTiles[endIdx + 1].col - expandedTiles[startIdx - 1].col),
-      dRow: Math.sign(expandedTiles[endIdx + 1].row - expandedTiles[startIdx - 1].row),
-    };
-    const entryPortEntry = Object.entries(def.ports).find(([, p]) => p.side === 'back');
-    const exitPortEntry  = Object.entries(def.ports).find(([, p]) => p.side === 'front');
-    const entryPortName = entryPortEntry ? entryPortEntry[0] : null;
-    const exitPortName  = exitPortEntry  ? exitPortEntry[0]  : null;
-    const moduleMatchesFlow = (moduleDir.dCol === beforeToAfter.dCol && moduleDir.dRow === beforeToAfter.dRow);
-    const beforePort = moduleMatchesFlow ? entryPortName : exitPortName;
-    const afterPort  = moduleMatchesFlow ? exitPortName  : entryPortName;
-
-    // 12. Create the two new pipes directly (bypass createBeamPipe's cost
-    //     check and duplicate-port check — this is a split, not a new build).
-    const makePipe = (fromId, fromPort, toId, toPort, path) => {
-      let tileDist = 0;
-      for (let i = 0; i < path.length - 1; i++) {
-        tileDist += Math.abs(path[i+1].col - path[i].col) + Math.abs(path[i+1].row - path[i].row);
-      }
-      return {
-        id: 'bp_' + this.state.beamPipeNextId++,
-        start: fromId ? { junctionId: fromId, portName: fromPort } : null,
-        end:   toId   ? { junctionId: toId,   portName: toPort   } : null,
-        path: path.map(p => ({ col: p.col, row: p.row })),
-        subL: Math.max(1, Math.round(tileDist * 4)),
-        placements: [],
-      };
-    };
-
-    // Create both pipe halves if they have at least 2 waypoints.
-    // For single-port modules (sources/endpoints), the half without a
-    // matching port is kept as a disconnected pipe segment — the module
-    // end of that segment gets null id/port so it's just a loose pipe.
-    if (beforePath.length >= 2) {
-      const toMod = beforePort ? moduleId : null;
-      const toPort = beforePort || null;
-      p1 = makePipe(
-        originalPipe.start?.junctionId || null,
-        originalPipe.start?.portName || null,
-        toMod, toPort, beforePath,
-      );
-      this.state.beamPipes.push(p1);
-    }
-    if (afterPath.length >= 2) {
-      const fromMod = afterPort ? moduleId : null;
-      const fromPort = afterPort || null;
-      p2 = makePipe(
-        fromMod, fromPort,
-        originalPipe.end?.junctionId || null,
-        originalPipe.end?.portName || null,
-        afterPath,
-      );
-      this.state.beamPipes.push(p2);
-    }
-
-    // 13. Reassign placements using sub-unit precision so that placements
-    //     do not drift by rounding to tile indices. Expanded tiles are now at
-    //     sub-tile resolution (1 entry = 1 sub-unit), so indices map directly.
-    const moduleSubStart = startIdx;
-    const moduleSubEnd   = endIdx + 1;
-    for (const att of originalPipe.placements) {
-      const absSub = (att.position || 0) * originalPipe.subL;
-      if (absSub < moduleSubStart && p1) {
-        // Placement is on the before-half.
-        const newPos = Math.min(1, Math.max(0, absSub / p1.subL));
-        p1.placements.push({ ...att, position: newPos });
-      } else if (absSub > moduleSubEnd && p2) {
-        // Placement is on the after-half.
-        const newPos = Math.min(1, Math.max(0, (absSub - moduleSubEnd) / p2.subL));
-        p2.placements.push({ ...att, position: newPos });
-      } else {
-        // Placement falls inside the module footprint or on a dropped remnant.
-        droppedAttachments++;
-      }
-    }
-
-    } catch (err) {
-      // Rollback: remove any new pipes we pushed, restore the original pipe,
-      // and remove the partially-placed module.
-      this.state.beamPipes = this.state.beamPipes.filter(
-        p => p !== p1 && p !== p2
-      );
-      this.state.beamPipes.splice(pipeIdx, 0, originalPipe);
-      this.removePlaceable(moduleId);
-      this.log('Pipe insertion failed — rolled back', 'bad');
-      return null;
-    }
-
-    if (droppedAttachments > 0) {
-      this.log(`Removed ${droppedAttachments} attachment(s) inside new module footprint`, 'info');
-    }
-    this.log(`Inserted ${placeable.name} into pipe`, 'good');
-
-    this._deriveBeamGraph();
-    this.schedulePhysicsRecalc();
-    this.computeSystemStats();
-    this.emit('beamlineChanged');
-    this.emit('placeableChanged');
-    return moduleId;
-  }
-
-  /**
    * Place any item on the unified sub-grid.
    * @param {Object} opts - { type, category, col, row, subCol, subRow, rotated, dir, params }
    *   category: "beamline" | "equipment" | "furnishing"
@@ -1339,13 +1072,23 @@ export class Game {
     if (!placeable) return false;
     const kind = placeable.kind;
 
-    // If this is a beamline module and the cursor tile is on a pipe,
-    // attempt insert-and-split using the caller's exact position/direction.
-    // BeamlineSystem callers pass skipBeamlineRoute to avoid re-entering
-    // this branch (they've already resolved pipe routing themselves).
+    // Route beamline components by their role metadata. Junctions delegate
+    // to BeamlineSystem.placeJunction; placements must go through
+    // BeamlineSystem.placeOnPipe (the UI controller's job) — reaching here
+    // means a placement was routed to free-grid placement, which is invalid.
+    // BeamlineSystem callers pass skipBeamlineRoute to avoid recursion back
+    // into this branch (they've already resolved routing themselves).
     if (kind === 'beamline' && !skipBeamlineRoute) {
-      const inserted = this.tryInsertOnBeamPipe(opts);
-      if (inserted) return inserted;
+      const def = COMPONENTS[type];
+      if (def?.role === 'junction') {
+        return this.beamline.placeJunction(opts);
+      }
+      if (def?.role === 'placement') {
+        this.log(`${placeable.name} must be placed on a beampipe`, 'bad');
+        return false;
+      }
+      // Beamline kind without role metadata → fall through to normal placement
+      // (defensive; shouldn't happen after A1).
     }
 
     if (!free && !this.canAfford(placeable.cost)) {
