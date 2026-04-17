@@ -39,37 +39,49 @@ Phase 2 (not designed here) will layer multi-story construction on top.
 
 ## Data model
 
-### Heightmap grid — per-tile corner ownership
+### Heightmap — sparse, per-tile corner ownership
 
 Each tile owns its own 4 corner heights (RCT2 model, not a shared
 vertex-grid heightmap). This is **required** so that cliffs along shared
 tile edges are possible: a cliff is simply two adjacent tiles whose
 corners on their shared edge differ.
 
-- **Shape:** 4 corner values per tile. For a grid of `cols × rows` tiles,
-  storage is `cols × rows × 4`.
+The world grid is unbounded in this codebase (no fixed `cols × rows`;
+the renderer samples ±80 tiles around the viewport). Storage must
+therefore be **sparse** — a dense array would allocate space for the
+entire infinite plane.
+
+- **Shape:** 4 corner values per tile (NW, NE, SE, SW).
 - **Units:** integer steps. Each step = **0.5 m** in world space (= 1/4 tile,
   matching the RCT2 quarter-tile height unit and the existing sub-tile
   granularity of 0.25 m).
 - **Range:** `−2 … +8` steps (−1 m to +4 m). Sufficient for hills/cliffs
   without ballooning the geometry budget; easily widened later.
-- **Storage:** `state.cornerHeights` as a flat `Int8Array` of length
-  `cols * rows * 4`, indexed
-  `(row * cols + col) * 4 + cornerIdx` where `cornerIdx` ∈ `{0: NW, 1: NE, 2: SE, 3: SW}`.
+- **Storage:** `state.cornerHeights` as a JavaScript `Map<string, Int8Array(4)>`
+  keyed by `"col,row"`. A tile absent from the map is implicitly
+  `[0, 0, 0, 0]` (flat, at world Y=0).
+- **Revision counter:** `state.cornerHeightsRevision: number` — monotonic,
+  incremented by every mutation. Renderer caches compare revision to
+  skip rebuilds.
 
 ### Tile accessors (new module, `src/game/terrain.js`)
 
 - `getCornerHeight(state, col, row, cornerIdx) → int` — raw step value.
-- `setCornerHeight(state, col, row, cornerIdx, value)` — writes and enforces
-  the per-tile invariant by cascading the other 3 corners of the same tile
-  if needed.
+  Returns `0` if the tile isn't in the sparse map.
+- `setCornerHeight(state, col, row, cornerIdx, value)` — writes (creating
+  the tile entry if needed) and enforces the per-tile invariant by
+  cascading the other 3 corners of the same tile if needed. Bumps
+  `cornerHeightsRevision`.
 - `getTileCorners(state, col, row) → { nw, ne, se, sw }` — returns 4 integer
-  step values.
+  step values. All zeros if tile not in map.
 - `getTileCornersY(state, col, row) → { nw, ne, se, sw }` — same but in world
   meters (`step × 0.5`). Renderers consume this.
 - `isTileFlat(state, col, row) → bool` — true if all 4 corners equal.
+  Trivially true for tiles not in the sparse map.
 - `setTileCorners(state, col, row, {nw, ne, se, sw})` — bulk set all 4
-  corners of one tile; validates the invariant at the end.
+  corners of one tile; validates the invariant at the end. If all 4 are
+  zero, **removes** the entry from the map (keeps the sparse invariant:
+  absent = flat). Bumps `cornerHeightsRevision`.
 
 ### Invariants
 
@@ -86,17 +98,26 @@ corners on their shared edge differ.
 
 ### Serialization
 
-- Save JSON includes a new field: `cornerHeights: <flat array of int8>`
-  (or a base64-encoded compact form — decide at plan stage).
-- **Old saves** (no `cornerHeights` field) → initialize to all zeros on load.
+- Save JSON includes a new field `cornerHeights` as an array of entries
+  `[col, row, nw, ne, se, sw]` — one per non-flat tile (entries whose
+  heights are all zero are omitted). A flat world has an empty array.
+- On load, the array rehydrates into the `Map<string, Int8Array(4)>`.
+- **Old saves** (no `cornerHeights` field) → initialize to an empty map.
   The game then behaves identically to today (fully flat world).
+- `cornerHeightsRevision` is NOT serialized — always reset to 0 on load,
+  which correctly forces renderer rebuilds on the first frame.
 
 ## Placement integration (auto-flatten)
 
 ### `placePlaceable` hook
 
-Before inserting a structural placeable (any placeable except floors and walls),
-**flatten the footprint**:
+All Placeables in this codebase share the `placePlaceable` path. Floors
+and walls are **not** Placeables — they live in separate state arrays
+(`state.floors`, `state.walls`) placed through distinct functions that
+never reach `placePlaceable`. As a result the hook needs no skip logic:
+every path through `placePlaceable` auto-flattens.
+
+Before inserting a Placeable, **flatten the footprint**:
 
 1. Compute the set of tile (col, row) pairs the footprint touches.
 2. For each such tile, set all 4 of its corners to height 0 via
@@ -112,12 +133,15 @@ Before inserting a structural placeable (any placeable except floors and walls),
 | Machine / equipment   | Yes, to 0     | Always sits on flat ground   |
 | Beamline module       | Yes, to 0     | Always sits on flat ground   |
 | Pipe / utility        | Yes, to 0     | Always at y=0                |
+| Furnishing            | Yes, to 0     | Always at y=0                |
+| Decoration            | Yes, to 0     | Always at y=0                |
 | **Floor**             | **No**        | Sloped to match tile corners |
 | **Wall**              | **No**        | Trapezoidal, base follows    |
 
-Floors and walls skip the hook. The exact signal (existing category /
-`kind` field vs. a new per-placeable `skipAutoFlatten` flag) is resolved
-at plan stage after reading `Placeable.js`.
+All Placeable kinds (`beamline`, `infrastructure`, `equipment`,
+`furnishing`, `decoration`) go through `placePlaceable` → auto-flatten.
+Floors and walls go through separate placement functions that don't
+touch the heightmap.
 
 ### `canPlace` behavior
 
@@ -295,16 +319,6 @@ snapshot in `world-snapshot.js`.
 
 ## Open implementation questions (resolve at plan stage)
 
-1. **Starter-hill location and shape.** Which map corner is unbuilt enough
-   for a 6 × 6-tile hill, and what peak height and falloff curve looks
-   good. Plan step will inspect the map and pick.
-2. **Distinguishing floors/walls from structural placeables** for the
-   auto-flatten hook. Reuse an existing category / `kind` field on
-   placeables if one exists, otherwise add a `skipAutoFlatten: true`
-   attribute to the floor and wall placeable definitions. Plan step to
-   read `Placeable.js` and pick.
-3. **Serialization wire format** for `cornerHeights`. Raw int8 array
-   (readable JSON), base64 of the `Int8Array` buffer (compact), or
-   run-length-encoded (compact *and* mostly-zero-friendly for the
-   starter map). Plan step picks based on save-file size vs. debuggability
-   tradeoff.
+1. **Starter-hill location and shape.** Which area of the starter map is
+   unbuilt enough for a hill, and what peak height and falloff curve
+   looks good. Plan step will inspect the map and pick.
