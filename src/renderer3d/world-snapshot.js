@@ -8,8 +8,9 @@ import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
 import { getTileCornersY } from '../game/terrain.js';
+import { inMapRegion } from '../game/map-generator.js';
 
-const GRASS_RANGE = 30;
+const GRASS_RANGE = 35;
 
 // --- Terrain hash ---
 
@@ -47,6 +48,7 @@ function buildTerrain(game) {
 
   for (let col = -GRASS_RANGE; col <= GRASS_RANGE; col++) {
     for (let row = -GRASS_RANGE; row <= GRASS_RANGE; row++) {
+      if (!inMapRegion(col, row)) continue;
       const key = col + ',' + row;
       if (infraOccupied[key] || zoneOccupied[key]) continue;
 

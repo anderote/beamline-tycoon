@@ -9,15 +9,17 @@ function blob(cx, cy, b, r) {
 }
 
 test('tree clumps land inside dark blobs', () => {
-  const blobs = [blob(-20, -20, -0.8, 6), blob(20, 20, +0.6, 6)];
+  // Blob centers on the NE–SW axis so both fall inside the oblique map.
+  // Dark blob in the SW half, bright blob in the NE half.
+  const blobs = [blob(-20, 20, -0.8, 6), blob(20, -20, +0.6, 6)];
   const { placeables } = generateStartingMap(42, blobs);
   const trees = placeables.filter(p => p.kind === 'decoration');
   // Trees in the dark blob's area
   const inDark = trees.filter(t =>
-    Math.hypot(t.col - (-20), t.row - (-20)) <= 7
+    Math.hypot(t.col - (-20), t.row - 20) <= 7
   ).length;
   const inBright = trees.filter(t =>
-    Math.hypot(t.col - 20, t.row - 20) <= 7
+    Math.hypot(t.col - 20, t.row - (-20)) <= 7
   ).length;
   // The blanket pass places trees across the whole map, so both blob areas
   // fill up. The dark blob additionally gets the clump pass (~15+ extra
