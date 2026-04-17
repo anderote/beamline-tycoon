@@ -84,11 +84,11 @@ function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdR
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// Map shape is a long, narrow axis-aligned rectangle. Long axis is col
-// (E–W); short axis is row (N–S). WORLD_BOUND matches LONG_EXTENT.
-const LONG_EXTENT = 35;       // half-length along col (E–W) — map spans col in [-35, +35]
-const NARROW_EXTENT = 10;     // half-width along row (N–S) — map spans row in [-10, +10]
-const WORLD_BOUND = 35;       // axis-aligned iteration bound; matches GRASS_RANGE in world-snapshot.js
+// Map shape is an axis-aligned square (|col| <= MAP_EXTENT, |row| <= MAP_EXTENT).
+const MAP_EXTENT = 35;        // half-side of the square map region
+const LONG_EXTENT = MAP_EXTENT;    // retained names used by clump-center margin checks
+const NARROW_EXTENT = MAP_EXTENT;
+const WORLD_BOUND = MAP_EXTENT;    // axis-aligned iteration bound; matches GRASS_RANGE in world-snapshot.js
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
 const MAX_CLUSTERS = 10;      // a handful of distinct, notable forest clumps
 const DARK_CLUSTER_THRESHOLD = -0.1;
