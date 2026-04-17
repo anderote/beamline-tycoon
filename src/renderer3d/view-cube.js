@@ -53,7 +53,7 @@ const FACE_LABELS = {
 // Material order for THREE.BoxGeometry: [+X, -X, +Y, -Y, +Z, -Z].
 const FACE_MAT_ORDER = ['posX', 'negX', 'posY', 'negY', 'posZ', 'negZ'];
 
-const CUBE_CANVAS_PX = 64;
+const CUBE_CANVAS_PX = 96;
 const CUBE_RADIUS = 2.4; // distance from cube center for the mirror camera
 
 export class ViewCube {
@@ -77,39 +77,54 @@ export class ViewCube {
     this.cubeCanvas.style.height = CUBE_CANVAS_PX + 'px';
     this.host.appendChild(this.cubeCanvas);
 
-    // Q / E rotate arrows: two curved arcs wrapping around the base of the
-    // cube. Click → renderer.rotateView(±1).
+    // Q / E rotate arrows: two short ~30° arc segments below the cube on
+    // an imaginary rotation circle around the cube's vertical axis. Each
+    // segment ends in a small tangent-aligned arrowhead.
     const svg = svgEl('svg', {
       class: 'vc-rotate-bar',
-      viewBox: '0 0 80 22',
-      width: '80',
+      viewBox: '0 0 96 22',
+      width: '96',
       height: '22',
     });
+    // Imaginary rotation circle: center above the SVG so its lower portion
+    // dips into our 22px band. Radius chosen so the 30° arcs span ~14px of
+    // chord length — small and subtle.
+    const CX = 48, CY = -10, R = 28;
     const makeArrow = (dir, label) => {
-      // dir = -1 for Q (counterclockwise, left), +1 for E (clockwise, right).
-      // Tight quarter-arcs that hug the cube's lower corners — the SVG sits
-      // a few px under the cube and the arc apex reaches up toward the cube.
+      // dir = -1 → Q (counterclockwise / left); +1 → E (clockwise / right).
+      // Q sweeps from 130° → 160° (CCW). E sweeps from 50° → 20° (CW).
       const g = svgEl('g', { class: `vc-rot vc-rot-${label.toLowerCase()}` });
-      const sweep = dir < 0 ? 1 : 0;
-      const startX = dir < 0 ? 32 : 48;
-      const endX = dir < 0 ? 4 : 76;
-      const startY = 18;
-      const endY = 2;
+      const startDeg = dir < 0 ? 130 : 50;
+      const endDeg = dir < 0 ? 160 : 20;
+      const ccw = dir < 0;
+      const sweep = ccw ? 1 : 0; // SVG sweep flag in Y-down system
+      const sx = CX + R * Math.cos(startDeg * Math.PI / 180);
+      const sy = CY + R * Math.sin(startDeg * Math.PI / 180);
+      const ex = CX + R * Math.cos(endDeg * Math.PI / 180);
+      const ey = CY + R * Math.sin(endDeg * Math.PI / 180);
       const arc = svgEl('path', {
-        d: `M ${startX} ${startY} A 16 14 0 0 ${sweep} ${endX} ${endY}`,
+        d: `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 0 ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`,
         fill: 'none',
         'stroke-linecap': 'round',
       });
-      // Arrowhead — small triangle near the arc endpoint pointing roughly
-      // up-and-outward, tangent to the arc's exit direction.
-      const headPts = dir < 0
-        ? `${endX},${endY} ${endX + 5},${endY + 5} ${endX - 1},${endY + 6}`
-        : `${endX},${endY} ${endX - 5},${endY + 5} ${endX + 1},${endY + 6}`;
-      const head = svgEl('polygon', { points: headPts });
+      // Arrowhead at the arc endpoint, oriented along the tangent.
+      const a = endDeg * Math.PI / 180;
+      const tx = ccw ? -Math.sin(a) : Math.sin(a);
+      const ty = ccw ?  Math.cos(a) : -Math.cos(a);
+      const HL = 4.5, HW = 2.2;
+      const baseX = ex - tx * HL;
+      const baseY = ey - ty * HL;
+      const px = -ty, py = tx; // perpendicular
+      const b1x = baseX + px * HW, b1y = baseY + py * HW;
+      const b2x = baseX - px * HW, b2y = baseY - py * HW;
+      const head = svgEl('polygon', {
+        points: `${ex.toFixed(2)},${ey.toFixed(2)} ${b1x.toFixed(2)},${b1y.toFixed(2)} ${b2x.toFixed(2)},${b2y.toFixed(2)}`,
+      });
+      // Letter label sits at the start side of the arc.
       const text = svgEl('text', {
-        x: dir < 0 ? 1 : 79,
-        y: 20,
-        'text-anchor': dir < 0 ? 'start' : 'end',
+        x: dir < 0 ? Math.max(2, sx - 6) : Math.min(94, sx + 6),
+        y: sy + 4,
+        'text-anchor': dir < 0 ? 'end' : 'start',
         class: 'vc-rot-label',
       });
       text.textContent = label;
