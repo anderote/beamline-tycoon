@@ -9,7 +9,7 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { Networks } from '../networks/networks.js';
 import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
-import { flattenPath } from '../beamline/path-flattener.js';
+import { flattenPath } from '../beamline/flattener.js';
 import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../beamline/pipe-geometry.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 
