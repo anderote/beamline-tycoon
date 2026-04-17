@@ -5,6 +5,7 @@
 // no floors, no zones — the player begins on empty greenfield.
 
 import { PLACEABLES } from '../data/placeables/index.js';
+import { setTileCorners } from './terrain.js';
 
 // ── Terrain brightness sampler ──────────────────────────────────────
 // (Canonical copy lives in src/renderer3d/world-snapshot.js. Duplicated
@@ -134,6 +135,80 @@ function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng) {
   return true;
 }
 
+// ── Starter hill ────────────────────────────────────────────────────
+// Adds a single small visible hill to the starter map so fresh games have
+// elevated terrain to look at. Deterministic: placement is chosen by
+// scanning candidate positions in a fixed order for the first 6×6 block
+// unoccupied by floors/walls/placeables.
+
+const HILL_PEAK = 3;   // steps (1.5m at HEIGHT_STEP_METERS=0.5)
+const HILL_RADIUS = 3; // tiles; block is (2*radius)×(2*radius) = 6×6
+
+function addStarterHill(cornerHeights, floors, walls, placeables) {
+  // Build occupancy set of (col,row) pairs.
+  const occupied = new Set();
+  for (const f of floors) occupied.add(f.col + ',' + f.row);
+  for (const w of walls) occupied.add(w.col + ',' + w.row);
+  for (const p of placeables) {
+    if (!p.cells) continue;
+    for (const c of p.cells) occupied.add(c.col + ',' + c.row);
+  }
+
+  // Search each map quadrant outward from the clearing edge for the first
+  // 6×6 block with zero overlap. Order biases toward the NE quadrant so the
+  // hill placement is stable and visible from the default camera angle.
+  const R = HILL_RADIUS;
+  const SIZE = 2 * R;
+  const candidates = [];
+  // Quadrant corners of the 60×60 world; step past the clearing margin.
+  for (const sign of [[+1, -1], [-1, -1], [+1, +1], [-1, +1]]) {
+    for (let d = 10; d <= WORLD_BOUND - SIZE; d++) {
+      const cx = sign[0] * d;
+      const cy = sign[1] * d;
+      candidates.push([cx, cy]);
+    }
+  }
+  // Also a fallback far-east position in case all quadrants are full.
+  candidates.push([WORLD_BOUND + 4, 0]);
+
+  let chosen = null;
+  for (const [topCol, topRow] of candidates) {
+    let clear = true;
+    for (let dr = 0; dr < SIZE && clear; dr++) {
+      for (let dc = 0; dc < SIZE && clear; dc++) {
+        if (occupied.has((topCol + dc) + ',' + (topRow + dr))) clear = false;
+      }
+    }
+    if (clear) { chosen = [topCol, topRow]; break; }
+  }
+  if (!chosen) return; // give up silently; fresh maps should always have space
+
+  // Apply radial (Chebyshev) falloff centered on the block. The hill's
+  // geometric center is at the NW corner of the middle tile; use that as
+  // the reference point for sampling corner grid positions.
+  const [topCol, topRow] = chosen;
+  const centerX = topCol + R;
+  const centerY = topRow + R;
+  const fakeState = { cornerHeights, cornerHeightsRevision: 0 };
+
+  const sampleAt = (gx, gy) => {
+    const d = Math.max(Math.abs(gx - centerX), Math.abs(gy - centerY));
+    return Math.max(0, Math.round(HILL_PEAK * (1 - d / R)));
+  };
+
+  for (let dr = 0; dr < SIZE; dr++) {
+    for (let dc = 0; dc < SIZE; dc++) {
+      const col = topCol + dc;
+      const row = topRow + dr;
+      const nw = sampleAt(col,     row);
+      const ne = sampleAt(col + 1, row);
+      const se = sampleAt(col + 1, row + 1);
+      const sw = sampleAt(col,     row + 1);
+      setTileCorners(fakeState, col, row, { nw, ne, se, sw });
+    }
+  }
+}
+
 // ── Main entry ──────────────────────────────────────────────────────
 
 /**
@@ -224,12 +299,18 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
     }
   }
 
+  const floors = [];
+  const walls = [];
+  const cornerHeights = new Map();
+  addStarterHill(cornerHeights, floors, walls, placeables);
+
   return {
-    floors: [],
+    floors,
     zones: [],
-    walls: [],
+    walls,
     doors: [],
     placeables,
     placeableNextId: nextIdRef.value,
+    cornerHeights,
   };
 }

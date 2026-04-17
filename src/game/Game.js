@@ -122,6 +122,7 @@ export class Game {
     this.state.doors = starter.doors;
     this.state.placeables = starter.placeables;
     this.state.placeableNextId = starter.placeableNextId;
+    this.state.cornerHeights = starter.cornerHeights;
     this._rebuildPlaceableIndex();
   }
 
