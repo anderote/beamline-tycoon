@@ -101,6 +101,7 @@ export const MATERIALS = {
   wall_shingle:        makeMat('wall_shingle.png',        { roughness: 0.85, metalness: 0.0 }),
   wall_siding:         makeMat('wall_siding.png',         { roughness: 0.8, metalness: 0.0 }),
   wall_brick:          makeMat('wall_brick.png',          { roughness: 0.9, metalness: 0.0 }),
+  wall_cinderblock:    makeMat('wall_cinderblock.png',    { roughness: 0.95, metalness: 0.0 }),
   wall_chain_link:     makeMat('wall_chain_link.png',     { roughness: 0.5, metalness: 0.6 }),
   wall_barbed_wire:    makeMat('wall_barbed_wire.png',    { roughness: 0.5, metalness: 0.6 }),
   rubber_mat:          makeMat('rubber_mat.png',          { roughness: 0.95, metalness: 0.0 }),

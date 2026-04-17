@@ -387,7 +387,7 @@ export const STRUCTURE_WALLS = {
     wallHeight: 14,
     thickness: 2.5,
     material: 'cinderblock',
-    texture: 'concrete_wall',
+    texture: 'wall_cinderblock',
     subsection: 'shielding',
     isWall: true,
   },
