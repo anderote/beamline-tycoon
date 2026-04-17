@@ -1630,13 +1630,6 @@ export class Game {
     return n;
   }
 
-  _rebuildPlaceableIndex() {
-    this.state.placeableIndex = {};
-    for (let i = 0; i < this.state.placeables.length; i++) {
-      this.state.placeableIndex[this.state.placeables[i].id] = i;
-    }
-  }
-
   getPlaceable(id) {
     const idx = this.state.placeableIndex[id];
     return idx !== undefined ? this.state.placeables[idx] : null;
