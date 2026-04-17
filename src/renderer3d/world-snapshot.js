@@ -444,7 +444,7 @@ function buildPipeAttachments(game) {
   const result = [];
   const pipes = game.state.beamPipes || [];
   for (const pipe of pipes) {
-    const atts = pipe.attachments || [];
+    const atts = pipe.placements || [];
     if (atts.length === 0) continue;
     const path = pipe.path || [];
     const pathLen = path.length;
