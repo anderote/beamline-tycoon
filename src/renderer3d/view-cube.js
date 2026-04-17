@@ -53,7 +53,7 @@ const FACE_LABELS = {
 // Material order for THREE.BoxGeometry: [+X, -X, +Y, -Y, +Z, -Z].
 const FACE_MAT_ORDER = ['posX', 'negX', 'posY', 'negY', 'posZ', 'negZ'];
 
-const CUBE_CANVAS_PX = 96;
+const CUBE_CANVAS_PX = 86;
 const CUBE_RADIUS = 2.4; // distance from cube center for the mirror camera
 
 export class ViewCube {
