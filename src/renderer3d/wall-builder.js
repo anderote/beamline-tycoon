@@ -16,8 +16,6 @@ const MIN_THICKNESS = 0.05 * M;  // 5cm min for fences/cubicles
 const DOOR_HEIGHT = 1.2 * M;     // 1.2m door
 const POST_WIDTH = 0.1 * M;      // 10cm posts
 const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
-const PANEL_THICKNESS = 0.04 * M; // 4cm door panel
-const PANEL_GAP = 0.02 * M;       // gap between panel and frame
 
 export class WallBuilder {
   constructor(textureManager) {
@@ -215,7 +213,7 @@ export class WallBuilder {
     });
 
     for (const d of (doorData || [])) {
-      const { col, row, edge, type, variant } = d;
+      const { col, row, edge, type } = d;
 
       const isDoorCutaway = wallVisibility === 'cutaway' && cutawayRoom &&
         this._wallBordersRoom(col, row, edge, cutawayRoom);
@@ -383,69 +381,6 @@ export class WallBuilder {
         aboveMesh.updateMatrix();
         parentGroup.add(aboveMesh);
         this._meshes.push(aboveMesh);
-      }
-
-      // --- Door panel mesh (skip hallwayDoor — open passthrough) ---
-      if (type !== 'hallwayDoor' && doorDef) {
-        const texName = doorDef.texture;
-        const baseMat = texName ? MATERIALS[texName] : null;
-        const panelW = doorOpeningWidth - PANEL_GAP * 2;
-        const panelH = doorHeight - PANEL_GAP;
-
-        const variantTint = doorDef.variantTints?.[variant || 0];
-        const makePanelMat = () => {
-          let panelColor = baseMat ? 0xffffff : (doorDef.color || 0x8b7355);
-          if (variantTint && baseMat) panelColor = variantTint;
-          else if (variantTint && !baseMat) panelColor = variantTint;
-          const opts = {
-            map: baseMat ? baseMat.map : null,
-            color: panelColor,
-            roughness: baseMat ? baseMat.roughness : 0.7,
-            metalness: baseMat ? baseMat.metalness : 0.0,
-            transparent: isTransparent || isDoorCutaway || (baseMat && baseMat.transparent),
-            opacity: (isTransparent || isDoorCutaway) ? 0.3 : 1.0,
-            depthWrite: !(isTransparent || isDoorCutaway),
-          };
-          if (baseMat && baseMat.alphaTest > 0) {
-            opts.alphaTest = baseMat.alphaTest;
-            opts.transparent = true;
-          }
-          return new THREE.MeshStandardMaterial(opts);
-        };
-
-        if (isDouble) {
-          const halfW = panelW / 2 - PANEL_GAP / 2;
-          for (const sign of [-1, 1]) {
-            const geo = isNS
-              ? new THREE.BoxGeometry(halfW, panelH, PANEL_THICKNESS)
-              : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, halfW);
-            const panel = new THREE.Mesh(geo, makePanelMat());
-            const offset = sign * (halfW / 2 + PANEL_GAP / 4);
-            panel.position.set(
-              edgeCenter.x + (isNS ? offset : 0),
-              panelH / 2,
-              edgeCenter.z + (isNS ? 0 : offset)
-            );
-            panel.castShadow = !(isTransparent || isDoorCutaway);
-            panel.receiveShadow = true;
-            panel.matrixAutoUpdate = false;
-            panel.updateMatrix();
-            parentGroup.add(panel);
-            this._meshes.push(panel);
-          }
-        } else {
-          const geo = isNS
-            ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
-            : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
-          const panel = new THREE.Mesh(geo, makePanelMat());
-          panel.position.set(edgeCenter.x, panelH / 2, edgeCenter.z);
-          panel.castShadow = !(isTransparent || isDoorCutaway);
-          panel.receiveShadow = true;
-          panel.matrixAutoUpdate = false;
-          panel.updateMatrix();
-          parentGroup.add(panel);
-          this._meshes.push(panel);
-        }
       }
     }
 
