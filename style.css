@@ -570,10 +570,14 @@ body {
 .view-cube-host .vc-rotate-bar {
   position: absolute;
   left: 0;
-  top: 64px;
+  top: 56px;
   width: 80px;
   height: 22px;
   overflow: visible;
+  pointer-events: none;
+}
+.view-cube-host .vc-rotate-bar .vc-rot {
+  pointer-events: auto;
 }
 .view-cube-host .vc-rot {
   cursor: pointer;
