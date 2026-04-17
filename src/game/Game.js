@@ -118,6 +118,23 @@ export class Game {
     this.state.doors = starter.doors;
     this.state.placeables = starter.placeables;
     this.state.placeableNextId = starter.placeableNextId;
+    this._rebuildPlaceableIndex();
+  }
+
+  // Rebuild placeableIndex + subgridOccupied from current state.placeables.
+  // Shared by applyScenario and the starter-map wiring.
+  _rebuildPlaceableIndex() {
+    this.state.placeableIndex = {};
+    this.state.subgridOccupied = {};
+    for (let i = 0; i < this.state.placeables.length; i++) {
+      const entry = this.state.placeables[i];
+      this.state.placeableIndex[entry.id] = i;
+      if (entry.cells && !entry.stackParentId) {
+        for (const cell of entry.cells) {
+          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
+        }
+      }
+    }
   }
 
   _generateTerrainBlobs(seed) {
@@ -3274,17 +3291,7 @@ export class Game {
     this.state.doorOccupied = {};
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
-    this.state.placeableIndex = {};
-    this.state.subgridOccupied = {};
-    for (let i = 0; i < this.state.placeables.length; i++) {
-      const entry = this.state.placeables[i];
-      this.state.placeableIndex[entry.id] = i;
-      if (entry.cells && !entry.stackParentId) {
-        for (const cell of entry.cells) {
-          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
-        }
-      }
-    }
+    this._rebuildPlaceableIndex();
     this.recomputeZoneConnectivity();
     this.validateInfrastructure();
   }

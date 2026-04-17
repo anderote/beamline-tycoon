@@ -81,7 +81,7 @@ function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
     subRow: 0,
     dir: 0,
     rotated: false,
-    cells: [{ col, row, subCol: 0, subRow: 0 }],
+    cells: def.footprintCells(col, row, 0, 0, 0),
     params: def.params ? { ...def.params } : null,
     placeY: 0,
     stackParentId: null,

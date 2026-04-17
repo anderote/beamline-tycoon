@@ -65,3 +65,8 @@ test('returns empty arrays for floors/zones/walls/doors', () => {
   assert.equal(walls.length, 0);
   assert.equal(doors.length, 0);
 });
+
+test('empty blob list produces no trees', () => {
+  const { placeables } = generateStartingMap(42, []);
+  assert.equal(placeables.length, 0);
+});
