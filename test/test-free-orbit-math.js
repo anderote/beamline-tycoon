@@ -33,7 +33,7 @@ assert(approx(PITCH_REST, Math.PI / 6), 'PITCH_REST = 30° (π/6)');
 console.log('Pitch bounds');
 assert(PITCH_MIN > 0 && PITCH_MIN < PITCH_REST, 'PITCH_MIN is below rest');
 assert(PITCH_MAX > PITCH_REST && PITCH_MAX < Math.PI / 2, 'PITCH_MAX is above rest, below vertical');
-assert(approx(PITCH_MIN, (15 * Math.PI) / 180), 'PITCH_MIN = 15°');
+assert(approx(PITCH_MIN, (5 * Math.PI) / 180), 'PITCH_MIN = 5°');
 assert(approx(PITCH_MAX, (80 * Math.PI) / 180), 'PITCH_MAX = 80°');
 
 console.log('clampPitch');
