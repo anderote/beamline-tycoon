@@ -66,7 +66,7 @@ function pickSpeciesForBrightness(brightness, rng) {
 
 // ── Decoration placement ────────────────────────────────────────────
 
-function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
+function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdRef) {
   const def = PLACEABLES[type];
   if (!def) return null;
   const id = `dc_${nextIdRef.value++}`;
@@ -77,11 +77,11 @@ function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
     kind: def.kind,
     col,
     row,
-    subCol: 0,
-    subRow: 0,
+    subCol,
+    subRow,
     dir: 0,
     rotated: false,
-    cells: def.footprintCells(col, row, 0, 0, 0),
+    cells: def.footprintCells(col, row, subCol, subRow, 0),
     params: def.params ? { ...def.params } : null,
     placeY: 0,
     stackParentId: null,
@@ -94,8 +94,8 @@ function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
 
 const WORLD_BOUND = 30;       // sampling bounds for placement (matches GRASS_RANGE in world-snapshot.js)
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
-const MAX_CLUSTERS = 14;
-const DARK_CLUSTER_THRESHOLD = -0.1;
+const MAX_CLUSTERS = 6;       // a few Gaussian forest regions, not a uniform blanket
+const DARK_CLUSTER_THRESHOLD = -0.3;
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
@@ -117,7 +117,7 @@ function footprintCells(def, col, row) {
   return cells;
 }
 
-function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef) {
+function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng) {
   const def = PLACEABLES[type];
   if (!def) return false;
   if (outOfBounds(col, row)) return false;
@@ -126,7 +126,14 @@ function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef) {
   for (const key of cells) {
     if (treeCells.has(key)) return false;
   }
-  placeTreeDecoration(placeables, type, col, row, nextIdRef);
+  // Sub-cell jitter: place the tree somewhere inside its tile instead of
+  // snapping to the top-left corner, so a field of trees doesn't render
+  // as an obvious grid. Bounds keep the tree within its assigned tile.
+  const subW = def.subW || 4;
+  const subL = def.subL || 4;
+  const subCol = Math.floor(rng() * Math.max(1, 5 - subW));
+  const subRow = Math.floor(rng() * Math.max(1, 5 - subL));
+  placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdRef);
   for (const key of cells) treeCells.add(key);
   return true;
 }
@@ -182,30 +189,24 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
 
       const localB = sampleTerrainBrightness(col, row, terrainBlobs);
       const type = pickSpeciesForBrightness(localB, rng);
-      if (tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef)) {
+      if (tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng)) {
         placed++;
       }
     }
   }
 
-  // 3. Radius-weighted blanket pass — iterates every cell in bounds and
-  //    attempts a tree with probability that ramps up toward the map edge.
-  //    Species comes from local brightness, so forests get conifer-heavy
-  //    dark patches and birch-speckled light ones naturally. Skipped when
-  //    terrainBlobs is empty so `generateStartingMap(seed, [])` returns empty.
+  // 3. Lonely-tree scatter: a small handful of individual trees sprinkled
+  //    across the map, so the area between forest clumps isn't bare. Kept
+  //    deliberately sparse — the user wants distinct Gaussian forest regions,
+  //    not a uniform blanket. Skipped when terrainBlobs is empty so
+  //    generateStartingMap(seed, []) returns an empty map for testing.
   if (terrainBlobs.length > 0) {
-    const ringSpan = WORLD_BOUND - CLEARING_RADIUS;
-    for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
-      for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
-        if (inClearing(col, row)) continue;
-        const d = Math.max(Math.abs(col), Math.abs(row));
-        const t = Math.max(0, Math.min(1, (d - CLEARING_RADIUS) / ringSpan));
-        const prob = 0.15 + t * 0.75;  // 15% near clearing, 90% at the map edge
-        if (rng() > prob) continue;
-        const b = sampleTerrainBrightness(col, row, terrainBlobs);
-        const type = pickSpeciesForBrightness(b, rng);
-        tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef);
-      }
+    for (let i = 0; i < 25; i++) {
+      const col = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
+      const row = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
+      const b = sampleTerrainBrightness(col, row, terrainBlobs);
+      const type = pickSpeciesForBrightness(b, rng);
+      tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng);
     }
   }
 
