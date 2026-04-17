@@ -10,7 +10,6 @@ import { Networks } from '../networks/networks.js';
 import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
-import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../beamline/pipe-geometry.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
 
@@ -382,7 +381,8 @@ export class Game {
         return false;
       }
     }
-    // Auto-remove any decoration (including trees) — include removal cost
+    // Auto-remove any decoration (including trees) — include removal cost.
+    // Destruction, not dismantle: skip the normal 50% refund.
     const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = tileCost;
     const existingDec = this._decorationAtTile(col, row);
@@ -391,7 +391,7 @@ export class Game {
       totalCost += def ? (def.removeCost || 0) : 0;
     }
     if (this.state.resources.funding < totalCost) return false;
-    if (existingDec) this.removeDecoration(col, row);
+    if (existingDec) this.removeDecoration(col, row, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
     if (infra.requiresFoundation && existing) {
@@ -411,11 +411,15 @@ export class Game {
       }
     }
 
-    this.state.resources.funding -= tileCost;
+    this.state.resources.funding -= totalCost;
     const tileEntry = { type: infraType, col, row, variant };
     if (foundation) tileEntry.foundation = foundation;
     this.state.floors.push(tileEntry);
     this.state.infraOccupied[key] = infraType;
+    // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
+    if (infraType === 'concrete') {
+      setTileCorners(this.state, col, row, { nw: 0, ne: 0, se: 0, sw: 0 });
+    }
     if (infraType === 'hallway') {
       this.recomputeZoneConnectivity();
     }
@@ -562,8 +566,16 @@ export class Game {
           const baseType = existingTile?.foundation || existing;
           if (baseType !== infra.requiresFoundation) continue;
         }
-        // Auto-remove any decoration (including trees)
-        if (this._decorationAtTile(c, r)) this.removeDecoration(c, r);
+        // Auto-remove any decoration (including trees). Charge the tree's
+        // removeCost on top of the tile cost; destruction skips the normal
+        // 50% refund so the actual spend matches the preview total.
+        let perTileExtra = 0;
+        const existingDec = this._decorationAtTile(c, r);
+        if (existingDec) {
+          const decDef = DECORATIONS[existingDec.type];
+          perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
+          this.removeDecoration(c, r, { skipRefund: true });
+        }
         // Track foundation for surface tiles
         let foundation = null;
         if (infra.requiresFoundation && existing) {
@@ -581,12 +593,16 @@ export class Game {
             this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
           }
         }
-        this.state.resources.funding -= tileCostForVariant;
+        this.state.resources.funding -= tileCostForVariant + perTileExtra;
         const tileEntry = { type: infraType, col: c, row: r, variant };
         if (foundation) tileEntry.foundation = foundation;
         if (orientation) tileEntry.orientation = orientation;
         this.state.floors.push(tileEntry);
         this.state.infraOccupied[key] = infraType;
+        // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
+        if (infraType === 'concrete') {
+          setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
+        }
         placed++;
       }
     }
@@ -1065,7 +1081,7 @@ export class Game {
     try { return this._placePlaceableInner(opts); } catch(e) { console.error('[placePlaceable] CRASH:', e); return false; }
   }
   _placePlaceableInner(opts, opts2) {
-    const { type, col, row, subCol, subRow, dir = 0, params, free = false, silent = false } = opts;
+    const { type, col, row, subCol, subRow, dir = 0, params, variant = 0, free = false, silent = false } = opts;
     const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
 
     const placeable = PLACEABLES[type];
@@ -1184,6 +1200,7 @@ export class Game {
       subRow: subRow || 0,
       dir,
       params: null,
+      variant: variant || 0,
       cells,
       placeY: 0,
       stackParentId: null,
@@ -1235,8 +1252,6 @@ export class Game {
       if (compDef?.isSource) {
         this._ensureBeamlineForSourcePlaceable(entry);
       }
-      // Auto-connect adjacent unconnected pipe endpoints to this module
-      this._autoConnectPipesToModule(entry);
       this._deriveBeamGraph();
       this.schedulePhysicsRecalc();
     }
@@ -1252,7 +1267,7 @@ export class Game {
   /**
    * Remove a placeable by ID. Refunds 50% of cost.
    */
-  removePlaceable(placeableId) {
+  removePlaceable(placeableId, opts = {}) {
     const idx = this.state.placeableIndex[placeableId];
     if (idx === undefined) return false;
 
@@ -1275,8 +1290,9 @@ export class Game {
       return false;
     }
 
-    // 50% refund
-    if (placeable.cost) {
+    // 50% refund — skipped when the caller is destroying the placeable
+    // (e.g. paving over a tree with concrete).
+    if (!opts.skipRefund && placeable.cost) {
       for (const [r, a] of Object.entries(placeable.cost)) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
@@ -1329,7 +1345,11 @@ export class Game {
       }
     }
 
-    // Remove beam pipes connected to this placeable (beamline only)
+    // Remove beam pipes connected to this placeable (beamline only).
+    // Legacy bridge-merge (reconnecting an incoming/outgoing pair across
+    // the removed module) is no longer performed here — BeamlineSystem
+    // handles port bookkeeping explicitly via removeJunction + its UI
+    // controller, and the flattener tolerates open pipe ends.
     if (entry.category === 'beamline') {
       this.state.beamPipes = this.state.beamPipes.filter(
         p => p.start?.junctionId !== placeableId && p.end?.junctionId !== placeableId
@@ -1484,6 +1504,7 @@ export class Game {
       subRow: entry.subRow,
       dir: entry.dir || 0,
       params: entry.params ? { ...entry.params } : null,
+      variant: entry.variant ?? 0,
     };
 
     this._syncLegacyPlaceableState();
@@ -1639,485 +1660,32 @@ export class Game {
    * @returns {boolean}
    */
   createBeamPipe(fromId, fromPort, toId, toPort, path) {
-    // Validate endpoints only when they're provided
-    if (fromId) {
-      const from = this.getPlaceable(fromId);
-      if (!from || from.category !== 'beamline') return false;
-      const fromDef = COMPONENTS[from.type];
-      if (!fromDef || !fromDef.ports || !fromDef.ports[fromPort]) {
-        this.log('Invalid source port!', 'bad');
-        return false;
-      }
-      // Duplicate port check
-      const dup = this.state.beamPipes.find(
-        p => (p.start?.junctionId === fromId && p.start?.portName === fromPort) ||
-             (p.end?.junctionId   === fromId && p.end?.portName   === fromPort)
-      );
-      if (dup) {
-        this.log('Port already connected!', 'bad');
-        return false;
-      }
-    }
-    if (toId) {
-      const to = this.getPlaceable(toId);
-      if (!to || to.category !== 'beamline') return false;
-      const toDef = COMPONENTS[to.type];
-      if (!toDef || !toDef.ports || !toDef.ports[toPort]) {
-        this.log('Invalid destination port!', 'bad');
-        return false;
-      }
-      const dup = this.state.beamPipes.find(
-        p => (p.start?.junctionId === toId && p.start?.portName === toPort) ||
-             (p.end?.junctionId   === toId && p.end?.portName   === toPort)
-      );
-      if (dup) {
-        this.log('Port already connected!', 'bad');
-        return false;
-      }
-    }
-
-    // Strip points that overlap with existing pipes so drawing over an
-    // existing pipe just fills gaps instead of creating duplicates.
-    path = this._stripOverlappingPipePoints(path);
-    if (!path || path.length < 2) {
-      // Nothing new to add — entire path is already covered.
-      return false;
-    }
-
-    // Auto-detect module connections at pipe endpoints when not explicitly
-    // provided. Checks if the pipe's start/end point is adjacent to a
-    // beamline module and, if so, connects to its available port.
-    if (!fromId || !toId) {
-      const resolved = this._resolveEndpointModules(path, fromId, fromPort, toId, toPort);
-      if (resolved) {
-        if (!fromId && resolved.fromId) {
-          fromId = resolved.fromId;
-          fromPort = resolved.fromPort;
-        }
-        if (!toId && resolved.toId) {
-          toId = resolved.toId;
-          toPort = resolved.toPort;
-        }
-      }
-    }
-
-    // Re-validate after auto-detection (same checks as the explicit path)
-    if (fromId && !fromPort) return false;
-    if (toId && !toPort) return false;
-
-    // Compute length from actual path geometry — paths may use sub-tile
-    // (0.5) steps so counting segments would undercount/overcount length.
-    // 1 tile = 2m = 4 sub-units along beam axis.
-    let tileDist = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      const a = path[i], b = path[i + 1];
-      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
-    }
-    const subL = Math.max(1, Math.round(tileDist * 4));
-
-    // Cost scales with length
-    const driftDef = COMPONENTS.drift;
-    const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-    const totalCost = { funding: Math.max(1, Math.floor(costPerTile * Math.max(tileDist, 0.25))) };
-
-    if (!this.canAfford(totalCost)) {
-      this.log("Can't afford beam pipe!", 'bad');
-      return false;
-    }
-
-    this.spend(totalCost);
-
-    const id = 'bp_' + this.state.beamPipeNextId++;
-    const pipe = {
-      id,
-      start: fromId ? { junctionId: fromId, portName: fromPort } : null,
-      end:   toId   ? { junctionId: toId,   portName: toPort   } : null,
-      path: path.map(p => ({ col: p.col, row: p.row })),
-      subL,
-      placements: [],
-    };
-
-    this.state.beamPipes.push(pipe);
-    const label = (fromId && toId) ? 'Connected' : 'Placed';
-    this.log(`${label} beam pipe (${(subL * 0.5).toFixed(1)}m)`, 'good');
-    this._deriveBeamGraph();
-    this.schedulePhysicsRecalc();
-    this.emit('beamlineChanged');
-    return true;
+    return this.beamline.drawPipe(
+      fromId ? { junctionId: fromId, portName: fromPort } : null,
+      toId   ? { junctionId: toId,   portName: toPort   } : null,
+      path,
+    );
   }
 
-  /**
-   * Auto-detect beamline modules at the start/end of a pipe path.
-   * For each unconnected endpoint, finds a module whose cells are adjacent
-   * to the pipe tip and assigns the appropriate port based on pipe direction.
-   *
-   * @param {Array} path - pipe path points [{col, row}]
-   * @param {string|null} fromId - existing from connection (skip if set)
-   * @param {string|null} fromPort - existing from port
-   * @param {string|null} toId - existing to connection (skip if set)
-   * @param {string|null} toPort - existing to port
-   * @returns {Object|null} { fromId, fromPort, toId, toPort } with resolved values
-   */
-  _resolveEndpointModules(path, fromId, fromPort, toId, toPort) {
-    if (!path || path.length < 2) return null;
-
-    const result = { fromId: null, fromPort: null, toId: null, toPort: null };
-    const EPS = 0.35; // quarter-tile tolerance for adjacency
-
-    // Find a beamline module whose cells contain or are adjacent to a point.
-    const findModuleAt = (col, row) => {
-      for (const p of this.state.placeables) {
-        if (p.category !== 'beamline') continue;
-        const def = COMPONENTS[p.type];
-        if (!def || !def.ports) continue;
-        const cells = p.cells || [{ col: p.col, row: p.row, subCol: 0, subRow: 0 }];
-        for (const c of cells) {
-          // Convert cell to pipe-coordinate space (fractional col/row)
-          const cx = c.col + (c.subCol || 0) / 4;
-          const cy = c.row + (c.subRow || 0) / 4;
-          if (Math.abs(cx - col) < EPS && Math.abs(cy - row) < EPS) {
-            return p;
-          }
-        }
-      }
-      return null;
-    };
-
-    // Determine which port to use based on pipe direction relative to module.
-    const resolvePort = (module, pipeDir, isFrom) => {
-      const def = COMPONENTS[module.type];
-      if (!def || !def.ports) return null;
-
-      // Check which ports are already connected
-      const connectedPorts = new Set();
-      for (const pipe of this.state.beamPipes) {
-        if (pipe.start?.junctionId === module.id) connectedPorts.add(pipe.start.portName);
-        if (pipe.end?.junctionId   === module.id) connectedPorts.add(pipe.end.portName);
-      }
-
-      // For 'from' endpoint: pipe leaves the module, so use an exit port.
-      // For 'to' endpoint: pipe arrives at the module, so use an entry port.
-      const wantExit = isFrom;
-      for (const [portName, portDef] of Object.entries(def.ports)) {
-        if (connectedPorts.has(portName)) continue;
-        const isExit = portName.startsWith('exit') || portDef.side === 'front' ||
-                       portDef.side === 'left' || portDef.side === 'right';
-        const isEntry = portName === 'entry' || portDef.side === 'back';
-        if (wantExit && isExit) return portName;
-        if (!wantExit && isEntry) return portName;
-      }
-      return null;
-    };
-
-    // Check start of pipe (from endpoint)
-    if (!fromId) {
-      const startPt = path[0];
-      const mod = findModuleAt(startPt.col, startPt.row);
-      if (mod) {
-        const nextPt = path[1];
-        const dir = { dCol: Math.sign(nextPt.col - startPt.col), dRow: Math.sign(nextPt.row - startPt.row) };
-        const port = resolvePort(mod, dir, true);
-        if (port) {
-          result.fromId = mod.id;
-          result.fromPort = port;
-        }
-      }
-    }
-
-    // Check end of pipe (to endpoint)
-    if (!toId) {
-      const endPt = path[path.length - 1];
-      const mod = findModuleAt(endPt.col, endPt.row);
-      if (mod && mod.id !== result.fromId) { // don't connect both ends to same module
-        const prevPt = path[path.length - 2];
-        const dir = { dCol: Math.sign(endPt.col - prevPt.col), dRow: Math.sign(endPt.row - prevPt.row) };
-        const port = resolvePort(mod, dir, false);
-        if (port) {
-          result.toId = mod.id;
-          result.toPort = port;
-        }
-      }
-    }
-
-    return (result.fromId || result.toId) ? result : null;
-  }
-
-  /**
-   * Auto-connect existing unconnected pipe endpoints to a newly placed module.
-   * Checks each pipe's start (fromId) and end (toId) — if null and the pipe
-   * tip is adjacent to the module's cells, connects it.
-   */
-  _autoConnectPipesToModule(moduleEntry) {
-    const def = COMPONENTS[moduleEntry.type];
-    if (!def || !def.ports) return;
-
-    const cells = moduleEntry.cells || [{ col: moduleEntry.col, row: moduleEntry.row, subCol: 0, subRow: 0 }];
-
-    // Build cell positions in pipe-coordinate space. Pipe endpoints may be
-    // up to ~1 tile away from the module edge (pipe stops at the module
-    // boundary), so use a generous tolerance along the pipe axis while
-    // keeping perpendicular tolerance tight.
-    const cellPositions = cells.map(c => ({
-      x: c.col + (c.subCol || 0) / 4,
-      y: c.row + (c.subRow || 0) / 4,
-    }));
-
-    // Check if a pipe endpoint is near the module. Uses Manhattan distance
-    // with a tolerance of 1.25 (1 tile gap + 0.25 sub-tile) to catch pipes
-    // that stop at the module edge, and cross-axis tolerance of 0.5 to
-    // avoid matching pipes running parallel but offset.
-    const isAdjacentToModule = (col, row, pipeDir) => {
-      // If we know the pipe direction, use directional tolerance
-      if (pipeDir) {
-        const axisIsCol = Math.abs(pipeDir.dCol) > 0;
-        for (const cp of cellPositions) {
-          const axisD = axisIsCol ? Math.abs(cp.x - col) : Math.abs(cp.y - row);
-          const crossD = axisIsCol ? Math.abs(cp.y - row) : Math.abs(cp.x - col);
-          if (axisD < 1.25 && crossD < 0.5) return true;
-        }
-        return false;
-      }
-      // Fallback: simple proximity
-      return cellPositions.some(cp =>
-        Math.abs(cp.x - col) < 0.5 && Math.abs(cp.y - row) < 0.5
-      );
-    };
-
-    // Check which ports are already connected
-    const connectedPorts = new Set();
-    for (const pipe of this.state.beamPipes) {
-      if (pipe.start?.junctionId === moduleEntry.id) connectedPorts.add(pipe.start.portName);
-      if (pipe.end?.junctionId   === moduleEntry.id) connectedPorts.add(pipe.end.portName);
-    }
-
-    for (const pipe of this.state.beamPipes) {
-      // Compute pipe direction from its path endpoints
-      let pipeDir = null;
-      if (pipe.path.length >= 2) {
-        const p0 = pipe.path[0], pN = pipe.path[pipe.path.length - 1];
-        const dc = pN.col - p0.col, dr = pN.row - p0.row;
-        if (Math.abs(dc) > 0.01 || Math.abs(dr) > 0.01) {
-          pipeDir = { dCol: Math.sign(dc), dRow: Math.sign(dr) };
-        }
-      }
-
-      // Check start of pipe (from endpoint) — if unconnected, this module
-      // would be the source side, so it needs an exit port
-      if (!pipe.start && pipe.path.length >= 2) {
-        const startPt = pipe.path[0];
-        if (isAdjacentToModule(startPt.col, startPt.row, pipeDir)) {
-          const port = this._findAvailablePortForModule(moduleEntry, connectedPorts, true);
-          if (port) {
-            pipe.start = { junctionId: moduleEntry.id, portName: port };
-            connectedPorts.add(port);
-          }
-        }
-      }
-      // Check end of pipe (to endpoint) — module is the destination, needs entry port
-      if (!pipe.end && pipe.path.length >= 2) {
-        const endPt = pipe.path[pipe.path.length - 1];
-        if (isAdjacentToModule(endPt.col, endPt.row, pipeDir)) {
-          const port = this._findAvailablePortForModule(moduleEntry, connectedPorts, false);
-          if (port) {
-            pipe.end = { junctionId: moduleEntry.id, portName: port };
-            connectedPorts.add(port);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Find an available port on a module for auto-connection.
-   * @param {Object} moduleEntry - the placed module
-   * @param {Set} connectedPorts - ports already in use
-   * @param {boolean} wantExit - true for exit port, false for entry port
-   * @returns {string|null} port name or null
-   */
-  _findAvailablePortForModule(moduleEntry, connectedPorts, wantExit) {
-    const def = COMPONENTS[moduleEntry.type];
-    if (!def || !def.ports) return null;
-    for (const [portName, portDef] of Object.entries(def.ports)) {
-      if (connectedPorts.has(portName)) continue;
-      const isExit = portName.startsWith('exit') || portDef.side === 'front' ||
-                     portDef.side === 'left' || portDef.side === 'right';
-      const isEntry = portName === 'entry' || portDef.side === 'back';
-      if (wantExit && isExit) return portName;
-      if (!wantExit && isEntry) return portName;
-    }
-    return null;
-  }
-
-  /**
-   * Remove points from a new pipe path that are already covered by
-   * existing pipes. Returns the longest contiguous run of uncovered
-   * points, or null if the entire path is already covered.
-   */
-  _stripOverlappingPipePoints(path) {
-    if (!path || path.length < 2) return path;
-    // Build a set of all existing pipe point positions for fast lookup.
-    const covered = new Set();
-    for (const pipe of this.state.beamPipes) {
-      const expanded = expandPipePath(pipe.path);
-      for (const pt of expanded) {
-        const k = Math.round(pt.col * 4) + ',' + Math.round(pt.row * 4);
-        covered.add(k);
-      }
-    }
-    // Expand the new path to dense sub-tile resolution before checking.
-    const dense = expandPipePath(path);
-    if (dense.length < 2) return path;
-    // Walk the dense path and mark each point as covered or not.
-    const points = [];
-    for (const pt of dense) {
-      const k = Math.round(pt.col * 4) + ',' + Math.round(pt.row * 4);
-      points.push({ col: pt.col, row: pt.row, isCovered: covered.has(k) });
-    }
-    // Find the longest contiguous run of uncovered points.
-    let bestStart = -1, bestLen = 0;
-    let runStart = -1;
-    for (let i = 0; i < points.length; i++) {
-      if (!points[i].isCovered) {
-        if (runStart === -1) runStart = i;
-      } else {
-        if (runStart !== -1) {
-          const len = i - runStart;
-          if (len > bestLen) { bestStart = runStart; bestLen = len; }
-          runStart = -1;
-        }
-      }
-    }
-    if (runStart !== -1) {
-      const len = points.length - runStart;
-      if (len > bestLen) { bestStart = runStart; bestLen = len; }
-    }
-    if (bestLen < 2) return null;
-    return points.slice(bestStart, bestStart + bestLen);
-  }
 
   /**
    * Add an attachment (inline component) to an existing beam pipe.
+   * Kept for compatibility with unmigrated callers; delegates to
+   * BeamlineSystem.placeOnPipe with snap mode.
    * @param {string} pipeId - beam pipe ID
    * @param {string} type - component type (must be placement: 'attachment')
    * @param {number} position - 0..1 normalized position along pipe
    * @param {Object} params - optional parameter overrides
    */
   addAttachmentToPipe(pipeId, type, position, params) {
-    const pipe = this.state.beamPipes.find(p => p.id === pipeId);
-    if (!pipe) return false;
-
-    const def = COMPONENTS[type];
-    if (!def || def.placement !== 'attachment') {
-      this.log('Not an attachment component!', 'bad');
-      return false;
-    }
-
-    if (!this.isComponentUnlocked(def)) {
-      this.log(`${def.name} not unlocked!`, 'bad');
-      return false;
-    }
-
-    if (!this.canAfford(def.cost)) {
-      this.log(`Can't afford ${def.name}!`, 'bad');
-      return false;
-    }
-
-    // Overlap / fit check: each attachment occupies a [start, end] interval
-    // along the pipe in metres. The new attachment must fit within the pipe
-    // and must not overlap any existing attachment. Position is normalized
-    // 0..1 along pipeBeamLen and marks the leading edge of the device.
-    const pipeBeamLen = pipe.subL * 0.5; // metres
-    const newLenM = (def.subL || 1) * 0.5;
-    const clampedPos = Math.max(0, Math.min(1, position));
-    let newStartM = clampedPos * pipeBeamLen;
-    let newEndM = newStartM + newLenM;
-    if (newLenM > pipeBeamLen) {
-      this.log(`Pipe too short for ${def.name}!`, 'bad');
-      return false;
-    }
-    // If the attachment would overrun the pipe end, slide it back so its
-    // tail meets the pipe end. Keeps drag-to-end placement forgiving.
-    if (newEndM > pipeBeamLen) {
-      newEndM = pipeBeamLen;
-      newStartM = newEndM - newLenM;
-    }
-    for (const ex of pipe.placements) {
-      const exDef = COMPONENTS[ex.type];
-      const exLenM = (exDef ? (exDef.subL || 1) : 1) * 0.5;
-      const exStartM = ex.position * pipeBeamLen;
-      const exEndM = exStartM + exLenM;
-      if (newStartM < exEndM && newEndM > exStartM) {
-        this.log(`${def.name} would overlap existing attachment!`, 'bad');
-        return false;
-      }
-    }
-    // Use the (possibly slid) start as the canonical position for storage.
-    position = newStartM / pipeBeamLen;
-
-    this.spend(def.cost);
-
-    const attId = 'att_' + this.state.placeableNextId++;
-    const attachment = {
-      id: attId,
-      type,
-      position: Math.max(0, Math.min(1, position)),
-      params: {},
-    };
-
-    // Initialize params from PARAM_DEFS and component definition
-    if (PARAM_DEFS[type]) {
-      for (const [k, pdef] of Object.entries(PARAM_DEFS[type])) {
-        if (!pdef.derived) attachment.params[k] = pdef.default;
-      }
-    }
-    if (def.params) {
-      for (const [k, v] of Object.entries(def.params)) {
-        if (!(k in attachment.params)) attachment.params[k] = v;
-      }
-    }
-    if (params) Object.assign(attachment.params, params);
-
-    // Insert sorted by position
-    const insertIdx = pipe.placements.findIndex(a => a.position > attachment.position);
-    if (insertIdx === -1) {
-      pipe.placements.push(attachment);
-    } else {
-      pipe.placements.splice(insertIdx, 0, attachment);
-    }
-
-    this.log(`Attached ${def.name}`, 'good');
-    this._deriveBeamGraph();
-    this.schedulePhysicsRecalc();
-    this.emit('beamlineChanged');
-    return attId;
+    return this.beamline.placeOnPipe(pipeId, { type, position, params, mode: 'snap' });
   }
 
   /**
-   * Remove an attachment from a pipe.
+   * Remove an attachment from a pipe. Delegates to BeamlineSystem.
    */
   removeAttachment(pipeId, attachmentId) {
-    const pipe = this.state.beamPipes.find(p => p.id === pipeId);
-    if (!pipe) return false;
-
-    const idx = pipe.placements.findIndex(a => a.id === attachmentId);
-    if (idx === -1) return false;
-
-    const att = pipe.placements[idx];
-    const def = COMPONENTS[att.type];
-
-    // 50% refund
-    if (def && def.cost) {
-      for (const [r, a] of Object.entries(def.cost)) {
-        this.state.resources[r] += Math.floor(a * 0.5);
-      }
-    }
-
-    pipe.placements.splice(idx, 1);
-    this.log(`Removed ${def ? def.name : 'attachment'} (50% refund)`, 'info');
-    this._deriveBeamGraph();
-    this.schedulePhysicsRecalc();
-    this.emit('beamlineChanged');
-    return true;
+    return this.beamline.removeFromPipe(pipeId, attachmentId);
   }
 
   removeBeamPipe(pipeId) {
@@ -2216,18 +1784,20 @@ export class Game {
     return null;
   }
 
-  removeDecoration(col, row, subCol = 0, subRow = 0) {
+  removeDecoration(col, row, subCol = 0, subRow = 0, opts = {}) {
     // Legacy signature. Look up the instance occupying the tile and route
     // through the unified removePlaceable path.
-    if (arguments.length >= 4) {
+    if (typeof subCol === 'number' && typeof subRow === 'number' && arguments.length >= 4) {
       const key = col + ',' + row + ',' + subCol + ',' + subRow;
       const occ = this.state.subgridOccupied[key];
-      if (occ) return this.removePlaceable(occ.id);
+      if (occ) return this.removePlaceable(occ.id, opts);
       return false;
     }
+    // Two-arg form may pass opts in the third position.
+    const options = typeof subCol === 'object' && subCol !== null ? subCol : opts;
     const inst = this._decorationAtTile(col, row);
     if (!inst) return false;
-    return this.removePlaceable(inst.id);
+    return this.removePlaceable(inst.id, options);
   }
 
   hasBlockingDecoration(col, row) {
