@@ -20,6 +20,7 @@ import { computeSystemStats } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
+import { generateStartingMap } from './map-generator.js';
 
 export class Game {
   constructor(registry) {
@@ -109,7 +110,14 @@ export class Game {
     this.state.terrainSeed = Date.now();
     this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
 
-    // Starter maps loaded via scenarios (Menu > Scenarios).
+    // Apply natural starter map (trees clumped on dark soil).
+    const starter = generateStartingMap(this.state.terrainSeed, this.state.terrainBlobs);
+    this.state.floors = starter.floors;
+    this.state.zones = starter.zones;
+    this.state.walls = starter.walls;
+    this.state.doors = starter.doors;
+    this.state.placeables = starter.placeables;
+    this.state.placeableNextId = starter.placeableNextId;
   }
 
   _generateTerrainBlobs(seed) {
