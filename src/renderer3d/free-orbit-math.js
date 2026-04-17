@@ -14,7 +14,7 @@ export const CAM_D = 50;
 export const ORBIT_RADIUS = (2 * CAM_D * Math.sqrt(6)) / 3;
 
 export const PITCH_REST = Math.atan(1 / Math.sqrt(3));
-export const PITCH_MIN = (15 * Math.PI) / 180;
+export const PITCH_MIN = (5 * Math.PI) / 180;
 export const PITCH_MAX = (80 * Math.PI) / 180;
 
 // Default tuning. Pixel-to-radian scalars; adjust to taste during playtest.
