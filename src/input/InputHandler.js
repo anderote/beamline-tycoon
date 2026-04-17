@@ -12,6 +12,7 @@ import { ContextWindow } from '../ui/ContextWindow.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
+import { BeamlineInputController } from './BeamlineInputController.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
   DEMOLISH_STANDALONE,
@@ -120,6 +121,14 @@ export class InputHandler {
     this._hoverTooltipTimer = null;
     this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
     this._tooltipEl = null;
+    // Beamline-specific input (junction ghosts, pipe drawing, placement-on-pipe).
+    // Back-reference is `inputHandler: this` so the controller can read
+    // current selection/direction without owning that state.
+    this.beamlineController = new BeamlineInputController({
+      game,
+      renderer,
+      inputHandler: this,
+    });
     this._bindKeyboard();
     this._bindMouse();
     this._startPanLoop();
@@ -2273,6 +2282,13 @@ export class InputHandler {
       return;
     }
 
+    // Beamline junctions route through BeamlineInputController. When it
+    // consumes the click (tool was a junction), skip the generic commit.
+    const clickTool = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
+    if (clickTool?.role === 'junction' && this.beamlineController.onMouseDown(world.x, world.y, 0)) {
+      return;
+    }
+
     // Unified placeable commit — handles beamline / equipment / furnishing / decoration.
     // Replaces the four legacy commit branches (beamline, equipment, furnishing, decoration).
     if (this.hoverPlaceable) {
@@ -2621,6 +2637,16 @@ export class InputHandler {
   _updatePlaceablePreview() {
     if (!this.selectedPlaceableId) {
       this.hoverPlaceable = null;
+      return;
+    }
+    // Beamline junction/placement hover is handled by BeamlineInputController.
+    // The `placement` branch is still a no-op until E4 — junctions work now.
+    const selDef = COMPONENTS[this.selectedPlaceableId];
+    if (selDef?.role === 'junction' || selDef?.role === 'placement') {
+      this.hoverPlaceable = null;
+      const wx = this.lastMouseWorldX ?? 0;
+      const wy = this.lastMouseWorldY ?? 0;
+      this.beamlineController.onHover(wx, wy);
       return;
     }
     // Drawn connections (beam pipes) have their own preview system; skip the
