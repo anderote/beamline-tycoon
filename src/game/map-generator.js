@@ -188,19 +188,25 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
     }
   }
 
-  // 3. Scatter fill: shrubs / birches / smallTrees sprinkled across the map
-  //    regardless of brightness — fills in between clumps so the starter
-  //    feels like a real woodland, not a sparse sprinkle. Only runs if
-  //    terrain blobs were provided, so `generateStartingMap(seed, [])`
-  //    still yields an empty map for testing.
-  const scatterCount = terrainBlobs.length > 0 ? 80 : 0;
-  for (let i = 0; i < scatterCount; i++) {
-    const col = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
-    const row = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
-    if (inClearing(col, row)) continue;
-    const roll = rng();
-    const type = roll < 0.5 ? 'shrub' : roll < 0.8 ? 'birchTree' : 'smallTree';
-    tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef);
+  // 3. Radius-weighted blanket pass — iterates every cell in bounds and
+  //    attempts a tree with probability that ramps up toward the map edge.
+  //    Species comes from local brightness, so forests get conifer-heavy
+  //    dark patches and birch-speckled light ones naturally. Skipped when
+  //    terrainBlobs is empty so `generateStartingMap(seed, [])` returns empty.
+  if (terrainBlobs.length > 0) {
+    const ringSpan = WORLD_BOUND - CLEARING_RADIUS;
+    for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
+      for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
+        if (inClearing(col, row)) continue;
+        const d = Math.max(Math.abs(col), Math.abs(row));
+        const t = Math.max(0, Math.min(1, (d - CLEARING_RADIUS) / ringSpan));
+        const prob = 0.15 + t * 0.55;  // 15% near clearing, 70% at the edge
+        if (rng() > prob) continue;
+        const b = sampleTerrainBrightness(col, row, terrainBlobs);
+        const type = pickSpeciesForBrightness(b, rng);
+        tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef);
+      }
+    }
   }
 
   return {
