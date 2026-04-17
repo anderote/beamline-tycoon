@@ -87,23 +87,28 @@ export class ViewCube {
     });
     const makeArrow = (dir, label) => {
       // dir = -1 for Q (counterclockwise, left), +1 for E (clockwise, right).
+      // Tight quarter-arcs that hug the cube's lower corners — the SVG sits
+      // a few px under the cube and the arc apex reaches up toward the cube.
       const g = svgEl('g', { class: `vc-rot vc-rot-${label.toLowerCase()}` });
-      const sweep = dir < 0 ? 0 : 1;
-      const startX = dir < 0 ? 36 : 44;
-      const endX = dir < 0 ? 10 : 70;
+      const sweep = dir < 0 ? 1 : 0;
+      const startX = dir < 0 ? 32 : 48;
+      const endX = dir < 0 ? 4 : 76;
+      const startY = 18;
+      const endY = 2;
       const arc = svgEl('path', {
-        d: `M ${startX} 2 A 22 18 0 0 ${sweep} ${endX} 18`,
+        d: `M ${startX} ${startY} A 16 14 0 0 ${sweep} ${endX} ${endY}`,
         fill: 'none',
         'stroke-linecap': 'round',
       });
-      // Arrowhead — small triangle at the arc endpoint pointing tangent.
+      // Arrowhead — small triangle near the arc endpoint pointing roughly
+      // up-and-outward, tangent to the arc's exit direction.
       const headPts = dir < 0
-        ? `${endX},${18} ${endX + 6},${14} ${endX + 6},${22}`
-        : `${endX},${18} ${endX - 6},${14} ${endX - 6},${22}`;
+        ? `${endX},${endY} ${endX + 5},${endY + 5} ${endX - 1},${endY + 6}`
+        : `${endX},${endY} ${endX - 5},${endY + 5} ${endX + 1},${endY + 6}`;
       const head = svgEl('polygon', { points: headPts });
       const text = svgEl('text', {
         x: dir < 0 ? 1 : 79,
-        y: 10,
+        y: 20,
         'text-anchor': dir < 0 ? 'start' : 'end',
         class: 'vc-rot-label',
       });
