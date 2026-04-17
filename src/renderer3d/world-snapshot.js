@@ -8,7 +8,7 @@ import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
 
-const GRASS_RANGE = 80;
+const GRASS_RANGE = 30;
 
 // --- Terrain hash ---
 

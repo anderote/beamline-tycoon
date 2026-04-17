@@ -92,10 +92,10 @@ function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-const WORLD_BOUND = 60;       // sampling bounds for placement
+const WORLD_BOUND = 25;       // sampling bounds for placement
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
-const MAX_CLUSTERS = 8;
-const DARK_CLUSTER_THRESHOLD = -0.3;
+const MAX_CLUSTERS = 14;
+const DARK_CLUSTER_THRESHOLD = -0.1;
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
@@ -160,7 +160,7 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
 
   // 2. Per cluster: Gaussian-ish scatter inside the blob's rotated frame.
   for (const blob of clusters) {
-    const count = Math.min(25, Math.max(8, Math.round(blob.sx * blob.sy * 0.35)));
+    const count = Math.min(40, Math.max(12, Math.round(blob.sx * blob.sy * 0.8)));
     const r = Math.min(blob.sx, blob.sy) * 1.1;
     const cos = Math.cos(blob.angle);
     const sin = Math.sin(blob.angle);
@@ -188,16 +188,19 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
     }
   }
 
-  // 3. Bright-patch scatter: shrubs / birches on light soil patches.
-  for (let i = 0; i < 25; i++) {
+  // 3. Scatter fill: shrubs / birches / smallTrees sprinkled across the map
+  //    regardless of brightness — fills in between clumps so the starter
+  //    feels like a real woodland, not a sparse sprinkle. Only runs if
+  //    terrain blobs were provided, so `generateStartingMap(seed, [])`
+  //    still yields an empty map for testing.
+  const scatterCount = terrainBlobs.length > 0 ? 80 : 0;
+  for (let i = 0; i < scatterCount; i++) {
     const col = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
     const row = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
     if (inClearing(col, row)) continue;
-    const b = sampleTerrainBrightness(col, row, terrainBlobs);
-    if (b > 0.15) {
-      const type = rng() < 0.5 ? 'shrub' : 'birchTree';
-      tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef);
-    }
+    const roll = rng();
+    const type = roll < 0.5 ? 'shrub' : roll < 0.8 ? 'birchTree' : 'smallTree';
+    tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef);
   }
 
   return {
