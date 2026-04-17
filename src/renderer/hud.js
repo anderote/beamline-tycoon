@@ -12,6 +12,7 @@ import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
+import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -175,6 +176,130 @@ Renderer.prototype._updateHUD = function() {
   // Refresh any open beamline context windows
   this._refreshContextWindows();
 
+  this._updateTutorialPanel();
+};
+
+// === TUTORIAL CHECKLIST ===
+
+Renderer.prototype._initTutorialPanel = function() {
+  const panel = document.getElementById('tutorial-panel');
+  if (!panel || this._tutorialInited) return;
+  this._tutorialInited = true;
+  this._tutorialMinimized = true;
+  this._tutorialPrevCompleted = new Set();
+  panel.classList.add('minimized');
+
+  // Toggle minimize on header click
+  const header = document.getElementById('tutorial-header');
+  header.addEventListener('click', (e) => {
+    if (e.target.id === 'tutorial-dismiss') return;
+    this._tutorialMinimized = !this._tutorialMinimized;
+    panel.classList.toggle('minimized', this._tutorialMinimized);
+  });
+
+  // Dismiss button
+  document.getElementById('tutorial-dismiss').addEventListener('click', (e) => {
+    e.stopPropagation();
+    this.game.state.tutorialDismissed = true;
+    panel.classList.add('hidden');
+  });
+
+  // Build the static group/step DOM structure
+  const body = document.getElementById('tutorial-body');
+  body.innerHTML = '';
+  for (const group of TUTORIAL_GROUPS) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'tut-group';
+    groupDiv.innerHTML = `<div class="tut-group-name">${group.name}</div>`;
+
+    for (const step of TUTORIAL_STEPS.filter(s => s.group === group.id)) {
+      const stepDiv = document.createElement('div');
+      stepDiv.className = 'tut-step';
+      stepDiv.id = `tut-${step.id}`;
+      stepDiv.innerHTML =
+        `<span class="tut-check">\u25cb</span>` +
+        `<span class="tut-name">${step.name}<span class="tut-hint">${step.hint}</span></span>`;
+      groupDiv.appendChild(stepDiv);
+    }
+
+    body.appendChild(groupDiv);
+  }
+};
+
+Renderer.prototype._updateTutorialPanel = function() {
+  const panel = document.getElementById('tutorial-panel');
+  if (!panel) return;
+
+  const state = this.game.state;
+  if (state.tutorialDismissed) {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  this._initTutorialPanel();
+  panel.classList.remove('hidden');
+
+  const nets = state.networkData;
+  let completedCount = 0;
+  let firstIncomplete = null;
+
+  for (const step of TUTORIAL_STEPS) {
+    const el = document.getElementById(`tut-${step.id}`);
+    if (!el) continue;
+
+    let done = false;
+    try { done = step.condition(state, nets); } catch (_) {}
+
+    const check = el.querySelector('.tut-check');
+    if (done) {
+      completedCount++;
+      if (!el.classList.contains('completed')) {
+        el.classList.add('completed');
+        check.textContent = '\u2713';
+        // Flash animation for newly completed
+        if (this._tutorialPrevCompleted && !this._tutorialPrevCompleted.has(step.id)) {
+          el.classList.add('flash');
+          setTimeout(() => el.classList.remove('flash'), 500);
+        }
+      }
+      el.classList.remove('next');
+    } else {
+      el.classList.remove('completed');
+      check.textContent = '\u25cb';
+      if (!firstIncomplete) {
+        firstIncomplete = step;
+        el.classList.add('next');
+      } else {
+        el.classList.remove('next');
+      }
+    }
+  }
+
+  // Track what was completed for flash detection
+  this._tutorialPrevCompleted = new Set(
+    TUTORIAL_STEPS.filter((s) => {
+      try { return s.condition(state, nets); } catch (_) { return false; }
+    }).map(s => s.id)
+  );
+
+  // Update progress
+  const total = TUTORIAL_STEPS.length;
+  const pct = Math.round((completedCount / total) * 100);
+  const progressText = document.getElementById('tutorial-progress-text');
+  const progressFill = document.getElementById('tutorial-progress-fill');
+  if (progressText) progressText.textContent = `${completedCount}/${total}`;
+  if (progressFill) progressFill.style.width = `${pct}%`;
+
+  // All done state
+  if (completedCount === total) {
+    panel.classList.add('all-done');
+    const title = document.getElementById('tutorial-title');
+    if (title) title.textContent = 'All Done!';
+  } else {
+    panel.classList.remove('all-done');
+    const title = document.getElementById('tutorial-title');
+    if (title) title.textContent = 'Getting Started';
+  }
 };
 
 Renderer.prototype._updateBeamSummary = function() {
@@ -1916,7 +2041,7 @@ Renderer.prototype._renderPowerStats = function(d, summary, detail) {
     this._ssep(),
     this._sstat('Util', d.utilization.toFixed(0), '%', uc),
     this._ssep(),
-    this._sstat('Substations', d.substations, ''),
+    this._sstat('Transformers', d.substations, ''),
     this._ssep(),
     this._sstat('Panels', d.panels, ''),
   ].join('');

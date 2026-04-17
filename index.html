@@ -51,6 +51,18 @@
       </div>
     </div>
 
+    <!-- Music player (top-right, below top bar) -->
+    <div id="music-player">
+      <button class="mp-btn mp-prev" title="Previous">&lt;</button>
+      <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
+      <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
+      <span class="mp-track-name">Loading...</span>
+      <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
+      <select class="mp-theme" title="Theme"></select>
+      <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
+      <button class="mp-btn mp-minimize" title="Minimize">_</button>
+    </div>
+
     <!-- System-level infrastructure stats panel (below top bar, facility mode only) -->
     <div id="system-stats-panel" class="hidden">
       <div id="system-stats-header">
@@ -74,6 +86,18 @@
       <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
       <div class="bsp-row"><span class="bsp-label">Peak Energy</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
       <div class="bsp-row"><span class="bsp-label">Data Rate</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
+    </div>
+
+    <!-- Tutorial checklist (below top bar, collapsible) -->
+    <div id="tutorial-panel" class="hidden">
+      <div id="tutorial-header">
+        <span id="tutorial-title">Getting Started</span>
+        <span id="tutorial-progress-text"></span>
+        <span id="tutorial-collapse-chevron">&#9660;</span>
+        <button id="tutorial-dismiss" title="Dismiss">&times;</button>
+      </div>
+      <div id="tutorial-progress-bar"><div id="tutorial-progress-fill"></div></div>
+      <div id="tutorial-body"></div>
     </div>
 
     <!-- Beamline warnings panel (top-right) -->

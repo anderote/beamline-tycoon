@@ -26,8 +26,8 @@ function makeState() {
 
 // --- Constants sanity ---
 assert(HEIGHT_STEP_METERS === 0.5, 'HEIGHT_STEP_METERS = 0.5');
-assert(HEIGHT_MIN === -2, 'HEIGHT_MIN = -2');
-assert(HEIGHT_MAX === 8, 'HEIGHT_MAX = 8');
+assert(HEIGHT_MIN === -4, 'HEIGHT_MIN = -4');
+assert(HEIGHT_MAX === 6, 'HEIGHT_MAX = 6');
 assert(NW === 0 && NE === 1 && SE === 2 && SW === 3, 'corner indices NW=0, NE=1, SE=2, SW=3');
 
 // --- all-zeros default ---
@@ -115,7 +115,7 @@ assert(NW === 0 && NE === 1 && SE === 2 && SW === 3, 'corner indices NW=0, NE=1,
 // --- setTileCorners with MAX-SPREAD input must converge (NW-anchored) ---
 // Worst legal input: corners alternate HEIGHT_MAX/HEIGHT_MIN. Full spread is
 // HEIGHT_MAX − HEIGHT_MIN = 10 steps. Cascading the 3 non-anchor corners
-// toward NW must converge without hitting the MAX_PASSES fuse.
+// toward NW must converge without hitting the MAX_PASSES fuse (64).
 {
   const s = makeState();
   setTileCorners(s, 0, 0, {

@@ -170,14 +170,15 @@ export class EquipmentBuilder {
         group.rotation.y = rotY;
         group.matrixAutoUpdate = false;
         group.updateMatrix();
-        if (!isFurnishing) {
-          const portStubs = buildPortStubs(
-            item.type,
-            ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
-            (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
-          );
-          if (portStubs) group.add(portStubs);
-        }
+        // PORT STUBS disabled — will revisit with connected routing
+        // if (!isFurnishing) {
+        //   const portStubs = buildPortStubs(
+        //     item.type,
+        //     ((compDef.subW || compDef.gridW || 2) * SUB_UNIT) / 2,
+        //     (compDef.subL || compDef.gridH || 2) * SUB_UNIT,
+        //   );
+        //   if (portStubs) group.add(portStubs);
+        // }
         parentGroup.add(group);
         this._meshes.push(group);
         return;
@@ -219,14 +220,15 @@ export class EquipmentBuilder {
       wrapper.rotation.y = rotY;
       wrapper.matrixAutoUpdate = false;
       wrapper.add(mesh);
-      if (!isFurnishing) {
-        const portStubs = buildPortStubs(
-          item.type,
-          ((compDef?.subW || compDef?.gridW || 2) * SUB_UNIT) / 2,
-          (compDef?.subL || compDef?.gridH || 2) * SUB_UNIT,
-        );
-        if (portStubs) wrapper.add(portStubs);
-      }
+      // PORT STUBS disabled — will revisit with connected routing
+      // if (!isFurnishing) {
+      //   const portStubs = buildPortStubs(
+      //     item.type,
+      //     ((compDef?.subW || compDef?.gridW || 2) * SUB_UNIT) / 2,
+      //     (compDef?.subL || compDef?.gridH || 2) * SUB_UNIT,
+      //   );
+      //   if (portStubs) wrapper.add(portStubs);
+      // }
       wrapper.updateMatrix();
 
       parentGroup.add(wrapper);

@@ -82,25 +82,57 @@ function splitRunExcludingModules(start, end, moduleTileSet) {
     ? { col: v, row: cross }
     : { col: cross, row: v };
 
-  // Find integer tile positions along the run that are blocked by modules
+  // Find subtile positions along the run that are blocked by modules.
+  // moduleTileSet stores keys at subtile precision: "col,row,subCol,subRow".
+  // Iterate at 0.25 steps (one subtile) along the run.
+  const STEP = 0.25;
   const blocked = [];
-  for (let t = Math.ceil(lo - 0.01); t <= Math.floor(hi + 0.01); t++) {
-    const c = horiz ? t : Math.round(cross);
-    const r = horiz ? Math.round(cross) : t;
-    if (moduleTileSet.has(`${c},${r}`)) blocked.push(t);
+  for (let t = Math.ceil(lo / STEP - 0.01) * STEP; t <= hi + 0.01; t += STEP) {
+    const v = t;
+    const colF = horiz ? v : cross;
+    const rowF = horiz ? cross : v;
+    // Pipe coordinates are tile-center-aligned (col*2+1 in world space),
+    // but module cells use tile-corner-aligned subtile indices. Shift by
+    // +0.5 to convert pipe coords to the module subtile grid.
+    const adjCol = colF + 0.5;
+    const adjRow = rowF + 0.5;
+    const tileCol = Math.floor(adjCol + 1e-6);
+    const tileRow = Math.floor(adjRow + 1e-6);
+    const subCol = Math.round((adjCol - tileCol) * 4);
+    const subRow = Math.round((adjRow - tileRow) * 4);
+    if (moduleTileSet.has(`${tileCol},${tileRow},${subCol},${subRow}`)) {
+      blocked.push(v);
+    }
   }
   if (blocked.length === 0) return [{ start, end }];
   blocked.sort((a, b) => dir * (a - b));
 
+  // Merge adjacent blocked subtiles into contiguous blocked ranges,
+  // then carve each range out of the run.
+  const ranges = [];
+  let rangeStart = blocked[0];
+  let rangePrev = blocked[0];
+  for (let i = 1; i < blocked.length; i++) {
+    if (Math.abs(blocked[i] - rangePrev - STEP) < 0.01) {
+      rangePrev = blocked[i];
+    } else {
+      ranges.push({ lo: rangeStart, hi: rangePrev });
+      rangeStart = blocked[i];
+      rangePrev = blocked[i];
+    }
+  }
+  ranges.push({ lo: rangeStart, hi: rangePrev });
+
   const subRuns = [];
   let cursor = startV;
 
-  for (const bt of blocked) {
-    const nearEdge = bt - dir * 0.5;
+  for (const range of ranges) {
+    const nearEdge = dir > 0 ? range.lo : range.hi + STEP;
+    const farEdge  = dir > 0 ? range.hi + STEP : range.lo;
     if (dir * (nearEdge - cursor) > 0.01) {
       subRuns.push({ start: mkPt(cursor), end: mkPt(nearEdge) });
     }
-    cursor = bt + dir * 0.5;
+    cursor = farEdge;
   }
   if (dir * (endV - cursor) > 0.01) {
     subRuns.push({ start: mkPt(cursor), end: mkPt(endV) });
@@ -296,7 +328,7 @@ export class ThreeRenderer {
     this.camera.lookAt(0, 0, 0);
 
     // Lighting — dynamic day/night cycle
-    this._ambientLight = new THREE.AmbientLight(0xfff5e6, 0.4);
+    this._ambientLight = new THREE.AmbientLight(0xfff5e6, 1.3);
     this.scene.add(this._ambientLight);
 
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -1498,7 +1530,10 @@ export class ThreeRenderer {
     // be used to detect detailed geometry. Use the authoritative builder
     // registry check instead (same source of truth as ComponentBuilder.build
     // uses when positioning committed meshes).
-    const isDetailed = isDetailedComponent(hover.id, placeable);
+    // Decoration geometry (trees, shrubs) already has its origin at the floor,
+    // just like detailed beamline components — skip the h/2 vertical offset.
+    const isDetailed = isDetailedComponent(hover.id, placeable)
+      || placeable.kind === 'decoration';
     const SUB_UNIT = 0.5;
     const gwRaw = placeable.gridW || placeable.subW || 4;
     const ghRaw = placeable.gridH || placeable.subL || placeable.subH || 4;
@@ -1541,6 +1576,31 @@ export class ThreeRenderer {
     const fill = new THREE.Mesh(fillGeo, fillMat);
     fill.position.set(px, placeYOffset + 0.1, pz);
     this._addPreviewMesh(fill);
+
+    // Direction arrow for source/endpoint modules — shows which way the
+    // module connects to pipe (exit direction for sources, entry direction
+    // for endpoints).
+    const compDef = COMPONENTS[hover.id];
+    if (compDef && (compDef.isSource || compDef.isEndpoint)) {
+      const dir = hover.dir || 0;
+      const delta = DIR_DELTA[dir];
+      const perpDelta = DIR_DELTA[turnLeft(dir)];
+      const dx = delta.dc, dz = delta.dr;
+      const perpX = perpDelta.dc, perpZ = perpDelta.dr;
+      const arrowY = outlineY + 0.03;
+      const arrowMat = this._previewEdgeMat(0x88bbff);
+      const arrowStart = new THREE.Vector3(px - dx * 0.4, arrowY, pz - dz * 0.4);
+      const arrowEnd = new THREE.Vector3(px + dx * 0.6, arrowY, pz + dz * 0.6);
+      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
+      const tipX = px + dx * 0.6, tipZ = pz + dz * 0.6;
+      const chevLen = 0.3;
+      const chevPts = [
+        new THREE.Vector3(tipX - dx * chevLen + perpX * chevLen, arrowY, tipZ - dz * chevLen + perpZ * chevLen),
+        new THREE.Vector3(tipX, arrowY, tipZ),
+        new THREE.Vector3(tipX - dx * chevLen - perpX * chevLen, arrowY, tipZ - dz * chevLen - perpZ * chevLen),
+      ];
+      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+    }
   }
 
   /**
@@ -2114,8 +2174,10 @@ export class ThreeRenderer {
       this._inputHandler.hoverPipePoint
     ) {
       this._renderBeamPipePreview([this._inputHandler.hoverPipePoint], 'add');
+      this._renderPipeHoverMarker(this._inputHandler.hoverPipePoint);
     } else {
       this._clearBeamPipePreview();
+      this._clearPipeHoverMarker();
     }
     this.renderer.render(this.scene, this.camera);
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -2180,8 +2242,8 @@ export class ThreeRenderer {
     // Directional light: strong sunlight, gentle fade at night
     this._sunLight.intensity = 0.8 + 1.0 * dayness;
 
-    // Ambient light: generous baseline so it never gets too dark
-    this._ambientLight.intensity = 0.7 + 0.4 * dayness;
+    // Ambient light: constant — no day/night swing
+    this._ambientLight.intensity = 1.3;
 
     // Color temperature shift: warm orange at sunrise/sunset, bright white at noon, soft blue at night
     if (dayness > 0.01) {
@@ -2564,16 +2626,28 @@ export class ThreeRenderer {
     }
     // Also mark any tile occupied by a beamline module as a "touched" endpoint
     // so we skip the flange where the pipe meets the module body.
+    // Store at subtile precision so pipe cuts match the module footprint exactly.
     const moduleTiles = new Set();
     for (const p of (this.game.state.placeables || [])) {
       if (p.category !== 'beamline') continue;
       const def = COMPONENTS[p.type];
       if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
-      for (const c of (p.cells || [{ col: p.col, row: p.row }])) {
-        moduleTiles.add(`${c.col},${c.row}`);
+      for (const c of (p.cells || [])) {
+        moduleTiles.add(`${c.col},${c.row},${c.subCol},${c.subRow}`);
       }
     }
-    const isModuleAt = (col, row) => moduleTiles.has(`${Math.round(col)},${Math.round(row)}`);
+    const isModuleAt = (col, row) => {
+      // Pipe coordinates are tile-center-aligned (col*2+1 in world space),
+      // but module cells use tile-corner-aligned subtile indices. Shift by
+      // +0.5 to convert pipe coords to the module subtile grid.
+      const adjCol = col + 0.5;
+      const adjRow = row + 0.5;
+      const tileCol = Math.floor(adjCol + 1e-6);
+      const tileRow = Math.floor(adjRow + 1e-6);
+      const subCol = Math.round((adjCol - tileCol) * 4);
+      const subRow = Math.round((adjRow - tileRow) * 4);
+      return moduleTiles.has(`${tileCol},${tileRow},${subCol},${subRow}`);
+    };
 
     for (const pipe of pipes) {
       if (!pipe.path || pipe.path.length < 2) continue;
@@ -2828,6 +2902,53 @@ export class ThreeRenderer {
       if (this._beamPipePreviewLine.material) this._beamPipePreviewLine.material.dispose();
       this._beamPipePreviewLine = null;
     }
+    this._clearPipeHoverMarker();
+  }
+
+  _renderPipeHoverMarker(pt) {
+    this._clearPipeHoverMarker();
+    // Beam pipe cross-section is 2×2 subtiles (1×1 world units).
+    // Pipe coords are tile-center-aligned (col*2+1 in world space).
+    // Snap the marker to the subtile grid so it aligns with placement cells.
+    const FOOT = 1.0;           // 2 subtiles × 0.5 world units each
+    const cx = pt.col * 2 + 1;
+    const cz = pt.row * 2 + 1;
+    const x0 = cx - FOOT / 2, x1 = cx + FOOT / 2;
+    const z0 = cz - FOOT / 2, z1 = cz + FOOT / 2;
+    const y = 0.12;
+    const color = 0x44ff44;
+    const edgeMat = this._previewEdgeMat(color);
+    const fillMat = this._previewMat(color, 0.15);
+    const pts = [
+      new THREE.Vector3(x0, y, z0), new THREE.Vector3(x1, y, z0),
+      new THREE.Vector3(x1, y, z1), new THREE.Vector3(x0, y, z1),
+      new THREE.Vector3(x0, y, z0),
+    ];
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat);
+    line.renderOrder = 999;
+    const fillGeo = new THREE.PlaneGeometry(FOOT, FOOT);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(fillGeo, fillMat);
+    fill.position.set(cx, 0.1, cz);
+    fill.renderOrder = 999;
+    this._pipeHoverMeshes = [line, fill];
+    this.previewGroup.add(line);
+    this.previewGroup.add(fill);
+    // Show subtile grid around cursor
+    const tileCol = Math.floor(pt.col + 0.5);
+    const tileRow = Math.floor(pt.row + 0.5);
+    this._renderGridAroundCursor(tileCol, tileRow);
+  }
+
+  _clearPipeHoverMarker() {
+    if (this._pipeHoverMeshes) {
+      for (const m of this._pipeHoverMeshes) {
+        this.previewGroup.remove(m);
+        if (m.geometry) m.geometry.dispose();
+        if (m.material) m.material.dispose();
+      }
+      this._pipeHoverMeshes = null;
+    }
   }
 
   _refreshBeam() {
@@ -2875,6 +2996,7 @@ const domMethods = [
   '_renderMachineTypeSelector', '_bindHUDEvents',
   '_updateSystemStatsVisibility', '_updateSystemStatsContent',
   '_refreshSystemStatsValues',
+  '_initTutorialPanel', '_updateTutorialPanel',
   '_renderVacuumStats', '_renderRfPowerStats', '_renderCryoStats',
   '_renderCoolingStats', '_renderPowerStats', '_renderDataControlsStats', '_renderOpsStats',
   '_createPaletteItem', '_removeParamFlyout', '_showPalettePreview', '_hidePalettePreview',

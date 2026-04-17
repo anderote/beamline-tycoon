@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Thumbnail Generator</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #eee; padding: 20px; }
+    #grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .thumb { text-align: center; background: #2a2a3e; padding: 8px; border-radius: 4px; }
+    .thumb img { display: block; margin: 0 auto 4px; image-rendering: pixelated; }
+    .thumb .label { font-size: 10px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+    button { padding: 10px 24px; font-size: 16px; cursor: pointer; margin: 8px 4px; }
+    #status { margin-top: 12px; color: #8f8; }
+  </style>
+</head>
+<body>
+  <h2>Component Thumbnail Generator</h2>
+  <p>Renders 3D thumbnails for all beamline components, equipment, and furnishings.</p>
+  <button id="btn-render">Render All</button>
+  <button id="btn-save" disabled>Save to assets/textures/thumbnails/</button>
+  <div id="status"></div>
+  <div id="grid"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script type="module">
+    import { renderComponentThumbnail } from './src/renderer3d/component-builder.js';
+    import { COMPONENTS } from './src/data/components.js';
+    import { PLACEABLES } from './src/data/placeables/index.js';
+
+    const status = document.getElementById('status');
+    const grid = document.getElementById('grid');
+    let rendered = [];
+
+    // Collect all IDs that could produce a thumbnail
+    function getAllIds() {
+      const ids = new Set();
+      for (const k of Object.keys(COMPONENTS)) ids.add(k);
+      for (const k of Object.keys(PLACEABLES)) ids.add(k);
+      return [...ids];
+    }
+
+    document.getElementById('btn-render').addEventListener('click', () => {
+      rendered = [];
+      grid.innerHTML = '';
+      const ids = getAllIds();
+      status.textContent = `Rendering ${ids.length} components...`;
+
+      for (const id of ids) {
+        const dataUrl = renderComponentThumbnail(id, 96);
+        if (dataUrl) {
+          rendered.push({ id, dataUrl });
+          const div = document.createElement('div');
+          div.className = 'thumb';
+          const img = document.createElement('img');
+          img.src = dataUrl;
+          img.width = 64;
+          img.height = 64;
+          div.appendChild(img);
+          const label = document.createElement('div');
+          label.className = 'label';
+          label.textContent = id;
+          div.appendChild(label);
+          grid.appendChild(div);
+        }
+      }
+
+      status.textContent = `Done — ${rendered.length} thumbnails rendered (${ids.length - rendered.length} skipped).`;
+      document.getElementById('btn-save').disabled = false;
+    });
+
+    document.getElementById('btn-save').addEventListener('click', async () => {
+      status.textContent = `Saving ${rendered.length} thumbnails to asset-gen server...`;
+      try {
+        const res = await fetch('http://localhost:3333/api/save-thumbnails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thumbnails: rendered }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          status.textContent = `Saved ${data.saved.length} PNGs to assets/textures/thumbnails/`;
+        } else {
+          status.textContent = `Error: ${JSON.stringify(data)}`;
+        }
+      } catch (e) {
+        status.textContent = `Failed to save — is the asset-gen server running on port 3333? Error: ${e.message}`;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -13,8 +13,8 @@
 // increments it so renderer caches can skip rebuilds by comparing.
 
 export const HEIGHT_STEP_METERS = 0.5;
-export const HEIGHT_MIN = -2;
-export const HEIGHT_MAX = 8;
+export const HEIGHT_MIN = -4;
+export const HEIGHT_MAX = 6;
 
 export const NW = 0;
 export const NE = 1;

@@ -193,11 +193,10 @@ export const Networks = {
   },
 
   /**
-   * Validate power network: substations provide capacity, everything else draws.
+   * Validate power network: items with powerCapacity provide capacity, everything else draws.
    * Returns { capacity, draw, ok, substations: [...], consumers: [...] }
    */
   validatePowerNetwork: function(network) {
-    var SUBSTATION_KW = 1500;
     var substations = [];
     var consumers = [];
     var capacity = 0;
@@ -206,11 +205,12 @@ export const Networks = {
     // Facility equipment
     for (var i = 0; i < network.equipment.length; i++) {
       var eq = network.equipment[i];
-      if (eq.type === 'substation') {
-        capacity += SUBSTATION_KW;
-        substations.push({ id: eq.id, type: eq.type, capacity: SUBSTATION_KW });
+      var comp = COMPONENTS[eq.type];
+      var cap = (comp && comp.powerCapacity) ? comp.powerCapacity : 0;
+      if (cap > 0) {
+        capacity += cap;
+        substations.push({ id: eq.id, type: eq.type, capacity: cap });
       } else {
-        var comp = COMPONENTS[eq.type];
         var eCost = (comp && comp.energyCost) ? comp.energyCost : 0;
         if (eCost > 0) {
           draw += eCost;

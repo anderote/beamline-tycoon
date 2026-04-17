@@ -200,117 +200,206 @@ function gen_brick() {
   writePng(png, 'tile_brick');
 }
 
-// ── tile_cobblestone: small irregular stones on light gray ───────────
+// ── tile_cobblestone: chunky stones on warm light gray ───────────────
+// Each stone is a 4×4 texture-pixel block (2×2 chunks at CHUNK=2), read
+// as a single "pixel" in the 2× art scale. No fine speckle — the base
+// is almost flat and the stones are mid-tone grays, no bright highlights.
 function gen_cobblestone() {
   const png = makePng();
   const rand = mulberry32(505);
-  // Light gray base in 2×2 chunks to match the chunky RCT2 pixel scale.
-  const baseR = 158, baseG = 156, baseB = 152;
+  // Warm light gray grout between stones.
+  const baseR = 178, baseG = 174, baseB = 165;
   const CHUNK = 2;
   for (let y = 0; y < SIZE; y += CHUNK) {
     for (let x = 0; x < SIZE; x += CHUNK) {
-      const n = (rand() - 0.5) * 12;
-      setBlock(png, x, y, baseR + n, baseG + n, baseB + n, CHUNK);
+      const n = (rand() - 0.5) * 6;
+      setBlock(png, x, y, baseR + n, baseG + n - 1, baseB + n - 2, CHUNK);
     }
   }
-  // Scatter stones: each stone is an irregular blob of 2×2 chunks
-  // (2–4 chunks across = 4–8 texture pixels, ~1 world tile at TEXEL_SCALE=32).
-  const stoneCount = 40;
-  for (let s = 0; s < stoneCount; s++) {
-    // Snap stone center to chunk grid.
-    const cx = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const cy = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const radius = 1 + Math.floor(rand() * 2); // 1 or 2 chunks
-    const tone = rand();
-    let sr, sg, sb;
-    if (tone < 0.6) {
-      const v = 80 + Math.floor(rand() * 30);
-      sr = v; sg = v; sb = v - 4;
-    } else if (tone < 0.85) {
-      const v = 110 + Math.floor(rand() * 25);
-      sr = v + 8; sg = v; sb = v - 8;
-    } else {
-      const v = 175 + Math.floor(rand() * 20);
-      sr = v; sg = v - 2; sb = v - 6;
-    }
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        const d2 = dx * dx + dy * dy;
-        if (d2 > radius * radius + 0.5) continue;
-        if (d2 >= radius * radius - 0.5 && rand() < 0.4) continue;
-        const n = (rand() - 0.5) * 14;
-        setBlock(png, cx + dx * CHUNK, cy + dy * CHUNK, sr + n, sg + n, sb + n, CHUNK);
+  // Grid of stones on a 4-px pitch with a small half-row offset so
+  // rows don't perfectly align. Each stone fills a 4×4 block with its
+  // own mid-gray tone.
+  const STONE = 4;
+  const stonePalette = [
+    [138, 135, 128],
+    [150, 146, 138],
+    [128, 124, 118],
+    [158, 152, 142],
+    [120, 118, 112],
+    [145, 140, 130],
+    [132, 128, 120],
+    [152, 145, 135],
+  ];
+  for (let row = 0; row < SIZE / STONE; row++) {
+    const rowOffset = (row % 2) * 2; // half-stone stagger
+    for (let col = 0; col < SIZE / STONE; col++) {
+      // ~85% of cells get a stone; the rest show through as grout.
+      if (rand() < 0.15) continue;
+      const [sr, sg, sb] = stonePalette[Math.floor(rand() * stonePalette.length)];
+      const n = (rand() - 0.5) * 8;
+      const bx = col * STONE + rowOffset;
+      const by = row * STONE;
+      // Fill the 4×4 stone as two 2×2 chunks with a tiny shade variation
+      // between the two halves so each stone reads as one pixel with a
+      // hint of rounding, not a flat square.
+      for (let dy = 0; dy < STONE; dy += CHUNK) {
+        for (let dx = 0; dx < STONE; dx += CHUNK) {
+          const shade = (dx + dy === 0) ? 4 : (dx + dy >= STONE) ? -4 : 0;
+          setBlock(png, bx + dx, by + dy, sr + n + shade, sg + n + shade, sb + n + shade, CHUNK);
+        }
       }
     }
   }
   writePng(png, 'tile_cobblestone');
 }
 
-// ── tile_dirt: warm packed earth, speckled ───────────────────────────
-// Flat base, per-pixel noise, sparse dark grit and light grains. The
-// previous sin-blob version read as wavy patches.
+// ── tile_dirt: warm packed earth in chunky pixels ────────────────────
+// Lighter tan base, no bright grains, no hard-dark grit. Instead we
+// paint broad 4×4 "pebble" cells in 3 closely-spaced earth tones so the
+// surface reads as deliberate chunky pixels rather than static noise.
 function gen_dirt() {
   const png = makePng();
   const rand = mulberry32(606);
-  const baseR = 150, baseG = 115, baseB = 75;
   const CHUNK = 2;
-  for (let y = 0; y < SIZE; y += CHUNK) {
-    for (let x = 0; x < SIZE; x += CHUNK) {
-      const n = (rand() - 0.5) * 18;
-      setBlock(png, x, y, baseR + n, baseG + n, baseB + n, CHUNK);
+  const CELL = 4;
+  const palette = [
+    [176, 138, 92],
+    [168, 130, 86],
+    [184, 146, 98],
+    [160, 122, 80],
+    [190, 152, 104],
+  ];
+  for (let cy = 0; cy < SIZE; cy += CELL) {
+    for (let cx = 0; cx < SIZE; cx += CELL) {
+      const [br, bg, bb] = palette[Math.floor(rand() * palette.length)];
+      for (let dy = 0; dy < CELL; dy += CHUNK) {
+        for (let dx = 0; dx < CELL; dx += CHUNK) {
+          const n = (rand() - 0.5) * 8;
+          setBlock(png, cx + dx, cy + dy, br + n, bg + n, bb + n, CHUNK);
+        }
+      }
     }
-  }
-  const chunks = (SIZE / CHUNK) * (SIZE / CHUNK);
-  // Dark grit (~4%)
-  for (let i = 0; i < chunks * 0.04; i++) {
-    const x = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const y = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    setBlock(png, x, y, 80, 58, 38, CHUNK);
-  }
-  // Light grains (~3%)
-  for (let i = 0; i < chunks * 0.03; i++) {
-    const x = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const y = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    setBlock(png, x, y, 195, 158, 110, CHUNK);
   }
   writePng(png, 'tile_dirt');
 }
 
-// ── tile_pavement: dark asphalt slabs with dotted faint joint lines ──
+// ── tile_rocky_dirt: cliff/bank face — packed earth with embedded rocks ─
+// Base is the same warm-earth palette as tile_dirt but shifted a touch
+// darker so it reads as a shaded vertical face rather than a sunlit path.
+// On top we scatter ~30 small rocks (4–8 texture pixels across) in cool
+// gray-brown stone tones, each with a 2-px top/left highlight and
+// bottom/right shadow so the lumps read as rounded, not square. A handful
+// of very dark pixels represent crevices between rocks. Scatter positions
+// wrap via setPx so the result is seamless on all four edges.
+function gen_rockyDirt() {
+  const png = makePng();
+  const rand = mulberry32(1515);
+  const CHUNK = 2;
+  const CELL = 4;
+  const earthPalette = [
+    [142, 108, 72],
+    [156, 120, 82],
+    [130, 98, 64],
+    [168, 130, 88],
+    [120, 90, 58],
+    [150, 114, 76],
+  ];
+  for (let cy = 0; cy < SIZE; cy += CELL) {
+    for (let cx = 0; cx < SIZE; cx += CELL) {
+      const [br, bg, bb] = earthPalette[Math.floor(rand() * earthPalette.length)];
+      for (let dy = 0; dy < CELL; dy += CHUNK) {
+        for (let dx = 0; dx < CELL; dx += CHUNK) {
+          const n = (rand() - 0.5) * 10;
+          setBlock(png, cx + dx, cy + dy, br + n, bg + n, bb + n, CHUNK);
+        }
+      }
+    }
+  }
+  const rockPalette = [
+    [110, 104, 95],
+    [128, 118, 104],
+    [98, 90, 80],
+    [140, 130, 118],
+    [115, 100, 82],
+    [88, 80, 70],
+  ];
+  const SIZES = [4, 6, 6, 8];
+  const NUM_ROCKS = 30;
+  for (let i = 0; i < NUM_ROCKS; i++) {
+    const w = SIZES[Math.floor(rand() * SIZES.length)];
+    const h = SIZES[Math.floor(rand() * SIZES.length)];
+    const bx = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
+    const by = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
+    const [rR, rG, rB] = rockPalette[Math.floor(rand() * rockPalette.length)];
+    for (let dy = 0; dy < h; dy += CHUNK) {
+      for (let dx = 0; dx < w; dx += CHUNK) {
+        const cornerCut =
+          (dx === 0        && dy === 0        && rand() < 0.5) ||
+          (dx >= w - CHUNK && dy >= h - CHUNK && rand() < 0.5) ||
+          (dx === 0        && dy >= h - CHUNK && rand() < 0.3) ||
+          (dx >= w - CHUNK && dy === 0        && rand() < 0.3);
+        if (cornerCut) continue;
+        let shade = 0;
+        if (dx === 0        || dy === 0)        shade = 12;
+        if (dx >= w - CHUNK || dy >= h - CHUNK) shade = -16;
+        const n = (rand() - 0.5) * 6;
+        setBlock(png, bx + dx, by + dy,
+          rR + shade + n, rG + shade + n, rB + shade + n, CHUNK);
+      }
+    }
+  }
+  // Dark crevices — a few very dark chunks scattered between rocks.
+  for (let i = 0; i < 18; i++) {
+    const x = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
+    const y = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
+    const n = (rand() - 0.5) * 6;
+    setBlock(png, x, y, 48 + n, 38 + n, 28 + n, CHUNK);
+  }
+  writePng(png, 'tile_rocky_dirt');
+}
+
+// ── tile_pavement: light concrete slabs, chunky pixels ───────────────
+// Mid-light warm gray, no dark asphalt, no bright white speckle. The
+// surface is 4×4 cells with small brightness variation — the 2×2 chunks
+// inside each cell read as a single deliberate pixel. Slab joints are a
+// subtle darker band every 32 px so the large-slab structure still reads.
 function gen_pavement() {
   const png = makePng();
   const rand = mulberry32(707);
-  const baseR = 105, baseG = 105, baseB = 108;
-  const jointR = 88, jointG = 88, jointB = 92;
-  const SLAB = 32;
   const CHUNK = 2;
-  for (let y = 0; y < SIZE; y += CHUNK) {
-    for (let x = 0; x < SIZE; x += CHUNK) {
-      const tx = x % SLAB;
-      const ty = y % SLAB;
-      // 2-px-wide joint at right/bottom edge of each slab.
-      const onSeamX = tx === SLAB - CHUNK;
-      const onSeamY = ty === SLAB - CHUNK;
-      if (onSeamX || onSeamY) {
-        // Dotted: every other chunk along the seam is joint color.
-        const seamPos = onSeamX ? y : x;
-        if ((seamPos / CHUNK) % 2 === 0) {
+  const CELL = 4;
+  const SLAB = 32;
+  const palette = [
+    [172, 170, 165],
+    [180, 178, 172],
+    [164, 162, 158],
+    [176, 173, 168],
+    [168, 166, 160],
+  ];
+  const jointR = 148, jointG = 146, jointB = 142;
+  for (let cy = 0; cy < SIZE; cy += CELL) {
+    for (let cx = 0; cx < SIZE; cx += CELL) {
+      const [br, bg, bb] = palette[Math.floor(rand() * palette.length)];
+      for (let dy = 0; dy < CELL; dy += CHUNK) {
+        for (let dx = 0; dx < CELL; dx += CHUNK) {
+          const x = cx + dx, y = cy + dy;
+          const tx = x % SLAB;
+          const ty = y % SLAB;
+          const onSeamX = tx >= SLAB - CHUNK;
+          const onSeamY = ty >= SLAB - CHUNK;
+          if (onSeamX || onSeamY) {
+            const seamPos = onSeamX ? y : x;
+            if ((seamPos / CHUNK) % 2 === 0) {
+              const n = (rand() - 0.5) * 4;
+              setBlock(png, x, y, jointR + n, jointG + n, jointB + n, CHUNK);
+              continue;
+            }
+          }
           const n = (rand() - 0.5) * 6;
-          setBlock(png, x, y, jointR + n, jointG + n, jointB + n, CHUNK);
-          continue;
+          setBlock(png, x, y, br + n, bg + n, bb + n, CHUNK);
         }
       }
-      const n = (rand() - 0.5) * 16;
-      setBlock(png, x, y, baseR + n, baseG + n, baseB + n, CHUNK);
     }
-  }
-  // Sparse brighter aggregate flecks (~2%).
-  const chunks = (SIZE / CHUNK) * (SIZE / CHUNK);
-  for (let i = 0; i < chunks * 0.02; i++) {
-    const x = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const y = Math.floor(rand() * (SIZE / CHUNK)) * CHUNK;
-    const v = 145 + Math.floor(rand() * 25);
-    setBlock(png, x, y, v, v, v + 2, CHUNK);
   }
   writePng(png, 'tile_pavement');
 }
@@ -605,20 +694,37 @@ function gen_labHoundstoothBW() {
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
-gen_labFloor();
-gen_concrete();
-gen_officeFloor();
-gen_brick();
-gen_cobblestone();
-gen_dirt();
-gen_pavement();
-gen_groomedGrass();
-gen_grass();
-gen_hardwoodBirch();
-gen_hardwoodOak();
-gen_carpetDiamond();
-gen_labCheckBlack();
-gen_labCheckRed();
-gen_labHoundstoothBW();
+// Selective mode: `node gen-floor-tiles.cjs --only <name>` runs one generator.
+const onlyIdx = process.argv.indexOf('--only');
+const only = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
+const TILES = {
+  labFloor: gen_labFloor,
+  concrete: gen_concrete,
+  officeFloor: gen_officeFloor,
+  brick: gen_brick,
+  cobblestone: gen_cobblestone,
+  dirt: gen_dirt,
+  rockyDirt: gen_rockyDirt,
+  pavement: gen_pavement,
+  groomedGrass: gen_groomedGrass,
+  grass: gen_grass,
+  hardwoodBirch: gen_hardwoodBirch,
+  hardwoodOak: gen_hardwoodOak,
+  carpetDiamond: gen_carpetDiamond,
+  labCheckBlack: gen_labCheckBlack,
+  labCheckRed: gen_labCheckRed,
+  labHoundstoothBW: gen_labHoundstoothBW,
+};
+
+if (only) {
+  const fn = TILES[only];
+  if (!fn) {
+    console.error('unknown tile:', only, '\navailable:', Object.keys(TILES).join(', '));
+    process.exit(1);
+  }
+  fn();
+} else {
+  for (const fn of Object.values(TILES)) fn();
+}
 
 console.log('done.');

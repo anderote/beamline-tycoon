@@ -421,7 +421,38 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
     ],
   },
   serverCluster:    { id: 'serverCluster',     name: 'Server Cluster',          zoneType: 'diagnosticsLab', cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
-  toolChest:        { id: 'toolChest',         name: 'Tool Chest',         zoneType: 'maintenance', cost: { funding: 2000 },   energyCost: 0,   spriteColor: 0xbb7744, gridW: 2, gridH: 1, subH: 2, spriteKey: 'toolChest',        effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark' },
+  toolChest: {
+    id: 'toolChest', name: 'Tool Chest', zoneType: 'maintenance',
+    cost: { funding: 3000 }, energyCost: 0, spriteColor: 0xcc2222,
+    gridW: 3, gridH: 2, subH: 3, spriteKey: 'toolChest',
+    effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', hasSurface: false,
+    // 3×2 footprint. Rolling mechanic's tool chest: bottom cabinet with
+    // 4 drawer rows, chrome work surface, and a shallower top hutch.
+    parts: [
+      // Caster wheels
+      { name: 'whFL', x: -1.2, y: 0,    z: -0.7, w: 0.14, h: 0.16, l: 0.14, color: 0x18181c },
+      { name: 'whFR', x:  1.2, y: 0,    z: -0.7, w: 0.14, h: 0.16, l: 0.14, color: 0x18181c },
+      { name: 'whBL', x: -1.2, y: 0,    z:  0.7, w: 0.14, h: 0.16, l: 0.14, color: 0x18181c },
+      { name: 'whBR', x:  1.2, y: 0,    z:  0.7, w: 0.14, h: 0.16, l: 0.14, color: 0x18181c },
+      // Bottom cabinet body
+      { name: 'cabinet', x: 0, y: 0.16, z: 0, w: 2.7, h: 1.5, l: 1.7, color: 0xcc2222 },
+      // Drawer chrome handles (front face)
+      { name: 'dh1', x: 0, y: 0.35, z: -0.87, w: 1.4, h: 0.05, l: 0.04, material: 'metal_brushed' },
+      { name: 'dh2', x: 0, y: 0.72, z: -0.87, w: 1.4, h: 0.05, l: 0.04, material: 'metal_brushed' },
+      { name: 'dh3', x: 0, y: 1.09, z: -0.87, w: 1.4, h: 0.05, l: 0.04, material: 'metal_brushed' },
+      { name: 'dh4', x: 0, y: 1.46, z: -0.87, w: 1.4, h: 0.05, l: 0.04, material: 'metal_brushed' },
+      // Chrome work surface between cabinet and hutch
+      { name: 'surface', x: 0, y: 1.66, z: 0, w: 2.8, h: 0.08, l: 1.8, material: 'metal_brushed' },
+      // Top hutch (set back slightly, shallower drawers)
+      { name: 'hutch', x: 0, y: 1.74, z: 0.15, w: 2.7, h: 1.1, l: 1.4, color: 0xcc2222 },
+      // Hutch drawer handles
+      { name: 'hh1', x: 0, y: 1.9,  z: -0.56, w: 1.2, h: 0.04, l: 0.04, material: 'metal_brushed' },
+      { name: 'hh2', x: 0, y: 2.25, z: -0.56, w: 1.2, h: 0.04, l: 0.04, material: 'metal_brushed' },
+      { name: 'hh3', x: 0, y: 2.6,  z: -0.56, w: 1.2, h: 0.04, l: 0.04, material: 'metal_brushed' },
+      // Side push handle
+      { name: 'pushBar', x: 1.45, y: 1.2, z: 0, w: 0.06, h: 0.5, l: 0.06, material: 'metal_brushed' },
+    ],
+  },
   partsShelf: {
     id: 'partsShelf', name: 'Parts Shelf', zoneType: 'maintenance',
     cost: { funding: 300 }, energyCost: 0, spriteColor: 0x6a5838,
@@ -481,5 +512,38 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       { name: 'toolbox', x: -0.3, y: 1.71, z: 0, w: 0.7, h: 0.3, l: 0.45, color: 0xcc5522 },
     ],
   },
-  craneHoist:       { id: 'craneHoist',        name: 'Crane Hoist',        zoneType: 'maintenance', cost: { funding: 40000 },  energyCost: 12.0, spriteColor: 0xddaa44, gridW: 4, gridH: 4, subH: 5, spriteKey: 'craneHoist',       effects: { zoneOutput: 0.10 }, baseMaterial: 'metal_brushed', hasSurface: false },
+  craneHoist: {
+    id: 'craneHoist', name: 'Crane Hoist', zoneType: 'maintenance',
+    cost: { funding: 40000 }, energyCost: 12.0, spriteColor: 0xddaa44,
+    gridW: 4, gridH: 4, subH: 10, spriteKey: 'craneHoist',
+    effects: { zoneOutput: 0.10 }, baseMaterial: 'metal_brushed', hasSurface: false,
+    // 4×4 footprint, 5 m tall. Industrial gantry crane: 4 steel legs,
+    // bridge beams, trolley with hoist motor, cable, and hook.
+    parts: [
+      // Legs
+      { name: 'legFL', x: -1.7, y: 0, z: -1.7, w: 0.3, h: 8.5, l: 0.3, material: 'metal_dark' },
+      { name: 'legFR', x:  1.7, y: 0, z: -1.7, w: 0.3, h: 8.5, l: 0.3, material: 'metal_dark' },
+      { name: 'legBL', x: -1.7, y: 0, z:  1.7, w: 0.3, h: 8.5, l: 0.3, material: 'metal_dark' },
+      { name: 'legBR', x:  1.7, y: 0, z:  1.7, w: 0.3, h: 8.5, l: 0.3, material: 'metal_dark' },
+      // Safety-yellow base stripes
+      { name: 'strFL', x: -1.7, y: 0, z: -1.7, w: 0.32, h: 0.5, l: 0.32, color: 0xeecc00 },
+      { name: 'strFR', x:  1.7, y: 0, z: -1.7, w: 0.32, h: 0.5, l: 0.32, color: 0xeecc00 },
+      { name: 'strBL', x: -1.7, y: 0, z:  1.7, w: 0.32, h: 0.5, l: 0.32, color: 0xeecc00 },
+      { name: 'strBR', x:  1.7, y: 0, z:  1.7, w: 0.32, h: 0.5, l: 0.32, color: 0xeecc00 },
+      // Top frame beams (X-axis, front and back)
+      { name: 'beamF', x: 0, y: 8.5, z: -1.7, w: 3.7, h: 0.4, l: 0.3, material: 'metal_dark' },
+      { name: 'beamB', x: 0, y: 8.5, z:  1.7, w: 3.7, h: 0.4, l: 0.3, material: 'metal_dark' },
+      // Bridge rails (Z-axis, trolley rides on these)
+      { name: 'railL', x: -0.8, y: 8.9, z: 0, w: 0.2, h: 0.25, l: 3.7, material: 'metal_brushed' },
+      { name: 'railR', x:  0.8, y: 8.9, z: 0, w: 0.2, h: 0.25, l: 3.7, material: 'metal_brushed' },
+      // Trolley
+      { name: 'trolley', x: 0, y: 8.6, z: 0, w: 1.2, h: 0.5, l: 0.8, color: 0xddaa44 },
+      // Hoist motor housing
+      { name: 'motor', x: 0, y: 7.8, z: 0, w: 0.8, h: 0.8, l: 0.6, color: 0xddaa44 },
+      // Cable
+      { name: 'cable', x: 0, y: 3.5, z: 0, w: 0.06, h: 4.3, l: 0.06, color: 0x444444 },
+      // Hook
+      { name: 'hook', x: 0, y: 3.0, z: 0, w: 0.3, h: 0.5, l: 0.15, material: 'metal_brushed' },
+    ],
+  },
 };

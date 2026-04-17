@@ -100,6 +100,64 @@ export const DECALS = {
   pps_panel:                makeDecal('pps_panel.png',                { roughness: 0.6, metalness: 0.15 }),
   mps_panel:                makeDecal('mps_panel.png',                { roughness: 0.6, metalness: 0.15 }),
   power_panel_front:        makeDecal('power_panel_front.png',        { roughness: 0.6, metalness: 0.2 }),
+  switchgear_front:         makeDecal('switchgear_front.png',         { roughness: 0.6, metalness: 0.2 }),
+  mcc_front:                makeDecal('mcc_front.png',                { roughness: 0.55, metalness: 0.25 }),
+  ups_front:                makeDecal('ups_front.png',                { roughness: 0.55, metalness: 0.25 }),
+
+  // Data/controls — distribution
+  patch_panel_front:        makeDecal('patch_panel_front.png',        { roughness: 0.6, metalness: 0.2 }),
+  network_switch_front:     makeDecal('network_switch_front.png',     { roughness: 0.55, metalness: 0.3 }),
+
+  // Data/controls — controls
+  blm_readout_front:        makeDecal('blm_readout_front.png',        { roughness: 0.6, metalness: 0.15 }),
+  bpm_electronics_front:    makeDecal('bpm_electronics_front.png',    { roughness: 0.55, metalness: 0.3 }),
+  archiver_front:           makeDecal('archiver_front.png',           { roughness: 0.55, metalness: 0.3 }),
+
+  // Data/controls — safety
+  search_secure_panel:      makeDecal('search_secure_panel.png',      { roughness: 0.6, metalness: 0.15 }),
+  access_control_panel:     makeDecal('access_control_panel.png',     { roughness: 0.6, metalness: 0.15 }),
+
+  // Optics lab equipment
+  laser_alignment_front:  makeDecal('laser_alignment_front.png',  { roughness: 0.6, metalness: 0.2 }),
+  laser_alignment_side:   makeDecal('laser_alignment_side.png',   { roughness: 0.6, metalness: 0.2 }),
+  mirror_mount_front:     makeDecal('mirror_mount_front.png',     { roughness: 0.4, metalness: 0.35 }),
+  beam_profiler_front:    makeDecal('beam_profiler_front.png',    { roughness: 0.6, metalness: 0.2 }),
+  interferometer_front:   makeDecal('interferometer_front.png',   { roughness: 0.55, metalness: 0.25 }),
+  photodetector_front:    makeDecal('photodetector_front.png',    { roughness: 0.6, metalness: 0.2 }),
+  polarizer_front:        makeDecal('polarizer_front.png',        { roughness: 0.4, metalness: 0.35 }),
+  fiber_coupler_front:    makeDecal('fiber_coupler_front.png',    { roughness: 0.6, metalness: 0.2 }),
+  optical_chopper_front:  makeDecal('optical_chopper_front.png',  { roughness: 0.6, metalness: 0.2 }),
+  power_meter_front:      makeDecal('power_meter_front.png',      { roughness: 0.6, metalness: 0.2 }),
+  spatial_filter_front:   makeDecal('spatial_filter_front.png',   { roughness: 0.4, metalness: 0.35 }),
+
+  // Diagnostics lab equipment
+  scope_station_front:        makeDecal('scope_station_front.png',        { roughness: 0.5, metalness: 0.15 }),
+  wire_scanner_bench_front:   makeDecal('wire_scanner_bench_front.png',   { roughness: 0.6, metalness: 0.2 }),
+  wire_scanner_bench_side:    makeDecal('wire_scanner_bench_side.png',    { roughness: 0.6, metalness: 0.2 }),
+  bpm_test_fixture_front:     makeDecal('bpm_test_fixture_front.png',     { roughness: 0.6, metalness: 0.2 }),
+  bpm_test_fixture_side:      makeDecal('bpm_test_fixture_side.png',      { roughness: 0.6, metalness: 0.2 }),
+  server_cluster_front:       makeDecal('server_cluster_front.png',       { roughness: 0.55, metalness: 0.3 }),
+  server_cluster_side:        makeDecal('server_cluster_side.png',        { roughness: 0.55, metalness: 0.3 }),
+
+  // Vacuum lab equipment
+  test_chamber_front:     makeDecal('test_chamber_front.png',     { roughness: 0.55, metalness: 0.3 }),
+  test_chamber_side:      makeDecal('test_chamber_side.png',      { roughness: 0.55, metalness: 0.3 }),
+  leak_detector_front:    makeDecal('leak_detector_front.png',    { roughness: 0.6, metalness: 0.2 }),
+  pump_cart_front:        makeDecal('pump_cart_front.png',        { roughness: 0.6, metalness: 0.25 }),
+  pump_cart_side:         makeDecal('pump_cart_side.png',         { roughness: 0.6, metalness: 0.25 }),
+  gas_manifold_front:     makeDecal('gas_manifold_front.png',     { roughness: 0.55, metalness: 0.3 }),
+  rga_front:              makeDecal('rga_front.png',              { roughness: 0.6, metalness: 0.2 }),
+  rga_side:               makeDecal('rga_side.png',               { roughness: 0.6, metalness: 0.2 }),
+
+  // Cooling lab equipment
+  coolant_pump_front:       makeDecal('coolant_pump_front.png',       { roughness: 0.6, metalness: 0.25 }),
+  coolant_pump_side:        makeDecal('coolant_pump_side.png',        { roughness: 0.6, metalness: 0.25 }),
+  heat_exchanger_front:     makeDecal('heat_exchanger_front.png',     { roughness: 0.6, metalness: 0.2 }),
+  heat_exchanger_side:      makeDecal('heat_exchanger_side.png',      { roughness: 0.6, metalness: 0.2 }),
+  pipe_rack_front:          makeDecal('pipe_rack_front.png',          { roughness: 0.65, metalness: 0.3 }),
+  chiller_unit_front:       makeDecal('chiller_unit_front.png',       { roughness: 0.5, metalness: 0.15 }),
+  chiller_unit_side:        makeDecal('chiller_unit_side.png',        { roughness: 0.5, metalness: 0.15 }),
+  flow_meter_front:         makeDecal('flow_meter_front.png',         { roughness: 0.6, metalness: 0.25 }),
 };
 
 // Re-export so tests / future code can construct ad-hoc decal materials.

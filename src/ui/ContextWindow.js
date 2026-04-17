@@ -32,6 +32,7 @@ export class ContextWindow {
 
     // World-space anchor: if set, window tracks this position on the iso grid
     this._worldAnchor = null;   // { x, y } in world (PIXI) coordinates
+    this._tileAnchor = null;    // { col, row, screenDx, screenDy } in tile coordinates
     this._dragOffset = { x: 0, y: 0 }; // user drag offset from anchor screen pos
 
     this._build();
@@ -299,6 +300,36 @@ export class ContextWindow {
    */
   setWorldAnchor(wx, wy) {
     this._worldAnchor = { x: wx, y: wy };
+  }
+
+  /**
+   * Anchor this window to a tile-space position with screen-pixel offsets.
+   * Used by the 3D renderer to project through the camera correctly at any rotation.
+   * @param {number} col - Fractional tile column (e.g. col + 0.5 for tile center)
+   * @param {number} row - Fractional tile row
+   * @param {number} screenDx - Screen pixel X offset from projected point
+   * @param {number} screenDy - Screen pixel Y offset from projected point
+   */
+  setTileAnchor(col, row, screenDx = 0, screenDy = 0) {
+    this._tileAnchor = { col, row, screenDx, screenDy };
+  }
+
+  /**
+   * Update screen position by projecting the tile anchor through a 3D camera.
+   * @param {THREE.Camera} camera
+   * @param {number} screenW
+   * @param {number} screenH
+   * @param {Function} projectFn - (camera, wx, wy, wz, sw, sh) => { x, y }
+   */
+  updateScreenFromCamera(camera, screenW, screenH, projectFn) {
+    if (!this._tileAnchor || !this._el) return;
+    const { col, row, screenDx, screenDy } = this._tileAnchor;
+    // Tile coordinates to 3D world: tile (col, row) → world (col*2, 0, row*2)
+    const screen = projectFn(camera, col * 2, 0, row * 2, screenW, screenH);
+    const sx = screen.x + screenDx + this._dragOffset.x;
+    const sy = screen.y + screenDy + this._dragOffset.y;
+    this._el.style.left = sx + 'px';
+    this._el.style.top = sy + 'px';
   }
 
   /**

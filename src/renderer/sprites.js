@@ -5,7 +5,7 @@
 
 import { TILE_W, TILE_H } from '../data/directions.js';
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { tileCenterIso } from './grid.js';
 
@@ -204,7 +204,7 @@ export class SpriteManager {
     // entry declares one. Variant-aware: if the def declares
     // variantTextures, pick the one matching the currently selected
     // variant so the palette preview mirrors what will be placed.
-    const def = FLOORS[gameId] || WALL_TYPES[gameId];
+    const def = FLOORS[gameId] || WALL_TYPES[gameId] || DOOR_TYPES[gameId];
     if (def) {
       const varTex = def.variantTextures?.[variant];
       if (varTex) return `assets/textures/materials/${varTex}.png`;

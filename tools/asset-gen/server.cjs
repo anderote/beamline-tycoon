@@ -582,6 +582,25 @@ ${uploadedRefB64 ? '- A reference photo of the real component is attached — de
       return;
     }
 
+    // ── Save component thumbnails (batch) ──
+    if (url.pathname === '/api/save-thumbnails' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { thumbnails } = JSON.parse(body);
+      const thumbDir = path.join(PROJECT, 'assets/textures/thumbnails');
+      if (!fs.existsSync(thumbDir)) fs.mkdirSync(thumbDir, { recursive: true });
+      const saved = [];
+      for (const { id, dataUrl } of thumbnails) {
+        const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+        const filename = `${id}.png`;
+        fs.writeFileSync(path.join(thumbDir, filename), Buffer.from(b64, 'base64'));
+        saved.push(filename);
+      }
+      console.log(`[thumbnails] Saved ${saved.length} thumbnails`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, saved }));
+      return;
+    }
+
     res.writeHead(404); res.end('Not found');
   } catch (e) {
     console.error('Error:', e);

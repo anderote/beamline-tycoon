@@ -29,26 +29,39 @@ function sampleTerrainBrightness(col, row, blobs) {
 }
 
 // ── Per-clump species assignment ─────────────────────────────────────
-// Each forest clump is dominated by one species (a pine grove, an oak
-// stand, a birch copse, etc.) with a secondary species mixed in and a
-// small amount of shrub understory. Clumps cycle through this table by
-// index, so seeing clumps side-by-side shows visibly different forests.
+// Species are chosen by the clump's characteristics, not by index:
+// conifers (pine/cedar) dominate the darkest, most elevated peaks;
+// hardwoods (oak/maple, elm/birch) claim mid-dark slopes; willow and
+// small trees gather on flatter, less-dark ground. This keeps the
+// visible terrain pattern (dark blobs = forested hills, bright blobs =
+// sunlit meadows) legible from the tree-species layer alone.
 
-const CLUMP_SPECIES = [
-  { primary: 'pineTree',    secondary: 'cedarTree' },
-  { primary: 'oakTree',     secondary: 'mapleTree' },
-  { primary: 'birchTree',   secondary: 'smallTree' },
-  { primary: 'mapleTree',   secondary: 'elmTree' },
-  { primary: 'cedarTree',   secondary: 'pineTree' },
-  { primary: 'willowTree',  secondary: 'birchTree' },
-  { primary: 'elmTree',     secondary: 'oakTree' },
-  { primary: 'smallTree',   secondary: 'mapleTree' },
-];
+const CLUMP_CATEGORIES = {
+  conifer:    { primary: 'pineTree',   secondary: 'cedarTree' },
+  oakStand:   { primary: 'oakTree',    secondary: 'mapleTree' },
+  smallCopse: { primary: 'smallTree',  secondary: 'shrub'     },
+  birchMix:   { primary: 'birchTree',  secondary: 'elmTree'   },
+  lowland:    { primary: 'willowTree', secondary: 'birchTree' },
+};
 
-function pickClumpSpecies(clumpEntry, rng) {
+function pickClumpCategory(brightness, elevation) {
+  // brightness ∈ [-1, 1] (negative = darker); elevation = 0..HILL_MAX_STEPS.
+  // Bands stack so ranges don't overlap:
+  //   4-5 → conifer  (peaks)
+  //   3   → oakStand (upper slopes)
+  //   1-2 → smallCopse (mid-slope band — small trees are a slope species)
+  //   0   → birchMix (flat dark) or lowland (flat mildly dark)
+  if (elevation >= 4) return 'conifer';
+  if (elevation >= 3) return 'oakStand';
+  if (elevation >= 1) return 'smallCopse';
+  if (brightness <= -0.25) return 'birchMix';
+  return 'lowland';
+}
+
+function pickClumpSpecies(entry, rng) {
   const r = rng();
-  if (r < 0.75) return clumpEntry.primary;
-  if (r < 0.95) return clumpEntry.secondary;
+  if (r < 0.75) return entry.primary;
+  if (r < 0.95) return entry.secondary;
   return 'shrub';
 }
 
@@ -145,75 +158,86 @@ function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng) {
   return true;
 }
 
-// ── Starter hill ────────────────────────────────────────────────────
-// Adds a single small visible hill to the starter map so fresh games have
-// elevated terrain to look at. Deterministic: placement is chosen by
-// scanning candidate positions in a fixed order for the first 6×6 block
-// unoccupied by floors/walls/placeables.
+// ── Blob-driven elevation ───────────────────────────────────────────
+// Dark terrain blobs push terrain UP; bright blobs stay at 0. The same
+// blob field drives grass tint (terrain-builder), tree placement (below),
+// and now hills — so the patterns line up visually.
 
-const HILL_PEAK = 3;   // steps (1.5m at HEIGHT_STEP_METERS=0.5)
-const HILL_RADIUS = 3; // tiles; block is (2*radius)×(2*radius) = 6×6
+const HILL_MAX_STEPS = 5;     // dark-blob peaks: up to 2.5m
+const HILL_SCALE = 5.0;       // typical dark-peak height in steps
+const HOLLOW_MAX_STEPS = 3;   // bright-blob hollows: down to -1.5m
+const HOLLOW_SCALE = 3.0;     // typical bright-peak depth in steps
 
-function addStarterHill(cornerHeights, floors, walls, placeables) {
-  // Build occupancy set of (col,row) pairs.
-  const occupied = new Set();
-  for (const f of floors) occupied.add(f.col + ',' + f.row);
-  for (const w of walls) occupied.add(w.col + ',' + w.row);
-  for (const p of placeables) {
-    if (!p.cells) continue;
-    for (const c of p.cells) occupied.add(c.col + ',' + c.row);
+/** Brightness-derived corner height. Dark blobs push UP (hills); bright
+ *  blobs push DOWN (hollows). No central pin — terrain flows through the
+ *  whole map. Tree placement keeps a spawn clearing separately. */
+function cornerHeightAt(col, row, blobs) {
+  const b = sampleTerrainBrightness(col, row, blobs);
+  if (b < 0) {
+    const h = Math.round(-b * HILL_SCALE);
+    return Math.min(HILL_MAX_STEPS, h);
   }
+  const h = Math.round(-b * HOLLOW_SCALE); // negative for bright b
+  return Math.max(-HOLLOW_MAX_STEPS, h);
+}
 
-  // Search each map quadrant outward from the clearing edge for the first
-  // 6×6 block with zero overlap. Order biases toward the NE quadrant so the
-  // hill placement is stable and visible from the default camera angle.
-  const R = HILL_RADIUS;
-  const SIZE = 2 * R;
-  const candidates = [];
-  // Quadrant corners of the 60×60 world; step past the clearing margin.
-  for (const sign of [[+1, -1], [-1, -1], [+1, +1], [-1, +1]]) {
-    for (let d = 10; d <= WORLD_BOUND - SIZE; d++) {
-      const cx = sign[0] * d;
-      const cy = sign[1] * d;
-      candidates.push([cx, cy]);
-    }
-  }
-  // Also a fallback far-east position in case all quadrants are full.
-  candidates.push([WORLD_BOUND + 4, 0]);
-
-  let chosen = null;
-  for (const [topCol, topRow] of candidates) {
-    let clear = true;
-    for (let dr = 0; dr < SIZE && clear; dr++) {
-      for (let dc = 0; dc < SIZE && clear; dc++) {
-        if (occupied.has((topCol + dc) + ',' + (topRow + dr))) clear = false;
+/** Iterative smoothing: enforce per-tile max-min ≤ 1 over the full corner
+ *  grid BEFORE writing tiles. Without this, setTileCorners would clamp the
+ *  3 non-anchor corners independently per tile, and adjacent tiles would
+ *  disagree at their shared edge — that's the source of visible cliffs.
+ *  Here we pull outlier peaks down by 1 step per pass until every 2×2
+ *  corner window spans ≤ 1 step. Tall peaks survive; slopes linearize at
+ *  the invariant's natural rate of 1 step per tile. */
+function smoothCornerGrid(grid) {
+  const MAX_PASSES = 64;
+  const get = (c, r) => grid.get(c + ',' + r) ?? 0;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let changed = false;
+    for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
+      for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
+        const nw = get(col,     row);
+        const ne = get(col + 1, row);
+        const se = get(col + 1, row + 1);
+        const sw = get(col,     row + 1);
+        const mn = Math.min(nw, ne, se, sw);
+        const mx = Math.max(nw, ne, se, sw);
+        if (mx - mn <= 1) continue;
+        const cap = mn + 1;
+        if (nw > cap) { grid.set(col       + ',' + row,       nw - 1); changed = true; }
+        if (ne > cap) { grid.set((col + 1) + ',' + row,       ne - 1); changed = true; }
+        if (se > cap) { grid.set((col + 1) + ',' + (row + 1), se - 1); changed = true; }
+        if (sw > cap) { grid.set(col       + ',' + (row + 1), sw - 1); changed = true; }
       }
     }
-    if (clear) { chosen = [topCol, topRow]; break; }
+    if (!changed) return;
   }
-  if (!chosen) return; // give up silently; fresh maps should always have space
+}
 
-  // Apply radial (Chebyshev) falloff centered on the block. The hill's
-  // geometric center is at the NW corner of the middle tile; use that as
-  // the reference point for sampling corner grid positions.
-  const [topCol, topRow] = chosen;
-  const centerX = topCol + R;
-  const centerY = topRow + R;
+function addBlobElevation(cornerHeights, blobs) {
+  if (!blobs || blobs.length === 0) return;
+
+  // 1. Sample raw corner grid from blobs.
+  const grid = new Map();
+  for (let col = -WORLD_BOUND; col <= WORLD_BOUND + 1; col++) {
+    for (let row = -WORLD_BOUND; row <= WORLD_BOUND + 1; row++) {
+      grid.set(col + ',' + row, cornerHeightAt(col, row, blobs));
+    }
+  }
+
+  // 2. Smooth so every 2×2 corner window spans ≤ 1 step.
+  smoothCornerGrid(grid);
+
+  // 3. Write per-tile via setTileCorners. With the grid pre-smoothed, no
+  //    NW-anchor cascade fires, so adjacent tiles agree at shared edges.
+  const get = (c, r) => grid.get(c + ',' + r) ?? 0;
   const fakeState = { cornerHeights, cornerHeightsRevision: 0 };
-
-  const sampleAt = (gx, gy) => {
-    const d = Math.max(Math.abs(gx - centerX), Math.abs(gy - centerY));
-    return Math.max(0, Math.round(HILL_PEAK * (1 - d / R)));
-  };
-
-  for (let dr = 0; dr < SIZE; dr++) {
-    for (let dc = 0; dc < SIZE; dc++) {
-      const col = topCol + dc;
-      const row = topRow + dr;
-      const nw = sampleAt(col,     row);
-      const ne = sampleAt(col + 1, row);
-      const se = sampleAt(col + 1, row + 1);
-      const sw = sampleAt(col,     row + 1);
+  for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
+    for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
+      const nw = get(col,     row);
+      const ne = get(col + 1, row);
+      const se = get(col + 1, row + 1);
+      const sw = get(col,     row + 1);
+      if (nw === 0 && ne === 0 && se === 0 && sw === 0) continue;
       setTileCorners(fakeState, col, row, { nw, ne, se, sw });
     }
   }
@@ -265,7 +289,13 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   //    substantial grove instead of 2 lonely trees.
   for (let ci = 0; ci < clusters.length; ci++) {
     const blob = clusters[ci];
-    const clumpEntry = CLUMP_SPECIES[ci % CLUMP_SPECIES.length];
+    // Sample the full blob field at the clump center (picks up overlap
+    // from neighboring blobs, not just this blob's solo strength), then
+    // convert to the same elevation units the hills use.
+    const centerBrightness = sampleTerrainBrightness(blob.cx, blob.cy, terrainBlobs);
+    const centerElevation = Math.max(0,
+      Math.min(HILL_MAX_STEPS, Math.round(-centerBrightness * HILL_SCALE)));
+    const clumpEntry = CLUMP_CATEGORIES[pickClumpCategory(centerBrightness, centerElevation)];
     const r = Math.max(CLUMP_RADIUS_MIN,
       Math.min(Math.min(blob.sx, blob.sy) * 1.3, CLUMP_RADIUS_MAX));
     // Area-driven density: aim for ~0.55 trees per square unit of clump area.
@@ -312,7 +342,7 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   const floors = [];
   const walls = [];
   const cornerHeights = new Map();
-  addStarterHill(cornerHeights, floors, walls, placeables);
+  addBlobElevation(cornerHeights, terrainBlobs);
 
   return {
     floors,

@@ -237,14 +237,16 @@ class TestApertureLoss(unittest.TestCase):
         mod.apply(beam, {"type": "drift", "length": 1.0, "aperture": 0.005}, ctx)
         self.assertLess(beam.current, current_before)
 
-    def test_beam_trips_on_large_loss(self):
+    def test_large_loss_reduces_current_but_beam_survives(self):
         mod = ApertureLossModule()
         beam = make_beam()
         ctx = PropagationContext("linac")
         beam.sigma[0, 0] = 0.1 ** 2
         beam.sigma[2, 2] = 0.1 ** 2
+        current_before = beam.current
         mod.apply(beam, {"type": "drift", "length": 1.0, "aperture": 0.001}, ctx)
-        self.assertFalse(beam.alive)
+        self.assertTrue(beam.alive)
+        self.assertLess(beam.current, current_before * 0.01)
 
     def test_source_excluded(self):
         mod = ApertureLossModule()

@@ -47,7 +47,7 @@ export const RESEARCH = {
     desc: 'Develop techniques to manipulate the longitudinal phase space of particle bunches, compressing them from picoseconds down to femtosecond lengths. Uses energy-dependent path length differences in magnetic chicanes to rotate the phase space. Essential for FEL lasing and high peak-current applications.',
     cost: { data: 15, funding: 1000000 },
     duration: 45,
-    unlocks: ['buncher', 'chicane', 'dogleg', 'harmonicLinearizer'],
+    unlocks: ['chicane', 'dogleg', 'harmonicLinearizer'],
     requires: 'beamOptics',
   },
   scMagnets: {

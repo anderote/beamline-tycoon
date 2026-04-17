@@ -14,6 +14,12 @@ import { ProbePlots } from '../ui/probe-plots.js';
 const SCHEM_PW = 70;
 const SCHEM_PH = 30;
 
+function _driftPixelWidth(componentType, subL) {
+  if (componentType !== 'drift') return SCHEM_PW;
+  const s = subL || 4;
+  return Math.max(Math.round(SCHEM_PW / 2), Math.round((s / 4) * SCHEM_PW));
+}
+
 
 
 // ---- Schematic rendering ----
@@ -46,9 +52,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // --- Draw lab background (scrolls with components) ---
   // We need panOffsetPx early for the background, so compute layout first
   const _compWidths = this.draftNodes.map(n => {
-    const comp = COMPONENTS[n.type];
-    const len = comp ? 1 : 1;
-    return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+    return _driftPixelWidth(n.type, n.subL || (COMPONENTS[n.type] || {}).subL);
   });
   const _totalPW = _compWidths.reduce((s, w) => s + w, 0);
   const _baseZoom = W / (5 * SCHEM_PW + 40);
@@ -71,9 +75,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   // Calculate per-component pixel widths based on length (edge-to-edge, no gap)
   const compWidths = this.draftNodes.map(n => {
-    const comp = COMPONENTS[n.type];
-    const len = comp ? 1 : 1;
-    return Math.max(SCHEM_PW, Math.round(len * SCHEM_PW / 5));
+    return _driftPixelWidth(n.type, n.subL || (COMPONENTS[n.type] || {}).subL);
   });
   const totalPixelWidth = compWidths.reduce((s, w) => s + w, 0);
 
@@ -114,7 +116,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     });
 
     // Draw component using existing schematic drawer (pass params for polarity-aware rendering)
-    const offscreen = this._drawComponentOffscreen(node.type, node.params);
+    const offscreen = this._drawComponentOffscreen(node.type, node.params, node.subL);
     if (offscreen) {
       ctx.drawImage(offscreen, xPos, compTop, compW, compH);
     }
@@ -391,20 +393,19 @@ function _drawLabBackground(ctx, W, H, panOffset, floorY) {
   }
 }
 
-BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType, params) {
-  // Cache offscreen canvases per component type + polarity
+BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType, params, subL) {
   if (!this._schematicCache) this._schematicCache = {};
   const polarity = params?.polarity;
-  const cacheKey = polarity != null ? `${componentType}_p${polarity}` : componentType;
+  const pw = _driftPixelWidth(componentType, subL);
+  const cacheKey = polarity != null ? `${componentType}_p${polarity}_${pw}` : `${componentType}_${pw}`;
   if (this._schematicCache[cacheKey]) return this._schematicCache[cacheKey];
 
-  // Create a tiny canvas and use Renderer's drawSchematic to generate pixel art
   const tiny = document.createElement('canvas');
-  tiny.width = SCHEM_PW;
+  tiny.width = pw;
   tiny.height = SCHEM_PH;
-  tiny.style.width = SCHEM_PW + 'px';
+  tiny.style.width = pw + 'px';
   tiny.style.height = SCHEM_PH + 'px';
-  this.renderer.drawSchematic(tiny, componentType, params);
+  this.renderer.drawSchematic(tiny, componentType, params, { pixelWidth: pw });
 
   this._schematicCache[cacheKey] = tiny;
   return tiny;
@@ -464,6 +465,14 @@ BeamlineDesigner.prototype._renderTuning = function() {
     }
   }
 
+  // RF-specific component properties
+  if (comp.rfFrequency) {
+    statsHtml += `<div class="ts-row"><span class="ts-label">RF Frequency</span><span class="ts-val">${comp.rfFrequency} <span class="ts-unit">MHz</span></span></div>`;
+  }
+  if (comp.rfBand) {
+    statsHtml += `<div class="ts-row"><span class="ts-label">RF Band</span><span class="ts-val">${comp.rfBand.toUpperCase()}</span></div>`;
+  }
+
   // Health from game state
   const entry = this.game.registry.get(this.beamlineId);
   if (entry && entry.beamState.componentHealth) {
@@ -473,6 +482,46 @@ BeamlineDesigner.prototype._renderTuning = function() {
       statsHtml += `<div class="ts-row"><span class="ts-label">Health</span><span class="ts-val" style="color:${hColor}">${Math.round(health)}%</span></div>`;
     }
   }
+
+  // --- Live beam state at this component from envelope ---
+  const envSnap = this._getEnvelopeAtSelected();
+  if (envSnap) {
+    statsHtml += `<div class="ts-section-label">Beam at this point</div>`;
+    const eAt = formatEnergy(envSnap.energy);
+    statsHtml += `<div class="ts-row"><span class="ts-label">Energy</span><span class="ts-val">${eAt.val} <span class="ts-unit">${eAt.unit}</span></span></div>`;
+    statsHtml += `<div class="ts-row"><span class="ts-label">Current</span><span class="ts-val">${envSnap.current.toFixed(3)} <span class="ts-unit">mA</span></span></div>`;
+
+    const sx = envSnap.sigma_x * 1e3;
+    const sy = envSnap.sigma_y * 1e3;
+    statsHtml += `<div class="ts-row"><span class="ts-label">Beam size X</span><span class="ts-val">${sx.toFixed(2)} <span class="ts-unit">mm</span></span></div>`;
+    statsHtml += `<div class="ts-row"><span class="ts-label">Beam size Y</span><span class="ts-val">${sy.toFixed(2)} <span class="ts-unit">mm</span></span></div>`;
+
+    if (envSnap.energy_spread > 0) {
+      const espPct = (envSnap.energy_spread * 100).toFixed(3);
+      statsHtml += `<div class="ts-row"><span class="ts-label">Energy spread</span><span class="ts-val">${espPct} <span class="ts-unit">%</span></span></div>`;
+    }
+
+    if (envSnap.emit_nx > 0) {
+      const enx = (envSnap.emit_nx * 1e6).toFixed(3);
+      statsHtml += `<div class="ts-row"><span class="ts-label">Norm emit X</span><span class="ts-val">${enx} <span class="ts-unit">mm·mrad</span></span></div>`;
+    }
+
+    if (envSnap.eta_x != null && Math.abs(envSnap.eta_x) > 0.001) {
+      const etaColor = Math.abs(envSnap.eta_x) > 0.1 ? '#da4' : '#8a8';
+      statsHtml += `<div class="ts-row"><span class="ts-label">Dispersion X</span><span class="ts-val" style="color:${etaColor}">${envSnap.eta_x.toFixed(3)} <span class="ts-unit">m</span></span></div>`;
+    }
+
+    if (envSnap.peak_current > 0) {
+      const pkA = envSnap.peak_current;
+      const pkStr = pkA >= 1 ? pkA.toFixed(1) + ' A' : (pkA * 1e3).toFixed(1) + ' mA';
+      statsHtml += `<div class="ts-row"><span class="ts-label">Peak current</span><span class="ts-val">${pkStr}</span></div>`;
+    }
+
+    if (!envSnap.alive) {
+      statsHtml += `<div class="ts-row"><span class="ts-label">Status</span><span class="ts-val" style="color:#f44">BEAM LOST</span></div>`;
+    }
+  }
+
   statsEl.innerHTML = statsHtml;
 
   // --- Right side: tuning parameters ---
@@ -688,6 +737,26 @@ function _fmtParam(val) {
   return val.toExponential(2);
 }
 
+/** Get the envelope snapshot closest to the currently selected component. */
+BeamlineDesigner.prototype._getEnvelopeAtSelected = function() {
+  if (!this.draftEnvelope || this.draftEnvelope.length === 0) return null;
+  if (this.selectedIndex < 0) return null;
+
+  const node = this.draftNodes[this.selectedIndex];
+  if (!node) return null;
+
+  // Use the marker position if it falls within this component's span
+  const markerIdx = this.getMarkerEnvelopeIndex();
+  if (markerIdx >= 0) return this.draftEnvelope[markerIdx];
+
+  // Fall back: find envelope point matching this component's element index
+  const target = this.selectedIndex;
+  for (let i = this.draftEnvelope.length - 1; i >= 0; i--) {
+    if (this.draftEnvelope[i].index === target) return this.draftEnvelope[i];
+  }
+  return null;
+};
+
 // ---- Plot rendering ----
 
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
@@ -865,9 +934,9 @@ BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
   canvasWrap.className = 'dsgn-card-schematic';
   const canvas = document.createElement('canvas');
   canvas.width = 180;
-  canvas.height = 60;
+  canvas.height = 40;
   canvas.style.width = '180px';
-  canvas.style.height = '60px';
+  canvas.style.height = '40px';
   this.renderer.drawSchematic(canvas, key);
   canvasWrap.appendChild(canvas);
   card.appendChild(canvasWrap);

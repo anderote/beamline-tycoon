@@ -194,16 +194,7 @@ function showScenarioPicker(game) {
     }
   });
 
-  // Load from localStorage (or dev-save file on disk if available)
-  if (!game.load() && import.meta.hot) {
-    game.loadFromDevSave().then(loaded => {
-      if (loaded) {
-        console.log('[dev-save] Loaded save from disk');
-        renderer._forceFullRedraw?.();
-        game.emit('tick');
-      }
-    });
-  }
+  game.load();
 
   // Apply pending scenario (set by scenario picker before reload)
   const pendingScenario = localStorage.getItem('beamlineTycoon.pendingScenario');
@@ -332,8 +323,6 @@ function showScenarioPicker(game) {
       case 'new-game':
         if (confirm('Start a new game? All progress will be lost.')) {
           localStorage.removeItem('beamlineTycoon');
-          // Also clear the dev-save on disk so it doesn't get restored on reload
-          fetch('/api/dev-save', { method: 'DELETE' }).catch(() => {});
           location.reload();
         }
         break;
@@ -371,13 +360,5 @@ function showScenarioPicker(game) {
     console.error('BeamPhysics init error:', err);
   });
 
-  // Dev-only: hot-reload save from disk when the file changes externally
-  if (import.meta.hot) {
-    import.meta.hot.on('dev-save:changed', () => {
-      console.log('[dev-save] File changed on disk — reloading save…');
-      game.load();
-      renderer._forceFullRedraw?.();
-      game.emit('tick');
-    });
-  }
+
 })();

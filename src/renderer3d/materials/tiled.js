@@ -120,6 +120,7 @@ export const MATERIALS = {
   tile_cobblestone: makeMat('tile_cobblestone.png', { roughness: 0.9, metalness: 0.0 }),
   tile_concrete:    makeMat('tile_concrete.png',    { roughness: 0.9, metalness: 0.0 }),
   tile_dirt:        makeMat('tile_dirt.png',        { roughness: 0.9, metalness: 0.0 }),
+  tile_rocky_dirt:  makeMat('tile_rocky_dirt.png',  { roughness: 1.0, metalness: 0.0 }),
   tile_grass:       makeMat('tile_grass.png',       { roughness: 0.95, metalness: 0.0 }),
   tile_groomedGrass: makeMat('tile_groomedGrass.png', { roughness: 0.95, metalness: 0.0 }),
   tile_flower_bed:  new THREE.MeshStandardMaterial({ map: gen_flowerBed(64), roughness: 0.95, metalness: 0.0 }),
