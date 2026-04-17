@@ -10,6 +10,14 @@
 
 **Design doc:** `docs/superpowers/specs/2026-04-16-free-orbit-camera-design.md`
 
+## Compatibility notes (post-refactor 2026-04-17)
+
+The UI extraction refactor (5e57b109, 2aaf699f) moved UI methods onto `UIHost.prototype`. Camera code was not touched — `_viewRotation*`, `_tickViewRotation`, `_updateCameraLookAt`, `panScreenAligned`, `rotateView`, and the middle-click pan branch are structurally unchanged, just shifted ~20–50 lines. Cited line numbers below reflect the current state at HEAD.
+
+`main.js` now persists `_viewRotationIndex` across saves and restores it on load, then calls `renderer._updateCameraLookAt()` (lines 179, 214–215, 228). The reformulated `_updateCameraLookAt` delivered in Task 2 reads `_effectiveYaw()` / `_effectivePitch()`, which fall back to `_viewRotationAngle` and `PITCH_REST` when not orbiting/snapping — byte-identical to today's behavior. Additionally, `_tickFreeOrbitSnap` updates `_viewRotationIndex` when the release animation ends (Task 3), so the value persisted to saves is always a valid 0..3 index.
+
+There is **no mouseleave handler and no window-level mouseup fallback** in InputHandler today. The current `isPanning` code shares this bug (releases outside the canvas leave panning stuck). Task 4 adds a window-level mouseup fallback specifically for the free-orbit path; out of scope to fix the alt+left pan version here.
+
 ---
 
 ## Commit strategy
@@ -236,7 +244,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 2: Reformulate `_updateCameraLookAt` and add `_effectiveYaw`
 
 **Files:**
-- Modify: `src/renderer3d/ThreeRenderer.js` (constructor ~line 150, `panScreenAligned` ~line 716, `_updateCameraLookAt` ~line 2110)
+- Modify: `src/renderer3d/ThreeRenderer.js` (constructor ~line 165, `panScreenAligned` ~line 750, `_updateCameraLookAt` ~line 2130)
 
 Do not commit after this task. It is the start of the integrated renderer+input change committed after Task 4.
 
@@ -261,7 +269,7 @@ import {
 
 - [ ] **Step 2: Add free-orbit state fields to the constructor**
 
-Immediately after the existing `_viewRotating = false;` line in the constructor (around line 159), add:
+Immediately after the existing `_viewRotating = false;` line in the constructor (currently line 165), add:
 
 ```javascript
     // Free-orbit state (middle-mouse drag orbits yaw + pitch around the
@@ -280,7 +288,7 @@ Immediately after the existing `_viewRotating = false;` line in the constructor 
 
 - [ ] **Step 3: Add the `_effectiveYaw` helper**
 
-Add as a new method on the class, placed next to `_updateCameraLookAt` (around line 2100 — immediately before `_updateCameraLookAt`):
+Add as a new method on the class, placed immediately before `_updateCameraLookAt` (currently line 2130):
 
 ```javascript
   /**
@@ -303,7 +311,7 @@ Add as a new method on the class, placed next to `_updateCameraLookAt` (around l
 
 - [ ] **Step 4: Replace `_updateCameraLookAt`**
 
-Replace the existing body of `_updateCameraLookAt` (the block around lines 2110–2123 starting with `// Orbit the dimetric camera around...` and ending with `this.camera.lookAt(this._panX, 0, this._panY);`) with:
+Replace the existing body of `_updateCameraLookAt` (currently lines 2130–2143, starting with `// Orbit the dimetric camera around...` and ending with `this.camera.lookAt(this._panX, 0, this._panY);`) with:
 
 ```javascript
   _updateCameraLookAt() {
@@ -321,7 +329,7 @@ Remove the now-unused local constants `CAM_D = 50;` and `CAM_H = CAM_D * Math.sq
 
 - [ ] **Step 5: Update `panScreenAligned` to use effective yaw**
 
-Find `panScreenAligned` around line 716. Change:
+Find `panScreenAligned` at line 750. On line 751, change:
 
 ```javascript
     const a = this._viewRotationAngle;
@@ -348,13 +356,13 @@ Do not commit.
 ## Task 3: Add free-orbit methods and wire into render loop
 
 **Files:**
-- Modify: `src/renderer3d/ThreeRenderer.js` (add methods near line 749 next to `rotateView`, wire tick into `_animate` ~line 2164)
+- Modify: `src/renderer3d/ThreeRenderer.js` (add methods immediately after `rotateView` at line 785, wire tick into `_animate` at line 2184)
 
 Do not commit after this task.
 
 - [ ] **Step 1: Add `startFreeOrbit`, `orbitBy`, `endFreeOrbit`**
 
-Insert these methods immediately after `rotateView` (which ends around line 760):
+Insert these methods immediately after `rotateView` (which ends around line 795):
 
 ```javascript
   /**
@@ -428,7 +436,7 @@ Insert these methods immediately after `rotateView` (which ends around line 760)
 
 - [ ] **Step 2: Wire `_tickFreeOrbitSnap` into the render loop**
 
-Find `_animate` around line 2161. Immediately after the existing `this._tickViewRotation();` line, add:
+Find `_animate` around line 2180. Immediately after the existing `this._tickViewRotation();` call at line 2184, add:
 
 ```javascript
     this._tickFreeOrbitSnap();
@@ -453,13 +461,13 @@ Do not commit.
 ## Task 4: Bind MMB to free-orbit in InputHandler, gate Q/E
 
 **Files:**
-- Modify: `src/input/InputHandler.js` (mousedown ~line 1411, mousemove / mouseup / mouseleave handlers, Q/E handler ~line 1178)
+- Modify: `src/input/InputHandler.js` (mousedown at line 1437, mousemove at line 1588, mouseup at line 1771, Q/E handlers at lines 1199 / 1204, constructor `isPanning` init at line 60)
 
 This task completes the feature. Commit after verifying.
 
 - [ ] **Step 1: Locate the existing panning branch**
 
-Open `src/input/InputHandler.js`. Find the mousedown handler inside `_bindMouse` (around line 1411). The current middle-click branch reads:
+Open `src/input/InputHandler.js`. Find the mousedown handler inside `_bindMouse` at line 1437. The current middle-click branch reads (line 1439–1446):
 
 ```javascript
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -500,7 +508,7 @@ Replace the block from Step 1 with:
 
 - [ ] **Step 3: Initialize the new fields in the constructor**
 
-Locate the InputHandler constructor. Find where `this.isPanning = false;` is initialized (search for `isPanning` — the earliest occurrence is the field definition). Add next to it:
+Locate the InputHandler constructor. `this.isPanning = false;` is at line 60. Add immediately after it:
 
 ```javascript
     this.isFreeOrbiting = false;
@@ -509,7 +517,7 @@ Locate the InputHandler constructor. Find where `this.isPanning = false;` is ini
 
 - [ ] **Step 4: Handle mousemove during a free-orbit drag**
 
-Find the `mousemove` listener bound on the canvas inside `_bindMouse`. At the top of that handler (before the existing `isPanning` branch), add:
+Find the `mousemove` listener bound on the canvas at line 1588. The first statement inside is `if (this.isPanning) { … }`. Insert before that `isPanning` branch:
 
 ```javascript
       if (this.isFreeOrbiting) {
@@ -521,9 +529,9 @@ Find the `mousemove` listener bound on the canvas inside `_bindMouse`. At the to
       }
 ```
 
-- [ ] **Step 5: Release the orbit on mouseup / mouseleave**
+- [ ] **Step 5: Release the orbit on mouseup (canvas + window fallback)**
 
-Find the existing `mouseup` handler on the canvas. At the top of the handler, add:
+Find the existing canvas `mouseup` handler at line 1771. The first statement inside is `this._hideDragCostTooltip();`. Insert after that line and before the `if (this.isPanning)` branch at line 1773:
 
 ```javascript
       if (this.isFreeOrbiting) {
@@ -534,35 +542,58 @@ Find the existing `mouseup` handler on the canvas. At the top of the handler, ad
       }
 ```
 
-Find the `mouseleave` handler (or the window-level `mouseup` fallback if there's no explicit `mouseleave`). Add the same block so releasing outside the canvas still ends the orbit cleanly. If the code uses a `window.addEventListener('mouseup', …)` fallback alongside the canvas handler, add the same block there.
+There is no `mouseleave` handler today and no window-level `mouseup` fallback, so a drag that releases outside the canvas would leave `isFreeOrbiting = true` forever. Add a window-level fallback at the end of `_bindMouse` (immediately before the closing `}` of the method):
+
+```javascript
+    // Window-level fallback: if the user releases the middle mouse
+    // button while the cursor is off the canvas, end the orbit cleanly
+    // so the snap animation still runs.
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 1 && this.isFreeOrbiting) {
+        this.isFreeOrbiting = false;
+        this.renderer.endFreeOrbit();
+        canvas.style.cursor = '';
+      }
+    });
+```
 
 - [ ] **Step 6: Gate Q/E while orbiting or snapping**
 
-Find the Q/E keydown handlers at the two lines `this.renderer.rotateView(-1);` (around line 1178) and `this.renderer.rotateView(+1);` (around line 1183). Replace each call site's surrounding block so that the rotation is skipped while orbiting or snapping.
-
-For example, the existing block likely looks like:
+Find the Q and E keydown cases at lines 1199–1203 and 1204–1208. They currently read:
 
 ```javascript
-        case 'q':
-        case 'Q':
-          this.renderer.rotateView(-1);
+        case 'q': case 'Q': {
           e.preventDefault();
+          this.renderer.rotateView(-1);
           break;
+        }
+        case 'e': case 'E': {
+          e.preventDefault();
+          this.renderer.rotateView(+1);
+          break;
+        }
 ```
 
 Change to:
 
 ```javascript
-        case 'q':
-        case 'Q':
+        case 'q': case 'Q': {
+          e.preventDefault();
           if (!this.isFreeOrbiting && !this.renderer._snapping) {
             this.renderer.rotateView(-1);
           }
-          e.preventDefault();
           break;
+        }
+        case 'e': case 'E': {
+          e.preventDefault();
+          if (!this.isFreeOrbiting && !this.renderer._snapping) {
+            this.renderer.rotateView(+1);
+          }
+          break;
+        }
 ```
 
-Apply the same guard to the E case (which calls `rotateView(+1)`).
+`e.preventDefault()` stays outside the guard so Q/E don't leak to the browser even when suppressed.
 
 - [ ] **Step 7: Browser verification — acceptance criteria from the spec**
 
@@ -580,6 +611,8 @@ Run `npm run dev`. Load the game. Walk through the acceptance checklist below an
 - [ ] Cursor shows `grabbing` during MMB drag and clears on release.
 - [ ] Start an MMB drag during an in-flight Q/E snap (press Q then immediately press MMB) — the Q/E snap is cancelled and free-orbit begins from the interrupted angle with no visible jump.
 - [ ] Spin the camera several full turns while holding MMB, then release — the snap animation still converges (no runaway), and Q/E from the snapped position is correct.
+- [ ] Drag past the canvas edge, release outside — the window-level mouseup fallback ends the orbit and the snap animation runs.
+- [ ] Save and reload (hard refresh) after a snapped position — the loaded view matches the saved rotation index (main.js lines 179, 214–215, 228 roundtrip through the reformulated `_updateCameraLookAt`).
 
 Stop `npm run dev` when done.
 
