@@ -419,7 +419,7 @@ export class InputHandler {
     // Check beam pipe paths — resolve to a connected beamline node
     for (const pipe of this.game.state.beamPipes) {
       if (pipe.path && pipe.path.some(t => t.col === col && t.row === row)) {
-        const nodeId = pipe.fromId || pipe.toId;
+        const nodeId = pipe.start?.junctionId || pipe.end?.junctionId;
         if (nodeId) {
           const p = this.game.state.placeables.find(pl => pl.id === nodeId);
           if (p) return p;
@@ -447,7 +447,7 @@ export class InputHandler {
           if ((info.group === 'attachment' || info.group === 'beampipe') && info.pipeId) {
             const pipe = this.game.state.beamPipes.find(bp => bp.id === info.pipeId);
             if (pipe) {
-              const nodeId = pipe.fromId || pipe.toId;
+              const nodeId = pipe.start?.junctionId || pipe.end?.junctionId;
               if (nodeId) {
                 const p = this.game.state.placeables.find(pl => pl.id === nodeId);
                 if (p) return p;
@@ -779,8 +779,8 @@ export class InputHandler {
 
     const connectedPorts = new Set();
     for (const pipe of this.game.state.beamPipes) {
-      if (pipe.fromId === placeableId) connectedPorts.add(pipe.fromPort);
-      if (pipe.toId === placeableId) connectedPorts.add(pipe.toPort);
+      if (pipe.start?.junctionId === placeableId) connectedPorts.add(pipe.start.portName);
+      if (pipe.end?.junctionId   === placeableId) connectedPorts.add(pipe.end.portName);
     }
 
     for (const [portName, portDef] of Object.entries(def.ports)) {
@@ -2453,7 +2453,7 @@ export class InputHandler {
         // Beam-pipe attachments piggyback on 'beamline' scope.
         if (info.group === 'attachment' && scope.has('beamline')) {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === info.pipeId);
-          const att = pipe?.attachments?.find(a => a.id === info.attachmentId) || null;
+          const att = pipe?.placements?.find(a => a.id === info.attachmentId) || null;
           return {
             kind: 'attachment',
             pipeId: info.pipeId,

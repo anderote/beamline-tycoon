@@ -77,7 +77,7 @@ export class Game {
       subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
       placeableNextId: 1,
       // Beam pipe connections (drawn between module ports)
-      beamPipes: [],                // [{ id, fromId, fromPort, toId, toPort, path: [{col,row}], subL, attachments: [{id, type, position, params}] }]
+      beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
       beamPipeNextId: 1,
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
@@ -126,6 +126,17 @@ export class Game {
     this.state.placeableNextId = starter.placeableNextId;
     this.state.cornerHeights = starter.cornerHeights;
     this._rebuildPlaceableIndex();
+
+    // Dev-only shape-invariant check: catches any lingering legacy pipe shape
+    // (pre-B2 migration). Warn only — don't hard-throw because old saves from
+    // localStorage may still reach this point.
+    if (this.state?.beamPipes) {
+      for (const p of this.state.beamPipes) {
+        if ('fromId' in p || 'toId' in p || 'attachments' in p) {
+          console.warn('[Game] Pipe with legacy shape:', p.id);
+        }
+      }
+    }
   }
 
   // Rebuild placeableIndex + subgridOccupied from current state.placeables.
@@ -1132,11 +1143,11 @@ export class Game {
     // 7. Save rollback snapshot of the original pipe.
     const originalPipe = {
       id: pipe.id,
-      fromId: pipe.fromId, fromPort: pipe.fromPort,
-      toId: pipe.toId,     toPort: pipe.toPort,
+      start: pipe.start ? { ...pipe.start } : null,
+      end:   pipe.end   ? { ...pipe.end   } : null,
       path: pipe.path.map(p => ({ col: p.col, row: p.row })),
       subL: pipe.subL,
-      attachments: (pipe.attachments || []).map(a => ({ ...a, params: a.params ? { ...a.params } : {} })),
+      placements: (pipe.placements || []).map(a => ({ ...a, params: a.params ? { ...a.params } : {} })),
     };
 
     // 8. Delete the original pipe from state.
@@ -1216,10 +1227,11 @@ export class Game {
       }
       return {
         id: 'bp_' + this.state.beamPipeNextId++,
-        fromId, fromPort, toId, toPort,
+        start: fromId ? { junctionId: fromId, portName: fromPort } : null,
+        end:   toId   ? { junctionId: toId,   portName: toPort   } : null,
         path: path.map(p => ({ col: p.col, row: p.row })),
         subL: Math.max(1, Math.round(tileDist * 4)),
-        attachments: [],
+        placements: [],
       };
     };
 
@@ -1230,33 +1242,42 @@ export class Game {
     if (beforePath.length >= 2) {
       const toMod = beforePort ? moduleId : null;
       const toPort = beforePort || null;
-      p1 = makePipe(originalPipe.fromId, originalPipe.fromPort, toMod, toPort, beforePath);
+      p1 = makePipe(
+        originalPipe.start?.junctionId || null,
+        originalPipe.start?.portName || null,
+        toMod, toPort, beforePath,
+      );
       this.state.beamPipes.push(p1);
     }
     if (afterPath.length >= 2) {
       const fromMod = afterPort ? moduleId : null;
       const fromPort = afterPort || null;
-      p2 = makePipe(fromMod, fromPort, originalPipe.toId, originalPipe.toPort, afterPath);
+      p2 = makePipe(
+        fromMod, fromPort,
+        originalPipe.end?.junctionId || null,
+        originalPipe.end?.portName || null,
+        afterPath,
+      );
       this.state.beamPipes.push(p2);
     }
 
-    // 13. Reassign attachments using sub-unit precision so that attachments
+    // 13. Reassign placements using sub-unit precision so that placements
     //     do not drift by rounding to tile indices. Expanded tiles are now at
     //     sub-tile resolution (1 entry = 1 sub-unit), so indices map directly.
     const moduleSubStart = startIdx;
     const moduleSubEnd   = endIdx + 1;
-    for (const att of originalPipe.attachments) {
+    for (const att of originalPipe.placements) {
       const absSub = (att.position || 0) * originalPipe.subL;
       if (absSub < moduleSubStart && p1) {
-        // Attachment is on the before-half.
+        // Placement is on the before-half.
         const newPos = Math.min(1, Math.max(0, absSub / p1.subL));
-        p1.attachments.push({ ...att, position: newPos });
+        p1.placements.push({ ...att, position: newPos });
       } else if (absSub > moduleSubEnd && p2) {
-        // Attachment is on the after-half.
+        // Placement is on the after-half.
         const newPos = Math.min(1, Math.max(0, (absSub - moduleSubEnd) / p2.subL));
-        p2.attachments.push({ ...att, position: newPos });
+        p2.placements.push({ ...att, position: newPos });
       } else {
-        // Attachment falls inside the module footprint or on a dropped remnant.
+        // Placement falls inside the module footprint or on a dropped remnant.
         droppedAttachments++;
       }
     }
@@ -1550,7 +1571,7 @@ export class Game {
     // Remove beam pipes connected to this placeable (beamline only)
     if (entry.category === 'beamline') {
       this.state.beamPipes = this.state.beamPipes.filter(
-        p => p.fromId !== placeableId && p.toId !== placeableId
+        p => p.start?.junctionId !== placeableId && p.end?.junctionId !== placeableId
       );
     }
 
@@ -1650,7 +1671,7 @@ export class Game {
           }
         }
         const pipeIdsToRemove = (this.state.beamPipes || [])
-          .filter(p => placeableIdsToRemove.includes(p.fromId) || placeableIdsToRemove.includes(p.toId))
+          .filter(p => placeableIdsToRemove.includes(p.start?.junctionId) || placeableIdsToRemove.includes(p.end?.junctionId))
           .map(p => p.id);
         this.state.beamPipes = (this.state.beamPipes || []).filter(p => !pipeIdsToRemove.includes(p.id));
         for (const pid of placeableIdsToRemove) {
@@ -1774,8 +1795,8 @@ export class Game {
       }
       // Duplicate port check
       const dup = this.state.beamPipes.find(
-        p => (p.fromId === fromId && p.fromPort === fromPort) ||
-             (p.toId === fromId && p.toPort === fromPort)
+        p => (p.start?.junctionId === fromId && p.start?.portName === fromPort) ||
+             (p.end?.junctionId   === fromId && p.end?.portName   === fromPort)
       );
       if (dup) {
         this.log('Port already connected!', 'bad');
@@ -1791,8 +1812,8 @@ export class Game {
         return false;
       }
       const dup = this.state.beamPipes.find(
-        p => (p.fromId === toId && p.fromPort === toPort) ||
-             (p.toId === toId && p.toPort === toPort)
+        p => (p.start?.junctionId === toId && p.start?.portName === toPort) ||
+             (p.end?.junctionId   === toId && p.end?.portName   === toPort)
       );
       if (dup) {
         this.log('Port already connected!', 'bad');
@@ -1854,13 +1875,11 @@ export class Game {
     const id = 'bp_' + this.state.beamPipeNextId++;
     const pipe = {
       id,
-      fromId: fromId || null,
-      fromPort: fromId ? fromPort : null,
-      toId: toId || null,
-      toPort: toId ? toPort : null,
+      start: fromId ? { junctionId: fromId, portName: fromPort } : null,
+      end:   toId   ? { junctionId: toId,   portName: toPort   } : null,
       path: path.map(p => ({ col: p.col, row: p.row })),
       subL,
-      attachments: [],
+      placements: [],
     };
 
     this.state.beamPipes.push(pipe);
@@ -1917,8 +1936,8 @@ export class Game {
       // Check which ports are already connected
       const connectedPorts = new Set();
       for (const pipe of this.state.beamPipes) {
-        if (pipe.fromId === module.id) connectedPorts.add(pipe.fromPort);
-        if (pipe.toId === module.id) connectedPorts.add(pipe.toPort);
+        if (pipe.start?.junctionId === module.id) connectedPorts.add(pipe.start.portName);
+        if (pipe.end?.junctionId   === module.id) connectedPorts.add(pipe.end.portName);
       }
 
       // For 'from' endpoint: pipe leaves the module, so use an exit port.
@@ -2012,8 +2031,8 @@ export class Game {
     // Check which ports are already connected
     const connectedPorts = new Set();
     for (const pipe of this.state.beamPipes) {
-      if (pipe.fromId === moduleEntry.id) connectedPorts.add(pipe.fromPort);
-      if (pipe.toId === moduleEntry.id) connectedPorts.add(pipe.toPort);
+      if (pipe.start?.junctionId === moduleEntry.id) connectedPorts.add(pipe.start.portName);
+      if (pipe.end?.junctionId   === moduleEntry.id) connectedPorts.add(pipe.end.portName);
     }
 
     for (const pipe of this.state.beamPipes) {
@@ -2029,25 +2048,23 @@ export class Game {
 
       // Check start of pipe (from endpoint) — if unconnected, this module
       // would be the source side, so it needs an exit port
-      if (!pipe.fromId && pipe.path.length >= 2) {
+      if (!pipe.start && pipe.path.length >= 2) {
         const startPt = pipe.path[0];
         if (isAdjacentToModule(startPt.col, startPt.row, pipeDir)) {
           const port = this._findAvailablePortForModule(moduleEntry, connectedPorts, true);
           if (port) {
-            pipe.fromId = moduleEntry.id;
-            pipe.fromPort = port;
+            pipe.start = { junctionId: moduleEntry.id, portName: port };
             connectedPorts.add(port);
           }
         }
       }
       // Check end of pipe (to endpoint) — module is the destination, needs entry port
-      if (!pipe.toId && pipe.path.length >= 2) {
+      if (!pipe.end && pipe.path.length >= 2) {
         const endPt = pipe.path[pipe.path.length - 1];
         if (isAdjacentToModule(endPt.col, endPt.row, pipeDir)) {
           const port = this._findAvailablePortForModule(moduleEntry, connectedPorts, false);
           if (port) {
-            pipe.toId = moduleEntry.id;
-            pipe.toPort = port;
+            pipe.end = { junctionId: moduleEntry.id, portName: port };
             connectedPorts.add(port);
           }
         }
@@ -2169,7 +2186,7 @@ export class Game {
       newEndM = pipeBeamLen;
       newStartM = newEndM - newLenM;
     }
-    for (const ex of pipe.attachments) {
+    for (const ex of pipe.placements) {
       const exDef = COMPONENTS[ex.type];
       const exLenM = (exDef ? (exDef.subL || 1) : 1) * 0.5;
       const exStartM = ex.position * pipeBeamLen;
@@ -2206,11 +2223,11 @@ export class Game {
     if (params) Object.assign(attachment.params, params);
 
     // Insert sorted by position
-    const insertIdx = pipe.attachments.findIndex(a => a.position > attachment.position);
+    const insertIdx = pipe.placements.findIndex(a => a.position > attachment.position);
     if (insertIdx === -1) {
-      pipe.attachments.push(attachment);
+      pipe.placements.push(attachment);
     } else {
-      pipe.attachments.splice(insertIdx, 0, attachment);
+      pipe.placements.splice(insertIdx, 0, attachment);
     }
 
     this.log(`Attached ${def.name}`, 'good');
@@ -2227,10 +2244,10 @@ export class Game {
     const pipe = this.state.beamPipes.find(p => p.id === pipeId);
     if (!pipe) return false;
 
-    const idx = pipe.attachments.findIndex(a => a.id === attachmentId);
+    const idx = pipe.placements.findIndex(a => a.id === attachmentId);
     if (idx === -1) return false;
 
-    const att = pipe.attachments[idx];
+    const att = pipe.placements[idx];
     const def = COMPONENTS[att.type];
 
     // 50% refund
@@ -2240,7 +2257,7 @@ export class Game {
       }
     }
 
-    pipe.attachments.splice(idx, 1);
+    pipe.placements.splice(idx, 1);
     this.log(`Removed ${def ? def.name : 'attachment'} (50% refund)`, 'info');
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
@@ -2265,8 +2282,8 @@ export class Game {
     const tileCost = Math.max(costPerTile, Math.floor(costPerTile * (tileDist || 1)));
     this.state.resources.funding += Math.floor(tileCost * 0.5);
 
-    // Refund all attachments on this pipe (50%)
-    for (const att of (pipe.attachments || [])) {
+    // Refund all placements on this pipe (50%)
+    for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
       if (attDef && attDef.cost) {
         for (const [r, a] of Object.entries(attDef.cost)) {
@@ -3756,12 +3773,14 @@ export class Game {
       if (!this.state.beamPipes) this.state.beamPipes = [];
       if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
 
-      // Migrate beam pipes added before Task 2 (ports + attachments):
+      // Ensure beam pipes have the B2 shape (start/end refs + placements[]).
+      // Saves from before the B2 migration are not supported — any pipe
+      // missing the new fields is treated as incomplete.
       if (this.state.beamPipes) {
         for (const pipe of this.state.beamPipes) {
-          if (!pipe.fromPort) pipe.fromPort = 'exit';
-          if (!pipe.toPort) pipe.toPort = 'entry';
-          if (!pipe.attachments) pipe.attachments = [];
+          if (!('start' in pipe)) pipe.start = null;
+          if (!('end' in pipe)) pipe.end = null;
+          if (!Array.isArray(pipe.placements)) pipe.placements = [];
         }
       }
 

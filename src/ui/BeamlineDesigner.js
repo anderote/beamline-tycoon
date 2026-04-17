@@ -746,7 +746,7 @@ export class BeamlineDesigner {
    *
    * Supported operations:
    *   - Tune params on existing modules (writes to placeable.params)
-   *   - Tune params on existing attachments (writes to pipe.attachments[i].params)
+   *   - Tune params on existing attachments (writes to pipe.placements[i].params)
    *   - Add new attachment (inserted into draft during editing — must carry
    *     _targetPipeId on the draft node)
    *   - Remove existing attachment (was in _originalAttachmentIds, not in draft)
@@ -770,7 +770,7 @@ export class BeamlineDesigner {
           pp => pp.id === node._sourceRef.pipeId,
         );
         if (pipe) {
-          const att = pipe.attachments.find(a => a.id === node._sourceRef.attachmentId);
+          const att = pipe.placements.find(a => a.id === node._sourceRef.attachmentId);
           if (att) {
             att.params = { ...(att.params || {}), ...node.params };
             stillPresentAttachmentIds.add(node._sourceRef.attachmentId);
@@ -792,7 +792,7 @@ export class BeamlineDesigner {
 
     // Remove attachments that were in the original but no longer in the draft
     for (const pipe of this.game.state.beamPipes) {
-      for (const att of [...pipe.attachments]) {
+      for (const att of [...pipe.placements]) {
         if (this._originalAttachmentIds.has(att.id) && !stillPresentAttachmentIds.has(att.id)) {
           this.game.removeAttachment(pipe.id, att.id);
         }
