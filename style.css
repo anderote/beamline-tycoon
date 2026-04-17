@@ -542,38 +542,40 @@ body {
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
 
 /* === CAMERA VIEW-CUBE WIDGET === */
+/* Wrapper is 88x88; cube canvas is 64x64 centered at offset 12; compass
+ * labels are 14x14 hugging the cube edges. */
 #view-cube-widget {
   position: absolute;
   bottom: 312px;
-  right: 4px;
-  width: 132px;
-  height: 132px;
+  right: 8px;
+  width: 88px;
+  height: 88px;
   z-index: 101;
   pointer-events: auto;
   user-select: none;
 }
 .view-cube-host {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: 88px;
+  height: 88px;
 }
 .view-cube-host .vc-cube-canvas {
   position: absolute;
-  left: 18px;
-  top: 18px;
-  width: 96px;
-  height: 96px;
+  left: 12px;
+  top: 12px;
+  width: 64px;
+  height: 64px;
   cursor: pointer;
 }
 .view-cube-host .vc-compass {
   position: absolute;
-  width: 18px;
-  height: 18px;
-  font: bold 11px sans-serif;
-  color: rgba(180, 200, 240, 0.65);
-  background: rgba(20, 20, 40, 0.7);
-  border: 1px solid rgba(100, 100, 160, 0.35);
-  border-radius: 9px;
+  width: 14px;
+  height: 14px;
+  font: bold 9px sans-serif;
+  color: rgba(180, 200, 240, 0.7);
+  background: rgba(20, 20, 40, 0.75);
+  border: 1px solid rgba(100, 100, 160, 0.4);
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,12 +588,12 @@ body {
 }
 .view-cube-host .vc-compass.vc-active {
   color: #ffd86b;
-  border-color: rgba(255, 216, 107, 0.6);
+  border-color: rgba(255, 216, 107, 0.65);
 }
-.view-cube-host .vc-compass-n { left: 57px; top: 0; }
-.view-cube-host .vc-compass-s { left: 57px; bottom: 0; }
-.view-cube-host .vc-compass-e { right: 0; top: 57px; }
-.view-cube-host .vc-compass-w { left: 0; top: 57px; }
+.view-cube-host .vc-compass-n { left: 37px; top: 0; }
+.view-cube-host .vc-compass-s { left: 37px; bottom: 0; }
+.view-cube-host .vc-compass-e { right: 0; top: 37px; }
+.view-cube-host .vc-compass-w { left: 0; top: 37px; }
 
 /* === WALL VISIBILITY CONTROL === */
 #wall-visibility-control {

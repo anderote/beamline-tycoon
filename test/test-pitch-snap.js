@@ -6,6 +6,9 @@ import {
   PITCH_THRESHOLD,
   pickSnapMode,
   targetPitchForMode,
+  yawStepForMode,
+  yawDivisionsForMode,
+  snapYaw,
 } from '../src/renderer3d/free-orbit-math.js';
 
 let passed = 0;
@@ -35,6 +38,18 @@ console.log('targetPitchForMode');
 assert(targetPitchForMode('iso') === PITCH_REST, "'iso' -> PITCH_REST");
 assert(targetPitchForMode('top') === PITCH_TOP, "'top' -> PITCH_TOP");
 assert(targetPitchForMode('garbage') === PITCH_REST, 'unknown mode falls back to PITCH_REST');
+
+console.log('yawStepForMode / yawDivisionsForMode');
+assert(yawStepForMode('iso') === Math.PI / 2, "'iso' yaw step = π/2");
+assert(yawStepForMode('top') === Math.PI / 4, "'top' yaw step = π/4");
+assert(yawDivisionsForMode('iso') === 4, "'iso' has 4 divisions");
+assert(yawDivisionsForMode('top') === 8, "'top' has 8 divisions");
+
+console.log('snapYaw with custom step');
+assert(Math.abs(snapYaw(0.1, Math.PI / 4) - 0) < 1e-9, 'small yaw snaps to 0 with π/4 step');
+assert(Math.abs(snapYaw(Math.PI / 4 + 0.01, Math.PI / 4) - Math.PI / 4) < 1e-9, 'just past π/4 snaps to π/4');
+assert(Math.abs(snapYaw(Math.PI / 8 + 0.01, Math.PI / 4) - Math.PI / 4) < 1e-9, 'just past midpoint snaps up');
+assert(Math.abs(snapYaw(Math.PI / 8 - 0.01, Math.PI / 4) - 0) < 1e-9, 'just below midpoint snaps down');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
