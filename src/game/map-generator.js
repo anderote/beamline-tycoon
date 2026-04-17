@@ -92,7 +92,7 @@ function placeTreeDecoration(placeables, type, col, row, nextIdRef) {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-const WORLD_BOUND = 25;       // sampling bounds for placement
+const WORLD_BOUND = 30;       // sampling bounds for placement (matches GRASS_RANGE in world-snapshot.js)
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
 const MAX_CLUSTERS = 14;
 const DARK_CLUSTER_THRESHOLD = -0.1;
@@ -200,7 +200,7 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
         if (inClearing(col, row)) continue;
         const d = Math.max(Math.abs(col), Math.abs(row));
         const t = Math.max(0, Math.min(1, (d - CLEARING_RADIUS) / ringSpan));
-        const prob = 0.15 + t * 0.55;  // 15% near clearing, 70% at the edge
+        const prob = 0.15 + t * 0.75;  // 15% near clearing, 90% at the map edge
         if (rng() > prob) continue;
         const b = sampleTerrainBrightness(col, row, terrainBlobs);
         const type = pickSpeciesForBrightness(b, rng);
