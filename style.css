@@ -550,7 +550,7 @@ body {
  * Cube widget is 96px wide → right = 71 - 48 = 23px to center. */
 #view-cube-widget {
   position: absolute;
-  bottom: 312px;
+  bottom: 321px;
   right: 23px;
   width: 96px;
   height: 116px;
@@ -566,7 +566,7 @@ body {
 .view-cube-host .vc-cube-canvas {
   position: absolute;
   left: 0;
-  top: 0;
+  top: 20px;
   width: 96px;
   height: 96px;
   cursor: pointer;
@@ -574,7 +574,7 @@ body {
 .view-cube-host .vc-rotate-bar {
   position: absolute;
   left: 0;
-  top: 92px;
+  top: 95px;
   width: 96px;
   height: 22px;
   overflow: visible;
@@ -607,7 +607,7 @@ body {
 /* === WALL VISIBILITY CONTROL === */
 #wall-visibility-control {
   position: absolute;
-  bottom: 270px;
+  bottom: 279px;
   right: 12px;
   z-index: 101;
   display: flex;
