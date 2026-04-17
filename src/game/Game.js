@@ -21,7 +21,7 @@ import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { generateStartingMap } from './map-generator.js';
-import { serializeCornerHeights, deserializeCornerHeights } from './terrain.js';
+import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 
 export class Game {
   constructor(registry) {
@@ -1315,6 +1315,21 @@ export class Game {
             return false;
           }
         }
+      }
+    }
+
+    // Auto-flatten terrain under the footprint. All validation above has
+    // passed, so this mutation is committed; failed placements (early
+    // returns above) leave the heightmap untouched. Stacked items sit on
+    // a parent that already flattened its tiles, but re-flattening to zero
+    // is idempotent — no need to special-case.
+    {
+      const flattenedKeys = new Set();
+      for (const c of cells) {
+        const tk = c.col + ',' + c.row;
+        if (flattenedKeys.has(tk)) continue;
+        flattenedKeys.add(tk);
+        setTileCorners(this.state, c.col, c.row, { nw: 0, ne: 0, se: 0, sw: 0 });
       }
     }
 
