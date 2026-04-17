@@ -544,39 +544,40 @@ body {
 /* === CAMERA VIEW-CUBE WIDGET === */
 /* 96px wide. Cube canvas (96x96) on top; Q/E rotate-arrow SVG (96x22) sits
  * just below, slightly overlapping the cube's lower edge. */
-/* Horizontally centered over the wall-visibility control below.
- * wall-visibility = 4×24px buttons + 3×2px gaps + 2×3px padding + 2×1px border
- *                 = 118px wide, right: 12px → center is at right ≈ 71px.
- * Cube widget is 96px wide → right = 71 - 48 = 23px to center. */
+/* Horizontally centered over the (now 15% narrower) wall-visibility control.
+ * wall-visibility = 4×20px buttons (+1px border each) + 3×2px gaps
+ *                  + 2×3px padding + 2×1px container border = 102px wide.
+ * right: 12px → center at 63px from right. Cube widget is 86px wide
+ * → right = 63 - 43 = 20px to center. */
 #view-cube-widget {
   position: absolute;
   bottom: 321px;
-  right: 23px;
-  width: 96px;
-  height: 122px;
+  right: 20px;
+  width: 86px;
+  height: 110px;
   z-index: 101;
   pointer-events: auto;
   user-select: none;
 }
 .view-cube-host {
   position: relative;
-  width: 96px;
-  height: 122px;
+  width: 86px;
+  height: 110px;
 }
 .view-cube-host .vc-cube-canvas {
   position: absolute;
   left: 0;
-  top: 30px;
-  width: 96px;
-  height: 96px;
+  top: 27px;
+  width: 86px;
+  height: 86px;
   cursor: pointer;
 }
 .view-cube-host .vc-rotate-bar {
   position: absolute;
   left: 0;
-  top: 100px;
-  width: 96px;
-  height: 22px;
+  top: 90px;
+  width: 86px;
+  height: 20px;
   overflow: visible;
   pointer-events: none;
 }
@@ -619,8 +620,8 @@ body {
 }
 
 .wall-vis-btn {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   background: rgba(40, 40, 70, 0.8);
   border: 1px solid rgba(80, 80, 120, 0.4);
   border-radius: 3px;
@@ -631,6 +632,10 @@ body {
   justify-content: center;
   padding: 0;
   transition: background 0.15s, border-color 0.15s;
+}
+.wall-vis-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .wall-vis-btn:hover {
