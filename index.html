@@ -56,7 +56,10 @@
       <button class="mp-btn mp-prev" title="Previous">&lt;</button>
       <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
       <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
-      <span class="mp-track-name">Loading...</span>
+      <div class="mp-track-name-wrap">
+        <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
+        <div class="mp-track-list" hidden></div>
+      </div>
       <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
       <select class="mp-theme" title="Theme"></select>
       <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
@@ -118,6 +121,9 @@
       </div>
     </div>
 
+    <!-- Camera view-cube widget (lower-right, above wall visibility) -->
+    <div id="view-cube-widget"></div>
+
     <!-- Wall visibility control (lower-right, above bottom HUD) -->
     <div id="wall-visibility-control">
       <button class="wall-vis-btn" data-wall-mode="up" title="Walls Up">
@@ -136,6 +142,7 @@
 
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
+      <div id="shift-hint" class="hidden"></div>
       <div id="dsgn-palette-actions" class="dsgn-palette-actions hidden">
         <span class="dsgn-palette-hint">Click component to:</span>
         <button class="dsgn-action-btn active" id="dsgn-action-insert" title="Insert at nearest edge (Tab to toggle)">Insert</button>

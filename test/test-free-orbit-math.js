@@ -2,6 +2,7 @@
 
 import {
   PITCH_REST,
+  PITCH_TOP,
   PITCH_MIN,
   PITCH_MAX,
   CAM_D,
@@ -34,7 +35,8 @@ console.log('Pitch bounds');
 assert(PITCH_MIN > 0 && PITCH_MIN < PITCH_REST, 'PITCH_MIN is below rest');
 assert(PITCH_MAX > PITCH_REST && PITCH_MAX < Math.PI / 2, 'PITCH_MAX is above rest, below vertical');
 assert(approx(PITCH_MIN, (5 * Math.PI) / 180), 'PITCH_MIN = 5°');
-assert(approx(PITCH_MAX, (80 * Math.PI) / 180), 'PITCH_MAX = 80°');
+assert(approx(PITCH_TOP, (89 * Math.PI) / 180), 'PITCH_TOP = 89°');
+assert(PITCH_MAX === PITCH_TOP, 'PITCH_MAX matches PITCH_TOP so free-orbit can reach top-down');
 
 console.log('clampPitch');
 assert(clampPitch(PITCH_REST) === PITCH_REST, 'rest pitch passes through');
