@@ -16,8 +16,15 @@
 import {
   cameraOffset,
   PITCH_REST,
-  yawStepForMode,
 } from './free-orbit-math.js';
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
 
 // Side-face mapping. Keys are the cube's local face axes, values are the
 // yaw index that produces an iso view facing that face.
@@ -64,31 +71,52 @@ export class ViewCube {
     this.host.innerHTML = '';
     this.host.classList.add('view-cube-host');
 
-    // Compass ring labels (DOM, click to snap yaw within current mode).
-    // Cardinal yaws (radians) — stable across modes; per-mode yawIdx is
-    // computed from the current mode's step at click time.
-    const dirYaw = { E: 0, S: Math.PI / 2, W: Math.PI, N: 3 * Math.PI / 2 };
-    this.compass = {};
-    for (const dir of ['N', 'E', 'S', 'W']) {
-      const el = document.createElement('div');
-      el.className = `vc-compass vc-compass-${dir.toLowerCase()}`;
-      el.textContent = dir;
-      el.addEventListener('click', () => {
-        const mode = this.renderer.viewMode;
-        const stepRad = yawStepForMode(mode);
-        const idx = Math.round(dirYaw[dir] / stepRad);
-        this.renderer.setViewMode(mode, idx);
-      });
-      this.host.appendChild(el);
-      this.compass[dir] = el;
-    }
-
-    // Inner canvas wrapper centers the cube canvas inside the compass ring.
     this.cubeCanvas = document.createElement('canvas');
     this.cubeCanvas.className = 'vc-cube-canvas';
     this.cubeCanvas.style.width = CUBE_CANVAS_PX + 'px';
     this.cubeCanvas.style.height = CUBE_CANVAS_PX + 'px';
     this.host.appendChild(this.cubeCanvas);
+
+    // Q / E rotate arrows: two curved arcs wrapping around the base of the
+    // cube. Click → renderer.rotateView(±1).
+    const svg = svgEl('svg', {
+      class: 'vc-rotate-bar',
+      viewBox: '0 0 80 22',
+      width: '80',
+      height: '22',
+    });
+    const makeArrow = (dir, label) => {
+      // dir = -1 for Q (counterclockwise, left), +1 for E (clockwise, right).
+      const g = svgEl('g', { class: `vc-rot vc-rot-${label.toLowerCase()}` });
+      const sweep = dir < 0 ? 0 : 1;
+      const startX = dir < 0 ? 36 : 44;
+      const endX = dir < 0 ? 10 : 70;
+      const arc = svgEl('path', {
+        d: `M ${startX} 2 A 22 18 0 0 ${sweep} ${endX} 18`,
+        fill: 'none',
+        'stroke-linecap': 'round',
+      });
+      // Arrowhead — small triangle at the arc endpoint pointing tangent.
+      const headPts = dir < 0
+        ? `${endX},${18} ${endX + 6},${14} ${endX + 6},${22}`
+        : `${endX},${18} ${endX - 6},${14} ${endX - 6},${22}`;
+      const head = svgEl('polygon', { points: headPts });
+      const text = svgEl('text', {
+        x: dir < 0 ? 1 : 79,
+        y: 10,
+        'text-anchor': dir < 0 ? 'start' : 'end',
+        class: 'vc-rot-label',
+      });
+      text.textContent = label;
+      g.appendChild(arc);
+      g.appendChild(head);
+      g.appendChild(text);
+      g.addEventListener('click', () => this.renderer.rotateView(dir));
+      return g;
+    };
+    svg.appendChild(makeArrow(-1, 'Q'));
+    svg.appendChild(makeArrow(+1, 'E'));
+    this.host.appendChild(svg);
   }
 
   _buildScene() {
@@ -165,7 +193,12 @@ export class ViewCube {
     const face = this._faceAtPointer(e);
     if (!face) return;
     if (face === 'posY') {
-      this.renderer.setViewMode('top', this.renderer._topYawIdx);
+      // Toggle: in top-down → back to iso (last iso facing); else → top-down.
+      if (this.renderer.viewMode === 'top') {
+        this.renderer.setViewMode('iso', this.renderer._isoYawIdx);
+      } else {
+        this.renderer.setViewMode('top', this.renderer._topYawIdx);
+      }
     } else if (FACE_TO_YAW[face] !== undefined) {
       this.renderer.setViewMode('iso', FACE_TO_YAW[face]);
     }
@@ -203,14 +236,6 @@ export class ViewCube {
     this.camera.position.set(off.x * scale, off.y * scale, off.z * scale);
     this.camera.lookAt(0, 0, 0);
     this.cubeRenderer.render(this.scene, this.camera);
-
-    // Highlight the cardinal direction matching the snapped yaw of the
-    // current mode. Use _effectiveYaw to follow live free-orbit drag too.
-    const idx = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
-    const dirForIdx = ['E', 'S', 'W', 'N'][idx];
-    for (const dir of ['N', 'E', 'S', 'W']) {
-      this.compass[dir].classList.toggle('vc-active', dir === dirForIdx);
-    }
   }
 
   dispose() {
