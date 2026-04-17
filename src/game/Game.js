@@ -12,6 +12,7 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../beamline/pipe-geometry.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
+import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -26,7 +27,6 @@ import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from
 export class Game {
   constructor(registry) {
     this.registry = registry;
-    this.beamline = null;  // kept for renderer compatibility (will be updated in later tasks)
 
     this.editingBeamlineId = null;
     this.selectedBeamlineId = null;
@@ -79,6 +79,7 @@ export class Game {
       // Beam pipe connections (drawn between module ports)
       beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
       beamPipeNextId: 1,
+      placementNextId: 0,           // monotonic id source for pipe placements (BeamlineSystem)
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
@@ -137,6 +138,20 @@ export class Game {
         }
       }
     }
+
+    // BeamlineSystem owns mutations for junctions, pipes, and pipe-placements.
+    // skipBeamlineRoute on placePlaceable avoids recursion back into the
+    // legacy tryInsertOnBeamPipe branch still present in _placePlaceableInner.
+    this.beamline = new BeamlineSystem({
+      state: this.state,
+      emit: this.emit.bind(this),
+      log: this.log.bind(this),
+      spend: this.spend.bind(this),
+      placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
+      removePlaceable: (id) => this._removePlaceableRaw(id),
+      nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,
+      nextPlacementId: () => 'pl_' + (this.state.placementNextId = (this.state.placementNextId || 0) + 1),
+    });
   }
 
   // Rebuild placeableIndex + subgridOccupied from current state.placeables.
@@ -1316,8 +1331,9 @@ export class Game {
   placePlaceable(opts) {
     try { return this._placePlaceableInner(opts); } catch(e) { console.error('[placePlaceable] CRASH:', e); return false; }
   }
-  _placePlaceableInner(opts) {
+  _placePlaceableInner(opts, opts2) {
     const { type, col, row, subCol, subRow, dir = 0, params, free = false, silent = false } = opts;
+    const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
 
     const placeable = PLACEABLES[type];
     if (!placeable) return false;
@@ -1325,7 +1341,9 @@ export class Game {
 
     // If this is a beamline module and the cursor tile is on a pipe,
     // attempt insert-and-split using the caller's exact position/direction.
-    if (kind === 'beamline') {
+    // BeamlineSystem callers pass skipBeamlineRoute to avoid re-entering
+    // this branch (they've already resolved pipe routing themselves).
+    if (kind === 'beamline' && !skipBeamlineRoute) {
       const inserted = this.tryInsertOnBeamPipe(opts);
       if (inserted) return inserted;
     }
@@ -1579,6 +1597,100 @@ export class Game {
     this.state.placeables.splice(idx, 1);
 
     // Rebuild index
+    this._rebuildPlaceableIndex();
+
+    this.log(`Removed ${placeable.name} (50% refund)`, 'info');
+
+    if (entry.category === 'beamline') {
+      this._deriveBeamGraph();
+    }
+
+    this.computeSystemStats();
+    this._syncLegacyPlaceableState();
+    this.emit('placeableChanged');
+    if (entry.category === 'equipment') this.emit('facilityChanged');
+    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    return true;
+  }
+
+  /**
+   * BeamlineSystem-facing remove: same as removePlaceable but skips the
+   * legacy pipe-cleanup step. BeamlineSystem.removeJunction already opens
+   * connected pipe ends explicitly before invoking this, so any residual
+   * pipe filtering here would double-book the work.
+   */
+  _removePlaceableRaw(placeableId) {
+    const idx = this.state.placeableIndex[placeableId];
+    if (idx === undefined) return false;
+
+    const entry = this.state.placeables[idx];
+    if (!entry) return false;
+
+    const placeable = PLACEABLES[entry.type];
+    if (!placeable) return false;
+
+    const getEntry = (id) => {
+      const idx = this.state.placeableIndex[id];
+      return idx !== undefined ? this.state.placeables[idx] : null;
+    };
+    const getDef = (t) => PLACEABLES[t] || null;
+
+    const updates = collapsePlan(placeableId, getEntry, getDef);
+    if (updates === null) {
+      this.log('Cannot remove — stack would exceed height limit!', 'bad');
+      return false;
+    }
+
+    if (placeable.cost) {
+      for (const [r, a] of Object.entries(placeable.cost)) {
+        this.state.resources[r] += Math.floor(a * 0.5);
+      }
+    }
+
+    placeable.onRemoved(this, entry);
+
+    for (const cell of entry.cells) {
+      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      delete this.state.subgridOccupied[cellKey];
+    }
+
+    if (entry.stackParentId) {
+      const parent = getEntry(entry.stackParentId);
+      if (parent) {
+        parent.stackChildren = parent.stackChildren.filter(cid => cid !== placeableId);
+      }
+    }
+    for (const childId of (entry.stackChildren || [])) {
+      const child = getEntry(childId);
+      if (child) {
+        child.stackParentId = entry.stackParentId || null;
+        if (entry.stackParentId) {
+          const newParent = getEntry(entry.stackParentId);
+          if (newParent && !newParent.stackChildren.includes(childId)) {
+            newParent.stackChildren.push(childId);
+          }
+        }
+      }
+    }
+    for (const u of updates) {
+      const child = getEntry(u.id);
+      if (!child) continue;
+      child.placeY = u.newPlaceY;
+      child.stackParentId = u.newStackParentId;
+      if (u.newStackParentId === null && child.placeY === 0) {
+        const childDef = getDef(child.type);
+        if (childDef) {
+          const childCells = childDef.footprintCells(child.col, child.row, child.subCol || 0, child.subRow || 0, child.dir || 0);
+          child.cells = childCells;
+          for (const c of childCells) {
+            const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+            this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+          }
+        }
+      }
+    }
+
+    this.state.placeables.splice(idx, 1);
     this._rebuildPlaceableIndex();
 
     this.log(`Removed ${placeable.name} (50% refund)`, 'info');
