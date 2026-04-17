@@ -1,8 +1,9 @@
 // === OVERLAYS EXTENSION ===
-// Adds component popup, tech tree, and goals overlay rendering to Renderer.prototype.
+// Adds component popup, tech tree, and goals overlay rendering to UIHost.prototype.
 // Note: PIXI is a CDN global — not imported.
 
-import { Renderer, _pxText } from './Renderer.js';
+import { _pxText } from './Renderer.js';
+import { UIHost } from '../ui/UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { OBJECTIVES } from '../data/objectives.js';
@@ -18,7 +19,7 @@ import { tileCenterIso } from './grid.js';
 
 // --- Component popup ---
 
-Renderer.prototype.showPopup = function(node, screenX, screenY) {
+UIHost.prototype.showPopup = function(node, screenX, screenY) {
   const popup = document.getElementById('component-popup');
   if (!popup) return;
 
@@ -185,11 +186,11 @@ Renderer.prototype.showPopup = function(node, screenX, screenY) {
   }
 };
 
-Renderer.prototype._paramLabel = function(key) {
+UIHost.prototype._paramLabel = function(key) {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
 };
 
-Renderer.prototype._fmtParam = function(val) {
+UIHost.prototype._fmtParam = function(val) {
   if (val === undefined || val === null) return '--';
   if (Math.abs(val) >= 100) return val.toFixed(0);
   if (Math.abs(val) >= 1) return val.toFixed(2);
@@ -197,7 +198,7 @@ Renderer.prototype._fmtParam = function(val) {
   return val.toExponential(2);
 };
 
-Renderer.prototype._wirePopupSliders = function(node, paramDefs, body) {
+UIHost.prototype._wirePopupSliders = function(node, paramDefs, body) {
   let debounceTimer = null;
 
   const sliders = body.querySelectorAll('input[type="range"][data-param]');
@@ -259,7 +260,7 @@ Renderer.prototype._wirePopupSliders = function(node, paramDefs, body) {
   });
 };
 
-Renderer.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
+UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
   const popup = document.getElementById('component-popup');
   if (!popup) return;
 
@@ -290,14 +291,14 @@ Renderer.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
   if (closeBtn) closeBtn.onclick = () => this.hidePopup();
 };
 
-Renderer.prototype.hidePopup = function() {
+UIHost.prototype.hidePopup = function() {
   const popup = document.getElementById('component-popup');
   if (popup) popup.classList.add('hidden');
 };
 
 // --- Schematic drawing ---
 
-Renderer.prototype.drawSchematic = function(canvas, componentType, params, options) {
+UIHost.prototype.drawSchematic = function(canvas, componentType, params, options) {
   // We draw at a tiny resolution (70x30 pixels) then scale up crispy
   const PW = (options && options.pixelWidth) || 70, PH = 30;
   const off = document.createElement('canvas');
@@ -518,7 +519,7 @@ function _drawBeamPipe(px, dot, W, cy, C, opts = {}) {
   }
 }
 
-Renderer.prototype._schematicDrawers = {
+UIHost.prototype._schematicDrawers = {
   // === SOURCE (cathode ray / electron gun style) ===
   source(p, px, dot, W, H, cy, C) {
     // Clear pre-drawn beam dashes on the left side (source generates its own beam)
@@ -2900,7 +2901,7 @@ Renderer.prototype._schematicDrawers = {
 
 // --- Tech Tree ---
 
-Renderer.prototype._buildTreeLayout = function() {
+UIHost.prototype._buildTreeLayout = function() {
   const NODE_W = 260;
   const NODE_H = 85;
   const H_GAP = 50;
@@ -3000,7 +3001,7 @@ Renderer.prototype._buildTreeLayout = function() {
   this._treeCanvasHeight = Math.max(maxY + NODE_H + 80, 400);
 };
 
-Renderer.prototype._renderTechTree = function() {
+UIHost.prototype._renderTechTree = function() {
   const canvas = document.getElementById('tt-canvas');
   const svg = document.getElementById('tt-connectors');
   const tabsEl = document.getElementById('tt-category-tabs');
@@ -3177,7 +3178,7 @@ Renderer.prototype._renderTechTree = function() {
   }
 };
 
-Renderer.prototype._showResearchPopover = function(id, nodeEl) {
+UIHost.prototype._showResearchPopover = function(id, nodeEl) {
   const r = RESEARCH[id];
   const popover = document.getElementById('tt-popover');
   if (!popover) return;
@@ -3287,7 +3288,7 @@ Renderer.prototype._showResearchPopover = function(id, nodeEl) {
   });
 };
 
-Renderer.prototype._scrollToCategory = function(catId) {
+UIHost.prototype._scrollToCategory = function(catId) {
   const hKey = '__header_' + catId;
   const pos = this._treeLayout?.[hKey];
   if (!pos) return;
@@ -3303,7 +3304,7 @@ Renderer.prototype._scrollToCategory = function(catId) {
   this._applyTreeTransform();
 };
 
-Renderer.prototype._applyTreeTransform = function() {
+UIHost.prototype._applyTreeTransform = function() {
   const canvas = document.getElementById('tt-canvas');
   const svg = document.getElementById('tt-connectors');
   if (!canvas || !svg) return;
@@ -3312,7 +3313,7 @@ Renderer.prototype._applyTreeTransform = function() {
   svg.style.transform = tx;
 };
 
-Renderer.prototype._updateTreeProgress = function() {
+UIHost.prototype._updateTreeProgress = function() {
   const overlay = document.getElementById('research-overlay');
   if (!overlay || overlay.classList.contains('hidden')) return;
   if (!this.game.state.activeResearch) return;
@@ -3335,7 +3336,7 @@ Renderer.prototype._updateTreeProgress = function() {
   }
 };
 
-Renderer.prototype._bindTreeEvents = function() {
+UIHost.prototype._bindTreeEvents = function() {
   const wrapper = document.getElementById('tt-canvas-wrapper');
   if (!wrapper) return;
 
@@ -3388,7 +3389,7 @@ Renderer.prototype._bindTreeEvents = function() {
 
 // --- Goals overlay ---
 
-Renderer.prototype._renderGoalsOverlay = function() {
+UIHost.prototype._renderGoalsOverlay = function() {
   const list = document.getElementById('goals-list');
   if (!list) return;
   list.innerHTML = '';
@@ -3424,7 +3425,7 @@ Renderer.prototype._renderGoalsOverlay = function() {
 // Beamline context windows
 // ---------------------------------------------------------------------------
 
-Renderer.prototype._openBeamlineWindow = function(beamlineId) {
+UIHost.prototype._openBeamlineWindow = function(beamlineId) {
   if (!this._beamlineWindows) this._beamlineWindows = {};
   if (this._beamlineWindows[beamlineId]) {
     this._beamlineWindows[beamlineId].ctx.focus();
@@ -3467,7 +3468,7 @@ Renderer.prototype._openBeamlineWindow = function(beamlineId) {
 
 // --- Machine context windows ---
 
-Renderer.prototype._openMachineWindow = function(machineInstanceId) {
+UIHost.prototype._openMachineWindow = function(machineInstanceId) {
   if (!this._machineWindows) this._machineWindows = {};
   if (this._machineWindows[machineInstanceId]) {
     this._machineWindows[machineInstanceId].ctx.focus();
@@ -3484,7 +3485,7 @@ Renderer.prototype._openMachineWindow = function(machineInstanceId) {
 
 // --- Equipment context windows ---
 
-Renderer.prototype._openEquipmentWindow = function(equip) {
+UIHost.prototype._openEquipmentWindow = function(equip) {
   if (!this._equipmentWindows) this._equipmentWindows = {};
   if (this._equipmentWindows[equip.id]) {
     this._equipmentWindows[equip.id].ctx.focus();
@@ -3507,7 +3508,7 @@ Renderer.prototype._openEquipmentWindow = function(equip) {
   };
 };
 
-Renderer.prototype._refreshContextWindows = function() {
+UIHost.prototype._refreshContextWindows = function() {
   if (this._beamlineWindows) {
     for (const bw of Object.values(this._beamlineWindows)) {
       bw.refresh();
@@ -3526,7 +3527,7 @@ Renderer.prototype._refreshContextWindows = function() {
 };
 
 // Update anchored window positions (called on pan/zoom for smooth tracking)
-Renderer.prototype._updateAnchoredWindows = function() {
+UIHost.prototype._updateAnchoredWindows = function() {
   if (this._beamlineWindows) {
     for (const bw of Object.values(this._beamlineWindows)) {
       if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);

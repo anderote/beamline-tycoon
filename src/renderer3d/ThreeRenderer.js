@@ -15,7 +15,11 @@ import { UtilityPipeBuilder } from './utility-pipe-builder.js';
 import { RackBuilder } from './rack-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { Overlay } from './overlay.js';
-import { Renderer as LegacyRenderer } from '../renderer/Renderer.js';
+import { UIHost } from '../ui/UIHost.js';
+// Side-effect imports: attach UI methods to UIHost.prototype.
+// Must run before `new UIHost(...)` is ever evaluated.
+import '../renderer/hud.js';
+import '../renderer/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
@@ -274,6 +278,22 @@ export class ThreeRenderer {
     this._onPaletteClick = null;
     this._onTabSelect = null;
     this.onProbeClick = null;
+
+    // UI host: owns DOM-side UI (HUD, popups, tech tree, anchored windows).
+    // Installs method forwards on `this` for every UI method so existing
+    // `this.foo()` call sites keep working. Forwards dispatch to this.ui,
+    // giving the UI layer a narrow, intentional view of renderer state via
+    // UIHost's pass-through getters.
+    this.ui = new UIHost(this);
+    for (const name of UI_METHODS) {
+      this[name] = (...args) => this.ui[name](...args);
+    }
+    // Data-property forward: InputHandler reads renderer._schematicDrawers
+    // directly before dispatching a schematic draw.
+    Object.defineProperty(this, '_schematicDrawers', {
+      get: () => this.ui._schematicDrawers,
+      configurable: true,
+    });
   }
 
   async init() {
@@ -2984,12 +3004,15 @@ export class ThreeRenderer {
   }
 }
 
-// --- Bridge DOM-based UI methods from legacy Renderer prototype ---
-// These are added by hud.js, overlays.js, designer-renderer.js via
-// Renderer.prototype.methodName = function() {...}
-// We copy them onto ThreeRenderer.prototype so they work on our instance.
-
-const domMethods = [
+// --- UI method forwards ---
+// Names of methods UIHost exposes (attached in hud.js / overlays.js via
+// side-effect imports at the top of this file). The ThreeRenderer
+// constructor installs per-instance forwards so existing `this.foo()`
+// call sites dispatch to `this.ui.foo()`.
+//
+// Declared at module scope so the constructor for-loop sees it. Changes
+// here require matching methods on UIHost.prototype.
+const UI_METHODS = [
   // hud.js
   '_updateHUD', '_updateBeamSummary', '_generateCategoryTabs',
   '_renderPalette', '_refreshPalette', 'updatePalette',
@@ -3003,7 +3026,7 @@ const domMethods = [
   '_sstat', '_ssep', '_detailRow', '_fmtPressure', '_superscript', '_qualityColor', '_marginColor',
   // overlays.js
   'showPopup', 'showFacilityPopup', 'hidePopup',
-  'drawSchematic', '_schematicDrawers',
+  'drawSchematic',
   '_paramLabel', '_fmtParam', '_wirePopupSliders',
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
@@ -3011,9 +3034,3 @@ const domMethods = [
   '_openBeamlineWindow', '_openMachineWindow', '_openEquipmentWindow',
   '_refreshContextWindows',
 ];
-
-for (const method of domMethods) {
-  if (LegacyRenderer.prototype[method] && !ThreeRenderer.prototype[method]) {
-    ThreeRenderer.prototype[method] = LegacyRenderer.prototype[method];
-  }
-}

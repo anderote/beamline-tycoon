@@ -1,8 +1,9 @@
 // === HUD EXTENSION ===
-// Adds HUD update, palette rendering, beam button, and system stats to Renderer.prototype.
+// Adds HUD update, palette rendering, beam button, and system stats to UIHost.prototype.
 // Note: PIXI is a CDN global — not imported.
 
-import { Renderer, isFacilityCategory } from './Renderer.js';
+import { isFacilityCategory } from './Renderer.js';
+import { UIHost } from '../ui/UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/facility.js';
@@ -92,7 +93,7 @@ function rememberVariant(key, vi) {
 
 // --- HUD updates ---
 
-Renderer.prototype._updateHUD = function() {
+UIHost.prototype._updateHUD = function() {
   const s = this.game.state;
   const res = s.resources;
 
@@ -181,7 +182,7 @@ Renderer.prototype._updateHUD = function() {
 
 // === TUTORIAL CHECKLIST ===
 
-Renderer.prototype._initTutorialPanel = function() {
+UIHost.prototype._initTutorialPanel = function() {
   const panel = document.getElementById('tutorial-panel');
   if (!panel || this._tutorialInited) return;
   this._tutorialInited = true;
@@ -226,7 +227,7 @@ Renderer.prototype._initTutorialPanel = function() {
   }
 };
 
-Renderer.prototype._updateTutorialPanel = function() {
+UIHost.prototype._updateTutorialPanel = function() {
   const panel = document.getElementById('tutorial-panel');
   if (!panel) return;
 
@@ -302,7 +303,7 @@ Renderer.prototype._updateTutorialPanel = function() {
   }
 };
 
-Renderer.prototype._updateBeamSummary = function() {
+UIHost.prototype._updateBeamSummary = function() {
   const el = document.getElementById('beam-summary');
   if (!el) return;
   const entries = this.game.registry.getAll();
@@ -319,7 +320,7 @@ Renderer.prototype._updateBeamSummary = function() {
 
 // --- Palette rendering ---
 
-Renderer.prototype._generateCategoryTabs = function() {
+UIHost.prototype._generateCategoryTabs = function() {
   const tabsContainer = document.getElementById('category-tabs');
   if (!tabsContainer) return;
   tabsContainer.innerHTML = '';
@@ -399,7 +400,7 @@ Renderer.prototype._generateCategoryTabs = function() {
   this._renderMachineTypeSelector();
 };
 
-Renderer.prototype._renderMachineTypeSelector = function() {
+UIHost.prototype._renderMachineTypeSelector = function() {
   // Machine type is now determined by the source component — no separate selector needed.
   // Hide the label and dropdown.
   const label = document.getElementById('beamline-type-label');
@@ -408,14 +409,14 @@ Renderer.prototype._renderMachineTypeSelector = function() {
   if (dropdown) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; }
 };
 
-Renderer.prototype._refreshPalette = function() {
+UIHost.prototype._refreshPalette = function() {
   const activeTab = document.querySelector('.cat-tab.active');
   if (activeTab?.dataset.category) {
     this._renderPalette(activeTab.dataset.category);
   }
 };
 
-Renderer.prototype._renderPalette = function(tabCategory) {
+UIHost.prototype._renderPalette = function(tabCategory) {
   this._removeParamFlyout();
   const palette = document.getElementById('component-palette');
   if (!palette) return;
@@ -1388,7 +1389,7 @@ Renderer.prototype._renderPalette = function(tabCategory) {
   }
 };
 
-Renderer.prototype._createPaletteItem = function(key, comp, idx) {
+UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const unlocked = this.game.isComponentUnlocked(comp);
   if (!unlocked) return null;
 
@@ -1601,14 +1602,14 @@ Renderer.prototype._createPaletteItem = function(key, comp, idx) {
   return item;
 };
 
-Renderer.prototype._removeParamFlyout = function() {
+UIHost.prototype._removeParamFlyout = function() {
   if (this._activeParamFlyout) {
     this._activeParamFlyout.remove();
     this._activeParamFlyout = null;
   }
 };
 
-Renderer.prototype._showPalettePreview = function(comp) {
+UIHost.prototype._showPalettePreview = function(comp) {
   const preview = document.getElementById('component-preview');
   if (!preview) return;
 
@@ -1676,18 +1677,18 @@ Renderer.prototype._showPalettePreview = function(comp) {
   }
 };
 
-Renderer.prototype._hidePalettePreview = function() {
+UIHost.prototype._hidePalettePreview = function() {
   const preview = document.getElementById('component-preview');
   if (preview) preview.classList.add('hidden');
 };
 
-Renderer.prototype.updatePalette = function(category) {
+UIHost.prototype.updatePalette = function(category) {
   this._renderPalette(category);
 };
 
 // --- HUD event bindings ---
 
-Renderer.prototype._bindHUDEvents = function() {
+UIHost.prototype._bindHUDEvents = function() {
   // Mode switcher
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1789,7 +1790,7 @@ Renderer.prototype._bindHUDEvents = function() {
 
 // --- System Stats Panel ---
 
-Renderer.prototype._updateSystemStatsVisibility = function() {
+UIHost.prototype._updateSystemStatsVisibility = function() {
   const panel = document.getElementById('system-stats-panel');
   if (!panel) return;
   if (this.activeMode === 'facility' || this.activeMode === 'infra') {
@@ -1799,7 +1800,7 @@ Renderer.prototype._updateSystemStatsVisibility = function() {
   }
 };
 
-Renderer.prototype._updateSystemStatsContent = function(category) {
+UIHost.prototype._updateSystemStatsContent = function(category) {
   this._activeStatsCategory = category;
   const panel = document.getElementById('system-stats-panel');
   if (!panel || panel.classList.contains('hidden')) return;
@@ -1829,7 +1830,7 @@ Renderer.prototype._updateSystemStatsContent = function(category) {
   this._refreshSystemStatsValues();
 };
 
-Renderer.prototype._refreshSystemStatsValues = function() {
+UIHost.prototype._refreshSystemStatsValues = function() {
   const panel = document.getElementById('system-stats-panel');
   if (!panel || panel.classList.contains('hidden')) return;
 
@@ -1870,43 +1871,43 @@ Renderer.prototype._refreshSystemStatsValues = function() {
   }
 };
 
-Renderer.prototype._sstat = function(label, value, unit, quality) {
+UIHost.prototype._sstat = function(label, value, unit, quality) {
   const cls = quality ? ` ${quality}` : '';
   return `<span class="sstat"><span class="sstat-label">${label}</span><span class="sstat-val${cls}">${value}</span><span class="sstat-unit">${unit}</span></span>`;
 };
 
-Renderer.prototype._ssep = function() { return '<span class="sstat-sep">|</span>'; };
+UIHost.prototype._ssep = function() { return '<span class="sstat-sep">|</span>'; };
 
-Renderer.prototype._detailRow = function(label, value, unit) {
+UIHost.prototype._detailRow = function(label, value, unit) {
   return `<div class="sstat-detail-row"><span class="sstat-detail-label">${label}</span><span class="sstat-detail-val">${value}</span><span class="sstat-detail-unit">${unit || ''}</span></div>`;
 };
 
-Renderer.prototype._fmtPressure = function(p) {
+UIHost.prototype._fmtPressure = function(p) {
   if (p >= 1) return p.toFixed(0);
   const exp = Math.floor(Math.log10(p));
   const mantissa = p / Math.pow(10, exp);
   return `${mantissa.toFixed(1)}\u00d710${this._superscript(exp)}`;
 };
 
-Renderer.prototype._superscript = function(n) {
+UIHost.prototype._superscript = function(n) {
   const sup = { '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3', '4': '\u2074', '5': '\u2075', '6': '\u2076', '7': '\u2077', '8': '\u2078', '9': '\u2079', '-': '\u207b' };
   return String(n).split('').map(c => sup[c] || c).join('');
 };
 
-Renderer.prototype._qualityColor = function(q) {
+UIHost.prototype._qualityColor = function(q) {
   if (q === 'Excellent' || q === 'Good') return 'good';
   if (q === 'Marginal') return 'warn';
   if (q === 'Poor') return 'bad';
   return '';
 };
 
-Renderer.prototype._marginColor = function(m) {
+UIHost.prototype._marginColor = function(m) {
   if (m > 30) return 'good';
   if (m > 10) return 'warn';
   return 'bad';
 };
 
-Renderer.prototype._renderVacuumStats = function(d, summary, detail) {
+UIHost.prototype._renderVacuumStats = function(d, summary, detail) {
   const pq = this._qualityColor(d.pressureQuality);
   summary.innerHTML = [
     this._sstat('Pressure', this._fmtPressure(d.avgPressure), 'mbar', pq),
@@ -1939,7 +1940,7 @@ Renderer.prototype._renderVacuumStats = function(d, summary, detail) {
   </div>`;
 };
 
-Renderer.prototype._renderRfPowerStats = function(d, summary, detail) {
+UIHost.prototype._renderRfPowerStats = function(d, summary, detail) {
   summary.innerHTML = [
     this._sstat('Fwd', this._fmt(d.totalFwdPower), 'kW'),
     this._ssep(),
@@ -1971,7 +1972,7 @@ Renderer.prototype._renderRfPowerStats = function(d, summary, detail) {
   </div>`;
 };
 
-Renderer.prototype._renderCryoStats = function(d, summary, detail, append = false) {
+UIHost.prototype._renderCryoStats = function(d, summary, detail, append = false) {
   const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
   const cryoSummary = [
     this._sstat('Cryo Cap', this._fmt(d.coolingCapacity), 'W'),
@@ -2006,7 +2007,7 @@ Renderer.prototype._renderCryoStats = function(d, summary, detail, append = fals
   }
 };
 
-Renderer.prototype._renderCoolingStats = function(d, summary, detail) {
+UIHost.prototype._renderCoolingStats = function(d, summary, detail) {
   const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
   summary.innerHTML = [
     this._sstat('Capacity', this._fmt(d.coolingCapacity), 'kW'),
@@ -2032,7 +2033,7 @@ Renderer.prototype._renderCoolingStats = function(d, summary, detail) {
   </div>`;
 };
 
-Renderer.prototype._renderPowerStats = function(d, summary, detail) {
+UIHost.prototype._renderPowerStats = function(d, summary, detail) {
   const uc = d.utilization > 90 ? 'bad' : (d.utilization > 70 ? 'warn' : 'good');
   summary.innerHTML = [
     this._sstat('Capacity', this._fmt(d.capacity), 'kW'),
@@ -2056,7 +2057,7 @@ Renderer.prototype._renderPowerStats = function(d, summary, detail) {
   </div>`;
 };
 
-Renderer.prototype._renderDataControlsStats = function(d, summary, detail) {
+UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
   const mpsColor = d.mpsStatus === 'Active' ? 'good' : '';
   summary.innerHTML = [
     this._sstat('IOCs', d.iocs, ''),
@@ -2083,7 +2084,7 @@ Renderer.prototype._renderDataControlsStats = function(d, summary, detail) {
   </div>`;
 };
 
-Renderer.prototype._renderOpsStats = function(d, summary, detail) {
+UIHost.prototype._renderOpsStats = function(d, summary, detail) {
   summary.innerHTML = [
     this._sstat('Shielding', d.shielding, ''),
     this._ssep(),
