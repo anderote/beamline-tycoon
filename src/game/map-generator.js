@@ -87,7 +87,7 @@ const WORLD_BOUND = 30;       // sampling bounds for placement (matches GRASS_RA
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
 const MAX_CLUSTERS = 10;      // a handful of distinct, notable forest clumps
 const DARK_CLUSTER_THRESHOLD = -0.1;
-const CLUMP_RADIUS_MIN = 7;   // even a tiny blob gets a real grove, not 2 trees
+const CLUMP_RADIUS_MIN = 10;  // even a tiny blob gets a real grove, not 2 trees
 const CLUMP_RADIUS_MAX = 16;  // cap clump radius so large blobs don't produce diffuse forests
 const CLUMP_MIN_BLOB_SIZE = 3;   // filter out blobs too small to anchor a clump
 const CLUMP_CENTER_BOUND = 40;   // require blob center within WORLD_BOUND+10 so the clump's on-map portion is substantial
