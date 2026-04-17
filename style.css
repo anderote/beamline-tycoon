@@ -566,7 +566,7 @@ body {
 .view-cube-host .vc-cube-canvas {
   position: absolute;
   left: 0;
-  top: 25px;
+  top: 30px;
   width: 96px;
   height: 96px;
   cursor: pointer;
