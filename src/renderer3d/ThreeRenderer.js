@@ -13,8 +13,10 @@ import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityPipeBuilder } from './utility-pipe-builder.js';
+import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { RackBuilder } from './rack-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
+import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { Overlay } from './overlay.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
@@ -249,6 +251,11 @@ export class ThreeRenderer {
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
     this.utilityPipeBuilder = new UtilityPipeBuilder();
+    this.utilityLineBuilderV2 = new UtilityLineBuilderV2();
+    // Separate group so preview polylines sit in front of committed meshes
+    // and we can clear/rebuild them every frame independently.
+    this.utilityLineGroup = null;
+    this.utilityLinePreviewGroup = null;
     this.rackBuilder = new RackBuilder();
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
@@ -438,6 +445,17 @@ export class ThreeRenderer {
     this.connectionGroup.name = 'connections';
     this.scene.add(this.connectionGroup);
 
+    // Phase 4: new-system utility lines. Separate from connectionGroup (which
+    // still holds the legacy rack-paint meshes) so we can rebuild them on
+    // utilityLinesChanged without disturbing the older pipes.
+    this.utilityLineGroup = new THREE.Group();
+    this.utilityLineGroup.name = 'utilityLinesV2';
+    this.scene.add(this.utilityLineGroup);
+    this.utilityLinePreviewGroup = new THREE.Group();
+    this.utilityLinePreviewGroup.name = 'utilityLinesV2Preview';
+    this.utilityLinePreviewGroup.renderOrder = 998;
+    this.scene.add(this.utilityLinePreviewGroup);
+
     this.rackGroup = new THREE.Group();
     this.rackGroup.name = 'carrierRacks';
     this.scene.add(this.rackGroup);
@@ -506,6 +524,7 @@ export class ThreeRenderer {
           this._refreshEquipment();
           this._refreshDecorations();
           this._refreshComponents();
+          this._refreshUtilityLinesV2();
           break;
         case 'facilityChanged':
           this._refreshEquipment();
@@ -514,6 +533,9 @@ export class ThreeRenderer {
         case 'connectionsChanged':
           this._refreshConnections();
           this._refreshComponents();
+          break;
+        case 'utilityLinesChanged':
+          this._refreshUtilityLinesV2();
           break;
         case 'beamToggled':
           this._refreshBeam();
@@ -1445,12 +1467,8 @@ export class ThreeRenderer {
     this._clearPreview();
     if (!path || path.length === 0) return;
     const mat = this._previewMat(0x44aaff, 0.35);
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
     for (const tile of path) {
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(tile.col * 2 + 1, 0.1, tile.row * 2 + 1);
-      this._addPreviewMesh(mesh);
+      this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(tile.col, tile.row, 0.02), mat));
     }
   }
 
@@ -1462,31 +1480,41 @@ export class ThreeRenderer {
     this._clearPreview();
     const w = rotated ? gridH : gridW;
     const h = rotated ? gridW : gridH;
-    // Each tile is 2 world units, sub-grid is 4x4 → each sub-cell is 0.5 units
-    const subSize = 2 / 4; // 0.5
-    const mat = this._previewMat(0x88ccff, 0.4);
-    const geo = new THREE.PlaneGeometry(w * subSize, h * subSize);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, mat);
-    // Position: tile origin + sub-cell offset + half the preview size
+    const subSize = 2 / 4; // each sub-cell is 0.5 world units
     const tileX = col * 2;
     const tileZ = row * 2;
-    mesh.position.set(
-      tileX + subCol * subSize + (w * subSize) / 2,
-      0.1,
-      tileZ + subRow * subSize + (h * subSize) / 2
-    );
-    this._addPreviewMesh(mesh);
-    // Wireframe outline
-    const edgeMat = this._previewEdgeMat(0x88ccff);
     const x0 = tileX + subCol * subSize;
     const z0 = tileZ + subRow * subSize;
     const x1 = x0 + w * subSize;
     const z1 = z0 + h * subSize;
+    const state = this.game.state;
+    const QUAD_OFFSET = 0.02;
+    const EDGE_OFFSET = 0.04;
+    // Sample terrain at each footprint corner so the preview drapes the
+    // surface (also handles footprints that span tile boundaries).
+    const yNW = sampleSurfaceYAt(state, x0, z0) + QUAD_OFFSET;
+    const yNE = sampleSurfaceYAt(state, x1, z0) + QUAD_OFFSET;
+    const ySE = sampleSurfaceYAt(state, x1, z1) + QUAD_OFFSET;
+    const ySW = sampleSurfaceYAt(state, x0, z1) + QUAD_OFFSET;
+    const mat = this._previewMat(0x88ccff, 0.4);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([
+      x0, yNW, z0,
+      x1, yNE, z0,
+      x1, ySE, z1,
+      x0, ySW, z1,
+    ], 3));
+    geo.setIndex([0, 3, 1, 1, 3, 2]);
+    geo.computeVertexNormals();
+    this._addPreviewMesh(new THREE.Mesh(geo, mat));
+    const edgeMat = this._previewEdgeMat(0x88ccff);
+    const eY = (y) => y + (EDGE_OFFSET - QUAD_OFFSET);
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, eY(yNW), z0),
+      new THREE.Vector3(x1, eY(yNE), z0),
+      new THREE.Vector3(x1, eY(ySE), z1),
+      new THREE.Vector3(x0, eY(ySW), z1),
+      new THREE.Vector3(x0, eY(yNW), z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
   }
@@ -1502,15 +1530,10 @@ export class ThreeRenderer {
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0xff4444, transparent: true, opacity: 0.95,
     });
-    const x0 = col * 2, x1 = col * 2 + 2;
-    const z0 = row * 2, z1 = row * 2 + 2;
-    const y = 0.05;
-    const pts = [
-      new THREE.Vector3(x0, y, z0), new THREE.Vector3(x1, y, z0),
-      new THREE.Vector3(x1, y, z1), new THREE.Vector3(x0, y, z1),
-      new THREE.Vector3(x0, y, z0),
-    ];
-    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    this.previewGroup.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(col, row, 0.04)),
+      edgeMat
+    ));
   }
 
   /**
@@ -1522,18 +1545,67 @@ export class ThreeRenderer {
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0xff4444, transparent: true, opacity: 0.95,
     });
-    const y = 0.05;
-    const pos = this._wallEdgePosition(col, row, edge);
-    const isNS = edge === 'n' || edge === 's';
-    let p0, p1;
-    if (isNS) {
-      p0 = new THREE.Vector3(pos.x - 1, y, pos.z);
-      p1 = new THREE.Vector3(pos.x + 1, y, pos.z);
-    } else {
-      p0 = new THREE.Vector3(pos.x, y, pos.z - 1);
-      p1 = new THREE.Vector3(pos.x, y, pos.z + 1);
+    const Y_OFFSET = 0.04;
+    const ends = this._edgeEndpoints(col, row, edge, Y_OFFSET);
+    this.previewGroup.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([ends.p0, ends.p1]), edgeMat
+    ));
+  }
+
+  /**
+   * BufferGeometry for a tile-sized quad whose 4 corners track the tile's
+   * terrain heights (so the quad drapes the slope).
+   */
+  _terrainTileQuad(col, row, yOffset = 0) {
+    const c = getTileCornersY(this.game.state, col, row);
+    const x0 = col * 2, x1 = col * 2 + 2;
+    const z0 = row * 2, z1 = row * 2 + 2;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([
+      x0, c.nw + yOffset, z0,
+      x1, c.ne + yOffset, z0,
+      x1, c.se + yOffset, z1,
+      x0, c.sw + yOffset, z1,
+    ], 3));
+    geo.setIndex([0, 3, 1, 1, 3, 2]);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  /** Closed-loop border points for a tile, sampled at corner heights. */
+  _terrainTileBorderPoints(col, row, yOffset = 0) {
+    const c = getTileCornersY(this.game.state, col, row);
+    const x0 = col * 2, x1 = col * 2 + 2;
+    const z0 = row * 2, z1 = row * 2 + 2;
+    return [
+      new THREE.Vector3(x0, c.nw + yOffset, z0),
+      new THREE.Vector3(x1, c.ne + yOffset, z0),
+      new THREE.Vector3(x1, c.se + yOffset, z1),
+      new THREE.Vector3(x0, c.sw + yOffset, z1),
+      new THREE.Vector3(x0, c.nw + yOffset, z0),
+    ];
+  }
+
+  /**
+   * World-space endpoints (with terrain Y) for one wall edge of a tile.
+   * Each edge runs between two adjacent tile corners.
+   */
+  _edgeEndpoints(col, row, edge, yOffset = 0) {
+    const c = getTileCornersY(this.game.state, col, row);
+    const x0 = col * 2, x1 = col * 2 + 2;
+    const z0 = row * 2, z1 = row * 2 + 2;
+    let ax, ay, az, bx, by, bz;
+    switch (edge) {
+      case 'n': ax=x0; ay=c.nw; az=z0; bx=x1; by=c.ne; bz=z0; break;
+      case 's': ax=x0; ay=c.sw; az=z1; bx=x1; by=c.se; bz=z1; break;
+      case 'e': ax=x1; ay=c.ne; az=z0; bx=x1; by=c.se; bz=z1; break;
+      case 'w': ax=x0; ay=c.nw; az=z0; bx=x0; by=c.sw; bz=z1; break;
+      default:  ax=bx=col*2+1; ay=by=0; az=bz=row*2+1;
     }
-    this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), edgeMat));
+    return {
+      p0: new THREE.Vector3(ax, ay + yOffset, az),
+      p1: new THREE.Vector3(bx, by + yOffset, bz),
+    };
   }
 
   /**
@@ -1547,26 +1619,31 @@ export class ThreeRenderer {
       color: 0xff4444, transparent: true, opacity: 0.95,
     });
     const quadMat = this._previewMat(0xff4444, 0.3);
-    const y = 0.06;
+    const LINE_OFFSET = 0.05;
+    const QUAD_OFFSET = 0.03;
+    const QUAD_HALF = 0.125; // 0.25 wide slab, half each side of the edge
     for (const seg of path) {
-      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
       const isNS = seg.edge === 'n' || seg.edge === 's';
-      let p0, p1;
-      if (isNS) {
-        p0 = new THREE.Vector3(pos.x - 1, y, pos.z);
-        p1 = new THREE.Vector3(pos.x + 1, y, pos.z);
-      } else {
-        p0 = new THREE.Vector3(pos.x, y, pos.z - 1);
-        p1 = new THREE.Vector3(pos.x, y, pos.z + 1);
-      }
-      this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), edgeMat));
-      const quadGeo = isNS
-        ? new THREE.PlaneGeometry(2, 0.25)
-        : new THREE.PlaneGeometry(0.25, 2);
-      quadGeo.rotateX(-Math.PI / 2);
-      const quad = new THREE.Mesh(quadGeo, quadMat);
-      quad.position.set(pos.x, 0.05, pos.z);
-      this._addPreviewMesh(quad);
+      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, LINE_OFFSET);
+      this.previewGroup.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([ends.p0, ends.p1]), edgeMat
+      ));
+      // Sloped quad slab tracking the edge: 4 verts offset perpendicular
+      // to the edge, all sampling the edge endpoint Y.
+      const ax = ends.p0.x, ay = ends.p0.y - (LINE_OFFSET - QUAD_OFFSET), az = ends.p0.z;
+      const bx = ends.p1.x, by = ends.p1.y - (LINE_OFFSET - QUAD_OFFSET), bz = ends.p1.z;
+      const px = isNS ? 0 : QUAD_HALF;   // perpendicular offset (X for E/W edges)
+      const pz = isNS ? QUAD_HALF : 0;   // perpendicular offset (Z for N/S edges)
+      const qGeo = new THREE.BufferGeometry();
+      qGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+        ax - px, ay, az - pz,
+        bx - px, by, bz - pz,
+        bx + px, by, bz + pz,
+        ax + px, ay, az + pz,
+      ], 3));
+      qGeo.setIndex([0, 1, 2, 0, 2, 3]);
+      qGeo.computeVertexNormals();
+      this._addPreviewMesh(new THREE.Mesh(qGeo, quadMat));
     }
   }
 
@@ -1583,26 +1660,46 @@ export class ThreeRenderer {
       color: 0xff4444, transparent: true, opacity: 0.35,
       side: THREE.DoubleSide,
     });
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
+    const QUAD_OFFSET = 0.02;
+    const EDGE_OFFSET = 0.04;
+    const state = this.game.state;
+    // Per-tile deformed quad so the fill drapes the slope.
     for (let c = minC; c <= maxC; c++) {
       for (let r = minR; r <= maxR; r++) {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(c * 2 + 1, 0.1, r * 2 + 1);
-        this.previewGroup.add(mesh);
+        this.previewGroup.add(new THREE.Mesh(this._terrainTileQuad(c, r, QUAD_OFFSET), mat));
       }
     }
-    // Red border
+    // Red border around the drag rect — sample every vertex along the perimeter
+    // so it follows terrain across the multi-tile span.
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0xff4444, transparent: true, opacity: 0.9,
     });
-    const x0 = minC * 2, x1 = (maxC + 1) * 2;
-    const z0 = minR * 2, z1 = (maxR + 1) * 2;
-    const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
-    ];
+    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + EDGE_OFFSET;
+    const pts = [];
+    // North edge: walk west→east along z = minR*2.
+    const zN = minR * 2;
+    for (let c = minC; c <= maxC + 1; c++) {
+      const x = c * 2;
+      pts.push(new THREE.Vector3(x, surfY(x, zN), zN));
+    }
+    // East edge: walk north→south along x = (maxC+1)*2.
+    const xE = (maxC + 1) * 2;
+    for (let r = minR + 1; r <= maxR + 1; r++) {
+      const z = r * 2;
+      pts.push(new THREE.Vector3(xE, surfY(xE, z), z));
+    }
+    // South edge: walk east→west.
+    const zS = (maxR + 1) * 2;
+    for (let c = maxC; c >= minC; c--) {
+      const x = c * 2;
+      pts.push(new THREE.Vector3(x, surfY(x, zS), zS));
+    }
+    // West edge: walk south→north back to start.
+    const xW = minC * 2;
+    for (let r = maxR; r >= minR; r--) {
+      const z = r * 2;
+      pts.push(new THREE.Vector3(xW, surfY(xW, z), z));
+    }
     this.previewGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
   }
 
@@ -1614,15 +1711,43 @@ export class ThreeRenderer {
     if (!path || path.length === 0) return;
     const mat = this._previewMat(0xffffff, 0.4);
     const wallH = 0.75;
+    const T = 0.08;          // wall thickness
+    const HT = T / 2;
     for (const seg of path) {
       const isNS = seg.edge === 'n' || seg.edge === 's';
-      const geo = isNS
-        ? new THREE.BoxGeometry(2, wallH, 0.08)
-        : new THREE.BoxGeometry(0.08, wallH, 2);
-      const mesh = new THREE.Mesh(geo, mat);
-      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
-      mesh.position.set(pos.x, wallH / 2, pos.z);
-      this._addPreviewMesh(mesh);
+      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const ax = ends.p0.x, ay = ends.p0.y, az = ends.p0.z;
+      const bx = ends.p1.x, by = ends.p1.y, bz = ends.p1.z;
+      // Two thickness offsets perpendicular to the edge axis.
+      const px = isNS ? 0 : HT;
+      const pz = isNS ? HT : 0;
+      // 8 vertices: 4 bottom (terrain-tracking parallelogram), 4 top (lifted by wallH).
+      const verts = [
+        ax - px, ay,         az - pz,    // 0 bot near-a
+        bx - px, by,         bz - pz,    // 1 bot near-b
+        bx + px, by,         bz + pz,    // 2 bot far-b
+        ax + px, ay,         az + pz,    // 3 bot far-a
+        ax - px, ay + wallH, az - pz,    // 4 top near-a
+        bx - px, by + wallH, bz - pz,    // 5 top near-b
+        bx + px, by + wallH, bz + pz,    // 6 top far-b
+        ax + px, ay + wallH, az + pz,    // 7 top far-a
+      ];
+      const idx = [
+        // bottom
+        0, 1, 2,  0, 2, 3,
+        // top
+        4, 6, 5,  4, 7, 6,
+        // sides
+        0, 4, 5,  0, 5, 1,
+        1, 5, 6,  1, 6, 2,
+        2, 6, 7,  2, 7, 3,
+        3, 7, 4,  3, 4, 0,
+      ];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      this._addPreviewMesh(new THREE.Mesh(geo, mat));
     }
   }
 
@@ -1641,7 +1766,9 @@ export class ThreeRenderer {
         : new THREE.BoxGeometry(0.06, doorH, 1.0);
       const mesh = new THREE.Mesh(geo, mat);
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
-      mesh.position.set(pos.x, doorH / 2, pos.z);
+      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const midY = (ends.p0.y + ends.p1.y) / 2;
+      mesh.position.set(pos.x, midY + doorH / 2, pos.z);
       this._addPreviewMesh(mesh);
     }
   }
@@ -1653,26 +1780,34 @@ export class ThreeRenderer {
     this._clearPreview();
     if (col === undefined || row === undefined || !edge) return;
     const pos = this._wallEdgePosition(col, row, edge);
-    // Cross marker at the edge midpoint
+    const ends = this._edgeEndpoints(col, row, edge, 0);
+    const midY = (ends.p0.y + ends.p1.y) / 2;
+    // Cross marker at the edge midpoint, lifted above the surface.
     const size = 0.3;
-    const y = 0.15;
+    const y = midY + 0.10;
     const crossMat = this._previewEdgeMat(color);
-    // Horizontal bar (X axis)
     const h1 = [new THREE.Vector3(pos.x - size, y, pos.z), new THREE.Vector3(pos.x + size, y, pos.z)];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(h1), crossMat));
-    // Vertical bar (Z axis)
     const h2 = [new THREE.Vector3(pos.x, y, pos.z - size), new THREE.Vector3(pos.x, y, pos.z + size)];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(h2), crossMat));
-    // Small filled quad on the edge
-    const quadMat = this._previewMat(color, 0.25);
+    // Quad slab tracking the sloped edge.
     const isNS = edge === 'n' || edge === 's';
-    const quadGeo = isNS
-      ? new THREE.PlaneGeometry(1.6, 0.3)
-      : new THREE.PlaneGeometry(0.3, 1.6);
-    quadGeo.rotateX(-Math.PI / 2);
-    const quad = new THREE.Mesh(quadGeo, quadMat);
-    quad.position.set(pos.x, 0.1, pos.z);
-    this._addPreviewMesh(quad);
+    const QUAD_OFFSET = 0.05;
+    const QUAD_HALF = 0.15;
+    const ax = ends.p0.x, ay = ends.p0.y + QUAD_OFFSET, az = ends.p0.z;
+    const bx = ends.p1.x, by = ends.p1.y + QUAD_OFFSET, bz = ends.p1.z;
+    const px = isNS ? 0 : QUAD_HALF;
+    const pz = isNS ? QUAD_HALF : 0;
+    const qGeo = new THREE.BufferGeometry();
+    qGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+      ax - px, ay, az - pz,
+      bx - px, by, bz - pz,
+      bx + px, by, bz + pz,
+      ax + px, ay, az + pz,
+    ], 3));
+    qGeo.setIndex([0, 1, 2, 0, 2, 3]);
+    qGeo.computeVertexNormals();
+    this._addPreviewMesh(new THREE.Mesh(qGeo, this._previewMat(color, 0.25)));
   }
 
   /** Hover cursor for infrastructure placement — single tile highlight. */
@@ -1680,22 +1815,14 @@ export class ThreeRenderer {
     this._clearPreview();
     this._renderGridAroundCursor(col, row);
     const tileColor = (typeof color === 'number') ? color : 0x44aaff;
-    const mat = this._previewMat(tileColor, 0.25);
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(col * 2 + 1, 0.1, row * 2 + 1);
-    this._addPreviewMesh(mesh);
-    // Solid color outline
-    const edgeMat = this._previewEdgeMat(tileColor);
-    const x0 = col * 2, x1 = col * 2 + 2;
-    const z0 = row * 2, z1 = row * 2 + 2;
-    const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    this._addPreviewMesh(new THREE.Mesh(
+      this._terrainTileQuad(col, row, 0.02),
+      this._previewMat(tileColor, 0.25)
+    ));
+    this._addPreviewMesh(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(col, row, 0.04)),
+      this._previewEdgeMat(tileColor)
+    ));
   }
 
   /**
@@ -1802,13 +1929,17 @@ export class ThreeRenderer {
     const pz = row * 2 + sr * SUB_UNIT + footH / 2;
     const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
-    const y = isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2;
+    // Sample terrain at the footprint center so the ghost sits on the
+    // local ground rather than world y=0.
+    const state = this.game.state;
+    const surfaceY = sampleSurfaceYAt(state, px, pz);
+    const y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
 
-    // Floor outline at sub-tile footprint (matches renderComponentGhost).
+    // Floor outline + fill draped over the terrain at the footprint corners.
     const tileColor = valid ? 0x44ff44 : 0xff4444;
     const edgeMat = this._previewEdgeMat(tileColor);
     const fillMat = this._previewMat(tileColor, 0.15);
@@ -1816,18 +1947,30 @@ export class ThreeRenderer {
     const x1 = x0 + footW;
     const z0 = row * 2 + sr * SUB_UNIT;
     const z1 = z0 + footH;
-    const outlineY = placeYOffset + 0.12;
+    const FILL_OFFSET = 0.10;
+    const EDGE_OFFSET = 0.12;
+    const yNW = sampleSurfaceYAt(state, x0, z0) + placeYOffset;
+    const yNE = sampleSurfaceYAt(state, x1, z0) + placeYOffset;
+    const ySE = sampleSurfaceYAt(state, x1, z1) + placeYOffset;
+    const ySW = sampleSurfaceYAt(state, x0, z1) + placeYOffset;
     const pts = [
-      new THREE.Vector3(x0, outlineY, z0), new THREE.Vector3(x1, outlineY, z0),
-      new THREE.Vector3(x1, outlineY, z1), new THREE.Vector3(x0, outlineY, z1),
-      new THREE.Vector3(x0, outlineY, z0),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, yNE + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, ySE + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, ySW + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    const fillGeo = new THREE.PlaneGeometry(footW, footH);
-    fillGeo.rotateX(-Math.PI / 2);
-    const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(px, placeYOffset + 0.1, pz);
-    this._addPreviewMesh(fill);
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+      x0, yNW + FILL_OFFSET, z0,
+      x1, yNE + FILL_OFFSET, z0,
+      x1, ySE + FILL_OFFSET, z1,
+      x0, ySW + FILL_OFFSET, z1,
+    ], 3));
+    fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
+    fillGeo.computeVertexNormals();
+    this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
 
     // Direction arrow for source/endpoint modules — shows which way the
     // module connects to pipe (exit direction for sources, entry direction
@@ -1839,7 +1982,7 @@ export class ThreeRenderer {
       const perpDelta = DIR_DELTA[turnLeft(dir)];
       const dx = delta.dc, dz = delta.dr;
       const perpX = perpDelta.dc, perpZ = perpDelta.dr;
-      const arrowY = outlineY + 0.03;
+      const arrowY = surfaceY + placeYOffset + EDGE_OFFSET + 0.03;
       const arrowMat = this._previewEdgeMat(0x88bbff);
       const arrowStart = new THREE.Vector3(px - dx * 0.4, arrowY, pz - dz * 0.4);
       const arrowEnd = new THREE.Vector3(px + dx * 0.6, arrowY, pz + dz * 0.6);
@@ -2182,12 +2325,10 @@ export class ThreeRenderer {
     if (!equip) return;
     const col = equip.col ?? 0;
     const row = equip.row ?? 0;
-    const mat = this._previewMat(0xff4444, 0.35);
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(col * 2 + 1, 0.1, row * 2 + 1);
-    this._addPreviewMesh(mesh);
+    this._addPreviewMesh(new THREE.Mesh(
+      this._terrainTileQuad(col, row, 0.02),
+      this._previewMat(0xff4444, 0.35)
+    ));
   }
 
   /** Clear grid overlay lines. */
@@ -2213,20 +2354,31 @@ export class ThreeRenderer {
 
     const majorRadius = 3;   // tiles around cursor for major grid
     const subRadius = 1;     // tiles around cursor for sub-grid
-    const y = 0.06;          // slightly above ground plane
+    const Y_OFFSET = 0.04;   // slightly above terrain surface
 
-    // --- Major grid (tile boundaries) as a single LineSegments ---
+    const state = this.game.state;
+    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + Y_OFFSET;
+
+    // Long lines (drawn as a single LineSegments segment) would chord
+    // through hills — break each into per-tile pieces so the line samples
+    // the terrain at every tile boundary and visually drapes the surface.
+
+    // --- Major grid (tile boundaries) ---
     const majorVerts = [];
     const mMin = -majorRadius, mMax = majorRadius + 1;
-    const mx0 = (col + mMin) * 2, mx1 = (col + mMax) * 2;
-    const mz0 = (row + mMin) * 2, mz1 = (row + mMax) * 2;
     for (let dr = mMin; dr <= mMax; dr++) {
       const z = (row + dr) * 2;
-      majorVerts.push(mx0, y, z, mx1, y, z);
+      for (let dc = mMin; dc < mMax; dc++) {
+        const xa = (col + dc) * 2, xb = (col + dc + 1) * 2;
+        majorVerts.push(xa, surfY(xa, z), z, xb, surfY(xb, z), z);
+      }
     }
     for (let dc = mMin; dc <= mMax; dc++) {
       const x = (col + dc) * 2;
-      majorVerts.push(x, y, mz0, x, y, mz1);
+      for (let dr = mMin; dr < mMax; dr++) {
+        const za = (row + dr) * 2, zb = (row + dr + 1) * 2;
+        majorVerts.push(x, surfY(x, za), za, x, surfY(x, zb), zb);
+      }
     }
     const majorGeo = new THREE.BufferGeometry();
     majorGeo.setAttribute('position', new THREE.Float32BufferAttribute(majorVerts, 3));
@@ -2238,22 +2390,28 @@ export class ThreeRenderer {
     majorLines.renderOrder = 997;
     this.gridOverlayGroup.add(majorLines);
 
-    // --- Sub-grid (4 divisions per tile) as a single LineSegments ---
+    // --- Sub-grid (4 divisions per tile). Each sub-line lives inside one
+    // tile, so endpoints already span a single tile — no further breakdown
+    // needed.
     const subVerts = [];
-    const sMin = col - subRadius, sMax = col + subRadius + 1;
-    const srMin = row - subRadius, srMax = row + subRadius + 1;
-    const sx0 = sMin * 2, sx1 = sMax * 2;
-    const sz0 = srMin * 2, sz1 = srMax * 2;
+    const sMin = col - subRadius, sMax = col + subRadius;
+    const srMin = row - subRadius, srMax = row + subRadius;
     for (let r = srMin; r <= srMax; r++) {
-      for (let sub = 1; sub <= 3; sub++) {
-        const z = r * 2 + sub * 0.5;
-        subVerts.push(sx0, y, z, sx1, y, z);
+      for (let c = sMin; c <= sMax; c++) {
+        const xa = c * 2, xb = c * 2 + 2;
+        for (let sub = 1; sub <= 3; sub++) {
+          const z = r * 2 + sub * 0.5;
+          subVerts.push(xa, surfY(xa, z), z, xb, surfY(xb, z), z);
+        }
       }
     }
     for (let c = sMin; c <= sMax; c++) {
-      for (let sub = 1; sub <= 3; sub++) {
-        const x = c * 2 + sub * 0.5;
-        subVerts.push(x, y, sz0, x, y, sz1);
+      for (let r = srMin; r <= srMax; r++) {
+        const za = r * 2, zb = r * 2 + 2;
+        for (let sub = 1; sub <= 3; sub++) {
+          const x = c * 2 + sub * 0.5;
+          subVerts.push(x, surfY(x, za), za, x, surfY(x, zb), zb);
+        }
       }
     }
     const subGeo = new THREE.BufferGeometry();
@@ -2269,22 +2427,14 @@ export class ThreeRenderer {
 
   /** Highlight a single tile with a coloured quad + wireframe border. */
   _previewTileHighlight(col, row, color, opacity) {
-    const mat = this._previewMat(color, opacity);
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(col * 2 + 1, 0.1, row * 2 + 1);
-    this._addPreviewMesh(mesh);
-    // Wireframe border
-    const edgeMat = this._previewEdgeMat(color);
-    const x0 = col * 2, x1 = col * 2 + 2;
-    const z0 = row * 2, z1 = row * 2 + 2;
-    const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+    this._addPreviewMesh(new THREE.Mesh(
+      this._terrainTileQuad(col, row, 0.02),
+      this._previewMat(color, opacity)
+    ));
+    this._addPreviewMesh(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(col, row, 0.04)),
+      this._previewEdgeMat(color)
+    ));
   }
 
   /** Returns world-space XZ position of a wall edge midpoint. */
@@ -2430,6 +2580,11 @@ export class ThreeRenderer {
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
+    // New-system utility-line preview + port-hover highlight.
+    if (this._inputHandler && this.utilityLineBuilderV2 && this.utilityLinePreviewGroup) {
+      this.utilityLineBuilderV2.setPreview(this._inputHandler.utilityPreview, this.utilityLinePreviewGroup);
+      this.utilityLineBuilderV2.setHoverPort(this._inputHandler.utilityHoverPort, this.utilityLinePreviewGroup);
+    }
     if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
       this._renderBeamPipePreview(
         this._inputHandler.beamPipePath,
@@ -2557,6 +2712,7 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.rackBuilder.build(snapshot.rackSegments, this.rackGroup);
     this.utilityPipeBuilder.build(snapshot.utilityRouting, this.connectionGroup);
+    this._refreshUtilityLinesV2();
     this._refreshBeamPipes();
     this._refreshZones();
   }
@@ -2843,6 +2999,22 @@ export class ThreeRenderer {
     const snap = buildWorldSnapshot(this.game);
     this.rackBuilder.build(snap.rackSegments, this.rackGroup);
     this.utilityPipeBuilder.build(snap.utilityRouting, this.connectionGroup);
+  }
+
+  /**
+   * Rebuild new-system (Phase 4) utility lines from state.utilityLines.
+   * Called on 'utilityLinesChanged' and 'placeableChanged' (the latter so
+   * lines follow placeables that are moved).
+   */
+  _refreshUtilityLinesV2() {
+    if (!this.utilityLineGroup || !this.utilityLineBuilderV2) return;
+    const lines = this.game?.state?.utilityLines;
+    if (!lines) return;
+    const placeablesById = new Map();
+    for (const p of (this.game.state.placeables || [])) {
+      placeablesById.set(p.id, p);
+    }
+    this.utilityLineBuilderV2.build(lines, placeablesById, this.utilityLineGroup);
   }
 
   _refreshBeamPipes() {
