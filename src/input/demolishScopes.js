@@ -72,7 +72,7 @@ export function refundForFound(found, game) {
     const costPerTile = driftDef ? driftDef.cost.funding : 10000;
     return Math.floor(costPerTile * segCount * 0.5);
   }
-  if (found.kind === 'attachment') {
+  if (found.kind === 'placement') {
     return demolishRefund(found.placeable);
   }
   return demolishRefund(found.placeable);
@@ -84,7 +84,7 @@ export function refundForFound(found, game) {
 export function nameForFound(found) {
   if (!found) return 'Unknown';
   if (found.kind === 'beampipe') return 'Beam Pipe';
-  if (found.kind === 'attachment') {
+  if (found.kind === 'placement') {
     return found.placeable?.name || found.attachment?.type || 'Attachment';
   }
   const def = found.placeable;

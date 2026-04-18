@@ -250,8 +250,8 @@ export class InputHandler {
         this.renderer._clearPreview();
         if (found.rootObj) this.renderer._outlineObject(found.rootObj);
 
-        // Attachments: refund is 50% of the attachment component's cost.
-        if (found.kind === 'attachment') {
+        // Placements: refund is 50% of the placement component's cost.
+        if (found.kind === 'placement') {
           const def = found.placeable;
           const name = def?.name || found.attachment?.type || 'Attachment';
           const cost = def?.cost?.funding || 0;
@@ -2318,12 +2318,12 @@ export class InputHandler {
         if (info.group === 'beampipe' && scope.has('beamline')) {
           return { kind: 'beampipe', pipeId: info.pipeId, rootObj: info.rootObj };
         }
-        // Beam-pipe attachments piggyback on 'beamline' scope.
+        // Beam-pipe placements piggyback on 'beamline' scope.
         if (info.group === 'attachment' && scope.has('beamline')) {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === info.pipeId);
           const att = pipe?.placements?.find(a => a.id === info.attachmentId) || null;
           return {
-            kind: 'attachment',
+            kind: 'placement',
             pipeId: info.pipeId,
             attachmentId: info.attachmentId,
             attachment: att,

@@ -1567,7 +1567,7 @@ export class Game {
       }
       case 'beampipe':
         return this.removeBeamPipe(target.pipeId || target.id);
-      case 'attachment':
+      case 'placement':
         return this.removeAttachment(target.pipeId, target.attachmentId);
       case 'infrastructure':
       case 'equipment':
@@ -1765,7 +1765,7 @@ export class Game {
           subL: entry.subL,
           // Pass through stats from the component template so physics can read them
           stats: def ? { ...def.stats } : {},
-          isAttachment: entry.kind === 'attachment',
+          isAttachment: entry.kind === 'placement',
           pipeId: entry.pipeId || null,
         });
       }
