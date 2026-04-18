@@ -1719,9 +1719,17 @@ export class InputHandler {
         const dy = e.clientY - this.panStart.y;
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
       } else if (this.isLinePlacingDecoration) {
+        if (this._lastMoveBranch !== 'isLinePlacingDecoration') {
+          this._lastMoveBranch = 'isLinePlacingDecoration';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         this._updateLinePlacePreview(world.x, world.y);
       } else if (this.isDragging && this.dragStart) {
+        if (this._lastMoveBranch !== 'isDragging') {
+          this._lastMoveBranch = 'isDragging';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.dragEnd = { col: grid.col, row: grid.row };
@@ -1755,6 +1763,10 @@ export class InputHandler {
           });
         }
       } else if (this.isDrawingLine && this.selectedInfraTool) {
+        if (this._lastMoveBranch !== 'isDrawingLine infra') {
+          this._lastMoveBranch = 'isDrawingLine infra';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         const start = this.lineStart || this.linePath[0];
@@ -1773,6 +1785,10 @@ export class InputHandler {
           insufficientFunding: this.game.state.resources.funding < lineCost.totalCost,
         });
       } else if (this.isDrawingWall && this.selectedWallTool) {
+        if (this._lastMoveBranch !== 'isDrawingWall wallTool') {
+          this._lastMoveBranch = 'isDrawingWall wallTool';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
         this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
@@ -1781,14 +1797,26 @@ export class InputHandler {
           insufficientFunding: this.game.state.resources.funding < cost,
         });
       } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishWall') {
+        if (this._lastMoveBranch !== 'isDrawingWall demolishWall') {
+          this._lastMoveBranch = 'isDrawingWall demolishWall';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
         this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool || 'structuralWall');
       } else if (this.isDrawingDoor && this.demolishMode && this.demolishType === 'demolishDoor') {
+        if (this._lastMoveBranch !== 'isDrawingDoor demolishDoor') {
+          this._lastMoveBranch = 'isDrawingDoor demolishDoor';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.doorPath = this._buildWallLine(this._doorStart, edge);
         this.renderer.renderDoorPreview(this.doorPath, 'officeDoor');
       } else if (this.selectedWallTool && !this.isDrawingWall && !this._shiftWallPending) {
+        if (this._lastMoveBranch !== 'selectedWallTool (hover)') {
+          this._lastMoveBranch = 'selectedWallTool (hover)';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
         if (this._shiftDown) {
           const path = this._buildFloorBoundaryPath(edge);
@@ -1802,14 +1830,26 @@ export class InputHandler {
           this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
         }
       } else if (this.isDrawingDoor && this.selectedDoorTool) {
+        if (this._lastMoveBranch !== 'isDrawingDoor doorTool') {
+          this._lastMoveBranch = 'isDrawingDoor doorTool';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestWallEdge(e.clientX, e.clientY);
         this.doorPath = this._buildWallLine(this._doorStart, edge);
         this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
       } else if (this.selectedDoorTool && !this.isDrawingDoor) {
+        if (this._lastMoveBranch !== 'selectedDoorTool (hover)') {
+          this._lastMoveBranch = 'selectedDoorTool (hover)';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestWallEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
       } else if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor &&
                  (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
+        if (this._lastMoveBranch !== 'demolish wall/door hover') {
+          this._lastMoveBranch = 'demolish wall/door hover';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this._lastScreenX = e.clientX;
         this._lastScreenY = e.clientY;
@@ -1826,10 +1866,18 @@ export class InputHandler {
           this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
         }
       } else if (this.utilityLineController && this.utilityLineController.isActive()) {
+        if (this._lastMoveBranch !== 'utilityLine draw') {
+          this._lastMoveBranch = 'utilityLine draw';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         // Utility-line drag: update Manhattan preview path.
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         this.utilityLineController.onMouseMove(world.x, world.y);
       } else if (this.beamlineController.isActive()) {
+        if (this._lastMoveBranch !== 'beamline draw') {
+          this._lastMoveBranch = 'beamline draw';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         if (!this._loggedPipeMoveDelegate) {
           this._loggedPipeMoveDelegate = true;
@@ -1837,6 +1885,10 @@ export class InputHandler {
         }
         this.beamlineController.onMouseMove(world.x, world.y);
       } else {
+        if (this._lastMoveBranch !== 'DEFAULT (hover/demolish beamline/etc)') {
+          this._lastMoveBranch = 'DEFAULT (hover/demolish beamline/etc)';
+          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
+        }
         this._loggedPipeMoveDelegate = false;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
