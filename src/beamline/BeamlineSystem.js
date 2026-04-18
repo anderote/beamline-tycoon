@@ -140,12 +140,14 @@ export class BeamlineSystem {
   drawPipe(start, end, path) {
     const result = validateDrawPipe(this.state, { start, end, path });
     if (!result.ok) {
+      console.warn('[pipe-draw] drawPipe REJECTED: ' + result.reason);
       this.log("Can't draw pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipe = result.pipe;
     const cost = pipeCost(pipe.subL / SUB_PER_TILE);
     if (!this.canAfford(cost)) {
+      console.warn('[pipe-draw] drawPipe REJECTED: cant_afford');
       this.log("Can't afford beam pipe!", 'bad');
       return null;
     }
@@ -166,12 +168,14 @@ export class BeamlineSystem {
   extendPipe(pipeId, additionalPath) {
     const result = validateExtendPipe(this.state, pipeId, additionalPath);
     if (!result.ok) {
+      console.warn('[pipe-draw] extendPipe REJECTED: ' + result.reason);
       this.log("Can't extend pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipes = this.state.beamPipes || [];
     const idx = pipes.findIndex(p => p && p.id === pipeId);
     if (idx < 0) {
+      console.warn('[pipe-draw] extendPipe REJECTED: pipe_not_found');
       this.log("Can't extend pipe: pipe no longer exists", 'bad');
       return null;
     }
@@ -181,6 +185,7 @@ export class BeamlineSystem {
     const addedSubL = Math.max(0, (result.pipe.subL || 0) - oldSubL);
     const cost = pipeCost(addedSubL / SUB_PER_TILE);
     if (!this.canAfford(cost)) {
+      console.warn('[pipe-draw] extendPipe REJECTED: cant_afford');
       this.log("Can't afford beam pipe!", 'bad');
       return null;
     }
@@ -222,6 +227,7 @@ export class BeamlineSystem {
     const pipes = (state && state.beamPipes) || [];
     const pipe = pipes.find(p => p && p.id === pipeId);
     if (!pipe) {
+      console.warn('[pipe-draw] placeOnPipe REJECTED: pipe_not_found');
       this.log('placeOnPipe: pipe_not_found', 'bad');
       return null;
     }
@@ -245,6 +251,7 @@ export class BeamlineSystem {
       idGenerator: () => this.nextPlacementId(),
     });
     if (!result.ok) {
+      console.warn('[pipe-draw] placeOnPipe REJECTED: ' + result.reason);
       this.log("Can't place on pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }

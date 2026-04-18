@@ -492,35 +492,62 @@ export class BeamlineInputController {
     // available port, regardless of distance. Users expect clicking anywhere
     // on a junction's visible tile to start a pipe from it, not just within a
     // half-tile radius of the exact port point.
-    const tileCol = Math.round(cursor.col);
-    const tileRow = Math.round(cursor.row);
+    //
+    // snapPipePoint quantizes to 0.25-steps in path-space where integer = tile
+    // center. A naive Math.round(cursor.col) pushes half-tile clicks (e.g. 5.5)
+    // to the WRONG tile (6 instead of 5). To avoid that, we check all 4 nearby
+    // tiles (floor/ceil of col × floor/ceil of row) and take the closest port
+    // from any junction whose footprint contains one of those tiles.
+    const cFloor = Math.floor(cursor.col);
+    const cCeil = Math.ceil(cursor.col);
+    const rFloor = Math.floor(cursor.row);
+    const rCeil = Math.ceil(cursor.row);
+    const checkedTiles = [
+      { col: cFloor, row: rFloor },
+      { col: cCeil, row: rFloor },
+      { col: cFloor, row: rCeil },
+      { col: cCeil, row: rCeil },
+    ];
+    const tileKey = (c, r) => c + ',' + r;
+    const checkedSet = new Set(checkedTiles.map(t => tileKey(t.col, t.row)));
+
+    let footprintBest = null;
+    let footprintBestDist = Infinity;
+    const hits = [];
     for (const p of placeables) {
       const def = COMPONENTS[p.type];
       if (!def || def.role !== 'junction' || !def.ports) continue;
       const cells = p.cells || [{ col: p.col, row: p.row }];
-      const onFootprint = cells.some(c => c.col === tileCol && c.row === tileRow);
+      const onFootprint = cells.some(c => checkedSet.has(tileKey(c.col, c.row)));
       if (!onFootprint) continue;
       const avail = availablePorts(p, beamPipes);
+      hits.push({ id: p.id, type: p.type, cells, availablePorts: avail });
       if (avail.length === 0) continue;
-      let nearest = null;
-      let nearestDist = Infinity;
       for (const portName of avail) {
         const pos = portWorldPosition(p, portName);
         if (!pos) continue;
         const pathCol = (pos.x - 1) / 2;
         const pathRow = (pos.z - 1) / 2;
         const d = Math.abs(pathCol - cursor.col) + Math.abs(pathRow - cursor.row);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearest = {
+        if (d < footprintBestDist) {
+          footprintBestDist = d;
+          footprintBest = {
             junctionId: p.id,
             portName,
             pathPos: { col: pathCol, row: pathRow },
           };
         }
       }
-      if (nearest) return nearest;
     }
+
+    console.log('[pipe-draw] _findPortNearCursor:', {
+      cursor,
+      checkedTiles,
+      hits,
+      footprintBest,
+    });
+
+    if (footprintBest) return footprintBest;
 
     // Fallback: cursor is off any junction footprint — snap to any port within
     // PIPE_SNAP_RADIUS (clicks just past the port edge).
