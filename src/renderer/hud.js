@@ -404,6 +404,11 @@ UIHost.prototype._refreshPalette = function() {
 };
 
 UIHost.prototype._renderPalette = function(tabCategory) {
+  this._renderPaletteImpl(tabCategory);
+  this._applyPaletteHotkeyBadges();
+};
+
+UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   this._removeParamFlyout();
   const palette = document.getElementById('component-palette');
   if (!palette) return;
@@ -1389,10 +1394,10 @@ UIHost.prototype._renderPalette = function(tabCategory) {
         return subIdx === 0; // default to first subsection
       });
 
-      // Phase 6: the distribution subsection shows the new-system utility-line
-      // tools for every infra category that advertises any. Rack-paint buttons
-      // are gone.
-      const utilityLineTools = subKey === 'distribution' && this.activeMode === 'infra'
+      // Each infra category's `transport` subsection shows the new-system
+      // utility-line tools for that category's utility type(s). Rendered
+      // first so the player sees the transport option before equipment.
+      const utilityLineTools = subKey === 'transport' && this.activeMode === 'infra'
         ? (Array.isArray(catDef?.utilityLineTools)
             ? catDef.utilityLineTools
             : (INFRA_DISTRIBUTION[compCategory] || []))
@@ -1483,6 +1488,21 @@ UIHost.prototype._renderPalette = function(tabCategory) {
       palette.appendChild(item);
     }
   }
+};
+
+UIHost.prototype._applyPaletteHotkeyBadges = function() {
+  const HOTKEYS = ['Z', 'X', 'C', 'V', 'B', 'N', 'M'];
+  const items = document.querySelectorAll('#component-palette .palette-item');
+  items.forEach((item, idx) => {
+    if (idx >= HOTKEYS.length) return;
+    let badge = item.querySelector(':scope > .palette-hotkey');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'palette-hotkey';
+      item.appendChild(badge);
+    }
+    badge.textContent = HOTKEYS[idx];
+  });
 };
 
 UIHost.prototype._createPaletteItem = function(key, comp, idx) {
