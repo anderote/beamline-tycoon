@@ -266,8 +266,19 @@ export class InputHandler {
     // Any demolish mode with a placeable scope uses the same hover UX:
     // outline the mesh and show a tooltip with the refund.
     const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
+    console.warn('[demolish] _updateDemolishHover:', {
+      demolishType: this.demolishType,
+      scope: scope ? [...scope] : null,
+      grid,
+    });
     if (scope) {
       const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope);
+      console.warn('[demolish] _findDeletablePlaceable returned:', found ? {
+        kind: found.kind,
+        type: found.placeable?.type || found.entry?.type,
+        hasRootObj: !!found.rootObj,
+        pipeId: found.pipeId,
+      } : null);
       if (found) {
         this.renderer._clearPreview();
         if (found.rootObj) this.renderer._outlineObject(found.rootObj);
@@ -2492,8 +2503,14 @@ export class InputHandler {
 
     // --- 1. Raycast for precise 3D hit detection ---
     const hit = this.renderer.raycastScreen(screenX, screenY);
+    console.warn('[demolish] raycast hit:', hit ? { objectName: hit.object?.name, distance: hit.distance } : null);
     if (hit) {
       const info = this.renderer.identifyHit(hit);
+      console.warn('[demolish] identifyHit:', info ? {
+        group: info.group,
+        hasNodeId: !!info.nodeId,
+        pipeId: info.pipeId,
+      } : null);
       if (info) {
         // Beamline components go through the legacy beam-graph registry
         // because their lifecycle is tracked there, not only in state.placeables.
@@ -2568,6 +2585,7 @@ export class InputHandler {
     // Used when the raycast missed the mesh (e.g. hovering over a hollow
     // region of a multi-tile beamline module that's on legs). Resolve the
     // rootObj from the component builder so the outline can still render.
+    console.warn('[demolish] falling through to subgrid probe');
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       const tilePos = gridToIso(grid.col, grid.row);
       const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
