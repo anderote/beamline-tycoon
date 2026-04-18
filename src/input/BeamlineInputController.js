@@ -428,6 +428,43 @@ export class BeamlineInputController {
     const state = this.game.state;
     const placeables = (state && state.placeables) || [];
     const beamPipes = (state && state.beamPipes) || [];
+
+    // Cursor is over a junction's footprint → snap to that junction's nearest
+    // available port, regardless of distance. Users expect clicking anywhere
+    // on a junction's visible tile to start a pipe from it, not just within a
+    // half-tile radius of the exact port point.
+    const tileCol = Math.round(cursor.col);
+    const tileRow = Math.round(cursor.row);
+    for (const p of placeables) {
+      const def = COMPONENTS[p.type];
+      if (!def || def.role !== 'junction' || !def.ports) continue;
+      const cells = p.cells || [{ col: p.col, row: p.row }];
+      const onFootprint = cells.some(c => c.col === tileCol && c.row === tileRow);
+      if (!onFootprint) continue;
+      const avail = availablePorts(p, beamPipes);
+      if (avail.length === 0) continue;
+      let nearest = null;
+      let nearestDist = Infinity;
+      for (const portName of avail) {
+        const pos = portWorldPosition(p, portName);
+        if (!pos) continue;
+        const pathCol = (pos.x - 1) / 2;
+        const pathRow = (pos.z - 1) / 2;
+        const d = Math.abs(pathCol - cursor.col) + Math.abs(pathRow - cursor.row);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = {
+            junctionId: p.id,
+            portName,
+            pathPos: { col: pathCol, row: pathRow },
+          };
+        }
+      }
+      if (nearest) return nearest;
+    }
+
+    // Fallback: cursor is off any junction footprint — snap to any port within
+    // PIPE_SNAP_RADIUS (clicks just past the port edge).
     let best = null;
     let bestDist = Infinity;
     for (const p of placeables) {
@@ -437,7 +474,6 @@ export class BeamlineInputController {
       for (const portName of avail) {
         const pos = portWorldPosition(p, portName);
         if (!pos) continue;
-        // world (x,z) → path-space (col,row): inverse of col*2+1.
         const pathCol = (pos.x - 1) / 2;
         const pathRow = (pos.z - 1) / 2;
         const dc = Math.abs(pathCol - cursor.col);
