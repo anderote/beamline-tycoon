@@ -485,6 +485,10 @@ function buildPipeAttachments(game) {
         health: undefined,
         pipeId: pipe.id,
         position: t,
+        // Pass through the placement's own subL so long placements
+        // (e.g. rfCavity subL=6) render at their correct length even when
+        // the renderer falls back to a placeholder box.
+        subL: att.subL,
         params: att.params,
       });
     }
