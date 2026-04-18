@@ -395,12 +395,19 @@ export class BeamlineWindow {
   }
 
   _renderUtilities(el) {
-    const nd = this.game.state.networkData;
-    if (!nd) {
-      el.innerHTML = '<div class="ctx-empty">Network data not available.</div>';
-      return;
-    }
-
+    // Phase 6: connectivity is inferred from state.nodeQualities, which the
+    // tick loop populates from perSinkQuality. A beamline node is "connected"
+    // for a utility type iff any node in this beamline has that utility's
+    // quality field set (non-undefined) in nodeQualities.
+    const UTILITY_TO_QUALITY_FIELD = {
+      powerCable:   'powerQuality',
+      rfWaveguide:  'rfQuality',
+      coolingWater: 'coolingQuality',
+      cryoTransfer: 'cryoQuality',
+      vacuumPipe:   'vacuumQuality',
+      dataFiber:    'dataQuality',
+    };
+    const nodeQualities = this.game.state.nodeQualities || {};
     const entry = this.game.registry.get(this.beamlineId);
     const myNodeIds = entry
       ? new Set(this.game.state.placeables.filter(p => p.beamlineId === entry.id).map(p => p.id))
@@ -409,15 +416,15 @@ export class BeamlineWindow {
     let connectedCount = 0;
     let html = '<div class="ctx-section-label">Utility Connections</div>';
     for (const { key, label } of UTILITY_TYPES) {
-      const networks = nd[key] || [];
+      const qualityField = UTILITY_TO_QUALITY_FIELD[key];
       let connected = false;
-      for (const net of networks) {
-        if (net.beamlineNodes && net.beamlineNodes.some(n => myNodeIds.has(n.id))) {
-          connected = true;
-          connectedCount++;
-          break;
+      if (qualityField) {
+        for (const nodeId of myNodeIds) {
+          const nq = nodeQualities[nodeId];
+          if (nq && nq[qualityField] !== undefined) { connected = true; break; }
         }
       }
+      if (connected) connectedCount++;
       const color = connected ? '#44dd66' : '#556';
       const icon = connected ? '●' : '○';
       const text = connected ? 'Connected' : 'Not connected';

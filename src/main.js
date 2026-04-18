@@ -19,7 +19,6 @@ import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
-import { Networks } from './networks/networks.js';
 import { SCENARIOS } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
@@ -31,7 +30,6 @@ import { discoverNetworks, makeDefaultPortLookup } from './utility/network-disco
 window.COMPONENTS = COMPONENTS;
 window.PARAM_DEFS = PARAM_DEFS;
 window.MACHINES = MACHINES;
-window.Networks = Networks;
 
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');
@@ -148,9 +146,7 @@ function showScenarioPicker(game) {
   };
   renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
-  renderer._onConnSelect = (connType) => input.selectConnTool(connType);
   renderer._onUtilityLineSelect = (utilityType) => input.setUtilityLineTool(utilityType);
-  renderer._onRackSelect = () => input.selectRackTool();
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
   renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
   renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);

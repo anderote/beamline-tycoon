@@ -12,9 +12,7 @@ import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedCom
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
-import { UtilityPipeBuilder } from './utility-pipe-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
-import { RackBuilder } from './rack-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { Overlay } from './overlay.js';
@@ -250,13 +248,11 @@ export class ThreeRenderer {
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
-    this.utilityPipeBuilder = new UtilityPipeBuilder();
     this.utilityLineBuilderV2 = new UtilityLineBuilderV2();
     // Separate group so preview polylines sit in front of committed meshes
     // and we can clear/rebuild them every frame independently.
     this.utilityLineGroup = null;
     this.utilityLinePreviewGroup = null;
-    this.rackBuilder = new RackBuilder();
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
@@ -317,8 +313,6 @@ export class ThreeRenderer {
     this._onToolSelect = null;
     this._onInfraSelect = null;
     this._onFacilitySelect = null;
-    this._onConnSelect = null;
-    this._onRackSelect = null;
     this._onZoneSelect = null;
     this._onWallSelect = null;
     this._onDoorSelect = null;
@@ -455,10 +449,6 @@ export class ThreeRenderer {
     this.utilityLinePreviewGroup.name = 'utilityLinesV2Preview';
     this.utilityLinePreviewGroup.renderOrder = 998;
     this.scene.add(this.utilityLinePreviewGroup);
-
-    this.rackGroup = new THREE.Group();
-    this.rackGroup.name = 'carrierRacks';
-    this.scene.add(this.rackGroup);
 
     this.equipmentGroup = new THREE.Group();
     this.equipmentGroup.name = 'equipment';
@@ -1329,7 +1319,6 @@ export class ThreeRenderer {
   _renderDecorations() { this._refreshDecorations(); }
   _renderZoneFurnishings() { this._refreshEquipment(); }
   _renderNetworkOverlay() { /* future */ }
-  renderConnLinePreview() { /* future */ }
   _renderProbeFlags() { /* future */ }
 
   // --- Preview / highlight methods ---
@@ -2424,9 +2413,11 @@ export class ThreeRenderer {
     majorLines.renderOrder = 997;
     this.gridOverlayGroup.add(majorLines);
 
-    // --- Sub-grid (4 divisions per tile). Each sub-line lives inside one
-    // tile, so endpoints already span a single tile — no further breakdown
-    // needed.
+    // --- Sub-grid (4 divisions per tile). The terrain mesh splits each
+    // tile into 2 triangles along the SW→NE diagonal, so a straight
+    // sub-line that crosses the diagonal won't lie on the mesh in the
+    // middle. Split each sub-line at the diagonal crossing — both
+    // triangles agree on Y there, so the kink is continuous.
     const subVerts = [];
     const sMin = col - subRadius, sMax = col + subRadius;
     const srMin = row - subRadius, srMax = row + subRadius;
@@ -2434,8 +2425,13 @@ export class ThreeRenderer {
       for (let c = sMin; c <= sMax; c++) {
         const xa = c * 2, xb = c * 2 + 2;
         for (let sub = 1; sub <= 3; sub++) {
+          const vLocal = sub * 0.25;
           const z = r * 2 + sub * 0.5;
-          subVerts.push(xa, surfY(xa, z), z, xb, surfY(xb, z), z);
+          // Diagonal crosses v=vLocal at u = 1 - vLocal.
+          const xMid = c * 2 + 2 * (1 - vLocal);
+          const yMid = surfY(xMid, z);
+          subVerts.push(xa, surfY(xa, z), z, xMid, yMid, z);
+          subVerts.push(xMid, yMid, z, xb, surfY(xb, z), z);
         }
       }
     }
@@ -2443,8 +2439,13 @@ export class ThreeRenderer {
       for (let r = srMin; r <= srMax; r++) {
         const za = r * 2, zb = r * 2 + 2;
         for (let sub = 1; sub <= 3; sub++) {
+          const uLocal = sub * 0.25;
           const x = c * 2 + sub * 0.5;
-          subVerts.push(x, surfY(x, za), za, x, surfY(x, zb), zb);
+          // Diagonal crosses u=uLocal at v = 1 - uLocal.
+          const zMid = r * 2 + 2 * (1 - uLocal);
+          const yMid = surfY(x, zMid);
+          subVerts.push(x, surfY(x, za), za, x, yMid, zMid);
+          subVerts.push(x, yMid, zMid, x, surfY(x, zb), zb);
         }
       }
     }
@@ -2744,8 +2745,6 @@ export class ThreeRenderer {
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
-    this.rackBuilder.build(snapshot.rackSegments, this.rackGroup);
-    this.utilityPipeBuilder.build(snapshot.utilityRouting, this.connectionGroup);
     this._refreshUtilityLinesV2();
     this._refreshBeamPipes();
     this._refreshZones();
@@ -3030,9 +3029,9 @@ export class ThreeRenderer {
   }
 
   _refreshConnections() {
-    const snap = buildWorldSnapshot(this.game);
-    this.rackBuilder.build(snap.rackSegments, this.rackGroup);
-    this.utilityPipeBuilder.build(snap.utilityRouting, this.connectionGroup);
+    // Phase 6: rack + utility-pipe legacy builders removed. The new-system
+    // UtilityLineBuilderV2 drives all utility-line rendering via
+    // _refreshUtilityLinesV2, which is triggered directly on line changes.
   }
 
   /**

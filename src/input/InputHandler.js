@@ -7,7 +7,6 @@ import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
-import { NetworkWindow } from '../ui/NetworkWindow.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
@@ -98,10 +97,6 @@ export class InputHandler {
     this.linePlaceSpacingSub = new Map();
     this._linePlaceLastWorld = null; // for re-previewing on spacing change
     this._suppressNextClick = false;
-    this.selectedConnTool = null;
-    this.isDrawingConn = false;
-    this.connDrawMode = 'add';  // 'add' or 'remove'
-    this.connPath = [];
     // Line placement (hallway)
     this.isDrawingLine = false;
     this.linePath = [];
@@ -147,11 +142,10 @@ export class InputHandler {
       renderer,
       inputHandler: this,
     });
-    // Utility-line tool state. Parallel to selectedConnTool (the old rack-paint
-    // tool): selects one of the six utility types and draws Manhattan lines
-    // between ports that advertise that utility type. Preview/hover state is
-    // written here by the controller and read by ThreeRenderer's animate loop
-    // / utility-line-builder.
+    // Utility-line tool state: selects one of the six utility types and draws
+    // Manhattan lines between ports that advertise that utility type. Preview/
+    // hover state is written here by the controller and read by ThreeRenderer's
+    // animate loop / utility-line-builder.
     this.selectedUtilityLineTool = null; // utility type string or null
     this.utilityPreview = null;          // { utilityType, path, color }
     this.utilityHoverPort = null;        // { placeableId, portName, worldPos }
@@ -319,17 +313,6 @@ export class InputHandler {
         const zone = ZONES[zoneType];
         this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(zone ? zone.name : zoneType, 0, screenX, screenY);
-        found = true;
-      }
-    }
-
-    // Rack segments (formerly demolishConnection / utility connections)
-    if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
-      const rackSeg = this.game.getRackSegmentAt(col, row);
-      if (rackSeg) {
-        this.renderer.renderDemolishTileOutline(col, row);
-        const label = rackSeg.utilities.size > 0 ? [...rackSeg.utilities].join(', ') : 'Carrier Rack';
-        this._showDemolishTooltip(label, 0, screenX, screenY);
         found = true;
       }
     }
@@ -1156,6 +1139,36 @@ export class InputHandler {
         return;
       }
 
+      // Mode hotkeys: 1..6 activate top-row mode buttons.
+      // Skip when modifiers are held so browser shortcuts pass through.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && e.key >= '1' && e.key <= '6') {
+        const modeOrder = ['beamline', 'infra', 'facility', 'structure', 'grounds', 'demolish'];
+        const mode = modeOrder[parseInt(e.key, 10) - 1];
+        const btn = mode && document.querySelector(`.mode-btn[data-mode="${mode}"]`);
+        if (btn) {
+          e.preventDefault();
+          btn.click();
+        }
+        return;
+      }
+
+      // Palette hotkeys: z,x,c,v,b,n,m select palette slots 0..6.
+      // Skip when modifiers are held so Shift+Z decoration-spacing and
+      // Ctrl+Z undo keep working.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && 'zxcvbnm'.includes(k)) {
+        const slot = 'zxcvbnm'.indexOf(k);
+        const items = document.querySelectorAll('#component-palette .palette-item');
+        if (items.length > slot) {
+          e.preventDefault();
+          this.paletteIndex = slot;
+          this._applyPaletteFocus(items);
+          return;
+        }
+        // Fall through: no item in that slot, let switch handle rebound keys.
+      }
+
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -1345,7 +1358,7 @@ export class InputHandler {
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
-        case 'c': case 'C':
+        case 'l': case 'L':
           if (this.game._designer && !this.game._designer.isOpen) {
             e.preventDefault();
             const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
@@ -1388,13 +1401,13 @@ export class InputHandler {
           this._showToast(`Labels: ${levelName}`);
           break;
         }
-        case 'z': case 'Z': {
-          if (e.ctrlKey || e.metaKey) break; // let Ctrl+Z undo through
+        case 'o': case 'O': {
+          if (e.ctrlKey || e.metaKey) break;
           const visible = this.renderer.toggleZoneOverlay();
           this._showToast(`Zones: ${visible ? 'On' : 'Off'}`);
           break;
         }
-        case 'm': case 'M':
+        case 'h': case 'H':
           this._toggleMoveMode();
           break;
         case 'Delete': case 'Backspace':
@@ -1517,17 +1530,6 @@ export class InputHandler {
         if (this.utilityLineController.onMouseDown(world.x, world.y, e.button)) {
           return;
         }
-      }
-
-      // Connection drawing start (left click = add, right click = remove)
-      if (this.selectedConnTool && (e.button === 0 || e.button === 2)) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.isDrawingConn = true;
-        this.connDrawMode = e.button === 0 ? 'add' : 'remove';
-        this.connPath = [{ col: grid.col, row: grid.row }];
-        this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
-        return;
       }
 
       // Beamline input delegation. The controller owns pipe drawing,
@@ -1816,29 +1818,6 @@ export class InputHandler {
         // Utility-line drag: update Manhattan preview path.
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         this.utilityLineController.onMouseMove(world.x, world.y);
-      } else if (this.isDrawingConn && this.selectedConnTool) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        const last = this.connPath[this.connPath.length - 1];
-        if (grid.col !== last.col || grid.row !== last.row) {
-          const dc = Math.abs(grid.col - last.col);
-          const dr = Math.abs(grid.row - last.row);
-          if (dc + dr === 1) {
-            this.connPath.push({ col: grid.col, row: grid.row });
-          } else {
-            // Bridge gap with straight line to cursor
-            const steps = Math.max(dc, dr);
-            for (let i = 1; i <= steps; i++) {
-              const ic = last.col + Math.round((grid.col - last.col) * i / steps);
-              const ir = last.row + Math.round((grid.row - last.row) * i / steps);
-              const prev = this.connPath[this.connPath.length - 1];
-              if (ic !== prev.col || ir !== prev.row) {
-                this.connPath.push({ col: ic, row: ir });
-              }
-            }
-          }
-          this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
-        }
       } else if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         if (!this._loggedPipeMoveDelegate) {
@@ -1901,7 +1880,7 @@ export class InputHandler {
         // Hover tooltip for furnishings/equipment (when no tool active)
         if (!this.selectedTool && !this.selectedInfraTool && !this.selectedFacilityTool &&
             !this.selectedFurnishingTool && !this.selectedDecorationTool &&
-            !this.selectedWallTool && !this.selectedDoorTool && !this.selectedConnTool &&
+            !this.selectedWallTool && !this.selectedDoorTool &&
             !this.selectedZoneTool && !this.demolishMode && !this.bulldozerMode) {
           this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
         } else if (this._hoverTooltipTarget) {
@@ -1977,42 +1956,13 @@ export class InputHandler {
         });
       }
 
-      // Connection drawing end — commit all tiles on release
-      if (this.isDrawingConn) {
-        this.game._pushUndo();
-        const seen = new Set();
-        for (const pt of this.connPath) {
-          const rackSeg = this.game.getRackSegmentAt(pt.col, pt.row);
-          if (!rackSeg) continue;
-          const rackKey = rackSeg.col + ',' + rackSeg.row;
-          if (seen.has(rackKey)) continue;
-          seen.add(rackKey);
-          if (this.connDrawMode === 'add') {
-            this.game.paintRackUtility(rackSeg.col, rackSeg.row, this.selectedConnTool);
-          } else {
-            this.game.removeRackUtility(rackSeg.col, rackSeg.row, this.selectedConnTool);
-          }
-        }
-        this.isDrawingConn = false;
-        this.connPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Line placement end (hallway or rack)
+      // Line placement end (hallway). Rack-segment drawing removed in Phase 6.
       if (this.isDrawingLine && this.linePath.length > 0) {
         this.game._pushUndo();
-        const infraDef = FLOORS[this.selectedInfraTool];
-        if (infraDef && infraDef.isRack) {
-          for (const pt of this.linePath) {
-            this.game.placeRackSegment(pt.col, pt.row);
-          }
-        } else {
-          for (const pt of this.linePath) {
-            this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
-          }
-          this.game.emit('infrastructureChanged');
+        for (const pt of this.linePath) {
+          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
         }
+        this.game.emit('infrastructureChanged');
         this.isDrawingLine = false;
         this.linePath = [];
         this.lineStart = null;
@@ -2095,20 +2045,10 @@ export class InputHandler {
               }
             }
           } else if (this.demolishType === 'demolishUtility') {
-            // Remove rack segments in rect (resolve anchors and deduplicate)
-            const removedAnchors = new Set();
-            for (let c = minCol; c <= maxCol; c++) {
-              for (let r = minRow; r <= maxRow; r++) {
-                const rackSeg = this.game.getRackSegmentAt(c, r);
-                if (rackSeg) {
-                  const anchorKey = rackSeg.col + ',' + rackSeg.row;
-                  if (!removedAnchors.has(anchorKey)) {
-                    removedAnchors.add(anchorKey);
-                    this.game.removeRackSegment(rackSeg.col, rackSeg.row);
-                  }
-                }
-              }
-            }
+            // Phase 6: rack-segment demolish removed. Utility-line removal
+            // flows through UtilityLineSystem.removeLine() from the bulldozer
+            // path, not this rect demolish. Leave the branch as a no-op so
+            // legacy demolishType strings still dispatch cleanly.
           } else if (this.demolishType === 'demolishEquipment') {
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
@@ -2183,8 +2123,6 @@ export class InputHandler {
           this.deselectFacilityTool();
         } else if (this.selectedFurnishingTool) {
           this.deselectFurnishingTool();
-        } else if (this.selectedConnTool) {
-          this.deselectConnTool();
         } else if (this.selectedZoneTool) {
           this.deselectZoneTool();
         } else if (this.demolishMode) {
@@ -2238,7 +2176,7 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
-    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, selectedConnTool: this.selectedConnTool, bulldozer: this.bulldozerMode, placeables: this.game.state.placeables.length });
+    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, bulldozer: this.bulldozerMode, placeables: this.game.state.placeables.length });
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
@@ -2258,7 +2196,6 @@ export class InputHandler {
         && !this.selectedInfraTool
         && !this.selectedFacilityTool
         && !this.selectedFurnishingTool
-        && !this.selectedConnTool
         && !this.selectedDecorationTool
         && !this.selectedZoneTool
         && !this.selectedWallTool
@@ -2280,11 +2217,7 @@ export class InputHandler {
 
     if (this.bulldozerMode) {
       this.game._pushUndo();
-      if (this.bulldozerConnType) {
-        // Pipe-specific bulldozer: only remove the selected utility from the rack
-        const rackSeg = this.game.getRackSegmentAt(col, row);
-        if (rackSeg) this.game.removeRackUtility(rackSeg.col, rackSeg.row, this.bulldozerConnType);
-      } else {
+      {
         // General bulldozer: remove furniture and components only
         // (does not affect zones, floors/walls, or pipes)
         const key = col + ',' + row;
@@ -2372,9 +2305,8 @@ export class InputHandler {
         // non-placeable tile branches below (walls/zones/floors).
       }
       if (this.demolishType === 'demolishUtility') {
-        // Remove rack segment (and all its utilities) at this tile
-        const rackSeg = this.game.getRackSegmentAt(col, row);
-        if (rackSeg) this.game.removeRackSegment(rackSeg.col, rackSeg.row);
+        // Phase 6: rack-segment demolish removed. Utility-line removal flows
+        // through UtilityLineSystem from the inspector / bulldozer.
       } else if (this.demolishType === 'demolishZone') {
         if (this.game.state.zoneOccupied[key]) {
           this.game.removeZoneTile(col, row);
@@ -2491,21 +2423,9 @@ export class InputHandler {
           this.game.emit('beamlineSelected', blId);
         }
       } else {
-        // Check for rack segment click (network info)
-        const rackSeg = this.game.getRackSegmentAt(col, row);
-        if (rackSeg && rackSeg.utilities.size > 0) {
-          const networkData = this.game.state.networkData || {};
-          for (const connType of rackSeg.utilities) {
-            const clusters = networkData[connType] || [];
-            for (let ci = 0; ci < clusters.length; ci++) {
-              const inCluster = clusters[ci].tiles.some(t => t.col === col && t.row === row);
-              if (inCluster) {
-                new NetworkWindow(this.game, connType, ci);
-                return;
-              }
-            }
-          }
-        }
+        // Phase 6: rack-segment click-to-inspect removed. Utility inspection
+        // now flows through UtilityInspector (opened via the utility-line
+        // raycast earlier in _handleClick).
         // Check for machine tile click
         const machineId = this.game.state.machineGrid[col + ',' + row];
         if (machineId) {
@@ -3057,31 +2977,16 @@ export class InputHandler {
     this.selectedFacilityTool = null;
   }
 
-  selectConnTool(connType) {
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectRackTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
-    this.selectedConnTool = connType;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
-  }
-
-  deselectConnTool() {
-    this.selectedConnTool = null;
-    this.isDrawingConn = false;
-    this.connPath = [];
-  }
+  // Phase 6: rack-paint tool removed. deselectConnTool is kept as a no-op so
+  // the many call sites (each selectX() clears every other tool) don't need
+  // to be individually re-wired.
+  deselectConnTool() { /* no-op */ }
 
   // --- Utility-line tool (Phase 4) ---
   //
-  // Distinct from selectedConnTool (the rack-paint tool): selects one of the
-  // six utility types defined in src/utility/registry.js. When active, the
-  // user clicks+drags between matching ports to commit a new utility line
-  // via UtilityLineSystem.addLine().
+  // Selects one of the six utility types defined in src/utility/registry.js.
+  // When active, the user clicks+drags between matching ports to commit a new
+  // utility line via UtilityLineSystem.addLine().
   setUtilityLineTool(type) {
     // Clear other tools so we don't stack selection state.
     this.deselectTool();
@@ -3089,7 +2994,6 @@ export class InputHandler {
     this.deselectFacilityTool();
     this.deselectFurnishingTool();
     this.deselectRackTool();
-    this.deselectConnTool();
     this.deselectZoneTool();
     this.demolishMode = false;
     this.bulldozerMode = false;
@@ -3113,15 +3017,11 @@ export class InputHandler {
     this.utilityHoverPort = null;
   }
 
-  selectRackTool() {
-    this.selectInfraTool('carrierRack');
-  }
-
-  deselectRackTool() {
-    if (this.selectedInfraTool === 'carrierRack') {
-      this.deselectInfraTool();
-    }
-  }
+  // Phase 6: carrierRack and the rack-paint tool were removed. The selector/
+  // deselector methods remain as no-ops so the many call sites (each
+  // selectX() clears every other tool) don't need to be individually rewired.
+  selectRackTool() { /* no-op */ }
+  deselectRackTool() { /* no-op */ }
 
   selectZoneTool(zoneType) {
     this.deselectTool();
@@ -3215,9 +3115,7 @@ export class InputHandler {
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
     if (node) this.game.removePlaceable(node.id);
-    // Remove rack segment (and its utilities)
-    const rackSeg = this.game.getRackSegmentAt(col, row);
-    if (rackSeg) this.game.removeRackSegment(rackSeg.col, rackSeg.row);
+    // Phase 6: rack segments removed from state; nothing to demolish here.
     // Remove furnishings
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
     if (subgrid) {
@@ -3487,7 +3385,6 @@ export class InputHandler {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
     } else if (this.selectedPlaceableId
         && !this.selectedInfraTool
-        && !this.selectedConnTool
         && !this.selectedZoneTool) {
       const pl = PLACEABLES[this.selectedPlaceableId];
       if (pl && pl.kind === 'decoration') {
@@ -3540,8 +3437,6 @@ export class InputHandler {
       demolishType = 'demolishFloor';
     } else if (this.selectedZoneTool) {
       demolishType = 'demolishZone';
-    } else if (this.selectedConnTool) {
-      demolishType = 'demolishUtility';
     } else if (this.activeMode === 'beamline') {
       demolishType = 'demolishBeamline';
     } else {

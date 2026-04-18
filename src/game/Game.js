@@ -3,11 +3,8 @@ import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS } from '../data/facility.js';
 import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
-import { CONNECTION_TYPES } from '../data/modes.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
-import { Networks } from '../networks/networks.js';
-import { findLabNetworkBonuses } from '../networks/rooms.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
@@ -89,8 +86,6 @@ export class Game {
       // Doors (edge-based, like walls)
       doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
       doorOccupied: {},       // "col,row,edge" -> doorType
-      // Utility connections
-      rackSegments: new Map(),    // "col,row" -> { utilities: Set<connType> }
       // Utility network lines (per-utility independent drawable pipes)
       utilityLines: new Map(),
       utilityNextId: 1,
@@ -101,9 +96,8 @@ export class Game {
       machineGrid: {},          // "col,row" -> machineId
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
-      infraBlockers: [],          // blockers from Networks.validate()
+      infraBlockers: [],          // blockers from solve-runner
       infraCanRun: true,          // true if no blockers
-      networkData: null,          // network discovery data
       // Saved beamline designs
       savedDesigns: [],
       savedDesignNextId: 1,
@@ -286,7 +280,6 @@ export class Game {
       zoneFurnishingNextId: this.state.zoneFurnishingNextId,
       machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
       machineGrid: { ...this.state.machineGrid },
-      rackSegments: new Map([...this.state.rackSegments].map(([k, v]) => [k, { utilities: new Set(v.utilities) }])),
       editingBeamlineId: this.editingBeamlineId,
       selectedBeamlineId: this.selectedBeamlineId,
       // Beamline registry snapshot
@@ -331,7 +324,6 @@ export class Game {
     this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
     this.state.machines = snap.machines;
     this.state.machineGrid = snap.machineGrid;
-    this.state.rackSegments = snap.rackSegments;
     this.editingBeamlineId = snap.editingBeamlineId;
     this.selectedBeamlineId = snap.selectedBeamlineId;
 
@@ -1860,68 +1852,6 @@ export class Game {
     }
   }
 
-  // === CARRIER RACK ===
-
-  placeRackSegment(col, row) {
-    const key = col + ',' + row;
-    if (this.state.rackSegments.has(key)) return false;
-    this.state.rackSegments.set(key, { utilities: new Set() });
-    this.emit('connectionsChanged');
-    return true;
-  }
-
-  removeRackSegment(col, row) {
-    const key = col + ',' + row;
-    if (!this.state.rackSegments.has(key)) return false;
-    this.state.rackSegments.delete(key);
-    this.emit('connectionsChanged');
-    this.validateInfrastructure();
-    return true;
-  }
-
-  paintRackUtility(col, row, connType) {
-    const key = col + ',' + row;
-    const seg = this.state.rackSegments.get(key);
-    if (!seg) return false;
-    if (seg.utilities.has(connType)) return false;
-    seg.utilities.add(connType);
-    this.emit('connectionsChanged');
-    this.validateInfrastructure();
-    return true;
-  }
-
-  removeRackUtility(col, row, connType) {
-    const key = col + ',' + row;
-    const seg = this.state.rackSegments.get(key);
-    if (!seg) return false;
-    if (!seg.utilities.has(connType)) return false;
-    seg.utilities.delete(connType);
-    this.emit('connectionsChanged');
-    this.validateInfrastructure();
-    return true;
-  }
-
-  getRackSegment(col, row) {
-    return this.state.rackSegments.get(col + ',' + row) || null;
-  }
-
-  getRackSegmentAt(tileCol, tileRow) {
-    const seg = this.state.rackSegments.get(tileCol + ',' + tileRow);
-    if (seg) return { col: tileCol, row: tileRow, ...seg };
-    return null;
-  }
-
-  // Check if a beamline component has a valid connection of the given type
-  // (now checks carrier rack segments instead of legacy floor connections)
-  hasValidConnection(node, connType) {
-    const tiles = node.tiles || [{ col: node.col, row: node.row }];
-    for (const t of tiles) {
-      const rackSeg = this.getRackSegmentAt(t.col, t.row);
-      if (rackSeg && rackSeg.utilities && rackSeg.utilities.has(connType)) return true;
-    }
-    return false;
-  }
-
   // === STATS ===
 
   /**
@@ -2557,17 +2487,14 @@ export class Game {
         const errs = Array.isArray(result && result.errors) ? result.errors : [];
         const hardErrs = errs.filter(e => e && e.severity === 'hard');
         const softErrs = errs.filter(e => e && e.severity === 'soft');
-        // Replace the previous utility-solve contribution while preserving
-        // the legacy Networks.validate() contribution (marked without the
-        // fromUtilitySolve flag). Phase 6 removes the legacy path.
-        const existing = (this.state.infraBlockers || []).filter(b => !b.fromUtilitySolve);
-        const utilityBlockers = hardErrs.map(e => ({
+        // Phase 6: the utility solve-runner is the only source of infraBlockers.
+        // Hard errors block the beam; soft errors are logged but non-fatal.
+        this.state.infraBlockers = hardErrs.map(e => ({
           ...e,
           fromUtilitySolve: true,
           reason: e.message || e.code || 'Utility fault',
         }));
-        this.state.infraBlockers = [...existing, ...utilityBlockers];
-        if (hardErrs.length > 0) this.state.infraCanRun = false;
+        this.state.infraCanRun = hardErrs.length === 0;
 
         // Aggregate perSinkQuality → state.nodeQualities (Phase 6 / Task 23).
         // Shape: { [placeableId]: { powerQuality, rfQuality, coolingQuality,
@@ -2653,39 +2580,11 @@ export class Game {
 
     // Data from detectors (physics-driven)
     if (bs.dataRate > 0) {
-      // Only count data from endpoints with data/fiber connections to IOCs AND control room
+      // Apply data fiber network quality. In the Phase 6 utility model,
+      // dataFiber quality is 1.0 when a detector port is connected to an
+      // IOC/control-room source through a data-fiber line, and 0 otherwise,
+      // so this term alone captures "connected to control room".
       let connectedDataRate = bs.dataRate;
-      if (this.state.networkData) {
-        const dataConnected = new Set();
-        for (const net of (this.state.networkData.dataFiber || [])) {
-          const hasIoc = net.equipment.some(eq => eq.type === 'rackIoc');
-          const reachesControlRoom = Networks.touchesControlRoom(this.state, net);
-          if (hasIoc && reachesControlRoom) {
-            for (const node of net.beamlineNodes) dataConnected.add(node.id);
-          }
-        }
-        // Get this beamline's elements via pipe graph
-        const blElements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
-        let totalDiagRate = 0, connDiagRate = 0;
-        for (const node of blElements) {
-          const comp = COMPONENTS[node.type];
-          if (comp && (comp.stats?.dataRate || 0) > 0) {
-            totalDiagRate += comp.stats.dataRate;
-            if (dataConnected.has(node.id)) connDiagRate += comp.stats.dataRate;
-          }
-        }
-        if (totalDiagRate > 0) {
-          connectedDataRate = bs.dataRate * (connDiagRate / totalDiagRate);
-        }
-        // Warn once if endpoints exist but aren't wired to control room
-        if (totalDiagRate > 0 && connDiagRate === 0 && !this._warnedNoControlRoom) {
-          this.log('Endpoints not wired to control room -- no data collected!', 'bad');
-          this._warnedNoControlRoom = true;
-        } else if (connDiagRate > 0) {
-          this._warnedNoControlRoom = false;
-        }
-      }
-      // Apply data fiber network quality
       if (this.state.nodeQualities) {
         let totalDataQ = 0;
         let dataNodeCount = 0;
@@ -2694,7 +2593,8 @@ export class Game {
           const comp = COMPONENTS[node.type];
           if (comp && (comp.stats?.dataRate || 0) > 0) {
             const nq = this.state.nodeQualities[node.id];
-            totalDataQ += nq ? nq.dataQuality : 1.0;
+            const dq = nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
+            totalDataQ += dq;
             dataNodeCount++;
           }
         }
@@ -2748,79 +2648,15 @@ export class Game {
   }
 
   // === FLOORS VALIDATION ===
-
+  //
+  // Post-Phase 6: the legacy Networks.validate() pipeline is gone. The new
+  // utility system is driven by solveRunner in the per-tick loop (see tick()).
+  // validateInfrastructure() is kept as a lightweight emit trigger for the
+  // handful of call sites that used to rely on it to refresh UI immediately
+  // after a placement — they still emit so listeners (palette/window/UI) can
+  // react without waiting for the next tick. Any follow-up fault-attribution
+  // work happens on the next tick when solveRunner runs.
   validateInfrastructure() {
-    const validationState = {
-      facilityEquipment: this.state.facilityEquipment,
-      facilityGrid: this.state.facilityGrid,
-      beamline: this.state.beamline,
-      floors: this.state.floors,
-      infraOccupied: this.state.infraOccupied,
-      walls: this.state.walls,
-      wallOccupied: this.state.wallOccupied,
-      doors: this.state.doors,
-      doorOccupied: this.state.doorOccupied,
-      zoneOccupied: this.state.zoneOccupied,
-      zoneFurnishings: this.state.zoneFurnishings,
-      machines: this.state.machines,
-    };
-
-    const result = Networks.validate(validationState);
-    this.state.infraBlockers = result.blockers;
-    this.state.infraCanRun = result.canRun;
-    this.state.networkData = result.networks;
-
-    const labBonuses = findLabNetworkBonuses(validationState, result.networks);
-    const nodeQualities = Networks.computeNodeQualities(result.networks, labBonuses, this.state.beamline);
-    this.state.nodeQualities = nodeQualities;
-    this.state.labBonuses = labBonuses;
-
-    // Per-beamline fault attribution: only hard blockers stop the beam
-    for (const blocker of result.blockers) {
-      if (blocker.severity === 'hard' && blocker.nodeId) {
-        // Find the beamline entry for this node via the placeable's beamlineId
-        const plIdx = this.state.placeableIndex?.[blocker.nodeId];
-        const placeable = plIdx !== undefined ? this.state.placeables[plIdx] : null;
-        const blEntry = placeable?.beamlineId ? this.registry.get(placeable.beamlineId) : null;
-        if (blEntry && blEntry.status === 'running') {
-          blEntry.status = 'stopped';
-          blEntry.beamState.continuousBeamTicks = 0;
-          const reason = blocker.reason || 'Infrastructure failure';
-          this.log(`Beam TRIPPED: ${reason}`, 'bad');
-          this.emit('beamToggled');
-        }
-      }
-    }
-
-    // Soft blocker warnings (log once per unique reason)
-    if (!this._softBlockerWarned) this._softBlockerWarned = {};
-    for (const blocker of result.blockers) {
-      if (blocker.severity === 'soft' && !this._softBlockerWarned[blocker.reason]) {
-        this.log(`Warning: ${blocker.reason}`, 'warn');
-        this._softBlockerWarned[blocker.reason] = true;
-      }
-    }
-    // Clear warnings for blockers that are gone
-    const activeReasons = new Set(result.blockers.filter(b => b.severity === 'soft').map(b => b.reason));
-    for (const key of Object.keys(this._softBlockerWarned)) {
-      if (!activeReasons.has(key)) delete this._softBlockerWarned[key];
-    }
-
-    // If global canRun is false, stop all running beamlines
-    if (!result.canRun) {
-      let stoppedAny = false;
-      for (const entry of this.registry.getAll()) {
-        if (entry.status === 'running') {
-          entry.status = 'stopped';
-          entry.beamState.continuousBeamTicks = 0;
-          stoppedAny = true;
-        }
-      }
-      if (stoppedAny) {
-        this.emit('beamToggled');
-      }
-    }
-
     this.emit('infrastructureValidated');
   }
 
@@ -3218,13 +3054,8 @@ export class Game {
   // === SAVE / LOAD ===
 
   save() {
-    const rackObj = {};
-    for (const [key, seg] of this.state.rackSegments) {
-      rackObj[key] = [...seg.utilities];
-    }
     const saveState = {
       ...this.state,
-      rackSegments: rackObj,
       cornerHeights: serializeCornerHeights(this.state.cornerHeights),
       // New utility system (Phase 6 / Task 24). utilityNetworkData is derived
       // (repopulated by solveRunner on first tick), so not persisted.
@@ -3310,16 +3141,9 @@ export class Game {
       } else { this.state.machines = []; }
       // Discard legacy connections data from old saves
       delete this.state.connections;
-      // Restore rackSegments Map from serialized format
-      if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
-        const map = new Map();
-        for (const [key, arr] of Object.entries(this.state.rackSegments)) {
-          map.set(key, { utilities: new Set(arr) });
-        }
-        this.state.rackSegments = map;
-      } else if (!this.state.rackSegments) {
-        this.state.rackSegments = new Map();
-      }
+      // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
+      delete this.state.rackSegments;
+      delete this.state.networkData;
 
       // Rehydrate new-system utility state (Phase 6 / Task 24).
       this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
@@ -3445,7 +3269,6 @@ export class Game {
       // Ensure infra validation state exists
       this.state.infraBlockers = this.state.infraBlockers || [];
       this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
-      this.state.networkData = this.state.networkData || null;
 
       // Ensure saved designs exist
       if (!this.state.savedDesigns) this.state.savedDesigns = [];
@@ -3551,18 +3374,10 @@ export class Game {
             this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
       }
     } else { this.state.machines = []; }
-    // Discard legacy connections data from old saves
+    // Discard legacy connections / rack-segment / networkData from old saves
     delete this.state.connections;
-    // Restore rackSegments Map
-    if (this.state.rackSegments && !(this.state.rackSegments instanceof Map)) {
-      const map = new Map();
-      for (const [key, arr] of Object.entries(this.state.rackSegments)) {
-        map.set(key, { utilities: new Set(arr) });
-      }
-      this.state.rackSegments = map;
-    } else if (!this.state.rackSegments) {
-      this.state.rackSegments = new Map();
-    }
+    delete this.state.rackSegments;
+    delete this.state.networkData;
 
     // Rehydrate new-system utility state (Phase 6 / Task 24). v5 saves
     // predate the new system, so these always start empty.
@@ -3667,7 +3482,6 @@ export class Game {
 
     this.state.infraBlockers = this.state.infraBlockers || [];
     this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
-    this.state.networkData = this.state.networkData || null;
 
     // Initialize params for beamline placeables
     for (const p of (this.state.placeables || [])) {

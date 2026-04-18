@@ -5,8 +5,6 @@
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
-import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
-import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
 import { getTileCornersY, sampleCornersAt } from '../game/terrain.js';
 import { inMapRegion } from '../game/map-generator.js';
 
@@ -301,131 +299,6 @@ function buildDecorations(game) {
     });
 }
 
-function buildRackSegments(game) {
-  const segs = game.state.rackSegments;
-  if (!segs || segs.size === 0) return [];
-
-  const result = [];
-  for (const [key, seg] of segs) {
-    const [col, row] = key.split(',').map(Number);
-    const anchors = rackNeighborAnchors(col, row);
-    const neighbors = {
-      north: segs.has(`${anchors.north.col},${anchors.north.row}`),
-      south: segs.has(`${anchors.south.col},${anchors.south.row}`),
-      east:  segs.has(`${anchors.east.col},${anchors.east.row}`),
-      west:  segs.has(`${anchors.west.col},${anchors.west.row}`),
-    };
-    result.push({ col, row, utilities: [...seg.utilities], neighbors });
-  }
-  return result;
-}
-
-function buildUtilityRouting(game) {
-  const segs = game.state.rackSegments;
-  if (!segs || segs.size === 0) return { rackPipes: [], portRoutes: [] };
-
-  const rackPipes = [];
-  for (const [key, seg] of segs) {
-    const [col, row] = key.split(',').map(Number);
-    const anchors = rackNeighborAnchors(col, row);
-
-    for (const type of seg.utilities) {
-      const neighbors = {
-        north: false, south: false, east: false, west: false,
-      };
-      for (const [dir, a] of Object.entries(anchors)) {
-        const nseg = segs.get(`${a.col},${a.row}`);
-        if (nseg && nseg.utilities.has(type)) neighbors[dir] = true;
-      }
-
-      rackPipes.push({ col, row, type, neighbors });
-    }
-  }
-
-  const portRoutes = [];
-  const placeables = [];
-
-  for (const p of (game.state.placeables || [])) {
-    if (p.category !== 'beamline') continue;
-    const comp = COMPONENTS[p.type];
-    placeables.push({
-      id: p.id,
-      col: p.col,
-      row: p.row,
-      dir: p.dir ?? 0,
-      tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
-      subW: comp?.subW || comp?.gridW || 2,
-      subL: comp?.subL || comp?.gridH || 2,
-    });
-  }
-
-  const infraPlaceables = game.state.placeables || [];
-  for (const p of infraPlaceables) {
-    if (p.category === 'equipment' || p.category === 'infrastructure') {
-      const compId = p.type || p.id;
-      if (!compId) continue;
-      placeables.push({
-        id: compId,
-        col: p.col,
-        row: p.row,
-        dir: p.dir ?? 0,
-        tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
-        subW: p.subW || p.gridW || 2,
-        subL: p.subL || p.gridH || 2,
-      });
-    }
-  }
-
-  const pipeAttachments = buildPipeAttachments(game);
-  for (const att of pipeAttachments) {
-    placeables.push({
-      id: att.type,
-      col: att.col,
-      row: att.row,
-      dir: att.direction ?? 0,
-      tiles: [{ col: Math.round(att.col), row: Math.round(att.row) }],
-      subW: 2,
-      subL: 2,
-    });
-  }
-
-  for (const comp of placeables) {
-    const ports = getUtilityPorts(comp.id);
-    if (!ports || ports.length === 0) continue;
-
-    let rackSeg = null;
-    for (const t of comp.tiles) {
-      const seg = segs.get(`${t.col},${t.row}`);
-      if (seg) { rackSeg = { col: t.col, row: t.row, seg }; break; }
-      // Also check cardinal neighbors (rack adjacent to component)
-      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
-        const ns = segs.get(`${t.col+dc},${t.row+dr}`);
-        if (ns) { rackSeg = { col: t.col+dc, row: t.row+dr, seg: ns }; break; }
-      }
-      if (rackSeg) break;
-    }
-
-    for (const port of ports) {
-      const connected = rackSeg && rackSeg.seg.utilities.has(port.type);
-
-      portRoutes.push({
-        compId: comp.id,
-        col: comp.col,
-        row: comp.row,
-        dir: comp.dir,
-        portType: port.type,
-        portOffset: port.offset,
-        subW: comp.subW,
-        subL: comp.subL,
-        rackCol: connected ? rackSeg.col : null,
-        rackRow: connected ? rackSeg.row : null,
-      });
-    }
-  }
-
-  return { rackPipes, portRoutes };
-}
-
 function buildBeamPaths(game) {
   const editingId = game.editingBeamlineId;
   const beamPaths = [];
@@ -541,14 +414,12 @@ export function buildWorldSnapshot(game) {
     components: buildComponents(game),
     equipment: buildEquipment(game),
     decorations: buildDecorations(game),
-    rackSegments: buildRackSegments(game),
     beamPaths: buildBeamPaths(game),
     furnishings: buildFurnishings(game),
     pipeAttachments: buildPipeAttachments(game),
-    utilityRouting: buildUtilityRouting(game),
-    // Phase 4: new-system utility lines (Map → Array for consumers that
-    // prefer immutability). The builder still reads state directly for
-    // incremental rebuilds, but snapshot consumers and tests can use this.
+    // Phase 6: new-system utility lines (Map → Array). The builder still reads
+    // state directly for incremental rebuilds; snapshot consumers and tests
+    // can use this.
     utilityLines: buildUtilityLines(game),
   };
 }
