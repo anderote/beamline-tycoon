@@ -1447,6 +1447,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           if (this._onUtilityLineSelect) this._onUtilityLineSelect(utilityType);
         });
 
+        // Hover popup — show descriptor-based info instead of the stale
+        // component-popup content from whichever item was hovered last.
+        item.addEventListener('mouseenter', () => {
+          this._showUtilityLinePreview(descriptor);
+        });
+        item.addEventListener('mouseleave', () => {
+          this._hidePalettePreview();
+        });
+
         itemsContainer.appendChild(item);
       }
 
@@ -1787,6 +1796,61 @@ UIHost.prototype._showPalettePreview = function(comp) {
     preview.style.top = mainRect.top + 'px';
   } else {
     // Use default CSS positioning (lower-left)
+    preview.style.left = '';
+    preview.style.top = '';
+    preview.style.bottom = '';
+  }
+};
+
+UIHost.prototype._showUtilityLinePreview = function(descriptor) {
+  const preview = document.getElementById('component-preview');
+  if (!preview || !descriptor) return;
+
+  const nameEl = document.getElementById('preview-name');
+  if (nameEl) nameEl.textContent = descriptor.displayName || descriptor.type;
+
+  const descEl = document.getElementById('preview-desc');
+  if (descEl) {
+    descEl.textContent = `${descriptor.displayName || descriptor.type} transport line. Click a source port on one placeable and drag to a matching sink port on another. Lines must connect two valid ports of the same utility type.`;
+  }
+
+  // Hide schematic — not meaningful for abstract utility lines.
+  const schematicCanvas = document.getElementById('preview-schematic');
+  if (schematicCanvas) schematicCanvas.style.display = 'none';
+
+  const statsEl = document.getElementById('preview-stats');
+  if (statsEl) {
+    const statRow = (label, val) =>
+      `<div class="prev-stat-row"><span>${label}</span><span class="prev-stat-val">${val}</span></div>`;
+    const hex = descriptor.color || '#ffffff';
+    const styleLabel = {
+      cylinder: 'Round pipe',
+      rectWaveguide: 'Rectangular waveguide',
+      jacketedCylinder: 'Vacuum-jacketed pipe',
+    }[descriptor.geometryStyle] || descriptor.geometryStyle;
+    let html = '';
+    html += statRow('Type', descriptor.type);
+    html += statRow('Color', `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;background:${hex};box-shadow:0 0 6px ${hex}"></span>`);
+    html += statRow('Profile', styleLabel);
+    if (descriptor.pipeRadiusMeters != null) {
+      html += statRow('Diameter', `${(descriptor.pipeRadiusMeters * 200).toFixed(1)} cm`);
+    }
+    if (descriptor.capacityUnit) {
+      html += statRow('Capacity unit', descriptor.capacityUnit);
+    }
+    statsEl.innerHTML = html;
+  }
+
+  preview.classList.remove('hidden');
+
+  const mainPopup = document.getElementById('component-popup');
+  const mainVisible = mainPopup && !mainPopup.classList.contains('hidden');
+  if (mainVisible) {
+    const mainRect = mainPopup.getBoundingClientRect();
+    preview.style.left = (mainRect.right + 8) + 'px';
+    preview.style.bottom = '';
+    preview.style.top = mainRect.top + 'px';
+  } else {
     preview.style.left = '';
     preview.style.top = '';
     preview.style.bottom = '';
