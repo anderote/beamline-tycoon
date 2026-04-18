@@ -55,7 +55,11 @@ Invariants (enforced on placement):
 
 Replace the linear `topmostInStack` walk with a **cursor-anchored descent**. Given the ghost footprint cells `F` at the snapped cursor position:
 
-1. Find the ground-level item `G` at `F` via `subgridOccupied`. If none, target = ground.
+1. Look up `subgridOccupied` at each cell in `F`:
+   - If all cells are empty → target = ground (floor placement).
+   - If some cells are occupied and some are empty → no valid target (mixed footprint).
+   - If all cells occupied by the **same** ground item `G` → proceed to step 2.
+   - If cells occupied by different ground items → no valid target.
 2. Starting at `G`, descend into `stackChildren`: among the current node's children, find any child `K` such that `F ⊆ K.cells`. If found and `K` has `hasSurface || stackable`, recurse into `K`.
 3. Stop descending when no child contains `F`. The last node reached is the **candidate parent** `P`.
 4. Validate placement on `P`: `F ⊆ P.cells` (holds by construction after step 1/3 — for ground, `F` equals the cells; for a child `P`, `F ⊆ P.cells`); for each existing sibling `S ∈ P.stackChildren`, `F ∩ S.cells = ∅`; `P.placeY + P.surfaceY/subH + item.subH ≤ MAX_STACK_HEIGHT`.
