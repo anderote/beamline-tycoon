@@ -1028,27 +1028,21 @@ export class InputHandler {
       switch (e.key) {
         case ' ':
           e.preventDefault();
-          this.game._pushUndo();
-          if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
-            // Attachment: snap footprint to subgrid, project onto nearest
-            // pipe so the keyboard placement matches the hover ghost.
-            const wx = this.lastMouseWorldX ?? 0;
-            const wy = this.lastMouseWorldY ?? 0;
-            const hit = this._snapAttachmentToPipe(wx, wy);
-            if (!hit) {
-              this.game.log('Must place on a beam pipe!', 'bad');
-            } else if (hit.collidesWithModule) {
-              const def = COMPONENTS[this.selectedTool];
-              this.game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
-            } else {
-              this.game.addAttachmentToPipe(
-                hit.pipe.id,
-                this.selectedTool,
-                hit.proj.position,
-                this.selectedParamOverrides,
-              );
+          // Beamline junction/placement tools delegate to the controller at
+          // the last known cursor position so Space honors placementMode
+          // (snap/insert/replace) identically to a left-click. Undo push
+          // happens inside the controller's commit paths.
+          {
+            const selDef = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
+            if (selDef && (selDef.role === 'junction' || selDef.role === 'placement')) {
+              const wx = this.lastMouseWorldX ?? 0;
+              const wy = this.lastMouseWorldY ?? 0;
+              this.beamlineController.onMouseDown(wx, wy, 0);
+              break;
             }
-          } else if (this.hoverPlaceable) {
+          }
+          this.game._pushUndo();
+          if (this.hoverPlaceable) {
             // Unified placement — handles beamline / equipment / furnishing / decoration.
             const placedId = this.game.placePlaceable({
               type: this.hoverPlaceable.id,
@@ -1376,12 +1370,30 @@ export class InputHandler {
         return;
       }
 
-      // Beam pipe drawing: delegated to BeamlineInputController, which
-      // enforces port/open-end anchoring for the origin.
-      if ((e.button === 0 || e.button === 2) && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        this.beamlineController.onMouseDown(world.x, world.y, e.button);
-        return;
+      // Beamline input delegation. The controller owns pipe drawing,
+      // junction placement, and placement-on-pipe. Route mousedown here
+      // whenever a beamline tool is armed or the controller is already
+      // mid-draw. Junction/placement commits still run via _handleClick on
+      // mouseup (to match click semantics); this guard exists so no other
+      // branch below interprets the press as a drag/demolish/etc. Pipe
+      // drawing does call onMouseDown here so the draw starts on press.
+      {
+        const btn = e.button;
+        const toolDef = this.selectedTool ? COMPONENTS[this.selectedTool] : null;
+        const placeableDef = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
+        const isBeamlineTool =
+          toolDef?.isDrawnConnection ||
+          placeableDef?.role === 'junction' ||
+          placeableDef?.role === 'placement';
+        if ((btn === 0 || btn === 2) && (this.beamlineController.isActive() || isBeamlineTool)) {
+          if (toolDef?.isDrawnConnection) {
+            const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+            this.beamlineController.onMouseDown(world.x, world.y, btn);
+          }
+          // Swallow the event: no other mousedown branch should fire for
+          // beamline tools. Junction/placement commit happens on mouseup.
+          return;
+        }
       }
 
       // Demolish drag start
@@ -1640,10 +1652,15 @@ export class InputHandler {
         this._lastScreenX = e.clientX;
         this._lastScreenY = e.clientY;
         this._updatePlaceablePreview();
-        // Attachment hover preview: snap footprint to subgrid, project
-        // onto the nearest pipe, render a transparent ghost on top of it.
-        if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
-          this._updateAttachmentPreview(world.x, world.y);
+        // Legacy attachment hover preview — still used by infrastructure
+        // gauges/valves (placement:'attachment' with no beamline role).
+        // Role-bearing placements (bellows, BPM, etc.) get their preview
+        // from BeamlineInputController via _updatePlaceablePreview above.
+        if (this.selectedTool) {
+          const _compDef = COMPONENTS[this.selectedTool];
+          if (_compDef?.placement === 'attachment' && !_compDef.role) {
+            this._updateAttachmentPreview(world.x, world.y);
+          }
         }
         // Demolish hover: highlight the object under cursor with red + show tooltip
         if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
@@ -2088,32 +2105,6 @@ export class InputHandler {
       return;
     }
 
-    // Beamline attachment placement (attachments are not PLACEABLES entries —
-    // they snap to an existing beam pipe). Keep this branch separate from the
-    // unified hoverPlaceable commit below. The click path mirrors the hover
-    // ghost: snap the footprint to the subgrid, project onto the nearest
-    // pipe, and store the projected position along that pipe.
-    if (this.selectedTool && COMPONENTS[this.selectedTool]?.placement === 'attachment') {
-      const hit = this._snapAttachmentToPipe(world.x, world.y);
-      if (!hit) {
-        this.game.log('Must place on a beam pipe!', 'bad');
-        return;
-      }
-      if (hit.collidesWithModule) {
-        const def = COMPONENTS[this.selectedTool];
-        this.game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
-        return;
-      }
-      this.game._pushUndo();
-      this.game.addAttachmentToPipe(
-        hit.pipe.id,
-        this.selectedTool,
-        hit.proj.position,
-        this.selectedParamOverrides,
-      );
-      return;
-    }
-
     // Beamline junctions and pipe placements route through
     // BeamlineInputController. When it consumes the click, skip the generic
     // commit below (the generic path would fall back to the subgrid
@@ -2122,6 +2113,32 @@ export class InputHandler {
     if ((clickTool?.role === 'junction' || clickTool?.role === 'placement')
         && this.beamlineController.onMouseDown(world.x, world.y, 0)) {
       return;
+    }
+
+    // Legacy attachment placement — still used by infrastructure gauges and
+    // valves (placement:'attachment' with no beamline role). Role-bearing
+    // placements (bellows, BPM, etc.) are handled above by the controller.
+    if (this.selectedTool) {
+      const _compDef = COMPONENTS[this.selectedTool];
+      if (_compDef?.placement === 'attachment' && !_compDef.role) {
+        const hit = this._snapAttachmentToPipe(world.x, world.y);
+        if (!hit) {
+          this.game.log('Must place on a beam pipe!', 'bad');
+          return;
+        }
+        if (hit.collidesWithModule) {
+          this.game.log(`${_compDef?.name || 'Attachment'} would overlap a placed module!`, 'bad');
+          return;
+        }
+        this.game._pushUndo();
+        this.game.addAttachmentToPipe(
+          hit.pipe.id,
+          this.selectedTool,
+          hit.proj.position,
+          this.selectedParamOverrides,
+        );
+        return;
+      }
     }
 
     // Unified placeable commit — handles beamline / equipment / furnishing / decoration.
