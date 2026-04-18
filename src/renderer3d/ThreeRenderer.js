@@ -2875,6 +2875,11 @@ export class ThreeRenderer {
     const standMat = new THREE.MeshStandardMaterial({
       color: 0x555555, roughness: 0.7, metalness: 0.1,
     });
+    // Warning-amber cap material for open (unconnected) pipe ends.
+    const openCapMat = new THREE.MeshStandardMaterial({
+      color: 0xffaa22, roughness: 0.4, metalness: 0.2,
+      emissive: 0xcc6600, emissiveIntensity: 0.6,
+    });
 
     // Collect all pipe endpoints so adjacent pipes can have shared flanges
     // suppressed, merging them visually into continuous runs.
@@ -3036,6 +3041,50 @@ export class ThreeRenderer {
           hitMesh.rotation.y = angle;
           pipeWrapper.add(hitMesh);
           this._beamPipeMeshes.push(hitMesh);
+        }
+      }
+
+      // Open-end caps: render a warning-amber disc at any end where the
+      // junction ref is null (pipe isn't connected to a junction on that side).
+      // Each end's orientation is perpendicular to the pipe axis at that end.
+      const addOpenCap = (tipCol, tipRow, prevCol, prevRow) => {
+        const tx = tipCol * 2 + 1;
+        const tz = tipRow * 2 + 1;
+        const px = prevCol * 2 + 1;
+        const pz = prevRow * 2 + 1;
+        const dx = tx - px;
+        const dz = tz - pz;
+        const len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 0.01) return;
+        const angle = -Math.atan2(dz, dx);
+        // Thin cylinder oriented along the pipe axis — its circular faces
+        // sit perpendicular to the pipe direction like a disc/cap.
+        const capR = PIPE_RADIUS * 2.2;
+        const capW = 0.04;
+        const capGeo = new THREE.CylinderGeometry(capR, capR, capW, 12);
+        capGeo.rotateZ(Math.PI / 2);
+        const cap = new THREE.Mesh(capGeo, openCapMat);
+        cap.position.set(tx, PIPE_Y, tz);
+        cap.rotation.y = angle;
+        cap.castShadow = true;
+        cap.userData.tooltip = 'unconnected';
+        cap.userData.pipeId = pipe.id;
+        pipeWrapper.add(cap);
+        this._beamPipeMeshes.push(cap);
+      };
+
+      if (pipe.path && pipe.path.length >= 2) {
+        if (pipe.start === null) {
+          const a = pipe.path[0];
+          const b = pipe.path[1];
+          // Tip is a; previous direction points from b toward a so the disc
+          // orients perpendicular to the pipe's outgoing direction at the tip.
+          addOpenCap(a.col, a.row, b.col, b.row);
+        }
+        if (pipe.end === null) {
+          const a = pipe.path[pipe.path.length - 1];
+          const b = pipe.path[pipe.path.length - 2];
+          addOpenCap(a.col, a.row, b.col, b.row);
         }
       }
 
