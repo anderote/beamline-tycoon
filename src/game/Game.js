@@ -2549,11 +2549,40 @@ export class Game {
 
     // Run utility-network solve (v1: per-tick, no topology caching). Writes
     // state.utilityNetworkData (Map<utilityType, Map<networkId, flowState>>)
-    // and state.utilityNetworkState. Errors are kept internal for now;
-    // Phase 5 will surface them to HUD/overlays.
+    // and state.utilityNetworkState. Phase 5: hard errors are merged into
+    // state.infraBlockers so the beam-run gate fires on utility faults.
     if (this.solveRunner) {
       try {
-        this.solveRunner.runSolve({ tick: this.state.tick });
+        const result = this.solveRunner.runSolve({ tick: this.state.tick });
+        const errs = Array.isArray(result && result.errors) ? result.errors : [];
+        const hardErrs = errs.filter(e => e && e.severity === 'hard');
+        const softErrs = errs.filter(e => e && e.severity === 'soft');
+        // Replace the previous utility-solve contribution while preserving
+        // the legacy Networks.validate() contribution (marked without the
+        // fromUtilitySolve flag). Phase 6 removes the legacy path.
+        const existing = (this.state.infraBlockers || []).filter(b => !b.fromUtilitySolve);
+        const utilityBlockers = hardErrs.map(e => ({
+          ...e,
+          fromUtilitySolve: true,
+          reason: e.message || e.code || 'Utility fault',
+        }));
+        this.state.infraBlockers = [...existing, ...utilityBlockers];
+        if (hardErrs.length > 0) this.state.infraCanRun = false;
+        // TODO(Phase 6): render equipment alert icons in 3D for sinks with
+        // perSinkQuality < 0.9. For now, surface via console on edge rising.
+        if (!this._lastUtilitySolveErrHash) this._lastUtilitySolveErrHash = '';
+        const hash = `${hardErrs.length}|${softErrs.length}`;
+        if (hash !== this._lastUtilitySolveErrHash && (hardErrs.length || softErrs.length)) {
+          this._lastUtilitySolveErrHash = hash;
+          if (hardErrs.length) {
+            console.warn('[utility] hard errors:', hardErrs.map(e => e.code + ':' + (e.message || '')));
+          }
+          if (softErrs.length) {
+            console.warn('[utility] soft errors:', softErrs.map(e => e.code + ':' + (e.message || '')));
+          }
+        } else if (hash === '0|0') {
+          this._lastUtilitySolveErrHash = hash;
+        }
       } catch (e) {
         console.error('[Game] utility solve error:', e);
       }

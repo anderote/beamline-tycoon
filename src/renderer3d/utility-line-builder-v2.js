@@ -14,18 +14,24 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition } from '../utility/ports.js';
-import { UTILITY_TYPES } from '../utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 
 const PIPE_Y = 0.5;  // default line centerline height above ground
 const SEGS = 12;     // cylinder radial segments
 
-// Material cache keyed by utility type — avoids allocating identical
-// MeshStandardMaterial copies per line per rebuild.
+// Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
+// Keeps identical materials shared across lines for the same descriptor+state.
 const _matCache = new Map();
 const _jacketMatCache = new Map();
 
-function getLineMaterial(utilityType) {
-  if (_matCache.has(utilityType)) return _matCache.get(utilityType);
+function matKey(utilityType, errorStatus) {
+  return `${utilityType}|${errorStatus || 'ok'}`;
+}
+
+function getLineMaterial(utilityType, errorStatus) {
+  const key = matKey(utilityType, errorStatus);
+  if (_matCache.has(key)) return _matCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
   const mat = new THREE.MeshStandardMaterial({
@@ -33,12 +39,20 @@ function getLineMaterial(utilityType) {
     roughness: 0.4,
     metalness: 0.3,
   });
-  _matCache.set(utilityType, mat);
+  if (errorStatus === 'hard') {
+    mat.emissive = new THREE.Color(0xff2222);
+    mat.emissiveIntensity = 0.7;
+  } else if (errorStatus === 'soft') {
+    mat.emissive = new THREE.Color(0xffaa22);
+    mat.emissiveIntensity = 0.5;
+  }
+  _matCache.set(key, mat);
   return mat;
 }
 
-function getJacketMaterial(utilityType) {
-  if (_jacketMatCache.has(utilityType)) return _jacketMatCache.get(utilityType);
+function getJacketMaterial(utilityType, errorStatus) {
+  const key = matKey(utilityType, errorStatus);
+  if (_jacketMatCache.has(key)) return _jacketMatCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
   const mat = new THREE.MeshStandardMaterial({
@@ -46,7 +60,14 @@ function getJacketMaterial(utilityType) {
     roughness: 0.5, metalness: 0.1,
     transparent: true, opacity: 0.35,
   });
-  _jacketMatCache.set(utilityType, mat);
+  if (errorStatus === 'hard') {
+    mat.emissive = new THREE.Color(0xff2222);
+    mat.emissiveIntensity = 0.6;
+  } else if (errorStatus === 'soft') {
+    mat.emissive = new THREE.Color(0xffaa22);
+    mat.emissiveIntensity = 0.4;
+  }
+  _jacketMatCache.set(key, mat);
   return mat;
 }
 
@@ -125,16 +146,16 @@ function buildRectSegment(p0, p1, width, height, material) {
   return mesh;
 }
 
-function buildLineGroup(line, placeablesById) {
+function buildLineGroup(line, placeablesById, errorStatus) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
   const points = buildWorldPoints(line, placeablesById);
   if (points.length < 2) return null;
 
   const group = new THREE.Group();
-  group.userData = { lineId: line.id, utilityType: line.utilityType };
+  group.userData = { lineId: line.id, utilityType: line.utilityType, errorStatus: errorStatus || 'ok' };
   const radius = descriptor.pipeRadiusMeters || 0.04;
-  const mat = getLineMaterial(line.utilityType);
+  const mat = getLineMaterial(line.utilityType, errorStatus);
   const style = descriptor.geometryStyle || 'cylinder';
 
   for (let i = 0; i < points.length - 1; i++) {
@@ -146,7 +167,7 @@ function buildLineGroup(line, placeablesById) {
     } else if (style === 'jacketedCylinder') {
       // Inner opaque cylinder + translucent outer jacket.
       mesh = buildCylinderSegment(a, b, radius, mat);
-      const jacketMat = getJacketMaterial(line.utilityType);
+      const jacketMat = getJacketMaterial(line.utilityType, errorStatus);
       const jacket = buildCylinderSegment(a, b, radius * 1.6, jacketMat);
       if (jacket) group.add(jacket);
     } else {
@@ -207,15 +228,24 @@ export class UtilityLineBuilderV2 {
   /**
    * Rebuild committed-line meshes. Iterates state.utilityLines and adds one
    * Group per line to parentGroup. Lines whose hash hasn't changed are reused.
+   *
+   * @param {Map<string, UtilityLine>} utilityLines
+   * @param {Map<string, Placeable>} placeablesById
+   * @param {THREE.Group} parentGroup
+   * @param {object} [opts]
+   * @param {object} [opts.state] - game state; used to compute per-line
+   *        errorStatus from state.utilityNetworkData. Optional for tests.
    */
-  build(utilityLines, placeablesById, parentGroup) {
+  build(utilityLines, placeablesById, parentGroup, opts = {}) {
     const seen = new Set();
     const lines = utilityLines || new Map();
+    const errorByLineId = opts.state ? this._buildErrorMap(opts.state, lines) : new Map();
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || !line.id) continue;
       seen.add(line.id);
-      const hash = this._hashLine(line, placeablesById);
+      const errorStatus = errorByLineId.get(line.id) || 'ok';
+      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus;
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
       // Rebuild: remove old, add new.
@@ -224,7 +254,7 @@ export class UtilityLineBuilderV2 {
         parentGroup.remove(old);
         this._disposeGroup(old);
       }
-      const group = buildLineGroup(line, placeablesById);
+      const group = buildLineGroup(line, placeablesById, errorStatus);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
@@ -244,6 +274,41 @@ export class UtilityLineBuilderV2 {
         this._lineHashes.delete(id);
       }
     }
+  }
+
+  /**
+   * Build a lineId → 'ok' | 'soft' | 'hard' map. For each utility type we
+   * run network discovery once, then map flow errors to member line ids.
+   * Used to drive emissive glow on utility lines during error conditions.
+   */
+  _buildErrorMap(state, utilityLines) {
+    const out = new Map();
+    if (!state || !state.utilityNetworkData || typeof state.utilityNetworkData.get !== 'function') {
+      return out;
+    }
+    let lookup = null;
+    for (const utilityType of UTILITY_TYPE_LIST) {
+      const perType = state.utilityNetworkData.get(utilityType);
+      if (!perType || perType.size === 0) continue;
+      if (!lookup) lookup = makeDefaultPortLookup(state);
+      const nets = discoverNetworks(utilityType, utilityLines, lookup);
+      for (const net of nets) {
+        const flow = perType.get(net.id);
+        if (!flow || !flow.errors || flow.errors.length === 0) continue;
+        const hasHard = flow.errors.some(e => e && e.severity === 'hard');
+        const hasSoft = flow.errors.some(e => e && e.severity === 'soft');
+        const status = hasHard ? 'hard' : (hasSoft ? 'soft' : 'ok');
+        if (status === 'ok') continue;
+        for (const lineId of (net.lineIds || [])) {
+          // Hard wins over soft if a line is in multiple networks (shouldn't
+          // happen for a single utility type but be defensive).
+          const cur = out.get(lineId);
+          if (cur === 'hard') continue;
+          out.set(lineId, status);
+        }
+      }
+    }
+    return out;
   }
 
   /** Update the draw-mode preview polyline. Call every frame. */

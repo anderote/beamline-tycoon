@@ -22,6 +22,9 @@ import { MACHINES } from './data/machines.js';
 import { Networks } from './networks/networks.js';
 import { SCENARIOS } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
+import { UtilityInspector } from './ui/UtilityInspector.js';
+import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
+import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -345,6 +348,62 @@ function showScenarioPicker(game) {
 
   // Music player
   const musicPlayer = new MusicPlayer();
+
+  // Utility stats side panel — positioned just below the music player
+  // (top:56px right:12px) so it sits in the same right-rail region.
+  // Visible only in infra mode; mount/destroy driven by 'activeModeChanged'.
+  const utilityStatsContainer = document.createElement('div');
+  utilityStatsContainer.id = 'utility-stats-container';
+  utilityStatsContainer.style.cssText = [
+    'position:absolute',
+    'top:108px',       // below music player (56 + ~44 height)
+    'right:12px',
+    'z-index:98',
+    'pointer-events:auto',
+    'display:none',
+  ].join(';');
+  document.body.appendChild(utilityStatsContainer);
+
+  let utilityStatsPanel = null;
+  const syncUtilityStatsPanel = (mode) => {
+    if (mode === 'infra') {
+      utilityStatsContainer.style.display = '';
+      if (!utilityStatsPanel) {
+        utilityStatsPanel = new UtilityStatsPanel(game, utilityStatsContainer);
+      } else {
+        utilityStatsPanel.render();
+      }
+    } else {
+      utilityStatsContainer.style.display = 'none';
+      if (utilityStatsPanel) {
+        utilityStatsPanel.destroy();
+        utilityStatsPanel = null;
+      }
+    }
+  };
+  game.on((event, data) => {
+    if (event === 'activeModeChanged') {
+      syncUtilityStatsPanel(data?.mode);
+    }
+  });
+  // Initial sync — handles the restored-from-save case where setActiveMode
+  // fired before this listener was registered.
+  syncUtilityStatsPanel(input.activeMode);
+
+  // Debug fallback: open a utility inspector for a given line id from the
+  // browser console. Unblocks Phase 6 playtesting if the 3D click path
+  // misbehaves. window.openUtilityInspector('line-abc123').
+  window.openUtilityInspector = (lineId) => {
+    const lines = game.state?.utilityLines;
+    if (!lines || typeof lines.get !== 'function') { console.warn('no utilityLines'); return null; }
+    const line = lines.get(lineId);
+    if (!line) { console.warn('line not found', lineId); return null; }
+    const lookup = makeDefaultPortLookup(game.state);
+    const nets = discoverNetworks(line.utilityType, lines, lookup);
+    const net = nets.find(n => (n.lineIds || []).includes(lineId));
+    if (!net) { console.warn('network not found for line', lineId); return null; }
+    return new UtilityInspector(game, line.utilityType, net.id);
+  };
 
   router.init(game.state.view?.route);
   game.start();
