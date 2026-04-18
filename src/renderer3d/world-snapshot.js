@@ -7,7 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getUtilityPorts, UTILITY_PORT_PROFILES, isInfraOutput } from '../data/utility-ports.js';
 import { rackNeighborAnchors, PIPE_SLOTS } from '../data/carrier-rack.js';
-import { getTileCornersY } from '../game/terrain.js';
+import { getTileCornersY, sampleCornersAt } from '../game/terrain.js';
 import { inMapRegion } from '../game/map-generator.js';
 
 const GRASS_RANGE = 35;
@@ -134,6 +134,7 @@ function buildGrassSurfaces(game) {
       kind: tile.type,
       hash: grassHash(tile.col, tile.row),
       brightness: sampleTerrainBrightness(tile.col, tile.row, blobs),
+      cornersY: getTileCornersY(game.state, tile.col, tile.row),
     });
   }
   return out;
@@ -147,6 +148,12 @@ function buildFloors(game) {
     // FloorBuilder doesn't stamp a flat texture on top.
     if (GRASS_SURFACE_KINDS.has(tile.type)) continue;
     const def = FLOORS[tile.type];
+    // Concrete is treated as a flat foundation pad at y=0 — it ignores
+    // underlying terrain slope (may visually clip; flatten-on-place TBD).
+    const isConcrete = tile.type === 'concrete';
+    const cornersY = isConcrete
+      ? { nw: 0, ne: 0, se: 0, sw: 0 }
+      : getTileCornersY(game.state, tile.col, tile.row);
     out.push({
       col: tile.col,
       row: tile.row,
@@ -155,7 +162,7 @@ function buildFloors(game) {
       variant: tile.variant ?? null,
       tint: tile.tint ?? null,
       noGrid: def?.noGrid ?? false,
-      cornersY: getTileCornersY(game.state, tile.col, tile.row),
+      cornersY,
     });
   }
   return out;
@@ -269,10 +276,14 @@ function buildDecorations(game) {
     .map(d => {
       const raw = DECORATIONS_RAW[d.type];
       const category = raw?.category ?? 'unknown';
-      // Sit the decoration on the terrain: use the tile's min corner so
-      // trunks on sloped corners don't float. Flat tiles resolve to 0.
+      const subW = raw?.subW ?? raw?.gridW ?? 4;
+      const subL = raw?.subL ?? raw?.gridH ?? 4;
+      // Centered (no sub-cell) decorations sample the tile midpoint.
       const c = getTileCornersY(game.state, d.col, d.row);
-      const y = Math.min(c.nw, c.ne, c.se, c.sw);
+      const subRes = 4;
+      const u = (d.subCol != null) ? ((d.subCol + subW / 2) / subRes) : 0.5;
+      const v = (d.subRow != null) ? ((d.subRow + subL / 2) / subRes) : 0.5;
+      const y = sampleCornersAt(c, u, v);
       return {
         col: d.col,
         row: d.row,
@@ -280,8 +291,8 @@ function buildDecorations(game) {
         category,
         subCol: d.subCol ?? null,
         subRow: d.subRow ?? null,
-        subW: raw?.subW ?? raw?.gridW ?? 4,
-        subL: raw?.subL ?? raw?.gridH ?? 4,
+        subW,
+        subL,
         subH: raw?.subH ?? 4,
         variant: d.variant ?? null,
         tall: d.tall ?? false,
@@ -535,5 +546,28 @@ export function buildWorldSnapshot(game) {
     furnishings: buildFurnishings(game),
     pipeAttachments: buildPipeAttachments(game),
     utilityRouting: buildUtilityRouting(game),
+    // Phase 4: new-system utility lines (Map → Array for consumers that
+    // prefer immutability). The builder still reads state directly for
+    // incremental rebuilds, but snapshot consumers and tests can use this.
+    utilityLines: buildUtilityLines(game),
   };
+}
+
+function buildUtilityLines(game) {
+  const lines = game && game.state && game.state.utilityLines;
+  if (!lines) return [];
+  const iter = typeof lines.values === 'function' ? lines.values() : lines;
+  const out = [];
+  for (const l of iter) {
+    if (!l) continue;
+    out.push({
+      id: l.id,
+      utilityType: l.utilityType,
+      start: l.start || null,
+      end: l.end || null,
+      path: (l.path || []).map(p => ({ col: p.col, row: p.row })),
+      subL: l.subL || 0,
+    });
+  }
+  return out;
 }
