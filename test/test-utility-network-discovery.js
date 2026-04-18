@@ -49,13 +49,17 @@ function makeLookup(placeableSpecs) {
   return lookup;
 }
 
-function makeLine(id, utilityType, start, end) {
+function makeLine(id, utilityType, start, end, path) {
+  // Default path uses a row derived from the id so every call gets a
+  // distinct path and the spatial-union discovery pass doesn't merge tests
+  // that expect disjoint networks. Pass `path` to override.
+  const rowSeed = Array.from(id).reduce((a, c) => a + c.charCodeAt(0), 0) % 100;
   return {
     id,
     utilityType,
     start,
     end,
-    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    path: path || [{ col: 0, row: rowSeed }, { col: 1, row: rowSeed }],
     subL: 4,
   };
 }
