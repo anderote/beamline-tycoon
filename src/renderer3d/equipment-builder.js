@@ -8,7 +8,8 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
-import { buildPortStubs } from './utility-port-builder.js';
+// Phase 6: utility-port-builder removed; all buildPortStubs call sites in
+// this file were already commented out.
 
 // BoxGeometry face order is [+X, -X, +Y, -Y, +Z, -Z]; each face has 4 UVs,
 // 8 floats per face in the uv attribute array.

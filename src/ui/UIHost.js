@@ -74,7 +74,7 @@ const PASS_THROUGH_PROPS = [
   // Wall / door visibility (UI writes, renderer reads)
   'wallVisibilityMode', '_cutawayHoverKey', '_transparentHoverKey',
   // Selection callbacks (main.js writes, UI reads)
-  '_onTabSelect', '_onConnSelect', '_onPaletteClick',
+  '_onTabSelect', '_onPaletteClick',
   '_onInfraSelect', '_onWallSelect', '_onDoorSelect',
   '_onDecorationSelect', '_onZoneSelect', '_onFurnishingSelect',
   '_onDemolishSelect', '_onFacilitySelect', '_onToolSelect',

@@ -7,7 +7,7 @@ import { UIHost } from '../ui/UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/facility.js';
-import { MODES, CONNECTION_TYPES, INFRA_DISTRIBUTION } from '../data/modes.js';
+import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
@@ -242,7 +242,8 @@ UIHost.prototype._updateTutorialPanel = function() {
   this._initTutorialPanel();
   panel.classList.remove('hidden');
 
-  const nets = state.networkData;
+  // Phase 6: tutorial conditions read directly from state.utilityNetworkData
+  // now (no separate `nets` arg). Left as a single-arg call for clarity.
   let completedCount = 0;
   let firstIncomplete = null;
 
@@ -251,7 +252,7 @@ UIHost.prototype._updateTutorialPanel = function() {
     if (!el) continue;
 
     let done = false;
-    try { done = step.condition(state, nets); } catch (_) {}
+    try { done = step.condition(state); } catch (_) {}
 
     const check = el.querySelector('.tut-check');
     if (done) {
@@ -370,26 +371,10 @@ UIHost.prototype._generateCategoryTabs = function() {
     tabsContainer.appendChild(btn);
   });
 
-  // Generate connection tool buttons (visible only in infra mode)
+  // Phase 6: the legacy #connection-tools rack-paint button row was removed
+  // along with CONNECTION_TYPES. Hide the container if the DOM still has it.
   const connContainer = document.getElementById('connection-tools');
-  if (connContainer && connContainer.children.length === 0) {
-    for (const [key, conn] of Object.entries(CONNECTION_TYPES)) {
-      const btn = document.createElement('button');
-      btn.className = 'conn-btn';
-      btn.dataset.connType = key;
-      btn.textContent = conn.name;
-      const hex = '#' + conn.color.toString(16).padStart(6, '0');
-      btn.style.color = hex;
-      btn.style.borderColor = hex;
-      btn.addEventListener('click', () => {
-        connContainer.querySelectorAll('.conn-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        if (this._onConnSelect) this._onConnSelect(key);
-      });
-      connContainer.appendChild(btn);
-    }
-  }
-  if (connContainer) connContainer.style.display = this.activeMode === 'infra' ? '' : 'none';
+  if (connContainer) connContainer.style.display = 'none';
 
   // Render palette for first category in mode
   if (catKeys.length > 0) {
@@ -1404,15 +1389,16 @@ UIHost.prototype._renderPalette = function(tabCategory) {
         return subIdx === 0; // default to first subsection
       });
 
-      // Check for infra distribution connection tools in this subsection
-      const infraConnKeys = (subKey === 'distribution' && this.activeMode === 'infra' && INFRA_DISTRIBUTION[compCategory]) || [];
-      // Phase 4: new-system utility-line tools, configured on the category def.
-      // Currently only the "distribution" category carries these; other infra
-      // categories may opt in later.
-      const utilityLineTools = (subKey === 'distribution' && this.activeMode === 'infra'
-        && catDef && Array.isArray(catDef.utilityLineTools)) ? catDef.utilityLineTools : [];
+      // Phase 6: the distribution subsection shows the new-system utility-line
+      // tools for every infra category that advertises any. Rack-paint buttons
+      // are gone.
+      const utilityLineTools = subKey === 'distribution' && this.activeMode === 'infra'
+        ? (Array.isArray(catDef?.utilityLineTools)
+            ? catDef.utilityLineTools
+            : (INFRA_DISTRIBUTION[compCategory] || []))
+        : [];
 
-      if (subComps.length === 0 && infraConnKeys.length === 0 && utilityLineTools.length === 0) return;
+      if (subComps.length === 0 && utilityLineTools.length === 0) return;
 
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
@@ -1454,48 +1440,6 @@ UIHost.prototype._renderPalette = function(tabCategory) {
             .forEach(el => el.classList.remove('util-line-active'));
           item.classList.add('util-line-active');
           if (this._onUtilityLineSelect) this._onUtilityLineSelect(utilityType);
-        });
-
-        itemsContainer.appendChild(item);
-      }
-
-      // Render connection tool buttons first in distribution subsection
-      for (const connKey of infraConnKeys) {
-        const conn = CONNECTION_TYPES[connKey];
-        if (!conn) continue;
-        const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.dataset.paletteIndex = paletteIdx;
-        const idx = paletteIdx++;
-
-        const previewEl = document.createElement('div');
-        previewEl.className = 'palette-preview';
-        const hex = '#' + conn.color.toString(16).padStart(6, '0');
-        const swatch = document.createElement('div');
-        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;margin:9px auto;box-shadow:0 0 6px ${hex};`;
-        previewEl.appendChild(swatch);
-        item.appendChild(previewEl);
-
-        const nameEl = document.createElement('div');
-        nameEl.className = 'palette-name';
-        nameEl.textContent = conn.name;
-        item.appendChild(nameEl);
-
-        const descEl = document.createElement('div');
-        descEl.className = 'palette-cost';
-        descEl.textContent = '(click to draw)';
-        item.appendChild(descEl);
-
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          // Activate this connection type the same way the top bar does
-          const connContainer = document.getElementById('connection-tools');
-          if (connContainer) {
-            connContainer.querySelectorAll('.conn-btn').forEach(b => b.classList.remove('active'));
-            const matchBtn = connContainer.querySelector(`[data-conn-type="${connKey}"]`);
-            if (matchBtn) matchBtn.classList.add('active');
-          }
-          if (this._onConnSelect) this._onConnSelect(connKey);
         });
 
         itemsContainer.appendChild(item);

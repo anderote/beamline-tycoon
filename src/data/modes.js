@@ -20,11 +20,10 @@ export const MODES = {
       dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
       distribution: { name: 'Distribution',    color: '#a8a',
-                      subsections: { structure: { name: 'Structure' }, distribution: { name: 'Utility Lines' } },
-                      items: ['carrierRack'],
-                      // Phase 4: new-system utility-line tools. Rendered as
-                      // buttons in the Distribution subsection alongside the
-                      // legacy rack-paint connections.
+                      subsections: { distribution: { name: 'Utility Lines' } },
+                      // Phase 6: new-system utility-line tools are the only
+                      // distribution items. Rack painting and carrierRack are
+                      // gone.
                       utilityLineTools: ['powerCable', 'coolingWater', 'rfWaveguide', 'cryoTransfer', 'vacuumPipe', 'dataFiber'] },
     },
   },
@@ -80,7 +79,8 @@ for (const mode of Object.values(MODES)) {
   Object.assign(CATEGORIES, mode.categories);
 }
 
-// Map each infra category to its relevant connection/pipe types
+// Map each infra category to its relevant pipe types. Used by the palette
+// to drive the Utility Lines subsection in each category.
 export const INFRA_DISTRIBUTION = {
   vacuum:       ['vacuumPipe'],
   rfPower:      ['rfWaveguide'],
@@ -88,14 +88,4 @@ export const INFRA_DISTRIBUTION = {
   dataControls: ['dataFiber'],
   power:        ['powerCable'],
   distribution: ['powerCable', 'coolingWater', 'cryoTransfer', 'rfWaveguide', 'vacuumPipe', 'dataFiber'],
-};
-
-// Utility connection types drawn as thin lines between facility equipment and beamline
-export const CONNECTION_TYPES = {
-  vacuumPipe:   { name: 'Vacuum Pipe',   color: 0x555555, validTargets: 'any' },
-  rfWaveguide:  { name: 'RF Waveguide',  color: 0xcc4444, validTargets: { categoryMatch: ['rf'] } },
-  coolingWater: { name: 'Cooling Water',  color: 0x4488cc, validTargets: { categoryMatch: ['rf', 'optics'], idMatch: ['target', 'fixedTargetAdv', 'positronTarget', 'beamStop', 'detector'] } },
-  cryoTransfer: { name: 'Cryo Transfer', color: 0x44aacc, validTargets: { idMatch: ['cryomodule', 'tesla9Cell', 'srf650Cavity', 'halfWaveResonator', 'spokeCavity', 'harmonicLinearizer', 'scQuad', 'scDipole'] } },
-  powerCable:   { name: 'Power Cable',   color: 0x44cc44, validTargets: 'any' },
-  dataFiber:    { name: 'Data/Fiber',    color: 0xeeeeee, validTargets: { categoryMatch: ['diagnostic', 'endpoint'] } },
 };

@@ -1204,24 +1204,5 @@ export const INFRASTRUCTURE_RAW = {
     ports: {},
     requiredConnections: [],
   },
-
-  // ── Distribution ─────────────────────────────────────────────────────
-  carrierRack: {
-    id: 'carrierRack',
-    name: 'Carrier Rack',
-    desc: 'Elevated utility rack at 4m height. Place segments to build the framework, then paint utility types onto them. Heavy pipes hang below; cables sit in the top tray.',
-    category: 'distribution', subsection: 'structure',
-    cost: { funding: 2000 },
-    stats: {},
-    energyCost: 0,
-    subL: 2, subW: 2, subH: 6, gridW: 2, gridH: 2, geometryType: 'box',
-    baseMaterial: 'metal_dark',
-    spriteKey: 'carrierRack',
-    spriteColor: 0x88aaaa,
-    placement: 'module',
-    ports: {},
-    requiredConnections: [],
-    unlocked: true,
-    isRack: true,
-  },
+  // Phase 6: carrierRack removed with the legacy rack-paint system.
 };

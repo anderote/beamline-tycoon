@@ -2,6 +2,29 @@
 
 import { COMPONENTS } from './components.js';
 
+// Phase 6 helper: true if the solve-runner has produced a flow state for any
+// network of the given utility type, with non-zero perSinkQuality entries.
+// A perSinkQuality key exists iff the network contained at least one sink,
+// and the solver only emits a flow (into utilityNetworkData) when discovery
+// found the utility type's topology. Combined, "has sinks + has flow" is a
+// cheap proxy for ">=1 source and >=1 sink wired together". For utilities
+// with a totalCapacity field (power, cooling, rf, cryo), also require it
+// to be positive so we don't light up the tutorial for sinkless sources.
+function hasFunctionalNetwork(state, utilityType) {
+  const perType = state?.utilityNetworkData?.get?.(utilityType);
+  if (!perType || perType.size === 0) return false;
+  for (const flow of perType.values()) {
+    if (!flow) continue;
+    const hasSinks = flow.perSinkQuality
+      && Object.keys(flow.perSinkQuality).length > 0;
+    if (!hasSinks) continue;
+    // For capacity-bearing utilities, also require a real source.
+    if (flow.totalCapacity !== undefined && flow.totalCapacity <= 0) continue;
+    return true;
+  }
+  return false;
+}
+
 export const TUTORIAL_GROUPS = [
   { id: 'beamline', name: 'Beamline' },
   { id: 'infrastructure', name: 'Infrastructure' },
@@ -68,65 +91,45 @@ export const TUTORIAL_STEPS = [
   },
 
   // === Infrastructure ===
+  // Phase 6: tutorial conditions were rewritten to use the new
+  // state.utilityNetworkData (Map<utilityType, Map<networkId, flow>>) instead
+  // of the legacy nets/networkData shape. `hasFunctionalNetwork` returns true
+  // as soon as one network of the given utility type has >=1 source and >=1
+  // sink — the minimal bar for "you've wired something real".
   {
     id: 'tut-power',
     name: 'Connect Power',
     hint: 'Place a Transformer, Switchgear, and Power Panels. Run Power Cable to beamline components.',
     group: 'infrastructure',
-    condition: (state, nets) => {
-      if (!nets?.powerCable) return false;
-      return nets.powerCable.some(
-        net => net.equipment.length > 0 && net.beamlineNodes.length > 0
-      );
-    },
+    condition: (state) => hasFunctionalNetwork(state, 'powerCable'),
   },
   {
     id: 'tut-vacuum',
     name: 'Connect Vacuum',
     hint: 'Place a Roughing Pump and Turbo Pumps. Run Vacuum Pipe to the beamline.',
     group: 'infrastructure',
-    condition: (state, nets) => {
-      if (!nets?.vacuumPipe) return false;
-      return nets.vacuumPipe.some(
-        net => net.equipment.length > 0 && net.beamlineNodes.length > 0
-      );
-    },
+    condition: (state) => hasFunctionalNetwork(state, 'vacuumPipe'),
   },
   {
     id: 'tut-rf',
     name: 'Connect RF Power',
     hint: 'Place a Magnetron or Solid-State Amp. Run RF Waveguide to your cavities.',
     group: 'infrastructure',
-    condition: (state, nets) => {
-      if (!nets?.rfWaveguide) return false;
-      return nets.rfWaveguide.some(
-        net => net.equipment.length > 0 && net.beamlineNodes.length > 0
-      );
-    },
+    condition: (state) => hasFunctionalNetwork(state, 'rfWaveguide'),
   },
   {
     id: 'tut-cooling',
     name: 'Connect Cooling Water',
     hint: 'Place a Chiller and run Cooling Water lines to your Quadrupoles.',
     group: 'infrastructure',
-    condition: (state, nets) => {
-      if (!nets?.coolingWater) return false;
-      return nets.coolingWater.some(
-        net => net.equipment.length > 0 && net.beamlineNodes.length > 0
-      );
-    },
+    condition: (state) => hasFunctionalNetwork(state, 'coolingWater'),
   },
   {
     id: 'tut-data',
     name: 'Connect Data Fiber',
     hint: 'Run Data Fiber from the Faraday Cup through a Patch Panel to a Rack/IOC.',
     group: 'infrastructure',
-    condition: (state, nets) => {
-      if (!nets?.dataFiber) return false;
-      return nets.dataFiber.some(
-        net => net.equipment.length > 0 && net.beamlineNodes.length > 0
-      );
-    },
+    condition: (state) => hasFunctionalNetwork(state, 'dataFiber'),
   },
 
   // === Commission ===

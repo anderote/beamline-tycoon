@@ -1,13 +1,8 @@
-// Room detection via flood-fill bounded by walls (with door passthrough)
-import { ZONE_FURNISHINGS } from '../data/facility.js';
-
-export const LAB_NETWORK_MAP = {
-  rfLab: 'rfWaveguide',
-  coolingLab: 'coolingWater',
-  vacuumLab: 'vacuumPipe',
-  diagnosticsLab: 'dataFiber',
-  controlRoom: 'dataFiber',
-};
+// Room detection via flood-fill bounded by walls (with door passthrough).
+// Phase 6: LAB_NETWORK_MAP and findLabNetworkBonuses have been removed with
+// the rest of the legacy networks module. detectRooms / computeRoomReach
+// remain as generic geometry helpers (used by a few tests and the room
+// classification logic below).
 
 const EDGE_DELTAS = {
   n: { dc: 0, dr: -1, opposite: 's' },
@@ -195,68 +190,3 @@ export function computeRoomReach(room) {
   return reach;
 }
 
-const MAX_LAB_BONUS = 0.5;
-
-/**
- * @param {object} state - Game state
- * @param {object} networkClusters - Output of Networks.discoverAll(), e.g. { rfWaveguide: [{tiles, equipment, beamlineNodes}], ... }
- * @returns {object} { rfWaveguide: [{ roomId, zoneType, bonus, clusterIndex }], coolingWater: [...], ... }
- */
-export function findLabNetworkBonuses(state, networkClusters) {
-  // Initialize result with all network types that labs can boost
-  const networkTypes = new Set(Object.values(LAB_NETWORK_MAP));
-  const result = {};
-  for (const nt of networkTypes) {
-    result[nt] = [];
-  }
-
-  const rooms = detectRooms(state);
-  const furnishings = state.zoneFurnishings || [];
-
-  for (const room of rooms) {
-    // Check each zone type in the room against LAB_NETWORK_MAP
-    for (const zt of room.zoneTypes) {
-      const networkType = LAB_NETWORK_MAP[zt];
-      if (!networkType) continue;
-
-      const clusters = networkClusters[networkType];
-      if (!clusters || clusters.length === 0) continue;
-
-      // Compute reach for this room
-      const reach = computeRoomReach(room);
-
-      // Build room tile set for furnishing membership check
-      const roomTileSet = new Set(room.tiles.map(t => t.col + ',' + t.row));
-
-      // Sum zoneOutput from furnishings of matching zone type within this room
-      let bonus = 0;
-      for (const f of furnishings) {
-        const fDef = ZONE_FURNISHINGS[f.type];
-        if (!fDef) continue;
-        if (fDef.zoneType !== zt) continue;
-        const fk = f.col + ',' + f.row;
-        if (!roomTileSet.has(fk)) continue;
-        bonus += (fDef.effects && fDef.effects.zoneOutput) || 0;
-      }
-
-      if (bonus === 0) continue;
-
-      // Check each cluster for connectivity
-      for (let ci = 0; ci < clusters.length; ci++) {
-        const cluster = clusters[ci];
-        const connected = cluster.tiles.some(t => reach.has(t.col + ',' + t.row));
-        if (!connected) continue;
-
-        const cappedBonus = Math.min(bonus, MAX_LAB_BONUS);
-        result[networkType].push({
-          roomId: room.id,
-          zoneType: zt,
-          bonus: cappedBonus,
-          clusterIndex: ci,
-        });
-      }
-    }
-  }
-
-  return result;
-}
