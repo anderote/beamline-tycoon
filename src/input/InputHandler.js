@@ -13,6 +13,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
+import { projectOntoPipe } from '../beamline/pipe-geometry.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
   DEMOLISH_STANDALONE,
@@ -781,87 +782,11 @@ export class InputHandler {
     return bestDist <= 1 ? bestPipe : null;
   }
 
-  /**
-   * Project a 3D world-space point onto a pipe polyline. Uses the same
-   * `col*2+1, row*2+1` formula the renderer uses, so the projection is
-   * grounded in where each path node is actually *drawn*. Both DesignPlacer
-   * and `snapPipePoint` (pipe-geometry.js) emit pipe.path col/row in the
-   * same tile-index coordinate system, so integer values correspond to
-   * tile centres.
-   *
-   * Returns `{ position, col, row, worldX, worldZ, dir }` where `position`
-   * is the 0..1 arc-length fraction along the pipe in world metres, and
-   * `col`/`row` are the interpolated pipe.path coordinates of the hit.
-   */
+  // Delegates to pipe-geometry.projectOntoPipe — kept as an instance method
+  // only for call-site compatibility. New callers should import the module
+  // function directly.
   _projectOntoPipe(pipe, worldX, worldZ) {
-    const path = pipe.path;
-    if (!path || path.length === 0) return null;
-    if (path.length === 1) {
-      const wx = path[0].col * 2 + 1;
-      const wz = path[0].row * 2 + 1;
-      return { position: 0.5, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
-    }
-
-    // Cumulative arc length (in world units) up to each node
-    const cum = [0];
-    for (let i = 1; i < path.length; i++) {
-      const dwx = (path[i].col - path[i - 1].col) * 2;
-      const dwz = (path[i].row - path[i - 1].row) * 2;
-      cum.push(cum[i - 1] + Math.hypot(dwx, dwz));
-    }
-    const total = cum[path.length - 1];
-    if (total <= 0) {
-      const wx = path[0].col * 2 + 1;
-      const wz = path[0].row * 2 + 1;
-      return { position: 0, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
-    }
-
-    let bestDist = Infinity;
-    let bestLen = 0;
-    let bestCol = path[0].col;
-    let bestRow = path[0].row;
-    let bestWx = path[0].col * 2 + 1;
-    let bestWz = path[0].row * 2 + 1;
-    let bestDir = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      const ax = path[i].col * 2 + 1;
-      const az = path[i].row * 2 + 1;
-      const bx = path[i + 1].col * 2 + 1;
-      const bz = path[i + 1].row * 2 + 1;
-      const dx = bx - ax, dz = bz - az;
-      const segLen2 = dx * dx + dz * dz;
-      let t = 0;
-      if (segLen2 > 0) {
-        t = ((worldX - ax) * dx + (worldZ - az) * dz) / segLen2;
-        if (t < 0) t = 0;
-        else if (t > 1) t = 1;
-      }
-      const hx = ax + t * dx;
-      const hz = az + t * dz;
-      const dist = Math.hypot(worldX - hx, worldZ - hz);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestLen = cum[i] + t * Math.sqrt(segLen2);
-        bestCol = path[i].col + t * (path[i + 1].col - path[i].col);
-        bestRow = path[i].row + t * (path[i + 1].row - path[i].row);
-        bestWx = hx;
-        bestWz = hz;
-        const dcol = path[i + 1].col - path[i].col;
-        const drow = path[i + 1].row - path[i].row;
-        if (dcol > 0) bestDir = 1;       // SE
-        else if (dcol < 0) bestDir = 3;  // NW
-        else if (drow > 0) bestDir = 2;  // SW
-        else if (drow < 0) bestDir = 0;  // NE
-      }
-    }
-    return {
-      position: bestLen / total,
-      col: bestCol,
-      row: bestRow,
-      worldX: bestWx,
-      worldZ: bestWz,
-      dir: bestDir,
-    };
+    return projectOntoPipe(pipe, worldX, worldZ);
   }
 
   /**
@@ -1084,6 +1009,12 @@ export class InputHandler {
         return;
       }
 
+      // Placement-mode shortcut: S = snap. Must precede the WASD pan guard
+      // below, which would otherwise swallow 's' for the pan handler.
+      if ((e.key === 's' || e.key === 'S') && this._handlePlacementModeKey('snap')) {
+        return;
+      }
+
       // Track pan keys for continuous movement (WASD only).
       // Normalize to lowercase so Shift toggling mid-press doesn't strand
       // an uppercase entry in the set.
@@ -1145,6 +1076,10 @@ export class InputHandler {
           }
           break;
         case 'r': case 'R': {
+          // Placement-role tools (attachments on pipes) use R to toggle
+          // placement mode rather than rotating — their direction is
+          // determined by the pipe's axis, so rotation is a no-op.
+          if (this._handlePlacementModeKey('replace')) return;
           // Unified rotation: R always advances placementDir when a placeable
           // is selected (including during move mode, since move mode arms
           // selectedPlaceableId with the carried item's type).
@@ -1156,6 +1091,10 @@ export class InputHandler {
           }
           const overlay = document.getElementById('research-overlay');
           if (overlay) overlay.classList.toggle('hidden');
+          break;
+        }
+        case 'i': case 'I': {
+          if (this._handlePlacementModeKey('insert')) return;
           break;
         }
         case 'g': case 'G': {
@@ -2175,10 +2114,13 @@ export class InputHandler {
       return;
     }
 
-    // Beamline junctions route through BeamlineInputController. When it
-    // consumes the click (tool was a junction), skip the generic commit.
+    // Beamline junctions and pipe placements route through
+    // BeamlineInputController. When it consumes the click, skip the generic
+    // commit below (the generic path would fall back to the subgrid
+    // placeable commit, which is wrong for pipe-bound placements).
     const clickTool = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
-    if (clickTool?.role === 'junction' && this.beamlineController.onMouseDown(world.x, world.y, 0)) {
+    if ((clickTool?.role === 'junction' || clickTool?.role === 'placement')
+        && this.beamlineController.onMouseDown(world.x, world.y, 0)) {
       return;
     }
 
@@ -2523,6 +2465,21 @@ export class InputHandler {
   }
 
   /**
+   * If a placement-role tool is armed, update the game's placement mode and
+   * refresh the preview. Returns true when the key was consumed so the
+   * caller can skip fallthrough handlers (e.g. R's rotation path).
+   */
+  _handlePlacementModeKey(mode) {
+    if (!this.selectedPlaceableId) return false;
+    const def = COMPONENTS[this.selectedPlaceableId];
+    if (!def || def.role !== 'placement') return false;
+    this.game.setPlacementMode?.(mode);
+    this._showToast?.(`Placement mode: ${mode}`);
+    this._updatePlaceablePreview();
+    return true;
+  }
+
+  /**
    * Recompute the unified placeable ghost from the last known cursor
    * world position. Called from the mousemove handler and from the
    * rotation key so rotating refreshes the preview immediately.
@@ -2533,7 +2490,6 @@ export class InputHandler {
       return;
     }
     // Beamline junction/placement hover is handled by BeamlineInputController.
-    // The `placement` branch is still a no-op until E4 — junctions work now.
     const selDef = COMPONENTS[this.selectedPlaceableId];
     if (selDef?.role === 'junction' || selDef?.role === 'placement') {
       this.hoverPlaceable = null;

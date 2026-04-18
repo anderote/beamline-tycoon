@@ -79,6 +79,7 @@ export class Game {
       beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
       beamPipeNextId: 1,
       placementNextId: 0,           // monotonic id source for pipe placements (BeamlineSystem)
+      placementMode: 'snap',        // 'snap' | 'insert' | 'replace' — current pipe-placement UX mode
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
@@ -1679,6 +1680,16 @@ export class Game {
    */
   addAttachmentToPipe(pipeId, type, position, params) {
     return this.beamline.placeOnPipe(pipeId, { type, position, params, mode: 'snap' });
+  }
+
+  /**
+   * Set the current pipe-placement UX mode (used by the placement controller
+   * when committing a placement via `BeamlineSystem.placeOnPipe`).
+   */
+  setPlacementMode(mode) {
+    if (mode !== 'snap' && mode !== 'insert' && mode !== 'replace') return;
+    this.state.placementMode = mode;
+    this.emit('placementModeChanged', mode);
   }
 
   /**
