@@ -1077,6 +1077,13 @@ export class InputHandler {
         return;
       }
 
+      // ` → toggle hotkey hint bar above the build UI
+      if (e.key === '`') {
+        e.preventDefault();
+        document.getElementById('hotkey-hint')?.classList.toggle('hidden');
+        return;
+      }
+
       // Shift+Z / Shift+X while line-placing decorations: adjust spacing
       // by one sub-unit. Persists per-placeable for the session.
       if (this.isLinePlacingDecoration && e.shiftKey
@@ -1369,7 +1376,7 @@ export class InputHandler {
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
-        case 'l': case 'L':
+        case 't': case 'T':
           if (this.game._designer && !this.game._designer.isOpen) {
             e.preventDefault();
             const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
@@ -1389,7 +1396,7 @@ export class InputHandler {
             }
           }
           break;
-        case 'p': case 'P':
+        case 'u': case 'U':
           this.probeMode = !this.probeMode;
           if (this.probeMode) {
             this.deselectTool();
@@ -1418,7 +1425,7 @@ export class InputHandler {
           this._showToast(`Zones: ${visible ? 'On' : 'Off'}`);
           break;
         }
-        case 'h': case 'H':
+        case 'y': case 'Y':
           this._toggleMoveMode();
           break;
         case 'Delete': case 'Backspace':
@@ -3076,6 +3083,10 @@ export class InputHandler {
     }
     this.utilityPreview = null;
     this.utilityHoverPort = null;
+    // Show the subtile grid around the cursor now that the tool is armed.
+    if (this.renderer && typeof this.renderer._renderCursors === 'function') {
+      this.renderer._renderCursors();
+    }
   }
 
   deselectUtilityLineTool() {
@@ -3085,6 +3096,10 @@ export class InputHandler {
     }
     this.utilityPreview = null;
     this.utilityHoverPort = null;
+    // Clear the subtile grid now that no utility tool is armed.
+    if (this.renderer && typeof this.renderer._clearGridOverlay === 'function') {
+      this.renderer._clearGridOverlay();
+    }
   }
 
   // Phase 6: carrierRack and the rack-paint tool were removed. The selector/
