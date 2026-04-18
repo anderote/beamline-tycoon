@@ -101,12 +101,18 @@ export class UtilityLineInputController {
     const snap = this._snapToNearestPort(worldX, worldY);
     if (snap) snap.utilityType = this._utilityType;
     this.input.utilityHoverPort = snap;
-    // If cursor is snapped to a port, route path to that port exactly;
-    // otherwise build toward the raw cursor position.
-    const startTile = this._worldToTile(this._drawStart.worldPos);
-    const targetTile = snap
-      ? this._worldToTile(snap.worldPos)
-      : this._isoFloatToTile(worldX, worldY);
+    // Snap start + cursor to 0.25-subtile resolution so the preview path
+    // lands exactly on grid intersections the player can see.
+    const startTileRaw = this._worldToTile(this._drawStart.worldPos);
+    const startTile = { col: snapQ(startTileRaw.col), row: snapQ(startTileRaw.row) };
+    let targetTile;
+    if (snap) {
+      const t = this._worldToTile(snap.worldPos);
+      targetTile = { col: snapQ(t.col), row: snapQ(t.row) };
+    } else {
+      const c = this._isoFloatToTile(worldX, worldY);
+      targetTile = { col: snapQ(c.col), row: snapQ(c.row) };
+    }
     const path = buildManhattanPath(startTile, targetTile, {
       preferVerticalFirst: this._preferVerticalFirst,
     }) || [];
@@ -126,11 +132,13 @@ export class UtilityLineInputController {
     // End may be a port, an existing line's subtile (detected via overlap
     // during discovery), or just empty space.
     const endSnap = this._snapToNearestPort(worldX, worldY);
-    const startTile = this._worldToTile(this._drawStart.worldPos);
+    const startTileRaw = this._worldToTile(this._drawStart.worldPos);
+    const startTile = { col: snapQ(startTileRaw.col), row: snapQ(startTileRaw.row) };
     const endAnchor = endSnap
       ? endSnap
       : { open: true, worldPos: this._isoFloatToWorld(worldX, worldY) };
-    const endTile = this._worldToTile(endAnchor.worldPos);
+    const endTileRaw = this._worldToTile(endAnchor.worldPos);
+    const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
     const rawPath = buildManhattanPath(startTile, endTile, {
       preferVerticalFirst: this._preferVerticalFirst,
     });

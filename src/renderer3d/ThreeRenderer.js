@@ -28,6 +28,7 @@ import { COMPONENTS } from '../data/components.js';
 import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { portSide } from '../beamline/junctions.js';
 import {
   PITCH_REST,
   PITCH_TOP,
@@ -1094,7 +1095,8 @@ export class ThreeRenderer {
   updateHover(col, row) {
     this.hoverCol = col;
     this.hoverRow = row;
-    if (this.bulldozerMode || this.buildMode) {
+    const utilityToolActive = this._inputHandler && this._inputHandler.selectedUtilityLineTool;
+    if (this.bulldozerMode || this.buildMode || utilityToolActive) {
       this._renderCursors();
     }
     if (this.wallVisibilityMode === 'cutaway') {
@@ -1168,9 +1170,12 @@ export class ThreeRenderer {
   _renderCursors() {
     this._clearPreview();
 
-    // Show grid lines around cursor when in any placement mode
+    // Show grid lines around cursor when in any placement mode, including
+    // utility-line drawing (subtile grid helps the player line up endpoints).
     const placer = this.game._designPlacer;
-    const inPlaceMode = this.buildMode || this.bulldozerMode || (placer && placer.active);
+    const utilityToolActive = this._inputHandler && this._inputHandler.selectedUtilityLineTool;
+    const inPlaceMode = this.buildMode || this.bulldozerMode || utilityToolActive
+      || (placer && placer.active);
     if (inPlaceMode) {
       this._renderGridAroundCursor(this.hoverCol, this.hoverRow);
     }
@@ -1326,6 +1331,11 @@ export class ThreeRenderer {
   /** Clear all preview geometry from the scene. */
   _clearPreview() {
     this._clearGridOverlay();
+    this._clearPreviewMeshes();
+  }
+
+  /** Clear only the ghost/preview meshes; leaves the blue grid overlay intact. */
+  _clearPreviewMeshes() {
     if (!this.previewGroup) return;
     while (this.previewGroup.children.length > 0) {
       const child = this.previewGroup.children[0];
@@ -2008,14 +2018,18 @@ export class ThreeRenderer {
 
     // Direction arrow for source/endpoint modules — shows which way the
     // module connects to pipe (exit direction for sources, entry direction
-    // for endpoints).
+    // for endpoints). Derive the vector from the port's rotated compass side
+    // rather than DIR_DELTA; DIR_DELTA encodes the NE=0 isometric convention,
+    // which is 180° off from a source's front-facing exit port.
     const compDef = COMPONENTS[hover.id];
     if (compDef && (compDef.isSource || compDef.isEndpoint)) {
       const dir = hover.dir || 0;
-      const delta = DIR_DELTA[dir];
-      const perpDelta = DIR_DELTA[turnLeft(dir)];
-      const dx = delta.dc, dz = delta.dr;
-      const perpX = perpDelta.dc, perpZ = perpDelta.dr;
+      const portName = compDef.isSource ? 'exit' : 'entry';
+      const side = portSide({ type: hover.id, dir }, portName);
+      const SIDE_VEC = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] };
+      const [dx, dz] = SIDE_VEC[side] || [0, -1];
+      // Perpendicular (rotated 90° CCW) for the chevron wings.
+      const perpX = dz, perpZ = -dx;
       const arrowY = surfaceY + placeYOffset + EDGE_OFFSET + 0.03;
       const arrowMat = this._previewEdgeMat(0x88bbff);
       const arrowStart = new THREE.Vector3(px - dx * 0.4, arrowY, pz - dz * 0.4);
@@ -2130,8 +2144,19 @@ export class ThreeRenderer {
    * world-snapshot convention for placed attachments) rather than tile
    * top-left + sub-tile offset.
    */
+  /**
+   * Draw only the placement-grid overlay around the cursor tile — no ghost
+   * mesh. Used when no pipe is under the cursor but a placement tool is
+   * still active, so the user sees the same blue grid as for normal placeables.
+   */
+  renderPlacementGridOnly(col, row) {
+    this._clearPreviewMeshes();
+    this._renderGridAroundCursor(col, row);
+  }
+
   renderAttachmentGhost(col, row, compType, direction, valid) {
-    this._clearPreview();
+    this._clearPreviewMeshes();
+    this._renderGridAroundCursor(Math.floor(col), Math.floor(row));
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
     const obj = this.componentBuilder._createObject(compDef);
@@ -3581,7 +3606,6 @@ const UI_METHODS = [
   '_renderMachineTypeSelector', '_bindHUDEvents',
   '_updateSystemStatsVisibility', '_updateSystemStatsContent',
   '_refreshSystemStatsValues',
-  '_initTutorialPanel', '_updateTutorialPanel',
   '_renderVacuumStats', '_renderRfPowerStats', '_renderCryoStats',
   '_renderCoolingStats', '_renderPowerStats', '_renderDataControlsStats', '_renderOpsStats',
   '_createPaletteItem', '_removeParamFlyout', '_showPalettePreview', '_hidePalettePreview',
