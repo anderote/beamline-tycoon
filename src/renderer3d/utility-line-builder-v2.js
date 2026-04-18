@@ -13,7 +13,7 @@
 // THREE is loaded as a CDN global — do NOT import it.
 
 import { COMPONENTS } from '../data/components.js';
-import { portWorldPosition } from '../utility/ports.js';
+import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 
@@ -180,36 +180,91 @@ function buildLineGroup(line, placeablesById, errorStatus) {
 
 // --- Preview (during drag) ---------------------------------------------
 
-function buildPreviewLine(preview) {
-  if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
-  const color = new THREE.Color(preview.color || '#ffffff');
-  const points = preview.path.map(p => {
-    const w = tileToWorld(p);
-    return new THREE.Vector3(w.x, PIPE_Y + 0.02, w.z);
+// Cached translucent materials for the draw preview, keyed by utility type.
+const _previewMatCache = new Map();
+function getPreviewMaterial(utilityType) {
+  if (_previewMatCache.has(utilityType)) return _previewMatCache.get(utilityType);
+  const descriptor = UTILITY_TYPES[utilityType];
+  const color = descriptor?.color || '#ffffff';
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    roughness: 0.3, metalness: 0.1,
+    transparent: true, opacity: 0.55,
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.35,
   });
-  const geo = new THREE.BufferGeometry().setFromPoints(points);
-  const mat = new THREE.LineBasicMaterial({
-    color, transparent: true, opacity: 0.6, linewidth: 2,
-  });
-  const line = new THREE.Line(geo, mat);
-  line.userData = { isUtilityLinePreview: true };
-  return line;
+  _previewMatCache.set(utilityType, mat);
+  return mat;
 }
 
-// --- Hover-port highlight (small glowing sphere) -----------------------
+function buildPreviewLine(preview) {
+  if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
+  const descriptor = UTILITY_TYPES[preview.utilityType];
+  if (!descriptor) return null;
+  const points = preview.path.map(p => {
+    const w = tileToWorld(p);
+    return new THREE.Vector3(w.x, PIPE_Y, w.z);
+  });
+  const group = new THREE.Group();
+  group.userData = { isUtilityLinePreview: true };
+  const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
+  const style = descriptor.geometryStyle || 'cylinder';
+  const mat = getPreviewMaterial(preview.utilityType);
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    let mesh = null;
+    if (style === 'rectWaveguide') {
+      mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat);
+    } else {
+      mesh = buildCylinderSegment(a, b, radius, mat);
+    }
+    if (mesh) group.add(mesh);
+  }
+  // Little spheres at waypoints to emphasize the polyline.
+  const sphereMat = mat;
+  for (const p of points) {
+    const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);
+    const sm = new THREE.Mesh(sg, sphereMat);
+    sm.position.copy(p);
+    group.add(sm);
+  }
+  return group;
+}
 
+// --- Port indicators ---------------------------------------------------
+//
+// When a utility-line tool is armed (selectedUtilityLineTool !== null), render
+// a small colored sphere at every available port of that utility type, so the
+// player can see where to click. The sphere at the cursor-nearest port gets
+// brightened (larger + higher emissive) as hover feedback. Spheres for the
+// starting-port (once draw has begun) are omitted since they aren't valid
+// endpoints anyway.
+
+function buildPortMarker(worldPos, color, brightened) {
+  const r = brightened ? 0.22 : 0.13;
+  const intensity = brightened ? 1.0 : 0.55;
+  const geo = new THREE.SphereGeometry(r, 12, 10);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: intensity,
+    transparent: true,
+    opacity: brightened ? 0.95 : 0.8,
+    depthTest: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(worldPos.x, PIPE_Y + 0.3, worldPos.z);
+  mesh.renderOrder = 999;
+  mesh.userData = { isUtilityPortMarker: true };
+  return mesh;
+}
+
+// Back-compat: hover marker wraps the brightened variant.
 function buildHoverMarker(hoverPort) {
   if (!hoverPort || !hoverPort.worldPos) return null;
   const descriptor = hoverPort.utilityType ? UTILITY_TYPES[hoverPort.utilityType] : null;
   const color = descriptor?.color || '#ffff88';
-  const geo = new THREE.SphereGeometry(0.15, 12, 10);
-  const mat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(color), transparent: true, opacity: 0.8,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(hoverPort.worldPos.x, PIPE_Y + 0.3, hoverPort.worldPos.z);
-  mesh.userData = { isUtilityHoverMarker: true };
-  return mesh;
+  return buildPortMarker(hoverPort.worldPos, color, true);
 }
 
 // --- Main builder -------------------------------------------------------
@@ -339,6 +394,53 @@ export class UtilityLineBuilderV2 {
     }
   }
 
+  /**
+   * Render port indicators for all available ports of the current utility
+   * type so the player can see where to click. Pass `null` for utilityType
+   * (or an empty placeables list) to clear.
+   *
+   * @param {string|null} utilityType
+   * @param {Array} placeables state.placeables
+   * @param {Map} utilityLines state.utilityLines (used to skip claimed ports)
+   * @param {{placeableId, portName}|null} hoverPort currently-snapped port
+   * @param {{placeableId, portName}|null} drawStart start-anchor (skip its marker)
+   * @param {THREE.Group} parentGroup
+   */
+  setAvailablePorts(utilityType, placeables, utilityLines, hoverPort, drawStart, parentGroup) {
+    // Clear old markers.
+    if (this._portMarkerGroup) {
+      parentGroup.remove(this._portMarkerGroup);
+      this._disposeGroup(this._portMarkerGroup);
+      this._portMarkerGroup = null;
+    }
+    if (!utilityType || !placeables || !placeables.length) return;
+    const group = new THREE.Group();
+    group.userData = { isUtilityPortMarkers: true };
+    const desc = UTILITY_TYPES[utilityType];
+    const color = desc?.color || '#ffff88';
+    const hoverKey = hoverPort
+      ? `${hoverPort.placeableId}:${hoverPort.portName}`
+      : null;
+    const startKey = drawStart
+      ? `${drawStart.placeableId}:${drawStart.portName}`
+      : null;
+    for (const placeable of placeables) {
+      const def = COMPONENTS[placeable.type];
+      if (!def || !def.ports) continue;
+      const avail = availablePortsFor(placeable, def, utilityType, utilityLines);
+      for (const name of avail) {
+        const key = `${placeable.id}:${name}`;
+        if (key === startKey) continue; // don't show indicator on start anchor
+        const wp = portWorldPosition(placeable, def, name);
+        if (!wp) continue;
+        const marker = buildPortMarker(wp, color, key === hoverKey);
+        group.add(marker);
+      }
+    }
+    parentGroup.add(group);
+    this._portMarkerGroup = group;
+  }
+
   dispose(parentGroup) {
     for (const g of this._lineGroups.values()) {
       parentGroup.remove(g);
@@ -355,6 +457,11 @@ export class UtilityLineBuilderV2 {
       parentGroup.remove(this._hoverObject);
       this._disposeObject(this._hoverObject);
       this._hoverObject = null;
+    }
+    if (this._portMarkerGroup) {
+      parentGroup.remove(this._portMarkerGroup);
+      this._disposeGroup(this._portMarkerGroup);
+      this._portMarkerGroup = null;
     }
   }
 

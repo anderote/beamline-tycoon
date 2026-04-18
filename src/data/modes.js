@@ -13,10 +13,10 @@ export const MODES = {
   infra: {
     name: 'Infra',
     categories: {
-      power:        { name: 'Power',           color: '#4c4', subsections: { distribution: { name: 'Distribution' }, electrical: { name: 'Electrical' }, specialty: { name: 'Specialty' } } },
-      vacuum:       { name: 'Vacuum',          color: '#999', subsections: { distribution: { name: 'Distribution' }, pumps: { name: 'Pumps' }, gauges: { name: 'Gauges' }, hardware: { name: 'Hardware' } } },
-      rfPower:      { name: 'RF Power',        color: '#c44', subsections: { distribution: { name: 'Distribution' }, sources: { name: 'RF Sources' }, controls: { name: 'Controls' } } },
-      cooling:      { name: 'Cooling',         color: '#48c', subsections: { distribution: { name: 'Distribution' }, plant: { name: 'Plant' }, cryogenics: { name: 'Cryogenics' } } },
+      power:        { name: 'Power',           color: '#4c4', subsections: { supply: { name: 'Supply' }, distribution: { name: 'Distribution' }, specialty: { name: 'Specialty' } } },
+      vacuum:       { name: 'Vacuum',          color: '#999', subsections: { supply: { name: 'Pumps & Supply' }, distribution: { name: 'Distribution' }, instruments: { name: 'Instruments' }, hardware: { name: 'Hardware' } } },
+      rfPower:      { name: 'RF Power',        color: '#c44', subsections: { supply: { name: 'RF Sources' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' } } },
+      cooling:      { name: 'Cooling',         color: '#48c', subsections: { supply: { name: 'Cooling Plant' }, cryogenics: { name: 'Cryogenics' }, components: { name: 'Components' } } },
       dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
       distribution: { name: 'Distribution',    color: '#a8a',

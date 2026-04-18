@@ -14,7 +14,7 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
-import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
+import { sampleSurfaceYAt, getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { Overlay } from './overlay.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
@@ -1510,15 +1510,20 @@ export class ThreeRenderer {
     const z0 = tileZ + subRow * subSize;
     const x1 = x0 + w * subSize;
     const z1 = z0 + h * subSize;
-    const state = this.game.state;
     const QUAD_OFFSET = 0.02;
     const EDGE_OFFSET = 0.04;
-    // Sample terrain at each footprint corner so the preview drapes the
-    // surface (also handles footprints that span tile boundaries).
-    const yNW = sampleSurfaceYAt(state, x0, z0) + QUAD_OFFSET;
-    const yNE = sampleSurfaceYAt(state, x1, z0) + QUAD_OFFSET;
-    const ySE = sampleSurfaceYAt(state, x1, z1) + QUAD_OFFSET;
-    const ySW = sampleSurfaceYAt(state, x0, z1) + QUAD_OFFSET;
+    // Sample THIS tile's own corners — never reaching into a neighbour
+    // even if the footprint's east/south edge sits on the tile boundary.
+    const corners = getTileCornersY(this.game.state, col, row);
+    const SUB = 4;
+    const uW = subCol / SUB;
+    const uE = (subCol + w) / SUB;
+    const vN = subRow / SUB;
+    const vS = (subRow + h) / SUB;
+    const yNW = sampleCornersTriangulated(corners, uW, vN) + QUAD_OFFSET;
+    const yNE = sampleCornersTriangulated(corners, uE, vN) + QUAD_OFFSET;
+    const ySE = sampleCornersTriangulated(corners, uE, vS) + QUAD_OFFSET;
+    const ySW = sampleCornersTriangulated(corners, uW, vS) + QUAD_OFFSET;
     const mat = this._previewMat(0x88ccff, 0.4);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute([
@@ -1952,10 +1957,16 @@ export class ThreeRenderer {
     const pz = row * 2 + sr * SUB_UNIT + footH / 2;
     const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
-    // Sample terrain at the footprint center so the ghost sits on the
-    // local ground rather than world y=0.
+    // Sample THIS tile's own corners so the ghost stays on the local
+    // ground even if the footprint's east/south edge touches a neighbour.
     const state = this.game.state;
-    const surfaceY = sampleSurfaceYAt(state, px, pz);
+    const corners = getTileCornersY(state, col, row);
+    const SUB = 4; // sub-cells per tile edge
+    const uW = sc / SUB;
+    const uE = (sc + gwSub) / SUB;
+    const vN = sr / SUB;
+    const vS = (sr + ghSub) / SUB;
+    const surfaceY = sampleCornersTriangulated(corners, (uW + uE) / 2, (vN + vS) / 2);
     const y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
@@ -1972,10 +1983,10 @@ export class ThreeRenderer {
     const z1 = z0 + footH;
     const FILL_OFFSET = 0.10;
     const EDGE_OFFSET = 0.12;
-    const yNW = sampleSurfaceYAt(state, x0, z0) + placeYOffset;
-    const yNE = sampleSurfaceYAt(state, x1, z0) + placeYOffset;
-    const ySE = sampleSurfaceYAt(state, x1, z1) + placeYOffset;
-    const ySW = sampleSurfaceYAt(state, x0, z1) + placeYOffset;
+    const yNW = sampleCornersTriangulated(corners, uW, vN) + placeYOffset;
+    const yNE = sampleCornersTriangulated(corners, uE, vN) + placeYOffset;
+    const ySE = sampleCornersTriangulated(corners, uE, vS) + placeYOffset;
+    const ySW = sampleCornersTriangulated(corners, uW, vS) + placeYOffset;
     const pts = [
       new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
       new THREE.Vector3(x1, yNE + EDGE_OFFSET, z0),
@@ -2377,75 +2388,84 @@ export class ThreeRenderer {
 
     const majorRadius = 3;   // tiles around cursor for major grid
     const subRadius = 1;     // tiles around cursor for sub-grid
-    const Y_OFFSET = 0.04;   // slightly above terrain surface
+    const Y_OFFSET = 0.04;
 
     const state = this.game.state;
     const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + Y_OFFSET;
 
-    // Long lines (drawn as a single LineSegments segment) would chord
-    // through hills — break each into per-tile pieces so the line samples
-    // the terrain at every tile boundary and visually drapes the surface.
+    // Each tile is drawn as its own self-contained square (border + sub-grid),
+    // so cliffs and mismatched corners between tiles don't produce ugly
+    // chord lines spanning across the cliff.
 
-    // --- Major grid (tile boundaries) ---
+    // --- Per-tile borders (bold) ---
     const majorVerts = [];
-    const mMin = -majorRadius, mMax = majorRadius + 1;
-    for (let dr = mMin; dr <= mMax; dr++) {
-      const z = (row + dr) * 2;
-      for (let dc = mMin; dc < mMax; dc++) {
-        const xa = (col + dc) * 2, xb = (col + dc + 1) * 2;
-        majorVerts.push(xa, surfY(xa, z), z, xb, surfY(xb, z), z);
-      }
-    }
-    for (let dc = mMin; dc <= mMax; dc++) {
-      const x = (col + dc) * 2;
-      for (let dr = mMin; dr < mMax; dr++) {
-        const za = (row + dr) * 2, zb = (row + dr + 1) * 2;
-        majorVerts.push(x, surfY(x, za), za, x, surfY(x, zb), zb);
+    for (let dr = -majorRadius; dr <= majorRadius; dr++) {
+      for (let dc = -majorRadius; dc <= majorRadius; dc++) {
+        const c = getTileCornersY(state, col + dc, row + dr);
+        const x0 = (col + dc) * 2, x1 = x0 + 2;
+        const z0 = (row + dr) * 2, z1 = z0 + 2;
+        const yNW = c.nw + Y_OFFSET;
+        const yNE = c.ne + Y_OFFSET;
+        const ySE = c.se + Y_OFFSET;
+        const ySW = c.sw + Y_OFFSET;
+        // 4 closed-loop segments per tile (NW→NE→SE→SW→NW).
+        majorVerts.push(x0, yNW, z0,  x1, yNE, z0);
+        majorVerts.push(x1, yNE, z0,  x1, ySE, z1);
+        majorVerts.push(x1, ySE, z1,  x0, ySW, z1);
+        majorVerts.push(x0, ySW, z1,  x0, yNW, z0);
       }
     }
     const majorGeo = new THREE.BufferGeometry();
     majorGeo.setAttribute('position', new THREE.Float32BufferAttribute(majorVerts, 3));
     const majorMat = new THREE.LineBasicMaterial({
-      color: 0x88ccff, transparent: true, opacity: 0.35,
+      color: 0x88ccff, transparent: true, opacity: 0.45,
       depthTest: false, depthWrite: false,
     });
     const majorLines = new THREE.LineSegments(majorGeo, majorMat);
     majorLines.renderOrder = 997;
     this.gridOverlayGroup.add(majorLines);
 
-    // --- Sub-grid (4 divisions per tile). The terrain mesh splits each
-    // tile into 2 triangles along the SW→NE diagonal, so a straight
-    // sub-line that crosses the diagonal won't lie on the mesh in the
-    // middle. Split each sub-line at the diagonal crossing — both
-    // triangles agree on Y there, so the kink is continuous.
+    // --- Per-tile sub-grid interior (faint). Sample heights directly from
+    // THIS tile's corners — never stepping into a neighbor — so cliffs
+    // between tiles don't pull the sub-line endpoint to the wrong tile's
+    // edge. Each sub-line is split at the SW→NE diagonal crossing so it
+    // lies exactly on the triangulated mesh fold inside this tile.
     const subVerts = [];
-    const sMin = col - subRadius, sMax = col + subRadius;
-    const srMin = row - subRadius, srMax = row + subRadius;
-    for (let r = srMin; r <= srMax; r++) {
-      for (let c = sMin; c <= sMax; c++) {
+    for (let dr = -subRadius; dr <= subRadius; dr++) {
+      for (let dc = -subRadius; dc <= subRadius; dc++) {
+        const c = col + dc, r = row + dr;
+        const corners = getTileCornersY(state, c, r);
+        const nw = corners.nw + Y_OFFSET;
+        const ne = corners.ne + Y_OFFSET;
+        const se = corners.se + Y_OFFSET;
+        const sw = corners.sw + Y_OFFSET;
         const xa = c * 2, xb = c * 2 + 2;
-        for (let sub = 1; sub <= 3; sub++) {
-          const vLocal = sub * 0.25;
-          const z = r * 2 + sub * 0.5;
-          // Diagonal crosses v=vLocal at u = 1 - vLocal.
-          const xMid = c * 2 + 2 * (1 - vLocal);
-          const yMid = surfY(xMid, z);
-          subVerts.push(xa, surfY(xa, z), z, xMid, yMid, z);
-          subVerts.push(xMid, yMid, z, xb, surfY(xb, z), z);
-        }
-      }
-    }
-    for (let c = sMin; c <= sMax; c++) {
-      for (let r = srMin; r <= srMax; r++) {
         const za = r * 2, zb = r * 2 + 2;
+        // East-west sub-lines (3 per tile, at v = 0.25, 0.5, 0.75).
+        // West Y = (1-v)nw + v·sw   East Y = (1-v)ne + v·se
+        // Diagonal SW→NE crosses v=v at u = 1-v; Y there = (1-v)ne + v·sw
         for (let sub = 1; sub <= 3; sub++) {
-          const uLocal = sub * 0.25;
+          const v = sub * 0.25;
+          const z = r * 2 + sub * 0.5;
+          const yW = (1 - v) * nw + v * sw;
+          const yE = (1 - v) * ne + v * se;
+          const xMid = c * 2 + 2 * (1 - v);
+          const yMid = (1 - v) * ne + v * sw;
+          subVerts.push(xa, yW, z,    xMid, yMid, z);
+          subVerts.push(xMid, yMid, z, xb, yE, z);
+        }
+        // North-south sub-lines (3 per tile, at u = 0.25, 0.5, 0.75).
+        // North Y = (1-u)nw + u·ne   South Y = (1-u)sw + u·se
+        // Diagonal crosses u=u at v = 1-u; Y there = (1-u)sw + u·ne (same fold).
+        for (let sub = 1; sub <= 3; sub++) {
+          const u = sub * 0.25;
           const x = c * 2 + sub * 0.5;
-          // Diagonal crosses u=uLocal at v = 1 - uLocal.
-          const zMid = r * 2 + 2 * (1 - uLocal);
-          const yMid = surfY(x, zMid);
-          subVerts.push(x, surfY(x, za), za, x, yMid, zMid);
-          subVerts.push(x, yMid, zMid, x, surfY(x, zb), zb);
+          const yN = (1 - u) * nw + u * ne;
+          const yS = (1 - u) * sw + u * se;
+          const zMid = r * 2 + 2 * (1 - u);
+          const yMid = (1 - u) * sw + u * ne;
+          subVerts.push(x, yN, za,    x, yMid, zMid);
+          subVerts.push(x, yMid, zMid, x, yS, zb);
         }
       }
     }
@@ -2615,10 +2635,26 @@ export class ThreeRenderer {
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
-    // New-system utility-line preview + port-hover highlight.
+    // New-system utility-line preview + port-hover highlight + candidate
+    // port indicators (visible whenever a utility-line tool is armed).
     if (this._inputHandler && this.utilityLineBuilderV2 && this.utilityLinePreviewGroup) {
       this.utilityLineBuilderV2.setPreview(this._inputHandler.utilityPreview, this.utilityLinePreviewGroup);
       this.utilityLineBuilderV2.setHoverPort(this._inputHandler.utilityHoverPort, this.utilityLinePreviewGroup);
+      const ctrl = this._inputHandler.utilityLineController;
+      const activeType = this._inputHandler.selectedUtilityLineTool || ctrl?.utilityType || null;
+      if (activeType) {
+        const state = this.game?.state;
+        const placeables = state?.placeables || [];
+        const utilityLines = state?.utilityLines;
+        this.utilityLineBuilderV2.setAvailablePorts(
+          activeType, placeables, utilityLines,
+          this._inputHandler.utilityHoverPort,
+          ctrl?.drawStart || null,
+          this.utilityLinePreviewGroup,
+        );
+      } else {
+        this.utilityLineBuilderV2.setAvailablePorts(null, null, null, null, null, this.utilityLinePreviewGroup);
+      }
     }
     if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
       this._renderBeamPipePreview(
