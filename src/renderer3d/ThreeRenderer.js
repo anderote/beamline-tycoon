@@ -3498,13 +3498,38 @@ export class ThreeRenderer {
       }
     };
 
-    // Single-point hover: skip the stub-pipe preview. The hover marker
-    // (square footprint) is drawn elsewhere in animate and is the meaningful
-    // pre-click cue. A placementDir-rotated pipe stub here was leftover from
-    // the old "click to place one tile" design — it rotated on R but never
-    // actually controlled pipe direction (direction comes from the snapped
-    // port at mouse-up), so it was just visual noise.
-    if (path.length < 2) return;
+    // Single-point hover: show a short stub ONLY when snapped to an existing
+    // pipe's open end, aligned with that pipe's continuation direction so
+    // the player sees "the new pipe will continue this way." In empty space
+    // (no port / open end), no stub — the square footprint marker alone is
+    // the pre-click cue. The old placementDir-driven stub rotated on R but
+    // never actually controlled pipe direction (direction comes from the
+    // snapped port at mouse-up), so it was just visual noise.
+    if (path.length < 2) {
+      const openEnd = this._inputHandler && this._inputHandler.hoverPipeOpenEnd;
+      if (openEnd) {
+        const pipe = (this.game?.state?.beamPipes || []).find(p => p && p.id === openEnd.pipeId);
+        if (pipe && pipe.path && pipe.path.length >= 2) {
+          const tipIdx = openEnd.openEnd === 'start' ? 0 : pipe.path.length - 1;
+          const neighborIdx = openEnd.openEnd === 'start' ? 1 : pipe.path.length - 2;
+          const tip = pipe.path[tipIdx];
+          const neigh = pipe.path[neighborIdx];
+          // Outward direction = tip − neigh (normalized to ±1 on one axis).
+          const dc = tip.col - neigh.col;
+          const dr = tip.row - neigh.row;
+          const adc = Math.abs(dc), adr = Math.abs(dr);
+          let ox = 0, oz = 0;
+          if (adc >= adr && adc > 0.001) ox = Math.sign(dc);
+          else if (adr > 0.001) oz = Math.sign(dr);
+          if (ox !== 0 || oz !== 0) {
+            const cx = tip.col * 2 + 1;
+            const cz = tip.row * 2 + 1;
+            addRun(cx, cz, cx + ox * 1.0, cz + oz * 1.0);
+          }
+        }
+      }
+      return;
+    }
     const runs = pipePathRuns(path);
     for (const { start, end } of runs) {
       addRun(start.col * 2 + 1, start.row * 2 + 1, end.col * 2 + 1, end.row * 2 + 1);
