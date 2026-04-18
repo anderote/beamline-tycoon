@@ -176,25 +176,32 @@ console.log('\n--- Test 5: removeLine missing ---');
 }
 
 // ==========================================================================
-// Test 6: onPlaceableRemoved cascades & emits one event per utility type.
+// Test 6: onPlaceableRemoved null-outs referenced endpoints (lines survive)
+// and emits one event per affected utility type.
 // ==========================================================================
-console.log('\n--- Test 6: onPlaceableRemoved ---');
+console.log('\n--- Test 6: onPlaceableRemoved nulls endpoints ---');
 {
   const { system, state, events } = mockSystem();
   // Add a powerCable line + a dataCable line (both reference src1).
-  system.addLine(straightPower());
-  system.addLine({
+  const powerId = system.addLine(straightPower());
+  const dataId = system.addLine({
     utilityType: 'dataCable',
     start: { placeableId: 'src1',  portName: 'dataOut' },
     end:   { placeableId: 'sink1', portName: 'dataIn'  },
     path:  [{ col: 3, row: 3 }, { col: 8, row: 3 }],
   });
-  assert(state.utilityLines.size === 2, '2 lines before cascade');
+  assert(state.utilityLines.size === 2, '2 lines before');
   events.length = 0;
 
   system.onPlaceableRemoved('src1');
 
-  assert(state.utilityLines.size === 0, `all lines removed (got ${state.utilityLines.size})`);
+  assert(state.utilityLines.size === 2, `lines preserved (got ${state.utilityLines.size})`);
+  const powerLine = state.utilityLines.get(powerId);
+  const dataLine  = state.utilityLines.get(dataId);
+  assert(powerLine.start === null, 'powerCable start nulled');
+  assert(powerLine.end  && powerLine.end.placeableId === 'sink1', 'powerCable end preserved');
+  assert(dataLine.start === null, 'dataCable start nulled');
+  assert(dataLine.end   && dataLine.end.placeableId   === 'sink1', 'dataCable end preserved');
   const types = events
     .filter(e => e.ev === 'utilityLinesChanged')
     .map(e => e.data && e.data.utilityType);

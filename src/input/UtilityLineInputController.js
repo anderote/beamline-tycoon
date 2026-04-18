@@ -74,10 +74,17 @@ export class UtilityLineInputController {
 
   onMouseDown(worldX, worldY, button) {
     if (!this._utilityType || button !== 0) return false;
+    // Prefer a port snap if the cursor is near one; otherwise start an
+    // open-ended draw at the cursor's subtile. Either way, consume the click
+    // since the utility-line tool is armed.
     const snap = this._snapToNearestPort(worldX, worldY);
-    if (!snap) return false;
     this._drawing = true;
-    this._drawStart = snap;
+    if (snap) {
+      this._drawStart = snap;
+    } else {
+      const w = this._isoFloatToWorld(worldX, worldY);
+      this._drawStart = { open: true, worldPos: w };
+    }
     this._drawPath = [];
     this.input.utilityHoverPort = null;
     this.input.utilityPreview = {
@@ -116,19 +123,34 @@ export class UtilityLineInputController {
       this._cancelDraw();
       return !!this._drawing;
     }
+    // End may be a port, an existing line's subtile (detected via overlap
+    // during discovery), or just empty space.
     const endSnap = this._snapToNearestPort(worldX, worldY);
-    if (endSnap && this._drawStart && endSnap.placeableId !== this._drawStart.placeableId) {
-      const startTile = this._worldToTile(this._drawStart.worldPos);
-      const endTile = this._worldToTile(endSnap.worldPos);
-      const rawPath = buildManhattanPath(startTile, endTile, {
-        preferVerticalFirst: this._preferVerticalFirst,
-      });
-      if (rawPath) {
-        const path = snapPath(rawPath);
+    const startTile = this._worldToTile(this._drawStart.worldPos);
+    const endAnchor = endSnap
+      ? endSnap
+      : { open: true, worldPos: this._isoFloatToWorld(worldX, worldY) };
+    const endTile = this._worldToTile(endAnchor.worldPos);
+    const rawPath = buildManhattanPath(startTile, endTile, {
+      preferVerticalFirst: this._preferVerticalFirst,
+    });
+    if (rawPath) {
+      const path = snapPath(rawPath);
+      const startRef = this._drawStart.open
+        ? null
+        : { placeableId: this._drawStart.placeableId, portName: this._drawStart.portName };
+      const endRef = endAnchor.open
+        ? null
+        : { placeableId: endAnchor.placeableId, portName: endAnchor.portName };
+      // Block trivially self-looping port-to-same-port commits.
+      const sameAnchor = startRef && endRef
+        && startRef.placeableId === endRef.placeableId
+        && startRef.portName === endRef.portName;
+      if (!sameAnchor) {
         this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
-          start: { placeableId: this._drawStart.placeableId, portName: this._drawStart.portName },
-          end:   { placeableId: endSnap.placeableId,         portName: endSnap.portName         },
+          start: startRef,
+          end: endRef,
           path,
         });
       }

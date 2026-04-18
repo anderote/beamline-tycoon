@@ -16,6 +16,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { getPortSpec } from './ports.js';
+import { expandPath } from './line-geometry.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
@@ -97,19 +98,48 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   const allPortKeys = new Set();
   const lineArr = [];
   const touchedPlaceables = new Set();
+  const lineNodeKey = id => `line:${id}`;
 
+  // Collect same-type lines. Each line becomes a node in the DSU so that
+  // lines with null endpoints still participate (spatial union below ties
+  // them together when they share subtiles).
   const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
   for (const line of iter) {
     if (!line || line.utilityType !== utilityType) continue;
-    if (!line.start || !line.end) continue;
     lineArr.push(line);
-    const a = portKey(line.start);
-    const b = portKey(line.end);
-    dsu.union(a, b);
-    allPortKeys.add(a);
-    allPortKeys.add(b);
-    touchedPlaceables.add(line.start.placeableId);
-    touchedPlaceables.add(line.end.placeableId);
+    const ln = lineNodeKey(line.id);
+    dsu.add(ln);
+    if (line.start) {
+      const a = portKey(line.start);
+      allPortKeys.add(a);
+      dsu.union(ln, a);
+      touchedPlaceables.add(line.start.placeableId);
+    }
+    if (line.end) {
+      const b = portKey(line.end);
+      allPortKeys.add(b);
+      dsu.union(ln, b);
+      touchedPlaceables.add(line.end.placeableId);
+    }
+  }
+
+  // Spatial union: lines that share ANY subtile (0.25-precision) merge. This
+  // handles line-to-line joins (a trunk running past a branch) regardless of
+  // whether either endpoint is a port or an open end.
+  const subtileToLines = new Map();
+  for (const line of lineArr) {
+    const expanded = expandPath(line.path || []);
+    for (const pt of expanded) {
+      const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;
+      let arr = subtileToLines.get(key);
+      if (!arr) { arr = []; subtileToLines.set(key, arr); }
+      arr.push(line.id);
+    }
+  }
+  for (const ids of subtileToLines.values()) {
+    if (ids.length < 2) continue;
+    const first = lineNodeKey(ids[0]);
+    for (let i = 1; i < ids.length; i++) dsu.union(first, lineNodeKey(ids[i]));
   }
 
   // For every placeable that a line touches, unite all of its pass-through
@@ -132,6 +162,9 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     }
   }
 
+  // Group by root. Port keys and line-node keys may collide into the same
+  // group. Lines without port anchors (fully open) still produce a group
+  // (inert, solved as a no-op).
   const groups = new Map();
   for (const k of allPortKeys) {
     const r = dsu.find(k);
@@ -139,14 +172,23 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     groups.get(r).portKeys.add(k);
   }
   for (const line of lineArr) {
-    const r = dsu.find(portKey(line.start));
+    const r = dsu.find(lineNodeKey(line.id));
+    if (!groups.has(r)) groups.set(r, { portKeys: new Set(), lineIds: [] });
     groups.get(r).lineIds.push(line.id);
   }
 
   const networks = [];
   for (const g of groups.values()) {
+    if (g.portKeys.size === 0 && g.lineIds.length === 0) continue;
     const sortedKeys = Array.from(g.portKeys).sort();
-    const id = `net_${utilityType}_${hashString(sortedKeys.join('|'))}`;
+    // Networks with at least one port derive their ID from sorted port keys
+    // (stable across topology changes that don't disturb port membership).
+    // Fully open-ended networks derive from sorted line IDs so they still
+    // have a stable handle for persistent state.
+    const idSeed = sortedKeys.length > 0
+      ? sortedKeys.join('|')
+      : 'open:' + g.lineIds.slice().sort().join('|');
+    const id = `net_${utilityType}_${hashString(idSeed)}`;
     const ports = [];
     const sources = [];
     const sinks = [];

@@ -175,6 +175,31 @@ function buildLineGroup(line, placeablesById, errorStatus) {
     }
     if (mesh) group.add(mesh);
   }
+
+  // Open-end indicators: a small contrasting disc at any endpoint that
+  // isn't anchored to a port. Signals "this side isn't wired up yet."
+  const openCapMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, emissive: new THREE.Color(descriptor.color || '#ffffff'),
+    emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.2,
+    transparent: true, opacity: 0.9,
+  });
+  if (!line.start && points.length > 0) {
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 2.0, 12, 10),
+      openCapMat,
+    );
+    cap.position.copy(points[0]);
+    group.add(cap);
+  }
+  if (!line.end && points.length > 0) {
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 2.0, 12, 10),
+      openCapMat,
+    );
+    cap.position.copy(points[points.length - 1]);
+    group.add(cap);
+  }
+
   return group;
 }
 
@@ -469,8 +494,10 @@ export class UtilityLineBuilderV2 {
     // Path + endpoints + utility type. Include port world positions in the
     // hash so the line rebuilds when a connected placeable is moved.
     const pathStr = (line.path || []).map(p => `${p.col},${p.row}`).join(';');
-    let startStr = '';
-    let endStr = '';
+    // Explicit "open" marker distinguishes a null endpoint (dangling) from
+    // an unresolved port lookup — both used to collide on "".
+    let startStr = line.start ? '?' : 'open';
+    let endStr = line.end ? '?' : 'open';
     if (line.start && placeablesById) {
       const sp = placeablesById.get(line.start.placeableId);
       if (sp) {

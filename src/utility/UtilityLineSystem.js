@@ -75,20 +75,26 @@ export class UtilityLineSystem {
   }
 
   /**
-   * Cascade removal — called by Game.removePlaceable after the placeable is
-   * gone. Removes all lines that referenced this placeable as start or end.
-   * Emits one event per affected utility type.
+   * Called by Game.removePlaceable after the placeable is gone. Nulls out
+   * any line endpoints that referenced this placeable — the line itself
+   * persists as a dangling open-ended segment, which the player can later
+   * rewire. Emits one event per affected utility type.
    */
   onPlaceableRemoved(placeableId) {
     const lines = this.state && this.state.utilityLines;
     if (!lines) return;
     const affected = new Set();
-    for (const [id, line] of lines) {
-      if ((line.start && line.start.placeableId === placeableId) ||
-          (line.end   && line.end.placeableId   === placeableId)) {
-        lines.delete(id);
-        affected.add(line.utilityType);
+    for (const line of lines.values()) {
+      let changed = false;
+      if (line.start && line.start.placeableId === placeableId) {
+        line.start = null;
+        changed = true;
       }
+      if (line.end && line.end.placeableId === placeableId) {
+        line.end = null;
+        changed = true;
+      }
+      if (changed) affected.add(line.utilityType);
     }
     for (const t of affected) this.emit('utilityLinesChanged', { utilityType: t });
   }
