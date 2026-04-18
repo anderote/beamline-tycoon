@@ -158,6 +158,17 @@ export function validateDrawPipe(state, { start, end, path } = {}) {
     const firstDir = segmentDirection(path[0], path[1]);
     if (!firstDir) return reject('not_straight');
     if (isPortTaken(state, start.junctionId, start.portName)) return reject('port_taken');
+    const _side = portSide(p, start.portName);
+    console.warn('[pipe-draw] validateDrawPipe START-check:', {
+      junctionId: start.junctionId,
+      junctionType: p.type,
+      junctionDir: p.dir,
+      portName: start.portName,
+      portSide: _side,
+      firstDir,
+      path0: path[0],
+      path1: path[1],
+    });
     if (!portMatchesApproach(p, start.portName, firstDir, false)) {
       return reject('port_mismatch');
     }
@@ -171,6 +182,17 @@ export function validateDrawPipe(state, { start, end, path } = {}) {
     const lastDir = segmentDirection(path[n - 2], path[n - 1]);
     if (!lastDir) return reject('not_straight');
     if (isPortTaken(state, end.junctionId, end.portName)) return reject('port_taken');
+    const _sideEnd = portSide(p, end.portName);
+    console.warn('[pipe-draw] validateDrawPipe END-check:', {
+      junctionId: end.junctionId,
+      junctionType: p.type,
+      junctionDir: p.dir,
+      portName: end.portName,
+      portSide: _sideEnd,
+      lastDir,
+      pathPrev: path[n - 2],
+      pathLast: path[n - 1],
+    });
     if (!portMatchesApproach(p, end.portName, lastDir, true)) {
       return reject('port_mismatch');
     }

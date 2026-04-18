@@ -299,6 +299,17 @@ export class BeamlineInputController {
     const port = this._findPortNearCursor(cursor);
     console.log('[pipe-draw] _pipeDrawStart: port hit-test', port);
     if (port) {
+      const _p = this._findPlaceable(port.junctionId);
+      console.warn('[pipe-draw] _pipeDrawStart ANCHORED:', {
+        junctionId: port.junctionId,
+        junctionType: _p?.type,
+        junctionDir: _p?.dir,
+        junctionCol: _p?.col,
+        junctionRow: _p?.row,
+        portName: port.portName,
+        portPathPos: port.pathPos,
+        cursor,
+      });
       this._drawing = true;
       this._drawMode = 'add';
       this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
@@ -383,6 +394,13 @@ export class BeamlineInputController {
     // cursor, matching validateExtendPipe's expected direction.
     if (anchorStart?.kind === 'openEnd') {
       console.log('[pipe-draw] _pipeDrawEnd: branch = extend-from-openEnd', { pipeId: anchorStart.pipeId });
+      console.warn('[pipe-draw] _pipeDrawEnd FINAL PATH for drawPipe:', {
+        startAnchor: anchorStart,
+        pathLen: path.length,
+        path0: path[0],
+        path1: path[1],
+        pathLast: path[path.length - 1],
+      });
       const res = this.game.beamline.extendPipe(anchorStart.pipeId, path);
       console.log('[pipe-draw] _pipeDrawEnd: extendPipe result', res);
       return;
@@ -396,6 +414,13 @@ export class BeamlineInputController {
     // Port → port (distinct) → full port-to-port pipe.
     if (portEnd && (!anchorStart || portEnd.junctionId !== anchorStart.junctionId || portEnd.portName !== anchorStart.portName)) {
       console.log('[pipe-draw] _pipeDrawEnd: branch = port-to-port', { startAnchor, portEnd });
+      console.warn('[pipe-draw] _pipeDrawEnd FINAL PATH for drawPipe:', {
+        startAnchor,
+        pathLen: path.length,
+        path0: path[0],
+        path1: path[1],
+        pathLast: path[path.length - 1],
+      });
       const res = this.game.beamline.drawPipe(
         startAnchor,
         { junctionId: portEnd.junctionId, portName: portEnd.portName },
@@ -416,6 +441,13 @@ export class BeamlineInputController {
     if (openEndHit) {
       console.log('[pipe-draw] _pipeDrawEnd: branch = port-to-openEnd (extend)', { openEndHit });
       const reversed = path.slice().reverse();
+      console.warn('[pipe-draw] _pipeDrawEnd FINAL PATH for drawPipe:', {
+        startAnchor,
+        pathLen: reversed.length,
+        path0: reversed[0],
+        path1: reversed[1],
+        pathLast: reversed[reversed.length - 1],
+      });
       const res = this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
       console.log('[pipe-draw] _pipeDrawEnd: extendPipe (port→openEnd) result', res);
       return;
@@ -423,6 +455,13 @@ export class BeamlineInputController {
 
     // Open-ended pipe (from port, terminates in empty space).
     console.log('[pipe-draw] _pipeDrawEnd: branch = open-ended from port', { startAnchor });
+    console.warn('[pipe-draw] _pipeDrawEnd FINAL PATH for drawPipe:', {
+      startAnchor,
+      pathLen: path.length,
+      path0: path[0],
+      path1: path[1],
+      pathLast: path[path.length - 1],
+    });
     const res = this.game.beamline.drawPipe(startAnchor, null, path);
     console.log('[pipe-draw] _pipeDrawEnd: drawPipe (open-ended) result', res);
   }
