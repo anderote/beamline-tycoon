@@ -21,7 +21,7 @@ export class BeamlineDesigner {
     this.editSourceId = null;
     this.editEndpointId = null;
     this.availableEndpoints = [];
-    this._originalAttachmentIds = new Set();
+    this._originalPlacementIds = new Set();
 
     // Draft state
     this.draftNodes = [];       // cloned ordered node list
@@ -446,10 +446,10 @@ export class BeamlineDesigner {
     }));
 
     // Snapshot original placement IDs so confirm can detect deletions
-    this._originalAttachmentIds = new Set();
+    this._originalPlacementIds = new Set();
     for (const entry of flat) {
       if (entry.kind === 'placement') {
-        this._originalAttachmentIds.add(entry.id);
+        this._originalPlacementIds.add(entry.id);
       }
     }
 
@@ -752,7 +752,7 @@ export class BeamlineDesigner {
    *   - Add new placement (inserted into draft during editing — must carry
    *     _targetPipeId on the draft node). Routed through BeamlineSystem so
    *     the same slot-finding / invariants apply as on the map.
-   *   - Remove existing placement (was in _originalAttachmentIds, not in draft).
+   *   - Remove existing placement (was in _originalPlacementIds, not in draft).
    *     Routed through BeamlineSystem.
    *
    * Adding/removing modules from the designer is NOT supported in pipe-graph
@@ -806,7 +806,7 @@ export class BeamlineDesigner {
     const toRemove = [];
     for (const pipe of this.game.state.beamPipes) {
       for (const pl of (pipe.placements || [])) {
-        if (this._originalAttachmentIds.has(pl.id)
+        if (this._originalPlacementIds.has(pl.id)
             && !stillPresentPlacementIds.has(pl.id)) {
           toRemove.push({ pipeId: pipe.id, placementId: pl.id });
         }
@@ -826,7 +826,7 @@ export class BeamlineDesigner {
     this.editSourceId = null;
     this.editEndpointId = null;
     this.availableEndpoints = [];
-    this._originalAttachmentIds = new Set();
+    this._originalPlacementIds = new Set();
     this.draftNodes = [];
     this.originalNodes = [];
     this.draftEnvelope = null;
