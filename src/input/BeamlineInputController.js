@@ -130,6 +130,10 @@ export class BeamlineInputController {
     const last = this._drawPath[this._drawPath.length - 1];
     if (!last || last.col !== pt.col || last.row !== pt.row) {
       this._drawPath = buildStraightPath(this._drawOrigin, pt);
+      if (!this._loggedDrawingFlip) {
+        this._loggedDrawingFlip = true;
+        console.log('[pipe-draw] onMouseMove: first move while _drawing=true', { pt, pathLen: this._drawPath.length });
+      }
       this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode, this._previewCost());
     }
@@ -153,6 +157,12 @@ export class BeamlineInputController {
   }
 
   onMouseUp(worldX, worldY /* , button */) {
+    console.log('[pipe-draw] onMouseUp: entry', {
+      drawing: this._drawing,
+      drawMode: this._drawMode,
+      pathLen: this._drawPath.length,
+      worldX, worldY,
+    });
     if (!this._drawing) return false;
     if (this._drawMode === 'remove') {
       this._pipeRemoveEnd(worldX, worldY);
@@ -285,29 +295,41 @@ export class BeamlineInputController {
     // Anywhere else is a miss — swallow the click with no side effects so
     // the user doesn't accidentally create floating stubs.
     const cursor = snapPipePoint(worldX, worldY);
+    console.log('[pipe-draw] _pipeDrawStart: entry', { worldX, worldY, cursor });
     const port = this._findPortNearCursor(cursor);
+    console.log('[pipe-draw] _pipeDrawStart: port hit-test', port);
     if (port) {
       this._drawing = true;
       this._drawMode = 'add';
       this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
       this._drawStartAnchor = { kind: 'port', junctionId: port.junctionId, portName: port.portName };
       this._drawPath = [this._drawOrigin];
+      this._loggedDrawingFlip = false;
+      console.log('[pipe-draw] _pipeDrawStart: anchored on PORT', {
+        anchor: this._drawStartAnchor, origin: this._drawOrigin,
+      });
       this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
     const openEnd = this._findOpenEndNearCursor(cursor);
+    console.log('[pipe-draw] _pipeDrawStart: openEnd hit-test', openEnd);
     if (openEnd) {
       this._drawing = true;
       this._drawMode = 'add';
       this._drawOrigin = { col: openEnd.point.col, row: openEnd.point.row };
       this._drawStartAnchor = { kind: 'openEnd', pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
       this._drawPath = [this._drawOrigin];
+      this._loggedDrawingFlip = false;
+      console.log('[pipe-draw] _pipeDrawStart: anchored on OPEN-END', {
+        anchor: this._drawStartAnchor, origin: this._drawOrigin,
+      });
       this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
     // No valid anchor: swallow the click so the generic path doesn't see it.
+    console.log('[pipe-draw] _pipeDrawStart: NO anchor — click swallowed, no draw');
     return true;
   }
 
@@ -328,6 +350,11 @@ export class BeamlineInputController {
   _pipeDrawEnd(worldX, worldY) {
     const endPt = snapPipePoint(worldX, worldY);
     let path = buildStraightPath(this._drawOrigin, endPt);
+    console.log('[pipe-draw] _pipeDrawEnd: entry', {
+      worldX, worldY, endPt,
+      origin: this._drawOrigin,
+      initialPathLen: path.length,
+    });
     // Zero-length drag: extend by one sub-tile so a bare click still creates
     // a visible stub. Use the port's outward direction when starting from a
     // port (otherwise validateDrawPipe would reject on port_mismatch); fall
@@ -342,13 +369,22 @@ export class BeamlineInputController {
     const portEnd = this._findPortNearCursor(endPt);
     const openEndHit = this._findOpenEndNearCursor(endPt);
 
+    console.log('[pipe-draw] _pipeDrawEnd: resolved', {
+      finalPathLen: path.length,
+      anchorStart,
+      portEnd,
+      openEndHit,
+    });
+
     this.game._pushUndo();
 
     // Starting from an existing pipe's open end → extend it. buildStraightPath
     // anchors at `_drawOrigin` (the open end's point) and moves outward to the
     // cursor, matching validateExtendPipe's expected direction.
     if (anchorStart?.kind === 'openEnd') {
-      this.game.beamline.extendPipe(anchorStart.pipeId, path);
+      console.log('[pipe-draw] _pipeDrawEnd: branch = extend-from-openEnd', { pipeId: anchorStart.pipeId });
+      const res = this.game.beamline.extendPipe(anchorStart.pipeId, path);
+      console.log('[pipe-draw] _pipeDrawEnd: extendPipe result', res);
       return;
     }
 
@@ -359,11 +395,13 @@ export class BeamlineInputController {
 
     // Port → port (distinct) → full port-to-port pipe.
     if (portEnd && (!anchorStart || portEnd.junctionId !== anchorStart.junctionId || portEnd.portName !== anchorStart.portName)) {
-      this.game.beamline.drawPipe(
+      console.log('[pipe-draw] _pipeDrawEnd: branch = port-to-port', { startAnchor, portEnd });
+      const res = this.game.beamline.drawPipe(
         startAnchor,
         { junctionId: portEnd.junctionId, portName: portEnd.portName },
         path,
       );
+      console.log('[pipe-draw] _pipeDrawEnd: drawPipe (port→port) result', res);
       return;
     }
 
@@ -376,13 +414,17 @@ export class BeamlineInputController {
     // plan calls for ("extends rather than creates a disconnected pipe");
     // claiming the port on extend is a future enhancement.
     if (openEndHit) {
+      console.log('[pipe-draw] _pipeDrawEnd: branch = port-to-openEnd (extend)', { openEndHit });
       const reversed = path.slice().reverse();
-      this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
+      const res = this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
+      console.log('[pipe-draw] _pipeDrawEnd: extendPipe (port→openEnd) result', res);
       return;
     }
 
     // Open-ended pipe (from port, terminates in empty space).
-    this.game.beamline.drawPipe(startAnchor, null, path);
+    console.log('[pipe-draw] _pipeDrawEnd: branch = open-ended from port', { startAnchor });
+    const res = this.game.beamline.drawPipe(startAnchor, null, path);
+    console.log('[pipe-draw] _pipeDrawEnd: drawPipe (open-ended) result', res);
   }
 
   _pipeRemoveEnd(worldX, worldY) {

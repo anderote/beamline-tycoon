@@ -1386,8 +1386,15 @@ export class InputHandler {
           placeableDef?.role === 'junction' ||
           placeableDef?.role === 'placement';
         if ((btn === 0 || btn === 2) && (this.beamlineController.isActive() || isBeamlineTool)) {
+          console.log('[pipe-draw] InputHandler mousedown → beamline branch', {
+            btn,
+            isDrawnConnection: !!toolDef?.isDrawnConnection,
+            controllerActive: this.beamlineController.isActive(),
+            selectedTool: this.selectedTool,
+          });
           if (toolDef?.isDrawnConnection) {
             const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+            console.log('[pipe-draw] InputHandler → beamlineController.onMouseDown', { world, btn });
             this.beamlineController.onMouseDown(world.x, world.y, btn);
           }
           // Swallow the event: no other mousedown branch should fire for
@@ -1629,8 +1636,13 @@ export class InputHandler {
         }
       } else if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        if (!this._loggedPipeMoveDelegate) {
+          this._loggedPipeMoveDelegate = true;
+          console.log('[pipe-draw] InputHandler mousemove → beamlineController.onMouseMove (first delegation this drag)', { world });
+        }
         this.beamlineController.onMouseMove(world.x, world.y);
       } else {
+        this._loggedPipeMoveDelegate = false;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
@@ -1706,8 +1718,20 @@ export class InputHandler {
       // Beam pipe drawing end — delegated to BeamlineInputController.
       if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        console.log('[pipe-draw] InputHandler mouseup → beamlineController.onMouseUp', {
+          world, button: e.button,
+        });
         this.beamlineController.onMouseUp(world.x, world.y, e.button);
         return;
+      }
+      // Diagnostic: mouseup fired, but the controller is NOT active. If the
+      // user just finished dragging a pipe and we land here, the start path
+      // never set _drawing = true (no anchor) — or something reset it mid-drag.
+      if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
+        console.log('[pipe-draw] InputHandler mouseup: pipe tool selected but controller NOT active', {
+          selectedTool: this.selectedTool,
+          button: e.button,
+        });
       }
 
       // Connection drawing end — commit all tiles on release

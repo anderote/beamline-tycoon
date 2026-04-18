@@ -3210,6 +3210,13 @@ export class ThreeRenderer {
       const mid = path[Math.floor(path.length / 2)];
       const sprite = this._makeLabelSprite('$' + cost.funding.toLocaleString());
       sprite.position.set(mid.col * 2 + 1, PIPE_Y + 0.9, mid.row * 2 + 1);
+      // Ortho camera zoom scales world-space sprites; counter-scale by the
+      // current frustum-to-baseline ratio so the label stays at a constant
+      // screen size (billboard/HUD feel) regardless of zoom.
+      const BASELINE_FRUSTUM = 20;
+      const k = this._frustumSize / BASELINE_FRUSTUM;
+      sprite.scale.x *= k;
+      sprite.scale.y *= k;
       this.scene.add(sprite);
       this._beamPipePreviewMeshes.push(sprite);
     }
