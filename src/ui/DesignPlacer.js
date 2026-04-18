@@ -186,15 +186,13 @@ export class DesignPlacer {
         bendDir = bendDir === 'left' ? 'right' : 'left';
       }
 
-      // Place the module as a placeable
-      const placeableId = this.game.placePlaceable({
+      // Place the module as a junction via BeamlineSystem.
+      const placeableId = this.game.beamline.placeJunction({
         type: c.type,
-        category: 'beamline',
         col,
         row,
         subCol: 0,
         subRow: 0,
-        rotated: false,
         dir,
         params: c.params,
       });
@@ -208,21 +206,25 @@ export class DesignPlacer {
       if (prevModuleId) {
         const pipePath = this._buildPipePath(prevModuleId, placeableId);
         // Use default exit/entry port names (linac phase: single port per direction)
-        const ok = this.game.createBeamPipe(
-          prevModuleId, prevModuleExitPort || 'exit',
-          placeableId, 'entry',
+        const pipeId = this.game.beamline.drawPipe(
+          { junctionId: prevModuleId, portName: prevModuleExitPort || 'exit' },
+          { junctionId: placeableId, portName: 'entry' },
           pipePath,
         );
-        if (ok) {
-          // The most recent pipe is the last one added
-          lastPipeId = this.game.state.beamPipes[this.game.state.beamPipes.length - 1]?.id || null;
+        if (pipeId) {
+          lastPipeId = pipeId;
 
           // Drain pending attachments onto this pipe at evenly-spaced positions
-          if (lastPipeId && pendingAttachments.length > 0) {
+          if (pendingAttachments.length > 0) {
             const n = pendingAttachments.length;
             pendingAttachments.forEach((att, i) => {
               const pos = (i + 1) / (n + 1); // evenly spaced in (0, 1)
-              this.game.addAttachmentToPipe(lastPipeId, att.type, pos, att.params);
+              this.game.beamline.placeOnPipe(lastPipeId, {
+                type: att.type,
+                position: pos,
+                params: att.params,
+                mode: 'snap',
+              });
             });
             pendingAttachments.length = 0;
           }

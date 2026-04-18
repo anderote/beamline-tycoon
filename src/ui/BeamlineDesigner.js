@@ -416,14 +416,16 @@ export class BeamlineDesigner {
     this.availableEndpoints = [];
     this.editEndpointId = endpointId;
 
-    // Walk the pipe graph
-    const flat = flattenPath(this.game.state, sourceId, endpointId);
+    // Walk the pipe graph (flattener ignores endpointId today but reserved
+    // for future multi-path support).
+    const flat = flattenPath(this.game.state, sourceId, { endpointId });
 
-    // Convert flattener entries to draftNodes format
+    // Convert flattener entries to draftNodes format.
+    // (Flattener emits kind: 'module' | 'placement' | 'drift'.)
     this.draftNodes = flat.map((entry, idx) => ({
       // Use a negative id for drift nodes (they don't have stable identity)
       id: entry.kind === 'module' ? entry.id
-          : entry.kind === 'attachment' ? entry.id
+          : entry.kind === 'placement' ? entry.id
           : -1000 - idx,  // synthetic drift id
       type: entry.kind === 'drift' ? 'drift' : entry.type,
       col: 0, row: 0, dir: 0, entryDir: 0,
@@ -438,15 +440,15 @@ export class BeamlineDesigner {
       _pipeKind: entry.kind,
       _sourceRef: entry.kind === 'module'
                   ? { placeableId: entry.id }
-                  : entry.kind === 'attachment'
-                    ? { pipeId: entry.pipeId, attachmentId: entry.id, position: entry.position }
+                  : entry.kind === 'placement'
+                    ? { pipeId: entry.pipeId, placementId: entry.id, position: entry.position }
                     : { pipeId: entry.pipeId },
     }));
 
-    // Snapshot original attachment IDs so confirm can detect deletions
+    // Snapshot original placement IDs so confirm can detect deletions
     this._originalAttachmentIds = new Set();
     for (const entry of flat) {
-      if (entry.kind === 'attachment') {
+      if (entry.kind === 'placement') {
         this._originalAttachmentIds.add(entry.id);
       }
     }
@@ -746,57 +748,72 @@ export class BeamlineDesigner {
    *
    * Supported operations:
    *   - Tune params on existing modules (writes to placeable.params)
-   *   - Tune params on existing attachments (writes to pipe.placements[i].params)
-   *   - Add new attachment (inserted into draft during editing — must carry
-   *     _targetPipeId on the draft node)
-   *   - Remove existing attachment (was in _originalAttachmentIds, not in draft)
+   *   - Tune params on existing placements (writes to pipe.placements[i].params)
+   *   - Add new placement (inserted into draft during editing — must carry
+   *     _targetPipeId on the draft node). Routed through BeamlineSystem so
+   *     the same slot-finding / invariants apply as on the map.
+   *   - Remove existing placement (was in _originalAttachmentIds, not in draft).
+   *     Routed through BeamlineSystem.
    *
    * Adding/removing modules from the designer is NOT supported in pipe-graph
    * mode — modules live on the main map.
    */
   _reconcileToPipeGraph() {
-    const stillPresentAttachmentIds = new Set();
+    const stillPresentPlacementIds = new Set();
+    const beam = this.game.beamline;
 
     for (const node of this.draftNodes) {
       if (node._pipeKind === 'module' && node._sourceRef?.placeableId) {
-        // Apply param edits to the placeable
+        // Apply param edits to the placeable (tuning only; adding/removing
+        // modules is not supported here).
         const p = this.game.getPlaceable(node._sourceRef.placeableId);
         if (p) {
           p.params = { ...(p.params || {}), ...node.params };
         }
-      } else if (node._pipeKind === 'attachment' && node._sourceRef?.attachmentId) {
-        // Apply param edits to the existing attachment
+      } else if (node._pipeKind === 'placement' && node._sourceRef?.placementId) {
+        // Apply param edits to the existing placement. We still write directly
+        // here because BeamlineSystem has no param-tuning surface; this is a
+        // straight field update, not a slot mutation.
         const pipe = this.game.state.beamPipes.find(
           pp => pp.id === node._sourceRef.pipeId,
         );
         if (pipe) {
-          const att = pipe.placements.find(a => a.id === node._sourceRef.attachmentId);
-          if (att) {
-            att.params = { ...(att.params || {}), ...node.params };
-            stillPresentAttachmentIds.add(node._sourceRef.attachmentId);
+          const pl = (pipe.placements || []).find(a => a.id === node._sourceRef.placementId);
+          if (pl) {
+            pl.params = { ...(pl.params || {}), ...node.params };
+            stillPresentPlacementIds.add(node._sourceRef.placementId);
           }
         }
-      } else if (node._pipeKind === 'attachment' && !node._sourceRef?.attachmentId) {
-        // Newly added attachment in the draft (needs _targetPipeId to know where)
-        if (node._targetPipeId) {
-          this.game.addAttachmentToPipe(
-            node._targetPipeId,
-            node.type,
-            node._targetPosition ?? 0.5,
-            node.params,
-          );
+      } else if (node._pipeKind === 'placement' && !node._sourceRef?.placementId) {
+        // Newly added placement (needs _targetPipeId to know where).
+        // Route through BeamlineSystem so findSlot() enforces the same
+        // capacity / ordering invariants as map-driven placements.
+        if (node._targetPipeId && beam) {
+          beam.placeOnPipe(node._targetPipeId, {
+            type: node.type,
+            position: node._targetPosition ?? 0.5,
+            params: node.params,
+            mode: node._insertMode || (this.insertMode ? 'insert' : 'replace'),
+          });
         }
       }
       // drift nodes are ignored — they're derived from pipes, not editable
     }
 
-    // Remove attachments that were in the original but no longer in the draft
+    // Remove placements that were in the original but no longer in the draft.
+    // Collect first, mutate after: removeFromPipe filters pipe.placements,
+    // so mutating mid-scan is fine, but a two-pass form reads cleaner.
+    const toRemove = [];
     for (const pipe of this.game.state.beamPipes) {
-      for (const att of [...pipe.placements]) {
-        if (this._originalAttachmentIds.has(att.id) && !stillPresentAttachmentIds.has(att.id)) {
-          this.game.removeAttachment(pipe.id, att.id);
+      for (const pl of (pipe.placements || [])) {
+        if (this._originalAttachmentIds.has(pl.id)
+            && !stillPresentPlacementIds.has(pl.id)) {
+          toRemove.push({ pipeId: pipe.id, placementId: pl.id });
         }
       }
+    }
+    for (const { pipeId, placementId } of toRemove) {
+      if (beam) beam.removeFromPipe(pipeId, placementId);
     }
 
     this.game.recalcBeamline();
@@ -895,7 +912,17 @@ export class BeamlineDesigner {
   insertComponent(index, type, position) {
     const comp = COMPONENTS[type];
     if (!comp) return;
+    // In pipe-graph edit mode only attachment-type components can be inserted;
+    // modules live on the main map.
+    if (this.editSourceId && comp.placement !== 'attachment') return;
     this._pushUndo();
+
+    // Pick the target pipe and the fractional-s position on it, using the
+    // neighbouring draft node (which was derived from the flattener and so
+    // carries a pipeId).
+    const pipeCtx = this.editSourceId
+      ? this._resolvePipeContextForInsert(index, position)
+      : null;
 
     const newNode = {
       id: -(this._nextTempId = (this._nextTempId || 0) + 1),  // unique negative ID for draft
@@ -916,6 +943,14 @@ export class BeamlineDesigner {
       }
     }
 
+    if (this.editSourceId && comp.placement === 'attachment') {
+      newNode._pipeKind = 'placement';
+      newNode._sourceRef = {};          // empty → reconciler treats as "new"
+      newNode._targetPipeId = pipeCtx ? pipeCtx.pipeId : null;
+      newNode._targetPosition = pipeCtx ? pipeCtx.position : 0.5;
+      newNode._insertMode = this.insertMode ? 'insert' : 'replace';
+    }
+
     const insertIdx = position === 'before' ? index : index + 1;
     this.draftNodes.splice(insertIdx, 0, newNode);
     this.selectedIndex = insertIdx;
@@ -924,6 +959,26 @@ export class BeamlineDesigner {
     this._recalcDraft();
     this._updateDraftBar();
     this._renderAll();
+  }
+
+  /**
+   * For a newly inserted draft node, resolve which pipe it targets and what
+   * fractional position on that pipe it corresponds to. Uses the adjacent
+   * draft node (which came from the flattener) as an anchor.
+   */
+  _resolvePipeContextForInsert(index, position) {
+    const anchor = this.draftNodes[index];
+    if (!anchor) return null;
+    // If the anchor is a placement or drift, it has a pipeId in _sourceRef.
+    const pipeId = anchor._sourceRef?.pipeId || null;
+    if (!pipeId) return null;
+    // Prefer the anchor's own fractional position if it's a placement; else
+    // default to the midpoint. findSlot() will snap-or-insert from there
+    // depending on mode.
+    const pos = (typeof anchor._sourceRef?.position === 'number')
+      ? anchor._sourceRef.position
+      : 0.5;
+    return { pipeId, position: pos };
   }
 
   removeComponent(index) {
@@ -1453,6 +1508,9 @@ export class BeamlineDesigner {
       beamStart: node.beamStart,
       _pipeKind: node._pipeKind,
       _sourceRef: node._sourceRef,
+      _targetPipeId: node._targetPipeId,
+      _targetPosition: node._targetPosition,
+      _insertMode: node._insertMode,
     };
   }
 
