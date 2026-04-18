@@ -2431,7 +2431,11 @@ export class ThreeRenderer {
     this._updateSunCycle();
     this._updateLOD();
     if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
-      this._renderBeamPipePreview(this._inputHandler.beamPipePath, this._inputHandler.beamPipeDrawMode);
+      this._renderBeamPipePreview(
+        this._inputHandler.beamPipePath,
+        this._inputHandler.beamPipeDrawMode,
+        this._inputHandler.beamPipeCost,
+      );
     } else if (
       this._inputHandler &&
       this._inputHandler.selectedTool &&
@@ -3096,11 +3100,11 @@ export class ThreeRenderer {
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
   }
 
-  renderBeamPipePreview(path, mode) {
-    this._renderBeamPipePreview(path, mode);
+  renderBeamPipePreview(path, mode, cost) {
+    this._renderBeamPipePreview(path, mode, cost);
   }
 
-  _renderBeamPipePreview(path, mode) {
+  _renderBeamPipePreview(path, mode, cost) {
     this._clearBeamPipePreview();
     if (!path || path.length < 1) return;
 
@@ -3198,6 +3202,16 @@ export class ThreeRenderer {
       for (const { start, end } of runs) {
         addRun(start.col * 2 + 1, start.row * 2 + 1, end.col * 2 + 1, end.row * 2 + 1);
       }
+    }
+
+    // Cost label at the midpoint of the path. Skipped on remove-mode and
+    // when the caller didn't pass a cost (e.g. hover-only single-point).
+    if (!isRemove && cost && typeof cost.funding === 'number' && path.length >= 2) {
+      const mid = path[Math.floor(path.length / 2)];
+      const sprite = this._makeLabelSprite('$' + cost.funding.toLocaleString());
+      sprite.position.set(mid.col * 2 + 1, PIPE_Y + 0.9, mid.row * 2 + 1);
+      this.scene.add(sprite);
+      this._beamPipePreviewMeshes.push(sprite);
     }
   }
 

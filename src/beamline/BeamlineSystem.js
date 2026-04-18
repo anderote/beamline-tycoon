@@ -19,6 +19,43 @@ import { COMPONENTS } from '../data/components.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
 import { findSlot } from './pipe-placements.js';
 
+// 4 sub-units per tile: path distance is measured in tiles, subL in sub-units.
+const SUB_PER_TILE = 4;
+
+// Map validator reason codes → player-facing messages. Validators return terse
+// identifiers so tests can assert on them; the HUD log needs something a human
+// can act on.
+const REASON_MESSAGES = {
+  invalid_path: 'path has fewer than 2 points',
+  not_straight: 'pipe must be a straight run (no corners)',
+  invalid_start: 'starting junction missing or invalid',
+  invalid_end: 'ending junction missing or invalid',
+  port_taken: 'that port is already connected',
+  port_mismatch: "pipe doesn't align with port direction",
+  overlap: 'pipe overlaps an existing one',
+  pipe_not_found: 'pipe no longer exists',
+  no_open_end: 'pipe has no open end to extend',
+  not_collinear: 'extension must continue in the same direction',
+};
+
+function reasonMessage(reason) {
+  return REASON_MESSAGES[reason] || reason;
+}
+
+// Per-tile drift cost is the baseline for beam-pipe pricing; fall back to the
+// legacy 10000 if the component registry is somehow missing drift.
+function driftCostPerTile() {
+  const def = COMPONENTS.drift;
+  return def && def.cost && typeof def.cost.funding === 'number' ? def.cost.funding : 10000;
+}
+
+// Legacy formula from Game.createBeamPipe: max(1, floor(perTile * max(tileDist, 0.25))).
+// Clamping tileDist to 0.25 ensures even zero-drag stubs aren't free.
+function pipeCost(tileDist) {
+  const perTile = driftCostPerTile();
+  return { funding: Math.max(1, Math.floor(perTile * Math.max(tileDist, 0.25))) };
+}
+
 export class BeamlineSystem {
   constructor(opts = {}) {
     this.state = opts.state;
@@ -103,10 +140,16 @@ export class BeamlineSystem {
   drawPipe(start, end, path) {
     const result = validateDrawPipe(this.state, { start, end, path });
     if (!result.ok) {
-      this.log('drawPipe: ' + result.reason, 'bad');
+      this.log("Can't draw pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipe = result.pipe;
+    const cost = pipeCost(pipe.subL / SUB_PER_TILE);
+    if (!this.canAfford(cost)) {
+      this.log("Can't afford beam pipe!", 'bad');
+      return null;
+    }
+    this.spend(cost);
     pipe.id = this.nextPipeId();
     const state = this.state;
     if (!Array.isArray(state.beamPipes)) state.beamPipes = [];
@@ -123,15 +166,25 @@ export class BeamlineSystem {
   extendPipe(pipeId, additionalPath) {
     const result = validateExtendPipe(this.state, pipeId, additionalPath);
     if (!result.ok) {
-      this.log('extendPipe: ' + result.reason, 'bad');
+      this.log("Can't extend pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipes = this.state.beamPipes || [];
     const idx = pipes.findIndex(p => p && p.id === pipeId);
     if (idx < 0) {
-      this.log('extendPipe: pipe vanished', 'bad');
+      this.log("Can't extend pipe: pipe no longer exists", 'bad');
       return null;
     }
+    // Charge only the ADDITION: diff in subL between the merged and the old
+    // pipe, not the whole merged length.
+    const oldSubL = pipes[idx].subL || 0;
+    const addedSubL = Math.max(0, (result.pipe.subL || 0) - oldSubL);
+    const cost = pipeCost(addedSubL / SUB_PER_TILE);
+    if (!this.canAfford(cost)) {
+      this.log("Can't afford beam pipe!", 'bad');
+      return null;
+    }
+    this.spend(cost);
     pipes[idx] = result.pipe;
     this.emit('beamlineChanged');
     return pipeId;
@@ -192,7 +245,7 @@ export class BeamlineSystem {
       idGenerator: () => this.nextPlacementId(),
     });
     if (!result.ok) {
-      this.log('placeOnPipe: ' + result.reason, 'bad');
+      this.log("Can't place on pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     pipe.placements = result.placements;
