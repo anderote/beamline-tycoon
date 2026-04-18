@@ -147,6 +147,7 @@ export class Game {
       emit: this.emit.bind(this),
       log: this.log.bind(this),
       spend: this.spend.bind(this),
+      canAfford: this.canAfford.bind(this),
       placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
       removePlaceable: (id) => this._removePlaceableRaw(id),
       nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,

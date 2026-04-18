@@ -276,5 +276,113 @@ console.log('\n--- Test 8: placeOnPipe insert on full pipe returns null ---');
     `log called with 'bad' (got ${logs.length ? logs[0].type : 'no logs'})`);
 }
 
+// ==========================================================================
+// Test 9: drawPipe charges funding and rejects when unaffordable.
+// ==========================================================================
+console.log('\n--- Test 9: drawPipe charges cost and rejects when unaffordable ---');
+{
+  // Mirror mockSystem but wire up canAfford/spend against a real funding ledger.
+  // Budget = drift cost × 2 = 20000 — enough for one 1-tile pipe, not two.
+  const DRIFT_COST = 10000;
+  const state = { placeables: [], beamPipes: [], resources: { funding: DRIFT_COST * 2 } };
+  let pipeCtr = 0, plCtr = 0, placeableCtr = 0;
+  const logs = [];
+  const placePlaceable = (opts) => {
+    const id = 'j_' + (++placeableCtr);
+    state.placeables.push({
+      id, type: opts.type, category: 'beamline',
+      col: opts.col || 0, row: opts.row || 0,
+      subCol: opts.subCol || 0, subRow: opts.subRow || 0,
+      dir: opts.dir || 0, params: opts.params || {}, cells: [],
+    });
+    return id;
+  };
+  const system = new BeamlineSystem({
+    state,
+    emit: () => {},
+    log: (msg, type) => logs.push({ msg, type }),
+    spend: (c) => { for (const [r, a] of Object.entries(c)) state.resources[r] -= a; },
+    canAfford: (c) => Object.entries(c).every(([r, a]) => (state.resources[r] || 0) >= a),
+    placePlaceable,
+    nextPipeId: () => 'bp_' + (++pipeCtr),
+    nextPlacementId: () => 'pl_' + (++plCtr),
+  });
+
+  // Two independent sources so the second draw doesn't hit port_taken.
+  const srcA = system.placeJunction({ type: 'source', col: 2, row: 2, dir: 0 });
+  const srcB = system.placeJunction({ type: 'source', col: 10, row: 10, dir: 0 });
+
+  // First pipe: 1 tile long → cost = DRIFT_COST × 1 = 10000. Should succeed.
+  const startFunding = state.resources.funding;
+  const pipeA = system.drawPipe(
+    { junctionId: srcA, portName: 'exit' }, null,
+    [{ col: 2, row: 4 }, { col: 2, row: 5 }],
+  );
+  assert(pipeA != null, `first pipe drawn (got ${pipeA})`);
+  assert(state.resources.funding === startFunding - DRIFT_COST,
+    `funding dropped by drift cost (got ${state.resources.funding}, expected ${startFunding - DRIFT_COST})`);
+
+  // Second pipe: 2 tiles long → cost = DRIFT_COST × 2 = 20000, but we only have
+  // 10000 left. Should reject with a "Can't afford" log and not mutate state.
+  logs.length = 0;
+  const fundingBefore = state.resources.funding;
+  const pipesBefore = state.beamPipes.length;
+  const pipeB = system.drawPipe(
+    { junctionId: srcB, portName: 'exit' }, null,
+    [{ col: 10, row: 12 }, { col: 10, row: 14 }],
+  );
+  assert(pipeB === null, `second pipe rejected (got ${pipeB})`);
+  assert(state.resources.funding === fundingBefore, 'funding unchanged on rejection');
+  assert(state.beamPipes.length === pipesBefore, 'pipe count unchanged on rejection');
+  assert(logs.some(l => l.type === 'bad' && /afford/i.test(l.msg)),
+    `afford rejection logged (got ${JSON.stringify(logs)})`);
+}
+
+// ==========================================================================
+// Test 10: extendPipe charges only the added length, not the merged pipe.
+// ==========================================================================
+console.log('\n--- Test 10: extendPipe charges only the added length ---');
+{
+  const DRIFT_COST = 10000;
+  const state = { placeables: [], beamPipes: [], resources: { funding: DRIFT_COST * 10 } };
+  let pipeCtr = 0, plCtr = 0, placeableCtr = 0;
+  const placePlaceable = (opts) => {
+    const id = 'j_' + (++placeableCtr);
+    state.placeables.push({
+      id, type: opts.type, category: 'beamline',
+      col: opts.col || 0, row: opts.row || 0,
+      subCol: opts.subCol || 0, subRow: opts.subRow || 0,
+      dir: opts.dir || 0, params: opts.params || {}, cells: [],
+    });
+    return id;
+  };
+  const system = new BeamlineSystem({
+    state,
+    emit: () => {},
+    log: () => {},
+    spend: (c) => { for (const [r, a] of Object.entries(c)) state.resources[r] -= a; },
+    canAfford: (c) => Object.entries(c).every(([r, a]) => (state.resources[r] || 0) >= a),
+    placePlaceable,
+    nextPipeId: () => 'bp_' + (++pipeCtr),
+    nextPlacementId: () => 'pl_' + (++plCtr),
+  });
+
+  const srcId = system.placeJunction({ type: 'source', col: 2, row: 2, dir: 0 });
+  const fundingAtStart = state.resources.funding;
+  const pipeId = system.drawPipe(
+    { junctionId: srcId, portName: 'exit' }, null,
+    [{ col: 2, row: 4 }, { col: 2, row: 5 }],
+  );
+  assert(pipeId != null, 'base pipe drawn');
+  const fundingAfterDraw = state.resources.funding;
+  assert(fundingAtStart - fundingAfterDraw === DRIFT_COST, 'initial 1-tile pipe charged 1× drift');
+
+  // Extend by 2 more tiles → should cost 2× drift, not 3× (the merged length).
+  const extended = system.extendPipe(pipeId, [{ col: 2, row: 5 }, { col: 2, row: 7 }]);
+  assert(extended != null, 'extend succeeded');
+  assert(fundingAfterDraw - state.resources.funding === DRIFT_COST * 2,
+    `extend charged 2× drift only (got delta ${fundingAfterDraw - state.resources.funding})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

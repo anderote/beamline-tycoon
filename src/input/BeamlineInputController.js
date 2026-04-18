@@ -131,8 +131,25 @@ export class BeamlineInputController {
     if (!last || last.col !== pt.col || last.row !== pt.row) {
       this._drawPath = buildStraightPath(this._drawOrigin, pt);
       this._syncInputState();
-      this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode);
+      this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode, this._previewCost());
     }
+  }
+
+  // Cost preview uses the same formula as BeamlineSystem.drawPipe so the
+  // number shown during drag matches the number charged on release.
+  // Duplicated (not imported) because BeamlineSystem's pricing helper is
+  // private to the mutation path; the controller only needs to read it.
+  _previewCost() {
+    if (this._drawMode !== 'add' || this._drawPath.length < 2) return null;
+    let tileDist = 0;
+    for (let i = 0; i < this._drawPath.length - 1; i++) {
+      const a = this._drawPath[i];
+      const b = this._drawPath[i + 1];
+      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
+    }
+    const def = COMPONENTS.drift;
+    const perTile = def && def.cost && typeof def.cost.funding === 'number' ? def.cost.funding : 10000;
+    return { funding: Math.max(1, Math.floor(perTile * Math.max(tileDist, 0.25))) };
   }
 
   onMouseUp(worldX, worldY /* , button */) {
@@ -531,6 +548,7 @@ export class BeamlineInputController {
     this.input.drawingBeamPipe = this._drawing;
     this.input.beamPipePath = this._drawPath;
     this.input.beamPipeDrawMode = this._drawMode;
+    this.input.beamPipeCost = this._drawing ? this._previewCost() : null;
   }
 
   _resetDrawing() {
