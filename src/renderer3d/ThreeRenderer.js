@@ -632,6 +632,47 @@ export class ThreeRenderer {
   }
 
   /**
+   * Surface-aware variant of screenToWorld for placement preview. Raycasts
+   * placeable meshes (equipment, decoration, component groups) alongside the
+   * terrain and picks whichever hit is closest to the camera. This makes the
+   * cursor snap to the subtile *under the mesh point* when hovering over a
+   * bench or a stacked item, instead of snapping to the floor behind it —
+   * downstream `findStackTarget` descent then targets the hit surface.
+   *
+   * Falls back to `screenToWorld` when no meshes are hit.
+   */
+  screenToPlacementWorld(screenX, screenY) {
+    if (!this.camera || !this.renderer) return this.screenToWorld(screenX, screenY);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+
+    const hits = [];
+    const groups = [this.equipmentGroup, this.decorationGroup, this.componentGroup];
+    for (const g of groups) {
+      if (g) hits.push(...raycaster.intersectObjects(g.children, true));
+    }
+    if (this._terrainMesh) {
+      hits.push(...raycaster.intersectObject(this._terrainMesh));
+    }
+    // Ground plane fallback (matches screenToWorld's sky-miss behavior).
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const planePoint = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(plane, planePoint)) {
+      hits.push({ point: planePoint, distance: raycaster.ray.origin.distanceTo(planePoint) });
+    }
+
+    if (!hits.length) return this.screenToWorld(screenX, screenY);
+    hits.sort((a, b) => a.distance - b.distance);
+    const p = hits[0].point;
+    const fCol = p.x / 2;
+    const fRow = p.z / 2;
+    return gridToIso(fCol, fRow);
+  }
+
+  /**
    * Raycast from a screen position into the 3D scene.
    * Returns the first intersected mesh (skipping preview/terrain/grid),
    * or null if nothing is hit.
@@ -3457,19 +3498,16 @@ export class ThreeRenderer {
       }
     };
 
-    if (path.length === 1) {
-      // Single click preview: show a half-tile (2 sub-unit) stub
-      const cx = path[0].col * 2 + 1;
-      const cz = path[0].row * 2 + 1;
-      const dir = this.placementDir || 0;
-      const delta = DIR_DELTA[dir];
-      const dx = delta.dc, dz = delta.dr;
-      addRun(cx - dx * 0.5, cz - dz * 0.5, cx + dx * 0.5, cz + dz * 0.5);
-    } else {
-      const runs = pipePathRuns(path);
-      for (const { start, end } of runs) {
-        addRun(start.col * 2 + 1, start.row * 2 + 1, end.col * 2 + 1, end.row * 2 + 1);
-      }
+    // Single-point hover: skip the stub-pipe preview. The hover marker
+    // (square footprint) is drawn elsewhere in animate and is the meaningful
+    // pre-click cue. A placementDir-rotated pipe stub here was leftover from
+    // the old "click to place one tile" design — it rotated on R but never
+    // actually controlled pipe direction (direction comes from the snapped
+    // port at mouse-up), so it was just visual noise.
+    if (path.length < 2) return;
+    const runs = pipePathRuns(path);
+    for (const { start, end } of runs) {
+      addRun(start.col * 2 + 1, start.row * 2 + 1, end.col * 2 + 1, end.row * 2 + 1);
     }
 
     // Cost label at the midpoint of the path. Skipped on remove-mode and
@@ -3519,7 +3557,10 @@ export class ThreeRenderer {
     const x0 = cx - FOOT / 2, x1 = cx + FOOT / 2;
     const z0 = cz - FOOT / 2, z1 = cz + FOOT / 2;
     const y = 0.12;
-    const color = 0x44ff44;
+    // Golden/yellow tint when snapped to an existing pipe's open end, so the
+    // player can see "you're anchored on a cap" before they click.
+    const onOpenEnd = this._inputHandler && this._inputHandler.hoverPipeOpenEnd;
+    const color = onOpenEnd ? 0xffcc33 : 0x44ff44;
     const edgeMat = this._previewEdgeMat(color);
     const fillMat = this._previewMat(color, 0.15);
     const pts = [

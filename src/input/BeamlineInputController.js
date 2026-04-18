@@ -14,6 +14,7 @@ import {
   snapPipePoint,
   buildStraightPath,
   findNearestPipeToWorld,
+  positionToPoint,
 } from '../beamline/pipe-geometry.js';
 import { findSlot } from '../beamline/pipe-placements.js';
 import { isoToGridFloat } from '../renderer/grid.js';
@@ -70,7 +71,18 @@ export class BeamlineInputController {
    * pre-click marker. Called from InputHandler's generic mousemove path.
    */
   onPipeToolHover(worldX, worldY) {
-    this.input.hoverPipePoint = snapPipePoint(worldX, worldY);
+    const snapped = snapPipePoint(worldX, worldY);
+    // If the cursor is near an existing pipe's open (capped) end, snap the
+    // hover marker to that exact point so the player sees "you can start
+    // here" before clicking.
+    const openEnd = this._findOpenEndNearCursor(snapped);
+    if (openEnd) {
+      this.input.hoverPipePoint = { col: openEnd.point.col, row: openEnd.point.row };
+      this.input.hoverPipeOpenEnd = { pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
+    } else {
+      this.input.hoverPipePoint = snapped;
+      this.input.hoverPipeOpenEnd = null;
+    }
   }
 
   onMouseDown(worldX, worldY, button) {
@@ -224,22 +236,41 @@ export class BeamlineInputController {
     return { wx: gf.col * 2, wz: gf.row * 2 };
   }
 
+  // Snap the cursor's projected fraction to a subtile-aligned start position.
+  // `position` is a fraction [0,1] of pipe arc-length; `pipe.subL` counts
+  // 1-subtile increments along the pipe. The cursor projection is treated as
+  // the desired CENTER of the component, so `startSubtiles =
+  // round(center - subL/2)` keeps the body centered under the cursor and
+  // ensures the placement body aligns to subtile boundaries.
+  _quantizePipePosition(pipe, cursorPosition, subL) {
+    const pipeSubL = pipe.subL;
+    if (!pipeSubL || pipeSubL <= 0) return cursorPosition;
+    const centerSubtiles = cursorPosition * pipeSubL;
+    const startSubtiles = Math.round(centerSubtiles - subL / 2);
+    const clamped = Math.max(0, Math.min(pipeSubL - subL, startSubtiles));
+    return clamped / pipeSubL;
+  }
+
   _previewPlacement(selectedId, worldX, worldY) {
     const def = COMPONENTS[selectedId];
     if (!def) return;
     const pipes = (this.game.state && this.game.state.beamPipes) || [];
     const { wx, wz } = this._cursorWorldXZ(worldX, worldY);
     const hit = findNearestPipeToWorld(pipes, wx, wz, 1.5);
+    const gf = isoToGridFloat(worldX, worldY);
+    const cursorCol = Math.floor(gf.col);
+    const cursorRow = Math.floor(gf.row);
     if (!hit) {
       this._placementHover = null;
-      this.renderer._clearPreview?.();
+      this.renderer.renderPlacementGridOnly?.(cursorCol, cursorRow);
       return;
     }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
+    const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
     const dryRun = findSlot(hit.pipe, {
       type: selectedId,
-      requestedPosition: hit.proj.position,
+      requestedPosition: quantizedPosition,
       subL,
       mode,
       idGenerator: () => 'dry',
@@ -247,15 +278,16 @@ export class BeamlineInputController {
     });
     const valid = !!dryRun.ok;
     this._placementHover = valid
-      ? { pipeId: hit.pipe.id, position: hit.proj.position, subL, type: selectedId }
+      ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId }
       : null;
-    // Reuse the attachment-ghost renderer: it already draws the component
-    // geometry at (col, row) with the given direction, which matches what
-    // we need for a placement projected onto a pipe. F2 will replace this
-    // with a dedicated placement renderer.
+    // Center the ghost on the component body: sample the pipe at
+    // (quantizedStart + subL/2) so the rendered mesh sits over the subtiles
+    // it will actually occupy, not at the start edge.
+    const centerFraction = quantizedPosition + (subL / hit.pipe.subL) / 2;
+    const centerPoint = positionToPoint(hit.pipe, centerFraction) || hit.proj;
     if (this.renderer.renderAttachmentGhost) {
       this.renderer.renderAttachmentGhost(
-        hit.proj.col, hit.proj.row, selectedId, hit.proj.dir, valid,
+        centerPoint.col, centerPoint.row, selectedId, centerPoint.dir, valid,
       );
     }
   }
@@ -272,10 +304,11 @@ export class BeamlineInputController {
     if (!hit) return true;
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
+    const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
     this.game._pushUndo();
     const placedId = this.game.beamline.placeOnPipe(hit.pipe.id, {
       type: selectedId,
-      position: hit.proj.position,
+      position: quantizedPosition,
       subL,
       mode,
       params: this.input.selectedParamOverrides,
