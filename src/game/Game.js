@@ -88,6 +88,11 @@ export class Game {
       doorOccupied: {},       // "col,row,edge" -> doorType
       // Utility connections
       rackSegments: new Map(),    // "col,row" -> { utilities: Set<connType> }
+      // Utility network lines (per-utility independent drawable pipes)
+      utilityLines: new Map(),
+      utilityNextId: 1,
+      utilityNetworkState: new Map(),
+      utilityNetworkData: null,
       // Machines (cyclotrons, stalls, rings)
       machines: [],             // machine instances
       machineGrid: {},          // "col,row" -> machineId
