@@ -8,6 +8,8 @@
 // IMPORTANT: pipe paths use sub-tile precision (0.25 steps) so all
 // coordinates may be fractional. Functions here must handle that.
 
+import { isoToGridFloat } from '../renderer/grid.js';
+
 const EPS = 1e-6;
 
 /**
@@ -70,6 +72,54 @@ export function findPipeAtTile(beamPipes, col, row) {
     }
   }
   return best;
+}
+
+/**
+ * Snap a world/iso-screen position to the nearest sub-tile gridline used by
+ * beampipes (quarter-tile / 1 sub-unit resolution).
+ *
+ * Emits tile-index coordinates so that integer values correspond to tile
+ * centres — i.e. `col=0` renders at world x=1 via the pipe renderer's
+ * `col*2+1` formula. `isoToGridFloat` gives world-corner fractions
+ * (0.5 = tile centre), so we subtract 0.5 to convert.
+ */
+export function snapPipePoint(worldX, worldY) {
+  const fc = isoToGridFloat(worldX, worldY);
+  return {
+    col: Math.round((fc.col - 0.5) * 4) / 4,
+    row: Math.round((fc.row - 0.5) * 4) / 4,
+  };
+}
+
+/**
+ * Build a single-axis straight path from `from` to `to` at STEP resolution.
+ * Constrains the path to whichever axis has the larger cursor delta — locking
+ * the other to `from` — so a casual diagonal drag never produces an L-bend.
+ */
+export function buildStraightPath(from, to) {
+  const LOCAL_EPS = 0.001;
+  const dCol = to.col - from.col;
+  const dRow = to.row - from.row;
+  const useCol = Math.abs(dCol) >= Math.abs(dRow);
+  const targetCol = useCol ? to.col : from.col;
+  const targetRow = useCol ? from.row : to.row;
+
+  const path = [{ col: from.col, row: from.row }];
+  let c = from.col, r = from.row;
+  const dc = targetCol > c + LOCAL_EPS ? STEP : (targetCol < c - LOCAL_EPS ? -STEP : 0);
+  const dr = targetRow > r + LOCAL_EPS ? STEP : (targetRow < r - LOCAL_EPS ? -STEP : 0);
+
+  let safety = 2048;
+  while (safety-- > 0) {
+    const moreCol = dc !== 0 && Math.abs(c - targetCol) > LOCAL_EPS;
+    const moreRow = dr !== 0 && Math.abs(r - targetRow) > LOCAL_EPS;
+    if (!moreCol && !moreRow) break;
+    if (moreCol) c += dc;
+    if (moreRow) r += dr;
+    path.push({ col: c, row: r });
+  }
+
+  return path;
 }
 
 export function pipeDirectionAtTile(pipe, tileIndex) {

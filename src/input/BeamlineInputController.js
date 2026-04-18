@@ -8,6 +8,19 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
+import { DIR_DELTA } from '../data/directions.js';
+import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
+import { snapPipePoint, buildStraightPath } from '../beamline/pipe-geometry.js';
+
+// Hit-test radius (pipe-path units) for snapping the pipe-draw cursor to a
+// junction port or an existing pipe's open end. 1 unit = half a tile in
+// path-space (since pipe paths use *2+1 indexing), so 0.5 covers roughly
+// half a tile — generous enough that the user rarely misses but tight
+// enough to avoid bleeding into adjacent sub-cells on dense layouts.
+const PIPE_SNAP_RADIUS = 0.5;
+// Tolerance for matching a pipe path point during right-click-drag removal.
+// Matches the value used in the legacy InputHandler flow.
+const PIPE_REMOVE_EPS = 0.13;
 
 export class BeamlineInputController {
   constructor({ game, renderer, inputHandler }) {
@@ -17,6 +30,15 @@ export class BeamlineInputController {
     // and direction without duplicating selection state. InputHandler owns
     // selection; the controller owns beamline-specific input interpretation.
     this.input = inputHandler;
+
+    // Pipe-draw state. While _drawing === true, InputHandler should route
+    // mousemove/mouseup here and skip its other drag paths.
+    this._drawing = false;
+    this._drawMode = 'add';           // 'add' | 'remove'
+    this._drawPath = [];              // [{col,row}] — current preview path
+    this._drawOrigin = null;          // snapped start point
+    this._drawStartAnchor = null;     // null | { kind:'port', junctionId, portName }
+                                       //        | { kind:'openEnd', pipeId, openEnd:'start'|'end' }
   }
 
   onHover(worldX, worldY) {
@@ -34,9 +56,28 @@ export class BeamlineInputController {
     }
   }
 
+  /**
+   * Hover-preview feedback for the pipe-draw tool (before a click). Updates
+   * `this.input.hoverPipePoint` so ThreeRenderer's animate loop can draw the
+   * pre-click marker. Called from InputHandler's generic mousemove path.
+   */
+  onPipeToolHover(worldX, worldY) {
+    this.input.hoverPipePoint = snapPipePoint(worldX, worldY);
+  }
+
   onMouseDown(worldX, worldY, button) {
-    if (button !== 0) return false;
     const selectedId = this.input?.selectedPlaceableId;
+    const selectedTool = this.input?.selectedTool;
+
+    // Pipe-draw tool: left-click starts a draw anchored at a port or open
+    // end; right-click drag starts a remove-sweep.
+    if (selectedTool && COMPONENTS[selectedTool]?.isDrawnConnection) {
+      if (button === 0) return this._pipeDrawStart(worldX, worldY);
+      if (button === 2) return this._pipeRemoveStart(worldX, worldY);
+      return false;
+    }
+
+    if (button !== 0) return false;
     if (!selectedId) return false;
     const def = COMPONENTS[selectedId];
     if (!def) return false;
@@ -72,13 +113,26 @@ export class BeamlineInputController {
     return true;
   }
 
-  onMouseMove(/* worldX, worldY */) {
-    // no-op
+  onMouseMove(worldX, worldY) {
+    if (!this._drawing) return;
+    const pt = snapPipePoint(worldX, worldY);
+    const last = this._drawPath[this._drawPath.length - 1];
+    if (!last || last.col !== pt.col || last.row !== pt.row) {
+      this._drawPath = buildStraightPath(this._drawOrigin, pt);
+      this._syncInputState();
+      this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode);
+    }
   }
 
-  onMouseUp(/* worldX, worldY, button */) {
-    // no-op
-    return false;
+  onMouseUp(worldX, worldY /* , button */) {
+    if (!this._drawing) return false;
+    if (this._drawMode === 'remove') {
+      this._pipeRemoveEnd(worldX, worldY);
+    } else {
+      this._pipeDrawEnd(worldX, worldY);
+    }
+    this._resetDrawing();
+    return true;
   }
 
   onRotate() {
@@ -86,11 +140,11 @@ export class BeamlineInputController {
   }
 
   isActive() {
-    return false;
+    return this._drawing;
   }
 
   reset() {
-    // no-op
+    this._resetDrawing();
   }
 
   // -------------------------------------------------------------------------
@@ -120,5 +174,251 @@ export class BeamlineInputController {
       stackTargetId: null,
     };
     this.renderer.renderPlaceableGhost(hover, result.ok);
+  }
+
+  // --- pipe draw: start ---------------------------------------------------
+
+  _pipeDrawStart(worldX, worldY) {
+    // Origin must snap to a junction port OR an existing pipe's open end.
+    // Anywhere else is a miss — swallow the click with no side effects so
+    // the user doesn't accidentally create floating stubs.
+    const cursor = snapPipePoint(worldX, worldY);
+    const port = this._findPortNearCursor(cursor);
+    if (port) {
+      this._drawing = true;
+      this._drawMode = 'add';
+      this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
+      this._drawStartAnchor = { kind: 'port', junctionId: port.junctionId, portName: port.portName };
+      this._drawPath = [this._drawOrigin];
+      this._syncInputState();
+      this.renderer.renderBeamPipePreview(this._drawPath, 'add');
+      return true;
+    }
+    const openEnd = this._findOpenEndNearCursor(cursor);
+    if (openEnd) {
+      this._drawing = true;
+      this._drawMode = 'add';
+      this._drawOrigin = { col: openEnd.point.col, row: openEnd.point.row };
+      this._drawStartAnchor = { kind: 'openEnd', pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
+      this._drawPath = [this._drawOrigin];
+      this._syncInputState();
+      this.renderer.renderBeamPipePreview(this._drawPath, 'add');
+      return true;
+    }
+    // No valid anchor: swallow the click so the generic path doesn't see it.
+    return true;
+  }
+
+  _pipeRemoveStart(worldX, worldY) {
+    const startPt = snapPipePoint(worldX, worldY);
+    this._drawing = true;
+    this._drawMode = 'remove';
+    this._drawOrigin = startPt;
+    this._drawStartAnchor = null;
+    this._drawPath = [startPt];
+    this._syncInputState();
+    this.renderer.renderBeamPipePreview(this._drawPath, 'remove');
+    return true;
+  }
+
+  // --- pipe draw: end -----------------------------------------------------
+
+  _pipeDrawEnd(worldX, worldY) {
+    const endPt = snapPipePoint(worldX, worldY);
+    let path = buildStraightPath(this._drawOrigin, endPt);
+    // Zero-length drag: extend by one sub-tile so a bare click still creates
+    // a visible stub. Use the port's outward direction when starting from a
+    // port (otherwise validateDrawPipe would reject on port_mismatch); fall
+    // back to placementDir for open-end starts.
+    if (path.length === 1) {
+      const start = path[0];
+      const stub = this._stubStep();
+      path = [start, { col: start.col + stub.dCol * 0.25, row: start.row + stub.dRow * 0.25 }];
+    }
+
+    const anchorStart = this._drawStartAnchor;
+    const portEnd = this._findPortNearCursor(endPt);
+    const openEndHit = this._findOpenEndNearCursor(endPt);
+
+    this.game._pushUndo();
+
+    // Starting from an existing pipe's open end → extend it. buildStraightPath
+    // anchors at `_drawOrigin` (the open end's point) and moves outward to the
+    // cursor, matching validateExtendPipe's expected direction.
+    if (anchorStart?.kind === 'openEnd') {
+      this.game.beamline.extendPipe(anchorStart.pipeId, path);
+      return;
+    }
+
+    // From here the start is a port (or nothing). Build the start anchor now.
+    const startAnchor = anchorStart?.kind === 'port'
+      ? { junctionId: anchorStart.junctionId, portName: anchorStart.portName }
+      : null;
+
+    // Port → port (distinct) → full port-to-port pipe.
+    if (portEnd && (!anchorStart || portEnd.junctionId !== anchorStart.junctionId || portEnd.portName !== anchorStart.portName)) {
+      this.game.beamline.drawPipe(
+        startAnchor,
+        { junctionId: portEnd.junctionId, portName: portEnd.portName },
+        path,
+      );
+      return;
+    }
+
+    // Port → existing pipe's open end → extend that pipe. validateExtendPipe
+    // expects additionalPath to flow OUTWARD from the open end, so reverse
+    // the drawn path (which flows origin→cursor = port→openEnd = inward).
+    // Caveat: extendPipe preserves existing anchors, so the origin port is
+    // NOT claimed by the resulting pipe. The pipe visually reaches the port
+    // but the port remains marked "available". This is the behaviour the
+    // plan calls for ("extends rather than creates a disconnected pipe");
+    // claiming the port on extend is a future enhancement.
+    if (openEndHit) {
+      const reversed = path.slice().reverse();
+      this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
+      return;
+    }
+
+    // Open-ended pipe (from port, terminates in empty space).
+    this.game.beamline.drawPipe(startAnchor, null, path);
+  }
+
+  _pipeRemoveEnd(worldX, worldY) {
+    const endPt = snapPipePoint(worldX, worldY);
+    const path = buildStraightPath(this._drawOrigin, endPt);
+    const pipesToRemove = new Set();
+    for (const pipe of this.game.state.beamPipes) {
+      for (const pt of path) {
+        if (pipe.path.some(pp =>
+          Math.abs(pp.col - pt.col) < PIPE_REMOVE_EPS &&
+          Math.abs(pp.row - pt.row) < PIPE_REMOVE_EPS)) {
+          pipesToRemove.add(pipe.id);
+          break;
+        }
+      }
+    }
+    if (pipesToRemove.size > 0) {
+      this.game._pushUndo();
+      for (const id of pipesToRemove) {
+        this.game.removeBeamPipe(id);
+      }
+    }
+  }
+
+  // Outward unit vector (in pipe-path space) for the zero-drag stub. Uses the
+  // port's rotated compass side if starting from a port; falls back to the
+  // current placementDir for open-end starts.
+  _stubStep() {
+    const anchor = this._drawStartAnchor;
+    if (anchor?.kind === 'port') {
+      const p = this._findPlaceable(anchor.junctionId);
+      if (p) {
+        const side = portSide(p, anchor.portName);
+        if (side) {
+          // +row = south/+z, +col = east/+x.
+          if (side === 'N') return { dCol: 0, dRow: -1 };
+          if (side === 'S') return { dCol: 0, dRow: 1 };
+          if (side === 'E') return { dCol: 1, dRow: 0 };
+          if (side === 'W') return { dCol: -1, dRow: 0 };
+        }
+      }
+    }
+    const delta = DIR_DELTA[this.input.placementDir || 0];
+    return { dCol: delta.dc, dRow: delta.dr };
+  }
+
+  _findPlaceable(id) {
+    const list = (this.game.state && this.game.state.placeables) || [];
+    for (const p of list) if (p && p.id === id) return p;
+    return null;
+  }
+
+  // --- hit-testing --------------------------------------------------------
+
+  // Hit-tests operate in pipe-path coordinate space (`col*2+1`-indexed, where
+  // col/row = 0 renders at world x/z = 1). Callers pre-snap the cursor via
+  // snapPipePoint so it's already in this space, and port world coords are
+  // converted on the fly.
+  _findPortNearCursor(cursor) {
+    const state = this.game.state;
+    const placeables = (state && state.placeables) || [];
+    const beamPipes = (state && state.beamPipes) || [];
+    let best = null;
+    let bestDist = Infinity;
+    for (const p of placeables) {
+      const def = COMPONENTS[p.type];
+      if (!def || def.role !== 'junction' || !def.ports) continue;
+      const avail = availablePorts(p, beamPipes);
+      for (const portName of avail) {
+        const pos = portWorldPosition(p, portName);
+        if (!pos) continue;
+        // world (x,z) → path-space (col,row): inverse of col*2+1.
+        const pathCol = (pos.x - 1) / 2;
+        const pathRow = (pos.z - 1) / 2;
+        const dc = Math.abs(pathCol - cursor.col);
+        const dr = Math.abs(pathRow - cursor.row);
+        if (dc < PIPE_SNAP_RADIUS && dr < PIPE_SNAP_RADIUS) {
+          const dist = dc + dr;
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = {
+              junctionId: p.id,
+              portName,
+              pathPos: { col: pathCol, row: pathRow },
+            };
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  _findOpenEndNearCursor(cursor) {
+    const state = this.game.state;
+    const pipes = (state && state.beamPipes) || [];
+    let best = null;
+    let bestDist = Infinity;
+    for (const pipe of pipes) {
+      const candidates = [];
+      if (pipe.start === null && pipe.path && pipe.path.length > 0) {
+        candidates.push({ pipeId: pipe.id, openEnd: 'start', point: pipe.path[0] });
+      }
+      if (pipe.end === null && pipe.path && pipe.path.length > 0) {
+        candidates.push({ pipeId: pipe.id, openEnd: 'end', point: pipe.path[pipe.path.length - 1] });
+      }
+      for (const c of candidates) {
+        const dc = Math.abs(c.point.col - cursor.col);
+        const dr = Math.abs(c.point.row - cursor.row);
+        if (dc < PIPE_SNAP_RADIUS && dr < PIPE_SNAP_RADIUS) {
+          const dist = dc + dr;
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = c;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  // --- state sync ---------------------------------------------------------
+
+  // Mirror the draw state onto InputHandler's legacy fields so the renderer's
+  // animate loop (which reads drawingBeamPipe/beamPipePath/beamPipeDrawMode
+  // directly) keeps working without a controller-aware render path.
+  _syncInputState() {
+    this.input.drawingBeamPipe = this._drawing;
+    this.input.beamPipePath = this._drawPath;
+    this.input.beamPipeDrawMode = this._drawMode;
+  }
+
+  _resetDrawing() {
+    this._drawing = false;
+    this._drawMode = 'add';
+    this._drawPath = [];
+    this._drawOrigin = null;
+    this._drawStartAnchor = null;
+    this._syncInputState();
+    this.renderer.clearDragPreview?.();
   }
 }
