@@ -2405,6 +2405,36 @@ export class ComponentBuilder {
   }
 
   /**
+   * Create a minimal placeholder box for a pipe placement whose type has
+   * no COMPONENTS entry (unknown/future-only types). Sized to the
+   * placement's `subL` along the pipe axis, with width/height chosen so
+   * the box is visible around the pipe (~2× typical pipe radius).
+   *
+   * Wrapped in a Group for parity with _createObject's wrapper so dispose
+   * and dim code paths work uniformly.
+   */
+  _createPlaceholderBox(subL, spriteColor = 0xffffff) {
+    const w = 2 * SUB_UNIT;              // ~1 world unit across
+    const h = 2 * SUB_UNIT;              // ~1 world unit tall
+    const l = Math.max(subL || 2, 1) * SUB_UNIT;
+    const geo = new THREE.BoxGeometry(w, h, l);
+    applyTiledBoxUVs(geo, w, h, l);
+    const mat = new THREE.MeshStandardMaterial({
+      color: spriteColor,
+      roughness: 0.7,
+      metalness: 0.15,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    // Centered vertically so the box sits around the beampipe axis.
+    mesh.position.y = BEAM_HEIGHT;
+    const wrapper = new THREE.Group();
+    wrapper.add(mesh);
+    return wrapper;
+  }
+
+  /**
    * Create the 3D object (Group or Mesh) for a given component type.
    * Wraps in a group with an invisible hitbox for easier click detection.
    *
@@ -2504,21 +2534,36 @@ export class ComponentBuilder {
       const { id, type, col, row, direction, dimmed } = comp;
       seen.add(id);
 
-      const compDef = COMPONENTS[type] || {};
+      const rawDef = COMPONENTS[type];
+      const compDef = rawDef || {};
       const subH = compDef.subH || 2;
+      // Pipe placements carry subCol === null as a marker (set by
+      // world-snapshot.buildPipeAttachments). When true, prefer the
+      // placement's own subL over the type's default so varying-length
+      // placements render correctly via the placeholder fallback.
+      const isPipePlacement = comp.subCol == null && comp.subRow == null;
+      const placementSubL = (isPipePlacement && typeof comp.subL === 'number') ? comp.subL : null;
+      // Fallback: unknown type on a pipe placement — render a placeholder
+      // box sized to the placement's subL. Follow-up task can polish this
+      // with a proper mesh for whatever types don't yet have one.
+      const usePlaceholder = isPipePlacement && !rawDef;
       // Both legacy DETAIL_BUILDERS and new ROLE_BUILDERS bake BEAM_HEIGHT
       // into their geometry, so their wrappers should sit at y=0.
       // Parts-list items also place themselves with y=0 on the floor.
-      const isDetailed = isDetailedComponent(type, compDef);
+      // Placeholder boxes bake BEAM_HEIGHT in too.
+      const isDetailed = usePlaceholder || isDetailedComponent(type, compDef);
 
       // Create object if not already in map
       if (!this._meshMap.has(id)) {
         const accent = comp.accentColor ?? 0xc62828;
-        const obj = this._createObject(compDef, accent);
+        const obj = usePlaceholder
+          ? this._createPlaceholderBox(placementSubL ?? 2, compDef.spriteColor ?? 0xffffff)
+          : this._createObject(compDef, accent);
         obj.matrixAutoUpdate = false;
         obj.userData.beamlineId = comp.beamlineId || null;
         obj.userData.compType = type;
         obj.userData.pipeId = comp.pipeId || null;
+        obj.userData.isPlaceholder = !!usePlaceholder;
         this._meshMap.set(id, obj);
         parentGroup.add(obj);
       }
