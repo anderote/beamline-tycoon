@@ -10,7 +10,13 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { DIR_DELTA } from '../data/directions.js';
 import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
-import { snapPipePoint, buildStraightPath } from '../beamline/pipe-geometry.js';
+import {
+  snapPipePoint,
+  buildStraightPath,
+  findNearestPipeToWorld,
+} from '../beamline/pipe-geometry.js';
+import { findSlot } from '../beamline/pipe-placements.js';
+import { isoToGridFloat } from '../renderer/grid.js';
 
 // Hit-test radius (pipe-path units) for snapping the pipe-draw cursor to a
 // junction port or an existing pipe's open end. 1 unit = half a tile in
@@ -39,6 +45,11 @@ export class BeamlineInputController {
     this._drawOrigin = null;          // snapped start point
     this._drawStartAnchor = null;     // null | { kind:'port', junctionId, portName }
                                        //        | { kind:'openEnd', pipeId, openEnd:'start'|'end' }
+
+    // Last valid placement-on-pipe preview, set by _previewPlacement and
+    // consumed by onMouseDown. Null when no pipe is under the cursor or the
+    // dry-run findSlot rejects the current mode.
+    this._placementHover = null;
   }
 
   onHover(worldX, worldY) {
@@ -49,10 +60,7 @@ export class BeamlineInputController {
     if (def.role === 'junction') {
       this._previewJunction(selectedId, worldX, worldY);
     } else if (def.role === 'placement') {
-      // E4 will handle pipe-placement preview. For now, suppress any stale
-      // ghost so hovering with a placement tool doesn't render via the
-      // generic path.
-      this.renderer._clearPreview?.();
+      this._previewPlacement(selectedId, worldX, worldY);
     }
   }
 
@@ -81,6 +89,9 @@ export class BeamlineInputController {
     if (!selectedId) return false;
     const def = COMPONENTS[selectedId];
     if (!def) return false;
+    if (def.role === 'placement') {
+      return this._commitPlacement(selectedId, worldX, worldY);
+    }
     if (def.role !== 'junction') return false;
     const placeable = PLACEABLES[selectedId];
     if (!placeable) return false;
@@ -174,6 +185,80 @@ export class BeamlineInputController {
       stackTargetId: null,
     };
     this.renderer.renderPlaceableGhost(hover, result.ok);
+  }
+
+  // --- placement-on-pipe preview + commit --------------------------------
+
+  // Convert iso-screen cursor → 3D world (x, z). A tile (col, row) occupies
+  // world [col*2, col*2+2] × [row*2, row*2+2]; isoToGridFloat returns float
+  // grid indices where integer = tile corner, so multiply by 2.
+  _cursorWorldXZ(worldX, worldY) {
+    const gf = isoToGridFloat(worldX, worldY);
+    return { wx: gf.col * 2, wz: gf.row * 2 };
+  }
+
+  _previewPlacement(selectedId, worldX, worldY) {
+    const def = COMPONENTS[selectedId];
+    if (!def) return;
+    const pipes = (this.game.state && this.game.state.beamPipes) || [];
+    const { wx, wz } = this._cursorWorldXZ(worldX, worldY);
+    const hit = findNearestPipeToWorld(pipes, wx, wz, 1.5);
+    if (!hit) {
+      this._placementHover = null;
+      this.renderer._clearPreview?.();
+      return;
+    }
+    const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
+    const mode = this.game.state.placementMode || 'snap';
+    const dryRun = findSlot(hit.pipe, {
+      type: selectedId,
+      requestedPosition: hit.proj.position,
+      subL,
+      mode,
+      idGenerator: () => 'dry',
+      params: {},
+    });
+    const valid = !!dryRun.ok;
+    this._placementHover = valid
+      ? { pipeId: hit.pipe.id, position: hit.proj.position, subL, type: selectedId }
+      : null;
+    // Reuse the attachment-ghost renderer: it already draws the component
+    // geometry at (col, row) with the given direction, which matches what
+    // we need for a placement projected onto a pipe. F2 will replace this
+    // with a dedicated placement renderer.
+    if (this.renderer.renderAttachmentGhost) {
+      this.renderer.renderAttachmentGhost(
+        hit.proj.col, hit.proj.row, selectedId, hit.proj.dir, valid,
+      );
+    }
+  }
+
+  _commitPlacement(selectedId, worldX, worldY) {
+    const def = COMPONENTS[selectedId];
+    if (!def) return true;
+    // Re-project at click time rather than trusting the cached hover, so a
+    // click that arrives before the first hover (e.g. synthetic test events)
+    // still resolves cleanly.
+    const pipes = (this.game.state && this.game.state.beamPipes) || [];
+    const { wx, wz } = this._cursorWorldXZ(worldX, worldY);
+    const hit = findNearestPipeToWorld(pipes, wx, wz, 1.5);
+    if (!hit) return true;
+    const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
+    const mode = this.game.state.placementMode || 'snap';
+    this.game._pushUndo();
+    const placedId = this.game.beamline.placeOnPipe(hit.pipe.id, {
+      type: selectedId,
+      position: hit.proj.position,
+      subL,
+      mode,
+      params: this.input.selectedParamOverrides,
+    });
+    if (placedId) {
+      // Refresh the ghost so the user sees the next valid hover immediately
+      // after committing (the previous ghost may now overlap the new placement).
+      this._previewPlacement(selectedId, worldX, worldY);
+    }
+    return true;
   }
 
   // --- pipe draw: start ---------------------------------------------------

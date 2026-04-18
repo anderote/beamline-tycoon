@@ -122,6 +122,108 @@ export function buildStraightPath(from, to) {
   return path;
 }
 
+/**
+ * Project a 3D world-space point onto a pipe polyline. Uses the same
+ * `col*2+1, row*2+1` formula the renderer uses, so the projection is
+ * grounded in where each path node is actually drawn. Returns
+ * `{ position, col, row, worldX, worldZ, dir }` where `position` is the
+ * 0..1 arc-length fraction along the pipe in world metres.
+ *
+ * Ported from InputHandler._projectOntoPipe so controllers and dry-run
+ * slot-finding can share a single projection implementation.
+ */
+export function projectOntoPipe(pipe, worldX, worldZ) {
+  const path = pipe?.path;
+  if (!path || path.length === 0) return null;
+  if (path.length === 1) {
+    const wx = path[0].col * 2 + 1;
+    const wz = path[0].row * 2 + 1;
+    return { position: 0.5, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
+  }
+
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) {
+    const dwx = (path[i].col - path[i - 1].col) * 2;
+    const dwz = (path[i].row - path[i - 1].row) * 2;
+    cum.push(cum[i - 1] + Math.hypot(dwx, dwz));
+  }
+  const total = cum[path.length - 1];
+  if (total <= 0) {
+    const wx = path[0].col * 2 + 1;
+    const wz = path[0].row * 2 + 1;
+    return { position: 0, col: path[0].col, row: path[0].row, worldX: wx, worldZ: wz, dir: 0 };
+  }
+
+  let bestDist = Infinity;
+  let bestLen = 0;
+  let bestCol = path[0].col;
+  let bestRow = path[0].row;
+  let bestWx = path[0].col * 2 + 1;
+  let bestWz = path[0].row * 2 + 1;
+  let bestDir = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const ax = path[i].col * 2 + 1;
+    const az = path[i].row * 2 + 1;
+    const bx = path[i + 1].col * 2 + 1;
+    const bz = path[i + 1].row * 2 + 1;
+    const dx = bx - ax, dz = bz - az;
+    const segLen2 = dx * dx + dz * dz;
+    let t = 0;
+    if (segLen2 > 0) {
+      t = ((worldX - ax) * dx + (worldZ - az) * dz) / segLen2;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+    }
+    const hx = ax + t * dx;
+    const hz = az + t * dz;
+    const dist = Math.hypot(worldX - hx, worldZ - hz);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestLen = cum[i] + t * Math.sqrt(segLen2);
+      bestCol = path[i].col + t * (path[i + 1].col - path[i].col);
+      bestRow = path[i].row + t * (path[i + 1].row - path[i].row);
+      bestWx = hx;
+      bestWz = hz;
+      const dcol = path[i + 1].col - path[i].col;
+      const drow = path[i + 1].row - path[i].row;
+      if (dcol > 0) bestDir = 1;       // SE
+      else if (dcol < 0) bestDir = 3;  // NW
+      else if (drow > 0) bestDir = 2;  // SW
+      else if (drow < 0) bestDir = 0;  // NE
+    }
+  }
+  return {
+    position: bestLen / total,
+    col: bestCol,
+    row: bestRow,
+    worldX: bestWx,
+    worldZ: bestWz,
+    dir: bestDir,
+    distance: bestDist,
+  };
+}
+
+/**
+ * Pick the pipe whose projected cursor distance is smallest, filtered by
+ * a world-unit threshold. Used for placement-ghost preview, where we want
+ * the nearest pipe under the cursor regardless of how the path is shaped.
+ * Returns `{ pipe, proj }` or null.
+ */
+export function findNearestPipeToWorld(beamPipes, worldX, worldZ, maxDist = 1.5) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const pipe of beamPipes || []) {
+    const proj = projectOntoPipe(pipe, worldX, worldZ);
+    if (!proj) continue;
+    if (proj.distance < bestDist) {
+      bestDist = proj.distance;
+      best = { pipe, proj };
+    }
+  }
+  if (!best || bestDist > maxDist) return null;
+  return best;
+}
+
 export function pipeDirectionAtTile(pipe, tileIndex) {
   const tiles = expandPipePath(pipe.path);
   if (tileIndex <= 0 || tileIndex >= tiles.length - 1) return null;
