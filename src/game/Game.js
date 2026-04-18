@@ -2568,8 +2568,57 @@ export class Game {
         }));
         this.state.infraBlockers = [...existing, ...utilityBlockers];
         if (hardErrs.length > 0) this.state.infraCanRun = false;
-        // TODO(Phase 6): render equipment alert icons in 3D for sinks with
-        // perSinkQuality < 0.9. For now, surface via console on edge rising.
+
+        // Aggregate perSinkQuality → state.nodeQualities (Phase 6 / Task 23).
+        // Shape: { [placeableId]: { powerQuality, rfQuality, coolingQuality,
+        //   cryoQuality, vacuumQuality, dataQuality } }. Physics backend reads
+        // the individual keys; JS consumers read e.g. .dataQuality. A missing
+        // utility defaults to 1.0 (full quality) on the consumer side.
+        const UTILITY_TO_QUALITY_FIELD = {
+          powerCable:   'powerQuality',
+          rfWaveguide:  'rfQuality',
+          coolingWater: 'coolingQuality',
+          cryoTransfer: 'cryoQuality',
+          vacuumPipe:   'vacuumQuality',
+          dataFiber:    'dataQuality',
+        };
+        const nodeQualities = {};
+        if (this.state.utilityNetworkData) {
+          for (const [utilityType, perType] of this.state.utilityNetworkData) {
+            const qualityField = UTILITY_TO_QUALITY_FIELD[utilityType];
+            if (!qualityField) continue;
+            for (const flow of perType.values()) {
+              const map = flow.perSinkQuality || {};
+              for (const portKey of Object.keys(map)) {
+                const q = map[portKey];
+                const colonIdx = portKey.indexOf(':');
+                const placeableId = colonIdx >= 0 ? portKey.slice(0, colonIdx) : portKey;
+                if (!nodeQualities[placeableId]) nodeQualities[placeableId] = {};
+                // If multiple networks of the same utility feed this placeable,
+                // take the minimum (worst-case feed).
+                const prior = nodeQualities[placeableId][qualityField];
+                nodeQualities[placeableId][qualityField] =
+                  prior === undefined ? q : Math.min(prior, q);
+              }
+            }
+            // Also expose cryo-quench as a boolean on the placeable so the
+            // Python backend can convert SRF cavities to drift.
+            if (utilityType === 'cryoTransfer') {
+              for (const flow of perType.values()) {
+                if (!flow.quenched) continue;
+                const map = flow.perSinkQuality || {};
+                for (const portKey of Object.keys(map)) {
+                  const colonIdx = portKey.indexOf(':');
+                  const placeableId = colonIdx >= 0 ? portKey.slice(0, colonIdx) : portKey;
+                  if (!nodeQualities[placeableId]) nodeQualities[placeableId] = {};
+                  nodeQualities[placeableId].cryoQuenched = true;
+                }
+              }
+            }
+          }
+        }
+        this.state.nodeQualities = nodeQualities;
+
         if (!this._lastUtilitySolveErrHash) this._lastUtilitySolveErrHash = '';
         const hash = `${hardErrs.length}|${softErrs.length}`;
         if (hash !== this._lastUtilitySolveErrHash && (hardErrs.length || softErrs.length)) {
@@ -3177,9 +3226,16 @@ export class Game {
       ...this.state,
       rackSegments: rackObj,
       cornerHeights: serializeCornerHeights(this.state.cornerHeights),
+      // New utility system (Phase 6 / Task 24). utilityNetworkData is derived
+      // (repopulated by solveRunner on first tick), so not persisted.
+      utilityLines: Array.from((this.state.utilityLines || new Map()).entries()),
+      utilityNetworkState: Array.from((this.state.utilityNetworkState || new Map()).entries()),
+      utilityNextId: this.state.utilityNextId || 1,
     };
     // cornerHeightsRevision is transient (renderer cache key); don't persist.
     delete saveState.cornerHeightsRevision;
+    // utilityNetworkData is derived; don't persist.
+    delete saveState.utilityNetworkData;
     const payload = JSON.stringify({
       version: 6,
       state: saveState,
@@ -3264,6 +3320,13 @@ export class Game {
       } else if (!this.state.rackSegments) {
         this.state.rackSegments = new Map();
       }
+
+      // Rehydrate new-system utility state (Phase 6 / Task 24).
+      this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
+      this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
+      this.state.utilityNextId = this.state.utilityNextId || 1;
+      // utilityNetworkData is derived; solveRunner repopulates on first tick.
+      this.state.utilityNetworkData = null;
 
       // Ensure facility arrays exist
       if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
@@ -3500,6 +3563,13 @@ export class Game {
     } else if (!this.state.rackSegments) {
       this.state.rackSegments = new Map();
     }
+
+    // Rehydrate new-system utility state (Phase 6 / Task 24). v5 saves
+    // predate the new system, so these always start empty.
+    this.state.utilityLines = new Map();
+    this.state.utilityNetworkState = new Map();
+    this.state.utilityNextId = 1;
+    this.state.utilityNetworkData = null;
 
     // Ensure facility arrays exist
     if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
