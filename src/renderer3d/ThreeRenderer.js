@@ -544,6 +544,10 @@ export class ThreeRenderer {
         case 'tick':
           if (this._updateHUD) this._updateHUD();
           if (this._updateTreeProgress) this._updateTreeProgress();
+          // Refresh utility line meshes so emissive glow reflects the
+          // latest per-network error status. The builder's hash cache
+          // short-circuits unchanged lines, so this is cheap in practice.
+          this._refreshUtilityLinesV2();
           break;
         case 'researchChanged':
           if (this._renderTechTree) this._renderTechTree();
@@ -671,6 +675,36 @@ export class ThreeRenderer {
       obj = obj.parent;
     }
     return false;
+  }
+
+  /**
+   * Raycast for new-system utility lines (Phase 4/5). Returns
+   * { lineId, utilityType } from the closest hit, or null.
+   * Each line Group has `userData.lineId` and `userData.utilityType` set by
+   * utility-line-builder-v2's buildLineGroup.
+   */
+  raycastUtilityLine(screenX, screenY) {
+    if (!this.renderer || !this.camera || !this.utilityLineGroup) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const hits = raycaster.intersectObjects(this.utilityLineGroup.children, true);
+    if (!hits || hits.length === 0) return null;
+    // Find the closest hit and walk up to the group with lineId userData.
+    hits.sort((a, b) => a.distance - b.distance);
+    for (const h of hits) {
+      let obj = h.object;
+      while (obj) {
+        if (obj.userData && obj.userData.lineId) {
+          return { lineId: obj.userData.lineId, utilityType: obj.userData.utilityType };
+        }
+        if (obj.parent === this.utilityLineGroup) break;
+        obj = obj.parent;
+      }
+    }
+    return null;
   }
 
   /**
@@ -3014,7 +3048,9 @@ export class ThreeRenderer {
     for (const p of (this.game.state.placeables || [])) {
       placeablesById.set(p.id, p);
     }
-    this.utilityLineBuilderV2.build(lines, placeablesById, this.utilityLineGroup);
+    this.utilityLineBuilderV2.build(lines, placeablesById, this.utilityLineGroup, {
+      state: this.game?.state,
+    });
   }
 
   _refreshBeamPipes() {

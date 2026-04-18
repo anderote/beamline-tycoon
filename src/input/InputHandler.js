@@ -8,7 +8,10 @@ import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { NetworkWindow } from '../ui/NetworkWindow.js';
+import { UtilityInspector } from '../ui/UtilityInspector.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
+import { UTILITY_TYPE_LIST } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
@@ -2247,6 +2250,28 @@ export class InputHandler {
       return;
     }
 
+    // Utility-line click-to-inspect. Only fires when no placement/draw tool
+    // is armed, so it doesn't steal clicks from other flows. Opens a
+    // UtilityInspector window for the clicked line's network.
+    if (!this.selectedUtilityLineTool
+        && !this.selectedTool
+        && !this.selectedInfraTool
+        && !this.selectedFacilityTool
+        && !this.selectedFurnishingTool
+        && !this.selectedConnTool
+        && !this.selectedDecorationTool
+        && !this.selectedZoneTool
+        && !this.selectedWallTool
+        && !this.selectedDoorTool
+        && !this.bulldozerMode
+        && !this.demolishMode
+        && typeof this.renderer.raycastUtilityLine === 'function') {
+      const hit = this.renderer.raycastUtilityLine(screenX, screenY);
+      if (hit && hit.lineId) {
+        if (this._openUtilityInspectorForLine(hit.lineId)) return;
+      }
+    }
+
     // Move mode handling
     if (this.moveMode) {
       this._handleMoveClick(col, row, screenX, screenY);
@@ -3594,7 +3619,26 @@ export class InputHandler {
     this._prevCategory = null;
   }
 
+  /**
+   * Given a utility line id, find its network and open a UtilityInspector.
+   * Returns true if a window was opened (or an existing one focused).
+   */
+  _openUtilityInspectorForLine(lineId) {
+    const state = this.game.state;
+    const lines = state.utilityLines;
+    if (!lines || typeof lines.get !== 'function') return false;
+    const line = lines.get(lineId);
+    if (!line) return false;
+    const lookup = makeDefaultPortLookup(state);
+    const nets = discoverNetworks(line.utilityType, lines, lookup);
+    const net = nets.find(n => (n.lineIds || []).includes(lineId));
+    if (!net) return false;
+    new UtilityInspector(this.game, line.utilityType, net.id);
+    return true;
+  }
+
   setActiveMode(mode) {
+    const prev = this.activeMode;
     this.activeMode = mode;
     this.deselectTool();
     this.deselectInfraTool();
@@ -3614,6 +3658,10 @@ export class InputHandler {
       this.selectedCategory = catKeys[0] || '';
     }
     this.renderer.activeMode = mode;
+    // Emit so UI layers (stats panels, overlays) can react to mode transitions.
+    if (prev !== mode && this.game && typeof this.game.emit === 'function') {
+      this.game.emit('activeModeChanged', { prev, mode });
+    }
   }
 
   // --- Palette click sync ---
