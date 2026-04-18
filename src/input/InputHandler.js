@@ -110,9 +110,11 @@ export class InputHandler {
     this.probeMode = false;
     // Beam pipe drawing
     this.beamPipeMode = false;
+    // Pipe-drawing fields are still owned on InputHandler for backwards
+    // compat with ThreeRenderer's animate loop; BeamlineInputController
+    // writes through them via _syncInputState().
     this.drawingBeamPipe = false;
     this.beamPipeDrawMode = 'add'; // 'add' or 'remove'
-    this.beamPipeStartId = null;
     this.beamPipePath = [];
     this.hoverPipePoint = null;
     // Palette keyboard navigation
@@ -727,53 +729,6 @@ export class InputHandler {
     return path;
   }
 
-  _buildStraightPath(from, to) {
-    const STEP = 0.25;
-    const EPS = 0.001;
-    // Constrain the path to a single straight line: keep whichever axis
-    // has the larger drag delta and lock the other to `from`. This
-    // prevents accidental L-shaped bends while click-dragging pipes.
-    const dCol = to.col - from.col;
-    const dRow = to.row - from.row;
-    const useCol = Math.abs(dCol) >= Math.abs(dRow);
-    const targetCol = useCol ? to.col : from.col;
-    const targetRow = useCol ? from.row : to.row;
-
-    const path = [{ col: from.col, row: from.row }];
-    let c = from.col, r = from.row;
-    const dc = targetCol > c + EPS ? STEP : (targetCol < c - EPS ? -STEP : 0);
-    const dr = targetRow > r + EPS ? STEP : (targetRow < r - EPS ? -STEP : 0);
-
-    let safety = 2048;
-    while (safety-- > 0) {
-      const moreCol = dc !== 0 && Math.abs(c - targetCol) > EPS;
-      const moreRow = dr !== 0 && Math.abs(r - targetRow) > EPS;
-      if (!moreCol && !moreRow) break;
-      if (moreCol) c += dc;
-      if (moreRow) r += dr;
-      path.push({ col: c, row: r });
-    }
-
-    return path;
-  }
-
-  /**
-   * Snap a world position to the nearest sub-tile gridline for beam pipes
-   * (quarter-tile / 1 sub-unit resolution).
-   *
-   * Emits tile-index coordinates so that integer values correspond to
-   * tile centres — i.e. `col=0` renders at world x=1 via the pipe
-   * renderer's `col*2+1` formula. `isoToGridFloat` gives world-corner
-   * fractions (0.5 = tile centre), so we subtract 0.5 to convert.
-   */
-  _snapPipePoint(worldX, worldY) {
-    const fc = isoToGridFloat(worldX, worldY);
-    return {
-      col: Math.round((fc.col - 0.5) * 4) / 4,
-      row: Math.round((fc.row - 0.5) * 4) / 4,
-    };
-  }
-
   /**
    * Find an available (unconnected) port on a module.
    * @param {string} placeableId
@@ -830,8 +785,9 @@ export class InputHandler {
    * Project a 3D world-space point onto a pipe polyline. Uses the same
    * `col*2+1, row*2+1` formula the renderer uses, so the projection is
    * grounded in where each path node is actually *drawn*. Both DesignPlacer
-   * and `_snapPipePoint` emit pipe.path col/row in the same tile-index
-   * coordinate system, so integer values correspond to tile centres.
+   * and `snapPipePoint` (pipe-geometry.js) emit pipe.path col/row in the
+   * same tile-index coordinate system, so integer values correspond to
+   * tile centres.
    *
    * Returns `{ position, col, row, worldX, worldZ, dir }` where `position`
    * is the 0..1 arc-length fraction along the pipe in world metres, and
@@ -1481,27 +1437,11 @@ export class InputHandler {
         return;
       }
 
-      // Beam pipe drawing start
+      // Beam pipe drawing: delegated to BeamlineInputController, which
+      // enforces port/open-end anchoring for the origin.
       if ((e.button === 0 || e.button === 2) && this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const startPt = this._snapPipePoint(world.x, world.y);
-
-        if (e.button === 2) {
-          // Right-click on pipe to remove (drag to select multiple)
-          this.drawingBeamPipe = true;
-          this.beamPipeDrawMode = 'remove';
-          this.beamPipeStartId = null;
-          this.beamPipePath = [startPt];
-          this.renderer.renderBeamPipePreview(this.beamPipePath, 'remove');
-          return;
-        }
-
-        // Left-click: start drawing anywhere. Endpoints resolve on mouseup.
-        this.drawingBeamPipe = true;
-        this.beamPipeDrawMode = 'add';
-        this.beamPipeStartId = null;
-        this.beamPipePath = [startPt];
-        this.renderer.renderBeamPipePreview(this.beamPipePath, 'add');
+        this.beamlineController.onMouseDown(world.x, world.y, e.button);
         return;
       }
 
@@ -1736,14 +1676,9 @@ export class InputHandler {
           }
           this.renderer.renderConnLinePreview(this.connPath, this.selectedConnTool, this.connDrawMode);
         }
-      } else if (this.drawingBeamPipe) {
+      } else if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const pt = this._snapPipePoint(world.x, world.y);
-        const last = this.beamPipePath[this.beamPipePath.length - 1];
-        if (last && (last.col !== pt.col || last.row !== pt.row)) {
-          this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], pt);
-          this.renderer.renderBeamPipePreview(this.beamPipePath, this.beamPipeDrawMode);
-        }
+        this.beamlineController.onMouseMove(world.x, world.y);
       } else {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1756,10 +1691,8 @@ export class InputHandler {
           const color = infra?.topColor || zone?.color || 0xffffff;
           this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
         } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-          // Hover preview for beam pipe: snap to sub-tile so it matches where
-          // the pipe will actually be drawn on click. Stored on the input
-          // handler so the animate loop can keep the preview alive across frames.
-          this.hoverPipePoint = this._snapPipePoint(world.x, world.y);
+          // Pre-click hover marker for the pipe-draw tool.
+          this.beamlineController.onPipeToolHover(world.x, world.y);
         }
         // Unified placeable preview. Replaces the previous four branches
         // (equipment / beamline / furnishing / decoration).
@@ -1814,50 +1747,10 @@ export class InputHandler {
         return;
       }
 
-      // Beam pipe drawing end
-      if (this.drawingBeamPipe) {
+      // Beam pipe drawing end — delegated to BeamlineInputController.
+      if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const endPt = this._snapPipePoint(world.x, world.y);
-        this.beamPipePath = this._buildStraightPath(this.beamPipePath[0], endPt);
-
-        if (this.beamPipeDrawMode === 'remove') {
-          // Right-click drag: find and remove pipes whose path intersects the drawn path
-          const pipesToRemove = new Set();
-          const EPS = 0.13; // allow quarter-tile tolerance for matching
-          for (const pipe of this.game.state.beamPipes) {
-            for (const pt of this.beamPipePath) {
-              if (pipe.path.some(pp => Math.abs(pp.col - pt.col) < EPS && Math.abs(pp.row - pt.row) < EPS)) {
-                pipesToRemove.add(pipe.id);
-                break;
-              }
-            }
-          }
-          if (pipesToRemove.size > 0) {
-            this.game._pushUndo();
-            for (const id of pipesToRemove) {
-              this.game.removeBeamPipe(id);
-            }
-          }
-        } else {
-          // Left-click: place the pipe exactly as drawn — no auto-connecting
-          // to nearby modules, no path extension. Pipes are always straight
-          // (single axis) as enforced by _buildStraightPath.
-          // Single-click (no drag): extend by one sub-tile along placementDir
-          if (this.beamPipePath.length === 1) {
-            const start = this.beamPipePath[0];
-            const delta = DIR_DELTA[this.placementDir || 0];
-            this.beamPipePath.push({ col: start.col + delta.dc * 0.25, row: start.row + delta.dr * 0.25 });
-          }
-
-          this.game._pushUndo();
-          this.game.createBeamPipe(null, null, null, null, this.beamPipePath);
-        }
-
-        this.drawingBeamPipe = false;
-        this.beamPipeStartId = null;
-        this.beamPipePath = [];
-        this.beamPipeDrawMode = 'add';
-        this.renderer.clearDragPreview();
+        this.beamlineController.onMouseUp(world.x, world.y, e.button);
         return;
       }
 
