@@ -78,7 +78,7 @@ const PASS_THROUGH_PROPS = [
   '_onInfraSelect', '_onWallSelect', '_onDoorSelect',
   '_onDecorationSelect', '_onZoneSelect', '_onFurnishingSelect',
   '_onDemolishSelect', '_onFacilitySelect', '_onToolSelect',
-  '_onFloorSelect',
+  '_onFloorSelect', '_onUtilityLineSelect',
 ];
 
 for (const prop of PASS_THROUGH_PROPS) {

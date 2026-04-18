@@ -19,7 +19,13 @@ export const MODES = {
       cooling:      { name: 'Cooling',         color: '#48c', subsections: { distribution: { name: 'Distribution' }, plant: { name: 'Plant' }, cryogenics: { name: 'Cryogenics' } } },
       dataControls: { name: 'Data & Controls', color: '#eee', subsections: { distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
-      distribution: { name: 'Distribution',    color: '#a8a', subsections: { structure: { name: 'Structure' }, distribution: { name: 'Utility Pipes' } }, items: ['carrierRack'] },
+      distribution: { name: 'Distribution',    color: '#a8a',
+                      subsections: { structure: { name: 'Structure' }, distribution: { name: 'Utility Lines' } },
+                      items: ['carrierRack'],
+                      // Phase 4: new-system utility-line tools. Rendered as
+                      // buttons in the Distribution subsection alongside the
+                      // legacy rack-paint connections.
+                      utilityLineTools: ['powerCable', 'coolingWater', 'rfWaveguide', 'cryoTransfer', 'vacuumPipe', 'dataFiber'] },
     },
   },
   facility: {
@@ -44,7 +50,7 @@ export const MODES = {
     name: 'Structure',
     categories: {
       flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' } } },
-      walls:       { name: 'Walls',         color: '#887', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielding: { name: 'Shielding' } } },
+      walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, shielding: { name: 'Shielding' } } },
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
     },
   },
@@ -53,8 +59,8 @@ export const MODES = {
     categories: {
       surfaces:    { name: 'Surfaces',       color: '#997', isSurfaceTab: true },
       treesPlants: { name: 'Trees & Plants', color: '#4a4', isDecorationTab: true },
-      hedges:      { name: 'Hedges',         color: '#5a5', isWallTab: true, wallSubsection: 'hedges' },
-      fencing:     { name: 'Fencing',        color: '#686', isWallTab: true, wallSubsection: 'fencing' },
+      fencing:     { name: 'Fencing',        color: '#5a5', isWallTab: true,
+                     subsections: { hedges: { name: 'Hedges' }, fencing: { name: 'Fences' } } },
       furniture:   { name: 'Furniture',      color: '#864', isDecorationTab: true },
       lighting:    { name: 'Lighting',       color: '#aa8', isDecorationTab: true },
       bins:        { name: 'Bins & Signs',   color: '#888', isDecorationTab: true },

@@ -8,10 +8,12 @@ import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/facility.js';
 import { MODES, CONNECTION_TYPES, INFRA_DISTRIBUTION } from '../data/modes.js';
+import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
+import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 
@@ -1006,12 +1008,17 @@ UIHost.prototype._renderPalette = function(tabCategory) {
     return;
   }
 
-  // Wall tabs (Grounds mode — hedges, fencing): show wall items using wall tool
+  // Wall tabs (Grounds mode — fencing): show wall items grouped by subsection.
   const wallCatDef = MODES.grounds?.categories?.[compCategory];
   if (wallCatDef?.isWallTab) {
-    const sub = wallCatDef.wallSubsection;
-    const wallItems = Object.entries(WALL_TYPES).filter(([, w]) => w.subsection === sub);
-    for (const [key, infra] of wallItems) {
+    // A tab may declare a single wallSubsection OR a subsections map. The map
+    // form renders each subsection as a labeled group, like Structure > Walls.
+    const subKeys = wallCatDef.subsections
+      ? Object.keys(wallCatDef.subsections)
+      : [wallCatDef.wallSubsection];
+    let renderedSections = 0;
+
+    const renderWallItem = (key, infra, container) => {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -1022,10 +1029,18 @@ UIHost.prototype._renderPalette = function(tabCategory) {
 
       const previewEl = document.createElement('div');
       previewEl.className = 'palette-preview';
-      const swatch = document.createElement('div');
-      const c = infra.topColor || infra.color || 0x888888;
-      swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
-      previewEl.appendChild(swatch);
+      const tilePath = this.sprites.getTilePath(key);
+      if (tilePath) {
+        const img = document.createElement('img');
+        img.src = tilePath;
+        img.alt = infra.name;
+        previewEl.appendChild(img);
+      } else {
+        const swatch = document.createElement('div');
+        const c = infra.topColor || infra.color || 0x888888;
+        swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+        previewEl.appendChild(swatch);
+      }
       item.appendChild(previewEl);
 
       const nameEl = document.createElement('div');
@@ -1043,7 +1058,36 @@ UIHost.prototype._renderPalette = function(tabCategory) {
         if (this._onWallSelect) this._onWallSelect(key);
       });
 
-      palette.appendChild(item);
+      container.appendChild(item);
+    };
+
+    for (const subKey of subKeys) {
+      if (!subKey) continue;
+      const subItems = Object.entries(WALL_TYPES).filter(([, w]) => w.subsection === subKey);
+      if (subItems.length === 0) continue;
+
+      const subDef = wallCatDef.subsections?.[subKey];
+      if (wallCatDef.subsections) {
+        if (renderedSections > 0) {
+          const divider = document.createElement('div');
+          divider.className = 'palette-subsection-divider';
+          palette.appendChild(divider);
+        }
+        const section = document.createElement('div');
+        section.className = 'palette-subsection';
+        const label = document.createElement('div');
+        label.className = 'palette-subsection-label';
+        label.textContent = subDef?.name || subKey;
+        section.appendChild(label);
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'palette-subsection-items';
+        for (const [key, infra] of subItems) renderWallItem(key, infra, itemsContainer);
+        section.appendChild(itemsContainer);
+        palette.appendChild(section);
+      } else {
+        for (const [key, infra] of subItems) renderWallItem(key, infra, palette);
+      }
+      renderedSections++;
     }
     return;
   }
@@ -1063,22 +1107,35 @@ UIHost.prototype._renderPalette = function(tabCategory) {
       const affordable = this.game.state.resources.funding >= _costVal(dec.cost);
       if (!affordable) item.classList.add('unaffordable');
 
-      // Sprite preview
+      const hasVariants = Array.isArray(dec.variants) && dec.variants.length > 1;
+      const initialVariant = hasVariants ? recallVariant(key) : 0;
+
+      // Preview — prefer a 3D-rendered thumbnail of the actual in-game
+      // geometry (variant-aware). Falls back to the legacy PixelLab PNG if
+      // no thumbnail can be produced.
       const previewEl = document.createElement('div');
       previewEl.className = 'palette-preview';
-      const spritePath = this.sprites.getSpritePath(dec.spriteKey);
-      if (spritePath) {
-        const img = document.createElement('img');
-        img.src = spritePath;
-        img.alt = dec.name;
-        previewEl.appendChild(img);
-      } else {
-        const img = document.createElement('img');
-        img.src = `assets/decorations/${dec.spriteKey}.png`;
-        img.alt = dec.name;
-        img.onerror = () => { img.style.display = 'none'; };
-        previewEl.appendChild(img);
-      }
+      const setPreview = (variantIdx) => {
+        previewEl.innerHTML = '';
+        const thumbUrl = renderDecorationThumbnail(key, 96, variantIdx);
+        if (thumbUrl) {
+          const img = document.createElement('img');
+          img.src = thumbUrl;
+          img.alt = dec.name;
+          img.width = 96;
+          img.height = 96;
+          img.style.objectFit = 'contain';
+          previewEl.appendChild(img);
+        } else {
+          const spritePath = this.sprites.getSpritePath(dec.spriteKey);
+          const img = document.createElement('img');
+          img.src = spritePath || `assets/decorations/${dec.spriteKey}.png`;
+          img.alt = dec.name;
+          img.onerror = () => { img.style.display = 'none'; };
+          previewEl.appendChild(img);
+        }
+      };
+      setPreview(initialVariant);
       item.appendChild(previewEl);
 
       const nameEl = document.createElement('div');
@@ -1091,10 +1148,58 @@ UIHost.prototype._renderPalette = function(tabCategory) {
       costEl.textContent = `${_costLabel(dec.cost)}`;
       item.appendChild(costEl);
 
-      item.addEventListener('click', () => {
-        if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (this._onDecorationSelect) this._onDecorationSelect(key);
-      });
+      if (hasVariants) {
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          this._removeParamFlyout();
+          const flyout = document.createElement('div');
+          flyout.className = 'param-flyout';
+
+          const defaultVi = recallVariant(key);
+          for (let vi = 0; vi < dec.variants.length; vi++) {
+            const vBtn = document.createElement('div');
+            vBtn.className = 'param-flyout-btn';
+            const swatch = makeVariantSwatch(resolveVariantPreview(dec, vi));
+            if (swatch) vBtn.appendChild(swatch);
+            vBtn.appendChild(document.createTextNode(dec.variants[vi]));
+            const variantIdx = vi;
+            if (vi === defaultVi) vBtn.classList.add('active');
+            vBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              rememberVariant(key, variantIdx);
+              if (this._onDecorationSelect) this._onDecorationSelect(key, variantIdx);
+              setPreview(variantIdx);
+              flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+              vBtn.classList.add('active');
+              this._removeParamFlyout();
+            });
+            flyout.appendChild(vBtn);
+          }
+
+          document.body.appendChild(flyout);
+          const rect = item.getBoundingClientRect();
+          flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+          flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+          this._activeParamFlyout = flyout;
+
+          // Auto-arm with the remembered variant so clicking the item is
+          // enough to start placing — the flyout just lets them re-pick.
+          if (this._onDecorationSelect) this._onDecorationSelect(key, defaultVi);
+
+          const closeHandler = (e) => {
+            if (!flyout.contains(e.target) && !item.contains(e.target)) {
+              this._removeParamFlyout();
+              document.removeEventListener('click', closeHandler, true);
+            }
+          };
+          setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+        });
+      } else {
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          if (this._onDecorationSelect) this._onDecorationSelect(key, 0);
+        });
+      }
 
       palette.appendChild(item);
     }
@@ -1301,11 +1406,58 @@ UIHost.prototype._renderPalette = function(tabCategory) {
 
       // Check for infra distribution connection tools in this subsection
       const infraConnKeys = (subKey === 'distribution' && this.activeMode === 'infra' && INFRA_DISTRIBUTION[compCategory]) || [];
+      // Phase 4: new-system utility-line tools, configured on the category def.
+      // Currently only the "distribution" category carries these; other infra
+      // categories may opt in later.
+      const utilityLineTools = (subKey === 'distribution' && this.activeMode === 'infra'
+        && catDef && Array.isArray(catDef.utilityLineTools)) ? catDef.utilityLineTools : [];
 
-      if (subComps.length === 0 && infraConnKeys.length === 0) return;
+      if (subComps.length === 0 && infraConnKeys.length === 0 && utilityLineTools.length === 0) return;
 
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
+
+      // Render new-system utility-line tool buttons at the top. These drive
+      // the UtilityLineInputController (click+drag between ports) — distinct
+      // from the legacy rack-paint conn tools just below.
+      for (const utilityType of utilityLineTools) {
+        const descriptor = UTILITY_TYPES[utilityType];
+        if (!descriptor) continue;
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        const idx = paletteIdx++;
+
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const hex = descriptor.color || '#ffffff';
+        const swatch = document.createElement('div');
+        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;margin:9px auto;box-shadow:0 0 6px ${hex};`;
+        previewEl.appendChild(swatch);
+        item.appendChild(previewEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = descriptor.displayName || utilityType;
+        item.appendChild(nameEl);
+
+        const descEl = document.createElement('div');
+        descEl.className = 'palette-cost';
+        descEl.textContent = '(drag port→port)';
+        item.appendChild(descEl);
+
+        item.addEventListener('click', () => {
+          if (this._onPaletteClick) this._onPaletteClick(idx);
+          // TODO: Phase 5 will polish tool-picker UI (active-state highlight,
+          // mutual exclusion with legacy conn tools in the top bar, etc.).
+          document.querySelectorAll('.palette-item.util-line-active')
+            .forEach(el => el.classList.remove('util-line-active'));
+          item.classList.add('util-line-active');
+          if (this._onUtilityLineSelect) this._onUtilityLineSelect(utilityType);
+        });
+
+        itemsContainer.appendChild(item);
+      }
 
       // Render connection tool buttons first in distribution subsection
       for (const connKey of infraConnKeys) {

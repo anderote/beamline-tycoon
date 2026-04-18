@@ -12,6 +12,9 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
+import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
+import { UtilityRegistry } from '../utility/registry.js';
+import { SolveRunner } from '../utility/solve-runner.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -157,6 +160,25 @@ export class Game {
       removePlaceable: (id) => this._removePlaceableRaw(id),
       nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,
       nextPlacementId: () => 'pl_' + (this.state.placementNextId = (this.state.placementNextId || 0) + 1),
+    });
+
+    // UtilityLineSystem owns mutations for state.utilityLines (new-system
+    // utility lines with v2 port schema). Emits 'utilityLinesChanged' on
+    // every successful add/remove so the 3D renderer can rebuild meshes.
+    this.utilityLineSystem = new UtilityLineSystem({
+      state: this.state,
+      emit: this.emit.bind(this),
+      log: this.log.bind(this),
+      nextLineId: () => 'ul_' + (this.state.utilityNextId = (this.state.utilityNextId || 1) + 1),
+    });
+
+    // SolveRunner computes per-network flow state each tick. v1: no topology
+    // caching; we re-discover networks every tick. Cheap enough for early
+    // playtests, and trivial to optimize later via a dirty-flag on addLine/
+    // removeLine.
+    this.solveRunner = new SolveRunner({
+      state: this.state,
+      registry: UtilityRegistry,
     });
   }
 
@@ -1469,6 +1491,11 @@ export class Game {
       this._deriveBeamGraph();
     }
 
+    // Cascade-remove any utility lines that referenced this placeable.
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(placeableId);
+    }
+
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
@@ -2519,6 +2546,18 @@ export class Game {
 
     // Recompute system-level infrastructure stats
     this.computeSystemStats();
+
+    // Run utility-network solve (v1: per-tick, no topology caching). Writes
+    // state.utilityNetworkData (Map<utilityType, Map<networkId, flowState>>)
+    // and state.utilityNetworkState. Errors are kept internal for now;
+    // Phase 5 will surface them to HUD/overlays.
+    if (this.solveRunner) {
+      try {
+        this.solveRunner.runSolve({ tick: this.state.tick });
+      } catch (e) {
+        console.error('[Game] utility solve error:', e);
+      }
+    }
 
     // Auto-save every 10 ticks
     if (this.state.tick % 10 === 0) this.save();

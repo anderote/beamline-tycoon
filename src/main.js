@@ -146,12 +146,13 @@ function showScenarioPicker(game) {
   renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
   renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
   renderer._onConnSelect = (connType) => input.selectConnTool(connType);
+  renderer._onUtilityLineSelect = (utilityType) => input.setUtilityLineTool(utilityType);
   renderer._onRackSelect = () => input.selectRackTool();
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
   renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
   renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);
   renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
-  renderer._onDecorationSelect = (decType) => input.selectDecorationTool(decType);
+  renderer._onDecorationSelect = (decType, variant = 0) => input.selectDecorationTool(decType, variant);
   renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
   renderer._onPaletteClick = (idx) => input._syncPaletteClick(idx);
   renderer._onTabSelect = (category) => { input.selectedCategory = category; input.paletteIndex = -1; input._hidePreview(); };

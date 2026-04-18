@@ -13,6 +13,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
+import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { projectOntoPipe } from '../beamline/pipe-geometry.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
@@ -82,7 +83,18 @@ export class InputHandler {
     this.selectedDecorationTool = null; // decoration type or null
     // Unified placeable selection (Task 8)
     this.selectedPlaceableId = null;
+    this.selectedPlaceableVariant = 0; // decoration color variant etc.
     this.hoverPlaceable = null; // { id, col, row, subCol, subRow, dir } | null
+    // Shift+drag line placement (trees and other decorations)
+    this.isLinePlacingDecoration = false;
+    this.linePlaceStartWorld = null; // { x, y } iso-screen world coords
+    this.linePlaceHovers = [];       // [{ hover, valid }]
+    // Per-placeable spacing override in sub-units (1 sub = quarter tile).
+    // Set via Shift+Z/X while drag-placing; persists for the session so each
+    // placeable keeps its own feel (e.g. bollards tight, benches loose).
+    this.linePlaceSpacingSub = new Map();
+    this._linePlaceLastWorld = null; // for re-previewing on spacing change
+    this._suppressNextClick = false;
     this.selectedConnTool = null;
     this.isDrawingConn = false;
     this.connDrawMode = 'add';  // 'add' or 'remove'
@@ -128,6 +140,19 @@ export class InputHandler {
     // Back-reference is `inputHandler: this` so the controller can read
     // current selection/direction without owning that state.
     this.beamlineController = new BeamlineInputController({
+      game,
+      renderer,
+      inputHandler: this,
+    });
+    // Utility-line tool state. Parallel to selectedConnTool (the old rack-paint
+    // tool): selects one of the six utility types and draws Manhattan lines
+    // between ports that advertise that utility type. Preview/hover state is
+    // written here by the controller and read by ThreeRenderer's animate loop
+    // / utility-line-builder.
+    this.selectedUtilityLineTool = null; // utility type string or null
+    this.utilityPreview = null;          // { utilityType, path, color }
+    this.utilityHoverPort = null;        // { placeableId, portName, worldPos }
+    this.utilityLineController = new UtilityLineInputController({
       game,
       renderer,
       inputHandler: this,
@@ -604,6 +629,78 @@ export class InputHandler {
   }
 
   /**
+   * Extend from an origin edge in both directions along the edge's axis,
+   * collecting every consecutive edge that has a wall (of any type). Used
+   * for shift+click demolish so the whole connected run deletes at once.
+   * Returns [] if the origin edge itself has no wall.
+   */
+  _buildWallSegmentPath(origin) {
+    const wo = this.game.state.wallOccupied;
+    const { edge } = origin;
+    const keyAt = (col, row) => `${col},${row},${edge}`;
+    if (!wo[keyAt(origin.col, origin.row)]) return [];
+    const horizontal = edge === 'n' || edge === 's';
+    const path = [{ col: origin.col, row: origin.row, edge }];
+    for (const dir of [-1, 1]) {
+      let col = origin.col;
+      let row = origin.row;
+      for (;;) {
+        if (horizontal) col += dir; else row += dir;
+        if (!wo[keyAt(col, row)]) break;
+        const pt = { col, row, edge };
+        if (dir === -1) path.unshift(pt); else path.push(pt);
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Mirror of _buildWallSegmentPath for door segments (doorOccupied).
+   */
+  _buildDoorSegmentPath(origin) {
+    const door = this.game.state.doorOccupied;
+    const { edge } = origin;
+    const keyAt = (col, row) => `${col},${row},${edge}`;
+    if (!door[keyAt(origin.col, origin.row)]) return [];
+    const horizontal = edge === 'n' || edge === 's';
+    const path = [{ col: origin.col, row: origin.row, edge }];
+    for (const dir of [-1, 1]) {
+      let col = origin.col;
+      let row = origin.row;
+      for (;;) {
+        if (horizontal) col += dir; else row += dir;
+        if (!door[keyAt(col, row)]) break;
+        const pt = { col, row, edge };
+        if (dir === -1) path.unshift(pt); else path.push(pt);
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Refresh the demolish-mode hover preview when shift is pressed or
+   * released (without mouse movement). Switches between single-edge
+   * highlight and whole-segment preview.
+   */
+  _refreshDemolishShiftPreview() {
+    if (!this.demolishMode) return;
+    if (this.isDragging || this.isDrawingWall || this.isDrawingDoor) return;
+    if (this.demolishType !== 'demolishWall' && this.demolishType !== 'demolishDoor') return;
+    if (this._lastScreenX == null) return;
+    const edge = this._getNearestEdge(this._lastScreenX, this._lastScreenY);
+    if (this._shiftDown) {
+      const path = this.demolishType === 'demolishWall'
+        ? this._buildWallSegmentPath(edge)
+        : this._buildDoorSegmentPath(edge);
+      if (path.length > 0) {
+        this.renderer.renderDemolishPathPreview(path);
+        return;
+      }
+    }
+    this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
+  }
+
+  /**
    * Find a beamline placeable occupying the given tile.
    */
   _findBeamlineComponentAt(col, row) {
@@ -965,7 +1062,10 @@ export class InputHandler {
   _bindKeyboard() {
     window.addEventListener('keydown', (e) => {
       this._shiftDown = e.shiftKey;
-      if (e.key === 'Shift') this._refreshWallShiftPreview();
+      if (e.key === 'Shift') {
+        this._refreshWallShiftPreview();
+        this._refreshDemolishShiftPreview();
+      }
       // Skip if focused on text input
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -977,6 +1077,34 @@ export class InputHandler {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
         this.game.undo();
+        return;
+      }
+
+      // Shift+Z / Shift+X while line-placing decorations: adjust spacing
+      // by one sub-unit. Persists per-placeable for the session.
+      if (this.isLinePlacingDecoration && e.shiftKey
+          && (e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X')) {
+        e.preventDefault();
+        const pl = PLACEABLES[this.selectedPlaceableId];
+        if (pl) {
+          const defaultSub = Math.max(pl.subW || 1, pl.subL || 1);
+          const minSub = Math.max(1, Math.min(pl.subW || 1, pl.subL || 1));
+          const cur = this.linePlaceSpacingSub.has(this.selectedPlaceableId)
+            ? this.linePlaceSpacingSub.get(this.selectedPlaceableId)
+            : defaultSub;
+          const delta = (e.key === 'x' || e.key === 'X') ? 1 : -1;
+          const next = Math.max(minSub, Math.min(64, cur + delta));
+          if (next !== cur) {
+            this.linePlaceSpacingSub.set(this.selectedPlaceableId, next);
+            this._showToast(`Spacing: ${next} sub${next === 1 ? '' : 's'}`);
+            if (this._linePlaceLastWorld) {
+              this._updateLinePlacePreview(
+                this._linePlaceLastWorld.x,
+                this._linePlaceLastWorld.y,
+              );
+            }
+          }
+        }
         return;
       }
 
@@ -1052,6 +1180,7 @@ export class InputHandler {
               subRow: this.hoverPlaceable.subRow,
               dir: this.hoverPlaceable.dir,
               params: this.selectedParamOverrides,
+              variant: this.selectedPlaceableVariant,
             });
             // Auto-switch to beam pipe tool after placing a source.
             const comp = COMPONENTS[this.hoverPlaceable.id];
@@ -1156,6 +1285,8 @@ export class InputHandler {
           this.deselectRackTool();
           this.deselectZoneTool();
           this.deselectDemolishTool();
+          this.deselectUtilityLineTool();
+          if (this.utilityLineController) this.utilityLineController.onEscape();
           this.bulldozerMode = false;
           this.renderer.setBulldozerMode(false);
           this.probeMode = false;
@@ -1289,6 +1420,7 @@ export class InputHandler {
             this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
           }
         }
+        this._refreshDemolishShiftPreview();
       }
     });
 
@@ -1359,6 +1491,31 @@ export class InputHandler {
         return;
       }
 
+      // Shift + left drag: line-place decorations (trees, shrubs, flower beds).
+      // Spaces copies along the drag vector at ~footprint intervals so the
+      // user can lay a row of trees in one gesture.
+      if (e.button === 0 && e.shiftKey && this.selectedPlaceableId) {
+        const pl = PLACEABLES[this.selectedPlaceableId];
+        if (pl && pl.kind === 'decoration') {
+          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+          this.isLinePlacingDecoration = true;
+          this.linePlaceStartWorld = { x: world.x, y: world.y };
+          this._updateLinePlacePreview(world.x, world.y);
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Utility-line tool start. Delegate to UtilityLineInputController;
+      // if it anchors on a port, consume the click. Otherwise fall through
+      // so the click can still pan/select/etc. (swallow if returned true).
+      if (this.selectedUtilityLineTool && this.utilityLineController && e.button === 0) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        if (this.utilityLineController.onMouseDown(world.x, world.y, e.button)) {
+          return;
+        }
+      }
+
       // Connection drawing start (left click = add, right click = remove)
       if (this.selectedConnTool && (e.button === 0 || e.button === 2)) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -1407,6 +1564,19 @@ export class InputHandler {
       if (e.button === 0 && this.demolishMode) {
         if (this.demolishType === 'demolishWall') {
           const edge = this._getNearestEdge(e.clientX, e.clientY);
+          if (this._shiftDown) {
+            // Shift-click: delete the whole connected run at once.
+            const segment = this._buildWallSegmentPath(edge);
+            if (segment.length > 0) {
+              this.game._pushUndo();
+              for (const pt of segment) {
+                this.game.removeWall(pt.col, pt.row, pt.edge);
+              }
+              this.renderer.clearDragPreview();
+              this._suppressNextClick = true;
+            }
+            return;
+          }
           this.isDrawingWall = true;
           this._wallStart = edge;
           this.wallPath = [edge];
@@ -1414,6 +1584,18 @@ export class InputHandler {
         }
         if (this.demolishType === 'demolishDoor') {
           const edge = this._getNearestEdge(e.clientX, e.clientY);
+          if (this._shiftDown) {
+            const segment = this._buildDoorSegmentPath(edge);
+            if (segment.length > 0) {
+              this.game._pushUndo();
+              for (const pt of segment) {
+                this.game.removeDoor(pt.col, pt.row, pt.edge);
+              }
+              this.renderer.clearDragPreview();
+              this._suppressNextClick = true;
+            }
+            return;
+          }
           this.isDrawingDoor = true;
           this._doorStart = edge;
           this.doorPath = [edge];
@@ -1520,6 +1702,9 @@ export class InputHandler {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
+      } else if (this.isLinePlacingDecoration) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        this._updateLinePlacePreview(world.x, world.y);
       } else if (this.isDragging && this.dragStart) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1582,7 +1767,7 @@ export class InputHandler {
       } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishWall') {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
-        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool || 'exteriorWall');
+        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool || 'structuralWall');
       } else if (this.isDrawingDoor && this.demolishMode && this.demolishType === 'demolishDoor') {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.doorPath = this._buildWallLine(this._doorStart, edge);
@@ -1610,7 +1795,24 @@ export class InputHandler {
       } else if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor &&
                  (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
         const edge = this._getNearestEdge(e.clientX, e.clientY);
-        this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
+        this._lastScreenX = e.clientX;
+        this._lastScreenY = e.clientY;
+        if (this._shiftDown) {
+          const path = this.demolishType === 'demolishWall'
+            ? this._buildWallSegmentPath(edge)
+            : this._buildDoorSegmentPath(edge);
+          if (path.length > 0) {
+            this.renderer.renderDemolishPathPreview(path);
+          } else {
+            this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
+          }
+        } else {
+          this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
+        }
+      } else if (this.utilityLineController && this.utilityLineController.isActive()) {
+        // Utility-line drag: update Manhattan preview path.
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        this.utilityLineController.onMouseMove(world.x, world.y);
       } else if (this.isDrawingConn && this.selectedConnTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
@@ -1656,6 +1858,10 @@ export class InputHandler {
         } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
           // Pre-click hover marker for the pipe-draw tool.
           this.beamlineController.onPipeToolHover(world.x, world.y);
+        } else if (this.selectedUtilityLineTool && this.utilityLineController) {
+          // Hover for utility-line tool: find the nearest port that matches
+          // the current utility type so the renderer can highlight it.
+          this.utilityLineController.onHover(world.x, world.y);
         }
         // Unified placeable preview. Replaces the previous four branches
         // (equipment / beamline / furnishing / decoration).
@@ -1712,6 +1918,40 @@ export class InputHandler {
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
+        return;
+      }
+
+      // Shift+drag line placement end (trees / decorations)
+      if (this.isLinePlacingDecoration) {
+        const toPlace = this.linePlaceHovers.filter(h => h.valid);
+        if (toPlace.length > 0) {
+          this.game._pushUndo();
+          for (const h of toPlace) {
+            this.game.placePlaceable({
+              type: h.hover.id,
+              col: h.hover.col,
+              row: h.hover.row,
+              subCol: h.hover.subCol,
+              subRow: h.hover.subRow,
+              dir: h.hover.dir,
+              params: this.selectedParamOverrides,
+              variant: this.selectedPlaceableVariant,
+            });
+          }
+        }
+        this.isLinePlacingDecoration = false;
+        this.linePlaceStartWorld = null;
+        this.linePlaceHovers = [];
+        this._suppressNextClick = true;
+        this.renderer.clearDragPreview();
+        this._updatePlaceablePreview();
+        return;
+      }
+
+      // Utility-line draw end — commit via UtilityLineSystem.addLine.
+      if (this.utilityLineController && this.utilityLineController.isActive()) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        this.utilityLineController.onMouseUp(world.x, world.y, e.button);
         return;
       }
 
@@ -1965,7 +2205,7 @@ export class InputHandler {
         if (blId) {
           this.game.editingBeamlineId = blId;
           this.game.selectedBeamlineId = blId;
-          this.renderer._openBeamlineWindow(blId);
+          this.renderer._openBeamlineWindow(blId, clickedNode);
           this.game.emit('editModeChanged', blId);
         }
       }
@@ -1986,6 +2226,10 @@ export class InputHandler {
   // --- Click handling ---
 
   _handleClick(screenX, screenY) {
+    if (this._suppressNextClick) {
+      this._suppressNextClick = false;
+      return;
+    }
     const world = this.renderer.screenToWorld(screenX, screenY);
     const grid = isoToGrid(world.x, world.y);
     const col = grid.col;
@@ -2178,7 +2422,7 @@ export class InputHandler {
           const blId = existingNode.beamlineId;
           if (blId) {
             this.game.selectedBeamlineId = blId;
-            this.renderer._openBeamlineWindow(blId);
+            this.renderer._openBeamlineWindow(blId, existingNode);
             this.game.emit('beamlineSelected', blId);
           }
           return;
@@ -2193,6 +2437,7 @@ export class InputHandler {
         subRow: this.hoverPlaceable.subRow,
         dir: this.hoverPlaceable.dir,
         params: this.selectedParamOverrides,
+        variant: this.selectedPlaceableVariant,
       });
       // Auto-switch to beam pipe tool after placing a source.
       if (placedId && comp?.isSource) {
@@ -2217,7 +2462,7 @@ export class InputHandler {
         const blId = node.beamlineId;
         if (blId) {
           this.game.selectedBeamlineId = blId;
-          this.renderer._openBeamlineWindow(blId);
+          this.renderer._openBeamlineWindow(blId, node);
           this.game.emit('beamlineSelected', blId);
         }
       } else {
@@ -2282,6 +2527,7 @@ export class InputHandler {
     this.selectedDecorationTool = null;
     this.hoverPlaceable = null;
     this.renderer._clearPreview?.();
+    this._updateShiftHint();
   }
 
   /**
@@ -2595,8 +2841,87 @@ export class InputHandler {
       dir: this.placementDir,
       placeY,
       stackTargetId,
+      variant: this.selectedPlaceableVariant,
     };
     this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
+  }
+
+  /**
+   * Build ghosts along the shift+drag line and render them as a batch.
+   * Walks in fractional tile space so screen spacing stays uniform;
+   * spacing = max(subW, subL) in subtiles (center-to-center footprint).
+   * Each ghost passes canPlace and doesn't overlap an earlier ghost in
+   * the same line to avoid committing into itself on mouseup.
+   */
+  _updateLinePlacePreview(wx, wy) {
+    if (!this.linePlaceStartWorld) return;
+    const pl = PLACEABLES[this.selectedPlaceableId];
+    if (!pl) return;
+
+    const start = isoToGridFloat(this.linePlaceStartWorld.x, this.linePlaceStartWorld.y);
+    const end = isoToGridFloat(wx, wy);
+    const dCol = end.col - start.col;
+    const dRow = end.row - start.row;
+    const distTile = Math.hypot(dCol, dRow);
+
+    this._linePlaceLastWorld = { x: wx, y: wy };
+    const defaultSpacingSub = Math.max(pl.subW || 1, pl.subL || 1);
+    const spacingSub = this.linePlaceSpacingSub.has(this.selectedPlaceableId)
+      ? this.linePlaceSpacingSub.get(this.selectedPlaceableId)
+      : defaultSpacingSub;
+    const spacingTile = spacingSub / 4;
+    const steps = Math.max(0, Math.floor(distTile / spacingTile));
+    const count = steps + 1;
+
+    const hovers = [];
+    const usedCells = new Set();
+    for (let i = 0; i < count; i++) {
+      const t = steps === 0 ? 0 : i / steps;
+      const fcCol = start.col + dCol * t;
+      const fcRow = start.row + dRow * t;
+      const wp = gridToIso(fcCol, fcRow);
+      const snap = snapForPlaceable(wp.x, wp.y, pl, this.placementDir);
+      const key = `${snap.col},${snap.row},${snap.subCol},${snap.subRow}`;
+      if (usedCells.has(key)) continue;
+      usedCells.add(key);
+
+      const result = canPlace(
+        this.game, pl,
+        snap.col, snap.row, snap.subCol, snap.subRow,
+        this.placementDir,
+      );
+
+      let overlapsEarlier = false;
+      if (result.ok) {
+        const myKeys = new Set(result.cells.map(c => `${c.col},${c.row},${c.subCol},${c.subRow}`));
+        for (const earlier of hovers) {
+          if (!earlier.valid) continue;
+          const ep = PLACEABLES[earlier.hover.id];
+          const eCells = ep.footprintCells(
+            earlier.hover.col, earlier.hover.row,
+            earlier.hover.subCol, earlier.hover.subRow,
+            earlier.hover.dir,
+          );
+          if (eCells.some(c => myKeys.has(`${c.col},${c.row},${c.subCol},${c.subRow}`))) {
+            overlapsEarlier = true;
+            break;
+          }
+        }
+      }
+
+      hovers.push({
+        hover: {
+          id: this.selectedPlaceableId,
+          col: snap.col, row: snap.row,
+          subCol: snap.subCol, subRow: snap.subRow,
+          dir: this.placementDir,
+        },
+        valid: result.ok && !overlapsEarlier,
+      });
+    }
+
+    this.linePlaceHovers = hovers;
+    this.renderer.renderPlaceableGhosts(hovers);
   }
 
   selectTool(compType, paramOverrides) {
@@ -2654,6 +2979,7 @@ export class InputHandler {
   deselectTool() {
     this.selectedTool = null;
     this.renderer.setBuildMode(false);
+    this._updateShiftHint();
   }
 
   selectInfraTool(infraType, variant = 0) {
@@ -2669,6 +2995,7 @@ export class InputHandler {
     this.floorOrientationOverride = null;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
+    this._updateShiftHint();
   }
 
   deselectInfraTool() {
@@ -2688,6 +3015,7 @@ export class InputHandler {
     this.doorPath = [];
     this._doorStart = null;
     this.renderer.clearDragPreview();
+    this._updateShiftHint();
   }
 
   selectFacilityTool(compType) {
@@ -2721,6 +3049,43 @@ export class InputHandler {
     this.selectedConnTool = null;
     this.isDrawingConn = false;
     this.connPath = [];
+  }
+
+  // --- Utility-line tool (Phase 4) ---
+  //
+  // Distinct from selectedConnTool (the rack-paint tool): selects one of the
+  // six utility types defined in src/utility/registry.js. When active, the
+  // user clicks+drags between matching ports to commit a new utility line
+  // via UtilityLineSystem.addLine().
+  setUtilityLineTool(type) {
+    // Clear other tools so we don't stack selection state.
+    this.deselectTool();
+    this.deselectInfraTool();
+    this.deselectFacilityTool();
+    this.deselectFurnishingTool();
+    this.deselectRackTool();
+    this.deselectConnTool();
+    this.deselectZoneTool();
+    this.demolishMode = false;
+    this.bulldozerMode = false;
+    if (this.renderer && this.renderer.setBulldozerMode) {
+      this.renderer.setBulldozerMode(false);
+    }
+    this.selectedUtilityLineTool = type || null;
+    if (this.utilityLineController) {
+      this.utilityLineController.setUtilityType(type || null);
+    }
+    this.utilityPreview = null;
+    this.utilityHoverPort = null;
+  }
+
+  deselectUtilityLineTool() {
+    this.selectedUtilityLineTool = null;
+    if (this.utilityLineController) {
+      this.utilityLineController.setUtilityType(null);
+    }
+    this.utilityPreview = null;
+    this.utilityHoverPort = null;
   }
 
   selectRackTool() {
@@ -2765,12 +3130,13 @@ export class InputHandler {
     this.furnishingRotated = false;
   }
 
-  selectDecorationTool(decType) {
+  selectDecorationTool(decType, variant = 0) {
     this.deselectInfraTool();
     this.deselectConnTool();
     this.deselectRackTool();
     this.deselectZoneTool();
     this.demolishMode = false;
+    this.selectedPlaceableVariant = variant;
     // Route through unified selection.
     this.selectPlaceable(decType);
   }
@@ -2784,6 +3150,7 @@ export class InputHandler {
     this.selectedDoorTool = null;
     this.selectedWallTool = wallType;
     this.selectedWallVariant = variant;
+    this._updateShiftHint();
   }
 
   selectDoorTool(doorType, variant = 0) {
@@ -2791,6 +3158,7 @@ export class InputHandler {
     this.selectedWallTool = null;
     this.selectedDoorTool = doorType;
     this.selectedDoorVariant = variant;
+    this._updateShiftHint();
   }
 
   selectDemolishTool(demolishType) {
@@ -2805,6 +3173,7 @@ export class InputHandler {
     this.demolishMode = true;
     this.demolishType = demolishType || 'demolishFloor';
     this.renderer.canvas.style.cursor = 'crosshair';
+    this._updateShiftHint();
   }
 
   deselectDemolishTool() {
@@ -2813,6 +3182,7 @@ export class InputHandler {
     this.renderer.clearDragPreview();
     this._hideDemolishTooltip();
     this.renderer.canvas.style.cursor = '';
+    this._updateShiftHint();
   }
 
   _demolishEverythingAt(col, row) {
@@ -2887,6 +3257,7 @@ export class InputHandler {
         subCol: p.originSubCol, subRow: p.originSubRow,
         dir: p.originDir,
         params: p.params,
+        variant: p.variant,
         free: true,
         silent: true,
       });
@@ -2925,6 +3296,7 @@ export class InputHandler {
     const picked = this._pickUpAt(col, row, screenX, screenY);
     if (picked) {
       this._movePayload = picked;
+      this.selectedPlaceableVariant = picked.variant ?? 0;
       this._armMovePreview(picked.type, picked.dir);
       this.renderer.canvas.style.cursor = 'grabbing';
     }
@@ -2977,6 +3349,7 @@ export class InputHandler {
         kind: 'placeable',
         type: snap.type,
         params: snap.params,
+        variant: snap.variant ?? 0,
         originCol: snap.col,
         originRow: snap.row,
         originSubCol: snap.subCol,
@@ -3061,6 +3434,7 @@ export class InputHandler {
         subRow: hp.subRow,
         dir: hp.dir ?? this.placementDir ?? 0,
         params: p.params,
+        variant: p.variant,
         free: true,
         silent: true,
       });
@@ -3068,6 +3442,42 @@ export class InputHandler {
     }
 
     return false;
+  }
+
+  /**
+   * Refresh the bottom-left shift-hint chip based on the active tool.
+   * Shows contextual hints for shift-modified actions (line place, wall
+   * boundary fill, demolish whole run). Hidden when no shift action is
+   * available for the current selection.
+   */
+  _updateShiftHint() {
+    const el = document.getElementById('shift-hint');
+    if (!el) return;
+
+    let html = '';
+    if (this.demolishMode
+        && (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
+      html = `<span class="k">SHIFT</span>+click: delete whole run`;
+    } else if (this.selectedWallTool) {
+      html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
+    } else if (this.selectedPlaceableId
+        && !this.selectedInfraTool
+        && !this.selectedConnTool
+        && !this.selectedZoneTool) {
+      const pl = PLACEABLES[this.selectedPlaceableId];
+      if (pl && pl.kind === 'decoration') {
+        html = `<span class="k">SHIFT</span>+drag: line place`
+          + `<span class="sep">•</span>`
+          + `<span class="k">Z</span>/<span class="k">X</span>: spacing`;
+      }
+    }
+
+    if (html) {
+      el.innerHTML = html;
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
   }
 
   _showToast(msg) {
@@ -3097,7 +3507,7 @@ export class InputHandler {
     let demolishType;
     const cat = this.selectedCategory;
     const catDef = MODES[this.activeMode]?.categories?.[cat];
-    if (this.selectedWallTool || catDef?.isWallTab || cat === 'walls' || cat === 'hedges' || cat === 'fencing') {
+    if (this.selectedWallTool || catDef?.isWallTab || cat === 'walls' || cat === 'fencing') {
       demolishType = 'demolishWall';
     } else if (this.selectedDoorTool || cat === 'doors') {
       demolishType = 'demolishDoor';

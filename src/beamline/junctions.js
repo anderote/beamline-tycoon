@@ -76,7 +76,12 @@ export function availablePorts(placeable, beamPipes) {
   if (!placeable) return [];
   const def = COMPONENTS[placeable.type];
   if (!def || !def.ports) return [];
-  const allNames = Object.keys(def.ports);
+  // Phase 3 merged utility ports into COMPONENTS[type].ports alongside beam
+  // ports. Beam-pipe callers must not see them, so filter on the `utility`
+  // marker. Utility-line callers use src/utility/ports.js::availablePorts,
+  // which filters by `spec.utility === utilityType` and naturally excludes
+  // beam ports.
+  const allNames = Object.keys(def.ports).filter(n => !def.ports[n].utility);
   if (allNames.length === 0) return [];
 
   const connected = new Set();
