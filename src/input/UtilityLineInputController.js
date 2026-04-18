@@ -22,9 +22,10 @@ import { UTILITY_TYPES } from '../utility/registry.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
-// 0.6 is roughly 30% of a tile — generous enough that small cursor jitter
-// still snaps, but tight enough that two nearby ports don't collide.
-const PORT_SNAP_RADIUS_WORLD = 0.6;
+// 1.0 = half a tile — roomy so the player can grab a port without needing
+// pixel-perfect aim. Tightened automatically (0.5) near ports on the same
+// placeable since those are packed tighter.
+const PORT_SNAP_RADIUS_WORLD = 1.0;
 
 function snapQ(v) { return Math.round(v * 4) / 4; }
 function snapPath(path) {
@@ -55,10 +56,21 @@ export class UtilityLineInputController {
   }
 
   onHover(worldX, worldY) {
-    if (!this._utilityType || this._drawing) return;
-    // Expose hover port for the renderer (glowing-sphere highlight).
-    this.input.utilityHoverPort = this._snapToNearestPort(worldX, worldY);
+    if (!this._utilityType) return;
+    // Expose hover port for the renderer (glowing-sphere highlight). Include
+    // utilityType so the marker is colored per-descriptor even when not
+    // mid-draw.
+    const snap = this._snapToNearestPort(worldX, worldY);
+    if (snap) snap.utilityType = this._utilityType;
+    this.input.utilityHoverPort = snap;
   }
+
+  // Public: current utility type (null if no tool armed).
+  get utilityType() { return this._utilityType; }
+
+  // Public: start-anchor while mid-draw ({placeableId, portName, worldPos}).
+  // Renderer uses this to skip the start port's indicator while dragging.
+  get drawStart() { return this._drawStart; }
 
   onMouseDown(worldX, worldY, button) {
     if (!this._utilityType || button !== 0) return false;
@@ -78,9 +90,17 @@ export class UtilityLineInputController {
 
   onMouseMove(worldX, worldY) {
     if (!this._drawing) return;
+    // Update hover-port during drag so the candidate end port highlights.
+    const snap = this._snapToNearestPort(worldX, worldY);
+    if (snap) snap.utilityType = this._utilityType;
+    this.input.utilityHoverPort = snap;
+    // If cursor is snapped to a port, route path to that port exactly;
+    // otherwise build toward the raw cursor position.
     const startTile = this._worldToTile(this._drawStart.worldPos);
-    const cursorTile = this._isoFloatToTile(worldX, worldY);
-    const path = buildManhattanPath(startTile, cursorTile, {
+    const targetTile = snap
+      ? this._worldToTile(snap.worldPos)
+      : this._isoFloatToTile(worldX, worldY);
+    const path = buildManhattanPath(startTile, targetTile, {
       preferVerticalFirst: this._preferVerticalFirst,
     }) || [];
     this._drawPath = snapPath(path);
