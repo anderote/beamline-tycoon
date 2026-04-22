@@ -7,6 +7,7 @@ import { UIHost } from '../ui/UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { OBJECTIVES } from '../data/objectives.js';
+import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 import { MACHINES } from '../data/machines.js';
 import { MachineWindow } from '../ui/MachineWindow.js';
 import { BeamlineWindow } from '../ui/BeamlineWindow.js';
@@ -3394,30 +3395,68 @@ UIHost.prototype._renderGoalsOverlay = function() {
   if (!list) return;
   list.innerHTML = '';
 
-  for (const obj of OBJECTIVES) {
-    const item = document.createElement('div');
-    item.className = 'objective-item';
+  const state = this.game.state;
 
-    const completed = this.game.state.completedObjectives.includes(obj.id);
-    if (completed) item.classList.add('completed');
+  let completedCount = 0;
+  let firstIncomplete = null;
+  const completedSet = new Set();
+  for (const step of TUTORIAL_STEPS) {
+    let done = false;
+    try { done = step.condition(state); } catch (_) {}
+    if (done) {
+      completedCount++;
+      completedSet.add(step.id);
+    } else if (!firstIncomplete) {
+      firstIncomplete = step.id;
+    }
+  }
 
-    const nameEl = document.createElement('div');
-    nameEl.className = 'obj-name';
-    nameEl.textContent = obj.name + (completed ? ' [DONE]' : '');
-    item.appendChild(nameEl);
+  // Summary / progress header
+  const summary = document.createElement('div');
+  summary.className = 'goals-progress';
+  const total = TUTORIAL_STEPS.length;
+  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+  summary.innerHTML =
+    `<div class="goals-progress-label">` +
+    `<span>${completedCount === total ? 'All Done!' : 'Getting Started'}</span>` +
+    `<span class="goals-progress-count">${completedCount}/${total}</span>` +
+    `</div>` +
+    `<div class="goals-progress-bar"><div class="goals-progress-fill" style="width:${pct}%"></div></div>`;
+  list.appendChild(summary);
 
-    const descEl = document.createElement('div');
-    descEl.className = 'obj-desc';
-    descEl.textContent = obj.desc;
-    item.appendChild(descEl);
+  // Grouped checklist
+  for (const group of TUTORIAL_GROUPS) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'tut-group';
+    const title = document.createElement('div');
+    title.className = 'tut-group-name';
+    title.textContent = group.name;
+    groupDiv.appendChild(title);
 
-    const rewardEl = document.createElement('div');
-    rewardEl.className = 'obj-reward';
-    const rewards = Object.entries(obj.reward).map(([k, v]) => `+${v} ${k}`).join(', ');
-    rewardEl.textContent = `Reward: ${rewards}`;
-    item.appendChild(rewardEl);
+    for (const step of TUTORIAL_STEPS.filter(s => s.group === group.id)) {
+      const stepDiv = document.createElement('div');
+      stepDiv.className = 'tut-step';
+      if (completedSet.has(step.id)) stepDiv.classList.add('completed');
+      if (step.id === firstIncomplete) stepDiv.classList.add('next');
 
-    list.appendChild(item);
+      const check = document.createElement('span');
+      check.className = 'tut-check';
+      check.textContent = completedSet.has(step.id) ? '\u2713' : '\u25cb';
+      stepDiv.appendChild(check);
+
+      const nameWrap = document.createElement('span');
+      nameWrap.className = 'tut-name';
+      nameWrap.textContent = step.name;
+      const hint = document.createElement('span');
+      hint.className = 'tut-hint';
+      hint.textContent = step.hint;
+      nameWrap.appendChild(hint);
+      stepDiv.appendChild(nameWrap);
+
+      groupDiv.appendChild(stepDiv);
+    }
+
+    list.appendChild(groupDiv);
   }
 };
 
@@ -3425,7 +3464,7 @@ UIHost.prototype._renderGoalsOverlay = function() {
 // Beamline context windows
 // ---------------------------------------------------------------------------
 
-UIHost.prototype._openBeamlineWindow = function(beamlineId) {
+UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
   if (!this._beamlineWindows) this._beamlineWindows = {};
   if (this._beamlineWindows[beamlineId]) {
     this._beamlineWindows[beamlineId].ctx.focus();
@@ -3434,25 +3473,28 @@ UIHost.prototype._openBeamlineWindow = function(beamlineId) {
   const bw = new BeamlineWindow(this.game, beamlineId);
   this._beamlineWindows[beamlineId] = bw;
 
-  // Anchor the window to the beamline's center in world space
+  // Anchor the window: to the clicked node if provided, else the beamline's
+  // centroid (fallback for programmatic opens that don't know a click origin).
   const entry = this.game.registry.get(beamlineId);
   if (entry && bw.ctx) {
-    const nodes = this.game.state.placeables.filter(p => p.beamlineId === beamlineId);
-    if (nodes.length > 0) {
-      let sumX = 0, sumY = 0, sumCol = 0, sumRow = 0, count = 0;
-      for (const node of nodes) {
-        for (const t of (node.cells || [{ col: node.col, row: node.row }])) {
-          const iso = tileCenterIso(t.col, t.row);
-          sumX += iso.x;
-          sumY += iso.y;
-          sumCol += t.col + 0.5;
-          sumRow += t.row + 0.5;
-          count++;
-        }
+    const tiles = anchorNode
+      ? (anchorNode.cells || [{ col: anchorNode.col, row: anchorNode.row }])
+      : this.game.state.placeables
+          .filter(p => p.beamlineId === beamlineId)
+          .flatMap(p => p.cells || [{ col: p.col, row: p.row }]);
+    if (tiles.length > 0) {
+      let sumX = 0, sumY = 0, sumCol = 0, sumRow = 0;
+      for (const t of tiles) {
+        const iso = tileCenterIso(t.col, t.row);
+        sumX += iso.x;
+        sumY += iso.y;
+        sumCol += t.col + 0.5;
+        sumRow += t.row + 0.5;
       }
-      // Anchor slightly above and to the right of center
-      bw.ctx.setWorldAnchor(sumX / count + 60, sumY / count - 80);
-      bw.ctx.setTileAnchor(sumCol / count, sumRow / count, 60, -80);
+      const n = tiles.length;
+      // Anchor slightly above and to the right of the target tile(s)
+      bw.ctx.setWorldAnchor(sumX / n + 60, sumY / n - 80);
+      bw.ctx.setTileAnchor(sumCol / n, sumRow / n, 60, -80);
       bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
     }
   }
@@ -3509,20 +3551,19 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
 };
 
 UIHost.prototype._refreshContextWindows = function() {
+  // Only refresh content here — position tracking is owned by
+  // _updateAnchoredWindows (per-frame in 3D, per pan/zoom in 2D). Calling
+  // updateScreenPosition here would use the 2D PIXI projection, which is
+  // wrong under 3D rotation/pitch and fights the per-frame 3D projection,
+  // causing flicker while panning and stutter while dragging.
   if (this._beamlineWindows) {
-    for (const bw of Object.values(this._beamlineWindows)) {
-      bw.refresh();
-      if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
-    }
+    for (const bw of Object.values(this._beamlineWindows)) bw.refresh();
   }
   if (this._machineWindows) {
     for (const mw of Object.values(this._machineWindows)) mw.refresh();
   }
   if (this._equipmentWindows) {
-    for (const ew of Object.values(this._equipmentWindows)) {
-      ew.refresh();
-      if (ew.ctx) ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
-    }
+    for (const ew of Object.values(this._equipmentWindows)) ew.refresh();
   }
 };
 

@@ -143,14 +143,23 @@ export class EquipmentBuilder {
       // unit sizes. Each part may override baseMaterial/color.
       if (Array.isArray(compDef?.parts) && compDef.parts.length > 0) {
         const group = new THREE.Group();
+        // Variant overrides: per-part { material?, color? } merged over the
+        // authored part spec. Uses `'material' in override` semantics so an
+        // explicit null ("no texture, just color") is honored instead of
+        // falling back to the authored material.
+        const variantIdx = item.variant || 0;
+        const partOverrides = compDef.variantOverrides?.[variantIdx] || null;
         for (const part of compDef.parts) {
           const pw = (part.w || 1) * SUB_UNIT;
           const ph = (part.h || 1) * SUB_UNIT;
           const pl = (part.l || 1) * SUB_UNIT;
           const geo = new THREE.BoxGeometry(pw, ph, pl);
           applyTiledBoxUVs(geo, pw, ph, pl);
-          const partBase = part.material ?? baseName;
-          const partColor = part.color ?? (partBase ? null : fallbackColor);
+          const ov = partOverrides?.[part.name];
+          const partMatName = (ov && 'material' in ov) ? ov.material : part.material;
+          const partColorHex = (ov && 'color' in ov) ? ov.color : part.color;
+          const partBase = partMatName ?? baseName;
+          const partColor = partColorHex ?? (partBase ? null : fallbackColor);
           const mat = _partMaterial(partBase, partColor);
           const mesh = new THREE.Mesh(geo, mat);
           mesh.castShadow = true;

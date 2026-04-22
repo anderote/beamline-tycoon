@@ -23,6 +23,7 @@ export const ProbePlots = (() => {
       'energy-dispersion': _drawEnergyDispersion,
       'peak-current': _drawPeakCurrent,
       'longitudinal': _drawLongitudinal,
+      'eic-triangle': _drawEICTriangle,
     };
 
     const fn = fns[type];
@@ -458,6 +459,190 @@ export const ProbePlots = (() => {
     ctx.fillText('dt (s)', a.x + a.w / 2, a.y + a.h + 14);
     ctx.fillText(`\u03c3t=${Math.sqrt(s44).toExponential(1)} \u03c3E=${Math.sqrt(s55).toExponential(1)}`,
       a.x + a.w / 2, a.y - 3);
+  }
+
+  // --- E / I / epsilon triangle (core tradeoff radar) ---
+
+  // Log-axis endpoints: value at centre (0.0) vs rim (1.0).
+  // Chosen to span the full gameplay range (tabletop 1 MeV → TeV colliders, nA → A, etc.)
+  // without needing re-scaling per tier.
+  const EIC_ENERGY_MIN_GEV = 1e-3;    // 1 MeV
+  const EIC_ENERGY_MAX_GEV = 1e4;     // 10 TeV  (7 decades)
+  const EIC_CURRENT_MIN_MA = 1e-3;    // 1 uA
+  const EIC_CURRENT_MAX_MA = 1e3;     // 1 A     (6 decades)
+  const EIC_EMIT_BAD  = 1e-4;         // rim = centre on emittance (worse)
+  const EIC_EMIT_GOOD = 1e-9;         // rim = outer (better)     (5 decades)
+
+  // Reference "par" polygon — shown dashed for contrast
+  const EIC_REF_ENERGY_GEV = 1.0;
+  const EIC_REF_CURRENT_MA = 10.0;
+  const EIC_REF_EMIT = 3e-7;
+
+  function _eicNormLog(v, vMin, vMax) {
+    if (v == null || !isFinite(v) || v <= 0) return 0;
+    const f = (Math.log10(v) - Math.log10(vMin)) / (Math.log10(vMax) - Math.log10(vMin));
+    return Math.max(0, Math.min(1, f));
+  }
+
+  // Emittance: smaller = better, so invert (good → outer rim)
+  function _eicNormEmit(v) {
+    if (v == null || !isFinite(v) || v <= 0) return 0;
+    const f = (Math.log10(EIC_EMIT_BAD) - Math.log10(v)) /
+              (Math.log10(EIC_EMIT_BAD) - Math.log10(EIC_EMIT_GOOD));
+    return Math.max(0, Math.min(1, f));
+  }
+
+  function _drawEICTriangle(ctx, canvas, env, pins, activePin) {
+    const pin = pins[activePin] || pins[0];
+    if (!pin) { _msg(ctx, canvas, 'Place marker to probe beam'); return; }
+    const d = env[pin.elementIndex];
+    if (!d) { _msg(ctx, canvas, 'No data at marker'); return; }
+
+    const w = canvas.width, h = canvas.height;
+    const cx = w / 2;
+    const cy = h / 2 + 4;
+    const R = Math.min(w, h) * 0.38;
+
+    // Axis angles: Energy top, Current lower-right, Emittance lower-left.
+    const angles = [-Math.PI / 2, Math.PI / 6, 5 * Math.PI / 6];
+
+    // --- Background rings (0.25, 0.5, 0.75, 1.0) ---
+    ctx.strokeStyle = 'rgba(60, 60, 100, 0.35)';
+    ctx.lineWidth = 0.5;
+    for (const frac of [0.25, 0.5, 0.75, 1.0]) {
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const r = R * frac;
+        const x = cx + Math.cos(angles[i]) * r;
+        const y = cy + Math.sin(angles[i]) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // --- Spokes ---
+    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)';
+    ctx.lineWidth = 1;
+    for (const a of angles) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+      ctx.stroke();
+    }
+
+    // --- Reference "par" polygon (dashed) ---
+    const refNorms = [
+      _eicNormLog(EIC_REF_ENERGY_GEV, EIC_ENERGY_MIN_GEV, EIC_ENERGY_MAX_GEV),
+      _eicNormLog(EIC_REF_CURRENT_MA, EIC_CURRENT_MIN_MA, EIC_CURRENT_MAX_MA),
+      _eicNormEmit(EIC_REF_EMIT),
+    ];
+    ctx.strokeStyle = 'rgba(150, 150, 190, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const r = R * refNorms[i];
+      const x = cx + Math.cos(angles[i]) * r;
+      const y = cy + Math.sin(angles[i]) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // --- Current values ---
+    const eGeV = d.energy;
+    const iMA = d.current;
+    const eps = Math.max(d.emit_nx || 0, d.emit_ny || 0);
+
+    const norms = [
+      _eicNormLog(eGeV, EIC_ENERGY_MIN_GEV, EIC_ENERGY_MAX_GEV),
+      _eicNormLog(iMA, EIC_CURRENT_MIN_MA, EIC_CURRENT_MAX_MA),
+      _eicNormEmit(eps),
+    ];
+
+    const color = '#ffbb44';
+    ctx.fillStyle = `rgba(${_hexRgb(color)}, 0.22)`;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const r = R * norms[i];
+      const x = cx + Math.cos(angles[i]) * r;
+      const y = cy + Math.sin(angles[i]) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Vertex dots
+    ctx.fillStyle = color;
+    for (let i = 0; i < 3; i++) {
+      const r = R * norms[i];
+      const x = cx + Math.cos(angles[i]) * r;
+      const y = cy + Math.sin(angles[i]) * r;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // --- Axis labels with values ---
+    const eFmt = _eicFmtEnergy(eGeV);
+    const iFmt = _eicFmtCurrent(iMA);
+    const epsFmt = (eps > 0 && isFinite(eps)) ? eps.toExponential(1) : '--';
+
+    ctx.fillStyle = 'rgba(210, 210, 240, 0.9)';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+
+    // Energy (top)
+    const eLblX = cx + Math.cos(angles[0]) * (R + 12);
+    const eLblY = cy + Math.sin(angles[0]) * (R + 12);
+    ctx.fillText('E', eLblX, eLblY - 2);
+    ctx.fillStyle = color;
+    ctx.fillText(eFmt, eLblX, eLblY + 10);
+
+    // Current (lower-right)
+    ctx.fillStyle = 'rgba(210, 210, 240, 0.9)';
+    ctx.textAlign = 'left';
+    const iLblX = cx + Math.cos(angles[1]) * (R + 6) + 2;
+    const iLblY = cy + Math.sin(angles[1]) * (R + 6);
+    ctx.fillText('I', iLblX, iLblY);
+    ctx.fillStyle = color;
+    ctx.fillText(iFmt, iLblX, iLblY + 10);
+
+    // Emittance (lower-left)
+    ctx.fillStyle = 'rgba(210, 210, 240, 0.9)';
+    ctx.textAlign = 'right';
+    const epsLblX = cx + Math.cos(angles[2]) * (R + 6) - 2;
+    const epsLblY = cy + Math.sin(angles[2]) * (R + 6);
+    ctx.fillText('\u03b5', epsLblX, epsLblY);
+    ctx.fillStyle = color;
+    ctx.fillText(epsFmt, epsLblX, epsLblY + 10);
+
+    // Title
+    ctx.fillStyle = 'rgba(180, 180, 220, 0.7)';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('E / I / \u03b5  (log, par dashed)', cx, 12);
+  }
+
+  function _eicFmtEnergy(gev) {
+    if (gev == null || !isFinite(gev)) return '--';
+    if (gev >= 1000) return (gev / 1000).toPrecision(3) + ' TeV';
+    if (gev >= 1)    return gev.toPrecision(3) + ' GeV';
+    if (gev >= 1e-3) return (gev * 1e3).toPrecision(3) + ' MeV';
+    return (gev * 1e6).toPrecision(3) + ' keV';
+  }
+
+  function _eicFmtCurrent(ma) {
+    if (ma == null || !isFinite(ma)) return '--';
+    if (ma >= 1000) return (ma / 1000).toPrecision(3) + ' A';
+    if (ma >= 1)    return ma.toPrecision(3) + ' mA';
+    if (ma >= 1e-3) return (ma * 1e3).toPrecision(3) + ' \u00b5A';
+    return (ma * 1e6).toPrecision(3) + ' nA';
   }
 
   return { draw };

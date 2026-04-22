@@ -30,7 +30,7 @@ export const FLOORS = {
     id: 'concrete',
     name: 'Concrete Pad',
     desc: 'Reinforced concrete foundation. Drag to place a rectangle.',
-    cost: 10,
+    cost: 25,
     color: 0x777777,
     topColor: 0x999999,
     subH: 0,
@@ -124,6 +124,7 @@ export const FLOORS = {
     noBase: true,
     subsection: 'surfaces',
     groundsSurface: true,
+    preservesDecorations: true,
     texture: 'tile_grass',
   },
   wildgrass: {
@@ -138,6 +139,7 @@ export const FLOORS = {
     noBase: true,
     subsection: 'surfaces',
     groundsSurface: true,
+    preservesDecorations: true,
     texture: 'tile_wildgrass',
   },
   tallgrass: {
@@ -152,6 +154,7 @@ export const FLOORS = {
     noBase: true,
     subsection: 'surfaces',
     groundsSurface: true,
+    preservesDecorations: true,
     texture: 'tile_tallgrass',
   },
   pavement: {

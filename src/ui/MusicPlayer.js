@@ -17,7 +17,11 @@ export class MusicPlayer {
 
     // DOM references
     this.el = document.getElementById('music-player');
-    this.trackNameEl = this.el.querySelector('.mp-track-name');
+    this.trackNameWrap = this.el.querySelector('.mp-track-name-wrap');
+    this.trackNameBtn = this.el.querySelector('.mp-track-name');
+    this.trackNameEl = this.el.querySelector('.mp-track-name-inner');
+    this.trackListEl = this.el.querySelector('.mp-track-list');
+    this.trackListOpen = false;
     this.playBtn = this.el.querySelector('.mp-play');
     this.prevBtn = this.el.querySelector('.mp-prev');
     this.nextBtn = this.el.querySelector('.mp-next');
@@ -130,6 +134,7 @@ export class MusicPlayer {
     this._buildTracksForCurrentTheme();
     this.currentIndex = 0;
     if (this.shuffled) this._generateShuffleOrder();
+    this._setTrackListOpen(false);
 
     const hasTracks = this.tracks.length > 0;
     this.playBtn.disabled = !hasTracks;
@@ -166,6 +171,18 @@ export class MusicPlayer {
     if (this.minimizeBtn) {
       this.minimizeBtn.addEventListener('click', () => this._setMinimized(!this.minimized));
     }
+    if (this.trackNameBtn) {
+      this.trackNameBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleTrackList();
+      });
+    }
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.trackListOpen) return;
+      if (this.trackNameWrap && !this.trackNameWrap.contains(e.target)) {
+        this._setTrackListOpen(false);
+      }
+    });
 
     this.audio.addEventListener('ended', () => this.next());
     this.audio.addEventListener('error', () => {
@@ -282,7 +299,81 @@ export class MusicPlayer {
     if (this.currentIndex < 0 || this.currentIndex >= this.tracks.length) return;
     const name = this.tracks[this.currentIndex].name;
     this.trackNameEl.textContent = name;
-    this.trackNameEl.title = name;
+    if (this.trackNameBtn) this.trackNameBtn.title = name;
+    this._updateScrollAnimation();
+    this._updateCurrentListItem();
+  }
+
+  _updateScrollAnimation() {
+    if (!this.trackNameWrap || !this.trackNameEl) return;
+    // Reset first so measurements reflect natural widths
+    this.trackNameWrap.classList.remove('mp-scrolling');
+    requestAnimationFrame(() => {
+      const inner = this.trackNameEl;
+      const btn = this.trackNameBtn;
+      if (!inner || !btn) return;
+      const overflow = inner.scrollWidth - btn.clientWidth;
+      if (overflow > 2) {
+        // Slow scroll: ~40px per second of travel, round-trip animation with pauses
+        const travelSec = Math.max(6, overflow / 20);
+        const totalSec = travelSec * 2 + 3;
+        this.trackNameWrap.style.setProperty('--mp-scroll-end', `-${overflow}px`);
+        this.trackNameWrap.style.setProperty('--mp-scroll-duration', `${totalSec}s`);
+        this.trackNameWrap.classList.add('mp-scrolling');
+      } else {
+        this.trackNameWrap.style.removeProperty('--mp-scroll-end');
+        this.trackNameWrap.style.removeProperty('--mp-scroll-duration');
+      }
+    });
+  }
+
+  _toggleTrackList() {
+    this._setTrackListOpen(!this.trackListOpen);
+  }
+
+  _setTrackListOpen(open) {
+    if (!this.trackListEl) return;
+    this.trackListOpen = open;
+    if (open) {
+      this._renderTrackList();
+      this.trackListEl.hidden = false;
+    } else {
+      this.trackListEl.hidden = true;
+    }
+  }
+
+  _renderTrackList() {
+    if (!this.trackListEl) return;
+    this.trackListEl.innerHTML = '';
+    if (this.tracks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'mp-track-list-item';
+      empty.textContent = 'No tracks';
+      empty.style.cursor = 'default';
+      this.trackListEl.appendChild(empty);
+      return;
+    }
+    this.tracks.forEach((track, i) => {
+      const item = document.createElement('button');
+      item.className = 'mp-track-list-item';
+      if (i === this.currentIndex) item.classList.add('current');
+      item.textContent = track.name;
+      item.title = track.name;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._playTrack(i);
+        this._setTrackListOpen(false);
+      });
+      this.trackListEl.appendChild(item);
+    });
+  }
+
+  _updateCurrentListItem() {
+    if (!this.trackListEl || this.trackListEl.hidden) return;
+    const items = this.trackListEl.querySelectorAll('.mp-track-list-item');
+    items.forEach((item, i) => {
+      item.classList.toggle('current', i === this.currentIndex);
+    });
   }
 
   _updatePlayButton() {

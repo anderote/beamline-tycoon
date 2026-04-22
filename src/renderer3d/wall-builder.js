@@ -17,6 +17,27 @@ const DOOR_HEIGHT = 1.2 * M;     // 1.2m door
 const POST_WIDTH = 0.1 * M;      // 10cm posts
 const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
 
+// Stable integer hash of (col, row, edge) — used to pick a random but
+// deterministic variant + UV offset per wall segment.
+function _hashWallPos(col, row, edge) {
+  const e = edge === 'n' ? 0 : edge === 'e' ? 1 : edge === 's' ? 2 : 3;
+  let h = (col | 0) * 73856093 ^ (row | 0) * 19349663 ^ e * 83492791;
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+  return h >>> 0;
+}
+
+// Shift the U coordinate of every UV by a fractional offset so each wall
+// segment using a repeating texture shows a different crop. V is left alone
+// since hedge textures have a top-highlight band that should stay anchored.
+function _offsetUVsU(geo, du) {
+  const uv = geo.attributes.uv;
+  if (!uv) return;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setX(i, uv.getX(i) + du);
+  }
+  uv.needsUpdate = true;
+}
+
 export class WallBuilder {
   constructor(textureManager) {
     this._textureManager = textureManager;
@@ -70,8 +91,15 @@ export class WallBuilder {
 
     for (const w of wallsToRender) {
       const { col, row, edge, type, span } = w;
-      const variant = w.variant ?? 0;
       const def = WALL_TYPES[type];
+      // Defs marked randomizeVariant (e.g. hedges) pick a variant by
+      // hashing their grid position so adjacent segments don't all look
+      // identical — hash is deterministic so the look is stable across
+      // rebuilds.
+      let variant = w.variant ?? 0;
+      if (def?.randomizeVariant && def?.variantTextures?.length > 1 && w.variant == null) {
+        variant = _hashWallPos(col, row, edge) % def.variantTextures.length;
+      }
       const height = def ? def.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
       const thickness = def
         ? Math.max(def.thickness * THICKNESS_SCALE, MIN_THICKNESS)
@@ -116,13 +144,17 @@ export class WallBuilder {
       } else {
         applyTiledBoxUVs(geo, thickness, height, length);
       }
+      // Randomize U offset for segments whose def opts in. This breaks
+      // the obvious pattern repeat without cloning the material.
+      if (def?.randomizeVariant) {
+        const h = _hashWallPos(col, row, edge);
+        const du = ((h >>> 8) & 0xff) / 256;
+        _offsetUVsU(geo, du);
+      }
 
-      // --- Trapezoidal base: deform box vertices so bottom follows terrain ---
-      // The box is centered at the origin in its geometry space — vertices at
-      // y=-H/2 are the bottom, y=+H/2 are the top. We convert those to
-      // absolute world-Y values so the bottom slopes with terrain corners and
-      // the top stays horizontal at max(baseY.a, baseY.b) + wallHeight. The
-      // mesh is then placed with y=0 (absolute Y is baked into the geometry).
+      // Bake absolute world-Y into the geometry so the wall renders as a
+      // parallelogram on slopes (constant height along its length, top edge
+      // parallel to the sloped bottom). Mesh is then placed with y=0.
       //
       // Endpoint convention (from buildWalls in world-snapshot.js):
       //   'n': a=NW (low X), b=NE (high X)
@@ -130,7 +162,6 @@ export class WallBuilder {
       //   'e': a=NE (low Z), b=SE (high Z)
       //   'w': a=SW (high Z), b=NW (low Z)
       const baseY = w.baseY || { a: 0, b: 0 };
-      const topY = Math.max(baseY.a, baseY.b) + height;
       // yLow = baseY at the vertex end with lower local coord along the wall's
       // long axis; yHigh = baseY at the end with higher local coord.
       let yLow, yHigh;
@@ -149,17 +180,12 @@ export class WallBuilder {
       for (let vi = 0; vi < posAttr.count; vi++) {
         const ix = vi * 3;
         const vy = arr[ix + 1];
-        if (vy > 0) {
-          // Top vertex — flat at topY.
-          arr[ix + 1] = topY;
-        } else {
-          // Bottom vertex — interpolate between yLow and yHigh by the
-          // long-axis coord. For isNS the long axis is X; else it's Z.
-          const along = isNS ? arr[ix + 0] : arr[ix + 2];
-          // along is in [-halfLen, +halfLen]
-          const t = halfLen > EPS ? (along + halfLen) / (2 * halfLen) : 0;
-          arr[ix + 1] = yLow + (yHigh - yLow) * t;
-        }
+        // Interpolate baseY by the long-axis coord. For isNS the long axis is
+        // X; else it's Z. along is in [-halfLen, +halfLen].
+        const along = isNS ? arr[ix + 0] : arr[ix + 2];
+        const t = halfLen > EPS ? (along + halfLen) / (2 * halfLen) : 0;
+        const baseAt = yLow + (yHigh - yLow) * t;
+        arr[ix + 1] = vy > 0 ? baseAt + height : baseAt;
       }
       posAttr.needsUpdate = true;
       geo.computeVertexNormals();

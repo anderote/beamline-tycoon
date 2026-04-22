@@ -215,15 +215,20 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     ctx.fillRect(sx - standW - 1, floorY - 2, standW * 2 + 2, 2);
   }
 
-  // --- Ghost quad markers (FODO advisor) ---
+  // --- Ghost quad arrow markers (FODO advisor) ---
   if (this.ghostQuads && this.ghostQuads.length > 0 && this.totalLength > 0) {
     const tileLenSum = this.draftNodes.reduce((s, n) => {
       const c = COMPONENTS[n.type];
       return s + (c ? (c.subL || 4) * 0.5 : 1);
     }, 0) || 1;
 
+    const compTop = beamY - schematicH / 2;
+    const compBot = beamY + schematicH / 2;
+    const arrowH = Math.max(6, 8 * effectiveZoom);
+    const arrowHW = Math.max(4, 6 * effectiveZoom); // half-width
+
     for (const ghost of this.ghostQuads) {
-      // Map ghost.s to pixel position (same logic as marker)
+      // Map ghost.s to pixel position
       let ghostXPos = 20 + panOffsetPx;
       let cumS = 0;
       for (let i = 0; i < this.draftNodes.length; i++) {
@@ -241,38 +246,52 @@ BeamlineDesigner.prototype._renderSchematic = function() {
         ghostXPos += cW;
       }
 
-      // Draw ghost quad box
-      const ghostW = Math.max(SCHEM_PW * 0.6, 30) * effectiveZoom;
-      const ghostH = schematicH * 0.8;
-      const ghostX = ghostXPos - ghostW / 2;
-      const ghostY = beamY - ghostH / 2;
+      // Focus X (polarity 1) = red, Focus Y (polarity -1) = blue
+      const isX = ghost.polarity === 1;
+      const color = isX ? 'rgba(230, 80, 80, 0.7)' : 'rgba(80, 140, 230, 0.7)';
+      const colorFaint = isX ? 'rgba(230, 80, 80, 0.25)' : 'rgba(80, 140, 230, 0.25)';
+      const label = isX ? 'X' : 'Y';
 
-      // Dashed outline
-      ctx.strokeStyle = 'rgba(68, 136, 255, 0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeRect(ghostX, ghostY, ghostW, ghostH);
+      // Dashed vertical guide between arrows
+      ctx.strokeStyle = colorFaint;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(ghostXPos, compTop);
+      ctx.lineTo(ghostXPos, compBot);
+      ctx.stroke();
       ctx.setLineDash([]);
 
-      // Semi-transparent fill
-      ctx.fillStyle = 'rgba(68, 136, 255, 0.08)';
-      ctx.fillRect(ghostX, ghostY, ghostW, ghostH);
+      // Top arrow (pointing down into beamline)
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(ghostXPos - arrowHW, compTop - arrowH - 2);
+      ctx.lineTo(ghostXPos + arrowHW, compTop - arrowH - 2);
+      ctx.lineTo(ghostXPos, compTop - 2);
+      ctx.closePath();
+      ctx.fill();
 
-      // Polarity label
-      ctx.fillStyle = 'rgba(68, 136, 255, 0.6)';
-      ctx.font = `${Math.max(9, 11 * effectiveZoom)}px monospace`;
+      // Bottom arrow (pointing up into beamline)
+      ctx.beginPath();
+      ctx.moveTo(ghostXPos - arrowHW, compBot + arrowH + 2);
+      ctx.lineTo(ghostXPos + arrowHW, compBot + arrowH + 2);
+      ctx.lineTo(ghostXPos, compBot + 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Axis label above top arrow
+      ctx.fillStyle = color;
+      ctx.font = `bold ${Math.max(8, 10 * effectiveZoom)}px monospace`;
       ctx.textAlign = 'center';
-      const label = ghost.polarity === 1 ? 'F' : 'D';
-      ctx.fillText(label, ghostXPos, beamY + 4);
+      ctx.fillText(label, ghostXPos, compTop - arrowH - 6);
 
-      // "+" icon above
-      ctx.fillStyle = 'rgba(68, 136, 255, 0.5)';
-      ctx.font = `${Math.max(10, 14 * effectiveZoom)}px monospace`;
-      ctx.fillText('+', ghostXPos, ghostY - 4);
-
-      // Store click region for ghost interaction
+      // Click region spans from top arrow to bottom arrow
+      const hitX = ghostXPos - arrowHW - 4;
+      const hitY = compTop - arrowH - 6;
+      const hitW = (arrowHW + 4) * 2;
+      const hitH = (compBot + arrowH + 2) - hitY;
       this._ghostRegions.push({
-        x: ghostX, y: ghostY, w: ghostW, h: ghostH,
+        x: hitX, y: hitY, w: hitW, h: hitH,
         ghost,
       });
     }
@@ -323,6 +342,21 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     ctx.lineTo(markerXPos, 12);
     ctx.closePath();
     ctx.fill();
+
+    // Distance-from-source label next to marker
+    const distLabel = this.markerS < 1000
+      ? `${this.markerS.toFixed(1)} m`
+      : `${(this.markerS / 1000).toFixed(2)} km`;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    // Background pill for readability
+    const labelW = ctx.measureText(distLabel).width + 6;
+    const labelX = markerXPos + 6;
+    const labelY = 3;
+    ctx.fillStyle = 'rgba(10, 12, 20, 0.7)';
+    ctx.fillRect(labelX, labelY, labelW, 14);
+    ctx.fillStyle = 'rgba(68, 136, 255, 0.85)';
+    ctx.fillText(distLabel, labelX + 3, labelY + 11);
   }
 
   ctx.restore();

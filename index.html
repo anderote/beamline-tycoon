@@ -33,7 +33,6 @@
       <div id="top-buttons">
         <span id="beam-summary" class="beam-summary"></span>
         <button id="btn-designer" class="hud-btn">Beamline Designer</button>
-        <button id="btn-designs" class="hud-btn">Designs</button>
         <button id="btn-research" class="hud-btn">Research</button>
         <button id="btn-goals" class="hud-btn">Goals</button>
         <div id="menu-wrapper">
@@ -91,23 +90,11 @@
       <div class="bsp-row"><span class="bsp-label">Data Rate</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
     </div>
 
-    <!-- Tutorial checklist (below top bar, collapsible) -->
-    <div id="tutorial-panel" class="hidden">
-      <div id="tutorial-header">
-        <span id="tutorial-title">Getting Started</span>
-        <span id="tutorial-progress-text"></span>
-        <span id="tutorial-collapse-chevron">&#9660;</span>
-        <button id="tutorial-dismiss" title="Dismiss">&times;</button>
-      </div>
-      <div id="tutorial-progress-bar"><div id="tutorial-progress-fill"></div></div>
-      <div id="tutorial-body"></div>
-    </div>
-
     <!-- Beamline warnings panel (top-right) -->
     <div id="beamline-warnings"></div>
 
     <!-- Probe mode indicator -->
-    <div id="probe-mode-indicator" class="hidden">PROBE MODE (P to toggle, click nodes to add probes, Esc to exit)</div>
+    <div id="probe-mode-indicator" class="hidden">PROBE MODE (U to toggle, click nodes to add probes, Esc to exit)</div>
 
     <!-- Component preview panel (lower-left, above bottom HUD) -->
     <div id="component-preview" class="hidden">
@@ -142,6 +129,27 @@
 
     <!-- Bottom HUD (DOM overlay) -->
     <div id="bottom-hud">
+      <div id="hotkey-hint" class="hidden">
+        <span class="hk-g">Place <span class="k">Space</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Designer <span class="k">T</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Move <span class="k">Y</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Info <span class="k">U</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Zones <span class="k">O</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Labels <span class="k">I</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Goals <span class="k">G</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Demolish <span class="k">Del</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Undo <span class="k">Ctrl+Z</span></span>
+        <span class="hk-sep">·</span>
+        <span class="hk-g">Hide <span class="k">`</span></span>
+      </div>
       <div id="shift-hint" class="hidden"></div>
       <div id="dsgn-palette-actions" class="dsgn-palette-actions hidden">
         <span class="dsgn-palette-hint">Click component to:</span>
@@ -152,17 +160,17 @@
         <div id="hud-top-row">
           <div id="mode-switcher">
             <div class="mode-btn-wrap">
-              <button class="mode-btn active" data-mode="beamline">Beamline</button>
+              <button class="mode-btn active" data-mode="beamline"><span class="mode-hotkey">1</span>Beamline</button>
               <div class="mode-btn-sub" id="beamline-type-label"></div>
               <div class="machine-type-dropdown hidden" id="machine-type-dropdown">
                 <!-- dynamically generated machine type options -->
               </div>
             </div>
-            <button class="mode-btn" data-mode="infra">Infra</button>
-            <button class="mode-btn" data-mode="facility">Facility</button>
-            <button class="mode-btn" data-mode="structure">Structure</button>
-            <button class="mode-btn" data-mode="grounds">Grounds</button>
-            <button class="mode-btn mode-btn-demolish" data-mode="demolish">Demolish</button>
+            <button class="mode-btn" data-mode="infra"><span class="mode-hotkey">2</span>Infra</button>
+            <button class="mode-btn" data-mode="facility"><span class="mode-hotkey">3</span>Facility</button>
+            <button class="mode-btn" data-mode="structure"><span class="mode-hotkey">4</span>Structure</button>
+            <button class="mode-btn" data-mode="grounds"><span class="mode-hotkey">5</span>Grounds</button>
+            <button class="mode-btn mode-btn-demolish" data-mode="demolish"><span class="mode-hotkey">6</span>Demolish</button>
           </div>
           <div id="connection-tools">
             <!-- pipe/cable connection buttons -->
@@ -229,6 +237,7 @@
         <div class="dsgn-draft-bar">
           <span class="dsgn-draft-summary" id="dsgn-draft-summary"></span>
           <span class="dsgn-draft-cost" id="dsgn-draft-cost"></span>
+          <button class="dsgn-btn dsgn-load-design" id="dsgn-load-design">Load Design</button>
           <button class="dsgn-btn dsgn-save-design" id="dsgn-save-design" style="display:none">Save Design</button>
           <button class="dsgn-btn dsgn-save-as" id="dsgn-save-as" style="display:none">Save As</button>
           <button class="dsgn-btn dsgn-confirm" id="dsgn-confirm">Confirm</button>
@@ -260,6 +269,7 @@
               <option value="peak-current">Peak Current</option>
               <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
+              <option value="eic-triangle">E / I / &epsilon; Triangle</option>
             </select>
             <canvas class="dsgn-plot-canvas" data-panel="0"></canvas>
           </div>
@@ -272,6 +282,7 @@
               <option value="peak-current">Peak Current</option>
               <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
+              <option value="eic-triangle">E / I / &epsilon; Triangle</option>
             </select>
             <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
           </div>
@@ -282,8 +293,9 @@
               <option value="emittance">Emittance</option>
               <option value="energy-dispersion">Energy &amp; Dispersion</option>
               <option value="peak-current">Peak Current</option>
-              <option value="phase-space" selected>Phase Space</option>
+              <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
+              <option value="eic-triangle" selected>E / I / &epsilon; Triangle</option>
             </select>
             <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
           </div>

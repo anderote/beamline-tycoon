@@ -224,6 +224,61 @@ export function findNearestPipeToWorld(beamPipes, worldX, worldZ, maxDist = 1.5)
   return best;
 }
 
+/**
+ * Sample a pipe at an arc-length fraction in [0, 1]. Mirrors `projectOntoPipe`
+ * but inverts the lookup: given a fraction, returns the `(col, row, dir,
+ * worldX, worldZ)` of that point on the polyline. Used by placement ghosts to
+ * snap the preview to a quantized along-pipe position.
+ */
+export function positionToPoint(pipe, position) {
+  const path = pipe?.path;
+  if (!path || path.length === 0) return null;
+  if (path.length === 1) {
+    return { col: path[0].col, row: path[0].row, worldX: path[0].col * 2 + 1, worldZ: path[0].row * 2 + 1, dir: 0 };
+  }
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) {
+    const dwx = (path[i].col - path[i - 1].col) * 2;
+    const dwz = (path[i].row - path[i - 1].row) * 2;
+    cum.push(cum[i - 1] + Math.hypot(dwx, dwz));
+  }
+  const total = cum[path.length - 1];
+  if (total <= 0) {
+    return { col: path[0].col, row: path[0].row, worldX: path[0].col * 2 + 1, worldZ: path[0].row * 2 + 1, dir: 0 };
+  }
+  const clamped = Math.max(0, Math.min(1, position));
+  const target = clamped * total;
+  for (let i = 0; i < path.length - 1; i++) {
+    const segLen = cum[i + 1] - cum[i];
+    if (segLen <= 0) continue;
+    if (target <= cum[i + 1] + EPS) {
+      const t = (target - cum[i]) / segLen;
+      const col = path[i].col + t * (path[i + 1].col - path[i].col);
+      const row = path[i].row + t * (path[i + 1].row - path[i].row);
+      const worldX = col * 2 + 1;
+      const worldZ = row * 2 + 1;
+      const dcol = path[i + 1].col - path[i].col;
+      const drow = path[i + 1].row - path[i].row;
+      let dir = 0;
+      if (dcol > 0) dir = 1;
+      else if (dcol < 0) dir = 3;
+      else if (drow > 0) dir = 2;
+      else if (drow < 0) dir = 0;
+      return { col, row, worldX, worldZ, dir };
+    }
+  }
+  const last = path[path.length - 1];
+  const prev = path[path.length - 2];
+  const dcol = last.col - prev.col;
+  const drow = last.row - prev.row;
+  let dir = 0;
+  if (dcol > 0) dir = 1;
+  else if (dcol < 0) dir = 3;
+  else if (drow > 0) dir = 2;
+  else if (drow < 0) dir = 0;
+  return { col: last.col, row: last.row, worldX: last.col * 2 + 1, worldZ: last.row * 2 + 1, dir };
+}
+
 export function pipeDirectionAtTile(pipe, tileIndex) {
   const tiles = expandPipePath(pipe.path);
   if (tileIndex <= 0 || tileIndex >= tiles.length - 1) return null;

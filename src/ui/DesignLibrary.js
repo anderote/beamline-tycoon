@@ -21,8 +21,10 @@ export class DesignLibrary {
     this.activeCategory = 'all';
     this.onPlace = null;  // callback set externally for "Place" action
     this._suppressHashUpdate = false;
+    this._modal = false;
 
     this._bindClose();
+    this._bindKeys();
   }
 
   _bindClose() {
@@ -32,19 +34,34 @@ export class DesignLibrary {
     }
   }
 
-  open() {
+  _bindKeys() {
+    // Intercept Escape at capture phase so the designer's global handler
+    // doesn't fire underneath a modal library.
+    window.addEventListener('keydown', (e) => {
+      if (!this.isOpen || e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }, true);
+  }
+
+  open(modal = false) {
+    this._modal = !!modal;
     this.overlay.classList.remove('hidden');
+    this.overlay.classList.toggle('designs-modal', this._modal);
     this._renderTabs();
     this._renderGrid();
-    window.location.hash = 'designs';
+    if (!this._modal) window.location.hash = 'designs';
   }
 
   close() {
     this.overlay.classList.add('hidden');
-    if (!this._suppressHashUpdate && window.location.hash === '#designs') {
+    this.overlay.classList.remove('designs-modal');
+    if (!this._modal && !this._suppressHashUpdate && window.location.hash === '#designs') {
       window.location.hash = 'game';
     }
     this._suppressHashUpdate = false;
+    this._modal = false;
   }
 
   get isOpen() {

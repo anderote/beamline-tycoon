@@ -751,5 +751,9 @@ const COMPUTE_STATS = {
 export function computeStats(type, params) {
   const fn = COMPUTE_STATS[type];
   if (!fn) return {};
-  return fn(params);
+  // Fill in defaults for any missing non-derived params so compute functions
+  // never receive undefined (which propagates to NaN → JSON null → Python
+  // None → TypeError).
+  const merged = { ...getDefaults(type), ...(params || {}) };
+  return fn(merged);
 }
