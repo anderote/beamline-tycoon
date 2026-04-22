@@ -24,67 +24,6 @@ function makeMat(file, { roughness = 0.6, metalness = 0.3, alphaTest = 0 } = {})
 }
 
 /**
- * Procedurally generates a 64x64 flower-bed tile texture: dark soil base
- * with saturated dots in rough rows (cultivated flowers) + short leaf strokes.
- * First procedural CanvasTexture in this module; all other entries load PNGs.
- */
-function gen_flowerBed(size = 64) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // Soil base (dark brown with slight variation)
-  ctx.fillStyle = '#3a2820';
-  ctx.fillRect(0, 0, size, size);
-  // Noise freckles of slightly lighter soil
-  for (let i = 0; i < 80; i++) {
-    const x = Math.random() * size, y = Math.random() * size;
-    ctx.fillStyle = `rgba(80, 56, 40, ${0.3 + Math.random() * 0.4})`;
-    ctx.fillRect(x, y, 1, 1);
-  }
-
-  // Leaf strokes (short green lines)
-  ctx.strokeStyle = '#3b6e2b';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 8; i++) {
-    const x = Math.random() * size, y = Math.random() * size;
-    const a = Math.random() * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(a) * 3, y + Math.sin(a) * 3);
-    ctx.stroke();
-  }
-
-  // Flower dots in rough rows (3 rows, jittered)
-  const palette = ['#ffe14d', '#f2f2f2', '#ffe14d', '#ff8fa3',
-                   '#c58df5', '#ffe14d', '#e84a4a', '#7db9ff'];
-  const rows = 3;
-  const perRow = 7;
-  for (let r = 0; r < rows; r++) {
-    const baseY = (r + 0.5) * size / rows;
-    for (let i = 0; i < perRow; i++) {
-      const x = (i + 0.5) * size / perRow + (Math.random() - 0.5) * 4;
-      const y = baseY + (Math.random() - 0.5) * 4;
-      const col = palette[Math.floor(Math.random() * palette.length)];
-      const rad = 2 + Math.random() * 1.5;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(x, y, rad, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.generateMipmaps = false;
-  return tex;
-}
-
-/**
  * Map of material name -> shared MeshStandardMaterial instance.
  * These are module-level singletons. Do NOT dispose them from builders.
  * Adding a new material: add a PNG, add an entry here.
@@ -104,6 +43,15 @@ export const MATERIALS = {
   wall_cinderblock:    makeMat('wall_cinderblock.png',    { roughness: 0.95, metalness: 0.0 }),
   wall_chain_link:     makeMat('wall_chain_link.png',     { roughness: 0.5, metalness: 0.6 }),
   wall_barbed_wire:    makeMat('wall_barbed_wire.png',    { roughness: 0.5, metalness: 0.6 }),
+  // Fencing + hedges (used for Grounds > Fencing walls)
+  fence_hedge:         makeMat('fence_hedge.png',         { roughness: 0.9, metalness: 0.0 }),
+  fence_hedge_alt:     makeMat('fence_hedge_alt.png',     { roughness: 0.9, metalness: 0.0 }),
+  fence_tall_hedge:    makeMat('fence_tall_hedge.png',    { roughness: 0.9, metalness: 0.0 }),
+  fence_tall_hedge_alt: makeMat('fence_tall_hedge_alt.png', { roughness: 0.9, metalness: 0.0 }),
+  fence_iron:          makeMat('fence_iron.png',          { roughness: 0.5, metalness: 0.6, alphaTest: 0.5 }),
+  fence_stone_wall:    makeMat('fence_stone_wall.png',    { roughness: 0.95, metalness: 0.0 }),
+  fence_wood:          makeMat('fence_wood.png',          { roughness: 0.85, metalness: 0.0 }),
+  fence_picket:        makeMat('fence_picket.png',        { roughness: 0.75, metalness: 0.0, alphaTest: 0.5 }),
   rubber_mat:          makeMat('rubber_mat.png',          { roughness: 0.95, metalness: 0.0 }),
   tile_floor_white:    makeMat('tile_floor_white.png',    { roughness: 0.5, metalness: 0.0 }),
   rack_vent_mesh:      makeMat('rack_vent_mesh.png',      { roughness: 0.7, metalness: 0.4 }),
@@ -123,8 +71,9 @@ export const MATERIALS = {
   tile_dirt:        makeMat('tile_dirt.png',        { roughness: 0.9, metalness: 0.0 }),
   tile_rocky_dirt:  makeMat('tile_rocky_dirt.png',  { roughness: 1.0, metalness: 0.0 }),
   tile_grass:       makeMat('tile_grass.png',       { roughness: 0.95, metalness: 0.0 }),
+  tile_wildgrass:   makeMat('tile_wildgrass.png',   { roughness: 0.95, metalness: 0.0 }),
+  tile_tallgrass:   makeMat('tile_tallgrass.png',   { roughness: 0.95, metalness: 0.0 }),
   tile_groomedGrass: makeMat('tile_groomedGrass.png', { roughness: 0.95, metalness: 0.0 }),
-  tile_flower_bed:  new THREE.MeshStandardMaterial({ map: gen_flowerBed(64), roughness: 0.95, metalness: 0.0 }),
   tile_hallway:     makeMat('tile_hallway.png',     { roughness: 0.9, metalness: 0.0 }),
   tile_hardwood:         makeMat('tile_hardwood.png',         { roughness: 0.7, metalness: 0.0 }),
   tile_hardwood_birch:   makeMat('tile_hardwood_birch.png',   { roughness: 0.7, metalness: 0.0 }),

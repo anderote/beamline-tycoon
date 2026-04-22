@@ -104,10 +104,25 @@ export class ViewCube {
       const sy = CY + R * Math.sin(startDeg * Math.PI / 180);
       const ex = CX + R * Math.cos(endDeg * Math.PI / 180);
       const ey = CY + R * Math.sin(endDeg * Math.PI / 180);
+      const arcD = `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 0 ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+      // Invisible fat-stroke hit target along the arc. Uses stroke-opacity:0
+      // so the visible-arc hover CSS (which sets `stroke`) doesn't make it
+      // appear. `pointer-events: stroke` makes the entire stroked band
+      // clickable regardless of opacity.
+      const hit = svgEl('path', {
+        d: arcD,
+        fill: 'none',
+        stroke: '#000',
+        'stroke-opacity': '0',
+        'stroke-width': '14',
+        'stroke-linecap': 'round',
+        'pointer-events': 'stroke',
+      });
       const arc = svgEl('path', {
-        d: `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 0 ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`,
+        d: arcD,
         fill: 'none',
         'stroke-linecap': 'round',
+        'pointer-events': 'none',
       });
       // Arrowhead at the arc endpoint, oriented along the tangent.
       const a = endDeg * Math.PI / 180;
@@ -121,6 +136,7 @@ export class ViewCube {
       const b2x = baseX - px * HW, b2y = baseY - py * HW;
       const head = svgEl('polygon', {
         points: `${ex.toFixed(2)},${ey.toFixed(2)} ${b1x.toFixed(2)},${b1y.toFixed(2)} ${b2x.toFixed(2)},${b2y.toFixed(2)}`,
+        'pointer-events': 'none',
       });
       // Labels at the outer corners of the arrow band, away from the arc
       // tips which now reach near the SVG's left/right edges at the top.
@@ -129,8 +145,22 @@ export class ViewCube {
         y: 20,
         'text-anchor': dir < 0 ? 'start' : 'end',
         class: 'vc-rot-label',
+        'pointer-events': 'none',
       });
       text.textContent = label;
+      // Invisible rect over the label corner so clicking the Q/E text also
+      // triggers rotation. Placed at outer ~22px corner of the SVG.
+      const labelHit = svgEl('rect', {
+        x: dir < 0 ? 0 : 74,
+        y: 8,
+        width: 22,
+        height: 14,
+        fill: '#000',
+        'fill-opacity': '0',
+        'pointer-events': 'all',
+      });
+      g.appendChild(hit);
+      g.appendChild(labelHit);
       g.appendChild(arc);
       g.appendChild(head);
       g.appendChild(text);

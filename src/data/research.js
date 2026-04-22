@@ -586,6 +586,16 @@ export const RESEARCH = {
     unlocks: ['ionSource', 'rfq', 'dtlCavity', 'protonQuad', 'protonDipole'],
     requires: 'cyclotronTech',
   },
+  ecrIonSource: {
+    id: 'ecrIonSource',
+    category: 'machineTypes',
+    name: 'ECR Ion Sources',
+    desc: 'Develop high-current Electron Cyclotron Resonance ion sources. Microwave power at 2.45 GHz heats a magnetically confined plasma, producing proton currents several times higher than classical duoplasmatron sources. Requires integrated RF waveguide injection and active cooling of the chamber and mirror magnets.',
+    cost: { data: 30, funding: 5000000 },
+    duration: 70,
+    unlocks: ['ecrIonSource'],
+    requires: 'protonAcceleration',
+  },
   synchrotronTech: {
     id: 'synchrotronTech', category: 'machineTypes',
     name: 'Synchrotron Technology',

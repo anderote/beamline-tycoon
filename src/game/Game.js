@@ -1,6 +1,6 @@
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
-import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS } from '../data/facility.js';
+import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
 import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
@@ -22,6 +22,7 @@ import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { generateStartingMap } from './map-generator.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
+import { entitiesTick } from './entities/index.js';
 
 export class Game {
   constructor(registry) {
@@ -74,6 +75,10 @@ export class Game {
       placeables: [],              // [{ id, type, category, col, row, subCol, subRow, rotated, dir, params, cells }]
       placeableIndex: {},           // id -> index in placeables array
       subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
+      // Wildlife entities
+      entities: [],                 // flat list of all entity objects
+      herds: [],                    // herd state objects
+      _entitiesLastPlaceableIds: null, // null = first tick — seed but do not trigger startle
       placeableNextId: 1,
       // Beam pipe connections (drawn between module ports)
       beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
@@ -186,7 +191,7 @@ export class Game {
       this.state.placeableIndex[entry.id] = i;
       if (entry.cells && !entry.stackParentId) {
         for (const cell of entry.cells) {
-          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
+          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, kind: entry.kind, category: entry.category };
         }
       }
     }
@@ -404,9 +409,11 @@ export class Game {
     }
     // Auto-remove any decoration (including trees) — include removal cost.
     // Destruction, not dismantle: skip the normal 50% refund.
+    // Surfaces flagged `preservesDecorations` (natural grass variants) place
+    // under trees instead of clearing them.
     const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = tileCost;
-    const existingDec = this._decorationAtTile(col, row);
+    const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(col, row);
     if (existingDec) {
       const def = DECORATIONS[existingDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
@@ -483,10 +490,12 @@ export class Game {
         }
         newTiles++;
         totalCost += tileCost;
-        const existingDec = this._decorationAtTile(c, r);
-        if (existingDec) {
-          const def = DECORATIONS[existingDec.type];
-          totalCost += def ? (def.removeCost || 0) : 0;
+        if (!infra.preservesDecorations) {
+          const existingDec = this._decorationAtTile(c, r);
+          if (existingDec) {
+            const def = DECORATIONS[existingDec.type];
+            totalCost += def ? (def.removeCost || 0) : 0;
+          }
         }
       }
     }
@@ -590,8 +599,9 @@ export class Game {
         // Auto-remove any decoration (including trees). Charge the tree's
         // removeCost on top of the tile cost; destruction skips the normal
         // 50% refund so the actual spend matches the preview total.
+        // Natural grass variants set preservesDecorations: trees stay.
         let perTileExtra = 0;
-        const existingDec = this._decorationAtTile(c, r);
+        const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
         if (existingDec) {
           const decDef = DECORATIONS[existingDec.type];
           perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
@@ -1250,7 +1260,10 @@ export class Game {
     if (stackTarget) {
       entry.placeY = stackTarget.placeY;
       entry.stackParentId = stackTarget.targetEntry.id;
-      entry.cells = [];
+      // Keep entry.cells populated for stacked items so sibling-collision
+      // (canStack) and cursor-anchored descent (findStackTarget) can read the
+      // occupied subtiles. subgridOccupied is only populated for ground items
+      // (guarded in _rebuildPlaceableIndex and the !stackTarget branch below).
       stackTarget.targetEntry.stackChildren.push(id);
     }
 
@@ -1306,10 +1319,6 @@ export class Game {
     const getDef = (t) => PLACEABLES[t] || null;
 
     const updates = collapsePlan(placeableId, getEntry, getDef);
-    if (updates === null) {
-      this.log('Cannot remove — stack would exceed height limit!', 'bad');
-      return false;
-    }
 
     // 50% refund — skipped when the caller is destroying the placeable
     // (e.g. paving over a tree with concrete).
@@ -1323,10 +1332,14 @@ export class Game {
     // subclasses (e.g. BeamlineModule) can still see the instance in place.
     placeable.onRemoved(this, entry);
 
-    // Free sub-grid cells
-    for (const cell of entry.cells) {
-      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-      delete this.state.subgridOccupied[cellKey];
+    // Free sub-grid cells — only for ground-level items. Stacked items also
+    // carry cells (for sibling-collision tracking) but those subtiles belong
+    // to the underlying ground item, not to this entry.
+    if (!entry.stackParentId) {
+      for (const cell of entry.cells) {
+        const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+        delete this.state.subgridOccupied[cellKey];
+      }
     }
 
     // Apply stack collapse
@@ -1348,7 +1361,7 @@ export class Game {
         }
       }
     }
-    for (const u of updates) {
+    for (const u of (updates || [])) {
       const child = getEntry(u.id);
       if (!child) continue;
       child.placeY = u.newPlaceY;
@@ -1420,10 +1433,6 @@ export class Game {
     const getDef = (t) => PLACEABLES[t] || null;
 
     const updates = collapsePlan(placeableId, getEntry, getDef);
-    if (updates === null) {
-      this.log('Cannot remove — stack would exceed height limit!', 'bad');
-      return false;
-    }
 
     if (placeable.cost) {
       for (const [r, a] of Object.entries(placeable.cost)) {
@@ -1433,9 +1442,13 @@ export class Game {
 
     placeable.onRemoved(this, entry);
 
-    for (const cell of entry.cells) {
-      const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-      delete this.state.subgridOccupied[cellKey];
+    // Only ground-level items occupy subgridOccupied — stacked items carry
+    // cells for sibling tracking but don't own those subtiles.
+    if (!entry.stackParentId) {
+      for (const cell of entry.cells) {
+        const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+        delete this.state.subgridOccupied[cellKey];
+      }
     }
 
     if (entry.stackParentId) {
@@ -1456,7 +1469,7 @@ export class Game {
         }
       }
     }
-    for (const u of updates) {
+    for (const u of (updates || [])) {
       const child = getEntry(u.id);
       if (!child) continue;
       child.placeY = u.newPlaceY;
@@ -2014,10 +2027,19 @@ export class Game {
       return;
     }
 
-    // Build ordered beamline for physics engine
+    // Build ordered beamline for physics engine. Flattener drift entries
+    // (kind === 'drift') have no `type` field — pass them through as
+    // type: 'drift' with their subL length, matching _deriveBeamGraph.
     const physicsBeamline = ordered.map(el => {
       const t = COMPONENTS[el.type];
-      if (!t) return { type: el.type, subL: el.subL || 4, stats: {}, params: el.params || {} };
+      if (!t) {
+        return {
+          type: 'drift',
+          subL: el.subL || 4,
+          stats: {},
+          params: el.params || {},
+        };
+      }
       const effectiveStats = { ...(t.stats || {}) };
       const params = el.params || {};
       let computed = null;
@@ -2269,12 +2291,12 @@ export class Game {
       const tileZone = this.state.zoneOccupied[key];
 
       // zoneOutput only applies in the preferred zone
-      if (furnDef.effects.zoneOutput && tileZone === furnDef.zoneType) {
+      if (furnDef.effects.zoneOutput && itemMatchesZone(furnDef, tileZone)) {
         zoneOutput[tileZone] = (zoneOutput[tileZone] || 0) + furnDef.effects.zoneOutput;
       }
 
       // research applies in the preferred zone
-      if (furnDef.effects.research && tileZone === furnDef.zoneType) {
+      if (furnDef.effects.research && itemMatchesZone(furnDef, tileZone)) {
         research[tileZone] = (research[tileZone] || 0) + furnDef.effects.research;
       }
     }
@@ -2473,6 +2495,9 @@ export class Game {
 
     // Tick machines (cyclotrons, stalls, rings)
     this._tickMachines();
+
+    // Tick wildlife entities
+    entitiesTick(this);
 
     // Recompute system-level infrastructure stats
     this.computeSystemStats();
@@ -3067,8 +3092,10 @@ export class Game {
     delete saveState.cornerHeightsRevision;
     // utilityNetworkData is derived; don't persist.
     delete saveState.utilityNetworkData;
+    // _entitiesLastPlaceableIds is a runtime Set; don't persist.
+    delete saveState._entitiesLastPlaceableIds;
     const payload = JSON.stringify({
-      version: 6,
+      version: 7,
       state: saveState,
       beamlines: this.registry.toJSON(),
     });
@@ -3080,15 +3107,9 @@ export class Game {
     if (!raw) return false;
     try {
       const data = JSON.parse(raw);
-      if (!data.version || data.version < 5) {
+      if (!data.version || data.version < 7) {
         localStorage.removeItem('beamlineTycoon');
         return false;
-      }
-
-      // Migrate v5 save data to v6 format
-      if (data.version === 5) {
-        this._migrateV5(data);
-        return true;
       }
 
       Object.assign(this.state, data.state);
@@ -3161,6 +3182,13 @@ export class Game {
       if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
       if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
       if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+      // Ensure wildlife entity state exists
+      if (!this.state.entities) this.state.entities = [];
+      if (!this.state.herds) this.state.herds = [];
+      // _entitiesLastPlaceableIds is not persisted; reset to null on load
+      // so the first tick seeds the cache without triggering startle.
+      this.state._entitiesLastPlaceableIds = null;
 
       // Ensure unified placement state exists
       if (!this.state.placeables) this.state.placeables = [];
@@ -3248,7 +3276,7 @@ export class Game {
           if (!entry.stackChildren) entry.stackChildren = [];
           if (entry.cells && !entry.stackParentId) {
             for (const cell of entry.cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, category: entry.category };
+              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, kind: entry.kind, category: entry.category };
             }
           }
         }
@@ -3306,208 +3334,4 @@ export class Game {
     } catch (e) { console.error('Save load failed:', e); return false; }
   }
 
-  _migrateV5(data) {
-    // Migrate a v5 save: single beamline stored at data.beamline, beam fields on data.state
-    Object.assign(this.state, data.state);
-
-    // v5 saves predate the terrain heightmap — always start flat.
-    this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
-    this.state.cornerHeightsRevision = 0;
-
-    // Determine machine type from v5 state
-    const machineType = data.state.machineType || 'linac';
-
-    // Create a single beamline entry from the v5 data (legacy node graph
-    // no longer exists, so we just create the registry entry and let the
-    // pipe graph be the source of truth).
-    const entry = this.registry.createBeamline(machineType);
-
-    // Move per-beamline fields from state to beamState
-    const beamFields = [
-      'beamEnergy', 'beamCurrent', 'beamQuality', 'dataRate', 'luminosity',
-      'totalLength', 'totalEnergyCost', 'beamOnTicks', 'continuousBeamTicks',
-      'uptimeFraction', 'totalBeamHours', 'totalDataCollected', 'physicsAlive',
-      'physicsEnvelope', 'discoveryChance', 'photonRate', 'collisionRate',
-      'totalLossFraction', 'componentHealth', 'felSaturated',
-    ];
-    for (const field of beamFields) {
-      if (data.state[field] !== undefined) {
-        entry.beamState[field] = data.state[field];
-      }
-      delete this.state[field];
-    }
-    entry.beamState.machineType = machineType;
-
-    // Transfer beam on state to entry status
-    if (data.state.beamOn) {
-      entry.status = 'running';
-    }
-    delete this.state.beamOn;
-    delete this.state.machineType;
-
-    // Select entry for editing (will be linked to source via migration later)
-    this.editingBeamlineId = entry.id;
-    this.selectedBeamlineId = entry.id;
-
-    // Rebuild infraOccupied
-    this.state.infraOccupied = {};
-    if (this.state.floors) {
-      for (const tile of this.state.floors)
-        this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
-    } else { this.state.floors = []; }
-    // Rebuild zoneOccupied
-    this.state.zones = this.state.zones || [];
-    this.state.zoneOccupied = {};
-    for (const z of this.state.zones) {
-      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
-    }
-    this.state.zoneConnectivity = {};
-    this.recomputeZoneConnectivity();
-    // Rebuild machineGrid
-    this.state.machineGrid = {};
-    if (this.state.machines) {
-      for (const m of this.state.machines) {
-        const def = MACHINES[m.type];
-        if (!def) continue;
-        for (let dy = 0; dy < def.h; dy++)
-          for (let dx = 0; dx < def.w; dx++)
-            this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
-      }
-    } else { this.state.machines = []; }
-    // Discard legacy connections / rack-segment / networkData from old saves
-    delete this.state.connections;
-    delete this.state.rackSegments;
-    delete this.state.networkData;
-
-    // Rehydrate new-system utility state (Phase 6 / Task 24). v5 saves
-    // predate the new system, so these always start empty.
-    this.state.utilityLines = new Map();
-    this.state.utilityNetworkState = new Map();
-    this.state.utilityNextId = 1;
-    this.state.utilityNetworkData = null;
-
-    // Ensure facility arrays exist
-    if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
-    if (!this.state.facilityGrid) this.state.facilityGrid = {};
-    if (!this.state.facilityNextId) this.state.facilityNextId = 1;
-    if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
-    if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
-    if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
-
-    // Ensure unified placement state exists
-    if (!this.state.placeables) this.state.placeables = [];
-    if (!this.state.placeableIndex) this.state.placeableIndex = {};
-    if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
-    if (!this.state.placeableNextId) this.state.placeableNextId = 1;
-    if (!this.state.beamPipes) this.state.beamPipes = [];
-    if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
-
-    // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
-    if (this.state.placeables.length === 0) {
-      // Migrate facility equipment
-      if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
-        for (const eq of this.state.facilityEquipment) {
-          const def = COMPONENTS[eq.type];
-          const gw = def ? (def.gridW || def.subW || 4) : 4;
-          const gh = def ? (def.gridH || def.subL || 4) : 4;
-          const id = 'eq_' + this.state.placeableNextId++;
-          const cells = [];
-          for (let dr = 0; dr < gh; dr++) {
-            for (let dc = 0; dc < gw; dc++) {
-              cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
-            }
-          }
-          const entry = {
-            id, type: eq.type, category: 'equipment',
-            col: eq.col, row: eq.row, subCol: 0, subRow: 0,
-            rotated: false, dir: null, params: null, cells,
-          };
-          this.state.placeables.push(entry);
-          this.state.placeableIndex[id] = this.state.placeables.length - 1;
-          for (const cell of cells) {
-            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
-          }
-        }
-      }
-
-      // Migrate zone furnishings
-      if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
-        for (const zf of this.state.zoneFurnishings) {
-          const def = ZONE_FURNISHINGS[zf.type];
-          const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
-          const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
-          const id = 'fn_' + this.state.placeableNextId++;
-          const cells = [];
-          for (let dr = 0; dr < gh; dr++) {
-            for (let dc = 0; dc < gw; dc++) {
-              const sc = (zf.subCol || 0) + dc;
-              const sr = (zf.subRow || 0) + dr;
-              cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
-            }
-          }
-          const entry = {
-            id, type: zf.type, category: 'furnishing',
-            col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
-            rotated: zf.rotated || false, dir: null, params: null, cells,
-          };
-          this.state.placeables.push(entry);
-          this.state.placeableIndex[id] = this.state.placeables.length - 1;
-          for (const cell of cells) {
-            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
-          }
-        }
-      }
-    }
-
-    // Ensure stacking fields have defaults for backward compatibility
-    if (this.state.placeables.length > 0) {
-      for (const entry of this.state.placeables) {
-        if (entry.placeY == null) entry.placeY = 0;
-        if (!entry.stackParentId) entry.stackParentId = null;
-        if (!entry.stackChildren) entry.stackChildren = [];
-      }
-    }
-
-    // Rebuild wall state
-    this.state.walls = this.state.walls || [];
-    this.state.wallOccupied = {};
-    for (const w of this.state.walls) {
-      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
-    }
-
-    // Remove deprecated fields
-    delete this.state.resources.energy;
-    delete this.state.electricalPower;
-    delete this.state.maxElectricalPower;
-
-    this.state.infraBlockers = this.state.infraBlockers || [];
-    this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
-
-    // Initialize params for beamline placeables
-    for (const p of (this.state.placeables || [])) {
-      if (p.category !== 'beamline') continue;
-      const defs = PARAM_DEFS[p.type];
-      if (defs && !p.params) {
-        p.params = {};
-        for (const [k, pdef] of Object.entries(defs)) {
-          if (!pdef.derived) p.params[k] = pdef.default;
-        }
-      }
-    }
-
-    // Migrate old saves: entries without sourceId need one
-    for (const blEntry of this.registry.getAll()) {
-      if (!blEntry.sourceId) {
-        const src = this.state.placeables?.find(p =>
-          p.beamlineId === blEntry.id && COMPONENTS[p.type]?.isSource
-        );
-        if (src) blEntry.sourceId = src.id;
-      }
-    }
-
-    this.recalcAllBeamlines();
-    this.validateInfrastructure();
-    this.log('Game loaded (migrated from v5).', 'info');
-    this.emit('loaded');
-  }
 }

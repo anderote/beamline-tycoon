@@ -1,8 +1,7 @@
 // src/ui/UIHost.js
 //
 // UIHost owns the DOM-side UI of Beamline Tycoon: HUD panels, palette,
-// popups, tech tree, goals overlay, tutorial panel, and anchored context
-// windows.
+// popups, tech tree, goals overlay, and anchored context windows.
 //
 // It is populated by side-effect imports of ../renderer/hud.js and
 // ../renderer/overlays.js, which attach their methods to UIHost.prototype.
@@ -13,7 +12,7 @@
 // methods as `this.X`, so the method bodies migrate verbatim.
 //
 // Fields whose lifecycle is purely UI-local (tree pan/zoom, popup state,
-// anchored-window registries, tutorial state) live on the UIHost instance.
+// anchored-window registries) live on the UIHost instance.
 
 export class UIHost {
   constructor(renderer) {
@@ -40,11 +39,6 @@ export class UIHost {
     this._beamlineWindows = {};
     this._machineWindows = {};
     this._equipmentWindows = {};
-
-    // --- Tutorial panel state ---
-    this._tutorialInited = false;
-    this._tutorialMinimized = true;
-    this._tutorialPrevCompleted = null;
   }
 
   // Number formatter — duplicated from Renderer.prototype._fmt so UI methods

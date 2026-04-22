@@ -133,6 +133,7 @@ export class InputHandler {
     // Hover tooltip state
     this._hoverTooltipTimer = null;
     this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
+    this._hoverWorld = null; // {x, z} world coords under cursor, null when outside map
     this._tooltipEl = null;
     // Beamline-specific input (junction ghosts, pipe drawing, placement-on-pipe).
     // Back-reference is `inputHandler: this` so the controller can read
@@ -1141,12 +1142,6 @@ export class InputHandler {
         return;
       }
 
-      // Placement-mode shortcut: S = snap. Must precede the WASD pan guard
-      // below, which would otherwise swallow 's' for the pan handler.
-      if ((e.key === 's' || e.key === 'S') && this._handlePlacementModeKey('snap')) {
-        return;
-      }
-
       // Track pan keys for continuous movement (WASD only).
       // Normalize to lowercase so Shift toggling mid-press doesn't strand
       // an uppercase entry in the set.
@@ -1721,6 +1716,12 @@ export class InputHandler {
         this.renderer.orbitBy(dx, dy);
         return;
       }
+      // Track cursor world position for the entity/wildlife system
+      {
+        const _hw = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const _gf = isoToGridFloat(_hw.x, _hw.y);
+        this._hoverWorld = { x: _gf.col * 2, z: _gf.row * 2 };
+      }
       if (this.isPanning) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
@@ -1917,8 +1918,18 @@ export class InputHandler {
         }
         // Unified placeable preview. Replaces the previous four branches
         // (equipment / beamline / furnishing / decoration).
-        this.lastMouseWorldX = world.x;
-        this.lastMouseWorldY = world.y;
+        // For stackable items, use the surface-aware raycast so hovering a
+        // desk or a stacked object targets that surface directly instead of
+        // the floor subtile behind it.
+        let placeWorld = world;
+        if (this.selectedPlaceableId) {
+          const selDef = PLACEABLES[this.selectedPlaceableId];
+          if (selDef?.stackable && typeof this.renderer.screenToPlacementWorld === 'function') {
+            placeWorld = this.renderer.screenToPlacementWorld(e.clientX, e.clientY);
+          }
+        }
+        this.lastMouseWorldX = placeWorld.x;
+        this.lastMouseWorldY = placeWorld.y;
         this._lastScreenX = e.clientX;
         this._lastScreenY = e.clientY;
         this._updatePlaceablePreview();
@@ -2204,6 +2215,11 @@ export class InputHandler {
 
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+    });
+
+    // Clear cursor world position when mouse leaves the canvas
+    canvas.addEventListener('mouseleave', () => {
+      this._hoverWorld = null;
     });
 
     // Double-click: enter edit mode for the clicked beamline and open its window
@@ -2968,6 +2984,11 @@ export class InputHandler {
     this.selectedFurnishingTool = null;
     this.furnishingRotated = false;
     this.selectedDecorationTool = null;
+    // selectPlaceable updates selectedPlaceableId, which BeamlineInputController
+    // and renderPlaceableGhost both read for hover-preview routing. Without it,
+    // hotkey selection sets selectedTool but leaves selectedPlaceableId stale,
+    // so beamline components never get their placement-ghost + grid drawn.
+    this.selectPlaceable(compType);
     this.selectedTool = compType;
     this.selectedNodeId = null;
     this.renderer.hidePopup();
@@ -3125,12 +3146,13 @@ export class InputHandler {
     this.renderer.clearDragPreview();
   }
 
-  selectFurnishingTool(furnType) {
+  selectFurnishingTool(furnType, variant = 0) {
     this.deselectInfraTool();
     this.deselectConnTool();
     this.deselectRackTool();
     this.deselectZoneTool();
     this.demolishMode = false;
+    this.selectedPlaceableVariant = variant;
     // Route through unified selection.
     this.selectPlaceable(furnType);
   }
@@ -3820,6 +3842,11 @@ export class InputHandler {
     // Zone tab items
     const zoneCatDef = MODES.facility?.categories?.[this.selectedCategory];
     if (zoneCatDef?.isZoneTab) {
+      // Invariant: index 0 is the zone paint tool. The hud renderer emits
+      // the "Zone" section before the "Furnishings" section (see hud.js
+      // ~line 1085 vs ~1129), so the DOM-order compKeys always puts the
+      // zone item first. Don't reorder those sections without updating
+      // this branch.
       if (this.paletteIndex === 0) {
         const zone = ZONES[key];
         if (!zone) { this._hidePreview(); return; }
@@ -3908,32 +3935,16 @@ export class InputHandler {
   }
 
   _getPaletteCompKeys() {
-    const category = this.selectedCategory;
-    if (category === 'flooring') {
-      return ['labFloor', 'officeFloor', 'concrete', 'hallway'];
-    }
-    if (category === 'walls') {
-      return Object.keys(WALL_TYPES);
-    }
-    if (category === 'doors') {
-      return Object.keys(DOOR_TYPES);
-    }
-    if (category === 'demolish') {
-      return ['demolishBeamline', 'demolishEquipment', 'demolishUtility', 'demolishZone', 'demolishFloor', 'demolishWall', 'demolishDoor', 'demolishAll'];
-    }
-    if (category === 'infrastructure') {
-      return Object.keys(FLOORS);
-    }
-    // Zone tabs: first item is zone type, then furnishings
-    const catDef = MODES.facility?.categories?.[category];
-    if (catDef?.isZoneTab) {
-      const zoneType = catDef.zoneType;
-      const furnKeys = Object.keys(ZONE_FURNISHINGS).filter(k => ZONE_FURNISHINGS[k].zoneType === zoneType);
-      return [zoneType, ...furnKeys];
-    }
+    // DOM is the single source of truth: each rendered palette item stamps
+    // its own `dataset.paletteKey` at render time (see src/renderer/hud.js).
+    // Reading them back in DOM order keeps this list perfectly in sync with
+    // what the user actually sees — no re-deriving from raw data sources,
+    // no drift when the renderer hides locked items, filters by zone, etc.
+    const items = document.querySelectorAll('#component-palette .palette-item');
     const keys = [];
-    for (const [key, comp] of Object.entries(COMPONENTS)) {
-      if (comp.category === category) keys.push(key);
+    for (const el of items) {
+      const k = el.dataset.paletteKey;
+      if (k) keys.push(k);
     }
     return keys;
   }

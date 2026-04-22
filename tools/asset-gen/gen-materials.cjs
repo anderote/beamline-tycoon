@@ -396,6 +396,56 @@ function gen_wallBrick(name, seed) {
   writePng(png, name);
 }
 
+// Cinderblock wall: running-bond masonry with small blocks sized to
+// real-world cinder dimensions. At TEXEL_SCALE=32, BW=8 ≈ 0.25m and
+// BH=4 ≈ 0.13m — slightly under a 0.3m CMU short face, but 8 divides
+// evenly into 64 so the tile is seamless. Light gray cement palette with
+// faded brown-gray mortar so the pattern reads as mason blocks rather
+// than red brick.
+function gen_wallCinderblock(name, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const BW = 8, BH = 4;
+  // Faded brown-gray mortar — matches the grounds stone-wall grout tone.
+  const mortarR = 134, mortarG = 122, mortarB = 108;
+  // Light gray cement with slight block-to-block variation.
+  const blockPalette = [
+    [196, 194, 188],
+    [186, 184, 178],
+    [204, 202, 196],
+    [190, 188, 182],
+    [200, 198, 192],
+    [182, 180, 174],
+  ];
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const row = Math.floor(y / BH);
+      const offset = (row % 2 === 0) ? 0 : BW / 2;
+      const xx = ((x - offset) % SIZE + SIZE) % SIZE;
+      const col = Math.floor(xx / BW);
+      const tx = xx % BW;
+      const ty = y % BH;
+      const onMortar = (tx >= BW - CHUNK) || (ty >= BH - CHUNK);
+      if (onMortar) {
+        const n = (rand() - 0.5) * 6;
+        setBlock(png, x, y, mortarR + n, mortarG + n, mortarB + n, CHUNK);
+        continue;
+      }
+      const blockId = (row * 8 + col) % blockPalette.length;
+      const [br, bg, bb] = blockPalette[blockId];
+      // Small blocks: one highlight row on top, no separate shadow row.
+      const highlight = ty < CHUNK ? 8 : 0;
+      const n = (rand() - 0.5) * 10;
+      setBlock(png, x, y,
+        br + highlight + n,
+        bg + highlight + n,
+        bb + highlight + n,
+        CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -438,6 +488,7 @@ gen_wallCement('wall_cement',   20);
 gen_wallShingle('wall_shingle', 21);
 gen_wallSiding('wall_siding',   22);
 gen_wallBrick('wall_brick',     23);
+gen_wallCinderblock('wall_cinderblock', 24);
 
 // Fences — RGBA with true transparent holes.
 gen_wallChainLink('wall_chain_link', 30, false);

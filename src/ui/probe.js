@@ -6,6 +6,7 @@ import { ProbePlots } from './probe-plots.js';
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
 const PROBE_PLOT_TYPES = [
+  { id: 'eic-triangle', name: 'E / I / \u03b5 Triangle' },
   { id: 'phase-space', name: 'Phase Space' },
   { id: 'beam-envelope', name: 'Beam Envelope' },
   { id: 'current-loss', name: 'Current & Loss' },

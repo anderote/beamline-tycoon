@@ -685,6 +685,42 @@ body {
   margin: 0 6px;
 }
 
+#hotkey-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  color: #ffffff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  pointer-events: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+#hotkey-hint.hidden { display: none; }
+#hotkey-hint .hk-g {
+  color: #ffffff;
+}
+#hotkey-hint .k {
+  color: #ffe38a;
+  margin-left: 4px;
+}
+#hotkey-hint .k + .k {
+  margin-left: 2px;
+}
+#hotkey-hint .hk-sep {
+  display: none;
+}
+
 /* HUD controls — two rows: modes+pipes on top, category tabs below */
 #hud-controls {
   display: flex;
@@ -769,6 +805,7 @@ body {
   border: 1px solid rgba(80, 80, 120, 0.4);
   border-radius: 3px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .hud-btn:hover {
@@ -982,6 +1019,12 @@ body {
   border-radius: 4px;
   display: flex;
   flex-direction: column;
+}
+
+/* When the designs library is opened as a modal on top of the designer
+   (z-index 250), it needs to sit above it. */
+.overlay.designs-modal {
+  z-index: 260;
 }
 
 .overlay-header {
@@ -1317,6 +1360,50 @@ body {
 
 .tt-connector.completed {
   stroke: rgba(60, 160, 80, 0.5);
+}
+
+/* === GOALS OVERLAY (tutorial checklist) === */
+#goals-list {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #ccc;
+}
+
+.goals-progress {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(100, 100, 160, 0.25);
+}
+
+.goals-progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #aaccff;
+  font-size: 9px;
+  margin-bottom: 5px;
+}
+
+.goals-progress-count {
+  color: #888;
+  font-size: 8px;
+}
+
+.goals-progress-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.goals-progress-fill {
+  height: 100%;
+  background: #4a9;
+  transition: width 0.3s ease;
+}
+
+#goals-list .tut-group {
+  margin-bottom: 8px;
 }
 
 /* === OBJECTIVE / GOAL ITEMS === */
@@ -1768,6 +1855,25 @@ body {
   opacity: 0.3;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.mode-hotkey {
+  margin-right: 6px;
+  color: inherit;
+  opacity: 0.6;
+}
+
+.palette-hotkey {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  color: #aaaacc;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .mode-btn-demolish {
@@ -2406,6 +2512,7 @@ body {
   border-radius: 3px;
   cursor: pointer;
   background: rgba(30, 30, 60, 0.8);
+  color: #eee;
 }
 .dsgn-btn.active {
   background: rgba(68, 136, 255, 0.3);

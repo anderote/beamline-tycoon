@@ -571,7 +571,159 @@ function _buildSource() {
     group.add(rail);
   }
 
-  group.rotation.y = Math.PI;
+  return group;
+}
+
+function _buildDuoplasmatron() {
+  const group = new THREE.Group();
+  const bodyColor   = 0x4a5b7a; // dark steel-blue, distinct from electron gun's green-grey
+  const magnetColor = 0x222222; // dark iron magnet collar
+  const cathodeC    = 0xff6633; // hot-cathode emissive orange
+  const copperC     = 0xb87333; // copper extraction electrodes
+
+  // ── Main body cylinder ──
+  const bodyR = 0.4, bodyH = 1.0;
+  const bodyZ = -0.1; // shifted slightly back so extraction stack fits inside footprint
+  {
+    const g = new THREE.CylinderGeometry(bodyR, bodyR, bodyH, SEGS);
+    applyTiledCylinderUVs(g, bodyR, bodyH, SEGS);
+    const body = _addShadow(new THREE.Mesh(g, _mat(bodyColor, 0.5, 0.4)));
+    body.rotation.x = Math.PI / 2;
+    body.position.set(0, BEAM_HEIGHT, bodyZ);
+    group.add(body);
+  }
+
+  // Front and rear flanges
+  const flR = 0.43, flH = 0.04;
+  for (const zOff of [bodyZ - bodyH / 2, bodyZ + bodyH / 2]) {
+    const g = new THREE.CylinderGeometry(flR, flR, flH, SEGS);
+    applyTiledCylinderUVs(g, flR, flH, SEGS);
+    const fl = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
+    fl.rotation.x = Math.PI / 2;
+    fl.position.set(0, BEAM_HEIGHT, zOff);
+    group.add(fl);
+  }
+
+  // ── Magnet collar — torus around the body midpoint ──
+  {
+    const torusR = bodyR + 0.06; // ring radius around body
+    const tubeR  = 0.09;          // torus tube thickness
+    const g = new THREE.TorusGeometry(torusR, tubeR, 8, 24);
+    const torus = _addShadow(new THREE.Mesh(g, _mat(magnetColor, 0.6, 0.6)));
+    // TorusGeometry lies in XY plane by default (axis along +Z) — already
+    // wrapping around the beam axis. Position at body midpoint.
+    torus.position.set(0, BEAM_HEIGHT, bodyZ);
+    group.add(torus);
+  }
+
+  // ── Hot-cathode rear cap — small disc with emissive orange ──
+  {
+    const capR = 0.18, capH = 0.05;
+    const g = new THREE.CylinderGeometry(capR, capR, capH, SEGS);
+    applyTiledCylinderUVs(g, capR, capH, SEGS);
+    const mat = new THREE.MeshStandardMaterial({
+      color: cathodeC,
+      emissive: 0xff6633,
+      emissiveIntensity: 0.4,
+      roughness: 0.6,
+      metalness: 0.1,
+    });
+    const cap = _addShadow(new THREE.Mesh(g, mat));
+    cap.rotation.x = Math.PI / 2;
+    cap.position.set(0, BEAM_HEIGHT, bodyZ - bodyH / 2 - flH - capH / 2);
+    group.add(cap);
+  }
+
+  // ── Extraction electrode stack — two thin copper rings at the front ──
+  {
+    const ringR = 0.15, ringH = 0.04, gap = 0.05;
+    const baseZ = bodyZ + bodyH / 2 + flH;
+    for (let i = 0; i < 2; i++) {
+      const z = baseZ + ringH / 2 + i * (ringH + gap);
+      const g = new THREE.CylinderGeometry(ringR, ringR, ringH, SEGS);
+      applyTiledCylinderUVs(g, ringR, ringH, SEGS);
+      const ring = _addShadow(new THREE.Mesh(g, _mat(copperC, 0.35, 0.6)));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(0, BEAM_HEIGHT, z);
+      group.add(ring);
+    }
+  }
+
+  return group;
+}
+
+function _buildEcrIonSource() {
+  const group = new THREE.Group();
+  const chamberColor   = 0x8a9aab; // light steel
+  const coilColor      = 0x884422; // dark copper coils
+  const waveguideColor = 0xc8b060; // brass waveguide
+  const copperC        = 0xb87333; // copper extraction plates
+
+  // ── Plasma chamber — central cylinder ──
+  const chR = 0.5, chH = 1.2;
+  const chZ = -0.2; // shift back a bit so extraction stack lives inside the 6-sub footprint
+  {
+    const g = new THREE.CylinderGeometry(chR, chR, chH, SEGS);
+    applyTiledCylinderUVs(g, chR, chH, SEGS);
+    const ch = _addShadow(new THREE.Mesh(g, _mat(chamberColor, 0.45, 0.5)));
+    ch.rotation.x = Math.PI / 2;
+    ch.position.set(0, BEAM_HEIGHT, chZ);
+    group.add(ch);
+  }
+
+  // End-cap flanges
+  const flR = 0.54, flH = 0.05;
+  for (const zOff of [chZ - chH / 2, chZ + chH / 2]) {
+    const g = new THREE.CylinderGeometry(flR, flR, flH, SEGS);
+    applyTiledCylinderUVs(g, flR, flH, SEGS);
+    const fl = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
+    fl.rotation.x = Math.PI / 2;
+    fl.position.set(0, BEAM_HEIGHT, zOff);
+    group.add(fl);
+  }
+
+  // ── Mirror solenoid coils — two large toruses near each end of chamber ──
+  {
+    const ringR = 0.55;  // ring radius
+    const tubeR = 0.12;  // tube thickness
+    const inset = 0.18;  // distance from chamber end inward
+    for (const zOff of [chZ - chH / 2 + inset, chZ + chH / 2 - inset]) {
+      const g = new THREE.TorusGeometry(ringR, tubeR, 10, 28);
+      const torus = _addShadow(new THREE.Mesh(g, _mat(coilColor, 0.55, 0.55)));
+      // TorusGeometry is in XY plane (axis along +Z), wraps the beam axis.
+      torus.position.set(0, BEAM_HEIGHT, zOff);
+      group.add(torus);
+    }
+  }
+
+  // ── Microwave waveguide — rectangular box entering rear-left of chamber ──
+  {
+    const wgW = 0.25, wgH = 0.25, wgL = 0.6;
+    const g = new THREE.BoxGeometry(wgW, wgH, wgL);
+    applyTiledBoxUVs(g, wgW, wgH, wgL);
+    const wg = _addShadow(new THREE.Mesh(g, _mat(waveguideColor, 0.4, 0.6)));
+    // Place to the rear-left of the chamber, axis aligned with beam (z direction).
+    wg.position.set(-(chR + wgW / 2 + 0.02), BEAM_HEIGHT + 0.05, chZ - chH / 2 + wgL / 2);
+    group.add(wg);
+  }
+
+  // ── Extraction stack — three copper plates of decreasing radius at front ──
+  {
+    const plateRs = [0.25, 0.18, 0.12];
+    const plateH  = 0.04;
+    const gap     = 0.06;
+    const baseZ   = chZ + chH / 2 + flH;
+    for (let i = 0; i < plateRs.length; i++) {
+      const r = plateRs[i];
+      const z = baseZ + plateH / 2 + i * (plateH + gap);
+      const g = new THREE.CylinderGeometry(r, r, plateH, SEGS);
+      applyTiledCylinderUVs(g, r, plateH, SEGS);
+      const plate = _addShadow(new THREE.Mesh(g, _mat(copperC, 0.35, 0.6)));
+      plate.rotation.x = Math.PI / 2;
+      plate.position.set(0, BEAM_HEIGHT, z);
+      group.add(plate);
+    }
+  }
 
   return group;
 }
@@ -2056,6 +2208,8 @@ ROLE_BUILDERS.target     = _buildTargetRoles;
 // that still return a fully-assembled THREE.Group rather than role buckets).
 const DETAIL_BUILDERS = {
   source: _buildSource,
+  ionSource: _buildDuoplasmatron,
+  ecrIonSource: _buildEcrIonSource,
   drift: _buildDrift,
 };
 

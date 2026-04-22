@@ -335,7 +335,17 @@ function buildPipeAttachments(game) {
     if (pathLen === 0) continue;
 
     for (const att of atts) {
-      const t = Math.max(0, Math.min(1, att.position ?? 0));
+      // `att.position` is the START of the placement's claimed interval
+      // [position, position + subL/pipe.subL]. The mesh is rendered CENTERED
+      // on its returned (col, row), so we sample the pipe at the interval's
+      // midpoint — otherwise the mesh sits half-its-length behind the subtiles
+      // it actually reserves, creating a visible mismatch between the ghost
+      // preview (which already uses the center) and the committed placement.
+      const halfW = (pipe.subL > 0 && typeof att.subL === 'number')
+        ? (att.subL / pipe.subL) / 2
+        : 0;
+      const center = (att.position ?? 0) + halfW;
+      const t = Math.max(0, Math.min(1, center));
       const exactIdx = t * (pathLen - 1);
       const idx0 = Math.floor(exactIdx);
       const idx1 = Math.min(idx0 + 1, pathLen - 1);
@@ -368,7 +378,7 @@ function buildPipeAttachments(game) {
         dimmed: false,
         health: undefined,
         pipeId: pipe.id,
-        position: t,
+        position: att.position ?? 0,
         // Pass through the placement's own subL so long placements
         // (e.g. rfCavity subL=6) render at their correct length even when
         // the renderer falls back to a placeholder box.
@@ -389,6 +399,7 @@ function buildFurnishings(game) {
     type: f.type,
     dir: f.dir ?? 0,
     placeY: f.placeY || 0,
+    variant: f.variant ?? 0,
   }));
 }
 

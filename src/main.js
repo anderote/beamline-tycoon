@@ -134,6 +134,11 @@ function showScenarioPicker(game) {
 
   // Wire "Place" from design library
   designLibrary.onPlace = (design) => {
+    if (designer.isOpen) {
+      designer._suppressHashUpdate = true;
+      designer._cleanup();
+    }
+    if (window.location.hash !== '#game') window.location.hash = 'game';
     designPlacer.start(design);
     game.log('Click to place design. F=rotate, R=reflect, Esc=cancel', 'info');
   };
@@ -150,7 +155,7 @@ function showScenarioPicker(game) {
   renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
   renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
   renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);
-  renderer._onFurnishingSelect = (furnType) => input.selectFurnishingTool(furnType);
+  renderer._onFurnishingSelect = (furnType, variant = 0) => input.selectFurnishingTool(furnType, variant);
   renderer._onDecorationSelect = (decType, variant = 0) => input.selectDecorationTool(decType, variant);
   renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
   renderer._onPaletteClick = (idx) => input._syncPaletteClick(idx);
@@ -299,9 +304,9 @@ function showScenarioPicker(game) {
     router.navigate('designer');
   });
 
-  // Designs button — opens library
-  document.getElementById('btn-designs').addEventListener('click', () => {
-    router.navigate('designs');
+  // Load Design button inside the designer — opens library as a modal on top
+  document.getElementById('dsgn-load-design').addEventListener('click', () => {
+    designLibrary.open(true);
   });
 
   // Menu dropdown toggle

@@ -463,8 +463,8 @@ export function _buildTargetRoles() {
 
   // Two support pedestals
   const bottomY = BEAM_HEIGHT - chamberR;
-  _addPedestal(buckets, -0.25, bottomY - 0.04, 0.28, 0.2);
-  _addPedestal(buckets, 0.35, bottomY - 0.04, 0.28, 0.2);
+  _addPedestal(buckets, -0.25, bottomY + 0.1, 0.28, 0.2);
+  _addPedestal(buckets, 0.35, bottomY + 0.1, 0.28, 0.2);
 
   return buckets;
 }

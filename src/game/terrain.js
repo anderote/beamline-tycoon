@@ -113,6 +113,63 @@ export function getTileCornersY(state, col, row) {
   };
 }
 
+/**
+ * Bilinearly interpolate a height within a tile from its 4 corner values.
+ * `corners` is `{ nw, ne, se, sw }` (any numeric units — steps or meters).
+ * `(u, v)` are local tile coords in `[0, 1]`, where `(0, 0)` = NW and
+ * `(1, 1)` = SE. Pure function; caller supplies corners.
+ */
+export function sampleCornersAt(corners, u, v) {
+  const iu = 1 - u;
+  const iv = 1 - v;
+  return iu * iv * corners.nw
+       +  u * iv * corners.ne
+       +  u *  v * corners.se
+       + iu *  v * corners.sw;
+}
+
+/**
+ * Triangulated sample at sub-tile coords (u, v) ∈ [0, 1] using the SAME
+ * diagonal split (SW→NE) as `terrain-builder`. Matches the rendered mesh
+ * exactly. Pure function — caller supplies corners; useful when you want
+ * to sample inside ONE specific tile and never reach into a neighbour
+ * (e.g. footprint corners at u=1 or v=1).
+ *
+ * Triangle 1 (NW, SW, NE) covers u+v ≤ 1.
+ * Triangle 2 (NE, SW, SE) covers u+v > 1.
+ */
+export function sampleCornersTriangulated(corners, u, v) {
+  if (u + v <= 1) {
+    return (1 - u - v) * corners.nw + u * corners.ne + v * corners.sw;
+  }
+  return (1 - v) * corners.ne + (1 - u) * corners.sw + (u + v - 1) * corners.se;
+}
+
+/**
+ * Sample the terrain surface Y (world meters) at any world (x, z).
+ * Resolves the containing tile and triangulates with the same diagonal
+ * as the rendered mesh. Tile size = 2 world units.
+ *
+ * Note: at exact tile boundaries (worldX = col*2), this returns the
+ * sample from the EAST tile (the tile starting at that x). For footprint
+ * corners that should stay within a known tile, use
+ * `sampleCornersTriangulated` directly with that tile's corners instead.
+ */
+export function sampleSurfaceYAt(state, worldX, worldZ) {
+  const col = Math.floor(worldX / 2);
+  const row = Math.floor(worldZ / 2);
+  const u = (worldX - col * 2) / 2;
+  const v = (worldZ - row * 2) / 2;
+  return sampleCornersTriangulated(getTileCornersY(state, col, row), u, v);
+}
+
+export function sampleGroundTypeAt(state, x, z) {
+  const col = Math.floor(x / 2);
+  const row = Math.floor(z / 2);
+  const infra = state.infraOccupied?.[col + ',' + row];
+  return infra ?? null;
+}
+
 export function getCornerHeight(state, col, row, cornerIdx) {
   const arr = state.cornerHeights.get(key(col, row));
   if (!arr) return 0;

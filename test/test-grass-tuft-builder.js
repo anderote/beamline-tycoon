@@ -57,14 +57,66 @@ test('density multiplier scales tuft count', () => {
 test('clump-style kinds have density multipliers, wildgrass denser', () => {
   assert.ok(typeof GRASS_DENSITY_MUL.grass === 'number');
   assert.ok(typeof GRASS_DENSITY_MUL.wildgrass === 'number');
+  assert.ok(typeof GRASS_DENSITY_MUL.tallgrass === 'number');
   assert.ok(GRASS_DENSITY_MUL.wildgrass > GRASS_DENSITY_MUL.grass);
+  // Tallgrass layers rough clumps under the tall single blades, so it
+  // should be at least as dense as wildgrass on the clump layer.
+  assert.ok(GRASS_DENSITY_MUL.tallgrass >= GRASS_DENSITY_MUL.wildgrass);
 });
 
-test('tall grass produces dense single-blade fields (60+ per tile)', () => {
+test('tall grass produces tufted fields (100+ blades per tile)', () => {
+  // Tufts are 7..10, each 14/18/22 blades depending on height class.
+  // Lower bound: 7 tufts × 14 blades (all short) = 98.
+  // Upper bound: 10 tufts × 22 blades (all tall) = 220.
   for (let i = 0; i < 50; i++) {
     const blades = computeTallGrassBladesForCell(i, 0, i * 2654435761 | 0, 0);
-    assert.ok(blades.length >= 60 && blades.length <= 91, `got ${blades.length}`);
+    assert.ok(blades.length >= 98 && blades.length <= 220, `got ${blades.length}`);
   }
+});
+
+test('tall grass has short/medium/tall/reed height classes', () => {
+  // Sample many cells; each tuft's blades share a height-class base scale.
+  // Expect all four bands to appear across a broad sample. Class scales
+  // (with ±10% jitter):
+  //   short  0.30 → 0.27..0.33
+  //   medium 0.55 → 0.50..0.61
+  //   tall   0.85 → 0.77..0.94
+  //   reed   1.08 → 0.97..1.19
+  const classes = new Set();
+  for (let i = 0; i < 300; i++) {
+    const blades = computeTallGrassBladesForCell(i, 0, i * 2654435761 | 0, 0);
+    for (const b of blades) {
+      if (b.scale < 0.40)      classes.add('short');
+      else if (b.scale < 0.70) classes.add('medium');
+      else if (b.scale < 0.96) classes.add('tall');
+      else                     classes.add('reed');
+    }
+  }
+  assert.ok(classes.has('short'), 'short tufts missing');
+  assert.ok(classes.has('medium'), 'medium tufts missing');
+  assert.ok(classes.has('tall'), 'tall tufts missing');
+  assert.ok(classes.has('reed'), 'reed tufts missing');
+});
+
+test('reed blades use straw palette and bend gently', () => {
+  // Reeds are the tallest class (≥0.96 m with jitter) and wear the
+  // REED_COLORS palette; they still lean so the field never looks rigid.
+  const reedPalette = new Set([
+    0xbca05a, 0xa89040, 0xc8b060, 0x8e7a30,
+    0x9a8540, 0x6a7028, 0xa89a50, 0x585020,
+  ]);
+  let reedsSeen = 0;
+  for (let i = 0; i < 300; i++) {
+    const blades = computeTallGrassBladesForCell(i, 0, i * 2654435761 | 0, 0);
+    for (const b of blades) {
+      if (b.scale >= 0.96) {
+        reedsSeen++;
+        assert.ok(b.tilt >= 0.10 && b.tilt <= 0.36, `reed tilt ${b.tilt} out of range`);
+        assert.ok(reedPalette.has(b.colorHex), `reed color 0x${b.colorHex.toString(16)} not in reed palette`);
+      }
+    }
+  }
+  assert.ok(reedsSeen > 0, 'no reeds seen across 300 cells');
 });
 
 test('tall grass blades are deterministic and inside cell bounds', () => {
@@ -74,7 +126,12 @@ test('tall grass blades are deterministic and inside cell bounds', () => {
   for (const blade of a) {
     assert.ok(Math.abs(blade.x - 7) <= 0.5);
     assert.ok(Math.abs(blade.z - 3) <= 0.5);
-    assert.ok(blade.tilt >= 0 && blade.tilt <= 0.21);
+    // Reeds arc gently (0.10..0.35 rad); grass blades bend harder (0.12..0.55).
+    if (blade.scale >= 0.96) {
+      assert.ok(blade.tilt >= 0.10 && blade.tilt <= 0.36, `reed tilt ${blade.tilt}`);
+    } else {
+      assert.ok(blade.tilt >= 0.12 && blade.tilt <= 0.56, `grass tilt ${blade.tilt}`);
+    }
   }
 });
 

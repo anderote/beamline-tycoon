@@ -208,7 +208,7 @@ function gen_cobblestone() {
   const png = makePng();
   const rand = mulberry32(505);
   // Warm light gray grout between stones.
-  const baseR = 178, baseG = 174, baseB = 165;
+  const baseR = 168, baseG = 160, baseB = 148;
   const CHUNK = 2;
   for (let y = 0; y < SIZE; y += CHUNK) {
     for (let x = 0; x < SIZE; x += CHUNK) {
@@ -218,17 +218,22 @@ function gen_cobblestone() {
   }
   // Grid of stones on a 4-px pitch with a small half-row offset so
   // rows don't perfectly align. Each stone fills a 4×4 block with its
-  // own mid-gray tone.
+  // own mid-gray or warm-beige tone, mixing both so the path reads as
+  // irregular cobbles rather than uniform river rock.
   const STONE = 4;
   const stonePalette = [
+    // Cool mid-grays
     [138, 135, 128],
     [150, 146, 138],
     [128, 124, 118],
-    [158, 152, 142],
     [120, 118, 112],
-    [145, 140, 130],
     [132, 128, 120],
-    [152, 145, 135],
+    // Warm beige/tan stones
+    [168, 152, 128],
+    [156, 140, 116],
+    [178, 160, 134],
+    [148, 132, 108],
+    [184, 168, 142],
   ];
   for (let row = 0; row < SIZE / STONE; row++) {
     const rowOffset = (row % 2) * 2; // half-stone stagger
@@ -262,12 +267,15 @@ function gen_dirt() {
   const rand = mulberry32(606);
   const CHUNK = 2;
   const CELL = 4;
+  // RCT2 mid-warm brown — darker and less yellow than a tan path, but
+  // still reads as dry packed earth (not mud).
   const palette = [
-    [176, 138, 92],
-    [168, 130, 86],
-    [184, 146, 98],
-    [160, 122, 80],
-    [190, 152, 104],
+    [138, 100, 64],
+    [130, 92, 58],
+    [148, 108, 72],
+    [122, 86, 52],
+    [156, 116, 78],
+    [134, 96, 60],
   ];
   for (let cy = 0; cy < SIZE; cy += CELL) {
     for (let cx = 0; cx < SIZE; cx += CELL) {
@@ -462,6 +470,142 @@ function gen_grass() {
     setBlock(png, x, y, 110, 150, 70, CHUNK);
   }
   writePng(png, 'tile_grass');
+}
+
+// ── tile_wildgrass: unmowed meadow ──────────────────────────────────
+// Same base as tile_grass but with dense dark-green rough-clump marks
+// layered on top — matches the in-world look where wildgrass cells are
+// regular grass terrain blanketed with 3× the clump-tuft density. No
+// flower specks: wildflowers are a separate decoration type.
+function gen_wildgrass() {
+  const png = makePng();
+  const rand = mulberry32(921);
+  // Match tile_grass base tones so wildgrass reads as "same ground, more clumps".
+  const baseR = 80, baseG = 115, baseB = 50;
+  const CHUNK = 2;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const n = (rand() - 0.5) * 26;
+      const nr = n + (rand() - 0.5) * 6;
+      const ng = n + (rand() - 0.5) * 8;
+      const nb = n + (rand() - 0.5) * 5;
+      setBlock(png, x, y, baseR + nr, baseG + ng, baseB + nb, CHUNK);
+    }
+  }
+  // Dense rough-clump marks — small irregular dark-green blobs scattered
+  // across the tile to evoke looking down onto 7-blade clumps from above.
+  // Palette picked from GRASS_COLORS darks/brights in grass-tuft-builder.js.
+  const clumpDarks = [
+    [30, 68, 16],   // 0x1e4410
+    [40, 80, 28],   // 0x28501c
+    [54, 104, 31],  // 0x36681f
+  ];
+  const clumpBrights = [
+    [74, 140, 46],   // 0x4a8c2e
+    [122, 176, 60],  // 0x7ab03c
+    [142, 194, 62],  // 0x8ec23e
+  ];
+  // Place ~70 clumps — ~3× the clump density hint of plain grass.
+  for (let i = 0; i < 70; i++) {
+    const cx = Math.floor(rand() * SIZE);
+    const cy = Math.floor(rand() * SIZE);
+    const [dr, dg, db] = clumpDarks[Math.floor(rand() * clumpDarks.length)];
+    const [br, bg, bb] = clumpBrights[Math.floor(rand() * clumpBrights.length)];
+    // 2×2 dark core.
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        setPx(png, cx + dx, cy + dy,
+          dr + (rand() - 0.5) * 10,
+          dg + (rand() - 0.5) * 10,
+          db + (rand() - 0.5) * 8);
+      }
+    }
+    // 1-px bright highlight just above the core — reads as a lit tip.
+    setPx(png, cx + 1, cy - 1, br, bg, bb);
+  }
+  writePng(png, 'tile_wildgrass');
+}
+
+// ── tile_tallgrass: clumps + upright tall blades + straw reeds ──────
+// Layered to match the in-world look: wildgrass-style rough clumps
+// beneath, then vertical olive stalks for the tall-blade tufts, then a
+// sprinkle of straw-tan streaks for the reed standouts.
+function gen_tallgrass() {
+  const png = makePng();
+  const rand = mulberry32(933);
+  // Same green base as grass/wildgrass so the three tiles share terrain.
+  const baseR = 80, baseG = 115, baseB = 50;
+  const CHUNK = 2;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const n = (rand() - 0.5) * 26;
+      const nr = n + (rand() - 0.5) * 6;
+      const ng = n + (rand() - 0.5) * 8;
+      const nb = n + (rand() - 0.5) * 5;
+      setBlock(png, x, y, baseR + nr, baseG + ng, baseB + nb, CHUNK);
+    }
+  }
+  // Rough-clump undergrowth (matches tile_wildgrass, fewer clumps since
+  // the tall blades will dominate the visual).
+  const clumpDarks = [
+    [30, 68, 16], [40, 80, 28], [54, 104, 31],
+  ];
+  for (let i = 0; i < 40; i++) {
+    const cx = Math.floor(rand() * SIZE);
+    const cy = Math.floor(rand() * SIZE);
+    const [dr, dg, db] = clumpDarks[Math.floor(rand() * clumpDarks.length)];
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        setPx(png, cx + dx, cy + dy,
+          dr + (rand() - 0.5) * 10,
+          dg + (rand() - 0.5) * 10,
+          db + (rand() - 0.5) * 8);
+      }
+    }
+  }
+  // Tall olive-green blade streaks — 1-px wide vertical strokes, 4–8 px
+  // tall. Palette sampled from TALL_GRASS_COLORS in grass-tuft-builder.js.
+  const tallBladeCols = [
+    [74, 106, 40],   // 0x4a6a28
+    [90, 122, 48],   // 0x5a7a30
+    [106, 138, 56],  // 0x6a8a38
+    [122, 149, 64],  // 0x7a9540
+    [138, 170, 66],  // 0x8aaa42
+    [154, 184, 86],  // 0x9ab856
+  ];
+  for (let i = 0; i < 75; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    const len = 4 + Math.floor(rand() * 5);
+    const [sr, sg, sb] = tallBladeCols[Math.floor(rand() * tallBladeCols.length)];
+    for (let dy = 0; dy < len; dy++) {
+      setPx(png, x, (y + dy) % SIZE,
+        sr + (rand() - 0.5) * 10,
+        sg + (rand() - 0.5) * 10,
+        sb + (rand() - 0.5) * 8);
+    }
+  }
+  // Reed streaks — taller (6–10 px), straw-tan, sparser than the green
+  // blades. Palette sampled from REED_COLORS in grass-tuft-builder.js.
+  const reedCols = [
+    [188, 160, 90],  // 0xbca05a
+    [168, 144, 64],  // 0xa89040
+    [200, 176, 96],  // 0xc8b060
+    [154, 133, 64],  // 0x9a8540
+  ];
+  for (let i = 0; i < 14; i++) {
+    const x = Math.floor(rand() * SIZE);
+    const y = Math.floor(rand() * SIZE);
+    const len = 6 + Math.floor(rand() * 5);
+    const [sr, sg, sb] = reedCols[Math.floor(rand() * reedCols.length)];
+    for (let dy = 0; dy < len; dy++) {
+      setPx(png, x, (y + dy) % SIZE,
+        sr + (rand() - 0.5) * 10,
+        sg + (rand() - 0.5) * 10,
+        sb + (rand() - 0.5) * 6);
+    }
+  }
+  writePng(png, 'tile_tallgrass');
 }
 
 // ── Plank generator core ─────────────────────────────────────────────
@@ -708,6 +852,8 @@ const TILES = {
   pavement: gen_pavement,
   groomedGrass: gen_groomedGrass,
   grass: gen_grass,
+  wildgrass: gen_wildgrass,
+  tallgrass: gen_tallgrass,
   hardwoodBirch: gen_hardwoodBirch,
   hardwoodOak: gen_hardwoodOak,
   carpetDiamond: gen_carpetDiamond,

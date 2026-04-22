@@ -37,3 +37,14 @@ for (const p of Object.values(PLACEABLES)) {
     ZONE_FURNISHINGS[p.id] = p;
   }
 }
+
+// True if a furnishing/equipment def is valid in the given zone type.
+// Supports legacy scalar `zoneType` and new array `zoneTypes` — a def
+// with both would match if either includes the target zone, though the
+// project convention is to use one or the other.
+export function itemMatchesZone(def, zoneType) {
+  if (!def || !zoneType) return false;
+  if (def.zoneType === zoneType) return true;
+  if (Array.isArray(def.zoneTypes) && def.zoneTypes.includes(zoneType)) return true;
+  return false;
+}

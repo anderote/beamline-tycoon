@@ -47,6 +47,8 @@ import {
   yawDivisionsForMode,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
+import { createEntityRenderer } from './entity-renderer.js';
+import { loadDeerModels } from './deer-models.js';
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -415,6 +417,7 @@ export class ThreeRenderer {
     this._sunAngle = 0;
     this._sunCycleSpeed = (2 * Math.PI) / (60 * 60); // radians per second — full cycle in 1 hour
     this._lastSunTime = performance.now();
+    this._lastAnimTime = performance.now();
     this._lastLodDetail = undefined; // force first LOD update
 
     // Scene groups
@@ -482,6 +485,11 @@ export class ThreeRenderer {
     this.gridOverlayGroup.name = 'gridOverlay';
     this.gridOverlayGroup.renderOrder = 997;
     this.scene.add(this.gridOverlayGroup);
+
+    this.entityGroup = new THREE.Group();
+    this.entityGroup.name = 'entities';
+    this.scene.add(this.entityGroup);
+    this.entityRenderer = createEntityRenderer(this.entityGroup);
 
     window.addEventListener('resize', this._boundOnResize);
 
@@ -2740,6 +2748,10 @@ export class ThreeRenderer {
       this._clearBeamPipePreview();
       this._clearPipeHoverMarker();
     }
+    const _now = performance.now();
+    const _dt = (_now - this._lastAnimTime) / 1000;
+    this._lastAnimTime = _now;
+    if (this.entityRenderer) this.entityRenderer.update(_dt, this.game?.state);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -2827,6 +2839,7 @@ export class ThreeRenderer {
 
   async loadAssets() {
     await this.textureManager.loadDecorationManifest();
+    loadDeerModels().catch(e => console.warn('loadDeerModels failed:', e));
   }
 
   applySnapshot(snapshot) {

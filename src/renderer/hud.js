@@ -6,7 +6,7 @@ import { isFacilityCategory } from './Renderer.js';
 import { UIHost } from '../ui/UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
-import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS } from '../data/facility.js';
+import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
@@ -15,7 +15,6 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
-import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -179,130 +178,10 @@ UIHost.prototype._updateHUD = function() {
   // Refresh any open beamline context windows
   this._refreshContextWindows();
 
-  this._updateTutorialPanel();
-};
-
-// === TUTORIAL CHECKLIST ===
-
-UIHost.prototype._initTutorialPanel = function() {
-  const panel = document.getElementById('tutorial-panel');
-  if (!panel || this._tutorialInited) return;
-  this._tutorialInited = true;
-  this._tutorialMinimized = true;
-  this._tutorialPrevCompleted = new Set();
-  panel.classList.add('minimized');
-
-  // Toggle minimize on header click
-  const header = document.getElementById('tutorial-header');
-  header.addEventListener('click', (e) => {
-    if (e.target.id === 'tutorial-dismiss') return;
-    this._tutorialMinimized = !this._tutorialMinimized;
-    panel.classList.toggle('minimized', this._tutorialMinimized);
-  });
-
-  // Dismiss button
-  document.getElementById('tutorial-dismiss').addEventListener('click', (e) => {
-    e.stopPropagation();
-    this.game.state.tutorialDismissed = true;
-    panel.classList.add('hidden');
-  });
-
-  // Build the static group/step DOM structure
-  const body = document.getElementById('tutorial-body');
-  body.innerHTML = '';
-  for (const group of TUTORIAL_GROUPS) {
-    const groupDiv = document.createElement('div');
-    groupDiv.className = 'tut-group';
-    groupDiv.innerHTML = `<div class="tut-group-name">${group.name}</div>`;
-
-    for (const step of TUTORIAL_STEPS.filter(s => s.group === group.id)) {
-      const stepDiv = document.createElement('div');
-      stepDiv.className = 'tut-step';
-      stepDiv.id = `tut-${step.id}`;
-      stepDiv.innerHTML =
-        `<span class="tut-check">\u25cb</span>` +
-        `<span class="tut-name">${step.name}<span class="tut-hint">${step.hint}</span></span>`;
-      groupDiv.appendChild(stepDiv);
-    }
-
-    body.appendChild(groupDiv);
-  }
-};
-
-UIHost.prototype._updateTutorialPanel = function() {
-  const panel = document.getElementById('tutorial-panel');
-  if (!panel) return;
-
-  const state = this.game.state;
-  if (state.tutorialDismissed) {
-    panel.classList.add('hidden');
-    return;
-  }
-
-  this._initTutorialPanel();
-  panel.classList.remove('hidden');
-
-  // Phase 6: tutorial conditions read directly from state.utilityNetworkData
-  // now (no separate `nets` arg). Left as a single-arg call for clarity.
-  let completedCount = 0;
-  let firstIncomplete = null;
-
-  for (const step of TUTORIAL_STEPS) {
-    const el = document.getElementById(`tut-${step.id}`);
-    if (!el) continue;
-
-    let done = false;
-    try { done = step.condition(state); } catch (_) {}
-
-    const check = el.querySelector('.tut-check');
-    if (done) {
-      completedCount++;
-      if (!el.classList.contains('completed')) {
-        el.classList.add('completed');
-        check.textContent = '\u2713';
-        // Flash animation for newly completed
-        if (this._tutorialPrevCompleted && !this._tutorialPrevCompleted.has(step.id)) {
-          el.classList.add('flash');
-          setTimeout(() => el.classList.remove('flash'), 500);
-        }
-      }
-      el.classList.remove('next');
-    } else {
-      el.classList.remove('completed');
-      check.textContent = '\u25cb';
-      if (!firstIncomplete) {
-        firstIncomplete = step;
-        el.classList.add('next');
-      } else {
-        el.classList.remove('next');
-      }
-    }
-  }
-
-  // Track what was completed for flash detection
-  this._tutorialPrevCompleted = new Set(
-    TUTORIAL_STEPS.filter((s) => {
-      try { return s.condition(state, nets); } catch (_) { return false; }
-    }).map(s => s.id)
-  );
-
-  // Update progress
-  const total = TUTORIAL_STEPS.length;
-  const pct = Math.round((completedCount / total) * 100);
-  const progressText = document.getElementById('tutorial-progress-text');
-  const progressFill = document.getElementById('tutorial-progress-fill');
-  if (progressText) progressText.textContent = `${completedCount}/${total}`;
-  if (progressFill) progressFill.style.width = `${pct}%`;
-
-  // All done state
-  if (completedCount === total) {
-    panel.classList.add('all-done');
-    const title = document.getElementById('tutorial-title');
-    if (title) title.textContent = 'All Done!';
-  } else {
-    panel.classList.remove('all-done');
-    const title = document.getElementById('tutorial-title');
-    if (title) title.textContent = 'Getting Started';
+  // If the Goals overlay is open, keep its tutorial progress fresh.
+  const goalsOverlay = document.getElementById('goals-overlay');
+  if (goalsOverlay && !goalsOverlay.classList.contains('hidden')) {
+    this._renderGoalsOverlay();
   }
 };
 
@@ -424,6 +303,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
+      item.dataset.paletteKey = key;
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -507,6 +387,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = key;
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -644,6 +525,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = key;
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(door.cost);
@@ -779,6 +661,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = key;
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -899,6 +782,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
+      item.dataset.paletteKey = key;
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -1012,6 +896,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
+      item.dataset.paletteKey = key;
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -1092,6 +977,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
+      item.dataset.paletteKey = key;
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(dec.cost);
@@ -1217,6 +1103,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     const zoneItem = document.createElement('div');
     zoneItem.className = 'palette-item';
     zoneItem.dataset.paletteIndex = paletteIdx;
+    zoneItem.dataset.paletteKey = zoneType;
     const zoneIdx = paletteIdx++;
     const hex = '#' + zone.color.toString(16).padStart(6, '0');
     zoneItem.style.borderLeft = `4px solid ${hex}`;
@@ -1248,7 +1135,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     palette.appendChild(zoneSection);
 
     // Furnishings section
-    const furnEntries = Object.entries(ZONE_FURNISHINGS).filter(([, f]) => f.zoneType === zoneType);
+    const furnEntries = Object.entries(ZONE_FURNISHINGS).filter(([, f]) => itemMatchesZone(f, zoneType));
     if (furnEntries.length > 0) {
       const divider = document.createElement('div');
       divider.className = 'palette-subsection-divider';
@@ -1268,6 +1155,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = key;
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(furn.cost);
@@ -1306,10 +1194,57 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         costEl.textContent = `${_costLabel(furn.cost)}`;
         item.appendChild(costEl);
 
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onFurnishingSelect) this._onFurnishingSelect(key);
-        });
+        const furnHasVariants = Array.isArray(furn.variants) && furn.variants.length > 1;
+        if (furnHasVariants) {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._removeParamFlyout();
+            const flyout = document.createElement('div');
+            flyout.className = 'param-flyout';
+
+            const defaultVi = recallVariant(key);
+            for (let vi = 0; vi < furn.variants.length; vi++) {
+              const vBtn = document.createElement('div');
+              vBtn.className = 'param-flyout-btn';
+              const swatch = makeVariantSwatch(resolveVariantPreview(furn, vi));
+              if (swatch) vBtn.appendChild(swatch);
+              vBtn.appendChild(document.createTextNode(furn.variants[vi]));
+              const variantIdx = vi;
+              if (vi === defaultVi) vBtn.classList.add('active');
+              vBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                rememberVariant(key, variantIdx);
+                if (this._onFurnishingSelect) this._onFurnishingSelect(key, variantIdx);
+                flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+                vBtn.classList.add('active');
+                this._removeParamFlyout();
+              });
+              flyout.appendChild(vBtn);
+            }
+
+            document.body.appendChild(flyout);
+            const rect = item.getBoundingClientRect();
+            flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+            flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+            this._activeParamFlyout = flyout;
+
+            // Auto-arm with the remembered variant so clicking is enough to start placing.
+            if (this._onFurnishingSelect) this._onFurnishingSelect(key, defaultVi);
+
+            const closeHandler = (e) => {
+              if (!flyout.contains(e.target) && !item.contains(e.target)) {
+                this._removeParamFlyout();
+                document.removeEventListener('click', closeHandler, true);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+          });
+        } else {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            if (this._onFurnishingSelect) this._onFurnishingSelect(key);
+          });
+        }
 
         furnItems.appendChild(item);
       }
@@ -1328,6 +1263,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
+      item.dataset.paletteKey = tool.key;
       const idx = paletteIdx++;
       item.style.borderLeft = `4px solid ${tool.color}`;
 
@@ -1417,6 +1353,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = utilityType;
         const idx = paletteIdx++;
 
         const previewEl = document.createElement('div');
@@ -1540,6 +1477,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const item = document.createElement('div');
   item.className = 'palette-item';
   item.dataset.paletteIndex = idx;
+  item.dataset.paletteKey = key;
 
   const affordable = this.game.canAfford(comp.cost);
   if (!affordable) item.classList.add('unaffordable');

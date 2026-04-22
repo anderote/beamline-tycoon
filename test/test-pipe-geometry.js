@@ -1,4 +1,4 @@
-import { expandPipePath, findPipeAtTile, pipeDirectionAtTile } from '../src/beamline/pipe-geometry.js';
+import { expandPipePath, findPipeAtTile, pipeDirectionAtTile, positionToPoint } from '../src/beamline/pipe-geometry.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -65,6 +65,27 @@ assertEq(pipeDirectionAtTile(lBend, 8), null, 'corner returns null');
 assertEq(pipeDirectionAtTile(lBend, 4), {dCol:0,dRow:1}, 'straight before corner');
 // Index 12 is in the horizontal segment (col=1)
 assertEq(pipeDirectionAtTile(lBend, 12), {dCol:1,dRow:0}, 'straight after corner');
+
+console.log('positionToPoint');
+{
+  const pipe = { path: [{col:0,row:0},{col:5,row:0}], subL: 10 };
+  const p0 = positionToPoint(pipe, 0);
+  assert(p0 && Math.abs(p0.col - 0) < 1e-6 && Math.abs(p0.row - 0) < 1e-6, 'fraction 0 → pipe start');
+  const p1 = positionToPoint(pipe, 1);
+  assert(p1 && Math.abs(p1.col - 5) < 1e-6 && Math.abs(p1.row - 0) < 1e-6, 'fraction 1 → pipe end');
+  const pMid = positionToPoint(pipe, 0.5);
+  assert(pMid && Math.abs(pMid.col - 2.5) < 1e-6 && Math.abs(pMid.row - 0) < 1e-6, 'fraction 0.5 → midpoint');
+  assert(pMid && pMid.dir === 1, 'horizontal +col pipe → dir=1 (SE)');
+}
+{
+  // L-bend: vertical then horizontal. Equal world lengths (5 each), total=10.
+  const pipe = { path: [{col:0,row:0},{col:0,row:5},{col:5,row:5}], subL: 20 };
+  const pCorner = positionToPoint(pipe, 0.5);
+  assert(pCorner && Math.abs(pCorner.col - 0) < 1e-6 && Math.abs(pCorner.row - 5) < 1e-6, 'L-bend fraction 0.5 → corner');
+  const pQuarter = positionToPoint(pipe, 0.25);
+  assert(pQuarter && Math.abs(pQuarter.col - 0) < 1e-6 && Math.abs(pQuarter.row - 2.5) < 1e-6, 'L-bend fraction 0.25 → vertical middle');
+  assert(pQuarter && pQuarter.dir === 2, 'vertical +row segment → dir=2 (SW)');
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

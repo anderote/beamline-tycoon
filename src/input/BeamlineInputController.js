@@ -251,6 +251,24 @@ export class BeamlineInputController {
     return clamped / pipeSubL;
   }
 
+  // Overlap check in pipe fraction-space. A placement occupies
+  // [position, position + subL/pipe.subL]; two collide iff their intervals
+  // overlap (strict comparison with EPS to ignore shared edges).
+  _isOverlappingAtPosition(pipe, position, subL) {
+    const pipeSubL = pipe.subL;
+    if (!pipeSubL || pipeSubL <= 0) return false;
+    const EPS = 1e-9;
+    const start = position;
+    const end = position + (subL / pipeSubL);
+    const existing = pipe.placements || [];
+    for (const pl of existing) {
+      const plStart = pl.position;
+      const plEnd = pl.position + (pl.subL / pipeSubL);
+      if (start < plEnd - EPS && plStart < end - EPS) return true;
+    }
+    return false;
+  }
+
   _previewPlacement(selectedId, worldX, worldY) {
     const def = COMPONENTS[selectedId];
     if (!def) return;
@@ -268,15 +286,23 @@ export class BeamlineInputController {
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
     const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
-    const dryRun = findSlot(hit.pipe, {
-      type: selectedId,
-      requestedPosition: quantizedPosition,
-      subL,
-      mode,
-      idGenerator: () => 'dry',
-      params: {},
-    });
-    const valid = !!dryRun.ok;
+    let valid;
+    if (mode === 'snap') {
+      // WYSIWYG: show RED at the cursor when overlapping. findSlot's snap
+      // auto-shifts to the nearest free gap and would return ok=true at a
+      // DIFFERENT position, which is misleading for a hover preview.
+      valid = !this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL);
+    } else {
+      const dryRun = findSlot(hit.pipe, {
+        type: selectedId,
+        requestedPosition: quantizedPosition,
+        subL,
+        mode,
+        idGenerator: () => 'dry',
+        params: {},
+      });
+      valid = !!dryRun.ok;
+    }
     this._placementHover = valid
       ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId }
       : null;
@@ -305,6 +331,9 @@ export class BeamlineInputController {
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
     const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
+    if (mode === 'snap' && this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL)) {
+      return true;
+    }
     this.game._pushUndo();
     const placedId = this.game.beamline.placeOnPipe(hit.pipe.id, {
       type: selectedId,

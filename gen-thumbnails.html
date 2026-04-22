@@ -23,47 +23,61 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script type="module">
     import { renderComponentThumbnail } from './src/renderer3d/component-builder.js';
+    import { renderDecorationThumbnail } from './src/renderer3d/decoration-builder.js';
     import { COMPONENTS } from './src/data/components.js';
     import { PLACEABLES } from './src/data/placeables/index.js';
+    import { DECORATIONS_RAW } from './src/data/decorations.raw.js';
 
     const status = document.getElementById('status');
     const grid = document.getElementById('grid');
     let rendered = [];
 
-    // Collect all IDs that could produce a thumbnail
-    function getAllIds() {
+    // Collect component/placeable IDs — rendered via renderComponentThumbnail.
+    function getComponentIds() {
       const ids = new Set();
       for (const k of Object.keys(COMPONENTS)) ids.add(k);
       for (const k of Object.keys(PLACEABLES)) ids.add(k);
       return [...ids];
     }
+    // Decoration IDs — rendered via renderDecorationThumbnail.
+    function getDecorationIds() {
+      return Object.keys(DECORATIONS_RAW);
+    }
+
+    function addThumb(id, dataUrl) {
+      rendered.push({ id, dataUrl });
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.width = 64;
+      img.height = 64;
+      div.appendChild(img);
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = id;
+      div.appendChild(label);
+      grid.appendChild(div);
+    }
 
     document.getElementById('btn-render').addEventListener('click', () => {
       rendered = [];
       grid.innerHTML = '';
-      const ids = getAllIds();
-      status.textContent = `Rendering ${ids.length} components...`;
+      const compIds = getComponentIds();
+      const decIds  = getDecorationIds();
+      status.textContent = `Rendering ${compIds.length} components + ${decIds.length} decorations...`;
 
-      for (const id of ids) {
+      for (const id of compIds) {
         const dataUrl = renderComponentThumbnail(id, 96);
-        if (dataUrl) {
-          rendered.push({ id, dataUrl });
-          const div = document.createElement('div');
-          div.className = 'thumb';
-          const img = document.createElement('img');
-          img.src = dataUrl;
-          img.width = 64;
-          img.height = 64;
-          div.appendChild(img);
-          const label = document.createElement('div');
-          label.className = 'label';
-          label.textContent = id;
-          div.appendChild(label);
-          grid.appendChild(div);
-        }
+        if (dataUrl) addThumb(id, dataUrl);
+      }
+      for (const id of decIds) {
+        const dataUrl = renderDecorationThumbnail(id, 96);
+        if (dataUrl) addThumb(id, dataUrl);
       }
 
-      status.textContent = `Done — ${rendered.length} thumbnails rendered (${ids.length - rendered.length} skipped).`;
+      const total = compIds.length + decIds.length;
+      status.textContent = `Done — ${rendered.length} thumbnails rendered (${total - rendered.length} skipped).`;
       document.getElementById('btn-save').disabled = false;
     });
 

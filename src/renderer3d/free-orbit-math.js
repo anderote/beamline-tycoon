@@ -18,7 +18,7 @@ export const PITCH_REST = Math.atan(1 / Math.sqrt(3));
 // degeneracy. cos(89°) ≈ 0.0175, nonzero, so the look direction stays
 // well-defined and yaw remains meaningful.
 export const PITCH_TOP = (89 * Math.PI) / 180;
-export const PITCH_MIN = (5 * Math.PI) / 180;
+export const PITCH_MIN = (2 * Math.PI) / 180;
 // Free-orbit drag can now reach top-down so MMB-release can snap into the
 // top mode (it picks the closer of PITCH_REST / PITCH_TOP by midpoint).
 export const PITCH_MAX = PITCH_TOP;
