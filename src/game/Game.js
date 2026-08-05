@@ -41,7 +41,7 @@ export class Game {
     })();
 
     this.state = {
-      resources: { funding: 10000000, reputation: 0, data: 0 },
+      resources: { funding: 2500000, reputation: 0, data: 0 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,
@@ -52,7 +52,7 @@ export class Game {
       log: [],
       // Staffing
       staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
-      staffCosts: { operators: 5, technicians: 8, scientists: 10, engineers: 12 }, // $/tick
+      staffCosts: { operators: 120, technicians: 180, scientists: 250, engineers: 300 }, // $/tick — tuned for MVP drain
       // Infrastructure tiles (paths, concrete pads)
       floors: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
@@ -2437,15 +2437,23 @@ export class Game {
 
     // === Revenue ===
     const passiveIncome = this.getEffect('passiveFunding', 0);
-    const repIncome = Math.floor(this.state.resources.reputation * 0.5);
+    const repIncome = Math.floor(this.state.resources.reputation * 2);
     const repBonus = this.state?.reputationTier?.fundingBonus || 0;
     this.state.resources.funding += Math.floor((passiveIncome + repIncome) * (1 + repBonus));
 
-    // Staffing costs
+    // Staffing costs (drain — creates pressure to complete objectives)
     const staffCost = Object.entries(this.state.staff).reduce((sum, [type, count]) => {
       return sum + count * (this.state.staffCosts[type] || 0);
     }, 0);
     this.state.resources.funding -= staffCost;
+
+    // Facility power/vacuum upkeep: scales with pump count and beamline volume
+    // (cheap early, punitive if you overbuild without funding)
+    const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump'];
+    const equipCounts = {};
+    for (const p of (this.state.placeables || [])) if (p.category === 'equipment') equipCounts[p.type] = (equipCounts[p.type] || 0) + 1;
+    const pumpUpkeep = pumpTypes.reduce((s, t) => s + (equipCounts[t] || 0) * 8, 0);
+    if (pumpUpkeep > 0) this.state.resources.funding -= pumpUpkeep;
 
     // Tick all running beamlines
     for (const entry of this.registry.getAll()) {
@@ -2602,6 +2610,15 @@ export class Game {
 
     bs.continuousBeamTicks++;
     bs.beamOnTicks++;
+
+    // Funding from running beam (MVP loop closure: beam on = income)
+    // Scaled to create early pressure/reward — ~3-5/s with decent quality.
+    {
+      const baseFundingPerTick = 4 * (bs.beamQuality || 0.2);
+      this.state.resources.funding += baseFundingPerTick;
+      // Bonus funding when detectors are collecting data
+      if ((bs.dataRate || 0) > 0) this.state.resources.funding += bs.dataRate * 0.5;
+    }
 
     // Data from detectors (physics-driven)
     if (bs.dataRate > 0) {

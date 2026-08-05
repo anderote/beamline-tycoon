@@ -1,8 +1,8 @@
 // src/utility/types/powerCable.js
 //
 // Power cable utility descriptor. v1 physics: sum source capacity vs sum sink
-// demand. Per-sink quality uniform (capacity/demand clamped to 1). Soft errors
-// for overload and starvation.
+// demand. Hard error when sinks exist but no capacity (trips beam via
+// infraCanRun), soft error for overload.
 
 export default {
   type: 'powerCable',
@@ -24,7 +24,7 @@ export default {
     } else if (totalCapacity === 0) {
       utilization = 1;
       errors.push({
-        severity: 'soft',
+        severity: 'hard',
         code: 'power_starved',
         message: 'Power network has no capacity.',
         location: { networkId: network.id },

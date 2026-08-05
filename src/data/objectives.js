@@ -43,7 +43,8 @@ export const OBJECTIVES = [
     desc: 'Measure emittance, energy, and current simultaneously.',
     condition: (state) => {
       const types = state.beamline.map(n => n.type);
-      return types.includes('wireScanner') && types.includes('energySpectrometer') && types.includes('ict');
+      // MVP-achievable: wireScanner + bpm + ict (energySpectrometer is deferred)
+      return types.includes('wireScanner') && types.includes('bpm') && types.includes('ict');
     },
     reward: { funding: 500000, reputation: 2 },
     tier: 1,
@@ -51,8 +52,8 @@ export const OBJECTIVES = [
   {
     id: 'firstUser',
     name: 'First User',
-    desc: 'Build a photon port and deliver beam hours.',
-    condition: (state) => state.totalBeamHours >= 1 && state.beamline.some(n => n.type === 'photonPort'),
+    desc: 'Run beam for 60 seconds and deliver data to a detector.',
+    condition: (state) => state.totalBeamHours >= (60 / 3600) && state.beamline.some(n => n.type === 'detector' || n.type === 'faradayCup'),
     reward: { funding: 2000000, reputation: 3 },
     tier: 1,
   },
