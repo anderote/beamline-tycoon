@@ -12,6 +12,7 @@ import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
+import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -2103,9 +2104,12 @@ export class Game {
       totalBeamHours += bs.totalBeamHours || 0;
       totalBeamOnTicks += bs.beamOnTicks || 0;
 
-      if (entry.status === 'running') {
+      if (entry.status === 'running' && this.state.infraCanRun) {
         beamOn = true;
         if (bs.continuousBeamTicks > maxContinuousBeamTicks) maxContinuousBeamTicks = bs.continuousBeamTicks;
+      } else if (entry.status === 'running' && !this.state.infraCanRun) {
+        // Infra fault — reset continuous run, beam is effectively off for objectives
+        bs.continuousBeamTicks = 0;
       }
       if (bs.beamEnergy > maxBeamEnergy) maxBeamEnergy = bs.beamEnergy;
       if (bs.beamQuality > maxBeamQuality) maxBeamQuality = bs.beamQuality;
@@ -2518,9 +2522,38 @@ export class Game {
       try {
         const result = this.solveRunner.runSolve({ tick: this.state.tick });
         const errs = Array.isArray(result && result.errors) ? result.errors : [];
-        const hardErrs = errs.filter(e => e && e.severity === 'hard');
+        let hardErrs = errs.filter(e => e && e.severity === 'hard');
         const softErrs = errs.filter(e => e && e.severity === 'soft');
-        // Phase 6: the utility solve-runner is the only source of infraBlockers.
+        // MVP: unconnected power/vacuum sinks on beamline modules are hard-required.
+        // The solver only reports networks that have lines — a sink with no line
+        // is invisible to it, so we synthesize hard errors here for disconnected
+        // beamline sinks. This makes "build line → connect utilities → run" the
+        // required tycoon beat.
+        const beamlinePlaceables = (this.state.placeables || []).filter(p => p.category === 'beamline');
+        const HARD_REQUIRED_UTILS = ['powerCable', 'vacuumPipe'];
+        for (const util of HARD_REQUIRED_UTILS) {
+          for (const p of beamlinePlaceables) {
+            const ports = getUtilityPortsV2(p.type);
+            for (const [portName, spec] of Object.entries(ports)) {
+              if (spec.utility !== util || spec.role !== 'sink') continue;
+              const connected = [...(this.state.utilityLines?.values() || [])].some(l =>
+                l.utilityType === util &&
+                ((l.start?.placeableId === p.id && l.start?.portName === portName) ||
+                 (l.end?.placeableId === p.id && l.end?.portName === portName))
+              );
+              if (!connected) {
+                hardErrs.push({
+                  severity: 'hard',
+                  code: util === 'powerCable' ? 'power_unconnected' : 'vacuum_unconnected',
+                  message: `${p.type} ${portName} not connected to ${util}`,
+                  location: { placeableId: p.id, portName },
+                  fromUnconnectedCheck: true,
+                });
+              }
+            }
+          }
+        }
+        // Phase 6: the utility solve-runner + unconnected check are the only sources of infraBlockers.
         // Hard errors block the beam; soft errors are logged but non-fatal.
         this.state.infraBlockers = hardErrs.map(e => ({
           ...e,

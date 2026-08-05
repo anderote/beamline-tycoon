@@ -166,7 +166,7 @@ const BEAMLINE_UTILITY_PORTS = {
 // vacuum_no_pump when no pump is connected. Keep existing vac_in if present.
 for (const id of Object.keys(BEAMLINE_UTILITY_PORTS)) {
   if (!BEAMLINE_UTILITY_PORTS[id].vac_in) {
-    BEAMLINE_UTILITY_PORTS[id].vac_in = { utility: 'vacuumPipe', side: 'back', offsetAlong: 0.5, role: 'sink' };
+    BEAMLINE_UTILITY_PORTS[id].vac_in = { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.7, role: 'sink' };
   }
 }
 
