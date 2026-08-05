@@ -4,8 +4,8 @@
 // - demand ≤ capacity  → perSinkQuality 1, no errors.
 // - demand > capacity  → perSinkQuality = capacity/demand (uniform), soft
 //                        power_overload, utilization clamped to 1.
-// - capacity == 0 && demand > 0 → perSinkQuality 0, soft power_starved,
-//                                 utilization 1.
+// - capacity == 0 && demand > 0 → perSinkQuality 0, hard power_starved
+//                                 (trips beam via infraCanRun), utilization 1.
 // - capacity == 0 && demand == 0 → no errors, utilization 0.
 // solve() is pure: must not mutate network or persistent.
 
@@ -97,7 +97,7 @@ console.log('\n--- Test 4: no source, sink demand 10 ---');
   assert(r.flowState.utilization === 1, `utilization 1 (got ${r.flowState.utilization})`);
   assert(r.flowState.perSinkQuality.k1 === 0, `k1 quality 0 (got ${r.flowState.perSinkQuality.k1})`);
   assert(r.errors.length === 1, `1 error (got ${r.errors.length})`);
-  assert(r.errors[0].severity === 'soft', 'error soft');
+  assert(r.errors[0].severity === 'hard', 'error hard');
   assert(r.errors[0].code === 'power_starved', `code power_starved (got ${r.errors[0].code})`);
 }
 
