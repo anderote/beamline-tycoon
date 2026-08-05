@@ -191,12 +191,21 @@ UIHost.prototype._updateBeamSummary = function() {
   const entries = this.game.registry.getAll();
   const running = entries.filter(e => e.status === 'running').length;
   const total = entries.length;
-  if (total === 0) {
+  const blockers = this.game.state.infraBlockers || [];
+  const canRun = this.game.state.infraCanRun !== false;
+  if (!canRun && blockers.length > 0) {
+    const hardCount = blockers.filter(b => b.severity === 'hard').length;
+    el.textContent = `INFRA FAULT — ${hardCount} blocked (${blockers[0].code}) — beam tripped`;
+    el.className = 'beam-summary fault';
+    el.title = blockers.map(b => b.message || b.code).join('\n');
+  } else if (total === 0) {
     el.textContent = 'No beamlines';
     el.className = 'beam-summary';
+    el.title = '';
   } else {
     el.textContent = `${running}/${total} beamlines running`;
     el.className = running > 0 ? 'beam-summary active' : 'beam-summary';
+    el.title = '';
   }
 };
 
