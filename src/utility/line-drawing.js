@@ -87,24 +87,15 @@ function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
       if (ignoreSharedSource.end && line.start && line.start.placeableId === ignoreSharedSource.end.placeableId && line.start.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
       if (ignoreSharedSource.end && line.end && line.end.placeableId === ignoreSharedSource.end.placeableId && line.end.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
     }
+    // Fanout: lines that share a source endpoint are allowed to overlap / share
+    // trunk subtiles — they will be merged into one network via spatial union
+    // and capacity will be divided among sinks. Skip overlap check entirely
+    // for that existing line.
+    if (skipEndpoint) continue;
     const existing = expandPath(line.path || []);
     for (const np of newExpanded) {
       for (const ep of existing) {
-        if (!pointsOverlap(np, ep)) continue;
-        // If this overlap is at a shared source endpoint, allow it.
-        if (skipEndpoint) {
-          // Check if the overlapping point is at the shared endpoint's path end/start
-          // The shared endpoint is at newPath[0] (start) or newPath[newPath.length-1] (end)
-          // and at existing line's start or end. If overlap is near either, skip.
-          // We treat any point within 0.5 of the endpoint as endpoint-adjacent.
-          const isAtNewStart = Math.abs(np.col - newPath[0].col) < 0.5 && Math.abs(np.row - newPath[0].row) < 0.5;
-          const isAtNewEnd = Math.abs(np.col - newPath[newPath.length-1].col) < 0.5 && Math.abs(np.row - newPath[newPath.length-1].row) < 0.5;
-          const exPath = line.path || [];
-          const isAtExStart = exPath.length && Math.abs(ep.col - exPath[0].col) < 0.5 && Math.abs(ep.row - exPath[0].row) < 0.5;
-          const isAtExEnd = exPath.length && Math.abs(ep.col - exPath[exPath.length-1].col) < 0.5 && Math.abs(ep.row - exPath[exPath.length-1].row) < 0.5;
-          if ((isAtNewStart || isAtNewEnd) && (isAtExStart || isAtExEnd)) continue;
-        }
-        return true;
+        if (pointsOverlap(np, ep)) return true;
       }
     }
   }
