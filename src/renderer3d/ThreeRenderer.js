@@ -554,6 +554,10 @@ export class ThreeRenderer {
         case 'objectiveCompleted':
           if (this._renderGoalsOverlay) this._renderGoalsOverlay();
           break;
+        case 'staffChanged':
+          if (this._renderStaffBar) this._renderStaffBar();
+          if (this._refreshStaffWindows) this._refreshStaffWindows();
+          break;
       }
       } catch (e) { console.error(`[ThreeRenderer] event '${event}' handler error:`, e); }
     });
@@ -3698,4 +3702,5 @@ const UI_METHODS = [
   '_renderGoalsOverlay',
   '_openBeamlineWindow', '_openMachineWindow', '_openEquipmentWindow',
   '_refreshContextWindows',
+  '_renderStaffBar', '_openStaffInspector', '_openHiringDialog', '_refreshStaffWindows',
 ];

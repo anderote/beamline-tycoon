@@ -1630,13 +1630,19 @@ export class InputHandler {
         this.dragEnd = { col: grid.col, row: grid.row };
       }
 
-      // Zone drag start
+      // Zone drag start — facility brush auto-floors
       if (e.button === 0 && this.selectedZoneTool) {
         this.isDragging = true;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.dragStart = { col: grid.col, row: grid.row };
         this.dragEnd = { col: grid.col, row: grid.row };
+        const zCost0 = this.game.computeFacilityBrushCost(
+          grid.col, grid.row, grid.col, grid.row, this.selectedZoneTool
+        );
+        this._showDragCostTooltip(zCost0.totalCost, e.clientX, e.clientY, {
+          insufficientFunding: this.game.state.resources.funding < zCost0.totalCost,
+        });
       }
 
       // Infrastructure line placement start (hallway)
@@ -1751,6 +1757,14 @@ export class InputHandler {
             this.dragStart.col, this.dragStart.row,
             grid.col, grid.row, this.selectedZoneTool, true
           );
+          // Cost tooltip for facility brush (auto floor+zone)
+          const zCost = this.game.computeFacilityBrushCost(
+            this.dragStart.col, this.dragStart.row,
+            grid.col, grid.row, this.selectedZoneTool
+          );
+          this._showDragCostTooltip(zCost.totalCost, e.clientX, e.clientY, {
+            insufficientFunding: this.game.state.resources.funding < zCost.totalCost,
+          });
         } else {
           this.renderer.renderDragPreview(
             this.dragStart.col, this.dragStart.row,
@@ -2169,7 +2183,7 @@ export class InputHandler {
             }
           }
         } else if (this.selectedZoneTool) {
-          this.game.placeZoneRect(
+          this.game.placeFacilityZoneBrushRect(
             this.dragStart.col, this.dragStart.row,
             this.dragEnd.col, this.dragEnd.row,
             this.selectedZoneTool
@@ -2362,10 +2376,10 @@ export class InputHandler {
       return;
     }
 
-    // Zone placement (single tile click)
+    // Zone placement (single tile click) — facility brush auto-floors
     if (this.selectedZoneTool) {
       this.game._pushUndo();
-      if (this.game.placeZoneTile(col, row, this.selectedZoneTool)) {
+      if (this.game.placeFacilityZoneBrushTile(col, row, this.selectedZoneTool)) {
         this.game.emit('zonesChanged');
       }
       return;

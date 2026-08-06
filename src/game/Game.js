@@ -939,6 +939,160 @@ export class Game {
     return placed > 0;
   }
 
+  // === FACILITY ZONE BRUSH (auto floor+zone) ===
+  // Facility brush: drag to paint a zone _and_ its required floor in one
+  // stroke. Each tile is handled atomically — missing concrete foundations
+  // are placed first, then the surface, then the zone overlay. This is the
+  // 3-minute path helper: new players no longer need a separate
+  // Structure → Flooring step before painting Facility zones.
+
+  _ensureFloorForBrush(col, row, requiredFloor) {
+    const key = col + ',' + row;
+    if (this.state.infraOccupied[key] === requiredFloor) return true;
+    const def = FLOORS[requiredFloor];
+    if (!def) return false;
+    // If the surface needs a concrete foundation, ensure it exists first.
+    if (def.requiresFoundation) {
+      const need = def.requiresFoundation;
+      const existing = this.state.infraOccupied[key];
+      let hasFoundation = existing === need;
+      if (!hasFoundation) {
+        const tile = this.state.floors.find(t => t.col === col && t.row === row);
+        if (tile && tile.foundation === need) hasFoundation = true;
+      }
+      if (!hasFoundation) {
+        // Place foundation; if it fails (funding) abort this tile.
+        const ok = this.placeInfraTile(col, row, need, 0);
+        if (!ok) return false;
+        // After placing foundation, the tile's infraOccupied is now 'need'.
+        // Fall through to place the surface on top.
+        // placeInfraTile for the surface will handle replacing foundation.
+      }
+    }
+    if (this.state.infraOccupied[key] === requiredFloor) return true;
+    return this.placeInfraTile(col, row, requiredFloor, 0);
+  }
+
+  /**
+   * Single-tile brush: ensure floor then paint zone.
+   * Returns true if the zone was newly painted.
+   */
+  placeFacilityZoneBrushTile(col, row, zoneType) {
+    const zone = ZONES[zoneType];
+    if (!zone) return false;
+    const key = col + ',' + row;
+    if (this.state.zoneOccupied[key] === zoneType) return false;
+    // Ensure floor exists — auto-place if missing.
+    if (this.state.infraOccupied[key] !== zone.requiredFloor) {
+      const ok = this._ensureFloorForBrush(col, row, zone.requiredFloor);
+      if (!ok) {
+        // If floor placement failed (e.g. insufficient funds), don't paint zone.
+        if (this.state.infraOccupied[key] !== zone.requiredFloor) return false;
+      }
+    }
+    // Overwrite different zone type.
+    if (this.state.zoneOccupied[key] && this.state.zoneOccupied[key] !== zoneType) {
+      this.removeZoneTile(col, row);
+    }
+    if (this.state.zoneOccupied[key] === zoneType) return false;
+    this.state.zones.push({ type: zoneType, col, row });
+    this.state.zoneOccupied[key] = zoneType;
+    this.recomputeZoneConnectivity();
+    this.emit('zonesChanged');
+    // Infrastructure may have changed due to auto floor.
+    this.emit('infrastructureChanged');
+    return true;
+  }
+
+  /**
+   * Rectangular brush: auto-places floor+zone across the drag rect.
+   * Returns true if at least one tile was painted.
+   */
+  placeFacilityZoneBrushRect(startCol, startRow, endCol, endRow, zoneType) {
+    const zone = ZONES[zoneType];
+    if (!zone) return false;
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    let placed = 0;
+    let infraChanged = false;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        if (this.state.zoneOccupied[key] === zoneType) continue;
+        const beforeFloor = this.state.infraOccupied[key];
+        if (beforeFloor !== zone.requiredFloor) {
+          const ok = this._ensureFloorForBrush(c, r, zone.requiredFloor);
+          if (!ok && this.state.infraOccupied[key] !== zone.requiredFloor) continue;
+          if (this.state.infraOccupied[key] !== beforeFloor) infraChanged = true;
+        }
+        if (this.state.zoneOccupied[key] && this.state.zoneOccupied[key] !== zoneType) {
+          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          if (idx !== -1) this.state.zones.splice(idx, 1);
+          delete this.state.zoneOccupied[key];
+        }
+        if (this.state.zoneOccupied[key] === zoneType) continue;
+        this.state.zones.push({ type: zoneType, col: c, row: r });
+        this.state.zoneOccupied[key] = zoneType;
+        placed++;
+      }
+    }
+    if (placed > 0) {
+      this.log(`Assigned ${placed} ${zone.name} tiles (auto-floored)`, 'good');
+      this.recomputeZoneConnectivity();
+      this.emit('zonesChanged');
+      if (infraChanged) this.emit('infrastructureChanged');
+      this.validateInfrastructure();
+    }
+    return placed > 0;
+  }
+
+  /**
+   * Cost preview for the facility brush rect — sums floor costs for tiles
+   * that lack the required floor plus any needed concrete foundations.
+   * Zones themselves are free.
+   */
+  computeFacilityBrushCost(startCol, startRow, endCol, endRow, zoneType) {
+    const zone = ZONES[zoneType];
+    if (!zone) return { newTiles: 0, totalCost: 0 };
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    let newTiles = 0;
+    let totalCost = 0;
+    for (let c = minCol; c <= maxCol; c++) {
+      for (let r = minRow; r <= maxRow; r++) {
+        const key = c + ',' + r;
+        if (this.state.zoneOccupied[key] === zoneType) continue;
+        newTiles++;
+        const requiredFloor = zone.requiredFloor;
+        if (this.state.infraOccupied[key] === requiredFloor) continue;
+        const def = FLOORS[requiredFloor];
+        if (!def) continue;
+        const tileCost = def.variantCosts?.[0] ?? def.cost;
+        if (def.requiresFoundation) {
+          const need = def.requiresFoundation;
+          const existing = this.state.infraOccupied[key];
+          let hasFoundation = existing === need;
+          if (!hasFoundation) {
+            const tile = this.state.floors.find(t => t.col === c && t.row === r);
+            if (tile && tile.foundation === need) hasFoundation = true;
+          }
+          if (!hasFoundation) {
+            const fDef = FLOORS[need];
+            totalCost += fDef.variantCosts?.[0] ?? fDef.cost;
+          }
+          totalCost += tileCost;
+        } else {
+          totalCost += tileCost;
+        }
+      }
+    }
+    return { newTiles, totalCost };
+  }
+
   removeZoneRect(startCol, startRow, endCol, endRow) {
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);

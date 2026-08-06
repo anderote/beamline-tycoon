@@ -68,10 +68,12 @@ export function availablePorts(placeable, def, utilityType, lines) {
       claimed.add(line.end.portName);
     }
   }
-  return Object.entries(def.ports)
+  const candidates = Object.entries(def.ports)
     .filter(([_, spec]) => spec && spec.utility === utilityType)
-    .map(([name]) => name)
-    .filter(n => !claimed.has(n));
+    .map(([name, spec]) => ({ name, spec }));
+  return candidates
+    .filter(({ name, spec }) => !claimed.has(name) || spec.role === 'source')
+    .map(({ name }) => name);
 }
 
 export function portMatchesApproach(placeable, def, portName, approachDir, isEnd) {

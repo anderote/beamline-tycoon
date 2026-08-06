@@ -68,17 +68,43 @@ function pointsOverlap(a, b) {
       && Math.abs(a.row - b.row) < 0.25 - EPS;
 }
 
-function pathOverlapsSameType(newPath, lines, utilityType) {
+function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
   const newExpanded = expandPath(newPath);
+  const ignoreSharedSource = opts.ignoreSharedSource || null; // { start, end }
   const iter = lines && typeof lines.values === 'function'
     ? lines.values()
     : (lines || []);
   for (const line of iter) {
     if (!line || line.utilityType !== utilityType) continue;
+    // Branching: if new line shares a source endpoint with this existing line,
+    // ignore overlap at that shared endpoint's subtiles (the start/end point).
+    // This allows one hvTransformer pwr_out to fan out to multiple sinks via
+    // capacity, while still blocking interior overlaps between unrelated lines.
+    let skipEndpoint = false;
+    if (ignoreSharedSource) {
+      if (ignoreSharedSource.start && line.start && line.start.placeableId === ignoreSharedSource.start.placeableId && line.start.portName === ignoreSharedSource.start.portName) skipEndpoint = true;
+      if (ignoreSharedSource.start && line.end && line.end.placeableId === ignoreSharedSource.start.placeableId && line.end.portName === ignoreSharedSource.start.portName) skipEndpoint = true;
+      if (ignoreSharedSource.end && line.start && line.start.placeableId === ignoreSharedSource.end.placeableId && line.start.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
+      if (ignoreSharedSource.end && line.end && line.end.placeableId === ignoreSharedSource.end.placeableId && line.end.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
+    }
     const existing = expandPath(line.path || []);
     for (const np of newExpanded) {
       for (const ep of existing) {
-        if (pointsOverlap(np, ep)) return true;
+        if (!pointsOverlap(np, ep)) continue;
+        // If this overlap is at a shared source endpoint, allow it.
+        if (skipEndpoint) {
+          // Check if the overlapping point is at the shared endpoint's path end/start
+          // The shared endpoint is at newPath[0] (start) or newPath[newPath.length-1] (end)
+          // and at existing line's start or end. If overlap is near either, skip.
+          // We treat any point within 0.5 of the endpoint as endpoint-adjacent.
+          const isAtNewStart = Math.abs(np.col - newPath[0].col) < 0.5 && Math.abs(np.row - newPath[0].row) < 0.5;
+          const isAtNewEnd = Math.abs(np.col - newPath[newPath.length-1].col) < 0.5 && Math.abs(np.row - newPath[newPath.length-1].row) < 0.5;
+          const exPath = line.path || [];
+          const isAtExStart = exPath.length && Math.abs(ep.col - exPath[0].col) < 0.5 && Math.abs(ep.row - exPath[0].row) < 0.5;
+          const isAtExEnd = exPath.length && Math.abs(ep.col - exPath[exPath.length-1].col) < 0.5 && Math.abs(ep.row - exPath[exPath.length-1].row) < 0.5;
+          if ((isAtNewStart || isAtNewEnd) && (isAtExStart || isAtExEnd)) continue;
+        }
+        return true;
       }
     }
   }
@@ -149,7 +175,7 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
     const spec = getPortSpec(def, start.portName);
     if (!spec) return reject('invalid_start');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
-    if (isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
+    if (spec.role !== 'source' && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
 
     const firstDir = segmentDirection(path[0], path[1]);
     if (!firstDir) return reject('not_manhattan');
@@ -168,7 +194,7 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
     const spec = getPortSpec(def, end.portName);
     if (!spec) return reject('invalid_end');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
-    if (isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
+    if (spec.role !== 'source' && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
 
     const n = path.length;
     const lastDir = segmentDirection(path[n - 2], path[n - 1]);
@@ -178,9 +204,31 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
     }
   }
 
-  // Overlap against same-type lines only.
+  // Overlap against same-type lines only — branching at a shared source
+  // endpoint is allowed (capacity-based fanout). Interior overlaps still block.
   const lines = state && state.utilityLines;
-  if (pathOverlapsSameType(path, lines, utilityType)) return reject('overlap_same_type');
+  // Build ignore set for branching: if start/end is a source that is already taken,
+  // that endpoint is a fanout point and its exact endpoint overlap is permitted.
+  let ignoreSharedSource = null;
+  if (start) {
+    const sp = findPlaceable(state, start.placeableId);
+    const sdef = sp ? lookupDef(state, sp.type) : null;
+    const sspec = sdef ? getPortSpec(sdef, start.portName) : null;
+    if (sspec && sspec.role === 'source' && isPortTaken(state, start.placeableId, start.portName)) {
+      ignoreSharedSource = ignoreSharedSource || {};
+      ignoreSharedSource.start = start;
+    }
+  }
+  if (end) {
+    const ep = findPlaceable(state, end.placeableId);
+    const edef = ep ? lookupDef(state, ep.type) : null;
+    const espec = edef ? getPortSpec(edef, end.portName) : null;
+    if (espec && espec.role === 'source' && isPortTaken(state, end.placeableId, end.portName)) {
+      ignoreSharedSource = ignoreSharedSource || {};
+      ignoreSharedSource.end = end;
+    }
+  }
+  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource })) return reject('overlap_same_type');
 
   return {
     ok: true,

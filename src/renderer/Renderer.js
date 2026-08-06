@@ -279,6 +279,10 @@ export class Renderer {
           this._updateHUD();
           this._updateTreeProgress();
           break;
+        case 'staffChanged':
+          if (this._renderStaffBar) this._renderStaffBar();
+          if (this._refreshStaffWindows) this._refreshStaffWindows();
+          break;
         case 'researchChanged':
           this._renderTechTree();
           break;

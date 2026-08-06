@@ -15,6 +15,9 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
+import { ContextWindow } from '../ui/ContextWindow.js';
+import { openStaffInspector } from '../ui/StaffInspector.js';
+import { openHiringDialog } from '../ui/HiringDialog.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -183,6 +186,9 @@ UIHost.prototype._updateHUD = function() {
   if (goalsOverlay && !goalsOverlay.classList.contains('hidden')) {
     this._renderGoalsOverlay();
   }
+
+  // Staff bar (top bar portraits)
+  this._renderStaffBar();
 };
 
 UIHost.prototype._updateBeamSummary = function() {
@@ -1913,6 +1919,28 @@ UIHost.prototype._bindHUDEvents = function() {
       wallVisControl.classList.toggle('hidden', view !== 'game');
     });
   }
+
+  // Staff: Hire button opens hiring dialog (3 candidates)
+  const hireBtn = document.getElementById('btn-hire');
+  if (hireBtn) {
+    hireBtn.addEventListener('click', () => {
+      this._openHiringDialog();
+    });
+  }
+
+  // StaffChanged event refreshes staff bar and any open inspector/hiring windows
+  if (this.game && this.game.on) {
+    this.game.on((event) => {
+      if (event === 'staffChanged') {
+        this._renderStaffBar();
+        // refresh any open staff inspector windows
+        try { this._refreshStaffWindows(); } catch (_) {}
+        // hiring dialog auto-refreshes via its own listener, but also poke here
+        const hiring = document.querySelector('[data-ctx-id="hiring-dialog"]');
+        if (hiring) this._openHiringDialog();
+      }
+    });
+  }
 };
 
 // --- System Stats Panel ---
@@ -2232,3 +2260,101 @@ UIHost.prototype._renderOpsStats = function(d, summary, detail) {
     ${this._detailRow('Rad Waste Storage', dd.radWasteStorage)}
   </div>`;
 };
+
+// === STAFF HUD (top bar portraits, inspector, hiring dialog) ===
+
+const _STAFF_ROLE_COLORS = {
+  operator: '#44aa66',
+  technician: '#aa6633',
+  scientist: '#4488ff',
+  engineer: '#aa8833',
+};
+
+function _staffMoodClass(mood) {
+  if (mood === 'stressed') return 'mood-red';
+  if (mood === 'tired') return 'mood-yellow';
+  return 'mood-green';
+}
+
+function _staffFatigueClass(fatigue) {
+  if (fatigue > 0.8) return 'high';
+  if (fatigue > 0.5) return 'mid';
+  return '';
+}
+
+function _staffInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] || '') + (parts[1][0] || '');
+  return name.slice(0, 2).toUpperCase();
+}
+
+UIHost.prototype._renderStaffBar = function() {
+  const bar = document.getElementById('staff-bar');
+  if (!bar) return;
+  const members = (this.game && this.game.state && this.game.state.staffMembers) || [];
+  // Clear
+  bar.innerHTML = '';
+  if (members.length === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = '';
+  for (const m of members) {
+    const mood = m.mood || 'content';
+    const fatigue = (m.needs && typeof m.needs.fatigue === 'number') ? m.needs.fatigue : 0;
+    const pct = Math.max(0, Math.min(1, fatigue)) * 100;
+    const roleColor = _STAFF_ROLE_COLORS[m.role] || '#4466aa';
+    const el = document.createElement('div');
+    el.className = 'staff-portrait ' + _staffMoodClass(mood);
+    el.title = `${m.name} (${m.role}) — mood: ${mood}, fatigue: ${Math.round(pct)}%, status: ${m.status || 'idle'}`;
+    el.dataset.staffId = m.id;
+    el.style.background = roleColor;
+    // initials
+    const initials = document.createElement('span');
+    initials.className = 'staff-portrait-initials';
+    initials.textContent = _staffInitials(m.name);
+    el.appendChild(initials);
+    // role dot
+    const dot = document.createElement('span');
+    dot.className = 'staff-role-dot';
+    dot.style.background = roleColor;
+    dot.style.borderColor = 'rgba(0,0,0,0.5)';
+    // fatigue track
+    const track = document.createElement('div');
+    track.className = 'staff-fatigue-track';
+    const fill = document.createElement('div');
+    fill.className = 'staff-fatigue-fill ' + _staffFatigueClass(fatigue);
+    fill.style.width = pct + '%';
+    track.appendChild(fill);
+    el.appendChild(track);
+    el.addEventListener('click', () => {
+      this._openStaffInspector(m.id);
+    });
+    bar.appendChild(el);
+  }
+};
+
+UIHost.prototype._openStaffInspector = function(staffId) {
+  openStaffInspector(this.game, staffId);
+};
+
+UIHost.prototype._openHiringDialog = function() {
+  openHiringDialog(this.game);
+};
+
+UIHost.prototype._refreshStaffWindows = function() {
+  // Try to refresh any open staff inspector windows via ContextWindow registry
+  const members = (this.game && this.game.state && this.game.state.staffMembers) || [];
+  for (const m of members) {
+    const win = ContextWindow.getWindow('staff-' + m.id);
+    if (win && typeof win.refresh === 'function') {
+      try { win.refresh(); } catch (_) {}
+    }
+  }
+  const hiring = ContextWindow.getWindow('hiring-dialog');
+  if (hiring && typeof hiring.refresh === 'function') {
+    try { hiring.refresh(); } catch (_) {}
+  }
+};
+

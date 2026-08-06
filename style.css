@@ -3106,3 +3106,162 @@ body {
 #tutorial-panel.all-done #tutorial-title {
   color: #4a9;
 }
+
+/* === STAFF BAR (top bar, next to funding) === */
+#staff-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: 8px;
+}
+#btn-hire {
+  margin-left: 4px;
+}
+.staff-portrait {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  border: 2px solid #44dd66;
+  border-radius: 3px;
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #fff;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+.staff-portrait.mood-green { border-color: #44dd66; }
+.staff-portrait.mood-yellow { border-color: #ddaa22; }
+.staff-portrait.mood-red { border-color: #ff4444; }
+.staff-portrait:hover { filter: brightness(1.25); }
+.staff-portrait-initials { pointer-events: none; line-height: 1; }
+.staff-fatigue-track {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: rgba(0,0,0,0.6);
+}
+.staff-fatigue-fill {
+  height: 100%;
+  background: #44dd66;
+  transition: width 0.3s;
+}
+.staff-fatigue-fill.mid { background: #ddaa22; }
+.staff-fatigue-fill.high { background: #ff4444; }
+.staff-role-dot {
+  position: absolute;
+  top: 0; right: 0;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.6);
+}
+.staff-count-badge {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #888;
+  margin-left: 2px;
+}
+
+/* Staff inspector bars */
+.staff-bar-track {
+  height: 6px;
+  background: rgba(30,30,60,0.8);
+  border-radius: 2px;
+  overflow: hidden;
+  flex: 1;
+}
+.staff-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.staff-bar-label {
+  font-size: 7px;
+  color: #8888aa;
+  width: 60px;
+  text-transform: uppercase;
+}
+.staff-need-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.staff-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.staff-skill-name {
+  font-size: 7px;
+  color: #aaaacc;
+  width: 80px;
+  text-transform: capitalize;
+}
+.staff-skill-val {
+  font-size: 7px;
+  color: #888;
+  width: 20px;
+  text-align: right;
+}
+
+/* Hiring dialog cards */
+.hiring-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hiring-card {
+  flex: 1;
+  min-width: 180px;
+  background: rgba(20,20,45,0.9);
+  border: 1px solid rgba(80,80,120,0.3);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hiring-card:hover { border-color: rgba(100,150,255,0.5); }
+.hiring-card-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hiring-portrait {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #44dd66;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.hiring-name { font-size: 9px; color: #ccddff; }
+.hiring-role { font-size: 7px; color: #888; text-transform: capitalize; }
+.hiring-traits { font-size: 7px; color: #aacc88; line-height: 1.4; }
+.hiring-skills { font-size: 7px; color: #aaa; line-height: 1.5; }
+.hiring-cost { font-size: 8px; color: #44dd66; }
+.hiring-hire-btn {
+  margin-top: 4px;
+  padding: 6px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  background: rgba(40,80,40,0.8);
+  border: 1px solid rgba(80,120,80,0.4);
+  border-radius: 3px;
+  color: #aaffaa;
+  cursor: pointer;
+}
+.hiring-hire-btn:hover { background: rgba(50,100,50,0.9); }
+.hiring-hire-btn:disabled { opacity: 0.4; cursor: not-allowed; }
