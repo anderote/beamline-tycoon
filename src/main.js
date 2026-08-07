@@ -409,6 +409,66 @@ function showScenarioPicker(game) {
   router.init(game.state.view?.route);
   game.start();
 
+  // ── Live demo / remote-drive for watch-while-iterating ──────────────
+  // 1) ?demo=1 auto-builds a showcase facility+beamline on load so
+  //    http://localhost:8000/?demo=1#game animates without pasting.
+  // 2) Polling public/demo-commands.json lets the agent drive the
+  //    *user's* tab live (same-origin fetch) — puppeteer and user Chrome
+  //    share the file via vite's static serving, not localStorage.
+  window.game = game; window._renderer = renderer; // ensure global for console
+  async function runDemoBuild() {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const panTo = (x, y, z) => { renderer._panX = x; renderer._panY = y; if (z) renderer.zoom = z; renderer.refresh(); };
+    game.setDevMode(true);
+    console.log('[demo] building showcase...');
+    game.placeInfraRect(0,0,4,4,'concrete'); renderer.refresh(); await sleep(500);
+    game.placeInfraRect(0,0,4,4,'officeFloor'); renderer.refresh(); await sleep(500);
+    game.placeZoneRect(0,0,2,2,'controlRoom'); await sleep(250);
+    game.placeZoneRect(3,0,4,2,'cafeteria'); await sleep(250);
+    game.placeZoneRect(0,3,4,4,'officeSpace'); renderer.refresh(); panTo(2,2,1.2); await sleep(700);
+    game.placeInfraRect(0,6,4,9,'concrete'); await sleep(350);
+    game.placeInfraRect(0,6,4,9,'labFloor'); await sleep(350);
+    game.placeZoneRect(0,6,4,9,'rfLab'); renderer.refresh(); panTo(2,5,1.2); await sleep(700);
+    for (let c=-2;c<10;c++){ const d=game._decorationAtTile?.(c,12); if(d) game.removeDecoration(c,12,{skipRefund:true}); }
+    await sleep(300);
+    const src = game.beamline.placeJunction({type:'source', col:0, row:12, dir:3}); renderer.refresh(); await sleep(600);
+    const far = game.beamline.placeJunction({type:'faradayCup', col:8, row:12, dir:3}); renderer.refresh(); await sleep(600);
+    const pipe = game.beamline.drawPipe({junctionId:src,portName:'exit'},{junctionId:far,portName:'entry'},[{col:0,row:12},{col:8,row:12}]);
+    renderer.refresh(); panTo(4,7,1.3); await sleep(800);
+    if (pipe) {
+      game.beamline.placeOnPipe(pipe,{type:'quadrupole',position:0.25,mode:'snap'}); renderer.refresh(); await sleep(500);
+      game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
+      game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
+    }
+    renderer.setViewMode('iso',0); renderer.refresh(); await sleep(700);
+    renderer.setViewMode('top',0); renderer.refresh(); await sleep(700);
+    renderer.setViewMode('iso',2); renderer.refresh(); panTo(4,7,1.3); await sleep(700);
+    console.log('[demo] done — use 1/2/3 tabs, Q/E rotate, middle-drag orbit');
+  }
+  const params = new URLSearchParams(location.search);
+  if (params.has('demo') || location.hash.includes('demo')) {
+    setTimeout(runDemoBuild, 1200);
+  }
+  // Expose for manual trigger: window.__btDemo()
+  window.__btDemo = runDemoBuild;
+  // Live polling — agent writes public/demo-commands.json, your tab executes
+  let lastSeq = 0;
+  setInterval(async () => {
+    try {
+      const res = await fetch('/demo-commands.json?'+Date.now(), {cache:'no-store'});
+      if (!res.ok) return;
+      const j = await res.json();
+      if (!j || typeof j.seq !== 'number' || j.seq <= lastSeq) return;
+      lastSeq = j.seq;
+      const c = j.cmd;
+      if (!c) return;
+      console.log('[remote]', c);
+      if (c.action === 'demo') await runDemoBuild();
+      else if (c.action === 'eval' && typeof c.js === 'string') Function('game','renderer',c.js)(game, renderer);
+      else if (c.action === 'reset') { localStorage.clear(); location.reload(); }
+    } catch {}
+  }, 800);
+
   BeamPhysics.init().then(() => {
     game.log('Beam physics engine loaded.', 'good');
     game.recalcAllBeamlines();
