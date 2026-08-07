@@ -2945,8 +2945,9 @@ export class ThreeRenderer {
         cx = cx / cluster.length * 2 + 1;
         cz = cz / cluster.length * 2 + 1;
         const label = `${def.name} [${cluster.length}]`;
-        const sprite = this._makeLabelSprite(label);
-        sprite.position.set(cx, 0.4, cz);
+        const sprite = this._makeLabelSprite(label, { isZone: true });
+        sprite.position.set(cx, 0.55, cz);
+        sprite.renderOrder = 11;
         this.zoneGroup.add(sprite);
       }
     }
@@ -2985,10 +2986,11 @@ export class ThreeRenderer {
     return clusters;
   }
 
-  _makeLabelSprite(text) {
+  _makeLabelSprite(text, opts = {}) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const fontSize = 8;
-    const font = `${fontSize}px 'Press Start 2P', monospace`;
+    const isZone = opts.isZone ?? text.includes('[');
+    const fontSize = isZone ? 18 : 8;
+    const font = isZone ? `${fontSize}px Inter, 'Helvetica Neue', sans-serif` : `${fontSize}px 'Press Start 2P', monospace`;
     const measureCanvas = document.createElement('canvas');
     const mctx = measureCanvas.getContext('2d');
     mctx.font = font;
@@ -3004,11 +3006,20 @@ export class ThreeRenderer {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.font = font;
+    if (isZone) ctx.font = `600 ${font}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
+    // zone labels get solid dark bg for readability when zoomed out
+    if (isZone) {
+      ctx.fillStyle = 'rgba(10,10,20,0.85)';
+      const r = 6;
+      ctx.beginPath();
+      ctx.roundRect(2, 2, cssW-4, cssH-4, r);
+      ctx.fill();
+    }
     ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+    ctx.lineWidth = isZone ? 4 : 3;
     ctx.lineJoin = 'round';
     ctx.strokeText(text, cssW / 2, cssH / 2);
     ctx.fillText(text, cssW / 2, cssH / 2);
@@ -3019,9 +3030,9 @@ export class ThreeRenderer {
     tex.magFilter = THREE.LinearFilter;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
     const sprite = new THREE.Sprite(mat);
-    const worldH = 0.42;
+    const worldH = isZone ? 0.92 : 0.42;
     sprite.scale.set(worldH * (cssW / cssH), worldH, 1);
-    sprite.renderOrder = 10;
+    sprite.renderOrder = isZone ? 11 : 10;
     return sprite;
   }
 

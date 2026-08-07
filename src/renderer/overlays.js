@@ -185,6 +185,28 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
   if (closeBtn) {
     closeBtn.onclick = () => this.hidePopup();
   }
+
+  // Make popup draggable by header
+  if (!popup._dragInit) {
+    popup._dragInit = true;
+    const header = popup.querySelector('.popup-header');
+    if (header) {
+      header.style.cursor = 'grab';
+      let dragging = false, sx, sy, ox, oy;
+      header.addEventListener('mousedown', e => {
+        if (e.target.closest('.popup-close')) return;
+        dragging = true; sx = e.clientX; sy = e.clientY;
+        ox = parseInt(popup.style.left,10)||0; oy = parseInt(popup.style.top,10)||0;
+        header.style.cursor = 'grabbing'; e.preventDefault();
+      });
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        popup.style.left = (ox + e.clientX - sx) + 'px';
+        popup.style.top = (oy + e.clientY - sy) + 'px';
+      });
+      document.addEventListener('mouseup', () => { dragging = false; if(header) header.style.cursor='grab'; });
+    }
+  }
 };
 
 UIHost.prototype._paramLabel = function(key) {
@@ -288,8 +310,19 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
   popup.style.top = Math.min(screenY + 10, window.innerHeight - 200) + 'px';
   popup.classList.remove('hidden');
 
-  const closeBtn = popup.querySelector('.popup-close');
-  if (closeBtn) closeBtn.onclick = () => this.hidePopup();
+  const closeBtn2 = popup.querySelector('.popup-close');
+  if (closeBtn2) closeBtn2.onclick = () => this.hidePopup();
+  if (!popup._dragInit) {
+    popup._dragInit = true;
+    const hdr = popup.querySelector('.popup-header');
+    if (hdr) {
+      hdr.style.cursor = 'grab';
+      let dr=false,sx,sy,ox,oy;
+      hdr.addEventListener('mousedown', e=>{ if(e.target.closest('.popup-close'))return; dr=true; sx=e.clientX; sy=e.clientY; ox=parseInt(popup.style.left,10)||0; oy=parseInt(popup.style.top,10)||0; hdr.style.cursor='grabbing'; e.preventDefault(); });
+      document.addEventListener('mousemove', e=>{ if(!dr) return; popup.style.left=(ox+e.clientX-sx)+'px'; popup.style.top=(oy+e.clientY-sy)+'px'; });
+      document.addEventListener('mouseup', ()=>{ dr=false; if(hdr) hdr.style.cursor='grab'; });
+    }
+  }
 };
 
 UIHost.prototype.hidePopup = function() {
