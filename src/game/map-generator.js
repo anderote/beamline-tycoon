@@ -461,8 +461,12 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
     placeMeadowGrass(terrainBlobs, floors, rng);
   }
   const walls = [];
+  // Flat mode: no hills/hollows — keeps all default elevations at z=0
+  // for simpler building and predictable wall footings. The true-3D
+  // underground system (RCT-style levels) will re-enable terrain features
+  // behind a level flag.
   const cornerHeights = new Map();
-  addHillsAndHollows(cornerHeights, rng);
+  // addHillsAndHollows(cornerHeights, rng); // flat for now
 
   return {
     floors,
