@@ -62,6 +62,15 @@ const BEAMLINE_UTILITY_PORTS = {
   source: {
     pwr_in: { utility: 'powerCable', side: 'left', offsetAlong: 0.3, role: 'sink' },
   },
+  ionSource: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink' },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink' },
+  },
+  ecrIonSource: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink' },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink' },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink' },
+  },
   dipole: {
     pwr_in:  { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink' },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink' },
@@ -74,6 +83,10 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink' },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink' },
   },
+  injectionSeptum: {
+    pwr_in:  { utility: 'powerCable',  side: 'front', offsetAlong: 0.3, role: 'sink' },
+    cool_in: { utility: 'coolingWater', side: 'front', offsetAlong: 0.7, role: 'sink' },
+  },
   velocitySelector: {
     pwr_in: { utility: 'powerCable', side: 'left', offsetAlong: 0.5, role: 'sink' },
   },
@@ -82,6 +95,10 @@ const BEAMLINE_UTILITY_PORTS = {
   },
 
   // RF — normal conducting (pwr + cool + rf)
+  buncher: {
+    pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink' },
+    rf_in:  { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.7, role: 'sink' },
+  },
   rfq: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink' },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink' },
@@ -158,6 +175,11 @@ const BEAMLINE_UTILITY_PORTS = {
   target: {
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.3, role: 'sink' },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.7, role: 'sink' },
+  },
+  collisionPoint: {
+    // Beam ports occupy back+front (entryA/entryB) — utilities enter from the sides.
+    pwr_in:  { utility: 'powerCable', side: 'left',  offsetAlong: 0.5, role: 'sink' },
+    data_in: { utility: 'dataFiber',  side: 'right', offsetAlong: 0.5, role: 'sink' },
   },
 };
 

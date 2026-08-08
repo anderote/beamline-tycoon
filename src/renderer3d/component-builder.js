@@ -4,6 +4,8 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { BEAMLINE_COMPONENTS_RAW } from '../data/beamline-components.raw.js';
+import { roleBuilderFallbacks } from '../data/validate.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
@@ -2212,6 +2214,22 @@ const DETAIL_BUILDERS = {
   ecrIonSource: _buildEcrIonSource,
   drift: _buildDrift,
 };
+
+// Coverage report: beamline components with no bespoke geometry render as a
+// generic box/cylinder. Info-level so missing 3D art stays visible without
+// failing anything.
+{
+  const fallback = roleBuilderFallbacks(
+    BEAMLINE_COMPONENTS_RAW,
+    [...Object.keys(ROLE_BUILDERS), ...Object.keys(DETAIL_BUILDERS)],
+  );
+  if (fallback.length > 0) {
+    console.info(
+      `[content] ${fallback.length} beamline component(s) using fallback box/cylinder geometry ` +
+      `(no ROLE_BUILDERS/DETAIL_BUILDERS entry): ${fallback.join(', ')}`,
+    );
+  }
+}
 
 /**
  * Create a transparent ghost version of a beamline component for placement preview.

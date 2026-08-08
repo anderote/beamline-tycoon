@@ -52,6 +52,20 @@ for (const id of game.state.placeables.map(p => p.id)) {
 
 // Partition component types by role.
 const allTypes = Object.keys(BEAMLINE_COMPONENTS_RAW);
+
+// --- every beamline component declares its physics identity ---
+// gameplay.py raises ValueError at compute time on a missing physicsType;
+// catch the gap here at test time instead.
+for (const type of allTypes) {
+  test(`${type} — declares physicsType`, () => {
+    const pt = BEAMLINE_COMPONENTS_RAW[type].physicsType;
+    if (typeof pt !== 'string' || pt.length === 0) {
+      throw new Error(`'${type}' has no physicsType in beamline-components.raw.js`);
+    }
+  });
+}
+
+
 // drift is drawn as a connection, not placed as a standalone object — excluded from PLACEABLES by design.
 const drawnConnectionTypes = allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].isDrawnConnection);
 const junctionTypes  = allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].role === 'junction');

@@ -13,7 +13,11 @@
 import { PLACEABLES } from './placeables/index.js';
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
-import { getUtilityPortsV2 } from './utility-ports-v2.js';
+import { FACILITY_ROOM_FURNISHINGS_RAW } from './facility-room-furnishings.raw.js';
+import { FACILITY_LAB_FURNISHINGS_RAW } from './facility-lab-furnishings.raw.js';
+import { DECORATIONS_RAW } from './decorations.raw.js';
+import { getUtilityPortsV2, UTILITY_PORTS_V2_BY_ID } from './utility-ports-v2.js';
+import { validateContent } from './validate.js';
 
 export const COMPONENTS = {};
 
@@ -54,14 +58,30 @@ for (const id of Object.keys(COMPONENTS)) {
   }
 }
 
-// Validate: every beamline/infra raw entry must have a placement type
-for (const raws of [BEAMLINE_COMPONENTS_RAW, INFRASTRUCTURE_RAW]) {
-  for (const [key, comp] of Object.entries(raws)) {
-    if (!comp.placement) {
-      console.warn(`Component '${key}' missing placement type`);
+// Content validation gate — this module is the point where every registry
+// (placeables, raws, utility ports) has been loaded, so all content flows
+// through here. In dev and under node (tests) a problem is fatal: fail
+// loudly at load, not at first placement/beam-on. Production builds log
+// and keep running.
+{
+  const problems = validateContent({
+    placeables: PLACEABLES,
+    rawRegistries: {
+      beamline: BEAMLINE_COMPONENTS_RAW,
+      infrastructure: INFRASTRUCTURE_RAW,
+      roomFurnishings: FACILITY_ROOM_FURNISHINGS_RAW,
+      labFurnishings: FACILITY_LAB_FURNISHINGS_RAW,
+      decorations: DECORATIONS_RAW,
+    },
+    utilityPorts: UTILITY_PORTS_V2_BY_ID,
+  });
+  if (problems.length > 0) {
+    const msg = `Content validation failed: ${problems.length} problem(s)\n` +
+      problems.map(p => `  - [${p.id}] ${p.field}: ${p.message}`).join('\n');
+    const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+    if (isNode || import.meta.env?.DEV) {
+      throw new Error(msg);
     }
-    if (comp.placement === 'module' && !comp.ports) {
-      console.warn(`Module '${key}' missing ports definition`);
-    }
+    console.error(msg);
   }
 }

@@ -49,21 +49,20 @@ COMPONENT_DEFAULTS = {
     "comptonIP":    {"photonRate": 1.0},
 }
 
-# Source types that produce initial beam
-SOURCE_TYPES = {"source", "dcPhotoGun", "ncRfGun", "srfGun"}
-
-# Component types that are diagnostics
+# Component types that are diagnostics (game types; used for coverage counting)
 DIAGNOSTIC_TYPES = {"bpm", "screen", "ict", "wireScanner", "bunchLengthMonitor",
                     "energySpectrometer", "beamLossMonitor", "srLightMonitor"}
 
-# Component types that are insertion devices
-INSERTION_DEVICE_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Undulator"}
-
-# RF cavity types
-RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                   "cbandCavity", "xbandCavity", "srf650Cavity",
-                   "rfq", "pillboxCavity", "sbandStructure",
-                   "halfWaveResonator", "spokeCavity", "ellipticalSrfCavity"}
+# The closed set of physics element types the engine understands
+# (elements.transfer_matrix dispatch, lattice special-casing, and the
+# module tier lists in machines.py). Every game component declares one of
+# these as `physicsType` in src/data/beamline-components.raw.js; a missing
+# or unknown value raises ValueError — no silent fallthrough.
+KNOWN_PHYSICS_TYPES = {
+    "source", "drift", "quadrupole", "dipole", "combined_function",
+    "rfCavity", "cryomodule", "sextupole", "collimator", "undulator",
+    "solenoid", "chicane", "detector", "target", "beamStop",
+}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
 # Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)
@@ -78,11 +77,13 @@ def beamline_config_from_game(game_beamline):
     Convert game beamline format to physics element list.
 
     game_beamline: list of dicts, each with at minimum:
-        {"type": "quadrupole", ...}
+        {"type": "quadrupole", "physicsType": "quadrupole", ...}
     May also include stats from the COMPONENTS template:
         {"type": "quadrupole", "stats": {"focusStrength": 1}, "length": 2}
 
-    Maps game component stats to physics parameters.
+    The physics identity is declared in the data (physicsType, from
+    beamline-components.raw.js); this function only validates it and maps
+    game stats/params onto physics parameters.
     """
     elements = []
     quad_index = 0
@@ -90,39 +91,19 @@ def beamline_config_from_game(game_beamline):
     for comp in game_beamline:
         ctype = comp["type"]
 
-        # Map game component types to physics element types
-        if ctype in ("driftVert", "bellows", "splitter", "dogleg"):
-            physics_type = "drift"
-        elif ctype in SOURCE_TYPES:
-            physics_type = "source"
-        elif ctype in ("scQuad",):
-            physics_type = "quadrupole"
-        elif ctype in ("scDipole",):
-            physics_type = "dipole"
-        elif ctype in RF_CAVITY_TYPES:
-            physics_type = "rfCavity" if ctype != "cryomodule" else "cryomodule"
-            if ctype in ("buncher", "harmonicLinearizer", "cbandCavity",
-                         "xbandCavity", "srf650Cavity"):
-                physics_type = "rfCavity"
-        elif ctype in INSERTION_DEVICE_TYPES:
-            physics_type = "undulator"
-        elif ctype in DIAGNOSTIC_TYPES:
-            physics_type = "drift"  # diagnostics are thin elements
-        elif ctype in ("fixedTargetAdv", "positronTarget"):
-            physics_type = "target"
-        elif ctype in ("photonPort", "comptonIP"):
-            physics_type = "drift"  # endpoints, no beam physics effect
-        elif ctype in ("kickerMagnet", "septumMagnet", "corrector",
-                        "octupole", "stripperFoil"):
-            physics_type = "drift"  # thin elements, minimal beam effect
-        elif ctype == "combinedFunctionMagnet":
-            physics_type = "combined_function"
-        elif ctype == "chicane":
-            physics_type = "chicane"
-        elif ctype == "solenoid":
-            physics_type = "solenoid"
-        else:
-            physics_type = ctype
+        physics_type = comp.get("physicsType")
+        if physics_type is None:
+            raise ValueError(
+                f"component '{ctype}' has no physicsType — every beamline "
+                f"component must declare physicsType in "
+                f"beamline-components.raw.js"
+            )
+        if physics_type not in KNOWN_PHYSICS_TYPES:
+            raise ValueError(
+                f"component '{ctype}' declares unknown physicsType "
+                f"'{physics_type}' — known types: "
+                f"{sorted(KNOWN_PHYSICS_TYPES)}"
+            )
 
         defaults = COMPONENT_DEFAULTS.get(ctype, {})
         stats = comp.get("stats", {})

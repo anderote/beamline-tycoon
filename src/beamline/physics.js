@@ -2,6 +2,8 @@
 // Loads Python beam physics module client-side via Pyodide + numpy
 // Note: loadPyodide is a CDN global — not imported
 
+import { COMPONENTS } from '../data/components.js';
+
 export const BeamPhysics = (() => {
   let pyodide = null;
   let ready = false;
@@ -56,14 +58,12 @@ with open('beam_physics/__init__.py', 'w') as f:
     f.write('')
       `);
 
-      // Fetch and load each module
+      // Fetch and load each module (written straight to the virtual FS —
+      // no string interpolation into Python source)
       for (const path of PY_MODULES) {
         const response = await fetch(path);
         const code = await response.text();
-        pyodide.runPython(`
-with open('${path}', 'w') as f:
-    f.write(${JSON.stringify(code)})
-        `);
+        pyodide.FS.writeFile(path, code);
       }
 
       // Import the entry point
@@ -86,13 +86,20 @@ from beam_physics.gameplay import compute_beam_for_game
       return null;
     }
 
-    const beamlineJson = JSON.stringify(gameBeamline);
-    const effectsJson = JSON.stringify(researchEffects || {});
+    // Attach each component's declared physics identity from the registry so
+    // Python never has to guess how a game type maps onto the engine.
+    // gameplay.py raises on a missing/unknown physicsType.
+    const payload = gameBeamline.map(el =>
+      el.physicsType ? el : { ...el, physicsType: COMPONENTS[el.type]?.physicsType }
+    );
 
     try {
-      const resultJson = pyodide.runPython(`
-compute_beam_for_game('${beamlineJson.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', '${effectsJson.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')
-      `);
+      // Pass JSON via pyodide globals — no quote/backslash escaping games.
+      pyodide.globals.set('beamline_json', JSON.stringify(payload));
+      pyodide.globals.set('effects_json', JSON.stringify(researchEffects || {}));
+      const resultJson = pyodide.runPython(
+        'compute_beam_for_game(beamline_json, effects_json)'
+      );
       return JSON.parse(resultJson);
     } catch (err) {
       console.error('BeamPhysics compute error:', err);
