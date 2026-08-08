@@ -3471,7 +3471,71 @@ UIHost.prototype._renderGoalsOverlay = function() {
 
     list.appendChild(groupDiv);
   }
+
+  // Objectives. The tutorial checklist is guidance, not the reward layer —
+  // OBJECTIVES carries the actual funding/reputation milestones, and until
+  // now it had no UI at all (the only signal was a log line nothing renders).
+  const completedObjectives = new Set(state.completedObjectives || []);
+  const objHeader = document.createElement('div');
+  objHeader.className = 'goals-progress';
+  objHeader.innerHTML =
+    `<div class="goals-progress-label">` +
+    `<span>Objectives</span>` +
+    `<span class="goals-progress-count">${completedObjectives.size}/${OBJECTIVES.length}</span>` +
+    `</div>` +
+    `<div class="goals-progress-bar"><div class="goals-progress-fill" ` +
+    `style="width:${Math.round((completedObjectives.size / OBJECTIVES.length) * 100)}%"></div></div>`;
+  list.appendChild(objHeader);
+
+  for (const [tier, tierName] of OBJECTIVE_TIER_NAMES) {
+    const objs = OBJECTIVES.filter(o => (o.tier || 0) === tier);
+    if (objs.length === 0) continue;
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'tut-group';
+    const title = document.createElement('div');
+    title.className = 'tut-group-name';
+    title.textContent = `Tier ${tier} — ${tierName}`;
+    groupDiv.appendChild(title);
+
+    for (const obj of objs) {
+      const done = completedObjectives.has(obj.id);
+      const item = document.createElement('div');
+      item.className = 'objective-item' + (done ? ' completed' : '');
+      const name = document.createElement('div');
+      name.className = 'obj-name';
+      name.textContent = (done ? '✓ ' : '○ ') + obj.name;
+      const desc = document.createElement('div');
+      desc.className = 'obj-desc';
+      desc.textContent = obj.desc;
+      const reward = document.createElement('div');
+      reward.className = 'obj-reward';
+      reward.textContent = objectiveRewardText(obj.reward);
+      item.appendChild(name);
+      item.appendChild(desc);
+      item.appendChild(reward);
+      groupDiv.appendChild(item);
+    }
+    list.appendChild(groupDiv);
+  }
 };
+
+// Tier labels mirror the section comments in src/data/objectives.js.
+const OBJECTIVE_TIER_NAMES = [
+  [0, 'Getting Started'],
+  [1, 'Basic Competence'],
+  [2, 'Real Facility'],
+  [3, 'World Class'],
+  [4, 'Frontier'],
+  [5, 'Legacy'],
+];
+
+function objectiveRewardText(reward) {
+  const parts = [];
+  if (reward?.funding) parts.push('$' + reward.funding.toLocaleString());
+  if (reward?.reputation) parts.push(`+${reward.reputation} rep`);
+  if (reward?.data) parts.push(`+${reward.data} data`);
+  return parts.length ? 'Reward: ' + parts.join(' · ') : '';
+}
 
 // ---------------------------------------------------------------------------
 // Beamline context windows

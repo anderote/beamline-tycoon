@@ -368,6 +368,10 @@ function showScenarioPicker(game) {
     switch (action) {
       case 'new-game':
         if (confirm('Start a new game? All progress will be lost.')) {
+          // skipTitle so the reload lands in a fresh game rather than on the
+          // title screen — which, with the save just deleted, would show no
+          // Continue button and force a second New Game click.
+          sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
           localStorage.removeItem('beamlineTycoon');
           location.reload();
         }
@@ -460,6 +464,13 @@ function showScenarioPicker(game) {
   };
 
   router.init(restoredView?.route);
+  // Start the sim paused behind the title screen. game.start() spins up the
+  // 1 Hz tick — upkeep, staff needs, research progress, objectives, and an
+  // autosave every 30 ticks — so leaving the title screen up used to charge
+  // the player for minutes of idle time and overwrite the very save they had
+  // not chosen to continue yet. onContinue resumes.
+  const pausedBeforeTitle = game.state.paused;
+  if (titleScreen) game.state.paused = true;
   game.start();
 
   // First-run welcome popup: only once the player is actually looking at
@@ -475,7 +486,13 @@ function showScenarioPicker(game) {
   if (titleScreen) {
     titleScreen.ready({
       hasSave: hadSave,
-      onContinue: () => { titleScreen.dismiss(); maybeShowWelcome(); },
+      onContinue: () => {
+        titleScreen.dismiss();
+        // Restore whatever pause state the loaded save had, not an
+        // unconditional resume.
+        if (!pausedBeforeTitle) game.resume();
+        maybeShowWelcome();
+      },
       onNewGame: () => {
         // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
         // with skipTitle set so the reload goes straight into the game.

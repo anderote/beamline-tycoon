@@ -1,6 +1,6 @@
 import { RESEARCH, RESEARCH_LAB_MAP, RESEARCH_SPEED_TABLE } from '../data/research.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS } from '../data/facility.js';
+import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 
 // Module-level caches. Safe to share across Game instances: both derive
 // purely from the static RESEARCH table, never from game state.
@@ -95,11 +95,18 @@ export function _computeFinalNodes() {
   return _finalNodes;
 }
 
-export function _getFurnishingTier(zoneType, zoneFurnishings) {
+/**
+ * Furnishing tier for a zone. `zoneItems` must be state.zoneItems — every
+ * placed item with a ZONE_FURNISHINGS def — not state.zoneFurnishings, which
+ * is the kind === 'furnishing' subset and therefore excludes all 43 LAB items
+ * (they are kind 'equipment'). Matching goes through itemMatchesZone so the
+ * defs that declare a `zoneTypes` array (labBench et al.) count too.
+ */
+export function _getFurnishingTier(zoneType, zoneItems) {
   let count = 0;
-  for (const f of zoneFurnishings || []) {
+  for (const f of zoneItems || []) {
     const def = ZONE_FURNISHINGS[f.type];
-    if (def && def.zoneType === zoneType) count++;
+    if (itemMatchesZone(def, zoneType)) count++;
   }
   let tier = 0;
   for (let t = FURNISHING_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
@@ -112,11 +119,11 @@ export function getLabResearchTier(labType, state) {
   const conn = state.zoneConnectivity?.[labType];
   if (!conn || !conn.active) {
     const tileTier = conn ? conn.tier : 0;
-    const furnTier = _getFurnishingTier(labType, state.zoneFurnishings);
+    const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
     return Math.min(tileTier, furnTier);
   }
   const tileTier = conn.tier;
-  const furnTier = _getFurnishingTier(labType, state.zoneFurnishings);
+  const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
   return Math.min(tileTier, furnTier);
 }
 

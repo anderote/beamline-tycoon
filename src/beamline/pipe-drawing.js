@@ -158,17 +158,6 @@ export function validateDrawPipe(state, { start, end, path } = {}) {
     const firstDir = segmentDirection(path[0], path[1]);
     if (!firstDir) return reject('not_straight');
     if (isPortTaken(state, start.junctionId, start.portName)) return reject('port_taken');
-    const _side = portSide(p, start.portName);
-    console.warn('[pipe-draw] validateDrawPipe START-check:', {
-      junctionId: start.junctionId,
-      junctionType: p.type,
-      junctionDir: p.dir,
-      portName: start.portName,
-      portSide: _side,
-      firstDir,
-      path0: path[0],
-      path1: path[1],
-    });
     if (!portMatchesApproach(p, start.portName, firstDir, false)) {
       return reject('port_mismatch');
     }
@@ -182,17 +171,6 @@ export function validateDrawPipe(state, { start, end, path } = {}) {
     const lastDir = segmentDirection(path[n - 2], path[n - 1]);
     if (!lastDir) return reject('not_straight');
     if (isPortTaken(state, end.junctionId, end.portName)) return reject('port_taken');
-    const _sideEnd = portSide(p, end.portName);
-    console.warn('[pipe-draw] validateDrawPipe END-check:', {
-      junctionId: end.junctionId,
-      junctionType: p.type,
-      junctionDir: p.dir,
-      portName: end.portName,
-      portSide: _sideEnd,
-      lastDir,
-      pathPrev: path[n - 2],
-      pathLast: path[n - 1],
-    });
     if (!portMatchesApproach(p, end.portName, lastDir, true)) {
       return reject('port_mismatch');
     }
@@ -283,10 +261,14 @@ export function validateExtendPipe(state, pipeId, additionalPath) {
   } else {
     // start open: additionalPath outward from path[0]; reverse it so the
     // merged path reads tailward-to-junction-to-old-end.
+    // The shared joint is additionalPath[0] (the collinearity gate above
+    // forces additionalPath to run OUTWARD from path[0]), not its far end —
+    // comparing against the far end meant the joint was never deduped and the
+    // merged path always carried a duplicate waypoint.
     const firstExisting = existingPath[0];
-    const lastAdd = additionalPath[additionalPath.length - 1];
-    const shared = Math.abs(firstExisting.col - lastAdd.col) < EPS
-                && Math.abs(firstExisting.row - lastAdd.row) < EPS;
+    const joint = additionalPath[0];
+    const shared = Math.abs(firstExisting.col - joint.col) < EPS
+                && Math.abs(firstExisting.row - joint.row) < EPS;
     const addRev = additionalPath.slice().reverse();
     const prefix = shared ? addRev.slice(0, -1) : addRev;
     newPath = [...prefix, ...existingPath];
@@ -296,11 +278,17 @@ export function validateExtendPipe(state, pipeId, additionalPath) {
   if (pathOverlapsAny(newPath, pipes, pipeId)) return reject('overlap');
 
   // Recompute subL and remap placement positions to preserve absolute metres.
+  // `position` is a 0..1 arc-length fraction measured from path[0]. Extending
+  // the END leaves path[0] fixed, so scaling by oldSubL/newSubL preserves
+  // absolute metres. Extending the START moves path[0] outward by the added
+  // length, so the added length has to be re-added or every placement is
+  // silently translated backwards into the newly-bought section.
   const oldSubL = pipe.subL || computeSubL(existingPath);
   const newSubL = computeSubL(newPath);
+  const headShift = openSide === 'start' ? Math.max(0, newSubL - oldSubL) : 0;
   const placements = (pipe.placements || []).map(pl => ({
     ...pl,
-    position: newSubL > 0 ? (pl.position * oldSubL) / newSubL : pl.position,
+    position: newSubL > 0 ? (pl.position * oldSubL + headShift) / newSubL : pl.position,
   }));
 
   return {

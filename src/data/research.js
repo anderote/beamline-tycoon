@@ -1,3 +1,24 @@
+// Research `effect` keys that something actually consumes. Game.getEffect()
+// will happily return any key, so this list is the contract: a node whose
+// effect names a key outside it is dead content (the tooltip promises a
+// bonus the player never receives). Enforced by validateResearch() in
+// src/data/validate.js, covered by test/test-research-integrity.js.
+//
+//   - the physics keys are forwarded to beam_physics/gameplay.py
+//     (Game._recalcMainBeamGraph / _recalcSingleBeamline / BeamlineDesigner)
+//   - passiveFunding is read by Game.tick()
+export const RESEARCH_EFFECT_KEYS = [
+  'luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
+  'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
+  'beamLifetimeMult', 'diagnosticPrecision',
+  'passiveFunding',
+];
+
+// Subset forwarded to the physics engine as `researchEffects` (passiveFunding
+// is a pure economy knob and is not part of the physics contract).
+export const RESEARCH_PHYSICS_EFFECT_KEYS =
+  RESEARCH_EFFECT_KEYS.filter(k => k !== 'passiveFunding');
+
 export const RESEARCH_CATEGORIES = {
   beamOptics:    { id: 'beamOptics',    name: 'Beam Optics',      color: '#4ac' },
   rf:            { id: 'rf',            name: 'RF Systems',       color: '#c44' },
@@ -38,7 +59,8 @@ export const RESEARCH = {
     desc: 'Study how charged particle beams propagate through magnetic fields and drift spaces. Develops the theoretical framework for transverse beam dynamics — emittance, beta functions, and phase space. Enables precision beam shaping with collimators to scrape halo particles and improve beam quality downstream.',
     cost: { data: 10, funding: 500000 },
     duration: 30,
-    unlocks: ['collimator'],
+    unlocks: [],
+    effect: { beamStability: 0.03 },
     requires: null,
   },
   bunchCompression: {
@@ -47,7 +69,8 @@ export const RESEARCH = {
     desc: 'Develop techniques to manipulate the longitudinal phase space of particle bunches, compressing them from picoseconds down to femtosecond lengths. Uses energy-dependent path length differences in magnetic chicanes to rotate the phase space. Essential for FEL lasing and high peak-current applications.',
     cost: { data: 15, funding: 1000000 },
     duration: 45,
-    unlocks: ['chicane', 'dogleg', 'harmonicLinearizer'],
+    unlocks: [],
+    effect: { beamStability: 0.05 },
     requires: 'beamOptics',
   },
   scMagnets: {
@@ -56,7 +79,7 @@ export const RESEARCH = {
     desc: 'Research superconducting magnet technology using NbTi and Nb3Sn conductors cooled to 4.2K. Superconducting magnets achieve field strengths of 5-15 Tesla — far beyond the ~2T limit of normal-conducting iron-core magnets. Enables tighter beam focusing, stronger bending, and more compact beamline layouts.',
     cost: { data: 40, funding: 8000000, reputation: 5 },
     duration: 80,
-    unlocks: ['scQuad', 'scDipole', 'cryocooler'],
+    unlocks: ['cryocooler'],
     requires: 'beamOptics',
   },
   beamTransport: {
@@ -65,7 +88,8 @@ export const RESEARCH = {
     desc: 'Develop beam extraction and transport line design — the art of moving beams reliably between accelerator sections and experiment halls. Study septum magnet technology that uses a thin current-carrying blade to separate circulating and extracted beams with minimal perturbation.',
     cost: { data: 30, funding: 5000000 },
     duration: 60,
-    unlocks: ['septumMagnet'],
+    unlocks: [],
+    effect: { beamStability: 0.08 },
     requires: 'beamOptics',
   },
   latticeDesign: {
@@ -74,7 +98,8 @@ export const RESEARCH = {
     desc: 'Advance the theory of periodic magnet lattice design — optimizing the arrangement of quadrupoles, dipoles, and correctors to control beam properties over long distances. Study combined-function magnets that provide both bending and focusing in a single element, reducing component count and beamline length.',
     cost: { data: 35, funding: 6000000 },
     duration: 65,
-    unlocks: ['combinedFunctionMagnet'],
+    unlocks: [],
+    effect: { beamStability: 0.10 },
     requires: 'scMagnets',
   },
   fastKickers: {
@@ -83,7 +108,8 @@ export const RESEARCH = {
     desc: 'Develop pulsed kicker magnet systems capable of deflecting individual bunches on nanosecond timescales. Uses stripline or ferrite-loaded transmission line designs to generate fast-rising magnetic field pulses. Essential for single-bunch extraction from storage rings and fast beam switching between multiple beamlines.',
     cost: { data: 40, funding: 8000000 },
     duration: 70,
-    unlocks: ['kickerMagnet'],
+    unlocks: [],
+    effect: { beamStability: 0.12 },
     requires: 'beamTransport',
   },
   advancedOptics: {
@@ -92,7 +118,7 @@ export const RESEARCH = {
     desc: 'Study higher-order beam optics corrections using multipole magnets. Sextupoles correct chromatic aberrations — the energy-dependent focusing that smears out the beam at interaction points. Octupoles provide amplitude-dependent tune shifts to suppress instabilities. Critical for achieving the smallest possible beam spot sizes.',
     cost: { data: 40, funding: 8000000 },
     duration: 70,
-    unlocks: ['sextupole', 'octupole'],
+    unlocks: ['sextupole'],
     requires: 'latticeDesign',
   },
   highLuminosity: {
@@ -130,7 +156,7 @@ export const RESEARCH = {
     desc: 'Research photoemission physics and cathode materials (Cs2Te, GaAs, copper) for laser-driven electron sources. A UV laser pulse hitting the photocathode surface ejects electrons via the photoelectric effect, producing much brighter beams than thermionic sources. Quantum efficiency, thermal emittance, and cathode lifetime are the key parameters.',
     cost: { data: 25, funding: 3000000 },
     duration: 60,
-    unlocks: ['dcPhotoGun', 'laserSystem'],
+    unlocks: ['laserSystem'],
     requires: 'rfFundamentals',
   },
   cwRfSystems: {
@@ -157,7 +183,8 @@ export const RESEARCH = {
     desc: 'Combine photocathode technology with high-gradient RF cavities to create the brightest possible electron sources. The photocathode sits directly in the high-field region of an RF gun cavity, where the strong accelerating gradient immediately boosts electrons to relativistic speeds before space-charge forces can degrade the beam quality.',
     cost: { data: 40, funding: 8000000 },
     duration: 70,
-    unlocks: ['ncRfGun'],
+    unlocks: [],
+    effect: { energyCostMult: 0.90 },
     requires: ['photocathodes', 'digitalLlrf'],
   },
   srfTechnology: {
@@ -166,7 +193,7 @@ export const RESEARCH = {
     desc: 'Research superconducting RF cavity technology — niobium cavities cooled to 2-4K that achieve quality factors of 10^10, meaning almost zero RF power is lost to wall heating. This enables efficient CW acceleration at high gradients. A transformative technology that also requires cryogenic infrastructure (helium compressors, cold boxes, transfer lines).',
     cost: { data: 50, funding: 10000000, reputation: 5 },
     duration: 90,
-    unlocks: ['cryomodule', 'cryomoduleHousing', 'heCompressor', 'coldBox4K', 'transferLine', 'ln2Precooler'],
+    unlocks: ['cryomodule', 'cryomoduleHousing', 'heCompressor', 'coldBox4K', 'ln2Precooler'],
     requires: 'cwRfSystems',
   },
   superconducting: {
@@ -194,7 +221,8 @@ export const RESEARCH = {
     desc: 'Push normal-conducting cavity gradients beyond 30 MV/m by moving to higher RF frequencies. C-band (5.7 GHz) and X-band (11.4 GHz) cavities have smaller apertures but can sustain much higher surface fields before breakdown. These compact structures pack enormous energy gain into short distances — the path to TeV-scale linear colliders.',
     cost: { data: 50, funding: 12000000 },
     duration: 90,
-    unlocks: ['cbandCavity', 'xbandCavity'],
+    unlocks: [],
+    effect: { energyCostMult: 0.85 },
     requires: 'rfPhotoinjectors',
   },
   cwLinacDesign: {
@@ -203,7 +231,8 @@ export const RESEARCH = {
     desc: 'Design optimized continuous-wave superconducting linacs for high average beam power. The 650 MHz elliptical SRF cavity is the workhorse of modern proton and ion linacs — its larger aperture handles higher beam loading and its geometry is optimized for medium-velocity particles. Enables MW-class beam power for neutrino sources and isotope production.',
     cost: { data: 60, funding: 15000000, reputation: 10 },
     duration: 100,
-    unlocks: ['srf650Cavity'],
+    unlocks: [],
+    effect: { energyCostMult: 0.80 },
     requires: 'srfTechnology',
   },
   nDopedSrf: {
@@ -212,7 +241,8 @@ export const RESEARCH = {
     desc: 'Pioneer nitrogen-doping surface treatment for niobium SRF cavities. Controlled nitrogen diffusion into the cavity surface dramatically increases the quality factor Q₀ while maintaining high gradients of 31+ MV/m. This enables the TESLA 9-cell cavity to deliver 3 GeV per unit at lower cryogenic losses — the pinnacle of SRF performance.',
     cost: { data: 100, funding: 20000000, reputation: 15 },
     duration: 120,
-    unlocks: ['tesla9Cell'],
+    unlocks: [],
+    effect: { cryoEfficiencyMult: 0.80 },
     requires: 'srfTechnology',
   },
   energyRecovery: {
@@ -230,7 +260,8 @@ export const RESEARCH = {
     desc: 'The ultimate electron source: a superconducting RF photocathode gun that combines the high gradient of an RF gun with the CW capability and efficiency of SRF technology. Produces the highest average brightness beams available — 4x the current of a thermionic source with excellent emittance. Requires both SRF and photoinjector expertise.',
     cost: { data: 80, funding: 25000000, reputation: 15 },
     duration: 120,
-    unlocks: ['srfGun'],
+    unlocks: [],
+    effect: { energyCostMult: 0.75 },
     requires: ['srfTechnology', 'rfPhotoinjectors'],
   },
 
@@ -241,7 +272,7 @@ export const RESEARCH = {
     desc: 'Study the fundamentals of vacuum science for particle accelerators — why beams need vacuum (residual gas scattering degrades beam quality and lifetime), how different pump types work (roughing, turbo, ion), and how to measure pressure with gauges. Even a basic understanding of vacuum physics improves beam transport quality.',
     cost: { data: 5, funding: 200000 },
     duration: 15,
-    effect: { qualityBoost: 0.02 },
+    effect: { vacuumQuality: 0.02 },
     requires: null,
   },
   uhvSystems: {
@@ -306,6 +337,7 @@ export const RESEARCH = {
     desc: 'Study the principles of cryogenic engineering — heat transfer at low temperatures, thermal insulation (multi-layer insulation, vacuum jackets), and the thermodynamic cycles used in helium refrigeration. Understanding Carnot efficiency explains why cooling to 4K requires roughly 300 watts of room-temperature power per watt of cooling — making cryo systems the largest power consumers in an SRF facility.',
     cost: { data: 8, funding: 400000 },
     duration: 20,
+    effect: { cryoEfficiencyMult: 0.97 },
     requires: null,
   },
   heliumRefrigeration: {
@@ -314,6 +346,7 @@ export const RESEARCH = {
     desc: 'Design and operate large-scale helium refrigeration plants based on the Claude cycle — a series of heat exchangers, expansion turbines, and JT valves that cool helium gas from 300K to 4.5K. Understanding the thermodynamics of each stage lets you size compressors, specify turbo-expanders, and optimize the cold box for your specific heat load. The backbone of any SRF facility.',
     cost: { data: 20, funding: 3000000 },
     duration: 50,
+    effect: { cryoEfficiencyMult: 0.94 },
     requires: 'cryoFundamentals',
   },
   cryoDistribution: {
@@ -370,7 +403,7 @@ export const RESEARCH = {
     desc: 'Develop advanced beam measurement instruments beyond basic BPMs. Wire scanners sweep a thin wire through the beam to map its transverse profile. Bunch length monitors measure the temporal structure of individual bunches using streak cameras or RF deflectors. Energy spectrometers use dipole magnets to fan out the beam by momentum, revealing its energy distribution.',
     cost: { data: 10, funding: 500000 },
     duration: 30,
-    unlocks: ['wireScanner', 'bunchLengthMonitor', 'energySpectrometer'],
+    unlocks: ['wireScanner'],
     requires: null,
   },
   machineProtection: {
@@ -379,7 +412,7 @@ export const RESEARCH = {
     desc: 'Build a Machine Protection System (MPS) — the safety layer that prevents beam from damaging accelerator components. A single missteered high-power beam pulse can melt through a copper beam pipe in microseconds. The MPS monitors beam loss signals, current readings, and equipment status, and can trigger a beam abort within microseconds if something goes wrong.',
     cost: { data: 15, funding: 1000000 },
     duration: 40,
-    unlocks: ['mps', 'beamLossMonitor', 'emergencyCooling'],
+    unlocks: ['mps', 'emergencyCooling'],
     requires: 'beamDiagnostics',
   },
   transverseDiagnostics: {
@@ -435,7 +468,8 @@ export const RESEARCH = {
     desc: 'Harness the intense electromagnetic radiation emitted when relativistic electrons are deflected by magnetic fields. Undulators use periodic magnet arrays to produce highly collimated, quasi-monochromatic light with brilliance billions of times brighter than X-ray tubes. Wigglers produce broader-spectrum, higher-flux radiation. This light can be delivered to user experiments via photon beamline ports.',
     cost: { data: 30, funding: 5000000 },
     duration: 70,
-    unlocks: ['undulator', 'wiggler', 'srLightMonitor', 'photonPort'],
+    unlocks: [],
+    effect: { photonFluxMult: 1.2 },
     requires: null,
   },
   photonBeamlineOptics: {
@@ -453,7 +487,8 @@ export const RESEARCH = {
     desc: 'Develop undulators with variable polarization control. Helical undulators use two orthogonal magnet arrays to produce circularly polarized light — essential for studying magnetic materials and chiral molecules. The APPLE-II design uses four movable magnet rows that can switch between linear, circular, and elliptical polarization by adjusting the row phases.',
     cost: { data: 50, funding: 12000000 },
     duration: 90,
-    unlocks: ['helicalUndulator', 'apple2Undulator'],
+    unlocks: [],
+    effect: { photonFluxMult: 1.4 },
     requires: 'synchrotronLight',
   },
   felPhysics: {
@@ -462,7 +497,8 @@ export const RESEARCH = {
     desc: 'Study the physics of Self-Amplified Spontaneous Emission (SASE) in free-electron lasers. When a high-brightness electron beam passes through a long undulator, the emitted radiation interacts back with the beam, causing electrons to bunch at the radiation wavelength — a runaway process that produces laser-like X-ray pulses with peak brilliance 10 billion times beyond synchrotron light.',
     cost: { data: 60, funding: 15000000, reputation: 10 },
     duration: 100,
-    unlocks: ['laserHeater'],
+    unlocks: [],
+    effect: { photonFluxMult: 1.35 },
     requires: 'advancedUndulators',
   },
   seededFEL: {
@@ -480,7 +516,8 @@ export const RESEARCH = {
     desc: 'Develop Compton backscattering — colliding a high-power laser pulse head-on with a relativistic electron beam to produce gamma rays via inverse Compton scattering. The scattered photons are boosted to energies millions of times higher than the incoming laser photons. Enables unique experiments in nuclear physics, medical imaging, and material science without needing a full high-energy accelerator.',
     cost: { data: 80, funding: 25000000, reputation: 15 },
     duration: 120,
-    unlocks: ['comptonIP'],
+    unlocks: [],
+    effect: { photonFluxMult: 1.6 },
     requires: 'felPhysics',
   },
   plasmaAcceleration: {
@@ -489,6 +526,7 @@ export const RESEARCH = {
     desc: 'Research laser-driven plasma wakefield acceleration — a revolutionary technique where an intense laser pulse drives a plasma wave with electric fields exceeding 100 GV/m, thousands of times stronger than conventional RF cavities. Electrons surfing this wake can gain GeV energies in centimeters rather than kilometers. Still a frontier technology with challenges in beam quality and stability.',
     cost: { data: 70, funding: 20000000, reputation: 10 },
     duration: 110,
+    effect: { energyCostMult: 0.60 },
     requires: 'felPhysics',
   },
 
@@ -564,6 +602,7 @@ export const RESEARCH = {
     desc: 'Study the principles of circular acceleration pioneered by Ernest Lawrence in 1932. A cyclotron uses a constant magnetic field and alternating electric field to spiral charged particles outward in an expanding orbit, gaining energy each revolution. Compact and relatively affordable — ideal for producing medical isotopes, ion beams for materials research, and proton therapy.',
     cost: { data: 15, funding: 1000000 },
     duration: 40,
+    effect: { beamStability: 0.04 },
     requires: null,
   },
   isochronousCyclotron: {
@@ -572,6 +611,7 @@ export const RESEARCH = {
     desc: 'Overcome the relativistic energy limit of classical cyclotrons using sector-focused (azimuthally varying field) designs. By shaping the magnetic field to increase with radius in a specific pattern, the revolution frequency remains constant even as particles become relativistic. This enables cyclotrons to reach hundreds of MeV — powerful enough for nuclear physics and heavy-ion research.',
     cost: { data: 40, funding: 8000000, reputation: 5 },
     duration: 80,
+    effect: { beamStability: 0.08 },
     requires: 'cyclotronTech',
   },
   protonAcceleration: {
@@ -580,7 +620,7 @@ export const RESEARCH = {
     desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens the door to hadron physics, neutron sources, and medical proton therapy.',
     cost: { data: 25, funding: 3000000 },
     duration: 60,
-    unlocks: ['ionSource', 'rfq', 'dtlCavity', 'protonQuad', 'protonDipole'],
+    unlocks: ['ionSource', 'rfq'],
     requires: 'cyclotronTech',
   },
   ecrIonSource: {
@@ -599,6 +639,7 @@ export const RESEARCH = {
     desc: 'Master the synchrotron — a circular accelerator where magnetic field strength ramps up in sync with beam energy, keeping particles on a fixed orbit. Unlike cyclotrons, synchrotrons can reach arbitrarily high energies limited only by ring circumference and magnet strength. The LHC, the worlds largest machine, is a synchrotron. Enables a booster ring for your facility.',
     cost: { data: 50, funding: 10000000, reputation: 5 },
     duration: 90,
+    effect: { beamLifetimeMult: 1.3 },
     requires: 'protonAcceleration',
   },
   storageRingTech: {
@@ -607,6 +648,7 @@ export const RESEARCH = {
     desc: 'Develop storage ring techniques for maintaining stable circulating beams for hours or days. Requires precise orbit control, RF systems to replenish energy lost to synchrotron radiation, beam lifetime optimization through careful vacuum and lattice design, and insertion devices (undulators, wigglers) in straight sections. The basis for all modern synchrotron light sources.',
     cost: { data: 60, funding: 15000000, reputation: 10 },
     duration: 100,
+    effect: { beamLifetimeMult: 1.6 },
     requires: 'synchrotronTech',
   },
   targetPhysics: {
@@ -624,7 +666,8 @@ export const RESEARCH = {
     desc: 'Extend target physics to extreme conditions using high-Z materials (tungsten, depleted uranium) and cryogenic targets (liquid hydrogen, liquid deuterium). High-Z targets maximize secondary particle yield for neutrino beams and muon production. Liquid hydrogen targets enable clean proton-proton scattering experiments. Requires advanced remote handling due to intense activation.',
     cost: { data: 60, funding: 15000000, reputation: 10 },
     duration: 100,
-    unlocks: ['fixedTargetAdv'],
+    unlocks: [],
+    effect: { luminosityMult: 1.5 },
     requires: 'targetPhysics',
   },
   antimatter: {
@@ -633,7 +676,8 @@ export const RESEARCH = {
     desc: 'Develop positron production via electron-positron pair creation in high-Z targets. When a high-energy electron or photon beam strikes a dense target like tungsten, the intense electromagnetic fields near heavy nuclei convert energy into matter-antimatter pairs (E=mc²). The positrons are captured, cooled, and re-accelerated — enabling electron-positron collider physics, the cleanest way to study fundamental particles.',
     cost: { data: 100, funding: 50000000, reputation: 20 },
     duration: 150,
-    unlocks: ['positronTarget'],
+    unlocks: [],
+    effect: { luminosityMult: 2.5 },
     requires: 'targetPhysicsAdv',
   },
   // === Machine Type Unlocks (Tier progression) ===
@@ -644,7 +688,7 @@ export const RESEARCH = {
     cost: { data: 20, funding: 3000000, reputation: 3 },
     duration: 60,
     unlocks: [],
-    effect: { unlocksMachineType: 'photoinjector' },
+    effect: { beamStability: 0.05 },
     requires: 'photocathodes',
   },
   felTech: {
@@ -654,7 +698,7 @@ export const RESEARCH = {
     cost: { data: 60, funding: 20000000, reputation: 10 },
     duration: 100,
     unlocks: [],
-    effect: { unlocksMachineType: 'fel' },
+    effect: { photonFluxMult: 1.5 },
     requires: ['bunchCompression', 'felPhysics'],
   },
   colliderTech: {
@@ -664,7 +708,7 @@ export const RESEARCH = {
     cost: { data: 150, funding: 100000000, reputation: 25 },
     duration: 200,
     unlocks: [],
-    effect: { unlocksMachineType: 'collider' },
+    effect: { luminosityMult: 3.0 },
     requires: ['highLuminosity', 'antimatter'],
   },
 };

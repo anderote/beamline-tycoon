@@ -108,6 +108,11 @@ export class PlaceableTool extends Tool {
   }
 
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     const input = ctx.input;
     if (input.isLinePlacingDecoration) {
       input._finishLinePlaceDecoration();
@@ -115,6 +120,11 @@ export class PlaceableTool extends Tool {
     }
     // Plain release falls through to _handleClick → onClick.
     return false;
+  }
+
+  // Off-canvas release / focus loss: drop the line-place without committing.
+  cancelGesture(ctx) {
+    this.onExit(ctx);
   }
 
   onClick(e, ctx) {
@@ -206,7 +216,15 @@ export class ZonePaintTool extends Tool {
     return true;
   }
 
+  // Off-canvas release / focus loss: drop the rect drag without committing.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     if (!this._dragging || !this._dragStart || !this._dragEnd) return false;
     // _withUndo: a rect that changes nothing (all tiles already this zone,
     // insufficient funding) must not push undo or clobber redo.

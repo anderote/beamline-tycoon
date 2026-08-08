@@ -145,7 +145,15 @@ export class DemolishTool extends Tool {
     return true;
   }
 
+  // Off-canvas release / focus loss: drop the sweep without executing it.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     const input = ctx.input;
     const game = ctx.game;
     // Edge-path end — clears walls AND doors along the path.

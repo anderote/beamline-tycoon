@@ -26,15 +26,23 @@ function countPipePlacements(state, type) {
   return n;
 }
 
-// True if any rfWaveguide network has real source capacity. RF sink ports
-// only exist on a few junction types (cavities are pipe placements without
-// wireable ports), so the tutorial's RF step checks for a powered feed
-// rather than a source+sink pair.
+// True if any rfWaveguide network actually DELIVERS RF to a cavity.
+//
+// `totalCapacity > 0` is not enough: rfWaveguide.solve buckets sources and
+// sinks by exact frequency, and totalCapacity is summed across every bucket.
+// A fixed-frequency magnetron (2.45 GHz) wired to a 200 MHz pillbox cavity
+// reports capacity while every sink sits at quality 0 (soft
+// `rf_frequency_mismatch`) — and a dangling waveguide stub with no sink at
+// all reported capacity too. Require a sink that is actually being fed.
 function hasRfFeed(state) {
   const perType = state?.utilityNetworkData?.get?.('rfWaveguide');
   if (!perType) return false;
   for (const flow of perType.values()) {
-    if (flow && (flow.totalCapacity || 0) > 0) return true;
+    const qualities = flow && flow.perSinkQuality;
+    if (!qualities) continue;
+    for (const q of Object.values(qualities)) {
+      if ((q || 0) > 0) return true;
+    }
   }
   return false;
 }
@@ -133,7 +141,7 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-rf',
     name: 'Connect RF Power',
-    hint: 'Place a Magnetron and run RF Waveguide toward the beamline to feed your cavities (3-min path).',
+    hint: 'Place a Solid-State Amplifier and run RF Waveguide to your cavities — it is broadband, so it drives the 200 MHz buncher and pillbox cavities. (A Magnetron is locked to 2.45 GHz and only feeds an ECR ion source.)',
     group: 'infrastructure',
     condition: (state) => hasRfFeed(state),
   },

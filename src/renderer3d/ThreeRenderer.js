@@ -515,9 +515,19 @@ export class ThreeRenderer {
       this._portMarkersDirty = true;
       switch (event) {
         case 'beamlineChanged':
+          this.refresh(); // full 3D rebuild
+          break;
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
           this.refresh(); // full 3D rebuild
+          // Both overlays are snapshot renders baked at init() — before
+          // game.load() runs — and are otherwise only redrawn on
+          // 'researchChanged' / 'objectiveCompleted' or by their HUD buttons.
+          // Opening them with the R / G hotkeys after a load therefore showed
+          // the fresh-game tree (completed nodes rendered un-researched) and
+          // stale objective progress.
+          if (this._renderTechTree) this._renderTechTree();
+          if (this._renderGoalsOverlay) this._renderGoalsOverlay();
           break;
         case 'infrastructureChanged':
           this._refreshTerrain();
@@ -3666,9 +3676,13 @@ export class ThreeRenderer {
     const z0 = cz - FOOT / 2, z1 = cz + FOOT / 2;
     const y = 0.12;
     // Golden/yellow tint when snapped to an existing pipe's open end, so the
-    // player can see "you're anchored on a cap" before they click.
-    const onOpenEnd = this._inputHandler?.beamlineController?.hoverOpenEnd;
-    const color = onOpenEnd ? 0xffcc33 : 0x44ff44;
+    // player can see "you're anchored on a cap" before they click. Green only
+    // where a click would actually start a draw (a junction port); everywhere
+    // else the click is discarded, so paint the standard invalid red rather
+    // than the valid-placement green this used to show unconditionally.
+    const blCtrl = this._inputHandler?.beamlineController;
+    const onOpenEnd = blCtrl?.hoverOpenEnd;
+    const color = onOpenEnd ? 0xffcc33 : (blCtrl?.hoverValidAnchor ? 0x44ff44 : 0xff4444);
     const edgeMat = this._previewEdgeMat(color);
     const fillMat = this._previewMat(color, 0.15);
     const pts = [

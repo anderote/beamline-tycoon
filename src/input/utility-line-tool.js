@@ -35,6 +35,11 @@ export class UtilityLineTool extends Tool {
     ctx.renderer._clearGridOverlay?.();
   }
 
+  // Off-canvas release / focus loss: drop the in-flight line draw.
+  cancelGesture(ctx) {
+    ctx.input.utilityLineController.onEscape?.();
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);

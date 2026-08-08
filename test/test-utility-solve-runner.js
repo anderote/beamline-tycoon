@@ -351,12 +351,33 @@ console.log('\n--- Test 7: topology edit migrates persistent state, prunes orpha
   assert(state.utilityNetworkState.get(ids[0]).reservoir === 97,
     `reservoir carried across the id change, not reset to defaults (got ${state.utilityNetworkState.get(ids[0]).reservoir})`);
 
-  // Remove every line → no networks → all entries pruned on next discovery.
+  // Remove every line → no successor network can inherit the entry. It is
+  // HELD (not pruned) for a grace window, so redrawing the same lines gets the
+  // drained reservoir back instead of a free full one from the defaults.
+  const drainedId = ids[0];
   state.utilityLines.clear();
   runner.markTopologyDirty();
   runner.runSolve();
+  assert(state.utilityNetworkState.size === 1,
+    `unclaimed orphan held during grace window (got ${state.utilityNetworkState.size})`);
+
+  // Redraw the identical topology → same content-hashed id → drained state.
+  state.utilityLines.set('L1', makeLine('L1', 'fake', 'src', 'out', 'dst', 'in'));
+  state.utilityLines.set('L2', makeLine('L2', 'fake', 'src', 'out', 'dst2', 'in'));
+  runner.markTopologyDirty();
+  runner.runSolve();
+  assert(state.utilityNetworkState.get(drainedId)?.reservoir === 96,
+    `redraw re-adopts the drained reservoir, not minted defaults (got ${state.utilityNetworkState.get(drainedId)?.reservoir})`);
+
+  // Past the grace window an unclaimed orphan really is pruned.
+  state.utilityLines.clear();
+  runner.markTopologyDirty();
+  runner.runSolve();
+  runner.stats.solvePasses += 1000;
+  runner.markTopologyDirty();
+  runner.runSolve();
   assert(state.utilityNetworkState.size === 0,
-    `orphaned entries pruned (got ${state.utilityNetworkState.size})`);
+    `orphaned entries pruned after the grace window (got ${state.utilityNetworkState.size})`);
 }
 
 // ==========================================================================

@@ -50,6 +50,12 @@ export class BeamlineTool extends Tool {
     ctx.renderer.setBuildMode(false);
   }
 
+  // Off-canvas release / focus loss: drop the in-flight draw / remove sweep
+  // without committing it, so it can't fire at the next canvas click.
+  cancelGesture(ctx) {
+    ctx.input.beamlineController.reset();
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0 && e.button !== 2) return false;
     const def = this.def;
@@ -145,13 +151,14 @@ export class BeamlineTool extends Tool {
         game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
         return true;
       }
-      game._pushUndo();
-      game.addAttachmentToPipe(
+      // _withUndo: addAttachmentToPipe can still refuse (affordability),
+      // and a raw push on a rejected gesture wipes the redo stack.
+      game._withUndo(() => game.addAttachmentToPipe(
         hit.pipe.id,
         this.key,
         hit.proj.position,
         input.selectedParamOverrides,
-      );
+      ));
       return true;
     }
     // Grid modules: unified placeable commit (also opens an existing node's

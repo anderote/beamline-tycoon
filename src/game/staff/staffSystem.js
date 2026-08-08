@@ -53,9 +53,13 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
       }
     }
     m.needs.fatigue = Math.max(0, m.needs.fatigue - 0.05);
-    // hunger: if cafeteria exists, feed; else hunger keeps rising a bit
-    if (cafeteriaTier > 0) m.needs.hunger = Math.max(0, m.needs.hunger - 0.08);
-    else m.needs.hunger = Math.min(1, m.needs.hunger + 0.005);
+    // Hunger always recovers on break — a cafeteria just makes it 4x faster.
+    // (It used to *rise* without a cafeteria, which made the recovery
+    // condition below unsatisfiable: a staffer who went on break in a
+    // cafeteria-less facility could never return to 'working', permanently
+    // tripping the beam via the beam_unstaffed gate. Slower recovery keeps the
+    // cafeteria valuable as an uptime multiplier without deadlocking.)
+    m.needs.hunger = Math.max(0, m.needs.hunger - (cafeteriaTier > 0 ? 0.08 : 0.02));
     m.needs.morale = Math.min(1, m.needs.morale + 0.015);
     if (m._restTimer == null && m.needs.fatigue < 0.25 && m.needs.hunger < 0.35) {
       m.status = 'working';

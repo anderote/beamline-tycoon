@@ -21,7 +21,7 @@ const CONTROL_ROWS = [
   ['Q / E',  'rotate the view'],
   ['Mid-drag', 'orbit the camera'],
   ['F',      'rotate item while placing'],
-  ['Space',  'beam ON / OFF'],
+  ['Space',  'place item / beam ON-OFF'],
   ['Ctrl+Z', 'undo'],
   ['Ctrl+Shift+Z', 'redo'],
   ['Esc',    'cancel tool / close windows'],

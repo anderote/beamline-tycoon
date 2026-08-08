@@ -13,7 +13,7 @@ export const SCENARIOS = [
   {
     id: 'sandbox',
     name: 'Sandbox',
-    desc: 'Start from scratch with an empty plot and $10M. Full freedom to design your facility from the ground up.',
+    desc: 'Start from scratch with an empty plot and $2.5M. Full freedom to design your facility from the ground up.',
     difficulty: 'Open',
     generator: null,  // null = default blank game
   },

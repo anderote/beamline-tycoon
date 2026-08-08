@@ -159,8 +159,13 @@ running dev server are never touched.
 
 # Overhaul result
 
-Seven phase commits on `overhaul`, then a 3-round adversarial review loop (45 findings confirmed
-and fixed; the loop hit its round cap rather than converging to zero).
+Eight phase commits on `overhaul`, then **six rounds** of adversarial four-lens review across two
+loops — **105 findings confirmed and fixed** (45 in rounds 1–3, 60 in rounds 4–6). Both loops ended
+at their round cap, not at zero: **round 6 was still producing confirmed findings.** The acceptance
+criterion ("review until a round produces zero confirmed findings") was never met. What changed
+across the rounds was severity, not supply — rounds 1–3 found structural breakage, rounds 4–6 found
+features that had silently never worked (31 research nodes unstartable, the entire interior of every
+beamline free, RF and cryo stat panels keyed off component ids that don't exist).
 
 - **Phase 0+1 — `ab48df75` test wiring + deletion sweep.** `npm test` runner created (all node
   suites + pytest); MACHINES and wildlife systems deleted, plus the dead Pixi `Renderer` class,
@@ -199,11 +204,27 @@ and fixed; the loop hit its round cap rather than converging to zero).
   `smallBeamlineFacility` ships wired and green; economy tuned against the new
   `scripts/balance-sim.mjs`. 49/49 suites.
 
-**Final state:** `npm test` **56/56 suites green** (55 node suites + pytest, 123 python tests),
-`npx vite build` green, `node scripts/balance-sim.mjs` exit 0. Suite count grew 38 → 56 across the
-overhaul, +11 of those during the review rounds.
+- **Phase 8 — `715ab058` adversarial review rounds 1–3.** Four lenses (correctness, data/contract,
+  gameplay, structure) over three rounds; 45 findings confirmed and fixed, pinned by 11 new suites.
+  Stopped at the round cap with the stream still producing. 56/56 suites.
+- **Review rounds 4–6 — uncommitted working tree.** 60 further findings confirmed and fixed: a
+  40-file diff (+1,480 / −500) plus 4 new suites (1,400 lines, 31 pinned regression blocks). The
+  headline defects were economic and data-integrity rather than structural — on-pipe placements were
+  never charged for (the whole interior of every beamline was free), `_getFurnishingTier` read the
+  wrong state slice so 31 RESEARCH nodes were permanently unstartable, `computeSystemStats` quoted
+  RF and cryo capacities off ids removed from `COMPONENTS` long ago, `validateResearch` found 27 of
+  68 nodes ($403M of content) advertising a payload nothing delivered, and reverse-drawn pipes fed
+  the lattice their optics back-to-front. Commit boundaries are the orchestrator's call. 60/60 suites.
 
-**Still open:** `docs/superpowers/plans/overhaul-followups.md` — the honest list. Headline item is
-that on-pipe placements are now wireable but their unconnected sinks still produce no hard blocker,
-which is really a deferred design question about whether placements are wired individually or
-aggregate onto their host junction.
+**Final state:** `npm test` **60/60 suites green** (59 node suites + pytest, 123 python tests),
+`python3 -m pytest test/ -q` 123 passed, `npx vite build` green (1,022 kB / 275 kB gzip, chunk-size
+warning), `node scripts/balance-sim.mjs` exit 0 with `blockers=none` on all three scenarios. Suite
+count grew 38 → 60 across the overhaul, +15 of those during the six review rounds.
+
+**Still open:** `docs/superpowers/plans/overhaul-followups.md` — the honest list, now 10 numbered
+items with a convergence-status block at the top. Headline item is unchanged: on-pipe placements are
+now wireable *and* chargeable, but their unconnected sinks still produce no hard blocker and a
+never-wired placement silently runs at quality 1.0 — really a deferred design question about whether
+placements are wired individually or aggregate onto their host junction. New in rounds 4–6: 9 of the
+29 components the tech tree claims to "unlock" are buildable from tick 0 (§7), and beam income was
+restored by rescaling a constant rather than re-deriving the curve (§8).

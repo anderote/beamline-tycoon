@@ -128,12 +128,9 @@ export class ProbeWindow {
       if (event !== 'beamlineChanged') return;
       if (!this.open) return;
       const ordered = this.game.state.beamline;
-      this.pins = this.pins.filter(pin => {
-        const idx = ordered.findIndex(n => n.id === pin.nodeId);
-        if (idx < 0) return false;
-        pin.elementIndex = idx;
-        return true;
-      });
+      // Drop pins whose element is gone; surviving pins are re-resolved
+      // against the envelope in updatePlots().
+      this.pins = this.pins.filter(pin => ordered.some(n => n.id === pin.nodeId));
       if (this.pins.length === 0 && this.open) {
         this.close();
         return;
@@ -163,12 +160,12 @@ export class ProbeWindow {
     }
     if (this.pins.length >= 6) return;
 
-    const ordered = this.game.state.beamline;
-    const elemIdx = ordered.findIndex(n => n.id === node.id);
-
+    // elementIndex / s are resolved against the physics envelope in
+    // updatePlots() — see _resolvePinsToEnvelope.
     this.pins.push({
       nodeId: node.id,
-      elementIndex: elemIdx,
+      elementIndex: -1,
+      s: null,
       color: PROBE_COLORS[this.pins.length],
       label: COMPONENTS[node.type]?.name || node.type,
     });
@@ -311,6 +308,7 @@ export class ProbeWindow {
     if (!this.open || this.pins.length === 0) return;
     const envelope = this.game.state.physicsEnvelope;
     if (!envelope || envelope.length === 0) return;
+    this._resolvePinsToEnvelope(envelope);
 
     this.el.querySelectorAll('.probe-canvas').forEach(canvas => {
       const type = canvas.dataset.type;
@@ -322,6 +320,42 @@ export class ProbeWindow {
     this.el.querySelectorAll('.probe-summary-card').forEach(card => {
       this._renderSummaryCard(card, envelope);
     });
+  }
+
+  /**
+   * Map each pin's beamline element onto the physics envelope.
+   *
+   * `state.physicsEnvelope` is the engine's fixed-size resample of the beam
+   * (SAMPLE_POINTS entries, each carrying `.s` in metres) — it is indexed by
+   * sample position, NOT by element. Pins are created against
+   * `state.beamline`, one entry per element, so indexing the envelope by the
+   * element's position read a completely unrelated sample: with element
+   * counts far below the sample count, every pin resolved into the first
+   * element's snapshot and the summary card reported the source's numbers
+   * under the pinned element's label.
+   *
+   * Resolve by nearest `.s` to the element's mid-point instead, and record
+   * `pin.s` so probe-plots.js draws the pin marker at the right arc position.
+   * This is the same contract BeamlineDesigner produces via
+   * getMarkerEnvelopeIndex().
+   */
+  _resolvePinsToEnvelope(envelope) {
+    const ordered = this.game.state.beamline || [];
+    for (const pin of this.pins) {
+      const node = ordered.find(n => n.id === pin.nodeId);
+      if (!node) continue;
+      // beamStart is the element's START in metres; subL is in sub-units of
+      // 0.5 m (flattener contract), so the mid-point is +subL * 0.25.
+      const s = (node.beamStart || 0) + (node.subL || 0) * 0.25;
+      pin.s = s;
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < envelope.length; i++) {
+        const d = Math.abs((envelope[i].s ?? 0) - s);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      pin.elementIndex = best;
+    }
   }
 
   _renderSummaryCard(card, envelope) {

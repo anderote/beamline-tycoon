@@ -76,8 +76,9 @@ export function openHiringDialog(game) {
   if (body) renderHiring(body);
 
   ctx.refresh = () => { if (ctx._body) renderHiring(ctx._body); };
-  const origUpdate = ctx.update.bind(ctx);
-  ctx.update = () => { ctx.refresh(); origUpdate(); };
+  // Tab-less window: ContextWindow.update() -> _renderBody() would wipe the
+  // body with no tab renderer to refill it. refresh() is the body render.
+  ctx.update = () => ctx.refresh();
 
   // auto-refresh on staffChanged
   const handler = (ev) => { if (ev === 'staffChanged') ctx.refresh(); };

@@ -130,13 +130,15 @@ console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
     originSubCol: snap.subCol, originSubRow: snap.subRow, originDir: snap.dir, dir: snap.dir,
   };
 
-  // Ctrl+Z: InputHandler asks the active tool to abandon its gesture first.
+  // Ctrl+Z: InputHandler asks the active tool to abandon its gesture first,
+  // with reason 'stateReplaced' — the one case where the payload must be
+  // dropped WITHOUT re-placing it (the undo restore already holds a copy).
   const ctx = {
     game: g,
     input: { hoverPlaceable: {}, isLinePlacingDecoration: false },
     renderer: { _clearPreview() {}, canvas: { style: {} } },
   };
-  tool.cancelGesture(ctx);
+  tool.cancelGesture(ctx, 'stateReplaced');
   g.undo();
 
   assertOk(tool.payload === null, 'the carried payload was dropped');
@@ -177,6 +179,13 @@ console.log('\n=== 3. Shift+drag decoration line rebuilds decorations once ===\n
   assertOk((counts.placeableChanged || 0) === 1,
     `one placeableChanged for the whole line (got ${counts.placeableChanged || 0}, ${hovers.length} items)`);
   assertOk(g._undoStack.length === 1, 'the line gesture pushed exactly one undo entry');
+  // The helper must NOT arm _suppressNextClick: both of its callers
+  // (PlaceableTool/MoveTool onMouseUp) return true, so the canvas mouseup
+  // listener bails before _handleClick — the flag's only reader — and the
+  // flag stayed armed until the player's next canvas click, which was then
+  // silently swallowed.
+  assertOk(!ctx._suppressNextClick,
+    'the line-place commit leaves no armed click suppressor');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

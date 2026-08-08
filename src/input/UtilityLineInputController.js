@@ -169,13 +169,16 @@ export class UtilityLineInputController {
         && startRef.placeableId === endRef.placeableId
         && startRef.portName === endRef.portName;
       if (!sameAnchor) {
-        this.game._pushUndo();
-        this.game.utilityLineSystem.addLine({
+        // _withUndo, not _pushUndo: addLine runs its own validation (port
+        // direction, overlap, port already taken, …) and returns null on
+        // rejection. A raw push would then leave a no-op undo entry behind
+        // AND clobber the redo stack for a gesture that changed nothing.
+        this.game._withUndo(() => this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
           start: startRef,
           end: endRef,
           path,
-        });
+        }));
       }
     }
     this._cancelDraw();

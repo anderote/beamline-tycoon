@@ -219,7 +219,7 @@ function runC() {
     ['buncher', 0.06], ['rfCavity', 0.18], ['rfCavity', 0.30], ['rfCavity', 0.42],
     ['quadrupole', 0.54], ['rfCavity', 0.64], ['quadrupole', 0.76], ['bpm', 0.88],
   ]) {
-    const ok = game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap' });
+    const ok = game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap', free: true });
     if (!ok) console.error('C: placeOnPipe failed', type, position);
   }
 

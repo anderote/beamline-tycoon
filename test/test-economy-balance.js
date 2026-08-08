@@ -171,7 +171,7 @@ function measure(game, ticks) {
     for (const [type, position] of [
       ['buncher', 0.06], ['rfCavity', 0.18], ['rfCavity', 0.30], ['rfCavity', 0.42],
       ['quadrupole', 0.54], ['rfCavity', 0.64], ['quadrupole', 0.76], ['bpm', 0.88],
-    ]) game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap' });
+    ]) game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap', free: true });
   }
   const place = (type, col, row) => game.placePlaceable({ type, col, row, free: true, silent: true });
   const sw = place('switchgear', -5, 8);

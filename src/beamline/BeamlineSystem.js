@@ -12,7 +12,8 @@
 //   - removePlaceable(id) → boolean: frees grid cells.
 //   - emit(event, data): event bus (same strings Game.js emits today).
 //   - log(message, type): soft-reason logger ('bad' on failure).
-//   - spend(costs), canAfford(costs): cost hooks (wired up later).
+//   - spend(costs), canAfford(costs): cost hooks.
+//   - isUnlocked(componentDef) → boolean: research gate (Game.isComponentUnlocked).
 //   - nextPipeId() → string, nextPlacementId() → string.
 
 import { COMPONENTS } from '../data/components.js';
@@ -51,9 +52,26 @@ function driftCostPerTile() {
 
 // Legacy formula from Game.createBeamPipe: max(1, floor(perTile * max(tileDist, 0.25))).
 // Clamping tileDist to 0.25 ensures even zero-drag stubs aren't free.
-function pipeCost(tileDist) {
+export function pipeCost(tileDist) {
   const perTile = driftCostPerTile();
   return { funding: Math.max(1, Math.floor(perTile * Math.max(tileDist, 0.25))) };
+}
+
+// Manhattan tile length of a pipe path — the same measure drawPipe prices.
+export function pipeTileDist(path) {
+  let d = 0;
+  for (let i = 0; i < ((path && path.length) || 0) - 1; i++) {
+    d += Math.abs(path[i + 1].col - path[i].col) + Math.abs(path[i + 1].row - path[i].row);
+  }
+  return d;
+}
+
+// Single source of truth for "what does demolishing this pipe pay?". The
+// demolish tooltip and Game.removeBeamPipe both call this so the number the
+// player is shown is the number they get, and so the refund can never exceed
+// what pipeCost() charged.
+export function pipeRefund(pipe) {
+  return Math.floor(pipeCost(pipeTileDist(pipe && pipe.path)).funding * 0.5);
 }
 
 export class BeamlineSystem {
@@ -63,8 +81,14 @@ export class BeamlineSystem {
     this.log = opts.log || (() => {});
     this.spend = opts.spend || (() => {});
     this.canAfford = opts.canAfford || (() => true);
+    this.isUnlocked = opts.isUnlocked || (() => true);
     this.placePlaceable = opts.placePlaceable;
     this.removePlaceable = opts.removePlaceable;
+    // Called with the id of an on-pipe placement that has just ceased to
+    // exist. Placements are utility endpoints (utility/utility-endpoints.js),
+    // so a dropped one has to release any line wired to it — otherwise the
+    // line keeps pointing at a dead id, in state and in every save.
+    this.onPlacementRemoved = opts.onPlacementRemoved || (() => {});
     // Fallback id sources are deterministic counters — Game always supplies
     // state-backed generators; these only serve standalone/test construction.
     let pipeCtr = 0, plCtr = 0;
@@ -147,14 +171,12 @@ export class BeamlineSystem {
   drawPipe(start, end, path) {
     const result = validateDrawPipe(this.state, { start, end, path });
     if (!result.ok) {
-      console.warn('[pipe-draw] drawPipe REJECTED: ' + result.reason);
       this.log("Can't draw pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipe = result.pipe;
     const cost = pipeCost(pipe.subL / SUB_PER_TILE);
     if (!this.canAfford(cost)) {
-      console.warn('[pipe-draw] drawPipe REJECTED: cant_afford');
       this.log("Can't afford beam pipe!", 'bad');
       return null;
     }
@@ -175,14 +197,12 @@ export class BeamlineSystem {
   extendPipe(pipeId, additionalPath) {
     const result = validateExtendPipe(this.state, pipeId, additionalPath);
     if (!result.ok) {
-      console.warn('[pipe-draw] extendPipe REJECTED: ' + result.reason);
       this.log("Can't extend pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
     const pipes = this.state.beamPipes || [];
     const idx = pipes.findIndex(p => p && p.id === pipeId);
     if (idx < 0) {
-      console.warn('[pipe-draw] extendPipe REJECTED: pipe_not_found');
       this.log("Can't extend pipe: pipe no longer exists", 'bad');
       return null;
     }
@@ -192,7 +212,6 @@ export class BeamlineSystem {
     const addedSubL = Math.max(0, (result.pipe.subL || 0) - oldSubL);
     const cost = pipeCost(addedSubL / SUB_PER_TILE);
     if (!this.canAfford(cost)) {
-      console.warn('[pipe-draw] extendPipe REJECTED: cant_afford');
       this.log("Can't afford beam pipe!", 'bad');
       return null;
     }
@@ -209,11 +228,11 @@ export class BeamlineSystem {
   removePipe(pipeId) {
     const state = this.state;
     if (!state || !Array.isArray(state.beamPipes)) return;
-    const before = state.beamPipes.length;
+    const doomed = state.beamPipes.find(p => p.id === pipeId);
+    if (!doomed) return;
+    for (const pl of (doomed.placements || [])) this.onPlacementRemoved(pl.id);
     state.beamPipes = state.beamPipes.filter(p => p.id !== pipeId);
-    if (state.beamPipes.length < before) {
-      this.emit('beamlineChanged');
-    }
+    this.emit('beamlineChanged');
   }
 
   // -------------------------------------------------------------------------
@@ -225,20 +244,36 @@ export class BeamlineSystem {
    * the new placements array on the pipe and returns the new placement id.
    * Returns null on failure.
    *
+   * `free: true` skips the research gate and the cost — used by scenario
+   * setup and by DesignPlacer, which collects the whole design's cost itself.
+   *
    * @param {string} pipeId
    * @param {{type:string, position:number, subL?:number, params?:object,
-   *          mode:'snap'|'insert'|'replace'}} opts
+   *          mode:'snap'|'insert'|'replace', free?:boolean}} opts
    */
   placeOnPipe(pipeId, opts = {}) {
     const state = this.state;
     const pipes = (state && state.beamPipes) || [];
     const pipe = pipes.find(p => p && p.id === pipeId);
     if (!pipe) {
-      console.warn('[pipe-draw] placeOnPipe REJECTED: pipe_not_found');
       this.log('placeOnPipe: pipe_not_found', 'bad');
       return null;
     }
     const def = COMPONENTS[opts.type];
+    // Research gate + affordability. placeJunction gets both for free by
+    // routing through Game.placePlaceable; this path owns the mutation
+    // directly, so it has to charge itself.
+    const cost = (def && def.cost) || {};
+    if (!opts.free) {
+      if (def && !this.isUnlocked(def)) {
+        this.log(`${def.name || opts.type} is not researched yet!`, 'bad');
+        return null;
+      }
+      if (!this.canAfford(cost)) {
+        this.log(`Can't afford ${(def && def.name) || opts.type}!`, 'bad');
+        return null;
+      }
+    }
     const subL = (typeof opts.subL === 'number' && opts.subL > 0)
       ? opts.subL
       : (def && typeof def.subL === 'number' ? def.subL : 2);
@@ -258,11 +293,18 @@ export class BeamlineSystem {
       idGenerator: () => this.nextPlacementId(),
     });
     if (!result.ok) {
-      console.warn('[pipe-draw] placeOnPipe REJECTED: ' + result.reason);
       this.log("Can't place on pipe: " + reasonMessage(result.reason), 'bad');
       return null;
     }
+    // 'replace' mode drops whatever the new placement covers. Those ids are
+    // gone from the model, so release their utility endpoints before the
+    // topology re-solves.
+    const survivingIds = new Set(result.placements.map(pl => pl.id));
+    for (const id of priorIds) {
+      if (!survivingIds.has(id)) this.onPlacementRemoved(id);
+    }
     pipe.placements = result.placements;
+    if (!opts.free) this.spend(cost);
     this.emit('beamlineChanged');
     // The new placement is the one whose id is not in priorIds.
     const newPl = pipe.placements.find(pl => !priorIds.has(pl.id));
@@ -270,18 +312,28 @@ export class BeamlineSystem {
   }
 
   /**
-   * Remove a placement from a pipe.
+   * Remove a placement from a pipe, crediting the same 50% refund the
+   * demolish hover tooltip promises (InputHandler._updateDemolishHover) and
+   * that Game.removeBeamPipe pays when the whole pipe goes.
+   * Returns true if a placement was removed.
    */
   removeFromPipe(pipeId, placementId) {
     const state = this.state;
     const pipes = (state && state.beamPipes) || [];
     const pipe = pipes.find(p => p && p.id === pipeId);
-    if (!pipe) return;
-    const before = (pipe.placements || []).length;
+    if (!pipe) return false;
+    const removed = (pipe.placements || []).find(pl => pl.id === placementId);
+    if (!removed) return false;
     pipe.placements = (pipe.placements || []).filter(pl => pl.id !== placementId);
-    if (pipe.placements.length < before) {
-      this.emit('beamlineChanged');
+    this.onPlacementRemoved(placementId);
+    const def = COMPONENTS[removed.type];
+    if (def && def.cost && state.resources) {
+      for (const [r, a] of Object.entries(def.cost)) {
+        state.resources[r] = (state.resources[r] || 0) + Math.floor(a * 0.5);
+      }
     }
+    this.emit('beamlineChanged');
+    return true;
   }
 
   /**

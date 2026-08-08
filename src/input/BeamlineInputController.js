@@ -49,6 +49,7 @@ export class BeamlineInputController {
     // mousemove/mouseup here and skips its other paths.
     this._drawing = false;
     this._drawMode = 'add';           // 'add' | 'remove'
+    this._drawButton = null;          // mouse button that armed the gesture
     this._drawPath = [];              // [{col,row}] — current preview path
     this._drawOrigin = null;          // snapped start point
     this._drawStartAnchor = null;     // null | { kind:'port', junctionId, portName }
@@ -57,6 +58,7 @@ export class BeamlineInputController {
     // Pre-click hover marker for the pipe-draw tool (renderer-read).
     this._hoverPoint = null;          // {col,row} in pipe-path space
     this._hoverOpenEnd = null;        // { pipeId, openEnd } when snapped to a cap
+    this._hoverValidAnchor = false;   // true when a click here would start a draw
 
     // Last valid placement-on-pipe preview, set by _previewPlacement and
     // consumed by onMouseDown. Null when no pipe is under the cursor or the
@@ -71,10 +73,12 @@ export class BeamlineInputController {
   get drawCost() { return this._drawing ? this._previewCost() : null; }
   get hoverPoint() { return this._hoverPoint; }
   get hoverOpenEnd() { return this._hoverOpenEnd; }
+  get hoverValidAnchor() { return this._hoverValidAnchor; }
 
   clearHover() {
     this._hoverPoint = null;
     this._hoverOpenEnd = null;
+    this._hoverValidAnchor = false;
   }
 
   onHover(worldX, worldY, selectedId) {
@@ -102,9 +106,16 @@ export class BeamlineInputController {
     if (openEnd) {
       this._hoverPoint = { col: openEnd.point.col, row: openEnd.point.row };
       this._hoverOpenEnd = { pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
+      this._hoverValidAnchor = true;
     } else {
       this._hoverPoint = snapped;
       this._hoverOpenEnd = null;
+      // A draw can only START on a junction port or an open pipe end
+      // (_pipeDrawStart). Anywhere else the click is discarded, so the marker
+      // must not be painted in the valid-placement green — it used to be, and
+      // the very first gesture a new player makes (the source auto-arms the
+      // drift tool) looked legal and did nothing.
+      this._hoverValidAnchor = !!this._findPortNearCursor(snapped);
     }
   }
 
@@ -112,6 +123,10 @@ export class BeamlineInputController {
     // Pipe-draw tool: left-click starts a draw anchored at a port or open
     // end; right-click drag starts a remove-sweep.
     if (selectedId && COMPONENTS[selectedId]?.isDrawnConnection) {
+      // A second button pressed mid-gesture must not re-anchor or flip the
+      // mode: pressing right during a left draw used to convert the whole
+      // gesture into a destructive remove-sweep (and vice versa). Swallow it.
+      if (this._drawing) return true;
       if (button === 0) return this._pipeDrawStart(worldX, worldY);
       if (button === 2) return this._pipeRemoveStart(worldX, worldY);
       return false;
@@ -134,12 +149,16 @@ export class BeamlineInputController {
       snap.col, snap.row, snap.subCol, snap.subRow, dir,
     );
     if (!result.ok) {
-      // Swallow the click — generic click path is already suppressed for
-      // junction tools. Invalid spot: do nothing.
+      // Swallow the click — the generic click path is already suppressed for
+      // junction tools — but surface the reason. The red ghost is the only
+      // other cue and it disappears the moment the player looks away.
+      this.game.log(result.wallBlocked ? 'A wall is in the way!' : 'Space occupied!', 'bad');
       return true;
     }
-    this.game._pushUndo();
-    const placedId = this.game.beamline.placeJunction({
+    // _withUndo, not _pushUndo: canPlace() above only checks geometry, so
+    // placeJunction can still reject (affordability, in particular). A raw
+    // push would leave a no-op undo entry and wipe the redo stack.
+    const placedId = this.game._withUndo(() => this.game.beamline.placeJunction({
       type: selectedId,
       col: snap.col,
       row: snap.row,
@@ -147,7 +166,7 @@ export class BeamlineInputController {
       subRow: snap.subRow,
       dir,
       params: this.input.selectedParamOverrides,
-    });
+    }));
     // Sources auto-advance the tool to the beam-pipe draw tool (same UX
     // the old generic path provided).
     if (placedId && def.isSource && typeof this.input?.selectComponentTool === 'function') {
@@ -183,12 +202,18 @@ export class BeamlineInputController {
     return { funding: Math.max(1, Math.floor(perTile * Math.max(tileDist, 0.25))) };
   }
 
-  onMouseUp(worldX, worldY /* , button */) {
+  onMouseUp(worldX, worldY, button) {
     if (!this._drawing) return false;
+    // Only the button that armed the gesture may commit it. (Releasing the
+    // *other* button mid-gesture used to run the commit path.)
+    if (button != null && this._drawButton != null && button !== this._drawButton) return true;
     if (this._drawMode === 'remove') {
       this._pipeRemoveEnd(worldX, worldY);
     } else {
-      this._pipeDrawEnd(worldX, worldY);
+      // _withUndo, not a raw push inside _pipeDrawEnd: drawPipe/extendPipe
+      // validate on commit (port_mismatch is the common one) and return null,
+      // which would otherwise leave a phantom undo entry and clear redo.
+      this.game._withUndo(() => this._pipeDrawEnd(worldX, worldY));
     }
     this._resetDrawing();
     return true;
@@ -336,21 +361,26 @@ export class BeamlineInputController {
     const pipes = (this.game.state && this.game.state.beamPipes) || [];
     const { wx, wz } = this._cursorWorldXZ(worldX, worldY);
     const hit = findNearestPipeToWorld(pipes, wx, wz, 1.5);
-    if (!hit) return true;
+    if (!hit) {
+      this.game.log(`${def.name || selectedId} must be placed on a beam pipe`, 'bad');
+      return true;
+    }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
     const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
     if (mode === 'snap' && this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL)) {
+      this.game.log('That stretch of pipe is already occupied', 'bad');
       return true;
     }
-    this.game._pushUndo();
-    const placedId = this.game.beamline.placeOnPipe(hit.pipe.id, {
+    // _withUndo: the overlap pre-check above doesn't cover capacity or cost,
+    // so placeOnPipe can still reject ("full", "can't afford").
+    const placedId = this.game._withUndo(() => this.game.beamline.placeOnPipe(hit.pipe.id, {
       type: selectedId,
       position: quantizedPosition,
       subL,
       mode,
       params: this.input.selectedParamOverrides,
-    });
+    }));
     if (placedId) {
       // Refresh the ghost so the user sees the next valid hover immediately
       // after committing (the previous ghost may now overlap the new placement).
@@ -370,6 +400,7 @@ export class BeamlineInputController {
     if (port) {
       this._drawing = true;
       this._drawMode = 'add';
+      this._drawButton = 0;
       this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
       this._drawStartAnchor = { kind: 'port', junctionId: port.junctionId, portName: port.portName };
       this._drawPath = [this._drawOrigin];
@@ -380,13 +411,17 @@ export class BeamlineInputController {
     if (openEnd) {
       this._drawing = true;
       this._drawMode = 'add';
+      this._drawButton = 0;
       this._drawOrigin = { col: openEnd.point.col, row: openEnd.point.row };
       this._drawStartAnchor = { kind: 'openEnd', pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
       this._drawPath = [this._drawOrigin];
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
-    // No valid anchor: swallow the click so the generic path doesn't see it.
+    // No valid anchor. Swallow the click so the generic path doesn't see it,
+    // but SAY so — this used to be completely silent while the hover marker
+    // was painted valid-green, so the click looked legal and did nothing.
+    this.game.log('Beam pipes must start at a component port or an open pipe end', 'bad');
     return true;
   }
 
@@ -394,6 +429,7 @@ export class BeamlineInputController {
     const startPt = snapPipePoint(worldX, worldY);
     this._drawing = true;
     this._drawMode = 'remove';
+    this._drawButton = 2;
     this._drawOrigin = startPt;
     this._drawStartAnchor = null;
     this._drawPath = [startPt];
@@ -420,7 +456,7 @@ export class BeamlineInputController {
     const portEnd = this._findPortNearCursor(endPt);
     const openEndHit = this._findOpenEndNearCursor(endPt);
 
-    this.game._pushUndo();
+    // Undo capture is the caller's (onMouseUp wraps this in game._withUndo).
 
     // Starting from an existing pipe's open end → extend it. buildStraightPath
     // anchors at `_drawOrigin` (the open end's point) and moves outward to the
@@ -638,6 +674,7 @@ export class BeamlineInputController {
   _resetDrawing() {
     this._drawing = false;
     this._drawMode = 'add';
+    this._drawButton = null;
     this._drawPath = [];
     this._drawOrigin = null;
     this._drawStartAnchor = null;

@@ -9,7 +9,6 @@ import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
-import { MACHINE_TYPES, MACHINE_TIER } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
@@ -1516,14 +1515,17 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const unlocked = this.game.isComponentUnlocked(comp);
   if (!unlocked) return null;
 
-  // Machine tier gating — hide components above current machine type tier
-  if (typeof MACHINE_TIER !== 'undefined' && typeof MACHINE_TYPES !== 'undefined') {
-    const compTier = MACHINE_TIER[key] || 1;
-    const editingEntry = this.game.editingBeamlineId ? this.game.registry.get(this.game.editingBeamlineId) : null;
-    const currentType = (editingEntry && editingEntry.beamState.machineType) || 'linac';
-    const currentMachineTier = MACHINE_TYPES[currentType]?.tier || 1;
-    if (compTier > currentMachineTier) return null;
-  }
+  // NOTE: there used to be a MACHINE_TIER gate here, hiding any component whose
+  // MACHINE_TIER exceeded the editing beamline's machine-type tier. It was dead
+  // progression machinery: nothing ever sets machineType to anything but
+  // 'linac' (tier 1) — the only createBeamline() call site keys off three gun
+  // types that no longer exist in COMPONENTS, and research's machine-type
+  // effect had no consumer (it has since been replaced with a real effect on
+  // those three nodes). Its sole live effect was to permanently hide
+  // sextupole / cryomodule / detector / laserSystem from the map palette, which
+  // also made the "Full Catalog" objective unachievable. Unlocking is handled by
+  // isComponentUnlocked above; re-introduce tier gating only alongside a real
+  // machine-type progression path.
 
   const isFacility = isFacilityCategory(comp.category);
 
@@ -2224,12 +2226,12 @@ UIHost.prototype._renderRfPowerStats = function(d, summary, detail) {
     ${this._detailRow('SSAs', dd.ssas)}
     ${this._detailRow('IOTs', dd.iots)}
     ${this._detailRow('Magnetrons', dd.magnetrons)}
+    ${this._detailRow('TWTs', dd.twts)}
+    ${this._detailRow('Gyrotrons', dd.gyrotrons)}
     ${this._detailRow('Modulators', dd.modulators)}
     ${this._detailRow('Circulators', dd.circulators)}
-    ${this._detailRow('Waveguides', dd.waveguides)}
+    ${this._detailRow('Couplers', dd.couplers)}
     ${this._detailRow('LLRF Controllers', dd.llrfControllers)}
-    ${this._detailRow('Master Oscillators', dd.masterOscillators)}
-    ${this._detailRow('Vector Modulators', dd.vectorModulators)}
   </div>`;
 };
 

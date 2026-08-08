@@ -21,6 +21,7 @@ import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
 import { projectOntoPipe } from '../beamline/pipe-geometry.js';
+import { pipeRefund } from '../beamline/BeamlineSystem.js';
 import { pushEscHandler } from '../ui/esc-stack.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
@@ -264,11 +265,9 @@ export class InputHandler {
         if (found.kind === 'beampipe') {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === found.pipeId);
           if (pipe) {
-            const segCount = Math.max(1, (pipe.path.length - 1) || 1);
-            const driftDef = COMPONENTS.drift;
-            const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-            const refund = Math.floor(costPerTile * segCount * 0.5);
-            this._showDemolishTooltip('Beam Pipe', refund, screenX, screenY);
+            // Shared with Game.removeBeamPipe so the tooltip can't promise a
+            // different number than the demolish actually credits.
+            this._showDemolishTooltip('Beam Pipe', pipeRefund(pipe), screenX, screenY);
           } else {
             this._showDemolishTooltip('Beam Pipe', 0, screenX, screenY);
           }
@@ -277,7 +276,15 @@ export class InputHandler {
 
         const def = found.placeable;
         const name = def?.name ?? found.entry?.type ?? found.node?.type ?? 'Unknown';
-        this._showDemolishTooltip(name, demolishRefund(def), screenX, screenY);
+        // A beamline junction takes its connected pipes (and everything placed
+        // on them) with it — Game.removePlaceable routes those through
+        // removeBeamPipe. Quote the whole payout, not just the module's own
+        // 50%, so the tooltip can't understate what the click is worth.
+        this._showDemolishTooltip(
+          name,
+          demolishRefund(def) + this._connectedPipeRefund(found.entry?.id || found.node?.id),
+          screenX, screenY,
+        );
         return;
       }
     }
@@ -348,6 +355,24 @@ export class InputHandler {
       this.renderer.clearDragPreview();
       this._hideDemolishTooltip();
     }
+  }
+
+  /**
+   * Refund for everything that goes with a junction: each connected pipe plus
+   * 50% of every component placed on it. Mirrors Game.removeBeamPipe, which is
+   * what Game.removePlaceable now calls for those pipes.
+   */
+  _connectedPipeRefund(junctionId) {
+    if (!junctionId) return 0;
+    let total = 0;
+    for (const pipe of (this.game.state.beamPipes || [])) {
+      if (pipe.start?.junctionId !== junctionId && pipe.end?.junctionId !== junctionId) continue;
+      total += pipeRefund(pipe);
+      for (const att of (pipe.placements || [])) {
+        total += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+      }
+    }
+    return total;
   }
 
   _showDemolishTooltip(name, refund, screenX, screenY) {
@@ -1034,7 +1059,7 @@ export class InputHandler {
       // it on the next drop.
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        this.activeTool?.cancelGesture?.(this._toolCtx);
+        this.activeTool?.cancelGesture?.(this._toolCtx, 'stateReplaced');
         if (e.shiftKey) this.game.redo();
         else this.game.undo();
         return;
@@ -1314,7 +1339,10 @@ export class InputHandler {
     };
     window.addEventListener('blur', clearHeldKeys);
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) clearHeldKeys();
+      if (document.hidden) {
+        clearHeldKeys();
+        this._abortPointerGesture();
+      }
     });
   }
 
@@ -1470,8 +1498,43 @@ export class InputHandler {
         this.isFreeOrbiting = false;
         this.renderer.endFreeOrbit();
         canvas.style.cursor = '';
+        return;
       }
+      // The canvas is a full-screen overlay with the HUD, build bar, popups
+      // and context windows painted on top of it, so a release over any
+      // chrome never reaches the canvas listener above. Without this fallback
+      // the gesture stays armed and commits at the *next* canvas mouseup —
+      // a stale decoration line places 20 trees at an unrelated click, a
+      // stale remove-sweep deletes every pipe between the old origin and the
+      // new click, and Alt+drag leaves the camera panning with no button
+      // held. Abort rather than commit: the release happened off-world, so
+      // there is no meaningful commit position.
+      if (e.target === canvas) return;
+      this._abortPointerGesture();
     });
+
+    // Same teardown when focus is lost mid-drag (alt-tab, devtools, a modal
+    // stealing focus) or the browser cancels the pointer stream.
+    window.addEventListener('blur', () => this._abortPointerGesture());
+    window.addEventListener('pointercancel', () => this._abortPointerGesture());
+  }
+
+  /**
+   * Drop every in-flight pointer gesture without committing it: camera
+   * orbit/pan and the active tool's drag state. Safe to call repeatedly.
+   */
+  _abortPointerGesture() {
+    this._hideDragCostTooltip?.();
+    if (this.isFreeOrbiting) {
+      this.isFreeOrbiting = false;
+      this.renderer.endFreeOrbit?.();
+    }
+    this.isPanning = false;
+    const canvas = this.renderer?.canvas;
+    if (canvas) canvas.style.cursor = this.activeTool?.cursor || '';
+    // 'abort', not 'stateReplaced': nothing restores the world here, so a
+    // tool carrying a lifted object has to put it back itself.
+    this.activeTool?.cancelGesture?.(this._toolCtx, 'abort');
   }
 
   // --- Click handling ---
@@ -1489,7 +1552,11 @@ export class InputHandler {
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
       if (this.game._designPlacer.valid) {
-        this.game._designPlacer.confirm();
+        // Design placement is a world-mutating gesture like any other tool
+        // commit — without _withUndo it was the only one outside the undo
+        // model, so Ctrl+Z after placing a design silently deleted it as a
+        // side effect of rewinding whatever came before.
+        this.game._withUndo(() => this.game._designPlacer.confirm());
       } else {
         this.game.log('Invalid placement!', 'bad');
       }
@@ -2191,7 +2258,12 @@ export class InputHandler {
     this.isLinePlacingDecoration = false;
     this.linePlaceStartWorld = null;
     this.linePlaceHovers = [];
-    this._suppressNextClick = true;
+    // No _suppressNextClick here. Both callers (PlaceableTool.onMouseUp,
+    // MoveTool.onMouseUp) return true, so the canvas mouseup listener bails
+    // before _handleClick — the flag's only reader. Setting it left it armed
+    // until the player's NEXT canvas left click, which was then silently
+    // swallowed (one lost click after every shift-drag line place, and not
+    // just a placement click: whatever that click would have done).
     this.renderer.clearDragPreview();
     this._updatePlaceablePreview();
   }
@@ -2499,34 +2571,27 @@ export class InputHandler {
     this._renderPreview(btn?.name || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
-  _switchToDemolishMode() {
-    // Save current mode/category so Esc can restore it
-    if (this.activeTool?.kind !== 'demolish' && this.activeMode !== 'demolish') {
-      this._prevMode = this.activeMode;
-      this._prevCategory = this.selectedCategory;
+  /**
+   * Assign the active mode on both this handler and the renderer, and emit
+   * 'activeModeChanged'. main.js's sole subscriber mounts/destroys the
+   * UtilityStatsPanel off that event, so any path that assigns the two
+   * fields directly leaves the panel stranded in the wrong mode (or missing
+   * in Infra). Callers still own palette/tab/tool bookkeeping.
+   */
+  _applyActiveMode(mode) {
+    const prev = this.activeMode;
+    this.activeMode = mode;
+    this.renderer.activeMode = mode;
+    if (prev !== mode && this.game && typeof this.game.emit === 'function') {
+      this.game.emit('activeModeChanged', { prev, mode });
     }
-    // Switch to demolish mode (setTool below disarms whatever tool was
-    // active)
-    this.activeMode = 'demolish';
-    this.renderer.activeMode = 'demolish';
-    this.selectedCategory = 'demolish';
-    // Update mode button UI
-    document.querySelectorAll('.mode-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.mode === 'demolish');
-    });
-    this.renderer._generateCategoryTabs();
-    this.renderer.updatePalette('demolish');
-    // Arm the catch-all tool by default, mirroring setActiveMode('demolish').
-    this.setTool(new DemolishTool('demolishAll'));
-    this._syncPaletteClick(0);
   }
 
   _restorePreviousMode() {
     this.clearTool();
     const mode = this._prevMode || 'beamline';
     const category = this._prevCategory || Object.keys(MODES[mode]?.categories || {})[0] || '';
-    this.activeMode = mode;
-    this.renderer.activeMode = mode;
+    this._applyActiveMode(mode);
     this.selectedCategory = category;
     // Update mode button UI
     document.querySelectorAll('.mode-btn').forEach(b => {
@@ -2564,6 +2629,15 @@ export class InputHandler {
 
   setActiveMode(mode) {
     const prev = this.activeMode;
+    // Record where the player came from so Esc out of demolish returns them
+    // there. This used to live in _switchToDemolishMode(), which lost its last
+    // caller before the branch — leaving _prevMode permanently undefined, so
+    // Esc dumped everyone into the Beamline palette regardless of origin.
+    // Must be read before selectedCategory is reset below.
+    if (mode === 'demolish' && prev !== 'demolish') {
+      this._prevMode = prev;
+      this._prevCategory = this.selectedCategory;
+    }
     this.activeMode = mode;
     // Every family disarms via clearTool. (The old per-family deselect web
     // missed the utility-line tool here — that exclusivity bug died with
@@ -2648,9 +2722,8 @@ export class InputHandler {
 
     // Switch mode if needed
     if (next.mode !== this.activeMode) {
-      this.activeMode = next.mode;
       this.clearTool();
-      this.renderer.activeMode = next.mode;
+      this._applyActiveMode(next.mode);
       // Update mode buttons
       document.querySelectorAll('.mode-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.mode === next.mode);

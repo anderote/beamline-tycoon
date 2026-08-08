@@ -90,7 +90,7 @@ export class UtilityGate {
         hardErrs.push({
           severity: 'hard',
           code: 'beam_unstaffed',
-          message: 'No active operator in Control Room — beam tripped',
+          message: this._unstaffedMessage(),
           location: { zoneId: 'controlRoom' },
           fromStaffingCheck: true,
         });
@@ -112,6 +112,26 @@ export class UtilityGate {
     } catch (e) {
       console.error('[UtilityGate] utility solve error:', e);
     }
+  }
+
+  // The blocker text has to name the *actual* cause: "no operator in the
+  // Control Room" is misleading when the roster is full and everyone is on a
+  // break they can't finish (no cafeteria) or assigned somewhere else.
+  _unstaffedMessage() {
+    const operators = (this.state.staffMembers || []).filter(m => m.role === 'operator');
+    if (operators.length === 0) return 'No operator hired — beam tripped';
+    const inControlRoom = operators.filter(
+      m => !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom');
+    if (inControlRoom.length === 0) {
+      return 'No operator assigned to the Control Room — beam tripped';
+    }
+    if (inControlRoom.every(m => m.status === 'onBreak' || m.status === 'resting')) {
+      const hungry = inControlRoom.some(m => (m.needs?.hunger || 0) > 0.35);
+      return hungry
+        ? 'Operators on break and hungry — build a cafeteria; beam tripped'
+        : 'Operators on break — beam tripped';
+    }
+    return 'No active operator in Control Room — beam tripped';
   }
 
   _hasActiveOperator() {

@@ -1,11 +1,37 @@
 # Overhaul Followups — what the overhaul deliberately did NOT do
 
-Written at the end of the `overhaul` branch (7 phase commits + a 3-round adversarial review loop
-that hit its round cap with 45 confirmed findings fixed). Everything below was verified against the
-branch tip at the time of writing — line numbers and counts are real, not remembered.
+## Convergence status — read this first
 
-Gate status at close: `npm test` 56/56 suites green (55 node suites + pytest, 123 python tests),
-`npx vite build` green, `node scripts/balance-sim.mjs` exit 0.
+**The review loop did not converge. It was stopped at a round cap, twice.**
+
+- 8 phase commits are on `overhaul` (`ab48df75` … `715ab058`).
+- Review rounds 1–3 ran against the phase-8 commit: **45 confirmed findings**, all fixed, committed
+  as `715ab058`.
+- Review rounds 4–6 ran after that: **60 confirmed findings**, all fixed. **These fixes are
+  uncommitted** — one 40-file working-tree diff (+1,480 / −500) plus 4 untracked suites
+  (`test-review-regressions.js`, `test-convergence-regressions.js`,
+  `test-convergence-regressions-2.js`, `test-research-integrity.js`, 1,400 lines, 31 pinned
+  regression blocks). The orchestrator owns the commit split.
+- **105 confirmed findings across 6 rounds. Round 6 still produced confirmed findings.** The rate
+  fell but never reached zero. The honest reading is that the *severity* dropped (rounds 1–3 found
+  structural breakage; rounds 4–6 found economy/data/gating bugs of the "this feature silently never
+  worked" kind) while the *supply* did not run out. Anyone assuming "reviewed six times" means
+  "clean" is assuming something this branch has not demonstrated.
+
+Gate status at close, run against the working tree:
+
+| Gate | Result |
+|---|---|
+| `npm test` | **60/60 suites green** (59 node suites + pytest) |
+| `python3 -m pytest test/ -q` | **123 passed** in 0.29 s |
+| `npx vite build` | green in 1.77 s — 1,022 kB JS / 275 kB gzip, chunk-size warning (see below) |
+| `node scripts/balance-sim.mjs` | exit 0, all three scenarios `blockers=none` |
+
+Suite count 38 → 60 across the whole overhaul; +4 during rounds 4–6.
+
+Everything below was verified against the working tree at the time of writing — line numbers and
+counts are real, not remembered. Items 1–6 and the first "smaller things" block predate rounds 4–6
+and were re-checked; items 7–10 are new, discovered in rounds 4–6 and deliberately deferred there.
 
 Ordered roughly by "how much future pain this causes".
 
@@ -45,14 +71,16 @@ unconnected-sink pass must be fed `listUtilityEndpoints(state)` (or the aggregat
 `state.placeables`, and the fail-open default in `Game.js:2515` needs a decision: missing
 `nodeQualities` entry should probably mean 0.0, not 1.0.
 
-## 2. InputHandler is still 2,851→2,859 lines (Phase 4 target was < 1,500)
+## 2. InputHandler is still 2,932 lines and growing (Phase 4 target was < 1,500)
 
 Phase 4 delivered the important part — one `Tool` interface, one `activeTool` field, the 14
 mutually-exclusive-by-convention fields and ~107 manual deselect calls are gone (2 `deselect`
 references remain), tool families live in `placement-tools` / `structure-tools` / `demolish-tool` /
 `mode-tools` / `beamline-tool` / `utility-line-tool`. What it did not do is finish the extraction:
-the file went 4,002 → 2,859, not → 1,500. The residue is cohesive helper clusters that never found
-a home. Verified extraction candidates, with real line ranges:
+the file went 4,002 → 2,859, not → 1,500, and rounds 4–6 pushed it back up to **2,932** (gesture-abort
+and button-guard fixes). The residue is cohesive helper clusters that never found a home. Verified
+extraction candidates below — **the line ranges are as of the phase-8 commit and have since drifted
+by roughly +80; re-derive before moving anything**: 
 
 | Candidate | Methods | ~Lines |
 |---|---|---|
@@ -143,8 +171,11 @@ not about *a playthrough*. The sim's own numbers show the gap:
 | Scenario | Steady-state | Upkeep fraction |
 |---|---|---|
 | A: fresh sandbox, idle | **−10 /tick** (drains $2.5M start over ~250k ticks) | 109% |
-| B: small facility, beam running | +1,073 /tick, rep +0.8/100t | 15% |
-| C: two beamlines + detector | +1,860 /tick, rep +2.9/100t | 45% |
+| B: small facility, beam running | +1,030 /tick, rep +0.8/100t | 15.5% |
+| C: two beamlines + detector | +2,100 /tick, rep +2.9/100t | 42% |
+
+*(Numbers refreshed against the working tree. Rounds 4–6 changed the inputs — see §8 — but the
+shape of the curve, and the gap described below, are unchanged.)*
 
 Against `src/data/research.js`: the cheapest node costs `{data: 5, funding: $200k}`, mid-tier nodes
 $3M–$8M, and the top of the tree $20M with `reputation: 10`. In scenario B a player nets ~$1.07k/tick
@@ -160,6 +191,112 @@ tree's tiers against it, and make objective rewards the thing that unlocks the n
 a bonus on top of passive accumulation. The tooling to do this now exists (`balance-sim.mjs` can be
 extended with a research-purchase policy); the design decision has not been made.
 
+## 7. Research `unlocks` is decorative for 9 components — the gating half was not wired
+
+Round 5 added `validateResearch()` (`src/data/validate.js:341`), which found that 27 of 68 nodes —
+$403M of content — advertised a payload nothing delivered: `unlocks` ids absent from `COMPONENTS`,
+and `effect` keys no consumer ever reads. Those were repaired.
+
+**What was deliberately left.** The validator checks the forward direction only (does the id
+resolve?). It does not check the reverse: that an id a node claims to unlock is actually *gated* by
+that node. `Game.isComponentUnlocked` (`Game.js:623`) is `comp.unlocked → true`, then
+`!comp.requires → true` — **no requirement means available by default**. Auditing the 29 ids that
+appear in some node's `unlocks`:
+
+| Component | Why it is already available | Cost |
+|---|---|---|
+| `cryomodule` | `unlocked: true` | $12,000,000 |
+| `rfq` | `unlocked: true` | $1,500,000 |
+| `target` | `unlocked: true` | $1,000,000 |
+| `sextupole` | `unlocked: true` | $350,000 |
+| `wireScanner` | `unlocked: true` | $200,000 |
+| `ecrIonSource` | no `requires`, no `unlocked` | $1,200,000 |
+| `ln2Precooler` | no `requires`, no `unlocked` | $1,500,000 |
+| `cryocooler` | no `requires`, no `unlocked` | $500,000 |
+| `ionSource` | no `requires`, no `unlocked` | $400,000 |
+
+So 9 of 29 "unlocks" are buildable from tick 0 — including the SRF branch's headline `cryomodule`.
+The research node still charges its cost and prints its unlock line; the player just already had the
+part. Five of the nine carry an *explicit* `unlocked: true` that directly contradicts the node, so
+this is not an oversight of omission — somebody made both statements.
+
+One asymmetry the other way, verified: `gyrotron` declares `requires: 'advancedRf'`, but
+`advancedRf.unlocks` does not list it. It is correctly gated and never advertised.
+
+**Why deferred.** Deleting the five `unlocked: true` flags and adding `requires` to the other four
+is a two-line data edit, but it is a *gating* decision, not a data repair: `ionSource` / `rfq` /
+`target` are the first beamline a new player builds, and locking them behind research changes the
+opening of the game. The tech tree's tier structure has never been laid against a target playthrough
+(§6) — pick that first, then decide which of these nine are genuinely gates.
+
+## 8. Beam income was rescaled by a compensating constant, not re-derived
+
+Round 4 found `computeBeamIncome` was being fed `flattenPath(...).length`, which counts the
+flattener's synthetic **drift** entries — the gaps *between* placements — as machines. On a normal
+layout that roughly doubles the count, so every beamline had been earning roughly double for its
+whole life. The count was fixed (`Game.js:3235` now filters `kind !== 'drift'`).
+
+**What was deliberately left.** Income was restored by scaling `ECON.beamIncomePerNode` 100 → 180
+(`economy.js:24`) until `scripts/balance-sim.mjs` steady-states landed near their Phase-7 values.
+That holds the *rates* the invariants in `test/test-economy-balance.js` pin, but:
+
+- it preserves whatever was wrong about the Phase-7 tuning, which was itself done against the
+  double-counted number;
+- it silently re-weights what a beamline earns for. Income now scales with **hardware density**
+  rather than **length** — a long drift-heavy transport line earns strictly less than it did last
+  week, a densely-packed one is unchanged. Nobody chose that; it fell out of the fix.
+
+The per-node income curve has still never been derived from a target playthrough length. Same
+missing pass as §6, now with one more unexamined constant in it.
+
+## 9. The orphan grace window is not a window across a save/load
+
+Round 6 found that deleting a cooling loop's lines and redrawing them re-minted the network from
+`persistentStateDefaults` — i.e. a **full reservoir for two free clicks**, when a refill costs
+$5,760 of coolant or $24,000 of LHe. The fix holds an orphaned network's persistent state for
+`ORPHAN_GRACE_PASSES = 300` before pruning (`solve-runner.js:34,264-276`), so the redraw re-adopts
+the drained state (ids are content-hashed from port membership, so they come back identical).
+
+**What was deliberately left.** The grace clock is stamped as `entry.__orphanedAt =
+this.stats.solvePasses`. `stats` is per-`SolveRunner` and starts at `{solvePasses: 0}` in the
+constructor (`solve-runner.js:63`), but `state.utilityNetworkState` **is serialized** (`Game.js:578`
+writes it out as an entry array), so `__orphanedAt` survives a save. After a reload,
+`this.stats.solvePasses - entry.__orphanedAt` is negative for anything orphaned before the save, and
+`negative < 300` is permanently true. Verified with a repro: entry orphaned at pass 3,900, reload,
+5,000 further passes — still present, never pruned.
+
+Harm is bounded and points the safe way: one small object per abandoned network, only for the two
+utility types that have persistent state (`coolingWater`, `cryoTransfer`), and the *effect* of never
+expiring is that a drained reservoir is remembered rather than re-minted full — the anti-exploit
+direction. What is actually broken is that "300 passes" is not a duration anyone can reason about.
+Stamp `state.tick` instead of a solve-pass count, or strip `__orphanedAt` on load.
+
+## 10. Rounds 4–6 leaned on regression suites, not on the seams that produced the bugs
+
+Worth recording as a pattern, because it predicts where round 7 would find things. The 60 findings
+cluster hard in three places:
+
+- **Data-vs-code id drift** — `computeSystemStats` quoted `klystron` / `ssa` / `heliumCompressor` /
+  `subCooling2K`, none of which are real `COMPONENTS` ids; `_getFurnishingTier` read
+  `state.zoneFurnishings` when the 43 LAB items live in `state.zoneItems`; `hasMPS` read
+  `facilityEquipment` for a `kind: 'infrastructure'` item. Every one is a string that used to be
+  right. There is still **no test that asserts a hand-written id list resolves against
+  `COMPONENTS`** — `validateResearch` does exactly this for one table and found 27 dead nodes; the
+  same check does not exist for the ~10 remaining hand-written type lists in `economy.js`,
+  `research.js` and `Game.js`.
+- **Aggregates billed off the wrong denominator** — drift entries counted as machines (§8),
+  `totalBeamOnTicks` divided by wall-clock ticks instead of beamline-ticks, `dataRate` billed raw
+  while the tick derated it. These are all "two call sites compute the same quantity differently".
+- **Gestures that mutate before they validate** — `_pushUndo()` before validation, `placeJunction`
+  charging twice, `_abortPointerGesture` destroying a carried payload. Phase 4 unified *dispatch*;
+  it did not unify **"charge, mutate, snapshot" ordering**, and there is no shared helper enforcing
+  it.
+
+None of the three was fixed structurally. Each bug was fixed at its site and pinned with a
+regression block. That is the right call under a round cap, but it means the *classes* are still
+open, and a seventh round would most cheaply be spent on the first bullet — a single test that walks
+every hand-written id list in `src/` against the registries.
+
 ---
 
 ## Smaller things found during the final audit
@@ -171,11 +308,12 @@ extended with a research-purchase policy); the design decision has not been made
   role, and 43 non-beamline items have neither. `validate.js:204-218` enforces the intended
   relationship, so this is documented rather than broken — but the word "placement" meaning two
   different things is a standing trap.
-- **Phase 8 acceptance not met as written.** The master plan asked for review rounds "until a round
-  produces zero confirmed findings (cap 4)". The loop ran 3 rounds and was stopped at the cap with
-  findings still being produced — 45 confirmed and fixed. Round 4 was never run; there is no
-  evidence the finding stream had converged.
-- **Single 1.02 MB JS chunk** (273 kB gzipped) — vite warns on every build. No code splitting; the
+- **Phase 8 acceptance still not met as written.** The master plan asked for review rounds "until a
+  round produces zero confirmed findings (cap 4)". Rounds 1–3 hit the cap with 45 confirmed; rounds
+  4–6 were then run and hit a second cap with 60 more confirmed. **Six rounds, 105 findings, and
+  round 6 was still producing them.** There is still no evidence the stream had converged — only
+  evidence that severity fell. See the convergence-status block at the top.
+- **Single 1.02 MB JS chunk** (275 kB gzipped) — vite warns on every build. No code splitting; the
   title screen pulls in Three.js, the physics loader, and all UI. Dynamic-importing the 3D renderer
   behind the title screen is the obvious first cut.
 - **Two `Math.random()` calls remain outside the seeded RNG**, both benign:
@@ -184,10 +322,10 @@ extended with a research-purchase policy); the design decision has not been made
   system bare), and `SaveSlots.js:39` mints save-slot ids, which is UI state, not sim state. Neither
   affects the 100-tick determinism guarantee, but the `UtilityLineSystem` fallback is worth deleting
   so a future bare construction can't silently reintroduce nondeterminism.
-- **Two live `TODO`s in the tree**: `BeamlineDesigner.js:497` (restrict the palette to attachment
-  tools while editing a design) and `hud.js:1440` (tool-picker active-state highlight, deferred from
+- **Two live `TODO`s in the tree**: `BeamlineDesigner.js:515` (restrict the palette to attachment
+  tools while editing a design) and `hud.js:1439` (tool-picker active-state highlight, deferred from
   Phase 5).
-- **`ThreeRenderer` still has 9 `_liveState()` call sites.** Phase 5 collapsed all direct
-  `game.state` reads to one accessor (`ThreeRenderer.js:2863`), which was the point — but the
-  boundary is not actually closed until those 9 reads (terrain corner heights, cursor/hit-test
-  paths) get snapshot sections of their own.
+- **`ThreeRenderer` now has 11 `_liveState()` call sites** (was 9; rounds 4–6 added two while fixing
+  hit-test paths). Phase 5 collapsed all direct `game.state` reads to one accessor, which was the
+  point — but the boundary is not closed until those reads (terrain corner heights, cursor/hit-test
+  paths) get snapshot sections of their own, and the count is drifting the wrong way.

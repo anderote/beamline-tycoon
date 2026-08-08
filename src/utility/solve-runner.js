@@ -27,6 +27,12 @@ function cloneDefaults(defaults) {
   try { return JSON.parse(JSON.stringify(defaults)); } catch (_) { return {}; }
 }
 
+// Solve passes an orphaned network's persistent state is held before being
+// dropped. Long enough that a delete-and-redraw round trip (which re-mints the
+// same content-hashed id) recovers it, short enough that abandoned entries
+// don't accumulate in every save. ~5 minutes of wall clock at the 1 Hz tick.
+const ORPHAN_GRACE_PASSES = 300;
+
 /**
  * One claimant's share of a persistent-state entry after a network split.
  * Numeric fields are extensive quantities (reservoir contents), so they are
@@ -36,7 +42,7 @@ function cloneDefaults(defaults) {
 function splitPersistentState(entry, share) {
   const out = {};
   for (const [k, v] of Object.entries(entry)) {
-    if (k === '__portKeys') continue;
+    if (k === '__portKeys' || k === '__orphanedAt') continue;
     out[k] = typeof v === 'number' ? v * share : v;
   }
   return out;
@@ -170,7 +176,12 @@ export class SolveRunner {
 
     const liveIds = new Set();
     for (const nets of networksByType.values()) {
-      for (const n of nets) liveIds.add(n.id);
+      for (const n of nets) {
+        liveIds.add(n.id);
+        // Back from limbo: this id is wired again, so clear its grace clock.
+        const back = stateMap.get(n.id);
+        if (back && back.__orphanedAt != null) delete back.__orphanedAt;
+      }
     }
     const orphanIds = [];
     for (const id of stateMap.keys()) {
@@ -185,6 +196,8 @@ export class SolveRunner {
     // networks were joined). Reservoir contents therefore survive a topology
     // edit intact — never minted, never silently dropped.
     const inherited = new Map(); // netId -> accumulated persistent state
+    const inheritedType = new Map(); // netId -> utility type (for the cap below)
+    const claimed = new Set();   // orphan ids a live network inherited from
     const addShare = (netId, entry, share) => {
       const part = splitPersistentState(entry, share);
       const cur = inherited.get(netId);
@@ -216,14 +229,52 @@ export class SolveRunner {
           for (const k of recorded) if (s.portKeys.has(k)) overlap++;
           if (overlap > 0) { shares.push({ id: s.id, overlap }); total += overlap; }
         }
-        for (const s of shares) addShare(s.id, entry, s.overlap / total);
+        for (const s of shares) {
+          addShare(s.id, entry, s.overlap / total);
+          inheritedType.set(s.id, utilityType);
+        }
+        if (shares.length > 0) claimed.add(oid);
       }
     }
 
-    for (const [netId, entry] of inherited) stateMap.set(netId, entry);
+    for (const [netId, entry] of inherited) {
+      // Reservoir contents are extensive but CAPPED. Summing on join is right
+      // for a split-then-rejoin round trip (the halves add back up to what was
+      // there), but joining two INDEPENDENTLY seeded loops — e.g. linking two
+      // chillers, which line-drawing allows because source ports are exempt
+      // from port_taken — produced up to N x RESERVOIR_MAX_L in one reservoir.
+      // refillCost() then computed a negative `missing` and returned null, so
+      // the Refill button vanished and the loop ran proportionally longer
+      // between refills than the economy is tuned for. persistentStateDefaults
+      // IS a full reservoir, so it doubles as the per-field ceiling.
+      const defaults = this.registry.types?.[inheritedType.get(netId)]?.persistentStateDefaults;
+      if (defaults) {
+        for (const [k, cap] of Object.entries(defaults)) {
+          if (typeof cap === 'number' && typeof entry[k] === 'number' && entry[k] > cap) {
+            entry[k] = cap;
+          }
+        }
+      }
+      stateMap.set(netId, entry);
+    }
 
-    // (3) Prune every orphan (inherited contents were copied out above).
-    for (const oid of orphanIds) stateMap.delete(oid);
+    // (3) Prune orphans whose contents were copied out above. An orphan that
+    // NO live network inherited had all of its lines deleted rather than
+    // rerouted — dropping it immediately meant redrawing those lines re-minted
+    // the network from persistentStateDefaults, i.e. a full reservoir for two
+    // free clicks (utility lines cost nothing to add or remove, and a refill
+    // is $5,760 of coolant / $24,000 of LHe at the UtilityInspector). Ids are
+    // content-hashed from port membership, so holding the entry for a grace
+    // window makes the redraw re-adopt the DRAINED state it left behind.
+    for (const oid of orphanIds) {
+      if (claimed.has(oid)) { stateMap.delete(oid); continue; }
+      const entry = stateMap.get(oid);
+      if (entry && typeof entry === 'object') {
+        if (entry.__orphanedAt == null) entry.__orphanedAt = this.stats.solvePasses;
+        if (this.stats.solvePasses - entry.__orphanedAt < ORPHAN_GRACE_PASSES) continue;
+      }
+      stateMap.delete(oid);
+    }
   }
 }
 

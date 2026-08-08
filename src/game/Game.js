@@ -1,13 +1,13 @@
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
-import { RESEARCH } from '../data/research.js';
+import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
@@ -86,6 +86,11 @@ const BEAMSTATE_PRESERVED_FIELDS = [
 // Stand-in log used while building an undo snapshot (see _snapshot).
 const EMPTY_LOG = [];
 
+// Metres of dead s-axis inserted between independent source machines in
+// state.beamline, so an element at the very start of machine B can never tie
+// with the last envelope sample of machine A during nearest-s lookups.
+const BEAM_GRAPH_SOURCE_GAP_M = 1;
+
 // mulberry32 — small fast seeded PRNG. All sim randomness flows through
 // game.rng so two Games built with the same seed evolve identically.
 function mulberry32(seed) {
@@ -157,6 +162,10 @@ export class Game {
       zoneFurnishings: [],           // [{ id, type, col, row, subCol, subRow, rotated }]
       zoneFurnishingSubgrids: {},    // "col,row" -> [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
       zoneFurnishingNextId: 1,
+      // Derived (not saved): every placed item with a ZONE_FURNISHINGS def,
+      // room furnishings AND lab equipment. Zone tiering + zone effects read
+      // this; zoneFurnishings above is the furnishing-only render view.
+      zoneItems: [],
       // Unified placement system
       placeables: [],              // [{ id, type, category, col, row, subCol, subRow, rotated, dir, params, cells }]
       placeableIndex: {},           // id -> index in placeables array
@@ -260,8 +269,11 @@ export class Game {
       log: this.log.bind(this),
       spend: this.spend.bind(this),
       canAfford: this.canAfford.bind(this),
+      isUnlocked: this.isComponentUnlocked.bind(this),
       placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
       removePlaceable: (id) => this._removePlaceableRaw(id),
+      // Late-bound: utilityLineSystem is constructed just below.
+      onPlacementRemoved: (id) => this.utilityLineSystem?.onPlaceableRemoved(id),
       nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,
       nextPlacementId: () => 'pl_' + (this.state.placementNextId = (this.state.placementNextId || 0) + 1),
     });
@@ -289,11 +301,27 @@ export class Game {
     // UtilityLineSystem (addLine / removeLine / onPlaceableRemoved), which
     // emits 'utilityLinesChanged'; all placeable mutations flow through
     // _placePlaceableInner / removePlaceable / _removePlaceableRaw, which emit
-    // 'placeableChanged'. Placements are user-action-rate, so bumping on every
-    // placeable (ports or not) costs at most one extra discovery per action.
+    // 'placeableChanged'; every pipe/placement mutation in BeamlineSystem
+    // emits 'beamlineChanged'. On-pipe placements are utility endpoints too
+    // (utility/utility-endpoints.js), so a pipe edit changes the utility
+    // topology just like a placeable does — without this the discovery cache
+    // kept serving a network that still carried a deleted placement's demand.
+    // All three are user-action-rate, so bumping on every one of them costs at
+    // most one extra discovery per action.
+    //
+    // 'beamlineChanged' also schedules the per-beamline physics recalc. Pipe
+    // draw/extend/remove and on-pipe placement changes previously only reached
+    // _recalcMainBeamGraph (state.mainBeamState), never _recalcSingleBeamline,
+    // so every registry entry's beamState — the thing _tickBeamline bills
+    // income and data off — stayed frozen at its makeDefaultBeamState() values
+    // for the rest of the session.
     this.on((event) => {
-      if (event === 'utilityLinesChanged' || event === 'placeableChanged') {
+      if (event === 'utilityLinesChanged' || event === 'placeableChanged'
+          || event === 'beamlineChanged') {
         this.solveRunner.markTopologyDirty();
+      }
+      if (event === 'beamlineChanged') {
+        this.schedulePhysicsRecalc();
       }
     });
 
@@ -1807,13 +1835,22 @@ export class Game {
     // the removed module) is no longer performed here — BeamlineSystem
     // handles port bookkeeping explicitly via removeJunction + its UI
     // controller, and the flattener tolerates open pipe ends.
+    //
+    // These go through removeBeamPipe rather than a raw filter on
+    // state.beamPipes: it is the only path that pays pipeRefund(), credits
+    // 50% of every on-pipe placement, and releases the utility-line endpoints
+    // wired to those placements. Filtering here destroyed a pipe full of
+    // million-dollar cavities for nothing and left utility lines anchored to
+    // ids that existed nowhere in state.
     let removedPipes = false;
     if (entry.category === 'beamline') {
-      const beforePipeCount = this.state.beamPipes.length;
-      this.state.beamPipes = this.state.beamPipes.filter(
-        p => p.start?.junctionId !== placeableId && p.end?.junctionId !== placeableId
-      );
-      removedPipes = this.state.beamPipes.length !== beforePipeCount;
+      const connectedPipeIds = this.state.beamPipes
+        .filter(p => p.start?.junctionId === placeableId || p.end?.junctionId === placeableId)
+        .map(p => p.id);
+      for (const pipeId of connectedPipeIds) {
+        this.removeBeamPipe(pipeId, { skipRefund: opts.skipRefund, silent: true });
+      }
+      removedPipes = connectedPipeIds.length > 0;
     }
 
     // Remove from array
@@ -2030,10 +2067,19 @@ export class Game {
             placeableIdsToRemove.push(el.id);
           }
         }
-        const pipeIdsToRemove = (this.state.beamPipes || [])
-          .filter(p => placeableIdsToRemove.includes(p.start?.junctionId) || placeableIdsToRemove.includes(p.end?.junctionId))
-          .map(p => p.id);
-        this.state.beamPipes = (this.state.beamPipes || []).filter(p => !pipeIdsToRemove.includes(p.id));
+        // Pipes and their on-pipe placements are part of what the player is
+        // demolishing, so they belong in the lump-sum payout. The pipes
+        // themselves are torn down by removePlaceable below (which routes
+        // through removeBeamPipe, releasing utility endpoints); skipRefund
+        // keeps that path from double-crediting what is accumulated here.
+        for (const pipe of (this.state.beamPipes || [])) {
+          if (!placeableIdsToRemove.includes(pipe.start?.junctionId)
+              && !placeableIdsToRemove.includes(pipe.end?.junctionId)) continue;
+          refund += pipeRefund(pipe);
+          for (const att of (pipe.placements || [])) {
+            refund += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+          }
+        }
         for (const pid of placeableIdsToRemove) {
           // skipRefund: the accumulated 50% `refund` below is the whole
           // payout — removePlaceable's own 50% refund would double it.
@@ -2099,6 +2145,15 @@ export class Game {
     }
     this.state.zoneFurnishings = this.state.placeables.filter(p => p.category === 'furnishing');
     this.state.zoneFurnishingSubgrids = this._getLegacyFurnishingSubgrids();
+    // Every placed item that has a ZONE_FURNISHINGS def, regardless of kind.
+    // The 32 room items (office/controlRoom/cafeteria/meetingRoom) are kind
+    // 'furnishing'; the 43 LAB items (optics/rf/vacuum/cooling/diagnostics/
+    // machineShop) are kind 'equipment'. state.zoneFurnishings stays the
+    // furnishing-only render/hit-test view — the equipment pass in
+    // world-snapshot already draws the lab items — but zone tiering and zone
+    // EFFECTS must see both, or no research lab can ever rise above tier 0 and
+    // every lab item's declared `effects` is dead data.
+    this.state.zoneItems = this.state.placeables.filter(p => !!ZONE_FURNISHINGS[p.type]);
   }
 
   _getLegacyFurnishingSubgrids() {
@@ -2176,41 +2231,40 @@ export class Game {
   }
 
   /**
-   * Remove an attachment from a pipe. Delegates to BeamlineSystem, then
-   * detaches any utility line that was wired to it — placements are utility
-   * endpoints (see utility/utility-endpoints.js), so a removed one would
-   * otherwise leave lines pointing at a dead id in state and in every save.
+   * Remove an attachment from a pipe. Delegates to BeamlineSystem, which
+   * detaches any utility line that was wired to it via the injected
+   * `onPlacementRemoved` hook — placements are utility endpoints (see
+   * utility/utility-endpoints.js), so a removed one would otherwise leave
+   * lines pointing at a dead id in state and in every save.
    */
   removeAttachment(pipeId, attachmentId) {
-    const result = this.beamline.removeFromPipe(pipeId, attachmentId);
-    if (this.utilityLineSystem) {
-      this.utilityLineSystem.onPlaceableRemoved(attachmentId);
-    }
-    return result;
+    return this.beamline.removeFromPipe(pipeId, attachmentId);
   }
 
-  removeBeamPipe(pipeId) {
+  /**
+   * @param {string} pipeId
+   * @param {{skipRefund?:boolean, silent?:boolean}} [opts] — `skipRefund`
+   *   suppresses the pipe + placement credits (the caller is paying a lump
+   *   sum of its own, e.g. the `beamlineWhole` demolish); `silent` suppresses
+   *   the log line when the pipe is collateral of a larger demolish.
+   */
+  removeBeamPipe(pipeId, opts = {}) {
     const idx = this.state.beamPipes.findIndex(p => p.id === pipeId);
     if (idx === -1) return false;
 
     const pipe = this.state.beamPipes[idx];
 
-    // Refund pipe cost (50%) — compute from actual path geometry
-    const driftDef = COMPONENTS.drift;
-    const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-    let tileDist = 0;
-    for (let i = 0; i < (pipe.path?.length || 0) - 1; i++) {
-      const a = pipe.path[i], b = pipe.path[i + 1];
-      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
-    }
-    const tileCost = Math.max(costPerTile, Math.floor(costPerTile * (tileDist || 1)));
-    this.state.resources.funding += Math.floor(tileCost * 0.5);
+    // Refund pipe cost (50%) off the SAME basis drawPipe charged with. The old
+    // hand-rolled formula floored the basis at one full tile while the charge
+    // floors at 0.25 tiles, so a 0.25-tile stub cost $2,500 and refunded
+    // $5,000 — a repeatable money printer off any free port.
+    if (!opts.skipRefund) this.state.resources.funding += pipeRefund(pipe);
 
     // Refund all placements on this pipe (50%), and detach any utility line
     // wired to one — they are utility endpoints, and the pipe is going away.
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
-      if (attDef && attDef.cost) {
+      if (!opts.skipRefund && attDef && attDef.cost) {
         for (const [r, a] of Object.entries(attDef.cost)) {
           this.state.resources[r] += Math.floor(a * 0.5);
         }
@@ -2219,7 +2273,7 @@ export class Game {
     }
 
     this.state.beamPipes.splice(idx, 1);
-    this.log('Removed beam pipe (50% refund)', 'info');
+    if (!opts.silent) this.log('Removed beam pipe (50% refund)', 'info');
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
@@ -2230,6 +2284,14 @@ export class Game {
    * Derive beam graph from pipe connectivity.
    * Traverses from sources through beam pipes to build ordered component lists.
    * Updates state.beamline for physics simulation.
+   *
+   * Each source's flattened path is an INDEPENDENT machine. flattenPath()
+   * restarts `beamStart` at 0 for every source, so the concatenation used to
+   * hand out duplicate s-positions: probe pins on machine B resolved to
+   * machine A's envelope samples. Every source after the first is therefore
+   * shifted onto its own stretch of the s-axis (`sourceIndex` records which
+   * machine an element belongs to, and _recalcMainBeamGraph runs one physics
+   * pass per machine rather than treating the concatenation as one lattice).
    */
   _deriveBeamGraph() {
     const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
@@ -2239,8 +2301,12 @@ export class Game {
     });
 
     const allOrdered = [];
+    let sOffset = 0;
+    let sourceIndex = 0;
     for (const source of sources) {
       const flat = flattenPath(this.state, source.id);
+      if (flat.length === 0) { sourceIndex++; continue; }
+      let segEnd = 0;
       // Convert flattener entries to the shape physics expects.
       // Every entry needs: type, subL, stats, params, beamStart, tiles.
       for (const entry of flat) {
@@ -2253,14 +2319,18 @@ export class Game {
           dir: entry.placeable?.dir ?? 0,
           params: entry.params || {},
           tiles: entry.placeable?.cells?.map(c => ({ col: c.col, row: c.row })) || [],
-          beamStart: entry.beamStart,
+          beamStart: entry.beamStart + sOffset,
           subL: entry.subL,
           // Pass through stats from the component template so physics can read them
           stats: def ? { ...def.stats } : {},
           isAttachment: entry.kind === 'placement',
           pipeId: entry.pipeId || null,
+          sourceIndex,
         });
+        segEnd = Math.max(segEnd, (entry.beamStart || 0) + (entry.subL || 0) * 0.5);
       }
+      sOffset += segEnd + BEAM_GRAPH_SOURCE_GAP_M;
+      sourceIndex++;
     }
 
     this.state.beamline = allOrdered;
@@ -2409,7 +2479,7 @@ export class Game {
     // Build physics input from ordered entries. Each entry already has subL
     // in sub-units, params, and the component type. Physics multiplies subL
     // by 0.5 to get metres.
-    const physicsBeamline = ordered.map(node => {
+    const toPhysics = (nodes) => nodes.map(node => {
       const def = COMPONENTS[node.type];
       return {
         type: node.type,
@@ -2419,11 +2489,23 @@ export class Game {
       };
     });
 
+    // One lattice per SOURCE. Feeding the concatenation of every source's
+    // path to a single compute() made lattice.py treat a mid-lattice source
+    // as a bare s-advance (no beam reset) and extract_source_params only ever
+    // read the first source — so machine B was computed as a continuation of
+    // machine A's exit beam, and the HUD's "peak energy" was A's gain plus
+    // B's gain instead of max(A, B).
+    const segments = [];
+    for (const node of ordered) {
+      const idx = node.sourceIndex || 0;
+      const seg = segments.find(s => s.index === idx);
+      if (seg) seg.nodes.push(node);
+      else segments.push({ index: idx, nodes: [node], offset: node.beamStart || 0 });
+    }
+
     // Collect research effects
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -2432,22 +2514,65 @@ export class Game {
       this.state.mainBeamState = null;
       return;
     }
-    const result = BeamPhysics.compute(physicsBeamline, researchEffects);
-    this.state.mainBeamState = result || null;
+    const runs = [];
+    for (const seg of segments) {
+      const res = BeamPhysics.compute(toPhysics(seg.nodes), researchEffects);
+      if (res) runs.push({ res, offset: seg.offset });
+    }
+    if (runs.length === 0) {
+      this.state.mainBeamState = null;
+      this.emit('physicsUpdated');
+      return;
+    }
+
+    // Headline state is the strongest machine; production rates are additive
+    // across machines. The envelope is the machines' envelopes laid end to end
+    // on the same shifted s-axis state.beamline uses, so probe pins (which
+    // resolve by nearest `.s` to their element's beamStart) land in their own
+    // machine's samples.
+    let main;
+    if (runs.length === 1) {
+      main = runs[0].res;
+    } else {
+      const best = runs.reduce((a, b) => ((b.res.beamEnergy || 0) > (a.res.beamEnergy || 0) ? b : a));
+      main = { ...best.res };
+      for (const key of ['dataRate', 'collisionRate', 'photonRate', 'luminosity', 'nDiagnostics']) {
+        main[key] = runs.reduce((sum, r) => sum + (r.res[key] || 0), 0);
+      }
+      main.beamAlive = runs.some(r => r.res.beamAlive);
+    }
+
+    const envelope = [];
+    for (const { res, offset } of runs) {
+      for (const s of (res.envelope || [])) {
+        envelope.push(offset ? { ...s, s: (s.s || 0) + offset } : s);
+      }
+    }
+    main.envelope = envelope;
+    this.state.mainBeamState = main;
     // Also expose envelope for probe.js, which reads state.physicsEnvelope
-    if (result && result.envelope) {
-      this.state.physicsEnvelope = result.envelope;
+    if (envelope.length > 0) {
+      this.state.physicsEnvelope = envelope;
     }
     this.emit('physicsUpdated');
   }
 
+  /**
+   * Coalesced physics recalc for build-time mutations. Runs the FULL pass
+   * (`recalcAllBeamlines` → per-entry `_recalcSingleBeamline`, the aggregate
+   * roll-up, `_recalcMainBeamGraph` and `validateInfrastructure`), not just
+   * the main-graph half: `_tickBeamline` drives income, data and objectives
+   * off `entry.beamState`, which only `_recalcSingleBeamline` ever writes.
+   * The microtask guard keeps a multi-mutation gesture (a design placement, a
+   * drag-demolish sweep) to one pass.
+   */
   schedulePhysicsRecalc() {
     if (this._physicsRecalcPending) return;
     this._physicsRecalcPending = true;
     queueMicrotask(() => {
       this._physicsRecalcPending = false;
       try {
-        this._recalcMainBeamGraph();
+        this.recalcAllBeamlines();
       } catch (e) {
         console.warn('[physics] deferred recalc failed:', e);
       }
@@ -2462,7 +2587,14 @@ export class Game {
     const ecm = this.getEffect('energyCostMult', 1);
     for (const el of ordered) {
       const t = COMPONENTS[el.type];
-      if (!t) continue;
+      if (!t) {
+        // Flattener drift entries (kind === 'drift') have no `type`. They are
+        // still real metres of machine — skipping them made the HUD's
+        // "Beamline … m" readout report only the summed component lengths
+        // (a 28 m machine displayed as 9.5 m). They draw no power.
+        if (el.kind === 'drift') tLen += (el.subL || 0) * 0.5;
+        continue;
+      }
       tLen += (el.subL || t.subL || 4) * 0.5;
       tCost += (t.energyCost || 0) * ecm;
       if (t.isSource) hasSrc = true;
@@ -2521,9 +2653,7 @@ export class Game {
 
     // Gather research effects for physics
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -2582,19 +2712,24 @@ export class Game {
     this.state.continuousBeamTicks = maxContinuousBeamTicks;
     this.state.beamOnTicks = totalBeamOnTicks;
     this.state.felSaturated = felSaturated;
-    this.state.uptimeFraction = this.state.tick > 0 ? totalBeamOnTicks / this.state.tick : 1;
+    // Facility uptime is the MEAN of the per-beamline uptimes, not the sum of
+    // beam-on ticks over wall-clock ticks: totalBeamOnTicks accumulates once
+    // per beamline, so dividing by state.tick produced a value up to N with N
+    // beamlines and let the `highAvailability` objective (>= 0.95) pay out for
+    // a facility whose beams were down most of the time.
+    this.state.uptimeFraction = (entries.length > 0 && this.state.tick > 0)
+      ? (totalBeamOnTicks / entries.length) / this.state.tick
+      : 1;
 
-    // For single-beamline compat: expose first running beamline's detailed physics
-    const running = entries.find(e => e.status === 'running');
-    if (running) {
-      this.state.avgPressure = running.beamState.avgPressure;
-      this.state.finalNormEmittanceX = running.beamState.finalNormEmittanceX;
-      this.state.finalBunchLength = running.beamState.finalBunchLength;
-    } else if (entries.length > 0) {
-      const first = entries[0];
-      this.state.avgPressure = first.beamState.avgPressure;
-      this.state.finalNormEmittanceX = first.beamState.finalNormEmittanceX;
-      this.state.finalBunchLength = first.beamState.finalBunchLength;
+    // For single-beamline compat: expose first running beamline's detailed
+    // physics. NOTE: avgPressure is deliberately NOT mirrored here — no
+    // physics result carries a pressure, so this used to overwrite the value
+    // computeSystemStats had produced with `undefined` on every tick, right
+    // before checkObjectives ran. computeSystemStats owns state.avgPressure.
+    const detailed = entries.find(e => e.status === 'running') || entries[0];
+    if (detailed) {
+      this.state.finalNormEmittanceX = detailed.beamState.finalNormEmittanceX;
+      this.state.finalBunchLength = detailed.beamState.finalBunchLength;
     }
   }
 
@@ -2624,6 +2759,12 @@ export class Game {
     bs.photonRate = result.photonRate || 0;
     bs.collisionRate = result.collisionRate || 0;
     bs.physicsEnvelope = result.envelope || null;
+    // These three are produced by gameplay.py but used to be dropped here,
+    // which left the objectives that read them (subMicronEmittance,
+    // bunchCompressed, felSaturation) permanently unreachable.
+    bs.finalNormEmittanceX = result.finalNormEmittanceX;
+    bs.finalBunchLength = result.finalBunchLength;
+    bs.felSaturated = !!result.felSaturated;
 
     // If physics says beam tripped, fault this beamline
     if (entry.status === 'running' && !result.beamAlive) {
@@ -2635,14 +2776,35 @@ export class Game {
   }
 
   _fallbackStatsForBeamline(entry, physicsBeamline) {
-    // Simple stat-summing fallback while Pyodide loads
+    // Simple stat-summing fallback while Pyodide loads (and the whole model
+    // in node — tests, balance-sim, the headless agent env).
+    //
+    // It must honour `el.infraQuality`, the per-node utility qualities
+    // _recalcSingleBeamline attaches: ignoring them made the Phase-6
+    // utility-quality → beam-output coupling a no-op everywhere physics
+    // isn't loaded, so a facility with every cooling line cut produced
+    // bit-identical output to a fully wired one. Mirrors the derates in
+    // beam_physics/gameplay.py (energy gain scales with power/RF/cooling/cryo
+    // quality; a quenched SRF cavity becomes a drift; poor vacuum widens
+    // losses) at this model's coarser resolution. dataQuality is deliberately
+    // NOT applied here — _tickBeamline already derates data by it.
+    const q01 = (v) => (typeof v === 'number' ? Math.max(0, Math.min(1, v)) : 1);
     let eGain = 0, dRate = 0, bq = 1;
+    let worstVacuum = 1;
     for (const el of physicsBeamline) {
       const s = el.stats || {};
-      if (s.energyGain) eGain += s.energyGain;
+      const iq = el.infraQuality || {};
+      const gainScale = iq.cryoQuenched === true
+        ? 0
+        : q01(iq.powerQuality) * q01(iq.rfQuality) * q01(iq.coolingQuality) * q01(iq.cryoQuality);
+      if (s.energyGain) eGain += s.energyGain * gainScale;
       if (s.dataRate) dRate += s.dataRate;
       if (s.beamQuality) bq += s.beamQuality;
+      if (el.infraQuality) worstVacuum = Math.min(worstVacuum, q01(iq.vacuumQuality));
     }
+    // Poor vacuum scatters beam: gameplay.py narrows the aperture by
+    // (0.5 + 0.5 * vacuumQuality); apply the same factor to quality here.
+    bq *= 0.5 + 0.5 * worstVacuum;
     // Clamp to the same [0, 1] range the real physics path produces
     // (gameplay.py / lattice.py both cap quality at 1.0). Unclamped, each
     // diagnostic/collimation component pushed quality above 1 and every
@@ -2663,27 +2825,21 @@ export class Game {
     bs.physicsEnvelope = null;
   }
 
-  // === MACHINE TYPE SELECTION ===
-  // Machine type is now per-beamline, set at source placement.
-  // isMachineTypeUnlocked is still useful for UI checks.
-
-  isMachineTypeUnlocked(type) {
-    const MACHINE_TYPE_RESEARCH = {
-      linac: null,
-      photoinjector: 'photoinjectorTech',
-      fel: 'felTech',
-      collider: 'colliderTech',
-    };
-    const req = MACHINE_TYPE_RESEARCH[type];
-    return !req || this.state.completedResearch.includes(req);
-  }
-
   // === BEAM CONTROL ===
 
   toggleBeam(beamlineId) {
+    // Callers without an explicit id (the Space hotkey) get a default: the
+    // currently selected beamline, or the only one that exists. Without this
+    // the hotkey was a dead affordance that logged "No beamline specified!",
+    // naming something the UI never asks the player to specify.
     if (!beamlineId) {
-      this.log('No beamline specified!', 'bad');
-      return;
+      const all = this.registry.getAll();
+      beamlineId = this.selectedBeamlineId
+        || (all.length === 1 ? all[0].id : null);
+      if (!beamlineId) {
+        this.log(all.length ? 'Select a beamline first' : 'No beamline built yet!', 'bad');
+        return;
+      }
     }
     const entry = this.registry.get(beamlineId);
     if (!entry) {
@@ -2700,7 +2856,12 @@ export class Game {
       if (!flat.some(el => COMPONENTS[el.type]?.isSource)) {
         this.log('Need a Source!', 'bad'); return;
       }
-      this.validateInfrastructure();
+      // Recompute the gate NOW rather than reading whatever the last tick
+      // left behind: validateInfrastructure() only emits, and while the game
+      // is paused the tick interval is cleared, so state.infraBlockers can be
+      // arbitrarily stale in both directions (refusing a beam over faults the
+      // player already fixed, or starting one with the utilities cut).
+      this.refreshInfrastructureGate();
       if (!this.state.infraCanRun) {
         const count = this.state.infraBlockers.length;
         this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
@@ -2751,7 +2912,7 @@ export class Game {
     const zoneOutput = {};
     const research = {};
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects) continue;
 
@@ -2812,7 +2973,7 @@ export class Game {
     const tileToRoom = {};
     const processed = new Set();
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.morale) continue;
 
@@ -2838,7 +2999,7 @@ export class Game {
   getBeamPhysicsEffects() {
     const results = [];
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.beamPhysics) continue;
 
@@ -3034,6 +3195,26 @@ export class Game {
     this.emit('tick');
   }
 
+  /**
+   * Mean dataFiber quality over the data-producing nodes of a flattened
+   * beamline, in [0,1]. 1.0 when there is nothing to derate (no solved
+   * qualities, or no data-producing hardware).
+   */
+  _dataConnectivityFactor(nodes) {
+    if (!this.state.nodeQualities) return 1;
+    let totalDataQ = 0;
+    let dataNodeCount = 0;
+    for (const node of nodes) {
+      const comp = COMPONENTS[node.type];
+      if (comp && (comp.stats?.dataRate || 0) > 0) {
+        const nq = this.state.nodeQualities[node.id];
+        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
+        dataNodeCount++;
+      }
+    }
+    return dataNodeCount > 0 ? totalDataQ / dataNodeCount : 1;
+  }
+
   _tickBeamline(entry) {
     const bs = entry.beamState;
 
@@ -3046,32 +3227,30 @@ export class Game {
 
     // Funding from running beam (MVP loop closure: beam on = income).
     // Scales with beam quality AND machine size — see economy.js ECON.
-    this.state.resources.funding += computeBeamIncome(bs, blNodes.length);
+    // Count HARDWARE only: the flattener also emits a synthetic 'drift' entry
+    // per gap between placements, so billing raw entries paid ~$100/tick for
+    // every gap — spacing identical hardware further apart minted income at
+    // zero cost. Every other flattenPath consumer (wear, dataQuality, the
+    // schematic) already skips drifts.
+    const hardwareNodes = blNodes.filter(n => n.kind !== 'drift');
+
+    // Apply data fiber network quality. In the Phase 6 utility model,
+    // dataFiber quality is 1.0 when a detector port is connected to an
+    // IOC/control-room source through a data-fiber line, and 0 otherwise,
+    // so this term alone captures "connected to control room".
+    //
+    // Derated BEFORE income, not after: billing the raw bs.dataRate paid the
+    // player full data fees for a detector whose fiber had been cut, i.e. for
+    // science that demonstrably produced no `data` resource that tick.
+    const connectedDataRate = (bs.dataRate || 0) * this._dataConnectivityFactor(blNodes);
+
+    this.state.resources.funding += computeBeamIncome(
+      connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
+      hardwareNodes.length,
+    );
 
     // Data from detectors (physics-driven)
-    if (bs.dataRate > 0) {
-      // Apply data fiber network quality. In the Phase 6 utility model,
-      // dataFiber quality is 1.0 when a detector port is connected to an
-      // IOC/control-room source through a data-fiber line, and 0 otherwise,
-      // so this term alone captures "connected to control room".
-      let connectedDataRate = bs.dataRate;
-      if (this.state.nodeQualities) {
-        let totalDataQ = 0;
-        let dataNodeCount = 0;
-        const qualElements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
-        for (const node of qualElements) {
-          const comp = COMPONENTS[node.type];
-          if (comp && (comp.stats?.dataRate || 0) > 0) {
-            const nq = this.state.nodeQualities[node.id];
-            const dq = nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
-            totalDataQ += dq;
-            dataNodeCount++;
-          }
-        }
-        if (dataNodeCount > 0) {
-          connectedDataRate *= totalDataQ / dataNodeCount;
-        }
-      }
+    if (connectedDataRate > 0) {
       const sciMult = 1 + this.state.staff.scientists * 0.1;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
@@ -3129,6 +3308,17 @@ export class Game {
     this.emit('infrastructureValidated');
   }
 
+  /**
+   * Synchronously re-run the utility gate so state.infraCanRun /
+   * state.infraBlockers reflect the world as it is right now. Anything that
+   * *gates* on those fields (rather than just repainting them) must call this
+   * first — tick() is the only other caller, and it does not run while paused.
+   */
+  refreshInfrastructureGate() {
+    if (this.utilityGate) this.utilityGate.run();
+    this.emit('infrastructureValidated');
+  }
+
   // === WEAR & REPAIR ===
 
   _applyWearForBeamline(entry) {
@@ -3142,7 +3332,12 @@ export class Game {
       }
       // Base wear rate: higher energy cost = more stress
       const baseWear = 0.01 + (t.energyCost || 0) * 0.002;
-      const hasMPS = (this.state.facilityEquipment || []).some(eq => eq.type === 'mps');
+      // Read from state.placeables, not the legacy state.facilityEquipment
+      // view: that array is `placeables.filter(category === 'equipment')` and
+      // the MPS is kind (so category) 'infrastructure', so this check was
+      // unconditionally false and every component wore at 2x forever — the
+      // $1M Machine Protection System had no mechanical effect at all.
+      const hasMPS = (this.state.placeables || []).some(p => p.type === 'mps');
       const wearMult = hasMPS ? 1 : 2;
       entry.beamState.componentHealth[node.id] = Math.max(0, entry.beamState.componentHealth[node.id] - baseWear * wearMult);
 
@@ -3350,6 +3545,11 @@ export class Game {
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     this._rebuildPlaceableIndex();
+    // Placeables were replaced wholesale, so the derived views
+    // (facilityEquipment / facilityGrid / zoneFurnishings / zoneItems) have to
+    // be rebuilt from them rather than trusted from the payload — zoneItems in
+    // particular is not serialized, and the research lab tier reads it.
+    this._syncLegacyPlaceableState();
     this.recomputeZoneConnectivity();
     // Placeables were replaced wholesale without going through the
     // place/remove seams, so the cached utility-network discovery must be

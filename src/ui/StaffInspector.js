@@ -194,9 +194,11 @@ export function openStaffInspector(game, staffId) {
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
     if (staff) ctx.setTitle(`${staff.name} — ${staff.role} (${staff.mood})`);
   };
-  // Make update() call refresh
-  const origUpdate = ctx.update.bind(ctx);
-  ctx.update = () => { ctx.refresh(); origUpdate(); };
+  // This window has no tabs, so ContextWindow.update() -> _renderBody() would
+  // clear the body and find no tab renderer to refill it — every update()
+  // blanked the window until the next 'staffChanged' emit. refresh() IS the
+  // body render here, so update() is just an alias for it.
+  ctx.update = () => ctx.refresh();
 
   // Unsubscribe from game events when the window closes
   const origClose = ctx.close.bind(ctx);

@@ -136,7 +136,14 @@ export class FloorTool extends Tool {
     return true;
   }
 
+  // Off-canvas release / focus loss: drop the drag without committing.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag (onMouseDown guards `e.button !== 0`;
+    // onMouseUp did not, so a right release mid-drag fired the commit early
+    // and swallowed right-click-to-deselect).
+    if (e.button !== 0) return false;
     const game = ctx.game;
     if (this._drawingLine && this._linePath.length > 0) {
       // _batchEvents: each tile can clear a decoration, and every removal
@@ -246,6 +253,9 @@ export class WallTool extends Tool {
     ctx.input._hideDragCostTooltip();
   }
 
+  // Off-canvas release / focus loss: drop the drag without committing.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
   /** Cost of placing this wall along a path, skipping same-type edges. */
   _pathCost(ctx, path) {
     const wt = WALL_TYPES[this.wallType];
@@ -326,6 +336,11 @@ export class WallTool extends Tool {
   }
 
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     const game = ctx.game;
     if (this._shiftPending && this._path.length > 0) {
       game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
@@ -393,6 +408,9 @@ export class DoorTool extends Tool {
     ctx.input._hideDragCostTooltip();
   }
 
+  // Off-canvas release / focus loss: drop the drag without committing.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
@@ -419,6 +437,11 @@ export class DoorTool extends Tool {
   }
 
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
       ctx.game._withUndo(() => ctx.game.placeDoorPath(this._path, this.doorType, this.variant));
       this._drawing = false;

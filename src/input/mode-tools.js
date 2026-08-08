@@ -44,9 +44,22 @@ export class MoveTool extends Tool {
       input.linePlaceHovers = [];
       ctx.renderer.clearDragPreview();
     }
-    // If still carrying a lifted placeable, restore it to its origin.
-    // Beamline components are never lifted (they stay in place during
-    // move), so there's nothing to restore for the 'component' kind.
+    this._restoreCarried(ctx);
+    input.hoverPlaceable = null;
+    ctx.renderer._clearPreview();
+    input._showToast('Move mode off');
+  }
+
+  /**
+   * Put a still-carried lifted placeable back where it came from and clear
+   * the carry. `_pickUpAt` removes the object from state.placeables and the
+   * payload is the ONLY surviving copy, so every path that ends a carry
+   * without dropping it has to come through here.
+   *
+   * Beamline components are never lifted (they stay in place during move),
+   * so there is nothing to restore for the 'component' kind.
+   */
+  _restoreCarried(ctx) {
     if (this.payload && this.payload.kind === 'placeable') {
       const p = this.payload;
       ctx.game.placePlaceable({
@@ -61,9 +74,6 @@ export class MoveTool extends Tool {
       });
     }
     this.payload = null;
-    input.hoverPlaceable = null;
-    ctx.renderer._clearPreview();
-    input._showToast('Move mode off');
   }
 
   onMouseDown(e, ctx) {
@@ -120,6 +130,11 @@ export class MoveTool extends Tool {
   }
 
   onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
     const input = ctx.input;
     if (input.isLinePlacingDecoration) {
       input._finishLinePlaceDecoration();
@@ -155,15 +170,21 @@ export class MoveTool extends Tool {
   }
 
   /**
-   * Undo/redo is about to replace game state. The lift that put the carried
-   * object in `payload` was itself captured as an undo snapshot, so the
-   * restore puts the object back in the world — keep carrying it and the
-   * next drop mints a free duplicate. Drop the carry (do NOT re-place it;
-   * the restored state already holds it).
+   * End the carry without dropping it. Which half runs depends on `reason`:
+   *
+   * - 'stateReplaced' (undo/redo): the lift that put the object in `payload`
+   *   was itself captured as an undo snapshot, so the restore puts it back in
+   *   the world. Keep carrying it and the next drop mints a free duplicate —
+   *   so drop the carry WITHOUT re-placing it.
+   * - 'abort' (window blur, tab hide, pointercancel, mouseup off-canvas —
+   *   i.e. clicking any HUD chrome mid-carry): nothing touches game state, so
+   *   dropping the payload silently deleted the object, unrefunded and with
+   *   no toast. Restore it, exactly as onExit does.
    */
-  cancelGesture(ctx) {
+  cancelGesture(ctx, reason) {
     if (!this.payload) return;
-    this.payload = null;
+    if (reason === 'stateReplaced') this.payload = null;
+    else this._restoreCarried(ctx);
     ctx.input.hoverPlaceable = null;
     ctx.input.isLinePlacingDecoration = false;
     ctx.renderer._clearPreview?.();

@@ -11,8 +11,15 @@
 //   - beamStart: cumulative METRE position of the element's START from the source
 //   - subL:      element length in sub-units (1 sub-unit = 0.5 m)
 //
-// Invariant: envelope[i].s (metres) === entries[i].beamStart (metres)
-//            for every physics-generated envelope snapshot.
+// NOT an invariant (this used to claim otherwise): the physics envelope is
+// NOT parallel to this array. lattice.propagate() resamples its snapshots onto
+// a fixed SAMPLE_POINTS-long uniform arc-length grid, so `envelope` is indexed
+// by sample position, not by element, and each entry carries its own `.s`
+// (metres, measured at the END of a sub-step) plus `.index` (the element it
+// came from). To locate an element in the envelope, search for the sample
+// nearest that element's `beamStart` (see ProbeWindow._resolvePinsToEnvelope
+// and BeamlineDesigner.getMarkerEnvelopeIndex) — never index it by element
+// position.
 // ---------------------------------------------------------------------------
 //
 // Cycle-aware walker over the new pipe/junction graph:
@@ -88,21 +95,31 @@ export function flattenPath(gameState, sourceId, opts = {}) {
     if (walkedPipes.has(pipeKey)) break;
     walkedPipes.add(pipeKey);
 
-    // Emit drift/placement entries along this pipe.
-    // Placements are sorted by `position` (0..1 along the pipe).
-    const placements = [...(pipe.placements || [])].sort((a, b) => a.position - b.position);
+    // Emit drift/placement entries along this pipe, in the order the BEAM
+    // meets them. `position` is a 0..1 arc-length fraction measured from
+    // pipe.path[0] (i.e. from pipe.start) — see pipe-placements.placementPose.
+    // On a reverse traversal the beam enters at pipe.end, so both the ORDER
+    // and the offset of every placement have to be mirrored; otherwise the
+    // lattice is fed the pipe's optics back-to-front and at the wrong s.
     const pipeBeamLen = pipe.subL * 0.5;
-
-    let pipeCursor = beamStart;
-    let consumed = 0; // metres consumed on this pipe so far
-
-    for (const pl of placements) {
+    const reversed = direction === 'reverse';
+    const placements = (pipe.placements || []).map(pl => {
       const plSubL = pl.subL != null
         ? pl.subL
         : (COMPONENTS[pl.type] ? (COMPONENTS[pl.type].subL || 1) : 1);
       const plBeamLen = plSubL * 0.5;
+      // Metres from the end of the pipe the beam entered through.
+      const offset = reversed
+        ? pipeBeamLen - (pl.position * pipeBeamLen + plBeamLen)
+        : pl.position * pipeBeamLen;
+      return { pl, plSubL, plBeamLen, offset };
+    }).sort((a, b) => a.offset - b.offset);
 
-      const targetPos = pl.position * pipeBeamLen;
+    let pipeCursor = beamStart;
+    let consumed = 0; // metres consumed on this pipe so far
+
+    for (const { pl, plSubL, plBeamLen, offset } of placements) {
+      const targetPos = offset;
       const driftBeamLen = targetPos - consumed;
       if (driftBeamLen > 0) {
         result.push({

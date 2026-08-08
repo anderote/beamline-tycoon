@@ -98,12 +98,12 @@ export function setupSmallBeamlineFacility(game) {
     [{ col: -6, row: 0 }, { col: 6, row: 0 }],
   );
   if (pipe) {
-    game.beamline.placeOnPipe(pipe, { type: 'buncher',       position: 0.08, mode: 'snap' });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.25, mode: 'snap' });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.40, mode: 'snap' });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.55, mode: 'snap' });
-    game.beamline.placeOnPipe(pipe, { type: 'quadrupole',    position: 0.72, mode: 'snap' });
-    game.beamline.placeOnPipe(pipe, { type: 'bpm',           position: 0.88, mode: 'snap' });
+    game.beamline.placeOnPipe(pipe, { type: 'buncher',       position: 0.08, mode: 'snap', free: true });
+    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.25, mode: 'snap', free: true });
+    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.40, mode: 'snap', free: true });
+    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.55, mode: 'snap', free: true });
+    game.beamline.placeOnPipe(pipe, { type: 'quadrupole',    position: 0.72, mode: 'snap', free: true });
+    game.beamline.placeOnPipe(pipe, { type: 'bpm',           position: 0.88, mode: 'snap', free: true });
   }
 
   // Support gear along the hall's north row: a 150 kW pad-mount transformer

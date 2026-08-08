@@ -538,16 +538,26 @@ export class WallBuilder {
         // Shared-endpoint Y must match. For 'n' and 'e' edges, prev's b
         // (high-axis end) meets cur's a (low-axis end). For 's' and 'w'
         // edges, prev's a (high-axis end) meets cur's b (low-axis end).
+        // The SLOPE must match too: build() lerps the merged span's base Y
+        // linearly from first.a to last.b, so a run whose per-tile slope
+        // varies (flat, one step up, flat — which the terrain invariant
+        // permits) bakes interior base vertices that float above or bury
+        // themselves in the ground. Error grows with run length: 6 flat + 6
+        // rising tiles merge into one span with a full wall-height gap at the
+        // slope break.
         let heightsMatch = false;
         if (consecutive) {
           const prevBY = prev.baseY || { a: 0, b: 0 };
           const curBY = cur.baseY || { a: 0, b: 0 };
           const edge = prev.edge;
           if (edge === 'n' || edge === 'e') {
-            heightsMatch = prevBY.b === curBY.a;
+            heightsMatch = prevBY.b === curBY.a
+              && (prevBY.b - prevBY.a) === (curBY.b - curBY.a);
           } else {
-            // 's' or 'w'
-            heightsMatch = prevBY.a === curBY.b;
+            // 's' or 'w' — a/b are listed in descending-axis order, so the
+            // rise along the ascending axis is a - b.
+            heightsMatch = prevBY.a === curBY.b
+              && (prevBY.a - prevBY.b) === (curBY.a - curBY.b);
           }
         }
         if (!consecutive || !heightsMatch) {

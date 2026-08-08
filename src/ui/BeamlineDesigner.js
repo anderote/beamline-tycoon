@@ -2,6 +2,7 @@
 // Full-screen 2D view for inspecting and editing a beamline with live physics preview.
 
 import { COMPONENTS } from '../data/components.js';
+import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
@@ -9,6 +10,21 @@ import { flattenPath } from '../beamline/flattener.js';
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
 
+/**
+ * Physical length (in sub-units) of one draft node.
+ *
+ * Drifts are the only variable-length element in the model, and in edit mode
+ * `openFromSource` copies each one's REAL length off flattenPath — so falling
+ * back to the 2 m `COMPONENTS.drift` template modelled a 51 m unfocused drift
+ * as 2 m. The schematic already honoured node.subL, so the window drew a long
+ * drift wide while running physics on a short one; Game._recalcSingleBeamline
+ * and _recalcMainBeamGraph both use `el.subL || t.subL`, i.e. this rule.
+ */
+function _nodeSubL(node) {
+  if (node && typeof node.subL === 'number' && node.subL > 0) return node.subL;
+  const c = node ? COMPONENTS[node.type] : null;
+  return (c && c.subL) || 4;
+}
 
 export class BeamlineDesigner {
   constructor(game, renderer) {
@@ -46,6 +62,8 @@ export class BeamlineDesigner {
     this.markerS = 0;
     this._markerDir = 0;      // -1, 0, or +1 for continuous panning
     this._markerAnimId = null; // requestAnimationFrame id
+    this._panDir = 0;         // -1, 0, or +1 for continuous schematic panning
+    this._panAnimId = null;   // requestAnimationFrame id
 
     // Focus row: 0 = beamline stackup, 1 = component palette
     this.focusRow = 0;
@@ -868,6 +886,15 @@ export class BeamlineDesigner {
       cancelAnimationFrame(this._markerAnimId);
       this._markerAnimId = null;
     }
+    // Same teardown for the schematic pan loop. _onKeyUp early-returns on
+    // `!this.isOpen`, so _stopPan() — the only writer of _panDir = 0 — is
+    // unreachable once the designer closes: closing while a/d was still held
+    // pinned a 60 Hz rAF no-op for the rest of the session.
+    this._panDir = 0;
+    if (this._panAnimId) {
+      cancelAnimationFrame(this._panAnimId);
+      this._panAnimId = null;
+    }
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
     if (bottomHud) bottomHud.style.zIndex = '';
@@ -1153,20 +1180,13 @@ export class BeamlineDesigner {
     const effZoom = this.viewZoom * baseZoom;
     const panPx = -this.viewX * effZoom;
 
-    const compWidths = this.draftNodes.map(n => {
-      const comp = COMPONENTS[n.type];
-      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
-    });
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
+    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
 
     let markerPx = 20 + panPx;
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
-      const comp = COMPONENTS[this.draftNodes[i].type];
-      const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
+      const tileLen = _nodeSubL(this.draftNodes[i]) * 0.5;
       const compLen = (tileLen / tileLenSum) * this.totalLength;
       const compW = compWidths[i] * effZoom;
       if (this.markerS <= cumS + compLen) {
@@ -1193,17 +1213,13 @@ export class BeamlineDesigner {
    *  stay in sync with the envelope s-values used by the plots. */
   _buildCompVisualMap() {
     const SCHEM_PW = 70;
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
 
     const entries = [];
     let totalVisual = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      const len = comp ? (comp.subL || 4) * 0.5 : 1;
-      const visualW = this._compPixelWidth(node.type, node.subL || (comp ? comp.subL : undefined));
+      const len = _nodeSubL(node) * 0.5;
+      const visualW = this._compPixelWidth(node.type, _nodeSubL(node));
       const physLen = (len / tileLenSum) * this.totalLength;
       entries.push({ visualW, physLen });
       totalVisual += visualW;
@@ -1250,14 +1266,8 @@ export class BeamlineDesigner {
 
   /** Compute per-component physical lengths that sum to this.totalLength. */
   _compPhysLengths() {
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
-    return this.draftNodes.map(n => {
-      const c = COMPONENTS[n.type];
-      return (((c ? (c.subL || 4) * 0.5 : 1)) / tileLenSum) * this.totalLength;
-    });
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
+    return this.draftNodes.map(n => (_nodeSubL(n) * 0.5 / tileLenSum) * this.totalLength);
   }
 
   /** Set markerS to the center of the currently selected component (instant, for clicks). */
@@ -1548,8 +1558,7 @@ export class BeamlineDesigner {
   _updateTotalLength() {
     this.totalLength = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      if (comp) this.totalLength += (comp.subL || 4) * 0.5;
+      this.totalLength += _nodeSubL(node) * 0.5;
     }
     if (this.totalLength === 0) this.totalLength = 1;
   }
@@ -1561,10 +1570,7 @@ export class BeamlineDesigner {
     if (!canvas) return;
     const W = canvas.parentElement.getBoundingClientRect().width;
     const SCHEM_PW = 70;
-    const compWidths = this.draftNodes.map(n => {
-      const comp = COMPONENTS[n.type];
-      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
-    });
+    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
     const totalPW = compWidths.reduce((s, w) => s + w, 0);
     const baseZoom = W / (5 * SCHEM_PW + 40);
     const effZoom = this.viewZoom * baseZoom;
@@ -1602,7 +1608,7 @@ export class BeamlineDesigner {
       }
       const el = {
         type: node.type,
-        subL: comp.subL || 4,
+        subL: _nodeSubL(node),
         stats: effectiveStats,
         params: node.params || {},
       };
@@ -1616,9 +1622,7 @@ export class BeamlineDesigner {
 
     // Gather research effects
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.game.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -1632,22 +1636,14 @@ export class BeamlineDesigner {
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;
 
-    // S-axis alignment assertion (dev check).
-    // Both draftNodes[i].beamStart and draftEnvelope[i].s should be in metres.
-    // If they drift, the schematic x-axis and plot x-axis will misalign.
-    if (this.draftEnvelope && Array.isArray(this.draftEnvelope)) {
-      const env = this.draftEnvelope;
-      for (let i = 0; i < Math.min(env.length, this.draftNodes.length); i++) {
-        const expectedS = this.draftNodes[i].beamStart;
-        const actualS = env[i].s;
-        if (expectedS != null && actualS != null && Math.abs(expectedS - actualS) > 0.01) {
-          console.warn(
-            `[designer] s-axis misalignment at element ${i}: ` +
-            `schematic=${expectedS.toFixed(3)}m envelope=${actualS.toFixed(3)}m`
-          );
-        }
-      }
-    }
+    // NOTE: this used to hold a "s-axis alignment" dev check comparing
+    // draftEnvelope[i].s against draftNodes[i].beamStart. Those are different
+    // index spaces — the envelope is the physics engine's fixed-size resample
+    // indexed by sample position, the draft nodes are one entry per element —
+    // so the check warned on nearly every element of every recompute (and a
+    // slider drag recomputes continuously). A 100%-false-positive check makes
+    // genuine drift unobservable, so it is gone; see the flattener header for
+    // the real relationship between the two arrays.
 
     // Update totalLength from envelope to stay in sync with physics s-values
     if (this.draftEnvelope && this.draftEnvelope.length > 0) {
@@ -1678,8 +1674,7 @@ export class BeamlineDesigner {
     let lastQuadPolarity = 1; // default: first ghost is Focus X
     let cumS = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      const compLen = (comp ? comp.subL || 4 : 4) * 0.5;
+      const compLen = _nodeSubL(node) * 0.5;
       if (quadTypes.has(node.type)) {
         existingQuadS.push(cumS + compLen / 2);
         // Track last quad polarity for alternation
@@ -1715,8 +1710,7 @@ export class BeamlineDesigner {
         let nodeIdx = 0;
         let accS = 0;
         for (let j = 0; j < this.draftNodes.length; j++) {
-          const comp = COMPONENTS[this.draftNodes[j].type];
-          accS += (comp ? comp.subL || 4 : 4) * 0.5;
+          accS += _nodeSubL(this.draftNodes[j]) * 0.5;
           if (accS >= ghostS) { nodeIdx = j; break; }
         }
 

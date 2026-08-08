@@ -322,3 +322,49 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 
   return problems;
 }
+
+// ---------------------------------------------------------------------------
+// Research integrity.
+//
+// RESEARCH nodes advertise a payload two ways, and both were silently
+// unchecked: `unlocks` ids that don't exist in COMPONENTS render as an empty
+// "Unlocks:" badge and never print the "Unlocked: X" log line, and `effect`
+// keys nothing reads (getEffect returns any key you ask for) promise a bonus
+// the player never receives. 27 of 68 nodes — $403M of content — were dead
+// this way. Pure, like validateContent: returns problems, throws nothing.
+//
+// Deliberately NOT enforced here (see docs/superpowers/plans/
+// overhaul-followups.md): that every id in `unlocks` actually declares
+// `requires` naming the node back. Nine listed components are ungated today,
+// so tightening that is a gating decision, not a data repair.
+// ---------------------------------------------------------------------------
+export function validateResearch({ research = {}, components = {}, effectKeys = [] } = {}) {
+  const problems = [];
+  const known = new Set(effectKeys);
+  for (const [id, node] of Object.entries(research)) {
+    if (!node) continue;
+    for (const u of node.unlocks || []) {
+      if (!components[u]) {
+        problems.push({ id, field: 'unlocks', message: `unknown component id '${u}'` });
+      }
+    }
+    for (const key of Object.keys(node.effect || {})) {
+      if (!known.has(key)) {
+        problems.push({
+          id, field: 'effect',
+          message: `'${key}' is read by nothing (known: ${effectKeys.join(', ')})`,
+        });
+      }
+    }
+    if (node.hidden) continue;
+    const hasUnlock = (node.unlocks || []).some(u => !!components[u]);
+    const hasEffect = Object.keys(node.effect || {}).some(k => known.has(k));
+    if (!hasUnlock && !hasEffect) {
+      problems.push({
+        id, field: 'payload',
+        message: 'node has no observable payload (no real unlocks, no consumed effect)',
+      });
+    }
+  }
+  return problems;
+}
