@@ -325,6 +325,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
       item.dataset.paletteKey = key;
+      item.dataset.paletteKind = 'floor';
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -366,7 +367,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (this._onInfraSelect) this._onInfraSelect(key);
+        this._selectPaletteTool('floor', key);
       });
 
       palette.appendChild(item);
@@ -409,6 +410,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         item.dataset.paletteKey = key;
+        item.dataset.paletteKind = 'wall';
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -457,7 +459,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
             const defaultVi = recallVariant(key);
             // Pre-select on open so clicks elsewhere still use the remembered variant.
-            if (this._onWallSelect) this._onWallSelect(key, defaultVi);
+            this._selectPaletteTool('wall', key, defaultVi);
 
             for (let vi = 0; vi < infra.variants.length; vi++) {
               const vBtn = document.createElement('div');
@@ -470,7 +472,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 rememberVariant(key, variantIdx);
-                if (this._onWallSelect) this._onWallSelect(key, variantIdx);
+                this._selectPaletteTool('wall', key, variantIdx);
                 const previewElNow = item.querySelector('.palette-preview');
                 const previewImg = previewElNow?.querySelector('img');
                 if (previewImg) {
@@ -505,7 +507,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         } else {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onWallSelect) this._onWallSelect(key);
+            this._selectPaletteTool('wall', key);
           });
         }
 
@@ -552,6 +554,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         item.dataset.paletteKey = key;
+        item.dataset.paletteKind = 'door';
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(door.cost);
@@ -598,7 +601,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
             flyout.className = 'param-flyout';
 
             const defaultVi = recallVariant(key);
-            if (this._onDoorSelect) this._onDoorSelect(key, defaultVi);
+            this._selectPaletteTool('door', key, defaultVi);
 
             for (let vi = 0; vi < door.variants.length; vi++) {
               const vBtn = document.createElement('div');
@@ -611,7 +614,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 rememberVariant(key, variantIdx);
-                if (this._onDoorSelect) this._onDoorSelect(key, variantIdx);
+                this._selectPaletteTool('door', key, variantIdx);
                 const previewElNow = item.querySelector('.palette-preview');
                 const previewImg = previewElNow?.querySelector('img');
                 if (previewImg) {
@@ -646,7 +649,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         } else {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onDoorSelect) this._onDoorSelect(key);
+            this._selectPaletteTool('door', key);
           });
         }
 
@@ -693,6 +696,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         item.dataset.paletteKey = key;
+        item.dataset.paletteKind = 'floor';
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -758,7 +762,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 rememberVariant(key, variantIdx);
-                if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
+                this._selectPaletteTool('floor', key, variantIdx);
                 // Swap the palette thumbnail to reflect the chosen variant.
                 const previewElNow = item.querySelector('.palette-preview');
                 const previewImg = previewElNow?.querySelector('img');
@@ -785,7 +789,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
             this._activeParamFlyout = flyout;
 
             // Auto-select the remembered variant (falls back to 0).
-            if (this._onInfraSelect) this._onInfraSelect(key, defaultVi);
+            this._selectPaletteTool('floor', key, defaultVi);
 
             // Close on outside click
             const closeHandler = (e) => {
@@ -799,7 +803,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         } else {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onInfraSelect) this._onInfraSelect(key);
+            this._selectPaletteTool('floor', key);
           });
         }
 
@@ -823,6 +827,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
       item.dataset.paletteKey = key;
+      item.dataset.paletteKind = 'floor';
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -881,7 +886,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
             vBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               rememberVariant(key, variantIdx);
-              if (this._onInfraSelect) this._onInfraSelect(key, variantIdx);
+              this._selectPaletteTool('floor', key, variantIdx);
               const previewElNow = item.querySelector('.palette-preview');
               const previewImg = previewElNow?.querySelector('img');
               if (previewImg) {
@@ -905,7 +910,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
           this._activeParamFlyout = flyout;
 
-          if (this._onInfraSelect) this._onInfraSelect(key, defaultVi);
+          this._selectPaletteTool('floor', key, defaultVi);
 
           const closeHandler = (e) => {
             if (!flyout.contains(e.target) && !item.contains(e.target)) {
@@ -918,7 +923,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       } else {
         item.addEventListener('click', () => {
           if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onInfraSelect) this._onInfraSelect(key);
+          this._selectPaletteTool('floor', key);
         });
       }
 
@@ -942,6 +947,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
       item.dataset.paletteKey = key;
+      item.dataset.paletteKind = 'wall';
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
@@ -980,7 +986,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (this._onWallSelect) this._onWallSelect(key);
+        this._selectPaletteTool('wall', key);
       });
 
       container.appendChild(item);
@@ -1028,6 +1034,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
       item.dataset.paletteKey = key;
+      item.dataset.paletteKind = 'decoration';
       const idx = paletteIdx++;
 
       const affordable = this.game.state.resources.funding >= _costVal(dec.cost);
@@ -1099,7 +1106,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
             vBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               rememberVariant(key, variantIdx);
-              if (this._onDecorationSelect) this._onDecorationSelect(key, variantIdx);
+              this._selectPaletteTool('decoration', key, variantIdx);
               setPreview(variantIdx);
               flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
               vBtn.classList.add('active');
@@ -1116,7 +1123,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
           // Auto-arm with the remembered variant so clicking the item is
           // enough to start placing — the flyout just lets them re-pick.
-          if (this._onDecorationSelect) this._onDecorationSelect(key, defaultVi);
+          this._selectPaletteTool('decoration', key, defaultVi);
 
           const closeHandler = (e) => {
             if (!flyout.contains(e.target) && !item.contains(e.target)) {
@@ -1129,7 +1136,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       } else {
         item.addEventListener('click', () => {
           if (this._onPaletteClick) this._onPaletteClick(idx);
-          if (this._onDecorationSelect) this._onDecorationSelect(key, 0);
+          this._selectPaletteTool('decoration', key, 0);
         });
       }
 
@@ -1160,6 +1167,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     zoneItem.className = 'palette-item';
     zoneItem.dataset.paletteIndex = paletteIdx;
     zoneItem.dataset.paletteKey = zoneType;
+    zoneItem.dataset.paletteKind = 'zone';
     const zoneIdx = paletteIdx++;
     const hex = '#' + zone.color.toString(16).padStart(6, '0');
     zoneItem.style.borderLeft = `4px solid ${hex}`;
@@ -1189,7 +1197,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
     zoneItem.addEventListener('click', () => {
       if (this._onPaletteClick) this._onPaletteClick(zoneIdx);
-      if (this._onZoneSelect) this._onZoneSelect(zoneType);
+      this._selectPaletteTool('zone', zoneType);
     });
     zoneItems.appendChild(zoneItem);
     zoneSection.appendChild(zoneItems);
@@ -1217,6 +1225,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         item.dataset.paletteKey = key;
+        item.dataset.paletteKind = 'furnishing';
         const idx = paletteIdx++;
 
         const affordable = this.game.state.resources.funding >= _costVal(furn.cost);
@@ -1283,7 +1292,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
               vBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 rememberVariant(key, variantIdx);
-                if (this._onFurnishingSelect) this._onFurnishingSelect(key, variantIdx);
+                this._selectPaletteTool('furnishing', key, variantIdx);
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
                 this._removeParamFlyout();
@@ -1298,7 +1307,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
             this._activeParamFlyout = flyout;
 
             // Auto-arm with the remembered variant so clicking is enough to start placing.
-            if (this._onFurnishingSelect) this._onFurnishingSelect(key, defaultVi);
+            this._selectPaletteTool('furnishing', key, defaultVi);
 
             const closeHandler = (e) => {
               if (!flyout.contains(e.target) && !item.contains(e.target)) {
@@ -1311,7 +1320,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         } else {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
-            if (this._onFurnishingSelect) this._onFurnishingSelect(key);
+            this._selectPaletteTool('furnishing', key);
           });
         }
 
@@ -1333,6 +1342,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
       item.dataset.paletteKey = tool.key;
+      item.dataset.paletteKind = 'demolish';
       const idx = paletteIdx++;
       item.style.borderLeft = `4px solid ${tool.color}`;
 
@@ -1350,7 +1360,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (this._onDemolishSelect) this._onDemolishSelect(tool.key);
+        this._selectPaletteTool('demolish', tool.key);
       });
 
       palette.appendChild(item);
@@ -1405,6 +1415,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
         item.dataset.paletteKey = utilityType;
+        item.dataset.paletteKind = 'utility';
         const idx = paletteIdx++;
 
         const previewEl = document.createElement('div');
@@ -1432,7 +1443,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           document.querySelectorAll('.palette-item.util-line-active')
             .forEach(el => el.classList.remove('util-line-active'));
           item.classList.add('util-line-active');
-          if (this._onUtilityLineSelect) this._onUtilityLineSelect(utilityType);
+          this._selectPaletteTool('utility', utilityType);
         });
 
         // Hover popup — show descriptor-based info instead of the stale
@@ -1529,6 +1540,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   item.className = 'palette-item';
   item.dataset.paletteIndex = idx;
   item.dataset.paletteKey = key;
+  item.dataset.paletteKind = isFacility ? 'facility' : 'component';
 
   const affordable = this.game.canAfford(comp.cost);
   if (!affordable) item.classList.add('unaffordable');
@@ -1642,11 +1654,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
             this._selectedParamOverrides[key][pk] = comp.params?.[pk] ?? opts[0];
           }
         }
-        if (isFacility) {
-          if (this._onFacilitySelect) this._onFacilitySelect(key);
-        } else {
-          if (this._onToolSelect) this._onToolSelect(key);
-        }
+        this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
         // Toggle flyout — remove any existing one first
         this._removeParamFlyout();
         const flyout = document.createElement('div');
@@ -1672,11 +1680,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
               flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
               btn.classList.add('active');
               // Select the tool
-              if (isFacility) {
-                if (this._onFacilitySelect) this._onFacilitySelect(key);
-              } else {
-                if (this._onToolSelect) this._onToolSelect(key);
-              }
+              this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
               this._removeParamFlyout();
             });
             flyout.appendChild(btn);
@@ -1702,13 +1706,9 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
     } else {
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
-        if (isFacility) {
-          if (this._onFacilitySelect) this._onFacilitySelect(key);
-        } else if (comp.isRack && this._onInfraSelect) {
-          this._onInfraSelect(key);
-        } else {
-          if (this._onToolSelect) this._onToolSelect(key);
-        }
+        // (The old comp.isRack → infra-select branch died with the rack
+        // system in Phase 6 — no COMPONENTS entry sets isRack anymore.)
+        this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
       });
     }
   }

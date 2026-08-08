@@ -262,9 +262,7 @@ export class ThreeRenderer {
 
     // --- Compatibility properties (InputHandler, main.js, hud.js) ---
     this.buildMode = false;
-    this.bulldozerMode = false;
-    this.probeMode = false;
-    this.selectedToolType = null;
+    this._buildToolType = null;
     this.placementDir = 0;
     this.cursorBendDir = 'right';
     this.hoverCol = 0;
@@ -312,16 +310,9 @@ export class ThreeRenderer {
     this._treeCanvasWidth = 0;
     this._treeCanvasHeight = 0;
 
-    // Callback stubs
-    this._onToolSelect = null;
-    this._onInfraSelect = null;
-    this._onFacilitySelect = null;
-    this._onZoneSelect = null;
-    this._onWallSelect = null;
-    this._onDoorSelect = null;
-    this._onFurnishingSelect = null;
-    this._onDecorationSelect = null;
-    this._onDemolishSelect = null;
+    // Callback stubs. (Palette item selection no longer flows through
+    // renderer callbacks — hud.js routes straight into
+    // InputHandler.selectPaletteTool via each item's {kind, key} dataset.)
     this._onPaletteClick = null;
     this._onTabSelect = null;
     this.onProbeClick = null;
@@ -1093,8 +1084,8 @@ export class ThreeRenderer {
   updateHover(col, row) {
     this.hoverCol = col;
     this.hoverRow = row;
-    const utilityToolActive = this._inputHandler && this._inputHandler.selectedUtilityLineTool;
-    if (this.bulldozerMode || this.buildMode || utilityToolActive) {
+    const utilityToolActive = this._inputHandler?.utilityLineController?.utilityType;
+    if (this.buildMode || utilityToolActive) {
       this._renderCursors();
     }
     if (this.wallVisibilityMode === 'cutaway') {
@@ -1104,20 +1095,11 @@ export class ThreeRenderer {
 
   setBuildMode(active, toolType) {
     this.buildMode = active;
-    this.selectedToolType = toolType || null;
-    if (active) this.bulldozerMode = false;
-    this._renderCursors();
-  }
-
-  setBulldozerMode(active) {
-    this.bulldozerMode = active;
-    if (active) { this.buildMode = false; this.selectedToolType = null; }
-    this.canvas.style.cursor = active ? 'crosshair' : '';
+    this._buildToolType = toolType || null;
     this._renderCursors();
   }
 
   setProbeMode(active) {
-    this.probeMode = active;
     this.canvas.style.cursor = active ? 'crosshair' : '';
     const indicator = document.getElementById('probe-mode-indicator');
     if (indicator) indicator.classList.toggle('hidden', !active);
@@ -1187,23 +1169,11 @@ export class ThreeRenderer {
     // Show grid lines around cursor when in any placement mode, including
     // utility-line drawing (subtile grid helps the player line up endpoints).
     const placer = this.game._designPlacer;
-    const utilityToolActive = this._inputHandler && this._inputHandler.selectedUtilityLineTool;
-    const inPlaceMode = this.buildMode || this.bulldozerMode || utilityToolActive
+    const utilityToolActive = this._inputHandler?.utilityLineController?.utilityType;
+    const inPlaceMode = this.buildMode || utilityToolActive
       || (placer && placer.active);
     if (inPlaceMode) {
       this._renderGridAroundCursor(this.hoverCol, this.hoverRow);
-    }
-
-    // Bulldozer mode — red highlight on hover tile
-    if (this.bulldozerMode) {
-      const key = this.hoverCol + ',' + this.hoverRow;
-      const hasTarget = this.game.state.placeables.some(p => COMPONENTS[p.type]?.category === 'beamline' && p.cells?.some(c => c.col === this.hoverCol && c.row === this.hoverRow)) ||
-        this.game.state.infraOccupied[key] ||
-        this.game.state.facilityGrid[key];
-      const color = hasTarget ? 0xff4444 : 0xff6644;
-      const opacity = hasTarget ? 0.5 : 0.2;
-      this._previewTileHighlight(this.hoverCol, this.hoverRow, color, opacity);
-      return;
     }
 
     if (!this.buildMode) return;
@@ -1216,7 +1186,7 @@ export class ThreeRenderer {
     }
 
     if (nodes.length === 0) {
-      const comp = this.selectedToolType ? COMPONENTS[this.selectedToolType] : null;
+      const comp = this._buildToolType ? COMPONENTS[this._buildToolType] : null;
       const isDrawn = comp && comp.isDrawnConnection;
       // Beamline component placement is handled by the sub-tile ghost preview
       // drawn from InputHandler.mousemove. Skip the legacy integer-tile cursor
@@ -2675,39 +2645,33 @@ export class ThreeRenderer {
     this._updateLOD();
     // New-system utility-line preview + port-hover highlight + candidate
     // port indicators (visible whenever a utility-line tool is armed).
-    if (this._inputHandler && this.utilityLineBuilderV2 && this.utilityLinePreviewGroup) {
-      this.utilityLineBuilderV2.setPreview(this._inputHandler.utilityPreview, this.utilityLinePreviewGroup);
-      this.utilityLineBuilderV2.setHoverPort(this._inputHandler.utilityHoverPort, this.utilityLinePreviewGroup);
-      const ctrl = this._inputHandler.utilityLineController;
-      const activeType = this._inputHandler.selectedUtilityLineTool || ctrl?.utilityType || null;
+    const utilCtrl = this._inputHandler?.utilityLineController;
+    if (utilCtrl && this.utilityLineBuilderV2 && this.utilityLinePreviewGroup) {
+      this.utilityLineBuilderV2.setPreview(utilCtrl.preview, this.utilityLinePreviewGroup);
+      this.utilityLineBuilderV2.setHoverPort(utilCtrl.hoverPort, this.utilityLinePreviewGroup);
+      const activeType = utilCtrl.utilityType || null;
       if (activeType) {
         const state = this.game?.state;
         const placeables = state?.placeables || [];
         const utilityLines = state?.utilityLines;
         this.utilityLineBuilderV2.setAvailablePorts(
           activeType, placeables, utilityLines,
-          this._inputHandler.utilityHoverPort,
-          ctrl?.drawStart || null,
+          utilCtrl.hoverPort,
+          utilCtrl.drawStart || null,
           this.utilityLinePreviewGroup,
         );
       } else {
         this.utilityLineBuilderV2.setAvailablePorts(null, null, null, null, null, this.utilityLinePreviewGroup);
       }
     }
-    if (this._inputHandler && this._inputHandler.drawingBeamPipe && this._inputHandler.beamPipePath.length >= 1) {
-      this._renderBeamPipePreview(
-        this._inputHandler.beamPipePath,
-        this._inputHandler.beamPipeDrawMode,
-        this._inputHandler.beamPipeCost,
-      );
-    } else if (
-      this._inputHandler &&
-      this._inputHandler.selectedTool &&
-      COMPONENTS[this._inputHandler.selectedTool]?.isDrawnConnection &&
-      this._inputHandler.hoverPipePoint
-    ) {
-      this._renderBeamPipePreview([this._inputHandler.hoverPipePoint], 'add');
-      this._renderPipeHoverMarker(this._inputHandler.hoverPipePoint);
+    // Beam pipe preview + pre-click hover marker — read straight off the
+    // beamline controller (single owner of pipe-draw render state).
+    const blCtrl = this._inputHandler?.beamlineController;
+    if (blCtrl && blCtrl.isActive() && blCtrl.drawPath.length >= 1) {
+      this._renderBeamPipePreview(blCtrl.drawPath, blCtrl.drawMode, blCtrl.drawCost);
+    } else if (blCtrl && blCtrl.hoverPoint) {
+      this._renderBeamPipePreview([blCtrl.hoverPoint], 'add');
+      this._renderPipeHoverMarker(blCtrl.hoverPoint);
     } else {
       this._clearBeamPipePreview();
       this._clearPipeHoverMarker();
@@ -3495,7 +3459,7 @@ export class ThreeRenderer {
     // never actually controlled pipe direction (direction comes from the
     // snapped port at mouse-up), so it was just visual noise.
     if (path.length < 2) {
-      const openEnd = this._inputHandler && this._inputHandler.hoverPipeOpenEnd;
+      const openEnd = this._inputHandler?.beamlineController?.hoverOpenEnd;
       if (openEnd) {
         const pipe = (this.game?.state?.beamPipes || []).find(p => p && p.id === openEnd.pipeId);
         if (pipe && pipe.path && pipe.path.length >= 2) {
@@ -3577,7 +3541,7 @@ export class ThreeRenderer {
     const y = 0.12;
     // Golden/yellow tint when snapped to an existing pipe's open end, so the
     // player can see "you're anchored on a cap" before they click.
-    const onOpenEnd = this._inputHandler && this._inputHandler.hoverPipeOpenEnd;
+    const onOpenEnd = this._inputHandler?.beamlineController?.hoverOpenEnd;
     const color = onOpenEnd ? 0xffcc33 : 0x44ff44;
     const edgeMat = this._previewEdgeMat(color);
     const fillMat = this._previewMat(color, 0.15);

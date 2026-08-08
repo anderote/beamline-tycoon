@@ -1007,11 +1007,10 @@ BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
     card.classList.add('unaffordable');
   }
 
-  // Click handler
+  // Click handler — same single palette path as the main HUD; with the
+  // designer open, selectComponentTool routes into handlePaletteClick.
   card.addEventListener('click', () => {
-    if (this.renderer._onToolSelect) {
-      this.renderer._onToolSelect(key);
-    }
+    this.renderer._inputHandler?.selectPaletteTool('component', key);
   });
 
   return card;

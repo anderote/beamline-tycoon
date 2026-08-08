@@ -7,6 +7,7 @@ import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
 
 
 export class BeamlineDesigner {
@@ -97,6 +98,14 @@ export class BeamlineDesigner {
     // Keyboard handler (only active when controller is open)
     this._onKeyDown = (e) => {
       if (!this.isOpen) return;
+      // Escape belongs to the global esc-stack (we push a handler while
+      // open — see openFromSource/openDesign); every other key is swallowed
+      // at capture phase so game hotkeys (pause, mode buttons, palette,
+      // Space-place) never fire underneath the full-screen designer. This
+      // replaces the old InputHandler `_designer.isOpen` guard, so it must
+      // swallow even with focus in a designer input/select.
+      if (e.key === 'Escape') return;
+      e.stopPropagation();
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -187,17 +196,6 @@ export class BeamlineDesigner {
           e.preventDefault();
           e.stopPropagation();
           this.removeComponent(this.selectedIndex);
-          break;
-        case 'Escape':
-          e.preventDefault();
-          e.stopPropagation();
-          if (this.focusRow > 0) {
-            this.focusRow--;
-            if (this.focusRow < 2) this.designerPaletteIndex = -1;
-            this._updateFocusRowVisuals();
-          } else {
-            this.close();
-          }
           break;
         case 'c': case 'C':
           e.preventDefault();
@@ -400,6 +398,31 @@ export class BeamlineDesigner {
   // --- Open / Close ---
 
   /**
+   * Claim an esc-stack slot for the lifetime of the open designer. Esc
+   * steps the keyboard focus row back toward the schematic, then closes.
+   * (A modal DesignLibrary opened on top pushes later, so it wins Esc
+   * first — the old capture-phase race is gone.)
+   */
+  _pushEsc() {
+    if (this._escUnsub) return;
+    this._escUnsub = pushEscHandler((e) => {
+      // Inert while typing in a designer field (legacy behavior: Esc did
+      // nothing there). Consume so the game's fallback sweep doesn't run
+      // underneath the open designer.
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (this.focusRow > 0) {
+        this.focusRow--;
+        if (this.focusRow < 2) this.designerPaletteIndex = -1;
+        this._updateFocusRowVisuals();
+      } else {
+        this.close();
+      }
+      return true;
+    });
+  }
+
+  /**
    * Open edit mode for a beamline rooted at the given source placeable.
    * Walks the pipe graph via flattenPath and populates draftNodes.
    *
@@ -411,6 +434,7 @@ export class BeamlineDesigner {
     if (!sourceId) return;
 
     this.isOpen = true;
+    this._pushEsc();
     this.mode = 'edit';
     this.beamlineId = null;  // not a registry-backed beamline
     this.designId = null;
@@ -499,6 +523,7 @@ export class BeamlineDesigner {
     this.mode = 'design';
     this.beamlineId = null;
     this.isOpen = true;
+    this._pushEsc();
 
     // Check for saved draft state for this design
     const savedDraft = this.game.state.designerState;
@@ -826,6 +851,8 @@ export class BeamlineDesigner {
 
   _cleanup() {
     this.isOpen = false;
+    this._escUnsub?.();
+    this._escUnsub = null;
     this.beamlineId = null;
     this.editSourceId = null;
     this.editEndpointId = null;
@@ -1406,7 +1433,7 @@ export class BeamlineDesigner {
     const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
     const keys = [];
     cards.forEach(card => {
-      // Cards fire renderer._onToolSelect(key) on click, key stored in closure
+      // Cards route clicks through InputHandler.selectPaletteTool('component', key)
       // We need to extract the component type — stored as data attribute
       if (card.dataset.compType) keys.push(card.dataset.compType);
     });

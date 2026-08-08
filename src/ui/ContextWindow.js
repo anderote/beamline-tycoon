@@ -1,9 +1,14 @@
 // ContextWindow.js — Reusable draggable window base class
 
 import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
 
 const registry = new Map(); // id -> ContextWindow instance
 let zCounter = 600;
+// One esc-stack slot shared by all context windows: claimed when the first
+// window opens, released when the last closes. Esc closes the topmost
+// (highest-z) window, so focus order — not open order — decides among them.
+let escUnsub = null;
 
 export class ContextWindow {
   /**
@@ -39,6 +44,9 @@ export class ContextWindow {
 
     this._build();
     registry.set(id, this);
+    if (!escUnsub) {
+      escUnsub = pushEscHandler(() => ContextWindow.closeTopmost());
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -351,5 +359,9 @@ export class ContextWindow {
       this._el.parentNode.removeChild(this._el);
     }
     registry.delete(this.id);
+    if (registry.size === 0 && escUnsub) {
+      escUnsub();
+      escUnsub = null;
+    }
   }
 }

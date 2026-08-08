@@ -2,8 +2,15 @@
 //
 // All beamline-related input: junction placement ghost, pipe drawing,
 // placement-on-pipe ghost. Translates cursor events into BeamlineSystem
-// calls. Owned by InputHandler; InputHandler delegates beamline input
-// here when the selected tool is a beamline component or pipe-drawing.
+// calls. Owned by InputHandler; BeamlineTool (src/input/beamline-tool.js)
+// routes events here whenever a beamline component tool is armed, passing
+// the armed component key explicitly — the controller holds no tool
+// selection of its own.
+//
+// The controller is also the single owner of the pipe-draw render state:
+// ThreeRenderer's animate loop reads `isActive()`, `drawPath`, `drawMode`,
+// `drawCost`, `hoverPoint` and `hoverOpenEnd` straight off this object (no
+// mirrored InputHandler fields).
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -33,13 +40,13 @@ export class BeamlineInputController {
   constructor({ game, renderer, inputHandler }) {
     this.game = game;
     this.renderer = renderer;
-    // Back-reference so the controller can read the current placement tool
-    // and direction without duplicating selection state. InputHandler owns
-    // selection; the controller owns beamline-specific input interpretation.
+    // Back-reference for shared non-tool input state (placementDir,
+    // selectedParamOverrides, lastMouseWorld). Tool selection itself is
+    // passed into each handler by BeamlineTool.
     this.input = inputHandler;
 
-    // Pipe-draw state. While _drawing === true, InputHandler should route
-    // mousemove/mouseup here and skip its other drag paths.
+    // Pipe-draw state. While _drawing === true, BeamlineTool routes
+    // mousemove/mouseup here and skips its other paths.
     this._drawing = false;
     this._drawMode = 'add';           // 'add' | 'remove'
     this._drawPath = [];              // [{col,row}] — current preview path
@@ -47,14 +54,30 @@ export class BeamlineInputController {
     this._drawStartAnchor = null;     // null | { kind:'port', junctionId, portName }
                                        //        | { kind:'openEnd', pipeId, openEnd:'start'|'end' }
 
+    // Pre-click hover marker for the pipe-draw tool (renderer-read).
+    this._hoverPoint = null;          // {col,row} in pipe-path space
+    this._hoverOpenEnd = null;        // { pipeId, openEnd } when snapped to a cap
+
     // Last valid placement-on-pipe preview, set by _previewPlacement and
     // consumed by onMouseDown. Null when no pipe is under the cursor or the
     // dry-run findSlot rejects the current mode.
     this._placementHover = null;
   }
 
-  onHover(worldX, worldY) {
-    const selectedId = this.input?.selectedPlaceableId;
+  // --- renderer-read state ---------------------------------------------
+
+  get drawPath() { return this._drawPath; }
+  get drawMode() { return this._drawMode; }
+  get drawCost() { return this._drawing ? this._previewCost() : null; }
+  get hoverPoint() { return this._hoverPoint; }
+  get hoverOpenEnd() { return this._hoverOpenEnd; }
+
+  clearHover() {
+    this._hoverPoint = null;
+    this._hoverOpenEnd = null;
+  }
+
+  onHover(worldX, worldY, selectedId) {
     if (!selectedId) return;
     const def = COMPONENTS[selectedId];
     if (!def) return;
@@ -67,8 +90,8 @@ export class BeamlineInputController {
 
   /**
    * Hover-preview feedback for the pipe-draw tool (before a click). Updates
-   * `this.input.hoverPipePoint` so ThreeRenderer's animate loop can draw the
-   * pre-click marker. Called from InputHandler's generic mousemove path.
+   * `hoverPoint`/`hoverOpenEnd` so ThreeRenderer's animate loop can draw the
+   * pre-click marker. Called from BeamlineTool's mousemove path.
    */
   onPipeToolHover(worldX, worldY) {
     const snapped = snapPipePoint(worldX, worldY);
@@ -77,21 +100,18 @@ export class BeamlineInputController {
     // here" before clicking.
     const openEnd = this._findOpenEndNearCursor(snapped);
     if (openEnd) {
-      this.input.hoverPipePoint = { col: openEnd.point.col, row: openEnd.point.row };
-      this.input.hoverPipeOpenEnd = { pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
+      this._hoverPoint = { col: openEnd.point.col, row: openEnd.point.row };
+      this._hoverOpenEnd = { pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
     } else {
-      this.input.hoverPipePoint = snapped;
-      this.input.hoverPipeOpenEnd = null;
+      this._hoverPoint = snapped;
+      this._hoverOpenEnd = null;
     }
   }
 
-  onMouseDown(worldX, worldY, button) {
-    const selectedId = this.input?.selectedPlaceableId;
-    const selectedTool = this.input?.selectedTool;
-
+  onMouseDown(worldX, worldY, button, selectedId) {
     // Pipe-draw tool: left-click starts a draw anchored at a port or open
     // end; right-click drag starts a remove-sweep.
-    if (selectedTool && COMPONENTS[selectedTool]?.isDrawnConnection) {
+    if (selectedId && COMPONENTS[selectedId]?.isDrawnConnection) {
       if (button === 0) return this._pipeDrawStart(worldX, worldY);
       if (button === 2) return this._pipeRemoveStart(worldX, worldY);
       return false;
@@ -130,8 +150,8 @@ export class BeamlineInputController {
     });
     // Sources auto-advance the tool to the beam-pipe draw tool (same UX
     // the old generic path provided).
-    if (placedId && def.isSource && typeof this.input.selectTool === 'function') {
-      this.input.selectTool('drift');
+    if (placedId && def.isSource && typeof this.input?.selectComponentTool === 'function') {
+      this.input.selectComponentTool('drift');
     }
     return true;
   }
@@ -142,7 +162,6 @@ export class BeamlineInputController {
     const last = this._drawPath[this._drawPath.length - 1];
     if (!last || last.col !== pt.col || last.row !== pt.row) {
       this._drawPath = buildStraightPath(this._drawOrigin, pt);
-      this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode, this._previewCost());
     }
   }
@@ -354,7 +373,6 @@ export class BeamlineInputController {
       this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
       this._drawStartAnchor = { kind: 'port', junctionId: port.junctionId, portName: port.portName };
       this._drawPath = [this._drawOrigin];
-      this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
@@ -365,7 +383,6 @@ export class BeamlineInputController {
       this._drawOrigin = { col: openEnd.point.col, row: openEnd.point.row };
       this._drawStartAnchor = { kind: 'openEnd', pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
       this._drawPath = [this._drawOrigin];
-      this._syncInputState();
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
@@ -380,7 +397,6 @@ export class BeamlineInputController {
     this._drawOrigin = startPt;
     this._drawStartAnchor = null;
     this._drawPath = [startPt];
-    this._syncInputState();
     this.renderer.renderBeamPipePreview(this._drawPath, 'remove');
     return true;
   }
@@ -619,25 +635,12 @@ export class BeamlineInputController {
     return best;
   }
 
-  // --- state sync ---------------------------------------------------------
-
-  // Mirror the draw state onto InputHandler's legacy fields so the renderer's
-  // animate loop (which reads drawingBeamPipe/beamPipePath/beamPipeDrawMode
-  // directly) keeps working without a controller-aware render path.
-  _syncInputState() {
-    this.input.drawingBeamPipe = this._drawing;
-    this.input.beamPipePath = this._drawPath;
-    this.input.beamPipeDrawMode = this._drawMode;
-    this.input.beamPipeCost = this._drawing ? this._previewCost() : null;
-  }
-
   _resetDrawing() {
     this._drawing = false;
     this._drawMode = 'add';
     this._drawPath = [];
     this._drawOrigin = null;
     this._drawStartAnchor = null;
-    this._syncInputState();
     this.renderer.clearDragPreview?.();
   }
 }

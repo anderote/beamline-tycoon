@@ -51,6 +51,12 @@ export class UIHost {
   // Forwarders for renderer methods called from UI code.
   _applyWallVisibility() { return this.renderer._applyWallVisibility(); }
   _applyDoorVisibility() { return this.renderer._applyDoorVisibility(); }
+
+  // The single palette → tool path: every palette item click routes its
+  // {kind, key, variant} identity into InputHandler.selectPaletteTool.
+  _selectPaletteTool(kind, key, variant) {
+    this.renderer._inputHandler?.selectPaletteTool(kind, key, variant);
+  }
 }
 
 // --- Pass-through properties: reads/writes delegate to the renderer. ---
@@ -66,10 +72,6 @@ const PASS_THROUGH_PROPS = [
   'wallVisibilityMode', '_cutawayHoverKey', '_transparentHoverKey',
   // Selection callbacks (main.js writes, UI reads)
   '_onTabSelect', '_onPaletteClick',
-  '_onInfraSelect', '_onWallSelect', '_onDoorSelect',
-  '_onDecorationSelect', '_onZoneSelect', '_onFurnishingSelect',
-  '_onDemolishSelect', '_onFacilitySelect', '_onToolSelect',
-  '_onFloorSelect', '_onUtilityLineSelect',
 ];
 
 for (const prop of PASS_THROUGH_PROPS) {

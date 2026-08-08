@@ -7,6 +7,12 @@
 //   - Paths are Manhattan (one 90° bend max) from start port to end port.
 //   - Commit on mouse-up calls UtilityLineSystem.addLine().
 //
+// The controller is the single owner of the tool's render state:
+// ThreeRenderer's animate loop reads `utilityType`, `preview`, `hoverPort`
+// and `drawStart` straight off this object (no mirrored InputHandler
+// fields). UtilityLineTool (src/input/utility-line-tool.js) is the thin
+// Tool wrapper that routes InputHandler events here.
+//
 // Coordinate conventions:
 //   - All mouse handlers receive (worldX, worldY) in iso-pixel space (same as
 //     InputHandler's `screenToWorld` result).
@@ -33,22 +39,23 @@ function snapPath(path) {
 }
 
 export class UtilityLineInputController {
-  constructor({ game, renderer, inputHandler }) {
+  constructor({ game, renderer }) {
     this.game = game;
     this.renderer = renderer;
-    this.input = inputHandler;
 
     this._utilityType = null;
     this._drawing = false;
     this._drawStart = null;  // {placeableId, portName, worldPos: {x, z}}
     this._drawPath = [];     // tile-coord path for preview
     this._preferVerticalFirst = false;
+    this._preview = null;    // { utilityType, path, color } while dragging
+    this._hoverPort = null;  // { placeableId, portName, worldPos, utilityType }
   }
 
   setUtilityType(type) {
     this._utilityType = type || null;
     this._cancelDraw();
-    if (this.input) this.input.utilityHoverPort = null;
+    this._hoverPort = null;
   }
 
   isActive() {
@@ -62,7 +69,7 @@ export class UtilityLineInputController {
     // mid-draw.
     const snap = this._snapToNearestPort(worldX, worldY);
     if (snap) snap.utilityType = this._utilityType;
-    this.input.utilityHoverPort = snap;
+    this._hoverPort = snap;
   }
 
   // Public: current utility type (null if no tool armed).
@@ -71,6 +78,12 @@ export class UtilityLineInputController {
   // Public: start-anchor while mid-draw ({placeableId, portName, worldPos}).
   // Renderer uses this to skip the start port's indicator while dragging.
   get drawStart() { return this._drawStart; }
+
+  // Public: live Manhattan preview path while dragging (null otherwise).
+  get preview() { return this._preview; }
+
+  // Public: the port the cursor is snapped to (null if none).
+  get hoverPort() { return this._hoverPort; }
 
   onMouseDown(worldX, worldY, button) {
     if (!this._utilityType || button !== 0) return false;
@@ -86,8 +99,8 @@ export class UtilityLineInputController {
       this._drawStart = { open: true, worldPos: w };
     }
     this._drawPath = [];
-    this.input.utilityHoverPort = null;
-    this.input.utilityPreview = {
+    this._hoverPort = null;
+    this._preview = {
       utilityType: this._utilityType,
       path: [],
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
@@ -100,7 +113,7 @@ export class UtilityLineInputController {
     // Update hover-port during drag so the candidate end port highlights.
     const snap = this._snapToNearestPort(worldX, worldY);
     if (snap) snap.utilityType = this._utilityType;
-    this.input.utilityHoverPort = snap;
+    this._hoverPort = snap;
     // Snap start + cursor to 0.25-subtile resolution so the preview path
     // lands exactly on grid intersections the player can see.
     const startTileRaw = this._worldToTile(this._drawStart.worldPos);
@@ -117,7 +130,7 @@ export class UtilityLineInputController {
       preferVerticalFirst: this._preferVerticalFirst,
     }) || [];
     this._drawPath = snapPath(path);
-    this.input.utilityPreview = {
+    this._preview = {
       utilityType: this._utilityType,
       path: this._drawPath,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
@@ -174,7 +187,7 @@ export class UtilityLineInputController {
     this._drawing = false;
     this._drawStart = null;
     this._drawPath = [];
-    if (this.input) this.input.utilityPreview = null;
+    this._preview = null;
   }
 
   _snapToNearestPort(worldX, worldY) {

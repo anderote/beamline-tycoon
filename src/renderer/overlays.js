@@ -10,6 +10,7 @@ import { OBJECTIVES } from '../data/objectives.js';
 import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 import { BeamlineWindow } from '../ui/BeamlineWindow.js';
 import { EquipmentWindow } from '../ui/EquipmentWindow.js';
+import { pushEscHandler } from '../ui/esc-stack.js';
 import { ZONES } from '../data/facility.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
@@ -3383,15 +3384,22 @@ UIHost.prototype._bindTreeEvents = function() {
     this._applyTreeTransform();
   }, { passive: false });
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+  // Esc closes the research overlay via the global esc-stack. Registered
+  // once as a permanent *conditional* handler (the overlay is toggled by
+  // classList from several sites, so per-open push/unsub has no single
+  // choke point): returning false while hidden passes Esc down the stack.
+  // Sits above the game input layer's fallback ladder regardless of
+  // construction order, so an open tech tree beats tool disarm.
+  if (!this._researchEscUnsub) {
+    this._researchEscUnsub = pushEscHandler(() => {
       const overlay = document.getElementById('research-overlay');
       if (overlay && !overlay.classList.contains('hidden')) {
         overlay.classList.add('hidden');
-        e.stopPropagation();
+        return true;
       }
-    }
-  });
+      return false;
+    });
+  }
 };
 
 // --- Goals overlay ---

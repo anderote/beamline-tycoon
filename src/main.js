@@ -167,21 +167,9 @@ function showScenarioPicker(game) {
     game.log('Click to place design. F=rotate, R=reflect, Esc=cancel', 'info');
   };
 
-  renderer._onToolSelect = (compType) => {
-    if (designer.handlePaletteClick(compType)) return;
-    // Pass any param overrides from the palette flyout
-    const overrides = renderer._selectedParamOverrides?.[compType];
-    input.selectTool(compType, overrides);
-  };
-  renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
-  renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
-  renderer._onUtilityLineSelect = (utilityType) => input.setUtilityLineTool(utilityType);
-  renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
-  renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
-  renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);
-  renderer._onFurnishingSelect = (furnType, variant = 0) => input.selectFurnishingTool(furnType, variant);
-  renderer._onDecorationSelect = (decType, variant = 0) => input.selectDecorationTool(decType, variant);
-  renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
+  // Palette item clicks route straight from hud.js into
+  // InputHandler.selectPaletteTool via each item's {kind, key} dataset —
+  // no per-family renderer callback slots anymore.
   renderer._onPaletteClick = (idx) => input._syncPaletteClick(idx);
   renderer._onTabSelect = (category) => { input.selectedCategory = category; input.paletteIndex = -1; input._hidePreview(); };
 

@@ -258,7 +258,7 @@ function buildPreviewLine(preview) {
 
 // --- Port indicators ---------------------------------------------------
 //
-// When a utility-line tool is armed (selectedUtilityLineTool !== null), render
+// When a utility-line tool is armed (controller utilityType !== null), render
 // a small colored sphere at every available port of that utility type, so the
 // player can see where to click. The sphere at the cursor-nearest port gets
 // brightened (larger + higher emissive) as hover feedback. Spheres for the

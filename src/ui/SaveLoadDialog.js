@@ -6,6 +6,7 @@
 import { SaveSlots } from '../game/SaveSlots.js';
 import { CloudSaves, CloudAuthError } from '../game/CloudSaves.js';
 import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
 import { fmtMoney, escapeHtml as esc } from './format.js';
 
 const CLOUD_SLOT_COUNT = 3;
@@ -51,6 +52,14 @@ export class SaveLoadDialog {
       this._render();
     }
     this.el.classList.remove('hidden');
+    // Esc closes: pushed on open / released on close, so whatever opened
+    // most recently owns the key (single Esc owner — see esc-stack.js).
+    if (!this._escUnsub) {
+      this._escUnsub = pushEscHandler(() => {
+        this.close();
+        return true;
+      });
+    }
     if (this.mode === 'save' && !this._cloud) {
       const input = this.el.querySelector('.sl-name-input');
       if (input) { input.focus(); input.select(); }
@@ -76,6 +85,8 @@ export class SaveLoadDialog {
 
   close() {
     if (this.el) this.el.classList.add('hidden');
+    this._escUnsub?.();
+    this._escUnsub = null;
   }
 
   // Small state summary stored alongside each slot for the list UI.
@@ -477,7 +488,7 @@ export class SaveLoadDialog {
           this._doSave(null, name);
         }
       }
-      if (e.key === 'Escape') this.close();
+      // (Esc-to-close lives on the global esc-stack, pushed in open().)
     });
 
     // Draggable by header (same pattern as WelcomeDialog).

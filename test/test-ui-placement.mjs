@@ -69,8 +69,7 @@ const URL = `http://localhost:${PORT}/`;
     await page.evaluate((type) => {
       // _inputHandler is set on the renderer by main.js
       const input = window._renderer._inputHandler || window._input;
-      if (input) input.selectTool(type);
-      else window._renderer._onToolSelect?.(type);
+      if (input) input.selectPaletteTool('component', type);
     }, type);
 
     // 2. Move mouse to center of viewport to trigger ghost preview
@@ -111,7 +110,7 @@ const URL = `http://localhost:${PORT}/`;
     // Deselect and clean up for next iteration - remove what we just placed and move mouse away
     await page.evaluate((type) => {
       const input = window._renderer._inputHandler || window._input;
-      if (input) { input.deselectTool?.(); input.selectPlaceable?.(null); }
+      if (input) input.clearTool?.();
       // Remove the last placed item if it matches
       const placeables = window.game.state.placeables;
       if (placeables.length > 0) {

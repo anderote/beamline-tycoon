@@ -11,6 +11,7 @@
 //  - Gameplay: dev mode — game.setDevMode() persists it itself.
 
 import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
 
 export class OptionsDialog {
   constructor({ game, renderer, musicPlayer }) {
@@ -24,10 +25,20 @@ export class OptionsDialog {
     if (!this.el) this._build();
     this._sync();
     this.el.classList.remove('hidden');
+    // Esc closes: pushed on open / released on close, so whatever opened
+    // most recently owns the key (single Esc owner — see esc-stack.js).
+    if (!this._escUnsub) {
+      this._escUnsub = pushEscHandler(() => {
+        this.close();
+        return true;
+      });
+    }
   }
 
   close() {
     if (this.el) this.el.classList.add('hidden');
+    this._escUnsub?.();
+    this._escUnsub = null;
   }
 
   get isOpen() {
@@ -127,14 +138,6 @@ export class OptionsDialog {
     this.el = el;
 
     el.querySelector('.opt-close').addEventListener('click', () => this.close());
-
-    // Esc closes (capture so the game's own Esc handling doesn't also fire).
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isOpen) {
-        e.stopPropagation();
-        this.close();
-      }
-    }, true);
 
     const mp = this.musicPlayer;
 

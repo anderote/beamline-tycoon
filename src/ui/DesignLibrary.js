@@ -1,6 +1,7 @@
 // src/ui/DesignLibrary.js — Designs library overlay for browsing and managing saved designs.
 
 import { COMPONENTS } from '../data/components.js';
+import { pushEscHandler } from './esc-stack.js';
 
 const CATEGORIES = [
   { key: 'all', name: 'All' },
@@ -24,7 +25,6 @@ export class DesignLibrary {
     this._modal = false;
 
     this._bindClose();
-    this._bindKeys();
   }
 
   _bindClose() {
@@ -34,19 +34,17 @@ export class DesignLibrary {
     }
   }
 
-  _bindKeys() {
-    // Intercept Escape at capture phase so the designer's global handler
-    // doesn't fire underneath a modal library.
-    window.addEventListener('keydown', (e) => {
-      if (!this.isOpen || e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.close();
-    }, true);
-  }
-
   open(modal = false) {
     this._modal = !!modal;
+    // Esc closes the library. Pushed on open, so a modal library over the
+    // designer sits above the designer's handler on the esc-stack — the
+    // old capture-phase stopPropagation workaround is gone.
+    if (!this._escUnsub) {
+      this._escUnsub = pushEscHandler(() => {
+        this.close();
+        return true;
+      });
+    }
     this.overlay.classList.remove('hidden');
     this.overlay.classList.toggle('designs-modal', this._modal);
     this._renderTabs();
@@ -55,6 +53,8 @@ export class DesignLibrary {
   }
 
   close() {
+    this._escUnsub?.();
+    this._escUnsub = null;
     this.overlay.classList.add('hidden');
     this.overlay.classList.remove('designs-modal');
     if (!this._modal && !this._suppressHashUpdate && window.location.hash === '#designs') {
