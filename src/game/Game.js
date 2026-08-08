@@ -3410,6 +3410,28 @@ export class Game {
     if (scenarioData.staff) this.state.staff = scenarioData.staff;
     if (scenarioData.resources) Object.assign(this.state.resources, scenarioData.resources);
 
+    // Terrain heights (optional). Hand-written generators pass a Map;
+    // editor-exported scenarios pass the serialized array form.
+    if (scenarioData.cornerHeights) {
+      this.state.cornerHeights = scenarioData.cornerHeights instanceof Map
+        ? scenarioData.cornerHeights
+        : deserializeCornerHeights(scenarioData.cornerHeights);
+      this.state.cornerHeightsRevision++;
+    }
+
+    // Beamline pipe graph (optional — editor-exported scenarios). Pipes carry
+    // their on-pipe placements; junction modules ride in placeables above.
+    this.state.beamPipes = scenarioData.beamPipes || [];
+    this.state.beamPipeNextId = scenarioData.beamPipeNextId || 1;
+    this.state.placementNextId = scenarioData.placementNextId || 0;
+
+    // Utility lines (optional — editor-exported scenarios). Stored as
+    // Map entries [[id, line], ...]; network state is derived per-tick.
+    this.state.utilityLines = new Map(scenarioData.utilityLines || []);
+    this.state.utilityNextId = scenarioData.utilityNextId || 1;
+    this.state.utilityNetworkState = new Map();
+    this.state.utilityNetworkData = null;
+
     // Rebuild lookup tables
     this.state.infraOccupied = {};
     for (const tile of this.state.floors)
@@ -3424,8 +3446,36 @@ export class Game {
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     this._rebuildPlaceableIndex();
+
+    // Beamline placeables: init default params and (re)create registry
+    // entries for sources. Exported placeables may carry beamlineIds from
+    // the editor session's registry — those are stale here, so clear them
+    // and let _ensureBeamlineForSourcePlaceable mint fresh entries.
+    for (const p of this.state.placeables) {
+      if (p.category !== 'beamline') continue;
+      p.beamlineId = null;
+      const defs = PARAM_DEFS[p.type];
+      if (defs && !p.params) {
+        p.params = {};
+        for (const [k, def] of Object.entries(defs)) {
+          if (!def.derived) p.params[k] = def.default;
+        }
+      }
+      if (COMPONENTS[p.type]?.isSource) this._ensureBeamlineForSourcePlaceable(p);
+    }
+
     this.recomputeZoneConnectivity();
+    this.recalcAllBeamlines();
     this.validateInfrastructure();
+
+    // Nudge renderers: 'beamlineChanged' triggers a full 3D rebuild, and the
+    // utility-line mesh builder listens for 'utilityLinesChanged'.
+    this.emit('infrastructureChanged');
+    this.emit('zonesChanged');
+    this.emit('wallsChanged');
+    this.emit('doorsChanged');
+    this.emit('beamlineChanged');
+    if (this.state.utilityLines.size > 0) this.emit('utilityLinesChanged', {});
   }
 
   // === SAVE / LOAD ===
@@ -3456,6 +3506,9 @@ export class Game {
   }
 
   save() {
+    // Scenario Editor sessions never touch the active save slot — the
+    // editor sets suppressAutosave so the player's real game survives.
+    if (this.suppressAutosave) return;
     localStorage.setItem('beamlineTycoon', this.serialize());
   }
 

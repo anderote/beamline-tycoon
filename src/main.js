@@ -19,7 +19,7 @@ import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
-import { SCENARIOS } from './data/scenarios.js';
+import { SCENARIOS, CUSTOM_SCENARIO_ID, loadCustomScenario, resolveScenario } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
 import { WelcomeDialog } from './ui/WelcomeDialog.js';
@@ -55,7 +55,18 @@ function showScenarioPicker(game) {
   let html = '<h2 style="margin:0 0 16px;color:#fff;font-size:18px;">Scenarios</h2>';
   html += '<p style="margin:0 0 16px;color:#999;font-size:12px;">Start a new game with a pre-built scenario. Current progress will be lost.</p>';
 
-  for (const sc of SCENARIOS) {
+  // Editor-exported custom scenario (localStorage slot), if present.
+  const customScenario = loadCustomScenario();
+  const pickerScenarios = customScenario
+    ? [...SCENARIOS, {
+        id: CUSTOM_SCENARIO_ID,
+        name: `Custom: ${customScenario.name || 'Untitled'}`,
+        desc: 'Scenario exported from the in-game Scenario Editor (stored in localStorage).',
+        difficulty: 'Custom',
+      }]
+    : SCENARIOS;
+
+  for (const sc of pickerScenarios) {
     html += `<div class="scenario-card" data-id="${sc.id}" style="border:1px solid #555;border-radius:6px;padding:12px;margin-bottom:10px;cursor:pointer;transition:border-color 0.15s;">`;
     html += `<div style="display:flex;justify-content:space-between;align-items:center;">`;
     html += `<strong style="color:#fff;font-size:14px;">${sc.name}</strong>`;
@@ -82,7 +93,8 @@ function showScenarioPicker(game) {
     const card = e.target.closest('.scenario-card');
     if (!card) return;
     const id = card.dataset.id;
-    const scenario = SCENARIOS.find(s => s.id === id);
+    // resolveScenario also handles the custom (editor-exported) slot.
+    const scenario = resolveScenario(id);
     if (!scenario) return;
 
     if (!confirm(`Start "${scenario.name}"? Current progress will be lost.`)) return;
@@ -109,9 +121,15 @@ function showScenarioPicker(game) {
   // Title screen — skipped on demo mode, after in-menu "New Game" /
   // scenario-picker reloads (skipTitle flag), or with a pending scenario.
   const bootParams = new URLSearchParams(location.search);
+  // Dev-only Scenario Editor mode (?editor=1 or Menu > Scenario Editor).
+  // Compile-time gated: in production builds import.meta.env.DEV is false,
+  // so IS_EDITOR is always false and the dynamic import of ScenarioEditor
+  // below is dead-code-eliminated from the bundle.
+  const IS_EDITOR = import.meta.env.DEV && bootParams.has('editor');
   const skipTitleFlag = !!sessionStorage.getItem('beamlineTycoon.skipTitle');
   if (skipTitleFlag) sessionStorage.removeItem('beamlineTycoon.skipTitle');
   const skipTitle = skipTitleFlag
+    || IS_EDITOR
     || bootParams.has('demo') || location.hash.includes('demo')
     || !!localStorage.getItem('beamlineTycoon.pendingScenario');
   const titleScreen = skipTitle ? null : new TitleScreen();
@@ -227,18 +245,31 @@ function showScenarioPicker(game) {
     }
   });
 
-  game.load();
+  // Scenario Editor (dev-only): fresh blank world — skip loading the
+  // player's save AND suppress autosave, so their real game survives the
+  // editor session untouched. Exit reloads without ?editor=1 and the
+  // normal boot path picks the save right back up.
+  if (IS_EDITOR) {
+    const { ScenarioEditor } = await import('./ui/ScenarioEditor.js');
+    const scenarioEditor = new ScenarioEditor(game);
+    scenarioEditor.init();
+    window.scenarioEditor = scenarioEditor;
+  } else {
+    game.load();
 
-  // Apply pending scenario (set by scenario picker before reload)
-  const pendingScenario = localStorage.getItem('beamlineTycoon.pendingScenario');
-  if (pendingScenario) {
-    localStorage.removeItem('beamlineTycoon.pendingScenario');
-    const scenario = SCENARIOS.find(s => s.id === pendingScenario);
-    if (scenario?.generator) {
-      const mapData = scenario.generator();
-      game.applyScenario(mapData);
-      game.save();
-      game.log(`Scenario "${scenario.name}" loaded.`, 'good');
+    // Apply pending scenario (set by scenario picker or the editor's
+    // "Play This Scenario" before reload). resolveScenario also checks the
+    // beamlineTycoon.customScenario slot for editor-exported scenarios.
+    const pendingScenario = localStorage.getItem('beamlineTycoon.pendingScenario');
+    if (pendingScenario) {
+      localStorage.removeItem('beamlineTycoon.pendingScenario');
+      const scenario = resolveScenario(pendingScenario);
+      if (scenario?.generator) {
+        const mapData = scenario.generator();
+        game.applyScenario(mapData);
+        game.save();
+        game.log(`Scenario "${scenario.name}" loaded.`, 'good');
+      }
     }
   }
 
@@ -355,6 +386,17 @@ function showScenarioPicker(game) {
   // Menu dropdown toggle
   const menuBtn = document.getElementById('btn-menu');
   const menuDropdown = document.getElementById('menu-dropdown');
+  // Dev-only Scenario Editor entry — appended at runtime so it never
+  // exists in production (import.meta.env.DEV is compile-time false there).
+  if (import.meta.env.DEV) {
+    const editorItem = document.createElement('button');
+    editorItem.className = 'menu-item';
+    editorItem.dataset.action = 'scenario-editor';
+    editorItem.textContent = 'Scenario Editor';
+    const scenariosItem = menuDropdown.querySelector('[data-action="scenarios"]');
+    if (scenariosItem) scenariosItem.after(editorItem);
+    else menuDropdown.appendChild(editorItem);
+  }
   menuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     menuDropdown.classList.toggle('hidden');
@@ -379,6 +421,13 @@ function showScenarioPicker(game) {
         break;
       case 'scenarios':
         showScenarioPicker(game);
+        break;
+      case 'scenario-editor':
+        if (import.meta.env.DEV) {
+          if (!confirm('Enter the Scenario Editor?\n\nYour current game is saved and resumes when you exit the editor.')) break;
+          game.save();
+          location.href = location.pathname + '?editor=1';
+        }
         break;
       case 'options':
         optionsDialog.open();

@@ -3396,6 +3396,39 @@ body {
   transform: translateY(2px);
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
 }
+@media (prefers-reduced-motion: reduce) {
+  #title-screen .title-loading { animation: none; }
+}
+
+/* Bottom-right music mute toggle (matches the pixel-button aesthetic) */
+#title-screen .title-mute {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  background: #4a3b63;
+  color: #ffe9b0;
+  border-style: solid;
+  border-width: 3px;
+  border-color: #7d6a9e #241b36 #241b36 #7d6a9e;
+  outline: 2px solid #000;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
+}
+#title-screen .title-mute:hover { background: #5b4a78; }
+#title-screen .title-mute:active {
+  border-color: #241b36 #7d6a9e #7d6a9e #241b36;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
 #title-screen .title-footer {
   position: absolute;
   bottom: 16px;
@@ -4076,4 +4109,49 @@ body {
   font-size: 10px;
   color: #7a80a8;
   text-align: center;
+}
+
+/* === SCENARIO EDITOR (dev-only mode) === */
+
+#editor-badge {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 4px 8px;
+  color: #ffd866;
+  background: rgba(90, 60, 10, 0.85);
+  border: 1px solid rgba(255, 216, 102, 0.6);
+  border-radius: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+  text-shadow: 0 0 6px rgba(255, 200, 80, 0.5);
+  animation: editor-badge-pulse 2.4s ease-in-out infinite;
+}
+#editor-badge:hover {
+  background: rgba(120, 80, 15, 0.9);
+  color: #ffe9a0;
+}
+@keyframes editor-badge-pulse {
+  0%, 100% { border-color: rgba(255, 216, 102, 0.6); }
+  50% { border-color: rgba(255, 216, 102, 0.25); }
+}
+
+#editor-toolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.editor-toolbar-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 5px 8px;
+  background: rgba(70, 55, 20, 0.8);
+  color: #ffd866;
+  border: 1px solid rgba(255, 216, 102, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.editor-toolbar-btn:hover {
+  background: rgba(100, 78, 28, 0.9);
+  color: #ffe9a0;
 }

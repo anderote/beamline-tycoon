@@ -5,6 +5,38 @@
 import { generateRealLab } from './scenarios/realLab.js';
 import { generateSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
 
+// Custom-scenario slot: the in-game Scenario Editor (dev-only) exports the
+// built world here so it can be play-tested without editing source files.
+// Slot payload: { id, name, data } where data is the scenario map shape
+// (floors, zones, walls, doors, placeables, beamPipes, utilityLines, ...).
+export const CUSTOM_SCENARIO_KEY = 'beamlineTycoon.customScenario';
+export const CUSTOM_SCENARIO_ID = '__custom__';
+
+export function loadCustomScenario() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_SCENARIO_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object' || !obj.data) return null;
+    return obj;
+  } catch (_) { return null; }
+}
+
+// Resolve a scenario id (registry id or the custom slot) to a
+// { id, name, generator } shape usable by the boot path and picker.
+export function resolveScenario(id) {
+  if (id === CUSTOM_SCENARIO_ID) {
+    const custom = loadCustomScenario();
+    if (!custom) return null;
+    return {
+      id: CUSTOM_SCENARIO_ID,
+      name: custom.name || 'Custom Scenario',
+      generator: () => custom.data,
+    };
+  }
+  return SCENARIOS.find(s => s.id === id) || null;
+}
+
 export const SCENARIOS = [
   {
     id: 'sandbox',
