@@ -6,12 +6,23 @@
 
 // Registers the <crt-effect> web component (self-contained, shadow-DOM styles).
 import 'vault66-crt-effect/element';
+import { applyCrtBarrel } from './crtBarrel.js';
 
 export class TitleScreen {
   constructor() {
     this._raf = 0;
     this._dismissed = false;
     this._t0 = performance.now();
+
+    // The welcome screen always opens on the doomer "night drive" track. Set
+    // the flag for the music player's first load; if it's already loaded
+    // (returning to the title mid-session), switch to it immediately.
+    try {
+      window.__blWelcomeMusic = true;
+      window.__blMusic?.playWelcomeTrack?.();
+    } catch {
+      /* no window */
+    }
 
     // ── DOM ──────────────────────────────────────────────────────────
     this.el = document.createElement('div');
@@ -123,6 +134,10 @@ export class TitleScreen {
     this.el.appendChild(this.muteEl);
 
     document.body.appendChild(this.el);
+
+    // Real geometric barrel bulge over the whole welcome screen (scene + logo +
+    // menu warp together like a CRT tube face). Scoped to the title screen.
+    applyCrtBarrel(this.el);
 
     // ── Scene state ──────────────────────────────────────────────────
     this._stars = [];
@@ -618,7 +633,8 @@ export class TitleScreen {
     const gateX = this._roadFrame(ctx, t, W, pal);
 
     // ── Cows graze the ranch band, strictly outside the fence ──
-    for (const c of this._cowsFG) this._drawCowFG(ctx, c, t, pal);
+    // (escaped cows are drawn later by _drawCowEvent, in front of the fence)
+    for (const c of this._cowsFG) if (!c.escaped) this._drawCowFG(ctx, c, t, pal);
 
     // ── Chain-link perimeter fence, with a gap at the security gate ──
     const gapA = gateX - 14, gapB = gateX + 14;
@@ -638,6 +654,10 @@ export class TitleScreen {
 
     // ── Gate hardware: post + boom + booth standing IN the fence line ──
     this._drawGateHouse(ctx, gateX, t, pal);
+
+    // ── Slapstick "cow escape": broken fence + escaped cows + guard, drawn
+    //    in front of the fence line, on the campus lawn (above the machine pad) ──
+    this._drawCowEvent(ctx, gateX, t, pal, W);
 
     // ── Contiguous machine pad: equipment row + beamline on one poured
     //    concrete area, with slab seams (no floating islands) ──
@@ -1206,18 +1226,22 @@ export class TitleScreen {
     ctx.fillRect(bx - 1, 144, 13, 2);                   // roof
     ctx.fillStyle = pal.win;                            // window faces the gap
     ctx.fillRect(bx + 1, 148, 7, 4);
-    // guard always stays inside the booth, visible through the window:
-    // head slides toward the gap when the gate is busy, else idle drift
-    const busy = g.open > 0.02;
-    const idle = Math.sin(t * 0.35) > 0.6 ? 1 : 0;      // slow glance
-    const hx = bx + 3 + (busy ? -1 : idle);
-    ctx.fillStyle = '#d8a878';
-    ctx.fillRect(hx, 149, 2, 2);                        // head
-    ctx.fillStyle = '#252b3d';                          // uniform cap
-    ctx.fillRect(hx, 148, 2, 1);
-    if (busy && g.open < 0.98) {                        // arm on the gate button
+    // guard sits inside the booth, visible through the window — head slides
+    // toward the gap when the gate is busy, else idle drift. Hidden while the
+    // guard is out on the lawn chasing escaped cows (see _drawCowEvent).
+    const guardOut = this._cowEvent && this._cowEvent.guardOut;
+    if (!guardOut) {
+      const busy = g.open > 0.02;
+      const idle = Math.sin(t * 0.35) > 0.6 ? 1 : 0;      // slow glance
+      const hx = bx + 3 + (busy ? -1 : idle);
       ctx.fillStyle = '#d8a878';
-      ctx.fillRect(hx - 2, 150 + (Math.floor(t * 6) % 2), 1, 1);
+      ctx.fillRect(hx, 149, 2, 2);                        // head
+      ctx.fillStyle = '#252b3d';                          // uniform cap
+      ctx.fillRect(hx, 148, 2, 1);
+      if (busy && g.open < 0.98) {                        // arm on the gate button
+        ctx.fillStyle = '#d8a878';
+        ctx.fillRect(hx - 2, 150 + (Math.floor(t * 6) % 2), 1, 1);
+      }
     }
     if (pal.light < 0.4) {                              // booth window glow
       ctx.fillStyle = 'rgba(232,194,90,0.12)';
@@ -1225,6 +1249,313 @@ export class TitleScreen {
     }
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fillRect(bx, 158, 11, 1);                       // seat on the fence line
+  }
+
+  // ── Slapstick cow-escape event ─────────────────────────────────────
+  // A couple of the herd cows push through the perimeter fence onto the
+  // campus lawn; the security guard bolts out of his booth, gives chase,
+  // trips and eats dirt, dusts himself off, throws up his hands, and
+  // trudges back into the hut. The cows then amble home. State machine is
+  // advanced purely by elapsed time in _updateCowEvent (no timers/rAF of
+  // its own), and everything renders in _drawCowEvent.
+
+  _startCowEvent(t, W) {
+    const gateX = Math.floor(W * 0.28);
+    const breakX = Math.max(26, gateX - 34);           // fence break, left of gate
+    // borrow the two herd cows nearest the break point
+    const pool = this._cowsFG.slice()
+      .sort((a, b) => Math.abs(a.x - breakX) - Math.abs(b.x - breakX));
+    const escapees = pool.slice(0, Math.min(2, pool.length));
+    const cows = escapees.map((c, i) => {
+      c.escaped = true;                                // pulled from the herd loop
+      return {
+        ref: c, homeX: c.x, homeFoot: c.foot,
+        lawnX: breakX - 6 - i * 14,                    // spread out on the lawn
+        lawnFoot: 178 + i * 5,                         // in front of the fence
+      };
+    });
+    this._cowEvent = {
+      phase: 'breakout', t0: t, gateX, breakX, cows,
+      guardOut: false, mooed: false, bubble: null,
+      guard: { x: gateX + 6, foot: 158, dir: -1, pose: 'idle', phase: Math.random() * 6 },
+    };
+    this._nextCowEventAt = t + 999;                    // rescheduled when it ends
+  }
+
+  _updateCowEvent(t, dt, W) {
+    const ev = this._cowEvent;
+    if (!ev) return;
+    const g = ev.guard;
+    const age = t - ev.t0;
+    const DUR = { breakout: 2.4, chase: 2.8, trip: 0.7, down: 1.5, recover: 1.1, giveup: 1.3, return: 3.0 };
+    const clamp01 = (p) => Math.max(0, Math.min(1, p));
+    const lerp = (a, b, p) => a + (b - a) * clamp01(p);
+    // move obj[key] toward target at sp px/s; returns true once arrived
+    const approach = (obj, key, target, sp) => {
+      const d = target - obj[key];
+      if (Math.abs(d) <= sp * dt) { obj[key] = target; return true; }
+      obj[key] += Math.sign(d) * sp * dt;
+      return false;
+    };
+
+    switch (ev.phase) {
+      case 'breakout': {
+        // cows shuffle to the break, then shove through onto the lawn
+        const p = age / DUR.breakout;
+        ev.cows.forEach((cw, i) => {
+          const c = cw.ref;
+          c.state = 'amble';
+          const tx = ev.breakX - 2 - i * 4;
+          c.dir = tx < c.x ? -1 : 1;
+          approach(c, 'x', tx, 16);
+          const drop = clamp01((p - 0.5) / 0.5);       // foot drops in 2nd half
+          c.foot = Math.round(lerp(cw.homeFoot, cw.lawnFoot, drop * drop));
+        });
+        if (age >= DUR.breakout) {
+          ev.phase = 'chase'; ev.t0 = t; ev.guardOut = true;
+          g.pose = 'run'; g.dir = -1;
+        }
+        break;
+      }
+      case 'chase': {
+        approach(g, 'foot', 174, 40);                  // step down onto the lawn
+        const cowMean = ev.cows.reduce((a, c) => a + c.ref.x, 0) / ev.cows.length;
+        const targetX = cowMean + 13;                  // close in from the right
+        g.dir = targetX < g.x ? -1 : 1;
+        approach(g, 'x', targetX, 30);
+        g.pose = 'run';
+        ev.cows.forEach((cw) => {                       // cows scatter to their spots
+          const c = cw.ref;
+          c.state = 'amble';
+          c.dir = cw.lawnX < c.x ? -1 : 1;
+          approach(c, 'x', cw.lawnX, 12);
+          c.foot = cw.lawnFoot;
+        });
+        const near = Math.abs(g.x - targetX) < 3;
+        if (age >= DUR.chase || (near && age > 0.9)) {
+          ev.phase = 'trip'; ev.t0 = t; g.pose = 'trip';
+        }
+        break;
+      }
+      case 'trip': {
+        g.x += g.dir * 14 * dt * clamp01(1 - age / DUR.trip);  // momentum slide
+        g.foot = 176;
+        g.pose = 'trip';
+        if (age >= DUR.trip) { ev.phase = 'down'; ev.t0 = t; g.pose = 'down'; }
+        break;
+      }
+      case 'down': {
+        g.pose = 'down';
+        ev.cows.forEach((cw) => { cw.ref.state = 'graze'; });  // cows graze, smug
+        if (age >= DUR.down) { ev.phase = 'recover'; ev.t0 = t; g.pose = 'getup'; }
+        break;
+      }
+      case 'recover': {
+        g.pose = 'getup';
+        if (age >= DUR.recover) {
+          ev.phase = 'giveup'; ev.t0 = t; g.pose = 'stand'; g.dir = 1; ev.bubble = '!';
+        }
+        break;
+      }
+      case 'giveup': {
+        g.pose = 'stand'; g.dir = 1;
+        if (!ev.mooed && age > 0.4) {                  // a triumphant moo
+          ev.mooed = true;
+          const c = ev.cows[0] && ev.cows[0].ref;
+          if (c) { c.state = 'moo'; c.stateT = 0; }
+        }
+        if (age >= DUR.giveup) {
+          ev.phase = 'return'; ev.t0 = t; g.pose = 'walk'; g.dir = 1; ev.bubble = null;
+        }
+        break;
+      }
+      case 'return': {
+        const p = age / DUR.return;
+        g.pose = 'walk';
+        const homeX = ev.gateX + 6;
+        g.dir = homeX > g.x ? 1 : -1;
+        approach(g, 'x', homeX, 22);
+        g.foot = Math.round(lerp(174, 158, (p - 0.6) / 0.4));  // step back into booth
+        ev.cows.forEach((cw, i) => {                   // cows wander home too
+          const c = cw.ref;
+          c.state = 'amble';
+          const tx = ev.breakX - 2 - i * 4;
+          c.dir = tx < c.x ? -1 : 1;
+          approach(c, 'x', tx, 12);
+          c.foot = Math.round(lerp(cw.lawnFoot, cw.homeFoot, (p - 0.4) / 0.6));
+        });
+        if (age >= DUR.return) {
+          ev.cows.forEach((cw) => {                     // hand cows back to the herd
+            const c = cw.ref;
+            c.escaped = false; c.foot = cw.homeFoot;
+            c.state = 'idle'; c.stateT = 0; c.dur = 1.5; c.flipped = false;
+          });
+          this._cowEvent = null;
+          this._nextCowEventAt = t + 40 + Math.random() * 30;  // ~40-70s cooldown
+        }
+        break;
+      }
+    }
+  }
+
+  _drawCowEvent(ctx, gateX, t, pal, W) {
+    const ev = this._cowEvent;
+    if (!ev) return;
+    const fenceY = 158;
+    // broken fence: repaint the trampled section with ranch grass, then a
+    // couple of bent posts. Shown from breakout until the guard heads home.
+    const showBreak = ev.phase !== 'return';
+    if (showBreak) {
+      const bx = ev.breakX;
+      ctx.fillStyle = pal.hillF;                       // grass fills the hole
+      ctx.fillRect(bx - 7, fenceY - 7, 14, 7);
+      ctx.fillStyle = pal.fence;                       // flattened / bent posts
+      ctx.fillRect(bx - 6, fenceY - 3, 1, 3);
+      ctx.fillRect(bx - 6, fenceY - 3, 2, 1);
+      ctx.fillRect(bx + 5, fenceY - 4, 1, 4);
+      ctx.fillRect(bx + 4, fenceY - 4, 1, 1);
+      ctx.fillRect(bx - 3, fenceY - 1, 4, 1);          // trampled top rail on the ground
+    }
+    // escaped cows reuse the herd renderer
+    for (const cw of ev.cows) this._drawCowFG(ctx, cw.ref, t, pal);
+    // the guard, out on the lawn
+    if (ev.guardOut) {
+      const g = ev.guard;
+      const gx = Math.round(g.x), gf = Math.round(g.foot);
+      this._drawGuard(ctx, gx, gf, g.dir, g.pose, t, g.phase);
+      if (ev.bubble) this._drawBubble(ctx, gx, gf - 13, ev.bubble);
+    }
+  }
+
+  // Security guard sprite (~12px), styled like the little scene people but in
+  // a navy-capped blue uniform with a gold badge. pose: run | trip | down |
+  // getup | stand | walk. dir +1 faces right.
+  _drawGuard(ctx, x, footY, dir, pose, t, phase) {
+    const dark = '#1a1a22';
+    const skin = '#d8a878';
+    const shirt = '#4f6fa8';
+    const shirtDark = '#3c568a';
+    const trouser = '#232838';
+    const cap = '#20263c';
+    const capBrim = '#151a2c';
+    const badge = '#e8c25a';
+    const boots = '#12121a';
+
+    if (pose === 'down') {
+      // flat on the lawn, cap knocked off, dazed stars circling
+      ctx.fillStyle = shirt;
+      ctx.fillRect(x - 4, footY - 2, 7, 2);            // torso
+      ctx.fillStyle = trouser;                         // legs
+      ctx.fillRect(x + (dir > 0 ? -6 : 4), footY - 2, 3, 2);
+      ctx.fillStyle = boots;
+      ctx.fillRect(x + (dir > 0 ? -6 : 6), footY - 1, 1, 1);
+      ctx.fillStyle = skin;                            // head off to the side
+      const hxx = x + (dir > 0 ? 3 : -5);
+      ctx.fillRect(hxx, footY - 3, 3, 3);
+      ctx.fillStyle = dark;                            // dizzy X eye
+      ctx.fillRect(hxx + (dir > 0 ? 1 : 1), footY - 2, 1, 1);
+      ctx.fillStyle = cap;                             // cap knocked off nearby
+      ctx.fillRect(x + (dir > 0 ? 6 : -8), footY - 1, 3, 1);
+      ctx.fillStyle = capBrim;
+      ctx.fillRect(x + (dir > 0 ? 6 : -8), footY, 3, 1);
+      ctx.fillStyle = '#ffe066';                       // circling stars
+      for (let i = 0; i < 3; i++) {
+        const ang = t * 5 + i * 2.09;
+        ctx.fillRect(hxx + 1 + Math.round(Math.cos(ang) * 4),
+          footY - 5 + Math.round(Math.sin(ang) * 1.5), 1, 1);
+      }
+      return;
+    }
+
+    if (pose === 'trip') {
+      // pitched forward mid-stumble: arms out, legs kicked up behind
+      ctx.fillStyle = shirt;
+      ctx.fillRect(x - 1, footY - 7, 4, 3);            // torso, low
+      ctx.fillRect(x + dir * 2, footY - 6, 3, 3);      // shoulders thrust forward
+      ctx.fillStyle = trouser;                         // legs flying up behind
+      ctx.fillRect(x - dir * 3, footY - 9, 3, 2);
+      ctx.fillRect(x - dir * 4, footY - 11, 2, 2);
+      ctx.fillStyle = boots;
+      ctx.fillRect(x - dir * 5, footY - 12, 1, 1);
+      ctx.fillStyle = skin;                            // head thrown down-forward
+      ctx.fillRect(x + dir * 4, footY - 5, 3, 3);
+      ctx.fillRect(x + dir * 5, footY - 7, 2, 1);      // outstretched arm
+      ctx.fillStyle = cap;                             // cap flying off ahead
+      ctx.fillRect(x + dir * 6, footY - 9, 3, 1);
+      ctx.fillStyle = capBrim;
+      ctx.fillRect(x + dir * 7, footY - 9, 1, 1);
+      ctx.fillStyle = '#ffe066';                       // motion sparkles
+      ctx.fillRect(x - dir * 6, footY - 8, 1, 1);
+      return;
+    }
+
+    if (pose === 'getup') {
+      // crouched, pushing back up off the ground
+      ctx.fillStyle = trouser;
+      ctx.fillRect(x - 2, footY - 2, 5, 2);            // folded legs
+      ctx.fillStyle = shirt;                           // hunched torso
+      ctx.fillRect(x - 2, footY - 7, 5, 5);
+      ctx.fillStyle = shirtDark;
+      ctx.fillRect(x + dir, footY - 7, 1, 5);
+      ctx.fillStyle = badge;
+      ctx.fillRect(x + (dir > 0 ? -1 : 1), footY - 6, 1, 1);
+      ctx.fillStyle = skin;                            // head, still low
+      ctx.fillRect(x - 1, footY - 10, 3, 3);
+      ctx.fillRect(x + (dir > 0 ? 3 : -4), footY - 5, 2, 1);  // arm propping up
+      ctx.fillStyle = cap;
+      ctx.fillRect(x - 1, footY - 11, 3, 1);
+      ctx.fillStyle = capBrim;
+      ctx.fillRect(x - 2 + (dir > 0 ? 1 : 0), footY - 10, 4, 1);
+      ctx.fillStyle = dark;
+      ctx.fillRect(x + (dir > 0 ? 1 : -1), footY - 9, 1, 1);  // eye
+      return;
+    }
+
+    // upright poses: run | walk | stand
+    const moving = pose === 'run' || pose === 'walk';
+    const spd = pose === 'run' ? 11 : 6;
+    const frame = moving ? Math.floor(t * spd + phase) % 2 : 0;
+
+    // legs
+    ctx.fillStyle = trouser;
+    if (moving) {
+      if (frame === 0) { ctx.fillRect(x - 2, footY - 3, 2, 3); ctx.fillRect(x + 1, footY - 3, 2, 3); }
+      else { ctx.fillRect(x - 3, footY - 3, 2, 3); ctx.fillRect(x + 2, footY - 3, 2, 3); }  // stride
+    } else {
+      ctx.fillRect(x - 2, footY - 3, 2, 3); ctx.fillRect(x + 1, footY - 3, 2, 3);
+    }
+    ctx.fillStyle = boots;                             // boots
+    if (moving && frame) { ctx.fillRect(x - 3, footY - 1, 1, 1); ctx.fillRect(x + 3, footY - 1, 1, 1); }
+    else { ctx.fillRect(x - 2, footY - 1, 1, 1); ctx.fillRect(x + 2, footY - 1, 1, 1); }
+
+    // torso (leans forward a touch while running)
+    const lean = pose === 'run' ? dir : 0;
+    ctx.fillStyle = shirt;
+    ctx.fillRect(x - 2 + lean, footY - 9, 5, 6);
+    ctx.fillStyle = shirtDark;
+    ctx.fillRect(x + dir + lean, footY - 9, 1, 6);
+    ctx.fillStyle = badge;                             // chest badge
+    ctx.fillRect(x + (dir > 0 ? -1 : 1) + lean, footY - 8, 1, 1);
+
+    // arms
+    ctx.fillStyle = skin;
+    if (moving) {                                      // pumping arm
+      ctx.fillRect(x + (dir > 0 ? 3 : -4) + lean, footY - 8 + (frame ? 1 : 0), 1, 2);
+    } else {                                           // hands-on-hips shrug (giveup)
+      ctx.fillRect(x - 3, footY - 7, 1, 2);
+      ctx.fillRect(x + 3, footY - 7, 1, 2);
+    }
+
+    // head
+    const headY = footY - 12;
+    ctx.fillStyle = skin;
+    ctx.fillRect(x - 1 + lean, headY, 3, 3);
+    ctx.fillStyle = dark;
+    ctx.fillRect(x + (dir > 0 ? 1 : -1) + lean, headY + 1, 1, 1);   // eye
+    ctx.fillStyle = cap;                               // navy cap + forward brim
+    ctx.fillRect(x - 1 + lean, headY - 1, 3, 1);
+    ctx.fillStyle = capBrim;
+    ctx.fillRect(x - 2 + lean + (dir > 0 ? 1 : 0), headY, 4, 1);
   }
 
   // ── Buildings (cutaway interiors) ──────────────────────────────────
@@ -1899,6 +2230,12 @@ export class TitleScreen {
     this._nextMeetingAt = 20 + Math.random() * 12; // s until first group meeting
     this._doors = null;
 
+    // Slapstick "cow escape" event (cows break the fence, guard gives chase,
+    // trips, gives up, trudges back to the booth). Purely time-driven off the
+    // main draw loop, so dismiss()'s rAF cancel cleans it up — no extra timers.
+    this._cowEvent = null;
+    this._nextCowEventAt = 9 + Math.random() * 6;  // s until the first breakout
+
     const W = this.W || 480;
     const n = 4;
     for (let i = 0; i < n; i++) {
@@ -2032,10 +2369,14 @@ export class TitleScreen {
       }
     }
 
-    // foreground cow herd
+    // foreground cow herd (escaped cows are driven by the cow-escape event)
     if (this._cowsFG) {
-      for (const c of this._cowsFG) this._updateCow(c, dt, t, W);
+      for (const c of this._cowsFG) if (!c.escaped) this._updateCow(c, dt, t, W);
     }
+
+    // slapstick cow-escape event: trigger periodically, then advance its phases
+    if (!this._cowEvent && t >= this._nextCowEventAt) this._startCowEvent(t, W);
+    if (this._cowEvent) this._updateCowEvent(t, dt, W);
 
     // chat gag
     if (t >= this._chatCooldownUntil) this._tryChat(t);

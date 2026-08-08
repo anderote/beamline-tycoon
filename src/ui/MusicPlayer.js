@@ -1,5 +1,9 @@
 // src/ui/MusicPlayer.js — Simple music player with shuffle, auto-advance, and persistent state
 
+// The welcome/title screen always opens on this track (matched on its name):
+// "01 - Russian Doomer music Vol 1 (Night Drive)".
+const WELCOME_TRACK_MATCH = 'night drive';
+
 export class MusicPlayer {
   constructor() {
     this.themes = {};          // { themeName: [file, ...] }
@@ -147,23 +151,32 @@ export class MusicPlayer {
   }
 
   async _loadTracks() {
-    try {
-      // Relative path so the game works when deployed under a subpath.
-      const resp = await fetch('music/tracks.json');
-      const manifest = await resp.json();
-      // Two manifest shapes: plain { theme: [files] } (local dev scan), or
-      // { baseUrl, themes } when tracks are hosted on object storage (the
-      // deployed site streams from Supabase Storage instead of bundling).
-      if (manifest && manifest.themes && typeof manifest.baseUrl === 'string') {
-        this.baseUrl = manifest.baseUrl.replace(/\/$/, '');
-        this.themes = manifest.themes;
-      } else {
-        this.baseUrl = 'music';
-        this.themes = manifest || {};
+    // Built bundle serves the manifest at music/tracks.json; the Vite dev
+    // server serves the web soundtrack at music-web/tracks.json. Try both so
+    // music works in dev and in the deployed bundle. (Relative paths keep the
+    // game working when deployed under a subpath.)
+    let manifest = null;
+    let manifestDir = 'music';
+    for (const path of ['music/tracks.json', 'music-web/tracks.json']) {
+      try {
+        const resp = await fetch(path);
+        if (!resp.ok) continue;
+        manifest = await resp.json();
+        manifestDir = path.replace(/\/tracks\.json$/, '');
+        break;
+      } catch {
+        /* try the next path */
       }
-    } catch {
-      this.baseUrl = 'music';
-      this.themes = {};
+    }
+    // Two manifest shapes: plain { theme: [files] } (local dev scan), or
+    // { baseUrl, themes } when tracks are hosted on object storage (the
+    // deployed site streams from Supabase Storage instead of bundling).
+    if (manifest && manifest.themes && typeof manifest.baseUrl === 'string') {
+      this.baseUrl = manifest.baseUrl.replace(/\/$/, '');
+      this.themes = manifest.themes;
+    } else {
+      this.baseUrl = manifestDir;
+      this.themes = manifest || {};
     }
 
     this.themeNames = Object.keys(this.themes).sort();
@@ -183,7 +196,21 @@ export class MusicPlayer {
     // Pull saved state (including selectedTheme) before picking a theme
     const saved = this._readSavedState();
 
-    let theme = saved?.selectedTheme;
+    // On the welcome/title screen we always open on a specific track from the
+    // start (not the saved resume). TitleScreen sets window.__blWelcomeMusic
+    // when it mounts. Once in the game, normal save/resume takes over.
+    const forceWelcome = typeof window !== 'undefined' && window.__blWelcomeMusic;
+    let welcomeTheme = null;
+    if (forceWelcome) {
+      for (const th of this.themeNames) {
+        if ((this.themes[th] || []).some((f) => String(f).toLowerCase().includes(WELCOME_TRACK_MATCH))) {
+          welcomeTheme = th;
+          break;
+        }
+      }
+    }
+
+    let theme = welcomeTheme || saved?.selectedTheme;
     if (!theme || !this.themes[theme]) {
       theme = this.themes['sovietcore'] ? 'sovietcore' : this.themeNames[0];
     }
@@ -202,7 +229,8 @@ export class MusicPlayer {
         this.shuffleBtn.classList.add('active');
         this._generateShuffleOrder();
       }
-      if (typeof saved.currentIndex === 'number' && saved.currentIndex < this.tracks.length) {
+      // Saved track only applies when NOT forcing the welcome track.
+      if (!welcomeTheme && typeof saved.currentIndex === 'number' && saved.currentIndex < this.tracks.length) {
         this.currentIndex = saved.currentIndex;
       }
       if (saved.minimized) this._setMinimized(true);
@@ -216,11 +244,19 @@ export class MusicPlayer {
       return;
     }
 
+    if (welcomeTheme) {
+      const wi = this.tracks.findIndex((t) =>
+        String(t.name).toLowerCase().includes(WELCOME_TRACK_MATCH)
+      );
+      this.currentIndex = wi >= 0 ? wi : 0;
+      this._pendingResumeTime = 0; // welcome track always starts from the top
+    }
+
     if (this.currentIndex < 0) this.currentIndex = 0;
     this._updateTrackDisplay();
 
-    // Restore playback position + autoplay
-    if (saved && typeof saved.currentTime === 'number' && saved.currentTime > 0) {
+    // Restore playback position (skipped for the forced welcome track) + autoplay
+    if (!welcomeTheme && saved && typeof saved.currentTime === 'number' && saved.currentTime > 0) {
       this._pendingResumeTime = saved.currentTime;
     }
     this.audio.src = this.tracks[this.currentIndex].url;
@@ -334,6 +370,35 @@ export class MusicPlayer {
     });
 
     this.audio.addEventListener('pause', () => this._saveState());
+  }
+
+  /**
+   * Force the welcome track from the top. Used when (re)entering the title
+   * screen mid-session (the first-load case is handled in _loadTracks via the
+   * window.__blWelcomeMusic flag). No-op until tracks have loaded.
+   */
+  playWelcomeTrack() {
+    if (!this.tracks || this.themeNames.length === 0) return;
+    let theme = null;
+    for (const th of this.themeNames) {
+      if ((this.themes[th] || []).some((f) => String(f).toLowerCase().includes(WELCOME_TRACK_MATCH))) {
+        theme = th;
+        break;
+      }
+    }
+    if (!theme) return;
+    if (theme !== this.currentTheme) {
+      this.currentTheme = theme;
+      if (this.themeSelect) this.themeSelect.value = theme;
+      this._buildTracksForCurrentTheme();
+    }
+    const wi = this.tracks.findIndex((t) => String(t.name).toLowerCase().includes(WELCOME_TRACK_MATCH));
+    this.currentIndex = wi >= 0 ? wi : 0;
+    this._pendingResumeTime = 0;
+    this._updateTrackDisplay();
+    this.audio.src = this.tracks[this.currentIndex].url;
+    try { this.audio.currentTime = 0; } catch {}
+    this._tryAutoplay();
   }
 
   _tryAutoplay() {
