@@ -1463,6 +1463,23 @@ export class InputHandler {
         case 'y': case 'Y':
           this._toggleMoveMode();
           break;
+        // Sim speed. Space is taken (place/toggle beam) and 1-6 are mode
+        // hotkeys, so pause lives on P and speeds on 7/8/9.
+        case 'p': case 'P': {
+          if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
+          e.preventDefault();
+          this.game.togglePause();
+          this._showToast(this.game.state.paused ? 'Paused' : 'Resumed');
+          break;
+        }
+        case '7': case '8': case '9': {
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          const mult = { '7': 1, '8': 2, '9': 4 }[e.key];
+          this.game.setSpeed(mult);
+          this._showToast(`Speed: ${mult}x`);
+          break;
+        }
         case 'Delete': case 'Backspace':
           e.preventDefault();
           // Toggle context-aware demolish without leaving current menu

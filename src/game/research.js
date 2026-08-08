@@ -2,14 +2,10 @@ import { RESEARCH, RESEARCH_LAB_MAP, RESEARCH_SPEED_TABLE } from '../data/resear
 import { COMPONENTS } from '../data/components.js';
 import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS } from '../data/facility.js';
 
-// Module-level caches (reset via resetResearchCache)
+// Module-level caches. Safe to share across Game instances: both derive
+// purely from the static RESEARCH table, never from game state.
 let _nodeDepthCache = {};
 let _finalNodes = null;
-
-export function resetResearchCache() {
-  _nodeDepthCache = {};
-  _finalNodes = null;
-}
 
 export function isResearchAvailable(id, state) {
   const r = RESEARCH[id];

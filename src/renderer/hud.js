@@ -189,6 +189,24 @@ UIHost.prototype._updateHUD = function() {
 
   // Staff bar (top bar portraits)
   this._renderStaffBar();
+
+  // Pause/speed buttons (also refreshed directly on 'speedChanged')
+  this._updateSimControls();
+};
+
+// Reflect state.paused / state.speed on the top-bar sim controls.
+UIHost.prototype._updateSimControls = function() {
+  const s = this.game.state;
+  const pauseBtn = document.getElementById('btn-pause');
+  if (pauseBtn) {
+    pauseBtn.classList.toggle('active', !!s.paused);
+    // Paused shows a play glyph (click resumes); running shows pause bars.
+    pauseBtn.innerHTML = s.paused ? '&#9654;' : '&#10074;&#10074;';
+    pauseBtn.title = s.paused ? 'Resume (P)' : 'Pause (P)';
+  }
+  document.querySelectorAll('#sim-controls .speed-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.speed, 10) === (s.speed || 1));
+  });
 };
 
 UIHost.prototype._updateBeamSummary = function() {
@@ -1991,6 +2009,22 @@ UIHost.prototype._bindHUDEvents = function() {
       wallVisControl.classList.toggle('hidden', view !== 'game');
     });
   }
+
+  // Sim controls: pause toggle + fixed speed steps
+  const pauseBtn = document.getElementById('btn-pause');
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => this.game.togglePause());
+  }
+  document.querySelectorAll('#sim-controls .speed-btn').forEach(btn => {
+    btn.addEventListener('click', () => this.game.setSpeed(parseInt(btn.dataset.speed, 10)));
+  });
+  if (this.game && this.game.on) {
+    this.game.on((event) => {
+      // 'loaded' covers a save restoring a different paused/speed state.
+      if (event === 'speedChanged' || event === 'loaded') this._updateSimControls();
+    });
+  }
+  this._updateSimControls();
 
   // Staff: Hire button opens hiring dialog (3 candidates)
   const hireBtn = document.getElementById('btn-hire');

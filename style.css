@@ -125,6 +125,37 @@ body {
 #res-reputation .res-icon, #res-reputation .res-val { color: #4488ff; }
 #res-data .res-icon, #res-data .res-val { color: #ee66aa; }
 
+/* Sim speed controls (pause + 1x/2x/4x) */
+#sim-controls {
+  display: flex;
+  gap: 2px;
+}
+.sim-btn {
+  padding: 3px 7px;
+  background: rgba(30, 30, 60, 0.8);
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  color: #8888aa;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.sim-btn:hover {
+  background: rgba(60, 60, 100, 0.8);
+  color: #ccccee;
+}
+.sim-btn.active {
+  background: rgba(40, 70, 110, 0.9);
+  border-color: rgba(120, 160, 255, 0.6);
+  color: #aaccff;
+}
+#btn-pause.active {
+  background: rgba(110, 70, 40, 0.9);
+  border-color: rgba(255, 170, 100, 0.6);
+  color: #ffcc88;
+}
+
 /* === MUSIC PLAYER (top-right, below top bar; draggable — JS sets left/top) === */
 #music-player {
   position: absolute;

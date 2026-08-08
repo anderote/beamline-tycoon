@@ -229,6 +229,47 @@ export function discoverNetworks(utilityType, lines, portLookup) {
 }
 
 /**
+ * Report sink ports on `placeables` that no line of their utility touches.
+ * The solver only sees networks that have lines — a sink with zero incident
+ * lines never appears in any network — so "unconnected" is a topology fact
+ * that has to come from here, not from solve results.
+ *
+ * `getPorts(placeableType)` returns the `{portName: spec}` table for a
+ * component type (e.g. getUtilityPortsV2). Order of the returned reports is
+ * utility-major, then placeable order, then port-table order.
+ *
+ * @param {Array<Placeable>} placeables
+ * @param {Iterable<UtilityLine>|Map} utilityLines
+ * @param {(placeableType: string) => Object} getPorts
+ * @param {string[]} utilities - utility types to check
+ * @returns {Array<{placeableId, placeableType, portName, utility}>}
+ */
+export function findUnconnectedSinks(placeables, utilityLines, getPorts, utilities) {
+  const wanted = new Set(utilities);
+  const connected = new Set(); // `${utilityType}|${placeableId}:${portName}`
+  const iter = utilityLines && typeof utilityLines.values === 'function'
+    ? utilityLines.values() : (utilityLines || []);
+  for (const line of iter) {
+    if (!line || !wanted.has(line.utilityType)) continue;
+    if (line.start) connected.add(`${line.utilityType}|${portKey(line.start)}`);
+    if (line.end) connected.add(`${line.utilityType}|${portKey(line.end)}`);
+  }
+  const out = [];
+  for (const util of utilities) {
+    for (const p of placeables || []) {
+      const ports = getPorts(p.type) || {};
+      for (const [portName, spec] of Object.entries(ports)) {
+        if (!spec || spec.utility !== util || spec.role !== 'sink') continue;
+        if (!connected.has(`${util}|${p.id}:${portName}`)) {
+          out.push({ placeableId: p.id, placeableType: p.type, portName, utility: util });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Discover networks for every utility type in `utilityTypeList`, returning a
  * Map<utilityType, Array<Network>>. Lines of other types are filtered out
  * per-type by `discoverNetworks`.

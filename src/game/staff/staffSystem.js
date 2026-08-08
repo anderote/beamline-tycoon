@@ -2,14 +2,14 @@
 
 import { StaffMember, randomName, randomTraits } from './StaffMember.js';
 
-export function createStaffMember(role, id, tick = 0) {
-  const m = new StaffMember({ id, role, name: randomName(), traits: randomTraits() });
+export function createStaffMember(role, id, tick = 0, rng = Math.random) {
+  const m = new StaffMember({ id, role, name: randomName(rng), traits: randomTraits(rng), rng });
   m.history = [{ tick, event: 'hired', note: `Joined as ${role}` }];
   return m;
 }
 
 // Tick needs for one member. Returns true if status changed.
-export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier }) {
+export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Math.random }) {
   const isGourmand = m.traits.includes('gourmand');
   const isStoic = m.traits.includes('stoic');
   const isNightOwl = m.traits.includes('nightOwl');
@@ -36,7 +36,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier }) {
       statusChanged = true;
     }
     // breakdown risk when morale very low
-    if (m.needs.morale < 0.12 && Math.random() < 0.01) {
+    if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
       m.breakdowns++;
       m.history.push({ tick: 0, event: 'breakdown', note: 'Stressed breakdown — resting 30 ticks' });

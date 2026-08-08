@@ -196,10 +196,18 @@ function showScenarioPicker(game) {
   const probeWindow = new ProbeWindow(game);
   renderer.onProbeClick = (node) => probeWindow.addPin(node);
 
-  const origSave = game.save.bind(game);
-  game.save = function() {
-    this.state.probe = probeWindow.toJSON();
-    this.state.view = {
+  // Host-layer save sections (camera/UI mode, probe pins, designer session).
+  // Registered before game.load() so their sections restore on boot; the
+  // load callbacks only stash — the actual restore runs after load returns
+  // (and after any pending scenario is applied) in the blocks below.
+  let restoredView = null;
+  let restoredProbe = null;
+  game.registerSerializer('probe', {
+    save: () => probeWindow.toJSON(),
+    load: (data) => { restoredProbe = data; },
+  });
+  game.registerSerializer('view', {
+    save: () => ({
       zoom: renderer.zoom,
       worldX: renderer.world.x,
       worldY: renderer.world.y,
@@ -209,10 +217,15 @@ function showScenarioPicker(game) {
       activeMode: input.activeMode,
       selectedCategory: input.selectedCategory,
       route: window.location.hash.slice(1) || 'game',
-    };
-    this.state.designerState = designer.serializeState();
-    origSave();
-  };
+    }),
+    load: (data) => { restoredView = data; },
+  });
+  game.registerSerializer('designer', {
+    save: () => designer.serializeState(),
+    // designerState's runtime home stays on game.state (BeamlineDesigner and
+    // InputHandler read it directly); only its persistence moved to aux.
+    load: (data) => { game.state.designerState = data || null; },
+  });
 
   game.on((event) => {
     if (event === 'beamlineChanged') {
@@ -235,19 +248,19 @@ function showScenarioPicker(game) {
     }
   }
 
-  if (game.state.view) {
-    renderer.zoom = game.state.view.zoom;
-    if (typeof game.state.view.panX === 'number') {
-      renderer._panX = game.state.view.panX;
-      renderer._panY = game.state.view.panY;
-      renderer._isoYawIdx = game.state.view.viewRotationIndex || 0;
+  if (restoredView) {
+    renderer.zoom = restoredView.zoom;
+    if (typeof restoredView.panX === 'number') {
+      renderer._panX = restoredView.panX;
+      renderer._panY = restoredView.panY;
+      renderer._isoYawIdx = restoredView.viewRotationIndex || 0;
       renderer._viewRotationAngle = renderer._isoYawIdx * Math.PI / 2;
     } else {
       // Legacy save: derive pan from the old world.x/y offset (rotation=0 math).
       const screenW = renderer.app.screen.width;
       const screenH = renderer.app.screen.height;
-      const centerIsoX = (screenW / 2 - game.state.view.worldX) / renderer.zoom;
-      const centerIsoY = (screenH / 2 - game.state.view.worldY) / renderer.zoom;
+      const centerIsoX = (screenW / 2 - restoredView.worldX) / renderer.zoom;
+      const centerIsoY = (screenH / 2 - restoredView.worldY) / renderer.zoom;
       const col = (centerIsoX / 32 + centerIsoY / 16) / 2;
       const row = (centerIsoY / 16 - centerIsoX / 32) / 2;
       renderer._panX = col * 2;
@@ -256,25 +269,25 @@ function showScenarioPicker(game) {
     renderer._syncOverlayFromPan();
     renderer._updateCameraLookAt();
     // Restore active mode and selected category/tab
-    if (game.state.view.activeMode && MODES[game.state.view.activeMode]) {
+    if (restoredView.activeMode && MODES[restoredView.activeMode]) {
       // For facility mode, restore the Labs/Rooms group toggle before regenerating tabs
-      if (game.state.view.activeMode === 'facility' && game.state.view.selectedCategory) {
-        const restoredCat = MODES.facility.categories[game.state.view.selectedCategory];
+      if (restoredView.activeMode === 'facility' && restoredView.selectedCategory) {
+        const restoredCat = MODES.facility.categories[restoredView.selectedCategory];
         if (restoredCat?.group) renderer._facilityGroup = restoredCat.group;
       }
-      input.setActiveMode(game.state.view.activeMode);
-      if (game.state.view.selectedCategory) {
-        input.selectedCategory = game.state.view.selectedCategory;
-        renderer.updatePalette(game.state.view.selectedCategory);
+      input.setActiveMode(restoredView.activeMode);
+      if (restoredView.selectedCategory) {
+        input.selectedCategory = restoredView.selectedCategory;
+        renderer.updatePalette(restoredView.selectedCategory);
         document.querySelectorAll('.cat-tab').forEach(t => {
-          t.classList.toggle('active', t.dataset.category === game.state.view.selectedCategory);
+          t.classList.toggle('active', t.dataset.category === restoredView.selectedCategory);
         });
       }
     }
   }
 
-  if (game.state.probe) {
-    probeWindow.fromJSON(game.state.probe);
+  if (restoredProbe) {
+    probeWindow.fromJSON(restoredProbe);
   }
 
   // Restore designer state if it was open
@@ -451,7 +464,7 @@ function showScenarioPicker(game) {
     return new UtilityInspector(game, line.utilityType, net.id);
   };
 
-  router.init(game.state.view?.route);
+  router.init(restoredView?.route);
   game.start();
 
   // First-run welcome popup: only once the player is actually looking at

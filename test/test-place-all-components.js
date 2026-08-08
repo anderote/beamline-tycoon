@@ -40,8 +40,9 @@ console.log('\n=== Place All Beamline Components Test ===\n');
 const registry = new BeamlineRegistry();
 const game = new Game(registry);
 
-// Unlimited funding so cost checks don't interfere.
-game.state.resources.funding = 1e15;
+// No funding padding: every placement passes free:true, and placeJunction must
+// forward that flag — zero funds makes a dropped flag fail loudly here.
+game.state.resources.funding = 0;
 
 // Map generation scatters decorations (trees, rocks, ...) that occupy random
 // subgrid cells. Clear them all so "open ground" is actually open.

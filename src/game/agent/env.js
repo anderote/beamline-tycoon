@@ -6,15 +6,16 @@ import * as A from './actions.js';
 export class BeamlineTycoonEnv {
   constructor(opts = {}) {
     this.registry = new BeamlineRegistry();
-    this.game = new Game(this.registry);
+    // seed must reach the Game constructor — terrain blobs and the starter
+    // map are generated there, so setting it after the fact does nothing.
+    this.game = new Game(this.registry, { seed: opts.seed ?? 0 });
     this.game.setDevMode(true);
     this.maxTicks = opts.maxTicks ?? 2000;
   }
   reset(seed = 0) {
     const r = new BeamlineRegistry();
     this.registry = r;
-    this.game = new Game(r);
-    this.game.state.terrainSeed = seed;
+    this.game = new Game(r, { seed });
     this.game.setDevMode(true);
     return this.observe();
   }

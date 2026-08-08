@@ -65,9 +65,11 @@ export class BeamlineSystem {
     this.canAfford = opts.canAfford || (() => true);
     this.placePlaceable = opts.placePlaceable;
     this.removePlaceable = opts.removePlaceable;
-    this.nextPipeId = opts.nextPipeId || (() => 'bp_' + Math.random().toString(36).slice(2));
-    this.nextPlacementId = opts.nextPlacementId
-      || (() => 'pl_' + Math.random().toString(36).slice(2));
+    // Fallback id sources are deterministic counters — Game always supplies
+    // state-backed generators; these only serve standalone/test construction.
+    let pipeCtr = 0, plCtr = 0;
+    this.nextPipeId = opts.nextPipeId || (() => 'bp_' + (++pipeCtr));
+    this.nextPlacementId = opts.nextPlacementId || (() => 'pl_' + (++plCtr));
   }
 
   // -------------------------------------------------------------------------
@@ -79,7 +81,8 @@ export class BeamlineSystem {
    * Returns the new junction id, or null on failure.
    *
    * @param {{type:string, col:number, row:number, subCol?:number,
-   *         subRow?:number, dir?:number, params?:object}} opts
+   *         subRow?:number, dir?:number, params?:object,
+   *         free?:boolean, silent?:boolean}} opts
    */
   placeJunction(opts) {
     if (!opts || !opts.type) {
@@ -98,6 +101,10 @@ export class BeamlineSystem {
       subRow: opts.subRow || 0,
       dir: opts.dir || 0,
       params: opts.params || {},
+      // Forward cost/log suppression so free/silent placements (tests, move
+      // mode, scenario builders) behave like every other placeable kind.
+      free: !!opts.free,
+      silent: !!opts.silent,
     });
     if (!id) {
       // placePlaceable already logs — but keep it defensive.
