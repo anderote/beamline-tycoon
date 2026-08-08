@@ -147,8 +147,19 @@ export class MusicPlayer {
     try {
       // Relative path so the game works when deployed under a subpath.
       const resp = await fetch('music/tracks.json');
-      this.themes = await resp.json();
+      const manifest = await resp.json();
+      // Two manifest shapes: plain { theme: [files] } (local dev scan), or
+      // { baseUrl, themes } when tracks are hosted on object storage (the
+      // deployed site streams from Supabase Storage instead of bundling).
+      if (manifest && manifest.themes && typeof manifest.baseUrl === 'string') {
+        this.baseUrl = manifest.baseUrl.replace(/\/$/, '');
+        this.themes = manifest.themes;
+      } else {
+        this.baseUrl = 'music';
+        this.themes = manifest || {};
+      }
     } catch {
+      this.baseUrl = 'music';
       this.themes = {};
     }
 
@@ -228,7 +239,7 @@ export class MusicPlayer {
   _buildTracksForCurrentTheme() {
     const files = this.themes[this.currentTheme] || [];
     this.tracks = files.map(f => ({
-      url: `music/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
+      url: `${this.baseUrl || 'music'}/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
       name: f.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
     }));
   }
