@@ -37,10 +37,25 @@ export class TitleScreen {
     logo.appendChild(makeLine('TYCOON', 'title-logo-bottom'));
     this.el.appendChild(logo);
 
-    // Loading label (replaced by the menu when ready() is called)
+    // Loading label (replaced by the menu when ready() is called). The
+    // click invitation doubles as the autoplay-unlock gesture: the music
+    // player arms a first-interaction resume, so clicking here starts the
+    // soundtrack while assets are still loading.
     this.loadingEl = document.createElement('div');
     this.loadingEl.className = 'title-loading';
-    this.loadingEl.textContent = 'LOADING...';
+    this.loadingEl.textContent = 'CLICK ANYWHERE FOR MUSIC';
+    const loadingSub = document.createElement('div');
+    loadingSub.className = 'title-loading-sub';
+    loadingSub.textContent = 'loading...';
+    this.loadingEl.appendChild(loadingSub);
+    this._onLoadingClick = () => {
+      // After the gesture the label goes back to a plain loading state.
+      if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
+        this.loadingEl.firstChild.textContent = 'LOADING...';
+      }
+      this.el.removeEventListener('pointerdown', this._onLoadingClick);
+    };
+    this.el.addEventListener('pointerdown', this._onLoadingClick);
     this.el.appendChild(this.loadingEl);
 
     // Menu container (populated in ready())

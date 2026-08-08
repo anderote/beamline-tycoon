@@ -116,6 +116,11 @@ function showScenarioPicker(game) {
     || !!localStorage.getItem('beamlineTycoon.pendingScenario');
   const titleScreen = skipTitle ? null : new TitleScreen();
 
+  // Music player boots first: its manifest fetch is tiny, so the soundtrack
+  // becomes playable (via the title screen's click-anywhere gesture) long
+  // before the heavy renderer/sprite/physics loading finishes.
+  const musicPlayer = new MusicPlayer();
+
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
 
@@ -389,8 +394,8 @@ function showScenarioPicker(game) {
     }
   });
 
-  // Music player
-  const musicPlayer = new MusicPlayer();
+  // (Music player is constructed at the top of main() so it can start
+  // playing during boot.)
 
   // Options dialog (Menu > Options) — music / view / gameplay settings.
   // Declared after musicPlayer; the menu click handler above only runs
