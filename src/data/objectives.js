@@ -19,7 +19,7 @@ export const OBJECTIVES = [
     name: 'First Beam!',
     desc: 'Build a source and turn on the beam.',
     condition: (state) => state.beamOn && state.beamline.some(n => COMPONENTS[n.type]?.isSource),
-    reward: { funding: 500000, reputation: 1 },
+    reward: { funding: 30000, reputation: 1 },
     tier: 0,
   },
   {
@@ -27,7 +27,7 @@ export const OBJECTIVES = [
     name: 'First Measurement',
     desc: 'Place a BPM and measure beam position.',
     condition: (state) => state.beamOn && state.beamline.some(n => n.type === 'bpm'),
-    reward: { funding: 300000, reputation: 1 },
+    reward: { funding: 20000, reputation: 1 },
     tier: 0,
   },
   {
@@ -35,7 +35,7 @@ export const OBJECTIVES = [
     name: 'Stable Beam',
     desc: 'Run beam for 60 continuous seconds.',
     condition: (state) => state.continuousBeamTicks >= 60,
-    reward: { funding: 500000, reputation: 1 },
+    reward: { funding: 30000, reputation: 1 },
     tier: 0,
   },
 
@@ -45,7 +45,7 @@ export const OBJECTIVES = [
     name: '100 MeV',
     desc: 'Reach a beam energy of 100 MeV.',
     condition: (state) => state.beamEnergy >= 0.1,
-    reward: { funding: 1000000, reputation: 2 },
+    reward: { funding: 60000, reputation: 2 },
     tier: 1,
   },
   {
@@ -57,7 +57,7 @@ export const OBJECTIVES = [
       // MVP-achievable: wireScanner + bpm + ict (energySpectrometer is deferred)
       return types.includes('wireScanner') && types.includes('bpm') && types.includes('ict');
     },
-    reward: { funding: 500000, reputation: 2 },
+    reward: { funding: 30000, reputation: 2 },
     tier: 1,
   },
   {
@@ -67,7 +67,7 @@ export const OBJECTIVES = [
     // totalBeamHours only accrued via the removed photonPort system;
     // beamOnTicks (1 tick = 1 s of beam) is the live equivalent.
     condition: (state) => (state.beamOnTicks || 0) >= 60 && state.beamline.some(n => n.type === 'detector' || n.type === 'faradayCup'),
-    reward: { funding: 2000000, reputation: 3 },
+    reward: { funding: 100000, reputation: 3 },
     tier: 1,
   },
   {
@@ -75,7 +75,7 @@ export const OBJECTIVES = [
     name: 'Good Vacuum',
     desc: 'Achieve average pressure below 1e-8 mbar.',
     condition: (state) => state.avgPressure !== undefined && state.avgPressure < 1e-8,
-    reward: { funding: 500000, reputation: 1 },
+    reward: { funding: 30000, reputation: 1 },
     tier: 1,
   },
   {
@@ -83,7 +83,7 @@ export const OBJECTIVES = [
     name: 'Knowledge Seeker',
     desc: 'Complete your first research project.',
     condition: (state) => state.completedResearch.length >= 1,
-    reward: { funding: 500000, reputation: 2 },
+    reward: { funding: 30000, reputation: 2 },
     tier: 1,
   },
   {
@@ -91,7 +91,7 @@ export const OBJECTIVES = [
     name: 'First Light',
     desc: 'Collect 10 units of research data.',
     condition: (state) => state.totalDataCollected >= 10,
-    reward: { funding: 300000, reputation: 1 },
+    reward: { funding: 20000, reputation: 1 },
     tier: 1,
   },
 
@@ -101,7 +101,7 @@ export const OBJECTIVES = [
     name: 'GeV Club',
     desc: 'Reach a beam energy of 1 GeV.',
     condition: (state) => state.beamEnergy >= 1,
-    reward: { funding: 5000000, reputation: 5 },
+    reward: { funding: 200000, reputation: 5 },
     tier: 2,
   },
   {
@@ -109,7 +109,7 @@ export const OBJECTIVES = [
     name: 'CW Operation',
     desc: 'Run CW beam for 300 continuous seconds.',
     condition: (state) => state.continuousBeamTicks >= 300,
-    reward: { funding: 3000000, reputation: 3 },
+    reward: { funding: 150000, reputation: 3 },
     tier: 2,
   },
   {
@@ -117,7 +117,7 @@ export const OBJECTIVES = [
     name: 'Sub-micron Emittance',
     desc: 'Achieve normalized emittance below 1 \u03bcm at >100 MeV.',
     condition: (state) => state.beamEnergy >= 0.1 && state.finalNormEmittanceX !== undefined && state.finalNormEmittanceX < 1e-6,
-    reward: { funding: 3000000, reputation: 5 },
+    reward: { funding: 150000, reputation: 5 },
     tier: 2,
   },
   {
@@ -127,7 +127,7 @@ export const OBJECTIVES = [
     condition: (state) =>
       ['powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'dataFiber']
         .every(u => hasUtilityCapacity(state, u)),
-    reward: { funding: 10000000, reputation: 10 },
+    reward: { funding: 300000, reputation: 10 },
     tier: 2,
   },
   {
@@ -135,7 +135,7 @@ export const OBJECTIVES = [
     name: 'First Target',
     desc: 'Run beam on a fixed target.',
     condition: (state) => state.beamOn && state.beamline.some(n => COMPONENTS[n.type]?.isEndpoint),
-    reward: { funding: 3000000, reputation: 5 },
+    reward: { funding: 150000, reputation: 5 },
     tier: 2,
   },
   {
@@ -143,7 +143,7 @@ export const OBJECTIVES = [
     name: 'Growing Machine',
     desc: 'Install 10 components on your beamline.',
     condition: (state) => state.beamline.length >= 10,
-    reward: { funding: 800000, reputation: 2 },
+    reward: { funding: 50000, reputation: 2 },
     tier: 2,
   },
   {
@@ -151,7 +151,7 @@ export const OBJECTIVES = [
     name: 'Data Hoarder',
     desc: 'Collect 100 units of research data.',
     condition: (state) => state.totalDataCollected >= 100,
-    reward: { funding: 1500000, reputation: 3 },
+    reward: { funding: 80000, reputation: 3 },
     tier: 2,
   },
   {
@@ -159,7 +159,7 @@ export const OBJECTIVES = [
     name: 'Research Program',
     desc: 'Complete 3 research projects.',
     condition: (state) => state.completedResearch.length >= 3,
-    reward: { funding: 2000000, reputation: 5 },
+    reward: { funding: 100000, reputation: 5 },
     tier: 2,
   },
 
@@ -169,7 +169,7 @@ export const OBJECTIVES = [
     name: '10 GeV',
     desc: 'Reach a beam energy of 10 GeV.',
     condition: (state) => state.beamEnergy >= 10,
-    reward: { funding: 20000000, reputation: 10 },
+    reward: { funding: 400000, reputation: 10 },
     tier: 3,
   },
   {
@@ -185,7 +185,7 @@ export const OBJECTIVES = [
       }
       return cavities >= 10;
     },
-    reward: { funding: 10000000, reputation: 5 },
+    reward: { funding: 300000, reputation: 5 },
     tier: 3,
   },
   {
@@ -193,7 +193,7 @@ export const OBJECTIVES = [
     name: 'Bunch Compression',
     desc: 'Achieve bunch length below 100 fs.',
     condition: (state) => state.finalBunchLength !== undefined && state.finalBunchLength < 100e-15,
-    reward: { funding: 5000000, reputation: 10 },
+    reward: { funding: 200000, reputation: 10 },
     tier: 3,
   },
   {
@@ -201,7 +201,7 @@ export const OBJECTIVES = [
     name: 'FEL Saturation',
     desc: 'Achieve free-electron laser saturation.',
     condition: (state) => state.felSaturated === true,
-    reward: { funding: 50000000, reputation: 20 },
+    reward: { funding: 600000, reputation: 20 },
     tier: 3,
   },
   {
@@ -209,7 +209,7 @@ export const OBJECTIVES = [
     name: 'High Availability',
     desc: 'Maintain 95% uptime over 1000 ticks.',
     condition: (state) => state.tick >= 1000 && state.uptimeFraction >= 0.95,
-    reward: { funding: 10000000, reputation: 10 },
+    reward: { funding: 300000, reputation: 10 },
     tier: 3,
   },
   {
@@ -217,7 +217,7 @@ export const OBJECTIVES = [
     name: 'Big Data',
     desc: 'Collect 1,000 units of research data.',
     condition: (state) => state.totalDataCollected >= 1000,
-    reward: { funding: 5000000, reputation: 10 },
+    reward: { funding: 200000, reputation: 10 },
     tier: 3,
   },
   {
@@ -225,7 +225,7 @@ export const OBJECTIVES = [
     name: 'User Facility',
     desc: 'Reach 10 reputation.',
     condition: (state) => state.resources.reputation >= 10,
-    reward: { funding: 3000000 },
+    reward: { funding: 150000 },
     tier: 3,
   },
 
@@ -235,7 +235,7 @@ export const OBJECTIVES = [
     name: '100 GeV',
     desc: 'Reach a beam energy of 100 GeV.',
     condition: (state) => state.beamEnergy >= 100,
-    reward: { funding: 100000000, reputation: 30 },
+    reward: { funding: 1000000, reputation: 30 },
     tier: 4,
   },
   {
@@ -243,7 +243,7 @@ export const OBJECTIVES = [
     name: 'Particle Discovery',
     desc: 'Observe a new particle.',
     condition: (state) => state.discoveries >= 1,
-    reward: { funding: 200000000, reputation: 50 },
+    reward: { funding: 1500000, reputation: 50 },
     tier: 4,
   },
   {
@@ -251,7 +251,7 @@ export const OBJECTIVES = [
     name: 'Collision Course',
     desc: 'Run beam into a Collision Point.',
     condition: (state) => state.beamOn && state.beamline.some(n => n.type === 'collisionPoint'),
-    reward: { funding: 50000000, reputation: 30 },
+    reward: { funding: 600000, reputation: 30 },
     tier: 4,
   },
   {
@@ -267,7 +267,7 @@ export const OBJECTIVES = [
     name: 'National Lab Status',
     desc: 'Reach 100 reputation.',
     condition: (state) => state.resources.reputation >= 100,
-    reward: { funding: 500000000 },
+    reward: { funding: 2000000 },
     tier: 4,
   },
   {
@@ -278,7 +278,7 @@ export const OBJECTIVES = [
       const nonHidden = Object.values(RESEARCH).filter(r => !r.hidden);
       return state.completedResearch.length >= nonHidden.length;
     },
-    reward: { funding: 10000000, reputation: 20 },
+    reward: { funding: 300000, reputation: 20 },
     tier: 4,
   },
 
@@ -288,7 +288,7 @@ export const OBJECTIVES = [
     name: 'Nobel Prize',
     desc: 'Discover a fundamental particle at frontier energy.',
     condition: (state) => state.discoveries >= 1 && state.beamEnergy >= 100,
-    reward: { funding: 1000000000, reputation: 100 },
+    reward: { funding: 3000000, reputation: 100 },
     tier: 5,
   },
   {
@@ -296,7 +296,7 @@ export const OBJECTIVES = [
     name: 'User Facility of the Year',
     desc: 'Deliver 10,000 units of research data to users.',
     condition: (state) => (state.totalDataCollected || 0) >= 10000,
-    reward: { funding: 200000000, reputation: 50 },
+    reward: { funding: 1500000, reputation: 50 },
     tier: 5,
   },
   {
@@ -313,7 +313,7 @@ export const OBJECTIVES = [
       });
       return allTypes.every(t => builtTypes.has(t));
     },
-    reward: { funding: 100000000, reputation: 30 },
+    reward: { funding: 1000000, reputation: 30 },
     tier: 5,
   },
 ];

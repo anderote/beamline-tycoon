@@ -248,6 +248,9 @@ export class WildflowerBuilder {
       if (this._parent) this._parent.remove(m);
       m.geometry.dispose();
       m.material.dispose();
+      // instanceMatrix/instanceColor live on the mesh, not the geometry —
+      // only InstancedMesh.dispose() frees their GPU buffers.
+      if (typeof m.dispose === 'function') m.dispose();
     }
     this._stemMesh = null;
     this._bloomMesh = null;

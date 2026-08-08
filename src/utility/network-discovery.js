@@ -17,6 +17,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
+import { makeUtilityEndpointIndex } from './utility-endpoints.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
@@ -52,17 +53,17 @@ class DSU {
 }
 
 /**
- * Build the default portLookup backed by state.placeables + COMPONENTS.
- * Phase 3 will add utility `ports` fields to the real components so this path
- * becomes productive; for now it's ready to be used when COMPONENTS is
- * extended.
+ * Build the default portLookup backed by COMPONENTS and every utility
+ * endpoint in the world — state.placeables AND the components living on beam
+ * pipes (see utility-endpoints.js). Indexing placeables alone hid the sink
+ * ports of every role:'placement' module, which is where all cryoTransfer
+ * sinks and most rfWaveguide sinks live.
  *
  * Returns a function with a `.listPorts(placeableId)` attachment used by
  * `discoverNetworks` to enumerate pass-through ports on a placeable.
  */
 export function makeDefaultPortLookup(state) {
-  const byId = new Map();
-  for (const p of (state && state.placeables) || []) byId.set(p.id, p);
+  const byId = makeUtilityEndpointIndex(state);
   const lookup = function (placeableId, portName) {
     const placeable = byId.get(placeableId);
     if (!placeable) return null;

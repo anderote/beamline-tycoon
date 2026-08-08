@@ -147,8 +147,11 @@ class TestRFAcceleration(unittest.TestCase):
 
     def test_beta_mismatch_grows_emittance(self):
         mod = RFAccelerationModule()
+        # Source energy is kinetic: 0.0003 GeV above the electron rest mass
+        # gives a deeply non-relativistic beam (beta ~0.78) so the cavity's
+        # design-beta mismatch dominates over adiabatic damping.
         beam_match = make_beam(energy=0.5)
-        beam_mismatch = make_beam(energy=0.0008)
+        beam_mismatch = make_beam(energy=0.0003)
         ctx1 = PropagationContext("linac")
         ctx2 = PropagationContext("linac")
         ctx1.bunch_frequency_set = True
@@ -386,7 +389,8 @@ class TestFELGain(unittest.TestCase):
         beam = self._make_fel_beam()
         ctx = PropagationContext("fel")
         report = mod.apply(beam, {"type": "undulator", "length": 60.0, "period": 0.03, "kParameter": 1.5}, ctx)
-        gamma = 5.0 / ELECTRON_MASS
+        # Source energy is kinetic; total = kinetic + rest mass.
+        gamma = (5.0 + ELECTRON_MASS) / ELECTRON_MASS
         expected = 0.03 / (2 * gamma ** 2) * (1 + 1.5 ** 2 / 2)
         self.assertAlmostEqual(report.details["wavelength_m"], expected, places=15)
 

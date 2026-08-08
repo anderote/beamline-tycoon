@@ -315,6 +315,13 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
     }
     const mesh = new THREE.Mesh(tplMesh.geometry, mat);
     mesh.userData.role = role;
+    // The geometry is the module-level role template, shared by reference
+    // with every other instance of this component type (including the
+    // committed scene objects). Flag it so teardown paths — notably the
+    // renderer's preview clear, which runs on every hover while a placement
+    // tool is armed — remove the mesh without disposing buffers still in use.
+    // (Materials are cloned per ghost, so they stay disposable.)
+    mesh.userData.sharedGeometry = true;
     if (role === 'detail') {
       mesh.userData.lod = 'detail';
       mesh.castShadow = false;

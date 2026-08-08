@@ -230,8 +230,11 @@ def beamline_config_from_game(game_beamline):
         cryo_q = infra_q.get("cryoQuality", 1.0)
         cryo_quenched = infra_q.get("cryoQuenched", False)
 
-        # SRF quench: convert to drift (zero acceleration)
-        SRF_TYPES_SET = {"cryomodule", "srf650Cavity", "srfGun"}
+        # SRF quench: convert to drift (zero acceleration). Set must match
+        # the cryoTransfer-sink SRF cavities shipped in
+        # beamline-components.raw.js / utility-ports-v2.js.
+        SRF_TYPES_SET = {"cryomodule", "halfWaveResonator", "spokeCavity",
+                         "ellipticalSrfCavity"}
         if cryo_quenched and ctype in SRF_TYPES_SET:
             el["type"] = "drift"
             el.pop("energyGain", None)
@@ -309,7 +312,13 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     import math
     raw_luminosity = summary["luminosity"]
     compressed_lumi = math.sqrt(max(raw_luminosity, 0))
-    energy_factor = math.log(1.0 + summary["final_energy"] / 0.1)
+    # Kinetic energy (total minus rest mass) is the game-facing figure: for
+    # protons the 0.938 GeV rest mass would otherwise inflate every energy
+    # readout, objective check, and data-rate factor.
+    beam_mass = summary.get("mass", 0.0)
+    kinetic_energy = summary.get(
+        "final_kinetic_energy", summary["final_energy"] - beam_mass)
+    energy_factor = math.log(1.0 + max(kinetic_energy, 0.0) / 0.1)
 
     # Count focusing elements for beam control factor
     n_focusing = summary.get("n_focusing", 0)
@@ -330,8 +339,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
     # Discovery chance scales with luminosity, energy, and beam quality squared
     discovery_base = effects.get("discoveryChance", 0.0)
-    if summary["final_energy"] > 10.0 and raw_luminosity > 0:
-        discovery_chance = discovery_base * summary["final_energy"] * 0.01 * quality * quality
+    if kinetic_energy > 10.0 and raw_luminosity > 0:
+        discovery_chance = discovery_base * kinetic_energy * 0.01 * quality * quality
     else:
         discovery_chance = 0.0
 
@@ -340,8 +349,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                         if el.get("game_type", el["type"]) in DIAGNOSTIC_TYPES)
 
     result = {
-        # Core beam state
-        "beamEnergy": summary["final_energy"],
+        # Core beam state (energies are kinetic, GeV)
+        "beamEnergy": max(kinetic_energy, 0.0),
         "beamAlive": summary["alive"],
         "beamCurrent": summary["final_current"],
 
@@ -365,7 +374,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "type": s["element_type"],
                 "sigma_x": s["beam_size_x"],
                 "sigma_y": s["beam_size_y"],
-                "energy": s["energy"],
+                "energy": max(s["energy"] - beam_mass, 0.0),
                 "current": s["current"],
                 "alive": s["alive"],
                 # New fields for probe diagnostics

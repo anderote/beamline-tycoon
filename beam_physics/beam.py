@@ -141,9 +141,16 @@ def create_initial_beam(params):
 
     params dict keys: energy, mass, current, eps_norm_x, eps_norm_y,
                       sigma_dE, sigma_dt, beta_x, beta_y, alpha_x, alpha_y
+
+    `energy` is the source's KINETIC energy (extraction/injection energy
+    above rest mass, GeV). BeamState.energy is TOTAL energy, so the rest
+    mass is added here. For electrons the 0.511 MeV offset is negligible,
+    but proton sources inject at keV–MeV kinetic energies where treating
+    kinetic as total would clamp gamma to 1 and let rf_acceleration's
+    rest-mass floor pin the beam to exactly the proton mass.
     """
-    energy = params["energy"]
     mass = params.get("mass", ELECTRON_MASS)
+    energy = mass + params["energy"]
     current = params["current"]
 
     gamma_rel, beta_rel = relativistic_params(energy, mass)

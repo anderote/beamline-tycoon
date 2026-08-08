@@ -116,6 +116,41 @@ def test_proton_beam_propagates_sanely(source_type):
         assert snap["sigma_y"] > 0
 
 
+def test_proton_beam_energy_not_pinned_to_rest_mass():
+    """
+    Regression: source energy used to be fed to the engine as TOTAL energy,
+    so a proton beam entered its first RF element with gamma clamped to 1 and
+    rf_acceleration's rest-mass floor pinned it to exactly PROTON_MASS
+    (0.938 GeV) — auto-completing the 100 MeV objective for a keV-scale
+    beamline. Source energy is now kinetic and beamEnergy reports kinetic.
+    """
+    beamline = [
+        {
+            "type": "ionSource",
+            "physicsType": "source",
+            "subL": 4,
+            "stats": {"beamCurrent": 50},
+            "params": {"particleType": "proton", "extractionVoltage": 40},
+        },
+        {
+            "type": "buncher",
+            "physicsType": "rfCavity",
+            "subL": 4,
+            "stats": {"energyGain": 0.0001},
+        },
+        {"type": "beamStop", "physicsType": "beamStop", "subL": 4, "stats": {}},
+    ]
+    result = json.loads(compute_beam_for_game(json.dumps(beamline)))
+    assert result["beamAlive"] is True
+    # Kinetic output: default source kinetic (0.01 GeV) plus a tiny RF gain —
+    # nowhere near the proton rest mass and below the 0.1 GeV objective bar.
+    assert result["beamEnergy"] < 0.1
+    assert abs(result["beamEnergy"] - PROTON_MASS) > 0.5
+    # Envelope energies are kinetic too: no snapshot may sit at ~m_p.
+    for snap in result["envelope"]:
+        assert abs(snap["energy"] - PROTON_MASS) > 0.5
+
+
 def test_proton_propagate_uses_mass_in_snapshots():
     """Propagate directly and check the beam's relativistic state is proton-like."""
     game_beamline = _proton_beamline("ionSource")

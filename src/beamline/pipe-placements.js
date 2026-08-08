@@ -238,3 +238,42 @@ export function findSlot(pipe, opts = {}) {
   const placements = sortByPosition([...kept, newPl]);
   return { ok: true, placements };
 }
+
+/**
+ * Where a placement sits in the world: the pipe path sampled at the midpoint
+ * of the placement's claimed interval [position, position + subL/pipe.subL],
+ * plus the direction of the segment it lands on (0=NE, 1=SE, 2=SW, 3=NW —
+ * the same `dir` convention placeables use).
+ *
+ * The mesh is drawn centered on this point, and utility ports are resolved
+ * from it, so both the renderer and the utility system must sample the same
+ * way. Returns null for a pipe with no path.
+ */
+export function placementPose(pipe, att) {
+  const path = (pipe && pipe.path) || [];
+  if (path.length === 0 || !att) return null;
+
+  const halfW = (pipe.subL > 0 && typeof att.subL === 'number')
+    ? (att.subL / pipe.subL) / 2
+    : 0;
+  const t = Math.max(0, Math.min(1, (att.position ?? 0) + halfW));
+  const exactIdx = t * (path.length - 1);
+  const idx0 = Math.floor(exactIdx);
+  const idx1 = Math.min(idx0 + 1, path.length - 1);
+  const frac = exactIdx - idx0;
+
+  const p0 = path[idx0];
+  const p1 = path[idx1];
+  const col = p0.col + (p1.col - p0.col) * frac;
+  const row = p0.row + (p1.row - p0.row) * frac;
+
+  const dc = p1.col - p0.col;
+  const dr = p1.row - p0.row;
+  let dir = 0;
+  if (dc > 0) dir = 1;       // SE
+  else if (dc < 0) dir = 3;  // NW
+  else if (dr > 0) dir = 2;  // SW
+  else if (dr < 0) dir = 0;  // NE
+
+  return { col, row, dir };
+}

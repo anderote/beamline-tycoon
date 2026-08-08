@@ -19,6 +19,8 @@ export default {
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
   capacityUnit: 'W@4K',
+  capacityParam: 'coldCapacityW',
+  demandParam: 'srfHeatW',
   persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(
@@ -65,6 +67,10 @@ export default {
         utilization: totalCapacity > 0
           ? Math.min(1, totalDemand / totalCapacity)
           : (totalDemand > 0 ? 1 : 0),
+        // Consumed by UtilityGate._aggregateNodeQualities, which raises
+        // cryoQuenched on sink placeables so the Python side converts
+        // quenched SRF cavities to drifts.
+        quenched,
         perSegmentLoad: [],
         perSinkQuality,
         errors: [...errors],

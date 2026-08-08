@@ -12,7 +12,7 @@ export function generateSmallBeamlineFacility() {
   const addZone = (type, col, row) => zones.push({ type, col, row });
   const addWall = (col, row, edge, type) => walls.push({ col, row, edge, type });
   const addDoor = (col, row, edge, type) => doors.push({ col, row, edge, type });
-  const addFurn = (type, col, row, dir = 0) => placeables.push({ id: `pl_${nextId++}`, type, col, row, subCol: 1, subRow: 1, dir, kind: 'furnishing' });
+  const addFurn = (type, col, row, dir = 0) => placeables.push({ id: `fn_${nextId++}`, type, col, row, subCol: 1, subRow: 1, dir, kind: 'furnishing' });
 
   const B0col = -8, B0row = -3, BW = 18, BH = 10;
   for (let c = B0col; c < B0col + BW; c++) for (let r = B0row; r < B0row + BH; r++) addFloor('concrete', c, r);

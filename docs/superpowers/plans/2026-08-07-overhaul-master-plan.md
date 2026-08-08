@@ -154,3 +154,56 @@ Puppeteer placement test; no regression in placement flows covered by existing t
 **Execution notes:** each phase = one background Workflow in the worktree; verify-fix loop capped
 at 4 iterations per phase; commit at phase end with a summary message. The user's main checkout and
 running dev server are never touched.
+
+---
+
+# Overhaul result
+
+Seven phase commits on `overhaul`, then a 3-round adversarial review loop (45 findings confirmed
+and fixed; the loop hit its round cap rather than converging to zero).
+
+- **Phase 0+1 — `ab48df75` test wiring + deletion sweep.** `npm test` runner created (all node
+  suites + pytest); MACHINES and wildlife systems deleted, plus the dead Pixi `Renderer` class,
+  `store.js`, `camera-sync.js`, 7 dead Python physics modules (~1,760 lines) and the save-migration
+  tail. `Game.on()` returns an unsubscribe; four listener leaks fixed; `makeDraggable` and
+  `format.js` replaced 9 and N copy-pasted helpers. 38/38 suites.
+- **Phase 2 — `97e766f8` deterministic sim core.** Seeded mulberry32 on `Game` threaded through all
+  sim randomness; monotonic ids replace `Date.now()`; tick control (`pause`/`setSpeed`) with
+  serialized state; utility gating extracted to `src/game/utility-gate.js`; unconnected-sink check
+  dropped from O(placeables×ports×lines) to O(lines+ports); `serialize()` inverted to an explicit
+  41-key whitelist (save v9). 43/43 suites.
+- **Phase 3 — `dc5c0b40` full-state snapshot undo/redo.** The old partial-snapshot undo actively
+  corrupted state (it saved legacy fields while its callers mutated placeables/pipes/utility lines).
+  Now `serialize()` strings, cap 20, restored via `_applyState()`; Ctrl+Z / Ctrl+Shift+Z; byte-equal
+  round-trip tests for every gesture. 44/44 suites.
+- **Phase 4 — `7a420474` activeTool input system + single Esc owner.** One `Tool` interface and one
+  `InputHandler.activeTool` replaced 14 tool fields and ~107 manual deselect calls; palette items
+  carry `{kind,key}`, deleting the 140-line category-guesser and the DOM-scraping key lookup;
+  `src/ui/esc-stack.js` became the single window Escape listener. InputHandler 4,002 → 2,851 lines
+  (target was <1,500 — see followups §2). 45/45 suites.
+- **Phase 5 — `bd0a7b15` renderer snapshot boundary + perf + Pixi removal.** Scoped snapshot builds
+  so partial refreshes stop walking 5,041 terrain tiles; `content-hash.js` replaced blind
+  `length+revision` keys and `JSON.stringify` guards across Terrain/Cliff/Floor/Wall and the ~15k
+  grass/wildflower instances; port markers and error-glow off the per-rAF path; `hud.js`/`overlays.js`
+  moved to `src/ui/`; the PixiJS CDN dependency removed entirely. 45/45 suites.
+- **Phase 6 — `464ad6c6` content pipeline hardening.** `physicsType` authored in data replaced
+  `gameplay.py`'s if/elif chain and now raises on unknown values; payloads cross the JS↔Python seam
+  via `pyodide.globals.set` instead of interpolated JSON. The new throwing validator
+  (`src/data/validate.js`) immediately found real bugs: all 24 decorations placed for **free**, five
+  components declared `requiredConnections` with no port entries so the solver could never gate them,
+  and `injectionSeptum` was invisible in every palette. 46/46 suites (114 pytest).
+- **Phase 7 — `0dcc84ed` game design & balance.** Per-component utility demands and capacity ladders
+  replace flat defaults; RF broadband sources now pool capacity across frequency buckets (VHF
+  cavities previously had *no* servable source); ion sources became real proton sources
+  (8 new pytests). Solver gained topology-dirty caching; autosave moved off the hot path;
+  `smallBeamlineFacility` ships wired and green; economy tuned against the new
+  `scripts/balance-sim.mjs`. 49/49 suites.
+
+**Final state:** `npm test` **56/56 suites green** (55 node suites + pytest, 123 python tests),
+`npx vite build` green, `node scripts/balance-sim.mjs` exit 0. Suite count grew 38 → 56 across the
+overhaul, +11 of those during the review rounds.
+
+**Still open:** `docs/superpowers/plans/overhaul-followups.md` — the honest list. Headline item is
+that on-pipe placements are now wireable but their unconnected sinks still produce no hard blocker,
+which is really a deferred design question about whether placements are wired individually or
+aggregate onto their host junction.

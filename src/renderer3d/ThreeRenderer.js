@@ -24,6 +24,8 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
+import { disposeGroupChildren } from './dispose-utils.js';
+import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { OverlayShim } from './overlay-shim.js';
@@ -298,7 +300,6 @@ export class ThreeRenderer {
     this.showZoneLabels = true;
     this.activeMode = 'beamline';
     this.nodeSprites = {};
-    this.beamTime = 0;
 
     // PixiJS layers — stubs for code that references them directly
     this.grassLayer = null;
@@ -1119,8 +1120,18 @@ export class ThreeRenderer {
     if (this.buildMode || utilityToolActive) {
       this._renderCursors();
     }
+    // Cutaway detection is expensive — a walls/doors/occupancy snapshot
+    // rebuild plus one flood fill per boundary wall, then a full region
+    // sort for the builder's cache key — and updateHover runs on every raw
+    // pointer event. Redo it only when the cursor enters a different tile.
+    // (The HUD's wall-mode buttons null _cutawayHoverKey to force a
+    // re-detection, and wall edits go through _refreshWalls directly.)
     if (this.wallVisibilityMode === 'cutaway') {
-      this._applyWallVisibility();
+      const hoverKey = col + ',' + row;
+      if (hoverKey !== this._cutawayHoverKey) {
+        this._cutawayHoverKey = hoverKey;
+        this._applyWallVisibility();
+      }
     }
   }
 
@@ -1356,7 +1367,16 @@ export class ThreeRenderer {
       const child = this.previewGroup.children[0];
       this.previewGroup.remove(child);
       child.traverse(c => {
-        if (c.geometry) c.geometry.dispose();
+        // Ghosts come out of the same factories as committed objects, so
+        // parts of them are module-level caches the real scene still points
+        // at: ComponentBuilder's role-template geometry, the cached cost-label
+        // material, and THREE.Sprite's library-wide geometry. Disposing those
+        // here frees GPU buffers every placed instance is still using — and
+        // this runs on every mousemove while a placement tool is armed.
+        // (Ghost materials are per-ghost clones, so they stay disposable.)
+        const shared = c.userData || {};
+        if (shared.sharedLabelMaterial) return;
+        if (c.geometry && !shared.sharedGeometry && !c.isSprite) c.geometry.dispose();
         if (c.material) {
           if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
           else c.material.dispose();
@@ -2657,11 +2677,14 @@ export class ThreeRenderer {
         ctx.updateScreenFromCamera(this.camera, sw, sh, projectFn);
       }
     };
-    if (this._beamlineWindows) {
-      for (const bw of Object.values(this._beamlineWindows)) updateWin(bw);
+    // The window registries live on the UIHost — _openBeamlineWindow /
+    // _openEquipmentWindow are UI_METHODS forwards, so their bodies run
+    // with `this` = this.ui and populate the registries there.
+    if (this.ui?._beamlineWindows) {
+      for (const bw of Object.values(this.ui._beamlineWindows)) updateWin(bw);
     }
-    if (this._equipmentWindows) {
-      for (const ew of Object.values(this._equipmentWindows)) updateWin(ew);
+    if (this.ui?._equipmentWindows) {
+      for (const ew of Object.values(this.ui._equipmentWindows)) updateWin(ew);
     }
   }
 
@@ -2696,8 +2719,10 @@ export class ThreeRenderer {
           // Live read (documented accessor): port world positions and
           // claimed-port lookups resolve against live placeable shapes.
           const state = this._liveState();
+          // Endpoints, not placeables: components carried on beam pipes
+          // declare utility ports too (see utility/utility-endpoints.js).
           this.utilityLineBuilderV2.setAvailablePorts(
-            activeType, state?.placeables || [], state?.utilityLines,
+            activeType, state ? listUtilityEndpoints(state) : [], state?.utilityLines,
             hp, ds, this.utilityLinePreviewGroup,
           );
         }
@@ -2721,9 +2746,6 @@ export class ThreeRenderer {
     const _now = performance.now();
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
-    // Beam animation clock (was driven by the Pixi ticker: deltaFrames * 0.02
-    // per frame ≈ 1.2/s at 60fps).
-    this.beamTime += _dt * 1.2;
     if (this.staffPawns) this.staffPawns.update(_dt);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
@@ -2888,15 +2910,9 @@ export class ThreeRenderer {
 
   _refreshZones() {
     if (!this.zoneGroup) return;
-    while (this.zoneGroup.children.length > 0) {
-      const child = this.zoneGroup.children[0];
-      this.zoneGroup.remove(child);
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (child.material.map) child.material.map.dispose();
-        child.material.dispose();
-      }
-    }
+    // Zone tiles are InstancedMeshes — disposeGroupChildren also frees their
+    // instanceMatrix/instanceColor buffers, which geometry.dispose() misses.
+    disposeGroupChildren(this.zoneGroup);
 
     const zones = this._updateSnapshot(['zones']).zones || [];
     if (zones.length === 0) return;
@@ -3210,10 +3226,8 @@ export class ThreeRenderer {
     // _liveState).
     const state = this._liveState();
     if (!state || !state.utilityLines) return;
-    const placeablesById = new Map();
-    for (const p of (state.placeables || [])) {
-      placeablesById.set(p.id, p);
-    }
+    // Includes pipe placements, whose ports lines can now attach to.
+    const placeablesById = makeUtilityEndpointIndex(state);
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });

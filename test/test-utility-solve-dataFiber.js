@@ -105,5 +105,29 @@ console.log('\n--- Test 5: purity ---');
 }
 
 // ==========================================================================
+// ==========================================================================
+// Test 6: flow totals are real Gbps, not port counts.
+// Regression: totalCapacity/totalDemand published sources.length/sinks.length
+// while capacityUnit said 'Gbps', so the inspector header read "1.0 Gbps"
+// directly above per-port rows reading "40 Gbps".
+// ==========================================================================
+console.log('\n--- Test 6: totals are Gbps, not port counts ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'out', params: { capacity: 40 } }],
+    sinks: [
+      { portKey: 'k1', placeableId: 'p2', portName: 'in', params: { demand: 40 } },
+      { portKey: 'k2', placeableId: 'p3', portName: 'in', params: { demand: 10 } },
+    ],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(r.flowState.totalCapacity === 40, `totalCapacity sums params.capacity (got ${r.flowState.totalCapacity})`);
+  assert(r.flowState.totalDemand === 50, `totalDemand sums params.demand (got ${r.flowState.totalDemand})`);
+  assert(r.flowState.utilization > 1 - 1e-9, `utilization reflects the real load (got ${r.flowState.utilization})`);
+  // Physics is still binary connectivity: both sinks connected despite 50 > 40.
+  assert(r.flowState.perSinkQuality.k1 === 1 && r.flowState.perSinkQuality.k2 === 1,
+    'connectivity physics unchanged');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

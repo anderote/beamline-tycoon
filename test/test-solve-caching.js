@@ -20,6 +20,7 @@
 
 import { SolveRunner } from '../src/utility/solve-runner.js';
 import { UtilityGate } from '../src/game/utility-gate.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -256,6 +257,40 @@ console.log('\n--- Test 4: gate unconnected-sink cache ---');
   const first = portsCalls;
   gate.run();
   assert(portsCalls > first, 'revision-less solveRunner recomputes every run');
+}
+
+// ---------------------------------------------------------------------------
+// 5. UtilityInspector reads the published discovery instead of redoing it.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- 5. Inspector reuses state.utilityNetworks ---');
+{
+  const { UtilityInspector } = await import('../src/ui/UtilityInspector.js');
+  const reconstruct = UtilityInspector.prototype._reconstructNetwork;
+
+  // Cache hit: the network exists only in state.utilityNetworks (there are no
+  // lines to rediscover it from), so returning it proves the cache was used.
+  const cached = { id: 'net_powerCable_cached', utilityType: 'powerCable', sources: [], sinks: [] };
+  const state = {
+    utilityLines: new Map(),
+    utilityNetworks: new Map([['powerCable', [cached]]]),
+  };
+  assert(reconstruct.call({}, state, 'powerCable', 'net_powerCable_cached') === cached,
+    'cached network returned without re-running discovery');
+
+  // Fallback: no cache yet (pre-first-solve) → fresh discovery still answers.
+  const line = makeLine('L9', 'powerCable', 'srcA', 'out', 'sinkA', 'in');
+  const fresh = { utilityLines: new Map([['L9', line]]), utilityNetworks: null };
+  const lookup = makeDefaultPortLookup({ placeables: [] });
+  const discovered = discoverNetworks('powerCable', fresh.utilityLines, lookup);
+  assert(discovered.length === 1, 'fixture yields one network');
+  const got = reconstruct.call({}, fresh, 'powerCable', discovered[0].id);
+  assert(got && got.id === discovered[0].id, 'falls back to discovery when the cache is empty');
+
+  // Stale cache (line added since the last solve) → falls back too.
+  const stale = { utilityLines: fresh.utilityLines, utilityNetworks: new Map([['powerCable', []]]) };
+  const gotStale = reconstruct.call({}, stale, 'powerCable', discovered[0].id);
+  assert(gotStale && gotStale.id === discovered[0].id, 'falls back when the cache is stale');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

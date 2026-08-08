@@ -239,5 +239,64 @@ console.log('\n--- Test 7: list helpers ---');
 }
 
 // ==========================================================================
+// Test 8 (regression): Game.removePlaceable — the public demolish path, not
+// just the BeamlineSystem-facing _removePlaceableRaw — must call
+// onPlaceableRemoved so no line endpoint keeps referencing a dead placeable.
+// ==========================================================================
+console.log('\n--- Test 8: Game.removePlaceable releases line endpoints ---');
+{
+  const { Game } = await import('../src/game/Game.js');
+  const { BeamlineRegistry } = await import('../src/beamline/BeamlineRegistry.js');
+  const { COMPONENTS } = await import('../src/data/components.js');
+  const { PARAM_DEFS } = await import('../src/beamline/component-physics.js');
+  globalThis.COMPONENTS = COMPONENTS;
+  globalThis.PARAM_DEFS = PARAM_DEFS;
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+
+  const g = new Game(new BeamlineRegistry(), { seed: 42 });
+  g.state.resources.funding = 1e9;
+
+  // Find a clear 2x2 spot for a concrete pad + magnetron.
+  let placedId = null;
+  outer:
+  for (let row = 2; row < 40; row += 3) {
+    for (let col = 2; col < 40; col += 3) {
+      let padOk = true;
+      for (let dr = 0; dr < 2 && padOk; dr++)
+        for (let dc = 0; dc < 2 && padOk; dc++)
+          padOk = g.placeInfraTile(col + dc, row + dr, 'concrete');
+      if (!padOk) continue;
+      placedId = g.placePlaceable({ type: 'magnetron', col, row });
+      if (placedId) break outer;
+    }
+  }
+  assert(!!placedId, `magnetron placed (got ${placedId})`);
+
+  // Inject a utility line whose start endpoint references the magnetron.
+  // (Injected directly — port-alignment geometry is validated elsewhere;
+  // this test is about the removal path's endpoint release.)
+  if (!g.state.utilityLines) g.state.utilityLines = new Map();
+  g.state.utilityLines.set('ul_reg', {
+    id: 'ul_reg',
+    utilityType: 'rfWaveguide',
+    start: { placeableId: placedId, portName: 'rf_out' },
+    end: null,
+    path: [{ col: 1, row: 1 }, { col: 4, row: 1 }],
+  });
+
+  const removed = g.removePlaceable(placedId);
+  assert(removed === true, 'removePlaceable returns true');
+  const line = g.state.utilityLines.get('ul_reg');
+  assert(!!line, 'line survives removal (dangling segment)');
+  assert(line.start === null,
+    `endpoint referencing removed placeable is nulled (got ${JSON.stringify(line.start)})`);
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

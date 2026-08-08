@@ -139,11 +139,15 @@ export class FloorTool extends Tool {
   onMouseUp(e, ctx) {
     const game = ctx.game;
     if (this._drawingLine && this._linePath.length > 0) {
-      game._pushUndo();
-      for (const pt of this._linePath) {
-        game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant);
-      }
-      game.emit('infrastructureChanged');
+      // _batchEvents: each tile can clear a decoration, and every removal
+      // emits 'placeableChanged' (a full renderer decoration rebuild) —
+      // coalesce the whole line into one dispatch, like the rect sweep.
+      game._withUndo(() => game._batchEvents(() => {
+        for (const pt of this._linePath) {
+          game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant);
+        }
+        game.emit('infrastructureChanged');
+      }));
       this._drawingLine = false;
       this._lineStart = null;
       this._linePath = [];
@@ -151,14 +155,13 @@ export class FloorTool extends Tool {
       return true;
     }
     if (this._dragging && this._dragStart && this._dragEnd) {
-      game._pushUndo();
-      game.placeInfraRect(
+      game._withUndo(() => game.placeInfraRect(
         this._dragStart.col, this._dragStart.row,
         this._dragEnd.col, this._dragEnd.row,
         this.floorType,
         this.variant,
         this.orientationOverride,
-      );
+      ));
       this._dragging = false;
       this._dragStart = null;
       this._dragEnd = null;
@@ -177,10 +180,11 @@ export class FloorTool extends Tool {
     if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
       const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
-      ctx.game._pushUndo();
-      if (ctx.game.placeInfraTile(grid.col, grid.row, this.floorType, this.variant)) {
-        ctx.game.emit('infrastructureChanged');
-      }
+      ctx.game._withUndo(() => {
+        if (ctx.game.placeInfraTile(grid.col, grid.row, this.floorType, this.variant)) {
+          ctx.game.emit('infrastructureChanged');
+        }
+      });
     }
     return true;
   }
@@ -195,16 +199,17 @@ export class FloorTool extends Tool {
     const input = ctx.input;
     if (e.key === ' ') {
       // Space: place a single tile at the hover cursor (click-place floors
-      // only). The undo push mirrors the legacy Space handler, which pushed
-      // before attempting the placement.
+      // only). _withUndo commits the undo snapshot only if the placement
+      // actually changed state.
       e.preventDefault();
       const infra = this._def();
-      ctx.game._pushUndo();
-      if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-        if (ctx.game.placeInfraTile(ctx.renderer.hoverCol, ctx.renderer.hoverRow, this.floorType, this.variant)) {
-          ctx.game.emit('infrastructureChanged');
+      ctx.game._withUndo(() => {
+        if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
+          if (ctx.game.placeInfraTile(ctx.renderer.hoverCol, ctx.renderer.hoverRow, this.floorType, this.variant)) {
+            ctx.game.emit('infrastructureChanged');
+          }
         }
-      }
+      });
       return true;
     }
     if (e.key === 'f' || e.key === 'F') {
@@ -323,16 +328,14 @@ export class WallTool extends Tool {
   onMouseUp(e, ctx) {
     const game = ctx.game;
     if (this._shiftPending && this._path.length > 0) {
-      game._pushUndo();
-      game.placeWallPath(this._path, this.wallType, this.variant);
+      game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
       this._shiftPending = false;
       this._path = [];
       ctx.renderer.clearDragPreview();
       return true;
     }
     if (this._drawing && this._path.length > 0) {
-      game._pushUndo();
-      game.placeWallPath(this._path, this.wallType, this.variant);
+      game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
       this._drawing = false;
       this._path = [];
       this._start = null;
@@ -417,8 +420,7 @@ export class DoorTool extends Tool {
 
   onMouseUp(e, ctx) {
     if (this._drawing && this._path.length > 0) {
-      ctx.game._pushUndo();
-      ctx.game.placeDoorPath(this._path, this.doorType, this.variant);
+      ctx.game._withUndo(() => ctx.game.placeDoorPath(this._path, this.doorType, this.variant));
       this._drawing = false;
       this._start = null;
       this._path = [];

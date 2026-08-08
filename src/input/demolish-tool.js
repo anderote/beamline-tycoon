@@ -80,10 +80,15 @@ export class DemolishTool extends Tool {
             ? input._buildWallSegmentPath(found.edge)
             : input._buildDoorSegmentPath(found.edge);
           if (segment.length > 0) {
-            game._pushUndo();
-            for (const pt of segment) {
-              input._removeWallAndDoorAtEdge(pt);
-            }
+            // _batchEvents: every removeWall/removeDoor emits its own
+            // 'wallsChanged', and each one costs a full WallBuilder teardown
+            // + rebuild of the map's walls — coalesce the whole run into a
+            // single rebuild, like the tile-rect sweep below.
+            game._withUndo(() => game._batchEvents(() => {
+              for (const pt of segment) {
+                input._removeWallAndDoorAtEdge(pt);
+              }
+            }));
             ctx.renderer.clearDragPreview();
             input._suppressNextClick = true;
           }
@@ -146,10 +151,13 @@ export class DemolishTool extends Tool {
     // Edge-path end — clears walls AND doors along the path.
     if (this._drawingEdges) {
       if (this._edgePath.length > 0) {
-        game._pushUndo();
-        for (const pt of this._edgePath) {
-          input._removeWallAndDoorAtEdge(pt);
-        }
+        // Batched for the same reason as the shift-click whole-run delete:
+        // one wall rebuild for the drag, not one per edge.
+        game._withUndo(() => game._batchEvents(() => {
+          for (const pt of this._edgePath) {
+            input._removeWallAndDoorAtEdge(pt);
+          }
+        }));
       }
       this._drawingEdges = false;
       this._edgeStart = null;
@@ -157,39 +165,42 @@ export class DemolishTool extends Tool {
       ctx.renderer.clearDragPreview();
       return true;
     }
-    // Tile-rect drag end.
+    // Tile-rect drag end. _withUndo skips the undo push when the sweep hits
+    // nothing; _batchEvents coalesces the per-tile emits so the renderer
+    // rebuilds once for the whole rect instead of once per removed tile.
     if (this._dragging && this._dragStart && this._dragEnd) {
-      game._pushUndo();
       const minCol = Math.min(this._dragStart.col, this._dragEnd.col);
       const maxCol = Math.max(this._dragStart.col, this._dragEnd.col);
       const minRow = Math.min(this._dragStart.row, this._dragEnd.row);
       const maxRow = Math.max(this._dragStart.row, this._dragEnd.row);
 
-      if (this.demolishType === 'demolishBuilding') {
-        // Rect sweep for building elements: zones, floors, and any
-        // wall/door segments stored on the swept tiles' edges.
-        game.removeZoneRect(
-          this._dragStart.col, this._dragStart.row,
-          this._dragEnd.col, this._dragEnd.row,
-        );
-        game.removeInfraRect(
-          this._dragStart.col, this._dragStart.row,
-          this._dragEnd.col, this._dragEnd.row,
-        );
-        for (let c = minCol; c <= maxCol; c++) {
-          for (let r = minRow; r <= maxRow; r++) {
-            for (const edge of ['n', 's', 'e', 'w']) {
-              input._removeWallAndDoorAtEdge({ col: c, row: r, edge });
+      game._withUndo(() => game._batchEvents(() => {
+        if (this.demolishType === 'demolishBuilding') {
+          // Rect sweep for building elements: zones, floors, and any
+          // wall/door segments stored on the swept tiles' edges.
+          game.removeZoneRect(
+            this._dragStart.col, this._dragStart.row,
+            this._dragEnd.col, this._dragEnd.row,
+          );
+          game.removeInfraRect(
+            this._dragStart.col, this._dragStart.row,
+            this._dragEnd.col, this._dragEnd.row,
+          );
+          for (let c = minCol; c <= maxCol; c++) {
+            for (let r = minRow; r <= maxRow; r++) {
+              for (const edge of ['n', 's', 'e', 'w']) {
+                input._removeWallAndDoorAtEdge({ col: c, row: r, edge });
+              }
+            }
+          }
+        } else if (this.demolishType === 'demolishAll') {
+          for (let c = minCol; c <= maxCol; c++) {
+            for (let r = minRow; r <= maxRow; r++) {
+              input._demolishEverythingAt(c, r);
             }
           }
         }
-      } else if (this.demolishType === 'demolishAll') {
-        for (let c = minCol; c <= maxCol; c++) {
-          for (let r = minRow; r <= maxRow; r++) {
-            input._demolishEverythingAt(c, r);
-          }
-        }
-      }
+      }));
       this._dragging = false;
       this._dragStart = null;
       this._dragEnd = null;
@@ -209,54 +220,57 @@ export class DemolishTool extends Tool {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
     const dt = this.demolishType;
-    game._pushUndo();
-    // Unified placeable delete path. Any demolish mode with a scope routes
-    // through _findDeletablePlaceable for consistent hover UX and click
-    // behavior. Mode-specific non-placeable branches (utility lines, zones,
-    // floors, walls, doors) still fall through below.
-    const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
-    if (scope) {
-      const found = input._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
-      if (found) {
-        game.demolishTarget(found);
-        return true;
+    // _withUndo: a miss-click (nothing deletable under the cursor) must not
+    // push an identical snapshot or clobber the redo stack.
+    return game._withUndo(() => {
+      // Unified placeable delete path. Any demolish mode with a scope routes
+      // through _findDeletablePlaceable for consistent hover UX and click
+      // behavior. Mode-specific non-placeable branches (utility lines, zones,
+      // floors, walls, doors) still fall through below.
+      const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
+      if (scope) {
+        const found = input._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
+        if (found) {
+          game.demolishTarget(found);
+          return true;
+        }
+        // "Clicked nothing deletable" is a no-op for placeables; let the
+        // click fall through to the non-placeable tile branches below.
       }
-      // "Clicked nothing deletable" is a no-op for placeables; let the
-      // click fall through to the non-placeable tile branches below.
-    }
-    // Utility lines are click-on-line (raycast). The catch-all also removes
-    // a hovered line before sweeping the tile.
-    if (dt === 'demolishUtility' || dt === 'demolishAll') {
-      const hit = renderer.raycastUtilityLine?.(screenX, screenY);
-      if (hit && hit.lineId && game.utilityLineSystem) {
-        if (game.utilityLineSystem.removeLine(hit.lineId)) {
-          const descriptor = UTILITY_TYPES[hit.utilityType];
-          game.log(`Removed ${descriptor?.displayName || hit.utilityType} line`, 'info');
-          if (dt === 'demolishUtility') return true;
+      // Utility lines are click-on-line (raycast). The catch-all also removes
+      // a hovered line before sweeping the tile.
+      if (dt === 'demolishUtility' || dt === 'demolishAll') {
+        const hit = renderer.raycastUtilityLine?.(screenX, screenY);
+        if (hit && hit.lineId && game.utilityLineSystem) {
+          if (game.utilityLineSystem.removeLine(hit.lineId)) {
+            const descriptor = UTILITY_TYPES[hit.utilityType];
+            game.log(`Removed ${descriptor?.displayName || hit.utilityType} line`, 'info');
+            if (dt === 'demolishUtility') return true;
+          }
         }
       }
-    }
-    if (dt === 'demolishBuilding') {
-      // Edge-first: a wall or door under the cursor wins over the tile.
-      const found = input._findWallOrDoorAtEdge(input._getNearestEdge(screenX, screenY));
-      if (found) {
-        if (found.wallType) {
-          game.removeWall(found.edge.col, found.edge.row, found.edge.edge);
-        } else {
-          game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
+      if (dt === 'demolishBuilding') {
+        // Edge-first: a wall or door under the cursor wins over the tile.
+        const found = input._findWallOrDoorAtEdge(input._getNearestEdge(screenX, screenY));
+        if (found) {
+          if (found.wallType) {
+            game.removeWall(found.edge.col, found.edge.row, found.edge.edge);
+          } else {
+            game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
+          }
+          return true;
         }
-        return true;
+        if (game.state.zoneOccupied[key]) {
+          game.removeZoneTile(col, row);
+        }
+        if (game.state.infraOccupied[key]) {
+          game.removeInfraTile(col, row);
+        }
+      } else if (dt === 'demolishAll') {
+        input._demolishEverythingAt(col, row);
       }
-      if (game.state.zoneOccupied[key]) {
-        game.removeZoneTile(col, row);
-      }
-      if (game.state.infraOccupied[key]) {
-        game.removeInfraTile(col, row);
-      }
-    } else if (dt === 'demolishAll') {
-      input._demolishEverythingAt(col, row);
-    }
-    return true;
+      return true;
+    });
   }
 
   onRightClick(_e, ctx) {

@@ -53,8 +53,8 @@ export class StaffMember {
     this.status = opts.status || 'working';
     this.mood = opts.mood || 'content';
     this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.role}` }];
-    this.ticksWorked = 0;
-    this.breakdowns = 0;
+    this.ticksWorked = opts.ticksWorked ?? 0;
+    this.breakdowns = opts.breakdowns ?? 0;
   }
 
   // Derive mood from needs

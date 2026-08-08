@@ -6,6 +6,11 @@
 // floors, walls, beam pipes (via BeamlineSystem), utility lines, demolish.
 // Also: redo restores the after-state, a new gesture clears the redo stack,
 // and the undo stack caps at 20 with oldest-first eviction.
+//
+// What undo deliberately does NOT rewind: the message log, and the sim's own
+// progress (tick, research, objectives, staff needs). Resources are reconciled
+// so the undone gesture's spending comes back without also reversing tick
+// income/upkeep — see the last three blocks.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -140,6 +145,260 @@ console.log('\n=== New gesture clears redo ===\n');
   assertOk(g._redoStack.length > 0, 'redo stack non-empty after undo');
   g._pushUndo();   // new user gesture
   assertOk(g._redoStack.length === 0, 'new _pushUndo clears the redo stack');
+}
+
+console.log('\n=== _withUndo: no-op gestures keep undo/redo intact ===\n');
+
+// Regression: tools used to call _pushUndo() before knowing whether the
+// gesture mutated anything, so a miss-click pushed an identical snapshot AND
+// cleared the redo stack, making the just-undone action unrecoverable.
+{
+  const gw = makeGame(11);
+  const before = payload(gw);
+  gw._withUndo(() => { gw.placeInfraTile(4, 30, 'concrete'); });
+  assertOk(payload(gw) !== before, '_withUndo setup: mutation applied');
+  assertOk(gw._undoStack.length === 1, '_withUndo pushed for a mutating gesture');
+  gw.undo();
+  assertOk(gw._redoStack.length === 1, 'redo available after undo');
+
+  const undoDepth = gw._undoStack.length;
+  // A no-op gesture (miss-click: nothing under the cursor mutates state).
+  gw._withUndo(() => { /* found nothing deletable */ });
+  assertOk(gw._undoStack.length === undoDepth,
+    'no-op gesture does not grow the undo stack');
+  assertOk(gw._redoStack.length === 1,
+    'no-op gesture does not clobber the redo stack');
+  gw.redo();
+  assertOk(payload(gw) !== before && gw.state.infraOccupied['4,30'] === 'concrete',
+    'redo still restores the undone action after a no-op gesture');
+
+  // 25 consecutive no-op gestures must not evict real history.
+  const gv = makeGame(12);
+  gv._withUndo(() => { gv.placeInfraTile(5, 30, 'concrete'); });
+  for (let i = 0; i < 25; i++) gv._withUndo(() => {});
+  assertOk(gv._undoStack.length === 1,
+    'repeated no-op gestures leave real undo history untouched');
+  gv.undo();
+  assertOk(!gv.state.infraOccupied['5,30'],
+    'undo still reaches the real gesture after 25 no-ops');
+}
+
+console.log('\n=== Rejected gestures that only log are still no-ops ===\n');
+
+// Regression: _withUndo compared full serialize() output, which embeds
+// state.log — so a rejected placement ("Lab Flooring requires Concrete Pad!")
+// looked like a mutation, pushed a junk snapshot and clobbered the redo stack.
+{
+  const gl = makeGame(3);
+  gl._withUndo(() => gl.placeInfraTile(6, 30, 'concrete'));
+  gl.undo();
+  assertOk(gl._undoStack.length === 0 && gl._redoStack.length === 1,
+    'setup: one undone gesture, redo pending');
+
+  const logBefore = gl.state.log.length;
+  const rejected = gl._withUndo(() => gl.placeInfraTile(9, 31, 'labFloor'));
+  assertOk(rejected === false, 'placement without a foundation is rejected');
+  assertOk(gl.state.log.length > logBefore, 'the rejection did log a message');
+  assertOk(gl._undoStack.length === 0,
+    'a logged rejection does not push an undo snapshot');
+  assertOk(gl._redoStack.length === 1,
+    'a logged rejection does not clobber the redo stack');
+
+  // Same for the most common miss-click: placing onto an occupied subtile.
+  const gd = makeGame(4);
+  let dec = null;
+  for (let row = 2; row < 40 && !dec; row++) {
+    for (let col = 2; col < 40 && !dec; col++) {
+      const id = gd._withUndo(() => gd.placePlaceable({ type: 'oakTree', col, row, subCol: 0, subRow: 0 }));
+      if (id) dec = { col, row };
+    }
+  }
+  assertOk(dec, 'setup: decoration placed');
+  const depth = gd._undoStack.length;
+  const count = gd.state.placeables.length;
+  gd._withUndo(() => gd.placePlaceable({ type: 'oakTree', col: dec.col, row: dec.row, subCol: 0, subRow: 0 }));
+  assertOk(gd.state.placeables.length === count, 'the duplicate placement was refused');
+  assertOk(gd._undoStack.length === depth,
+    "'Space occupied!' does not grow the undo stack");
+}
+
+console.log('\n=== Undo rewinds the build, not the simulation ===\n');
+
+// Regression: the snapshot is the full save payload, so undoing a build made
+// N ticks ago also restored tick, resources, research and staff needs —
+// erasing N ticks of simulation. Sim progress is now carried over and only
+// the gesture's own resource delta is reversed.
+{
+  const gs = makeGame(9);
+  gs.state.resources.funding = 100000;
+  const fundingBefore = gs.state.resources.funding;
+  gs._withUndo(() => gs.placeInfraRect(4, 4, 6, 6, 'concrete'));
+  const spent = fundingBefore - gs.state.resources.funding;
+  assertOk(spent > 0, `build charged the player ($${spent})`);
+
+  for (let i = 0; i < 25; i++) gs.tick();
+  const tickAfter = gs.state.tick;
+  const fundingAfterTicks = gs.state.resources.funding;
+  assertOk(tickAfter === 25, 'sim ran 25 ticks after the build');
+
+  gs.undo();
+  assertOk(gs.state.tick === tickAfter, 'undo does not rewind the sim clock');
+  assertOk(!gs.state.infraOccupied['5,5'], 'undo did remove the built tiles');
+  assertOk(gs.state.resources.funding === fundingAfterTicks + spent,
+    `undo refunds exactly the build cost, keeping tick income/upkeep `
+    + `(got ${gs.state.resources.funding}, want ${fundingAfterTicks + spent})`);
+  assertOk(gs.state.log.some(e => e.msg === 'Undo'),
+    'undo does not rewind the message log');
+
+  gs.redo();
+  assertOk(gs.state.infraOccupied['5,5'] === 'concrete', 'redo re-applies the build');
+  assertOk(gs.state.resources.funding === fundingAfterTicks,
+    'redo re-charges the build cost without touching sim income');
+}
+
+// The same must hold for gestures that push directly (_pushUndo, used by the
+// beamline and utility-line controllers), whose spending is attributed to the
+// gesture until the end of the task that opened it.
+{
+  const gp = makeGame(10);
+  gp.state.resources.funding = 100000;
+  const fundingBefore = gp.state.resources.funding;
+  gp._pushUndo();
+  gp.placeInfraRect(10, 10, 12, 12, 'concrete');
+  const spent = fundingBefore - gp.state.resources.funding;
+  assertOk(spent > 0, `_pushUndo gesture charged the player ($${spent})`);
+  await new Promise(r => setTimeout(r, 0));   // gesture task ends
+
+  for (let i = 0; i < 25; i++) gp.tick();
+  const fundingAfterTicks = gp.state.resources.funding;
+  gp.undo();
+  assertOk(gp.state.tick === 25, '_pushUndo gesture: undo keeps the sim clock');
+  assertOk(gp.state.resources.funding === fundingAfterTicks + spent,
+    `_pushUndo gesture: undo refunds only the build (got ${gp.state.resources.funding}, `
+    + `want ${fundingAfterTicks + spent})`);
+}
+
+// Per-beamline sim accumulators live on registry entries, not state, so
+// restoring the registry wholesale rewound them too: Ctrl+Z was a free repair
+// of every worn component, and beamOnTicks rewound under a preserved
+// state.tick permanently corrupted uptimeFraction.
+{
+  const gb = makeGame(11);
+  const entry = gb.registry.createBeamline('linac', null);
+  Object.assign(entry.beamState, {
+    componentHealth: { x1: 100 },
+    beamOnTicks: 0,
+    continuousBeamTicks: 0,
+    totalBeamHours: 0,
+    totalDataCollected: 0,
+    uptimeFraction: 1,
+  });
+
+  gb._withUndo(() => gb.placeInfraRect(20, 20, 21, 21, 'concrete'));
+
+  // Simulate wear + accumulation after the snapshot.
+  Object.assign(gb.registry.get(entry.id).beamState, {
+    componentHealth: { x1: 12 },
+    beamOnTicks: 400,
+    continuousBeamTicks: 400,
+    totalBeamHours: 0.11,
+    totalDataCollected: 999,
+    uptimeFraction: 0.8,
+  });
+
+  gb.undo();
+  const bs = gb.registry.get(entry.id).beamState;
+  assertOk(bs.componentHealth.x1 === 12,
+    `undo does not repair worn components (health ${bs.componentHealth.x1})`);
+  assertOk(bs.beamOnTicks === 400 && bs.continuousBeamTicks === 400,
+    `undo does not rewind beamOnTicks (got ${bs.beamOnTicks})`);
+  assertOk(bs.totalDataCollected === 999 && bs.totalBeamHours === 0.11,
+    'undo does not rewind collected data / beam hours');
+  assertOk(!gb.state.infraOccupied['20,20'], 'the build itself was still undone');
+
+  gb.redo();
+  const bs2 = gb.registry.get(entry.id).beamState;
+  assertOk(bs2.componentHealth.x1 === 12 && bs2.beamOnTicks === 400,
+    'redo does not rewind them either');
+}
+
+// Beamline entries created/deleted by a gesture are still gesture state —
+// only the accumulators on surviving entries are carried over.
+{
+  const gn = makeGame(12);
+  const before = gn.registry.getAll().length;
+  gn._withUndo(() => { gn.registry.createBeamline('linac', null); });
+  assertOk(gn.registry.getAll().length === before + 1, 'gesture created a beamline');
+  gn.undo();
+  assertOk(gn.registry.getAll().length === before,
+    'undo removes a beamline entry the gesture created');
+}
+
+// The RNG stream is sim progress like `tick`: reseeding it on every restore
+// let a player re-roll wear failures / discoveries with Ctrl+Z, Ctrl+Shift+Z.
+{
+  const gr = makeGame(1234);
+  const draws = [];
+  for (let i = 0; i < 3; i++) {
+    gr._withUndo(() => gr.placeInfraTile(30 + i, 30, 'concrete'));
+    for (let k = 0; k < 7; k++) gr.rng();
+    gr.undo();
+    draws.push(gr.rng());
+    gr.redo();
+  }
+  assertOk(new Set(draws).size === draws.length,
+    `post-undo rng draws differ each cycle (got ${JSON.stringify(draws)})`);
+
+  // load() still restarts the stream from the saved seed: two games that load
+  // the same save draw the same numbers regardless of what they drew before.
+  localStorage.setItem('beamlineTycoon', makeGame(1234).serialize());
+  const glA = makeGame(1234);
+  const glB = makeGame(1234);
+  for (let k = 0; k < 9; k++) glB.rng();
+  assertOk(glA.load() && glB.load(), 'both games loaded the save');
+  assertOk(glA.rng() === glB.rng(),
+    'load() still reseeds the stream from state.seed');
+}
+
+// The design library is saved outside any gesture (addDesign/deleteDesign
+// never push undo), so undo must skip past it instead of destroying a design
+// saved after the last snapshot — or resurrecting one deleted after it.
+{
+  const gd = makeGame(13);
+  gd._withUndo(() => gd.placeInfraTile(32, 32, 'concrete'));
+  const id = gd.addDesign({ name: 'My Linac', nodes: [] });
+  assertOk(gd.state.savedDesigns.length === 1 && id, 'design saved after the gesture');
+  const nextId = gd.state.savedDesignNextId;
+
+  gd.undo();
+  assertOk(gd.state.savedDesigns.length === 1,
+    `undo keeps designs saved after the snapshot (got ${gd.state.savedDesigns.length})`);
+  assertOk(gd.state.savedDesignNextId === nextId, 'the design id counter is not rewound');
+  assertOk(!gd.state.infraOccupied['32,32'], 'the build itself was still undone');
+
+  gd.deleteDesign(id);
+  gd._withUndo(() => gd.placeInfraTile(33, 32, 'concrete'));
+  gd.undo();
+  assertOk(gd.state.savedDesigns.length === 0,
+    'undo does not resurrect a design deleted after the snapshot');
+}
+
+console.log('\n=== Doors round-trip through undo/redo ===\n');
+
+// Regression: the phase-3 snapshot dropped the derived doorOccupied index and
+// _applyState never rebuilt it, so an undone door left a phantom entry that
+// blocked ever re-placing a door on that edge.
+{
+  const gdoor = makeGame(6);
+  gdoor.placeWall(7, 7, 'n', 'officeWall');
+  gdoor._withUndo(() => gdoor.placeDoor(7, 7, 'n', 'doubleDoor'));
+  assertOk(gdoor.state.doorOccupied['7,7,n'] === 'doubleDoor', 'door placed');
+  gdoor.undo();
+  assertOk(gdoor.state.doors.length === 0, 'undo removed the door');
+  assertOk(!gdoor.state.doorOccupied['7,7,n'],
+    'undo also cleared the derived door index');
+  assertOk(gdoor.placeDoor(7, 7, 'n', 'doubleDoor') && gdoor.state.doors.length === 1,
+    'the edge can be re-filled after the undo');
 }
 
 console.log('\n=== Cap eviction at 20 ===\n');

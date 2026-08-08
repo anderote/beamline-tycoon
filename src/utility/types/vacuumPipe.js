@@ -11,7 +11,12 @@ export default {
   color: '#888888',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.06,
-  capacityUnit: 'mbar\u00b7L/s',
+  // Capacity is aggregate pump speed (L/s); demand is total outgassing
+  // (mbar\u00b7L/s) \u2014 different physical quantities, hence the two units.
+  capacityUnit: 'L/s',
+  demandUnit: 'mbar\u00b7L/s',
+  capacityParam: 'pumpSpeed',
+  demandParam: 'outgassing',
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const totalPumpSpeed = network.sources.reduce(

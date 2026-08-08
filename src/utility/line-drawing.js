@@ -24,6 +24,7 @@ import {
   pathLengthSubUnits,
   expandPath,
 } from './line-geometry.js';
+import { findUtilityEndpoint } from './utility-endpoints.js';
 
 const EPS = 1e-6;
 
@@ -106,11 +107,10 @@ function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
 // Helpers.
 // ---------------------------------------------------------------------------
 
+// Endpoints include the components carried on beam pipes, not just
+// state.placeables — see utility/utility-endpoints.js.
 function findPlaceable(state, id) {
-  const list = state && state.placeables;
-  if (!Array.isArray(list)) return null;
-  for (const p of list) if (p && p.id === id) return p;
-  return null;
+  return findUtilityEndpoint(state, id);
 }
 
 function lookupDef(state, type) {

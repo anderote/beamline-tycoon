@@ -13,6 +13,7 @@
 
 import { COMPONENTS } from '../components.js';
 import { portSide, portWorldPosition } from '../../utility/ports.js';
+import { findUtilityEndpoint } from '../../utility/utility-endpoints.js';
 
 const SIDE_VEC = {
   N: { dCol: 0, dRow: -1 },
@@ -24,7 +25,9 @@ const SIDE_VEC = {
 const EPS = 1e-9;
 
 function portAnchor(state, placeableId, portName) {
-  const p = (state.placeables || []).find(pl => pl && pl.id === placeableId);
+  // Endpoints, not state.placeables: components carried on beam pipes declare
+  // utility ports too (see utility/utility-endpoints.js).
+  const p = findUtilityEndpoint(state, placeableId);
   if (!p) return null;
   const def = COMPONENTS[p.type];
   if (!def) return null;

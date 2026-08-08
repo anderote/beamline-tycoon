@@ -3545,8 +3545,8 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
 };
 
 UIHost.prototype._refreshContextWindows = function() {
-  // Only refresh content here — position tracking is owned by
-  // _updateAnchoredWindows (per-frame in 3D, per pan/zoom in 2D). Calling
+  // Only refresh content here — position tracking is owned by the
+  // renderer's per-frame ThreeRenderer._updateAnchoredWindows. Calling
   // updateScreenPosition here would use the 2D PIXI projection, which is
   // wrong under 3D rotation/pitch and fights the per-frame 3D projection,
   // causing flicker while panning and stutter while dragging.
@@ -3558,16 +3558,8 @@ UIHost.prototype._refreshContextWindows = function() {
   }
 };
 
-// Update anchored window positions (called on pan/zoom for smooth tracking)
-UIHost.prototype._updateAnchoredWindows = function() {
-  if (this._beamlineWindows) {
-    for (const bw of Object.values(this._beamlineWindows)) {
-      if (bw.ctx) bw.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
-    }
-  }
-  if (this._equipmentWindows) {
-    for (const ew of Object.values(this._equipmentWindows)) {
-      if (ew.ctx) ew.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
-    }
-  }
-};
+// (Position tracking for anchored windows is owned by the renderer's
+// per-frame ThreeRenderer._updateAnchoredWindows, which projects each
+// window's tile anchor through the 3D camera. The old 2D pan/zoom variant
+// that lived here was dead code — nothing called it with a UIHost
+// receiver — and used the wrong (PIXI) projection under 3D rotation.)

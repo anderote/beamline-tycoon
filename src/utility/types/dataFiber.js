@@ -14,6 +14,14 @@ export default {
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const hasSource = network.sources.length > 0;
+    // The physics is binary connectivity, but the flow totals are display
+    // fields tagged with capacityUnit — publish real Gbps like every other
+    // descriptor, not port counts (the inspector showed "1.0 Gbps" above
+    // rows reading "40 Gbps").
+    const totalCapacity = network.sources.reduce(
+      (a, s) => a + ((s.params && s.params.capacity) || 0), 0);
+    const totalDemand = network.sinks.reduce(
+      (a, s) => a + ((s.params && s.params.demand) || 0), 0);
     const perSinkQuality = {};
     const errors = [];
     if (hasSource) {
@@ -32,9 +40,10 @@ export default {
       flowState: {
         networkId: network.id,
         utilityType: network.utilityType,
-        totalCapacity: network.sources.length,
-        totalDemand: network.sinks.length,
-        utilization: hasSource ? 0 : (network.sinks.length > 0 ? 1 : 0),
+        totalCapacity,
+        totalDemand,
+        utilization: totalCapacity > 0 ? Math.min(1, totalDemand / totalCapacity)
+          : (totalDemand > 0 ? 1 : 0),
         perSegmentLoad: [],
         perSinkQuality,
         errors: [...errors],

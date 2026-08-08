@@ -20,6 +20,10 @@
 //   - onShiftChange(down, ctx): fired when the Shift key goes down/up so
 //     tools with shift-modified previews (wall boundary fill, demolish
 //     whole-run) can refresh without waiting for a mousemove.
+//   - cancelGesture(ctx): fired before something outside the tool replaces
+//     game state wholesale (undo/redo). Tools holding state that mirrors
+//     the world — MoveTool's lifted object — must drop it here, or the
+//     restored state and the tool's copy both exist.
 //   - ctx is { game, renderer, input } (input = the InputHandler).
 //   - cursor: optional CSS cursor to apply to the canvas while armed.
 //
@@ -47,4 +51,5 @@ export class Tool {
   onRightClick(_e, _ctx) { return false; }
   onKey(_e, _ctx) { return false; }
   onShiftChange(_down, _ctx) {}
+  cancelGesture(_ctx) {}
 }

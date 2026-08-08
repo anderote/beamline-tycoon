@@ -208,12 +208,13 @@ export class ZonePaintTool extends Tool {
 
   onMouseUp(e, ctx) {
     if (!this._dragging || !this._dragStart || !this._dragEnd) return false;
-    ctx.game._pushUndo();
-    ctx.game.placeFacilityZoneBrushRect(
+    // _withUndo: a rect that changes nothing (all tiles already this zone,
+    // insufficient funding) must not push undo or clobber redo.
+    ctx.game._withUndo(() => ctx.game.placeFacilityZoneBrushRect(
       this._dragStart.col, this._dragStart.row,
       this._dragEnd.col, this._dragEnd.row,
       this.zoneType,
-    );
+    ));
     this._dragging = false;
     this._dragStart = null;
     this._dragEnd = null;
@@ -227,10 +228,11 @@ export class ZonePaintTool extends Tool {
     // click branch in case the press was consumed elsewhere.
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
-    ctx.game._pushUndo();
-    if (ctx.game.placeFacilityZoneBrushTile(grid.col, grid.row, this.zoneType)) {
-      ctx.game.emit('zonesChanged');
-    }
+    ctx.game._withUndo(() => {
+      if (ctx.game.placeFacilityZoneBrushTile(grid.col, grid.row, this.zoneType)) {
+        ctx.game.emit('zonesChanged');
+      }
+    });
     return true;
   }
 

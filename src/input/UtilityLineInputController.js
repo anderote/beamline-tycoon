@@ -25,6 +25,7 @@ import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portWorldPosition } from '../utility/ports.js';
 import { buildManhattanPath } from '../utility/line-geometry.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
+import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
@@ -196,7 +197,10 @@ export class UtilityLineInputController {
     const cursorWorld = this._isoFloatToWorld(worldX, worldY);
     let best = null;
     let bestDist = PORT_SNAP_RADIUS_WORLD;
-    for (const placeable of state.placeables || []) {
+    // Endpoints, not state.placeables: components carried on beam pipes
+    // (cavities, cryomodules, BPMs) declare utility ports too, and hit-testing
+    // placeables alone made those ports impossible to grab.
+    for (const placeable of listUtilityEndpoints(state)) {
       const def = COMPONENTS[placeable.type];
       if (!def || !def.ports) continue;
       const availableNames = availablePorts(placeable, def, this._utilityType, lines);

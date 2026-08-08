@@ -8,6 +8,7 @@
 //   - params: utility-specific defaults (non-empty for sink/source)
 
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
+import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -198,6 +199,39 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const cb2 = getUtilityPortsV2('coldBox2K');
   assert(cb4.cryo_out.params.coldCapacityW < cb2.cryo_out.params.coldCapacityW,
     'cryo ladder: coldBox4K < coldBox2K');
+}
+
+// ==========================================================================
+// Test: infrastructure sinks exist for every declared requiredConnection.
+//
+// Regression: the infra table held only SOURCE ports, so no infrastructure
+// component contributed demand to any network — a 40 kW panel could "feed" a
+// 2000 kW gyrotron plus every pump with utilization pinned at 0%.
+// ==========================================================================
+console.log('\n--- Test: infrastructure requiredConnections have sink ports ---');
+{
+  const missing = [];
+  for (const [id, def] of Object.entries(INFRASTRUCTURE_RAW)) {
+    const ports = getUtilityPortsV2(id);
+    for (const u of def.requiredConnections || []) {
+      if (!Object.values(ports).some(p => p.utility === u && p.role === 'sink')) {
+        missing.push(`${id}:${u}`);
+      }
+    }
+  }
+  assert(missing.length === 0,
+    `every infra requiredConnection has a sink port (missing: ${missing.join(', ') || 'none'})`);
+
+  const gyro = getUtilityPortsV2('gyrotron');
+  assert(gyro.pwr_in && gyro.pwr_in.role === 'sink'
+      && gyro.pwr_in.params.demand === INFRASTRUCTURE_RAW.gyrotron.energyCost,
+    `gyrotron pwr_in demand tracks its energyCost (got ${gyro.pwr_in && gyro.pwr_in.params.demand})`);
+  assert(gyro.rf_out && gyro.rf_out.role === 'source',
+    'the hand-authored source port survives the merge');
+
+  const dump = getUtilityPortsV2('beamDump');
+  assert(dump.cool_in && dump.cool_in.params.heatLoad > 0,
+    'beamDump gets its overridden cooling load, not its (zero) energyCost');
 }
 
 // ==========================================================================

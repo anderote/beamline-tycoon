@@ -296,6 +296,73 @@ const INFRA_UTILITY_PORTS = {
 };
 
 // ---------------------------------------------------------------------------
+// Infrastructure sinks (derived from requiredConnections).
+//
+// Infrastructure units declare what they need in `requiredConnections`, but
+// the table above only ever gave them SOURCE ports — so no infrastructure
+// component contributed any demand to any network: a 40 kW panel could "feed"
+// a 2000 kW gyrotron plus every pump at 0% utilization, while overlays.js
+// still drew a power hookup off requiredConnections that had no port to land
+// on. validate.js now enforces the sink-port rule for infrastructure too.
+//
+// Rather than restate 50 near-identical entries, sinks are generated from the
+// raw defs: power demand IS the unit's own energyCost (kW), the same number
+// the equipment electricity bill already charges, so the two can't drift.
+// Loads that energyCost doesn't imply are declared as overrides below.
+// ---------------------------------------------------------------------------
+
+// Port geometry per utility, plus which param carries the load. Sinks sit on
+// the opposite side from the source ports above so a unit that both consumes
+// and produces doesn't stack two ports on one edge.
+const INFRA_SINK_SHAPE = {
+  powerCable:   { name: 'pwr_in',  side: 'left',  offsetAlong: 0.3, param: 'demand' },
+  coolingWater: { name: 'cool_in', side: 'front', offsetAlong: 0.5, param: 'heatLoad' },
+  dataFiber:    { name: 'data_in', side: 'back',  offsetAlong: 0.5, param: 'demand' },
+};
+
+// Loads not implied by energyCost. beamDump absorbs beam power, not wall
+// power; heCompressor dumps its compression heat into the water loop.
+// dataFiber is binary connectivity in the solver, so 1 Gbps is flavor.
+const INFRA_SINK_LOAD_OVERRIDES = {
+  beamDump:     { coolingWater: 50 },
+  heCompressor: { coolingWater: 20 },
+};
+
+function buildInfraSinkPorts() {
+  const out = {};
+  for (const [id, def] of Object.entries(INFRASTRUCTURE_RAW)) {
+    const required = Array.isArray(def.requiredConnections) ? def.requiredConnections : [];
+    for (const utility of required) {
+      const shape = INFRA_SINK_SHAPE[utility];
+      if (!shape) continue;
+      const existing = INFRA_UTILITY_PORTS[id] || {};
+      // Never shadow a hand-authored port for the same utility.
+      if (Object.values(existing).some(p => p.utility === utility && p.role === 'sink')) continue;
+      const override = (INFRA_SINK_LOAD_OVERRIDES[id] || {})[utility];
+      const load = override !== undefined
+        ? override
+        : (utility === 'dataFiber' ? 1 : Math.max(def.energyCost || 0, 0.1));
+      if (!out[id]) out[id] = {};
+      out[id][shape.name] = {
+        utility,
+        side: shape.side,
+        offsetAlong: shape.offsetAlong,
+        role: 'sink',
+        params: { [shape.param]: load },
+      };
+    }
+  }
+  return out;
+}
+
+const INFRA_SINK_PORTS = buildInfraSinkPorts();
+
+// Merge the derived sinks onto the hand-authored source table.
+for (const [id, ports] of Object.entries(INFRA_SINK_PORTS)) {
+  INFRA_UTILITY_PORTS[id] = { ...(INFRA_UTILITY_PORTS[id] || {}), ...ports };
+}
+
+// ---------------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------------
 

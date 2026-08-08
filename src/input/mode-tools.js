@@ -154,6 +154,22 @@ export class MoveTool extends Tool {
     return true;
   }
 
+  /**
+   * Undo/redo is about to replace game state. The lift that put the carried
+   * object in `payload` was itself captured as an undo snapshot, so the
+   * restore puts the object back in the world — keep carrying it and the
+   * next drop mints a free duplicate. Drop the carry (do NOT re-place it;
+   * the restored state already holds it).
+   */
+  cancelGesture(ctx) {
+    if (!this.payload) return;
+    this.payload = null;
+    ctx.input.hoverPlaceable = null;
+    ctx.input.isLinePlacingDecoration = false;
+    ctx.renderer._clearPreview?.();
+    ctx.renderer.canvas.style.cursor = 'grab';
+  }
+
   onKey(e, ctx) {
     const input = ctx.input;
     // Shift+Z / Shift+X while line-placing: adjust spacing one sub-unit.

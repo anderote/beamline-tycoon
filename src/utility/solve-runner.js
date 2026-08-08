@@ -27,6 +27,21 @@ function cloneDefaults(defaults) {
   try { return JSON.parse(JSON.stringify(defaults)); } catch (_) { return {}; }
 }
 
+/**
+ * One claimant's share of a persistent-state entry after a network split.
+ * Numeric fields are extensive quantities (reservoir contents), so they are
+ * divided by `share`; anything else is carried over as-is. __portKeys is
+ * dropped — the next solve() rewrites it from the live network's ports.
+ */
+function splitPersistentState(entry, share) {
+  const out = {};
+  for (const [k, v] of Object.entries(entry)) {
+    if (k === '__portKeys') continue;
+    out[k] = typeof v === 'number' ? v * share : v;
+  }
+  return out;
+}
+
 export class SolveRunner {
   constructor(opts = {}) {
     this.state = opts.state;
@@ -76,6 +91,9 @@ export class SolveRunner {
       this._cachedNetworks = networksByType;
       this._discoveredRevision = this.topologyRevision;
       this.stats.discoveries++;
+      // Topology changed: carry persistent state across re-hashed network
+      // ids and drop entries whose networks no longer exist.
+      this._reconcilePersistentState(networksByType);
     }
     this.stats.solvePasses++;
 
@@ -118,13 +136,94 @@ export class SolveRunner {
         }
         if (result.flowState) perType.set(network.id, result.flowState);
         if (result.nextPersistentState !== undefined && result.nextPersistentState !== null) {
-          state.utilityNetworkState.set(network.id, result.nextPersistentState);
+          const next = result.nextPersistentState;
+          // Record port membership alongside the descriptor's state so
+          // _reconcilePersistentState can match an orphaned entry to its
+          // successor network after a topology edit re-hashes the id.
+          next.__portKeys = network.ports.map(p => `${p.placeableId}:${p.portName}`);
+          state.utilityNetworkState.set(network.id, next);
         }
         if (Array.isArray(result.errors)) allErrors.push(...result.errors);
       }
     }
 
     return { errors: allErrors };
+  }
+
+  /**
+   * Persistent-state continuity across topology edits. Network ids are
+   * content-hashed from port membership, so wiring one extra sink into a
+   * cooling loop mints a new id; without migration the drained reservoir
+   * entry would be abandoned (and re-solved from persistentStateDefaults —
+   * a full reservoir for free) while the orphan stayed in
+   * state.utilityNetworkState and every save forever. Here, right after a
+   * fresh discovery: (1) any network with no persisted state claims the
+   * orphaned entry of its utility type whose recorded __portKeys overlap
+   * its own ports the most; (2) an orphan claimed by several networks (its
+   * network was cut in two) is split between them in proportion to how much
+   * of it each claimant inherited, so a reservoir is divided rather than
+   * duplicated; (3) all remaining orphans are pruned.
+   */
+  _reconcilePersistentState(networksByType) {
+    const stateMap = this.state && this.state.utilityNetworkState;
+    if (!stateMap || typeof stateMap.get !== 'function') return;
+
+    const liveIds = new Set();
+    for (const nets of networksByType.values()) {
+      for (const n of nets) liveIds.add(n.id);
+    }
+    const orphanIds = [];
+    for (const id of stateMap.keys()) {
+      if (!liveIds.has(id)) orphanIds.push(id);
+    }
+    if (orphanIds.length === 0) return;
+
+    // (1)+(2) Route each orphan's contents into the live networks that
+    // inherited its ports, weighted by how many each took. One successor
+    // takes the entry whole (plain re-hash); several share it (the network
+    // was cut); several orphans landing on one successor are summed (two
+    // networks were joined). Reservoir contents therefore survive a topology
+    // edit intact — never minted, never silently dropped.
+    const inherited = new Map(); // netId -> accumulated persistent state
+    const addShare = (netId, entry, share) => {
+      const part = splitPersistentState(entry, share);
+      const cur = inherited.get(netId);
+      if (!cur) { inherited.set(netId, part); return; }
+      for (const [k, v] of Object.entries(part)) {
+        if (typeof v === 'number') cur[k] = (typeof cur[k] === 'number' ? cur[k] : 0) + v;
+        else if (cur[k] === undefined) cur[k] = v;
+      }
+    };
+
+    for (const [utilityType, nets] of networksByType) {
+      const typePrefix = `net_${utilityType}_`;
+      const successors = nets
+        .filter(n => !stateMap.has(n.id))
+        .map(n => ({
+          id: n.id,
+          portKeys: new Set((n.ports || []).map(p => `${p.placeableId}:${p.portName}`)),
+        }));
+      if (successors.length === 0) continue;
+      for (const oid of orphanIds) {
+        if (!oid.startsWith(typePrefix)) continue;
+        const entry = stateMap.get(oid);
+        if (entry == null) continue;
+        const recorded = entry.__portKeys || [];
+        const shares = [];
+        let total = 0;
+        for (const s of successors) {
+          let overlap = 0;
+          for (const k of recorded) if (s.portKeys.has(k)) overlap++;
+          if (overlap > 0) { shares.push({ id: s.id, overlap }); total += overlap; }
+        }
+        for (const s of shares) addShare(s.id, entry, s.overlap / total);
+      }
+    }
+
+    for (const [netId, entry] of inherited) stateMap.set(netId, entry);
+
+    // (3) Prune every orphan (inherited contents were copied out above).
+    for (const oid of orphanIds) stateMap.delete(oid);
   }
 }
 

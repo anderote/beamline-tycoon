@@ -95,6 +95,17 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       requiredConnections: [],
     },
   };
+  // Same rule applies to infrastructure: the cross-check used to run only in
+  // the beamline loop, so 42 infra entries declared connections that no sink
+  // port backed — they contributed zero demand to every utility network.
+  const badInfrastructure = {
+    hungryBox: {
+      id: 'hungryBox', name: 'Hungry Box', category: 'power',
+      cost: { funding: 100 }, subW: 2, subL: 2, subH: 2,
+      placement: 'module',
+      requiredConnections: ['powerCable'],
+    },
+  };
   const badDecorations = {
     freebie: {
       id: 'freebie', name: 'Freebie', category: 'notATab',
@@ -117,7 +128,11 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
 
   const problems = validateContent({
     placeables: badPlaceables,
-    rawRegistries: { beamline: badBeamline, decorations: badDecorations },
+    rawRegistries: {
+      beamline: badBeamline,
+      infrastructure: badInfrastructure,
+      decorations: badDecorations,
+    },
     utilityPorts: badPorts,
   });
 
@@ -151,6 +166,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
   // no powerCable sink.
   assert(hasProblem(problems, 'mysteryModule', 'requiredConnections', "'powerCable'"),
     'requiredConnections without matching sink port reported');
+  assert(hasProblem(problems, 'hungryBox', 'requiredConnections', "'powerCable'"),
+    'the sink-port rule also covers infrastructure entries');
 }
 
 // ==========================================================================

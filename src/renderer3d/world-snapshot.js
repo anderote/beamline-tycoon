@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getTileCornersY, sampleCornersAt } from '../game/terrain.js';
 import { inMapRegion } from '../game/map-generator.js';
+import { placementPose } from '../beamline/pipe-placements.js';
 
 const GRASS_RANGE = 35;
 
@@ -355,36 +356,15 @@ function buildPipeAttachments(game) {
     if (pathLen === 0) continue;
 
     for (const att of atts) {
-      // `att.position` is the START of the placement's claimed interval
-      // [position, position + subL/pipe.subL]. The mesh is rendered CENTERED
-      // on its returned (col, row), so we sample the pipe at the interval's
-      // midpoint — otherwise the mesh sits half-its-length behind the subtiles
-      // it actually reserves, creating a visible mismatch between the ghost
-      // preview (which already uses the center) and the committed placement.
-      const halfW = (pipe.subL > 0 && typeof att.subL === 'number')
-        ? (att.subL / pipe.subL) / 2
-        : 0;
-      const center = (att.position ?? 0) + halfW;
-      const t = Math.max(0, Math.min(1, center));
-      const exactIdx = t * (pathLen - 1);
-      const idx0 = Math.floor(exactIdx);
-      const idx1 = Math.min(idx0 + 1, pathLen - 1);
-      const frac = exactIdx - idx0;
-
-      const p0 = path[idx0];
-      const p1 = path[idx1];
-      const col = p0.col + (p1.col - p0.col) * frac;
-      const row = p0.row + (p1.row - p0.row) * frac;
-
-      // Direction from segment the attachment sits on.
-      // dir convention matches node.dir: 0=NE, 1=SE, 2=SW, 3=NW
-      let dir = 0;
-      const dc = p1.col - p0.col;
-      const dr = p1.row - p0.row;
-      if (dc > 0) dir = 1;       // SE
-      else if (dc < 0) dir = 3;  // NW
-      else if (dr > 0) dir = 2;  // SW
-      else if (dr < 0) dir = 0;  // NE
+      // The mesh is rendered CENTERED on its returned (col, row), so
+      // placementPose samples the pipe at the midpoint of the placement's
+      // claimed interval — otherwise the mesh sits half-its-length behind the
+      // subtiles it actually reserves, creating a visible mismatch with the
+      // ghost preview (which already uses the center). The utility system
+      // resolves placement ports from the same helper.
+      const pose = placementPose(pipe, att);
+      if (!pose) continue;
+      const { col, row, dir } = pose;
 
       result.push({
         id: att.id,

@@ -1028,9 +1028,13 @@ export class InputHandler {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-      // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z → redo
+      // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z → redo. The active tool gets to
+      // abandon any mid-gesture carry first: undo replaces game state
+      // wholesale, so a tool still holding a lifted object would duplicate
+      // it on the next drop.
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
+        this.activeTool?.cancelGesture?.(this._toolCtx);
         if (e.shiftKey) this.game.redo();
         else this.game.undo();
         return;
@@ -1118,27 +1122,28 @@ export class InputHandler {
           // its onKey, delegating to the controller at the last cursor
           // position.)
           e.preventDefault();
-          this.game._pushUndo();
-          if (this.hoverPlaceable) {
-            // Unified placement — handles beamline / equipment / furnishing / decoration.
-            const placedId = this.game.placePlaceable({
-              type: this.hoverPlaceable.id,
-              col: this.hoverPlaceable.col,
-              row: this.hoverPlaceable.row,
-              subCol: this.hoverPlaceable.subCol,
-              subRow: this.hoverPlaceable.subRow,
-              dir: this.hoverPlaceable.dir,
-              params: this.selectedParamOverrides,
-              variant: this.selectedPlaceableVariant,
-            });
-            // Auto-switch to beam pipe tool after placing a source.
-            const comp = COMPONENTS[this.hoverPlaceable.id];
-            if (placedId && comp?.isSource) {
-              this.selectComponentTool('drift');
+          this.game._withUndo(() => {
+            if (this.hoverPlaceable) {
+              // Unified placement — handles beamline / equipment / furnishing / decoration.
+              const placedId = this.game.placePlaceable({
+                type: this.hoverPlaceable.id,
+                col: this.hoverPlaceable.col,
+                row: this.hoverPlaceable.row,
+                subCol: this.hoverPlaceable.subCol,
+                subRow: this.hoverPlaceable.subRow,
+                dir: this.hoverPlaceable.dir,
+                params: this.selectedParamOverrides,
+                variant: this.selectedPlaceableVariant,
+              });
+              // Auto-switch to beam pipe tool after placing a source.
+              const comp = COMPONENTS[this.hoverPlaceable.id];
+              if (placedId && comp?.isSource) {
+                this.selectComponentTool('drift');
+              }
+            } else {
+              this.game.toggleBeam();
             }
-          } else {
-            this.game.toggleBeam();
-          }
+          });
           break;
         case 'r': case 'R': {
           // Placement-role tools (attachments on pipes) use R to toggle
@@ -1159,7 +1164,11 @@ export class InputHandler {
           break;
         }
         case 'i': case 'I': {
+          // Placement-role tools consume I as the insert-mode toggle; with
+          // no such tool armed, I cycles the 3D label detail level.
           if (this._handlePlacementModeKey('insert')) return;
+          const levelName = this.renderer.cycleLabelLevel();
+          this._showToast(`Labels: ${levelName}`);
           break;
         }
         case 'g': case 'G': {
@@ -1244,11 +1253,6 @@ export class InputHandler {
             this.setTool(new ProbeTool());
           }
           break;
-        case 'i': case 'I': {
-          const levelName = this.renderer.cycleLabelLevel();
-          this._showToast(`Labels: ${levelName}`);
-          break;
-        }
         case 'o': case 'O': {
           if (e.ctrlKey || e.metaKey) break;
           const visible = this.renderer.toggleZoneOverlay();
@@ -2035,21 +2039,22 @@ export class InputHandler {
         return true;
       }
     }
-    this.game._pushUndo();
-    const placedId = this.game.placePlaceable({
-      type: this.hoverPlaceable.id,
-      col: this.hoverPlaceable.col,
-      row: this.hoverPlaceable.row,
-      subCol: this.hoverPlaceable.subCol,
-      subRow: this.hoverPlaceable.subRow,
-      dir: this.hoverPlaceable.dir,
-      params: this.selectedParamOverrides,
-      variant: this.selectedPlaceableVariant,
+    this.game._withUndo(() => {
+      const placedId = this.game.placePlaceable({
+        type: this.hoverPlaceable.id,
+        col: this.hoverPlaceable.col,
+        row: this.hoverPlaceable.row,
+        subCol: this.hoverPlaceable.subCol,
+        subRow: this.hoverPlaceable.subRow,
+        dir: this.hoverPlaceable.dir,
+        params: this.selectedParamOverrides,
+        variant: this.selectedPlaceableVariant,
+      });
+      // Auto-switch to beam pipe tool after placing a source.
+      if (placedId && comp?.isSource) {
+        this.selectComponentTool('drift');
+      }
     });
-    // Auto-switch to beam pipe tool after placing a source.
-    if (placedId && comp?.isSource) {
-      this.selectComponentTool('drift');
-    }
     return true;
   }
 
@@ -2161,24 +2166,27 @@ export class InputHandler {
 
   /**
    * Commit the shift+drag decoration line: place every valid ghost (one
-   * undo push for the whole gesture), then reset line-placement state.
+   * undo push and one event dispatch for the whole gesture), then reset
+   * line-placement state. Without _batchEvents each placePlaceable's own
+   * 'placeableChanged' costs a full decoration/equipment/component rebuild.
    */
   _finishLinePlaceDecoration() {
     const toPlace = this.linePlaceHovers.filter(h => h.valid);
     if (toPlace.length > 0) {
-      this.game._pushUndo();
-      for (const h of toPlace) {
-        this.game.placePlaceable({
-          type: h.hover.id,
-          col: h.hover.col,
-          row: h.hover.row,
-          subCol: h.hover.subCol,
-          subRow: h.hover.subRow,
-          dir: h.hover.dir,
-          params: this.selectedParamOverrides,
-          variant: this.selectedPlaceableVariant,
-        });
-      }
+      this.game._withUndo(() => this.game._batchEvents(() => {
+        for (const h of toPlace) {
+          this.game.placePlaceable({
+            type: h.hover.id,
+            col: h.hover.col,
+            row: h.hover.row,
+            subCol: h.hover.subCol,
+            subRow: h.hover.subRow,
+            dir: h.hover.dir,
+            params: this.selectedParamOverrides,
+            variant: this.selectedPlaceableVariant,
+          });
+        }
+      }));
     }
     this.isLinePlacingDecoration = false;
     this.linePlaceStartWorld = null;
@@ -2290,8 +2298,7 @@ export class InputHandler {
       }
     }
     if (hitEntry && hitEntry.kind !== 'beamline') {
-      this.game._pushUndo();
-      const snap = this.game.liftPlaceable(hitEntry.id);
+      const snap = this.game._withUndo(() => this.game.liftPlaceable(hitEntry.id));
       if (!snap) return null;
       const def = PLACEABLES[snap.type];
       this._showToast(`Moving ${def?.name || snap.type}`);
@@ -2359,15 +2366,16 @@ export class InputHandler {
     if (p.kind === 'component') {
       const placeable = this.game.getPlaceable(p.nodeId);
       if (!placeable) return false;
-      this.game._pushUndo();
-      placeable.col = col;
-      placeable.row = row;
-      if (this.placementDir != null) placeable.dir = this.placementDir;
-      this.game._rebuildPlaceableCells?.(placeable);
-      this.game._deriveBeamGraph();
-      this.game.recalcAllBeamlines();
-      this.game.emit('placeableChanged');
-      return true;
+      return this.game._withUndo(() => {
+        placeable.col = col;
+        placeable.row = row;
+        if (this.placementDir != null) placeable.dir = this.placementDir;
+        this.game._rebuildPlaceableCells(placeable);
+        this.game._deriveBeamGraph();
+        this.game.recalcAllBeamlines();
+        this.game.emit('placeableChanged');
+        return true;
+      });
     }
 
     if (p.kind === 'placeable') {

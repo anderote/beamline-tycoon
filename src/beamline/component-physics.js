@@ -34,6 +34,38 @@ export const PARAM_DEFS = {
     emittance:        { derived: true, unit: 'mm·mrad' },
   },
 
+  // ---- Duoplasmatron ion source ----
+  // Proton source. Extraction energy is q·V just as for the thermionic gun
+  // (species-independent), so without an entry here the beam silently
+  // started at the engine's 0.01 GeV default instead of the declared 40 keV.
+  ionSource: {
+    extractionVoltage: {
+      min: 10, max: 100, default: 40, unit: 'kV', step: 1,
+    },
+    arcCurrent: {
+      min: 1, max: 20, default: 5, unit: 'A', step: 0.5,
+    },
+    beamCurrent:      { derived: true, unit: 'mA' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
+  },
+
+  // ---- ECR ion source ----
+  // Same extraction physics; current comes from the microwave power heating
+  // the plasma, with the mirror field setting the confinement efficiency.
+  ecrIonSource: {
+    extractionVoltage: {
+      min: 10, max: 100, default: 40, unit: 'kV', step: 1,
+    },
+    microwavePower: {
+      min: 200, max: 3000, default: 1500, unit: 'W', step: 50,
+    },
+    magnetCurrent: {
+      min: 50, max: 400, default: 200, unit: 'A', step: 5,
+    },
+    beamCurrent:      { derived: true, unit: 'mA' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
+  },
+
   // ---- DC photocathode gun ----
   dcPhotoGun: {
     extractionVoltage: {
@@ -298,6 +330,33 @@ function computeSource(params) {
   const emittance = r_mm * Math.sqrt(kTmc2) * 1e3;
 
   return { beamCurrent, beamPower, extractionEnergy, emittance };
+}
+
+// Duoplasmatron: extracted protons gain q·V, so the kinetic energy is the
+// extraction voltage in eV — identical arithmetic to computeSource, since
+// the charge state (1+) and not the mass sets it. Beam current scales with
+// the arc discharge current (10 mA per arc amp reproduces the catalog's
+// 50 mA at the default 5 A arc).
+const ION_SOURCE_MA_PER_ARC_A = 10;
+
+function computeIonSource(params) {
+  const extractionEnergy = params.extractionVoltage * 1e-6; // kV → GeV
+  const beamCurrent = params.arcCurrent * ION_SOURCE_MA_PER_ARC_A; // mA
+  return { beamCurrent, extractionEnergy };
+}
+
+// ECR source: microwave power sets the plasma density (and so the extracted
+// current), scaled by mirror-field confinement which saturates near the
+// design magnet current. Defaults (1500 W, 200 A) reproduce the catalog's
+// 200 mA.
+const ECR_MA_PER_W = 200 / 1500;
+const ECR_DESIGN_MAGNET_A = 200;
+
+function computeEcrIonSource(params) {
+  const extractionEnergy = params.extractionVoltage * 1e-6; // kV → GeV
+  const confinement = Math.min(1.2, Math.sqrt(params.magnetCurrent / ECR_DESIGN_MAGNET_A));
+  const beamCurrent = params.microwavePower * ECR_MA_PER_W * confinement; // mA
+  return { beamCurrent, extractionEnergy };
 }
 
 /**
@@ -707,7 +766,9 @@ function computeDtl(params) {
 // COMPUTE_STATS dispatch table
 // ---------------------------------------------------------------------------
 const COMPUTE_STATS = {
-  source:     computeSource,
+  source:       computeSource,
+  ionSource:    computeIonSource,
+  ecrIonSource: computeEcrIonSource,
   dcPhotoGun: computeDcPhotoGun,
   ncRfGun:    computeNcRfGun,
   srfGun:     computeSrfGun,

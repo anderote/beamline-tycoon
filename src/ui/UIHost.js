@@ -70,6 +70,11 @@ const PASS_THROUGH_PROPS = [
   'activeMode', 'buildMode',
   // Wall / door visibility (UI writes, renderer reads)
   'wallVisibilityMode', '_cutawayHoverKey', '_transparentHoverKey',
+  // Facility Labs/Rooms tab group. Owned by _generateCategoryTabs (this
+  // layer), but main.js restores it through the renderer on load — without
+  // the pass-through that write lands on a dead renderer field and the
+  // toggle snaps back to 'labs'.
+  '_facilityGroup',
   // Selection callbacks (main.js writes, UI reads)
   '_onTabSelect', '_onPaletteClick',
 ];

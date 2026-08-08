@@ -30,7 +30,10 @@ export const ECON = {
   pumpUpkeepEach: 8,
 };
 
-const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump']);
+// Vacuum pumps that pay the per-tick service fee. Keep in sync with the
+// pumpTypes list in computeSystemStats — a pump missing here is billed
+// nothing while still counting as a pump everywhere else.
+const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']);
 
 /**
  * Facility-wide passive revenue for one tick: base grant + research passive
@@ -70,12 +73,18 @@ export function computeTickUpkeep(state) {
   let pumpCount = 0;
   let equipDraw = 0;
   for (const p of (state.placeables || [])) {
-    if (p.category !== 'equipment') continue;
+    // Pumps, RF sources, chillers, etc. are kind 'infrastructure' in the
+    // unified placement registry; lab devices are kind 'equipment'. Both
+    // draw power while placed, and all PUMP_TYPES ids are infrastructure.
+    if (p.category !== 'equipment' && p.category !== 'infrastructure') continue;
     if (PUMP_TYPES.has(p.type)) pumpCount++;
     equipDraw += (COMPONENTS[p.type]?.energyCost || 0);
   }
   const pumpUpkeep = pumpCount * ECON.pumpUpkeepEach;
-  const beamDraw = state.beamOn ? (state.totalEnergyCost || 0) : 0;
+  // state.totalEnergyCost already sums only the beamlines that are actually
+  // running (see Game._updateAggregateBeamline) — no global beamOn gate, which
+  // used to bill stopped beamlines whenever any one beamline ran.
+  const beamDraw = state.totalEnergyCost || 0;
   const powerBill = ECON.powerBillPerKW * (equipDraw + beamDraw);
   return { staffCost, pumpUpkeep, powerBill, total: staffCost + pumpUpkeep + powerBill };
 }
@@ -87,7 +96,13 @@ export function computeTickUpkeep(state) {
 // load math; this file just produces rough summary stats for the HUD.
 
 export function computeSystemStats(state) {
-  const equip = (state.placeables || []).filter(p => p.category === 'equipment');
+  // Pumps, chillers, cold boxes and RF sources are placed with kind (and so
+  // category) 'infrastructure'; 'equipment' is lab devices. Both count here,
+  // exactly as in computeTickUpkeep — filtering to 'equipment' alone left
+  // the HUD reporting zero pumps/draw for hardware the player is billed for.
+  const equip = (state.placeables || []).filter(
+    p => p.category === 'equipment' || p.category === 'infrastructure',
+  );
   const beamline = state.beamline || [];
 
   // Count facility equipment by type

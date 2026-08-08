@@ -11,7 +11,7 @@ export function generateRealLab() {
   const addWall = (col, row, edge, type) => walls.push({ col, row, edge, type });
   const addDoor = (col, row, edge, type = 'officeDoor') => doors.push({ col, row, edge, type });
   const addFurn = (type, col, row, subCol = 1, subRow = 1, dir = 0) => {
-    placeables.push({ id: `pl_${nextId++}`, type, col, row, subCol, subRow, dir, kind: 'furnishing' });
+    placeables.push({ id: `fn_${nextId++}`, type, col, row, subCol, subRow, dir, kind: 'furnishing' });
   };
   const originCol = -6, originRow = -2;
   const W = 14, H = 10;

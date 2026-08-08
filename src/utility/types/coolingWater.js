@@ -19,7 +19,13 @@ export default {
   color: '#4488ff',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.04,
-  capacityUnit: 'L/min',
+  // Capacity and heatLoad are both kW of heat moved (Phase 7 tuning:
+  // lcwSkid 100 → chiller 300 → coolingTower 800); litres only track the
+  // reservoir level.
+  capacityUnit: 'kW',
+  // Per-port param names the inspector reads for its source/sink rows.
+  capacityParam: 'capacity',
+  demandParam: 'heatLoad',
   persistentStateDefaults: { reservoirVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(

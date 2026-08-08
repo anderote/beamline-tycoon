@@ -268,6 +268,9 @@ function showScenarioPicker(game) {
         if (restoredCat?.group) renderer._facilityGroup = restoredCat.group;
       }
       input.setActiveMode(restoredView.activeMode);
+      // setActiveMode does not rebuild the tab bar, so without this the bar
+      // still shows the mode init() built and the restored tab is missing.
+      renderer._generateCategoryTabs?.();
       if (restoredView.selectedCategory) {
         input.selectedCategory = restoredView.selectedCategory;
         renderer.updatePalette(restoredView.selectedCategory);

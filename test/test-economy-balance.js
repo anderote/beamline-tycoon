@@ -26,7 +26,7 @@ import { OBJECTIVES } from '../src/data/objectives.js';
 import { wireUtility } from '../src/data/scenarios/scenario-wiring.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { createStaffMember } from '../src/game/staff/staffSystem.js';
-import { computeTickUpkeep } from '../src/game/economy.js';
+import { computeTickUpkeep, computeSystemStats } from '../src/game/economy.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -216,6 +216,114 @@ function measure(game, ticks) {
     `late-game upkeep fraction 20-70% of gross (got ${(100 * frac).toFixed(1)}%)`);
   assert(m.dFunds > 0, `late-game still net-positive (${(m.dFunds / 700).toFixed(1)}/t)`);
   assert(m.refills > 0, `reservoir refills occurred ($${m.refills})`);
+}
+
+// ---------------------------------------------------------------------------
+// D: pump service + infrastructure electricity are live upkeep streams.
+// Regression: computeTickUpkeep skipped every non-'equipment' placeable, but
+// all PUMP_TYPES ids and the high-draw utility sources (magnetron, chillers,
+// amps) are kind 'infrastructure' — so pump service and the infrastructure
+// power bill were permanently $0.
+// ---------------------------------------------------------------------------
+realLog('\n--- D: infrastructure placeables are billed ---');
+{
+  const state = {
+    staff: {},
+    staffCosts: {},
+    beamOn: false,
+    placeables: [
+      { category: 'infrastructure', type: 'turboPump' },
+      { category: 'infrastructure', type: 'magnetron' },
+    ],
+  };
+  const u = computeTickUpkeep(state);
+  assert(u.pumpUpkeep > 0, `infrastructure pump billed for service (got $${u.pumpUpkeep})`);
+  assert(u.powerBill > 0, `infrastructure energyCost billed (got $${u.powerBill})`);
+}
+
+// ---------------------------------------------------------------------------
+// E: every vacuum pump is billed, and the Systems panel counts the same
+// hardware the bill charges for.
+// Regression: PUMP_TYPES omitted tiSubPump (the one free pump), and
+// computeSystemStats filtered category === 'equipment' only — so pumps,
+// chillers and RF sources (all kind 'infrastructure') read as absent in the
+// HUD while computeTickUpkeep charged for them.
+// ---------------------------------------------------------------------------
+realLog('\n--- E: pump billing and Systems-panel counts agree ---');
+{
+  for (const type of ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']) {
+    const u = computeTickUpkeep({
+      staff: {}, staffCosts: {}, beamOn: false,
+      placeables: [{ category: 'infrastructure', type }],
+    });
+    assert(u.pumpUpkeep > 0, `${type} pays pump service (got $${u.pumpUpkeep})`);
+  }
+
+  const ss = computeSystemStats({
+    placeables: [
+      { category: 'infrastructure', type: 'turboPump' },
+      { category: 'infrastructure', type: 'chiller' },
+      { category: 'infrastructure', type: 'magnetron' },
+    ],
+    beamline: [],
+  });
+  assert(ss.vacuum.pumpCount === 1, `Systems panel sees the pump (got ${ss.vacuum.pumpCount})`);
+  assert(ss.vacuum.totalPumpSpeed > 0, `pump speed reported (got ${ss.vacuum.totalPumpSpeed})`);
+  assert(ss.power.totalDraw > 0, `energy draw reported (got ${ss.power.totalDraw})`);
+}
+
+// ---------------------------------------------------------------------------
+// F: the no-Pyodide fallback cannot report a beam quality above 1.
+// Regression: _fallbackStatsForBeamline seeded quality at 1 then ADDED each
+// component's stats.beamQuality, so diagnostics-heavy lines paid income at up
+// to ~2x the intended maximum — and this is the only path that runs headless,
+// i.e. the one the balance numbers above are measured against.
+// ---------------------------------------------------------------------------
+realLog('\n--- F: fallback beam quality is clamped to [0, 1] ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 5 });
+  const entry = { beamState: {} };
+  const qualityComponents = ['sextupole', 'velocitySelector', 'emittanceFilter',
+    'aperture', 'bpm', 'screen', 'wireScanner']
+    .filter(t => COMPONENTS[t]?.stats?.beamQuality)
+    .map(t => ({ type: t, stats: COMPONENTS[t].stats }));
+  assert(qualityComponents.length > 2,
+    `setup: ${qualityComponents.length} quality-contributing components`);
+  game._fallbackStatsForBeamline(entry, qualityComponents);
+  assert(entry.beamState.beamQuality <= 1,
+    `fallback quality clamped (got ${entry.beamState.beamQuality})`);
+  assert(entry.beamState.dataRate <= 1e9, 'dataRate scaled by the clamped quality');
+}
+
+realLog('\n--- G: electricity is billed per running beamline ---');
+
+// Regression: the aggregate summed every registry entry's draw regardless of
+// status and billed it behind one global `beamOn` flag, so a stopped 300 kW
+// beamline was charged full power whenever a different beamline ran — and
+// stopping the running one zeroed the whole facility's beam power bill.
+{
+  const g = mkGame(77);
+  g.state.infraCanRun = true;
+  const a = g.registry.createBeamline('linac', null);
+  const b = g.registry.createBeamline('linac', null);
+  a.beamState.totalEnergyCost = 100;
+  b.beamState.totalEnergyCost = 300;
+
+  const billFor = (statusA, statusB) => {
+    a.status = statusA;
+    b.status = statusB;
+    g._updateAggregateBeamline();
+    return computeTickUpkeep(g.state).powerBill;
+  };
+
+  const perKW = computeTickUpkeep({ placeables: [], totalEnergyCost: 1 }).powerBill;
+  assert(billFor('stopped', 'stopped') === 0, 'nothing running → no beam power bill');
+  assert(billFor('running', 'stopped') === 100 * perKW,
+    `only the running beamline is billed (got $${billFor('running', 'stopped')})`);
+  assert(billFor('stopped', 'running') === 300 * perKW,
+    `stopping the other beamline does not zero this one's bill (got $${billFor('stopped', 'running')})`);
+  assert(billFor('running', 'running') === 400 * perKW,
+    `both running bills both (got $${billFor('running', 'running')})`);
 }
 
 realLog(`\n${passed} passed, ${failed} failed`);

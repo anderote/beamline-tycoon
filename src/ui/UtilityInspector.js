@@ -14,6 +14,7 @@ import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
+import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { escapeHtml } from './format.js';
 
 // Titlebar accent derives from the utility's registry color (the single
@@ -147,15 +148,20 @@ export class UtilityInspector {
     let html = `<div style="padding:4px 2px;font-size:12px;line-height:1.5">`;
     html += `<div style="font-size:10px;opacity:0.6;word-break:break-all"><strong>Network ID:</strong> ${escapeHtml(this.networkId)}</div>`;
     html += `<div><strong>Capacity:</strong> ${totalCapacity.toFixed(1)} ${escapeHtml(desc.capacityUnit || '')}</div>`;
-    html += `<div><strong>Demand:</strong> ${totalDemand.toFixed(1)} ${escapeHtml(desc.capacityUnit || '')}</div>`;
+    html += `<div><strong>Demand:</strong> ${totalDemand.toFixed(1)} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</div>`;
     html += `<div style="margin-top:6px">${pctBar(util, 180)}</div>`;
 
     // Sources
     if (network.sources && network.sources.length) {
       html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
       html += `<div><strong>Sources (${network.sources.length}):</strong></div>`;
+      // Descriptors name their own per-port params (cryo carries capacity as
+      // coldCapacityW, vacuum as pumpSpeed, ...); network-discovery only
+      // mirrors params.capacity/params.demand onto the port, so reading those
+      // alone rendered a literal 0 next to correct header totals.
+      const capParam = desc.capacityParam || 'capacity';
       for (const s of network.sources) {
-        const cap = (s.params && s.params.capacity) != null ? s.params.capacity : s.capacity;
+        const cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
         html += `<div style="font-size:11px;opacity:0.85;padding:1px 0">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
           <span style="opacity:0.6">· ${escapeHtml(s.portName)}</span>
@@ -168,8 +174,9 @@ export class UtilityInspector {
     if (network.sinks && network.sinks.length) {
       html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
       html += `<div><strong>Sinks (${network.sinks.length}):</strong></div>`;
+      const demParam = desc.demandParam || 'demand';
       for (const s of network.sinks) {
-        const dem = (s.params && (s.params.demand != null ? s.params.demand : s.params.heatLoad)) || s.demand || 0;
+        const dem = (s.params && s.params[demParam] != null ? s.params[demParam] : s.demand) || 0;
         const q = flow.perSinkQuality ? flow.perSinkQuality[s.portKey] : undefined;
         const qStr = (q !== undefined)
           ? ` <span style="color:${qualityColor(q)}">(${(q * 100).toFixed(0)}%)</span>`
@@ -177,7 +184,7 @@ export class UtilityInspector {
         html += `<div style="font-size:11px;opacity:0.85;padding:1px 0">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
           <span style="opacity:0.6">· ${escapeHtml(s.portName)}</span>
-          <span style="opacity:0.7">· ${dem} ${escapeHtml(desc.capacityUnit || '')}</span>${qStr}
+          <span style="opacity:0.7">· ${dem} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</span>${qStr}
         </div>`;
       }
     }
@@ -268,18 +275,30 @@ export class UtilityInspector {
   }
 
   _placeableLabel(id) {
-    const placeable = this.game.state.placeables.find(p => p.id === id);
+    // Endpoints, not placeables: a network member can be a component carried
+    // on a beam pipe (see utility/utility-endpoints.js).
+    const placeable = findUtilityEndpoint(this.game.state, id);
     if (!placeable) return id;
     const def = COMPONENTS[placeable.type];
     return (def && def.name) ? def.name : placeable.type;
   }
 
   /**
-   * Rebuild the network object on demand using network-discovery.
-   * Cheap enough for per-render — the cost is O(lines + ports), and the
-   * inspector only renders a handful of times per tick.
+   * The network object for this window. SolveRunner publishes the full
+   * discovery result as state.utilityNetworks on every solve pass, so read
+   * that first: re-running discoverNetworks here costs O(all same-type lines
+   * × path length) — the spatial join expands every path into subtiles — and
+   * this method runs on every 'tick' for every open inspector.
+   *
+   * Falls back to a fresh discovery when the cache can't answer: it is null
+   * before the first solve, and one pass stale on 'utilityLinesChanged'.
    */
   _reconstructNetwork(state, utilityType, networkId) {
+    const cached = state.utilityNetworks && state.utilityNetworks.get
+      ? state.utilityNetworks.get(utilityType)
+      : null;
+    const hit = cached ? cached.find(n => n.id === networkId) : null;
+    if (hit) return hit;
     const lookup = makeDefaultPortLookup(state);
     const nets = discoverNetworks(utilityType, state.utilityLines || new Map(), lookup);
     return nets.find(n => n.id === networkId) || null;

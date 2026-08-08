@@ -45,12 +45,15 @@ function makeLookup(specs) {
   return lookup;
 }
 
-function makeLine(id, utilityType, aId, aPort, bId, bPort) {
+// `path` defaults to a shared stub tile pair; pass disjoint paths when a test
+// needs lines joined only through shared ports (discovery also unions lines
+// that touch spatially).
+function makeLine(id, utilityType, aId, aPort, bId, bPort, path = null) {
   return {
     id, utilityType,
     start: { placeableId: aId, portName: aPort },
     end:   { placeableId: bId, portName: bPort },
-    path:  [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    path:  path || [{ col: 0, row: 0 }, { col: 1, row: 0 }],
     subL:  4,
   };
 }
@@ -299,6 +302,122 @@ console.log('\n--- Test 6: aggregated descriptor errors ---');
   const codes = result.errors.map(e => e.code).sort();
   assert(codes[0] === 'no_supply' && codes[1] === 'over_demand',
     `codes preserved (got ${codes.join(',')})`);
+}
+
+// ==========================================================================
+// Test 7: persistent-state continuity + pruning across topology edits.
+// Network ids are content-hashed from port membership, so wiring in a new
+// sink re-hashes the id. Regression: the old entry used to be abandoned
+// (fresh defaults = free full reservoir) and orphaned in the map forever.
+// ==========================================================================
+console.log('\n--- Test 7: topology edit migrates persistent state, prunes orphans ---');
+{
+  const specs = {
+    src:  { out: { utility: 'fake', side: 'right', role: 'source', params: { capacity: 100 } } },
+    dst:  { in:  { utility: 'fake', side: 'left',  role: 'sink',   params: { demand: 50 } } },
+    dst2: { in:  { utility: 'fake', side: 'left',  role: 'sink',   params: { demand: 10 } } },
+  };
+  const state = makeState([ makeLine('L1', 'fake', 'src', 'out', 'dst', 'in') ]);
+  const descriptor = {
+    type: 'fake',
+    persistentStateDefaults: { reservoir: 100 },
+    solve(network, persistent) {
+      return {
+        flowState: {},
+        nextPersistentState: { reservoir: persistent.reservoir - 1 },
+        errors: [],
+      };
+    },
+  };
+  const registry = { types: { fake: descriptor }, list: ['fake'] };
+  const runner = new SolveRunner({
+    state, registry, portLookup: makeLookup(specs),
+  });
+
+  runner.runSolve();
+  runner.runSolve();
+  const [oldId] = Array.from(state.utilityNetworkState.keys());
+  assert(state.utilityNetworkState.get(oldId).reservoir === 98,
+    `reservoir drained to 98 (got ${state.utilityNetworkState.get(oldId).reservoir})`);
+
+  // Wire a second sink into the same network → new port set → new id.
+  state.utilityLines.set('L2', makeLine('L2', 'fake', 'src', 'out', 'dst2', 'in'));
+  runner.markTopologyDirty();
+  runner.runSolve();
+
+  const ids = Array.from(state.utilityNetworkState.keys());
+  assert(ids.length === 1, `exactly 1 persisted entry after edit (got ${ids.length})`);
+  assert(ids[0] !== oldId, 'network id re-hashed by the topology edit');
+  assert(state.utilityNetworkState.get(ids[0]).reservoir === 97,
+    `reservoir carried across the id change, not reset to defaults (got ${state.utilityNetworkState.get(ids[0]).reservoir})`);
+
+  // Remove every line → no networks → all entries pruned on next discovery.
+  state.utilityLines.clear();
+  runner.markTopologyDirty();
+  runner.runSolve();
+  assert(state.utilityNetworkState.size === 0,
+    `orphaned entries pruned (got ${state.utilityNetworkState.size})`);
+}
+
+// ==========================================================================
+// Test 8: a network that SPLITS divides its persistent state between the two
+// halves. Regression: adoption was strictly 1:1 (the winning orphan was
+// deleted), so the half that lost re-solved from persistentStateDefaults — a
+// free full reservoir, minted by cutting one line and re-drawing it. The
+// reverse edit (two networks joined) must sum, not discard.
+// ==========================================================================
+console.log('\n--- Test 8: split/merge conserves persistent state ---');
+{
+  const specs = {
+    src:  { out: { utility: 'fake', side: 'right', role: 'source', params: { capacity: 100 } } },
+    a:    { in:  { utility: 'fake', side: 'left',  role: 'sink',   params: { demand: 10 } } },
+    b:    { in:  { utility: 'fake', side: 'left',  role: 'sink',   params: { demand: 10 } } },
+    c:    { in:  { utility: 'fake', side: 'left',  role: 'sink',   params: { demand: 10 } } },
+  };
+  // src—a—b—c chained by L1/L2/L3; cutting L2 splits it into {src,a} + {b,c}.
+  const state = makeState([
+    makeLine('L1', 'fake', 'src', 'out', 'a', 'in', [{ col: 0, row: 0 }, { col: 1, row: 0 }]),
+    makeLine('L2', 'fake', 'a', 'in', 'b', 'in', [{ col: 4, row: 0 }, { col: 5, row: 0 }]),
+    makeLine('L3', 'fake', 'b', 'in', 'c', 'in', [{ col: 8, row: 0 }, { col: 9, row: 0 }]),
+  ]);
+  const descriptor = {
+    type: 'fake',
+    persistentStateDefaults: { reservoir: 100 },
+    solve(network, persistent) {
+      return { flowState: {}, nextPersistentState: { reservoir: persistent.reservoir }, errors: [] };
+    },
+  };
+  const runner = new SolveRunner({
+    state, registry: { types: { fake: descriptor }, list: ['fake'] },
+    portLookup: makeLookup(specs),
+  });
+
+  runner.runSolve();
+  const [wholeId] = Array.from(state.utilityNetworkState.keys());
+  // Drain it so the "free refill" would be unmistakable.
+  state.utilityNetworkState.get(wholeId).reservoir = 40;
+
+  state.utilityLines.delete('L2');
+  runner.markTopologyDirty();
+  runner.runSolve();
+
+  const halves = Array.from(state.utilityNetworkState.values());
+  assert(halves.length === 2, `the network split in two (got ${halves.length})`);
+  const total = halves.reduce((a, e) => a + e.reservoir, 0);
+  assert(Math.abs(total - 40) < 1e-9,
+    `reservoir divided between the halves, not re-defaulted (got ${halves.map(h => h.reservoir).join(' + ')} = ${total})`);
+  assert(halves.every(h => h.reservoir < 100),
+    'neither half got a free full reservoir');
+
+  // Re-draw the cut line: the halves merge back into one network and their
+  // contents are summed, not silently dropped.
+  state.utilityLines.set('L2', makeLine('L2', 'fake', 'a', 'in', 'b', 'in', [{ col: 4, row: 0 }, { col: 5, row: 0 }]));
+  runner.markTopologyDirty();
+  runner.runSolve();
+  const merged = Array.from(state.utilityNetworkState.values());
+  assert(merged.length === 1, `halves merged back into one network (got ${merged.length})`);
+  assert(Math.abs(merged[0].reservoir - 40) < 1e-9,
+    `cut + reconnect is reservoir-neutral (got ${merged[0].reservoir})`);
 }
 
 // ==========================================================================

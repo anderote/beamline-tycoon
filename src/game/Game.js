@@ -53,6 +53,39 @@ const SERIALIZED_FIELDS = [
   'savedDesigns', 'savedDesignNextId',
 ];
 
+// State the sim owns, which undo/redo must not rewind. The tick loop keeps
+// running while the player builds, so restoring these from a snapshot taken
+// N ticks ago would erase N ticks of clock, research, objectives, staff
+// needs and log along with the build. `resources` is reconciled separately
+// (see _syncResourceLedger): undo restores the snapshot's balance plus every
+// non-gesture credit/debit since, so a build's cost comes back without also
+// reclaiming the upkeep the facility paid while the build stood.
+// `savedDesigns` is not sim state but is equally outside the undo model: the
+// designer library saves/deletes outside any gesture (no _pushUndo), so
+// restoring it would silently destroy a design saved after the last snapshot
+// (and resurrect one deleted after it).
+const UNDO_PRESERVED_FIELDS = [
+  'tick', 'paused', 'speed', 'log',
+  'activeResearch', 'researchProgress', 'completedResearch',
+  'completedObjectives', 'discoveries',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'savedDesigns', 'savedDesignNextId',
+];
+
+// Per-beamline sim accumulators on registry entries. Same rule as
+// UNDO_PRESERVED_FIELDS, one level down: the registry snapshot has to be
+// restored (entry creation/deletion is gesture state) but these fields are
+// the sim's, not the gesture's. Rewinding componentHealth would make Ctrl+Z
+// a free repair of the whole facility, and rewinding beamOnTicks under a
+// preserved state.tick permanently corrupts uptimeFraction.
+const BEAMSTATE_PRESERVED_FIELDS = [
+  'componentHealth', 'beamOnTicks', 'continuousBeamTicks',
+  'totalBeamHours', 'totalDataCollected', 'uptimeFraction',
+];
+
+// Stand-in log used while building an undo snapshot (see _snapshot).
+const EMPTY_LOG = [];
+
 // mulberry32 — small fast seeded PRNG. All sim randomness flows through
 // game.rng so two Games built with the same seed evolve identically.
 function mulberry32(seed) {
@@ -160,6 +193,9 @@ export class Game {
     };
 
     this.listeners = [];
+    // Event coalescing for batch mutations (see _batchEvents): while set,
+    // emit() collects events here instead of dispatching them.
+    this._eventBatch = null;
     // Pluggable save sections (see registerSerializer). key -> {save, load}
     this._serializers = new Map();
     this.tickInterval = null;
@@ -173,6 +209,12 @@ export class Game {
     this._undoStack = [];
     this._redoStack = [];
     this._UNDO_MAX = 20;
+    // Resource accounting for undo (see _syncResourceLedger): running total
+    // of every credit/debit undo must NOT reverse, plus the balance as of
+    // the last attribution boundary and whether a _pushUndo gesture is open.
+    this._resourceLedger = {};
+    this._resourceMark = { ...this.state.resources };
+    this._undoGestureOpen = false;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.seed = seed;
@@ -359,7 +401,33 @@ export class Game {
     const idx = this.listeners.indexOf(fn);
     if (idx !== -1) this.listeners.splice(idx, 1);
   }
-  emit(event, data) { this.listeners.forEach(fn => fn(event, data)); }
+  emit(event, data) {
+    if (this._eventBatch) { this._eventBatch.set(event, data); return; }
+    this.listeners.forEach(fn => fn(event, data));
+  }
+
+  /**
+   * Coalesce emits while `fn` runs. Per-tile helpers (removeInfraTile,
+   * removeZoneTile, removePlaceable, ...) each emit their own events, so a
+   * rect sweep would otherwise trigger a full renderer rebuild per tile.
+   * Events are deduped by name (last data wins, first-seen order) and
+   * dispatched once after `fn` returns. Nested calls flush at the outermost
+   * batch. Listeners re-read state, so dedup is safe: log lines still land
+   * in state.log, and the UI re-renders from state on the single dispatch.
+   */
+  _batchEvents(fn) {
+    if (this._eventBatch) return fn(); // nested — outer batch flushes
+    this._eventBatch = new Map();
+    let result;
+    try {
+      result = fn();
+    } finally {
+      const batch = this._eventBatch;
+      this._eventBatch = null;
+      for (const [event, data] of batch) this.emit(event, data);
+    }
+    return result;
+  }
 
   log(msg, type = '') {
     this.state.log.unshift({ msg, type, tick: this.state.tick });
@@ -384,18 +452,107 @@ export class Game {
   // Undo works on full-state snapshots: _pushUndo() captures serialize()
   // output (everything a save captures — placeables, beamPipes, terrain,
   // utility lines, registry, ...), and undo()/redo() restore it via
-  // restoreSnapshot(). Input controllers call _pushUndo() once per user
-  // gesture, BEFORE mutating; Game mutation methods never push (they also
-  // run programmatically from scenario generation, BeamlineSystem, load).
+  // restoreSnapshot(). Input controllers wrap each user gesture's mutations
+  // in _withUndo() (or call _pushUndo() directly when the gesture is known
+  // to mutate); Game mutation methods never push (they also run
+  // programmatically from scenario generation, BeamlineSystem, load).
+  //
+  // These parts of the payload are deliberately not restored:
+  //   - the message log (snapshots are taken log-free, see _snapshot)
+  //   - sim progress (UNDO_PRESERVED_FIELDS + the resource ledger below,
+  //     plus BEAMSTATE_PRESERVED_FIELDS on each registry entry)
+  //   - the RNG stream position (see _applyState) — rewinding it would let
+  //     undo/redo re-roll wear failures and discoveries
+  //   - the designer library (savedDesigns), which is saved outside any
+  //     gesture and so has no undo entry of its own
+
+  /**
+   * Snapshot payload for the undo stacks: serialize() with the message log
+   * stripped. The log is not undoable state — Ctrl+Z must not delete log
+   * lines — and leaving it in would make every logged rejection ("Need $252
+   * for 9 tiles!") read as a mutation in _withUndo's change test.
+   */
+  _snapshot() {
+    const log = this.state.log;
+    this.state.log = EMPTY_LOG;
+    try { return this.serialize(); } finally { this.state.log = log; }
+  }
+
+  /** An undo/redo stack entry: the snapshot plus the resource ledger it was
+   *  taken against (see _syncResourceLedger). */
+  _makeUndoEntry() {
+    return { payload: this._snapshot(), ledger: { ...this._resourceLedger } };
+  }
+
+  /**
+   * Fold resource drift since the last mark into _resourceLedger — the
+   * running total of credits/debits undo must NOT reverse (tick income and
+   * upkeep, hires, research spend). Changes made while a _pushUndo() gesture
+   * is open are attributed to that gesture instead (marked, not folded) so
+   * undo still refunds what the gesture spent. Called at every point where
+   * attribution can change: gesture start, and undo/redo.
+   */
+  _syncResourceLedger() {
+    const res = this.state.resources || {};
+    if (!this._undoGestureOpen) {
+      for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
+        this._resourceLedger[k] = (this._resourceLedger[k] || 0)
+          + ((res[k] || 0) - (this._resourceMark[k] || 0));
+      }
+    }
+    this._undoGestureOpen = false;
+    this._resourceMark = { ...res };
+  }
+
+  /** Stop attributing resource changes to the gesture that just ended. */
+  _closeUndoGesture() {
+    this._undoGestureOpen = false;
+    this._resourceMark = { ...this.state.resources };
+  }
 
   /** Snapshot the full game state onto the undo stack. Call at the start
    *  of a user gesture, before any mutation. Clears the redo stack. */
   _pushUndo() {
-    this._undoStack.push(this.serialize());
+    this._syncResourceLedger();
+    this._undoStack.push(this._makeUndoEntry());
     if (this._undoStack.length > this._UNDO_MAX) {
       this._undoStack.shift();
     }
     this._redoStack.length = 0;
+    // Everything the caller mutates from here belongs to this gesture, not
+    // to the ledger. Unlike _withUndo there is no "after" hook, so the
+    // gesture closes at the end of the current task: its mutations all run
+    // synchronously in the same event handler, while tick() and later
+    // gestures are separate tasks whose spending must stay in the ledger.
+    this._undoGestureOpen = true;
+    queueMicrotask(() => this._closeUndoGesture());
+  }
+
+  /**
+   * Run one user gesture's mutations with undo capture. Snapshots before
+   * running `fn` and commits the snapshot (clearing the redo stack) only if
+   * `fn` actually changed the serialized state. No-op gestures — miss
+   * clicks, empty drag rects, failed placements — must neither fill the
+   * capped undo stack with identical snapshots nor clobber the redo stack.
+   * Returns fn's result.
+   */
+  _withUndo(fn) {
+    this._syncResourceLedger();
+    const entry = this._makeUndoEntry();
+    let result;
+    try {
+      result = fn();
+    } finally {
+      if (this._snapshot() !== entry.payload) {
+        this._undoStack.push(entry);
+        if (this._undoStack.length > this._UNDO_MAX) {
+          this._undoStack.shift();
+        }
+        this._redoStack.length = 0;
+      }
+      this._closeUndoGesture();
+    }
+    return result;
   }
 
   undo() {
@@ -403,9 +560,10 @@ export class Game {
       this.log('Nothing to undo', 'info');
       return;
     }
-    const snap = this._undoStack.pop();
-    this._redoStack.push(this.serialize());
-    this.restoreSnapshot(snap);
+    this._syncResourceLedger();
+    const entry = this._undoStack.pop();
+    this._redoStack.push(this._makeUndoEntry());
+    this.restoreSnapshot(entry);
     this.log('Undo', 'info');
   }
 
@@ -414,10 +572,11 @@ export class Game {
       this.log('Nothing to redo', 'info');
       return;
     }
-    const snap = this._redoStack.pop();
+    this._syncResourceLedger();
+    const entry = this._redoStack.pop();
     // Push directly (not _pushUndo) — _pushUndo would clear the redo stack.
-    this._undoStack.push(this.serialize());
-    this.restoreSnapshot(snap);
+    this._undoStack.push(this._makeUndoEntry());
+    this.restoreSnapshot(entry);
     this.log('Redo', 'info');
   }
 
@@ -638,85 +797,91 @@ export class Game {
       return false;
     }
 
-    // Place all tiles
+    // Place all tiles. Batched: paving over a grove removes one decoration
+    // per tile, and each removal emits 'placeableChanged' — which costs the
+    // renderer a full teardown + rebuild of every decoration group. Mirrors
+    // removeInfraRect's sweep; the post-loop 'infrastructureChanged' is
+    // deduped into the same single dispatch.
     let placed = 0;
-    for (let c = minCol; c <= maxCol; c++) {
-      for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
-        const existing = this.state.infraOccupied[key];
-        // Same-type orientable: just update orientation for free
-        if (existing === infraType && infra.orientable) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          if (existingTile) existingTile.orientation = orientation;
-          placed++;
-          continue;
-        }
-        // Same type — update variant for free if it differs, otherwise skip
-        if (existing === infraType) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          if (existingTile && existingTile.variant !== variant) {
-            existingTile.variant = variant;
+    this._batchEvents(() => {
+      for (let c = minCol; c <= maxCol; c++) {
+        for (let r = minRow; r <= maxRow; r++) {
+          const key = c + ',' + r;
+          const existing = this.state.infraOccupied[key];
+          // Same-type orientable: just update orientation for free
+          if (existing === infraType && infra.orientable) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            if (existingTile) existingTile.orientation = orientation;
             placed++;
+            continue;
           }
-          continue;
-        }
-        if (infra.requiresFoundation) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          const baseType = existingTile?.foundation || existing;
-          if (baseType !== infra.requiresFoundation) continue;
-        }
-        // Auto-remove any decoration (including trees). Charge the tree's
-        // removeCost on top of the tile cost; destruction skips the normal
-        // 50% refund so the actual spend matches the preview total.
-        // Natural grass variants set preservesDecorations: trees stay.
-        let perTileExtra = 0;
-        const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
-        if (existingDec) {
-          const decDef = DECORATIONS[existingDec.type];
-          perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
-          this.removeDecoration(c, r, { skipRefund: true });
-        }
-        // Track foundation for surface tiles
-        let foundation = null;
-        if (infra.requiresFoundation && existing) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          foundation = existingTile?.foundation || existing;
-        }
-        if (existing) {
-          // Replace existing floor - remove old tile
-          this.state.floors = this.state.floors.filter(
-            t => !(t.col === c && t.row === r)
-          );
-          // Remove zone on this tile since floor is changing
-          if (this.state.zoneOccupied?.[key]) {
-            delete this.state.zoneOccupied[key];
-            this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+          // Same type — update variant for free if it differs, otherwise skip
+          if (existing === infraType) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            if (existingTile && existingTile.variant !== variant) {
+              existingTile.variant = variant;
+              placed++;
+            }
+            continue;
           }
+          if (infra.requiresFoundation) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            const baseType = existingTile?.foundation || existing;
+            if (baseType !== infra.requiresFoundation) continue;
+          }
+          // Auto-remove any decoration (including trees). Charge the tree's
+          // removeCost on top of the tile cost; destruction skips the normal
+          // 50% refund so the actual spend matches the preview total.
+          // Natural grass variants set preservesDecorations: trees stay.
+          let perTileExtra = 0;
+          const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
+          if (existingDec) {
+            const decDef = DECORATIONS[existingDec.type];
+            perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
+            this.removeDecoration(c, r, { skipRefund: true });
+          }
+          // Track foundation for surface tiles
+          let foundation = null;
+          if (infra.requiresFoundation && existing) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            foundation = existingTile?.foundation || existing;
+          }
+          if (existing) {
+            // Replace existing floor - remove old tile
+            this.state.floors = this.state.floors.filter(
+              t => !(t.col === c && t.row === r)
+            );
+            // Remove zone on this tile since floor is changing
+            if (this.state.zoneOccupied?.[key]) {
+              delete this.state.zoneOccupied[key];
+              this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+            }
+          }
+          this.state.resources.funding -= tileCostForVariant + perTileExtra;
+          const tileEntry = { type: infraType, col: c, row: r, variant };
+          if (foundation) tileEntry.foundation = foundation;
+          if (orientation) tileEntry.orientation = orientation;
+          this.state.floors.push(tileEntry);
+          this.state.infraOccupied[key] = infraType;
+          // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
+          if (infraType === 'concrete') {
+            setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
+          }
+          placed++;
         }
-        this.state.resources.funding -= tileCostForVariant + perTileExtra;
-        const tileEntry = { type: infraType, col: c, row: r, variant };
-        if (foundation) tileEntry.foundation = foundation;
-        if (orientation) tileEntry.orientation = orientation;
-        this.state.floors.push(tileEntry);
-        this.state.infraOccupied[key] = infraType;
-        // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
-        if (infraType === 'concrete') {
-          setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
-        }
-        placed++;
       }
-    }
 
-    if (placed > 0) {
-      this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
-      this.emit('infrastructureChanged');
-      // Hallway changes affect zone connectivity
-      if (infraType === 'hallway') {
-        this.recomputeZoneConnectivity();
-        this.emit('zonesChanged');
+      if (placed > 0) {
+        this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
+        this.emit('infrastructureChanged');
+        // Hallway changes affect zone connectivity
+        if (infraType === 'hallway') {
+          this.recomputeZoneConnectivity();
+          this.emit('zonesChanged');
+        }
+        this.validateInfrastructure();
       }
-      this.validateInfrastructure();
-    }
+    });
     return placed > 0;
   }
 
@@ -1164,12 +1329,18 @@ export class Game {
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
 
+    // Batch: removeInfraTile emits 'infrastructureChanged' (and possibly
+    // 'zonesChanged') per tile, each triggering a full terrain rebuild in
+    // the renderer. Coalesce to one emit per event for the whole rect,
+    // mirroring placeInfraRect's single post-loop emit.
     let removed = 0;
-    for (let c = minCol; c <= maxCol; c++) {
-      for (let r = minRow; r <= maxRow; r++) {
-        if (this.removeInfraTile(c, r)) removed++;
+    this._batchEvents(() => {
+      for (let c = minCol; c <= maxCol; c++) {
+        for (let r = minRow; r <= maxRow; r++) {
+          if (this.removeInfraTile(c, r)) removed++;
+        }
       }
-    }
+    });
     if (removed > 0) {
       this.log(`Removed ${removed} floor tiles`, 'info');
     }
@@ -1183,17 +1354,21 @@ export class Game {
     if (idx !== -1) {
       this.state.zones.splice(idx, 1);
       delete this.state.zoneOccupied[key];
-      // Remove ALL furnishings on this tile
-      const tileFurnishings = this.state.zoneFurnishings.filter(e => e.col === col && e.row === row);
-      for (const f of tileFurnishings) {
-        const fDef = ZONE_FURNISHINGS[f.type];
-        if (fDef) this.state.resources.funding += Math.floor(fDef.cost * 0.5);
-      }
-      this.state.zoneFurnishings = this.state.zoneFurnishings.filter(e => !(e.col === col && e.row === row));
-      delete this.state.zoneFurnishingSubgrids[key];
-      this._syncLegacyPlaceableState();
-      this.recomputeZoneConnectivity();
-      this.emit('zonesChanged');
+      // Remove ALL furnishings on this tile. These are ordinary placeables
+      // (state.zoneFurnishings is a derived view rebuilt from state.placeables
+      // by _syncLegacyPlaceableState), so they must go through removePlaceable:
+      // splicing the derived array leaves the furnishing alive, and the def's
+      // `cost` is an object ({funding: N}) — refunding it as a scalar produced
+      // NaN funding. _batchEvents coalesces the per-furnishing emits.
+      const tileFurnishingIds = this.state.zoneFurnishings
+        .filter(e => e.col === col && e.row === row)
+        .map(e => e.id);
+      this._batchEvents(() => {
+        for (const id of tileFurnishingIds) this.removePlaceable(id);
+        this._syncLegacyPlaceableState();
+        this.recomputeZoneConnectivity();
+        this.emit('zonesChanged');
+      });
       return true;
     }
     return false;
@@ -1522,6 +1697,31 @@ export class Game {
   }
 
   /**
+   * Recompute a ground-level placeable's footprint after its col/row/dir
+   * were mutated in place (MoveTool component drop): release the old
+   * subgrid claims, rederive `cells` from the new position, and claim the
+   * new subtiles. Stacked items keep their cells relative to the parent and
+   * never own subgrid entries, so they are left alone.
+   */
+  _rebuildPlaceableCells(entry) {
+    if (!entry || entry.stackParentId) return;
+    const def = PLACEABLES[entry.type];
+    if (!def) return;
+    for (const c of (entry.cells || [])) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      const occ = this.state.subgridOccupied[k];
+      if (occ && occ.id === entry.id) delete this.state.subgridOccupied[k];
+    }
+    entry.cells = def.footprintCells(
+      entry.col, entry.row, entry.subCol || 0, entry.subRow || 0, entry.dir || 0,
+    );
+    for (const c of entry.cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
+    }
+  }
+
+  /**
    * Remove a placeable by ID. Refunds 50% of cost.
    */
   removePlaceable(placeableId, opts = {}) {
@@ -1607,10 +1807,13 @@ export class Game {
     // the removed module) is no longer performed here — BeamlineSystem
     // handles port bookkeeping explicitly via removeJunction + its UI
     // controller, and the flattener tolerates open pipe ends.
+    let removedPipes = false;
     if (entry.category === 'beamline') {
+      const beforePipeCount = this.state.beamPipes.length;
       this.state.beamPipes = this.state.beamPipes.filter(
         p => p.start?.junctionId !== placeableId && p.end?.junctionId !== placeableId
       );
+      removedPipes = this.state.beamPipes.length !== beforePipeCount;
     }
 
     // Remove from array
@@ -1625,11 +1828,22 @@ export class Game {
       this._deriveBeamGraph();
     }
 
+    // Release any utility-line endpoints that referenced this placeable.
+    // (Mirrors _removePlaceableRaw — the two paths are parallel, neither
+    // delegates to the other, so each must release exactly once.)
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(placeableId);
+    }
+
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
     if (entry.category === 'furnishing') this.emit('zonesChanged');
+    // Connected pipes were pruned above; only 'beamlineChanged' triggers the
+    // renderer's beam-pipe refresh, so without it the deleted pipes' meshes
+    // linger as unclickable ghosts until the next full refresh.
+    if (removedPipes) this.emit('beamlineChanged');
     return true;
   }
 
@@ -1769,6 +1983,14 @@ export class Game {
       variant: entry.variant ?? 0,
     };
 
+    // The drop re-inserts through placePlaceable, which mints a NEW id, so
+    // any utility line attached here would be left pointing at a dead
+    // placeable forever (in state and in every save). Detach them, exactly
+    // as removePlaceable does.
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(placeableId);
+    }
+
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
@@ -1813,7 +2035,9 @@ export class Game {
           .map(p => p.id);
         this.state.beamPipes = (this.state.beamPipes || []).filter(p => !pipeIdsToRemove.includes(p.id));
         for (const pid of placeableIdsToRemove) {
-          this.removePlaceable(pid);
+          // skipRefund: the accumulated 50% `refund` below is the whole
+          // payout — removePlaceable's own 50% refund would double it.
+          this.removePlaceable(pid, { skipRefund: true });
         }
         this.state.resources.funding += refund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
@@ -1952,10 +2176,17 @@ export class Game {
   }
 
   /**
-   * Remove an attachment from a pipe. Delegates to BeamlineSystem.
+   * Remove an attachment from a pipe. Delegates to BeamlineSystem, then
+   * detaches any utility line that was wired to it — placements are utility
+   * endpoints (see utility/utility-endpoints.js), so a removed one would
+   * otherwise leave lines pointing at a dead id in state and in every save.
    */
   removeAttachment(pipeId, attachmentId) {
-    return this.beamline.removeFromPipe(pipeId, attachmentId);
+    const result = this.beamline.removeFromPipe(pipeId, attachmentId);
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(attachmentId);
+    }
+    return result;
   }
 
   removeBeamPipe(pipeId) {
@@ -1975,7 +2206,8 @@ export class Game {
     const tileCost = Math.max(costPerTile, Math.floor(costPerTile * (tileDist || 1)));
     this.state.resources.funding += Math.floor(tileCost * 0.5);
 
-    // Refund all placements on this pipe (50%)
+    // Refund all placements on this pipe (50%), and detach any utility line
+    // wired to one — they are utility endpoints, and the pipe is going away.
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
       if (attDef && attDef.cost) {
@@ -1983,6 +2215,7 @@ export class Game {
           this.state.resources[r] += Math.floor(a * 0.5);
         }
       }
+      if (this.utilityLineSystem) this.utilityLineSystem.onPlaceableRemoved(att.id);
     }
 
     this.state.beamPipes.splice(idx, 1);
@@ -2317,13 +2550,16 @@ export class Game {
     for (const entry of entries) {
       const bs = entry.beamState;
       totalLength += bs.totalLength || 0;
-      totalEnergyCost += bs.totalEnergyCost || 0;
       totalDataCollected += bs.totalDataCollected || 0;
       totalBeamHours += bs.totalBeamHours || 0;
       totalBeamOnTicks += bs.beamOnTicks || 0;
 
       if (entry.status === 'running' && this.state.infraCanRun) {
         beamOn = true;
+        // Electricity is billed per running beamline (economy.computeTickUpkeep
+        // reads state.totalEnergyCost). Summing stopped beamlines too charged
+        // an idle machine full power whenever any OTHER beamline ran.
+        totalEnergyCost += bs.totalEnergyCost || 0;
         if (bs.continuousBeamTicks > maxContinuousBeamTicks) maxContinuousBeamTicks = bs.continuousBeamTicks;
       } else if (entry.status === 'running' && !this.state.infraCanRun) {
         // Infra fault — reset continuous run, beam is effectively off for objectives
@@ -2407,6 +2643,12 @@ export class Game {
       if (s.dataRate) dRate += s.dataRate;
       if (s.beamQuality) bq += s.beamQuality;
     }
+    // Clamp to the same [0, 1] range the real physics path produces
+    // (gameplay.py / lattice.py both cap quality at 1.0). Unclamped, each
+    // diagnostic/collimation component pushed quality above 1 and every
+    // downstream consumer — beam income, data fees, user fees, reputation,
+    // research rate — paid a multiplier the physics path can never reach.
+    bq = Math.max(0, Math.min(1, bq));
     const bs = entry.beamState;
     bs.beamEnergy = eGain;
     bs.dataRate = dRate * bq;
@@ -3147,7 +3389,12 @@ export class Game {
   }
 
   save() {
-    localStorage.setItem('beamlineTycoon', this.serialize());
+    // Autosave runs from tick(), which headless Node drivers (agent env,
+    // balance sims) also call — there localStorage may be missing or
+    // non-functional, and persistence must never kill the sim.
+    try {
+      localStorage.setItem('beamlineTycoon', this.serialize());
+    } catch (_) {}
   }
 
   load() {
@@ -3175,23 +3422,56 @@ export class Game {
     } catch (e) { console.error('Save load failed:', e); return false; }
   }
 
-  // Restore a serialize() payload in place. Unlike load(), aux sections are
-  // deliberately NOT dispatched — camera, probe pins and designer session
-  // must not jump on undo — and there is no "Game loaded." log line.
+  // Restore an undo entry ({payload, ledger}) in place. Unlike load(), aux
+  // sections are deliberately NOT dispatched — camera, probe pins and
+  // designer session must not jump on undo — there is no "Game loaded." log
+  // line, and sim progress is carried over rather than rewound.
   // Used by undo()/redo().
-  restoreSnapshot(payload) {
-    this._applyState(JSON.parse(payload));
+  restoreSnapshot(entry) {
+    const { payload, ledger } = typeof entry === 'string'
+      ? { payload: entry, ledger: null } : entry;
+    this._applyState(JSON.parse(payload), { preserveSim: true, ledgerAt: ledger });
+    // The restore itself moved the balance; it is not ledger drift.
+    this._closeUndoGesture();
     // The 3D renderer handles 'restored' exactly like 'loaded' (full
     // scene rebuild); host layers hang load-only side effects off 'loaded'.
     this.emit('restored');
+  }
+
+  /**
+   * Resources to restore for an undo entry: the snapshot's balance plus
+   * every non-gesture credit/debit recorded since it was taken. Refunds the
+   * undone gesture's spending without clawing back tick income or upkeep.
+   */
+  _reconcileResources(snapshotResources, ledgerAt) {
+    const out = { ...(snapshotResources || {}) };
+    if (!ledgerAt) return out;
+    for (const k of new Set([...Object.keys(this._resourceLedger), ...Object.keys(ledgerAt)])) {
+      out[k] = (out[k] || 0) + ((this._resourceLedger[k] || 0) - (ledgerAt[k] || 0));
+    }
+    return out;
   }
 
   // State-application core shared by load() and restoreSnapshot(): assign
   // the saved fields, reseed the RNG, restore the beamline registry, and
   // rebuild every derived index/aggregate. `data` is a parsed serialize()
   // payload ({version, state, aux, beamlines}); aux is ignored here.
-  _applyState(data) {
+  // opts.preserveSim (undo/redo only) keeps UNDO_PRESERVED_FIELDS from the
+  // live state and reconciles resources against opts.ledgerAt, so undoing a
+  // build made N ticks ago rewinds the build, not N ticks of simulation.
+  _applyState(data, opts = {}) {
+    let preserved = null;
+    let resources = null;
+    if (opts.preserveSim) {
+      preserved = {};
+      for (const f of UNDO_PRESERVED_FIELDS) preserved[f] = this.state[f];
+      resources = this._reconcileResources(data.state?.resources, opts.ledgerAt);
+    }
     Object.assign(this.state, data.state);
+    if (preserved) {
+      Object.assign(this.state, preserved);
+      this.state.resources = resources;
+    }
 
     // Sanitize loop-control state and resync the interval to the loaded
     // speed (no-op before start()).
@@ -3200,9 +3480,12 @@ export class Game {
     this._syncInterval();
 
     // Restart the sim RNG stream from the saved seed (stream position is
-    // intentionally not persisted).
+    // intentionally not persisted). Undo/redo must NOT reseed: the stream is
+    // sim progress like `tick`, and restarting it at position 0 on every
+    // Ctrl+Z would let a player re-roll wear failures and discoveries by
+    // undoing and redoing a trivial build.
     if (this.state.seed == null) this.state.seed = Date.now();
-    this.rng = mulberry32(this.state.seed);
+    if (!opts.preserveSim) this.rng = mulberry32(this.state.seed);
 
     // Rehydrate per-corner terrain heightmap. Old saves lack the field —
     // treat as empty (fully flat world). Revision always resets to 0 on
@@ -3210,9 +3493,26 @@ export class Game {
     this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
     this.state.cornerHeightsRevision = 0;
 
-    // Restore registry from saved beamlines data
+    // Restore registry from saved beamlines data. The entry set itself is
+    // gesture state (placing/removing a source creates/deletes beamlines), so
+    // it is always restored — but on undo/redo the sim accumulators carried
+    // on each surviving entry are re-overlaid from the live registry
+    // afterwards (see BEAMSTATE_PRESERVED_FIELDS).
     if (data.beamlines) {
+      const liveBeamStates = opts.preserveSim ? new Map() : null;
+      if (liveBeamStates) {
+        for (const entry of this.registry.getAll()) liveBeamStates.set(entry.id, entry.beamState);
+      }
       this.registry.fromJSON(data.beamlines);
+      if (liveBeamStates) {
+        for (const entry of this.registry.getAll()) {
+          const live = liveBeamStates.get(entry.id);
+          if (!live || !entry.beamState) continue;
+          for (const f of BEAMSTATE_PRESERVED_FIELDS) {
+            if (live[f] !== undefined) entry.beamState[f] = live[f];
+          }
+        }
+      }
     }
 
     // Migrate old saves: entries without sourceId need one
@@ -3391,6 +3691,16 @@ export class Game {
     this.state.wallOccupied = {};
     for (const w of this.state.walls) {
       this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    }
+    // Rebuild door edge state. Derived like wallOccupied — without this,
+    // placed doors are undeletable after a load and undone doors leave a
+    // phantom entry that blocks re-placing on that edge. Room detection
+    // (_detectRoom, networks/rooms.js, the renderer's cutaway) reads it too,
+    // so a stale index silently walls off every doorway.
+    this.state.doors = this.state.doors || [];
+    this.state.doorOccupied = {};
+    for (const d of this.state.doors) {
+      this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     }
 
     // Migrate: remove deprecated energy resource

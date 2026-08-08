@@ -195,5 +195,34 @@ console.log('\n--- Test 4: nodeQualities aggregation ---');
   assert(nq?.cryoQuenched === true, 'quench flag exposed');
 }
 
+// ==========================================================================
+// Test 5: quench flag with the REAL cryoTransfer descriptor output —
+// regression for flowState.quenched being absent from production solves
+// (the fabricated flow in Test 4 used to be the only shape that worked).
+// ==========================================================================
+console.log('\n--- Test 5: production cryoTransfer flow shape drives quench ---');
+{
+  const cryoDesc = (await import('../src/utility/types/cryoTransfer.js')).default;
+  const state = makeState({ lines: CONNECT_BOTH });
+  const net = {
+    id: 'netQ', utilityType: 'cryoTransfer', lineIds: [],
+    ports: [],
+    sources: [],
+    sinks: [{ portKey: 'p1:cryo_in', placeableId: 'p1', portName: 'cryo_in', params: { srfHeatW: 18 } }],
+  };
+  const solveRunner = {
+    runSolve() {
+      const r = cryoDesc.solve(net, { lheVolumeL: 5 }, {});
+      state.utilityNetworkData = new Map([
+        ['cryoTransfer', new Map([['netQ', r.flowState]])],
+      ]);
+      return { errors: r.errors };
+    },
+  };
+  makeGate(state, { solveRunner }).run();
+  assert(state.nodeQualities?.p1?.cryoQuenched === true,
+    'production flowState sets cryoQuenched on the sink placeable');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

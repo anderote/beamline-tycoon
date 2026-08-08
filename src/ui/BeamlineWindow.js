@@ -121,7 +121,10 @@ export class BeamlineWindow {
         label: isRunning ? 'Stop Beam' : 'Start Beam',
         style: isRunning ? 'color:#f88' : 'color:#8f8',
         onClick: () => {
-          this.game.toggleBeam(this.beamlineId);
+          // Same gesture as the Space-key toggle (InputHandler), so it takes
+          // the same undo entry — otherwise undo would silently revert a beam
+          // started here without ever having recorded the start.
+          this.game._withUndo(() => this.game.toggleBeam(this.beamlineId));
           this._updateStatus();
           this._updateActions();
           this.ctx.update();

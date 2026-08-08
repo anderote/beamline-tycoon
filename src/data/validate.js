@@ -167,6 +167,24 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // Every declared connection must have a matching sink port in the
+  // utility-ports-v2 table, or the solver can never connect or gate it.
+  // Applies to beamline AND infrastructure: an infrastructure unit with a
+  // power requirement but no pwr_in contributes no demand to any network,
+  // so a 40 kW panel can "feed" a 2000 kW gyrotron at 0% utilization while
+  // the overlay still draws it a power hookup the player can never make.
+  function checkSinkPortsForRequired(id, def) {
+    if (!Array.isArray(def.requiredConnections)) return;
+    const ports = utilityPorts[id] || {};
+    for (const u of def.requiredConnections) {
+      if (!UTILITIES.has(u)) continue; // already reported
+      const hasSink = Object.values(ports).some(p => p.utility === u && p.role === 'sink');
+      if (!hasSink) {
+        problem(id, 'requiredConnections', `requires '${u}' but has no '${u}' sink port in utility-ports-v2.js — the utility solver can never connect or gate it`);
+      }
+    }
+  }
+
   function checkBeamPorts(id, def) {
     if (def.ports == null) return;
     for (const [portName, spec] of Object.entries(def.ports)) {
@@ -221,19 +239,8 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       }
     }
 
-    // Utility needs — every declared connection must have a matching sink
-    // port in the utility-ports-v2 table, or the solver can never gate it.
     checkRequiredConnections(id, def);
-    if (Array.isArray(def.requiredConnections)) {
-      const ports = utilityPorts[id] || {};
-      for (const u of def.requiredConnections) {
-        if (!UTILITIES.has(u)) continue; // already reported
-        const hasSink = Object.values(ports).some(p => p.utility === u && p.role === 'sink');
-        if (!hasSink) {
-          problem(id, 'requiredConnections', `requires '${u}' but has no '${u}' sink port in utility-ports-v2.js — the utility solver can never connect or gate it`);
-        }
-      }
-    }
+    checkSinkPortsForRequired(id, def);
   }
 
   // ── Infrastructure raw entries ────────────────────────────────────
@@ -246,6 +253,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'placement', `placement must be 'module' or 'attachment', got ${JSON.stringify(def.placement)}`);
     }
     checkRequiredConnections(id, def);
+    checkSinkPortsForRequired(id, def);
     checkBeamPorts(id, def);
   }
 
