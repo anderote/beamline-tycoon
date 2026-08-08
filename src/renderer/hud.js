@@ -2020,8 +2020,9 @@ UIHost.prototype._bindHUDEvents = function() {
   });
   if (this.game && this.game.on) {
     this.game.on((event) => {
-      // 'loaded' covers a save restoring a different paused/speed state.
-      if (event === 'speedChanged' || event === 'loaded') this._updateSimControls();
+      // 'loaded'/'restored' cover a save or undo snapshot restoring a
+      // different paused/speed state.
+      if (event === 'speedChanged' || event === 'loaded' || event === 'restored') this._updateSimControls();
     });
   }
   this._updateSimControls();

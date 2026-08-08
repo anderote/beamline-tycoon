@@ -165,9 +165,13 @@ export class Game {
     this.TICK_MS = 1000;
     this._started = false;   // start() called and not stop()ped; pause keeps this true
 
-    // Undo stack (max 3 snapshots)
+    // Undo/redo stacks of full serialize() payloads (JSON strings, each
+    // roughly the size of a save file). 20 deep is comfortably cheap —
+    // even a large facility save is well under 1 MB, so worst case is a
+    // few tens of MB of strings, and old snapshots are dropped past the cap.
     this._undoStack = [];
-    this._UNDO_MAX = 3;
+    this._redoStack = [];
+    this._UNDO_MAX = 20;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.seed = seed;
@@ -364,41 +368,21 @@ export class Game {
 
   // === UNDO ===
 
-  /** Snapshot mutable game state onto the undo stack (max 3). */
+  // Undo works on full-state snapshots: _pushUndo() captures serialize()
+  // output (everything a save captures — placeables, beamPipes, terrain,
+  // utility lines, registry, ...), and undo()/redo() restore it via
+  // restoreSnapshot(). Input controllers call _pushUndo() once per user
+  // gesture, BEFORE mutating; Game mutation methods never push (they also
+  // run programmatically from scenario generation, BeamlineSystem, load).
+
+  /** Snapshot the full game state onto the undo stack. Call at the start
+   *  of a user gesture, before any mutation. Clears the redo stack. */
   _pushUndo() {
-    const snap = {
-      resources: { ...this.state.resources },
-      floors: this.state.floors.map(t => ({ ...t })),
-      infraOccupied: { ...this.state.infraOccupied },
-      zones: this.state.zones.map(z => ({ ...z })),
-      zoneOccupied: { ...this.state.zoneOccupied },
-      walls: this.state.walls.map(w => ({ ...w })),
-      wallOccupied: { ...this.state.wallOccupied },
-      doors: this.state.doors.map(d => ({ ...d })),
-      doorOccupied: { ...this.state.doorOccupied },
-      facilityEquipment: this.state.facilityEquipment.map(e => ({ ...e })),
-      facilityGrid: { ...this.state.facilityGrid },
-      facilityNextId: this.state.facilityNextId,
-      zoneFurnishings: this.state.zoneFurnishings.map(f => ({ ...f })),
-      zoneFurnishingSubgrids: JSON.parse(JSON.stringify(this.state.zoneFurnishingSubgrids)),
-      zoneFurnishingNextId: this.state.zoneFurnishingNextId,
-      editingBeamlineId: this.editingBeamlineId,
-      selectedBeamlineId: this.selectedBeamlineId,
-      // Beamline registry snapshot
-      registryData: this._snapshotRegistry(),
-    };
-    this._undoStack.push(snap);
+    this._undoStack.push(this.serialize());
     if (this._undoStack.length > this._UNDO_MAX) {
       this._undoStack.shift();
     }
-  }
-
-  _snapshotRegistry() {
-    return this.registry.toJSON();
-  }
-
-  _restoreRegistryFromSnap(regSnap) {
-    this.registry.fromJSON(regSnap);
+    this._redoStack.length = 0;
   }
 
   undo() {
@@ -407,43 +391,21 @@ export class Game {
       return;
     }
     const snap = this._undoStack.pop();
-
-    // Restore state
-    this.state.resources = snap.resources;
-    this.state.floors = snap.floors;
-    this.state.infraOccupied = snap.infraOccupied;
-    this.state.zones = snap.zones;
-    this.state.zoneOccupied = snap.zoneOccupied;
-    this.state.walls = snap.walls;
-    this.state.wallOccupied = snap.wallOccupied;
-    this.state.doors = snap.doors;
-    this.state.doorOccupied = snap.doorOccupied;
-    this.state.facilityEquipment = snap.facilityEquipment;
-    this.state.facilityGrid = snap.facilityGrid;
-    this.state.facilityNextId = snap.facilityNextId;
-    this.state.zoneFurnishings = snap.zoneFurnishings;
-    this.state.zoneFurnishingSubgrids = snap.zoneFurnishingSubgrids;
-    this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
-    this.editingBeamlineId = snap.editingBeamlineId;
-    this.selectedBeamlineId = snap.selectedBeamlineId;
-
-    // Restore registry
-    this._restoreRegistryFromSnap(snap.registryData);
-
-    // Rebuild aggregate state
-    this._updateAggregateBeamline();
-    this.computeSystemStats();
-    this.recomputeZoneConnectivity();
-
+    this._redoStack.push(this.serialize());
+    this.restoreSnapshot(snap);
     this.log('Undo', 'info');
-    this.emit('beamlineChanged');
-    this.emit('infrastructureChanged');
-    this.emit('zonesChanged');
-    this.emit('wallsChanged');
-    this.emit('doorsChanged');
-    this.emit('decorationsChanged');
-    this.emit('facilityChanged');
-    this.emit('connectionsChanged');
+  }
+
+  redo() {
+    if (this._redoStack.length === 0) {
+      this.log('Nothing to redo', 'info');
+      return;
+    }
+    const snap = this._redoStack.pop();
+    // Push directly (not _pushUndo) — _pushUndo would clear the redo stack.
+    this._undoStack.push(this.serialize());
+    this.restoreSnapshot(snap);
+    this.log('Redo', 'info');
   }
 
   // === PLACEMENT ===
@@ -3191,248 +3153,7 @@ export class Game {
         return false;
       }
 
-      Object.assign(this.state, data.state);
-
-      // Sanitize loop-control state and resync the interval to the loaded
-      // speed (no-op before start()).
-      this.state.paused = !!this.state.paused;
-      if (![1, 2, 4].includes(this.state.speed)) this.state.speed = 1;
-      this._syncInterval();
-
-      // Restart the sim RNG stream from the saved seed (stream position is
-      // intentionally not persisted).
-      if (this.state.seed == null) this.state.seed = Date.now();
-      this.rng = mulberry32(this.state.seed);
-
-      // Rehydrate per-corner terrain heightmap. Old saves lack the field —
-      // treat as empty (fully flat world). Revision always resets to 0 on
-      // load so renderer builders rebuild on the first frame.
-      this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
-      this.state.cornerHeightsRevision = 0;
-
-      // Restore registry from saved beamlines data
-      if (data.beamlines) {
-        this.registry.fromJSON(data.beamlines);
-      }
-
-      // Migrate old saves: entries without sourceId need one
-      for (const entry of this.registry.getAll()) {
-        if (!entry.sourceId) {
-          const src = this.state.placeables?.find(p =>
-            p.beamlineId === entry.id && COMPONENTS[p.type]?.isSource
-          );
-          if (src) entry.sourceId = src.id;
-        }
-      }
-
-      // Rebuild infraOccupied
-      this.state.infraOccupied = {};
-      if (this.state.floors) {
-        for (const tile of this.state.floors)
-          this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
-      } else { this.state.floors = []; }
-      // Rebuild zoneOccupied
-      this.state.zones = this.state.zones || [];
-      this.state.zoneOccupied = {};
-      for (const z of this.state.zones) {
-        this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
-      }
-      this.state.zoneConnectivity = {};
-      this.recomputeZoneConnectivity();
-      // Discard legacy connections data from old saves
-      delete this.state.connections;
-      // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
-      delete this.state.rackSegments;
-      delete this.state.networkData;
-
-      // Rehydrate new-system utility state (Phase 6 / Task 24).
-      this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
-      this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
-      this.state.utilityNextId = this.state.utilityNextId || 1;
-      // utilityNetworkData is derived; solveRunner repopulates on first tick.
-      this.state.utilityNetworkData = null;
-
-      // Ensure facility arrays exist
-      if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
-      if (!this.state.facilityGrid) this.state.facilityGrid = {};
-      if (!this.state.facilityNextId) this.state.facilityNextId = 1;
-
-      // Ensure zone furnishing arrays exist
-      if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
-      if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
-      if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
-
-      // Ensure unified placement state exists
-      if (!this.state.placeables) this.state.placeables = [];
-      if (!this.state.placeableIndex) this.state.placeableIndex = {};
-      if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
-      if (!this.state.placeableNextId) this.state.placeableNextId = 1;
-      if (!this.state.beamPipes) this.state.beamPipes = [];
-      if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
-
-      // Ensure RimWorld-like staff state exists — migrate old count-based saves
-      if (!this.state.staffMembers) this.state.staffMembers = [];
-      if (!this.state.staffNextId) this.state.staffNextId = 1;
-      if (!this.state.staffCandidates) this.state.staffCandidates = [];
-      // Migrate old saves that had only counts: generate pawns
-      if (this.state.staffMembers.length === 0 && this.state.staff && Object.values(this.state.staff).some(v => v > 0)) {
-        const counts = this.state.staff;
-        for (const role of ['operator', 'technician', 'scientist', 'engineer']) {
-          const n = counts[role + 's'] ?? counts[role] ?? 0;
-          for (let i = 0; i < n; i++) {
-            const m = createStaffMember(role, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
-            if (role === 'operator') m.assignment.zoneId = 'controlRoom';
-            else if (role === 'technician') m.assignment.zoneId = 'maintenance';
-            else if (role === 'scientist') m.assignment.zoneId = 'opticsLab';
-            else if (role === 'engineer') m.assignment.zoneId = 'machineShop';
-            this.state.staffMembers.push(m);
-          }
-        }
-        // also seed candidates if empty
-        if (this.state.staffCandidates.length === 0) this._refreshStaffCandidates();
-      } else if (this.state.staffMembers.length === 0) {
-        this._ensureStaffSeed();
-      }
-      // Rehydrate plain objects as StaffMember instances
-      for (let i = 0; i < this.state.staffMembers.length; i++) {
-        const o = this.state.staffMembers[i];
-        if (!(o instanceof StaffMember)) this.state.staffMembers[i] = StaffMember.fromJSON(o);
-      }
-      for (let i = 0; i < (this.state.staffCandidates || []).length; i++) {
-        const o = this.state.staffCandidates[i];
-        if (!(o instanceof StaffMember)) this.state.staffCandidates[i] = StaffMember.fromJSON(o);
-      }
-      this._syncStaffCounts();
-
-      // Ensure beam pipes have the B2 shape (start/end refs + placements[]).
-      // Saves from before the B2 migration are not supported — any pipe
-      // missing the new fields is treated as incomplete.
-      if (this.state.beamPipes) {
-        for (const pipe of this.state.beamPipes) {
-          if (!('start' in pipe)) pipe.start = null;
-          if (!('end' in pipe)) pipe.end = null;
-          if (!Array.isArray(pipe.placements)) pipe.placements = [];
-        }
-      }
-
-      // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
-      if (this.state.placeables.length === 0) {
-        // Migrate facility equipment
-        if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
-          for (const eq of this.state.facilityEquipment) {
-            const def = COMPONENTS[eq.type];
-            const gw = def ? (def.gridW || def.subW || 4) : 4;
-            const gh = def ? (def.gridH || def.subL || 4) : 4;
-            const id = 'eq_' + this.state.placeableNextId++;
-            const cells = [];
-            for (let dr = 0; dr < gh; dr++) {
-              for (let dc = 0; dc < gw; dc++) {
-                cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
-              }
-            }
-            const entry = {
-              id, type: eq.type, category: 'equipment',
-              col: eq.col, row: eq.row, subCol: 0, subRow: 0,
-              rotated: false, dir: null, params: null, cells,
-            };
-            this.state.placeables.push(entry);
-            this.state.placeableIndex[id] = this.state.placeables.length - 1;
-            for (const cell of cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
-            }
-          }
-        }
-
-        // Migrate zone furnishings
-        if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
-          for (const zf of this.state.zoneFurnishings) {
-            const def = ZONE_FURNISHINGS[zf.type];
-            const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
-            const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
-            const id = 'fn_' + this.state.placeableNextId++;
-            const cells = [];
-            for (let dr = 0; dr < gh; dr++) {
-              for (let dc = 0; dc < gw; dc++) {
-                const sc = (zf.subCol || 0) + dc;
-                const sr = (zf.subRow || 0) + dr;
-                cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
-              }
-            }
-            const entry = {
-              id, type: zf.type, category: 'furnishing',
-              col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
-              rotated: zf.rotated || false, dir: null, params: null, cells,
-            };
-            this.state.placeables.push(entry);
-            this.state.placeableIndex[id] = this.state.placeables.length - 1;
-            for (const cell of cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
-            }
-          }
-        }
-      }
-
-      // Ensure stacking fields have defaults, then rebuild the derived
-      // placeableIndex/subgridOccupied maps. Unconditional: the constructor
-      // built them from the starter map, which load just replaced.
-      for (const entry of this.state.placeables) {
-        if (entry.placeY == null) entry.placeY = 0;
-        if (!entry.stackParentId) entry.stackParentId = null;
-        if (!entry.stackChildren) entry.stackChildren = [];
-      }
-      this._rebuildPlaceableIndex();
-
-      // Rebuild wall state
-      this.state.walls = this.state.walls || [];
-      this.state.wallOccupied = {};
-      for (const w of this.state.walls) {
-        this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
-      }
-
-      // Migrate: remove deprecated energy resource
-      delete this.state.resources.energy;
-      delete this.state.electricalPower;
-      delete this.state.maxElectricalPower;
-
-      // Ensure infra validation state exists
-      this.state.infraBlockers = this.state.infraBlockers || [];
-      this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
-
-      // Ensure saved designs exist
-      if (!this.state.savedDesigns) this.state.savedDesigns = [];
-      if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
-      // Ensure designerState exists
-      if (!this.state.designerState) this.state.designerState = null;
-
-      // Initialize params for beamline placeables
-      for (const p of (this.state.placeables || [])) {
-        if (p.category !== 'beamline') continue;
-        const defs = PARAM_DEFS[p.type];
-        if (defs && !p.params) {
-          p.params = {};
-          for (const [k, def] of Object.entries(defs)) {
-            if (!def.derived) p.params[k] = def.default;
-          }
-        }
-      }
-
-      // Bridge any source placeables from older saves that don't yet have
-      // a registry entry (so clicks can open their beamline window).
-      for (const p of this.state.placeables || []) {
-        if (p.category !== 'beamline') continue;
-        const comp = COMPONENTS[p.type];
-        if (!comp?.isSource) continue;
-        if (p.beamlineId && this.registry.get(p.beamlineId)) continue;
-        this._ensureBeamlineForSourcePlaceable(p);
-      }
-
-      // Recompute derived state the whitelist dropped from the save:
-      // systemStats/zoneFurnishingBonuses here; beam aggregates, state.beamline
-      // and mainBeamState via recalcAllBeamlines(). Per-tick derivations
-      // (nodeQualities, moraleMultiplier, infraBlockers) refresh on first tick.
-      this.computeSystemStats();
-      this.recalcAllBeamlines();
-      this.validateInfrastructure();
+      this._applyState(data);
 
       // Dispatch host-layer sections back to their registered serializers.
       if (data.aux) {
@@ -3445,6 +3166,266 @@ export class Game {
       this.emit('loaded');
       return true;
     } catch (e) { console.error('Save load failed:', e); return false; }
+  }
+
+  // Restore a serialize() payload in place. Unlike load(), aux sections are
+  // deliberately NOT dispatched — camera, probe pins and designer session
+  // must not jump on undo — and there is no "Game loaded." log line.
+  // Used by undo()/redo().
+  restoreSnapshot(payload) {
+    this._applyState(JSON.parse(payload));
+    // The 3D renderer handles 'restored' exactly like 'loaded' (full
+    // scene rebuild); host layers hang load-only side effects off 'loaded'.
+    this.emit('restored');
+  }
+
+  // State-application core shared by load() and restoreSnapshot(): assign
+  // the saved fields, reseed the RNG, restore the beamline registry, and
+  // rebuild every derived index/aggregate. `data` is a parsed serialize()
+  // payload ({version, state, aux, beamlines}); aux is ignored here.
+  _applyState(data) {
+    Object.assign(this.state, data.state);
+
+    // Sanitize loop-control state and resync the interval to the loaded
+    // speed (no-op before start()).
+    this.state.paused = !!this.state.paused;
+    if (![1, 2, 4].includes(this.state.speed)) this.state.speed = 1;
+    this._syncInterval();
+
+    // Restart the sim RNG stream from the saved seed (stream position is
+    // intentionally not persisted).
+    if (this.state.seed == null) this.state.seed = Date.now();
+    this.rng = mulberry32(this.state.seed);
+
+    // Rehydrate per-corner terrain heightmap. Old saves lack the field —
+    // treat as empty (fully flat world). Revision always resets to 0 on
+    // load so renderer builders rebuild on the first frame.
+    this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
+    this.state.cornerHeightsRevision = 0;
+
+    // Restore registry from saved beamlines data
+    if (data.beamlines) {
+      this.registry.fromJSON(data.beamlines);
+    }
+
+    // Migrate old saves: entries without sourceId need one
+    for (const entry of this.registry.getAll()) {
+      if (!entry.sourceId) {
+        const src = this.state.placeables?.find(p =>
+          p.beamlineId === entry.id && COMPONENTS[p.type]?.isSource
+        );
+        if (src) entry.sourceId = src.id;
+      }
+    }
+
+    // Rebuild infraOccupied
+    this.state.infraOccupied = {};
+    if (this.state.floors) {
+      for (const tile of this.state.floors)
+        this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+    } else { this.state.floors = []; }
+    // Rebuild zoneOccupied
+    this.state.zones = this.state.zones || [];
+    this.state.zoneOccupied = {};
+    for (const z of this.state.zones) {
+      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+    }
+    this.state.zoneConnectivity = {};
+    this.recomputeZoneConnectivity();
+    // Discard legacy connections data from old saves
+    delete this.state.connections;
+    // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
+    delete this.state.rackSegments;
+    delete this.state.networkData;
+
+    // Rehydrate new-system utility state (Phase 6 / Task 24).
+    this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
+    this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
+    this.state.utilityNextId = this.state.utilityNextId || 1;
+    // utilityNetworkData is derived; solveRunner repopulates on first tick.
+    this.state.utilityNetworkData = null;
+
+    // Ensure facility arrays exist
+    if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
+    if (!this.state.facilityGrid) this.state.facilityGrid = {};
+    if (!this.state.facilityNextId) this.state.facilityNextId = 1;
+
+    // Ensure zone furnishing arrays exist
+    if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
+    if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
+    if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+    // Ensure unified placement state exists
+    if (!this.state.placeables) this.state.placeables = [];
+    if (!this.state.placeableIndex) this.state.placeableIndex = {};
+    if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
+    if (!this.state.placeableNextId) this.state.placeableNextId = 1;
+    if (!this.state.beamPipes) this.state.beamPipes = [];
+    if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
+
+    // Ensure RimWorld-like staff state exists — migrate old count-based saves
+    if (!this.state.staffMembers) this.state.staffMembers = [];
+    if (!this.state.staffNextId) this.state.staffNextId = 1;
+    if (!this.state.staffCandidates) this.state.staffCandidates = [];
+    // Migrate old saves that had only counts: generate pawns
+    if (this.state.staffMembers.length === 0 && this.state.staff && Object.values(this.state.staff).some(v => v > 0)) {
+      const counts = this.state.staff;
+      for (const role of ['operator', 'technician', 'scientist', 'engineer']) {
+        const n = counts[role + 's'] ?? counts[role] ?? 0;
+        for (let i = 0; i < n; i++) {
+          const m = createStaffMember(role, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
+          if (role === 'operator') m.assignment.zoneId = 'controlRoom';
+          else if (role === 'technician') m.assignment.zoneId = 'maintenance';
+          else if (role === 'scientist') m.assignment.zoneId = 'opticsLab';
+          else if (role === 'engineer') m.assignment.zoneId = 'machineShop';
+          this.state.staffMembers.push(m);
+        }
+      }
+      // also seed candidates if empty
+      if (this.state.staffCandidates.length === 0) this._refreshStaffCandidates();
+    } else if (this.state.staffMembers.length === 0) {
+      this._ensureStaffSeed();
+    }
+    // Rehydrate plain objects as StaffMember instances
+    for (let i = 0; i < this.state.staffMembers.length; i++) {
+      const o = this.state.staffMembers[i];
+      if (!(o instanceof StaffMember)) this.state.staffMembers[i] = StaffMember.fromJSON(o);
+    }
+    for (let i = 0; i < (this.state.staffCandidates || []).length; i++) {
+      const o = this.state.staffCandidates[i];
+      if (!(o instanceof StaffMember)) this.state.staffCandidates[i] = StaffMember.fromJSON(o);
+    }
+    this._syncStaffCounts();
+
+    // Ensure beam pipes have the B2 shape (start/end refs + placements[]).
+    // Saves from before the B2 migration are not supported — any pipe
+    // missing the new fields is treated as incomplete.
+    if (this.state.beamPipes) {
+      for (const pipe of this.state.beamPipes) {
+        if (!('start' in pipe)) pipe.start = null;
+        if (!('end' in pipe)) pipe.end = null;
+        if (!Array.isArray(pipe.placements)) pipe.placements = [];
+      }
+    }
+
+    // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
+    if (this.state.placeables.length === 0) {
+      // Migrate facility equipment
+      if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
+        for (const eq of this.state.facilityEquipment) {
+          const def = COMPONENTS[eq.type];
+          const gw = def ? (def.gridW || def.subW || 4) : 4;
+          const gh = def ? (def.gridH || def.subL || 4) : 4;
+          const id = 'eq_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
+            }
+          }
+          const entry = {
+            id, type: eq.type, category: 'equipment',
+            col: eq.col, row: eq.row, subCol: 0, subRow: 0,
+            rotated: false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
+          }
+        }
+      }
+
+      // Migrate zone furnishings
+      if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
+        for (const zf of this.state.zoneFurnishings) {
+          const def = ZONE_FURNISHINGS[zf.type];
+          const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
+          const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
+          const id = 'fn_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              const sc = (zf.subCol || 0) + dc;
+              const sr = (zf.subRow || 0) + dr;
+              cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
+            }
+          }
+          const entry = {
+            id, type: zf.type, category: 'furnishing',
+            col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
+            rotated: zf.rotated || false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
+          }
+        }
+      }
+    }
+
+    // Ensure stacking fields have defaults, then rebuild the derived
+    // placeableIndex/subgridOccupied maps. Unconditional: the constructor
+    // built them from the starter map, which load just replaced.
+    for (const entry of this.state.placeables) {
+      if (entry.placeY == null) entry.placeY = 0;
+      if (!entry.stackParentId) entry.stackParentId = null;
+      if (!entry.stackChildren) entry.stackChildren = [];
+    }
+    this._rebuildPlaceableIndex();
+
+    // Rebuild wall state
+    this.state.walls = this.state.walls || [];
+    this.state.wallOccupied = {};
+    for (const w of this.state.walls) {
+      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    }
+
+    // Migrate: remove deprecated energy resource
+    delete this.state.resources.energy;
+    delete this.state.electricalPower;
+    delete this.state.maxElectricalPower;
+
+    // Ensure infra validation state exists
+    this.state.infraBlockers = this.state.infraBlockers || [];
+    this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
+
+    // Ensure saved designs exist
+    if (!this.state.savedDesigns) this.state.savedDesigns = [];
+    if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
+    // Ensure designerState exists
+    if (!this.state.designerState) this.state.designerState = null;
+
+    // Initialize params for beamline placeables
+    for (const p of (this.state.placeables || [])) {
+      if (p.category !== 'beamline') continue;
+      const defs = PARAM_DEFS[p.type];
+      if (defs && !p.params) {
+        p.params = {};
+        for (const [k, def] of Object.entries(defs)) {
+          if (!def.derived) p.params[k] = def.default;
+        }
+      }
+    }
+
+    // Bridge any source placeables from older saves that don't yet have
+    // a registry entry (so clicks can open their beamline window).
+    for (const p of this.state.placeables || []) {
+      if (p.category !== 'beamline') continue;
+      const comp = COMPONENTS[p.type];
+      if (!comp?.isSource) continue;
+      if (p.beamlineId && this.registry.get(p.beamlineId)) continue;
+      this._ensureBeamlineForSourcePlaceable(p);
+    }
+
+    // Recompute derived state the whitelist dropped from the save:
+    // systemStats/zoneFurnishingBonuses here; beam aggregates, state.beamline
+    // and mainBeamState via recalcAllBeamlines(). Per-tick derivations
+    // (nodeQualities, moraleMultiplier, infraBlockers) refresh on first tick.
+    this.computeSystemStats();
+    this.recalcAllBeamlines();
+    this.validateInfrastructure();
   }
 
 }

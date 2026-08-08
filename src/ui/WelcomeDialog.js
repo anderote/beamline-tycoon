@@ -23,6 +23,7 @@ const CONTROL_ROWS = [
   ['F',      'rotate item while placing'],
   ['Space',  'beam ON / OFF'],
   ['Ctrl+Z', 'undo'],
+  ['Ctrl+Shift+Z', 'redo'],
   ['Esc',    'cancel tool / close windows'],
 ];
 

@@ -1104,10 +1104,11 @@ export class InputHandler {
       // Skip normal input handling when controller overlay is open
       if (this.game._designer && this.game._designer.isOpen) return;
 
-      // Ctrl+Z → undo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z → redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        this.game.undo();
+        if (e.shiftKey) this.game.redo();
+        else this.game.undo();
         return;
       }
 

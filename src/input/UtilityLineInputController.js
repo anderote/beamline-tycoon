@@ -155,6 +155,7 @@ export class UtilityLineInputController {
         && startRef.placeableId === endRef.placeableId
         && startRef.portName === endRef.portName;
       if (!sameAnchor) {
+        this.game._pushUndo();
         this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
           start: startRef,

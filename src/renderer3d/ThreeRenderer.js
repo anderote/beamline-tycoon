@@ -498,6 +498,7 @@ export class ThreeRenderer {
       switch (event) {
         case 'beamlineChanged':
         case 'loaded':
+        case 'restored':   // undo/redo snapshot restore
           this.refresh(); // full 3D rebuild
           break;
         case 'infrastructureChanged':
