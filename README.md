@@ -4,6 +4,8 @@ A tycoon/management simulation game where you design, build, and operate particl
 
 Start with a simple electron linac and work your way up through photoinjectors, free electron lasers, and eventually a full particle collider. Manage funding, reputation, staff, and infrastructure while keeping your beam quality high and your facility running.
 
+<img width="1251" height="790" alt="image" src="https://github.com/user-attachments/assets/ce61ea0e-da5a-476d-af7a-efa74bb2ba50" />
+
 ## Getting Started
 
 ### Prerequisites
