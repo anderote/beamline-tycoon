@@ -9,6 +9,9 @@ export class MusicPlayer {
     this.currentIndex = -1;
     this.audio = new Audio();
     this.audio.volume = 0.4;
+    // Global handle so lightweight UI (e.g. the title-screen mute toggle) can
+    // reach the player without threading a reference through every screen.
+    try { window.__blMusic = this; } catch { /* no window */ }
     this.isPlaying = false;
     this.shuffled = false;
     this.shuffleOrder = [];

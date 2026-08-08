@@ -4,6 +4,9 @@
 // Mounted immediately on construction (covers asset loading); call
 // ready({...}) once the game has booted, dismiss() to fade out and remove.
 
+// Registers the <crt-effect> web component (self-contained, shadow-DOM styles).
+import 'vault66-crt-effect/element';
+
 export class TitleScreen {
   constructor() {
     this._raf = 0;
@@ -41,19 +44,31 @@ export class TitleScreen {
     // click invitation doubles as the autoplay-unlock gesture: the music
     // player arms a first-interaction resume, so clicking here starts the
     // soundtrack while assets are still loading.
+    // The menu is gated behind a deliberate "click to continue": the click is
+    // also the autoplay-unlock gesture that starts the soundtrack. The
+    // Continue/New Game menu only appears once the player has clicked AND the
+    // game has booted (ready()), whichever comes second.
+    this._userReady = false;
+    this._pendingReady = null;
+
     this.loadingEl = document.createElement('div');
     this.loadingEl.className = 'title-loading';
-    this.loadingEl.textContent = 'CLICK ANYWHERE FOR MUSIC';
+    this.loadingEl.textContent = 'CLICK TO CONTINUE';
     const loadingSub = document.createElement('div');
     loadingSub.className = 'title-loading-sub';
-    loadingSub.textContent = 'loading...';
+    loadingSub.textContent = 'press to begin · music on';
     this.loadingEl.appendChild(loadingSub);
     this._onLoadingClick = () => {
-      // After the gesture the label goes back to a plain loading state.
-      if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
-        this.loadingEl.firstChild.textContent = 'LOADING...';
-      }
+      this._userReady = true;
       this.el.removeEventListener('pointerdown', this._onLoadingClick);
+      if (this._pendingReady) {
+        this._showMenu(this._pendingReady);
+        this._pendingReady = null;
+      } else if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
+        // Booted not yet — fall back to a plain loading state.
+        this.loadingEl.firstChild.textContent = 'LOADING...';
+        if (loadingSub) loadingSub.textContent = 'loading...';
+      }
     };
     this.el.addEventListener('pointerdown', this._onLoadingClick);
     this.el.appendChild(this.loadingEl);
@@ -63,11 +78,49 @@ export class TitleScreen {
     this.menuEl.className = 'title-menu hidden';
     this.el.appendChild(this.menuEl);
 
-    // Footer tagline
-    const footer = document.createElement('div');
-    footer.className = 'title-footer';
-    footer.textContent = 'a particle accelerator management sim';
-    this.el.appendChild(footer);
+    // CRT effect (vault66-crt-effect) as a full-screen overlay — real curved
+    // glass, vignette, glare, scanlines + flicker. Decorative only
+    // (pointer-events: none) and scoped to the title/welcome screen.
+    this.crtEl = document.createElement('crt-effect');
+    const crtAttrs = {
+      fill: '',
+      'enable-curvature': '',
+      'curvature-intensity': '1',
+      // No vignette: the curvature already darkens the edges; stacking both
+      // made the screen too dark.
+      'enable-glare': '',
+      'glare-intensity': '0.18',
+      'enable-flicker': '',
+      'flicker-intensity': 'medium',
+      'scanline-thickness': '3',
+      'scanline-gap': '3',
+      'scanline-opacity': '0.18',
+      theme: 'custom',
+      'scanline-color': 'rgba(0,0,0,0.42)',
+      'sweep-style': 'soft',
+      'sweep-duration': '9',
+    };
+    for (const [k, v] of Object.entries(crtAttrs)) this.crtEl.setAttribute(k, v);
+    this.crtEl.style.cssText = 'position:absolute;inset:0;z-index:40;pointer-events:none;';
+    this.el.appendChild(this.crtEl);
+
+    // Music mute toggle (bottom-right). Its own gesture must NOT trip the
+    // click-to-continue gate, so it stops pointerdown from bubbling to el.
+    this.muteEl = document.createElement('button');
+    this.muteEl.className = 'title-mute';
+    this.muteEl.type = 'button';
+    this.muteEl.textContent = '🔊';
+    this.muteEl.title = 'Mute / unmute music';
+    this.muteEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+    this.muteEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const m = window.__blMusic;
+      if (m && m.audio) {
+        m.audio.muted = !m.audio.muted;
+        this.muteEl.textContent = m.audio.muted ? '🔇' : '🔊';
+      }
+    });
+    this.el.appendChild(this.muteEl);
 
     document.body.appendChild(this.el);
 
@@ -137,12 +190,12 @@ export class TitleScreen {
 
     // Clouds — cartoon-cute cumulus (Stardew/Mario style): 10-18px tall,
     // 24-45px wide, built from 3-5 overlapping rounded domes on a flat-ish
-    // base. Solid fluffy body, dithered rim only. One thin distant streak
-    // stays for depth contrast. Pale by day, Monet-warm at golden hour,
-    // faded dark at night.
+    // base. Solid fluffy body, dithered rim only. All puffy — the flat
+    // streak variant read as contrails and was cut. Pale by day,
+    // Monet-warm at golden hour, faded dark at night.
     this._clouds = [];
     for (let i = 0; i < 4; i++) {
-      const puffy = i < 3;
+      const puffy = true;
       const domes = [];
       let pw = 0;
       if (puffy) {
@@ -195,7 +248,17 @@ export class TitleScreen {
 
   // ── Public API ─────────────────────────────────────────────────────
 
-  ready({ hasSave, onContinue, onNewGame, onScenarios }) {
+  ready(cfg) {
+    if (this._dismissed) return;
+    // Gate the menu behind the deliberate "click to continue" gesture.
+    if (!this._userReady) {
+      this._pendingReady = cfg;
+      return;
+    }
+    this._showMenu(cfg);
+  }
+
+  _showMenu({ hasSave, onContinue, onNewGame, onScenarios }) {
     if (this._dismissed) return;
     this.loadingEl.classList.add('hidden');
     this.menuEl.innerHTML = '';
