@@ -10,7 +10,7 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
-import { UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
@@ -19,10 +19,8 @@ import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { projectOntoPipe } from '../beamline/pipe-geometry.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
-  DEMOLISH_STANDALONE,
+  DEMOLISH_BUTTONS,
   demolishRefund,
-  refundForFound,
-  nameForFound,
 } from './demolishScopes.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
@@ -267,19 +265,8 @@ export class InputHandler {
     // Any demolish mode with a placeable scope uses the same hover UX:
     // outline the mesh and show a tooltip with the refund.
     const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
-    console.warn('[demolish] _updateDemolishHover:', {
-      demolishType: this.demolishType,
-      scope: scope ? [...scope] : null,
-      grid,
-    });
     if (scope) {
       const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope);
-      console.warn('[demolish] _findDeletablePlaceable returned:', found ? {
-        kind: found.kind,
-        type: found.placeable?.type || found.entry?.type,
-        hasRootObj: !!found.rootObj,
-        pipeId: found.pipeId,
-      } : null);
       if (found) {
         this.renderer._clearPreview();
         if (found.rootObj) this.renderer._outlineObject(found.rootObj);
@@ -318,8 +305,45 @@ export class InputHandler {
     // --- Tile-based fallback for flat objects (zones, floors, connections) ---
     let found = false;
 
+    // Utility lines — raycast-based hover (lines are narrow 3D groups, not
+    // tile occupants).
+    if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
+      const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
+      if (hit && hit.lineId) {
+        const descriptor = UTILITY_TYPES[hit.utilityType];
+        this._showDemolishTooltip(
+          (descriptor?.displayName || hit.utilityType || 'Utility') + ' Line',
+          0, screenX, screenY,
+        );
+        found = true;
+      }
+    }
+
+    // Walls / doors — edge-based hover (checks both edge-key aliases).
+    // Highlight the matched edge; with Shift held in Building mode,
+    // preview the whole connected run.
+    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
+      const nearest = this._getNearestEdge?.(screenX, screenY);
+      const hit = nearest && this._findWallOrDoorAtEdge(nearest);
+      if (hit) {
+        const { edge, wallType, doorType } = hit;
+        if (this._shiftDown && dt === 'demolishBuilding') {
+          const seg = wallType
+            ? this._buildWallSegmentPath(edge)
+            : this._buildDoorSegmentPath(edge);
+          if (seg.length > 1) this.renderer.renderDemolishPathPreview(seg);
+          else this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+        } else {
+          this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+        }
+        const def = wallType ? WALL_TYPES[wallType] : DOOR_TYPES[doorType];
+        this._showDemolishTooltip(def?.name || (wallType ? 'Wall' : 'Door'), demolishRefund(def), screenX, screenY);
+        found = true;
+      }
+    }
+
     // Zones
-    if (!found && (dt === 'demolishZone' || dt === 'demolishAll')) {
+    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
       const zoneType = this.game.state.zoneOccupied[key];
       if (zoneType) {
         const zone = ZONES[zoneType];
@@ -330,45 +354,13 @@ export class InputHandler {
     }
 
     // Infrastructure / floor
-    if (!found && (dt === 'demolishFloor' || dt === 'demolishAll')) {
+    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
       const infraType = this.game.state.infraOccupied[key];
       if (infraType) {
         const infra = FLOORS[infraType];
         this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
         found = true;
-      }
-    }
-
-    // Walls — edge-based hover. Walls live on tile edges in state.wallOccupied
-    // keyed by 'col,row,edge'. Highlight the matched edge.
-    if (!found && (dt === 'demolishWall' || dt === 'demolishAll')) {
-      const edge = this._getNearestEdge?.(screenX, screenY);
-      if (edge) {
-        const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
-        const wallType = this.game.state.wallOccupied?.[ekey];
-        if (wallType) {
-          this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
-          const def = WALL_TYPES[wallType];
-          this._showDemolishTooltip(def?.name || 'Wall', demolishRefund(def), screenX, screenY);
-          found = true;
-        }
-      }
-    }
-
-    // Doors — edge-based hover. Doors live on tile edges in state.doorOccupied
-    // keyed by 'col,row,edge'. Highlight the matched edge.
-    if (!found && (dt === 'demolishDoor' || dt === 'demolishAll')) {
-      const edge = this._getNearestEdge?.(screenX, screenY);
-      if (edge) {
-        const ekey = edge.col + ',' + edge.row + ',' + edge.edge;
-        const doorType = this.game.state.doorOccupied?.[ekey];
-        if (doorType) {
-          this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
-          const def = DOOR_TYPES[doorType];
-          this._showDemolishTooltip(def?.name || 'Door', demolishRefund(def), screenX, screenY);
-          found = true;
-        }
       }
     }
 
@@ -529,6 +521,44 @@ export class InputHandler {
   }
 
   /**
+   * The same physical tile edge has two key representations (e.g. the 's'
+   * edge of (c,r) is the 'n' edge of (c,r+1)). Walls/doors are stored under
+   * whichever representation the cursor produced at placement time, so
+   * demolish lookups must check both.
+   */
+  _edgeAlias(pt) {
+    if (pt.edge === 'n') return { col: pt.col, row: pt.row - 1, edge: 's' };
+    if (pt.edge === 's') return { col: pt.col, row: pt.row + 1, edge: 'n' };
+    if (pt.edge === 'e') return { col: pt.col + 1, row: pt.row, edge: 'w' };
+    return { col: pt.col - 1, row: pt.row, edge: 'e' };
+  }
+
+  /**
+   * Resolve a wall/door segment at an edge, checking both representations.
+   * Returns { edge, wallType, doorType } normalized to the representation
+   * the segment is actually stored under, or null when neither alias holds
+   * a wall or a door.
+   */
+  _findWallOrDoorAtEdge(edge) {
+    for (const e of [edge, this._edgeAlias(edge)]) {
+      const k = `${e.col},${e.row},${e.edge}`;
+      const wallType = this.game.state.wallOccupied?.[k] || null;
+      const doorType = this.game.state.doorOccupied?.[k] || null;
+      if (wallType || doorType) return { edge: e, wallType, doorType };
+    }
+    return null;
+  }
+
+  /** Remove wall + door segments at an edge under either representation. */
+  _removeWallAndDoorAtEdge(pt) {
+    const alias = this._edgeAlias(pt);
+    this.game.removeWall(pt.col, pt.row, pt.edge);
+    this.game.removeDoor(pt.col, pt.row, pt.edge);
+    this.game.removeWall(alias.col, alias.row, alias.edge);
+    this.game.removeDoor(alias.col, alias.row, alias.edge);
+  }
+
+  /**
    * Show or update the shift-wall floor-boundary preview at the current
    * cursor position. Called from both mousemove and keydown so that
    * pressing shift with a stationary cursor still shows the preview.
@@ -683,11 +713,15 @@ export class InputHandler {
   _refreshDemolishShiftPreview() {
     if (!this.demolishMode) return;
     if (this.isDragging || this.isDrawingWall || this.isDrawingDoor) return;
-    if (this.demolishType !== 'demolishWall' && this.demolishType !== 'demolishDoor') return;
+    if (this.demolishType !== 'demolishBuilding') return;
     if (this._lastScreenX == null) return;
-    const edge = this._getNearestEdge(this._lastScreenX, this._lastScreenY);
+    const found = this._findWallOrDoorAtEdge(
+      this._getNearestEdge(this._lastScreenX, this._lastScreenY),
+    );
+    if (!found) return;
+    const { edge, wallType } = found;
     if (this._shiftDown) {
-      const path = this.demolishType === 'demolishWall'
+      const path = wallType
         ? this._buildWallSegmentPath(edge)
         : this._buildDoorSegmentPath(edge);
       if (path.length > 0) {
@@ -1420,6 +1454,13 @@ export class InputHandler {
           this._showToast(`Zones: ${visible ? 'On' : 'Off'}`);
           break;
         }
+        case 'l': case 'L': {
+          if (e.ctrlKey || e.metaKey) break;
+          const visible = this.renderer.toggleZoneLabels?.();
+          this._showToast(`Zone labels: ${visible ? 'On' : 'Off'}`);
+          this.game.log(`Zone labels ${visible ? 'shown' : 'hidden'}`, 'info');
+          break;
+        }
         case 'y': case 'Y':
           this._toggleMoveMode();
           break;
@@ -1580,47 +1621,37 @@ export class InputHandler {
 
       // Demolish drag start
       if (e.button === 0 && this.demolishMode) {
-        if (this.demolishType === 'demolishWall') {
-          const edge = this._getNearestEdge(e.clientX, e.clientY);
-          if (this._shiftDown) {
-            // Shift-click: delete the whole connected run at once.
-            const segment = this._buildWallSegmentPath(edge);
-            if (segment.length > 0) {
-              this.game._pushUndo();
-              for (const pt of segment) {
-                this.game.removeWall(pt.col, pt.row, pt.edge);
+        if (this.demolishType === 'demolishBuilding') {
+          // Building demolish is edge-first: starting on a wall/door edge
+          // begins an edge-path drag (removes walls AND doors along the
+          // path); otherwise fall through to the tile-rect drag below,
+          // which sweeps floors/zones/walls/doors in the rectangle.
+          const found = this._findWallOrDoorAtEdge(this._getNearestEdge(e.clientX, e.clientY));
+          if (found) {
+            if (this._shiftDown) {
+              // Shift-click: delete the whole connected run at once.
+              const segment = found.wallType
+                ? this._buildWallSegmentPath(found.edge)
+                : this._buildDoorSegmentPath(found.edge);
+              if (segment.length > 0) {
+                this.game._pushUndo();
+                for (const pt of segment) {
+                  this._removeWallAndDoorAtEdge(pt);
+                }
+                this.renderer.clearDragPreview();
+                this._suppressNextClick = true;
               }
-              this.renderer.clearDragPreview();
-              this._suppressNextClick = true;
+              return;
             }
+            this.isDrawingWall = true;
+            this._wallStart = found.edge;
+            this.wallPath = [found.edge];
             return;
           }
-          this.isDrawingWall = true;
-          this._wallStart = edge;
-          this.wallPath = [edge];
-          return;
         }
-        if (this.demolishType === 'demolishDoor') {
-          const edge = this._getNearestEdge(e.clientX, e.clientY);
-          if (this._shiftDown) {
-            const segment = this._buildDoorSegmentPath(edge);
-            if (segment.length > 0) {
-              this.game._pushUndo();
-              for (const pt of segment) {
-                this.game.removeDoor(pt.col, pt.row, pt.edge);
-              }
-              this.renderer.clearDragPreview();
-              this._suppressNextClick = true;
-            }
-            return;
-          }
-          this.isDrawingDoor = true;
-          this._doorStart = edge;
-          this.doorPath = [edge];
-          return;
-        }
-        // Component and furnishing demolish are click-on-object, not drag-based
-        if (this.demolishType === 'demolishEquipment' || this.demolishType === 'demolishBeamline') {
+        // Beamline/equipment demolish is click-on-object; utility demolish
+        // is click-on-line. Neither uses the tile-rect drag.
+        if (this.demolishType === 'demolishBeamline' || this.demolishType === 'demolishUtility') {
           return; // handled in _handleClick
         }
         this.isDragging = true;
@@ -1818,22 +1849,14 @@ export class InputHandler {
         this._showDragCostTooltip(cost, e.clientX, e.clientY, {
           insufficientFunding: this.game.state.resources.funding < cost,
         });
-      } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishWall') {
-        if (this._lastMoveBranch !== 'isDrawingWall demolishWall') {
-          this._lastMoveBranch = 'isDrawingWall demolishWall';
+      } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishBuilding') {
+        if (this._lastMoveBranch !== 'isDrawingWall demolishBuilding') {
+          this._lastMoveBranch = 'isDrawingWall demolishBuilding';
           console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
         }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
-        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool || 'structuralWall');
-      } else if (this.isDrawingDoor && this.demolishMode && this.demolishType === 'demolishDoor') {
-        if (this._lastMoveBranch !== 'isDrawingDoor demolishDoor') {
-          this._lastMoveBranch = 'isDrawingDoor demolishDoor';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestEdge(e.clientX, e.clientY);
-        this.doorPath = this._buildWallLine(this._doorStart, edge);
-        this.renderer.renderDoorPreview(this.doorPath, 'officeDoor');
+        this.renderer.renderDemolishPathPreview(this.wallPath);
       } else if (this.selectedWallTool && !this.isDrawingWall && !this._shiftWallPending) {
         if (this._lastMoveBranch !== 'selectedWallTool (hover)') {
           this._lastMoveBranch = 'selectedWallTool (hover)';
@@ -1866,27 +1889,6 @@ export class InputHandler {
         }
         const edge = this._getNearestWallEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
-      } else if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor &&
-                 (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
-        if (this._lastMoveBranch !== 'demolish wall/door hover') {
-          this._lastMoveBranch = 'demolish wall/door hover';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestEdge(e.clientX, e.clientY);
-        this._lastScreenX = e.clientX;
-        this._lastScreenY = e.clientY;
-        if (this._shiftDown) {
-          const path = this.demolishType === 'demolishWall'
-            ? this._buildWallSegmentPath(edge)
-            : this._buildDoorSegmentPath(edge);
-          if (path.length > 0) {
-            this.renderer.renderDemolishPathPreview(path);
-          } else {
-            this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
-          }
-        } else {
-          this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
-        }
       } else if (this.utilityLineController && this.utilityLineController.isActive()) {
         if (this._lastMoveBranch !== 'utilityLine draw') {
           this._lastMoveBranch = 'utilityLine draw';
@@ -2065,26 +2067,14 @@ export class InputHandler {
         return;
       }
 
-      // Wall demolish end
-      if (this.demolishType === 'demolishWall' && this.isDrawingWall && this.wallPath.length > 0) {
+      // Building demolish edge-path end — clears walls AND doors along the path
+      if (this.demolishType === 'demolishBuilding' && this.isDrawingWall && this.wallPath.length > 0) {
         this.game._pushUndo();
         for (const pt of this.wallPath) {
-          this.game.removeWall(pt.col, pt.row, pt.edge);
+          this._removeWallAndDoorAtEdge(pt);
         }
         this.isDrawingWall = false;
         this.wallPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Door demolish end
-      if (this.demolishType === 'demolishDoor' && this.isDrawingDoor && this.doorPath.length > 0) {
-        this.game._pushUndo();
-        for (const pt of this.doorPath) {
-          this.game.removeDoor(pt.col, pt.row, pt.edge);
-        }
-        this.isDrawingDoor = false;
-        this.doorPath = [];
         this.renderer.clearDragPreview();
         return;
       }
@@ -2128,45 +2118,9 @@ export class InputHandler {
           const minRow = Math.min(this.dragStart.row, this.dragEnd.row);
           const maxRow = Math.max(this.dragStart.row, this.dragEnd.row);
 
-          if (this.demolishType === 'demolishBeamline') {
-            // Remove beamline components in rect
-            for (let c = minCol; c <= maxCol; c++) {
-              for (let r = minRow; r <= maxRow; r++) {
-                const node = this._getNodeAtGrid(c, r);
-                if (node) {
-                  if (this.game.editingBeamlineId && node.beamlineId !== this.game.editingBeamlineId) continue;
-                  this.game.removePlaceable(node.id);
-                }
-              }
-            }
-          } else if (this.demolishType === 'demolishUtility') {
-            // Phase 6: rack-segment demolish removed. Utility-line removal
-            // flows through UtilityLineSystem.removeLine() from the bulldozer
-            // path, not this rect demolish. Leave the branch as a no-op so
-            // legacy demolishType strings still dispatch cleanly.
-          } else if (this.demolishType === 'demolishEquipment') {
-            for (let c = minCol; c <= maxCol; c++) {
-              for (let r = minRow; r <= maxRow; r++) {
-                const subgrid = this.game.state.zoneFurnishingSubgrids[c + ',' + r];
-                if (subgrid) {
-                  for (let sr = 0; sr < 4; sr++) {
-                    for (let sc = 0; sc < 4; sc++) {
-                      const furnIdx = subgrid[sr][sc];
-                      if (furnIdx > 0) {
-                        const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-                        if (entry) this.game.removeZoneFurnishing(entry.id);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          } else if (this.demolishType === 'demolishZone') {
-            this.game.removeZoneRect(
-              this.dragStart.col, this.dragStart.row,
-              this.dragEnd.col, this.dragEnd.row
-            );
-          } else if (this.demolishType === 'demolishFloor') {
+          if (this.demolishType === 'demolishBuilding') {
+            // Rect sweep for building elements: zones, floors, and any
+            // wall/door segments stored on the swept tiles' edges.
             this.game.removeZoneRect(
               this.dragStart.col, this.dragStart.row,
               this.dragEnd.col, this.dragEnd.row
@@ -2175,6 +2129,13 @@ export class InputHandler {
               this.dragStart.col, this.dragStart.row,
               this.dragEnd.col, this.dragEnd.row
             );
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                for (const edge of ['n', 's', 'e', 'w']) {
+                  this._removeWallAndDoorAtEdge({ col: c, row: r, edge });
+                }
+              }
+            }
           } else if (this.demolishType === 'demolishAll') {
             for (let c = minCol; c <= maxCol; c++) {
               for (let r = minRow; r <= maxRow; r++) {
@@ -2404,14 +2365,29 @@ export class InputHandler {
         // deletable" as a no-op and let the click fall through to any
         // non-placeable tile branches below (walls/zones/floors).
       }
-      if (this.demolishType === 'demolishUtility') {
-        // Phase 6: rack-segment demolish removed. Utility-line removal flows
-        // through UtilityLineSystem from the inspector / bulldozer.
-      } else if (this.demolishType === 'demolishZone') {
-        if (this.game.state.zoneOccupied[key]) {
-          this.game.removeZoneTile(col, row);
+      // Utility lines are click-on-line (raycast). The catch-all also
+      // removes a hovered line before sweeping the tile.
+      if (this.demolishType === 'demolishUtility' || this.demolishType === 'demolishAll') {
+        const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
+        if (hit && hit.lineId && this.game.utilityLineSystem) {
+          if (this.game.utilityLineSystem.removeLine(hit.lineId)) {
+            const descriptor = UTILITY_TYPES[hit.utilityType];
+            this.game.log(`Removed ${descriptor?.displayName || hit.utilityType} line`, 'info');
+            if (this.demolishType === 'demolishUtility') return;
+          }
         }
-      } else if (this.demolishType === 'demolishFloor') {
+      }
+      if (this.demolishType === 'demolishBuilding') {
+        // Edge-first: a wall or door under the cursor wins over the tile.
+        const found = this._findWallOrDoorAtEdge(this._getNearestEdge(screenX, screenY));
+        if (found) {
+          if (found.wallType) {
+            this.game.removeWall(found.edge.col, found.edge.row, found.edge.edge);
+          } else {
+            this.game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
+          }
+          return;
+        }
         if (this.game.state.zoneOccupied[key]) {
           this.game.removeZoneTile(col, row);
         }
@@ -2420,12 +2396,6 @@ export class InputHandler {
         }
       } else if (this.demolishType === 'demolishAll') {
         this._demolishEverythingAt(col, row);
-      } else if (this.demolishType === 'demolishWall') {
-        const edge = this._getNearestEdge(screenX, screenY);
-        this.game.removeWall(edge.col, edge.row, edge.edge);
-      } else if (this.demolishType === 'demolishDoor') {
-        const edge = this._getNearestEdge(screenX, screenY);
-        this.game.removeDoor(edge.col, edge.row, edge.edge);
       }
       return;
     }
@@ -3217,7 +3187,7 @@ export class InputHandler {
     this.deselectRackTool();
     this.deselectZoneTool();
     this.demolishMode = true;
-    this.demolishType = demolishType || 'demolishFloor';
+    this.demolishType = demolishType || 'demolishAll';
     this.renderer.canvas.style.cursor = 'crosshair';
     this._updateShiftHint();
   }
@@ -3236,6 +3206,16 @@ export class InputHandler {
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
     if (node) this.game.removePlaceable(node.id);
+    // Remove unified placeables (equipment / furnishings / decorations /
+    // infrastructure modules) occupying any subcell of this tile.
+    const idsOnTile = new Set();
+    for (let sr = 0; sr < 4; sr++) {
+      for (let sc = 0; sc < 4; sc++) {
+        const occ = this.game.state.subgridOccupied[key + ',' + sc + ',' + sr];
+        if (occ && occ.id) idsOnTile.add(occ.id);
+      }
+    }
+    for (const id of idsOnTile) this.game.removePlaceable(id);
     // Phase 6: rack segments removed from state; nothing to demolish here.
     // Remove furnishings
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
@@ -3254,11 +3234,11 @@ export class InputHandler {
     this.game.removeDecoration(col, row);
     // Remove zones
     if (this.game.state.zoneOccupied[key]) this.game.removeZoneTile(col, row);
-    // Remove walls and doors on both edges of this tile
-    this.game.removeWall(col, row, 'e');
-    this.game.removeWall(col, row, 's');
-    this.game.removeDoor(col, row, 'e');
-    this.game.removeDoor(col, row, 's');
+    // Remove walls and doors on every edge of this tile (segments may be
+    // stored under either alias of any of the four edge keys)
+    for (const edge of ['n', 's', 'e', 'w']) {
+      this._removeWallAndDoorAtEdge({ col, row, edge });
+    }
     // Remove floor last
     if (this.game.state.infraOccupied[key]) this.game.removeInfraTile(col, row);
   }
@@ -3490,28 +3470,46 @@ export class InputHandler {
 
   /**
    * Refresh the bottom-left shift-hint chip based on the active tool.
-   * Shows contextual hints for shift-modified actions (line place, wall
-   * boundary fill, demolish whole run). Hidden when no shift action is
-   * available for the current selection.
+   * Shows contextual hints for the armed tool: rotate/cancel while a
+   * rotatable placeable is selected, shift-modified actions (line place,
+   * wall boundary fill, demolish whole run), and floor orientation.
+   * Hidden when no hint applies to the current selection.
    */
   _updateShiftHint() {
     const el = document.getElementById('shift-hint');
     if (!el) return;
 
+    const sep = `<span class="sep">•</span>`;
     let html = '';
-    if (this.demolishMode
-        && (this.demolishType === 'demolishWall' || this.demolishType === 'demolishDoor')) {
+    if (this.demolishMode && this.demolishType === 'demolishBuilding') {
       html = `<span class="k">SHIFT</span>+click: delete whole run`;
     } else if (this.selectedWallTool) {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
     } else if (this.selectedPlaceableId
         && !this.selectedInfraTool
         && !this.selectedZoneTool) {
-      const pl = PLACEABLES[this.selectedPlaceableId];
-      if (pl && pl.kind === 'decoration') {
-        html = `<span class="k">SHIFT</span>+drag: line place`
-          + `<span class="sep">•</span>`
-          + `<span class="k">Z</span>/<span class="k">X</span>: spacing`;
+      // Placement hint: F rotates every free-placed placeable (furnishings,
+      // decorations, equipment, grid beamline components). Pipe-bound tools
+      // (junctions, on-pipe placements, drawn pipes) take orientation from
+      // the pipe, so no rotate hint for them.
+      const comp = COMPONENTS[this.selectedPlaceableId];
+      const rotatable = !(comp && (comp.role === 'junction'
+        || comp.role === 'placement' || comp.isDrawnConnection));
+      if (rotatable) {
+        const bits = [`<span class="k">F</span> Rotate`];
+        const pl = PLACEABLES[this.selectedPlaceableId];
+        if (pl && pl.kind === 'decoration') {
+          bits.push(`<span class="k">SHIFT</span>+drag: line place`);
+          bits.push(`<span class="k">Z</span>/<span class="k">X</span>: spacing`);
+        }
+        bits.push(`<span class="k">ESC</span> Cancel`);
+        html = bits.join(sep);
+      }
+    } else if (this.selectedInfraTool) {
+      const infraDef = FLOORS[this.selectedInfraTool];
+      if (infraDef?.orientable) {
+        html = `<span class="k">F</span> Rotate`
+          + sep + `<span class="k">ESC</span> Cancel`;
       }
     }
 
@@ -3543,25 +3541,21 @@ export class InputHandler {
       this._hidePreview();
       return;
     }
-    // Pick demolish type based on active tool context.
-    // Standalone modes (wall/door/floor/zone/utility) get their own scope.
-    // Everything else falls into two tiers: beamline mode → demolishBeamline,
-    // all other placeable modes → demolishEquipment.
+    // Pick demolish type based on active tool context: structure-ish tools
+    // map to Building, beamline mode maps to Beamline, everything else gets
+    // the catch-all.
     let demolishType;
     const cat = this.selectedCategory;
     const catDef = MODES[this.activeMode]?.categories?.[cat];
-    if (this.selectedWallTool || catDef?.isWallTab || cat === 'walls' || cat === 'fencing') {
-      demolishType = 'demolishWall';
-    } else if (this.selectedDoorTool || cat === 'doors') {
-      demolishType = 'demolishDoor';
-    } else if (this.selectedInfraTool || cat === 'flooring' || catDef?.isSurfaceTab) {
-      demolishType = 'demolishFloor';
-    } else if (this.selectedZoneTool) {
-      demolishType = 'demolishZone';
+    if (this.selectedWallTool || catDef?.isWallTab || cat === 'walls' || cat === 'fencing'
+        || this.selectedDoorTool || cat === 'doors'
+        || this.selectedInfraTool || cat === 'flooring' || catDef?.isSurfaceTab
+        || this.selectedZoneTool) {
+      demolishType = 'demolishBuilding';
     } else if (this.activeMode === 'beamline') {
       demolishType = 'demolishBeamline';
     } else {
-      demolishType = 'demolishEquipment';
+      demolishType = 'demolishAll';
     }
 
     // Activate demolish in-place without changing mode/menu
@@ -3576,8 +3570,8 @@ export class InputHandler {
     this.bulldozerMode = false;
     this.renderer.setBulldozerMode(false);
     this.selectDemolishTool(demolishType);
-    const names = { demolishBeamline: 'Remove Beamline', demolishEquipment: 'Remove Equipment', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishFloor: 'Remove Floors', demolishZone: 'Remove Zones', demolishUtility: 'Remove Utilities', demolishAll: 'Clear Everything' };
-    this._renderPreview(names[demolishType] || 'Demolish', 'Press Delete or Esc to exit', []);
+    const btn = DEMOLISH_BUTTONS.find(b => b.key === demolishType);
+    this._renderPreview(btn?.name || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
   _switchToDemolishMode() {
@@ -3606,8 +3600,9 @@ export class InputHandler {
     });
     this.renderer._generateCategoryTabs();
     this.renderer.updatePalette('demolish');
-    this.paletteIndex = -1;
-    this._hidePreview();
+    // Arm the catch-all tool by default, mirroring setActiveMode('demolish').
+    this.selectDemolishTool('demolishAll');
+    this._syncPaletteClick(0);
   }
 
   _restorePreviousMode() {
@@ -3674,6 +3669,14 @@ export class InputHandler {
       this.selectedCategory = catKeys[0] || '';
     }
     this.renderer.activeMode = mode;
+    // Entering demolish mode arms the catch-all tool immediately (RCT
+    // style) so the first click already demolishes. The HUD's own mode-btn
+    // listener runs before this one, so the palette DOM is already built;
+    // highlight card 0 to match.
+    if (mode === 'demolish') {
+      this.selectDemolishTool('demolishAll');
+      this._syncPaletteClick(0);
+    }
     // Emit so UI layers (stats panels, overlays) can react to mode transitions.
     if (prev !== mode && this.game && typeof this.game.emit === 'function') {
       this.game.emit('activeModeChanged', { prev, mode });
@@ -3864,25 +3867,59 @@ export class InputHandler {
       if (this.paletteIndex === 0) {
         const zone = ZONES[key];
         if (!zone) { this._hidePreview(); return; }
-        this._renderPreview(zone.name, '', [
+        this._renderPreview(zone.name, zone.desc || '', [
           ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
           ['Placement', 'Drag area'],
         ]);
       } else {
         const furn = ZONE_FURNISHINGS[key];
         if (!furn) { this._hidePreview(); return; }
-        this._renderPreview(furn.name, '', [
+        const furnStats = [
           ['Cost', `$${typeof furn.cost === 'object' ? furn.cost.funding : furn.cost}`],
-          ['Zone', ZONES[furn.zoneType]?.name || furn.zoneType],
-        ]);
+          ['Size', `${furn.gridW || 1}×${furn.gridH || 1}`],
+        ];
+        if (furn.energyCost) furnStats.push(['Energy', `${furn.energyCost} kW`]);
+        furnStats.push(['Zone', ZONES[zoneCatDef.zoneType]?.name || zoneCatDef.zoneType]);
+        this._renderPreview(furn.name, furn.desc || '', furnStats);
       }
+      return;
+    }
+
+    // Grounds mode tabs — surfaces, fencing (walls), decorations.
+    const groundsCatDef = MODES.grounds?.categories?.[this.selectedCategory];
+    if (groundsCatDef?.isSurfaceTab) {
+      const infra = FLOORS[key];
+      if (!infra) { this._hidePreview(); return; }
+      this._renderPreview(infra.name, infra.desc || '', [
+        ['Cost', `$${typeof infra.cost === 'object' ? infra.cost.funding : infra.cost}/tile`],
+        ['Placement', 'Drag area'],
+      ]);
+      return;
+    }
+    if (groundsCatDef?.isWallTab) {
+      const wt = WALL_TYPES[key];
+      if (!wt) { this._hidePreview(); return; }
+      this._renderPreview(wt.name, wt.desc || '', [
+        ['Cost', `$${typeof wt.cost === 'object' ? wt.cost.funding : wt.cost}/segment`],
+        ['Placement', 'Drag along edges'],
+      ]);
+      return;
+    }
+    if (groundsCatDef?.isDecorationTab) {
+      const dec = DECORATIONS[key];
+      if (!dec) { this._hidePreview(); return; }
+      const decStats = [['Cost', `$${typeof dec.cost === 'object' ? dec.cost.funding : dec.cost}`]];
+      if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
+      if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
+      if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
+      this._renderPreview(dec.name, dec.desc || '', decStats);
       return;
     }
 
     // Demolish tools
     if (this.selectedCategory === 'demolish') {
-      const names = { demolishBeamline: 'Remove Beamline', demolishEquipment: 'Remove Equipment', demolishUtility: 'Remove Utilities', demolishZone: 'Remove Zone', demolishFloor: 'Remove Floor', demolishWall: 'Remove Walls', demolishDoor: 'Remove Doors', demolishAll: 'Clear Everything' };
-      this._renderPreview(names[key] || 'Demolish', '', []);
+      const btn = DEMOLISH_BUTTONS.find(b => b.key === key);
+      this._renderPreview(btn?.name || 'Demolish', btn?.desc || '', []);
       return;
     }
 

@@ -2,9 +2,11 @@
 // of placeable kinds it can delete), a display label, a description, and
 // a swatch color used by the HUD palette.
 //
-// Two-tier hierarchy: demolishBeamline (beamline + all placeables) >
-// demolishEquipment (all non-beamline placeables).
-// Standalone single-kind modes (wall, door, floor, zone, utility) do NOT cascade.
+// Four tools (RCT-style):
+//   demolishAll      — catch-all: everything on the hovered/dragged tile
+//   demolishBeamline — beamline components + pipes + equipment (click-on-object)
+//   demolishBuilding — walls, doors, flooring & zone overlays
+//   demolishUtility  — utility lines (click a pipe/cable to remove it)
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -22,38 +24,36 @@ export function demolishRefund(compOrDef) {
   return Math.floor(cost * 0.5);
 }
 
-// Two-tier placeable scopes:
-//   demolishBeamline  — beamline components + all placeables
-//   demolishEquipment — all non-beamline placeables
+// Placeable-kind scopes for the click-on-object delete path.
+//   demolishAll      — everything (also sweeps tiles/edges via its own handlers)
+//   demolishBeamline — union of the old demolishBeamline + demolishEquipment
 export const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishBeamline:  new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
-  demolishEquipment: new Set(['infrastructure', 'equipment', 'furnishing', 'decoration']),
   demolishAll:       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
+  demolishBeamline:  new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
 };
 
-// Standalone (non-cascading) demolish modes. These each affect exactly one
-// system and never touch placeables.
+// Standalone (non-cascading) demolish modes. These never route through the
+// placeable-scope click path.
 export const DEMOLISH_STANDALONE = new Set([
-  'demolishWall',
-  'demolishDoor',
-  'demolishFloor',
-  'demolishZone',
+  'demolishBuilding',
   'demolishUtility',
 ]);
 
-// HUD palette button definitions, in display order.
+// HUD palette button definitions, in display order. Slot order matters:
+// the palette hotkey badges map slots 0-3 to Z/X/C/V. `sub` is the short
+// card subtitle; `desc` is the longer preview-panel description.
+// `cardName` is the short label on the palette card (the cards live inside
+// the Demolish tab, so the prefix is redundant there and would truncate);
+// `name` is the full tool name for the preview panel.
 export const DEMOLISH_BUTTONS = [
-  // Two-tier placeable scopes
-  { key: 'demolishBeamline',   name: 'Demolish Beamline',  desc: 'Beamline components + all equipment', color: '#c44' },
-  { key: 'demolishEquipment',  name: 'Remove Equipment',   desc: 'Infrastructure, equipment, furniture & decorations', color: '#a64' },
-  // Standalone
-  { key: 'demolishWall',       name: 'Demolish Walls',     desc: 'Walls, fences & hedges', color: '#a86' },
-  { key: 'demolishDoor',       name: 'Demolish Doors',     desc: 'Door segments', color: '#88a' },
-  { key: 'demolishFloor',      name: 'Demolish Floor',     desc: 'Flooring & ground surfaces', color: '#a44' },
-  { key: 'demolishZone',       name: 'Demolish Zone',      desc: 'Zone overlays', color: '#a84' },
-  { key: 'demolishUtility',    name: 'Demolish Utilities', desc: 'Utility pipes / cables', color: '#c84' },
-  // Sweeper
-  { key: 'demolishAll',        name: 'Demolish All',       desc: 'Everything on the hovered tile', color: '#c22' },
+  { key: 'demolishAll',      name: 'Demolish',          cardName: 'Demolish', sub: 'Everything on the tile',
+    desc: 'Clear everything under the cursor — components, equipment, walls, floors, zones. Drag to sweep an area.', color: '#c22' },
+  { key: 'demolishBeamline', name: 'Demolish Beamline', cardName: 'Beamline', sub: 'Components, pipes & equipment',
+    desc: 'Beamline components, beam pipes and placed equipment. Click an object to remove it (50% refund).', color: '#c44' },
+  { key: 'demolishBuilding', name: 'Demolish Building', cardName: 'Building', sub: 'Walls, doors, floors & zones',
+    desc: 'Walls, doors, flooring and zone overlays. Drag along a wall to clear a run, or drag a rectangle over floors.', color: '#a86' },
+  { key: 'demolishUtility',  name: 'Demolish Utility',  cardName: 'Utility', sub: 'Pipes & cables',
+    desc: 'Utility pipes and cables. Click a line to remove it.', color: '#c84' },
 ];
 
 /**

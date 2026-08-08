@@ -437,6 +437,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         costEl.textContent = `${_costLabel(infra.cost)}/seg`;
         item.appendChild(costEl);
 
+        this._attachSimpleHoverPreview(item, infra.name, infra.desc, [
+          ['Cost', `${_costLabel(infra.cost)}/segment`],
+          ['Placement', 'Drag along tile edges'],
+        ]);
+
         if (infra.variants && infra.variants.length > 1) {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
@@ -573,6 +578,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         costEl.className = 'palette-cost';
         costEl.textContent = `${_costLabel(door.cost)}/seg`;
         item.appendChild(costEl);
+
+        this._attachSimpleHoverPreview(item, door.name, door.desc, [
+          ['Cost', `${_costLabel(door.cost)}/segment`],
+          ['Placement', 'Place on a wall edge'],
+        ]);
 
         if (door.variants && door.variants.length > 1) {
           item.addEventListener('click', () => {
@@ -713,6 +723,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         costEl.textContent = `${_costLabel(infra.cost)}/tile`;
         item.appendChild(costEl);
 
+        const floorStats = [
+          ['Cost', `${_costLabel(infra.cost)}/tile`],
+          ['Placement', infra.isLinePlacement ? 'Drag a line' : 'Drag an area'],
+        ];
+        if (infra.requiresFoundation) {
+          floorStats.push(['Requires', FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation]);
+        }
+        this._attachSimpleHoverPreview(item, infra.name, infra.desc, floorStats);
+
         // If this floor has variants, show a flyout above the item on click
         if (infra.variants && infra.variants.length > 1) {
           item.addEventListener('click', () => {
@@ -832,6 +851,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       costEl.textContent = `${_costLabel(infra.cost)}/tile`;
       item.appendChild(costEl);
 
+      this._attachSimpleHoverPreview(item, infra.name, infra.desc, [
+        ['Cost', `${_costLabel(infra.cost)}/tile`],
+        ['Placement', 'Drag an area'],
+      ]);
+
       if (infra.variants && infra.variants.length > 1) {
         item.addEventListener('click', () => {
           if (this._onPaletteClick) this._onPaletteClick(idx);
@@ -943,6 +967,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       costEl.textContent = `${_costLabel(infra.cost)}`;
       item.appendChild(costEl);
 
+      this._attachSimpleHoverPreview(item, infra.name, infra.desc, [
+        ['Cost', `${_costLabel(infra.cost)}/segment`],
+        ['Placement', 'Drag along tile edges'],
+      ]);
+
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
         if (this._onWallSelect) this._onWallSelect(key);
@@ -1038,6 +1067,12 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       costEl.className = 'palette-cost';
       costEl.textContent = `${_costLabel(dec.cost)}`;
       item.appendChild(costEl);
+
+      const decStats = [['Cost', _costLabel(dec.cost)]];
+      if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
+      if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
+      if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
+      this._attachSimpleHoverPreview(item, dec.name, dec.desc, decStats);
 
       if (hasVariants) {
         item.addEventListener('click', () => {
@@ -1141,6 +1176,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     zoneDesc.textContent = `Requires: ${FLOORS[zone.requiredFloor]?.name || zone.requiredFloor} (drag)`;
     zoneItem.appendChild(zoneDesc);
 
+    this._attachSimpleHoverPreview(zoneItem, zone.name, zone.desc, [
+      ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
+      ['Placement', 'Drag an area'],
+    ]);
+
     zoneItem.addEventListener('click', () => {
       if (this._onPaletteClick) this._onPaletteClick(zoneIdx);
       if (this._onZoneSelect) this._onZoneSelect(zoneType);
@@ -1208,6 +1248,14 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         costEl.className = 'palette-cost';
         costEl.textContent = `${_costLabel(furn.cost)}`;
         item.appendChild(costEl);
+
+        const furnStats = [
+          ['Cost', _costLabel(furn.cost)],
+          ['Size', `${gw}×${gh}`],
+        ];
+        if (furn.energyCost) furnStats.push(['Energy', `${furn.energyCost} kW`]);
+        furnStats.push(['Zone', zone.name]);
+        this._attachSimpleHoverPreview(item, furn.name, furn.desc, furnStats);
 
         const furnHasVariants = Array.isArray(furn.variants) && furn.variants.length > 1;
         if (furnHasVariants) {
@@ -1284,13 +1332,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       const nameEl = document.createElement('div');
       nameEl.className = 'palette-name';
-      nameEl.textContent = tool.name;
+      nameEl.textContent = tool.cardName || tool.name;
       item.appendChild(nameEl);
 
       const descEl = document.createElement('div');
       descEl.className = 'palette-cost';
-      descEl.textContent = tool.desc;
+      descEl.textContent = tool.sub || tool.desc;
       item.appendChild(descEl);
+
+      this._attachSimpleHoverPreview(item, tool.name, tool.desc);
 
       item.addEventListener('click', () => {
         if (this._onPaletteClick) this._onPaletteClick(idx);
@@ -1299,26 +1349,6 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       palette.appendChild(item);
     }
-
-    // Bulk delete buttons — one per placeable kind. Functional placeholder
-    // so the unified removePlaceablesByKind path has UI.
-    const game = this.game;
-    const bulkDeleteRow = document.createElement('div');
-    bulkDeleteRow.className = 'bulk-delete-row';
-    bulkDeleteRow.style.cssText = 'display:flex; flex-wrap:wrap; gap:4px; padding:8px 4px;';
-    for (const kind of ['beamline', 'furnishing', 'equipment', 'decoration']) {
-      const btn = document.createElement('button');
-      btn.textContent = `Delete all ${kind}`;
-      btn.style.cssText = 'flex:1 1 45%; font-size:11px; padding:4px;';
-      btn.onclick = () => {
-        if (confirm(`Delete all ${kind} placeables? This cannot be undone.`)) {
-          const n = game.removePlaceablesByKind(kind);
-          game.log(`Removed ${n} ${kind} placeables`, 'good');
-        }
-      };
-      bulkDeleteRow.appendChild(btn);
-    }
-    palette.appendChild(bulkDeleteRow);
     return;
   }
 
@@ -1808,6 +1838,60 @@ UIHost.prototype._showUtilityLinePreview = function(descriptor) {
     preview.style.top = '';
     preview.style.bottom = '';
   }
+};
+
+// Generic preview for non-component palette items (floors, walls, doors,
+// zones, furnishings, decorations). Populates the same lower-left
+// #component-preview panel used by beamline/infra components.
+// `stats` is an array of [label, value] pairs.
+UIHost.prototype._showSimplePalettePreview = function(name, desc, stats = []) {
+  const preview = document.getElementById('component-preview');
+  if (!preview) return;
+
+  const nameEl = document.getElementById('preview-name');
+  if (nameEl) nameEl.textContent = name;
+
+  const descEl = document.getElementById('preview-desc');
+  if (descEl) descEl.textContent = desc || '';
+
+  // No schematic for these item types.
+  const schematicCanvas = document.getElementById('preview-schematic');
+  if (schematicCanvas) schematicCanvas.style.display = 'none';
+
+  const statsEl = document.getElementById('preview-stats');
+  if (statsEl) {
+    statsEl.innerHTML = stats.map(([label, val]) =>
+      `<div class="prev-stat-row"><span>${label}</span><span class="prev-stat-val">${val}</span></div>`
+    ).join('');
+  }
+
+  preview.classList.remove('hidden');
+
+  // Position to the right of the component-popup if visible, otherwise at
+  // the default CSS position (lower-left) — same rule as component previews.
+  const mainPopup = document.getElementById('component-popup');
+  const mainVisible = mainPopup && !mainPopup.classList.contains('hidden');
+  if (mainVisible) {
+    const mainRect = mainPopup.getBoundingClientRect();
+    preview.style.left = (mainRect.right + 8) + 'px';
+    preview.style.bottom = '';
+    preview.style.top = mainRect.top + 'px';
+  } else {
+    preview.style.left = '';
+    preview.style.top = '';
+    preview.style.bottom = '';
+  }
+};
+
+// Attach mouseenter/mouseleave handlers so hovering a palette item shows
+// the simple preview, matching the hover behavior of component items.
+UIHost.prototype._attachSimpleHoverPreview = function(item, name, desc, stats = []) {
+  item.addEventListener('mouseenter', () => {
+    this._showSimplePalettePreview(name, desc, stats);
+  });
+  item.addEventListener('mouseleave', () => {
+    this._hidePalettePreview();
+  });
 };
 
 UIHost.prototype._hidePalettePreview = function() {
