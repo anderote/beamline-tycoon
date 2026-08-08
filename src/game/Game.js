@@ -139,6 +139,14 @@ export class Game {
     this.state.placeables = starter.placeables;
     this.state.placeableNextId = starter.placeableNextId;
     this.state.cornerHeights = starter.cornerHeights;
+    // Mirror starter floors (meadow wildgrass/tallgrass) into the
+    // infraOccupied index. Placement code keys "is there already a floor
+    // here?" off this map — leaving it empty made meadow tiles invisible to
+    // replacement, so placing a pad left the grass floor entry (and its 3D
+    // tufts) lingering under the new floor. Scenario load and deserialize
+    // already rebuild this index; the fresh-map path must too.
+    for (const tile of this.state.floors)
+      this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
     this._rebuildPlaceableIndex();
 
     // Dev-only shape-invariant check: catches any lingering legacy pipe shape
@@ -3422,7 +3430,9 @@ export class Game {
 
   // === SAVE / LOAD ===
 
-  save() {
+  // Build the save payload string without writing it anywhere.
+  // Used by save() (active/autosave key) and the named save-slot system.
+  serialize() {
     const saveState = {
       ...this.state,
       cornerHeights: serializeCornerHeights(this.state.cornerHeights),
@@ -3438,12 +3448,15 @@ export class Game {
     delete saveState.utilityNetworkData;
     // _entitiesLastPlaceableIds is a runtime Set; don't persist.
     delete saveState._entitiesLastPlaceableIds;
-    const payload = JSON.stringify({
+    return JSON.stringify({
       version: 7,
       state: saveState,
       beamlines: this.registry.toJSON(),
     });
-    localStorage.setItem('beamlineTycoon', payload);
+  }
+
+  save() {
+    localStorage.setItem('beamlineTycoon', this.serialize());
   }
 
   load() {

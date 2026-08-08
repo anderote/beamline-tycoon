@@ -123,9 +123,17 @@ const GRASS_SURFACE_KINDS = new Set(['grass', 'wildgrass', 'tallgrass']);
  */
 function buildGrassSurfaces(game) {
   const blobs = game.state.terrainBlobs || [];
+  const infraOccupied = game.state.infraOccupied || {};
   const out = [];
   for (const tile of game.state.floors || []) {
     if (!GRASS_SURFACE_KINDS.has(tile.type)) continue;
+    // Defensive: a stale grass entry can sit under a floor placed by a path
+    // that pushes directly into state.floors (e.g. DesignPlacer, or old
+    // saves with duplicate entries). The occupant index is authoritative —
+    // skip tufts when a non-grass floor covers the tile, mirroring
+    // buildTerrain's exclusion.
+    const occupant = infraOccupied[tile.col + ',' + tile.row];
+    if (occupant && !GRASS_SURFACE_KINDS.has(occupant)) continue;
     out.push({
       col: tile.col,
       row: tile.row,

@@ -14,6 +14,7 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
+import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { Overlay } from './overlay.js';
 import { UIHost } from '../ui/UIHost.js';
@@ -272,6 +273,7 @@ export class ThreeRenderer {
     this.hoverRow = 0;
     this.labelLevel = 0;
     this.zoneOverlayVisible = true;
+    this.showZoneLabels = true;
     this.activeMode = 'beamline';
     this.nodeSprites = {};
     this.beamTime = 0;
@@ -491,6 +493,9 @@ export class ThreeRenderer {
     this.scene.add(this.entityGroup);
     this.entityRenderer = createEntityRenderer(this.entityGroup);
 
+    // Staff pawns — little walking pixel-people for hired staff
+    this.staffPawns = new StaffPawns(this.game, this.scene);
+
     window.addEventListener('resize', this._boundOnResize);
 
     // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
@@ -557,6 +562,7 @@ export class ThreeRenderer {
         case 'staffChanged':
           if (this._renderStaffBar) this._renderStaffBar();
           if (this._refreshStaffWindows) this._refreshStaffWindows();
+          if (this.staffPawns) this.staffPawns.sync();
           break;
       }
       } catch (e) { console.error(`[ThreeRenderer] event '${event}' handler error:`, e); }
@@ -1188,6 +1194,22 @@ export class ThreeRenderer {
     this.zoneOverlayVisible = !this.zoneOverlayVisible;
     if (this.zoneGroup) this.zoneGroup.visible = this.zoneOverlayVisible;
     return this.zoneOverlayVisible;
+  }
+
+  /**
+   * Show/hide only the zone name+count label sprites, leaving the zone tile
+   * tint visible. Cheap: flips `.visible` on the sprites already in
+   * zoneGroup (labels are the only Sprites in there — tiles are
+   * InstancedMeshes); no rebuild needed.
+   */
+  toggleZoneLabels() {
+    this.showZoneLabels = !this.showZoneLabels;
+    if (this.zoneGroup) {
+      for (const child of this.zoneGroup.children) {
+        if (child.isSprite) child.visible = this.showZoneLabels;
+      }
+    }
+    return this.showZoneLabels;
   }
 
   updateCursorBendDir(dir) { this.cursorBendDir = dir; }
@@ -2756,6 +2778,7 @@ export class ThreeRenderer {
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
     if (this.entityRenderer) this.entityRenderer.update(_dt, this.game?.state);
+    if (this.staffPawns) this.staffPawns.update(_dt);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -2872,6 +2895,7 @@ export class ThreeRenderer {
   refresh() {
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
+    if (this.staffPawns) this.staffPawns.sync();
   }
 
   _refreshTerrain() {
@@ -2948,6 +2972,7 @@ export class ThreeRenderer {
         const sprite = this._makeLabelSprite(label, { isZone: true });
         sprite.position.set(cx, 0.55, cz);
         sprite.renderOrder = 11;
+        sprite.visible = this.showZoneLabels !== false;
         this.zoneGroup.add(sprite);
       }
     }
@@ -3675,6 +3700,10 @@ export class ThreeRenderer {
       this._animFrameId = null;
     }
     window.removeEventListener('resize', this._boundOnResize);
+    if (this.staffPawns) {
+      this.staffPawns.dispose();
+      this.staffPawns = null;
+    }
     if (this._viewCube) {
       this._viewCube.dispose();
       this._viewCube = null;
