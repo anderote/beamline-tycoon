@@ -543,14 +543,31 @@ function showScenarioPicker(game) {
     } catch {}
   }, 800);
 
-  BeamPhysics.init().then(() => {
-    game.log('Beam physics engine loaded.', 'good');
-    game.recalcAllBeamlines();
-    game.emit('beamlineChanged');
-  }).catch(err => {
-    game.log('Physics engine failed to load — using simplified model.', 'bad');
-    console.error('BeamPhysics init error:', err);
-  });
+  // Pyodide + numpy is a ~30MB download — by far the heaviest part of boot.
+  // The title screen doesn't need physics, so defer the download until the
+  // player actually enters the game (the sim already tolerates physics
+  // arriving late: we recalc when it lands).
+  let physicsStarted = false;
+  const startPhysics = () => {
+    if (physicsStarted) return;
+    physicsStarted = true;
+    BeamPhysics.init().then(() => {
+      game.log('Beam physics engine loaded.', 'good');
+      game.recalcAllBeamlines();
+      game.emit('beamlineChanged');
+    }).catch(err => {
+      game.log('Physics engine failed to load — using simplified model.', 'bad');
+      console.error('BeamPhysics init error:', err);
+    });
+  };
+  if (titleScreen) {
+    // Kick off once the player leaves the title for the game. New Game /
+    // Scenarios reload with skipTitle set and take the immediate branch.
+    const prevDismiss = titleScreen.dismiss.bind(titleScreen);
+    titleScreen.dismiss = (...args) => { startPhysics(); return prevDismiss(...args); };
+  } else {
+    startPhysics();
+  }
 
 
 })();
