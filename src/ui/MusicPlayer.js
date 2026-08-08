@@ -31,13 +31,122 @@ export class MusicPlayer {
     this.minimizeBtn = this.el.querySelector('.mp-minimize');
     this.minimized = false;
 
+    // Drag / position state
+    this._customPos = null;      // { left, top } once the user has dragged the player
+    this._suppressClick = false; // swallow the click that follows a drag
+
     this._bindEvents();
+    this._initPosition();
+    this._initDrag();
     this._loadTracks();
+  }
+
+  // === Positioning ===
+
+  static POS_KEY = 'beamlineTycoon.musicPlayerPos';
+
+  _initPosition() {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(MusicPlayer.POS_KEY));
+    } catch {}
+    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+      this._setPosition(saved.left, saved.top);
+    } else {
+      this._applyDefaultPosition();
+    }
+
+    // Keep the default position below the top bar even as the bar's height
+    // changes (staff portraits load, buttons wrap at narrow widths).
+    const topBar = document.getElementById('top-bar');
+    if (topBar && typeof ResizeObserver !== 'undefined') {
+      this._topBarObserver = new ResizeObserver(() => {
+        if (!this._customPos) this._applyDefaultPosition();
+      });
+      this._topBarObserver.observe(topBar);
+    }
+
+    window.addEventListener('resize', () => {
+      if (this._customPos) {
+        // Re-clamp a dragged position so the player can't be lost off-screen
+        this._setPosition(this._customPos.left, this._customPos.top);
+        this._savePosition();
+      } else {
+        this._applyDefaultPosition();
+      }
+    });
+  }
+
+  // Default: right-aligned (CSS `right: 12px`), just below the top bar
+  _applyDefaultPosition() {
+    const topBar = document.getElementById('top-bar');
+    const barBottom = topBar ? topBar.getBoundingClientRect().bottom : 48;
+    this.el.style.left = '';
+    this.el.style.right = '';
+    this.el.style.top = Math.max(0, Math.round(barBottom + 8)) + 'px';
+  }
+
+  _setPosition(left, top) {
+    const rect = this.el.getBoundingClientRect();
+    const maxLeft = Math.max(0, window.innerWidth - rect.width);
+    const maxTop = Math.max(0, window.innerHeight - rect.height);
+    const clampedLeft = Math.min(Math.max(0, Math.round(left)), maxLeft);
+    const clampedTop = Math.min(Math.max(0, Math.round(top)), maxTop);
+    this.el.style.left = clampedLeft + 'px';
+    this.el.style.top = clampedTop + 'px';
+    this.el.style.right = 'auto';
+    this._customPos = { left: clampedLeft, top: clampedTop };
+  }
+
+  _savePosition() {
+    if (!this._customPos) return;
+    try {
+      localStorage.setItem(MusicPlayer.POS_KEY, JSON.stringify(this._customPos));
+    } catch {}
+  }
+
+  _initDrag() {
+    let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    this.el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      // Only drag from the bar background / track-name area — not the
+      // buttons, theme select, volume slider, or the open track list.
+      if (e.target.closest('.mp-btn, .mp-theme, .mp-volume, .mp-track-list')) return;
+      dragging = true;
+      moved = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      const r = this.el.getBoundingClientRect();
+      ox = r.left;
+      oy = r.top;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      // Small threshold so a plain click on the track name still opens the list
+      if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      moved = true;
+      this.el.style.cursor = 'grabbing';
+      this._setPosition(ox + dx, oy + dy);
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      this.el.style.cursor = '';
+      if (moved) {
+        this._suppressClick = true;
+        setTimeout(() => { this._suppressClick = false; }, 0);
+        this._savePosition();
+      }
+    });
   }
 
   async _loadTracks() {
     try {
-      const resp = await fetch('/music/tracks.json');
+      // Relative path so the game works when deployed under a subpath.
+      const resp = await fetch('music/tracks.json');
       this.themes = await resp.json();
     } catch {
       this.themes = {};
@@ -119,7 +228,7 @@ export class MusicPlayer {
   _buildTracksForCurrentTheme() {
     const files = this.themes[this.currentTheme] || [];
     this.tracks = files.map(f => ({
-      url: `/music/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
+      url: `music/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
       name: f.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
     }));
   }
@@ -174,6 +283,7 @@ export class MusicPlayer {
     if (this.trackNameBtn) {
       this.trackNameBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (this._suppressClick) return; // the click that ends a drag
         this._toggleTrackList();
       });
     }

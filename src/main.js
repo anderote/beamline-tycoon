@@ -21,6 +21,11 @@ import { COMPONENTS } from './data/components.js';
 import { MACHINES } from './data/machines.js';
 import { SCENARIOS } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
+import { TitleScreen } from './ui/TitleScreen.js';
+import { WelcomeDialog } from './ui/WelcomeDialog.js';
+import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
+import { CloudSaves } from './game/CloudSaves.js';
+import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
@@ -82,11 +87,13 @@ function showScenarioPicker(game) {
 
     if (!confirm(`Start "${scenario.name}"? Current progress will be lost.`)) return;
 
-    // Clear current save, set pending scenario, reload
+    // Clear current save, set pending scenario, reload.
+    // skipTitle makes the post-selection reload go straight into the game.
     localStorage.removeItem('beamlineTycoon');
     if (scenario.generator) {
       localStorage.setItem('beamlineTycoon.pendingScenario', id);
     }
+    sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
     location.reload();
   });
 
@@ -96,8 +103,27 @@ function showScenarioPicker(game) {
 }
 
 (async function main() {
+  // Capture save existence BEFORE game.load()/start() can autosave.
+  const hadSave = !!localStorage.getItem('beamlineTycoon');
+
+  // Title screen — skipped on demo mode, after in-menu "New Game" /
+  // scenario-picker reloads (skipTitle flag), or with a pending scenario.
+  const bootParams = new URLSearchParams(location.search);
+  const skipTitleFlag = !!sessionStorage.getItem('beamlineTycoon.skipTitle');
+  if (skipTitleFlag) sessionStorage.removeItem('beamlineTycoon.skipTitle');
+  const skipTitle = skipTitleFlag
+    || bootParams.has('demo') || location.hash.includes('demo')
+    || !!localStorage.getItem('beamlineTycoon.pendingScenario');
+  const titleScreen = skipTitle ? null : new TitleScreen();
+
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
+
+  // Cloud-save detection (Deep Tech Week deployment). Non-blocking — local
+  // dev has no API and stays in local mode. The Save/Load dialog reads
+  // game.cloud each time it opens, so a late-arriving result still applies.
+  game.cloud = { checked: false, available: false };
+  CloudSaves.detect().then((r) => { game.cloud = { checked: true, ...r }; });
   const router = new ViewRouter();
   game.viewRouter = router;
   const spriteManager = new SpriteManager();
@@ -309,6 +335,18 @@ function showScenarioPicker(game) {
     designLibrary.open(true);
   });
 
+  // Welcome/goals dialog — auto-shown on fresh games (below), reopenable
+  // anytime via Menu > Guide. Marks welcomeSeen + saves on dismiss.
+  const welcomeDialog = new WelcomeDialog(() => {
+    if (!game.state.welcomeSeen) {
+      game.state.welcomeSeen = true;
+      game.save();
+    }
+  });
+
+  // Named save/load slots dialog (Menu > Save Game / Load Game)
+  const saveLoadDialog = new SaveLoadDialog(game);
+
   // Menu dropdown toggle
   const menuBtn = document.getElementById('btn-menu');
   const menuDropdown = document.getElementById('menu-dropdown');
@@ -329,26 +367,35 @@ function showScenarioPicker(game) {
         }
         break;
       case 'save-game':
-        game.save();
-        game.log('Game saved.', 'good');
+        saveLoadDialog.open('save');
         break;
       case 'load-game':
-        game.log('Load game — coming soon.', 'info');
+        saveLoadDialog.open('load');
         break;
       case 'scenarios':
         showScenarioPicker(game);
         break;
       case 'options':
-        game.log('Options — coming soon.', 'info');
+        optionsDialog.open();
         break;
       case 'guide':
-        game.log('Guide — coming soon.', 'info');
+        welcomeDialog.open();
+        break;
+      case 'main-menu':
+        // Save first so the title screen's Continue picks up right here.
+        game.save();
+        location.reload();
         break;
     }
   });
 
   // Music player
   const musicPlayer = new MusicPlayer();
+
+  // Options dialog (Menu > Options) — music / view / gameplay settings.
+  // Declared after musicPlayer; the menu click handler above only runs
+  // post-init, so the binding is live by then.
+  const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer });
 
   // Utility stats side panel — positioned just below the music player
   // (top:56px right:12px) so it sits in the same right-rail region.
@@ -409,6 +456,32 @@ function showScenarioPicker(game) {
   router.init(game.state.view?.route);
   game.start();
 
+  // First-run welcome popup: only once the player is actually looking at
+  // the game. With no title screen (New Game reload / demo / scenario boot)
+  // that's right now; otherwise it's hooked into onContinue below. The other
+  // title-screen paths (New Game / Scenarios) reload with skipTitle set and
+  // land in the immediate branch on the next boot.
+  const maybeShowWelcome = () => {
+    if (!game.state.welcomeSeen) welcomeDialog.open();
+  };
+  if (!titleScreen) maybeShowWelcome();
+
+  if (titleScreen) {
+    titleScreen.ready({
+      hasSave: hadSave,
+      onContinue: () => { titleScreen.dismiss(); maybeShowWelcome(); },
+      onNewGame: () => {
+        // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
+        // with skipTitle set so the reload goes straight into the game.
+        if (hadSave && !confirm('Start a new game? All progress will be lost.')) return;
+        sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+        localStorage.removeItem('beamlineTycoon');
+        location.reload();
+      },
+      onScenarios: () => showScenarioPicker(game),
+    });
+  }
+
   // ── Live demo / remote-drive for watch-while-iterating ──────────────
   // 1) ?demo=1 auto-builds a showcase facility+beamline on load so
   //    http://localhost:8000/?demo=1#game animates without pasting.
@@ -451,11 +524,12 @@ function showScenarioPicker(game) {
   }
   // Expose for manual trigger: window.__btDemo()
   window.__btDemo = runDemoBuild;
-  // Live polling — agent writes public/demo-commands.json, your tab executes
+  // Live polling — agent writes public/demo-commands.json, your tab executes.
+  // Dev-only: never poll (or eval) on production deploys.
   let lastSeq = 0;
-  setInterval(async () => {
+  if (import.meta.env.DEV) setInterval(async () => {
     try {
-      const res = await fetch('/demo-commands.json?'+Date.now(), {cache:'no-store'});
+      const res = await fetch('demo-commands.json?'+Date.now(), {cache:'no-store'});
       if (!res.ok) return;
       const j = await res.json();
       if (!j || typeof j.seq !== 'number' || j.seq <= lastSeq) return;

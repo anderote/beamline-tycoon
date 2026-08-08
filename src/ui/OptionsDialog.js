@@ -1,0 +1,209 @@
+// src/ui/OptionsDialog.js — Options dialog (Menu > Options).
+// Styled to match the welcome/guide + save/load dialogs (pixel bevel panel,
+// Press Start 2P gold header); draggable by its header, Esc/✕ closes.
+//
+// Only settings wired to real, working code appear here:
+//  - Music: volume / play-pause / theme — driven through the MusicPlayer's own
+//    controls (we dispatch events on its slider/select) so its persistence
+//    (localStorage 'beamlineTycoon.music') stays in one place.
+//  - View: zone overlay (O) and zone labels (L) — session flags on the
+//    3D renderer, same as the hotkeys; intentionally not persisted.
+//  - Gameplay: dev mode — game.setDevMode() persists it itself.
+
+export class OptionsDialog {
+  constructor({ game, renderer, musicPlayer }) {
+    this.game = game;
+    this.renderer = renderer;
+    this.musicPlayer = musicPlayer;
+    this.el = null;
+  }
+
+  open() {
+    if (!this.el) this._build();
+    this._sync();
+    this.el.classList.remove('hidden');
+  }
+
+  close() {
+    if (this.el) this.el.classList.add('hidden');
+  }
+
+  get isOpen() {
+    return !!this.el && !this.el.classList.contains('hidden');
+  }
+
+  // Refresh every control from live game/renderer/player state.
+  _sync() {
+    const mp = this.musicPlayer;
+
+    const vol = this.el.querySelector('#opt-music-vol');
+    vol.value = mp.audio.volume;
+    this._updateVolReadout();
+
+    this.el.querySelector('#opt-music-play').checked = mp.isPlaying;
+
+    // Theme list loads async (fetch of tracks.json) — rebuild on every open.
+    const themeSel = this.el.querySelector('#opt-music-theme');
+    themeSel.innerHTML = '';
+    if (mp.themeNames.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = 'No music found';
+      themeSel.appendChild(opt);
+      themeSel.disabled = true;
+    } else {
+      for (const name of mp.themeNames) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        themeSel.appendChild(opt);
+      }
+      themeSel.disabled = false;
+      if (mp.currentTheme) themeSel.value = mp.currentTheme;
+    }
+
+    this.el.querySelector('#opt-zone-overlay').checked =
+      this.renderer.zoneOverlayVisible !== false;
+    this.el.querySelector('#opt-zone-labels').checked =
+      this.renderer.showZoneLabels !== false;
+
+    this.el.querySelector('#opt-dev-mode').checked = !!this.game.devMode;
+  }
+
+  _updateVolReadout() {
+    const vol = this.el.querySelector('#opt-music-vol');
+    this.el.querySelector('.opt-vol-readout').textContent =
+      Math.round(parseFloat(vol.value) * 100) + '%';
+  }
+
+  _build() {
+    const el = document.createElement('div');
+    el.id = 'options-dialog';
+    el.classList.add('hidden');
+    el.innerHTML = `
+      <div class="opt-header">
+        <span class="opt-title">Options</span>
+        <button class="opt-close" title="Close">×</button>
+      </div>
+      <div class="opt-body">
+        <div class="opt-section-title">Music</div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-music-vol">Volume</label>
+          <span class="opt-control">
+            <input type="range" id="opt-music-vol" class="opt-slider" min="0" max="1" step="0.05">
+            <span class="opt-vol-readout">0%</span>
+          </span>
+        </div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-music-play">Music playing</label>
+          <input type="checkbox" id="opt-music-play" class="opt-check">
+        </div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-music-theme">Soundtrack theme</label>
+          <select id="opt-music-theme" class="opt-select"></select>
+        </div>
+
+        <div class="opt-section-title">View</div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-zone-overlay">Zone overlay <span class="opt-kbd">O</span></label>
+          <input type="checkbox" id="opt-zone-overlay" class="opt-check">
+        </div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-zone-labels">Zone labels <span class="opt-kbd">L</span></label>
+          <input type="checkbox" id="opt-zone-labels" class="opt-check">
+        </div>
+
+        <div class="opt-section-title">Gameplay</div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-dev-mode">Dev Mode (unlimited funding)</label>
+          <input type="checkbox" id="opt-dev-mode" class="opt-check">
+        </div>
+
+        <div class="opt-note">Settings apply immediately.</div>
+      </div>
+    `;
+    document.body.appendChild(el);
+    this.el = el;
+
+    el.querySelector('.opt-close').addEventListener('click', () => this.close());
+
+    // Esc closes (capture so the game's own Esc handling doesn't also fire).
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isOpen) {
+        e.stopPropagation();
+        this.close();
+      }
+    }, true);
+
+    const mp = this.musicPlayer;
+
+    // Volume — forward through the music player's own slider so its handler
+    // (set audio.volume + persist) stays the single source of truth.
+    el.querySelector('#opt-music-vol').addEventListener('input', (e) => {
+      mp.volumeSlider.value = e.target.value;
+      mp.volumeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+      this._updateVolReadout();
+    });
+
+    // Play / pause
+    el.querySelector('#opt-music-play').addEventListener('change', (e) => {
+      if (e.target.checked !== mp.isPlaying) mp.togglePlay();
+    });
+    // Keep the checkbox honest if playback changes elsewhere (player UI,
+    // track-end autoplay, autoplay-blocked resume).
+    const syncPlay = () => {
+      if (this.el) this.el.querySelector('#opt-music-play').checked = mp.isPlaying;
+    };
+    mp.audio.addEventListener('play', syncPlay);
+    mp.audio.addEventListener('pause', syncPlay);
+
+    // Theme — forward through the player's own select for the same reason.
+    el.querySelector('#opt-music-theme').addEventListener('change', (e) => {
+      if (!mp.themeSelect) return;
+      mp.themeSelect.value = e.target.value;
+      mp.themeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // View flags — session-only, matching the O / L hotkeys.
+    el.querySelector('#opt-zone-overlay').addEventListener('change', (e) => {
+      if (e.target.checked !== (this.renderer.zoneOverlayVisible !== false)) {
+        this.renderer.toggleZoneOverlay();
+      }
+    });
+    el.querySelector('#opt-zone-labels').addEventListener('change', (e) => {
+      if (e.target.checked !== (this.renderer.showZoneLabels !== false)) {
+        this.renderer.toggleZoneLabels();
+      }
+    });
+
+    // Dev mode — setDevMode persists to localStorage itself.
+    el.querySelector('#opt-dev-mode').addEventListener('change', (e) => {
+      this.game.setDevMode(e.target.checked);
+    });
+
+    // Draggable by header (same pattern as WelcomeDialog / SaveLoadDialog).
+    const header = el.querySelector('.opt-header');
+    let dragging = false, sx, sy, ox, oy;
+    header.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.opt-close')) return;
+      if (el.style.transform !== 'none') {
+        const r = el.getBoundingClientRect();
+        el.style.left = r.left + 'px';
+        el.style.top = r.top + 'px';
+        el.style.transform = 'none';
+      }
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      ox = parseInt(el.style.left, 10) || 0; oy = parseInt(el.style.top, 10) || 0;
+      header.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      el.style.left = (ox + e.clientX - sx) + 'px';
+      el.style.top = (oy + e.clientY - sy) + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      header.style.cursor = 'grab';
+    });
+  }
+}
