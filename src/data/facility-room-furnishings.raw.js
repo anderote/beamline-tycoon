@@ -860,3 +860,44 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
 };
+
+// Palette-preview descriptions, kept in one block so the data table above
+// stays scannable. Every item must have an entry — the HUD preview panel
+// shows these on hover/keyboard focus.
+const ROOM_FURNISHING_DESCS = {
+  desk: 'Flat surface for keyboards, papers, and cold coffee. Office Space.',
+  filingCabinet: 'Four drawers of documents nobody has opened since the last review. Office Space.',
+  whiteboard: 'Half equations, half "DO NOT ERASE" from 2019. Boosts research. Office Space.',
+  coffeeMachine: 'Converts funding into morale at remarkable efficiency. Office Space.',
+  workstation: 'Dual monitors: one for analysis, one for the log viewer. Office Space.',
+  pottedPlant: 'Desk-scale greenery; survives neglect better than the grad students. Office Space.',
+  floorPlant: 'Large potted plant standing in for a window view. Office Space.',
+  faxMachine: 'Nobody knows why it is still here. Nobody dares unplug it. Office Space.',
+  receptionDesk: 'First impressions for visiting funding agencies. Office Space.',
+  coffeeTable: 'Holds journals nobody reads and coasters nobody uses. Office Space.',
+  couch: 'For "quick naps" during 36-hour beam runs. Big morale boost. Office Space.',
+  bookshelf: 'Textbooks, proceedings, and one long-overdue library book. Office Space.',
+  printer: 'Prints fine until the moment you urgently need it to. Office Space.',
+  monitorBank: 'Wall of status displays — more screens, more control. Control Room.',
+  serverRack: 'Controls-network servers; boosts output and research. Control Room.',
+  operatorConsole: 'Where operators drive the machine and log the excuses. Control Room.',
+  alarmPanel: 'Annunciator panel. Green is good; you will learn the other colors. Control Room.',
+  diningTable: 'Shared meals, shared gossip, shared crumbs. Cafeteria.',
+  servingCounter: 'Hot food line — taco Tuesday moves morale measurably. Cafeteria.',
+  vendingMachine: 'Emergency calories for the night shift. Cafeteria.',
+  microwave: 'Reheats leftovers. Please stop microwaving fish. Cafeteria.',
+  waterCooler: 'Hydration station and facility rumor mill. Cafeteria.',
+  conferenceTable: 'Big table for design reviews and doughnut distribution. Meeting Room.',
+  projector: 'Shows slides at the wrong aspect ratio for the first five minutes. Meeting Room.',
+  phoneUnit: 'Starfish-shaped speakerphone. "Can everyone see my screen?" Meeting Room.',
+  whiteboardLarge: 'Wall-sized whiteboard for wall-sized derivations. Boosts research. Meeting Room.',
+  officeChair: 'Standard swivel chair with one mystery lever. Office Space.',
+  ergonomicChair: 'Mesh-backed with lumbar support; your spine sends thanks. Office Space.',
+  executiveChair: 'High-backed leather chair for PI-grade sitting. Office Space.',
+  operatorChair: '24/7-rated seating for around-the-clock shifts. Control Room.',
+  meetingChair: 'Stackable chair, comfortable for exactly one hour. Meeting Room.',
+  cafeteriaChair: 'Simple cafeteria seating; wipes clean. Cafeteria.',
+};
+for (const [id, desc] of Object.entries(ROOM_FURNISHING_DESCS)) {
+  if (FACILITY_ROOM_FURNISHINGS_RAW[id]) FACILITY_ROOM_FURNISHINGS_RAW[id].desc = desc;
+}

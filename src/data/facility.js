@@ -24,6 +24,25 @@ export const ZONES = {
   meetingRoom: { id: 'meetingRoom', name: 'Meeting Room',   color: 0x664499, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
 };
 
+// Palette-preview descriptions, kept in one block so the zone table above
+// stays scannable. Shown in the HUD preview panel on hover/keyboard focus.
+const ZONE_DESCS = {
+  rfLab: 'Where RF hardware gets tested, tuned, and occasionally arcs. Paint over Lab Flooring; growth unlocks RF Power tiers.',
+  coolingLab: 'Water and cryo test space — bring a jacket. Paint over Lab Flooring; growth unlocks Cooling tiers.',
+  vacuumLab: 'Leak-checking and bake-out country. Paint over Lab Flooring; growth unlocks Vacuum tiers.',
+  officeSpace: 'Where grad students photosynthesize under fluorescent light. Paint over Office Flooring.',
+  controlRoom: 'Mission control for the machine. Paint over Office Flooring; growth unlocks Data & Controls tiers.',
+  machineShop: 'Chips fly, parts appear. Paint over Lab Flooring; growth unlocks Beamline component tiers.',
+  maintenance: 'Staging for carts, crates, and things that "worked yesterday". Paint over bare Concrete; growth unlocks Ops tiers.',
+  opticsLab: 'Dim lights, clean optics, no touching the mirror face. Paint over Lab Flooring.',
+  diagnosticsLab: 'Where signals become plots and plots become papers. Paint over Lab Flooring.',
+  cafeteria: 'Feeds the facility, fuels the physics. Paint over Office Flooring.',
+  meetingRoom: 'This meeting could have been an email. Paint over Office Flooring.',
+};
+for (const [id, desc] of Object.entries(ZONE_DESCS)) {
+  if (ZONES[id]) ZONES[id].desc = desc;
+}
+
 export const ZONE_TIER_THRESHOLDS = [4, 8, 16, 20]; // Tier 1: 4 tiles, Tier 2: 8, Tier 3: 16, Tier 4: 20
 export const FURNISHING_TIER_THRESHOLDS = [1, 3, 5]; // Tier 1: 1-2, Tier 2: 3-4, Tier 3: 5+
 

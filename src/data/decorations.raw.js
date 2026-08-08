@@ -187,6 +187,39 @@ export const DECORATIONS_RAW = {
   },
 };
 
+// Palette-preview descriptions, kept in one block so the data table above
+// stays scannable. Every item must have an entry — the HUD preview panel
+// shows these on hover/keyboard focus.
+const DECORATION_DESCS = {
+  flowerBed: 'Stone-bordered planter with a small morale boost. Click for bloom colors. Outdoor only.',
+  largeFlowerBed: 'Full flower plot for showpiece landscaping. Click for bloom colors. Outdoor only.',
+  longFlowerBed: 'Slim planter strip for edging walkways. Click for bloom colors. Outdoor only.',
+  oakTree: 'Broad shade oak. Boosts morale; blocks building beneath its canopy.',
+  mapleTree: 'Maple with a generous canopy. Boosts morale; blocks building.',
+  elmTree: 'Classic campus elm. Boosts morale; blocks building.',
+  birchTree: 'White-barked birch to brighten a dull corner of campus. Blocks building.',
+  pineTree: 'Evergreen pine — looks good year-round at a facility with no seasons.',
+  cedarTree: 'Dense cedar evergreen for windbreaks and screening.',
+  smallTree: 'A modest sapling with ambitions. Greenery on a postdoc budget.',
+  willowTree: 'Weeping willow for pond-side contemplation of failed runs.',
+  shrub: 'A humble bush. Landscaping at its most affordable.',
+  parkBench: 'Outdoor seating for lunch breaks and stress-testing theories.',
+  picnicTable: 'Outdoor table for group lunches and journal club in the sun.',
+  fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
+  statue: 'Commemorates the founder, or possibly the first working klystron.',
+  lamppost: 'Classic path lighting for safe walks home after night shift.',
+  bollardLight: 'Low bollard marker for ankle-height path illumination.',
+  spotLight: 'Directional flood for facades and dramatic beamline reveals.',
+  trashCan: 'Keeps the campus tidy. Contents: mostly coffee cups.',
+  recyclingBin: 'For paper drafts v1 through v47.',
+  infoSign: 'Campus map board so visitors can get lost with confidence.',
+  directionSign: 'Points to the cafeteria, the exit, and vaguely toward physics.',
+  flagpole: 'Flies the institutional colors above the facility.',
+};
+for (const [id, desc] of Object.entries(DECORATION_DESCS)) {
+  if (DECORATIONS_RAW[id]) DECORATIONS_RAW[id].desc = desc;
+}
+
 export function computeMoraleMultiplier(decorations) {
   let total = 0;
   for (const dec of decorations) {

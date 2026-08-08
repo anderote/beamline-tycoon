@@ -559,3 +559,55 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
     ],
   },
 };
+
+// Palette-preview descriptions, kept in one block so the data table above
+// stays scannable. Every item must have an entry — the HUD preview panel
+// shows these on hover/keyboard focus.
+const LAB_FURNISHING_DESCS = {
+  labBench: 'General-purpose work surface with pegboard. Every lab needs three more of these. Fits any lab zone.',
+  oscilloscope: 'Four channels, one working probe. Displays voltages wiggling in real time. RF Lab.',
+  signalGenerator: 'Produces clean test signals so you can blame the device under test, not the source. RF Lab.',
+  spectrumAnalyzer: 'Shows what your signal does in the frequency domain — usually something embarrassing. RF Lab.',
+  networkAnalyzer: 'Measures S-parameters to four decimals. Calibration takes longer than the measurement. RF Lab.',
+  coolantPump: 'Circulates process water and hums authoritatively. Cooling Lab.',
+  heatExchanger: 'Moves heat from where it is to where you would rather it be. Cooling Lab.',
+  pipeRack: 'Vertical storage for pipe stock and the fittings you swore you had. Cooling Lab.',
+  chillerUnit: 'Industrial chiller — produces cold water and white noise in equal measure. Cooling Lab.',
+  flowMeter: 'Confirms the coolant is actually flowing, not just plumbed. Cooling Lab.',
+  testChamber: 'Pump-down vessel for qualifying hardware before it meets the real beamline. Vacuum Lab.',
+  leakDetector: 'Helium sniffer that finds the leak in your fourth-favorite flange. Vacuum Lab.',
+  pumpCart: 'Rolling turbo pump station for evacuating anything with a flange. Vacuum Lab.',
+  gasManifold: 'Regulated gas distribution for backfills and purges. Vacuum Lab.',
+  rga: 'Residual gas analyzer — names the exact fingerprint that is outgassing. Vacuum Lab.',
+  lathe: 'Turns round stock into rounder stock. Mind the chips. Machine Shop.',
+  millingMachine: 'Knee mill for making flat things flatter and square things squarer. Machine Shop.',
+  drillPress: 'For holes that end up where you actually marked them. Machine Shop.',
+  toolCabinet: 'Rolling red chest. The 10mm socket is not in there. Machine Shop.',
+  weldingStation: 'Sparks, fumes, and structurally sound joints. Machine Shop.',
+  cncMill: 'Computer-controlled machining — the crashes are automated too. Machine Shop.',
+  assemblyCrane: 'Gantry crane for lifting the things a grad student should not. Machine Shop.',
+  gasCylinders: 'Chained argon and CO2 bottles for welding and purging. Machine Shop.',
+  opticalTable: 'Vibration-isolated breadboard. Do not lean on it. Ever. Optics Lab.',
+  laserAlignment: 'Reference laser line for precision alignment; trims beam emittance a touch. Optics Lab.',
+  mirrorMount: 'Kinematic mount with three knobs, two of which fight each other. Optics Lab.',
+  beamProfiler: 'Camera that images your beam spot; sharpens diagnostic accuracy. Optics Lab.',
+  interferometer: 'Measures distances in wavelengths, and your footsteps in fringes. Optics Lab.',
+  photodetector: 'Turns photons into volts. Cap the window to measure darkness. Optics Lab.',
+  polarizer: 'Rotatable polarizer mount for taming beam polarization. Optics Lab.',
+  fiberCoupler: 'Aligns free-space light into a 9-micron core. Character building. Optics Lab.',
+  opticalChopper: 'Spinning slotted wheel for lock-in measurements. Optics Lab.',
+  powerMeter: 'Reads laser power so you stop estimating from brightness. Optics Lab.',
+  spatialFilter: 'Pinhole assembly that cleans up an ugly beam profile. Optics Lab.',
+  scopeStation: 'Rolling scope cart for wherever the signal is misbehaving today. Diagnostics Lab.',
+  wireScannerBench: 'Bench electronics for wire-scanner beam profile readout. Diagnostics Lab.',
+  bpmTestFixture: 'Test electronics for beam position monitor pickups. Diagnostics Lab.',
+  daqRack: 'Full-height rack of digitizers and timing gear; also feeds research. Diagnostics Lab.',
+  serverCluster: 'Compute cluster for crunching run data; serious research boost. Diagnostics Lab.',
+  toolChest: 'Maintenance tool storage. Contents migrate mysteriously between shifts. Maintenance zone.',
+  partsShelf: 'Spare-parts shelving, organized by "I will remember where it is". Maintenance zone.',
+  workCart: 'Wheeled cart for hauling tools to wherever the fault is. Maintenance zone.',
+  craneHoist: 'Overhead hoist for swapping components heavier than your budget. Maintenance zone.',
+};
+for (const [id, desc] of Object.entries(LAB_FURNISHING_DESCS)) {
+  if (FACILITY_LAB_FURNISHINGS_RAW[id]) FACILITY_LAB_FURNISHINGS_RAW[id].desc = desc;
+}
