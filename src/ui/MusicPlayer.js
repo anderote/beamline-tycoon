@@ -343,17 +343,23 @@ export class MusicPlayer {
     p.then(() => {
       this.isPlaying = true;
       this._updatePlayButton();
+      this.playBtn.classList.remove('mp-attention');
       this._saveState();
     }).catch(() => {
-      // Autoplay blocked — start on first user interaction
+      // Autoplay blocked — start on the NEXT user interaction. On slow
+      // cold boots (the web deploy) the user's first clicks can precede
+      // this point, so also pulse the play button as a visible invitation
+      // in case no further interaction ever arrives.
       this.isPlaying = false;
       this._updatePlayButton();
+      this.playBtn.classList.add('mp-attention');
       const resume = () => {
         document.removeEventListener('pointerdown', resume, true);
         document.removeEventListener('keydown', resume, true);
         this.audio.play().then(() => {
           this.isPlaying = true;
           this._updatePlayButton();
+          this.playBtn.classList.remove('mp-attention');
           this._saveState();
         }).catch(() => {});
       };
