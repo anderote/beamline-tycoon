@@ -63,7 +63,7 @@ const parsedA = JSON.parse(payloadA);
 for (const key of ['systemStats', 'nodeQualities', 'infraBlockers', 'infraCanRun',
                    'infraOccupied', 'zoneOccupied', 'subgridOccupied', 'placeableIndex',
                    'wallOccupied', 'doorOccupied', 'zoneConnectivity', 'beamline',
-                   'mainBeamState', 'physicsEnvelope', 'utilityNetworkData',
+                   'mainBeamState', 'physicsEnvelope', 'utilityNetworkData', 'utilityNetworks',
                    'zoneFurnishingBonuses', 'moraleMultiplier', 'cornerHeightsRevision']) {
   assertOk(!(key in parsedA.state), `derived key "${key}" absent from payload`);
 }

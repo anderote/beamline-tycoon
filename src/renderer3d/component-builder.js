@@ -2673,6 +2673,9 @@ export class ComponentBuilder {
           ? this._createPlaceholderBox(placementSubL ?? 2, compDef.spriteColor ?? 0xffffff)
           : this._createObject(compDef, accent);
         obj.matrixAutoUpdate = false;
+        // Stamp the id on the wrapper so hit identification reads it straight
+        // off the raycast parent chain instead of scanning _meshMap.
+        obj.userData.nodeId = id;
         obj.userData.beamlineId = comp.beamlineId || null;
         obj.userData.compType = type;
         obj.userData.pipeId = comp.pipeId || null;

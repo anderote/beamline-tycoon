@@ -15,7 +15,6 @@
 import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
-import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 
 const PIPE_Y = 0.5;  // default line centerline height above ground
 const SEGS = 12;     // cylinder radial segments
@@ -319,7 +318,7 @@ export class UtilityLineBuilderV2 {
   build(utilityLines, placeablesById, parentGroup, opts = {}) {
     const seen = new Set();
     const lines = utilityLines || new Map();
-    const errorByLineId = opts.state ? this._buildErrorMap(opts.state, lines) : new Map();
+    const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || !line.id) continue;
@@ -357,21 +356,24 @@ export class UtilityLineBuilderV2 {
   }
 
   /**
-   * Build a lineId → 'ok' | 'soft' | 'hard' map. For each utility type we
-   * run network discovery once, then map flow errors to member line ids.
+   * Build a lineId → 'ok' | 'soft' | 'hard' map by joining the sim's
+   * published discovery output (state.utilityNetworks: network id → lineIds,
+   * written by SolveRunner each solve pass) against the per-network flow
+   * results in state.utilityNetworkData. No discovery runs here — the
+   * renderer reuses what the utility gate already computed this tick.
    * Used to drive emissive glow on utility lines during error conditions.
    */
-  _buildErrorMap(state, utilityLines) {
+  _buildErrorMap(state) {
     const out = new Map();
     if (!state || !state.utilityNetworkData || typeof state.utilityNetworkData.get !== 'function') {
       return out;
     }
-    let lookup = null;
+    const networksByType = state.utilityNetworks;
+    if (!networksByType || typeof networksByType.get !== 'function') return out;
     for (const utilityType of UTILITY_TYPE_LIST) {
       const perType = state.utilityNetworkData.get(utilityType);
       if (!perType || perType.size === 0) continue;
-      if (!lookup) lookup = makeDefaultPortLookup(state);
-      const nets = discoverNetworks(utilityType, utilityLines, lookup);
+      const nets = networksByType.get(utilityType) || [];
       for (const net of nets) {
         const flow = perType.get(net.id);
         if (!flow || !flow.errors || flow.errors.length === 0) continue;

@@ -41,6 +41,12 @@ export class SolveRunner {
     const list = (this.registry && this.registry.list) || [];
     const networksByType = discoverAll(state.utilityLines, portLookup, list);
 
+    // Publish the discovery output (Map<utilityType, Network[]>, each network
+    // carrying id + lineIds) so consumers — notably the renderer's error-glow
+    // mapping — can reuse it instead of re-running discovery. Derived like
+    // utilityNetworkData: never serialized, repopulated every solve pass.
+    state.utilityNetworks = networksByType;
+
     state.utilityNetworkData = new Map();
     const allErrors = [];
 

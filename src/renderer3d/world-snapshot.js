@@ -219,6 +219,17 @@ function buildZones(game) {
   }));
 }
 
+/**
+ * Edge-occupancy indexes for cutaway room detection. Shallow copies so the
+ * renderer's cached snapshot stays detached from live state mutation.
+ */
+function buildWallOccupancy(game) {
+  return {
+    wallOccupied: { ...(game.state.wallOccupied || {}) },
+    doorOccupied: { ...(game.state.doorOccupied || {}) },
+  };
+}
+
 function buildComponents(game) {
   const editingId = game.editingBeamlineId;
 
@@ -244,6 +255,7 @@ function buildComponents(game) {
     return {
       id: p.id,
       type: p.type,
+      category: p.category ?? null,
       col: p.col,
       row: p.row,
       subCol: p.subCol ?? null,
@@ -411,36 +423,85 @@ function buildFurnishings(game) {
   }));
 }
 
+/**
+ * Beam-pipe polylines for the renderer's pipe meshes. `openStart` / `openEnd`
+ * flag ends whose junction ref is null — the renderer draws a warning cap
+ * there.
+ */
+function buildBeamPipes(game) {
+  return (game.state.beamPipes || []).map(pipe => ({
+    id: pipe.id,
+    path: (pipe.path || []).map(p => ({ col: p.col, row: p.row })),
+    openStart: pipe.start === null,
+    openEnd: pipe.end === null,
+  }));
+}
+
+/**
+ * Subtile keys ("col,row,subCol,subRow") of every cell claimed by a placed
+ * beamline module. Beam-pipe rendering carves pipe runs and skips flanges /
+ * stands on these cells (modules render their own internal pipe geometry).
+ */
+function buildModuleSubTiles(game) {
+  const keys = [];
+  for (const p of (game.state.placeables || [])) {
+    if (p.category !== 'beamline') continue;
+    const def = COMPONENTS[p.type];
+    if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
+    for (const c of (p.cells || [])) {
+      keys.push(`${c.col},${c.row},${c.subCol},${c.subRow}`);
+    }
+  }
+  return keys;
+}
+
 // --- Main export ---
+
+// Registry of independently buildable snapshot sections. Each builder is a
+// pure read of game state; `buildWorldSnapshot` can compute any subset.
+const SECTION_BUILDERS = {
+  terrain: buildTerrain,           // expensive: full map-region tile walk
+  cliffs: buildCliffs,             // expensive: full map-region tile walk
+  floors: buildFloors,
+  grassSurfaces: buildGrassSurfaces,
+  walls: buildWalls,
+  doors: buildDoors,
+  wallOccupancy: buildWallOccupancy,
+  zones: buildZones,
+  components: buildComponents,
+  equipment: buildEquipment,
+  decorations: buildDecorations,
+  beamPaths: buildBeamPaths,
+  furnishings: buildFurnishings,
+  pipeAttachments: buildPipeAttachments,
+  beamPipes: buildBeamPipes,
+  moduleSubTiles: buildModuleSubTiles,
+  // Phase 6: new-system utility lines (Map → Array). The builder still reads
+  // state directly for incremental rebuilds; snapshot consumers and tests
+  // can use this.
+  utilityLines: buildUtilityLines,
+};
 
 /**
  * Build a flat, serializable world snapshot from game state.
  * The Three.js renderer consumes this and never reads game.* directly.
  *
  * @param {object} game - The Game instance
+ * @param {object} [opts]
+ * @param {string[]} [opts.only] - Section names to compute (see
+ *        SECTION_BUILDERS). Omitted sections are absent from the result, so
+ *        partial refreshes skip the expensive terrain walk entirely.
+ *        `cornerHeightsRevision` is always included (cheap scalar).
  * @returns {object} snapshot
  */
-export function buildWorldSnapshot(game) {
-  return {
-    terrain: buildTerrain(game),
-    cliffs: buildCliffs(game),
-    cornerHeightsRevision: game.state.cornerHeightsRevision | 0,
-    floors: buildFloors(game),
-    grassSurfaces: buildGrassSurfaces(game),
-    walls: buildWalls(game),
-    doors: buildDoors(game),
-    zones: buildZones(game),
-    components: buildComponents(game),
-    equipment: buildEquipment(game),
-    decorations: buildDecorations(game),
-    beamPaths: buildBeamPaths(game),
-    furnishings: buildFurnishings(game),
-    pipeAttachments: buildPipeAttachments(game),
-    // Phase 6: new-system utility lines (Map → Array). The builder still reads
-    // state directly for incremental rebuilds; snapshot consumers and tests
-    // can use this.
-    utilityLines: buildUtilityLines(game),
-  };
+export function buildWorldSnapshot(game, opts = {}) {
+  const only = opts.only ? new Set(opts.only) : null;
+  const snapshot = { cornerHeightsRevision: game.state.cornerHeightsRevision | 0 };
+  for (const name of Object.keys(SECTION_BUILDERS)) {
+    if (only && !only.has(name)) continue;
+    snapshot[name] = SECTION_BUILDERS[name](game);
+  }
+  return snapshot;
 }
 
 function buildUtilityLines(game) {

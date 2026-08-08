@@ -7,6 +7,7 @@
 // THREE is a CDN global — do NOT import it.
 
 import { MATERIALS } from './materials/index.js';
+import { contentKey } from './content-hash.js';
 
 export class TerrainBuilder {
   constructor(textureManager) {
@@ -29,11 +30,13 @@ export class TerrainBuilder {
    * Build (or rebuild) terrain.
    * @param {Array<{col:number,row:number,hash:number,brightness:number,cornersY:{nw:number,ne:number,se:number,sw:number}}>} terrainData
    * @param {THREE.Group} parentGroup
-   * @param {number} [cornerHeightsRevision] — monotonic counter from state;
-   *   included in cache key so rebuilds trigger on elevation changes.
+   *
+   * Cache: a structural content hash of `terrainData` — detects same-count
+   * topology changes and brightness-only changes that the old
+   * length+revision key missed.
    */
-  build(terrainData, parentGroup, cornerHeightsRevision = 0) {
-    const newKey = terrainData.length + ':' + (cornerHeightsRevision | 0);
+  build(terrainData, parentGroup) {
+    const newKey = contentKey(terrainData);
     if (newKey === this._cacheKey && this._mesh) return;
 
     this._cleanup(parentGroup);

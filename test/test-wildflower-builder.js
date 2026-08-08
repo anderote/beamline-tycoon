@@ -1,7 +1,13 @@
 // test/test-wildflower-builder.js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { computeFlowerInstancesForCell } from '../src/renderer3d/wildflower-builder.js';
+import {
+  computeFlowerInstancesForCell,
+  computeWildflowerCacheKey,
+  WildflowerBuilder,
+} from '../src/renderer3d/wildflower-builder.js';
+import { computeGrassTuftCacheKey } from '../src/renderer3d/grass-tuft-builder.js';
+import { contentKey } from '../src/renderer3d/content-hash.js';
 
 test('dark cells get no flowers regardless of elevation', () => {
   let total = 0;
@@ -79,6 +85,159 @@ test('color comes from one of the elevation palettes', () => {
     }
   }
   assert.equal(nonPalette, 0);
+});
+
+// --- Builder cache keys (content-hash) --------------------------------------
+// TerrainBuilder/CliffBuilder key directly on contentKey(<section array>);
+// WildflowerBuilder/GrassTuftBuilder wrap it via the compute*CacheKey
+// helpers below. The old length+revision key was blind to brightness-only
+// and same-count topology changes — these tests pin the fix.
+
+function makeTerrain(n = 50) {
+  const tiles = [];
+  for (let i = 0; i < n; i++) {
+    tiles.push({
+      col: i % 10, row: (i / 10) | 0,
+      hash: (i * 2654435761) | 0,
+      brightness: 0.5,
+      cornersY: { nw: 0, ne: 0, se: 0, sw: 0 },
+    });
+  }
+  return tiles;
+}
+
+// Deep-clone via JSON round trip — structurally equal, no shared references.
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+test('cache key: structurally equal terrain produces the same key', () => {
+  const terrain = makeTerrain();
+  assert.equal(contentKey(terrain), contentKey(clone(terrain)));
+  assert.equal(
+    computeWildflowerCacheKey({ terrain }),
+    computeWildflowerCacheKey({ terrain: clone(terrain) })
+  );
+});
+
+test('cache key: brightness-only change flips the key (old key blind spot)', () => {
+  const terrain = makeTerrain();
+  const changed = clone(terrain);
+  changed[7].brightness = 0.6; // same tile count, same heights — brightness only
+  assert.notEqual(contentKey(terrain), contentKey(changed));
+  assert.notEqual(
+    computeWildflowerCacheKey({ terrain }),
+    computeWildflowerCacheKey({ terrain: changed })
+  );
+});
+
+test('cache key: same-count cornersY change flips the key (old key blind spot)', () => {
+  const terrain = makeTerrain();
+  const changed = clone(terrain);
+  changed[3].cornersY.se = 0.5; // topology change, tile count unchanged
+  assert.notEqual(contentKey(terrain), contentKey(changed));
+});
+
+test('cache key: removing one tile (e.g. floor painted over it) flips the key', () => {
+  const terrain = makeTerrain();
+  const changed = clone(terrain).slice(1);
+  assert.notEqual(computeWildflowerCacheKey({ terrain }),
+                  computeWildflowerCacheKey({ terrain: changed }));
+});
+
+test('cache key: grass tuft key covers terrain + grassSurfaces (incl. kind)', () => {
+  const terrain = makeTerrain();
+  const grassSurfaces = [{
+    col: 1, row: 2, kind: 'wildgrass', hash: 42, brightness: 0.3,
+    cornersY: { nw: 0, ne: 0, se: 0, sw: 0 },
+  }];
+  const base = computeGrassTuftCacheKey({ terrain, grassSurfaces });
+  assert.equal(base,
+    computeGrassTuftCacheKey(clone({ terrain, grassSurfaces })));
+
+  const kindChanged = clone(grassSurfaces);
+  kindChanged[0].kind = 'tallgrass';
+  assert.notEqual(base,
+    computeGrassTuftCacheKey({ terrain, grassSurfaces: kindChanged }));
+
+  const brightnessChanged = clone(terrain);
+  brightnessChanged[0].brightness = -0.2;
+  assert.notEqual(base,
+    computeGrassTuftCacheKey({ terrain: brightnessChanged, grassSurfaces }));
+});
+
+// Minimal THREE stub — just enough surface for WildflowerBuilder.rebuild's
+// mesh-construction path, so the cache gate can be exercised behaviorally
+// under plain Node (headless WebGL is unavailable in CI).
+function makeThreeStub() {
+  class Geo {
+    translate() { return this; }
+    scale() { return this; }
+    dispose() {}
+  }
+  class Mat { constructor(opts) { Object.assign(this, opts); } dispose() {} }
+  class Vec { set() {} }
+  class Object3D {
+    constructor() {
+      this.position = new Vec(); this.rotation = new Vec();
+      this.scale = new Vec(); this.matrix = {};
+    }
+    updateMatrix() {}
+  }
+  class InstancedMesh {
+    constructor(geometry, material, count) {
+      this.geometry = geometry; this.material = material; this.count = count;
+      this.instanceMatrix = { needsUpdate: false };
+      this.instanceColor = null;
+      this.matrixAutoUpdate = true;
+    }
+    setMatrixAt() {}
+    setColorAt() {}
+  }
+  class InstancedBufferAttribute {
+    constructor(array, itemSize) {
+      this.array = array; this.itemSize = itemSize; this.needsUpdate = false;
+    }
+  }
+  class Color { setHex() {} }
+  return {
+    CylinderGeometry: Geo, SphereGeometry: Geo,
+    MeshStandardMaterial: Mat,
+    InstancedMesh, InstancedBufferAttribute,
+    Object3D, Color,
+  };
+}
+
+test('WildflowerBuilder.rebuild skips when content unchanged, rebuilds on brightness change', () => {
+  global.THREE = makeThreeStub();
+  try {
+    const parent = {
+      children: [],
+      add(m) { this.children.push(m); },
+      remove(m) { this.children = this.children.filter(c => c !== m); },
+    };
+    const builder = new WildflowerBuilder();
+    builder.add(parent);
+
+    const terrain = makeTerrain();
+    terrain.forEach(t => { t.brightness = 0.8; }); // bright => flowers spawn
+    builder.rebuild({ terrain });
+    assert.equal(parent.children.length, 2, 'stem + bloom meshes added');
+    const firstMeshes = parent.children.slice();
+
+    // Structurally identical snapshot (fresh objects) — must NOT rebuild.
+    builder.rebuild({ terrain: clone(terrain) });
+    assert.deepEqual(parent.children, firstMeshes,
+      'unchanged content must keep the same mesh instances');
+
+    // Brightness-only change — must rebuild with new mesh instances.
+    const changed = clone(terrain);
+    changed[0].brightness = 0.2;
+    builder.rebuild({ terrain: changed });
+    assert.equal(parent.children.length, 2);
+    assert.notEqual(parent.children[0], firstMeshes[0],
+      'brightness change must trigger a rebuild');
+  } finally {
+    delete global.THREE;
+  }
 });
 
 test('sloped tile produces per-instance terrain Y', () => {

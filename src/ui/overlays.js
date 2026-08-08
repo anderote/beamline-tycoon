@@ -1,22 +1,21 @@
 // === OVERLAYS EXTENSION ===
 // Adds component popup, tech tree, and goals overlay rendering to UIHost.prototype.
-// Note: PIXI is a CDN global — not imported.
 
-import { _pxText } from './Renderer.js';
-import { UIHost } from '../ui/UIHost.js';
+import { _pxText } from '../renderer/Renderer.js';
+import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { OBJECTIVES } from '../data/objectives.js';
 import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
-import { BeamlineWindow } from '../ui/BeamlineWindow.js';
-import { EquipmentWindow } from '../ui/EquipmentWindow.js';
-import { pushEscHandler } from '../ui/esc-stack.js';
+import { BeamlineWindow } from './BeamlineWindow.js';
+import { EquipmentWindow } from './EquipmentWindow.js';
+import { pushEscHandler } from './esc-stack.js';
 import { ZONES } from '../data/facility.js';
 import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
-import { tileCenterIso } from './grid.js';
-import { makeDraggable } from '../ui/draggable.js';
+import { tileCenterIso } from '../renderer/grid.js';
+import { makeDraggable } from './draggable.js';
 
 // --- Component popup ---
 

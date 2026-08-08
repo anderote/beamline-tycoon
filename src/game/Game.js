@@ -145,6 +145,7 @@ export class Game {
       utilityNextId: 1,
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
+      utilityNetworks: null,   // derived: discovery output published by solveRunner
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
       infraBlockers: [],          // blockers from solve-runner
@@ -3242,8 +3243,10 @@ export class Game {
     this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
     this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
     this.state.utilityNextId = this.state.utilityNextId || 1;
-    // utilityNetworkData is derived; solveRunner repopulates on first tick.
+    // utilityNetworkData / utilityNetworks are derived; solveRunner
+    // repopulates both on first tick.
     this.state.utilityNetworkData = null;
+    this.state.utilityNetworks = null;
 
     // Ensure facility arrays exist
     if (!this.state.facilityEquipment) this.state.facilityEquipment = [];

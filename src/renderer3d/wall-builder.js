@@ -5,6 +5,7 @@
 import { WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
+import { contentKey } from './content-hash.js';
 
 const TILE_SIZE = 2;          // world units per tile (2m real)
 const M = TILE_SIZE / 2;     // 1 world unit = 2m, so 1m = 0.5 world units
@@ -61,7 +62,7 @@ export class WallBuilder {
     }
 
     const cutawayKey = cutawayRoom ? Array.from(cutawayRoom).sort().join(';') : '';
-    const newKey = JSON.stringify({ wallData, doorData, wallVisibility, cutawayKey });
+    const newKey = contentKey({ wallData, doorData, wallVisibility, cutawayKey });
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     this._cleanup(parentGroup);

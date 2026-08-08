@@ -11,6 +11,7 @@
 // have NO Three.js dependencies so they can be unit-tested under plain Node.
 
 import { sampleCornersAt } from '../game/terrain.js';
+import { contentKey } from './content-hash.js';
 
 /** Clump tuft palette — darks and brights so neighbouring tufts read as
  *  lighter/darker patches within a single tile. */
@@ -177,6 +178,17 @@ export function computeTallGrassBladesForCell(col, row, hash, brightness, corner
 }
 
 /**
+ * Cache key over the builder's actual inputs: `snapshot.terrain` and
+ * `snapshot.grassSurfaces` are the only sections tufts spawn from. Exported
+ * so tests can prove change detection without a Three.js context.
+ * @param {{terrain?: Array<object>, grassSurfaces?: Array<object>}} snapshot
+ * @returns {string}
+ */
+export function computeGrassTuftCacheKey(snapshot) {
+  return contentKey([snapshot?.terrain ?? [], snapshot?.grassSurfaces ?? []]);
+}
+
+/**
  * Builds the two instanced grass meshes. `add(parent)` attaches to a
  * Three.js Group/Scene. `rebuild(snapshot)` rebuilds from a world snapshot.
  * `dispose()` removes and disposes owned geometry/materials.
@@ -186,16 +198,25 @@ export class GrassTuftBuilder {
     this._parent = null;
     this._clumpMesh = null;
     this._tallMesh = null;
+    this._cacheKey = null;
   }
 
   add(parent) {
     this._parent = parent;
   }
 
+  /**
+   * Rebuild the instanced grass meshes. No-op when terrain + grassSurfaces
+   * content is unchanged (content-hash cache), so callers may invoke this
+   * unconditionally without paying the ~15k-instance rebuild.
+   */
   rebuild(snapshot) {
-    this._disposeMeshes();
     if (!this._parent) return;
     if (typeof THREE === 'undefined') return; // test/headless safety
+    const newKey = computeGrassTuftCacheKey(snapshot);
+    if (newKey === this._cacheKey) return;
+    this._disposeMeshes();
+    this._cacheKey = newKey;
     const terrain = snapshot?.terrain ?? [];
     const grassSurfaces = snapshot?.grassSurfaces ?? [];
 
@@ -207,6 +228,7 @@ export class GrassTuftBuilder {
   dispose() {
     this._disposeMeshes();
     this._parent = null;
+    this._cacheKey = null;
   }
 
   // --- Clump mesh (default terrain + grass + wildgrass + tallgrass) ---------

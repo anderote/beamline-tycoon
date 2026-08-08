@@ -1,5 +1,15 @@
 // src/renderer3d/ThreeRenderer.js — Three.js scaffold with isometric camera
 // THREE is loaded as a CDN global — do NOT import it
+//
+// SNAPSHOT BOUNDARY: world data (terrain, floors, walls, zones, placeables,
+// pipes, utility lines, ...) reaches this renderer ONLY through
+// buildWorldSnapshot sections, cached on `this._snapshot` and refreshed
+// per-section on game events via `_updateSnapshot`. Genuinely interactive
+// per-frame state — hover, drag previews, armed tools — is read live from
+// the input controllers/tools that own it; that is correct and expected.
+// The few remaining live `game.state` reads (terrain-height sampling under
+// the cursor, utility-line port/network resolution) must go through the
+// single documented accessor `_liveState()` so the boundary stays greppable.
 
 import { TextureManager } from './texture-manager.js';
 import { TerrainBuilder } from './terrain-builder.js';
@@ -16,12 +26,12 @@ import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
-import { Overlay } from './overlay.js';
+import { OverlayShim } from './overlay-shim.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
-import '../renderer/hud.js';
-import '../renderer/overlays.js';
+import '../ui/hud.js';
+import '../ui/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
@@ -214,9 +224,11 @@ export class ThreeRenderer {
     this.renderer = null;
     this.scene = null;
     this.camera = null;
-    this.canvas = null;  // interactive canvas (overlay PixiJS canvas)
+    this.canvas = null;  // interactive canvas (overlay event-capture canvas)
 
-    // PixiJS overlay references — set during init()
+    // Overlay-shim references — set during init(). `app` keeps its old
+    // Pixi-era shape ({canvas, screen}) for InputHandler/main.js readers;
+    // `world` is plain {x, y, scale, visible} save bookkeeping.
     this.app = null;
     this.world = null;
 
@@ -258,7 +270,21 @@ export class ThreeRenderer {
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
-    this.overlay = new Overlay();
+    // Utility-port marker memo: markers rebuild only when a world event has
+    // fired (_portMarkersDirty, set in the game event handler) or when the
+    // interactive signature (armed type + hover/draw anchors) changes —
+    // never unconditionally per rAF.
+    this._portMarkersDirty = true;
+    this._portMarkersSig = null;
+
+    // Cost-label sprite material memo: text → { material, scaleX, scaleY }.
+    // The beam-pipe drawing cost label re-renders per rAF while dragging;
+    // caching per text value avoids a canvas draw + texture upload per frame.
+    // Flushed wholesale past _LABEL_CACHE_MAX entries (safe: the only cached
+    // consumer is the single preview cost sprite, cleared before each make).
+    this._labelMatCache = new Map();
+
+    this.overlay = new OverlayShim();
 
     // --- Compatibility properties (InputHandler, main.js, hud.js) ---
     this.buildMode = false;
@@ -275,7 +301,6 @@ export class ThreeRenderer {
     this.beamTime = 0;
 
     // PixiJS layers — stubs for code that references them directly
-    this.gridLayer = null;
     this.grassLayer = null;
     this.decorationLayer = null;
     this.infraSidesLayer = null;
@@ -288,8 +313,6 @@ export class ThreeRenderer {
     this.connectionLayer = null;
     this.beamLayer = null;
     this.componentLayer = null;
-    this.labelLayer = null;
-    this.cursorLayer = null;
     this.networkOverlayLayer = null;
     this.networkPanel = null;
     this.activeNetworkType = null;
@@ -486,6 +509,9 @@ export class ThreeRenderer {
     // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
       try {
+      // Any world event may have moved a port or claimed a utility line —
+      // let _animate rebuild the armed-tool port markers on its next frame.
+      this._portMarkersDirty = true;
       switch (event) {
         case 'beamlineChanged':
         case 'loaded':
@@ -553,11 +579,12 @@ export class ThreeRenderer {
       } catch (e) { console.error(`[ThreeRenderer] event '${event}' handler error:`, e); }
     });
 
-    // Initialize PixiJS overlay
-    await this.overlay.init();
+    // Initialize the event-capture overlay canvas
+    this.overlay.init();
 
-    // Wire PixiJS app/world for compatibility with InputHandler and DOM HUD code
-    this.app = this.overlay.app;
+    // Wire app/world for compatibility with InputHandler and DOM HUD code.
+    // The shim itself has the old app shape ({canvas, screen}).
+    this.app = this.overlay;
     this.world = this.overlay.world;
     this.canvas = this.app.canvas;
 
@@ -578,14 +605,6 @@ export class ThreeRenderer {
       this._syncOverlayFromPan();
       this._updateCameraLookAt();
     }
-
-    // Generate placeholder sprites
-    this.sprites.generatePlaceholders(this.app);
-
-    // Ticker for animation (beam time)
-    this.app.ticker.add((ticker) => {
-      this.beamTime += ticker.deltaTime * 0.02;
-    });
 
     // Load 3D assets
     await this.loadAssets();
@@ -646,11 +665,7 @@ export class ThreeRenderer {
    */
   screenToPlacementWorld(screenX, screenY) {
     if (!this.camera || !this.renderer) return this.screenToWorld(screenX, screenY);
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const { raycaster, groundPlane } = this._screenRay(screenX, screenY);
 
     const hits = [];
     const groups = [this.equipmentGroup, this.decorationGroup, this.componentGroup];
@@ -661,9 +676,8 @@ export class ThreeRenderer {
       hits.push(...raycaster.intersectObject(this._terrainMesh));
     }
     // Ground plane fallback (matches screenToWorld's sky-miss behavior).
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const planePoint = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(plane, planePoint)) {
+    if (raycaster.ray.intersectPlane(groundPlane, planePoint)) {
       hits.push({ point: planePoint, distance: raycaster.ray.origin.distanceTo(planePoint) });
     }
 
@@ -682,11 +696,7 @@ export class ThreeRenderer {
    */
   raycastScreen(screenX, screenY) {
     if (!this.renderer || !this.camera) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const { raycaster } = this._screenRay(screenX, screenY);
     // Only test component, equipment, and connection groups
     const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup, this.pipeAttachmentGroup];
     const all = [];
@@ -720,11 +730,7 @@ export class ThreeRenderer {
    */
   raycastUtilityLine(screenX, screenY) {
     if (!this.renderer || !this.camera || !this.utilityLineGroup) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const { raycaster } = this._screenRay(screenX, screenY);
     const hits = raycaster.intersectObjects(this.utilityLineGroup.children, true);
     if (!hits || hits.length === 0) return null;
     // Find the closest hit and walk up to the group with lineId userData.
@@ -753,20 +759,22 @@ export class ThreeRenderer {
     // Walk up parents to find the group
     while (obj.parent) {
       if (obj.parent === this.componentGroup) {
-        // Find node ID from componentBuilder's mesh map
-        for (const [id, mesh] of this.componentBuilder._meshMap) {
-          if (mesh === obj) return { group: 'component', rootObj: obj, nodeId: id };
+        // Wrapper Groups carry their id in userData.nodeId (stamped by
+        // ComponentBuilder.build) — no _meshMap scan needed.
+        if (obj.userData.nodeId != null) {
+          return { group: 'component', rootObj: obj, nodeId: obj.userData.nodeId };
         }
         return { group: 'component', rootObj: obj };
       }
       if (obj.parent === this.pipeAttachmentGroup) {
-        // Reverse-lookup the attachment id from the pipeAttachmentBuilder's
-        // mesh map. pipeId is stored on userData by component-builder.
-        let attachmentId = null;
-        for (const [id, mesh] of this.pipeAttachmentBuilder._meshMap) {
-          if (mesh === obj) { attachmentId = id; break; }
-        }
-        return { group: 'attachment', rootObj: obj, attachmentId, pipeId: obj.userData.pipeId || null };
+        // Attachment wrappers are built by the same ComponentBuilder, so the
+        // attachment id rides on userData.nodeId; pipeId is stamped too.
+        return {
+          group: 'attachment',
+          rootObj: obj,
+          attachmentId: obj.userData.nodeId ?? null,
+          pipeId: obj.userData.pipeId || null,
+        };
       }
       if (obj.parent === this.equipmentGroup) {
         return { group: 'equipment', rootObj: obj };
@@ -798,25 +806,48 @@ export class ThreeRenderer {
    */
   _raycastGround(screenX, screenY) {
     if (!this.camera || !this.renderer) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const { raycaster, groundPlane } = this._screenRay(screenX, screenY);
     if (this._terrainMesh) {
       const intersections = raycaster.intersectObject(this._terrainMesh);
       if (intersections.length > 0) return intersections[0].point;
     }
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    // Result Vector3 stays freshly allocated — callers hold returned points
+    // across subsequent raycasts (e.g. zoomAt's before/after pair).
     const hit = new THREE.Vector3();
-    return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
+    return raycaster.ray.intersectPlane(groundPlane, hit) ? hit : null;
   }
 
   /**
-   * Keep the PixiJS world.x/y/scale in sync with the current pan/zoom. These
-   * are legacy bookkeeping readers (save/load, some debug paths). They use
-   * the rotation=0 iso formula regardless of current rotation, since nothing
-   * is drawn through the overlay.
+   * Aim the shared screen-ray scratch objects at a screen pixel and return
+   * them. Raycaster/Vector2/Plane fire on every mousemove (placement
+   * preview, hover picking, ground raycasts), so they are allocated once
+   * per renderer and re-aimed per call instead of per event. The ground
+   * plane is constant (y=0, +Y normal) and never mutated by intersectPlane.
+   * Callers must consume the raycaster before the next _screenRay call.
+   */
+  _screenRay(screenX, screenY) {
+    let s = this._rayScratch;
+    if (!s) {
+      s = this._rayScratch = {
+        raycaster: new THREE.Raycaster(),
+        ndc: new THREE.Vector2(),
+        groundPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+      };
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    s.ndc.set(
+      ((screenX - rect.left) / rect.width) * 2 - 1,
+      -((screenY - rect.top) / rect.height) * 2 + 1,
+    );
+    s.raycaster.setFromCamera(s.ndc, this.camera);
+    return s;
+  }
+
+  /**
+   * Keep the overlay-shim world.x/y/scale in sync with the current pan/zoom.
+   * These are legacy bookkeeping readers (save/load, some debug paths). They
+   * use the rotation=0 iso formula regardless of current rotation, since
+   * nothing is drawn through the overlay.
    */
   _syncOverlayFromPan() {
     if (!this.app || !this.world) return;
@@ -829,7 +860,7 @@ export class ThreeRenderer {
     const isoY = (col + row) * 16;
     this.world.x = screenW / 2 - this.zoom * isoX;
     this.world.y = screenH / 2 - this.zoom * isoY;
-    this.world.scale.set(this.zoom);
+    this.world.scale = this.zoom;
     this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
     this._updateCameraFrustum();
   }
@@ -1178,11 +1209,12 @@ export class ThreeRenderer {
 
     if (!this.buildMode) return;
 
-    // Get nodes for the currently edited beamline
+    // Get nodes for the currently edited beamline (from the cached world
+    // snapshot — components carry beamlineId).
     let nodes = [];
     if (this.game.editingBeamlineId) {
       const entry = this.game.registry.get(this.game.editingBeamlineId);
-      if (entry) nodes = this.game.state.placeables.filter(p => p.beamlineId === this.game.editingBeamlineId);
+      if (entry) nodes = (this._snapshot?.components || []).filter(c => c.beamlineId === this.game.editingBeamlineId);
     }
 
     if (nodes.length === 0) {
@@ -1224,8 +1256,8 @@ export class ThreeRenderer {
         const x3 = cx + dx * wLen - px * wWid / 2;
         const z3 = cz + dz * wLen - pz * wWid / 2;
 
-        // Check tile availability
-        const available = !this.game.state.placeables.some(p => COMPONENTS[p.type]?.category === 'beamline' && p.cells?.some(c => c.col === this.hoverCol && c.row === this.hoverRow));
+        // Check tile availability against the cached snapshot's components
+        const available = !(this._snapshot?.components || []).some(c => c.category === 'beamline' && c.tiles?.some(t => t.col === this.hoverCol && t.row === this.hoverRow));
         const color = available ? 0x4488ff : 0xff4444;
 
         // Draw filled preview quad
@@ -1507,7 +1539,7 @@ export class ThreeRenderer {
     const EDGE_OFFSET = 0.04;
     // Sample THIS tile's own corners — never reaching into a neighbour
     // even if the footprint's east/south edge sits on the tile boundary.
-    const corners = getTileCornersY(this.game.state, col, row);
+    const corners = getTileCornersY(this._liveState(), col, row);
     const SUB = 4;
     const uW = subCol / SUB;
     const uE = (subCol + w) / SUB;
@@ -1578,7 +1610,7 @@ export class ThreeRenderer {
    * terrain heights (so the quad drapes the slope).
    */
   _terrainTileQuad(col, row, yOffset = 0) {
-    const c = getTileCornersY(this.game.state, col, row);
+    const c = getTileCornersY(this._liveState(), col, row);
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     const geo = new THREE.BufferGeometry();
@@ -1595,7 +1627,7 @@ export class ThreeRenderer {
 
   /** Closed-loop border points for a tile, sampled at corner heights. */
   _terrainTileBorderPoints(col, row, yOffset = 0) {
-    const c = getTileCornersY(this.game.state, col, row);
+    const c = getTileCornersY(this._liveState(), col, row);
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     return [
@@ -1612,7 +1644,7 @@ export class ThreeRenderer {
    * Each edge runs between two adjacent tile corners.
    */
   _edgeEndpoints(col, row, edge, yOffset = 0) {
-    const c = getTileCornersY(this.game.state, col, row);
+    const c = getTileCornersY(this._liveState(), col, row);
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     let ax, ay, az, bx, by, bz;
@@ -1683,7 +1715,7 @@ export class ThreeRenderer {
     });
     const QUAD_OFFSET = 0.02;
     const EDGE_OFFSET = 0.04;
-    const state = this.game.state;
+    const state = this._liveState();
     // Per-tile deformed quad so the fill drapes the slope.
     for (let c = minC; c <= maxC; c++) {
       for (let r = minR; r <= maxR; r++) {
@@ -1952,7 +1984,7 @@ export class ThreeRenderer {
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
     // Sample THIS tile's own corners so the ghost stays on the local
     // ground even if the footprint's east/south edge touches a neighbour.
-    const state = this.game.state;
+    const state = this._liveState();
     const corners = getTileCornersY(state, col, row);
     const SUB = 4; // sub-cells per tile edge
     const uW = sc / SUB;
@@ -2398,7 +2430,7 @@ export class ThreeRenderer {
     const subRadius = 1;     // tiles around cursor for sub-grid
     const Y_OFFSET = 0.04;
 
-    const state = this.game.state;
+    const state = this._liveState();
     const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + Y_OFFSET;
 
     // Each tile is drawn as its own self-contained square (border + sub-grid),
@@ -2523,8 +2555,6 @@ export class ThreeRenderer {
   _applyDoorVisibility() {
     // Doors are rebuilt together with walls in _refreshWalls
   }
-
-  _drawGrid() { /* future */ }
 
   // --- Helpers (copied from legacy Renderer) ---
 
@@ -2651,16 +2681,28 @@ export class ThreeRenderer {
       this.utilityLineBuilderV2.setHoverPort(utilCtrl.hoverPort, this.utilityLinePreviewGroup);
       const activeType = utilCtrl.utilityType || null;
       if (activeType) {
-        const state = this.game?.state;
-        const placeables = state?.placeables || [];
-        const utilityLines = state?.utilityLines;
-        this.utilityLineBuilderV2.setAvailablePorts(
-          activeType, placeables, utilityLines,
-          utilCtrl.hoverPort,
-          utilCtrl.drawStart || null,
-          this.utilityLinePreviewGroup,
-        );
-      } else {
+        // Port markers depend on world data (placeables, utility lines) that
+        // changes only on game events, plus the interactive hover/draw
+        // anchors. Rebuild only when a world event fired (_portMarkersDirty)
+        // or the interactive signature changed — not unconditionally per rAF.
+        const hp = utilCtrl.hoverPort;
+        const ds = utilCtrl.drawStart || null;
+        const sig = activeType
+          + '|' + (hp ? `${hp.placeableId}:${hp.portName}` : '')
+          + '|' + (ds ? `${ds.placeableId}:${ds.portName}` : '');
+        if (this._portMarkersDirty || sig !== this._portMarkersSig) {
+          this._portMarkersDirty = false;
+          this._portMarkersSig = sig;
+          // Live read (documented accessor): port world positions and
+          // claimed-port lookups resolve against live placeable shapes.
+          const state = this._liveState();
+          this.utilityLineBuilderV2.setAvailablePorts(
+            activeType, state?.placeables || [], state?.utilityLines,
+            hp, ds, this.utilityLinePreviewGroup,
+          );
+        }
+      } else if (this._portMarkersSig !== null) {
+        this._portMarkersSig = null;
         this.utilityLineBuilderV2.setAvailablePorts(null, null, null, null, null, this.utilityLinePreviewGroup);
       }
     }
@@ -2679,6 +2721,9 @@ export class ThreeRenderer {
     const _now = performance.now();
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
+    // Beam animation clock (was driven by the Pixi ticker: deltaFrames * 0.02
+    // per frame ≈ 1.2/s at 60fps).
+    this.beamTime += _dt * 1.2;
     if (this.staffPawns) this.staffPawns.update(_dt);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
@@ -2769,10 +2814,36 @@ export class ThreeRenderer {
     await this.textureManager.loadDecorationManifest();
   }
 
+  /**
+   * Rebuild only the named snapshot sections and merge them into the cached
+   * `this._snapshot`, leaving every other section untouched. Returns the
+   * merged snapshot. Partial refreshes (_refreshX) use this so reading one
+   * section never pays for the full-map terrain walk.
+   */
+  _updateSnapshot(sections) {
+    const partial = buildWorldSnapshot(this.game, { only: sections });
+    if (!this._snapshot) this._snapshot = partial;
+    else Object.assign(this._snapshot, partial);
+    return this._snapshot;
+  }
+
+  /**
+   * The single sanctioned live `game.state` access — see the SNAPSHOT
+   * BOUNDARY note at the top of this file. Legitimate uses:
+   *  - terrain corner/height sampling for cursor-anchored previews
+   *    (arbitrary coordinates, queried per pointer move);
+   *  - utility-line port/network resolution (portWorldPosition needs live
+   *    placeable shapes, and the sim-published utilityNetworks /
+   *    utilityNetworkData maps are read as-is — no discovery re-runs in the
+   *    renderer; snapshotting these is future UtilityLineBuilderV2 work).
+   * Everything else must read `this._snapshot`.
+   */
+  _liveState() { return this.game.state; }
+
   applySnapshot(snapshot) {
     this._snapshot = snapshot;
-    this.terrainBuilder.build(snapshot.terrain, this.terrainGroup, snapshot.cornerHeightsRevision);
-    this.cliffBuilder.build(snapshot.cliffs || [], this.terrainGroup, snapshot.cornerHeightsRevision);
+    this.terrainBuilder.build(snapshot.terrain, this.terrainGroup);
+    this.cliffBuilder.build(snapshot.cliffs || [], this.terrainGroup);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snapshot);
     this.grassTuftBuilder.rebuild(snapshot);
@@ -2799,16 +2870,19 @@ export class ThreeRenderer {
   }
 
   _refreshTerrain() {
-    const snap = buildWorldSnapshot(this.game);
-    this.terrainBuilder.build(snap.terrain, this.terrainGroup, snap.cornerHeightsRevision);
-    this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup, snap.cornerHeightsRevision);
+    // Tuft/wildflower builders read snapshot.terrain + snapshot.grassSurfaces.
+    // Every builder below is content-hash cached, so calling this on events
+    // that leave the terrain unchanged costs only the snapshot walk + hash.
+    const snap = this._updateSnapshot(['terrain', 'cliffs', 'grassSurfaces']);
+    this.terrainBuilder.build(snap.terrain, this.terrainGroup);
+    this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snap);
     this.grassTuftBuilder.rebuild(snap);
   }
 
   _refreshInfra() {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['floors']);
     this.floorBuilder.build(snap.floors, this.floorGroup);
   }
 
@@ -2824,13 +2898,13 @@ export class ThreeRenderer {
       }
     }
 
-    const zones = this.game.state.zones || [];
+    const zones = this._updateSnapshot(['zones']).zones || [];
     if (zones.length === 0) return;
 
     const byType = new Map();
     for (const z of zones) {
-      if (!byType.has(z.type)) byType.set(z.type, []);
-      byType.get(z.type).push(z);
+      if (!byType.has(z.zoneType)) byType.set(z.zoneType, []);
+      byType.get(z.zoneType).push(z);
     }
 
     for (const [type, tiles] of byType) {
@@ -2914,6 +2988,21 @@ export class ThreeRenderer {
   _makeLabelSprite(text, opts = {}) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const isZone = opts.isZone ?? text.includes('[');
+
+    // Non-zone labels (beam-pipe cost) are re-made per rAF while dragging —
+    // reuse the cached canvas texture/material for a given text value. Zone
+    // labels rebuild only on zonesChanged and are owned/disposed by
+    // zoneGroup teardown, so they stay uncached.
+    if (!isZone) {
+      const cached = this._labelMatCache.get(text);
+      if (cached) {
+        const sprite = new THREE.Sprite(cached.material);
+        sprite.scale.set(cached.scaleX, cached.scaleY, 1);
+        sprite.renderOrder = 10;
+        sprite.userData.sharedLabelMaterial = true;
+        return sprite;
+      }
+    }
     const fontSize = isZone ? 18 : 8;
     const font = isZone ? `${fontSize}px Inter, 'Helvetica Neue', sans-serif` : `${fontSize}px 'Press Start 2P', monospace`;
     const measureCanvas = document.createElement('canvas');
@@ -2958,11 +3047,27 @@ export class ThreeRenderer {
     const worldH = isZone ? 0.92 : 0.42;
     sprite.scale.set(worldH * (cssW / cssH), worldH, 1);
     sprite.renderOrder = isZone ? 11 : 10;
+    if (!isZone) {
+      const LABEL_CACHE_MAX = 128;
+      if (this._labelMatCache.size >= LABEL_CACHE_MAX) {
+        for (const entry of this._labelMatCache.values()) {
+          if (entry.material.map) entry.material.map.dispose();
+          entry.material.dispose();
+        }
+        this._labelMatCache.clear();
+      }
+      this._labelMatCache.set(text, {
+        material: mat,
+        scaleX: sprite.scale.x,
+        scaleY: sprite.scale.y,
+      });
+      sprite.userData.sharedLabelMaterial = true;
+    }
     return sprite;
   }
 
   _refreshWalls() {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['walls', 'doors', 'wallOccupancy']);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
@@ -2976,8 +3081,9 @@ export class ThreeRenderer {
    * fences and hedges do not create interior rooms.
    */
   _detectCutawayRegion(startCol, startRow) {
-    const wallOcc = this.game.state.wallOccupied || {};
-    const doorOcc = this.game.state.doorOccupied || {};
+    const occ = this._snapshot?.wallOccupancy;
+    const wallOcc = occ?.wallOccupied || {};
+    const doorOcc = occ?.doorOccupied || {};
     const MAX_TILES = 500;
 
     // Flood-fill a room, only treating solid walls (not fences/hedges) as boundaries
@@ -3023,7 +3129,7 @@ export class ThreeRenderer {
     // flood-fill from there and merge if it's also an enclosed room
     const region = new Set(primaryRoom);
     const checkedNeighborRooms = new Set();
-    const walls = this.game.state.walls || [];
+    const walls = this._snapshot?.walls || [];
 
     for (const w of walls) {
       const { col, row, edge, type } = w;
@@ -3074,12 +3180,12 @@ export class ThreeRenderer {
   }
 
   _refreshEquipment() {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['equipment', 'furnishings']);
     this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup);
   }
 
   _refreshDecorations() {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['decorations']);
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
   }
 
@@ -3096,14 +3202,20 @@ export class ThreeRenderer {
    */
   _refreshUtilityLinesV2() {
     if (!this.utilityLineGroup || !this.utilityLineBuilderV2) return;
-    const lines = this.game?.state?.utilityLines;
-    if (!lines) return;
+    const snap = this._updateSnapshot(['utilityLines']);
+    // Live read (documented accessor): the builder pins line endpoints to
+    // portWorldPosition of live placeables and joins the sim-published
+    // utilityNetworks/utilityNetworkData maps for per-network error glow
+    // (no discovery re-runs here) — neither is snapshotted yet (see
+    // _liveState).
+    const state = this._liveState();
+    if (!state || !state.utilityLines) return;
     const placeablesById = new Map();
-    for (const p of (this.game.state.placeables || [])) {
+    for (const p of (state.placeables || [])) {
       placeablesById.set(p.id, p);
     }
-    this.utilityLineBuilderV2.build(lines, placeablesById, this.utilityLineGroup, {
-      state: this.game?.state,
+    this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
+      state,
     });
   }
 
@@ -3123,8 +3235,13 @@ export class ThreeRenderer {
     }
     this._beamPipeMeshes = [];
 
-    const pipes = this.game.state.beamPipes || [];
-    if (pipes.length === 0) return;
+    const snap = this._updateSnapshot(['beamPipes', 'moduleSubTiles', 'pipeAttachments']);
+    const pipes = snap.beamPipes || [];
+    if (pipes.length === 0) {
+      // Still rebuild attachments (they may have all been removed with pipes).
+      this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+      return;
+    }
 
     const PIPE_RADIUS = 0.06;
     const PIPE_Y = 1.0;
@@ -3160,18 +3277,10 @@ export class ThreeRenderer {
         endpointCounts.set(k, (endpointCounts.get(k) || 0) + 1);
       }
     }
-    // Also mark any tile occupied by a beamline module as a "touched" endpoint
-    // so we skip the flange where the pipe meets the module body.
-    // Store at subtile precision so pipe cuts match the module footprint exactly.
-    const moduleTiles = new Set();
-    for (const p of (this.game.state.placeables || [])) {
-      if (p.category !== 'beamline') continue;
-      const def = COMPONENTS[p.type];
-      if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
-      for (const c of (p.cells || [])) {
-        moduleTiles.add(`${c.col},${c.row},${c.subCol},${c.subRow}`);
-      }
-    }
+    // Tiles occupied by beamline modules (subtile precision, from the
+    // snapshot) — pipe runs are carved around them and flanges suppressed
+    // where the pipe meets the module body.
+    const moduleTiles = new Set(snap.moduleSubTiles || []);
     const isModuleAt = (col, row) => {
       // Pipe coordinates are tile-center-aligned (col*2+1 in world space),
       // but module cells use tile-corner-aligned subtile indices. Shift by
@@ -3340,14 +3449,14 @@ export class ThreeRenderer {
       };
 
       if (pipe.path && pipe.path.length >= 2) {
-        if (pipe.start === null) {
+        if (pipe.openStart) {
           const a = pipe.path[0];
           const b = pipe.path[1];
           // Tip is a; previous direction points from b toward a so the disc
           // orients perpendicular to the pipe's outgoing direction at the tip.
           addOpenCap(a.col, a.row, b.col, b.row);
         }
-        if (pipe.end === null) {
+        if (pipe.openEnd) {
           const a = pipe.path[pipe.path.length - 1];
           const b = pipe.path[pipe.path.length - 2];
           addOpenCap(a.col, a.row, b.col, b.row);
@@ -3358,7 +3467,6 @@ export class ThreeRenderer {
     }
 
     // Rebuild inline attachments — their positions depend on pipe paths.
-    const snap = buildWorldSnapshot(this.game);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
   }
 
@@ -3461,7 +3569,8 @@ export class ThreeRenderer {
     if (path.length < 2) {
       const openEnd = this._inputHandler?.beamlineController?.hoverOpenEnd;
       if (openEnd) {
-        const pipe = (this.game?.state?.beamPipes || []).find(p => p && p.id === openEnd.pipeId);
+        // Pipe paths are world data — read the cached snapshot section.
+        const pipe = (this._snapshot?.beamPipes || []).find(p => p && p.id === openEnd.pipeId);
         if (pipe && pipe.path && pipe.path.length >= 2) {
           const tipIdx = openEnd.openEnd === 'start' ? 0 : pipe.path.length - 1;
           const neighborIdx = openEnd.openEnd === 'start' ? 1 : pipe.path.length - 2;
@@ -3510,6 +3619,9 @@ export class ThreeRenderer {
     if (this._beamPipePreviewMeshes) {
       for (const mesh of this._beamPipePreviewMeshes) {
         this.previewGroup.remove(mesh);
+        // Cost-label sprites share a cached material/texture (and THREE.Sprite
+        // geometry is shared library-wide) — remove only, never dispose.
+        if (mesh.userData && mesh.userData.sharedLabelMaterial) continue;
         if (mesh.geometry) mesh.geometry.dispose();
         if (mesh.material) {
           if (mesh.material.map) mesh.material.map.dispose();
@@ -3578,13 +3690,13 @@ export class ThreeRenderer {
   }
 
   _refreshBeam() {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['beamPaths']);
     this.beamBuilder.build(snap.beamPaths, this.componentGroup);
   }
 
   _refreshComponents() {
     try {
-    const snap = buildWorldSnapshot(this.game);
+    const snap = this._updateSnapshot(['components', 'pipeAttachments']);
     this.componentBuilder.build(snap.components, this.componentGroup);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
     } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
@@ -3615,6 +3727,7 @@ export class ThreeRenderer {
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);
+    this.overlay.dispose();
   }
 }
 
@@ -3637,6 +3750,7 @@ const UI_METHODS = [
   '_renderCoolingStats', '_renderPowerStats', '_renderDataControlsStats', '_renderOpsStats',
   '_createPaletteItem', '_removeParamFlyout', '_showPalettePreview', '_hidePalettePreview',
   '_sstat', '_ssep', '_detailRow', '_fmtPressure', '_superscript', '_qualityColor', '_marginColor',
+  '_renderStaffBar', '_openStaffInspector', '_openHiringDialog', '_refreshStaffWindows',
   // overlays.js
   'showPopup', 'showFacilityPopup', 'hidePopup',
   'drawSchematic',
@@ -3646,5 +3760,13 @@ const UI_METHODS = [
   '_renderGoalsOverlay',
   '_openBeamlineWindow', '_openEquipmentWindow',
   '_refreshContextWindows',
-  '_renderStaffBar', '_openStaffInspector', '_openHiringDialog', '_refreshStaffWindows',
 ];
+
+// Catch drift between UI_METHODS and what hud.js/overlays.js actually
+// attach: a stale name here would otherwise surface as a confusing
+// runtime error at some distant call site.
+for (const name of UI_METHODS) {
+  if (typeof Object.getOwnPropertyDescriptor(UIHost.prototype, name)?.value !== 'function') {
+    console.warn(`UI_METHODS lists '${name}' but UIHost.prototype has no such method`);
+  }
+}

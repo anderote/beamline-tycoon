@@ -1,9 +1,8 @@
 // === HUD EXTENSION ===
 // Adds HUD update, palette rendering, beam button, and system stats to UIHost.prototype.
-// Note: PIXI is a CDN global — not imported.
 
-import { isFacilityCategory } from './Renderer.js';
-import { UIHost } from '../ui/UIHost.js';
+import { isFacilityCategory } from '../renderer/Renderer.js';
+import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
@@ -15,10 +14,10 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
-import { ContextWindow } from '../ui/ContextWindow.js';
-import { openStaffInspector } from '../ui/StaffInspector.js';
-import { openHiringDialog } from '../ui/HiringDialog.js';
-import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from '../ui/format.js';
+import { ContextWindow } from './ContextWindow.js';
+import { openStaffInspector } from './StaffInspector.js';
+import { openHiringDialog } from './HiringDialog.js';
+import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;

@@ -3,8 +3,8 @@
 // UIHost owns the DOM-side UI of Beamline Tycoon: HUD panels, palette,
 // popups, tech tree, goals overlay, and anchored context windows.
 //
-// It is populated by side-effect imports of ../renderer/hud.js and
-// ../renderer/overlays.js, which attach their methods to UIHost.prototype.
+// It is populated by side-effect imports of ./hud.js and ./overlays.js,
+// which attach their methods to UIHost.prototype.
 //
 // UIHost holds a reference to the active renderer. Pass-through getters
 // and setters make renderer-owned state (game, sprites, active callbacks,

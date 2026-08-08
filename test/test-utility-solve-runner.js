@@ -98,10 +98,18 @@ console.log('\n--- Test 1: happy path writes flow + persistent state ---');
   assert(Array.isArray(result.errors) && result.errors.length === 0,
     `no errors (got ${JSON.stringify(result.errors)})`);
   assert(state.utilityNetworkData instanceof Map, 'utilityNetworkData is a Map');
+  // Discovery output must be published for renderer reuse (error-glow join).
+  assert(state.utilityNetworks instanceof Map, 'utilityNetworks published as a Map');
+  const pubNets = state.utilityNetworks.get('fake');
+  assert(Array.isArray(pubNets) && pubNets.length === 1,
+    `published 1 fake network (got ${JSON.stringify(pubNets && pubNets.length)})`);
+  assert(Array.isArray(pubNets[0].lineIds) && pubNets[0].lineIds.includes('L1'),
+    'published network carries member lineIds');
   const perType = state.utilityNetworkData.get('fake');
   assert(perType instanceof Map, 'per-type map exists');
   assert(perType.size === 1, `1 network (got ${perType.size})`);
   const [networkId] = Array.from(perType.keys());
+  assert(pubNets[0].id === networkId, 'published network id matches flow-data key');
   const flow = perType.get(networkId);
   assert(flow && flow.delivered === 42, `flow.delivered=42 (got ${JSON.stringify(flow)})`);
   const persisted = state.utilityNetworkState.get(networkId);
