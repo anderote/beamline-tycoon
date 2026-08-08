@@ -5,31 +5,19 @@
 
 import { SaveSlots } from '../game/SaveSlots.js';
 import { CloudSaves, CloudAuthError } from '../game/CloudSaves.js';
+import { makeDraggable } from './draggable.js';
+import { fmtMoney, escapeHtml as esc } from './format.js';
 
 const CLOUD_SLOT_COUNT = 3;
 // DTW's sign-in entry is /signup (it handles both sign-in and sign-up),
 // with `redirect` as its return-path param.
 const SIGNIN_URL = '/signup?redirect=%2Fbeamline-tycoon';
 
-function fmtMoney(n) {
-  if (n == null || isNaN(n)) return '$0';
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return '$' + (n / 1e9).toFixed(abs >= 1e10 ? 0 : 1) + 'B';
-  if (abs >= 1e6) return '$' + (n / 1e6).toFixed(abs >= 1e7 ? 0 : 1) + 'M';
-  if (abs >= 1e3) return '$' + Math.round(n / 1e3) + 'k';
-  return '$' + Math.floor(n);
-}
-
 function fmtDate(ms) {
   const d = new Date(ms);
   const pad = (x) => String(x).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
          `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export class SaveLoadDialog {
@@ -493,29 +481,10 @@ export class SaveLoadDialog {
     });
 
     // Draggable by header (same pattern as WelcomeDialog).
-    const header = el.querySelector('.sl-header');
-    let dragging = false, sx, sy, ox, oy;
-    header.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.sl-close')) return;
-      if (el.style.transform !== 'none') {
-        const r = el.getBoundingClientRect();
-        el.style.left = r.left + 'px';
-        el.style.top = r.top + 'px';
-        el.style.transform = 'none';
-      }
-      dragging = true; sx = e.clientX; sy = e.clientY;
-      ox = parseInt(el.style.left, 10) || 0; oy = parseInt(el.style.top, 10) || 0;
-      header.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      el.style.left = (ox + e.clientX - sx) + 'px';
-      el.style.top = (oy + e.clientY - sy) + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      dragging = false;
-      header.style.cursor = 'grab';
+    makeDraggable(el, el.querySelector('.sl-header'), {
+      exclude: '.sl-close',
+      freezeTransform: true,
+      grabCursor: true,
     });
   }
 }

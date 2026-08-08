@@ -8,16 +8,7 @@
 
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 import { UtilityInspector } from './UtilityInspector.js';
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { escapeHtml } from './format.js';
 
 export class UtilityStatsPanel {
   /**
@@ -48,7 +39,7 @@ export class UtilityStatsPanel {
       if (event !== 'tick' && event !== 'utilityLinesChanged') return;
       this.render();
     };
-    if (typeof game.on === 'function') game.on(this._listener);
+    this._off = (typeof game.on === 'function') ? game.on(this._listener) : null;
 
     this.render();
   }
@@ -111,10 +102,8 @@ export class UtilityStatsPanel {
   }
 
   destroy() {
-    if (this._listener && this.game && Array.isArray(this.game.listeners)) {
-      const idx = this.game.listeners.indexOf(this._listener);
-      if (idx !== -1) this.game.listeners.splice(idx, 1);
-    }
+    if (this._off) this._off();
+    this._off = null;
     this._listener = null;
     if (this.el && this.el.parentNode) {
       this.el.parentNode.removeChild(this.el);

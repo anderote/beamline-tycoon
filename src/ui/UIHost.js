@@ -14,6 +14,8 @@
 // Fields whose lifecycle is purely UI-local (tree pan/zoom, popup state,
 // anchored-window registries) live on the UIHost instance.
 
+import { fmtNumber } from './format.js';
+
 export class UIHost {
   constructor(renderer) {
     this.renderer = renderer;
@@ -37,18 +39,13 @@ export class UIHost {
 
     // --- Anchored context-window registries ---
     this._beamlineWindows = {};
-    this._machineWindows = {};
     this._equipmentWindows = {};
   }
 
-  // Number formatter — duplicated from Renderer.prototype._fmt so UI methods
-  // can call `this._fmt(n)` without a renderer round-trip.
+  // Number formatter — shared fmtNumber, kept as a method so UI code can
+  // call `this._fmt(n)` without a renderer round-trip.
   _fmt(n) {
-    if (n === undefined || n === null) return '0';
-    if (typeof n !== 'number') return String(n);
-    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return Math.floor(n).toString();
+    return fmtNumber(n);
   }
 
   // Forwarders for renderer methods called from UI code.

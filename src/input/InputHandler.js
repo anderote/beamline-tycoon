@@ -131,7 +131,6 @@ export class InputHandler {
     // Hover tooltip state
     this._hoverTooltipTimer = null;
     this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
-    this._hoverWorld = null; // {x, z} world coords under cursor, null when outside map
     this._tooltipEl = null;
     // Beamline-specific input (junction ghosts, pipe drawing, placement-on-pipe).
     // Back-reference is `inputHandler: this` so the controller can read
@@ -1602,15 +1601,8 @@ export class InputHandler {
           placeableDef?.role === 'junction' ||
           placeableDef?.role === 'placement';
         if ((btn === 0 || btn === 2) && (this.beamlineController.isActive() || isBeamlineTool)) {
-          console.log('[pipe-draw] InputHandler mousedown → beamline branch', {
-            btn,
-            isDrawnConnection: !!toolDef?.isDrawnConnection,
-            controllerActive: this.beamlineController.isActive(),
-            selectedTool: this.selectedTool,
-          });
           if (toolDef?.isDrawnConnection) {
             const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-            console.log('[pipe-draw] InputHandler → beamlineController.onMouseDown', { world, btn });
             this.beamlineController.onMouseDown(world.x, world.y, btn);
           }
           // Swallow the event: no other mousedown branch should fire for
@@ -1753,28 +1745,14 @@ export class InputHandler {
         this.renderer.orbitBy(dx, dy);
         return;
       }
-      // Track cursor world position for the entity/wildlife system
-      {
-        const _hw = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const _gf = isoToGridFloat(_hw.x, _hw.y);
-        this._hoverWorld = { x: _gf.col * 2, z: _gf.row * 2 };
-      }
       if (this.isPanning) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
       } else if (this.isLinePlacingDecoration) {
-        if (this._lastMoveBranch !== 'isLinePlacingDecoration') {
-          this._lastMoveBranch = 'isLinePlacingDecoration';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         this._updateLinePlacePreview(world.x, world.y);
       } else if (this.isDragging && this.dragStart) {
-        if (this._lastMoveBranch !== 'isDragging') {
-          this._lastMoveBranch = 'isDragging';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.dragEnd = { col: grid.col, row: grid.row };
@@ -1816,10 +1794,6 @@ export class InputHandler {
           });
         }
       } else if (this.isDrawingLine && this.selectedInfraTool) {
-        if (this._lastMoveBranch !== 'isDrawingLine infra') {
-          this._lastMoveBranch = 'isDrawingLine infra';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         const start = this.lineStart || this.linePath[0];
@@ -1838,10 +1812,6 @@ export class InputHandler {
           insufficientFunding: this.game.state.resources.funding < lineCost.totalCost,
         });
       } else if (this.isDrawingWall && this.selectedWallTool) {
-        if (this._lastMoveBranch !== 'isDrawingWall wallTool') {
-          this._lastMoveBranch = 'isDrawingWall wallTool';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
         this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
@@ -1850,18 +1820,10 @@ export class InputHandler {
           insufficientFunding: this.game.state.resources.funding < cost,
         });
       } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishBuilding') {
-        if (this._lastMoveBranch !== 'isDrawingWall demolishBuilding') {
-          this._lastMoveBranch = 'isDrawingWall demolishBuilding';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const edge = this._getNearestEdge(e.clientX, e.clientY);
         this.wallPath = this._buildWallLine(this._wallStart, edge);
         this.renderer.renderDemolishPathPreview(this.wallPath);
       } else if (this.selectedWallTool && !this.isDrawingWall && !this._shiftWallPending) {
-        if (this._lastMoveBranch !== 'selectedWallTool (hover)') {
-          this._lastMoveBranch = 'selectedWallTool (hover)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
         if (this._shiftDown) {
           const path = this._buildFloorBoundaryPath(edge);
@@ -1875,45 +1837,20 @@ export class InputHandler {
           this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
         }
       } else if (this.isDrawingDoor && this.selectedDoorTool) {
-        if (this._lastMoveBranch !== 'isDrawingDoor doorTool') {
-          this._lastMoveBranch = 'isDrawingDoor doorTool';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const edge = this._getNearestWallEdge(e.clientX, e.clientY);
         this.doorPath = this._buildWallLine(this._doorStart, edge);
         this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
       } else if (this.selectedDoorTool && !this.isDrawingDoor) {
-        if (this._lastMoveBranch !== 'selectedDoorTool (hover)') {
-          this._lastMoveBranch = 'selectedDoorTool (hover)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const edge = this._getNearestWallEdge(e.clientX, e.clientY);
         this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
       } else if (this.utilityLineController && this.utilityLineController.isActive()) {
-        if (this._lastMoveBranch !== 'utilityLine draw') {
-          this._lastMoveBranch = 'utilityLine draw';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         // Utility-line drag: update Manhattan preview path.
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         this.utilityLineController.onMouseMove(world.x, world.y);
       } else if (this.beamlineController.isActive()) {
-        if (this._lastMoveBranch !== 'beamline draw') {
-          this._lastMoveBranch = 'beamline draw';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        if (!this._loggedPipeMoveDelegate) {
-          this._loggedPipeMoveDelegate = true;
-          console.log('[pipe-draw] InputHandler mousemove → beamlineController.onMouseMove (first delegation this drag)', { world });
-        }
         this.beamlineController.onMouseMove(world.x, world.y);
       } else {
-        if (this._lastMoveBranch !== 'DEFAULT (hover/demolish beamline/etc)') {
-          this._lastMoveBranch = 'DEFAULT (hover/demolish beamline/etc)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        this._loggedPipeMoveDelegate = false;
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const grid = isoToGrid(world.x, world.y);
         this.renderer.updateHover(grid.col, grid.row);
@@ -2037,20 +1974,8 @@ export class InputHandler {
       // Beam pipe drawing end — delegated to BeamlineInputController.
       if (this.beamlineController.isActive()) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        console.log('[pipe-draw] InputHandler mouseup → beamlineController.onMouseUp', {
-          world, button: e.button,
-        });
         this.beamlineController.onMouseUp(world.x, world.y, e.button);
         return;
-      }
-      // Diagnostic: mouseup fired, but the controller is NOT active. If the
-      // user just finished dragging a pipe and we land here, the start path
-      // never set _drawing = true (no anchor) — or something reset it mid-drag.
-      if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-        console.log('[pipe-draw] InputHandler mouseup: pipe tool selected but controller NOT active', {
-          selectedTool: this.selectedTool,
-          button: e.button,
-        });
       }
 
       // Line placement end (hallway). Rack-segment drawing removed in Phase 6.
@@ -2192,11 +2117,6 @@ export class InputHandler {
       e.preventDefault();
     });
 
-    // Clear cursor world position when mouse leaves the canvas
-    canvas.addEventListener('mouseleave', () => {
-      this._hoverWorld = null;
-    });
-
     // Double-click: enter edit mode for the clicked beamline and open its window
     canvas.addEventListener('dblclick', (e) => {
       const world = this.renderer.screenToWorld(e.clientX, e.clientY);
@@ -2236,8 +2156,6 @@ export class InputHandler {
     const grid = isoToGrid(world.x, world.y);
     const col = grid.col;
     const row = grid.row;
-
-    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, bulldozer: this.bulldozerMode, placeables: this.game.state.placeables.length });
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
@@ -2315,11 +2233,6 @@ export class InputHandler {
         const equipId = this.game.state.facilityGrid[key];
         if (equipId) {
           this.game.removeFacilityEquipment(equipId);
-        }
-        // Remove machines
-        const machineId = this.game.state.machineGrid[key];
-        if (machineId) {
-          this.game.removeMachine(machineId);
         }
       }
       return;
@@ -2496,12 +2409,6 @@ export class InputHandler {
         // Phase 6: rack-segment click-to-inspect removed. Utility inspection
         // now flows through UtilityInspector (opened via the utility-line
         // raycast earlier in _handleClick).
-        // Check for machine tile click
-        const machineId = this.game.state.machineGrid[col + ',' + row];
-        if (machineId) {
-          this.renderer._openMachineWindow(machineId);
-          return;
-        }
         // Check for facility equipment click
         const facKey = col + ',' + row;
         const facId = this.game.state.facilityGrid[facKey];
@@ -2562,14 +2469,8 @@ export class InputHandler {
 
     // --- 1. Raycast for precise 3D hit detection ---
     const hit = this.renderer.raycastScreen(screenX, screenY);
-    console.warn('[demolish] raycast hit:', hit ? { objectName: hit.object?.name, distance: hit.distance } : null);
     if (hit) {
       const info = this.renderer.identifyHit(hit);
-      console.warn('[demolish] identifyHit:', info ? {
-        group: info.group,
-        hasNodeId: !!info.nodeId,
-        pipeId: info.pipeId,
-      } : null);
       if (info) {
         // Beamline components go through the legacy beam-graph registry
         // because their lifecycle is tracked there, not only in state.placeables.
@@ -2644,7 +2545,6 @@ export class InputHandler {
     // Used when the raycast missed the mesh (e.g. hovering over a hollow
     // region of a multi-tile beamline module that's on legs). Resolve the
     // rootObj from the component builder so the outline can still render.
-    console.warn('[demolish] falling through to subgrid probe');
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       const tilePos = gridToIso(grid.col, grid.row);
       const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);

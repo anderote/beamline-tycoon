@@ -2640,7 +2640,6 @@ export class ComponentBuilder {
    */
   build(componentData, parentGroup) {
     if (!componentData || !parentGroup) return;
-    console.log(`[ComponentBuilder] build() called with ${componentData.length} components:`, componentData.map(c => `${c.type}@${c.col},${c.row}`));
 
     const seen = new Set();
 

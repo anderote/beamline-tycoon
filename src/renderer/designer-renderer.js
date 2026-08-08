@@ -7,7 +7,7 @@ import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { formatEnergy } from '../data/units.js';
 import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
-import { Renderer, isFacilityCategory } from './Renderer.js';
+import { isFacilityCategory } from './Renderer.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 
 // Schematic pixel dimensions per component (same as overlays.js drawSchematic)

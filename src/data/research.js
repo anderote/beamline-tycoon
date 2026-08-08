@@ -489,7 +489,6 @@ export const RESEARCH = {
     desc: 'Research laser-driven plasma wakefield acceleration — a revolutionary technique where an intense laser pulse drives a plasma wave with electric fields exceeding 100 GV/m, thousands of times stronger than conventional RF cavities. Electrons surfing this wake can gain GeV energies in centimeters rather than kilometers. Still a frontier technology with challenges in beam quality and stability.',
     cost: { data: 70, funding: 20000000, reputation: 10 },
     duration: 110,
-    unlocksMachines: ['tabletopLaser'],
     requires: 'felPhysics',
   },
 
@@ -565,7 +564,6 @@ export const RESEARCH = {
     desc: 'Study the principles of circular acceleration pioneered by Ernest Lawrence in 1932. A cyclotron uses a constant magnetic field and alternating electric field to spiral charged particles outward in an expanding orbit, gaining energy each revolution. Compact and relatively affordable — ideal for producing medical isotopes, ion beams for materials research, and proton therapy.',
     cost: { data: 15, funding: 1000000 },
     duration: 40,
-    unlocksMachines: ['smallCyclotron'],
     requires: null,
   },
   isochronousCyclotron: {
@@ -574,7 +572,6 @@ export const RESEARCH = {
     desc: 'Overcome the relativistic energy limit of classical cyclotrons using sector-focused (azimuthally varying field) designs. By shaping the magnetic field to increase with radius in a specific pattern, the revolution frequency remains constant even as particles become relativistic. This enables cyclotrons to reach hundreds of MeV — powerful enough for nuclear physics and heavy-ion research.',
     cost: { data: 40, funding: 8000000, reputation: 5 },
     duration: 80,
-    unlocksMachines: ['largeCyclotron'],
     requires: 'cyclotronTech',
   },
   protonAcceleration: {
@@ -602,7 +599,6 @@ export const RESEARCH = {
     desc: 'Master the synchrotron — a circular accelerator where magnetic field strength ramps up in sync with beam energy, keeping particles on a fixed orbit. Unlike cyclotrons, synchrotrons can reach arbitrarily high energies limited only by ring circumference and magnet strength. The LHC, the worlds largest machine, is a synchrotron. Enables a booster ring for your facility.',
     cost: { data: 50, funding: 10000000, reputation: 5 },
     duration: 90,
-    unlocksMachines: ['synchrotronBooster'],
     requires: 'protonAcceleration',
   },
   storageRingTech: {
@@ -611,7 +607,6 @@ export const RESEARCH = {
     desc: 'Develop storage ring techniques for maintaining stable circulating beams for hours or days. Requires precise orbit control, RF systems to replenish energy lost to synchrotron radiation, beam lifetime optimization through careful vacuum and lattice design, and insertion devices (undulators, wigglers) in straight sections. The basis for all modern synchrotron light sources.',
     cost: { data: 60, funding: 15000000, reputation: 10 },
     duration: 100,
-    unlocksMachines: ['storageRing'],
     requires: 'synchrotronTech',
   },
   targetPhysics: {

@@ -26,13 +26,6 @@ export const BeamPhysics = (() => {
     'beam_physics/machines.py',
     'beam_physics/lattice.py',
     'beam_physics/elements.py',
-    'beam_physics/radiation.py',
-    'beam_physics/rf_system.py',
-    'beam_physics/cryo_system.py',
-    'beam_physics/vacuum_system.py',
-    'beam_physics/cooling_system.py',
-    'beam_physics/wear.py',
-    'beam_physics/diagnostics.py',
     'beam_physics/gameplay.py',
   ];
 

@@ -2,6 +2,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { ProbePlots } from './probe-plots.js';
+import { makeDraggable } from './draggable.js';
 
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
@@ -31,8 +32,6 @@ export class ProbeWindow {
     ];
     this.open = false;
     this.el = null;
-    this._dragging = false;
-    this._resizing = false;
     this._buildDOM();
     this._bindEvents();
   }
@@ -78,44 +77,38 @@ export class ProbeWindow {
 
   _bindEvents() {
     const titlebar = this.el.querySelector('.probe-titlebar');
-    titlebar.addEventListener('mousedown', (e) => {
-      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
-      this._dragging = true;
-      this._dragOff = {
-        x: e.clientX - this.el.offsetLeft,
-        y: e.clientY - this.el.offsetTop,
-      };
-      e.preventDefault();
+    makeDraggable(this.el, titlebar, {
+      exclude: 'button, select',
+      onStart: () => ({ ox: this.el.offsetLeft, oy: this.el.offsetTop }),
+      onMove: (e, dx, dy, s) => {
+        this.el.style.left = (s.ox + dx) + 'px';
+        this.el.style.top = (s.oy + dy) + 'px';
+      },
     });
 
+    // Resize from the corner handle — document listeners attach only while
+    // an active resize is in flight, matching the drag helper's discipline.
     const handle = this.el.querySelector('.probe-resize-handle');
     handle.addEventListener('mousedown', (e) => {
-      this._resizing = true;
-      this._resizeStart = {
+      const start = {
         x: e.clientX, y: e.clientY,
         w: this.el.offsetWidth, h: this.el.offsetHeight,
       };
+      const onMove = (ev) => {
+        const dx = ev.clientX - start.x;
+        const dy = ev.clientY - start.y;
+        this.el.style.width = Math.max(300, start.w + dx) + 'px';
+        this.el.style.height = Math.max(200, start.h + dy) + 'px';
+        this._sizeCanvases();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
       e.preventDefault();
       e.stopPropagation();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (this._dragging) {
-        this.el.style.left = (e.clientX - this._dragOff.x) + 'px';
-        this.el.style.top = (e.clientY - this._dragOff.y) + 'px';
-      }
-      if (this._resizing) {
-        const dx = e.clientX - this._resizeStart.x;
-        const dy = e.clientY - this._resizeStart.y;
-        this.el.style.width = Math.max(300, this._resizeStart.w + dx) + 'px';
-        this.el.style.height = Math.max(200, this._resizeStart.h + dy) + 'px';
-        this._sizeCanvases();
-      }
-    });
-
-    document.addEventListener('mouseup', () => {
-      this._dragging = false;
-      this._resizing = false;
     });
 
     this.el.querySelector('.probe-close').addEventListener('click', () => this.close());

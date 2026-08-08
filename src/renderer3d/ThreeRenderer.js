@@ -48,8 +48,6 @@ import {
   yawDivisionsForMode,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
-import { createEntityRenderer } from './entity-renderer.js';
-import { loadDeerModels } from './deer-models.js';
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -487,11 +485,6 @@ export class ThreeRenderer {
     this.gridOverlayGroup.name = 'gridOverlay';
     this.gridOverlayGroup.renderOrder = 997;
     this.scene.add(this.gridOverlayGroup);
-
-    this.entityGroup = new THREE.Group();
-    this.entityGroup.name = 'entities';
-    this.scene.add(this.entityGroup);
-    this.entityRenderer = createEntityRenderer(this.entityGroup);
 
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
@@ -1094,61 +1087,6 @@ export class ThreeRenderer {
     }
   }
 
-  /**
-   * Sync the Three.js camera frustum and position from the PixiJS world container state.
-   * This is the reverse of the old syncOverlay — the PixiJS container is the source of truth.
-   */
-  _syncThreeCameraFromOverlay() {
-    // The PixiJS world container position and scale encode the camera state.
-    // world.x, world.y = screen pixel offset of isometric origin
-    // world.scale = zoom level (this.zoom)
-    //
-    // We need to compute what Three.js frustum and lookAt correspond to this.
-    //
-    // In the old PixiJS renderer:
-    //   iso origin is at screen (world.x, world.y)
-    //   zoom is world.scale.x
-    //
-    // For Three.js:
-    //   frustumSize determines zoom: smaller frustum = more zoomed in
-    //   camera.lookAt determines pan center in world XZ
-    //
-    // We'll derive the Three.js camera params from the PixiJS state.
-
-    const screenW = this.app.screen.width || window.innerWidth;
-    const screenH = this.app.screen.height || window.innerHeight;
-
-    // Read zoom from the PixiJS world scale as the authoritative source
-    // (main.js may set world.scale.set() directly during save/load restore)
-    const zoom = this.world.scale?.x || this.zoom;
-    this.zoom = zoom;
-
-    // Where is the screen center in isometric coords?
-    const centerIsoX = (screenW / 2 - this.world.x) / zoom;
-    const centerIsoY = (screenH / 2 - this.world.y) / zoom;
-
-    // Convert isometric coords to grid coords (floating point)
-    // From grid.js: gridToIso: x = (col - row) * (TILE_W/2), y = (col + row) * (TILE_H/2)
-    // Inverse: col = (x/(TILE_W/2) + y/(TILE_H/2)) / 2
-    //          row = (y/(TILE_H/2) - x/(TILE_W/2)) / 2
-    const TILE_W = 64, TILE_H = 32;
-    const col = (centerIsoX / (TILE_W / 2) + centerIsoY / (TILE_H / 2)) / 2;
-    const row = (centerIsoY / (TILE_H / 2) - centerIsoX / (TILE_W / 2)) / 2;
-
-    // Three.js world: each grid tile = 2 world units (from terrain-builder convention)
-    this._panX = col * 2;
-    this._panY = row * 2;
-
-    // Frustum size: derived so that the Three.js orthographic projection of a
-    // tile at (col*2+1, 0, row*2+1) matches the PixiJS screen position
-    // gridToIso(col, row) * zoom + worldOffset.
-    // With the dimetric camera (d, d√6/3, d), the relationship is:
-    //   frustumSize = √2 · screenH / (TILE_H · zoom)
-    this._frustumSize = Math.SQRT2 * screenH / (TILE_H * zoom);
-    this._updateCameraFrustum();
-    this._updateCameraLookAt();
-  }
-
   // --- State setters (InputHandler compatibility) ---
 
   updateHover(col, row) {
@@ -1260,8 +1198,7 @@ export class ThreeRenderer {
       const key = this.hoverCol + ',' + this.hoverRow;
       const hasTarget = this.game.state.placeables.some(p => COMPONENTS[p.type]?.category === 'beamline' && p.cells?.some(c => c.col === this.hoverCol && c.row === this.hoverRow)) ||
         this.game.state.infraOccupied[key] ||
-        this.game.state.facilityGrid[key] ||
-        this.game.state.machineGrid[key];
+        this.game.state.facilityGrid[key];
       const color = hasTarget ? 0xff4444 : 0xff6644;
       const opacity = hasTarget ? 0.5 : 0.2;
       this._previewTileHighlight(this.hoverCol, this.hoverRow, color, opacity);
@@ -2777,7 +2714,6 @@ export class ThreeRenderer {
     const _now = performance.now();
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
-    if (this.entityRenderer) this.entityRenderer.update(_dt, this.game?.state);
     if (this.staffPawns) this.staffPawns.update(_dt);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
@@ -2866,7 +2802,6 @@ export class ThreeRenderer {
 
   async loadAssets() {
     await this.textureManager.loadDecorationManifest();
-    loadDeerModels().catch(e => console.warn('loadDeerModels failed:', e));
   }
 
   applySnapshot(snapshot) {
@@ -3508,12 +3443,12 @@ export class ThreeRenderer {
       const pipe = new THREE.Mesh(pipeGeo, pipeMat);
       pipe.position.set((x1 + x2) / 2, PIPE_Y, (z1 + z2) / 2);
       pipe.rotation.y = -Math.atan2(dz, dx);
-      this.scene.add(pipe);
+      this.previewGroup.add(pipe);
       this._beamPipePreviewMeshes.push(pipe);
       const pipeWire = new THREE.Mesh(pipeGeo, wireframeMat);
       pipeWire.position.copy(pipe.position);
       pipeWire.rotation.copy(pipe.rotation);
-      this.scene.add(pipeWire);
+      this.previewGroup.add(pipeWire);
       this._beamPipePreviewMeshes.push(pipeWire);
 
       // CF flanges at each end + every 2m (1 tile) along the run
@@ -3532,7 +3467,7 @@ export class ThreeRenderer {
         const flange = new THREE.Mesh(flangeGeo, flangeMat);
         flange.position.set(fx, PIPE_Y, fz);
         flange.rotation.y = -Math.atan2(dz, dx);
-        this.scene.add(flange);
+        this.previewGroup.add(flange);
         this._beamPipePreviewMeshes.push(flange);
       }
 
@@ -3546,7 +3481,7 @@ export class ThreeRenderer {
         const sz = z1 + dz * t;
         const stand = new THREE.Mesh(standGeo, standMat);
         stand.position.set(sx, standH / 2, sz);
-        this.scene.add(stand);
+        this.previewGroup.add(stand);
         this._beamPipePreviewMeshes.push(stand);
       }
     };
@@ -3601,7 +3536,7 @@ export class ThreeRenderer {
       const k = this._frustumSize / BASELINE_FRUSTUM;
       sprite.scale.x *= k;
       sprite.scale.y *= k;
-      this.scene.add(sprite);
+      this.previewGroup.add(sprite);
       this._beamPipePreviewMeshes.push(sprite);
     }
   }
@@ -3609,8 +3544,12 @@ export class ThreeRenderer {
   _clearBeamPipePreview() {
     if (this._beamPipePreviewMeshes) {
       for (const mesh of this._beamPipePreviewMeshes) {
-        this.scene.remove(mesh);
+        this.previewGroup.remove(mesh);
         if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) {
+          if (mesh.material.map) mesh.material.map.dispose();
+          mesh.material.dispose();
+        }
       }
       this._beamPipePreviewMeshes = null;
     }
@@ -3726,7 +3665,7 @@ const UI_METHODS = [
   // hud.js
   '_updateHUD', '_updateBeamSummary', '_generateCategoryTabs',
   '_renderPalette', '_refreshPalette', 'updatePalette',
-  '_renderMachineTypeSelector', '_bindHUDEvents',
+  '_bindHUDEvents',
   '_updateSystemStatsVisibility', '_updateSystemStatsContent',
   '_refreshSystemStatsValues',
   '_renderVacuumStats', '_renderRfPowerStats', '_renderCryoStats',
@@ -3740,7 +3679,7 @@ const UI_METHODS = [
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
   '_renderGoalsOverlay',
-  '_openBeamlineWindow', '_openMachineWindow', '_openEquipmentWindow',
+  '_openBeamlineWindow', '_openEquipmentWindow',
   '_refreshContextWindows',
   '_renderStaffBar', '_openStaffInspector', '_openHiringDialog', '_refreshStaffWindows',
 ];

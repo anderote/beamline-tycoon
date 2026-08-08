@@ -18,7 +18,6 @@ import { ProbeWindow } from './ui/probe.js';
 import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
-import { MACHINES } from './data/machines.js';
 import { SCENARIOS } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
@@ -34,7 +33,6 @@ import { discoverNetworks, makeDefaultPortLookup } from './utility/network-disco
 // Expose them on window during transition
 window.COMPONENTS = COMPONENTS;
 window.PARAM_DEFS = PARAM_DEFS;
-window.MACHINES = MACHINES;
 
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');

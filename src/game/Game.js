@@ -1,7 +1,6 @@
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
-import { MACHINES } from '../data/machines.js';
 import { RESEARCH } from '../data/research.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
@@ -25,7 +24,6 @@ import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { generateStartingMap } from './map-generator.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
-import { entitiesTick } from './entities/index.js';
 
 export class Game {
   constructor(registry) {
@@ -81,10 +79,6 @@ export class Game {
       placeables: [],              // [{ id, type, category, col, row, subCol, subRow, rotated, dir, params, cells }]
       placeableIndex: {},           // id -> index in placeables array
       subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
-      // Wildlife entities
-      entities: [],                 // flat list of all entity objects
-      herds: [],                    // herd state objects
-      _entitiesLastPlaceableIds: null, // null = first tick — seed but do not trigger startle
       placeableNextId: 1,
       // Beam pipe connections (drawn between module ports)
       beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
@@ -102,9 +96,6 @@ export class Game {
       utilityNextId: 1,
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
-      // Machines (cyclotrons, stalls, rings)
-      machines: [],             // machine instances
-      machineGrid: {},          // "col,row" -> machineId
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
       infraBlockers: [],          // blockers from solve-runner
@@ -282,7 +273,12 @@ export class Game {
     return blobs;
   }
 
-  on(fn) { this.listeners.push(fn); }
+  /** Subscribe to game events. Returns an unsubscribe function. */
+  on(fn) { this.listeners.push(fn); return () => this.off(fn); }
+  off(fn) {
+    const idx = this.listeners.indexOf(fn);
+    if (idx !== -1) this.listeners.splice(idx, 1);
+  }
   emit(event, data) { this.listeners.forEach(fn => fn(event, data)); }
 
   log(msg, type = '') {
@@ -323,8 +319,6 @@ export class Game {
       zoneFurnishings: this.state.zoneFurnishings.map(f => ({ ...f })),
       zoneFurnishingSubgrids: JSON.parse(JSON.stringify(this.state.zoneFurnishingSubgrids)),
       zoneFurnishingNextId: this.state.zoneFurnishingNextId,
-      machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
-      machineGrid: { ...this.state.machineGrid },
       editingBeamlineId: this.editingBeamlineId,
       selectedBeamlineId: this.selectedBeamlineId,
       // Beamline registry snapshot
@@ -367,8 +361,6 @@ export class Game {
     this.state.zoneFurnishings = snap.zoneFurnishings;
     this.state.zoneFurnishingSubgrids = snap.zoneFurnishingSubgrids;
     this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
-    this.state.machines = snap.machines;
-    this.state.machineGrid = snap.machineGrid;
     this.editingBeamlineId = snap.editingBeamlineId;
     this.selectedBeamlineId = snap.selectedBeamlineId;
 
@@ -389,7 +381,6 @@ export class Game {
     this.emit('decorationsChanged');
     this.emit('facilityChanged');
     this.emit('connectionsChanged');
-    this.emit('machineChanged');
   }
 
   // === PLACEMENT ===
@@ -1808,8 +1799,6 @@ export class Game {
         const id = target.entry?.id || target.id;
         return id ? this.removePlaceable(id) : false;
       }
-      case 'machine':
-        return this.removeMachine(target.id || target.machineId);
       default:
         return false;
     }
@@ -2111,7 +2100,6 @@ export class Game {
     }
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
-    this.checkInjectorLinks();
     this.validateInfrastructure();
   }
 
@@ -2121,7 +2109,6 @@ export class Game {
     }
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
-    this.checkInjectorLinks();
     this.validateInfrastructure();
   }
 
@@ -2714,12 +2701,6 @@ export class Game {
       this.emit('objectiveCompleted', obj);
     }
 
-    // Tick machines (cyclotrons, stalls, rings)
-    this._tickMachines();
-
-    // Tick wildlife entities
-    entitiesTick(this);
-
     // Recompute system-level infrastructure stats
     this.computeSystemStats();
 
@@ -3118,243 +3099,6 @@ export class Game {
     return true;
   }
 
-  // === MACHINES (cyclotrons, stalls, rings) ===
-
-  canPlaceMachine(machineId, col, row) {
-    const def = MACHINES[machineId];
-    if (!def) return false;
-    for (let dy = 0; dy < def.h; dy++) {
-      for (let dx = 0; dx < def.w; dx++) {
-        const key = (col + dx) + ',' + (row + dy);
-        if (this.state.machineGrid[key]) return false;
-      }
-    }
-    return true;
-  }
-
-  isMachineUnlocked(def) {
-    if (!def.requires) return true;
-    return this.state.completedResearch.includes(def.requires);
-  }
-
-  placeMachine(machineId, col, row) {
-    const def = MACHINES[machineId];
-    if (!def) return false;
-    if (!this.isMachineUnlocked(def)) return false;
-    if (!this.canAfford(def.cost)) { this.log(`Can't afford ${def.name}!`, 'bad'); return false; }
-    if (!this.canPlaceMachine(machineId, col, row)) { this.log("Can't place there!", 'bad'); return false; }
-
-    this.spend(def.cost);
-    const upgrades = {};
-    for (const key of Object.keys(def.upgrades || {})) upgrades[key] = 0;
-
-    const inst = {
-      type: machineId,
-      id: `${machineId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      col, row, upgrades,
-      operatingMode: def.operatingModes ? def.operatingModes[0] : null,
-      health: 100, active: true, injectorQuality: null,
-    };
-    this.state.machines.push(inst);
-
-    for (let dy = 0; dy < def.h; dy++)
-      for (let dx = 0; dx < def.w; dx++)
-        this.state.machineGrid[(col + dx) + ',' + (row + dy)] = inst.id;
-
-    this.checkInjectorLinks();
-    this.log(`Built ${def.name}`, 'good');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  removeMachine(instanceId) {
-    const idx = this.state.machines.findIndex(m => m.id === instanceId);
-    if (idx === -1) return false;
-    const machine = this.state.machines[idx];
-    const def = MACHINES[machine.type];
-
-    if (def) {
-      for (const [r, a] of Object.entries(def.cost))
-        this.state.resources[r] += Math.floor(a * 0.5);
-      for (let dy = 0; dy < def.h; dy++)
-        for (let dx = 0; dx < def.w; dx++)
-          delete this.state.machineGrid[(machine.col + dx) + ',' + (machine.row + dy)];
-    }
-
-    this.state.machines.splice(idx, 1);
-    this.log(`Demolished ${def ? def.name : 'machine'} (50% refund)`, 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  getMachineAt(col, row) {
-    const id = this.state.machineGrid[col + ',' + row];
-    return id ? (this.state.machines.find(m => m.id === id) || null) : null;
-  }
-
-  upgradeMachine(instanceId, subsystem) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (!def) return false;
-    const upgDef = def.upgrades?.[subsystem];
-    if (!upgDef) return false;
-
-    const nextLevel = (machine.upgrades[subsystem] || 0) + 1;
-    if (nextLevel >= upgDef.levels.length) { this.log('Already max level!', 'bad'); return false; }
-
-    const levelDef = upgDef.levels[nextLevel];
-    if (!levelDef.cost || !this.canAfford(levelDef.cost)) {
-      this.log(`Can't afford ${upgDef.name} upgrade!`, 'bad');
-      return false;
-    }
-
-    this.spend(levelDef.cost);
-    machine.upgrades[subsystem] = nextLevel;
-    this.log(`Upgraded ${def.name}: ${upgDef.name} -> ${levelDef.label}`, 'good');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  setMachineMode(instanceId, mode) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (!def?.operatingModes?.includes(mode)) return false;
-    if (machine.operatingMode === mode) return false;
-    machine.operatingMode = mode;
-    this.log(`${def.name} mode: ${mode}`, 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  toggleMachine(instanceId) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (machine.health <= 0) { this.log(`${def?.name || 'Machine'} is broken!`, 'bad'); return false; }
-    machine.active = !machine.active;
-    this.log(`${def?.name || 'Machine'} ${machine.active ? 'ON' : 'OFF'}`, machine.active ? 'good' : 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  getMachinePerformance(machine) {
-    const def = MACHINES[machine.type];
-    if (!def) return { fundingMult: 0, dataMult: 0, energyMult: 1 };
-
-    let fundingMult = 1, dataMult = 1, energyMult = 1;
-
-    // Upgrade multipliers
-    for (const [sub, lvl] of Object.entries(machine.upgrades)) {
-      const level = def.upgrades?.[sub]?.levels?.[lvl];
-      if (!level) continue;
-      fundingMult *= level.fundingMult;
-      dataMult *= level.dataMult;
-      energyMult *= level.energyMult;
-    }
-
-    // Operating mode
-    if (machine.operatingMode && def.modeMultipliers?.[machine.operatingMode]) {
-      const m = def.modeMultipliers[machine.operatingMode];
-      fundingMult *= m.fundingMult;
-      dataMult *= m.dataMult;
-    }
-
-    // Injector bonus
-    if (def.canLink) {
-      if (machine.injectorQuality != null) {
-        const bonus = 0.5 + 0.5 * machine.injectorQuality;
-        fundingMult *= bonus; dataMult *= bonus;
-      } else {
-        fundingMult *= 0.5; dataMult *= 0.5;
-      }
-    }
-
-    // Health penalty below 50%
-    if (machine.health < 50) {
-      const hf = machine.health / 50;
-      fundingMult *= hf; dataMult *= hf;
-    }
-
-    return { fundingMult, dataMult, energyMult };
-  }
-
-  checkInjectorLinks() {
-    for (const machine of this.state.machines) {
-      const def = MACHINES[machine.type];
-      if (!def?.canLink) continue;
-      machine.injectorQuality = null;
-
-      for (let dx = -1; dx <= def.w && machine.injectorQuality == null; dx++) {
-        for (let dy = -1; dy <= def.h && machine.injectorQuality == null; dy++) {
-          if (dx >= 0 && dx < def.w && dy >= 0 && dy < def.h) continue;
-          const tileKey = (machine.col + dx) + ',' + (machine.row + dy);
-          // Check if there's a beamline placeable on this tile via subgrid
-          for (let sr = 0; sr < 4; sr++) {
-            for (let sc = 0; sc < 4; sc++) {
-              const sk = tileKey + ',' + sc + ',' + sr;
-              const occ = this.state.subgridOccupied[sk];
-              if (occ && occ.category === 'beamline') {
-                const pIdx = this.state.placeableIndex[occ.id];
-                const p = pIdx !== undefined ? this.state.placeables[pIdx] : null;
-                if (p?.beamlineId) {
-                  const blEntry = this.registry.get(p.beamlineId);
-                  machine.injectorQuality = blEntry ? (blEntry.beamState.beamQuality || 0) : 0;
-                }
-              }
-            }
-            if (machine.injectorQuality != null) break;
-          }
-        }
-      }
-    }
-  }
-
-  _tickMachines() {
-    for (const machine of this.state.machines) {
-      if (!machine.active) continue;
-      const def = MACHINES[machine.type];
-      if (!def) continue;
-      const perf = this.getMachinePerformance(machine);
-
-      // Machine energy costs accounted for by infrastructure power networks
-
-      this.state.resources.funding += def.baseFunding * perf.fundingMult;
-      const dataGain = def.baseData * perf.dataMult;
-      this.state.resources.data += dataGain;
-      this.state.totalDataCollected = (this.state.totalDataCollected || 0) + dataGain;
-
-      if (def.reputationPerTick && machine.operatingMode === 'userOps') {
-        this.state.resources.reputation += def.reputationPerTick;
-      }
-
-      if (this.state.tick % 10 === 0) {
-        const wearRate = 0.01 + (def.energyCost || 0) * 0.001;
-        machine.health = Math.max(0, machine.health - wearRate);
-        if (machine.health < 20 && Math.random() < 0.05) {
-          machine.health = 0; machine.active = false;
-          this.log(`${def.name} BROKE DOWN!`, 'bad');
-          this.emit('machineChanged');
-        }
-      }
-    }
-  }
-
-  repairMachine(instanceId) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine || machine.health >= 100) return false;
-    const def = MACHINES[machine.type];
-    if (!def) return false;
-    const repairCost = Math.ceil(def.cost.funding * 0.3 * (100 - machine.health) / 100);
-    if (!this.canAfford({ funding: repairCost })) { this.log(`Need $${repairCost} to repair`, 'bad'); return false; }
-    this.spend({ funding: repairCost });
-    machine.health = 100;
-    this.log(`Repaired ${def.name} ($${repairCost})`, 'good');
-    this.emit('machineChanged');
-    return true;
-  }
-
   // === SAVED DESIGNS ===
 
   addDesign({ name, category, components }) {
@@ -3446,10 +3190,8 @@ export class Game {
     delete saveState.cornerHeightsRevision;
     // utilityNetworkData is derived; don't persist.
     delete saveState.utilityNetworkData;
-    // _entitiesLastPlaceableIds is a runtime Set; don't persist.
-    delete saveState._entitiesLastPlaceableIds;
     return JSON.stringify({
-      version: 7,
+      version: 8,
       state: saveState,
       beamlines: this.registry.toJSON(),
     });
@@ -3464,7 +3206,7 @@ export class Game {
     if (!raw) return false;
     try {
       const data = JSON.parse(raw);
-      if (!data.version || data.version < 7) {
+      if (!data.version || data.version < 8) {
         localStorage.removeItem('beamlineTycoon');
         return false;
       }
@@ -3506,17 +3248,6 @@ export class Game {
       }
       this.state.zoneConnectivity = {};
       this.recomputeZoneConnectivity();
-      // Rebuild machineGrid
-      this.state.machineGrid = {};
-      if (this.state.machines) {
-        for (const m of this.state.machines) {
-          const def = MACHINES[m.type];
-          if (!def) continue;
-          for (let dy = 0; dy < def.h; dy++)
-            for (let dx = 0; dx < def.w; dx++)
-              this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
-        }
-      } else { this.state.machines = []; }
       // Discard legacy connections data from old saves
       delete this.state.connections;
       // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
@@ -3539,13 +3270,6 @@ export class Game {
       if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
       if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
       if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
-
-      // Ensure wildlife entity state exists
-      if (!this.state.entities) this.state.entities = [];
-      if (!this.state.herds) this.state.herds = [];
-      // _entitiesLastPlaceableIds is not persisted; reset to null on load
-      // so the first tick seeds the cache without triggering startle.
-      this.state._entitiesLastPlaceableIds = null;
 
       // Ensure unified placement state exists
       if (!this.state.placeables) this.state.placeables = [];

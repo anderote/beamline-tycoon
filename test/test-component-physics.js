@@ -139,11 +139,13 @@ console.log('\n-- source: thermionic physics --');
   assert(stats.beamCurrent > 0, 'default source produces positive beamCurrent');
   assert(stats.emittance > 0, 'default source produces positive emittance');
 
-  // Child-Langmuir: higher voltage → higher current
+  // Constant-power model: P_beam = I·V is fixed, so higher voltage → lower current
   const lowV  = computeStats('source', { ...defaults, extractionVoltage: 20 });
   const highV = computeStats('source', { ...defaults, extractionVoltage: 80 });
-  assert(highV.beamCurrent > lowV.beamCurrent,
-    'higher extractionVoltage → higher beamCurrent (Child-Langmuir)');
+  assert(highV.beamCurrent < lowV.beamCurrent,
+    'higher extractionVoltage → lower beamCurrent (constant beam power)');
+  assertClose(lowV.beamCurrent * 20, highV.beamCurrent * 80, 1e-6,
+    'I·V product constant across extractionVoltage (constant beam power)');
 
   // Thermal emittance: higher cathode temperature → higher emittance
   const lowT  = computeStats('source', { ...defaults, cathodeTemperature: 700 });

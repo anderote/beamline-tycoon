@@ -6,6 +6,7 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
+import { makeDraggable } from './draggable.js';
 
 
 export class BeamlineDesigner {
@@ -232,79 +233,82 @@ export class BeamlineDesigner {
       let dragStartViewX = 0;
       let dragDistance = 0;
 
-      schematicCanvas.addEventListener('mousedown', (e) => {
-        if (!this.isOpen) return;
-        dragStartX = e.clientX;
-        dragDistance = 0;
+      makeDraggable(schematicCanvas, schematicCanvas, {
+        preventDefault: false,
+        onStart: (e) => {
+          if (!this.isOpen) return false;
+          dragStartX = e.clientX;
+          dragDistance = 0;
 
-        // Check if mousedown is on the currently selected component
-        const rect = schematicCanvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
-        let hitSelected = false;
-        if (this.selectedIndex >= 0 && this._compRegions) {
-          const r = this._compRegions[this.selectedIndex];
-          if (r && clickX >= r.x && clickX <= r.x + r.w &&
-              clickY >= r.y && clickY <= r.y + r.h) {
-            hitSelected = true;
-          }
-        }
-
-        if (hitSelected) {
-          reorderDragging = true;
-          reorderSourceIndex = this.selectedIndex;
-          this._reorderDropIndex = -1;
-          dragging = false;
-        } else {
-          dragging = true;
-          reorderDragging = false;
-          dragStartViewX = this.viewX;
-        }
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (reorderDragging) {
-          const dx = e.clientX - dragStartX;
-          dragDistance = Math.abs(dx);
-          if (dragDistance <= 5) return;  // not dragging yet
-          // Find drop position from mouse X
+          // Check if mousedown is on the currently selected component
           const rect = schematicCanvas.getBoundingClientRect();
-          const mouseX = e.clientX - rect.left;
-          let dropIdx = this.draftNodes.length;  // default: after last
-          if (this._compRegions) {
-            for (const r of this._compRegions) {
-              const cx = r.x + r.w / 2;
-              if (mouseX < cx) {
-                dropIdx = r.index;
-                break;
-              }
+          const clickX = e.clientX - rect.left;
+          const clickY = e.clientY - rect.top;
+          let hitSelected = false;
+          if (this.selectedIndex >= 0 && this._compRegions) {
+            const r = this._compRegions[this.selectedIndex];
+            if (r && clickX >= r.x && clickX <= r.x + r.w &&
+                clickY >= r.y && clickY <= r.y + r.h) {
+              hitSelected = true;
             }
           }
-          // Don't show indicator at current position or adjacent (no-op)
-          if (dropIdx === reorderSourceIndex || dropIdx === reorderSourceIndex + 1) {
-            dropIdx = -1;
+
+          if (hitSelected) {
+            reorderDragging = true;
+            reorderSourceIndex = this.selectedIndex;
+            this._reorderDropIndex = -1;
+            dragging = false;
+          } else {
+            dragging = true;
+            reorderDragging = false;
+            dragStartViewX = this.viewX;
           }
-          if (this._reorderDropIndex !== dropIdx) {
-            this._reorderDropIndex = dropIdx;
-            this._renderAll();
+        },
+        onMove: (e) => {
+          if (reorderDragging) {
+            const dx = e.clientX - dragStartX;
+            dragDistance = Math.abs(dx);
+            if (dragDistance <= 5) return;  // not dragging yet
+            // Find drop position from mouse X
+            const rect = schematicCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            let dropIdx = this.draftNodes.length;  // default: after last
+            if (this._compRegions) {
+              for (const r of this._compRegions) {
+                const cx = r.x + r.w / 2;
+                if (mouseX < cx) {
+                  dropIdx = r.index;
+                  break;
+                }
+              }
+            }
+            // Don't show indicator at current position or adjacent (no-op)
+            if (dropIdx === reorderSourceIndex || dropIdx === reorderSourceIndex + 1) {
+              dropIdx = -1;
+            }
+            if (this._reorderDropIndex !== dropIdx) {
+              this._reorderDropIndex = dropIdx;
+              this._renderAll();
+            }
+            return;
           }
-          return;
-        }
-        if (!dragging) return;
-        const dx = e.clientX - dragStartX;
-        dragDistance = Math.abs(dx);
-        this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
-        this._clampViewX();
-        this._renderAll();
-      });
-      window.addEventListener('mouseup', () => {
-        if (reorderDragging && dragDistance > 5 && this._reorderDropIndex >= 0) {
-          this._reorderComponent(reorderSourceIndex, this._reorderDropIndex);
-        }
-        this._reorderDropIndex = -1;
-        dragging = false;
-        reorderDragging = false;
-        reorderSourceIndex = -1;
-        this._renderAll();
+          if (!dragging) return;
+          const dx = e.clientX - dragStartX;
+          dragDistance = Math.abs(dx);
+          this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
+          this._clampViewX();
+          this._renderAll();
+        },
+        onEnd: () => {
+          if (reorderDragging && dragDistance > 5 && this._reorderDropIndex >= 0) {
+            this._reorderComponent(reorderSourceIndex, this._reorderDropIndex);
+          }
+          this._reorderDropIndex = -1;
+          dragging = false;
+          reorderDragging = false;
+          reorderSourceIndex = -1;
+          this._renderAll();
+        },
       });
 
       schematicCanvas.addEventListener('click', (e) => {

@@ -10,7 +10,7 @@ import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
-import { MACHINE_TYPES, MACHINE_TIER, MACHINES } from '../data/machines.js';
+import { MACHINE_TYPES, MACHINE_TIER } from '../data/machines.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
@@ -18,13 +18,13 @@ import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { ContextWindow } from '../ui/ContextWindow.js';
 import { openStaffInspector } from '../ui/StaffInspector.js';
 import { openHiringDialog } from '../ui/HiringDialog.js';
+import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from '../ui/format.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
 }
 function _costLabel(cost) {
-  const v = _costVal(cost);
-  return v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`;
+  return fmtMoney(_costVal(cost));
 }
 
 // Build a 12×12 swatch span for a variant. `color` may be:
@@ -276,18 +276,6 @@ UIHost.prototype._generateCategoryTabs = function() {
     this._updateSystemStatsContent(catKeys[0]);
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
-
-  // Machine type selector — only visible in beamline mode
-  this._renderMachineTypeSelector();
-};
-
-UIHost.prototype._renderMachineTypeSelector = function() {
-  // Machine type is now determined by the source component — no separate selector needed.
-  // Hide the label and dropdown.
-  const label = document.getElementById('beamline-type-label');
-  const dropdown = document.getElementById('machine-type-dropdown');
-  if (label) { label.style.display = 'none'; label.textContent = ''; }
-  if (dropdown) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; }
 };
 
 UIHost.prototype._refreshPalette = function() {
@@ -2347,30 +2335,10 @@ UIHost.prototype._renderOpsStats = function(d, summary, detail) {
 
 // === STAFF HUD (top bar portraits, inspector, hiring dialog) ===
 
-const _STAFF_ROLE_COLORS = {
-  operator: '#44aa66',
-  technician: '#aa6633',
-  scientist: '#4488ff',
-  engineer: '#aa8833',
-};
-
-function _staffMoodClass(mood) {
-  if (mood === 'stressed') return 'mood-red';
-  if (mood === 'tired') return 'mood-yellow';
-  return 'mood-green';
-}
-
 function _staffFatigueClass(fatigue) {
   if (fatigue > 0.8) return 'high';
   if (fatigue > 0.5) return 'mid';
   return '';
-}
-
-function _staffInitials(name) {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] || '') + (parts[1][0] || '');
-  return name.slice(0, 2).toUpperCase();
 }
 
 UIHost.prototype._renderStaffBar = function() {
@@ -2388,16 +2356,16 @@ UIHost.prototype._renderStaffBar = function() {
     const mood = m.mood || 'content';
     const fatigue = (m.needs && typeof m.needs.fatigue === 'number') ? m.needs.fatigue : 0;
     const pct = Math.max(0, Math.min(1, fatigue)) * 100;
-    const roleColor = _STAFF_ROLE_COLORS[m.role] || '#4466aa';
+    const roleColor = ROLE_COLORS[m.role] || '#4466aa';
     const el = document.createElement('div');
-    el.className = 'staff-portrait ' + _staffMoodClass(mood);
+    el.className = 'staff-portrait ' + staffMoodClass(mood);
     el.title = `${m.name} (${m.role}) — mood: ${mood}, fatigue: ${Math.round(pct)}%, status: ${m.status || 'idle'}`;
     el.dataset.staffId = m.id;
     el.style.background = roleColor;
     // initials
     const initials = document.createElement('span');
     initials.className = 'staff-portrait-initials';
-    initials.textContent = _staffInitials(m.name);
+    initials.textContent = staffInitials(m.name);
     el.appendChild(initials);
     // role dot
     const dot = document.createElement('span');

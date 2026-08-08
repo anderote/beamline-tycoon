@@ -14,15 +14,18 @@ import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
+import { escapeHtml } from './format.js';
 
-const ACCENT_COLORS = {
-  powerCable:   '#2a6630',
-  coolingWater: '#2a4a7f',
-  cryoTransfer: '#2a6a7f',
-  rfWaveguide:  '#7f2a2a',
-  vacuumPipe:   '#4a4a4a',
-  dataFiber:    '#6a6a6a',
-};
+// Titlebar accent derives from the utility's registry color (the single
+// source of truth for utility hues), darkened so the title gradient stays
+// legible behind the header text.
+function accentColor(utilityType) {
+  const hex = UTILITY_TYPES[utilityType]?.color;
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return '#333';
+  const n = parseInt(hex.slice(1), 16);
+  const dk = (c) => Math.round(c * 0.55).toString(16).padStart(2, '0');
+  return '#' + dk((n >> 16) & 255) + dk((n >> 8) & 255) + dk(n & 255);
+}
 
 const ICONS = {
   powerCable:   '\u26A1',
@@ -53,16 +56,6 @@ function pctBar(ratio, width) {
   </div>`;
 }
 
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 export class UtilityInspector {
   /**
    * Open an inspector window for a specific (utilityType, networkId).
@@ -82,7 +75,7 @@ export class UtilityInspector {
     }
 
     const desc = UTILITY_TYPES[utilityType];
-    const accent = ACCENT_COLORS[utilityType] || '#333';
+    const accent = accentColor(utilityType);
     const icon = ICONS[utilityType] || '';
     const displayName = desc ? desc.displayName : utilityType;
 
@@ -104,16 +97,14 @@ export class UtilityInspector {
       if (event !== 'tick' && event !== 'utilityLinesChanged') return;
       if (this.ctx && this.ctx._el) this.ctx.update();
     };
-    if (typeof this.game.on === 'function') this.game.on(this._listener);
+    this._off = (typeof this.game.on === 'function') ? this.game.on(this._listener) : null;
 
     ctx.update();
   }
 
   _cleanup() {
-    if (this._listener && this.game && Array.isArray(this.game.listeners)) {
-      const idx = this.game.listeners.indexOf(this._listener);
-      if (idx !== -1) this.game.listeners.splice(idx, 1);
-    }
+    if (this._off) this._off();
+    this._off = null;
     this._listener = null;
   }
 

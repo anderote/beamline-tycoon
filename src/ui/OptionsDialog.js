@@ -10,6 +10,8 @@
 //    3D renderer, same as the hotkeys; intentionally not persisted.
 //  - Gameplay: dev mode — game.setDevMode() persists it itself.
 
+import { makeDraggable } from './draggable.js';
+
 export class OptionsDialog {
   constructor({ game, renderer, musicPlayer }) {
     this.game = game;
@@ -181,29 +183,10 @@ export class OptionsDialog {
     });
 
     // Draggable by header (same pattern as WelcomeDialog / SaveLoadDialog).
-    const header = el.querySelector('.opt-header');
-    let dragging = false, sx, sy, ox, oy;
-    header.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.opt-close')) return;
-      if (el.style.transform !== 'none') {
-        const r = el.getBoundingClientRect();
-        el.style.left = r.left + 'px';
-        el.style.top = r.top + 'px';
-        el.style.transform = 'none';
-      }
-      dragging = true; sx = e.clientX; sy = e.clientY;
-      ox = parseInt(el.style.left, 10) || 0; oy = parseInt(el.style.top, 10) || 0;
-      header.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      el.style.left = (ox + e.clientX - sx) + 'px';
-      el.style.top = (oy + e.clientY - sy) + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      dragging = false;
-      header.style.cursor = 'grab';
+    makeDraggable(el, el.querySelector('.opt-header'), {
+      exclude: '.opt-close',
+      freezeTransform: true,
+      grabCursor: true,
     });
   }
 }

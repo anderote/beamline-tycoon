@@ -8,8 +8,6 @@ import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { OBJECTIVES } from '../data/objectives.js';
 import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
-import { MACHINES } from '../data/machines.js';
-import { MachineWindow } from '../ui/MachineWindow.js';
 import { BeamlineWindow } from '../ui/BeamlineWindow.js';
 import { EquipmentWindow } from '../ui/EquipmentWindow.js';
 import { ZONES } from '../data/facility.js';
@@ -17,6 +15,7 @@ import { formatEnergy } from '../data/units.js';
 import { DIR_NAMES } from '../data/directions.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { tileCenterIso } from './grid.js';
+import { makeDraggable } from '../ui/draggable.js';
 
 // --- Component popup ---
 
@@ -192,19 +191,7 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     const header = popup.querySelector('.popup-header');
     if (header) {
       header.style.cursor = 'grab';
-      let dragging = false, sx, sy, ox, oy;
-      header.addEventListener('mousedown', e => {
-        if (e.target.closest('.popup-close')) return;
-        dragging = true; sx = e.clientX; sy = e.clientY;
-        ox = parseInt(popup.style.left,10)||0; oy = parseInt(popup.style.top,10)||0;
-        header.style.cursor = 'grabbing'; e.preventDefault();
-      });
-      document.addEventListener('mousemove', e => {
-        if (!dragging) return;
-        popup.style.left = (ox + e.clientX - sx) + 'px';
-        popup.style.top = (oy + e.clientY - sy) + 'px';
-      });
-      document.addEventListener('mouseup', () => { dragging = false; if(header) header.style.cursor='grab'; });
+      makeDraggable(popup, header, { exclude: '.popup-close', grabCursor: true });
     }
   }
 };
@@ -317,10 +304,7 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
     const hdr = popup.querySelector('.popup-header');
     if (hdr) {
       hdr.style.cursor = 'grab';
-      let dr=false,sx,sy,ox,oy;
-      hdr.addEventListener('mousedown', e=>{ if(e.target.closest('.popup-close'))return; dr=true; sx=e.clientX; sy=e.clientY; ox=parseInt(popup.style.left,10)||0; oy=parseInt(popup.style.top,10)||0; hdr.style.cursor='grabbing'; e.preventDefault(); });
-      document.addEventListener('mousemove', e=>{ if(!dr) return; popup.style.left=(ox+e.clientX-sx)+'px'; popup.style.top=(oy+e.clientY-sy)+'px'; });
-      document.addEventListener('mouseup', ()=>{ dr=false; if(hdr) hdr.style.cursor='grab'; });
+      makeDraggable(popup, hdr, { exclude: '.popup-close', grabCursor: true });
     }
   }
 };
@@ -3161,18 +3145,11 @@ UIHost.prototype._renderTechTree = function() {
     // Type indicator (unlock vs boost)
     const typeEl = document.createElement('div');
     typeEl.className = 'tt-node-type';
-    if (r.unlocks || r.unlocksMachines) {
+    if (r.unlocks) {
       typeEl.classList.add('unlock');
       const names = [];
-      if (r.unlocks) {
-        for (const c of r.unlocks) {
-          if (COMPONENTS[c]) names.push(COMPONENTS[c].name);
-        }
-      }
-      if (r.unlocksMachines && typeof MACHINES !== 'undefined') {
-        for (const m of r.unlocksMachines) {
-          if (MACHINES[m]) names.push(MACHINES[m].name);
-        }
+      for (const c of r.unlocks) {
+        if (COMPONENTS[c]) names.push(COMPONENTS[c].name);
       }
       if (names.length > 0) {
         typeEl.textContent = '\u25B8 ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '...' : '');
@@ -3230,10 +3207,6 @@ UIHost.prototype._showResearchPopover = function(id, nodeEl) {
   if (r.unlocks) {
     const names = r.unlocks.map(c => COMPONENTS[c]?.name).filter(Boolean);
     if (names.length) unlocksText = 'Unlocks: ' + names.join(', ');
-  }
-  if (r.unlocksMachines && typeof MACHINES !== 'undefined') {
-    const names = r.unlocksMachines.map(m => MACHINES[m]?.name).filter(Boolean);
-    if (names.length) unlocksText += (unlocksText ? '\n' : '') + 'Unlocks: ' + names.join(', ');
   }
   if (r.effect) {
     const effects = Object.entries(r.effect).map(([k, v]) => {
@@ -3539,25 +3512,6 @@ UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
   };
 };
 
-// _refreshContextWindows defined below after machine windows
-
-// --- Machine context windows ---
-
-UIHost.prototype._openMachineWindow = function(machineInstanceId) {
-  if (!this._machineWindows) this._machineWindows = {};
-  if (this._machineWindows[machineInstanceId]) {
-    this._machineWindows[machineInstanceId].ctx.focus();
-    return;
-  }
-  const mw = new MachineWindow(this.game, machineInstanceId);
-  this._machineWindows[machineInstanceId] = mw;
-  const origClose = mw.ctx.onClose;
-  mw.ctx.onClose = () => {
-    delete this._machineWindows[machineInstanceId];
-    if (origClose) origClose();
-  };
-};
-
 // --- Equipment context windows ---
 
 UIHost.prototype._openEquipmentWindow = function(equip) {
@@ -3591,9 +3545,6 @@ UIHost.prototype._refreshContextWindows = function() {
   // causing flicker while panning and stutter while dragging.
   if (this._beamlineWindows) {
     for (const bw of Object.values(this._beamlineWindows)) bw.refresh();
-  }
-  if (this._machineWindows) {
-    for (const mw of Object.values(this._machineWindows)) mw.refresh();
   }
   if (this._equipmentWindows) {
     for (const ew of Object.values(this._equipmentWindows)) ew.refresh();
