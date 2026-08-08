@@ -28,6 +28,7 @@ import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
+import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -231,6 +232,9 @@ function showScenarioPicker(game) {
     if (scenario?.generator) {
       const mapData = scenario.generator();
       game.applyScenario(mapData);
+      // Dynamic scenario content (beamline, pipes, utility wiring) builds
+      // through the normal Game APIs so it satisfies utility gating.
+      if (scenario.setup) scenario.setup(game);
       game.save();
       game.log(`Scenario "${scenario.name}" loaded.`, 'good');
     }
@@ -512,6 +516,20 @@ function showScenarioPicker(game) {
       game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
       game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
     }
+    // Utility gating (Phase 6/7): junction power + vacuum sinks are
+    // hard-required, so wire the source + faraday cup before starting beam.
+    for (const [c, r] of [[2,14],[6,14]]) { const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true}); }
+    const xfmr = game.placePlaceable({type:'padMountTransformer', col:2, row:14});
+    const pump = game.placePlaceable({type:'roughingPump', col:6, row:14});
+    if (xfmr && src) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:src,port:'pwr_in'});
+    if (xfmr && far) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:far,port:'pwr_in'});
+    if (pump && src) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:src,port:'vac_in'});
+    if (pump && far) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:far,port:'vac_in'});
+    renderer.refresh(); await sleep(500);
+    // Turn the beam on once the gate has seen the wired topology.
+    game.tick();
+    const demoEntry = game.registry.getAll().find(e => e.sourceId === src);
+    if (demoEntry && demoEntry.status !== 'running') game.toggleBeam(demoEntry.id);
     renderer.setViewMode('iso',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('top',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('iso',2); renderer.refresh(); panTo(4,7,1.3); await sleep(700);

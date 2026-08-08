@@ -11,11 +11,11 @@ About 60% of the electrical power consumed by beamline and facility equipment en
 
 Three types of equipment provide cooling capacity:
 
-| Equipment | Capacity | Role |
-|-----------|----------|------|
-| LCW Skid | 100 kW | Local distribution of low-conductivity water |
-| Chiller | 200 kW | Precision temperature control (+/- 0.1 C) |
-| Cooling Tower | 500 kW | High-capacity bulk heat rejection |
+| Equipment | Capacity | Cost | Role |
+|-----------|----------|------|------|
+| LCW Skid | 100 kW | $600k | Entry level — local distribution of low-conductivity water |
+| Chiller | 300 kW | $1.2M | Precision temperature control (+/- 0.1 C) |
+| Cooling Tower | 800 kW | $2M | Industrial bulk heat rejection |
 
 In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, chiller provides stable-temperature water, LCW skid distributes deionized water to individual components. In gameplay, each provides capacity and they all connect through cooling water networks.
 
@@ -30,17 +30,18 @@ This means you need to plan your pipe routing. A common strategy:
 
 ### Heat Load
 
-Each component's heat output is proportional to its electrical power consumption:
-```
-heat_output = energyCost * 0.6
-```
-Not all components need cooling water — passive elements and low-power electronics are air-cooled. Only components with `coolingWater` in their required connections need to be in a cooling network.
+Each cooled component declares its own heat load (kW):
 
-The biggest heat producers:
-- RF cavities and structures (high gradient = high heat)
-- Magnets (especially large dipoles and quadrupoles)
-- RF sources (klystrons, IOTs)
-- Beam absorbers (targets, beam dumps, collimators)
+| Load | Components |
+|------|------------|
+| 6-8 kW | Sextupole (6), quadrupole (8) |
+| 20-25 kW | Dipole (20), ion source (20), septum (25) |
+| 40-60 kW | ECR source (40), target (40), beam stop (50), detector (60), RFQ (60) |
+| 100-120 kW | S-band structure (100), NC RF cavity (120) |
+
+Not all components need cooling water — passive elements and low-power electronics are air-cooled, and SRF cavities load the cryo plant instead. Only components with `coolingWater` in their required connections need to be in a cooling network.
+
+The biggest heat producers are normal-conducting RF structures: a single NC cavity's 120 kW eats a whole chiller's margin. Magnets are gentle by comparison — a starter magnet string fits under one LCW skid.
 
 ### Supporting Equipment
 
@@ -70,8 +71,10 @@ C_network = sum(capacity_kW for each plant in network)
 
 **Network heat load:**
 ```
-Q_network = sum(energyCost * 0.6 for each component with coolingWater connection in network)
+Q_network = sum(heatLoad_kW for each cooling sink in network)
 ```
+
+**Reservoir:** each cooling network evaporates `0.001 L per kW of heat load per tick` from its 500 L reservoir. Refills cost $10/L — big heat loads have a real operating cost. An empty reservoir is a hard beam trip.
 
 **Margin:**
 ```

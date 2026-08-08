@@ -5,8 +5,8 @@
 // component. It must be one of KNOWN_PHYSICS_TYPES in beam_physics/gameplay.py
 // — gameplay.py raises ValueError on a missing or unknown value, so a new
 // component cannot silently skip physics. Components the engine doesn't model
-// (diagnostics, passive filters, septa, ion sources for now) declare 'drift':
-// the beam passes through unaffected. Gameplay-side behavior (SRF quench,
+// (diagnostics, passive filters, septa) declare 'drift': the beam passes
+// through unaffected. Gameplay-side behavior (SRF quench,
 // capture efficiency, transit-time factor) still keys on the game `id`, which
 // physics receives as game_type.
 //
@@ -45,7 +45,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ionSource: {
     id: 'ionSource',
-    physicsType: 'drift', // engine has no ion-source model — old mapping fell through to unknown 'ionSource' (treated as drift); proton beam is never initialized
+    physicsType: 'source', // proton source — gameplay.py initializes the beam with PROTON_MASS via params.particleType
     name: 'Duoplasmatron Ion Source',
     desc: 'Classic duoplasmatron proton source — a hot filament generates a primary plasma, then a magnetic constriction squeezes it through an intermediate electrode into a dense secondary plasma at the anode aperture. Reliable, moderate current, and your workhorse first proton source. Requires cooling for the magnet and arc chamber.',
     category: 'source',
@@ -72,7 +72,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ecrIonSource: {
     id: 'ecrIonSource',
-    physicsType: 'drift', // same latent gap as ionSource — engine treats it as drift
+    physicsType: 'source', // proton source — gameplay.py initializes the beam with PROTON_MASS via params.particleType
     name: 'ECR Ion Source',
     desc: 'Electron Cyclotron Resonance ion source — microwave power at 2.45 GHz heats a plasma confined by mirror solenoid magnets, producing high-current proton beams suitable for high-power facilities. Demands RF waveguide injection and substantial cooling, but delivers 4× the current of a duoplasmatron.',
     category: 'source',
@@ -96,6 +96,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 2450,
+    rfBand: 'sband',
+    rfPowerRequired: 2,
   },
   drift: {
     id: 'drift',

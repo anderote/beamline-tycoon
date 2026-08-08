@@ -1,5 +1,85 @@
 import { COMPONENTS } from '../data/components.js';
 
+// ---------------------------------------------------------------------------
+// Phase 7 — economy tuning knobs. All per-tick revenue/upkeep coefficients
+// live here so balance passes (scripts/balance-sim.mjs) touch one table.
+// Loose invariants are pinned by test/test-economy-balance.js:
+//   A) a fresh sandbox idles >300 ticks without going broke;
+//   B) the smallBeamlineFacility scenario is net-positive once its beam runs;
+//   C) a late-game build pays 30-60% of gross income back out as upkeep
+//      (staff + power bill + pump service + reservoir refills).
+// ---------------------------------------------------------------------------
+export const ECON = {
+  // Passive institutional grant, $/tick, independent of research. Mostly
+  // covers the seeded operator so an empty lab bleeds slowly, not fatally.
+  baseGrant: 100,
+  // Reputation revenue: $/tick = repIncomeRate * sqrt(reputation). Square
+  // root keeps late-game reputation from compounding into free money.
+  repIncomeRate: 20,
+  // Beam-on revenue: $/tick = quality * (beamIncomeBase +
+  // beamIncomePerNode * nodeCount). Scaling with machine size makes bigger
+  // beamlines earn like bigger coasters.
+  beamIncomeBase: 60,
+  beamIncomePerNode: 100,
+  // Detector data fees, $/tick per unit dataRate while collecting.
+  dataFeeRate: 5,
+  // Electricity, $/tick per kW of energyCost draw. Equipment draws whenever
+  // placed; the beamline's own draw is billed only while the beam is on.
+  powerBillPerKW: 2,
+  // Vacuum pump service cost, $/tick each (legacy pump upkeep).
+  pumpUpkeepEach: 8,
+};
+
+const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump']);
+
+/**
+ * Facility-wide passive revenue for one tick: base grant + research passive
+ * funding + reputation revenue, all scaled by the decoration reputation
+ * tier's funding bonus.
+ */
+export function computeTickIncome(state, researchPassive = 0) {
+  const passive = ECON.baseGrant + researchPassive;
+  const rep = Math.max(0, state.resources?.reputation || 0);
+  const repIncome = ECON.repIncomeRate * Math.sqrt(rep);
+  const repBonus = state?.reputationTier?.fundingBonus || 0;
+  return Math.floor((passive + repIncome) * (1 + repBonus));
+}
+
+/**
+ * Revenue for one tick of one running beamline. nodeCount is the flattened
+ * element count (junctions + pipe placements) — income scales with both
+ * beam quality and machine size, plus data fees while detectors collect.
+ */
+export function computeBeamIncome(beamState, nodeCount = 0) {
+  const q = beamState.beamQuality || 0.2;
+  let income = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  if ((beamState.dataRate || 0) > 0) income += beamState.dataRate * ECON.dataFeeRate;
+  return income;
+}
+
+/**
+ * Recurring upkeep for one tick: staff salaries, pump service, and the
+ * electricity bill (equipment energyCost always; beamline energyCost only
+ * while the beam is on). Reservoir refills are event costs paid at the
+ * UtilityInspector, not part of this per-tick total.
+ */
+export function computeTickUpkeep(state) {
+  const staffCost = Object.entries(state.staff || {}).reduce((sum, [type, count]) => {
+    return sum + count * ((state.staffCosts || {})[type] || 0);
+  }, 0);
+  let pumpCount = 0;
+  let equipDraw = 0;
+  for (const p of (state.placeables || [])) {
+    if (p.category !== 'equipment') continue;
+    if (PUMP_TYPES.has(p.type)) pumpCount++;
+    equipDraw += (COMPONENTS[p.type]?.energyCost || 0);
+  }
+  const pumpUpkeep = pumpCount * ECON.pumpUpkeepEach;
+  const beamDraw = state.beamOn ? (state.totalEnergyCost || 0) : 0;
+  const powerBill = ECON.powerBillPerKW * (equipDraw + beamDraw);
+  return { staffCost, pumpUpkeep, powerBill, total: staffCost + pumpUpkeep + powerBill };
+}
+
 // Phase 6: the legacy Networks module is gone. computeSystemStats now runs
 // only the equipment-count-based fallback paths that used to live behind the
 // `if (nets && nets.xyz.length > 0)` guards. This is a deliberate

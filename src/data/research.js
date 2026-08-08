@@ -517,7 +517,7 @@ export const RESEARCH = {
     desc: 'Implement automated beam tuning, orbit correction, and machine optimization using feedback loops and model-based control. Reduces the need for manual operator intervention, improves beam stability and reproducibility, and enables lights-out operation during stable periods. The efficiency gains generate passive funding as the facility runs more reliably.',
     cost: { data: 25, funding: 3000000 },
     duration: 50,
-    effect: { passiveFunding: 2 },
+    effect: { passiveFunding: 150 },
     requires: 'controlSystems',
   },
   facilitySystems: {
@@ -535,7 +535,7 @@ export const RESEARCH = {
     desc: 'Apply neural networks and Bayesian optimization to accelerator operations. ML models learn the complex nonlinear relationships between machine settings and beam quality, then optimize hundreds of parameters simultaneously — far beyond what human operators can manage. Gaussian process models find optimal settings in minutes instead of hours. Anomaly detection catches degrading performance before it causes a beam trip.',
     cost: { data: 40, funding: 8000000 },
     duration: 70,
-    effect: { dataRateMult: 1.5, passiveFunding: 1 },
+    effect: { dataRateMult: 1.5, passiveFunding: 100 },
     requires: 'automation',
   },
   highPerformanceDAQ: {
@@ -553,7 +553,7 @@ export const RESEARCH = {
     desc: 'Create a comprehensive physics simulation of your entire accelerator complex that runs in real-time alongside the actual machine. Fed by live data from thousands of sensors, the digital twin predicts beam behavior, identifies developing problems, and tests operational scenarios virtually before applying them to the real machine. Reduces commissioning time and improves operational efficiency.',
     cost: { data: 50, funding: 12000000, reputation: 5 },
     duration: 85,
-    effect: { passiveFunding: 3, beamStability: 0.1 },
+    effect: { passiveFunding: 250, beamStability: 0.1 },
     requires: 'machineLearning',
   },
 

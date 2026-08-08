@@ -1,6 +1,17 @@
 import { COMPONENTS } from './components.js';
 import { RESEARCH } from './research.js';
 
+// True if any network of the given utility type has real capacity flowing
+// (state.utilityNetworkData: Map<utilityType, Map<networkId, flow>>).
+function hasUtilityCapacity(state, utilityType) {
+  const perType = state?.utilityNetworkData?.get?.(utilityType);
+  if (!perType) return false;
+  for (const flow of perType.values()) {
+    if (flow && (flow.totalCapacity || 0) > 0) return true;
+  }
+  return false;
+}
+
 export const OBJECTIVES = [
   // === Tier 0 — Getting Started ===
   {
@@ -53,7 +64,9 @@ export const OBJECTIVES = [
     id: 'firstUser',
     name: 'First User',
     desc: 'Run beam for 60 seconds and deliver data to a detector.',
-    condition: (state) => state.totalBeamHours >= (60 / 3600) && state.beamline.some(n => n.type === 'detector' || n.type === 'faradayCup'),
+    // totalBeamHours only accrued via the removed photonPort system;
+    // beamOnTicks (1 tick = 1 s of beam) is the live equivalent.
+    condition: (state) => (state.beamOnTicks || 0) >= 60 && state.beamline.some(n => n.type === 'detector' || n.type === 'faradayCup'),
     reward: { funding: 2000000, reputation: 3 },
     tier: 1,
   },
@@ -108,10 +121,12 @@ export const OBJECTIVES = [
     tier: 2,
   },
   {
-    id: 'fiveUsers',
-    name: 'Five Users',
-    desc: 'Serve 5 simultaneous photon beamline ports.',
-    condition: (state) => state.beamline.filter(n => n.type === 'photonPort').length >= 5,
+    id: 'fullUtilities',
+    name: 'Full Utilities',
+    desc: 'Run functional power, vacuum, RF, cooling, and data networks simultaneously.',
+    condition: (state) =>
+      ['powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'dataFiber']
+        .every(u => hasUtilityCapacity(state, u)),
     reward: { funding: 10000000, reputation: 10 },
     tier: 2,
   },
@@ -160,8 +175,16 @@ export const OBJECTIVES = [
   {
     id: 'srfLinac',
     name: 'SRF Linac',
-    desc: 'Operate 10 or more SRF cavities simultaneously.',
-    condition: (state) => state.beamline.filter(n => n.type === 'cryomodule' || n.type === 'srf650Cavity').length >= 10,
+    desc: 'Operate 10 or more SRF cavities simultaneously (a cryomodule counts as 8).',
+    condition: (state) => {
+      let cavities = 0;
+      for (const n of state.beamline) {
+        if (n.type === 'halfWaveResonator' || n.type === 'spokeCavity'
+            || n.type === 'ellipticalSrfCavity') cavities += 1;
+        else if (n.type === 'cryomodule') cavities += 8;
+      }
+      return cavities >= 10;
+    },
     reward: { funding: 10000000, reputation: 5 },
     tier: 3,
   },
@@ -224,10 +247,10 @@ export const OBJECTIVES = [
     tier: 4,
   },
   {
-    id: 'positronBeam',
-    name: 'Positron Beam',
-    desc: 'Generate and accelerate positrons.',
-    condition: (state) => state.beamline.some(n => n.type === 'positronTarget') && state.beamOn,
+    id: 'colliderMode',
+    name: 'Collision Course',
+    desc: 'Run beam into a Collision Point.',
+    condition: (state) => state.beamOn && state.beamline.some(n => n.type === 'collisionPoint'),
     reward: { funding: 50000000, reputation: 30 },
     tier: 4,
   },
@@ -271,18 +294,23 @@ export const OBJECTIVES = [
   {
     id: 'userFacilityOfYear',
     name: 'User Facility of the Year',
-    desc: 'Deliver 10,000 total beam hours.',
-    condition: (state) => state.totalBeamHours >= 10000,
+    desc: 'Deliver 10,000 units of research data to users.',
+    condition: (state) => (state.totalDataCollected || 0) >= 10000,
     reward: { funding: 200000000, reputation: 50 },
     tier: 5,
   },
   {
     id: 'fullCatalog',
     name: 'Full Catalog',
-    desc: 'Build every component type at least once.',
+    desc: 'Build every beamline component type at least once.',
     condition: (state) => {
       const builtTypes = new Set(state.beamline.map(n => n.type));
-      const allTypes = Object.keys(COMPONENTS);
+      // Only beamline components (junctions + pipe placements) can ever
+      // appear on a beamline — infra/bench gear is excluded by role.
+      const allTypes = Object.keys(COMPONENTS).filter(t => {
+        const role = COMPONENTS[t]?.role;
+        return role === 'junction' || role === 'placement';
+      });
       return allTypes.every(t => builtTypes.has(t));
     },
     reward: { funding: 100000000, reputation: 30 },

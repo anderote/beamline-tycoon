@@ -4,9 +4,11 @@
 // sink.params.heatLoad). Quality uniform = min(1, cap/demand). Persistent
 // reservoir decrements by EVAP_PER_KW_PER_TICK * totalHeatKW. Hard cooling_dry
 // error when reservoirVolumeL ≤ 0 with sinks present → quality 0.
-// refillCost: $10/L missing, capped at 500L, returns null when ≥ full.
+// refillCost: WATER_COST_PER_L per missing litre, capped at RESERVOIR_MAX_L,
+// returns null when ≥ full. Rates are Phase 7 balance knobs — assertions
+// below derive from the exported constants instead of pinning numbers.
 
-import desc from '../src/utility/types/coolingWater.js';
+import desc, { EVAP_PER_KW_PER_TICK, RESERVOIR_MAX_L, WATER_COST_PER_L } from '../src/utility/types/coolingWater.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -38,7 +40,7 @@ console.log('\n--- Test 1: no sources, no sinks ---');
 }
 
 // ==========================================================================
-// Test 2: capacity 100 kW, load 50 kW, reservoir 500 → util 0.5, drop 0.05L.
+// Test 2: capacity 100 kW, load 50 kW, reservoir 500 → util 0.5, evap 50*rate.
 // ==========================================================================
 console.log('\n--- Test 2: cap 100, load 50, reservoir 500 ---');
 {
@@ -50,7 +52,8 @@ console.log('\n--- Test 2: cap 100, load 50, reservoir 500 ---');
   assert(approx(r.flowState.utilization, 0.5), `utilization 0.5 (got ${r.flowState.utilization})`);
   assert(r.flowState.perSinkQuality.k1 === 1, `k1 quality 1 (got ${r.flowState.perSinkQuality.k1})`);
   assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(approx(r.nextPersistentState.reservoirVolumeL, 499.95), `reservoir 499.95 (got ${r.nextPersistentState.reservoirVolumeL})`);
+  const expected = 500 - 50 * EVAP_PER_KW_PER_TICK;
+  assert(approx(r.nextPersistentState.reservoirVolumeL, expected), `reservoir ${expected} (got ${r.nextPersistentState.reservoirVolumeL})`);
 }
 
 // ==========================================================================
@@ -94,22 +97,24 @@ console.log('\n--- Test 4: reservoir 0 with sinks ---');
 }
 
 // ==========================================================================
-// Test 5: refillCost null at full, $5000 at empty.
+// Test 5: refillCost null at full, full price at empty.
 // ==========================================================================
 console.log('\n--- Test 5: refillCost basics ---');
 {
-  assert(desc.refillCost({ reservoirVolumeL: 500 }) === null, 'full → null');
+  assert(desc.refillCost({ reservoirVolumeL: RESERVOIR_MAX_L }) === null, 'full → null');
   const empty = desc.refillCost({ reservoirVolumeL: 0 });
-  assert(empty && empty.funding === 5000, `empty → $5000 (got ${JSON.stringify(empty)})`);
+  const full$ = Math.ceil(RESERVOIR_MAX_L * WATER_COST_PER_L);
+  assert(empty && empty.funding === full$, `empty → $${full$} (got ${JSON.stringify(empty)})`);
 }
 
 // ==========================================================================
-// Test 6: refillCost at reservoir 100 → $4000.
+// Test 6: refillCost at reservoir 100 → price of the missing litres.
 // ==========================================================================
-console.log('\n--- Test 6: refillCost 100L → $4000 ---');
+console.log('\n--- Test 6: refillCost at 100L remaining ---');
 {
   const r = desc.refillCost({ reservoirVolumeL: 100 });
-  assert(r && r.funding === 4000, `100L → $4000 (got ${JSON.stringify(r)})`);
+  const want = Math.ceil((RESERVOIR_MAX_L - 100) * WATER_COST_PER_L);
+  assert(r && r.funding === want, `100L → $${want} (got ${JSON.stringify(r)})`);
 }
 
 // ==========================================================================

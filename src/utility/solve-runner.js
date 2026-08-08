@@ -6,8 +6,17 @@
 // state to state.utilityNetworkState (keyed by network id). Descriptor throws
 // are trapped and surfaced as errors[{severity:'hard', code:'solve_threw'}].
 //
-// Topology-dirty caching is intentionally skipped for v1 — easy enough to add
-// later but unnecessary for early iteration.
+// Topology-dirty caching: network discovery (union-find + spatial join over
+// every line) only depends on topology — utilityLines and the port tables of
+// placed components. Game bumps `topologyRevision` via markTopologyDirty() on
+// every mutation seam (utility-line add/remove/endpoint-null, placeable
+// place/remove, load/undo/redo); runSolve() re-runs discoverAll only when the
+// revision changed since the last pass and otherwise reuses the cached
+// Map<utilityType, Network[]>. Per-network solve() always runs (flows and
+// reservoirs change every tick). Safe because network ids are content-hashed
+// from sorted port keys (or sorted line ids for open networks) — identical
+// topology re-discovers to identical ids, so utilityNetworkState keying is
+// unaffected by whether discovery ran from cache or from scratch.
 
 import { discoverAll, makeDefaultPortLookup } from './network-discovery.js';
 
@@ -24,6 +33,24 @@ export class SolveRunner {
     this.registry = opts.registry || { types: {}, list: [] };
     this.emit = opts.emit || (() => {});
     this.portLookup = opts.portLookup || null;
+
+    // Topology-dirty cache. `topologyRevision` is bumped by markTopologyDirty()
+    // on every topology mutation; discovery re-runs when it differs from
+    // `_discoveredRevision`. `stats` is a test/diagnostic instrumentation hook.
+    this.topologyRevision = 0;
+    this._discoveredRevision = -1;
+    this._cachedNetworks = null; // Map<utilityType, Network[]>
+    this.stats = { discoveries: 0, solvePasses: 0 };
+  }
+
+  /**
+   * Invalidate the cached network discovery. Call after any mutation that can
+   * change topology: utility-line add/remove, line endpoints nulled by a
+   * placeable removal, placeable place/remove, or wholesale state replacement
+   * (load / undo / redo).
+   */
+  markTopologyDirty() {
+    this.topologyRevision++;
   }
 
   /**
@@ -37,9 +64,20 @@ export class SolveRunner {
     if (!state.utilityLines) state.utilityLines = new Map();
     if (!state.utilityNetworkState) state.utilityNetworkState = new Map();
 
-    const portLookup = this.portLookup || makeDefaultPortLookup(state);
     const list = (this.registry && this.registry.list) || [];
-    const networksByType = discoverAll(state.utilityLines, portLookup, list);
+
+    // Re-discover only when topology changed since the last pass. The default
+    // portLookup snapshots state.placeables, so it must be rebuilt alongside
+    // discovery (a placeable mutation always bumps the revision).
+    let networksByType = this._cachedNetworks;
+    if (networksByType == null || this._discoveredRevision !== this.topologyRevision) {
+      const portLookup = this.portLookup || makeDefaultPortLookup(state);
+      networksByType = discoverAll(state.utilityLines, portLookup, list);
+      this._cachedNetworks = networksByType;
+      this._discoveredRevision = this.topologyRevision;
+      this.stats.discoveries++;
+    }
+    this.stats.solvePasses++;
 
     // Publish the discovery output (Map<utilityType, Network[]>, each network
     // carrying id + lineIds) so consumers — notably the renderer's error-glow

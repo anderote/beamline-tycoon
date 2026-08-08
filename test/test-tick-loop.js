@@ -121,7 +121,7 @@ console.log('\n=== Tick-loop control ===\n');
 {
   const g = makeGame();
   g.TICK_MS = 5;
-  g.save = () => {}; // autosave at tick%10 hits localStorage, absent in Node
+  g.save = () => {}; // autosave at tick%30 hits localStorage, absent in Node
   g.start();
   await new Promise(r => setTimeout(r, 60));
   assert(g.state.tick > 0, 'sim ticks while running');

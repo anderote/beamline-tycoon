@@ -11,13 +11,13 @@ Particle beams must travel through ultra-high vacuum. At atmospheric pressure, b
 
 Different pump types operate at different pressure ranges and speeds:
 
-| Pump | Speed (L/s) | Best For |
-|------|------------|----------|
-| Roughing pump | 10 | Initial pump-down from atmosphere |
-| Turbo pump | 300 | Workhorse high-vacuum pump |
-| Ion pump | 100 | Ultra-high vacuum, maintenance-free |
-| NEG pump | 200 | Distributed pumping, zero energy |
-| Ti sublimation pump | 500 | Extreme vacuum with ion pumps |
+| Pump | Speed (L/s) | Cost | Best For |
+|------|------------|------|----------|
+| Roughing pump | 15 | $50k | Entry level — keeps a starter chain alive at mediocre quality |
+| Turbo pump | 300 | $200k | Workhorse high-vacuum pump |
+| Ti sublimation pump | 400 | $300k | Extreme vacuum with ion pumps |
+| NEG pump | 500 | $600k | Distributed pumping, zero energy |
+| Ion pump | 600 | $400k | Ultra-high vacuum, maintenance-free |
 
 In a real accelerator, you stage pumps: roughing pumps bring the system from atmosphere to ~1 mbar, then turbo pumps take over to reach 1e-8 mbar, and ion/NEG pumps achieve the final ultra-high vacuum.
 
@@ -105,6 +105,17 @@ Where `Q_gas` is the total gas load from outgassing of the beamline interior sur
 Q_gas = V_beamline * q_outgassing
 ```
 With `q_outgassing` as the specific outgassing rate (mbar·L/s per liter of volume). Bakeout systems reduce `q_outgassing`.
+
+**Per-component gas load (mbar·L/s), scaling with interior volume:**
+
+| Size class | Outgassing | Examples |
+|------------|------------|----------|
+| Tiny | 2e-7 | BPM, ICT, screen, wire scanner, Faraday cup |
+| Small | 5e-7 | Dipole, quad, sextupole, buncher, half-wave resonator, beam stop |
+| Medium | 1e-6 | Guns/ion sources, pillbox, RFQ, elliptical SRF, target |
+| Large | 2e-6 – 5e-6 | NC structures (2e-6), cryomodule (4e-6), detector (5e-6), ECR source (5e-6 — deliberate gas feed) |
+
+One roughing pump (15 L/s) holds a starter chain (~3e-6 total) around 2e-7 mbar — playable but mediocre. A turbo pump takes the same chain to ~1e-8 mbar and near-perfect quality.
 
 **Conductance per vacuum pipe tile:**
 ```

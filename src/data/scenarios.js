@@ -1,9 +1,13 @@
 // Scenario definitions — selectable from the Scenarios menu.
 // Each scenario has metadata for the picker UI and a generator function
 // that returns the map data (floors, zones, walls, doors, placeables).
+// An optional setup(game) runs AFTER game.applyScenario(mapData): it builds
+// dynamic content (beamlines, pipes, utility lines) through the normal Game
+// APIs so scripted layouts satisfy utility gating. test/test-scenarios.js
+// regression-checks that every scenario boots with zero hard infra blockers.
 
 import { generateRealLab } from './scenarios/realLab.js';
-import { generateSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
+import { generateSmallBeamlineFacility, setupSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
 
 export const SCENARIOS = [
   {
@@ -26,5 +30,6 @@ export const SCENARIOS = [
     desc: 'Compact realistic national-lab style: 18×10 m building with shielded beam hall (14×3), central hallway, RF/vacuum labs north, control/cafeteria south. Beamline runs inside the hall, not on grass. Flat terrain, furnished.',
     difficulty: 'Realistic',
     generator: generateSmallBeamlineFacility,
+    setup: setupSmallBeamlineFacility,
   },
 ];

@@ -131,6 +131,11 @@ def beamline_config_from_game(game_beamline):
             # Extraction energy from component definition (GeV)
             if "extractionEnergy" in comp:
                 el["extractionEnergy"] = comp["extractionEnergy"]
+            # Particle species from component params (ion sources declare
+            # particleType: 'proton'); used to pick the beam rest mass.
+            particle = comp.get("params", {}).get("particleType")
+            if particle is not None:
+                el["particleType"] = particle
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
@@ -436,6 +441,40 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     return result
 
 
+def extract_source_params(elements, game_beamline):
+    """
+    Extract beam-initialization parameters from the first source element so
+    that gun-tuning sliders (emittance, current) and the particle species
+    feed into beam initialization. Returns None when the beamline has no
+    source element.
+    """
+    for idx, el in enumerate(elements):
+        if el.get("type") != "source":
+            continue
+        source_params = {}
+        if "emittance" in el:
+            source_params["eps_norm_x"] = el["emittance"]
+            source_params["eps_norm_y"] = el["emittance"]
+        # Extraction energy from the source component (GeV)
+        if "extractionEnergy" in el:
+            source_params["energy"] = el["extractionEnergy"]
+        # Set mass for proton sources. Species comes from the component's
+        # params.particleType (carried through beamline_config_from_game);
+        # game_type is kept as a fallback for hand-built configs.
+        game_type = el.get("game_type", "")
+        if (el.get("particleType") == "proton"
+                or game_type in ("ionSource", "ecrIonSource")):
+            from beam_physics.constants import PROTON_MASS
+            source_params["mass"] = PROTON_MASS
+        # Find corresponding game component for beamCurrent
+        if idx < len(game_beamline):
+            bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
+            if bc is not None and bc > 0:
+                source_params["current"] = bc
+        return source_params
+    return None
+
+
 def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     """
     Top-level entry point called from Pyodide.
@@ -448,30 +487,7 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     elements = beamline_config_from_game(game_beamline)
     machine_type = research_effects.get("machineType", "linac") if research_effects else "linac"
 
-    # Extract source parameters from the first source element so that
-    # gun-tuning sliders (emittance, current) feed into beam initialization.
-    source_params = None
-    for el in elements:
-        if el.get("type") == "source":
-            source_params = {}
-            if "emittance" in el:
-                source_params["eps_norm_x"] = el["emittance"]
-                source_params["eps_norm_y"] = el["emittance"]
-            # Extraction energy from the source component (GeV)
-            if "extractionEnergy" in el:
-                source_params["energy"] = el["extractionEnergy"]
-            # Set mass for ion sources (proton/H-)
-            game_type = el.get("game_type", "")
-            if game_type == "ionSource":
-                from beam_physics.constants import PROTON_MASS
-                source_params["mass"] = PROTON_MASS
-            # Find corresponding game component for beamCurrent
-            idx = elements.index(el)
-            if idx < len(game_beamline):
-                bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
-                if bc is not None and bc > 0:
-                    source_params["current"] = bc
-            break
+    source_params = extract_source_params(elements, game_beamline)
 
     # Vacuum quality widens effective aperture during propagation
     vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0

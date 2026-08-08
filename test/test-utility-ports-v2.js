@@ -57,8 +57,8 @@ console.log('\n--- Test 3: ellipticalSrfCavity ---');
   assert('rf_in' in ports, 'has rf_in');
 
   assert(ports.cryo_in.utility === 'cryoTransfer', 'cryo_in is cryoTransfer');
-  assert(ports.cryo_in.params.srfHeatW === 18,
-    `cryo_in.params.srfHeatW === 18 (got ${ports.cryo_in.params.srfHeatW})`);
+  assert(ports.cryo_in.params.srfHeatW === 40,
+    `cryo_in.params.srfHeatW === 40 (got ${ports.cryo_in.params.srfHeatW})`);
 
   assert(ports.rf_in.utility === 'rfWaveguide', 'rf_in is rfWaveguide');
   assert(ports.rf_in.params.frequency > 0,
@@ -118,6 +118,86 @@ console.log('\n--- Test 7: pulsedKlystron rf_out ---');
   // Pulsed klystron raw: rfFrequency: 2856 MHz.
   assert(ports.rf_out.params.frequency === 2856 * 1e6,
     `rf_out.params.frequency === 2.856e9 Hz (got ${ports.rf_out.params.frequency})`);
+}
+
+// ==========================================================================
+// Test 8: differentiated demands — a BPM sips power, a cryomodule's cryo
+// load dwarfs a single cavity's, a detector out-draws everything small.
+// ==========================================================================
+console.log('\n--- Test 8: per-component differentiation ---');
+{
+  const bpm = getUtilityPortsV2('bpm');
+  const dip = getUtilityPortsV2('dipole');
+  const det = getUtilityPortsV2('detector');
+  assert(bpm.pwr_in.params.demand < dip.pwr_in.params.demand,
+    `bpm demand (${bpm.pwr_in.params.demand}) < dipole demand (${dip.pwr_in.params.demand})`);
+  assert(dip.pwr_in.params.demand < det.pwr_in.params.demand,
+    `dipole demand (${dip.pwr_in.params.demand}) < detector demand (${det.pwr_in.params.demand})`);
+
+  const cav = getUtilityPortsV2('ellipticalSrfCavity');
+  const cm = getUtilityPortsV2('cryomodule');
+  assert(cm.cryo_in.params.srfHeatW > 4 * cav.cryo_in.params.srfHeatW,
+    `cryomodule srfHeatW (${cm.cryo_in.params.srfHeatW}) dwarfs single cavity (${cav.cryo_in.params.srfHeatW})`);
+
+  // Vacuum: outgassing scales with size class.
+  assert(bpm.vac_in.params.outgassing < det.vac_in.params.outgassing,
+    `bpm outgassing (${bpm.vac_in.params.outgassing}) < detector (${det.vac_in.params.outgassing})`);
+}
+
+// ==========================================================================
+// Test 9: RF sources — magnetron is fixed 2.45 GHz (serves the ECR ion
+// source bucket); solid-state amp is broadband; capacity ladder ascends.
+// ==========================================================================
+console.log('\n--- Test 9: RF source frequencies & ladder ---');
+{
+  const mag = getUtilityPortsV2('magnetron');
+  assert(mag.rf_out.params.frequency === 2450 * 1e6,
+    `magnetron frequency === 2.45e9 Hz (got ${mag.rf_out.params.frequency})`);
+  assert(!mag.rf_out.params.broadband, 'magnetron is not broadband');
+
+  const ecr = getUtilityPortsV2('ecrIonSource');
+  assert(ecr.rf_in.params.frequency === 2450 * 1e6,
+    `ecrIonSource rf_in frequency === 2.45e9 Hz (got ${ecr.rf_in.params.frequency})`);
+
+  const ssa = getUtilityPortsV2('solidStateAmp');
+  assert(ssa.rf_out.params.broadband === true, 'solidStateAmp is broadband');
+  assert(ssa.rf_out.params.frequency === undefined, 'broadband source has no fixed frequency');
+
+  const gyro = getUtilityPortsV2('gyrotron');
+  assert(gyro.rf_out.params.broadband === true, 'gyrotron is broadband');
+  assert(mag.rf_out.params.capacity < ssa.rf_out.params.capacity
+      && ssa.rf_out.params.capacity < gyro.rf_out.params.capacity,
+    'RF capacity ladder ascends magnetron < SSA < gyrotron');
+}
+
+// ==========================================================================
+// Test 10: source capacity ladders per utility.
+// ==========================================================================
+console.log('\n--- Test 10: infrastructure capacity ladders ---');
+{
+  const panel = getUtilityPortsV2('powerPanel');
+  const pad = getUtilityPortsV2('padMountTransformer');
+  const hv = getUtilityPortsV2('hvTransformer');
+  assert(panel.pwr_out.params.capacity < pad.pwr_out.params.capacity
+      && pad.pwr_out.params.capacity < hv.pwr_out.params.capacity,
+    'power ladder: powerPanel < padMount < hvTransformer');
+
+  const lcw = getUtilityPortsV2('lcwSkid');
+  const tower = getUtilityPortsV2('coolingTower');
+  assert(lcw.cool_out.params.capacity < tower.cool_out.params.capacity,
+    'cooling ladder: lcwSkid < coolingTower');
+
+  const rough = getUtilityPortsV2('roughingPump');
+  const turbo = getUtilityPortsV2('turboPump');
+  const ion = getUtilityPortsV2('ionPump');
+  assert(rough.vac_out.params.pumpSpeed < turbo.vac_out.params.pumpSpeed
+      && turbo.vac_out.params.pumpSpeed < ion.vac_out.params.pumpSpeed,
+    'vacuum ladder: roughing < turbo < ion');
+
+  const cb4 = getUtilityPortsV2('coldBox4K');
+  const cb2 = getUtilityPortsV2('coldBox2K');
+  assert(cb4.cryo_out.params.coldCapacityW < cb2.cryo_out.params.coldCapacityW,
+    'cryo ladder: coldBox4K < coldBox2K');
 }
 
 // ==========================================================================

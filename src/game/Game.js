@@ -19,7 +19,7 @@ import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
-import { computeSystemStats } from './economy.js';
+import { computeSystemStats, computeTickIncome, computeBeamIncome, computeTickUpkeep } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
@@ -234,13 +234,25 @@ export class Game {
       nextLineId: () => 'ul_' + (this.state.utilityNextId = (this.state.utilityNextId || 1) + 1),
     });
 
-    // SolveRunner computes per-network flow state each tick. v1: no topology
-    // caching; we re-discover networks every tick. Cheap enough for early
-    // playtests, and trivial to optimize later via a dirty-flag on addLine/
-    // removeLine.
+    // SolveRunner computes per-network flow state each tick. Network
+    // discovery is cached on a topology revision: the listener below bumps it
+    // on every topology mutation seam, and load/undo/redo bump it in
+    // _applyState (they replace state.utilityLines wholesale).
     this.solveRunner = new SolveRunner({
       state: this.state,
       registry: UtilityRegistry,
+    });
+
+    // Topology-dirty seam. All utilityLines mutations flow through
+    // UtilityLineSystem (addLine / removeLine / onPlaceableRemoved), which
+    // emits 'utilityLinesChanged'; all placeable mutations flow through
+    // _placePlaceableInner / removePlaceable / _removePlaceableRaw, which emit
+    // 'placeableChanged'. Placements are user-action-rate, so bumping on every
+    // placeable (ports or not) costs at most one extra discovery per action.
+    this.on((event) => {
+      if (event === 'utilityLinesChanged' || event === 'placeableChanged') {
+        this.solveRunner.markTopologyDirty();
+      }
     });
 
     // UtilityGate wraps the per-tick solve with the gating policy (unconnected
@@ -2690,17 +2702,14 @@ export class Game {
     this.state.furnishingMorale = totalFurnishingMorale;
     this.state.reputationTier = getReputationTier(decorationInstances.length);
 
-    // === Revenue ===
+    // === Revenue === (tuning knobs live in economy.js ECON)
     const passiveIncome = this.getEffect('passiveFunding', 0);
-    const repIncome = Math.floor(this.state.resources.reputation * 2);
-    const repBonus = this.state?.reputationTier?.fundingBonus || 0;
-    this.state.resources.funding += Math.floor((passiveIncome + repIncome) * (1 + repBonus));
+    this.state.resources.funding += computeTickIncome(this.state, passiveIncome);
 
-    // Staffing costs (drain — creates pressure to complete objectives)
-    const staffCost = Object.entries(this.state.staff).reduce((sum, [type, count]) => {
-      return sum + count * (this.state.staffCosts[type] || 0);
-    }, 0);
-    this.state.resources.funding -= staffCost;
+    // === Upkeep === staff salaries + pump service + electricity bill
+    // (drain — creates pressure to complete objectives and run the beam)
+    const upkeep = computeTickUpkeep(this.state);
+    this.state.resources.funding -= upkeep.total;
 
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
     // Uses facility tier for cafeteria etc.
@@ -2717,14 +2726,6 @@ export class Game {
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
     }
-
-    // Facility power/vacuum upkeep: scales with pump count and beamline volume
-    // (cheap early, punitive if you overbuild without funding)
-    const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump'];
-    const equipCounts = {};
-    for (const p of (this.state.placeables || [])) if (p.category === 'equipment') equipCounts[p.type] = (equipCounts[p.type] || 0) + 1;
-    const pumpUpkeep = pumpTypes.reduce((s, t) => s + (equipCounts[t] || 0) * 8, 0);
-    if (pumpUpkeep > 0) this.state.resources.funding -= pumpUpkeep;
 
     // Tick all running beamlines
     for (const entry of this.registry.getAll()) {
@@ -2780,8 +2781,13 @@ export class Game {
     // state.infraBlockers / infraCanRun / nodeQualities.
     this.utilityGate.run();
 
-    // Auto-save every 10 ticks
-    if (this.state.tick % 10 === 0) this.save();
+    // Auto-save every 30 ticks. The synchronous serialize+localStorage write
+    // is the most expensive thing in a tick, so keep it rare. Skipped while
+    // paused: pause() clears the interval so tick() normally never runs
+    // paused, but direct drivers (headless env, demo remote-drive, tests) can
+    // still call tick() with paused set — don't let those force autosaves.
+    // Manual saves (game.save() from UI / save slots) are unaffected.
+    if (this.state.tick % 30 === 0 && !this.state.paused) this.save();
 
     this.emit('tick');
   }
@@ -2794,14 +2800,11 @@ export class Game {
     bs.continuousBeamTicks++;
     bs.beamOnTicks++;
 
-    // Funding from running beam (MVP loop closure: beam on = income)
-    // Scaled to create early pressure/reward — ~3-5/s with decent quality.
-    {
-      const baseFundingPerTick = 4 * (bs.beamQuality || 0.2);
-      this.state.resources.funding += baseFundingPerTick;
-      // Bonus funding when detectors are collecting data
-      if ((bs.dataRate || 0) > 0) this.state.resources.funding += bs.dataRate * 0.5;
-    }
+    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+
+    // Funding from running beam (MVP loop closure: beam on = income).
+    // Scales with beam quality AND machine size — see economy.js ECON.
+    this.state.resources.funding += computeBeamIncome(bs, blNodes.length);
 
     // Data from detectors (physics-driven)
     if (bs.dataRate > 0) {
@@ -2841,7 +2844,6 @@ export class Game {
     }
 
     // User beam hours from photon ports
-    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
     const photonPorts = blNodes.filter(c => c.type === 'photonPort');
     if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
       const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
@@ -3107,6 +3109,10 @@ export class Game {
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     this._rebuildPlaceableIndex();
     this.recomputeZoneConnectivity();
+    // Placeables were replaced wholesale without going through the
+    // place/remove seams, so the cached utility-network discovery must be
+    // invalidated by hand.
+    this.solveRunner.markTopologyDirty();
     this.validateInfrastructure();
   }
 
@@ -3244,9 +3250,11 @@ export class Game {
     this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
     this.state.utilityNextId = this.state.utilityNextId || 1;
     // utilityNetworkData / utilityNetworks are derived; solveRunner
-    // repopulates both on first tick.
+    // repopulates both on first tick. The utilityLines Map was just replaced
+    // wholesale, so the cached network discovery is stale — invalidate it.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    if (this.solveRunner) this.solveRunner.markTopologyDirty();
 
     // Ensure facility arrays exist
     if (!this.state.facilityEquipment) this.state.facilityEquipment = [];

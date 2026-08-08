@@ -40,6 +40,12 @@ export class UtilityGate {
     this.getPorts = opts.getPorts;
     this.rng = opts.rng || Math.random;
     this._lastErrHash = '';
+    // Unconnected-sink cache — findUnconnectedSinks is pure topology, so it
+    // rides the SolveRunner's topologyRevision: recomputed only when the
+    // revision moved (or when the injected solveRunner has no revision at
+    // all, e.g. test fakes — then it recomputes every tick, the old behavior).
+    this._unconnectedCache = null;
+    this._unconnectedRev = -1;
   }
 
   /**
@@ -60,9 +66,16 @@ export class UtilityGate {
 
       // Unconnected-sink detection lives in network-discovery (topology
       // knowledge); here we only map reports onto the hard-error shape.
-      const unconnected = findUnconnectedSinks(
-        beamlinePlaceables, state.utilityLines, this.getPorts, HARD_REQUIRED_UTILS);
-      for (const u of unconnected) {
+      // Topology-only computation → reuse the cached report until the
+      // solver's topology revision moves. beamlinePlaceables changes only
+      // via place/remove, which also bumps the revision.
+      const rev = this.solveRunner.topologyRevision;
+      if (rev === undefined || this._unconnectedCache == null || this._unconnectedRev !== rev) {
+        this._unconnectedCache = findUnconnectedSinks(
+          beamlinePlaceables, state.utilityLines, this.getPorts, HARD_REQUIRED_UTILS);
+        this._unconnectedRev = rev;
+      }
+      for (const u of this._unconnectedCache) {
         hardErrs.push({
           severity: 'hard',
           code: UNCONNECTED_CODES[u.utility],

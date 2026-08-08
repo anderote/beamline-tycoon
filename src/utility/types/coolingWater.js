@@ -3,10 +3,15 @@
 // Cooling water utility descriptor. v1 physics: chiller capacity vs sink heat
 // load; reservoir decrements by EVAP_PER_KW_PER_TICK × totalHeatKW. Hard
 // cooling_dry when the reservoir empties; soft cooling_starved when there is
-// demand but no chiller. refillCost: $10 per missing litre, up to 500L.
+// demand but no chiller. refillCost: WATER_COST_PER_L per missing litre.
+//
+// Balance (Phase 7, scripts/balance-sim.mjs): a 30 kW starter loop drinks
+// 0.6 L/tick — a ~$5k refill every ~700 ticks; a 60 kW detector loop refills
+// about twice as often. Visible recurring cost, not a death spiral.
 
-export const EVAP_PER_KW_PER_TICK = 0.001;
+export const EVAP_PER_KW_PER_TICK = 0.02;
 export const RESERVOIR_MAX_L = 500;
+export const WATER_COST_PER_L = 12;
 
 export default {
   type: 'coolingWater',
@@ -74,6 +79,6 @@ export default {
     const current = (persistent && persistent.reservoirVolumeL) || 0;
     const missing = RESERVOIR_MAX_L - current;
     if (missing < 1) return null;
-    return { funding: Math.ceil(missing * 10) };
+    return { funding: Math.ceil(missing * WATER_COST_PER_L) };
   },
 };

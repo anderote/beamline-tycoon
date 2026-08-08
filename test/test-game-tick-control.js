@@ -12,7 +12,7 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
 
-// Autosave (tick % 10) writes through localStorage; back it with a Map.
+// Autosave (tick % 30) writes through localStorage; back it with a Map.
 const store = new Map();
 globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -89,6 +89,38 @@ assert(liveTimer().ms === g.TICK_MS / 4, 'resume() uses the speed set while paus
 g.stop();
 assert(g.tickInterval === null, 'stop() nulls the interval handle');
 assert(timers.size === 0, 'stop() cancels the scheduled interval');
+
+// --- autosave cadence: every 30 ticks, skipped while paused ---
+// pause() clears the interval so tick() normally never fires paused; the
+// paused guard covers direct drivers (headless env, demo remote-drive) that
+// call tick() by hand. Manual save() stays available regardless.
+console.log('\n=== Autosave cadence ===\n');
+{
+  const g2 = new Game(new BeamlineRegistry(), { seed: 7 });
+  let saves = 0;
+  g2.save = () => { saves++; };
+
+  for (let i = 0; i < 29; i++) g2.tick();
+  assert(saves === 0, 'no autosave before tick 30');
+  g2.tick(); // tick 30
+  assert(saves === 1, 'autosave fires at tick 30');
+  for (let i = 0; i < 60; i++) g2.tick(); // through tick 90
+  assert(saves === 3, `autosave every 30 ticks (got ${saves} by tick 90)`);
+
+  g2.state.paused = true;
+  for (let i = 0; i < 30; i++) g2.tick(); // through tick 120 (includes %30 boundary)
+  assert(saves === 3, 'directly-driven ticks while paused never autosave');
+  g2.state.paused = false;
+  for (let i = 0; i < 30; i++) g2.tick(); // through tick 150
+  assert(saves === 4, 'autosave resumes on the next %30 boundary after unpause');
+
+  // Manual save path is independent of pause and cadence.
+  g2.state.paused = true;
+  store.delete('beamlineTycoon');
+  Game.prototype.save.call(g2);
+  assert(typeof store.get('beamlineTycoon') === 'string' && store.get('beamlineTycoon').length > 0,
+    'manual save() writes localStorage even while paused');
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

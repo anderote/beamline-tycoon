@@ -8,6 +8,9 @@
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
 export const RESERVOIR_MAX_L = 500;
 export const QUENCH_THRESHOLD_L = 20;
+// Balance (Phase 7): a 250 W cryomodule boils ~0.125 L/tick — a ~$24k LHe
+// refill every ~3800 ticks. Rare but painful, as LHe should be.
+export const LHE_COST_PER_L = 50;
 
 export default {
   type: 'cryoTransfer',
@@ -75,6 +78,6 @@ export default {
     const current = (persistent && persistent.lheVolumeL) || 0;
     const missing = RESERVOIR_MAX_L - current;
     if (missing < 1) return null;
-    return { funding: Math.ceil(missing * 50) };
+    return { funding: Math.ceil(missing * LHE_COST_PER_L) };
   },
 };
