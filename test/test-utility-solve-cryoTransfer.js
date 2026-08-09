@@ -67,6 +67,23 @@ console.log('\n--- Test 3: reservoir 19 with sinks → quench ---');
   assert(r.errors.length === 1, `1 error (got ${r.errors.length})`);
   assert(r.errors[0].severity === 'hard', `severity hard (got ${r.errors[0].severity})`);
   assert(r.errors[0].code === 'cryo_quench', `code cryo_quench (got ${r.errors[0].code})`);
+  // Regression: flowState must carry the quenched flag — UtilityGate's
+  // _aggregateNodeQualities keys the Python-side SRF→drift conversion off
+  // flow.quenched, which used to be silently absent from production output.
+  assert(r.flowState.quenched === true, `flowState.quenched true (got ${r.flowState.quenched})`);
+}
+
+// ==========================================================================
+// Test 3b: healthy reservoir → flowState.quenched is false.
+// ==========================================================================
+console.log('\n--- Test 3b: healthy reservoir → not quenched ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
+    sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
+  });
+  const r = desc.solve(net, { lheVolumeL: 500 }, {});
+  assert(r.flowState.quenched === false, `flowState.quenched false (got ${r.flowState.quenched})`);
 }
 
 // ==========================================================================

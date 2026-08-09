@@ -3,6 +3,8 @@
 // player is actually looking at the game; reopenable anytime via Menu > Guide.
 // Draggable by its header (same pattern as the component popup in overlays.js).
 
+import { makeDraggable } from './draggable.js';
+
 const MODE_ROWS = [
   ['1', 'Beamline',  '#6ee06e', 'sources, magnets, RF cavities, diagnostics + beam pipes'],
   ['2', 'Infra',     '#e0c86e', 'power, vacuum, RF power, cooling & data utilities'],
@@ -19,8 +21,9 @@ const CONTROL_ROWS = [
   ['Q / E',  'rotate the view'],
   ['Mid-drag', 'orbit the camera'],
   ['F',      'rotate item while placing'],
-  ['Space',  'beam ON / OFF'],
+  ['Space',  'place item / beam ON-OFF'],
   ['Ctrl+Z', 'undo'],
+  ['Ctrl+Shift+Z', 'redo'],
   ['Esc',    'cancel tool / close windows'],
 ];
 
@@ -86,31 +89,10 @@ export class WelcomeDialog {
     el.querySelector('.welcome-close').addEventListener('click', () => this.close());
 
     // Draggable by header (mirrors the component-popup drag in overlays.js).
-    const header = el.querySelector('.welcome-header');
-    let dragging = false, sx, sy, ox, oy;
-    header.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.welcome-close')) return;
-      // First drag: freeze the centered position into left/top pixels so
-      // subsequent moves are plain pixel offsets (no transform fighting).
-      if (el.style.transform !== 'none') {
-        const r = el.getBoundingClientRect();
-        el.style.left = r.left + 'px';
-        el.style.top = r.top + 'px';
-        el.style.transform = 'none';
-      }
-      dragging = true; sx = e.clientX; sy = e.clientY;
-      ox = parseInt(el.style.left, 10) || 0; oy = parseInt(el.style.top, 10) || 0;
-      header.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      el.style.left = (ox + e.clientX - sx) + 'px';
-      el.style.top = (oy + e.clientY - sy) + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      dragging = false;
-      header.style.cursor = 'grab';
+    makeDraggable(el, el.querySelector('.welcome-header'), {
+      exclude: '.welcome-close',
+      freezeTransform: true,
+      grabCursor: true,
     });
   }
 }

@@ -15,7 +15,6 @@
 import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
-import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 
 const PIPE_Y = 0.5;  // default line centerline height above ground
 const SEGS = 12;     // cylinder radial segments
@@ -27,6 +26,15 @@ const _jacketMatCache = new Map();
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
+}
+
+// Every cached material is tagged shared so the disposers can tell it apart
+// from a per-build material: shared materials outlive any one group and must
+// NOT be disposed on group teardown; anything untagged is owned by its group
+// and must be disposed with it or its GPU program/buffers leak.
+function shared(mat) {
+  mat.userData.__shared = true;
+  return mat;
 }
 
 function getLineMaterial(utilityType, errorStatus) {
@@ -46,7 +54,7 @@ function getLineMaterial(utilityType, errorStatus) {
     mat.emissive = new THREE.Color(0xffaa22);
     mat.emissiveIntensity = 0.5;
   }
-  _matCache.set(key, mat);
+  _matCache.set(key, shared(mat));
   return mat;
 }
 
@@ -67,7 +75,7 @@ function getJacketMaterial(utilityType, errorStatus) {
     mat.emissive = new THREE.Color(0xffaa22);
     mat.emissiveIntensity = 0.4;
   }
-  _jacketMatCache.set(key, mat);
+  _jacketMatCache.set(key, shared(mat));
   return mat;
 }
 
@@ -146,6 +154,20 @@ function buildRectSegment(p0, p1, width, height, material) {
   return mesh;
 }
 
+// Open-end cap materials, one per utility type (shared across lines).
+const _openCapMatCache = new Map();
+function getOpenCapMaterial(utilityType) {
+  if (_openCapMatCache.has(utilityType)) return _openCapMatCache.get(utilityType);
+  const descriptor = UTILITY_TYPES[utilityType];
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, emissive: new THREE.Color(descriptor?.color || '#ffffff'),
+    emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.2,
+    transparent: true, opacity: 0.9,
+  });
+  _openCapMatCache.set(utilityType, shared(mat));
+  return mat;
+}
+
 function buildLineGroup(line, placeablesById, errorStatus) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
@@ -178,11 +200,7 @@ function buildLineGroup(line, placeablesById, errorStatus) {
 
   // Open-end indicators: a small contrasting disc at any endpoint that
   // isn't anchored to a port. Signals "this side isn't wired up yet."
-  const openCapMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, emissive: new THREE.Color(descriptor.color || '#ffffff'),
-    emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.2,
-    transparent: true, opacity: 0.9,
-  });
+  const openCapMat = getOpenCapMaterial(line.utilityType);
   if (!line.start && points.length > 0) {
     const cap = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 2.0, 12, 10),
@@ -218,7 +236,7 @@ function getPreviewMaterial(utilityType) {
     emissive: new THREE.Color(color),
     emissiveIntensity: 0.35,
   });
-  _previewMatCache.set(utilityType, mat);
+  _previewMatCache.set(utilityType, shared(mat));
   return mat;
 }
 
@@ -258,25 +276,36 @@ function buildPreviewLine(preview) {
 
 // --- Port indicators ---------------------------------------------------
 //
-// When a utility-line tool is armed (selectedUtilityLineTool !== null), render
+// When a utility-line tool is armed (controller utilityType !== null), render
 // a small colored sphere at every available port of that utility type, so the
 // player can see where to click. The sphere at the cursor-nearest port gets
 // brightened (larger + higher emissive) as hover feedback. Spheres for the
 // starting-port (once draw has begun) are omitted since they aren't valid
 // endpoints anyway.
 
-function buildPortMarker(worldPos, color, brightened) {
-  const r = brightened ? 0.22 : 0.13;
-  const intensity = brightened ? 1.0 : 0.55;
-  const geo = new THREE.SphereGeometry(r, 12, 10);
+// Port-marker materials, keyed by (color, brightened) — shared across the
+// marker set, which is torn down and rebuilt on every world event while a
+// utility-line tool is armed (at least 1 Hz via 'tick').
+const _portMarkerMatCache = new Map();
+function getPortMarkerMaterial(color, brightened) {
+  const key = `${color}|${brightened ? 1 : 0}`;
+  if (_portMarkerMatCache.has(key)) return _portMarkerMatCache.get(key);
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
-    emissiveIntensity: intensity,
+    emissiveIntensity: brightened ? 1.0 : 0.55,
     transparent: true,
     opacity: brightened ? 0.95 : 0.8,
     depthTest: false,
   });
+  _portMarkerMatCache.set(key, shared(mat));
+  return mat;
+}
+
+function buildPortMarker(worldPos, color, brightened) {
+  const r = brightened ? 0.22 : 0.13;
+  const geo = new THREE.SphereGeometry(r, 12, 10);
+  const mat = getPortMarkerMaterial(color, brightened);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(worldPos.x, PIPE_Y + 0.3, worldPos.z);
   mesh.renderOrder = 999;
@@ -319,7 +348,7 @@ export class UtilityLineBuilderV2 {
   build(utilityLines, placeablesById, parentGroup, opts = {}) {
     const seen = new Set();
     const lines = utilityLines || new Map();
-    const errorByLineId = opts.state ? this._buildErrorMap(opts.state, lines) : new Map();
+    const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || !line.id) continue;
@@ -357,21 +386,24 @@ export class UtilityLineBuilderV2 {
   }
 
   /**
-   * Build a lineId → 'ok' | 'soft' | 'hard' map. For each utility type we
-   * run network discovery once, then map flow errors to member line ids.
+   * Build a lineId → 'ok' | 'soft' | 'hard' map by joining the sim's
+   * published discovery output (state.utilityNetworks: network id → lineIds,
+   * written by SolveRunner each solve pass) against the per-network flow
+   * results in state.utilityNetworkData. No discovery runs here — the
+   * renderer reuses what the utility gate already computed this tick.
    * Used to drive emissive glow on utility lines during error conditions.
    */
-  _buildErrorMap(state, utilityLines) {
+  _buildErrorMap(state) {
     const out = new Map();
     if (!state || !state.utilityNetworkData || typeof state.utilityNetworkData.get !== 'function') {
       return out;
     }
-    let lookup = null;
+    const networksByType = state.utilityNetworks;
+    if (!networksByType || typeof networksByType.get !== 'function') return out;
     for (const utilityType of UTILITY_TYPE_LIST) {
       const perType = state.utilityNetworkData.get(utilityType);
       if (!perType || perType.size === 0) continue;
-      if (!lookup) lookup = makeDefaultPortLookup(state);
-      const nets = discoverNetworks(utilityType, utilityLines, lookup);
+      const nets = networksByType.get(utilityType) || [];
       for (const net of nets) {
         const flow = perType.get(net.id);
         if (!flow || !flow.errors || flow.errors.length === 0) continue;
@@ -520,15 +552,21 @@ export class UtilityLineBuilderV2 {
     group.traverse(obj => {
       if (obj.isMesh) {
         if (obj.geometry) obj.geometry.dispose();
-        // Materials are cached and shared across lines — do NOT dispose them.
+        // Cached materials (tagged __shared) are reused across builds and
+        // must survive; anything else is owned by this group.
+        const m = obj.material;
+        if (m && !m.userData?.__shared) m.dispose();
       }
     });
   }
 
+  // Preview / hover teardown. These objects are Groups (buildPreviewLine)
+  // or Meshes (buildHoverMarker); traverse() visits the object itself, so
+  // _disposeGroup covers both — a bare `obj.geometry` check would silently
+  // skip every child of a Group and leak one geometry set per frame while
+  // the preview is visible.
   _disposeObject(obj) {
-    if (!obj) return;
-    if (obj.geometry) obj.geometry.dispose();
-    if (obj.material) obj.material.dispose();
+    this._disposeGroup(obj);
   }
 }
 

@@ -1,26 +1,7 @@
 import { ContextWindow } from './ContextWindow.js';
 import { traitDesc } from '../game/staff/StaffMember.js';
 import { staffHireCost } from '../game/staff/staffSystem.js';
-
-const ROLE_COLORS = {
-  operator: '#44aa66',
-  technician: '#aa6633',
-  scientist: '#4488ff',
-  engineer: '#aa8833',
-};
-
-function initials(name) {
-  if (!name) return '?';
-  const parts = name.split(' ');
-  if (parts.length >= 2) return (parts[0][0] || '') + (parts[1][0] || '');
-  return name.slice(0,2).toUpperCase();
-}
-
-function moodBorder(mood) {
-  if (mood === 'stressed') return '#ff4444';
-  if (mood === 'tired') return '#ddaa22';
-  return '#44dd66';
-}
+import { ROLE_COLORS, staffInitials, staffMoodColor } from './format.js';
 
 export function openHiringDialog(game) {
   const winId = 'hiring-dialog';
@@ -51,7 +32,7 @@ export function openHiringDialog(game) {
       const roleColor = ROLE_COLORS[c.role] || '#4466aa';
       html += `<div class="hiring-card">`;
       html += `<div class="hiring-card-header">`;
-      html += `<div class="hiring-portrait" style="background:${roleColor};border-color:${moodBorder(mood)};">${initials(c.name)}</div>`;
+      html += `<div class="hiring-portrait" style="background:${roleColor};border-color:${staffMoodColor(mood)};">${staffInitials(c.name)}</div>`;
       html += `<div><div class="hiring-name">${c.name}</div><div class="hiring-role">${c.role}</div></div>`;
       html += `</div>`;
       html += `<div class="hiring-traits">${traits || 'No traits'}</div>`;
@@ -95,16 +76,17 @@ export function openHiringDialog(game) {
   if (body) renderHiring(body);
 
   ctx.refresh = () => { if (ctx._body) renderHiring(ctx._body); };
-  const origUpdate = ctx.update.bind(ctx);
-  ctx.update = () => { ctx.refresh(); origUpdate(); };
+  // Tab-less window: ContextWindow.update() -> _renderBody() would wipe the
+  // body with no tab renderer to refill it. refresh() is the body render.
+  ctx.update = () => ctx.refresh();
 
   // auto-refresh on staffChanged
   const handler = (ev) => { if (ev === 'staffChanged') ctx.refresh(); };
-  game.on(handler);
+  const offStaff = game.on(handler);
 
   const origClose = ctx.close.bind(ctx);
   ctx.close = () => {
-    // remove listener? Game.on has no off, but ok
+    offStaff();
     origClose();
   };
 

@@ -8,6 +8,9 @@
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
 export const RESERVOIR_MAX_L = 500;
 export const QUENCH_THRESHOLD_L = 20;
+// Balance (Phase 7): a 250 W cryomodule boils ~0.125 L/tick — a ~$24k LHe
+// refill every ~3800 ticks. Rare but painful, as LHe should be.
+export const LHE_COST_PER_L = 50;
 
 export default {
   type: 'cryoTransfer',
@@ -16,6 +19,8 @@ export default {
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
   capacityUnit: 'W@4K',
+  capacityParam: 'coldCapacityW',
+  demandParam: 'srfHeatW',
   persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(
@@ -62,6 +67,10 @@ export default {
         utilization: totalCapacity > 0
           ? Math.min(1, totalDemand / totalCapacity)
           : (totalDemand > 0 ? 1 : 0),
+        // Consumed by UtilityGate._aggregateNodeQualities, which raises
+        // cryoQuenched on sink placeables so the Python side converts
+        // quenched SRF cavities to drifts.
+        quenched,
         perSegmentLoad: [],
         perSinkQuality,
         errors: [...errors],
@@ -75,6 +84,6 @@ export default {
     const current = (persistent && persistent.lheVolumeL) || 0;
     const missing = RESERVOIR_MAX_L - current;
     if (missing < 1) return null;
-    return { funding: Math.ceil(missing * 50) };
+    return { funding: Math.ceil(missing * LHE_COST_PER_L) };
   },
 };

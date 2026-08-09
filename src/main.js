@@ -18,7 +18,6 @@ import { ProbeWindow } from './ui/probe.js';
 import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
-import { MACHINES } from './data/machines.js';
 import { SCENARIOS, CUSTOM_SCENARIO_ID, loadCustomScenario, resolveScenario } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
@@ -29,12 +28,12 @@ import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
+import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
 window.COMPONENTS = COMPONENTS;
 window.PARAM_DEFS = PARAM_DEFS;
-window.MACHINES = MACHINES;
 
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');
@@ -192,21 +191,9 @@ function showScenarioPicker(game) {
     game.log('Click to place design. F=rotate, R=reflect, Esc=cancel', 'info');
   };
 
-  renderer._onToolSelect = (compType) => {
-    if (designer.handlePaletteClick(compType)) return;
-    // Pass any param overrides from the palette flyout
-    const overrides = renderer._selectedParamOverrides?.[compType];
-    input.selectTool(compType, overrides);
-  };
-  renderer._onInfraSelect = (infraType, variant) => input.selectInfraTool(infraType, variant);
-  renderer._onFacilitySelect = (compType) => input.selectFacilityTool(compType);
-  renderer._onUtilityLineSelect = (utilityType) => input.setUtilityLineTool(utilityType);
-  renderer._onZoneSelect = (zoneType) => input.selectZoneTool(zoneType);
-  renderer._onWallSelect = (wallType, variant = 0) => input.selectWallTool(wallType, variant);
-  renderer._onDoorSelect = (doorType, variant = 0) => input.selectDoorTool(doorType, variant);
-  renderer._onFurnishingSelect = (furnType, variant = 0) => input.selectFurnishingTool(furnType, variant);
-  renderer._onDecorationSelect = (decType, variant = 0) => input.selectDecorationTool(decType, variant);
-  renderer._onDemolishSelect = (demolishType) => input.selectDemolishTool(demolishType);
+  // Palette item clicks route straight from hud.js into
+  // InputHandler.selectPaletteTool via each item's {kind, key} dataset —
+  // no per-family renderer callback slots anymore.
   renderer._onPaletteClick = (idx) => input._syncPaletteClick(idx);
   renderer._onTabSelect = (category) => { input.selectedCategory = category; input.paletteIndex = -1; input._hidePreview(); };
 
@@ -221,10 +208,18 @@ function showScenarioPicker(game) {
   const probeWindow = new ProbeWindow(game);
   renderer.onProbeClick = (node) => probeWindow.addPin(node);
 
-  const origSave = game.save.bind(game);
-  game.save = function() {
-    this.state.probe = probeWindow.toJSON();
-    this.state.view = {
+  // Host-layer save sections (camera/UI mode, probe pins, designer session).
+  // Registered before game.load() so their sections restore on boot; the
+  // load callbacks only stash — the actual restore runs after load returns
+  // (and after any pending scenario is applied) in the blocks below.
+  let restoredView = null;
+  let restoredProbe = null;
+  game.registerSerializer('probe', {
+    save: () => probeWindow.toJSON(),
+    load: (data) => { restoredProbe = data; },
+  });
+  game.registerSerializer('view', {
+    save: () => ({
       zoom: renderer.zoom,
       worldX: renderer.world.x,
       worldY: renderer.world.y,
@@ -234,10 +229,15 @@ function showScenarioPicker(game) {
       activeMode: input.activeMode,
       selectedCategory: input.selectedCategory,
       route: window.location.hash.slice(1) || 'game',
-    };
-    this.state.designerState = designer.serializeState();
-    origSave();
-  };
+    }),
+    load: (data) => { restoredView = data; },
+  });
+  game.registerSerializer('designer', {
+    save: () => designer.serializeState(),
+    // designerState's runtime home stays on game.state (BeamlineDesigner and
+    // InputHandler read it directly); only its persistence moved to aux.
+    load: (data) => { game.state.designerState = data || null; },
+  });
 
   game.on((event) => {
     if (event === 'beamlineChanged') {
@@ -267,25 +267,28 @@ function showScenarioPicker(game) {
       if (scenario?.generator) {
         const mapData = scenario.generator();
         game.applyScenario(mapData);
+        // Dynamic scenario content (beamline, pipes, utility wiring) builds
+        // through the normal Game APIs so it satisfies utility gating.
+        if (scenario.setup) scenario.setup(game);
         game.save();
         game.log(`Scenario "${scenario.name}" loaded.`, 'good');
       }
     }
   }
 
-  if (game.state.view) {
-    renderer.zoom = game.state.view.zoom;
-    if (typeof game.state.view.panX === 'number') {
-      renderer._panX = game.state.view.panX;
-      renderer._panY = game.state.view.panY;
-      renderer._isoYawIdx = game.state.view.viewRotationIndex || 0;
+  if (restoredView) {
+    renderer.zoom = restoredView.zoom;
+    if (typeof restoredView.panX === 'number') {
+      renderer._panX = restoredView.panX;
+      renderer._panY = restoredView.panY;
+      renderer._isoYawIdx = restoredView.viewRotationIndex || 0;
       renderer._viewRotationAngle = renderer._isoYawIdx * Math.PI / 2;
     } else {
       // Legacy save: derive pan from the old world.x/y offset (rotation=0 math).
       const screenW = renderer.app.screen.width;
       const screenH = renderer.app.screen.height;
-      const centerIsoX = (screenW / 2 - game.state.view.worldX) / renderer.zoom;
-      const centerIsoY = (screenH / 2 - game.state.view.worldY) / renderer.zoom;
+      const centerIsoX = (screenW / 2 - restoredView.worldX) / renderer.zoom;
+      const centerIsoY = (screenH / 2 - restoredView.worldY) / renderer.zoom;
       const col = (centerIsoX / 32 + centerIsoY / 16) / 2;
       const row = (centerIsoY / 16 - centerIsoX / 32) / 2;
       renderer._panX = col * 2;
@@ -294,25 +297,28 @@ function showScenarioPicker(game) {
     renderer._syncOverlayFromPan();
     renderer._updateCameraLookAt();
     // Restore active mode and selected category/tab
-    if (game.state.view.activeMode && MODES[game.state.view.activeMode]) {
+    if (restoredView.activeMode && MODES[restoredView.activeMode]) {
       // For facility mode, restore the Labs/Rooms group toggle before regenerating tabs
-      if (game.state.view.activeMode === 'facility' && game.state.view.selectedCategory) {
-        const restoredCat = MODES.facility.categories[game.state.view.selectedCategory];
+      if (restoredView.activeMode === 'facility' && restoredView.selectedCategory) {
+        const restoredCat = MODES.facility.categories[restoredView.selectedCategory];
         if (restoredCat?.group) renderer._facilityGroup = restoredCat.group;
       }
-      input.setActiveMode(game.state.view.activeMode);
-      if (game.state.view.selectedCategory) {
-        input.selectedCategory = game.state.view.selectedCategory;
-        renderer.updatePalette(game.state.view.selectedCategory);
+      input.setActiveMode(restoredView.activeMode);
+      // setActiveMode does not rebuild the tab bar, so without this the bar
+      // still shows the mode init() built and the restored tab is missing.
+      renderer._generateCategoryTabs?.();
+      if (restoredView.selectedCategory) {
+        input.selectedCategory = restoredView.selectedCategory;
+        renderer.updatePalette(restoredView.selectedCategory);
         document.querySelectorAll('.cat-tab').forEach(t => {
-          t.classList.toggle('active', t.dataset.category === game.state.view.selectedCategory);
+          t.classList.toggle('active', t.dataset.category === restoredView.selectedCategory);
         });
       }
     }
   }
 
-  if (game.state.probe) {
-    probeWindow.fromJSON(game.state.probe);
+  if (restoredProbe) {
+    probeWindow.fromJSON(restoredProbe);
   }
 
   // Restore designer state if it was open
@@ -409,6 +415,10 @@ function showScenarioPicker(game) {
     switch (action) {
       case 'new-game':
         if (confirm('Start a new game? All progress will be lost.')) {
+          // skipTitle so the reload lands in a fresh game rather than on the
+          // title screen — which, with the save just deleted, would show no
+          // Continue button and force a second New Game click.
+          sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
           localStorage.removeItem('beamlineTycoon');
           location.reload();
         }
@@ -507,7 +517,14 @@ function showScenarioPicker(game) {
     return new UtilityInspector(game, line.utilityType, net.id);
   };
 
-  router.init(game.state.view?.route);
+  router.init(restoredView?.route);
+  // Start the sim paused behind the title screen. game.start() spins up the
+  // 1 Hz tick — upkeep, staff needs, research progress, objectives, and an
+  // autosave every 30 ticks — so leaving the title screen up used to charge
+  // the player for minutes of idle time and overwrite the very save they had
+  // not chosen to continue yet. onContinue resumes.
+  const pausedBeforeTitle = game.state.paused;
+  if (titleScreen) game.state.paused = true;
   game.start();
 
   // First-run welcome popup: only once the player is actually looking at
@@ -523,7 +540,13 @@ function showScenarioPicker(game) {
   if (titleScreen) {
     titleScreen.ready({
       hasSave: hadSave,
-      onContinue: () => { titleScreen.dismiss(); maybeShowWelcome(); },
+      onContinue: () => {
+        titleScreen.dismiss();
+        // Restore whatever pause state the loaded save had, not an
+        // unconditional resume.
+        if (!pausedBeforeTitle) game.resume();
+        maybeShowWelcome();
+      },
       onNewGame: () => {
         // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
         // with skipTitle set so the reload goes straight into the game.
@@ -567,6 +590,20 @@ function showScenarioPicker(game) {
       game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
       game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
     }
+    // Utility gating (Phase 6/7): junction power + vacuum sinks are
+    // hard-required, so wire the source + faraday cup before starting beam.
+    for (const [c, r] of [[2,14],[6,14]]) { const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true}); }
+    const xfmr = game.placePlaceable({type:'padMountTransformer', col:2, row:14});
+    const pump = game.placePlaceable({type:'roughingPump', col:6, row:14});
+    if (xfmr && src) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:src,port:'pwr_in'});
+    if (xfmr && far) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:far,port:'pwr_in'});
+    if (pump && src) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:src,port:'vac_in'});
+    if (pump && far) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:far,port:'vac_in'});
+    renderer.refresh(); await sleep(500);
+    // Turn the beam on once the gate has seen the wired topology.
+    game.tick();
+    const demoEntry = game.registry.getAll().find(e => e.sourceId === src);
+    if (demoEntry && demoEntry.status !== 'running') game.toggleBeam(demoEntry.id);
     renderer.setViewMode('iso',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('top',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('iso',2); renderer.refresh(); panTo(4,7,1.3); await sleep(700);

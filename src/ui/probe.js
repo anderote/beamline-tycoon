@@ -2,6 +2,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { ProbePlots } from './probe-plots.js';
+import { makeDraggable } from './draggable.js';
 
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
@@ -31,8 +32,6 @@ export class ProbeWindow {
     ];
     this.open = false;
     this.el = null;
-    this._dragging = false;
-    this._resizing = false;
     this._buildDOM();
     this._bindEvents();
   }
@@ -78,44 +77,38 @@ export class ProbeWindow {
 
   _bindEvents() {
     const titlebar = this.el.querySelector('.probe-titlebar');
-    titlebar.addEventListener('mousedown', (e) => {
-      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
-      this._dragging = true;
-      this._dragOff = {
-        x: e.clientX - this.el.offsetLeft,
-        y: e.clientY - this.el.offsetTop,
-      };
-      e.preventDefault();
+    makeDraggable(this.el, titlebar, {
+      exclude: 'button, select',
+      onStart: () => ({ ox: this.el.offsetLeft, oy: this.el.offsetTop }),
+      onMove: (e, dx, dy, s) => {
+        this.el.style.left = (s.ox + dx) + 'px';
+        this.el.style.top = (s.oy + dy) + 'px';
+      },
     });
 
+    // Resize from the corner handle — document listeners attach only while
+    // an active resize is in flight, matching the drag helper's discipline.
     const handle = this.el.querySelector('.probe-resize-handle');
     handle.addEventListener('mousedown', (e) => {
-      this._resizing = true;
-      this._resizeStart = {
+      const start = {
         x: e.clientX, y: e.clientY,
         w: this.el.offsetWidth, h: this.el.offsetHeight,
       };
+      const onMove = (ev) => {
+        const dx = ev.clientX - start.x;
+        const dy = ev.clientY - start.y;
+        this.el.style.width = Math.max(300, start.w + dx) + 'px';
+        this.el.style.height = Math.max(200, start.h + dy) + 'px';
+        this._sizeCanvases();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
       e.preventDefault();
       e.stopPropagation();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (this._dragging) {
-        this.el.style.left = (e.clientX - this._dragOff.x) + 'px';
-        this.el.style.top = (e.clientY - this._dragOff.y) + 'px';
-      }
-      if (this._resizing) {
-        const dx = e.clientX - this._resizeStart.x;
-        const dy = e.clientY - this._resizeStart.y;
-        this.el.style.width = Math.max(300, this._resizeStart.w + dx) + 'px';
-        this.el.style.height = Math.max(200, this._resizeStart.h + dy) + 'px';
-        this._sizeCanvases();
-      }
-    });
-
-    document.addEventListener('mouseup', () => {
-      this._dragging = false;
-      this._resizing = false;
     });
 
     this.el.querySelector('.probe-close').addEventListener('click', () => this.close());
@@ -135,12 +128,9 @@ export class ProbeWindow {
       if (event !== 'beamlineChanged') return;
       if (!this.open) return;
       const ordered = this.game.state.beamline;
-      this.pins = this.pins.filter(pin => {
-        const idx = ordered.findIndex(n => n.id === pin.nodeId);
-        if (idx < 0) return false;
-        pin.elementIndex = idx;
-        return true;
-      });
+      // Drop pins whose element is gone; surviving pins are re-resolved
+      // against the envelope in updatePlots().
+      this.pins = this.pins.filter(pin => ordered.some(n => n.id === pin.nodeId));
       if (this.pins.length === 0 && this.open) {
         this.close();
         return;
@@ -170,12 +160,12 @@ export class ProbeWindow {
     }
     if (this.pins.length >= 6) return;
 
-    const ordered = this.game.state.beamline;
-    const elemIdx = ordered.findIndex(n => n.id === node.id);
-
+    // elementIndex / s are resolved against the physics envelope in
+    // updatePlots() — see _resolvePinsToEnvelope.
     this.pins.push({
       nodeId: node.id,
-      elementIndex: elemIdx,
+      elementIndex: -1,
+      s: null,
       color: PROBE_COLORS[this.pins.length],
       label: COMPONENTS[node.type]?.name || node.type,
     });
@@ -318,6 +308,7 @@ export class ProbeWindow {
     if (!this.open || this.pins.length === 0) return;
     const envelope = this.game.state.physicsEnvelope;
     if (!envelope || envelope.length === 0) return;
+    this._resolvePinsToEnvelope(envelope);
 
     this.el.querySelectorAll('.probe-canvas').forEach(canvas => {
       const type = canvas.dataset.type;
@@ -329,6 +320,42 @@ export class ProbeWindow {
     this.el.querySelectorAll('.probe-summary-card').forEach(card => {
       this._renderSummaryCard(card, envelope);
     });
+  }
+
+  /**
+   * Map each pin's beamline element onto the physics envelope.
+   *
+   * `state.physicsEnvelope` is the engine's fixed-size resample of the beam
+   * (SAMPLE_POINTS entries, each carrying `.s` in metres) — it is indexed by
+   * sample position, NOT by element. Pins are created against
+   * `state.beamline`, one entry per element, so indexing the envelope by the
+   * element's position read a completely unrelated sample: with element
+   * counts far below the sample count, every pin resolved into the first
+   * element's snapshot and the summary card reported the source's numbers
+   * under the pinned element's label.
+   *
+   * Resolve by nearest `.s` to the element's mid-point instead, and record
+   * `pin.s` so probe-plots.js draws the pin marker at the right arc position.
+   * This is the same contract BeamlineDesigner produces via
+   * getMarkerEnvelopeIndex().
+   */
+  _resolvePinsToEnvelope(envelope) {
+    const ordered = this.game.state.beamline || [];
+    for (const pin of this.pins) {
+      const node = ordered.find(n => n.id === pin.nodeId);
+      if (!node) continue;
+      // beamStart is the element's START in metres; subL is in sub-units of
+      // 0.5 m (flattener contract), so the mid-point is +subL * 0.25.
+      const s = (node.beamStart || 0) + (node.subL || 0) * 0.25;
+      pin.s = s;
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < envelope.length; i++) {
+        const d = Math.abs((envelope[i].s ?? 0) - s);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      pin.elementIndex = best;
+    }
   }
 
   _renderSummaryCard(card, envelope) {

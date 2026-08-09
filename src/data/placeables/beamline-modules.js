@@ -6,17 +6,7 @@
 // non-drawn-connection so drift pipes (drawn between nodes) are excluded.
 
 import { BEAMLINE_COMPONENTS_RAW } from '../beamline-components.raw.js';
-
-// All dims are in SUB-TILES (1 sub-tile = 0.5m). gridW/gridH in the raw
-// files are authored in sub-tiles too (not whole tiles), matching subW/subL.
-// subW = X footprint, subL = Z footprint, subH = Y height.
-function toDims(raw) {
-  return {
-    subW: raw.subW ?? raw.gridW ?? 4,
-    subL: raw.subL ?? raw.gridH ?? 4,
-    subH: raw.subH ?? 1,
-  };
-}
+import { toDims } from './dims.js';
 
 function normalize(raw) {
   const { subW, subL, subH } = toDims(raw);

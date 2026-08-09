@@ -222,6 +222,11 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
     summary = {
         "final_energy": beam.energy,
+        # Game-facing energy: kinetic (total minus rest mass). Matters for
+        # protons, where the 0.938 GeV rest mass would otherwise dominate
+        # every displayed/objective-checked energy figure.
+        "final_kinetic_energy": max(beam.energy - beam.mass, 0.0),
+        "mass": beam.mass,
         "final_current": beam.current,
         "initial_current": initial_current,
         "luminosity": sum(luminosities),

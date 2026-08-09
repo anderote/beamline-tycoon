@@ -1,10 +1,10 @@
 // src/data/placeables/index.js
 //
 // Single source of truth for every placeable in the game.
-// Aggregates per-kind def files and wraps each entry in the right
-// Placeable subclass at module load.
+// Aggregates per-kind def files and wraps each entry in a Placeable
+// at module load.
 
-import { PLACEABLE_CLASS_BY_KIND } from '../../game/Placeable.js';
+import { Placeable } from '../../game/Placeable.js';
 import { BEAMLINE_MODULE_DEFS } from './beamline-modules.js';
 import { INFRASTRUCTURE_DEFS } from './infrastructure.js';
 import { FURNISHING_DEFS } from './furnishings.js';
@@ -25,11 +25,8 @@ for (const def of ALL_DEFS) {
   if (PLACEABLES[def.id]) {
     throw new Error(`Duplicate placeable id: ${def.id}`);
   }
-  const Cls = PLACEABLE_CLASS_BY_KIND[def.kind];
-  if (!Cls) {
-    throw new Error(`Unknown placeable kind ${def.kind} for ${def.id}`);
-  }
-  PLACEABLES[def.id] = new Cls(def);
+  // Placeable's constructor rejects unknown kinds.
+  PLACEABLES[def.id] = new Placeable(def);
 }
 
 export function placeablesByKind(kind) {

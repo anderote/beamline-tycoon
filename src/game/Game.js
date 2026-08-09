@@ -1,17 +1,17 @@
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
-import { MACHINES } from '../data/machines.js';
-import { RESEARCH } from '../data/research.js';
+import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
+import { UtilityGate } from './utility-gate.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
@@ -19,17 +19,98 @@ import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
-import { computeSystemStats } from './economy.js';
+import { computeSystemStats, computeTickIncome, computeBeamIncome, computeTickUpkeep } from './economy.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { generateStartingMap } from './map-generator.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
-import { entitiesTick } from './entities/index.js';
+
+// Every game.state key that persists in saves. Everything else on state is
+// derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
+// nodeQualities, mainBeamState, ... — and is recomputed on load()/tick().
+// When adding a state field, list it here unless it can be rebuilt from the
+// others. Map-backed fields (cornerHeights, utilityLines, utilityNetworkState)
+// are converted to entry arrays in serialize().
+const SERIALIZED_FIELDS = [
+  // resources / progression
+  'resources', 'completedResearch', 'activeResearch', 'researchProgress',
+  'completedObjectives', 'discoveries', 'tick', 'paused', 'speed', 'log',
+  'tutorialDismissed', 'welcomeSeen',
+  // staff
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  // world / terrain
+  'seed', 'terrainSeed', 'terrainBlobs', 'floors', 'cornerHeights',
+  'zones', 'walls', 'doors',
+  // facility + placement
+  'facilityEquipment', 'facilityGrid', 'facilityNextId',
+  'zoneFurnishings', 'zoneFurnishingSubgrids', 'zoneFurnishingNextId',
+  'placeables', 'placeableNextId',
+  'beamPipes', 'beamPipeNextId', 'placementNextId', 'placementMode',
+  // utilities
+  'utilityLines', 'utilityNextId', 'utilityNetworkState',
+  // designer library
+  'savedDesigns', 'savedDesignNextId',
+];
+
+// State the sim owns, which undo/redo must not rewind. The tick loop keeps
+// running while the player builds, so restoring these from a snapshot taken
+// N ticks ago would erase N ticks of clock, research, objectives, staff
+// needs and log along with the build. `resources` is reconciled separately
+// (see _syncResourceLedger): undo restores the snapshot's balance plus every
+// non-gesture credit/debit since, so a build's cost comes back without also
+// reclaiming the upkeep the facility paid while the build stood.
+// `savedDesigns` is not sim state but is equally outside the undo model: the
+// designer library saves/deletes outside any gesture (no _pushUndo), so
+// restoring it would silently destroy a design saved after the last snapshot
+// (and resurrect one deleted after it).
+const UNDO_PRESERVED_FIELDS = [
+  'tick', 'paused', 'speed', 'log',
+  'activeResearch', 'researchProgress', 'completedResearch',
+  'completedObjectives', 'discoveries',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'savedDesigns', 'savedDesignNextId',
+];
+
+// Per-beamline sim accumulators on registry entries. Same rule as
+// UNDO_PRESERVED_FIELDS, one level down: the registry snapshot has to be
+// restored (entry creation/deletion is gesture state) but these fields are
+// the sim's, not the gesture's. Rewinding componentHealth would make Ctrl+Z
+// a free repair of the whole facility, and rewinding beamOnTicks under a
+// preserved state.tick permanently corrupts uptimeFraction.
+const BEAMSTATE_PRESERVED_FIELDS = [
+  'componentHealth', 'beamOnTicks', 'continuousBeamTicks',
+  'totalBeamHours', 'totalDataCollected', 'uptimeFraction',
+];
+
+// Stand-in log used while building an undo snapshot (see _snapshot).
+const EMPTY_LOG = [];
+
+// Metres of dead s-axis inserted between independent source machines in
+// state.beamline, so an element at the very start of machine B can never tie
+// with the last envelope sample of machine A during nearest-s lookups.
+const BEAM_GRAPH_SOURCE_GAP_M = 1;
+
+// mulberry32 — small fast seeded PRNG. All sim randomness flows through
+// game.rng so two Games built with the same seed evolve identically.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export class Game {
-  constructor(registry) {
+  constructor(registry, options = {}) {
     this.registry = registry;
+
+    // Deterministic sim RNG. Only the seed is persisted (state.seed) — a
+    // loaded game restarts the stream, it does not resume mid-stream.
+    const seed = options.seed ?? Date.now();
+    this.rng = mulberry32(seed);
 
     this.editingBeamlineId = null;
     this.selectedBeamlineId = null;
@@ -52,6 +133,10 @@ export class Game {
       completedObjectives: [],
       discoveries: 0,
       tick: 0,
+      // Tick-loop control. speed only changes real-time tick rate;
+      // 1 tick = 1 sim-second at any speed, so tick-modulo logic is untouched.
+      paused: false,
+      speed: 1,        // 1 | 2 | 4
       log: [],
       // Staffing — counts are derived from staffMembers (RimWorld-like individuals)
       staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
@@ -77,14 +162,14 @@ export class Game {
       zoneFurnishings: [],           // [{ id, type, col, row, subCol, subRow, rotated }]
       zoneFurnishingSubgrids: {},    // "col,row" -> [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
       zoneFurnishingNextId: 1,
+      // Derived (not saved): every placed item with a ZONE_FURNISHINGS def,
+      // room furnishings AND lab equipment. Zone tiering + zone effects read
+      // this; zoneFurnishings above is the furnishing-only render view.
+      zoneItems: [],
       // Unified placement system
       placeables: [],              // [{ id, type, category, col, row, subCol, subRow, rotated, dir, params, cells }]
       placeableIndex: {},           // id -> index in placeables array
       subgridOccupied: {},          // "col,row,subCol,subRow" -> { id, category }
-      // Wildlife entities
-      entities: [],                 // flat list of all entity objects
-      herds: [],                    // herd state objects
-      _entitiesLastPlaceableIds: null, // null = first tick — seed but do not trigger startle
       placeableNextId: 1,
       // Beam pipe connections (drawn between module ports)
       beamPipes: [],                // [{ id, start: {junctionId, portName}|null, end: {junctionId, portName}|null, path: [{col,row}], subL, placements: [{id, type, position, params}] }]
@@ -102,9 +187,7 @@ export class Game {
       utilityNextId: 1,
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
-      // Machines (cyclotrons, stalls, rings)
-      machines: [],             // machine instances
-      machineGrid: {},          // "col,row" -> machineId
+      utilityNetworks: null,   // derived: discovery output published by solveRunner
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
       infraBlockers: [],          // blockers from solve-runner
@@ -119,15 +202,32 @@ export class Game {
     };
 
     this.listeners = [];
+    // Event coalescing for batch mutations (see _batchEvents): while set,
+    // emit() collects events here instead of dispatching them.
+    this._eventBatch = null;
+    // Pluggable save sections (see registerSerializer). key -> {save, load}
+    this._serializers = new Map();
     this.tickInterval = null;
     this.TICK_MS = 1000;
+    this._started = false;   // start() called and not stop()ped; pause keeps this true
 
-    // Undo stack (max 3 snapshots)
+    // Undo/redo stacks of full serialize() payloads (JSON strings, each
+    // roughly the size of a save file). 20 deep is comfortably cheap —
+    // even a large facility save is well under 1 MB, so worst case is a
+    // few tens of MB of strings, and old snapshots are dropped past the cap.
     this._undoStack = [];
-    this._UNDO_MAX = 3;
+    this._redoStack = [];
+    this._UNDO_MAX = 20;
+    // Resource accounting for undo (see _syncResourceLedger): running total
+    // of every credit/debit undo must NOT reverse, plus the balance as of
+    // the last attribution boundary and whether a _pushUndo gesture is open.
+    this._resourceLedger = {};
+    this._resourceMark = { ...this.state.resources };
+    this._undoGestureOpen = false;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
-    this.state.terrainSeed = Date.now();
+    this.state.seed = seed;
+    this.state.terrainSeed = seed;
     this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
 
     // Apply natural starter map (trees clumped on dark soil).
@@ -169,8 +269,11 @@ export class Game {
       log: this.log.bind(this),
       spend: this.spend.bind(this),
       canAfford: this.canAfford.bind(this),
+      isUnlocked: this.isComponentUnlocked.bind(this),
       placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
       removePlaceable: (id) => this._removePlaceableRaw(id),
+      // Late-bound: utilityLineSystem is constructed just below.
+      onPlacementRemoved: (id) => this.utilityLineSystem?.onPlaceableRemoved(id),
       nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,
       nextPlacementId: () => 'pl_' + (this.state.placementNextId = (this.state.placementNextId || 0) + 1),
     });
@@ -185,13 +288,51 @@ export class Game {
       nextLineId: () => 'ul_' + (this.state.utilityNextId = (this.state.utilityNextId || 1) + 1),
     });
 
-    // SolveRunner computes per-network flow state each tick. v1: no topology
-    // caching; we re-discover networks every tick. Cheap enough for early
-    // playtests, and trivial to optimize later via a dirty-flag on addLine/
-    // removeLine.
+    // SolveRunner computes per-network flow state each tick. Network
+    // discovery is cached on a topology revision: the listener below bumps it
+    // on every topology mutation seam, and load/undo/redo bump it in
+    // _applyState (they replace state.utilityLines wholesale).
     this.solveRunner = new SolveRunner({
       state: this.state,
       registry: UtilityRegistry,
+    });
+
+    // Topology-dirty seam. All utilityLines mutations flow through
+    // UtilityLineSystem (addLine / removeLine / onPlaceableRemoved), which
+    // emits 'utilityLinesChanged'; all placeable mutations flow through
+    // _placePlaceableInner / removePlaceable / _removePlaceableRaw, which emit
+    // 'placeableChanged'; every pipe/placement mutation in BeamlineSystem
+    // emits 'beamlineChanged'. On-pipe placements are utility endpoints too
+    // (utility/utility-endpoints.js), so a pipe edit changes the utility
+    // topology just like a placeable does — without this the discovery cache
+    // kept serving a network that still carried a deleted placement's demand.
+    // All three are user-action-rate, so bumping on every one of them costs at
+    // most one extra discovery per action.
+    //
+    // 'beamlineChanged' also schedules the per-beamline physics recalc. Pipe
+    // draw/extend/remove and on-pipe placement changes previously only reached
+    // _recalcMainBeamGraph (state.mainBeamState), never _recalcSingleBeamline,
+    // so every registry entry's beamState — the thing _tickBeamline bills
+    // income and data off — stayed frozen at its makeDefaultBeamState() values
+    // for the rest of the session.
+    this.on((event) => {
+      if (event === 'utilityLinesChanged' || event === 'placeableChanged'
+          || event === 'beamlineChanged') {
+        this.solveRunner.markTopologyDirty();
+      }
+      if (event === 'beamlineChanged') {
+        this.schedulePhysicsRecalc();
+      }
+    });
+
+    // UtilityGate wraps the per-tick solve with the gating policy (unconnected
+    // sinks, staffing, infraBlockers, nodeQualities). rng is a delegating
+    // closure — load() reassigns this.rng, so don't capture the function.
+    this.utilityGate = new UtilityGate({
+      state: this.state,
+      solveRunner: this.solveRunner,
+      getPorts: getUtilityPortsV2,
+      rng: () => this.rng(),
     });
 
     // RimWorld-like staff: seed one operator pawn if none exists
@@ -201,7 +342,7 @@ export class Game {
   _ensureStaffSeed() {
     if (!this.state.staffMembers) this.state.staffMembers = [];
     if (this.state.staffMembers.length === 0) {
-      const m = createStaffMember('operator', `staff_${this.state.staffNextId++}`, this.state.tick);
+      const m = createStaffMember('operator', `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
       m.assignment.zoneId = 'controlRoom';
       this.state.staffMembers.push(m);
       this.state.staff = deriveStaffCounts(this.state.staffMembers);
@@ -214,8 +355,8 @@ export class Game {
     const roles = ['operator', 'technician', 'scientist', 'engineer'];
     this.state.staffCandidates = [];
     for (let i = 0; i < 3; i++) {
-      const role = roles[Math.floor(Math.random() * roles.length)];
-      const m = createStaffMember(role, `cand_${Date.now()}_${i}_${Math.floor(Math.random()*1e6)}`, this.state.tick);
+      const role = roles[Math.floor(this.rng() * roles.length)];
+      const m = createStaffMember(role, `cand_${this.state.staffNextId++}`, this.state.tick, this.rng);
       // candidates are not yet in staffMembers
       this.state.staffCandidates.push(m);
     }
@@ -282,8 +423,39 @@ export class Game {
     return blobs;
   }
 
-  on(fn) { this.listeners.push(fn); }
-  emit(event, data) { this.listeners.forEach(fn => fn(event, data)); }
+  /** Subscribe to game events. Returns an unsubscribe function. */
+  on(fn) { this.listeners.push(fn); return () => this.off(fn); }
+  off(fn) {
+    const idx = this.listeners.indexOf(fn);
+    if (idx !== -1) this.listeners.splice(idx, 1);
+  }
+  emit(event, data) {
+    if (this._eventBatch) { this._eventBatch.set(event, data); return; }
+    this.listeners.forEach(fn => fn(event, data));
+  }
+
+  /**
+   * Coalesce emits while `fn` runs. Per-tile helpers (removeInfraTile,
+   * removeZoneTile, removePlaceable, ...) each emit their own events, so a
+   * rect sweep would otherwise trigger a full renderer rebuild per tile.
+   * Events are deduped by name (last data wins, first-seen order) and
+   * dispatched once after `fn` returns. Nested calls flush at the outermost
+   * batch. Listeners re-read state, so dedup is safe: log lines still land
+   * in state.log, and the UI re-renders from state on the single dispatch.
+   */
+  _batchEvents(fn) {
+    if (this._eventBatch) return fn(); // nested — outer batch flushes
+    this._eventBatch = new Map();
+    let result;
+    try {
+      result = fn();
+    } finally {
+      const batch = this._eventBatch;
+      this._eventBatch = null;
+      for (const [event, data] of batch) this.emit(event, data);
+    }
+    return result;
+  }
 
   log(msg, type = '') {
     this.state.log.unshift({ msg, type, tick: this.state.tick });
@@ -305,43 +477,110 @@ export class Game {
 
   // === UNDO ===
 
-  /** Snapshot mutable game state onto the undo stack (max 3). */
+  // Undo works on full-state snapshots: _pushUndo() captures serialize()
+  // output (everything a save captures — placeables, beamPipes, terrain,
+  // utility lines, registry, ...), and undo()/redo() restore it via
+  // restoreSnapshot(). Input controllers wrap each user gesture's mutations
+  // in _withUndo() (or call _pushUndo() directly when the gesture is known
+  // to mutate); Game mutation methods never push (they also run
+  // programmatically from scenario generation, BeamlineSystem, load).
+  //
+  // These parts of the payload are deliberately not restored:
+  //   - the message log (snapshots are taken log-free, see _snapshot)
+  //   - sim progress (UNDO_PRESERVED_FIELDS + the resource ledger below,
+  //     plus BEAMSTATE_PRESERVED_FIELDS on each registry entry)
+  //   - the RNG stream position (see _applyState) — rewinding it would let
+  //     undo/redo re-roll wear failures and discoveries
+  //   - the designer library (savedDesigns), which is saved outside any
+  //     gesture and so has no undo entry of its own
+
+  /**
+   * Snapshot payload for the undo stacks: serialize() with the message log
+   * stripped. The log is not undoable state — Ctrl+Z must not delete log
+   * lines — and leaving it in would make every logged rejection ("Need $252
+   * for 9 tiles!") read as a mutation in _withUndo's change test.
+   */
+  _snapshot() {
+    const log = this.state.log;
+    this.state.log = EMPTY_LOG;
+    try { return this.serialize(); } finally { this.state.log = log; }
+  }
+
+  /** An undo/redo stack entry: the snapshot plus the resource ledger it was
+   *  taken against (see _syncResourceLedger). */
+  _makeUndoEntry() {
+    return { payload: this._snapshot(), ledger: { ...this._resourceLedger } };
+  }
+
+  /**
+   * Fold resource drift since the last mark into _resourceLedger — the
+   * running total of credits/debits undo must NOT reverse (tick income and
+   * upkeep, hires, research spend). Changes made while a _pushUndo() gesture
+   * is open are attributed to that gesture instead (marked, not folded) so
+   * undo still refunds what the gesture spent. Called at every point where
+   * attribution can change: gesture start, and undo/redo.
+   */
+  _syncResourceLedger() {
+    const res = this.state.resources || {};
+    if (!this._undoGestureOpen) {
+      for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
+        this._resourceLedger[k] = (this._resourceLedger[k] || 0)
+          + ((res[k] || 0) - (this._resourceMark[k] || 0));
+      }
+    }
+    this._undoGestureOpen = false;
+    this._resourceMark = { ...res };
+  }
+
+  /** Stop attributing resource changes to the gesture that just ended. */
+  _closeUndoGesture() {
+    this._undoGestureOpen = false;
+    this._resourceMark = { ...this.state.resources };
+  }
+
+  /** Snapshot the full game state onto the undo stack. Call at the start
+   *  of a user gesture, before any mutation. Clears the redo stack. */
   _pushUndo() {
-    const snap = {
-      resources: { ...this.state.resources },
-      floors: this.state.floors.map(t => ({ ...t })),
-      infraOccupied: { ...this.state.infraOccupied },
-      zones: this.state.zones.map(z => ({ ...z })),
-      zoneOccupied: { ...this.state.zoneOccupied },
-      walls: this.state.walls.map(w => ({ ...w })),
-      wallOccupied: { ...this.state.wallOccupied },
-      doors: this.state.doors.map(d => ({ ...d })),
-      doorOccupied: { ...this.state.doorOccupied },
-      facilityEquipment: this.state.facilityEquipment.map(e => ({ ...e })),
-      facilityGrid: { ...this.state.facilityGrid },
-      facilityNextId: this.state.facilityNextId,
-      zoneFurnishings: this.state.zoneFurnishings.map(f => ({ ...f })),
-      zoneFurnishingSubgrids: JSON.parse(JSON.stringify(this.state.zoneFurnishingSubgrids)),
-      zoneFurnishingNextId: this.state.zoneFurnishingNextId,
-      machines: this.state.machines.map(m => JSON.parse(JSON.stringify(m))),
-      machineGrid: { ...this.state.machineGrid },
-      editingBeamlineId: this.editingBeamlineId,
-      selectedBeamlineId: this.selectedBeamlineId,
-      // Beamline registry snapshot
-      registryData: this._snapshotRegistry(),
-    };
-    this._undoStack.push(snap);
+    this._syncResourceLedger();
+    this._undoStack.push(this._makeUndoEntry());
     if (this._undoStack.length > this._UNDO_MAX) {
       this._undoStack.shift();
     }
+    this._redoStack.length = 0;
+    // Everything the caller mutates from here belongs to this gesture, not
+    // to the ledger. Unlike _withUndo there is no "after" hook, so the
+    // gesture closes at the end of the current task: its mutations all run
+    // synchronously in the same event handler, while tick() and later
+    // gestures are separate tasks whose spending must stay in the ledger.
+    this._undoGestureOpen = true;
+    queueMicrotask(() => this._closeUndoGesture());
   }
 
-  _snapshotRegistry() {
-    return this.registry.toJSON();
-  }
-
-  _restoreRegistryFromSnap(regSnap) {
-    this.registry.fromJSON(regSnap);
+  /**
+   * Run one user gesture's mutations with undo capture. Snapshots before
+   * running `fn` and commits the snapshot (clearing the redo stack) only if
+   * `fn` actually changed the serialized state. No-op gestures — miss
+   * clicks, empty drag rects, failed placements — must neither fill the
+   * capped undo stack with identical snapshots nor clobber the redo stack.
+   * Returns fn's result.
+   */
+  _withUndo(fn) {
+    this._syncResourceLedger();
+    const entry = this._makeUndoEntry();
+    let result;
+    try {
+      result = fn();
+    } finally {
+      if (this._snapshot() !== entry.payload) {
+        this._undoStack.push(entry);
+        if (this._undoStack.length > this._UNDO_MAX) {
+          this._undoStack.shift();
+        }
+        this._redoStack.length = 0;
+      }
+      this._closeUndoGesture();
+    }
+    return result;
   }
 
   undo() {
@@ -349,47 +588,24 @@ export class Game {
       this.log('Nothing to undo', 'info');
       return;
     }
-    const snap = this._undoStack.pop();
-
-    // Restore state
-    this.state.resources = snap.resources;
-    this.state.floors = snap.floors;
-    this.state.infraOccupied = snap.infraOccupied;
-    this.state.zones = snap.zones;
-    this.state.zoneOccupied = snap.zoneOccupied;
-    this.state.walls = snap.walls;
-    this.state.wallOccupied = snap.wallOccupied;
-    this.state.doors = snap.doors;
-    this.state.doorOccupied = snap.doorOccupied;
-    this.state.facilityEquipment = snap.facilityEquipment;
-    this.state.facilityGrid = snap.facilityGrid;
-    this.state.facilityNextId = snap.facilityNextId;
-    this.state.zoneFurnishings = snap.zoneFurnishings;
-    this.state.zoneFurnishingSubgrids = snap.zoneFurnishingSubgrids;
-    this.state.zoneFurnishingNextId = snap.zoneFurnishingNextId;
-    this.state.machines = snap.machines;
-    this.state.machineGrid = snap.machineGrid;
-    this.editingBeamlineId = snap.editingBeamlineId;
-    this.selectedBeamlineId = snap.selectedBeamlineId;
-
-    // Restore registry
-    this._restoreRegistryFromSnap(snap.registryData);
-
-    // Rebuild aggregate state
-    this._updateAggregateBeamline();
-    this.computeSystemStats();
-    this.recomputeZoneConnectivity();
-
+    this._syncResourceLedger();
+    const entry = this._undoStack.pop();
+    this._redoStack.push(this._makeUndoEntry());
+    this.restoreSnapshot(entry);
     this.log('Undo', 'info');
-    this.emit('beamlineChanged');
-    this.emit('infrastructureChanged');
-    this.emit('zonesChanged');
-    this.emit('wallsChanged');
-    this.emit('doorsChanged');
-    this.emit('decorationsChanged');
-    this.emit('facilityChanged');
-    this.emit('connectionsChanged');
-    this.emit('machineChanged');
+  }
+
+  redo() {
+    if (this._redoStack.length === 0) {
+      this.log('Nothing to redo', 'info');
+      return;
+    }
+    this._syncResourceLedger();
+    const entry = this._redoStack.pop();
+    // Push directly (not _pushUndo) — _pushUndo would clear the redo stack.
+    this._undoStack.push(this._makeUndoEntry());
+    this.restoreSnapshot(entry);
+    this.log('Redo', 'info');
   }
 
   // === PLACEMENT ===
@@ -609,85 +825,91 @@ export class Game {
       return false;
     }
 
-    // Place all tiles
+    // Place all tiles. Batched: paving over a grove removes one decoration
+    // per tile, and each removal emits 'placeableChanged' — which costs the
+    // renderer a full teardown + rebuild of every decoration group. Mirrors
+    // removeInfraRect's sweep; the post-loop 'infrastructureChanged' is
+    // deduped into the same single dispatch.
     let placed = 0;
-    for (let c = minCol; c <= maxCol; c++) {
-      for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
-        const existing = this.state.infraOccupied[key];
-        // Same-type orientable: just update orientation for free
-        if (existing === infraType && infra.orientable) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          if (existingTile) existingTile.orientation = orientation;
-          placed++;
-          continue;
-        }
-        // Same type — update variant for free if it differs, otherwise skip
-        if (existing === infraType) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          if (existingTile && existingTile.variant !== variant) {
-            existingTile.variant = variant;
+    this._batchEvents(() => {
+      for (let c = minCol; c <= maxCol; c++) {
+        for (let r = minRow; r <= maxRow; r++) {
+          const key = c + ',' + r;
+          const existing = this.state.infraOccupied[key];
+          // Same-type orientable: just update orientation for free
+          if (existing === infraType && infra.orientable) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            if (existingTile) existingTile.orientation = orientation;
             placed++;
+            continue;
           }
-          continue;
-        }
-        if (infra.requiresFoundation) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          const baseType = existingTile?.foundation || existing;
-          if (baseType !== infra.requiresFoundation) continue;
-        }
-        // Auto-remove any decoration (including trees). Charge the tree's
-        // removeCost on top of the tile cost; destruction skips the normal
-        // 50% refund so the actual spend matches the preview total.
-        // Natural grass variants set preservesDecorations: trees stay.
-        let perTileExtra = 0;
-        const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
-        if (existingDec) {
-          const decDef = DECORATIONS[existingDec.type];
-          perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
-          this.removeDecoration(c, r, { skipRefund: true });
-        }
-        // Track foundation for surface tiles
-        let foundation = null;
-        if (infra.requiresFoundation && existing) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          foundation = existingTile?.foundation || existing;
-        }
-        if (existing) {
-          // Replace existing floor - remove old tile
-          this.state.floors = this.state.floors.filter(
-            t => !(t.col === c && t.row === r)
-          );
-          // Remove zone on this tile since floor is changing
-          if (this.state.zoneOccupied?.[key]) {
-            delete this.state.zoneOccupied[key];
-            this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+          // Same type — update variant for free if it differs, otherwise skip
+          if (existing === infraType) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            if (existingTile && existingTile.variant !== variant) {
+              existingTile.variant = variant;
+              placed++;
+            }
+            continue;
           }
+          if (infra.requiresFoundation) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            const baseType = existingTile?.foundation || existing;
+            if (baseType !== infra.requiresFoundation) continue;
+          }
+          // Auto-remove any decoration (including trees). Charge the tree's
+          // removeCost on top of the tile cost; destruction skips the normal
+          // 50% refund so the actual spend matches the preview total.
+          // Natural grass variants set preservesDecorations: trees stay.
+          let perTileExtra = 0;
+          const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
+          if (existingDec) {
+            const decDef = DECORATIONS[existingDec.type];
+            perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
+            this.removeDecoration(c, r, { skipRefund: true });
+          }
+          // Track foundation for surface tiles
+          let foundation = null;
+          if (infra.requiresFoundation && existing) {
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            foundation = existingTile?.foundation || existing;
+          }
+          if (existing) {
+            // Replace existing floor - remove old tile
+            this.state.floors = this.state.floors.filter(
+              t => !(t.col === c && t.row === r)
+            );
+            // Remove zone on this tile since floor is changing
+            if (this.state.zoneOccupied?.[key]) {
+              delete this.state.zoneOccupied[key];
+              this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+            }
+          }
+          this.state.resources.funding -= tileCostForVariant + perTileExtra;
+          const tileEntry = { type: infraType, col: c, row: r, variant };
+          if (foundation) tileEntry.foundation = foundation;
+          if (orientation) tileEntry.orientation = orientation;
+          this.state.floors.push(tileEntry);
+          this.state.infraOccupied[key] = infraType;
+          // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
+          if (infraType === 'concrete') {
+            setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
+          }
+          placed++;
         }
-        this.state.resources.funding -= tileCostForVariant + perTileExtra;
-        const tileEntry = { type: infraType, col: c, row: r, variant };
-        if (foundation) tileEntry.foundation = foundation;
-        if (orientation) tileEntry.orientation = orientation;
-        this.state.floors.push(tileEntry);
-        this.state.infraOccupied[key] = infraType;
-        // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
-        if (infraType === 'concrete') {
-          setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
-        }
-        placed++;
       }
-    }
 
-    if (placed > 0) {
-      this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
-      this.emit('infrastructureChanged');
-      // Hallway changes affect zone connectivity
-      if (infraType === 'hallway') {
-        this.recomputeZoneConnectivity();
-        this.emit('zonesChanged');
+      if (placed > 0) {
+        this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
+        this.emit('infrastructureChanged');
+        // Hallway changes affect zone connectivity
+        if (infraType === 'hallway') {
+          this.recomputeZoneConnectivity();
+          this.emit('zonesChanged');
+        }
+        this.validateInfrastructure();
       }
-      this.validateInfrastructure();
-    }
+    });
     return placed > 0;
   }
 
@@ -1135,12 +1357,18 @@ export class Game {
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
 
+    // Batch: removeInfraTile emits 'infrastructureChanged' (and possibly
+    // 'zonesChanged') per tile, each triggering a full terrain rebuild in
+    // the renderer. Coalesce to one emit per event for the whole rect,
+    // mirroring placeInfraRect's single post-loop emit.
     let removed = 0;
-    for (let c = minCol; c <= maxCol; c++) {
-      for (let r = minRow; r <= maxRow; r++) {
-        if (this.removeInfraTile(c, r)) removed++;
+    this._batchEvents(() => {
+      for (let c = minCol; c <= maxCol; c++) {
+        for (let r = minRow; r <= maxRow; r++) {
+          if (this.removeInfraTile(c, r)) removed++;
+        }
       }
-    }
+    });
     if (removed > 0) {
       this.log(`Removed ${removed} floor tiles`, 'info');
     }
@@ -1154,17 +1382,21 @@ export class Game {
     if (idx !== -1) {
       this.state.zones.splice(idx, 1);
       delete this.state.zoneOccupied[key];
-      // Remove ALL furnishings on this tile
-      const tileFurnishings = this.state.zoneFurnishings.filter(e => e.col === col && e.row === row);
-      for (const f of tileFurnishings) {
-        const fDef = ZONE_FURNISHINGS[f.type];
-        if (fDef) this.state.resources.funding += Math.floor(fDef.cost * 0.5);
-      }
-      this.state.zoneFurnishings = this.state.zoneFurnishings.filter(e => !(e.col === col && e.row === row));
-      delete this.state.zoneFurnishingSubgrids[key];
-      this._syncLegacyPlaceableState();
-      this.recomputeZoneConnectivity();
-      this.emit('zonesChanged');
+      // Remove ALL furnishings on this tile. These are ordinary placeables
+      // (state.zoneFurnishings is a derived view rebuilt from state.placeables
+      // by _syncLegacyPlaceableState), so they must go through removePlaceable:
+      // splicing the derived array leaves the furnishing alive, and the def's
+      // `cost` is an object ({funding: N}) — refunding it as a scalar produced
+      // NaN funding. _batchEvents coalesces the per-furnishing emits.
+      const tileFurnishingIds = this.state.zoneFurnishings
+        .filter(e => e.col === col && e.row === row)
+        .map(e => e.id);
+      this._batchEvents(() => {
+        for (const id of tileFurnishingIds) this.removePlaceable(id);
+        this._syncLegacyPlaceableState();
+        this.recomputeZoneConnectivity();
+        this.emit('zonesChanged');
+      });
       return true;
     }
     return false;
@@ -1493,6 +1725,31 @@ export class Game {
   }
 
   /**
+   * Recompute a ground-level placeable's footprint after its col/row/dir
+   * were mutated in place (MoveTool component drop): release the old
+   * subgrid claims, rederive `cells` from the new position, and claim the
+   * new subtiles. Stacked items keep their cells relative to the parent and
+   * never own subgrid entries, so they are left alone.
+   */
+  _rebuildPlaceableCells(entry) {
+    if (!entry || entry.stackParentId) return;
+    const def = PLACEABLES[entry.type];
+    if (!def) return;
+    for (const c of (entry.cells || [])) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      const occ = this.state.subgridOccupied[k];
+      if (occ && occ.id === entry.id) delete this.state.subgridOccupied[k];
+    }
+    entry.cells = def.footprintCells(
+      entry.col, entry.row, entry.subCol || 0, entry.subRow || 0, entry.dir || 0,
+    );
+    for (const c of entry.cells) {
+      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
+    }
+  }
+
+  /**
    * Remove a placeable by ID. Refunds 50% of cost.
    */
   removePlaceable(placeableId, opts = {}) {
@@ -1578,10 +1835,22 @@ export class Game {
     // the removed module) is no longer performed here — BeamlineSystem
     // handles port bookkeeping explicitly via removeJunction + its UI
     // controller, and the flattener tolerates open pipe ends.
+    //
+    // These go through removeBeamPipe rather than a raw filter on
+    // state.beamPipes: it is the only path that pays pipeRefund(), credits
+    // 50% of every on-pipe placement, and releases the utility-line endpoints
+    // wired to those placements. Filtering here destroyed a pipe full of
+    // million-dollar cavities for nothing and left utility lines anchored to
+    // ids that existed nowhere in state.
+    let removedPipes = false;
     if (entry.category === 'beamline') {
-      this.state.beamPipes = this.state.beamPipes.filter(
-        p => p.start?.junctionId !== placeableId && p.end?.junctionId !== placeableId
-      );
+      const connectedPipeIds = this.state.beamPipes
+        .filter(p => p.start?.junctionId === placeableId || p.end?.junctionId === placeableId)
+        .map(p => p.id);
+      for (const pipeId of connectedPipeIds) {
+        this.removeBeamPipe(pipeId, { skipRefund: opts.skipRefund, silent: true });
+      }
+      removedPipes = connectedPipeIds.length > 0;
     }
 
     // Remove from array
@@ -1596,11 +1865,22 @@ export class Game {
       this._deriveBeamGraph();
     }
 
+    // Release any utility-line endpoints that referenced this placeable.
+    // (Mirrors _removePlaceableRaw — the two paths are parallel, neither
+    // delegates to the other, so each must release exactly once.)
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(placeableId);
+    }
+
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
     if (entry.category === 'furnishing') this.emit('zonesChanged');
+    // Connected pipes were pruned above; only 'beamlineChanged' triggers the
+    // renderer's beam-pipe refresh, so without it the deleted pipes' meshes
+    // linger as unclickable ghosts until the next full refresh.
+    if (removedPipes) this.emit('beamlineChanged');
     return true;
   }
 
@@ -1740,6 +2020,14 @@ export class Game {
       variant: entry.variant ?? 0,
     };
 
+    // The drop re-inserts through placePlaceable, which mints a NEW id, so
+    // any utility line attached here would be left pointing at a dead
+    // placeable forever (in state and in every save). Detach them, exactly
+    // as removePlaceable does.
+    if (this.utilityLineSystem) {
+      this.utilityLineSystem.onPlaceableRemoved(placeableId);
+    }
+
     this._syncLegacyPlaceableState();
     this.emit('placeableChanged');
     if (entry.category === 'equipment') this.emit('facilityChanged');
@@ -1779,12 +2067,23 @@ export class Game {
             placeableIdsToRemove.push(el.id);
           }
         }
-        const pipeIdsToRemove = (this.state.beamPipes || [])
-          .filter(p => placeableIdsToRemove.includes(p.start?.junctionId) || placeableIdsToRemove.includes(p.end?.junctionId))
-          .map(p => p.id);
-        this.state.beamPipes = (this.state.beamPipes || []).filter(p => !pipeIdsToRemove.includes(p.id));
+        // Pipes and their on-pipe placements are part of what the player is
+        // demolishing, so they belong in the lump-sum payout. The pipes
+        // themselves are torn down by removePlaceable below (which routes
+        // through removeBeamPipe, releasing utility endpoints); skipRefund
+        // keeps that path from double-crediting what is accumulated here.
+        for (const pipe of (this.state.beamPipes || [])) {
+          if (!placeableIdsToRemove.includes(pipe.start?.junctionId)
+              && !placeableIdsToRemove.includes(pipe.end?.junctionId)) continue;
+          refund += pipeRefund(pipe);
+          for (const att of (pipe.placements || [])) {
+            refund += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+          }
+        }
         for (const pid of placeableIdsToRemove) {
-          this.removePlaceable(pid);
+          // skipRefund: the accumulated 50% `refund` below is the whole
+          // payout — removePlaceable's own 50% refund would double it.
+          this.removePlaceable(pid, { skipRefund: true });
         }
         this.state.resources.funding += refund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
@@ -1808,8 +2107,6 @@ export class Game {
         const id = target.entry?.id || target.id;
         return id ? this.removePlaceable(id) : false;
       }
-      case 'machine':
-        return this.removeMachine(target.id || target.machineId);
       default:
         return false;
     }
@@ -1848,6 +2145,15 @@ export class Game {
     }
     this.state.zoneFurnishings = this.state.placeables.filter(p => p.category === 'furnishing');
     this.state.zoneFurnishingSubgrids = this._getLegacyFurnishingSubgrids();
+    // Every placed item that has a ZONE_FURNISHINGS def, regardless of kind.
+    // The 32 room items (office/controlRoom/cafeteria/meetingRoom) are kind
+    // 'furnishing'; the 43 LAB items (optics/rf/vacuum/cooling/diagnostics/
+    // machineShop) are kind 'equipment'. state.zoneFurnishings stays the
+    // furnishing-only render/hit-test view — the equipment pass in
+    // world-snapshot already draws the lab items — but zone tiering and zone
+    // EFFECTS must see both, or no research lab can ever rise above tier 0 and
+    // every lab item's declared `effects` is dead data.
+    this.state.zoneItems = this.state.placeables.filter(p => !!ZONE_FURNISHINGS[p.type]);
   }
 
   _getLegacyFurnishingSubgrids() {
@@ -1925,41 +2231,49 @@ export class Game {
   }
 
   /**
-   * Remove an attachment from a pipe. Delegates to BeamlineSystem.
+   * Remove an attachment from a pipe. Delegates to BeamlineSystem, which
+   * detaches any utility line that was wired to it via the injected
+   * `onPlacementRemoved` hook — placements are utility endpoints (see
+   * utility/utility-endpoints.js), so a removed one would otherwise leave
+   * lines pointing at a dead id in state and in every save.
    */
   removeAttachment(pipeId, attachmentId) {
     return this.beamline.removeFromPipe(pipeId, attachmentId);
   }
 
-  removeBeamPipe(pipeId) {
+  /**
+   * @param {string} pipeId
+   * @param {{skipRefund?:boolean, silent?:boolean}} [opts] — `skipRefund`
+   *   suppresses the pipe + placement credits (the caller is paying a lump
+   *   sum of its own, e.g. the `beamlineWhole` demolish); `silent` suppresses
+   *   the log line when the pipe is collateral of a larger demolish.
+   */
+  removeBeamPipe(pipeId, opts = {}) {
     const idx = this.state.beamPipes.findIndex(p => p.id === pipeId);
     if (idx === -1) return false;
 
     const pipe = this.state.beamPipes[idx];
 
-    // Refund pipe cost (50%) — compute from actual path geometry
-    const driftDef = COMPONENTS.drift;
-    const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-    let tileDist = 0;
-    for (let i = 0; i < (pipe.path?.length || 0) - 1; i++) {
-      const a = pipe.path[i], b = pipe.path[i + 1];
-      tileDist += Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
-    }
-    const tileCost = Math.max(costPerTile, Math.floor(costPerTile * (tileDist || 1)));
-    this.state.resources.funding += Math.floor(tileCost * 0.5);
+    // Refund pipe cost (50%) off the SAME basis drawPipe charged with. The old
+    // hand-rolled formula floored the basis at one full tile while the charge
+    // floors at 0.25 tiles, so a 0.25-tile stub cost $2,500 and refunded
+    // $5,000 — a repeatable money printer off any free port.
+    if (!opts.skipRefund) this.state.resources.funding += pipeRefund(pipe);
 
-    // Refund all placements on this pipe (50%)
+    // Refund all placements on this pipe (50%), and detach any utility line
+    // wired to one — they are utility endpoints, and the pipe is going away.
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
-      if (attDef && attDef.cost) {
+      if (!opts.skipRefund && attDef && attDef.cost) {
         for (const [r, a] of Object.entries(attDef.cost)) {
           this.state.resources[r] += Math.floor(a * 0.5);
         }
       }
+      if (this.utilityLineSystem) this.utilityLineSystem.onPlaceableRemoved(att.id);
     }
 
     this.state.beamPipes.splice(idx, 1);
-    this.log('Removed beam pipe (50% refund)', 'info');
+    if (!opts.silent) this.log('Removed beam pipe (50% refund)', 'info');
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
@@ -1970,6 +2284,14 @@ export class Game {
    * Derive beam graph from pipe connectivity.
    * Traverses from sources through beam pipes to build ordered component lists.
    * Updates state.beamline for physics simulation.
+   *
+   * Each source's flattened path is an INDEPENDENT machine. flattenPath()
+   * restarts `beamStart` at 0 for every source, so the concatenation used to
+   * hand out duplicate s-positions: probe pins on machine B resolved to
+   * machine A's envelope samples. Every source after the first is therefore
+   * shifted onto its own stretch of the s-axis (`sourceIndex` records which
+   * machine an element belongs to, and _recalcMainBeamGraph runs one physics
+   * pass per machine rather than treating the concatenation as one lattice).
    */
   _deriveBeamGraph() {
     const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
@@ -1979,8 +2301,12 @@ export class Game {
     });
 
     const allOrdered = [];
+    let sOffset = 0;
+    let sourceIndex = 0;
     for (const source of sources) {
       const flat = flattenPath(this.state, source.id);
+      if (flat.length === 0) { sourceIndex++; continue; }
+      let segEnd = 0;
       // Convert flattener entries to the shape physics expects.
       // Every entry needs: type, subL, stats, params, beamStart, tiles.
       for (const entry of flat) {
@@ -1993,14 +2319,18 @@ export class Game {
           dir: entry.placeable?.dir ?? 0,
           params: entry.params || {},
           tiles: entry.placeable?.cells?.map(c => ({ col: c.col, row: c.row })) || [],
-          beamStart: entry.beamStart,
+          beamStart: entry.beamStart + sOffset,
           subL: entry.subL,
           // Pass through stats from the component template so physics can read them
           stats: def ? { ...def.stats } : {},
           isAttachment: entry.kind === 'placement',
           pipeId: entry.pipeId || null,
+          sourceIndex,
         });
+        segEnd = Math.max(segEnd, (entry.beamStart || 0) + (entry.subL || 0) * 0.5);
       }
+      sOffset += segEnd + BEAM_GRAPH_SOURCE_GAP_M;
+      sourceIndex++;
     }
 
     this.state.beamline = allOrdered;
@@ -2111,7 +2441,6 @@ export class Game {
     }
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
-    this.checkInjectorLinks();
     this.validateInfrastructure();
   }
 
@@ -2121,7 +2450,6 @@ export class Game {
     }
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
-    this.checkInjectorLinks();
     this.validateInfrastructure();
   }
 
@@ -2151,7 +2479,7 @@ export class Game {
     // Build physics input from ordered entries. Each entry already has subL
     // in sub-units, params, and the component type. Physics multiplies subL
     // by 0.5 to get metres.
-    const physicsBeamline = ordered.map(node => {
+    const toPhysics = (nodes) => nodes.map(node => {
       const def = COMPONENTS[node.type];
       return {
         type: node.type,
@@ -2161,11 +2489,23 @@ export class Game {
       };
     });
 
+    // One lattice per SOURCE. Feeding the concatenation of every source's
+    // path to a single compute() made lattice.py treat a mid-lattice source
+    // as a bare s-advance (no beam reset) and extract_source_params only ever
+    // read the first source — so machine B was computed as a continuation of
+    // machine A's exit beam, and the HUD's "peak energy" was A's gain plus
+    // B's gain instead of max(A, B).
+    const segments = [];
+    for (const node of ordered) {
+      const idx = node.sourceIndex || 0;
+      const seg = segments.find(s => s.index === idx);
+      if (seg) seg.nodes.push(node);
+      else segments.push({ index: idx, nodes: [node], offset: node.beamStart || 0 });
+    }
+
     // Collect research effects
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -2174,22 +2514,65 @@ export class Game {
       this.state.mainBeamState = null;
       return;
     }
-    const result = BeamPhysics.compute(physicsBeamline, researchEffects);
-    this.state.mainBeamState = result || null;
+    const runs = [];
+    for (const seg of segments) {
+      const res = BeamPhysics.compute(toPhysics(seg.nodes), researchEffects);
+      if (res) runs.push({ res, offset: seg.offset });
+    }
+    if (runs.length === 0) {
+      this.state.mainBeamState = null;
+      this.emit('physicsUpdated');
+      return;
+    }
+
+    // Headline state is the strongest machine; production rates are additive
+    // across machines. The envelope is the machines' envelopes laid end to end
+    // on the same shifted s-axis state.beamline uses, so probe pins (which
+    // resolve by nearest `.s` to their element's beamStart) land in their own
+    // machine's samples.
+    let main;
+    if (runs.length === 1) {
+      main = runs[0].res;
+    } else {
+      const best = runs.reduce((a, b) => ((b.res.beamEnergy || 0) > (a.res.beamEnergy || 0) ? b : a));
+      main = { ...best.res };
+      for (const key of ['dataRate', 'collisionRate', 'photonRate', 'luminosity', 'nDiagnostics']) {
+        main[key] = runs.reduce((sum, r) => sum + (r.res[key] || 0), 0);
+      }
+      main.beamAlive = runs.some(r => r.res.beamAlive);
+    }
+
+    const envelope = [];
+    for (const { res, offset } of runs) {
+      for (const s of (res.envelope || [])) {
+        envelope.push(offset ? { ...s, s: (s.s || 0) + offset } : s);
+      }
+    }
+    main.envelope = envelope;
+    this.state.mainBeamState = main;
     // Also expose envelope for probe.js, which reads state.physicsEnvelope
-    if (result && result.envelope) {
-      this.state.physicsEnvelope = result.envelope;
+    if (envelope.length > 0) {
+      this.state.physicsEnvelope = envelope;
     }
     this.emit('physicsUpdated');
   }
 
+  /**
+   * Coalesced physics recalc for build-time mutations. Runs the FULL pass
+   * (`recalcAllBeamlines` → per-entry `_recalcSingleBeamline`, the aggregate
+   * roll-up, `_recalcMainBeamGraph` and `validateInfrastructure`), not just
+   * the main-graph half: `_tickBeamline` drives income, data and objectives
+   * off `entry.beamState`, which only `_recalcSingleBeamline` ever writes.
+   * The microtask guard keeps a multi-mutation gesture (a design placement, a
+   * drag-demolish sweep) to one pass.
+   */
   schedulePhysicsRecalc() {
     if (this._physicsRecalcPending) return;
     this._physicsRecalcPending = true;
     queueMicrotask(() => {
       this._physicsRecalcPending = false;
       try {
-        this._recalcMainBeamGraph();
+        this.recalcAllBeamlines();
       } catch (e) {
         console.warn('[physics] deferred recalc failed:', e);
       }
@@ -2204,7 +2587,14 @@ export class Game {
     const ecm = this.getEffect('energyCostMult', 1);
     for (const el of ordered) {
       const t = COMPONENTS[el.type];
-      if (!t) continue;
+      if (!t) {
+        // Flattener drift entries (kind === 'drift') have no `type`. They are
+        // still real metres of machine — skipping them made the HUD's
+        // "Beamline … m" readout report only the summed component lengths
+        // (a 28 m machine displayed as 9.5 m). They draw no power.
+        if (el.kind === 'drift') tLen += (el.subL || 0) * 0.5;
+        continue;
+      }
       tLen += (el.subL || t.subL || 4) * 0.5;
       tCost += (t.energyCost || 0) * ecm;
       if (t.isSource) hasSrc = true;
@@ -2263,9 +2653,7 @@ export class Game {
 
     // Gather research effects for physics
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -2292,13 +2680,16 @@ export class Game {
     for (const entry of entries) {
       const bs = entry.beamState;
       totalLength += bs.totalLength || 0;
-      totalEnergyCost += bs.totalEnergyCost || 0;
       totalDataCollected += bs.totalDataCollected || 0;
       totalBeamHours += bs.totalBeamHours || 0;
       totalBeamOnTicks += bs.beamOnTicks || 0;
 
       if (entry.status === 'running' && this.state.infraCanRun) {
         beamOn = true;
+        // Electricity is billed per running beamline (economy.computeTickUpkeep
+        // reads state.totalEnergyCost). Summing stopped beamlines too charged
+        // an idle machine full power whenever any OTHER beamline ran.
+        totalEnergyCost += bs.totalEnergyCost || 0;
         if (bs.continuousBeamTicks > maxContinuousBeamTicks) maxContinuousBeamTicks = bs.continuousBeamTicks;
       } else if (entry.status === 'running' && !this.state.infraCanRun) {
         // Infra fault — reset continuous run, beam is effectively off for objectives
@@ -2321,19 +2712,24 @@ export class Game {
     this.state.continuousBeamTicks = maxContinuousBeamTicks;
     this.state.beamOnTicks = totalBeamOnTicks;
     this.state.felSaturated = felSaturated;
-    this.state.uptimeFraction = this.state.tick > 0 ? totalBeamOnTicks / this.state.tick : 1;
+    // Facility uptime is the MEAN of the per-beamline uptimes, not the sum of
+    // beam-on ticks over wall-clock ticks: totalBeamOnTicks accumulates once
+    // per beamline, so dividing by state.tick produced a value up to N with N
+    // beamlines and let the `highAvailability` objective (>= 0.95) pay out for
+    // a facility whose beams were down most of the time.
+    this.state.uptimeFraction = (entries.length > 0 && this.state.tick > 0)
+      ? (totalBeamOnTicks / entries.length) / this.state.tick
+      : 1;
 
-    // For single-beamline compat: expose first running beamline's detailed physics
-    const running = entries.find(e => e.status === 'running');
-    if (running) {
-      this.state.avgPressure = running.beamState.avgPressure;
-      this.state.finalNormEmittanceX = running.beamState.finalNormEmittanceX;
-      this.state.finalBunchLength = running.beamState.finalBunchLength;
-    } else if (entries.length > 0) {
-      const first = entries[0];
-      this.state.avgPressure = first.beamState.avgPressure;
-      this.state.finalNormEmittanceX = first.beamState.finalNormEmittanceX;
-      this.state.finalBunchLength = first.beamState.finalBunchLength;
+    // For single-beamline compat: expose first running beamline's detailed
+    // physics. NOTE: avgPressure is deliberately NOT mirrored here — no
+    // physics result carries a pressure, so this used to overwrite the value
+    // computeSystemStats had produced with `undefined` on every tick, right
+    // before checkObjectives ran. computeSystemStats owns state.avgPressure.
+    const detailed = entries.find(e => e.status === 'running') || entries[0];
+    if (detailed) {
+      this.state.finalNormEmittanceX = detailed.beamState.finalNormEmittanceX;
+      this.state.finalBunchLength = detailed.beamState.finalBunchLength;
     }
   }
 
@@ -2363,6 +2759,12 @@ export class Game {
     bs.photonRate = result.photonRate || 0;
     bs.collisionRate = result.collisionRate || 0;
     bs.physicsEnvelope = result.envelope || null;
+    // These three are produced by gameplay.py but used to be dropped here,
+    // which left the objectives that read them (subMicronEmittance,
+    // bunchCompressed, felSaturation) permanently unreachable.
+    bs.finalNormEmittanceX = result.finalNormEmittanceX;
+    bs.finalBunchLength = result.finalBunchLength;
+    bs.felSaturated = !!result.felSaturated;
 
     // If physics says beam tripped, fault this beamline
     if (entry.status === 'running' && !result.beamAlive) {
@@ -2374,14 +2776,41 @@ export class Game {
   }
 
   _fallbackStatsForBeamline(entry, physicsBeamline) {
-    // Simple stat-summing fallback while Pyodide loads
+    // Simple stat-summing fallback while Pyodide loads (and the whole model
+    // in node — tests, balance-sim, the headless agent env).
+    //
+    // It must honour `el.infraQuality`, the per-node utility qualities
+    // _recalcSingleBeamline attaches: ignoring them made the Phase-6
+    // utility-quality → beam-output coupling a no-op everywhere physics
+    // isn't loaded, so a facility with every cooling line cut produced
+    // bit-identical output to a fully wired one. Mirrors the derates in
+    // beam_physics/gameplay.py (energy gain scales with power/RF/cooling/cryo
+    // quality; a quenched SRF cavity becomes a drift; poor vacuum widens
+    // losses) at this model's coarser resolution. dataQuality is deliberately
+    // NOT applied here — _tickBeamline already derates data by it.
+    const q01 = (v) => (typeof v === 'number' ? Math.max(0, Math.min(1, v)) : 1);
     let eGain = 0, dRate = 0, bq = 1;
+    let worstVacuum = 1;
     for (const el of physicsBeamline) {
       const s = el.stats || {};
-      if (s.energyGain) eGain += s.energyGain;
+      const iq = el.infraQuality || {};
+      const gainScale = iq.cryoQuenched === true
+        ? 0
+        : q01(iq.powerQuality) * q01(iq.rfQuality) * q01(iq.coolingQuality) * q01(iq.cryoQuality);
+      if (s.energyGain) eGain += s.energyGain * gainScale;
       if (s.dataRate) dRate += s.dataRate;
       if (s.beamQuality) bq += s.beamQuality;
+      if (el.infraQuality) worstVacuum = Math.min(worstVacuum, q01(iq.vacuumQuality));
     }
+    // Poor vacuum scatters beam: gameplay.py narrows the aperture by
+    // (0.5 + 0.5 * vacuumQuality); apply the same factor to quality here.
+    bq *= 0.5 + 0.5 * worstVacuum;
+    // Clamp to the same [0, 1] range the real physics path produces
+    // (gameplay.py / lattice.py both cap quality at 1.0). Unclamped, each
+    // diagnostic/collimation component pushed quality above 1 and every
+    // downstream consumer — beam income, data fees, user fees, reputation,
+    // research rate — paid a multiplier the physics path can never reach.
+    bq = Math.max(0, Math.min(1, bq));
     const bs = entry.beamState;
     bs.beamEnergy = eGain;
     bs.dataRate = dRate * bq;
@@ -2396,27 +2825,21 @@ export class Game {
     bs.physicsEnvelope = null;
   }
 
-  // === MACHINE TYPE SELECTION ===
-  // Machine type is now per-beamline, set at source placement.
-  // isMachineTypeUnlocked is still useful for UI checks.
-
-  isMachineTypeUnlocked(type) {
-    const MACHINE_TYPE_RESEARCH = {
-      linac: null,
-      photoinjector: 'photoinjectorTech',
-      fel: 'felTech',
-      collider: 'colliderTech',
-    };
-    const req = MACHINE_TYPE_RESEARCH[type];
-    return !req || this.state.completedResearch.includes(req);
-  }
-
   // === BEAM CONTROL ===
 
   toggleBeam(beamlineId) {
+    // Callers without an explicit id (the Space hotkey) get a default: the
+    // currently selected beamline, or the only one that exists. Without this
+    // the hotkey was a dead affordance that logged "No beamline specified!",
+    // naming something the UI never asks the player to specify.
     if (!beamlineId) {
-      this.log('No beamline specified!', 'bad');
-      return;
+      const all = this.registry.getAll();
+      beamlineId = this.selectedBeamlineId
+        || (all.length === 1 ? all[0].id : null);
+      if (!beamlineId) {
+        this.log(all.length ? 'Select a beamline first' : 'No beamline built yet!', 'bad');
+        return;
+      }
     }
     const entry = this.registry.get(beamlineId);
     if (!entry) {
@@ -2433,7 +2856,12 @@ export class Game {
       if (!flat.some(el => COMPONENTS[el.type]?.isSource)) {
         this.log('Need a Source!', 'bad'); return;
       }
-      this.validateInfrastructure();
+      // Recompute the gate NOW rather than reading whatever the last tick
+      // left behind: validateInfrastructure() only emits, and while the game
+      // is paused the tick interval is cleared, so state.infraBlockers can be
+      // arbitrarily stale in both directions (refusing a beam over faults the
+      // player already fixed, or starting one with the utilities cut).
+      this.refreshInfrastructureGate();
       if (!this.state.infraCanRun) {
         const count = this.state.infraBlockers.length;
         this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
@@ -2473,6 +2901,10 @@ export class Game {
     return research.getResearchSpeedMultiplier(id, this.state);
   }
 
+  _computeFinalNodes() {
+    return research._computeFinalNodes();
+  }
+
   // === SYSTEM STATS (delegates to economy module) ===
 
   computeZoneFurnishingBonuses() {
@@ -2480,7 +2912,7 @@ export class Game {
     const zoneOutput = {};
     const research = {};
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects) continue;
 
@@ -2541,7 +2973,7 @@ export class Game {
     const tileToRoom = {};
     const processed = new Set();
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.morale) continue;
 
@@ -2567,7 +2999,7 @@ export class Game {
   getBeamPhysicsEffects() {
     const results = [];
 
-    for (const furn of this.state.zoneFurnishings) {
+    for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.beamPhysics) continue;
 
@@ -2604,12 +3036,53 @@ export class Game {
   // === GAME LOOP ===
 
   start() {
-    if (this.tickInterval) return;
+    if (this._started) return;
+    this._started = true;
     this.computeSystemStats();
     this.validateInfrastructure();
-    this.tickInterval = setInterval(() => this.tick(), this.TICK_MS);
+    this._syncInterval();
     this.log('Welcome to Beamline Tycoon!', 'info');
     this.emit('started');
+  }
+
+  // (Re)create the tick interval from state.paused / state.speed. No catch-up
+  // accumulator by choice: background-tab throttling slowing the sim is
+  // acceptable tycoon behavior.
+  _syncInterval() {
+    if (this.tickInterval) { clearInterval(this.tickInterval); this.tickInterval = null; }
+    if (!this._started || this.state.paused) return;
+    this.tickInterval = setInterval(() => this.tick(), this.TICK_MS / (this.state.speed || 1));
+  }
+
+  pause() {
+    if (this.state.paused) return;
+    this.state.paused = true;
+    this._syncInterval();
+    this.emit('speedChanged');
+  }
+
+  resume() {
+    if (!this.state.paused) return;
+    this.state.paused = false;
+    this._syncInterval();
+    this.emit('speedChanged');
+  }
+
+  togglePause() {
+    if (this.state.paused) this.resume(); else this.pause();
+  }
+
+  setSpeed(mult) {
+    if (mult !== 1 && mult !== 2 && mult !== 4) return;
+    if (this.state.speed === mult) return;
+    this.state.speed = mult;
+    this._syncInterval();
+    this.emit('speedChanged');
+  }
+
+  stop() {
+    if (this.tickInterval) { clearInterval(this.tickInterval); this.tickInterval = null; }
+    this._started = false;
   }
 
   tick() {
@@ -2632,17 +3105,14 @@ export class Game {
     this.state.furnishingMorale = totalFurnishingMorale;
     this.state.reputationTier = getReputationTier(decorationInstances.length);
 
-    // === Revenue ===
+    // === Revenue === (tuning knobs live in economy.js ECON)
     const passiveIncome = this.getEffect('passiveFunding', 0);
-    const repIncome = Math.floor(this.state.resources.reputation * 2);
-    const repBonus = this.state?.reputationTier?.fundingBonus || 0;
-    this.state.resources.funding += Math.floor((passiveIncome + repIncome) * (1 + repBonus));
+    this.state.resources.funding += computeTickIncome(this.state, passiveIncome);
 
-    // Staffing costs (drain — creates pressure to complete objectives)
-    const staffCost = Object.entries(this.state.staff).reduce((sum, [type, count]) => {
-      return sum + count * (this.state.staffCosts[type] || 0);
-    }, 0);
-    this.state.resources.funding -= staffCost;
+    // === Upkeep === staff salaries + pump service + electricity bill
+    // (drain — creates pressure to complete objectives and run the beam)
+    const upkeep = computeTickUpkeep(this.state);
+    this.state.resources.funding -= upkeep.total;
 
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
     // Uses facility tier for cafeteria etc.
@@ -2654,19 +3124,11 @@ export class Game {
         // ensure StaffMember instance (load from JSON may be plain object)
         if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
         const zoneTier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier })) anyChange = true;
+        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, rng: this.rng })) anyChange = true;
       }
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
     }
-
-    // Facility power/vacuum upkeep: scales with pump count and beamline volume
-    // (cheap early, punitive if you overbuild without funding)
-    const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump'];
-    const equipCounts = {};
-    for (const p of (this.state.placeables || [])) if (p.category === 'equipment') equipCounts[p.type] = (equipCounts[p.type] || 0) + 1;
-    const pumpUpkeep = pumpTypes.reduce((s, t) => s + (equipCounts[t] || 0) * 8, 0);
-    if (pumpUpkeep > 0) this.state.resources.funding -= pumpUpkeep;
 
     // Tick all running beamlines
     for (const entry of this.registry.getAll()) {
@@ -2714,157 +3176,43 @@ export class Game {
       this.emit('objectiveCompleted', obj);
     }
 
-    // Tick machines (cyclotrons, stalls, rings)
-    this._tickMachines();
-
-    // Tick wildlife entities
-    entitiesTick(this);
-
     // Recompute system-level infrastructure stats
     this.computeSystemStats();
 
-    // Run utility-network solve (v1: per-tick, no topology caching). Writes
-    // state.utilityNetworkData (Map<utilityType, Map<networkId, flowState>>)
-    // and state.utilityNetworkState. Phase 5: hard errors are merged into
-    // state.infraBlockers so the beam-run gate fires on utility faults.
-    if (this.solveRunner) {
-      try {
-        const result = this.solveRunner.runSolve({ tick: this.state.tick });
-        const errs = Array.isArray(result && result.errors) ? result.errors : [];
-        let hardErrs = errs.filter(e => e && e.severity === 'hard');
-        const softErrs = errs.filter(e => e && e.severity === 'soft');
-        // MVP: unconnected power/vacuum sinks on beamline modules are hard-required.
-        // The solver only reports networks that have lines — a sink with no line
-        // is invisible to it, so we synthesize hard errors here for disconnected
-        // beamline sinks. This makes "build line → connect utilities → run" the
-        // required tycoon beat.
-        const beamlinePlaceables = (this.state.placeables || []).filter(p => p.category === 'beamline');
-        const HARD_REQUIRED_UTILS = ['powerCable', 'vacuumPipe'];
-        for (const util of HARD_REQUIRED_UTILS) {
-          for (const p of beamlinePlaceables) {
-            const ports = getUtilityPortsV2(p.type);
-            for (const [portName, spec] of Object.entries(ports)) {
-              if (spec.utility !== util || spec.role !== 'sink') continue;
-              const connected = [...(this.state.utilityLines?.values() || [])].some(l =>
-                l.utilityType === util &&
-                ((l.start?.placeableId === p.id && l.start?.portName === portName) ||
-                 (l.end?.placeableId === p.id && l.end?.portName === portName))
-              );
-              if (!connected) {
-                hardErrs.push({
-                  severity: 'hard',
-                  code: util === 'powerCable' ? 'power_unconnected' : 'vacuum_unconnected',
-                  message: `${p.type} ${portName} not connected to ${util}`,
-                  location: { placeableId: p.id, portName },
-                  fromUnconnectedCheck: true,
-                });
-              }
-            }
-          }
-        }
-        // RimWorld-like staffing: beamlines need an active operator in controlRoom
-        {
-          const hasActiveOperator = (this.state.staffMembers || []).some(m => {
-            if (m.role !== 'operator') return false;
-            if (m.status !== 'working') return false;
-            // must be assigned to controlRoom (or no assignment counts as controlRoom for MVP)
-            const zoneOk = !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom';
-            if (!zoneOk) return false;
-            if (m.needs?.fatigue > 0.85) return false;
-            if (m.mood === 'stressed' && Math.random() < 0.3) return false;
-            return true;
-          });
-          if (beamlinePlaceables.length > 0 && !hasActiveOperator) {
-            hardErrs.push({
-              severity: 'hard',
-              code: 'beam_unstaffed',
-              message: 'No active operator in Control Room — beam tripped',
-              location: { zoneId: 'controlRoom' },
-              fromStaffingCheck: true,
-            });
-          }
-        }
-        // Phase 6: the utility solve-runner + unconnected check are the only sources of infraBlockers.
-        // Hard errors block the beam; soft errors are logged but non-fatal.
-        this.state.infraBlockers = hardErrs.map(e => ({
-          ...e,
-          fromUtilitySolve: true,
-          reason: e.message || e.code || 'Utility fault',
-        }));
-        this.state.infraCanRun = hardErrs.length === 0;
+    // Utility gating (src/game/utility-gate.js): run the network solve,
+    // synthesize unconnected-sink + staffing hard errors, and derive
+    // state.infraBlockers / infraCanRun / nodeQualities.
+    this.utilityGate.run();
 
-        // Aggregate perSinkQuality → state.nodeQualities (Phase 6 / Task 23).
-        // Shape: { [placeableId]: { powerQuality, rfQuality, coolingQuality,
-        //   cryoQuality, vacuumQuality, dataQuality } }. Physics backend reads
-        // the individual keys; JS consumers read e.g. .dataQuality. A missing
-        // utility defaults to 1.0 (full quality) on the consumer side.
-        const UTILITY_TO_QUALITY_FIELD = {
-          powerCable:   'powerQuality',
-          rfWaveguide:  'rfQuality',
-          coolingWater: 'coolingQuality',
-          cryoTransfer: 'cryoQuality',
-          vacuumPipe:   'vacuumQuality',
-          dataFiber:    'dataQuality',
-        };
-        const nodeQualities = {};
-        if (this.state.utilityNetworkData) {
-          for (const [utilityType, perType] of this.state.utilityNetworkData) {
-            const qualityField = UTILITY_TO_QUALITY_FIELD[utilityType];
-            if (!qualityField) continue;
-            for (const flow of perType.values()) {
-              const map = flow.perSinkQuality || {};
-              for (const portKey of Object.keys(map)) {
-                const q = map[portKey];
-                const colonIdx = portKey.indexOf(':');
-                const placeableId = colonIdx >= 0 ? portKey.slice(0, colonIdx) : portKey;
-                if (!nodeQualities[placeableId]) nodeQualities[placeableId] = {};
-                // If multiple networks of the same utility feed this placeable,
-                // take the minimum (worst-case feed).
-                const prior = nodeQualities[placeableId][qualityField];
-                nodeQualities[placeableId][qualityField] =
-                  prior === undefined ? q : Math.min(prior, q);
-              }
-            }
-            // Also expose cryo-quench as a boolean on the placeable so the
-            // Python backend can convert SRF cavities to drift.
-            if (utilityType === 'cryoTransfer') {
-              for (const flow of perType.values()) {
-                if (!flow.quenched) continue;
-                const map = flow.perSinkQuality || {};
-                for (const portKey of Object.keys(map)) {
-                  const colonIdx = portKey.indexOf(':');
-                  const placeableId = colonIdx >= 0 ? portKey.slice(0, colonIdx) : portKey;
-                  if (!nodeQualities[placeableId]) nodeQualities[placeableId] = {};
-                  nodeQualities[placeableId].cryoQuenched = true;
-                }
-              }
-            }
-          }
-        }
-        this.state.nodeQualities = nodeQualities;
-
-        if (!this._lastUtilitySolveErrHash) this._lastUtilitySolveErrHash = '';
-        const hash = `${hardErrs.length}|${softErrs.length}`;
-        if (hash !== this._lastUtilitySolveErrHash && (hardErrs.length || softErrs.length)) {
-          this._lastUtilitySolveErrHash = hash;
-          if (hardErrs.length) {
-            console.warn('[utility] hard errors:', hardErrs.map(e => e.code + ':' + (e.message || '')));
-          }
-          if (softErrs.length) {
-            console.warn('[utility] soft errors:', softErrs.map(e => e.code + ':' + (e.message || '')));
-          }
-        } else if (hash === '0|0') {
-          this._lastUtilitySolveErrHash = hash;
-        }
-      } catch (e) {
-        console.error('[Game] utility solve error:', e);
-      }
-    }
-
-    // Auto-save every 10 ticks
-    if (this.state.tick % 10 === 0) this.save();
+    // Auto-save every 30 ticks. The synchronous serialize+localStorage write
+    // is the most expensive thing in a tick, so keep it rare. Skipped while
+    // paused: pause() clears the interval so tick() normally never runs
+    // paused, but direct drivers (headless env, demo remote-drive, tests) can
+    // still call tick() with paused set — don't let those force autosaves.
+    // Manual saves (game.save() from UI / save slots) are unaffected.
+    if (this.state.tick % 30 === 0 && !this.state.paused) this.save();
 
     this.emit('tick');
+  }
+
+  /**
+   * Mean dataFiber quality over the data-producing nodes of a flattened
+   * beamline, in [0,1]. 1.0 when there is nothing to derate (no solved
+   * qualities, or no data-producing hardware).
+   */
+  _dataConnectivityFactor(nodes) {
+    if (!this.state.nodeQualities) return 1;
+    let totalDataQ = 0;
+    let dataNodeCount = 0;
+    for (const node of nodes) {
+      const comp = COMPONENTS[node.type];
+      if (comp && (comp.stats?.dataRate || 0) > 0) {
+        const nq = this.state.nodeQualities[node.id];
+        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
+        dataNodeCount++;
+      }
+    }
+    return dataNodeCount > 0 ? totalDataQ / dataNodeCount : 1;
   }
 
   _tickBeamline(entry) {
@@ -2875,39 +3223,34 @@ export class Game {
     bs.continuousBeamTicks++;
     bs.beamOnTicks++;
 
-    // Funding from running beam (MVP loop closure: beam on = income)
-    // Scaled to create early pressure/reward — ~3-5/s with decent quality.
-    {
-      const baseFundingPerTick = 4 * (bs.beamQuality || 0.2);
-      this.state.resources.funding += baseFundingPerTick;
-      // Bonus funding when detectors are collecting data
-      if ((bs.dataRate || 0) > 0) this.state.resources.funding += bs.dataRate * 0.5;
-    }
+    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+
+    // Funding from running beam (MVP loop closure: beam on = income).
+    // Scales with beam quality AND machine size — see economy.js ECON.
+    // Count HARDWARE only: the flattener also emits a synthetic 'drift' entry
+    // per gap between placements, so billing raw entries paid ~$100/tick for
+    // every gap — spacing identical hardware further apart minted income at
+    // zero cost. Every other flattenPath consumer (wear, dataQuality, the
+    // schematic) already skips drifts.
+    const hardwareNodes = blNodes.filter(n => n.kind !== 'drift');
+
+    // Apply data fiber network quality. In the Phase 6 utility model,
+    // dataFiber quality is 1.0 when a detector port is connected to an
+    // IOC/control-room source through a data-fiber line, and 0 otherwise,
+    // so this term alone captures "connected to control room".
+    //
+    // Derated BEFORE income, not after: billing the raw bs.dataRate paid the
+    // player full data fees for a detector whose fiber had been cut, i.e. for
+    // science that demonstrably produced no `data` resource that tick.
+    const connectedDataRate = (bs.dataRate || 0) * this._dataConnectivityFactor(blNodes);
+
+    this.state.resources.funding += computeBeamIncome(
+      connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
+      hardwareNodes.length,
+    );
 
     // Data from detectors (physics-driven)
-    if (bs.dataRate > 0) {
-      // Apply data fiber network quality. In the Phase 6 utility model,
-      // dataFiber quality is 1.0 when a detector port is connected to an
-      // IOC/control-room source through a data-fiber line, and 0 otherwise,
-      // so this term alone captures "connected to control room".
-      let connectedDataRate = bs.dataRate;
-      if (this.state.nodeQualities) {
-        let totalDataQ = 0;
-        let dataNodeCount = 0;
-        const qualElements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
-        for (const node of qualElements) {
-          const comp = COMPONENTS[node.type];
-          if (comp && (comp.stats?.dataRate || 0) > 0) {
-            const nq = this.state.nodeQualities[node.id];
-            const dq = nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
-            totalDataQ += dq;
-            dataNodeCount++;
-          }
-        }
-        if (dataNodeCount > 0) {
-          connectedDataRate *= totalDataQ / dataNodeCount;
-        }
-      }
+    if (connectedDataRate > 0) {
       const sciMult = 1 + this.state.staff.scientists * 0.1;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
@@ -2922,7 +3265,6 @@ export class Game {
     }
 
     // User beam hours from photon ports
-    const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
     const photonPorts = blNodes.filter(c => c.type === 'photonPort');
     if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
       const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
@@ -2935,7 +3277,7 @@ export class Game {
 
     // Discovery chance (physics-driven)
     const dc = bs.discoveryChance || 0;
-    if (dc > 0 && Math.random() < dc) {
+    if (dc > 0 && this.rng() < dc) {
       this.state.discoveries++;
       this.log('*** PARTICLE DISCOVERY! ***', 'reward');
       this.state.resources.reputation += 10;
@@ -2966,6 +3308,17 @@ export class Game {
     this.emit('infrastructureValidated');
   }
 
+  /**
+   * Synchronously re-run the utility gate so state.infraCanRun /
+   * state.infraBlockers reflect the world as it is right now. Anything that
+   * *gates* on those fields (rather than just repainting them) must call this
+   * first — tick() is the only other caller, and it does not run while paused.
+   */
+  refreshInfrastructureGate() {
+    if (this.utilityGate) this.utilityGate.run();
+    this.emit('infrastructureValidated');
+  }
+
   // === WEAR & REPAIR ===
 
   _applyWearForBeamline(entry) {
@@ -2979,12 +3332,17 @@ export class Game {
       }
       // Base wear rate: higher energy cost = more stress
       const baseWear = 0.01 + (t.energyCost || 0) * 0.002;
-      const hasMPS = (this.state.facilityEquipment || []).some(eq => eq.type === 'mps');
+      // Read from state.placeables, not the legacy state.facilityEquipment
+      // view: that array is `placeables.filter(category === 'equipment')` and
+      // the MPS is kind (so category) 'infrastructure', so this check was
+      // unconditionally false and every component wore at 2x forever — the
+      // $1M Machine Protection System had no mechanical effect at all.
+      const hasMPS = (this.state.placeables || []).some(p => p.type === 'mps');
       const wearMult = hasMPS ? 1 : 2;
       entry.beamState.componentHealth[node.id] = Math.max(0, entry.beamState.componentHealth[node.id] - baseWear * wearMult);
 
       // Random failure check below 20% health
-      if (entry.beamState.componentHealth[node.id] < 20 && Math.random() < 0.05) {
+      if (entry.beamState.componentHealth[node.id] < 20 && this.rng() < 0.05) {
         entry.beamState.componentHealth[node.id] = 0;
         this.log(`${t.name} FAILED! Repair needed.`, 'bad');
       }
@@ -3086,7 +3444,7 @@ export class Game {
       return false;
     }
     this.state.resources.funding -= hireCost;
-    const m = createStaffMember(type.slice(0, -1) === 'operato' ? 'operator' : type.replace(/s$/,''), `staff_${this.state.staffNextId++}`, this.state.tick);
+    const m = createStaffMember(type.slice(0, -1) === 'operato' ? 'operator' : type.replace(/s$/,''), `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
     // normalize role: operators->operator etc but createStaffMember expects singular
     const singular = type.endsWith('s') ? type.slice(0,-1) : type;
     // fix role if we mangled it
@@ -3115,243 +3473,6 @@ export class Game {
     this._syncStaffCounts();
     this.log(`Released ${type.slice(0, -1)}`, 'info');
     this.emit('staffChanged');
-    return true;
-  }
-
-  // === MACHINES (cyclotrons, stalls, rings) ===
-
-  canPlaceMachine(machineId, col, row) {
-    const def = MACHINES[machineId];
-    if (!def) return false;
-    for (let dy = 0; dy < def.h; dy++) {
-      for (let dx = 0; dx < def.w; dx++) {
-        const key = (col + dx) + ',' + (row + dy);
-        if (this.state.machineGrid[key]) return false;
-      }
-    }
-    return true;
-  }
-
-  isMachineUnlocked(def) {
-    if (!def.requires) return true;
-    return this.state.completedResearch.includes(def.requires);
-  }
-
-  placeMachine(machineId, col, row) {
-    const def = MACHINES[machineId];
-    if (!def) return false;
-    if (!this.isMachineUnlocked(def)) return false;
-    if (!this.canAfford(def.cost)) { this.log(`Can't afford ${def.name}!`, 'bad'); return false; }
-    if (!this.canPlaceMachine(machineId, col, row)) { this.log("Can't place there!", 'bad'); return false; }
-
-    this.spend(def.cost);
-    const upgrades = {};
-    for (const key of Object.keys(def.upgrades || {})) upgrades[key] = 0;
-
-    const inst = {
-      type: machineId,
-      id: `${machineId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      col, row, upgrades,
-      operatingMode: def.operatingModes ? def.operatingModes[0] : null,
-      health: 100, active: true, injectorQuality: null,
-    };
-    this.state.machines.push(inst);
-
-    for (let dy = 0; dy < def.h; dy++)
-      for (let dx = 0; dx < def.w; dx++)
-        this.state.machineGrid[(col + dx) + ',' + (row + dy)] = inst.id;
-
-    this.checkInjectorLinks();
-    this.log(`Built ${def.name}`, 'good');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  removeMachine(instanceId) {
-    const idx = this.state.machines.findIndex(m => m.id === instanceId);
-    if (idx === -1) return false;
-    const machine = this.state.machines[idx];
-    const def = MACHINES[machine.type];
-
-    if (def) {
-      for (const [r, a] of Object.entries(def.cost))
-        this.state.resources[r] += Math.floor(a * 0.5);
-      for (let dy = 0; dy < def.h; dy++)
-        for (let dx = 0; dx < def.w; dx++)
-          delete this.state.machineGrid[(machine.col + dx) + ',' + (machine.row + dy)];
-    }
-
-    this.state.machines.splice(idx, 1);
-    this.log(`Demolished ${def ? def.name : 'machine'} (50% refund)`, 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  getMachineAt(col, row) {
-    const id = this.state.machineGrid[col + ',' + row];
-    return id ? (this.state.machines.find(m => m.id === id) || null) : null;
-  }
-
-  upgradeMachine(instanceId, subsystem) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (!def) return false;
-    const upgDef = def.upgrades?.[subsystem];
-    if (!upgDef) return false;
-
-    const nextLevel = (machine.upgrades[subsystem] || 0) + 1;
-    if (nextLevel >= upgDef.levels.length) { this.log('Already max level!', 'bad'); return false; }
-
-    const levelDef = upgDef.levels[nextLevel];
-    if (!levelDef.cost || !this.canAfford(levelDef.cost)) {
-      this.log(`Can't afford ${upgDef.name} upgrade!`, 'bad');
-      return false;
-    }
-
-    this.spend(levelDef.cost);
-    machine.upgrades[subsystem] = nextLevel;
-    this.log(`Upgraded ${def.name}: ${upgDef.name} -> ${levelDef.label}`, 'good');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  setMachineMode(instanceId, mode) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (!def?.operatingModes?.includes(mode)) return false;
-    if (machine.operatingMode === mode) return false;
-    machine.operatingMode = mode;
-    this.log(`${def.name} mode: ${mode}`, 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  toggleMachine(instanceId) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine) return false;
-    const def = MACHINES[machine.type];
-    if (machine.health <= 0) { this.log(`${def?.name || 'Machine'} is broken!`, 'bad'); return false; }
-    machine.active = !machine.active;
-    this.log(`${def?.name || 'Machine'} ${machine.active ? 'ON' : 'OFF'}`, machine.active ? 'good' : 'info');
-    this.emit('machineChanged');
-    return true;
-  }
-
-  getMachinePerformance(machine) {
-    const def = MACHINES[machine.type];
-    if (!def) return { fundingMult: 0, dataMult: 0, energyMult: 1 };
-
-    let fundingMult = 1, dataMult = 1, energyMult = 1;
-
-    // Upgrade multipliers
-    for (const [sub, lvl] of Object.entries(machine.upgrades)) {
-      const level = def.upgrades?.[sub]?.levels?.[lvl];
-      if (!level) continue;
-      fundingMult *= level.fundingMult;
-      dataMult *= level.dataMult;
-      energyMult *= level.energyMult;
-    }
-
-    // Operating mode
-    if (machine.operatingMode && def.modeMultipliers?.[machine.operatingMode]) {
-      const m = def.modeMultipliers[machine.operatingMode];
-      fundingMult *= m.fundingMult;
-      dataMult *= m.dataMult;
-    }
-
-    // Injector bonus
-    if (def.canLink) {
-      if (machine.injectorQuality != null) {
-        const bonus = 0.5 + 0.5 * machine.injectorQuality;
-        fundingMult *= bonus; dataMult *= bonus;
-      } else {
-        fundingMult *= 0.5; dataMult *= 0.5;
-      }
-    }
-
-    // Health penalty below 50%
-    if (machine.health < 50) {
-      const hf = machine.health / 50;
-      fundingMult *= hf; dataMult *= hf;
-    }
-
-    return { fundingMult, dataMult, energyMult };
-  }
-
-  checkInjectorLinks() {
-    for (const machine of this.state.machines) {
-      const def = MACHINES[machine.type];
-      if (!def?.canLink) continue;
-      machine.injectorQuality = null;
-
-      for (let dx = -1; dx <= def.w && machine.injectorQuality == null; dx++) {
-        for (let dy = -1; dy <= def.h && machine.injectorQuality == null; dy++) {
-          if (dx >= 0 && dx < def.w && dy >= 0 && dy < def.h) continue;
-          const tileKey = (machine.col + dx) + ',' + (machine.row + dy);
-          // Check if there's a beamline placeable on this tile via subgrid
-          for (let sr = 0; sr < 4; sr++) {
-            for (let sc = 0; sc < 4; sc++) {
-              const sk = tileKey + ',' + sc + ',' + sr;
-              const occ = this.state.subgridOccupied[sk];
-              if (occ && occ.category === 'beamline') {
-                const pIdx = this.state.placeableIndex[occ.id];
-                const p = pIdx !== undefined ? this.state.placeables[pIdx] : null;
-                if (p?.beamlineId) {
-                  const blEntry = this.registry.get(p.beamlineId);
-                  machine.injectorQuality = blEntry ? (blEntry.beamState.beamQuality || 0) : 0;
-                }
-              }
-            }
-            if (machine.injectorQuality != null) break;
-          }
-        }
-      }
-    }
-  }
-
-  _tickMachines() {
-    for (const machine of this.state.machines) {
-      if (!machine.active) continue;
-      const def = MACHINES[machine.type];
-      if (!def) continue;
-      const perf = this.getMachinePerformance(machine);
-
-      // Machine energy costs accounted for by infrastructure power networks
-
-      this.state.resources.funding += def.baseFunding * perf.fundingMult;
-      const dataGain = def.baseData * perf.dataMult;
-      this.state.resources.data += dataGain;
-      this.state.totalDataCollected = (this.state.totalDataCollected || 0) + dataGain;
-
-      if (def.reputationPerTick && machine.operatingMode === 'userOps') {
-        this.state.resources.reputation += def.reputationPerTick;
-      }
-
-      if (this.state.tick % 10 === 0) {
-        const wearRate = 0.01 + (def.energyCost || 0) * 0.001;
-        machine.health = Math.max(0, machine.health - wearRate);
-        if (machine.health < 20 && Math.random() < 0.05) {
-          machine.health = 0; machine.active = false;
-          this.log(`${def.name} BROKE DOWN!`, 'bad');
-          this.emit('machineChanged');
-        }
-      }
-    }
-  }
-
-  repairMachine(instanceId) {
-    const machine = this.state.machines.find(m => m.id === instanceId);
-    if (!machine || machine.health >= 100) return false;
-    const def = MACHINES[machine.type];
-    if (!def) return false;
-    const repairCost = Math.ceil(def.cost.funding * 0.3 * (100 - machine.health) / 100);
-    if (!this.canAfford({ funding: repairCost })) { this.log(`Need $${repairCost} to repair`, 'bad'); return false; }
-    this.spend({ funding: repairCost });
-    machine.health = 100;
-    this.log(`Repaired ${def.name} ($${repairCost})`, 'good');
-    this.emit('machineChanged');
     return true;
   }
 
@@ -3446,6 +3567,11 @@ export class Game {
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     this._rebuildPlaceableIndex();
+    // Placeables were replaced wholesale, so the derived views
+    // (facilityEquipment / facilityGrid / zoneFurnishings / zoneItems) have to
+    // be rebuilt from them rather than trusted from the payload — zoneItems in
+    // particular is not serialized, and the research lab tier reads it.
+    this._syncLegacyPlaceableState();
 
     // Beamline placeables: init default params and (re)create registry
     // entries for sources. Exported placeables may carry beamlineIds from
@@ -3466,6 +3592,10 @@ export class Game {
 
     this.recomputeZoneConnectivity();
     this.recalcAllBeamlines();
+    // Placeables were replaced wholesale without going through the
+    // place/remove seams, so the cached utility-network discovery must be
+    // invalidated by hand.
+    this.solveRunner.markTopologyDirty();
     this.validateInfrastructure();
 
     // Nudge renderers: 'beamlineChanged' triggers a full 3D rebuild, and the
@@ -3480,27 +3610,30 @@ export class Game {
 
   // === SAVE / LOAD ===
 
+  // Host layers (renderer camera, probe pins, designer session) persist their
+  // own state via named sections: serialize() stores each section's save()
+  // result under save.aux[key], load() dispatches the stored section back to
+  // load(data). Register before calling load() or the section is ignored.
+  registerSerializer(key, { save, load }) {
+    this._serializers.set(key, { save, load });
+  }
+
   // Build the save payload string without writing it anywhere.
   // Used by save() (active/autosave key) and the named save-slot system.
   serialize() {
-    const saveState = {
-      ...this.state,
-      cornerHeights: serializeCornerHeights(this.state.cornerHeights),
-      // New utility system (Phase 6 / Task 24). utilityNetworkData is derived
-      // (repopulated by solveRunner on first tick), so not persisted.
-      utilityLines: Array.from((this.state.utilityLines || new Map()).entries()),
-      utilityNetworkState: Array.from((this.state.utilityNetworkState || new Map()).entries()),
-      utilityNextId: this.state.utilityNextId || 1,
-    };
-    // cornerHeightsRevision is transient (renderer cache key); don't persist.
-    delete saveState.cornerHeightsRevision;
-    // utilityNetworkData is derived; don't persist.
-    delete saveState.utilityNetworkData;
-    // _entitiesLastPlaceableIds is a runtime Set; don't persist.
-    delete saveState._entitiesLastPlaceableIds;
+    const saveState = {};
+    for (const key of SERIALIZED_FIELDS) saveState[key] = this.state[key];
+    // Map-backed fields persist as entry arrays.
+    saveState.cornerHeights = serializeCornerHeights(this.state.cornerHeights);
+    saveState.utilityLines = Array.from((this.state.utilityLines || new Map()).entries());
+    saveState.utilityNetworkState = Array.from((this.state.utilityNetworkState || new Map()).entries());
+    saveState.utilityNextId = this.state.utilityNextId || 1;
+    const aux = {};
+    for (const [key, s] of this._serializers) aux[key] = s.save();
     return JSON.stringify({
-      version: 7,
+      version: 9,
       state: saveState,
+      aux,
       beamlines: this.registry.toJSON(),
     });
   }
@@ -3509,7 +3642,12 @@ export class Game {
     // Scenario Editor sessions never touch the active save slot — the
     // editor sets suppressAutosave so the player's real game survives.
     if (this.suppressAutosave) return;
-    localStorage.setItem('beamlineTycoon', this.serialize());
+    // Autosave runs from tick(), which headless Node drivers (agent env,
+    // balance sims) also call — there localStorage may be missing or
+    // non-functional, and persistence must never kill the sim.
+    try {
+      localStorage.setItem('beamlineTycoon', this.serialize());
+    } catch (_) {}
   }
 
   load() {
@@ -3517,265 +3655,351 @@ export class Game {
     if (!raw) return false;
     try {
       const data = JSON.parse(raw);
-      if (!data.version || data.version < 7) {
+      if (!data.version || data.version < 9) {
         localStorage.removeItem('beamlineTycoon');
         return false;
       }
 
-      Object.assign(this.state, data.state);
+      this._applyState(data);
 
-      // Rehydrate per-corner terrain heightmap. Old saves lack the field —
-      // treat as empty (fully flat world). Revision always resets to 0 on
-      // load so renderer builders rebuild on the first frame.
-      this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
-      this.state.cornerHeightsRevision = 0;
-
-      // Restore registry from saved beamlines data
-      if (data.beamlines) {
-        this.registry.fromJSON(data.beamlines);
-      }
-
-      // Migrate old saves: entries without sourceId need one
-      for (const entry of this.registry.getAll()) {
-        if (!entry.sourceId) {
-          const src = this.state.placeables?.find(p =>
-            p.beamlineId === entry.id && COMPONENTS[p.type]?.isSource
-          );
-          if (src) entry.sourceId = src.id;
+      // Dispatch host-layer sections back to their registered serializers.
+      if (data.aux) {
+        for (const [key, s] of this._serializers) {
+          if (s.load && key in data.aux) s.load(data.aux[key]);
         }
       }
 
-      // Rebuild infraOccupied
-      this.state.infraOccupied = {};
-      if (this.state.floors) {
-        for (const tile of this.state.floors)
-          this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
-      } else { this.state.floors = []; }
-      // Rebuild zoneOccupied
-      this.state.zones = this.state.zones || [];
-      this.state.zoneOccupied = {};
-      for (const z of this.state.zones) {
-        this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
-      }
-      this.state.zoneConnectivity = {};
-      this.recomputeZoneConnectivity();
-      // Rebuild machineGrid
-      this.state.machineGrid = {};
-      if (this.state.machines) {
-        for (const m of this.state.machines) {
-          const def = MACHINES[m.type];
-          if (!def) continue;
-          for (let dy = 0; dy < def.h; dy++)
-            for (let dx = 0; dx < def.w; dx++)
-              this.state.machineGrid[(m.col + dx) + ',' + (m.row + dy)] = m.id;
-        }
-      } else { this.state.machines = []; }
-      // Discard legacy connections data from old saves
-      delete this.state.connections;
-      // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
-      delete this.state.rackSegments;
-      delete this.state.networkData;
-
-      // Rehydrate new-system utility state (Phase 6 / Task 24).
-      this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
-      this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
-      this.state.utilityNextId = this.state.utilityNextId || 1;
-      // utilityNetworkData is derived; solveRunner repopulates on first tick.
-      this.state.utilityNetworkData = null;
-
-      // Ensure facility arrays exist
-      if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
-      if (!this.state.facilityGrid) this.state.facilityGrid = {};
-      if (!this.state.facilityNextId) this.state.facilityNextId = 1;
-
-      // Ensure zone furnishing arrays exist
-      if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
-      if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
-      if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
-
-      // Ensure wildlife entity state exists
-      if (!this.state.entities) this.state.entities = [];
-      if (!this.state.herds) this.state.herds = [];
-      // _entitiesLastPlaceableIds is not persisted; reset to null on load
-      // so the first tick seeds the cache without triggering startle.
-      this.state._entitiesLastPlaceableIds = null;
-
-      // Ensure unified placement state exists
-      if (!this.state.placeables) this.state.placeables = [];
-      if (!this.state.placeableIndex) this.state.placeableIndex = {};
-      if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
-      if (!this.state.placeableNextId) this.state.placeableNextId = 1;
-      if (!this.state.beamPipes) this.state.beamPipes = [];
-      if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
-
-      // Ensure RimWorld-like staff state exists — migrate old count-based saves
-      if (!this.state.staffMembers) this.state.staffMembers = [];
-      if (!this.state.staffNextId) this.state.staffNextId = 1;
-      if (!this.state.staffCandidates) this.state.staffCandidates = [];
-      // Migrate old saves that had only counts: generate pawns
-      if (this.state.staffMembers.length === 0 && this.state.staff && Object.values(this.state.staff).some(v => v > 0)) {
-        const counts = this.state.staff;
-        for (const role of ['operator', 'technician', 'scientist', 'engineer']) {
-          const n = counts[role + 's'] ?? counts[role] ?? 0;
-          for (let i = 0; i < n; i++) {
-            const m = createStaffMember(role, `staff_${this.state.staffNextId++}`, this.state.tick);
-            if (role === 'operator') m.assignment.zoneId = 'controlRoom';
-            else if (role === 'technician') m.assignment.zoneId = 'maintenance';
-            else if (role === 'scientist') m.assignment.zoneId = 'opticsLab';
-            else if (role === 'engineer') m.assignment.zoneId = 'machineShop';
-            this.state.staffMembers.push(m);
-          }
-        }
-        // also seed candidates if empty
-        if (this.state.staffCandidates.length === 0) this._refreshStaffCandidates();
-      } else if (this.state.staffMembers.length === 0) {
-        this._ensureStaffSeed();
-      }
-      // Rehydrate plain objects as StaffMember instances
-      for (let i = 0; i < this.state.staffMembers.length; i++) {
-        const o = this.state.staffMembers[i];
-        if (!(o instanceof StaffMember)) this.state.staffMembers[i] = StaffMember.fromJSON(o);
-      }
-      for (let i = 0; i < (this.state.staffCandidates || []).length; i++) {
-        const o = this.state.staffCandidates[i];
-        if (!(o instanceof StaffMember)) this.state.staffCandidates[i] = StaffMember.fromJSON(o);
-      }
-      this._syncStaffCounts();
-
-      // Ensure beam pipes have the B2 shape (start/end refs + placements[]).
-      // Saves from before the B2 migration are not supported — any pipe
-      // missing the new fields is treated as incomplete.
-      if (this.state.beamPipes) {
-        for (const pipe of this.state.beamPipes) {
-          if (!('start' in pipe)) pipe.start = null;
-          if (!('end' in pipe)) pipe.end = null;
-          if (!Array.isArray(pipe.placements)) pipe.placements = [];
-        }
-      }
-
-      // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
-      if (this.state.placeables.length === 0) {
-        // Migrate facility equipment
-        if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
-          for (const eq of this.state.facilityEquipment) {
-            const def = COMPONENTS[eq.type];
-            const gw = def ? (def.gridW || def.subW || 4) : 4;
-            const gh = def ? (def.gridH || def.subL || 4) : 4;
-            const id = 'eq_' + this.state.placeableNextId++;
-            const cells = [];
-            for (let dr = 0; dr < gh; dr++) {
-              for (let dc = 0; dc < gw; dc++) {
-                cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
-              }
-            }
-            const entry = {
-              id, type: eq.type, category: 'equipment',
-              col: eq.col, row: eq.row, subCol: 0, subRow: 0,
-              rotated: false, dir: null, params: null, cells,
-            };
-            this.state.placeables.push(entry);
-            this.state.placeableIndex[id] = this.state.placeables.length - 1;
-            for (const cell of cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
-            }
-          }
-        }
-
-        // Migrate zone furnishings
-        if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
-          for (const zf of this.state.zoneFurnishings) {
-            const def = ZONE_FURNISHINGS[zf.type];
-            const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
-            const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
-            const id = 'fn_' + this.state.placeableNextId++;
-            const cells = [];
-            for (let dr = 0; dr < gh; dr++) {
-              for (let dc = 0; dc < gw; dc++) {
-                const sc = (zf.subCol || 0) + dc;
-                const sr = (zf.subRow || 0) + dr;
-                cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
-              }
-            }
-            const entry = {
-              id, type: zf.type, category: 'furnishing',
-              col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
-              rotated: zf.rotated || false, dir: null, params: null, cells,
-            };
-            this.state.placeables.push(entry);
-            this.state.placeableIndex[id] = this.state.placeables.length - 1;
-            for (const cell of cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
-            }
-          }
-        }
-      }
-
-      // Rebuild subgridOccupied from loaded placeables (for v6+ saves that weren't migrated)
-      // Also ensure stacking fields have defaults for backward compatibility
-      if (this.state.placeables.length > 0) {
-        this.state.subgridOccupied = {};
-        for (const entry of this.state.placeables) {
-          if (entry.placeY == null) entry.placeY = 0;
-          if (!entry.stackParentId) entry.stackParentId = null;
-          if (!entry.stackChildren) entry.stackChildren = [];
-          if (entry.cells && !entry.stackParentId) {
-            for (const cell of entry.cells) {
-              this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, kind: entry.kind, category: entry.category };
-            }
-          }
-        }
-      }
-
-      // Rebuild wall state
-      this.state.walls = this.state.walls || [];
-      this.state.wallOccupied = {};
-      for (const w of this.state.walls) {
-        this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
-      }
-
-      // Migrate: remove deprecated energy resource
-      delete this.state.resources.energy;
-      delete this.state.electricalPower;
-      delete this.state.maxElectricalPower;
-
-      // Ensure infra validation state exists
-      this.state.infraBlockers = this.state.infraBlockers || [];
-      this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
-
-      // Ensure saved designs exist
-      if (!this.state.savedDesigns) this.state.savedDesigns = [];
-      if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
-      // Ensure designerState exists
-      if (!this.state.designerState) this.state.designerState = null;
-
-      // Initialize params for beamline placeables
-      for (const p of (this.state.placeables || [])) {
-        if (p.category !== 'beamline') continue;
-        const defs = PARAM_DEFS[p.type];
-        if (defs && !p.params) {
-          p.params = {};
-          for (const [k, def] of Object.entries(defs)) {
-            if (!def.derived) p.params[k] = def.default;
-          }
-        }
-      }
-
-      // Bridge any source placeables from older saves that don't yet have
-      // a registry entry (so clicks can open their beamline window).
-      for (const p of this.state.placeables || []) {
-        if (p.category !== 'beamline') continue;
-        const comp = COMPONENTS[p.type];
-        if (!comp?.isSource) continue;
-        if (p.beamlineId && this.registry.get(p.beamlineId)) continue;
-        this._ensureBeamlineForSourcePlaceable(p);
-      }
-
-      this.recalcAllBeamlines();
-      this.validateInfrastructure();
       this.log('Game loaded.', 'info');
       this.emit('loaded');
       return true;
     } catch (e) { console.error('Save load failed:', e); return false; }
+  }
+
+  // Restore an undo entry ({payload, ledger}) in place. Unlike load(), aux
+  // sections are deliberately NOT dispatched — camera, probe pins and
+  // designer session must not jump on undo — there is no "Game loaded." log
+  // line, and sim progress is carried over rather than rewound.
+  // Used by undo()/redo().
+  restoreSnapshot(entry) {
+    const { payload, ledger } = typeof entry === 'string'
+      ? { payload: entry, ledger: null } : entry;
+    this._applyState(JSON.parse(payload), { preserveSim: true, ledgerAt: ledger });
+    // The restore itself moved the balance; it is not ledger drift.
+    this._closeUndoGesture();
+    // The 3D renderer handles 'restored' exactly like 'loaded' (full
+    // scene rebuild); host layers hang load-only side effects off 'loaded'.
+    this.emit('restored');
+  }
+
+  /**
+   * Resources to restore for an undo entry: the snapshot's balance plus
+   * every non-gesture credit/debit recorded since it was taken. Refunds the
+   * undone gesture's spending without clawing back tick income or upkeep.
+   */
+  _reconcileResources(snapshotResources, ledgerAt) {
+    const out = { ...(snapshotResources || {}) };
+    if (!ledgerAt) return out;
+    for (const k of new Set([...Object.keys(this._resourceLedger), ...Object.keys(ledgerAt)])) {
+      out[k] = (out[k] || 0) + ((this._resourceLedger[k] || 0) - (ledgerAt[k] || 0));
+    }
+    return out;
+  }
+
+  // State-application core shared by load() and restoreSnapshot(): assign
+  // the saved fields, reseed the RNG, restore the beamline registry, and
+  // rebuild every derived index/aggregate. `data` is a parsed serialize()
+  // payload ({version, state, aux, beamlines}); aux is ignored here.
+  // opts.preserveSim (undo/redo only) keeps UNDO_PRESERVED_FIELDS from the
+  // live state and reconciles resources against opts.ledgerAt, so undoing a
+  // build made N ticks ago rewinds the build, not N ticks of simulation.
+  _applyState(data, opts = {}) {
+    let preserved = null;
+    let resources = null;
+    if (opts.preserveSim) {
+      preserved = {};
+      for (const f of UNDO_PRESERVED_FIELDS) preserved[f] = this.state[f];
+      resources = this._reconcileResources(data.state?.resources, opts.ledgerAt);
+    }
+    Object.assign(this.state, data.state);
+    if (preserved) {
+      Object.assign(this.state, preserved);
+      this.state.resources = resources;
+    }
+
+    // Sanitize loop-control state and resync the interval to the loaded
+    // speed (no-op before start()).
+    this.state.paused = !!this.state.paused;
+    if (![1, 2, 4].includes(this.state.speed)) this.state.speed = 1;
+    this._syncInterval();
+
+    // Restart the sim RNG stream from the saved seed (stream position is
+    // intentionally not persisted). Undo/redo must NOT reseed: the stream is
+    // sim progress like `tick`, and restarting it at position 0 on every
+    // Ctrl+Z would let a player re-roll wear failures and discoveries by
+    // undoing and redoing a trivial build.
+    if (this.state.seed == null) this.state.seed = Date.now();
+    if (!opts.preserveSim) this.rng = mulberry32(this.state.seed);
+
+    // Rehydrate per-corner terrain heightmap. Old saves lack the field —
+    // treat as empty (fully flat world). Revision always resets to 0 on
+    // load so renderer builders rebuild on the first frame.
+    this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
+    this.state.cornerHeightsRevision = 0;
+
+    // Restore registry from saved beamlines data. The entry set itself is
+    // gesture state (placing/removing a source creates/deletes beamlines), so
+    // it is always restored — but on undo/redo the sim accumulators carried
+    // on each surviving entry are re-overlaid from the live registry
+    // afterwards (see BEAMSTATE_PRESERVED_FIELDS).
+    if (data.beamlines) {
+      const liveBeamStates = opts.preserveSim ? new Map() : null;
+      if (liveBeamStates) {
+        for (const entry of this.registry.getAll()) liveBeamStates.set(entry.id, entry.beamState);
+      }
+      this.registry.fromJSON(data.beamlines);
+      if (liveBeamStates) {
+        for (const entry of this.registry.getAll()) {
+          const live = liveBeamStates.get(entry.id);
+          if (!live || !entry.beamState) continue;
+          for (const f of BEAMSTATE_PRESERVED_FIELDS) {
+            if (live[f] !== undefined) entry.beamState[f] = live[f];
+          }
+        }
+      }
+    }
+
+    // Migrate old saves: entries without sourceId need one
+    for (const entry of this.registry.getAll()) {
+      if (!entry.sourceId) {
+        const src = this.state.placeables?.find(p =>
+          p.beamlineId === entry.id && COMPONENTS[p.type]?.isSource
+        );
+        if (src) entry.sourceId = src.id;
+      }
+    }
+
+    // Rebuild infraOccupied
+    this.state.infraOccupied = {};
+    if (this.state.floors) {
+      for (const tile of this.state.floors)
+        this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+    } else { this.state.floors = []; }
+    // Rebuild zoneOccupied
+    this.state.zones = this.state.zones || [];
+    this.state.zoneOccupied = {};
+    for (const z of this.state.zones) {
+      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+    }
+    this.state.zoneConnectivity = {};
+    this.recomputeZoneConnectivity();
+    // Discard legacy connections data from old saves
+    delete this.state.connections;
+    // Discard legacy rack-segment / networkData from pre-Phase-6 saves.
+    delete this.state.rackSegments;
+    delete this.state.networkData;
+
+    // Rehydrate new-system utility state (Phase 6 / Task 24).
+    this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
+    this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
+    this.state.utilityNextId = this.state.utilityNextId || 1;
+    // utilityNetworkData / utilityNetworks are derived; solveRunner
+    // repopulates both on first tick. The utilityLines Map was just replaced
+    // wholesale, so the cached network discovery is stale — invalidate it.
+    this.state.utilityNetworkData = null;
+    this.state.utilityNetworks = null;
+    if (this.solveRunner) this.solveRunner.markTopologyDirty();
+
+    // Ensure facility arrays exist
+    if (!this.state.facilityEquipment) this.state.facilityEquipment = [];
+    if (!this.state.facilityGrid) this.state.facilityGrid = {};
+    if (!this.state.facilityNextId) this.state.facilityNextId = 1;
+
+    // Ensure zone furnishing arrays exist
+    if (!this.state.zoneFurnishings) this.state.zoneFurnishings = [];
+    if (!this.state.zoneFurnishingSubgrids) this.state.zoneFurnishingSubgrids = {};
+    if (!this.state.zoneFurnishingNextId) this.state.zoneFurnishingNextId = 1;
+
+    // Ensure unified placement state exists
+    if (!this.state.placeables) this.state.placeables = [];
+    if (!this.state.placeableIndex) this.state.placeableIndex = {};
+    if (!this.state.subgridOccupied) this.state.subgridOccupied = {};
+    if (!this.state.placeableNextId) this.state.placeableNextId = 1;
+    if (!this.state.beamPipes) this.state.beamPipes = [];
+    if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
+
+    // Ensure RimWorld-like staff state exists — migrate old count-based saves
+    if (!this.state.staffMembers) this.state.staffMembers = [];
+    if (!this.state.staffNextId) this.state.staffNextId = 1;
+    if (!this.state.staffCandidates) this.state.staffCandidates = [];
+    // Migrate old saves that had only counts: generate pawns
+    if (this.state.staffMembers.length === 0 && this.state.staff && Object.values(this.state.staff).some(v => v > 0)) {
+      const counts = this.state.staff;
+      for (const role of ['operator', 'technician', 'scientist', 'engineer']) {
+        const n = counts[role + 's'] ?? counts[role] ?? 0;
+        for (let i = 0; i < n; i++) {
+          const m = createStaffMember(role, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
+          if (role === 'operator') m.assignment.zoneId = 'controlRoom';
+          else if (role === 'technician') m.assignment.zoneId = 'maintenance';
+          else if (role === 'scientist') m.assignment.zoneId = 'opticsLab';
+          else if (role === 'engineer') m.assignment.zoneId = 'machineShop';
+          this.state.staffMembers.push(m);
+        }
+      }
+      // also seed candidates if empty
+      if (this.state.staffCandidates.length === 0) this._refreshStaffCandidates();
+    } else if (this.state.staffMembers.length === 0) {
+      this._ensureStaffSeed();
+    }
+    // Rehydrate plain objects as StaffMember instances
+    for (let i = 0; i < this.state.staffMembers.length; i++) {
+      const o = this.state.staffMembers[i];
+      if (!(o instanceof StaffMember)) this.state.staffMembers[i] = StaffMember.fromJSON(o);
+    }
+    for (let i = 0; i < (this.state.staffCandidates || []).length; i++) {
+      const o = this.state.staffCandidates[i];
+      if (!(o instanceof StaffMember)) this.state.staffCandidates[i] = StaffMember.fromJSON(o);
+    }
+    this._syncStaffCounts();
+
+    // Ensure beam pipes have the B2 shape (start/end refs + placements[]).
+    // Saves from before the B2 migration are not supported — any pipe
+    // missing the new fields is treated as incomplete.
+    if (this.state.beamPipes) {
+      for (const pipe of this.state.beamPipes) {
+        if (!('start' in pipe)) pipe.start = null;
+        if (!('end' in pipe)) pipe.end = null;
+        if (!Array.isArray(pipe.placements)) pipe.placements = [];
+      }
+    }
+
+    // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)
+    if (this.state.placeables.length === 0) {
+      // Migrate facility equipment
+      if (this.state.facilityEquipment && this.state.facilityEquipment.length > 0) {
+        for (const eq of this.state.facilityEquipment) {
+          const def = COMPONENTS[eq.type];
+          const gw = def ? (def.gridW || def.subW || 4) : 4;
+          const gh = def ? (def.gridH || def.subL || 4) : 4;
+          const id = 'eq_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              cells.push({ col: eq.col + Math.floor(dc / 4), row: eq.row + Math.floor(dr / 4), subCol: dc % 4, subRow: dr % 4 });
+            }
+          }
+          const entry = {
+            id, type: eq.type, category: 'equipment',
+            col: eq.col, row: eq.row, subCol: 0, subRow: 0,
+            rotated: false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'equipment' };
+          }
+        }
+      }
+
+      // Migrate zone furnishings
+      if (this.state.zoneFurnishings && this.state.zoneFurnishings.length > 0) {
+        for (const zf of this.state.zoneFurnishings) {
+          const def = ZONE_FURNISHINGS[zf.type];
+          const gw = zf.rotated ? (def ? def.gridH : 1) : (def ? def.gridW : 1);
+          const gh = zf.rotated ? (def ? def.gridW : 1) : (def ? def.gridH : 1);
+          const id = 'fn_' + this.state.placeableNextId++;
+          const cells = [];
+          for (let dr = 0; dr < gh; dr++) {
+            for (let dc = 0; dc < gw; dc++) {
+              const sc = (zf.subCol || 0) + dc;
+              const sr = (zf.subRow || 0) + dr;
+              cells.push({ col: zf.col + Math.floor(sc / 4), row: zf.row + Math.floor(sr / 4), subCol: sc % 4, subRow: sr % 4 });
+            }
+          }
+          const entry = {
+            id, type: zf.type, category: 'furnishing',
+            col: zf.col, row: zf.row, subCol: zf.subCol || 0, subRow: zf.subRow || 0,
+            rotated: zf.rotated || false, dir: null, params: null, cells,
+          };
+          this.state.placeables.push(entry);
+          this.state.placeableIndex[id] = this.state.placeables.length - 1;
+          for (const cell of cells) {
+            this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id, category: 'furnishing' };
+          }
+        }
+      }
+    }
+
+    // Ensure stacking fields have defaults, then rebuild the derived
+    // placeableIndex/subgridOccupied maps. Unconditional: the constructor
+    // built them from the starter map, which load just replaced.
+    for (const entry of this.state.placeables) {
+      if (entry.placeY == null) entry.placeY = 0;
+      if (!entry.stackParentId) entry.stackParentId = null;
+      if (!entry.stackChildren) entry.stackChildren = [];
+    }
+    this._rebuildPlaceableIndex();
+
+    // Rebuild wall state
+    this.state.walls = this.state.walls || [];
+    this.state.wallOccupied = {};
+    for (const w of this.state.walls) {
+      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    }
+    // Rebuild door edge state. Derived like wallOccupied — without this,
+    // placed doors are undeletable after a load and undone doors leave a
+    // phantom entry that blocks re-placing on that edge. Room detection
+    // (_detectRoom, networks/rooms.js, the renderer's cutaway) reads it too,
+    // so a stale index silently walls off every doorway.
+    this.state.doors = this.state.doors || [];
+    this.state.doorOccupied = {};
+    for (const d of this.state.doors) {
+      this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    }
+
+    // Migrate: remove deprecated energy resource
+    delete this.state.resources.energy;
+    delete this.state.electricalPower;
+    delete this.state.maxElectricalPower;
+
+    // Ensure infra validation state exists
+    this.state.infraBlockers = this.state.infraBlockers || [];
+    this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
+
+    // Ensure saved designs exist
+    if (!this.state.savedDesigns) this.state.savedDesigns = [];
+    if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
+    // Ensure designerState exists
+    if (!this.state.designerState) this.state.designerState = null;
+
+    // Initialize params for beamline placeables
+    for (const p of (this.state.placeables || [])) {
+      if (p.category !== 'beamline') continue;
+      const defs = PARAM_DEFS[p.type];
+      if (defs && !p.params) {
+        p.params = {};
+        for (const [k, def] of Object.entries(defs)) {
+          if (!def.derived) p.params[k] = def.default;
+        }
+      }
+    }
+
+    // Bridge any source placeables from older saves that don't yet have
+    // a registry entry (so clicks can open their beamline window).
+    for (const p of this.state.placeables || []) {
+      if (p.category !== 'beamline') continue;
+      const comp = COMPONENTS[p.type];
+      if (!comp?.isSource) continue;
+      if (p.beamlineId && this.registry.get(p.beamlineId)) continue;
+      this._ensureBeamlineForSourcePlaceable(p);
+    }
+
+    // Recompute derived state the whitelist dropped from the save:
+    // systemStats/zoneFurnishingBonuses here; beam aggregates, state.beamline
+    // and mainBeamState via recalcAllBeamlines(). Per-tick derivations
+    // (nodeQualities, moraleMultiplier, infraBlockers) refresh on first tick.
+    this.computeSystemStats();
+    this.recalcAllBeamlines();
+    this.validateInfrastructure();
   }
 
 }

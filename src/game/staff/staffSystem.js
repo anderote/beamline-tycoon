@@ -2,14 +2,14 @@
 
 import { StaffMember, randomName, randomTraits } from './StaffMember.js';
 
-export function createStaffMember(role, id, tick = 0) {
-  const m = new StaffMember({ id, role, name: randomName(), traits: randomTraits() });
+export function createStaffMember(role, id, tick = 0, rng = Math.random) {
+  const m = new StaffMember({ id, role, name: randomName(rng), traits: randomTraits(rng), rng });
   m.history = [{ tick, event: 'hired', note: `Joined as ${role}` }];
   return m;
 }
 
 // Tick needs for one member. Returns true if status changed.
-export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier }) {
+export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Math.random }) {
   const isGourmand = m.traits.includes('gourmand');
   const isStoic = m.traits.includes('stoic');
   const isNightOwl = m.traits.includes('nightOwl');
@@ -36,7 +36,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier }) {
       statusChanged = true;
     }
     // breakdown risk when morale very low
-    if (m.needs.morale < 0.12 && Math.random() < 0.01) {
+    if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
       m.breakdowns++;
       m.history.push({ tick: 0, event: 'breakdown', note: 'Stressed breakdown — resting 30 ticks' });
@@ -53,9 +53,13 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier }) {
       }
     }
     m.needs.fatigue = Math.max(0, m.needs.fatigue - 0.05);
-    // hunger: if cafeteria exists, feed; else hunger keeps rising a bit
-    if (cafeteriaTier > 0) m.needs.hunger = Math.max(0, m.needs.hunger - 0.08);
-    else m.needs.hunger = Math.min(1, m.needs.hunger + 0.005);
+    // Hunger always recovers on break — a cafeteria just makes it 4x faster.
+    // (It used to *rise* without a cafeteria, which made the recovery
+    // condition below unsatisfiable: a staffer who went on break in a
+    // cafeteria-less facility could never return to 'working', permanently
+    // tripping the beam via the beam_unstaffed gate. Slower recovery keeps the
+    // cafeteria valuable as an uptime multiplier without deadlocking.)
+    m.needs.hunger = Math.max(0, m.needs.hunger - (cafeteriaTier > 0 ? 0.08 : 0.02));
     m.needs.morale = Math.min(1, m.needs.morale + 0.015);
     if (m._restTimer == null && m.needs.fatigue < 0.25 && m.needs.hunger < 0.35) {
       m.status = 'working';

@@ -12,6 +12,41 @@ import { COMPONENTS } from './components.js';
 // cheap proxy for ">=1 source and >=1 sink wired together". For utilities
 // with a totalCapacity field (power, cooling, rf, cryo), also require it
 // to be positive so we don't light up the tutorial for sinkless sources.
+// Count pipe placements of a type. Components with role 'placement'
+// (bunchers, cavities, quadrupoles, bpms, ...) live inside
+// state.beamPipes[].placements — NOT in state.placeables — so tutorial
+// conditions for them must scan the pipes.
+function countPipePlacements(state, type) {
+  let n = 0;
+  for (const bp of state.beamPipes || []) {
+    for (const pl of bp.placements || []) {
+      if (pl.type === type) n++;
+    }
+  }
+  return n;
+}
+
+// True if any rfWaveguide network actually DELIVERS RF to a cavity.
+//
+// `totalCapacity > 0` is not enough: rfWaveguide.solve buckets sources and
+// sinks by exact frequency, and totalCapacity is summed across every bucket.
+// A fixed-frequency magnetron (2.45 GHz) wired to a 200 MHz pillbox cavity
+// reports capacity while every sink sits at quality 0 (soft
+// `rf_frequency_mismatch`) — and a dangling waveguide stub with no sink at
+// all reported capacity too. Require a sink that is actually being fed.
+function hasRfFeed(state) {
+  const perType = state?.utilityNetworkData?.get?.('rfWaveguide');
+  if (!perType) return false;
+  for (const flow of perType.values()) {
+    const qualities = flow && flow.perSinkQuality;
+    if (!qualities) continue;
+    for (const q of Object.values(qualities)) {
+      if ((q || 0) > 0) return true;
+    }
+  }
+  return false;
+}
+
 function hasFunctionalNetwork(state, utilityType) {
   const perType = state?.utilityNetworkData?.get?.(utilityType);
   if (!perType || perType.size === 0) return false;
@@ -38,7 +73,7 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-source',
     name: 'Place an Ion Source',
-    hint: 'Select Beamline \u2192 Sources and place a Source in the tunnel.',
+    hint: 'Select Beamline \u2192 Sources and place an Ion Source (it will need power, cooling water and vacuum hookups).',
     group: 'beamline',
     condition: (state) =>
       state.placeables.some(p => p.category === 'beamline' && COMPONENTS[p.type]?.isSource),
@@ -56,32 +91,23 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-buncher',
     name: 'Add a Buncher',
-    hint: 'Place a Buncher after the source to compress the beam into bunches.',
+    hint: 'Place a Buncher on the beam pipe after the source to compress the beam into bunches.',
     group: 'beamline',
-    condition: (state) =>
-      state.placeables.some(p => p.category === 'beamline' && p.type === 'buncher'),
+    condition: (state) => countPipePlacements(state, 'buncher') >= 1,
   },
   {
     id: 'tut-cavities',
     name: 'Install RF Cavities',
-    hint: 'Place 3 Pillbox Cavities to accelerate the beam (3-min path). Add more later for higher energy.',
+    hint: 'Place 3 Pillbox Cavities on the beam pipe to accelerate the beam (3-min path). Add more later for higher energy.',
     group: 'beamline',
-    condition: (state) => {
-      const count = state.placeables.filter(
-        p => p.category === 'beamline' && p.type === 'pillboxCavity'
-      ).length;
-      return count >= 3;
-    },
+    condition: (state) => countPipePlacements(state, 'pillboxCavity') >= 3,
   },
   {
     id: 'tut-quads',
     name: 'Focus with Quadrupoles',
-    hint: 'Place a Quadrupole magnet to keep the beam focused (3-min path).',
+    hint: 'Place a Quadrupole magnet on the beam pipe to keep the beam focused (3-min path).',
     group: 'beamline',
-    condition: (state) =>
-      state.placeables.filter(
-        p => p.category === 'beamline' && p.type === 'quadrupole'
-      ).length >= 1,
+    condition: (state) => countPipePlacements(state, 'quadrupole') >= 1,
   },
   {
     id: 'tut-faraday',
@@ -101,28 +127,28 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-power',
     name: 'Connect Power',
-    hint: 'Place a HV Transformer (now fans out via capacity) and run Power Cable to any beamline component (3-min path).',
+    hint: 'Place a HV Transformer and run Power Cable to each beamline junction — source and Faraday cup both need power (fanout from one transformer is fine).',
     group: 'infrastructure',
     condition: (state) => hasFunctionalNetwork(state, 'powerCable'),
   },
   {
     id: 'tut-vacuum',
     name: 'Connect Vacuum',
-    hint: 'Place a Roughing Pump and run Vacuum Pipe to the beamline (3-min path).',
+    hint: 'Place a Roughing Pump and run Vacuum Pipe to each beamline junction — every junction has a vacuum port that must be pumped.',
     group: 'infrastructure',
     condition: (state) => hasFunctionalNetwork(state, 'vacuumPipe'),
   },
   {
     id: 'tut-rf',
     name: 'Connect RF Power',
-    hint: 'Place a Magnetron and run RF Waveguide to a cavity (3-min path).',
+    hint: 'Place a Solid-State Amplifier and run RF Waveguide to your cavities — it is broadband, so it drives the 200 MHz buncher and pillbox cavities. (A Magnetron is locked to 2.45 GHz and only feeds an ECR ion source.)',
     group: 'infrastructure',
-    condition: (state) => hasFunctionalNetwork(state, 'rfWaveguide'),
+    condition: (state) => hasRfFeed(state),
   },
   {
     id: 'tut-cooling',
     name: 'Connect Cooling Water',
-    hint: 'Place a Chiller and run Cooling Water to a Quadrupole (optional for 3-min path).',
+    hint: 'Place a Chiller and run Cooling Water to your Ion Source — sources and magnets dump heat into the water loop (optional for 3-min path).',
     group: 'infrastructure',
     condition: (state) => hasFunctionalNetwork(state, 'coolingWater'),
   },

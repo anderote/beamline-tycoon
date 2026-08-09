@@ -1,12 +1,22 @@
 // Beamline components — particle accelerator modules placed in Beamline build mode.
 // subL/subW define size in sub-units (1 sub-unit = 50cm)
 //
+// physicsType declares how the physics engine (beam_physics/) models the
+// component. It must be one of KNOWN_PHYSICS_TYPES in beam_physics/gameplay.py
+// — gameplay.py raises ValueError on a missing or unknown value, so a new
+// component cannot silently skip physics. Components the engine doesn't model
+// (diagnostics, passive filters, septa) declare 'drift': the beam passes
+// through unaffected. Gameplay-side behavior (SRF quench,
+// capture efficiency, transit-time factor) still keys on the game `id`, which
+// physics receives as game_type.
+//
 // Starter set: 24 components. The full 64-component design backlog lives at
 // docs/full-beamline-component-list.md and should be referenced when restoring
 // deferred components post-MVP.
 export const BEAMLINE_COMPONENTS_RAW = {
   source: {
     id: 'source',
+    physicsType: 'source',
     name: 'Electron Gun',
     desc: 'Simple, cheap, reliable thermionic electron gun — a heated cathode in a DC extraction field. Delivers a constant 5 kW beam: crank extraction voltage up for higher energy and lower current, down for more current at lower energy. 25 kV / 200 mA at the low end, 250 kV / 20 mA at the top. Perfect first source for any beamline.',
     category: 'source',
@@ -36,6 +46,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ionSource: {
     id: 'ionSource',
+    physicsType: 'source', // proton source — gameplay.py initializes the beam with PROTON_MASS via params.particleType
     name: 'Duoplasmatron Ion Source',
     desc: 'Classic duoplasmatron proton source — a hot filament generates a primary plasma, then a magnetic constriction squeezes it through an intermediate electrode into a dense secondary plasma at the anode aperture. Reliable, moderate current, and your workhorse first proton source. Requires cooling for the magnet and arc chamber.',
     category: 'source',
@@ -63,6 +74,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ecrIonSource: {
     id: 'ecrIonSource',
+    physicsType: 'source', // proton source — gameplay.py initializes the beam with PROTON_MASS via params.particleType
     name: 'ECR Ion Source',
     desc: 'Electron Cyclotron Resonance ion source — microwave power at 2.45 GHz heats a plasma confined by mirror solenoid magnets, producing high-current proton beams suitable for high-power facilities. Demands RF waveguide injection and substantial cooling, but delivers 4× the current of a duoplasmatron.',
     category: 'source',
@@ -87,9 +99,13 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 2450,
+    rfBand: 'sband',
+    rfPowerRequired: 2,
   },
   drift: {
     id: 'drift',
+    physicsType: 'drift',
     name: 'Beam Pipe',
     desc: 'A straight section of beam pipe with no active elements. Use beam pipes to extend your beamline cheaply — they add length but no energy cost. Essential for spacing out components and giving the beam room to travel between focusing elements.',
     category: 'source',
@@ -116,6 +132,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   bellows: {
     id: 'bellows',
+    physicsType: 'drift',
     name: 'Bellows Section',
     desc: 'Flexible vacuum bellows section that absorbs thermal expansion and vibration between rigid components. Cheap and zero energy cost. Place between components that may shift during operation, or use as a short spacer when you need minimal drift length.',
     category: 'source',
@@ -139,6 +156,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── Optics — Focusing ─────────────────────────────────────────────
   dipole: {
     id: 'dipole',
+    physicsType: 'dipole',
     name: 'Dipole',
     desc: 'C-clamp bending magnet that deflects the beam 90 degrees toward the open side of the yoke. Use dipoles to route your beamline around corners and build compact layouts. Essential for creating rings or redirecting beam paths.',
     category: 'optics',
@@ -170,9 +188,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   injectionSeptum: {
     id: 'injectionSeptum',
+    physicsType: 'drift', // septa are drift-like passthroughs in the engine
     name: 'Injection Septum',
     desc: 'Pulsed septum magnet that merges an incoming linac beam onto a circulating ring orbit. Thin current-carrying septum blade separates the injection channel from the ring aperture; fires only during the injection window. Three ports: linac entry and ring entry both route to the shared ring exit.',
-    category: 'magnet',
+    // 'magnet' was not a palette tab — the item was invisible in every
+    // build menu. Optics/focusing matches the dipole family it belongs to.
+    category: 'optics',
     subsection: 'focusing',
     cost: { funding: 800000 },
     stats: { bendAngle: 15 },
@@ -201,6 +222,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   quadrupole: {
     id: 'quadrupole',
+    physicsType: 'quadrupole',
     name: 'Quad',
     desc: 'Quadrupole focusing magnet that squeezes the beam in one plane while defocusing in the other. Place them in alternating pairs (FODO lattice) along your beamline to keep the beam tightly focused. Without quads, the beam will diverge and lose quality over distance.',
     category: 'optics',
@@ -223,6 +245,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   sextupole: {
     id: 'sextupole',
+    physicsType: 'sextupole',
     name: 'Sextupole',
     desc: 'Six-pole magnet that corrects chromatic aberrations — the tendency of particles with different energies to focus at different points. Place near quadrupoles to sharpen the beam and improve quality. Adds both focus strength and beam quality.',
     category: 'optics',
@@ -247,6 +270,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── Optics — Manipulation ─────────────────────────────────────────
   aperture: {
     id: 'aperture',
+    physicsType: 'drift', // not modeled as a physics collimator (old fallthrough)
     name: 'Aperture',
     desc: 'Simple adjustable slit that limits the beam size by blocking particles outside a defined window. The cheapest way to clean up a messy beam — scrapes the halo and improves quality at the cost of some current. Place before sensitive components or detectors.',
     category: 'optics',
@@ -269,6 +293,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   velocitySelector: {
     id: 'velocitySelector',
+    physicsType: 'drift', // beamQuality stat is not physics-modeled (old fallthrough)
     name: 'Velocity Selector',
     desc: 'Crossed electric and magnetic fields that only transmit particles within a narrow velocity band — slower or faster particles are deflected into the walls. Essential for selecting a clean mono-energetic beam from a mixed source. Improves beam quality significantly.',
     category: 'optics',
@@ -292,6 +317,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   emittanceFilter: {
     id: 'emittanceFilter',
+    physicsType: 'drift', // beamQuality stat is not physics-modeled (old fallthrough)
     name: 'Pepper-pot Emittance Filter',
     desc: 'Array of small holes in a metal plate that selects only the most collimated particles, dramatically improving beam emittance at the cost of current. The transmitted beamlets reveal the beam phase space. Cheap and passive — useful for cleaning up a rough source.',
     category: 'optics',
@@ -316,6 +342,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── RF / Accel — Normal Conducting ────────────────────────────────
   buncher: {
     id: 'buncher',
+    physicsType: 'rfCavity',
     name: 'Buncher',
     desc: 'Low-voltage RF cavity that imprints bunch structure onto a DC beam without significant acceleration. Operates at a sub-harmonic of the main linac frequency to give a wide capture window. Place between source and first accelerating cavity to pre-bunch the beam — dramatically improves capture efficiency downstream. Normal-conducting, low power.',
     category: 'rf',
@@ -346,6 +373,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   pillboxCavity: {
     id: 'pillboxCavity',
+    physicsType: 'rfCavity',
     name: 'Pillbox Cavity',
     desc: 'Simple single-cell copper cavity for initial low-energy acceleration. ~0.5 MV/m effective gradient over a 1 m footprint delivers 0.5 MeV energy gain. Cheap and compact — a good first accelerating structure right after the source. Normal-conducting, no cryo required.',
     category: 'rf',
@@ -376,6 +404,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   rfCavity: {
     id: 'rfCavity',
+    physicsType: 'rfCavity',
     name: 'NC RF Cavity',
     desc: 'Normal-conducting S-band copper standing-wave cavity. 15 MV/m accelerating gradient × 3 m physical length = 45 MeV per module. Place many in series for high energy. Thermally limited to short pulses; guzzles RF power and needs aggressive water cooling.',
     category: 'rf',
@@ -405,6 +434,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   sbandStructure: {
     id: 'sbandStructure',
+    physicsType: 'rfCavity',
     name: 'S-band Structure',
     desc: 'SLAC-style constant-gradient traveling-wave normal-conducting structure. 17 MV/m × 3 m = 51 MeV per module — the same spec that powered the original SLAC linac. Cleaner beam dynamics than a standing-wave pillbox chain, but needs a dedicated high-power klystron per section.',
     category: 'rf',
@@ -435,6 +465,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   rfq: {
     id: 'rfq',
+    physicsType: 'rfCavity',
     name: 'RFQ',
     desc: 'Radio-Frequency Quadrupole that simultaneously bunches and accelerates beam from keV to 3 MeV. The classic first accelerating structure after a source — it captures the DC beam and forms it into bunches while gently accelerating. Normal-conducting copper vanes at ~1 MV/m averaged over 3 m.',
     category: 'rf',
@@ -467,6 +498,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── RF / Accel — Superconducting ──────────────────────────────────
   halfWaveResonator: {
     id: 'halfWaveResonator',
+    physicsType: 'rfCavity',
     name: 'Half-Wave Resonator',
     desc: 'Superconducting coaxial cavity operating at half the RF wavelength. Peak ~5 MV/m in the gap but the active length is tiny compared to the cryostat, giving ~1 MV/m effective over the 1 m footprint → 1 MeV per module. Low per-module gain but near-zero wall losses means CW operation at any duty cycle. Ideal for low-β ion and proton acceleration. Requires cryo.',
     category: 'rf',
@@ -497,6 +529,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   spokeCavity: {
     id: 'spokeCavity',
+    physicsType: 'rfCavity',
     name: 'Spoke Cavity',
     desc: 'Superconducting double-spoke resonator that bridges low-β and high-β acceleration. Peak ~8 MV/m at the spoke irises averages to 5 MV/m effective × 2 m footprint = 10 MeV per module. Compact, mechanically stiff, excellent frequency stability. Requires cryo.',
     category: 'rf',
@@ -527,6 +560,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ellipticalSrfCavity: {
     id: 'ellipticalSrfCavity',
+    physicsType: 'rfCavity',
     name: '9-cell Elliptical SRF',
     desc: 'TESLA/XFEL-style nine-cell niobium elliptical cavity in its own helium vessel. 25 MV/m × 1.5 m footprint = 37.5 MeV per cavity — the workhorse high-β SRF structure used by European XFEL, LCLS-II, and the ILC design. CW-capable with vanishing wall losses, but lives in liquid helium at 2 K. Requires cryo.',
     category: 'rf',
@@ -557,6 +591,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   cryomodule: {
     id: 'cryomodule',
+    physicsType: 'cryomodule',
     name: 'TESLA Cryomodule',
     desc: 'Eight 9-cell niobium elliptical cavities packed into a single 2 K cryostat. 25 MV/m effective × 8 m footprint delivers 200 MeV per module. The standard SRF building block for modern CW linacs (European XFEL, LCLS-II, SHINE). Expensive, thirsty for liquid helium, and worth every penny.',
     category: 'rf',
@@ -589,6 +624,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── Diagnostics ───────────────────────────────────────────────────
   bpm: {
     id: 'bpm',
+    physicsType: 'drift', // diagnostics are thin drift-like elements
     name: 'BPM',
     desc: 'Non-destructive sensor that measures the beam position on every pulse without disturbing the beam. Place regularly along your beamline to monitor orbit stability. Cheap and essential — BPMs are the eyes of your machine. Tiny quality boost from better orbit awareness.',
     category: 'diagnostic',
@@ -611,6 +647,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   screen: {
     id: 'screen',
+    physicsType: 'drift', // diagnostics are thin drift-like elements
     name: 'Screen/YAG',
     desc: 'Insertable fluorescent screen (YAG crystal) that images the beam cross-section when lowered into the beam path. Destructive when inserted — blocks the beam during measurement. Use during commissioning or tuning to verify beam size and shape.',
     category: 'diagnostic',
@@ -633,6 +670,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   ict: {
     id: 'ict',
+    physicsType: 'drift', // diagnostics are thin drift-like elements
     name: 'Current Monitor (ICT)',
     desc: 'Integrating Current Transformer that measures the total charge in each beam pulse without touching the beam. Essential for monitoring beam transmission — compare readings at different points to detect losses along the beamline.',
     category: 'diagnostic',
@@ -655,6 +693,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   wireScanner: {
     id: 'wireScanner',
+    physicsType: 'drift', // diagnostics are thin drift-like elements
     name: 'Wire Scanner',
     desc: 'Moves a thin wire through the beam to measure the transverse profile with high precision. Provides emittance measurements — the key figure of merit for beam quality. Slightly destructive but much less than a screen.',
     category: 'diagnostic',
@@ -679,6 +718,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   // ── Endpoints ─────────────────────────────────────────────────────
   faradayCup: {
     id: 'faradayCup',
+    physicsType: 'drift', // endpoint; dataRate is gameplay economy, not physics (old fallthrough)
     name: 'Faraday Cup',
     desc: 'Simple metal cup that stops the beam and measures the total current by collecting all charge. The cheapest possible endpoint — use it to terminate your beamline while you build up to a real detector. Generates a trickle of data from current measurements. Must be wired to the control room via data fiber to collect data. No beam passes beyond this point.',
     category: 'endpoint',
@@ -706,6 +746,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   beamStop: {
     id: 'beamStop',
+    physicsType: 'beamStop', // thin absorber — lattice.THIN_EFFECT_TYPES
     name: 'Beam Stop',
     desc: 'Water-cooled copper block that safely absorbs the full beam. Every accelerator needs a beam stop as a termination point — it is the simplest way to end your beamline safely. No data output but handles any beam power. Essential safety equipment.',
     category: 'endpoint',
@@ -733,6 +774,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   detector: {
     id: 'detector',
+    physicsType: 'detector',
     name: 'Detector',
     desc: 'General-purpose particle detector that records beam interactions and generates research data points per second. Place at the end of your beamline to start earning data. Higher beam energy and quality increase data output. Must be wired to the control room via data fiber. Data is used to unlock research upgrades.',
     category: 'endpoint',
@@ -759,6 +801,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   collisionPoint: {
     id: 'collisionPoint',
+    physicsType: 'drift', // beam_beam only fires on physicsType 'detector' in collider machines (old fallthrough)
     name: 'Collision Point',
     desc: 'Interaction region where two opposing beams meet head-on and annihilate. Both beams terminate here; secondary products spray into surrounding detector volumes. The heart of a collider experiment.',
     category: 'endpoint',
@@ -787,6 +830,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
   },
   target: {
     id: 'target',
+    physicsType: 'target',
     name: 'Target',
     desc: 'Fixed target station where the beam impacts a material to produce secondary particles. Acts as an endpoint — the beamline terminates here. Generates collision events at twice the rate of a detector. Best for high-energy beams. Must be wired to the control room via data fiber.',
     category: 'endpoint',

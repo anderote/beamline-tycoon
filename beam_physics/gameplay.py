@@ -49,21 +49,20 @@ COMPONENT_DEFAULTS = {
     "comptonIP":    {"photonRate": 1.0},
 }
 
-# Source types that produce initial beam
-SOURCE_TYPES = {"source", "dcPhotoGun", "ncRfGun", "srfGun"}
-
-# Component types that are diagnostics
+# Component types that are diagnostics (game types; used for coverage counting)
 DIAGNOSTIC_TYPES = {"bpm", "screen", "ict", "wireScanner", "bunchLengthMonitor",
                     "energySpectrometer", "beamLossMonitor", "srLightMonitor"}
 
-# Component types that are insertion devices
-INSERTION_DEVICE_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Undulator"}
-
-# RF cavity types
-RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                   "cbandCavity", "xbandCavity", "srf650Cavity",
-                   "rfq", "pillboxCavity", "sbandStructure",
-                   "halfWaveResonator", "spokeCavity", "ellipticalSrfCavity"}
+# The closed set of physics element types the engine understands
+# (elements.transfer_matrix dispatch, lattice special-casing, and the
+# module tier lists in machines.py). Every game component declares one of
+# these as `physicsType` in src/data/beamline-components.raw.js; a missing
+# or unknown value raises ValueError — no silent fallthrough.
+KNOWN_PHYSICS_TYPES = {
+    "source", "drift", "quadrupole", "dipole", "combined_function",
+    "rfCavity", "cryomodule", "sextupole", "collimator", "undulator",
+    "solenoid", "chicane", "detector", "target", "beamStop",
+}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
 # Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)
@@ -78,11 +77,13 @@ def beamline_config_from_game(game_beamline):
     Convert game beamline format to physics element list.
 
     game_beamline: list of dicts, each with at minimum:
-        {"type": "quadrupole", ...}
+        {"type": "quadrupole", "physicsType": "quadrupole", ...}
     May also include stats from the COMPONENTS template:
         {"type": "quadrupole", "stats": {"focusStrength": 1}, "length": 2}
 
-    Maps game component stats to physics parameters.
+    The physics identity is declared in the data (physicsType, from
+    beamline-components.raw.js); this function only validates it and maps
+    game stats/params onto physics parameters.
     """
     elements = []
     quad_index = 0
@@ -90,39 +91,19 @@ def beamline_config_from_game(game_beamline):
     for comp in game_beamline:
         ctype = comp["type"]
 
-        # Map game component types to physics element types
-        if ctype in ("driftVert", "bellows", "splitter", "dogleg"):
-            physics_type = "drift"
-        elif ctype in SOURCE_TYPES:
-            physics_type = "source"
-        elif ctype in ("scQuad",):
-            physics_type = "quadrupole"
-        elif ctype in ("scDipole",):
-            physics_type = "dipole"
-        elif ctype in RF_CAVITY_TYPES:
-            physics_type = "rfCavity" if ctype != "cryomodule" else "cryomodule"
-            if ctype in ("buncher", "harmonicLinearizer", "cbandCavity",
-                         "xbandCavity", "srf650Cavity"):
-                physics_type = "rfCavity"
-        elif ctype in INSERTION_DEVICE_TYPES:
-            physics_type = "undulator"
-        elif ctype in DIAGNOSTIC_TYPES:
-            physics_type = "drift"  # diagnostics are thin elements
-        elif ctype in ("fixedTargetAdv", "positronTarget"):
-            physics_type = "target"
-        elif ctype in ("photonPort", "comptonIP"):
-            physics_type = "drift"  # endpoints, no beam physics effect
-        elif ctype in ("kickerMagnet", "septumMagnet", "corrector",
-                        "octupole", "stripperFoil"):
-            physics_type = "drift"  # thin elements, minimal beam effect
-        elif ctype == "combinedFunctionMagnet":
-            physics_type = "combined_function"
-        elif ctype == "chicane":
-            physics_type = "chicane"
-        elif ctype == "solenoid":
-            physics_type = "solenoid"
-        else:
-            physics_type = ctype
+        physics_type = comp.get("physicsType")
+        if physics_type is None:
+            raise ValueError(
+                f"component '{ctype}' has no physicsType — every beamline "
+                f"component must declare physicsType in "
+                f"beamline-components.raw.js"
+            )
+        if physics_type not in KNOWN_PHYSICS_TYPES:
+            raise ValueError(
+                f"component '{ctype}' declares unknown physicsType "
+                f"'{physics_type}' — known types: "
+                f"{sorted(KNOWN_PHYSICS_TYPES)}"
+            )
 
         defaults = COMPONENT_DEFAULTS.get(ctype, {})
         stats = comp.get("stats", {})
@@ -150,6 +131,11 @@ def beamline_config_from_game(game_beamline):
             # Extraction energy from component definition (GeV)
             if "extractionEnergy" in comp:
                 el["extractionEnergy"] = comp["extractionEnergy"]
+            # Particle species from component params (ion sources declare
+            # particleType: 'proton'); used to pick the beam rest mass.
+            particle = comp.get("params", {}).get("particleType")
+            if particle is not None:
+                el["particleType"] = particle
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
@@ -244,8 +230,11 @@ def beamline_config_from_game(game_beamline):
         cryo_q = infra_q.get("cryoQuality", 1.0)
         cryo_quenched = infra_q.get("cryoQuenched", False)
 
-        # SRF quench: convert to drift (zero acceleration)
-        SRF_TYPES_SET = {"cryomodule", "srf650Cavity", "srfGun"}
+        # SRF quench: convert to drift (zero acceleration). Set must match
+        # the cryoTransfer-sink SRF cavities shipped in
+        # beamline-components.raw.js / utility-ports-v2.js.
+        SRF_TYPES_SET = {"cryomodule", "halfWaveResonator", "spokeCavity",
+                         "ellipticalSrfCavity"}
         if cryo_quenched and ctype in SRF_TYPES_SET:
             el["type"] = "drift"
             el.pop("energyGain", None)
@@ -323,7 +312,13 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     import math
     raw_luminosity = summary["luminosity"]
     compressed_lumi = math.sqrt(max(raw_luminosity, 0))
-    energy_factor = math.log(1.0 + summary["final_energy"] / 0.1)
+    # Kinetic energy (total minus rest mass) is the game-facing figure: for
+    # protons the 0.938 GeV rest mass would otherwise inflate every energy
+    # readout, objective check, and data-rate factor.
+    beam_mass = summary.get("mass", 0.0)
+    kinetic_energy = summary.get(
+        "final_kinetic_energy", summary["final_energy"] - beam_mass)
+    energy_factor = math.log(1.0 + max(kinetic_energy, 0.0) / 0.1)
 
     # Count focusing elements for beam control factor
     n_focusing = summary.get("n_focusing", 0)
@@ -344,8 +339,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
     # Discovery chance scales with luminosity, energy, and beam quality squared
     discovery_base = effects.get("discoveryChance", 0.0)
-    if summary["final_energy"] > 10.0 and raw_luminosity > 0:
-        discovery_chance = discovery_base * summary["final_energy"] * 0.01 * quality * quality
+    if kinetic_energy > 10.0 and raw_luminosity > 0:
+        discovery_chance = discovery_base * kinetic_energy * 0.01 * quality * quality
     else:
         discovery_chance = 0.0
 
@@ -354,8 +349,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                         if el.get("game_type", el["type"]) in DIAGNOSTIC_TYPES)
 
     result = {
-        # Core beam state
-        "beamEnergy": summary["final_energy"],
+        # Core beam state (energies are kinetic, GeV)
+        "beamEnergy": max(kinetic_energy, 0.0),
         "beamAlive": summary["alive"],
         "beamCurrent": summary["final_current"],
 
@@ -379,7 +374,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "type": s["element_type"],
                 "sigma_x": s["beam_size_x"],
                 "sigma_y": s["beam_size_y"],
-                "energy": s["energy"],
+                "energy": max(s["energy"] - beam_mass, 0.0),
                 "current": s["current"],
                 "alive": s["alive"],
                 # New fields for probe diagnostics
@@ -455,6 +450,40 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     return result
 
 
+def extract_source_params(elements, game_beamline):
+    """
+    Extract beam-initialization parameters from the first source element so
+    that gun-tuning sliders (emittance, current) and the particle species
+    feed into beam initialization. Returns None when the beamline has no
+    source element.
+    """
+    for idx, el in enumerate(elements):
+        if el.get("type") != "source":
+            continue
+        source_params = {}
+        if "emittance" in el:
+            source_params["eps_norm_x"] = el["emittance"]
+            source_params["eps_norm_y"] = el["emittance"]
+        # Extraction energy from the source component (GeV)
+        if "extractionEnergy" in el:
+            source_params["energy"] = el["extractionEnergy"]
+        # Set mass for proton sources. Species comes from the component's
+        # params.particleType (carried through beamline_config_from_game);
+        # game_type is kept as a fallback for hand-built configs.
+        game_type = el.get("game_type", "")
+        if (el.get("particleType") == "proton"
+                or game_type in ("ionSource", "ecrIonSource")):
+            from beam_physics.constants import PROTON_MASS
+            source_params["mass"] = PROTON_MASS
+        # Find corresponding game component for beamCurrent
+        if idx < len(game_beamline):
+            bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
+            if bc is not None and bc > 0:
+                source_params["current"] = bc
+        return source_params
+    return None
+
+
 def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     """
     Top-level entry point called from Pyodide.
@@ -467,30 +496,7 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     elements = beamline_config_from_game(game_beamline)
     machine_type = research_effects.get("machineType", "linac") if research_effects else "linac"
 
-    # Extract source parameters from the first source element so that
-    # gun-tuning sliders (emittance, current) feed into beam initialization.
-    source_params = None
-    for el in elements:
-        if el.get("type") == "source":
-            source_params = {}
-            if "emittance" in el:
-                source_params["eps_norm_x"] = el["emittance"]
-                source_params["eps_norm_y"] = el["emittance"]
-            # Extraction energy from the source component (GeV)
-            if "extractionEnergy" in el:
-                source_params["energy"] = el["extractionEnergy"]
-            # Set mass for ion sources (proton/H-)
-            game_type = el.get("game_type", "")
-            if game_type == "ionSource":
-                from beam_physics.constants import PROTON_MASS
-                source_params["mass"] = PROTON_MASS
-            # Find corresponding game component for beamCurrent
-            idx = elements.index(el)
-            if idx < len(game_beamline):
-                bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
-                if bc is not None and bc > 0:
-                    source_params["current"] = bc
-            break
+    source_params = extract_source_params(elements, game_beamline)
 
     # Vacuum quality widens effective aperture during propagation
     vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0

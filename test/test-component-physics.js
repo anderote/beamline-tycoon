@@ -139,11 +139,13 @@ console.log('\n-- source: thermionic physics --');
   assert(stats.beamCurrent > 0, 'default source produces positive beamCurrent');
   assert(stats.emittance > 0, 'default source produces positive emittance');
 
-  // Child-Langmuir: higher voltage → higher current
+  // Constant-power model: P_beam = I·V is fixed, so higher voltage → lower current
   const lowV  = computeStats('source', { ...defaults, extractionVoltage: 20 });
   const highV = computeStats('source', { ...defaults, extractionVoltage: 80 });
-  assert(highV.beamCurrent > lowV.beamCurrent,
-    'higher extractionVoltage → higher beamCurrent (Child-Langmuir)');
+  assert(highV.beamCurrent < lowV.beamCurrent,
+    'higher extractionVoltage → lower beamCurrent (constant beam power)');
+  assertClose(lowV.beamCurrent * 20, highV.beamCurrent * 80, 1e-6,
+    'I·V product constant across extractionVoltage (constant beam power)');
 
   // Thermal emittance: higher cathode temperature → higher emittance
   const lowT  = computeStats('source', { ...defaults, cathodeTemperature: 700 });
@@ -515,6 +517,39 @@ console.log('\n-- PARAM_DEFS low-energy RF types --');
   assert(PARAM_DEFS.dtl !== undefined, 'PARAM_DEFS.dtl exists');
   assert(PARAM_DEFS.dtl.gradient !== undefined, 'dtl has gradient');
   assert(PARAM_DEFS.dtl.energyGain.derived === true, 'dtl energyGain is derived');
+}
+
+// -----------------------------------------------------------------------
+// Ion sources: every source that declares an extractionVoltage must derive
+// an extractionEnergy from it.
+// Regression: ionSource/ecrIonSource declared params.extractionVoltage = 40
+// (kV) but had no PARAM_DEFS entry, so Game's `if (PARAM_DEFS[el.type])` gate
+// skipped them, no extractionEnergy reached the engine, and both proton
+// sources silently injected at DEFAULT_SOURCE's 0.01 GeV — 250x the declared
+// 40 keV — with no slider for the param either (the param UI is built from
+// PARAM_DEFS).
+// -----------------------------------------------------------------------
+console.log('\n--- Ion sources derive extraction energy ---');
+{
+  for (const type of ['ionSource', 'ecrIonSource']) {
+    assert(PARAM_DEFS[type] !== undefined, `PARAM_DEFS.${type} exists`);
+    assert(PARAM_DEFS[type].extractionVoltage !== undefined,
+      `${type} exposes extractionVoltage as a tunable param`);
+    assert(PARAM_DEFS[type].extractionEnergy?.derived === true,
+      `${type} extractionEnergy is derived`);
+    // 40 kV → 40 keV → 4e-5 GeV, matching the catalog description.
+    const stats = computeStats(type, { extractionVoltage: 40 });
+    assertClose(stats.extractionEnergy, 4e-5, 1e-9,
+      `${type} at 40 kV extracts at 4e-5 GeV`);
+    const hotter = computeStats(type, { extractionVoltage: 80 });
+    assertClose(hotter.extractionEnergy, 8e-5, 1e-9,
+      `${type} extraction energy tracks the voltage`);
+  }
+  // Defaults reproduce the catalog's advertised beam currents.
+  assertClose(computeStats('ionSource', {}).beamCurrent, 50, 1e-6,
+    'ionSource default beam current matches its catalog stat (50 mA)');
+  assertClose(computeStats('ecrIonSource', {}).beamCurrent, 200, 1e-6,
+    'ecrIonSource default beam current matches its catalog stat (200 mA)');
 }
 
 // -----------------------------------------------------------------------

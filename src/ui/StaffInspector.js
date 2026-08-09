@@ -1,26 +1,7 @@
 import { ContextWindow } from './ContextWindow.js';
 import { ZONES } from '../data/facility.js';
 import { traitDesc } from '../game/staff/StaffMember.js';
-
-const ROLE_COLORS = {
-  operator: '#44aa66',
-  technician: '#aa6633',
-  scientist: '#4488ff',
-  engineer: '#aa8833',
-};
-
-function moodColor(mood) {
-  if (mood === 'stressed') return '#ff4444';
-  if (mood === 'tired') return '#ddaa22';
-  return '#44dd66';
-}
-
-function initials(name) {
-  if (!name) return '?';
-  const parts = name.split(' ');
-  if (parts.length >= 2) return (parts[0][0] || '') + (parts[1][0] || '');
-  return name.slice(0,2).toUpperCase();
-}
+import { ROLE_COLORS, staffInitials, staffMoodColor } from './format.js';
 
 export function openStaffInspector(game, staffId) {
   const m = (game.state.staffMembers || []).find(s => s.id === staffId);
@@ -56,7 +37,7 @@ export function openStaffInspector(game, staffId) {
     let html = '';
     // Header: name + mood + status
     html += `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">`;
-    html += `<div style="width:32px;height:32px;border:2px solid ${moodColor(mood)};background:#1a1a2e;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:8px;color:#fff;flex-shrink:0;">${initials(name)}</div>`;
+    html += `<div style="width:32px;height:32px;border:2px solid ${staffMoodColor(mood)};background:#1a1a2e;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:8px;color:#fff;flex-shrink:0;">${staffInitials(name)}</div>`;
     html += `<div>`;
     html += `<div style="color:#ccddff;font-size:10px;">${name}</div>`;
     html += `<div style="color:#888;font-size:7px;text-transform:capitalize;">${role} — ${mood} — ${status}</div>`;
@@ -190,7 +171,7 @@ export function openStaffInspector(game, staffId) {
   // Keep actions: Fire button
   // auto-refresh on staffChanged
   const _staffHandler = (ev) => { if (ev === 'staffChanged') { try { ctx.refresh(); } catch(_){} } };
-  game.on(_staffHandler);
+  const offStaff = game.on(_staffHandler);
 
   ctx.setActions([
     { label: 'Fire', style: 'color:#ff8888;border-color:rgba(180,80,80,0.4)', onClick: () => {
@@ -213,9 +194,15 @@ export function openStaffInspector(game, staffId) {
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
     if (staff) ctx.setTitle(`${staff.name} — ${staff.role} (${staff.mood})`);
   };
-  // Make update() call refresh
-  const origUpdate = ctx.update.bind(ctx);
-  ctx.update = () => { ctx.refresh(); origUpdate(); };
+  // This window has no tabs, so ContextWindow.update() -> _renderBody() would
+  // clear the body and find no tab renderer to refill it — every update()
+  // blanked the window until the next 'staffChanged' emit. refresh() IS the
+  // body render here, so update() is just an alias for it.
+  ctx.update = () => ctx.refresh();
+
+  // Unsubscribe from game events when the window closes
+  const origClose = ctx.close.bind(ctx);
+  ctx.close = () => { offStaff(); origClose(); };
 
   return ctx;
 }

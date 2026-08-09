@@ -27,30 +27,34 @@ export function randomTraits(rng = Math.random) {
 
 export function traitDesc(t) { return TRAIT_DESC[t] || t; }
 
+let _anonId = 0; // fallback id source only — sim callers always pass opts.id
+
 export class StaffMember {
   constructor(opts = {}) {
-    this.id = opts.id || `staff_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-    this.name = opts.name || randomName();
+    // opts.rng: seeded generator threaded from Game for deterministic rolls
+    const rng = opts.rng || Math.random;
+    this.id = opts.id || `staff_anon_${++_anonId}`;
+    this.name = opts.name || randomName(rng);
     this.role = opts.role || 'operator'; // operator|technician|scientist|engineer
-    this.traits = opts.traits || randomTraits();
+    this.traits = opts.traits || randomTraits(rng);
     // skills 0-10, primary for role starts higher
     const primary = { operator: 'operating', technician: 'technical', scientist: 'research', engineer: 'construction' }[this.role] || 'operating';
     this.skills = opts.skills || {
-      operating: Math.floor(2 + Math.random() * 4 + (primary === 'operating' ? 1 : 0)),
-      technical: Math.floor(2 + Math.random() * 4 + (primary === 'technical' ? 1 : 0)),
-      research: Math.floor(2 + Math.random() * 4 + (primary === 'research' ? 1 : 0)),
-      construction: Math.floor(2 + Math.random() * 4 + (primary === 'construction' ? 1 : 0)),
+      operating: Math.floor(2 + rng() * 4 + (primary === 'operating' ? 1 : 0)),
+      technical: Math.floor(2 + rng() * 4 + (primary === 'technical' ? 1 : 0)),
+      research: Math.floor(2 + rng() * 4 + (primary === 'research' ? 1 : 0)),
+      construction: Math.floor(2 + rng() * 4 + (primary === 'construction' ? 1 : 0)),
     };
     // clamp
     for (const k of Object.keys(this.skills)) this.skills[k] = Math.max(0, Math.min(10, this.skills[k]));
     this.needs = opts.needs || { fatigue: 0, hunger: 0, morale: 0.6 };
     this.assignment = opts.assignment || { zoneId: null, beamlineId: null };
-    this.shift = opts.shift || (Math.random() < 0.3 ? 'night' : Math.random() < 0.5 ? 'day' : 'flex');
+    this.shift = opts.shift || (rng() < 0.3 ? 'night' : rng() < 0.5 ? 'day' : 'flex');
     this.status = opts.status || 'working';
     this.mood = opts.mood || 'content';
     this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.role}` }];
-    this.ticksWorked = 0;
-    this.breakdowns = 0;
+    this.ticksWorked = opts.ticksWorked ?? 0;
+    this.breakdowns = opts.breakdowns ?? 0;
   }
 
   // Derive mood from needs

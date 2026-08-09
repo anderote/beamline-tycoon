@@ -9,6 +9,7 @@
 // class below is only instantiated in the browser by `ThreeRenderer`.
 
 import { sampleCornersAt } from '../game/terrain.js';
+import { contentKey } from './content-hash.js';
 
 /** Meadow palette (flat ground) — yellow-biased mixed wildflowers. */
 const MEADOW_PALETTE = [
@@ -114,6 +115,18 @@ export function computeFlowerInstancesForCell(col, row, hash, brightness, corner
 }
 
 /**
+ * Cache key over the builder's actual input: `snapshot.terrain` is the only
+ * section flowers spawn from (per-cell col/row/hash/brightness/cornersY all
+ * feed instance generation). Exported so tests can prove change detection
+ * without a Three.js context.
+ * @param {{terrain?: Array<object>}} snapshot
+ * @returns {string}
+ */
+export function computeWildflowerCacheKey(snapshot) {
+  return contentKey(snapshot?.terrain ?? []);
+}
+
+/**
  * Renders the wildflower layer as two InstancedMeshes (stem + bloom) sharing
  * one instance matrix per flower. Mirrors the lifecycle shape of other
  * renderer builders: `add(parent)` attaches to a Three.js Group/Scene,
@@ -125,6 +138,7 @@ export class WildflowerBuilder {
     this._parent = null;
     this._stemMesh = null;
     this._bloomMesh = null;
+    this._cacheKey = null;
   }
 
   /**
@@ -137,12 +151,18 @@ export class WildflowerBuilder {
 
   /**
    * Rebuild the InstancedMeshes from the current terrain snapshot.
-   * Disposes previous meshes if present.
+   * No-op when the terrain content is unchanged (content-hash cache), so
+   * callers may invoke this unconditionally — e.g. on zone/decoration
+   * events that leave the terrain alone — without paying the ~15k-instance
+   * rebuild. Disposes previous meshes when a rebuild does happen.
    */
   rebuild(snapshot) {
-    this._disposeMeshes();
     if (!this._parent) return;
     if (typeof THREE === 'undefined') return; // test/headless safety
+    const newKey = computeWildflowerCacheKey(snapshot);
+    if (newKey === this._cacheKey) return;
+    this._disposeMeshes();
+    this._cacheKey = newKey;
     const terrain = snapshot?.terrain ?? [];
     if (terrain.length === 0) return;
 
@@ -219,6 +239,7 @@ export class WildflowerBuilder {
   dispose() {
     this._disposeMeshes();
     this._parent = null;
+    this._cacheKey = null;
   }
 
   _disposeMeshes() {
@@ -227,6 +248,9 @@ export class WildflowerBuilder {
       if (this._parent) this._parent.remove(m);
       m.geometry.dispose();
       m.material.dispose();
+      // instanceMatrix/instanceColor live on the mesh, not the geometry —
+      // only InstancedMesh.dispose() frees their GPU buffers.
+      if (typeof m.dispose === 'function') m.dispose();
     }
     this._stemMesh = null;
     this._bloomMesh = null;

@@ -1,7 +1,11 @@
 // test/test-place-all-components.js
 //
-// Headless smoke test: create a fresh Game, try placing every beamline
-// component type on open ground, and report any crashes.
+// Headless smoke test for the pipe-centric placement rules:
+//   - role:'junction' components place standalone on open ground (all 4 dirs)
+//   - role:'placement' components must be REJECTED on open ground — they can
+//     only be placed ON a beam pipe (Game routes them away by design)
+//   - infrastructure placeables place on open ground
+//   - everything placed can be removed
 
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { Game } from '../src/game/Game.js';
@@ -36,79 +40,84 @@ console.log('\n=== Place All Beamline Components Test ===\n');
 const registry = new BeamlineRegistry();
 const game = new Game(registry);
 
-// Unlimited funding so cost checks don't interfere.
-game.state.resources.funding = 1e15;
+// No funding padding: every placement passes free:true, and placeJunction must
+// forward that flag — zero funds makes a dropped flag fail loudly here.
+game.state.resources.funding = 0;
 
-// All component types from the raw data.
+// Map generation scatters decorations (trees, rocks, ...) that occupy random
+// subgrid cells. Clear them all so "open ground" is actually open.
+for (const id of game.state.placeables.map(p => p.id)) {
+  game.removePlaceable(id);
+}
+
+// Partition component types by role.
 const allTypes = Object.keys(BEAMLINE_COMPONENTS_RAW);
-// drift is drawn as a connection, not placed as a standalone object — excluded from PLACEABLES by design.
-const drawnConnectionTypes = new Set(
-  allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].isDrawnConnection)
-);
-const placeableTypes = allTypes.filter(id => !drawnConnectionTypes.has(id));
-console.log(`Component types to test: ${placeableTypes.length} placeable + ${drawnConnectionTypes.size} drawn-connection (skipped)\n`);
 
-// Place each component on open ground at well-separated positions.
-// We space them 10 tiles apart to avoid any overlap.
+// --- every beamline component declares its physics identity ---
+// gameplay.py raises ValueError at compute time on a missing physicsType;
+// catch the gap here at test time instead.
+for (const type of allTypes) {
+  test(`${type} — declares physicsType`, () => {
+    const pt = BEAMLINE_COMPONENTS_RAW[type].physicsType;
+    if (typeof pt !== 'string' || pt.length === 0) {
+      throw new Error(`'${type}' has no physicsType in beamline-components.raw.js`);
+    }
+  });
+}
+
+
+// drift is drawn as a connection, not placed as a standalone object — excluded from PLACEABLES by design.
+const drawnConnectionTypes = allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].isDrawnConnection);
+const junctionTypes  = allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].role === 'junction');
+const placementTypes = allTypes.filter(id => BEAMLINE_COMPONENTS_RAW[id].role === 'placement');
+console.log(`Component types: ${junctionTypes.length} junction + ${placementTypes.length} placement + ${drawnConnectionTypes.length} drawn-connection (skipped)\n`);
+
+// Place components at well-separated positions (10 tiles apart) to avoid overlap.
 let colOffset = 5;
 
-for (const type of placeableTypes) {
-  const placeable = PLACEABLES[type];
-  const placement = BEAMLINE_COMPONENTS_RAW[type].placement;
+// --- junction-role components place on open ground, all 4 rotations ---
+console.log('--- Junction-role components (place on open ground) ---\n');
 
-  if (placement === 'attachment') {
-    // Attachments can't be placed standalone on the ground — they go on pipes.
-    // Test that placePlaceable at least doesn't crash (it may return false).
-    test(`${type} (attachment) — no crash on standalone attempt`, () => {
+for (const type of junctionTypes) {
+  for (const dir of [0, 1, 2, 3]) {
+    test(`${type} dir=${dir} — places on open ground`, () => {
       const result = game.placePlaceable({
         type,
         col: colOffset, row: 0,
         subCol: 0, subRow: 0,
-        dir: 0,
-        free: true,
-        silent: true,
-      });
-      // Attachments may or may not succeed — we just care about no crash.
-      colOffset += 10;
-    });
-  } else {
-    // Modules should place successfully on open ground.
-    test(`${type} (module) — places on open ground`, () => {
-      const result = game.placePlaceable({
-        type,
-        col: colOffset, row: 0,
-        subCol: 0, subRow: 0,
-        dir: 0,
+        dir,
         free: true,
         silent: true,
       });
       if (!result) {
-        throw new Error(`placePlaceable returned false for ${type}`);
+        throw new Error(`placePlaceable returned false for ${type} dir=${dir}`);
       }
       colOffset += 10;
     });
-
-    // Also test all 4 rotations.
-    for (const dir of [1, 2, 3]) {
-      test(`${type} dir=${dir} — places on open ground`, () => {
-        const result = game.placePlaceable({
-          type,
-          col: colOffset, row: 0,
-          subCol: 0, subRow: 0,
-          dir,
-          free: true,
-          silent: true,
-        });
-        if (!result) {
-          throw new Error(`placePlaceable returned false for ${type} dir=${dir}`);
-        }
-        colOffset += 10;
-      });
-    }
   }
 }
 
-// --- also test infrastructure placeables ---
+// --- placement-role components are rejected on open ground ---
+console.log('\n--- Placement-role components (rejected on open ground) ---\n');
+
+for (const type of placementTypes) {
+  test(`${type} (placement) — rejected on open ground`, () => {
+    const result = game.placePlaceable({
+      type,
+      col: colOffset, row: 0,
+      subCol: 0, subRow: 0,
+      dir: 0,
+      free: true,
+      silent: true,
+    });
+    if (result) {
+      throw new Error(`placePlaceable succeeded for ${type} on open ground — role:'placement' components must require a beam pipe`);
+    }
+    colOffset += 10;
+  });
+}
+
+// --- infrastructure placeables place on open ground ---
 console.log('\n--- Infrastructure placeables ---\n');
 
 const infraTypes = Object.values(PLACEABLES)

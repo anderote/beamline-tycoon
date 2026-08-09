@@ -11,6 +11,7 @@
 // THREE is a CDN global — do NOT import it.
 
 import { MATERIALS } from './materials/index.js';
+import { contentKey } from './content-hash.js';
 
 /**
  * Push a vertical quad (two triangles) onto the running arrays.
@@ -145,11 +146,13 @@ export class CliffBuilder {
    * Build (or rebuild) cliff faces.
    * @param {Array<{col:number,row:number,edge:'e'|'s',selfY:number[],neighborY:number[]}>} cliffData
    * @param {THREE.Group} parentGroup
-   * @param {number} [cornerHeightsRevision]
+   *
+   * Cache: a structural content hash of `cliffData` — detects same-count
+   * edge/height changes that the old length+revision key missed.
    */
-  build(cliffData, parentGroup, cornerHeightsRevision = 0) {
+  build(cliffData, parentGroup) {
     const len = cliffData ? cliffData.length : 0;
-    const newKey = len + ':' + (cornerHeightsRevision | 0);
+    const newKey = contentKey(cliffData || []);
     if (newKey === this._cacheKey && (this._mesh || len === 0)) return;
 
     this._cleanup(parentGroup);

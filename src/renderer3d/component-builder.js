@@ -4,6 +4,8 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { BEAMLINE_COMPONENTS_RAW } from '../data/beamline-components.raw.js';
+import { roleBuilderFallbacks } from '../data/validate.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
@@ -313,6 +315,13 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
     }
     const mesh = new THREE.Mesh(tplMesh.geometry, mat);
     mesh.userData.role = role;
+    // The geometry is the module-level role template, shared by reference
+    // with every other instance of this component type (including the
+    // committed scene objects). Flag it so teardown paths — notably the
+    // renderer's preview clear, which runs on every hover while a placement
+    // tool is armed — remove the mesh without disposing buffers still in use.
+    // (Materials are cloned per ghost, so they stay disposable.)
+    mesh.userData.sharedGeometry = true;
     if (role === 'detail') {
       mesh.userData.lod = 'detail';
       mesh.castShadow = false;
@@ -2213,6 +2222,22 @@ const DETAIL_BUILDERS = {
   drift: _buildDrift,
 };
 
+// Coverage report: beamline components with no bespoke geometry render as a
+// generic box/cylinder. Info-level so missing 3D art stays visible without
+// failing anything.
+{
+  const fallback = roleBuilderFallbacks(
+    BEAMLINE_COMPONENTS_RAW,
+    [...Object.keys(ROLE_BUILDERS), ...Object.keys(DETAIL_BUILDERS)],
+  );
+  if (fallback.length > 0) {
+    console.info(
+      `[content] ${fallback.length} beamline component(s) using fallback box/cylinder geometry ` +
+      `(no ROLE_BUILDERS/DETAIL_BUILDERS entry): ${fallback.join(', ')}`,
+    );
+  }
+}
+
 /**
  * Create a transparent ghost version of a beamline component for placement preview.
  * Returns a THREE.Group with all meshes set to transparent + green edge wireframe.
@@ -2640,7 +2665,6 @@ export class ComponentBuilder {
    */
   build(componentData, parentGroup) {
     if (!componentData || !parentGroup) return;
-    console.log(`[ComponentBuilder] build() called with ${componentData.length} components:`, componentData.map(c => `${c.type}@${c.col},${c.row}`));
 
     const seen = new Set();
 
@@ -2674,6 +2698,9 @@ export class ComponentBuilder {
           ? this._createPlaceholderBox(placementSubL ?? 2, compDef.spriteColor ?? 0xffffff)
           : this._createObject(compDef, accent);
         obj.matrixAutoUpdate = false;
+        // Stamp the id on the wrapper so hit identification reads it straight
+        // off the raycast parent chain instead of scanning _meshMap.
+        obj.userData.nodeId = id;
         obj.userData.beamlineId = comp.beamlineId || null;
         obj.userData.compType = type;
         obj.userData.pipeId = comp.pipeId || null;

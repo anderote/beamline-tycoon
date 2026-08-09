@@ -1,8 +1,7 @@
 // src/game/Placeable.js
 //
-// Base class for any object placeable on the subtile grid.
-// Subclasses add kind-specific runtime behavior; placement code only ever
-// touches base-class methods.
+// Class for any object placeable on the subtile grid. Placement code only
+// ever touches these methods; kind-specific behavior lives in the defs.
 
 export class Placeable {
   constructor(def) {
@@ -41,25 +40,7 @@ export class Placeable {
     return cells;
   }
 
-  // Lifecycle hooks — subclasses override.
+  // Lifecycle hooks — no-ops, but Game.js invokes them on place/remove.
   onPlaced(game, instance) {}
   onRemoved(game, instance) {}
 }
-
-export class BeamlineModule extends Placeable {
-  // Placement is just adding to the grid. Registry entries and physics are
-  // built lazily — when beams are toggled on, pipes change, or the UI needs them.
-}
-
-export class Infrastructure extends Placeable {}
-export class Furnishing extends Placeable {}
-export class Equipment extends Placeable {}
-export class Decoration extends Placeable {}
-
-export const PLACEABLE_CLASS_BY_KIND = {
-  beamline: BeamlineModule,
-  infrastructure: Infrastructure,
-  furnishing: Furnishing,
-  equipment: Equipment,
-  decoration: Decoration,
-};

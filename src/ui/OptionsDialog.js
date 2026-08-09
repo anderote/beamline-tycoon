@@ -10,6 +10,9 @@
 //    3D renderer, same as the hotkeys; intentionally not persisted.
 //  - Gameplay: dev mode — game.setDevMode() persists it itself.
 
+import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
+
 export class OptionsDialog {
   constructor({ game, renderer, musicPlayer }) {
     this.game = game;
@@ -22,10 +25,20 @@ export class OptionsDialog {
     if (!this.el) this._build();
     this._sync();
     this.el.classList.remove('hidden');
+    // Esc closes: pushed on open / released on close, so whatever opened
+    // most recently owns the key (single Esc owner — see esc-stack.js).
+    if (!this._escUnsub) {
+      this._escUnsub = pushEscHandler(() => {
+        this.close();
+        return true;
+      });
+    }
   }
 
   close() {
     if (this.el) this.el.classList.add('hidden');
+    this._escUnsub?.();
+    this._escUnsub = null;
   }
 
   get isOpen() {
@@ -126,14 +139,6 @@ export class OptionsDialog {
 
     el.querySelector('.opt-close').addEventListener('click', () => this.close());
 
-    // Esc closes (capture so the game's own Esc handling doesn't also fire).
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isOpen) {
-        e.stopPropagation();
-        this.close();
-      }
-    }, true);
-
     const mp = this.musicPlayer;
 
     // Volume — forward through the music player's own slider so its handler
@@ -181,29 +186,10 @@ export class OptionsDialog {
     });
 
     // Draggable by header (same pattern as WelcomeDialog / SaveLoadDialog).
-    const header = el.querySelector('.opt-header');
-    let dragging = false, sx, sy, ox, oy;
-    header.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.opt-close')) return;
-      if (el.style.transform !== 'none') {
-        const r = el.getBoundingClientRect();
-        el.style.left = r.left + 'px';
-        el.style.top = r.top + 'px';
-        el.style.transform = 'none';
-      }
-      dragging = true; sx = e.clientX; sy = e.clientY;
-      ox = parseInt(el.style.left, 10) || 0; oy = parseInt(el.style.top, 10) || 0;
-      header.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      el.style.left = (ox + e.clientX - sx) + 'px';
-      el.style.top = (oy + e.clientY - sy) + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      dragging = false;
-      header.style.cursor = 'grab';
+    makeDraggable(el, el.querySelector('.opt-header'), {
+      exclude: '.opt-close',
+      freezeTransform: true,
+      grabCursor: true,
     });
   }
 }

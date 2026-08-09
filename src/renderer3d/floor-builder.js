@@ -15,6 +15,7 @@
 
 import { FLOORS } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
+import { contentKey } from './content-hash.js';
 
 // Tiny Y offsets above the terrain surface to prevent Z-fighting. Match the
 // values used by the previous InstancedMesh implementation.
@@ -51,7 +52,7 @@ export class FloorBuilder {
       return;
     }
 
-    const newKey = JSON.stringify(floorData);
+    const newKey = contentKey(floorData);
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     this._cleanup(parentGroup);

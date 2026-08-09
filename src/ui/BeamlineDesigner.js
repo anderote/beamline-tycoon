@@ -2,11 +2,29 @@
 // Full-screen 2D view for inspecting and editing a beamline with live physics preview.
 
 import { COMPONENTS } from '../data/components.js';
+import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
+import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
 
+/**
+ * Physical length (in sub-units) of one draft node.
+ *
+ * Drifts are the only variable-length element in the model, and in edit mode
+ * `openFromSource` copies each one's REAL length off flattenPath — so falling
+ * back to the 2 m `COMPONENTS.drift` template modelled a 51 m unfocused drift
+ * as 2 m. The schematic already honoured node.subL, so the window drew a long
+ * drift wide while running physics on a short one; Game._recalcSingleBeamline
+ * and _recalcMainBeamGraph both use `el.subL || t.subL`, i.e. this rule.
+ */
+function _nodeSubL(node) {
+  if (node && typeof node.subL === 'number' && node.subL > 0) return node.subL;
+  const c = node ? COMPONENTS[node.type] : null;
+  return (c && c.subL) || 4;
+}
 
 export class BeamlineDesigner {
   constructor(game, renderer) {
@@ -44,6 +62,8 @@ export class BeamlineDesigner {
     this.markerS = 0;
     this._markerDir = 0;      // -1, 0, or +1 for continuous panning
     this._markerAnimId = null; // requestAnimationFrame id
+    this._panDir = 0;         // -1, 0, or +1 for continuous schematic panning
+    this._panAnimId = null;   // requestAnimationFrame id
 
     // Focus row: 0 = beamline stackup, 1 = component palette
     this.focusRow = 0;
@@ -96,6 +116,14 @@ export class BeamlineDesigner {
     // Keyboard handler (only active when controller is open)
     this._onKeyDown = (e) => {
       if (!this.isOpen) return;
+      // Escape belongs to the global esc-stack (we push a handler while
+      // open — see openFromSource/openDesign); every other key is swallowed
+      // at capture phase so game hotkeys (pause, mode buttons, palette,
+      // Space-place) never fire underneath the full-screen designer. This
+      // replaces the old InputHandler `_designer.isOpen` guard, so it must
+      // swallow even with focus in a designer input/select.
+      if (e.key === 'Escape') return;
+      e.stopPropagation();
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -187,17 +215,6 @@ export class BeamlineDesigner {
           e.stopPropagation();
           this.removeComponent(this.selectedIndex);
           break;
-        case 'Escape':
-          e.preventDefault();
-          e.stopPropagation();
-          if (this.focusRow > 0) {
-            this.focusRow--;
-            if (this.focusRow < 2) this.designerPaletteIndex = -1;
-            this._updateFocusRowVisuals();
-          } else {
-            this.close();
-          }
-          break;
         case 'c': case 'C':
           e.preventDefault();
           e.stopPropagation();
@@ -232,79 +249,82 @@ export class BeamlineDesigner {
       let dragStartViewX = 0;
       let dragDistance = 0;
 
-      schematicCanvas.addEventListener('mousedown', (e) => {
-        if (!this.isOpen) return;
-        dragStartX = e.clientX;
-        dragDistance = 0;
+      makeDraggable(schematicCanvas, schematicCanvas, {
+        preventDefault: false,
+        onStart: (e) => {
+          if (!this.isOpen) return false;
+          dragStartX = e.clientX;
+          dragDistance = 0;
 
-        // Check if mousedown is on the currently selected component
-        const rect = schematicCanvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
-        let hitSelected = false;
-        if (this.selectedIndex >= 0 && this._compRegions) {
-          const r = this._compRegions[this.selectedIndex];
-          if (r && clickX >= r.x && clickX <= r.x + r.w &&
-              clickY >= r.y && clickY <= r.y + r.h) {
-            hitSelected = true;
-          }
-        }
-
-        if (hitSelected) {
-          reorderDragging = true;
-          reorderSourceIndex = this.selectedIndex;
-          this._reorderDropIndex = -1;
-          dragging = false;
-        } else {
-          dragging = true;
-          reorderDragging = false;
-          dragStartViewX = this.viewX;
-        }
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (reorderDragging) {
-          const dx = e.clientX - dragStartX;
-          dragDistance = Math.abs(dx);
-          if (dragDistance <= 5) return;  // not dragging yet
-          // Find drop position from mouse X
+          // Check if mousedown is on the currently selected component
           const rect = schematicCanvas.getBoundingClientRect();
-          const mouseX = e.clientX - rect.left;
-          let dropIdx = this.draftNodes.length;  // default: after last
-          if (this._compRegions) {
-            for (const r of this._compRegions) {
-              const cx = r.x + r.w / 2;
-              if (mouseX < cx) {
-                dropIdx = r.index;
-                break;
-              }
+          const clickX = e.clientX - rect.left;
+          const clickY = e.clientY - rect.top;
+          let hitSelected = false;
+          if (this.selectedIndex >= 0 && this._compRegions) {
+            const r = this._compRegions[this.selectedIndex];
+            if (r && clickX >= r.x && clickX <= r.x + r.w &&
+                clickY >= r.y && clickY <= r.y + r.h) {
+              hitSelected = true;
             }
           }
-          // Don't show indicator at current position or adjacent (no-op)
-          if (dropIdx === reorderSourceIndex || dropIdx === reorderSourceIndex + 1) {
-            dropIdx = -1;
+
+          if (hitSelected) {
+            reorderDragging = true;
+            reorderSourceIndex = this.selectedIndex;
+            this._reorderDropIndex = -1;
+            dragging = false;
+          } else {
+            dragging = true;
+            reorderDragging = false;
+            dragStartViewX = this.viewX;
           }
-          if (this._reorderDropIndex !== dropIdx) {
-            this._reorderDropIndex = dropIdx;
-            this._renderAll();
+        },
+        onMove: (e) => {
+          if (reorderDragging) {
+            const dx = e.clientX - dragStartX;
+            dragDistance = Math.abs(dx);
+            if (dragDistance <= 5) return;  // not dragging yet
+            // Find drop position from mouse X
+            const rect = schematicCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            let dropIdx = this.draftNodes.length;  // default: after last
+            if (this._compRegions) {
+              for (const r of this._compRegions) {
+                const cx = r.x + r.w / 2;
+                if (mouseX < cx) {
+                  dropIdx = r.index;
+                  break;
+                }
+              }
+            }
+            // Don't show indicator at current position or adjacent (no-op)
+            if (dropIdx === reorderSourceIndex || dropIdx === reorderSourceIndex + 1) {
+              dropIdx = -1;
+            }
+            if (this._reorderDropIndex !== dropIdx) {
+              this._reorderDropIndex = dropIdx;
+              this._renderAll();
+            }
+            return;
           }
-          return;
-        }
-        if (!dragging) return;
-        const dx = e.clientX - dragStartX;
-        dragDistance = Math.abs(dx);
-        this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
-        this._clampViewX();
-        this._renderAll();
-      });
-      window.addEventListener('mouseup', () => {
-        if (reorderDragging && dragDistance > 5 && this._reorderDropIndex >= 0) {
-          this._reorderComponent(reorderSourceIndex, this._reorderDropIndex);
-        }
-        this._reorderDropIndex = -1;
-        dragging = false;
-        reorderDragging = false;
-        reorderSourceIndex = -1;
-        this._renderAll();
+          if (!dragging) return;
+          const dx = e.clientX - dragStartX;
+          dragDistance = Math.abs(dx);
+          this.viewX = dragStartViewX - dx / (this.viewZoom * 2);
+          this._clampViewX();
+          this._renderAll();
+        },
+        onEnd: () => {
+          if (reorderDragging && dragDistance > 5 && this._reorderDropIndex >= 0) {
+            this._reorderComponent(reorderSourceIndex, this._reorderDropIndex);
+          }
+          this._reorderDropIndex = -1;
+          dragging = false;
+          reorderDragging = false;
+          reorderSourceIndex = -1;
+          this._renderAll();
+        },
       });
 
       schematicCanvas.addEventListener('click', (e) => {
@@ -396,6 +416,31 @@ export class BeamlineDesigner {
   // --- Open / Close ---
 
   /**
+   * Claim an esc-stack slot for the lifetime of the open designer. Esc
+   * steps the keyboard focus row back toward the schematic, then closes.
+   * (A modal DesignLibrary opened on top pushes later, so it wins Esc
+   * first — the old capture-phase race is gone.)
+   */
+  _pushEsc() {
+    if (this._escUnsub) return;
+    this._escUnsub = pushEscHandler((e) => {
+      // Inert while typing in a designer field (legacy behavior: Esc did
+      // nothing there). Consume so the game's fallback sweep doesn't run
+      // underneath the open designer.
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (this.focusRow > 0) {
+        this.focusRow--;
+        if (this.focusRow < 2) this.designerPaletteIndex = -1;
+        this._updateFocusRowVisuals();
+      } else {
+        this.close();
+      }
+      return true;
+    });
+  }
+
+  /**
    * Open edit mode for a beamline rooted at the given source placeable.
    * Walks the pipe graph via flattenPath and populates draftNodes.
    *
@@ -407,6 +452,7 @@ export class BeamlineDesigner {
     if (!sourceId) return;
 
     this.isOpen = true;
+    this._pushEsc();
     this.mode = 'edit';
     this.beamlineId = null;  // not a registry-backed beamline
     this.designId = null;
@@ -495,6 +541,7 @@ export class BeamlineDesigner {
     this.mode = 'design';
     this.beamlineId = null;
     this.isOpen = true;
+    this._pushEsc();
 
     // Check for saved draft state for this design
     const savedDraft = this.game.state.designerState;
@@ -822,6 +869,8 @@ export class BeamlineDesigner {
 
   _cleanup() {
     this.isOpen = false;
+    this._escUnsub?.();
+    this._escUnsub = null;
     this.beamlineId = null;
     this.editSourceId = null;
     this.editEndpointId = null;
@@ -836,6 +885,15 @@ export class BeamlineDesigner {
     if (this._markerAnimId) {
       cancelAnimationFrame(this._markerAnimId);
       this._markerAnimId = null;
+    }
+    // Same teardown for the schematic pan loop. _onKeyUp early-returns on
+    // `!this.isOpen`, so _stopPan() — the only writer of _panDir = 0 — is
+    // unreachable once the designer closes: closing while a/d was still held
+    // pinned a 60 Hz rAF no-op for the rest of the session.
+    this._panDir = 0;
+    if (this._panAnimId) {
+      cancelAnimationFrame(this._panAnimId);
+      this._panAnimId = null;
     }
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
@@ -1122,20 +1180,13 @@ export class BeamlineDesigner {
     const effZoom = this.viewZoom * baseZoom;
     const panPx = -this.viewX * effZoom;
 
-    const compWidths = this.draftNodes.map(n => {
-      const comp = COMPONENTS[n.type];
-      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
-    });
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
+    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
 
     let markerPx = 20 + panPx;
     let cumS = 0;
     for (let i = 0; i < this.draftNodes.length; i++) {
-      const comp = COMPONENTS[this.draftNodes[i].type];
-      const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
+      const tileLen = _nodeSubL(this.draftNodes[i]) * 0.5;
       const compLen = (tileLen / tileLenSum) * this.totalLength;
       const compW = compWidths[i] * effZoom;
       if (this.markerS <= cumS + compLen) {
@@ -1162,17 +1213,13 @@ export class BeamlineDesigner {
    *  stay in sync with the envelope s-values used by the plots. */
   _buildCompVisualMap() {
     const SCHEM_PW = 70;
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
 
     const entries = [];
     let totalVisual = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      const len = comp ? (comp.subL || 4) * 0.5 : 1;
-      const visualW = this._compPixelWidth(node.type, node.subL || (comp ? comp.subL : undefined));
+      const len = _nodeSubL(node) * 0.5;
+      const visualW = this._compPixelWidth(node.type, _nodeSubL(node));
       const physLen = (len / tileLenSum) * this.totalLength;
       entries.push({ visualW, physLen });
       totalVisual += visualW;
@@ -1219,14 +1266,8 @@ export class BeamlineDesigner {
 
   /** Compute per-component physical lengths that sum to this.totalLength. */
   _compPhysLengths() {
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
-    return this.draftNodes.map(n => {
-      const c = COMPONENTS[n.type];
-      return (((c ? (c.subL || 4) * 0.5 : 1)) / tileLenSum) * this.totalLength;
-    });
+    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
+    return this.draftNodes.map(n => (_nodeSubL(n) * 0.5 / tileLenSum) * this.totalLength);
   }
 
   /** Set markerS to the center of the currently selected component (instant, for clicks). */
@@ -1402,7 +1443,7 @@ export class BeamlineDesigner {
     const cards = document.querySelectorAll('#component-palette .dsgn-palette-card');
     const keys = [];
     cards.forEach(card => {
-      // Cards fire renderer._onToolSelect(key) on click, key stored in closure
+      // Cards route clicks through InputHandler.selectPaletteTool('component', key)
       // We need to extract the component type — stored as data attribute
       if (card.dataset.compType) keys.push(card.dataset.compType);
     });
@@ -1517,8 +1558,7 @@ export class BeamlineDesigner {
   _updateTotalLength() {
     this.totalLength = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      if (comp) this.totalLength += (comp.subL || 4) * 0.5;
+      this.totalLength += _nodeSubL(node) * 0.5;
     }
     if (this.totalLength === 0) this.totalLength = 1;
   }
@@ -1530,10 +1570,7 @@ export class BeamlineDesigner {
     if (!canvas) return;
     const W = canvas.parentElement.getBoundingClientRect().width;
     const SCHEM_PW = 70;
-    const compWidths = this.draftNodes.map(n => {
-      const comp = COMPONENTS[n.type];
-      return this._compPixelWidth(n.type, n.subL || (comp ? comp.subL : undefined));
-    });
+    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
     const totalPW = compWidths.reduce((s, w) => s + w, 0);
     const baseZoom = W / (5 * SCHEM_PW + 40);
     const effZoom = this.viewZoom * baseZoom;
@@ -1571,7 +1608,7 @@ export class BeamlineDesigner {
       }
       const el = {
         type: node.type,
-        subL: comp.subL || 4,
+        subL: _nodeSubL(node),
         stats: effectiveStats,
         params: node.params || {},
       };
@@ -1585,9 +1622,7 @@ export class BeamlineDesigner {
 
     // Gather research effects
     const researchEffects = {};
-    for (const key of ['luminosityMult', 'dataRateMult', 'energyCostMult', 'discoveryChance',
-                        'vacuumQuality', 'beamStability', 'photonFluxMult', 'cryoEfficiencyMult',
-                        'beamLifetimeMult', 'diagnosticPrecision']) {
+    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
       const v = this.game.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
@@ -1601,22 +1636,14 @@ export class BeamlineDesigner {
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;
 
-    // S-axis alignment assertion (dev check).
-    // Both draftNodes[i].beamStart and draftEnvelope[i].s should be in metres.
-    // If they drift, the schematic x-axis and plot x-axis will misalign.
-    if (this.draftEnvelope && Array.isArray(this.draftEnvelope)) {
-      const env = this.draftEnvelope;
-      for (let i = 0; i < Math.min(env.length, this.draftNodes.length); i++) {
-        const expectedS = this.draftNodes[i].beamStart;
-        const actualS = env[i].s;
-        if (expectedS != null && actualS != null && Math.abs(expectedS - actualS) > 0.01) {
-          console.warn(
-            `[designer] s-axis misalignment at element ${i}: ` +
-            `schematic=${expectedS.toFixed(3)}m envelope=${actualS.toFixed(3)}m`
-          );
-        }
-      }
-    }
+    // NOTE: this used to hold a "s-axis alignment" dev check comparing
+    // draftEnvelope[i].s against draftNodes[i].beamStart. Those are different
+    // index spaces — the envelope is the physics engine's fixed-size resample
+    // indexed by sample position, the draft nodes are one entry per element —
+    // so the check warned on nearly every element of every recompute (and a
+    // slider drag recomputes continuously). A 100%-false-positive check makes
+    // genuine drift unobservable, so it is gone; see the flattener header for
+    // the real relationship between the two arrays.
 
     // Update totalLength from envelope to stay in sync with physics s-values
     if (this.draftEnvelope && this.draftEnvelope.length > 0) {
@@ -1647,8 +1674,7 @@ export class BeamlineDesigner {
     let lastQuadPolarity = 1; // default: first ghost is Focus X
     let cumS = 0;
     for (const node of this.draftNodes) {
-      const comp = COMPONENTS[node.type];
-      const compLen = (comp ? comp.subL || 4 : 4) * 0.5;
+      const compLen = _nodeSubL(node) * 0.5;
       if (quadTypes.has(node.type)) {
         existingQuadS.push(cumS + compLen / 2);
         // Track last quad polarity for alternation
@@ -1684,8 +1710,7 @@ export class BeamlineDesigner {
         let nodeIdx = 0;
         let accS = 0;
         for (let j = 0; j < this.draftNodes.length; j++) {
-          const comp = COMPONENTS[this.draftNodes[j].type];
-          accS += (comp ? comp.subL || 4 : 4) * 0.5;
+          accS += _nodeSubL(this.draftNodes[j]) * 0.5;
           if (accS >= ghostS) { nodeIdx = j; break; }
         }
 

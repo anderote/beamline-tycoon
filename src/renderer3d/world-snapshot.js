@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getTileCornersY, sampleCornersAt } from '../game/terrain.js';
 import { inMapRegion } from '../game/map-generator.js';
+import { placementPose } from '../beamline/pipe-placements.js';
 
 const GRASS_RANGE = 35;
 
@@ -219,6 +220,17 @@ function buildZones(game) {
   }));
 }
 
+/**
+ * Edge-occupancy indexes for cutaway room detection. Shallow copies so the
+ * renderer's cached snapshot stays detached from live state mutation.
+ */
+function buildWallOccupancy(game) {
+  return {
+    wallOccupied: { ...(game.state.wallOccupied || {}) },
+    doorOccupied: { ...(game.state.doorOccupied || {}) },
+  };
+}
+
 function buildComponents(game) {
   const editingId = game.editingBeamlineId;
 
@@ -244,6 +256,7 @@ function buildComponents(game) {
     return {
       id: p.id,
       type: p.type,
+      category: p.category ?? null,
       col: p.col,
       row: p.row,
       subCol: p.subCol ?? null,
@@ -343,36 +356,15 @@ function buildPipeAttachments(game) {
     if (pathLen === 0) continue;
 
     for (const att of atts) {
-      // `att.position` is the START of the placement's claimed interval
-      // [position, position + subL/pipe.subL]. The mesh is rendered CENTERED
-      // on its returned (col, row), so we sample the pipe at the interval's
-      // midpoint — otherwise the mesh sits half-its-length behind the subtiles
-      // it actually reserves, creating a visible mismatch between the ghost
-      // preview (which already uses the center) and the committed placement.
-      const halfW = (pipe.subL > 0 && typeof att.subL === 'number')
-        ? (att.subL / pipe.subL) / 2
-        : 0;
-      const center = (att.position ?? 0) + halfW;
-      const t = Math.max(0, Math.min(1, center));
-      const exactIdx = t * (pathLen - 1);
-      const idx0 = Math.floor(exactIdx);
-      const idx1 = Math.min(idx0 + 1, pathLen - 1);
-      const frac = exactIdx - idx0;
-
-      const p0 = path[idx0];
-      const p1 = path[idx1];
-      const col = p0.col + (p1.col - p0.col) * frac;
-      const row = p0.row + (p1.row - p0.row) * frac;
-
-      // Direction from segment the attachment sits on.
-      // dir convention matches node.dir: 0=NE, 1=SE, 2=SW, 3=NW
-      let dir = 0;
-      const dc = p1.col - p0.col;
-      const dr = p1.row - p0.row;
-      if (dc > 0) dir = 1;       // SE
-      else if (dc < 0) dir = 3;  // NW
-      else if (dr > 0) dir = 2;  // SW
-      else if (dr < 0) dir = 0;  // NE
+      // The mesh is rendered CENTERED on its returned (col, row), so
+      // placementPose samples the pipe at the midpoint of the placement's
+      // claimed interval — otherwise the mesh sits half-its-length behind the
+      // subtiles it actually reserves, creating a visible mismatch with the
+      // ghost preview (which already uses the center). The utility system
+      // resolves placement ports from the same helper.
+      const pose = placementPose(pipe, att);
+      if (!pose) continue;
+      const { col, row, dir } = pose;
 
       result.push({
         id: att.id,
@@ -411,36 +403,85 @@ function buildFurnishings(game) {
   }));
 }
 
+/**
+ * Beam-pipe polylines for the renderer's pipe meshes. `openStart` / `openEnd`
+ * flag ends whose junction ref is null — the renderer draws a warning cap
+ * there.
+ */
+function buildBeamPipes(game) {
+  return (game.state.beamPipes || []).map(pipe => ({
+    id: pipe.id,
+    path: (pipe.path || []).map(p => ({ col: p.col, row: p.row })),
+    openStart: pipe.start === null,
+    openEnd: pipe.end === null,
+  }));
+}
+
+/**
+ * Subtile keys ("col,row,subCol,subRow") of every cell claimed by a placed
+ * beamline module. Beam-pipe rendering carves pipe runs and skips flanges /
+ * stands on these cells (modules render their own internal pipe geometry).
+ */
+function buildModuleSubTiles(game) {
+  const keys = [];
+  for (const p of (game.state.placeables || [])) {
+    if (p.category !== 'beamline') continue;
+    const def = COMPONENTS[p.type];
+    if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
+    for (const c of (p.cells || [])) {
+      keys.push(`${c.col},${c.row},${c.subCol},${c.subRow}`);
+    }
+  }
+  return keys;
+}
+
 // --- Main export ---
+
+// Registry of independently buildable snapshot sections. Each builder is a
+// pure read of game state; `buildWorldSnapshot` can compute any subset.
+const SECTION_BUILDERS = {
+  terrain: buildTerrain,           // expensive: full map-region tile walk
+  cliffs: buildCliffs,             // expensive: full map-region tile walk
+  floors: buildFloors,
+  grassSurfaces: buildGrassSurfaces,
+  walls: buildWalls,
+  doors: buildDoors,
+  wallOccupancy: buildWallOccupancy,
+  zones: buildZones,
+  components: buildComponents,
+  equipment: buildEquipment,
+  decorations: buildDecorations,
+  beamPaths: buildBeamPaths,
+  furnishings: buildFurnishings,
+  pipeAttachments: buildPipeAttachments,
+  beamPipes: buildBeamPipes,
+  moduleSubTiles: buildModuleSubTiles,
+  // Phase 6: new-system utility lines (Map → Array). The builder still reads
+  // state directly for incremental rebuilds; snapshot consumers and tests
+  // can use this.
+  utilityLines: buildUtilityLines,
+};
 
 /**
  * Build a flat, serializable world snapshot from game state.
  * The Three.js renderer consumes this and never reads game.* directly.
  *
  * @param {object} game - The Game instance
+ * @param {object} [opts]
+ * @param {string[]} [opts.only] - Section names to compute (see
+ *        SECTION_BUILDERS). Omitted sections are absent from the result, so
+ *        partial refreshes skip the expensive terrain walk entirely.
+ *        `cornerHeightsRevision` is always included (cheap scalar).
  * @returns {object} snapshot
  */
-export function buildWorldSnapshot(game) {
-  return {
-    terrain: buildTerrain(game),
-    cliffs: buildCliffs(game),
-    cornerHeightsRevision: game.state.cornerHeightsRevision | 0,
-    floors: buildFloors(game),
-    grassSurfaces: buildGrassSurfaces(game),
-    walls: buildWalls(game),
-    doors: buildDoors(game),
-    zones: buildZones(game),
-    components: buildComponents(game),
-    equipment: buildEquipment(game),
-    decorations: buildDecorations(game),
-    beamPaths: buildBeamPaths(game),
-    furnishings: buildFurnishings(game),
-    pipeAttachments: buildPipeAttachments(game),
-    // Phase 6: new-system utility lines (Map → Array). The builder still reads
-    // state directly for incremental rebuilds; snapshot consumers and tests
-    // can use this.
-    utilityLines: buildUtilityLines(game),
-  };
+export function buildWorldSnapshot(game, opts = {}) {
+  const only = opts.only ? new Set(opts.only) : null;
+  const snapshot = { cornerHeightsRevision: game.state.cornerHeightsRevision | 0 };
+  for (const name of Object.keys(SECTION_BUILDERS)) {
+    if (only && !only.has(name)) continue;
+    snapshot[name] = SECTION_BUILDERS[name](game);
+  }
+  return snapshot;
 }
 
 function buildUtilityLines(game) {

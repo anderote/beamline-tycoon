@@ -1,7 +1,14 @@
 // ContextWindow.js — Reusable draggable window base class
 
+import { makeDraggable } from './draggable.js';
+import { pushEscHandler } from './esc-stack.js';
+
 const registry = new Map(); // id -> ContextWindow instance
 let zCounter = 600;
+// One esc-stack slot shared by all context windows: claimed when the first
+// window opens, released when the last closes. Esc closes the topmost
+// (highest-z) window, so focus order — not open order — decides among them.
+let escUnsub = null;
 
 export class ContextWindow {
   /**
@@ -37,6 +44,9 @@ export class ContextWindow {
 
     this._build();
     registry.set(id, this);
+    if (!escUnsub) {
+      escUnsub = pushEscHandler(() => ContextWindow.closeTopmost());
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -172,41 +182,25 @@ export class ContextWindow {
   // ---------------------------------------------------------------------------
 
   _initDrag(handle) {
-    let dragging = false;
-    let startX, startY, origLeft, origTop, origOffsetX, origOffsetY;
-
-    handle.addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('ctx-close')) return;
-      dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      origLeft = parseInt(this._el.style.left, 10) || 0;
-      origTop = parseInt(this._el.style.top, 10) || 0;
-      origOffsetX = this._dragOffset.x;
-      origOffsetY = this._dragOffset.y;
-      handle.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      if (this._worldAnchor) {
-        // Update drag offset so the window stays put relative to its anchor
-        this._dragOffset.x = origOffsetX + dx;
-        this._dragOffset.y = origOffsetY + dy;
-      } else {
-        this._el.style.left = (origLeft + dx) + 'px';
-        this._el.style.top = (origTop + dy) + 'px';
-      }
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (dragging) {
-        dragging = false;
-        handle.style.cursor = 'grab';
-      }
+    this._disposeDrag = makeDraggable(this._el, handle, {
+      exclude: '.ctx-close',
+      grabCursor: true,
+      onStart: () => ({
+        origLeft: parseInt(this._el.style.left, 10) || 0,
+        origTop: parseInt(this._el.style.top, 10) || 0,
+        origOffsetX: this._dragOffset.x,
+        origOffsetY: this._dragOffset.y,
+      }),
+      onMove: (e, dx, dy, s) => {
+        if (this._worldAnchor) {
+          // Update drag offset so the window stays put relative to its anchor
+          this._dragOffset.x = s.origOffsetX + dx;
+          this._dragOffset.y = s.origOffsetY + dy;
+        } else {
+          this._el.style.left = (s.origLeft + dx) + 'px';
+          this._el.style.top = (s.origTop + dy) + 'px';
+        }
+      },
     });
   }
 
@@ -357,9 +351,17 @@ export class ContextWindow {
     if (this._onClose) {
       try { this._onClose(); } catch (e) { /* ignore */ }
     }
+    if (this._disposeDrag) {
+      this._disposeDrag();
+      this._disposeDrag = null;
+    }
     if (this._el && this._el.parentNode) {
       this._el.parentNode.removeChild(this._el);
     }
     registry.delete(this.id);
+    if (registry.size === 0 && escUnsub) {
+      escUnsub();
+      escUnsub = null;
+    }
   }
 }

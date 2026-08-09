@@ -11,30 +11,38 @@ RF (radio frequency) power is what actually accelerates the beam. Oscillating el
 
 Different source types serve different purposes:
 
-| Source | Frequency | Peak Power | Type | Notes |
-|--------|-----------|------------|------|-------|
-| Magnetron | 2856 MHz (S-band) | 2 MW | Pulsed | Cheap, simple, limited stability |
-| SSA | Broadband | 100 kW | CW | Reliable, modular, low power |
-| Klystron | 2856 MHz (S-band) | 50 MW | Pulsed | Workhorse, needs modulator |
-| CW Klystron | 1300 MHz (L-band) | 10 kW CW | CW | For SRF cavities |
-| IOT | 1300 MHz (L-band) | 80 kW CW | CW | High efficiency for SRF |
-| Multi-beam klystron | 11424 MHz (X-band) | 100 MW | Pulsed | Highest peak power |
-| High-power SSA | Broadband | 300 kW CW | CW | Best CW solid-state |
+| Source | Frequency | Power | Cost | Notes |
+|--------|-----------|-------|------|------|
+| Magnetron | 2450 MHz | 5 kW | $50k | Fixed frequency — drives the ECR ion source |
+| TWT | Broadband | 20 kW | $400k | Flexible driver amplifier |
+| SSA | Broadband | 35 kW | $150k | The starter RF source — drives any bucket |
+| Pulsed Klystron | 2856 MHz (S-band) | 50 kW | $1.5M | Workhorse for NC structures, needs modulator |
+| CW Klystron | 1300 MHz (L-band) | 50 kW | $3M | For SRF cavities |
+| IOT | 1300 MHz (L-band) | 80 kW | $2M | High efficiency for SRF strings |
+| Multi-beam Klystron | 2856 MHz (S-band) | 200 kW | $5M | Drives several NC structures at once |
+| High-power SSA | Broadband | 300 kW | $4M | Best flexible CW source |
+| Gyrotron | Broadband | 1000 kW | $8M | The megawatt endgame source |
 
 ### Frequency Matching
 
 This is the most important rule in RF power: **the source frequency must match the cavity frequency**. A 2856 MHz klystron cannot drive a 1300 MHz SRF cavity. The RF energy simply won't couple in.
 
-Common frequency bands in accelerators:
-- **200 MHz** — pillbox cavities (low-energy, large aperture)
-- **400 MHz** — RFQ structures (ion acceleration)
-- **650 MHz** — large-bore SRF (high current CW)
-- **1300 MHz (L-band)** — Tesla/ILC-style SRF cavities
-- **2856 MHz (S-band)** — SLAC-style normal-conducting structures
-- **5712 MHz (C-band)** — compact normal-conducting structures
-- **11424 MHz (X-band)** — ultra-high gradient structures
+Cavity demand per frequency bucket:
 
-**Broadband sources** (SSA, high-power SSA) can drive any frequency — they're flexible but lower power.
+| Frequency | Cavity | RF Demand |
+|-----------|--------|-----------|
+| 161 MHz | Half-Wave Resonator | 3 kW |
+| 200 MHz | Buncher | 2 kW |
+| 200 MHz | Pillbox Cavity | 5 kW |
+| 325 MHz | Spoke Cavity | 8 kW |
+| 400 MHz | RFQ | 25 kW |
+| 1300 MHz (L-band) | 9-cell Elliptical SRF | 5 kW |
+| 1300 MHz (L-band) | TESLA Cryomodule | 40 kW |
+| 2450 MHz | ECR Ion Source | 2 kW |
+| 2856 MHz (S-band) | NC RF Cavity | 40 kW |
+| 2856 MHz (S-band) | S-band Structure | 45 kW |
+
+**Broadband sources** (TWT, SSA, high-power SSA, gyrotron) can drive any frequency. Their capacity is a shared pool: after fixed-frequency sources are counted, the pool tops up unmet demand bucket by bucket (lowest frequency first). They're flexible, but a shared pool spread across many buckets runs out — dedicated fixed-frequency sources are how a big machine scales.
 
 ### Waveguide Networks
 

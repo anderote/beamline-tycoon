@@ -1,16 +1,11 @@
 import { RESEARCH, RESEARCH_LAB_MAP, RESEARCH_SPEED_TABLE } from '../data/research.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS } from '../data/facility.js';
-import { MACHINES } from '../data/machines.js';
+import { ZONES, ZONE_FURNISHINGS, FURNISHING_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 
-// Module-level caches (reset via resetResearchCache)
+// Module-level caches. Safe to share across Game instances: both derive
+// purely from the static RESEARCH table, never from game state.
 let _nodeDepthCache = {};
 let _finalNodes = null;
-
-export function resetResearchCache() {
-  _nodeDepthCache = {};
-  _finalNodes = null;
-}
 
 export function isResearchAvailable(id, state) {
   const r = RESEARCH[id];
@@ -100,11 +95,18 @@ export function _computeFinalNodes() {
   return _finalNodes;
 }
 
-export function _getFurnishingTier(zoneType, zoneFurnishings) {
+/**
+ * Furnishing tier for a zone. `zoneItems` must be state.zoneItems — every
+ * placed item with a ZONE_FURNISHINGS def — not state.zoneFurnishings, which
+ * is the kind === 'furnishing' subset and therefore excludes all 43 LAB items
+ * (they are kind 'equipment'). Matching goes through itemMatchesZone so the
+ * defs that declare a `zoneTypes` array (labBench et al.) count too.
+ */
+export function _getFurnishingTier(zoneType, zoneItems) {
   let count = 0;
-  for (const f of zoneFurnishings || []) {
+  for (const f of zoneItems || []) {
     const def = ZONE_FURNISHINGS[f.type];
-    if (def && def.zoneType === zoneType) count++;
+    if (itemMatchesZone(def, zoneType)) count++;
   }
   let tier = 0;
   for (let t = FURNISHING_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
@@ -117,11 +119,11 @@ export function getLabResearchTier(labType, state) {
   const conn = state.zoneConnectivity?.[labType];
   if (!conn || !conn.active) {
     const tileTier = conn ? conn.tier : 0;
-    const furnTier = _getFurnishingTier(labType, state.zoneFurnishings);
+    const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
     return Math.min(tileTier, furnTier);
   }
   const tileTier = conn.tier;
-  const furnTier = _getFurnishingTier(labType, state.zoneFurnishings);
+  const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
   return Math.min(tileTier, furnTier);
 }
 
@@ -157,11 +159,6 @@ export function tickResearch(state, log, getResearchSpeedMult, recalcBeamline) {
     if (r.unlocks) {
       for (const c of r.unlocks) {
         if (COMPONENTS[c]) log(`Unlocked: ${COMPONENTS[c].name}`, 'good');
-      }
-    }
-    if (r.unlocksMachines) {
-      for (const m of r.unlocksMachines) {
-        if (MACHINES[m]) log(`Unlocked machine: ${MACHINES[m].name}`, 'good');
       }
     }
     state.activeResearch = null;

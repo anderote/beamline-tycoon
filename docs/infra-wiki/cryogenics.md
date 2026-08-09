@@ -16,8 +16,8 @@ A complete cryogenic system has these components, roughly in order of the coolin
 1. **LN2 Dewar** — liquid nitrogen storage at 77K. Cheapest cryogen, used for pre-cooling.
 2. **LN2 Pre-cooler** — uses LN2 to cool helium gas from 300K to 80K before the main refrigerator, reducing compressor load.
 3. **Helium Compressor** — the heart of the system. Compresses warm return helium gas. High energy cost. Required for cold boxes to function.
-4. **4K Cold Box** — refrigerator that cools helium to 4.5K. Standard operating temperature for most SRF cavities. 500W capacity.
-5. **2K Cold Box** — sub-atmospheric pumping to reach 2.0K (superfluid helium). Higher Q-factor operation. 200W capacity.
+4. **4K Cold Box** — refrigerator that cools helium to 4.5K. Standard operating temperature for most SRF cavities. 500W capacity ($8M) — the entry-level plant.
+5. **2K Cold Box** — sub-atmospheric pumping to reach 2.0K (superfluid helium). Higher Q-factor operation. 800W capacity ($15M) — the industrial plant for multi-cryomodule linacs.
 6. **Cryomodule Housing** — insulated vacuum vessel surrounding SRF cavities. Provides thermal shielding between 2-4K interior and room temperature.
 7. **Helium Recovery** — captures boil-off helium gas for recycling. Reduces long-term costs.
 8. **Cryocooler** — small closed-cycle refrigerator (40-80K). Good for individual components, not powerful enough for SRF strings.
@@ -32,16 +32,16 @@ Cryo transfer lines form isolated networks, just like other utility systems. A c
 
 ### Heat Load
 
-Each cryomodule generates heat from two sources:
+Each SRF component declares its own heat load — a full cryomodule's load dwarfs a single cavity's:
 
-| Source | Load per Unit | Description |
-|--------|--------------|-------------|
-| Static (housing) | 3 W | Heat leak through insulation |
-| Static (cavity) | 3 W | Conduction through supports |
-| Dynamic (cavity) | 15 W | RF losses in cavity walls during operation |
-| **Total per SRF cavity** | **~18 W** | |
+| Component | Heat Load | Description |
+|-----------|-----------|-------------|
+| Half-Wave Resonator | 15 W | Small coaxial cavity, 4K |
+| Spoke Cavity | 25 W | Double-spoke resonator |
+| 9-cell Elliptical SRF | 40 W | High-gradient cavity in its own He vessel |
+| TESLA Cryomodule | 250 W | Eight 9-cell cavities in one 2K cryostat |
 
-This seems tiny (watts, not kilowatts), but removing heat at 4K requires enormous energy input. The **Carnot penalty** means every watt removed at 4K costs about 250 watts of electrical power, and at 2K it costs about 750 watts. A cryo plant cooling 10 SRF cavities (180W heat load) at 4K draws 45 kW of wall power.
+This seems tiny (watts, not kilowatts), but removing heat at 4K requires enormous energy input. The **Carnot penalty** means every watt removed at 4K costs about 250 watts of electrical power, and at 2K it costs about 750 watts. One 4K cold box (500 W) carries two cryomodules; a serious SRF linac needs the 800 W 2K plant — or several cold boxes on separate networks.
 
 ### Strategy
 
@@ -62,10 +62,10 @@ Cold boxes contribute zero if no He compressor is in the network.
 
 **Network heat load:**
 ```
-Q_static = N_housings * 3W + N_srf_cavities * 3W
-Q_dynamic = N_srf_cavities * 15W
-Q_total = Q_static + Q_dynamic
+Q_total = sum(srfHeatW for each SRF sink in network)
 ```
+
+**LHe reservoir:** boil-off is `0.0005 L per W of heat load per tick` from a 500 L reservoir; below 20 L the network **quenches** (hard trip). Refills cost $50/L — a cryomodule string has a real helium bill.
 
 **Margin:**
 ```

@@ -1,4 +1,105 @@
 import { COMPONENTS } from '../data/components.js';
+import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
+
+// ---------------------------------------------------------------------------
+// Phase 7 — economy tuning knobs. All per-tick revenue/upkeep coefficients
+// live here so balance passes (scripts/balance-sim.mjs) touch one table.
+// Loose invariants are pinned by test/test-economy-balance.js:
+//   A) a fresh sandbox idles >300 ticks without going broke;
+//   B) the smallBeamlineFacility scenario is net-positive once its beam runs;
+//   C) a late-game build pays 30-60% of gross income back out as upkeep
+//      (staff + power bill + pump service + reservoir refills).
+// ---------------------------------------------------------------------------
+export const ECON = {
+  // Passive institutional grant, $/tick, independent of research. Mostly
+  // covers the seeded operator so an empty lab bleeds slowly, not fatally.
+  baseGrant: 100,
+  // Reputation revenue: $/tick = repIncomeRate * sqrt(reputation). Square
+  // root keeps late-game reputation from compounding into free money.
+  repIncomeRate: 20,
+  // Beam-on revenue: $/tick = quality * (beamIncomeBase +
+  // beamIncomePerNode * nodeCount). Scaling with machine size makes bigger
+  // beamlines earn like bigger coasters.
+  beamIncomeBase: 60,
+  // Raised 100 -> 180 when the per-node count stopped including the
+  // flattener's synthetic drift entries (gaps between placements were being
+  // billed as machines, which roughly doubled the count on a normal layout).
+  // Restores the pre-fix steady-state rates in scripts/balance-sim.mjs.
+  beamIncomePerNode: 180,
+  // Detector data fees, $/tick per unit dataRate while collecting.
+  dataFeeRate: 5,
+  // Electricity, $/tick per kW of energyCost draw. Equipment draws whenever
+  // placed; the beamline's own draw is billed only while the beam is on.
+  powerBillPerKW: 2,
+  // Vacuum pump service cost, $/tick each (legacy pump upkeep).
+  pumpUpkeepEach: 8,
+};
+
+// Vacuum pumps that pay the per-tick service fee. Keep in sync with the
+// pumpTypes list in computeSystemStats — a pump missing here is billed
+// nothing while still counting as a pump everywhere else.
+const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']);
+
+/**
+ * Facility-wide passive revenue for one tick: base grant + research passive
+ * funding + reputation revenue, all scaled by the decoration reputation
+ * tier's funding bonus.
+ */
+export function computeTickIncome(state, researchPassive = 0) {
+  const passive = ECON.baseGrant + researchPassive;
+  const rep = Math.max(0, state.resources?.reputation || 0);
+  const repIncome = ECON.repIncomeRate * Math.sqrt(rep);
+  const repBonus = state?.reputationTier?.fundingBonus || 0;
+  return Math.floor((passive + repIncome) * (1 + repBonus));
+}
+
+/**
+ * Revenue for one tick of one running beamline. nodeCount is the flattened
+ * HARDWARE count (junctions + pipe placements) — callers must exclude the
+ * flattener's synthetic 'drift' entries, which are gaps, not machines.
+ * Income scales with both beam quality and machine size, plus data fees
+ * while detectors collect.
+ */
+export function computeBeamIncome(beamState, nodeCount = 0) {
+  // `|| 0.2` here treated a legitimate quality of exactly 0 (lattice.py
+  // returns beam_quality 0.0 outright when the emittance ratio degenerates)
+  // as 20%, so a fully scrambled beam still earned income forever. The 0.2 is
+  // only a stand-in for "physics hasn't reported yet".
+  const raw = beamState.beamQuality;
+  const q = Number.isFinite(raw) ? raw : 0.2;
+  let income = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  if ((beamState.dataRate || 0) > 0) income += beamState.dataRate * ECON.dataFeeRate;
+  return income;
+}
+
+/**
+ * Recurring upkeep for one tick: staff salaries, pump service, and the
+ * electricity bill (equipment energyCost always; beamline energyCost only
+ * while the beam is on). Reservoir refills are event costs paid at the
+ * UtilityInspector, not part of this per-tick total.
+ */
+export function computeTickUpkeep(state) {
+  const staffCost = Object.entries(state.staff || {}).reduce((sum, [type, count]) => {
+    return sum + count * ((state.staffCosts || {})[type] || 0);
+  }, 0);
+  let pumpCount = 0;
+  let equipDraw = 0;
+  for (const p of (state.placeables || [])) {
+    // Pumps, RF sources, chillers, etc. are kind 'infrastructure' in the
+    // unified placement registry; lab devices are kind 'equipment'. Both
+    // draw power while placed, and all PUMP_TYPES ids are infrastructure.
+    if (p.category !== 'equipment' && p.category !== 'infrastructure') continue;
+    if (PUMP_TYPES.has(p.type)) pumpCount++;
+    equipDraw += (COMPONENTS[p.type]?.energyCost || 0);
+  }
+  const pumpUpkeep = pumpCount * ECON.pumpUpkeepEach;
+  // state.totalEnergyCost already sums only the beamlines that are actually
+  // running (see Game._updateAggregateBeamline) — no global beamOn gate, which
+  // used to bill stopped beamlines whenever any one beamline ran.
+  const beamDraw = state.totalEnergyCost || 0;
+  const powerBill = ECON.powerBillPerKW * (equipDraw + beamDraw);
+  return { staffCost, pumpUpkeep, powerBill, total: staffCost + pumpUpkeep + powerBill };
+}
 
 // Phase 6: the legacy Networks module is gone. computeSystemStats now runs
 // only the equipment-count-based fallback paths that used to live behind the
@@ -7,7 +108,13 @@ import { COMPONENTS } from '../data/components.js';
 // load math; this file just produces rough summary stats for the HUD.
 
 export function computeSystemStats(state) {
-  const equip = (state.placeables || []).filter(p => p.category === 'equipment');
+  // Pumps, chillers, cold boxes and RF sources are placed with kind (and so
+  // category) 'infrastructure'; 'equipment' is lab devices. Both count here,
+  // exactly as in computeTickUpkeep — filtering to 'equipment' alone left
+  // the HUD reporting zero pumps/draw for hardware the player is billed for.
+  const equip = (state.placeables || []).filter(
+    p => p.category === 'equipment' || p.category === 'infrastructure',
+  );
   const beamline = state.beamline || [];
 
   // Count facility equipment by type
@@ -34,17 +141,41 @@ export function computeSystemStats(state) {
     return sum + (c ? (c.interiorVolume || 0) : 0);
   }, 0);
 
+  // Helper: sum a declared utility-port param over every placed unit. The
+  // panels MUST quote the same ladder the solver gates the beam on
+  // (src/data/utility-ports-v2.js) — hand-written capacity tables here drifted
+  // 400x on RF and inverted the pump ranking, so the panel a player plans from
+  // recommended the wrong hardware.
+  const portCapacity = (portName, param) => {
+    let total = 0;
+    for (const e of equip) {
+      const v = getUtilityPortsV2(e.type)?.[portName]?.params?.[param];
+      if (typeof v === 'number') total += v;
+    }
+    return total;
+  };
+
   // === VACUUM ===
   const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump'];
   const gaugeTypes = ['piraniGauge', 'coldCathodeGauge', 'baGauge'];
   const pumpCount = pumpTypes.reduce((s, t) => s + (counts[t] || 0), 0);
   const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
-  const pumpSpeeds = { roughingPump: 10, turboPump: 300, ionPump: 100, negPump: 200, tiSubPump: 500 };
-
-  const totalPumpSpeed = pumpTypes.reduce((s, t) => s + (counts[t] || 0) * (pumpSpeeds[t] || 0), 0);
-  const avgPressure = state.avgPressure || (pumpCount > 0 ? 1e-6 / Math.max(totalPumpSpeed / Math.max(totalVolume, 1), 0.01) : 1013);
+  const totalPumpSpeed = portCapacity('vac_out', 'pumpSpeed');
+  // Derived fresh every call. This used to read `state.avgPressure ||` first
+  // — but Game.computeSystemStats writes this very result back to
+  // state.avgPressure, so the first value (1013 mbar, no pumps yet) latched
+  // forever and adding pumps never moved the readout.
+  //
+  // A pumped volume is required, not just a pump: clamping totalVolume to 1
+  // meant a single turboPump placed anywhere, wired to nothing, with no
+  // beamline at all, reported 3.3e-9 mbar / "Good" and auto-completed the
+  // `goodVacuum` objective for $30k and a reputation point.
+  const pumped = pumpCount > 0 && totalVolume > 0;
+  const avgPressure = pumped
+    ? 1e-6 / Math.max(totalPumpSpeed / totalVolume, 0.01)
+    : 1013;
   let pressureQuality = 'None';
-  if (pumpCount > 0) {
+  if (pumped) {
     if (avgPressure < 1e-9) pressureQuality = 'Excellent';
     else if (avgPressure < 1e-7) pressureQuality = 'Good';
     else if (avgPressure < 1e-4) pressureQuality = 'Marginal';
@@ -74,11 +205,17 @@ export function computeSystemStats(state) {
   };
 
   // === RF POWER ===
-  const rfSourceTypes = ['klystron', 'ssa', 'iot', 'magnetron'];
+  // Keys MUST be real COMPONENTS ids. They were once 'klystron' / 'ssa',
+  // which no longer exist, so every klystron- and SSA-class source the player
+  // placed (and was billed for) counted as zero here — the panel reported
+  // "Sources 0 / Fwd 0 kW" next to a non-zero draw.
+  const rfSourceTypes = [
+    'magnetron', 'iot', 'solidStateAmp', 'highPowerSSA', 'twt',
+    'pulsedKlystron', 'cwKlystron', 'multibeamKlystron', 'gyrotron',
+  ];
   const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
 
-  const rfPowerPerSource = { klystron: 5000, ssa: 100, iot: 80, magnetron: 2000 };
-  const totalFwdPower = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0) * (rfPowerPerSource[t] || 0), 0);
+  const totalFwdPower = portCapacity('rf_out', 'capacity');
   const reflFraction = 0.02;
   const totalReflPower = totalFwdPower * reflFraction;
 
@@ -96,32 +233,46 @@ export function computeSystemStats(state) {
     avgEfficiency: avgEfficiency * 100,
     energyDraw: categoryDraw('rfPower'),
     detail: {
-      klystrons: counts.klystron || 0,
-      ssas: counts.ssa || 0,
+      klystrons: (counts.pulsedKlystron || 0) + (counts.cwKlystron || 0)
+        + (counts.multibeamKlystron || 0),
+      ssas: (counts.solidStateAmp || 0) + (counts.highPowerSSA || 0),
       iots: counts.iot || 0,
       magnetrons: counts.magnetron || 0,
+      twts: counts.twt || 0,
+      gyrotrons: counts.gyrotron || 0,
       modulators: counts.modulator || 0,
       circulators: counts.circulator || 0,
-      waveguides: counts.waveguide || 0,
+      couplers: counts.rfCoupler || 0,
       llrfControllers: counts.llrfController || 0,
-      masterOscillators: counts.masterOscillator || 0,
-      vectorModulators: counts.vectorModulator || 0,
     },
   };
 
   // === CRYO ===
-  const compressors = counts.heliumCompressor || 0;
+  // Real COMPONENTS ids: 'heliumCompressor' / 'subCooling2K' never existed,
+  // so a 2 K cryoplant reported zero capacity and "--" for temperature.
+  const compressors = counts.heCompressor || 0;
   const coldBox4K = counts.coldBox4K || 0;
-  const subCooling2K = counts.subCooling2K || 0;
+  const subCooling2K = counts.coldBox2K || 0;
   const cryoHousings = counts.cryomoduleHousing || 0;
   const ln2Precool = counts.ln2Precooler || 0;
   const heRecovery = counts.heRecovery || 0;
   const cryocoolers = counts.cryocooler || 0;
 
-  const cryoCapacity = coldBox4K * 500 + subCooling2K * 200 + cryocoolers * 50;
-  const srfCavities = beamline.filter(n => n.type === 'cryomodule').length;
-  let staticLoad = cryoHousings * 3 + srfCavities * 3;
-  let dynamicLoad = srfCavities * 15;
+  const cryoCapacity = portCapacity('cryo_out', 'coldCapacityW');
+  // Every cryo sink counts, not just `cryomodule`: halfWaveResonator,
+  // spokeCavity and ellipticalSrfCavity declare cryo_in.srfHeatW too, so a
+  // pure non-cryomodule SRF linac used to report zero cryo load forever while
+  // the solver was starving it. Load is the declared heat, split into the
+  // static (housing/transfer) and dynamic (RF) halves the panel shows.
+  const srfHeat = beamline.reduce((s, n) => {
+    const w = getUtilityPortsV2(n.type)?.cryo_in?.params?.srfHeatW;
+    return s + (typeof w === 'number' ? w : 0);
+  }, 0);
+  const srfCavities = beamline.filter(
+    n => typeof getUtilityPortsV2(n.type)?.cryo_in?.params?.srfHeatW === 'number',
+  ).length;
+  let staticLoad = cryoHousings * 3 + Math.round(srfHeat * 0.2);
+  let dynamicLoad = Math.round(srfHeat * 0.8);
   const totalCryoLoad = staticLoad + dynamicLoad;
   const opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
 
@@ -158,7 +309,7 @@ export function computeSystemStats(state) {
   const deionizers = counts.deionizer || 0;
   const emergCooling = counts.emergencyCooling || 0;
 
-  const coolingCap = lcwSkids * 100 + chillers * 200 + towers * 500;
+  const coolingCap = portCapacity('cool_out', 'capacity');
   const coolingLoad = (state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
 
   const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T
@@ -186,8 +337,26 @@ export function computeSystemStats(state) {
   const panels = counts.powerPanel || 0;
   const laserSystems = counts.laserSystem || 0;
 
-  const powerCapacity = state.maxElectricalPower || 500;
-  const totalDraw = (state.totalEnergyCost || 0) + vacuum.energyDraw + rfPower.energyDraw + cryo.energyDraw + cooling.energyDraw;
+  // Capacity is the sum of every placed power source's declared `pwr_out`
+  // capacity — the same ladder the utility solver uses (powerPanel 40 →
+  // hvTransformer 1200). This used to read `state.maxElectricalPower`, a
+  // field whose only other reference in the tree is the line in Game.load()
+  // that deletes it as deprecated, so the panel was permanently pinned to the
+  // 500 kW fallback and read 100% utilization on any real facility.
+  let powerCapacity = 0;
+  for (const e of equip) {
+    const cap = getUtilityPortsV2(e.type)?.pwr_out?.params?.capacity;
+    if (typeof cap === 'number') powerCapacity += cap;
+  }
+  // Draw is the sum over every placed unit plus the running beamlines — the
+  // SAME basis computeTickUpkeep bills on. Adding the per-category draws
+  // instead both under- and over-counted: it omitted the dataControls, ops and
+  // power categories and the 34 lab items that have no `category` at all
+  // (~68 kW on an ordinary build), while double-counting cryogenics, which is
+  // a subsection of cooling and was added twice. A facility drawing 74 kW
+  // against a 100 kW supply displayed a green 6%.
+  const equipDraw = equip.reduce((s, e) => s + (COMPONENTS[e.type]?.energyCost || 0), 0);
+  const totalDraw = (state.totalEnergyCost || 0) + equipDraw;
   const powerUtil = powerCapacity > 0 ? (totalDraw / powerCapacity * 100) : 0;
 
   const power = {

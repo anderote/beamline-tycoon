@@ -17,6 +17,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
+import { makeUtilityEndpointIndex } from './utility-endpoints.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
@@ -52,17 +53,17 @@ class DSU {
 }
 
 /**
- * Build the default portLookup backed by state.placeables + COMPONENTS.
- * Phase 3 will add utility `ports` fields to the real components so this path
- * becomes productive; for now it's ready to be used when COMPONENTS is
- * extended.
+ * Build the default portLookup backed by COMPONENTS and every utility
+ * endpoint in the world — state.placeables AND the components living on beam
+ * pipes (see utility-endpoints.js). Indexing placeables alone hid the sink
+ * ports of every role:'placement' module, which is where all cryoTransfer
+ * sinks and most rfWaveguide sinks live.
  *
  * Returns a function with a `.listPorts(placeableId)` attachment used by
  * `discoverNetworks` to enumerate pass-through ports on a placeable.
  */
 export function makeDefaultPortLookup(state) {
-  const byId = new Map();
-  for (const p of (state && state.placeables) || []) byId.set(p.id, p);
+  const byId = makeUtilityEndpointIndex(state);
   const lookup = function (placeableId, portName) {
     const placeable = byId.get(placeableId);
     if (!placeable) return null;
@@ -226,6 +227,47 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     networks.push({ id, utilityType, lineIds: g.lineIds, ports, sources, sinks });
   }
   return networks;
+}
+
+/**
+ * Report sink ports on `placeables` that no line of their utility touches.
+ * The solver only sees networks that have lines — a sink with zero incident
+ * lines never appears in any network — so "unconnected" is a topology fact
+ * that has to come from here, not from solve results.
+ *
+ * `getPorts(placeableType)` returns the `{portName: spec}` table for a
+ * component type (e.g. getUtilityPortsV2). Order of the returned reports is
+ * utility-major, then placeable order, then port-table order.
+ *
+ * @param {Array<Placeable>} placeables
+ * @param {Iterable<UtilityLine>|Map} utilityLines
+ * @param {(placeableType: string) => Object} getPorts
+ * @param {string[]} utilities - utility types to check
+ * @returns {Array<{placeableId, placeableType, portName, utility}>}
+ */
+export function findUnconnectedSinks(placeables, utilityLines, getPorts, utilities) {
+  const wanted = new Set(utilities);
+  const connected = new Set(); // `${utilityType}|${placeableId}:${portName}`
+  const iter = utilityLines && typeof utilityLines.values === 'function'
+    ? utilityLines.values() : (utilityLines || []);
+  for (const line of iter) {
+    if (!line || !wanted.has(line.utilityType)) continue;
+    if (line.start) connected.add(`${line.utilityType}|${portKey(line.start)}`);
+    if (line.end) connected.add(`${line.utilityType}|${portKey(line.end)}`);
+  }
+  const out = [];
+  for (const util of utilities) {
+    for (const p of placeables || []) {
+      const ports = getPorts(p.type) || {};
+      for (const [portName, spec] of Object.entries(ports)) {
+        if (!spec || spec.utility !== util || spec.role !== 'sink') continue;
+        if (!connected.has(`${util}|${p.id}:${portName}`)) {
+          out.push({ placeableId: p.id, placeableType: p.type, portName, utility: util });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /**

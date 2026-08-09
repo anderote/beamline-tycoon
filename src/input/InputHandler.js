@@ -5,18 +5,24 @@ import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
 import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
-import { isFacilityCategory } from '../renderer/Renderer.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
-import { ContextWindow } from '../ui/ContextWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
-import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { snapForPlaceable, canPlace } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
+import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
+import { FloorTool, WallTool, DoorTool } from './structure-tools.js';
+import { DemolishTool } from './demolish-tool.js';
+import { MoveTool, ProbeTool } from './mode-tools.js';
+import { BeamlineTool } from './beamline-tool.js';
+import { UtilityLineTool } from './utility-line-tool.js';
 import { projectOntoPipe } from '../beamline/pipe-geometry.js';
+import { pipeRefund } from '../beamline/BeamlineSystem.js';
+import { pushEscHandler } from '../ui/esc-stack.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
   DEMOLISH_BUTTONS,
@@ -55,34 +61,21 @@ export class InputHandler {
   constructor(renderer, game) {
     this.renderer = renderer;
     this.game = game;
-    this.selectedTool = null;       // component type string or null
     this.selectedCategory = 'source';
     this.dipoleBendDir = 'right';
     this.placementDir = DIR.NE;     // direction for source/free placement
+    this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
     this.isPanning = false;
     this.isFreeOrbiting = false;
     this.freeOrbitLast = { x: 0, y: 0 };
     this.panStart = { x: 0, y: 0 };
     this.worldStart = { x: 0, y: 0 };
-    // Infrastructure placement
-    this.selectedInfraTool = null;  // infrastructure type or null
-    this.selectedInfraVariant = 0;  // floor variant index
-    this.floorOrientationOverride = null; // F-key override for orientable floors: null=auto, 0=horiz, 1=vert
-    this.selectedZoneTool = null;    // zone type or null
-    this.demolishMode = false;       // structure demolish tool
-    this.isDragging = false;
-    this.dragStart = null;          // { col, row }
-    this.dragEnd = null;            // { col, row }
     this.activeMode = 'beamline';
-    this.selectedFacilityTool = null;
-    this.selectedFurnishingTool = null; // zone furnishing type or null
-    this.furnishingRotated = false;     // rotation state for sub-tile placement
     this.hoverSubCol = -1;              // sub-grid column under cursor
     this.hoverSubRow = -1;              // sub-grid row under cursor
-    this.selectedDecorationTool = null; // decoration type or null
-    // Unified placeable selection (Task 8)
-    this.selectedPlaceableId = null;
+    // Unified placeable preview state. Which placeable is armed derives
+    // from the active tool (see the `armedPlaceableId` getter).
     this.selectedPlaceableVariant = 0; // decoration color variant etc.
     this.hoverPlaceable = null; // { id, col, row, subCol, subRow, dir } | null
     // Shift+drag line placement (trees and other decorations)
@@ -95,67 +88,54 @@ export class InputHandler {
     this.linePlaceSpacingSub = new Map();
     this._linePlaceLastWorld = null; // for re-previewing on spacing change
     this._suppressNextClick = false;
-    // Line placement (hallway)
-    this.isDrawingLine = false;
-    this.linePath = [];
-    // Wall placement (edge-based)
-    this.selectedWallTool = null;
-    this.selectedWallVariant = 0;
-    this.isDrawingWall = false;
-    this.wallPath = [];
-    // Door placement (edge-based, like walls)
-    this.selectedDoorTool = null;
-    this.selectedDoorVariant = 0;
-    this.isDrawingDoor = false;
-    this.doorPath = [];
     // Continuous panning
     this.keysDown = new Set();
-    // Bulldozer mode
-    this.bulldozerMode = false;
-    // Move mode
-    this.moveMode = false;
-    this._movePayload = null; // { kind, data } of picked-up object
-    // Probe placement mode
-    this.probeMode = false;
-    // Beam pipe drawing
-    this.beamPipeMode = false;
-    // Pipe-drawing fields are still owned on InputHandler for backwards
-    // compat with ThreeRenderer's animate loop; BeamlineInputController
-    // writes through them via _syncInputState().
-    this.drawingBeamPipe = false;
-    this.beamPipeDrawMode = 'add'; // 'add' or 'remove'
-    this.beamPipePath = [];
-    this.hoverPipePoint = null;
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     // Hover tooltip state
     this._hoverTooltipTimer = null;
     this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
-    this._hoverWorld = null; // {x, z} world coords under cursor, null when outside map
     this._tooltipEl = null;
-    // Beamline-specific input (junction ghosts, pipe drawing, placement-on-pipe).
-    // Back-reference is `inputHandler: this` so the controller can read
-    // current selection/direction without owning that state.
+    // Beamline-specific input (junction ghosts, pipe drawing,
+    // placement-on-pipe). BeamlineTool routes events here; the controller
+    // owns the pipe-draw render state ThreeRenderer reads each frame. The
+    // back-reference is for shared non-tool state (placementDir etc.).
     this.beamlineController = new BeamlineInputController({
       game,
       renderer,
       inputHandler: this,
     });
-    // Utility-line tool state: selects one of the six utility types and draws
-    // Manhattan lines between ports that advertise that utility type. Preview/
-    // hover state is written here by the controller and read by ThreeRenderer's
-    // animate loop / utility-line-builder.
-    this.selectedUtilityLineTool = null; // utility type string or null
-    this.utilityPreview = null;          // { utilityType, path, color }
-    this.utilityHoverPort = null;        // { placeableId, portName, worldPos }
+    // Utility-line gesture controller (UtilityLineTool routes events here;
+    // ThreeRenderer reads preview/hover state off the controller directly).
     this.utilityLineController = new UtilityLineInputController({
       game,
       renderer,
-      inputHandler: this,
     });
+    // --- Tool abstraction (Phase 4) ---
+    // The single armed tool. Every tool family is a Tool object now:
+    // placement-tools.js, structure-tools.js, demolish-tool.js,
+    // mode-tools.js, beamline-tool.js, utility-line-tool.js. Mutual
+    // exclusivity holds by construction — arming any tool disarms the
+    // previous one in setTool.
+    this.activeTool = null;
+    this._toolCtx = { game, renderer, input: this };
     this._bindKeyboard();
     this._bindMouse();
     this._startPanLoop();
+    // Escape is owned by the global esc-stack (ui/esc-stack.js). The game
+    // input layer registers the *fallback* (bottom-of-stack) handler — the
+    // tool-disarm / selection-sweep ladder — so any open dialog, overlay,
+    // or context window pushed above it wins Esc first.
+    this._escUnsub = pushEscHandler((e) => this._handleEscape(e), { fallback: true });
+  }
+
+  /**
+   * The unified-placeable id the active tool has armed, or null. This is
+   * the single query the shared preview/commit/rotation paths key on —
+   * the legacy per-family selection fields died with the tool conversion.
+   */
+  get armedPlaceableId() {
+    return this.activeTool?.armedPlaceableId ?? null;
   }
 
   // --- Hover tooltip ---
@@ -256,10 +236,11 @@ export class InputHandler {
 
   // --- Demolish hover ---
 
-  _updateDemolishHover(world, grid, screenX, screenY) {
+  /** Hover UX for DemolishTool: outline + refund tooltip. `dt` is the
+   *  tool's demolishType (the field died with the demolish conversion). */
+  _updateDemolishHover(world, grid, screenX, screenY, dt) {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
-    const dt = this.demolishType;
 
     // --- Unified placeable detection ---
     // Any demolish mode with a placeable scope uses the same hover UX:
@@ -284,11 +265,9 @@ export class InputHandler {
         if (found.kind === 'beampipe') {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === found.pipeId);
           if (pipe) {
-            const segCount = Math.max(1, (pipe.path.length - 1) || 1);
-            const driftDef = COMPONENTS.drift;
-            const costPerTile = driftDef ? driftDef.cost.funding : 10000;
-            const refund = Math.floor(costPerTile * segCount * 0.5);
-            this._showDemolishTooltip('Beam Pipe', refund, screenX, screenY);
+            // Shared with Game.removeBeamPipe so the tooltip can't promise a
+            // different number than the demolish actually credits.
+            this._showDemolishTooltip('Beam Pipe', pipeRefund(pipe), screenX, screenY);
           } else {
             this._showDemolishTooltip('Beam Pipe', 0, screenX, screenY);
           }
@@ -297,7 +276,15 @@ export class InputHandler {
 
         const def = found.placeable;
         const name = def?.name ?? found.entry?.type ?? found.node?.type ?? 'Unknown';
-        this._showDemolishTooltip(name, demolishRefund(def), screenX, screenY);
+        // A beamline junction takes its connected pipes (and everything placed
+        // on them) with it — Game.removePlaceable routes those through
+        // removeBeamPipe. Quote the whole payout, not just the module's own
+        // 50%, so the tooltip can't understate what the click is worth.
+        this._showDemolishTooltip(
+          name,
+          demolishRefund(def) + this._connectedPipeRefund(found.entry?.id || found.node?.id),
+          screenX, screenY,
+        );
         return;
       }
     }
@@ -368,6 +355,24 @@ export class InputHandler {
       this.renderer.clearDragPreview();
       this._hideDemolishTooltip();
     }
+  }
+
+  /**
+   * Refund for everything that goes with a junction: each connected pipe plus
+   * 50% of every component placed on it. Mirrors Game.removeBeamPipe, which is
+   * what Game.removePlaceable now calls for those pipes.
+   */
+  _connectedPipeRefund(junctionId) {
+    if (!junctionId) return 0;
+    let total = 0;
+    for (const pipe of (this.game.state.beamPipes || [])) {
+      if (pipe.start?.junctionId !== junctionId && pipe.end?.junctionId !== junctionId) continue;
+      total += pipeRefund(pipe);
+      for (const att of (pipe.placements || [])) {
+        total += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+      }
+    }
+    return total;
   }
 
   _showDemolishTooltip(name, refund, screenX, screenY) {
@@ -559,39 +564,6 @@ export class InputHandler {
   }
 
   /**
-   * Show or update the shift-wall floor-boundary preview at the current
-   * cursor position. Called from both mousemove and keydown so that
-   * pressing shift with a stationary cursor still shows the preview.
-   */
-  _refreshWallShiftPreview() {
-    if (!this.selectedWallTool || this.isDrawingWall || this._shiftWallPending) return;
-    if (this._lastScreenX == null) return;
-    const edge = this._getNearestFloorEdge(this._lastScreenX, this._lastScreenY);
-    const path = this._buildFloorBoundaryPath(edge);
-    this.renderer.renderWallPreview(path, this.selectedWallTool);
-    const cost = this._wallPathCost(path, this.selectedWallTool);
-    this._showDragCostTooltip(cost, this._lastScreenX, this._lastScreenY, {
-      insufficientFunding: this.game.state.resources.funding < cost,
-    });
-  }
-
-  /**
-   * Compute cost of placing walls along a path, skipping already-occupied edges.
-   */
-  _wallPathCost(path, wallType) {
-    const wt = WALL_TYPES[wallType];
-    if (!wt) return 0;
-    const segCost = wt.variantCosts?.[this.selectedWallVariant] ?? wt.cost;
-    let count = 0;
-    for (const pt of path) {
-      const key = `${pt.col},${pt.row},${pt.edge}`;
-      if (this.game.state.wallOccupied[key] === wallType) continue;
-      count++;
-    }
-    return count * segCost;
-  }
-
-  /**
    * Walk along a floor boundary from the clicked edge in both directions,
    * collecting every contiguous edge that sits on the same boundary.
    */
@@ -703,33 +675,6 @@ export class InputHandler {
       }
     }
     return path;
-  }
-
-  /**
-   * Refresh the demolish-mode hover preview when shift is pressed or
-   * released (without mouse movement). Switches between single-edge
-   * highlight and whole-segment preview.
-   */
-  _refreshDemolishShiftPreview() {
-    if (!this.demolishMode) return;
-    if (this.isDragging || this.isDrawingWall || this.isDrawingDoor) return;
-    if (this.demolishType !== 'demolishBuilding') return;
-    if (this._lastScreenX == null) return;
-    const found = this._findWallOrDoorAtEdge(
-      this._getNearestEdge(this._lastScreenX, this._lastScreenY),
-    );
-    if (!found) return;
-    const { edge, wallType } = found;
-    if (this._shiftDown) {
-      const path = wallType
-        ? this._buildWallSegmentPath(edge)
-        : this._buildDoorSegmentPath(edge);
-      if (path.length > 0) {
-        this.renderer.renderDemolishPathPreview(path);
-        return;
-      }
-    }
-    this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge, 0xff4444);
   }
 
   /**
@@ -919,14 +864,14 @@ export class InputHandler {
   }
 
   /**
-   * Given a cursor world position (iso-pixel — i.e. the output of
-   * `screenToWorld`), snap the attachment footprint to the subgrid using
-   * the unified placement system, then project the snap center onto the
-   * nearest pipe. Returns `{ snap, pipe, proj }` or null if no pipe is
-   * within reach.
+   * Given an armed attachment component key and a cursor world position
+   * (iso-pixel — i.e. the output of `screenToWorld`), snap the attachment
+   * footprint to the subgrid using the unified placement system, then
+   * project the snap center onto the nearest pipe. Returns
+   * `{ snap, pipe, proj }` or null if no pipe is within reach.
    */
-  _snapAttachmentToPipe(worldX, worldY) {
-    const compDef = COMPONENTS[this.selectedTool];
+  _snapAttachmentToPipe(compKey, worldX, worldY) {
+    const compDef = COMPONENTS[compKey];
     if (!compDef) return null;
     const snap = snapForPlaceable(worldX, worldY, compDef, this.placementDir || 0);
     const swap = (this.placementDir || 0) === 1 || (this.placementDir || 0) === 3;
@@ -995,19 +940,19 @@ export class InputHandler {
   }
 
   /**
-   * Update the transparent hover ghost for the currently selected
-   * attachment tool. Uses the unified subgrid snap for the footprint and
-   * the pipe projection for pipe-alignment.
+   * Update the transparent hover ghost for an armed attachment tool. Uses
+   * the unified subgrid snap for the footprint and the pipe projection for
+   * pipe-alignment.
    */
-  _updateAttachmentPreview(worldX, worldY) {
-    const hit = this._snapAttachmentToPipe(worldX, worldY);
+  _updateAttachmentPreview(compKey, worldX, worldY) {
+    const hit = this._snapAttachmentToPipe(compKey, worldX, worldY);
     if (!hit) {
       this.renderer._clearPreview?.();
       return;
     }
     this.renderer.renderAttachmentGhost(
       hit.proj.col, hit.proj.row,
-      this.selectedTool,
+      compKey,
       hit.proj.dir,
       !hit.collidesWithModule,
     );
@@ -1095,20 +1040,28 @@ export class InputHandler {
     window.addEventListener('keydown', (e) => {
       this._shiftDown = e.shiftKey;
       if (e.key === 'Shift') {
-        this._refreshWallShiftPreview();
-        this._refreshDemolishShiftPreview();
+        // Tools with shift-modified previews (wall boundary fill, demolish
+        // whole-run) refresh even with a stationary cursor.
+        this.activeTool?.onShiftChange?.(true, this._toolCtx);
       }
+      // Escape never routes through here — the esc-stack (ui/esc-stack.js)
+      // owns it; our default ladder is this handler's fallback entry
+      // (_handleEscape). While the beamline designer is open it swallows
+      // every other key at capture phase, so no designer guard is needed.
+      if (e.key === 'Escape') return;
       // Skip if focused on text input
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-      // Skip normal input handling when controller overlay is open
-      if (this.game._designer && this.game._designer.isOpen) return;
-
-      // Ctrl+Z → undo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z → redo. The active tool gets to
+      // abandon any mid-gesture carry first: undo replaces game state
+      // wholesale, so a tool still holding a lifted object would duplicate
+      // it on the next drop.
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        this.game.undo();
+        this.activeTool?.cancelGesture?.(this._toolCtx, 'stateReplaced');
+        if (e.shiftKey) this.game.redo();
+        else this.game.undo();
         return;
       }
 
@@ -1119,33 +1072,10 @@ export class InputHandler {
         return;
       }
 
-      // Shift+Z / Shift+X while line-placing decorations: adjust spacing
-      // by one sub-unit. Persists per-placeable for the session.
-      if (this.isLinePlacingDecoration && e.shiftKey
-          && (e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X')) {
-        e.preventDefault();
-        const pl = PLACEABLES[this.selectedPlaceableId];
-        if (pl) {
-          const defaultSub = Math.max(pl.subW || 1, pl.subL || 1);
-          const minSub = Math.max(1, Math.min(pl.subW || 1, pl.subL || 1));
-          const cur = this.linePlaceSpacingSub.has(this.selectedPlaceableId)
-            ? this.linePlaceSpacingSub.get(this.selectedPlaceableId)
-            : defaultSub;
-          const delta = (e.key === 'x' || e.key === 'X') ? 1 : -1;
-          const next = Math.max(minSub, Math.min(64, cur + delta));
-          if (next !== cur) {
-            this.linePlaceSpacingSub.set(this.selectedPlaceableId, next);
-            this._showToast(`Spacing: ${next} sub${next === 1 ? '' : 's'}`);
-            if (this._linePlaceLastWorld) {
-              this._updateLinePlacePreview(
-                this._linePlaceLastWorld.x,
-                this._linePlaceLastWorld.y,
-              );
-            }
-          }
-        }
-        return;
-      }
+      // Active tool gets first claim on keys (e.g. Shift+Z/X spacing while
+      // line-placing decorations). Legacy branches below cover unconverted
+      // families.
+      if (this._toolConsumed('onKey', e)) return;
 
       // Handle DesignPlacer keys
       if (this.game._designPlacer && this.game._designPlacer.active) {
@@ -1161,12 +1091,7 @@ export class InputHandler {
           this.renderer._renderCursors();
           return;
         }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          this.game._designPlacer.cancel();
-          return;
-        }
-        return; // block other keys while placing
+        return; // block other keys while placing (Esc cancel lives in _handleEscape)
       }
 
       // Arrow keys → palette navigation
@@ -1218,48 +1143,32 @@ export class InputHandler {
 
       switch (e.key) {
         case ' ':
+          // (BeamlineTool consumes Space for junction/placement roles in
+          // its onKey, delegating to the controller at the last cursor
+          // position.)
           e.preventDefault();
-          // Beamline junction/placement tools delegate to the controller at
-          // the last known cursor position so Space honors placementMode
-          // (snap/insert/replace) identically to a left-click. Undo push
-          // happens inside the controller's commit paths.
-          {
-            const selDef = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
-            if (selDef && (selDef.role === 'junction' || selDef.role === 'placement')) {
-              const wx = this.lastMouseWorldX ?? 0;
-              const wy = this.lastMouseWorldY ?? 0;
-              this.beamlineController.onMouseDown(wx, wy, 0);
-              break;
-            }
-          }
-          this.game._pushUndo();
-          if (this.hoverPlaceable) {
-            // Unified placement — handles beamline / equipment / furnishing / decoration.
-            const placedId = this.game.placePlaceable({
-              type: this.hoverPlaceable.id,
-              col: this.hoverPlaceable.col,
-              row: this.hoverPlaceable.row,
-              subCol: this.hoverPlaceable.subCol,
-              subRow: this.hoverPlaceable.subRow,
-              dir: this.hoverPlaceable.dir,
-              params: this.selectedParamOverrides,
-              variant: this.selectedPlaceableVariant,
-            });
-            // Auto-switch to beam pipe tool after placing a source.
-            const comp = COMPONENTS[this.hoverPlaceable.id];
-            if (placedId && comp?.isSource) {
-              this.selectTool('drift');
-            }
-          } else if (this.selectedInfraTool) {
-            const infra = FLOORS[this.selectedInfraTool];
-            if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-              if (this.game.placeInfraTile(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedInfraTool, this.selectedInfraVariant)) {
-                this.game.emit('infrastructureChanged');
+          this.game._withUndo(() => {
+            if (this.hoverPlaceable) {
+              // Unified placement — handles beamline / equipment / furnishing / decoration.
+              const placedId = this.game.placePlaceable({
+                type: this.hoverPlaceable.id,
+                col: this.hoverPlaceable.col,
+                row: this.hoverPlaceable.row,
+                subCol: this.hoverPlaceable.subCol,
+                subRow: this.hoverPlaceable.subRow,
+                dir: this.hoverPlaceable.dir,
+                params: this.selectedParamOverrides,
+                variant: this.selectedPlaceableVariant,
+              });
+              // Auto-switch to beam pipe tool after placing a source.
+              const comp = COMPONENTS[this.hoverPlaceable.id];
+              if (placedId && comp?.isSource) {
+                this.selectComponentTool('drift');
               }
+            } else {
+              this.game.toggleBeam();
             }
-          } else {
-            this.game.toggleBeam();
-          }
+          });
           break;
         case 'r': case 'R': {
           // Placement-role tools (attachments on pipes) use R to toggle
@@ -1267,9 +1176,9 @@ export class InputHandler {
           // determined by the pipe's axis, so rotation is a no-op.
           if (this._handlePlacementModeKey('replace')) return;
           // Unified rotation: R always advances placementDir when a placeable
-          // is selected (including during move mode, since move mode arms
-          // selectedPlaceableId with the carried item's type).
-          if (this.selectedPlaceableId) {
+          // is armed (including while MoveTool carries an item, since the
+          // carried type arms the unified preview).
+          if (this.armedPlaceableId) {
             this.placementDir = (this.placementDir + 1) % 4;
             this.renderer.updatePlacementDir?.(this.placementDir);
             this._updatePlaceablePreview();
@@ -1280,7 +1189,11 @@ export class InputHandler {
           break;
         }
         case 'i': case 'I': {
+          // Placement-role tools consume I as the insert-mode toggle; with
+          // no such tool armed, I cycles the 3D label detail level.
           if (this._handlePlacementModeKey('insert')) return;
+          const levelName = this.renderer.cycleLabelLevel();
+          this._showToast(`Labels: ${levelName}`);
           break;
         }
         case 'g': case 'G': {
@@ -1302,64 +1215,6 @@ export class InputHandler {
           }
           break;
         }
-        case 'Escape':
-          // Close topmost context window first
-          if (ContextWindow.closeTopmost()) break;
-          // Exit move mode
-          if (this.moveMode) {
-            this._exitMoveMode();
-            break;
-          }
-          // If a placeable is armed, exit placement mode without clearing
-          // the rest of the tool state.
-          if (this.selectedPlaceableId) {
-            this.selectPlaceable(null);
-            this._hidePreview();
-            break;
-          }
-          // If in context-aware demolish (mode didn't change), just deselect
-          if (this.demolishMode && this.activeMode !== 'demolish') {
-            this.deselectDemolishTool();
-            this._hidePreview();
-            break;
-          }
-          // If in full demolish mode, restore previous mode
-          if (this.demolishMode || this.bulldozerMode) {
-            this._restorePreviousMode();
-            break;
-          }
-          // Exit edit mode if active
-          if (this.game.editingBeamlineId) {
-            this.game.editingBeamlineId = null;
-            this.game.emit('editModeChanged', null);
-          }
-          // Close network overlay if active
-          if (this.renderer.activeNetworkType) {
-            this.renderer.clearNetworkOverlay();
-            // Don't return — let other Escape handling also run
-          }
-          // Close all overlays
-          document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
-          this.deselectTool();
-          this.deselectInfraTool();
-          this.deselectFacilityTool();
-          this.deselectFurnishingTool();
-          this.deselectConnTool();
-          this.deselectRackTool();
-          this.deselectZoneTool();
-          this.deselectDemolishTool();
-          this.deselectUtilityLineTool();
-          if (this.utilityLineController) this.utilityLineController.onEscape();
-          this.bulldozerMode = false;
-          this.renderer.setBulldozerMode(false);
-          this.probeMode = false;
-          this.renderer.setProbeMode(false);
-          this.selectedNodeId = null;
-          this.renderer.hidePopup();
-          this.paletteIndex = -1;
-          this._hidePreview();
-          document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('kb-focus'));
-          break;
         case 'Tab': {
           e.preventDefault();
           const mode = MODES[this.activeMode];
@@ -1377,34 +1232,24 @@ export class InputHandler {
           this._hidePreview();
           break;
         }
-        case 'f': case 'F':
-          // Orientable floor tool: F toggles texture rotation override.
-          // Takes priority over the generic placeable rotation below because
-          // no placeable ghost is active when an infra tool is selected.
-          if (this.selectedInfraTool) {
-            const infraDef = FLOORS[this.selectedInfraTool];
-            if (infraDef?.orientable) {
-              this.floorOrientationOverride = this.floorOrientationOverride ? 0 : 1;
-              this._showToast(`Orientation: ${this.floorOrientationOverride ? 'vertical' : 'horizontal'}`);
-              break;
-            }
-          }
+        case 'f': case 'F': {
+          // (FloorTool consumes F for orientable floors in its onKey.)
           // Rotate placement direction (cycles NE→SE→SW→NW)
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
           // Re-render unified ghost so the preview rotates immediately.
           this._updatePlaceablePreview();
           // Beam pipe drawn connections still use the legacy ghost path.
-          if (this.selectedTool && this.renderer.hoverCol !== undefined) {
-            const comp = COMPONENTS[this.selectedTool];
-            if (comp && comp.isDrawnConnection) {
-              this.renderer.renderEquipmentGhost(this.renderer.hoverCol, this.renderer.hoverRow, this.selectedTool, 0x44cc44);
-            }
+          const t = this.activeTool;
+          if (t?.kind === 'beamline' && this.renderer.hoverCol !== undefined
+              && COMPONENTS[t.key]?.isDrawnConnection) {
+            this.renderer.renderEquipmentGhost(this.renderer.hoverCol, this.renderer.hoverRow, t.key, 0x44cc44);
           }
           // Also toggle dipole bend direction
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
           break;
+        }
         case 't': case 'T':
           if (this.game._designer && !this.game._designer.isOpen) {
             e.preventDefault();
@@ -1426,28 +1271,13 @@ export class InputHandler {
           }
           break;
         case 'u': case 'U':
-          this.probeMode = !this.probeMode;
-          if (this.probeMode) {
-            this.deselectTool();
-            this.deselectInfraTool();
-            this.deselectFacilityTool();
-            this.deselectFurnishingTool();
-            this.deselectConnTool();
-            this.deselectRackTool();
-            this.deselectZoneTool();
-            this.deselectDemolishTool();
-            this.bulldozerMode = false;
-            this.renderer.setBulldozerMode(false);
-            this.renderer.setProbeMode(true);
+          // Toggle probe mode. setTool handles the exclusivity sweep.
+          if (this.activeTool?.kind === 'probe') {
+            this.clearTool();
           } else {
-            this.renderer.setProbeMode(false);
+            this.setTool(new ProbeTool());
           }
           break;
-        case 'i': case 'I': {
-          const levelName = this.renderer.cycleLabelLevel();
-          this._showToast(`Labels: ${levelName}`);
-          break;
-        }
         case 'o': case 'O': {
           if (e.ctrlKey || e.metaKey) break;
           const visible = this.renderer.toggleZoneOverlay();
@@ -1464,6 +1294,23 @@ export class InputHandler {
         case 'y': case 'Y':
           this._toggleMoveMode();
           break;
+        // Sim speed. Space is taken (place/toggle beam) and 1-6 are mode
+        // hotkeys, so pause lives on P and speeds on 7/8/9.
+        case 'p': case 'P': {
+          if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
+          e.preventDefault();
+          this.game.togglePause();
+          this._showToast(this.game.state.paused ? 'Paused' : 'Resumed');
+          break;
+        }
+        case '7': case '8': case '9': {
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          const mult = { '7': 1, '8': 2, '9': 4 }[e.key];
+          this.game.setSpeed(mult);
+          this._showToast(`Speed: ${mult}x`);
+          break;
+        }
         case 'Delete': case 'Backspace':
           e.preventDefault();
           // Toggle context-aware demolish without leaving current menu
@@ -1478,19 +1325,9 @@ export class InputHandler {
       this.keysDown.delete(k);
       this.keysDown.delete(e.key);
       if (e.key === 'Shift') {
-        if (this._shiftWallPending) {
-          this._shiftWallPending = false;
-          this.wallPath = [];
-        }
-        if (this.selectedWallTool && !this.isDrawingWall) {
-          this.renderer.clearDragPreview();
-          this._hideDragCostTooltip();
-          if (this._lastScreenX != null) {
-            const edge = this._getNearestFloorEdge(this._lastScreenX, this._lastScreenY);
-            this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
-          }
-        }
-        this._refreshDemolishShiftPreview();
+        // WallTool cancels a pending boundary fill; DemolishTool drops the
+        // whole-run preview back to the single-edge highlight.
+        this.activeTool?.onShiftChange?.(false, this._toolCtx);
       }
     });
 
@@ -1502,7 +1339,10 @@ export class InputHandler {
     };
     window.addEventListener('blur', clearHeldKeys);
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) clearHeldKeys();
+      if (document.hidden) {
+        clearHeldKeys();
+        this._abortPointerGesture();
+      }
     });
   }
 
@@ -1561,188 +1401,9 @@ export class InputHandler {
         return;
       }
 
-      // Shift + left drag: line-place decorations (trees, shrubs, flower beds).
-      // Spaces copies along the drag vector at ~footprint intervals so the
-      // user can lay a row of trees in one gesture.
-      if (e.button === 0 && e.shiftKey && this.selectedPlaceableId) {
-        const pl = PLACEABLES[this.selectedPlaceableId];
-        if (pl && pl.kind === 'decoration') {
-          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-          this.isLinePlacingDecoration = true;
-          this.linePlaceStartWorld = { x: world.x, y: world.y };
-          this._updateLinePlacePreview(world.x, world.y);
-          e.preventDefault();
-          return;
-        }
-      }
-
-      // Utility-line tool start. Delegate to UtilityLineInputController;
-      // if it anchors on a port, consume the click. Otherwise fall through
-      // so the click can still pan/select/etc. (swallow if returned true).
-      if (this.selectedUtilityLineTool && this.utilityLineController && e.button === 0) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        if (this.utilityLineController.onMouseDown(world.x, world.y, e.button)) {
-          return;
-        }
-      }
-
-      // Beamline input delegation. The controller owns pipe drawing,
-      // junction placement, and placement-on-pipe. Route mousedown here
-      // whenever a beamline tool is armed or the controller is already
-      // mid-draw. Junction/placement commits still run via _handleClick on
-      // mouseup (to match click semantics); this guard exists so no other
-      // branch below interprets the press as a drag/demolish/etc. Pipe
-      // drawing does call onMouseDown here so the draw starts on press.
-      {
-        const btn = e.button;
-        const toolDef = this.selectedTool ? COMPONENTS[this.selectedTool] : null;
-        const placeableDef = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
-        const isBeamlineTool =
-          toolDef?.isDrawnConnection ||
-          placeableDef?.role === 'junction' ||
-          placeableDef?.role === 'placement';
-        if ((btn === 0 || btn === 2) && (this.beamlineController.isActive() || isBeamlineTool)) {
-          console.log('[pipe-draw] InputHandler mousedown → beamline branch', {
-            btn,
-            isDrawnConnection: !!toolDef?.isDrawnConnection,
-            controllerActive: this.beamlineController.isActive(),
-            selectedTool: this.selectedTool,
-          });
-          if (toolDef?.isDrawnConnection) {
-            const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-            console.log('[pipe-draw] InputHandler → beamlineController.onMouseDown', { world, btn });
-            this.beamlineController.onMouseDown(world.x, world.y, btn);
-          }
-          // Swallow the event: no other mousedown branch should fire for
-          // beamline tools. Junction/placement commit happens on mouseup.
-          return;
-        }
-      }
-
-      // Demolish drag start
-      if (e.button === 0 && this.demolishMode) {
-        if (this.demolishType === 'demolishBuilding') {
-          // Building demolish is edge-first: starting on a wall/door edge
-          // begins an edge-path drag (removes walls AND doors along the
-          // path); otherwise fall through to the tile-rect drag below,
-          // which sweeps floors/zones/walls/doors in the rectangle.
-          const found = this._findWallOrDoorAtEdge(this._getNearestEdge(e.clientX, e.clientY));
-          if (found) {
-            if (this._shiftDown) {
-              // Shift-click: delete the whole connected run at once.
-              const segment = found.wallType
-                ? this._buildWallSegmentPath(found.edge)
-                : this._buildDoorSegmentPath(found.edge);
-              if (segment.length > 0) {
-                this.game._pushUndo();
-                for (const pt of segment) {
-                  this._removeWallAndDoorAtEdge(pt);
-                }
-                this.renderer.clearDragPreview();
-                this._suppressNextClick = true;
-              }
-              return;
-            }
-            this.isDrawingWall = true;
-            this._wallStart = found.edge;
-            this.wallPath = [found.edge];
-            return;
-          }
-        }
-        // Beamline/equipment demolish is click-on-object; utility demolish
-        // is click-on-line. Neither uses the tile-rect drag.
-        if (this.demolishType === 'demolishBeamline' || this.demolishType === 'demolishUtility') {
-          return; // handled in _handleClick
-        }
-        this.isDragging = true;
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.dragStart = { col: grid.col, row: grid.row };
-        this.dragEnd = { col: grid.col, row: grid.row };
-      }
-
-      // Zone drag start — facility brush auto-floors
-      if (e.button === 0 && this.selectedZoneTool) {
-        this.isDragging = true;
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.dragStart = { col: grid.col, row: grid.row };
-        this.dragEnd = { col: grid.col, row: grid.row };
-        const zCost0 = this.game.computeFacilityBrushCost(
-          grid.col, grid.row, grid.col, grid.row, this.selectedZoneTool
-        );
-        this._showDragCostTooltip(zCost0.totalCost, e.clientX, e.clientY, {
-          insufficientFunding: this.game.state.resources.funding < zCost0.totalCost,
-        });
-      }
-
-      // Infrastructure line placement start (hallway)
-      if (e.button === 0 && this.selectedInfraTool) {
-        const infra = FLOORS[this.selectedInfraTool];
-        if (infra && infra.isLinePlacement) {
-          const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-          const grid = isoToGrid(world.x, world.y);
-          this.isDrawingLine = true;
-          this.lineStart = { col: grid.col, row: grid.row };
-          this.linePath = [{ col: grid.col, row: grid.row }];
-          this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
-          return;
-        }
-      }
-
-      // Wall edge placement start
-      if (e.button === 0 && this.selectedWallTool) {
-        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
-        if (this._shiftDown) {
-          // Shift-click: auto-fill entire floor boundary
-          this._shiftWallPending = true;
-          this.wallPath = this._buildFloorBoundaryPath(edge);
-          this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
-          const cost = this._wallPathCost(this.wallPath, this.selectedWallTool);
-          this._showDragCostTooltip(cost, e.clientX, e.clientY, {
-            insufficientFunding: this.game.state.resources.funding < cost,
-          });
-          return;
-        }
-        this.isDrawingWall = true;
-        this._wallStart = edge;
-        this.wallPath = [edge];
-        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
-        return;
-      }
-
-      // Door edge placement start
-      if (e.button === 0 && this.selectedDoorTool) {
-        const edge = this._getNearestWallEdge(e.clientX, e.clientY);
-        this.isDrawingDoor = true;
-        this._doorStart = edge;
-        this.doorPath = [edge];
-        this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
-        return;
-      }
-
-      // Infrastructure drag start (area placement)
-      if (e.button === 0 && this.selectedInfraTool) {
-        const infra = FLOORS[this.selectedInfraTool];
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        if (infra && infra.isDragPlacement) {
-          this.isDragging = true;
-          this.dragStart = { col: grid.col, row: grid.row };
-          this.dragEnd = { col: grid.col, row: grid.row };
-          this.renderer.renderDragPreview(grid.col, grid.row, grid.col, grid.row, this.selectedInfraTool);
-          const cost = this.game.computeInfraRectCost(
-            grid.col, grid.row, grid.col, grid.row, this.selectedInfraTool, this.selectedInfraVariant,
-          );
-          this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
-            skippedNoFoundation: cost.skippedNoFoundation,
-            foundationName: infra.requiresFoundation
-              ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
-              : null,
-            insufficientFunding: this.game.state.resources.funding < cost.totalCost,
-          });
-        }
-      }
+      // Active tool gets first claim on the press (after camera controls,
+      // which are built-in input handling, not tools).
+      if (this._toolConsumed('onMouseDown', e)) return;
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -1753,237 +1414,30 @@ export class InputHandler {
         this.renderer.orbitBy(dx, dy);
         return;
       }
-      // Track cursor world position for the entity/wildlife system
-      {
-        const _hw = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const _gf = isoToGridFloat(_hw.x, _hw.y);
-        this._hoverWorld = { x: _gf.col * 2, z: _gf.row * 2 };
-      }
       if (this.isPanning) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
-      } else if (this.isLinePlacingDecoration) {
-        if (this._lastMoveBranch !== 'isLinePlacingDecoration') {
-          this._lastMoveBranch = 'isLinePlacingDecoration';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        this._updateLinePlacePreview(world.x, world.y);
-      } else if (this.isDragging && this.dragStart) {
-        if (this._lastMoveBranch !== 'isDragging') {
-          this._lastMoveBranch = 'isDragging';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.dragEnd = { col: grid.col, row: grid.row };
-        if (this.demolishMode) {
-          this.renderer.renderDemolishPreview(
-            this.dragStart.col, this.dragStart.row,
-            grid.col, grid.row
-          );
-        } else if (this.selectedZoneTool) {
-          this.renderer.renderDragPreview(
-            this.dragStart.col, this.dragStart.row,
-            grid.col, grid.row, this.selectedZoneTool, true
-          );
-          // Cost tooltip for facility brush (auto floor+zone)
-          const zCost = this.game.computeFacilityBrushCost(
-            this.dragStart.col, this.dragStart.row,
-            grid.col, grid.row, this.selectedZoneTool
-          );
-          this._showDragCostTooltip(zCost.totalCost, e.clientX, e.clientY, {
-            insufficientFunding: this.game.state.resources.funding < zCost.totalCost,
-          });
-        } else {
-          this.renderer.renderDragPreview(
-            this.dragStart.col, this.dragStart.row,
-            grid.col, grid.row, this.selectedInfraTool
-          );
-          // Cost tooltip for infra drag placement
-          const cost = this.game.computeInfraRectCost(
-            this.dragStart.col, this.dragStart.row,
-            grid.col, grid.row, this.selectedInfraTool, this.selectedInfraVariant,
-          );
-          const def = FLOORS[this.selectedInfraTool];
-          this._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
-            skippedNoFoundation: cost.skippedNoFoundation,
-            foundationName: def?.requiresFoundation
-              ? (FLOORS[def.requiresFoundation]?.name || def.requiresFoundation)
-              : null,
-            insufficientFunding: this.game.state.resources.funding < cost.totalCost,
-          });
-        }
-      } else if (this.isDrawingLine && this.selectedInfraTool) {
-        if (this._lastMoveBranch !== 'isDrawingLine infra') {
-          this._lastMoveBranch = 'isDrawingLine infra';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        const start = this.lineStart || this.linePath[0];
-        this.linePath = this._buildLPath(start, grid);
-        this.renderer.renderLinePreview(this.linePath, this.selectedInfraTool);
-        // Cost tooltip for line placement (hallway)
-        const lineCost = this.game.computeInfraLineCost(
-          this.linePath, this.selectedInfraTool, this.selectedInfraVariant,
-        );
-        const lineDef = FLOORS[this.selectedInfraTool];
-        this._showDragCostTooltip(lineCost.totalCost, e.clientX, e.clientY, {
-          skippedNoFoundation: lineCost.skippedNoFoundation,
-          foundationName: lineDef?.requiresFoundation
-            ? (FLOORS[lineDef.requiresFoundation]?.name || lineDef.requiresFoundation)
-            : null,
-          insufficientFunding: this.game.state.resources.funding < lineCost.totalCost,
-        });
-      } else if (this.isDrawingWall && this.selectedWallTool) {
-        if (this._lastMoveBranch !== 'isDrawingWall wallTool') {
-          this._lastMoveBranch = 'isDrawingWall wallTool';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestEdge(e.clientX, e.clientY);
-        this.wallPath = this._buildWallLine(this._wallStart, edge);
-        this.renderer.renderWallPreview(this.wallPath, this.selectedWallTool);
-        const cost = this._wallPathCost(this.wallPath, this.selectedWallTool);
-        this._showDragCostTooltip(cost, e.clientX, e.clientY, {
-          insufficientFunding: this.game.state.resources.funding < cost,
-        });
-      } else if (this.isDrawingWall && this.demolishMode && this.demolishType === 'demolishBuilding') {
-        if (this._lastMoveBranch !== 'isDrawingWall demolishBuilding') {
-          this._lastMoveBranch = 'isDrawingWall demolishBuilding';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestEdge(e.clientX, e.clientY);
-        this.wallPath = this._buildWallLine(this._wallStart, edge);
-        this.renderer.renderDemolishPathPreview(this.wallPath);
-      } else if (this.selectedWallTool && !this.isDrawingWall && !this._shiftWallPending) {
-        if (this._lastMoveBranch !== 'selectedWallTool (hover)') {
-          this._lastMoveBranch = 'selectedWallTool (hover)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestFloorEdge(e.clientX, e.clientY);
-        if (this._shiftDown) {
-          const path = this._buildFloorBoundaryPath(edge);
-          this.renderer.renderWallPreview(path, this.selectedWallTool);
-          const cost = this._wallPathCost(path, this.selectedWallTool);
-          this._showDragCostTooltip(cost, e.clientX, e.clientY, {
-            insufficientFunding: this.game.state.resources.funding < cost,
-          });
-        } else {
-          this._hideDragCostTooltip();
-          this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
-        }
-      } else if (this.isDrawingDoor && this.selectedDoorTool) {
-        if (this._lastMoveBranch !== 'isDrawingDoor doorTool') {
-          this._lastMoveBranch = 'isDrawingDoor doorTool';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestWallEdge(e.clientX, e.clientY);
-        this.doorPath = this._buildWallLine(this._doorStart, edge);
-        this.renderer.renderDoorPreview(this.doorPath, this.selectedDoorTool);
-      } else if (this.selectedDoorTool && !this.isDrawingDoor) {
-        if (this._lastMoveBranch !== 'selectedDoorTool (hover)') {
-          this._lastMoveBranch = 'selectedDoorTool (hover)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const edge = this._getNearestWallEdge(e.clientX, e.clientY);
-        this.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
-      } else if (this.utilityLineController && this.utilityLineController.isActive()) {
-        if (this._lastMoveBranch !== 'utilityLine draw') {
-          this._lastMoveBranch = 'utilityLine draw';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        // Utility-line drag: update Manhattan preview path.
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        this.utilityLineController.onMouseMove(world.x, world.y);
-      } else if (this.beamlineController.isActive()) {
-        if (this._lastMoveBranch !== 'beamline draw') {
-          this._lastMoveBranch = 'beamline draw';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        if (!this._loggedPipeMoveDelegate) {
-          this._loggedPipeMoveDelegate = true;
-          console.log('[pipe-draw] InputHandler mousemove → beamlineController.onMouseMove (first delegation this drag)', { world });
-        }
-        this.beamlineController.onMouseMove(world.x, world.y);
-      } else {
-        if (this._lastMoveBranch !== 'DEFAULT (hover/demolish beamline/etc)') {
-          this._lastMoveBranch = 'DEFAULT (hover/demolish beamline/etc)';
-          console.warn('[mousemove] branch:', this._lastMoveBranch, { selectedWallTool: this.selectedWallTool, demolishMode: this.demolishMode, demolishType: this.demolishType });
-        }
-        this._loggedPipeMoveDelegate = false;
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        const grid = isoToGrid(world.x, world.y);
-        this.renderer.updateHover(grid.col, grid.row);
-        this.hoverPipePoint = null;
-        // Show cross cursor when an infra/zone/facility tool is selected
-        if (this.selectedInfraTool || this.selectedZoneTool) {
-          const infra = this.selectedInfraTool ? FLOORS[this.selectedInfraTool] : null;
-          const zone = this.selectedZoneTool ? ZONES[this.selectedZoneTool] : null;
-          const color = infra?.topColor || zone?.color || 0xffffff;
-          this.renderer.renderInfraHoverCursor(grid.col, grid.row, color);
-        } else if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-          // Pre-click hover marker for the pipe-draw tool.
-          this.beamlineController.onPipeToolHover(world.x, world.y);
-        } else if (this.selectedUtilityLineTool && this.utilityLineController) {
-          // Hover for utility-line tool: find the nearest port that matches
-          // the current utility type so the renderer can highlight it.
-          this.utilityLineController.onHover(world.x, world.y);
-        }
-        // Unified placeable preview. Replaces the previous four branches
-        // (equipment / beamline / furnishing / decoration).
-        // For stackable items, use the surface-aware raycast so hovering a
-        // desk or a stacked object targets that surface directly instead of
-        // the floor subtile behind it.
-        let placeWorld = world;
-        if (this.selectedPlaceableId) {
-          const selDef = PLACEABLES[this.selectedPlaceableId];
-          if (selDef?.stackable && typeof this.renderer.screenToPlacementWorld === 'function') {
-            placeWorld = this.renderer.screenToPlacementWorld(e.clientX, e.clientY);
-          }
-        }
-        this.lastMouseWorldX = placeWorld.x;
-        this.lastMouseWorldY = placeWorld.y;
-        this._lastScreenX = e.clientX;
-        this._lastScreenY = e.clientY;
-        this._updatePlaceablePreview();
-        // Legacy attachment hover preview — still used by infrastructure
-        // gauges/valves (placement:'attachment' with no beamline role).
-        // Role-bearing placements (bellows, BPM, etc.) get their preview
-        // from BeamlineInputController via _updatePlaceablePreview above.
-        if (this.selectedTool) {
-          const _compDef = COMPONENTS[this.selectedTool];
-          if (_compDef?.placement === 'attachment' && !_compDef.role) {
-            this._updateAttachmentPreview(world.x, world.y);
-          }
-        }
-        // Demolish hover: highlight the object under cursor with red + show tooltip
-        if (this.demolishMode && !this.isDragging && !this.isDrawingWall && !this.isDrawingDoor) {
-          this._updateDemolishHover(world, grid, e.clientX, e.clientY);
-        }
-        // Move-mode hover outline (only when not carrying anything — once a
-        // payload is picked up, `selectedPlaceableId` is armed and the
-        // unified placeable preview above renders the ghost automatically).
-        if (this.moveMode && !this._movePayload) {
-          this._updateMoveHover(grid, e.clientX, e.clientY);
-        }
-        // Update design placer position
-        if (this.game._designPlacer && this.game._designPlacer.active) {
-          this.game._designPlacer.setPosition(grid.col, grid.row);
-          this.renderer._renderCursors();
-        }
-        // Hover tooltip for furnishings/equipment (when no tool active)
-        if (!this.selectedTool && !this.selectedInfraTool && !this.selectedFacilityTool &&
-            !this.selectedFurnishingTool && !this.selectedDecorationTool &&
-            !this.selectedWallTool && !this.selectedDoorTool &&
-            !this.selectedZoneTool && !this.demolishMode && !this.bulldozerMode) {
-          this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
-        } else if (this._hoverTooltipTarget) {
-          this._hideTooltip();
-        }
+        return;
       }
+      // Active tool gets first claim on the move (hover previews, drag
+      // previews). The generic branch below only runs with no tool armed
+      // (or with a tool, like ProbeTool, that leaves hover untouched).
+      if (this._toolConsumed('onMouseMove', e)) return;
+      const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+      const grid = isoToGrid(world.x, world.y);
+      this.renderer.updateHover(grid.col, grid.row);
+      this.lastMouseWorldX = world.x;
+      this.lastMouseWorldY = world.y;
+      this._lastScreenX = e.clientX;
+      this._lastScreenY = e.clientY;
+      // Update design placer position
+      if (this.game._designPlacer && this.game._designPlacer.active) {
+        this.game._designPlacer.setPosition(grid.col, grid.row);
+        this.renderer._renderCursors();
+      }
+      // Hover tooltip for furnishings/equipment.
+      this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
     });
 
     canvas.addEventListener('mouseup', (e) => {
@@ -2000,201 +1454,24 @@ export class InputHandler {
         return;
       }
 
-      // Shift+drag line placement end (trees / decorations)
-      if (this.isLinePlacingDecoration) {
-        const toPlace = this.linePlaceHovers.filter(h => h.valid);
-        if (toPlace.length > 0) {
-          this.game._pushUndo();
-          for (const h of toPlace) {
-            this.game.placePlaceable({
-              type: h.hover.id,
-              col: h.hover.col,
-              row: h.hover.row,
-              subCol: h.hover.subCol,
-              subRow: h.hover.subRow,
-              dir: h.hover.dir,
-              params: this.selectedParamOverrides,
-              variant: this.selectedPlaceableVariant,
-            });
-          }
-        }
-        this.isLinePlacingDecoration = false;
-        this.linePlaceStartWorld = null;
-        this.linePlaceHovers = [];
-        this._suppressNextClick = true;
-        this.renderer.clearDragPreview();
-        this._updatePlaceablePreview();
-        return;
-      }
-
-      // Utility-line draw end — commit via UtilityLineSystem.addLine.
-      if (this.utilityLineController && this.utilityLineController.isActive()) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        this.utilityLineController.onMouseUp(world.x, world.y, e.button);
-        return;
-      }
-
-      // Beam pipe drawing end — delegated to BeamlineInputController.
-      if (this.beamlineController.isActive()) {
-        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
-        console.log('[pipe-draw] InputHandler mouseup → beamlineController.onMouseUp', {
-          world, button: e.button,
-        });
-        this.beamlineController.onMouseUp(world.x, world.y, e.button);
-        return;
-      }
-      // Diagnostic: mouseup fired, but the controller is NOT active. If the
-      // user just finished dragging a pipe and we land here, the start path
-      // never set _drawing = true (no anchor) — or something reset it mid-drag.
-      if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
-        console.log('[pipe-draw] InputHandler mouseup: pipe tool selected but controller NOT active', {
-          selectedTool: this.selectedTool,
-          button: e.button,
-        });
-      }
-
-      // Line placement end (hallway). Rack-segment drawing removed in Phase 6.
-      if (this.isDrawingLine && this.linePath.length > 0) {
-        this.game._pushUndo();
-        for (const pt of this.linePath) {
-          this.game.placeInfraTile(pt.col, pt.row, this.selectedInfraTool, this.selectedInfraVariant);
-        }
-        this.game.emit('infrastructureChanged');
-        this.isDrawingLine = false;
-        this.linePath = [];
-        this.lineStart = null;
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Building demolish edge-path end — clears walls AND doors along the path
-      if (this.demolishType === 'demolishBuilding' && this.isDrawingWall && this.wallPath.length > 0) {
-        this.game._pushUndo();
-        for (const pt of this.wallPath) {
-          this._removeWallAndDoorAtEdge(pt);
-        }
-        this.isDrawingWall = false;
-        this.wallPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Shift-wall placement end (auto-fill floor boundary)
-      if (this._shiftWallPending && this.wallPath.length > 0) {
-        this.game._pushUndo();
-        this.game.placeWallPath(this.wallPath, this.selectedWallTool, this.selectedWallVariant);
-        this._shiftWallPending = false;
-        this.wallPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Wall placement end
-      if (this.isDrawingWall && this.wallPath.length > 0) {
-        this.game._pushUndo();
-        this.game.placeWallPath(this.wallPath, this.selectedWallTool, this.selectedWallVariant);
-        this.isDrawingWall = false;
-        this.wallPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Door placement end
-      if (this.isDrawingDoor && this.doorPath.length > 0) {
-        this.game._pushUndo();
-        this.game.placeDoorPath(this.doorPath, this.selectedDoorTool, this.selectedDoorVariant);
-        this.isDrawingDoor = false;
-        this.doorPath = [];
-        this.renderer.clearDragPreview();
-        return;
-      }
-
-      // Infrastructure, zone, or demolish drag end
-      if (this.isDragging && this.dragStart && this.dragEnd) {
-        this.game._pushUndo();
-        if (this.demolishMode) {
-          const minCol = Math.min(this.dragStart.col, this.dragEnd.col);
-          const maxCol = Math.max(this.dragStart.col, this.dragEnd.col);
-          const minRow = Math.min(this.dragStart.row, this.dragEnd.row);
-          const maxRow = Math.max(this.dragStart.row, this.dragEnd.row);
-
-          if (this.demolishType === 'demolishBuilding') {
-            // Rect sweep for building elements: zones, floors, and any
-            // wall/door segments stored on the swept tiles' edges.
-            this.game.removeZoneRect(
-              this.dragStart.col, this.dragStart.row,
-              this.dragEnd.col, this.dragEnd.row
-            );
-            this.game.removeInfraRect(
-              this.dragStart.col, this.dragStart.row,
-              this.dragEnd.col, this.dragEnd.row
-            );
-            for (let c = minCol; c <= maxCol; c++) {
-              for (let r = minRow; r <= maxRow; r++) {
-                for (const edge of ['n', 's', 'e', 'w']) {
-                  this._removeWallAndDoorAtEdge({ col: c, row: r, edge });
-                }
-              }
-            }
-          } else if (this.demolishType === 'demolishAll') {
-            for (let c = minCol; c <= maxCol; c++) {
-              for (let r = minRow; r <= maxRow; r++) {
-                this._demolishEverythingAt(c, r);
-              }
-            }
-          }
-        } else if (this.selectedZoneTool) {
-          this.game.placeFacilityZoneBrushRect(
-            this.dragStart.col, this.dragStart.row,
-            this.dragEnd.col, this.dragEnd.row,
-            this.selectedZoneTool
-          );
-        } else if (this.selectedInfraTool) {
-          this.game.placeInfraRect(
-            this.dragStart.col, this.dragStart.row,
-            this.dragEnd.col, this.dragEnd.row,
-            this.selectedInfraTool,
-            this.selectedInfraVariant,
-            this.floorOrientationOverride,
-          );
-        }
-        this.isDragging = false;
-        this.dragStart = null;
-        this.dragEnd = null;
-        this.renderer.clearDragPreview();
-        return;
-      }
+      // Active tool gets first claim on the release (drag commits). A
+      // plain click falls through to _handleClick, which dispatches the
+      // tool's onClick.
+      if (this._toolConsumed('onMouseUp', e)) return;
 
       if (e.button === 0) {
         // Left click
         this._handleClick(e.clientX, e.clientY);
       } else if (e.button === 2) {
-        // Right click
-        if (this.selectedTool) {
-          // Deselect current tool
-          this.deselectTool();
-        } else if (this.selectedInfraTool) {
-          this.deselectInfraTool();
-        } else if (this.selectedFacilityTool) {
-          this.deselectFacilityTool();
-        } else if (this.selectedFurnishingTool) {
-          this.deselectFurnishingTool();
-        } else if (this.selectedZoneTool) {
-          this.deselectZoneTool();
-        } else if (this.demolishMode) {
-          this.deselectDemolishTool();
-          this._hidePreview();
-        }
+        // Right click — the active tool decides whether it deselects
+        // (ZonePaintTool / FloorTool / DemolishTool / BeamlineTool do;
+        // PlaceableTool keeps the legacy behavior of ignoring right-click).
+        this._toolConsumed('onRightClick', e);
       }
     });
 
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-    });
-
-    // Clear cursor world position when mouse leaves the canvas
-    canvas.addEventListener('mouseleave', () => {
-      this._hoverWorld = null;
     });
 
     // Double-click: enter edit mode for the clicked beamline and open its window
@@ -2221,8 +1498,43 @@ export class InputHandler {
         this.isFreeOrbiting = false;
         this.renderer.endFreeOrbit();
         canvas.style.cursor = '';
+        return;
       }
+      // The canvas is a full-screen overlay with the HUD, build bar, popups
+      // and context windows painted on top of it, so a release over any
+      // chrome never reaches the canvas listener above. Without this fallback
+      // the gesture stays armed and commits at the *next* canvas mouseup —
+      // a stale decoration line places 20 trees at an unrelated click, a
+      // stale remove-sweep deletes every pipe between the old origin and the
+      // new click, and Alt+drag leaves the camera panning with no button
+      // held. Abort rather than commit: the release happened off-world, so
+      // there is no meaningful commit position.
+      if (e.target === canvas) return;
+      this._abortPointerGesture();
     });
+
+    // Same teardown when focus is lost mid-drag (alt-tab, devtools, a modal
+    // stealing focus) or the browser cancels the pointer stream.
+    window.addEventListener('blur', () => this._abortPointerGesture());
+    window.addEventListener('pointercancel', () => this._abortPointerGesture());
+  }
+
+  /**
+   * Drop every in-flight pointer gesture without committing it: camera
+   * orbit/pan and the active tool's drag state. Safe to call repeatedly.
+   */
+  _abortPointerGesture() {
+    this._hideDragCostTooltip?.();
+    if (this.isFreeOrbiting) {
+      this.isFreeOrbiting = false;
+      this.renderer.endFreeOrbit?.();
+    }
+    this.isPanning = false;
+    const canvas = this.renderer?.canvas;
+    if (canvas) canvas.style.cursor = this.activeTool?.cursor || '';
+    // 'abort', not 'stateReplaced': nothing restores the world here, so a
+    // tool carrying a lifted object has to put it back itself.
+    this.activeTool?.cancelGesture?.(this._toolCtx, 'abort');
   }
 
   // --- Click handling ---
@@ -2237,32 +1549,30 @@ export class InputHandler {
     const col = grid.col;
     const row = grid.row;
 
-    console.log('[CLICK]', { col, row, selectedTool: this.selectedTool, selectedInfraTool: this.selectedInfraTool, selectedFacilityTool: this.selectedFacilityTool, bulldozer: this.bulldozerMode, placeables: this.game.state.placeables.length });
-
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
       if (this.game._designPlacer.valid) {
-        this.game._designPlacer.confirm();
+        // Design placement is a world-mutating gesture like any other tool
+        // commit — without _withUndo it was the only one outside the undo
+        // model, so Ctrl+Z after placing a design silently deleted it as a
+        // side effect of rewinding whatever came before.
+        this.game._withUndo(() => this.game._designPlacer.confirm());
       } else {
         this.game.log('Invalid placement!', 'bad');
       }
       return;
     }
 
-    // Utility-line click-to-inspect. Only fires when no placement/draw tool
-    // is armed, so it doesn't steal clicks from other flows. Opens a
-    // UtilityInspector window for the clicked line's network.
-    if (!this.selectedUtilityLineTool
-        && !this.selectedTool
-        && !this.selectedInfraTool
-        && !this.selectedFacilityTool
-        && !this.selectedFurnishingTool
-        && !this.selectedDecorationTool
-        && !this.selectedZoneTool
-        && !this.selectedWallTool
-        && !this.selectedDoorTool
-        && !this.bulldozerMode
-        && !this.demolishMode
+    // Active tool gets first claim on the click (placement commits).
+    if (this._toolConsumed('onClick', { clientX: screenX, clientY: screenY, button: 0 })) {
+      return;
+    }
+
+    // Utility-line click-to-inspect. An armed beamline tool suppresses it
+    // (legacy dispatch order: the beamline family kept the click for node
+    // selection below); tools that consume clicks never reach this point.
+    // Opens a UtilityInspector window for the clicked line's network.
+    if (this.activeTool?.kind !== 'beamline'
         && typeof this.renderer.raycastUtilityLine === 'function') {
       const hit = this.renderer.raycastUtilityLine(screenX, screenY);
       if (hit && hit.lineId) {
@@ -2270,279 +1580,186 @@ export class InputHandler {
       }
     }
 
-    // Move mode handling
-    if (this.moveMode) {
-      this._handleMoveClick(col, row, screenX, screenY);
-      return;
-    }
-
-    if (this.bulldozerMode) {
-      this.game._pushUndo();
-      {
-        // General bulldozer: remove furniture and components only
-        // (does not affect zones, floors/walls, or pipes)
-        const key = col + ',' + row;
-        const node = this._getNodeAtGrid(col, row);
-        if (node) {
-          if (this.game.editingBeamlineId) {
-            if (node.beamlineId === this.game.editingBeamlineId) {
-              this.game.removePlaceable(node.id);
-            }
-          } else {
-            this.game.removePlaceable(node.id);
-          }
-        }
-        // Remove decorations
-        this.game.removeDecoration(col, row);
-        // Remove zone furnishings
-        const subgrid = this.game.state.zoneFurnishingSubgrids[key];
-        if (subgrid) {
-          const tilePos = gridToIso(col, row);
-          const offsetX = world.x - tilePos.x;
-          const offsetY = world.y - tilePos.y;
-          const sub = isoToSubGrid(offsetX, offsetY);
-          const sc = Math.floor(sub.subCol);
-          const sr = Math.floor(sub.subRow);
-          if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
-            const furnIdx = subgrid[sr][sc];
-            if (furnIdx > 0) {
-              const entry = this.game.state.zoneFurnishings[furnIdx - 1];
-              if (entry) this.game.removeZoneFurnishing(entry.id);
-            }
-          }
-        }
-        // Remove facility equipment
-        const equipId = this.game.state.facilityGrid[key];
-        if (equipId) {
-          this.game.removeFacilityEquipment(equipId);
-        }
-        // Remove machines
-        const machineId = this.game.state.machineGrid[key];
-        if (machineId) {
-          this.game.removeMachine(machineId);
-        }
+    // Selection mode
+    const node = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
+    if (node) {
+      this.selectedNodeId = node.id;
+      // Select the beamline this node belongs to and open its context window
+      const blId = node.beamlineId;
+      if (blId) {
+        this.game.selectedBeamlineId = blId;
+        this.renderer._openBeamlineWindow(blId, node);
+        this.game.emit('beamlineSelected', blId);
       }
-      return;
-    }
-
-    if (this.selectedInfraTool) {
-      // Infrastructure placement (single tile for non-drag items like path)
-      const infra = FLOORS[this.selectedInfraTool];
-      if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-        this.game._pushUndo();
-        if (this.game.placeInfraTile(col, row, this.selectedInfraTool, this.selectedInfraVariant)) {
-          this.game.emit('infrastructureChanged');
-        }
-      }
-      return;
-    }
-
-    // Zone placement (single tile click) — facility brush auto-floors
-    if (this.selectedZoneTool) {
-      this.game._pushUndo();
-      if (this.game.placeFacilityZoneBrushTile(col, row, this.selectedZoneTool)) {
-        this.game.emit('zonesChanged');
-      }
-      return;
-    }
-
-    if (this.demolishMode) {
-      this.game._pushUndo();
-      const key = col + ',' + row;
-      // Unified placeable delete path. Any demolish mode with a scope
-      // routes through _findDeletablePlaceable for consistent hover UX
-      // and click behavior. Mode-specific non-placeable branches
-      // (connections, zones, floors, walls, doors) still fall through
-      // below.
-      const scope = DEMOLISH_PLACEABLE_SCOPE[this.demolishType];
-      if (scope) {
-        const found = this._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
-        if (found) {
-          this.game.demolishTarget(found);
-          return;
-        }
-        // For the top-level demolish modes we treat "clicked nothing
-        // deletable" as a no-op and let the click fall through to any
-        // non-placeable tile branches below (walls/zones/floors).
-      }
-      // Utility lines are click-on-line (raycast). The catch-all also
-      // removes a hovered line before sweeping the tile.
-      if (this.demolishType === 'demolishUtility' || this.demolishType === 'demolishAll') {
-        const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
-        if (hit && hit.lineId && this.game.utilityLineSystem) {
-          if (this.game.utilityLineSystem.removeLine(hit.lineId)) {
-            const descriptor = UTILITY_TYPES[hit.utilityType];
-            this.game.log(`Removed ${descriptor?.displayName || hit.utilityType} line`, 'info');
-            if (this.demolishType === 'demolishUtility') return;
-          }
-        }
-      }
-      if (this.demolishType === 'demolishBuilding') {
-        // Edge-first: a wall or door under the cursor wins over the tile.
-        const found = this._findWallOrDoorAtEdge(this._getNearestEdge(screenX, screenY));
-        if (found) {
-          if (found.wallType) {
-            this.game.removeWall(found.edge.col, found.edge.row, found.edge.edge);
-          } else {
-            this.game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
-          }
-          return;
-        }
-        if (this.game.state.zoneOccupied[key]) {
-          this.game.removeZoneTile(col, row);
-        }
-        if (this.game.state.infraOccupied[key]) {
-          this.game.removeInfraTile(col, row);
-        }
-      } else if (this.demolishType === 'demolishAll') {
-        this._demolishEverythingAt(col, row);
-      }
-      return;
-    }
-
-    // Beamline junctions and pipe placements route through
-    // BeamlineInputController. When it consumes the click, skip the generic
-    // commit below (the generic path would fall back to the subgrid
-    // placeable commit, which is wrong for pipe-bound placements).
-    const clickTool = this.selectedPlaceableId ? COMPONENTS[this.selectedPlaceableId] : null;
-    if ((clickTool?.role === 'junction' || clickTool?.role === 'placement')
-        && this.beamlineController.onMouseDown(world.x, world.y, 0)) {
-      return;
-    }
-
-    // Legacy attachment placement — still used by infrastructure gauges and
-    // valves (placement:'attachment' with no beamline role). Role-bearing
-    // placements (bellows, BPM, etc.) are handled above by the controller.
-    if (this.selectedTool) {
-      const _compDef = COMPONENTS[this.selectedTool];
-      if (_compDef?.placement === 'attachment' && !_compDef.role) {
-        const hit = this._snapAttachmentToPipe(world.x, world.y);
-        if (!hit) {
-          this.game.log('Must place on a beam pipe!', 'bad');
-          return;
-        }
-        if (hit.collidesWithModule) {
-          this.game.log(`${_compDef?.name || 'Attachment'} would overlap a placed module!`, 'bad');
-          return;
-        }
-        this.game._pushUndo();
-        this.game.addAttachmentToPipe(
-          hit.pipe.id,
-          this.selectedTool,
-          hit.proj.position,
-          this.selectedParamOverrides,
-        );
-        return;
-      }
-    }
-
-    // Unified placeable commit — handles beamline / equipment / furnishing / decoration.
-    // Replaces the four legacy commit branches (beamline, equipment, furnishing, decoration).
-    if (this.hoverPlaceable) {
-      // For beamline modules, check if the click landed on an existing node
-      // (opens its beamline window instead of placing).
-      const comp = COMPONENTS[this.hoverPlaceable.id];
-      if (comp && comp.placement !== 'attachment') {
-        const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
-        if (existingNode) {
-          this.selectedNodeId = existingNode.id;
-          const blId = existingNode.beamlineId;
-          if (blId) {
-            this.game.selectedBeamlineId = blId;
-            this.renderer._openBeamlineWindow(blId, existingNode);
-            this.game.emit('beamlineSelected', blId);
-          }
-          return;
-        }
-      }
-      this.game._pushUndo();
-      const placedId = this.game.placePlaceable({
-        type: this.hoverPlaceable.id,
-        col: this.hoverPlaceable.col,
-        row: this.hoverPlaceable.row,
-        subCol: this.hoverPlaceable.subCol,
-        subRow: this.hoverPlaceable.subRow,
-        dir: this.hoverPlaceable.dir,
-        params: this.selectedParamOverrides,
-        variant: this.selectedPlaceableVariant,
-      });
-      // Auto-switch to beam pipe tool after placing a source.
-      if (placedId && comp?.isSource) {
-        this.selectTool('drift');
-      }
-      return;
-    }
-
-    if (this.probeMode) {
-      // Probe placement mode — click nodes to add probes
-      const node = this._getNodeAtGrid(col, row);
-      if (node && this.renderer.onProbeClick) {
-        this.renderer.onProbeClick(node);
-      }
-      return;
     } else {
-      // Selection mode
-      const node = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
-      if (node) {
-        this.selectedNodeId = node.id;
-        // Select the beamline this node belongs to and open its context window
-        const blId = node.beamlineId;
-        if (blId) {
-          this.game.selectedBeamlineId = blId;
-          this.renderer._openBeamlineWindow(blId, node);
-          this.game.emit('beamlineSelected', blId);
-        }
-      } else {
-        // Phase 6: rack-segment click-to-inspect removed. Utility inspection
-        // now flows through UtilityInspector (opened via the utility-line
-        // raycast earlier in _handleClick).
-        // Check for machine tile click
-        const machineId = this.game.state.machineGrid[col + ',' + row];
-        if (machineId) {
-          this.renderer._openMachineWindow(machineId);
-          return;
-        }
-        // Check for facility equipment click
-        const facKey = col + ',' + row;
-        const facId = this.game.state.facilityGrid[facKey];
-        if (facId) {
-          const equip = this.game.state.facilityEquipment.find(e => e.id === facId);
-          if (equip) {
-            const comp = COMPONENTS[equip.type];
-            if (comp) {
-              this.renderer.showNetworkOverlay(facId);
-              this.renderer._openEquipmentWindow(equip);
-              return;
-            }
+      // Phase 6: rack-segment click-to-inspect removed. Utility inspection
+      // now flows through UtilityInspector (opened via the utility-line
+      // raycast earlier in _handleClick).
+      // Check for facility equipment click
+      const facKey = col + ',' + row;
+      const facId = this.game.state.facilityGrid[facKey];
+      if (facId) {
+        const equip = this.game.state.facilityEquipment.find(e => e.id === facId);
+        if (equip) {
+          const comp = COMPONENTS[equip.type];
+          if (comp) {
+            this.renderer.showNetworkOverlay(facId);
+            this.renderer._openEquipmentWindow(equip);
+            return;
           }
         }
-        // Clicked empty space — exit edit mode if active
-        if (this.game.editingBeamlineId) {
-          this.game.editingBeamlineId = null;
-          this.game.emit('editModeChanged', null);
-        }
-        this.selectedNodeId = null;
-        this.renderer.hidePopup();
-        this.renderer.clearNetworkOverlay();
+      }
+      // Clicked empty space — exit edit mode if active
+      if (this.game.editingBeamlineId) {
+        this.game.editingBeamlineId = null;
+        this.game.emit('editModeChanged', null);
+      }
+      this.selectedNodeId = null;
+      this.renderer.hidePopup();
+      this.renderer.clearNetworkOverlay();
+    }
+  }
+
+  // --- Tool abstraction (Phase 4) ---
+
+  /**
+   * Arm a Tool object as the single active tool. Runs the previous tool's
+   * onExit — this is where mutual exclusivity now lives — then runs the
+   * new tool's onEnter. Palette/HUD sync that generalizes across families
+   * (popup, node selection, hover ghost, tooltip, shift hint) happens
+   * here; family-specific arming lives in the tool's onEnter.
+   */
+  setTool(tool) {
+    const prev = this.activeTool;
+    this.activeTool = null;
+    if (prev) {
+      prev.onExit?.(this._toolCtx);
+      if (prev.cursor) this.renderer.canvas.style.cursor = '';
+    }
+    this.hoverPlaceable = null;
+    this.renderer._clearPreview?.();
+    this.renderer.hidePopup();
+    this.selectedNodeId = null;
+    this._hideTooltip();
+    this.activeTool = tool || null;
+    if (this.activeTool) {
+      this.activeTool.onEnter?.(this._toolCtx);
+      if (this.activeTool.cursor) {
+        this.renderer.canvas.style.cursor = this.activeTool.cursor;
       }
     }
+    this._updateShiftHint();
+  }
+
+  /**
+   * Default Escape behavior — the esc-stack fallback entry, reached only
+   * when no dialog/overlay/context-window above us claimed the key.
+   * Ladder: blueprint-place cancel → the active tool's own onKey
+   * (DemolishTool consumes Esc there to restore the pre-demolish menu) →
+   * plain tool disarm → selection/overlay sweep. First Esc drops an armed
+   * tool; the next Esc does the sweep.
+   */
+  _handleEscape(e) {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return false;
+    // Blueprint placement cancels first (matches the legacy dispatch order —
+    // _toolConsumed suppresses tools while the placer is active anyway).
+    if (this.game._designPlacer && this.game._designPlacer.active) {
+      this.game._designPlacer.cancel();
+      return true;
+    }
+    // Active tool gets first claim on the key.
+    if (this._toolConsumed('onKey', e)) return true;
+    if (this.activeTool) {
+      this.clearTool();
+      this._hidePreview();
+      return true;
+    }
+    // Exit edit mode if active
+    if (this.game.editingBeamlineId) {
+      this.game.editingBeamlineId = null;
+      this.game.emit('editModeChanged', null);
+    }
+    // Close network overlay if active
+    if (this.renderer.activeNetworkType) {
+      this.renderer.clearNetworkOverlay();
+    }
+    // Close all overlays and clear selection / palette keyboard focus.
+    document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+    this.selectedNodeId = null;
+    this.renderer.hidePopup();
+    this.paletteIndex = -1;
+    this._hidePreview();
+    document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('kb-focus'));
+    return true;
+  }
+
+  /** Disarm the active tool (if any), running its onExit. */
+  clearTool() {
+    if (!this.activeTool) return;
+    const prev = this.activeTool;
+    this.activeTool = null;
+    prev.onExit?.(this._toolCtx);
+    if (prev.cursor) this.renderer.canvas.style.cursor = '';
+    this.hoverPlaceable = null;
+    this.renderer._clearPreview?.();
+    this._updateShiftHint();
+  }
+
+  /**
+   * Dispatch an event to the active tool. Returns true when the tool
+   * consumed it (callers stop; legacy chains run otherwise). Suppressed
+   * while the DesignPlacer overlay is active so blueprint placement keeps
+   * first claim on the cursor, matching the legacy dispatch order.
+   */
+  _toolConsumed(method, e) {
+    const t = this.activeTool;
+    if (!t || typeof t[method] !== 'function') return false;
+    if (this.game._designPlacer && this.game._designPlacer.active) return false;
+    return !!t[method](e, this._toolCtx);
   }
 
   // --- Tool selection ---
 
   /**
-   * Unified placeable selection. Clears legacy per-kind fields so only the
-   * new unified preview/commit path is active.
+   * The single palette → tool path. Every palette item (mouse click via
+   * hud.js and keyboard nav via _applyPaletteFocus) carries a
+   * {paletteKind, paletteKey} pair in its dataset and routes here; this is
+   * the only place palette identity maps to Tool construction.
    */
-  selectPlaceable(id) {
-    this.selectedPlaceableId = id;
-    this.selectedTool = null;
-    this.selectedFurnishingTool = null;
-    this.selectedFacilityTool = null;
-    this.selectedDecorationTool = null;
-    this.hoverPlaceable = null;
-    this.renderer._clearPreview?.();
-    this._updateShiftHint();
+  selectPaletteTool(kind, key, variant = 0) {
+    switch (kind) {
+      case 'component':  this.selectComponentTool(key); break;
+      case 'facility':   this.setTool(new PlaceableTool('facility', key)); break;
+      case 'floor':      this.setTool(new FloorTool(key, variant)); break;
+      case 'wall':       this.setTool(new WallTool(key, variant)); break;
+      case 'door':       this.setTool(new DoorTool(key, variant)); break;
+      case 'zone':       this.setTool(new ZonePaintTool(key)); break;
+      case 'furnishing': this.setTool(new PlaceableTool('furnishing', key, variant)); break;
+      case 'decoration': this.setTool(new PlaceableTool('decoration', key, variant)); break;
+      case 'demolish':   this.setTool(new DemolishTool(key || 'demolishAll')); break;
+      case 'utility':    this.setTool(new UtilityLineTool(key)); break;
+      default:
+        console.warn('[InputHandler] unknown palette kind:', kind, key);
+    }
+  }
+
+  /**
+   * Arm a beamline COMPONENTS tool. The open BeamlineDesigner intercepts
+   * palette clicks (adds the component to the draft instead); otherwise
+   * this arms a BeamlineTool with any param-flyout overrides the HUD
+   * stashed for this component.
+   */
+  selectComponentTool(key) {
+    if (this.game._designer?.isOpen && this.game._designer.handlePaletteClick?.(key)) {
+      return;
+    }
+    // Param-flyout overrides live on the UIHost (renderer.ui); fall back to
+    // the renderer for harnesses that stub it flat.
+    const overrideMap = this.renderer.ui?._selectedParamOverrides
+      ?? this.renderer._selectedParamOverrides;
+    const overrides = overrideMap?.[key] || null;
+    this.setTool(new BeamlineTool(key, overrides));
   }
 
   /**
@@ -2562,14 +1779,8 @@ export class InputHandler {
 
     // --- 1. Raycast for precise 3D hit detection ---
     const hit = this.renderer.raycastScreen(screenX, screenY);
-    console.warn('[demolish] raycast hit:', hit ? { objectName: hit.object?.name, distance: hit.distance } : null);
     if (hit) {
       const info = this.renderer.identifyHit(hit);
-      console.warn('[demolish] identifyHit:', info ? {
-        group: info.group,
-        hasNodeId: !!info.nodeId,
-        pipeId: info.pipeId,
-      } : null);
       if (info) {
         // Beamline components go through the legacy beam-graph registry
         // because their lifecycle is tracked there, not only in state.placeables.
@@ -2644,7 +1855,6 @@ export class InputHandler {
     // Used when the raycast missed the mesh (e.g. hovering over a hollow
     // region of a multi-tile beamline module that's on legs). Resolve the
     // rootObj from the component builder so the outline can still render.
-    console.warn('[demolish] falling through to subgrid probe');
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       const tilePos = gridToIso(grid.col, grid.row);
       const sub = isoToSubGrid(world.x - tilePos.x, world.y - tilePos.y);
@@ -2779,8 +1989,8 @@ export class InputHandler {
    * caller can skip fallthrough handlers (e.g. R's rotation path).
    */
   _handlePlacementModeKey(mode) {
-    if (!this.selectedPlaceableId) return false;
-    const def = COMPONENTS[this.selectedPlaceableId];
+    if (!this.armedPlaceableId) return false;
+    const def = COMPONENTS[this.armedPlaceableId];
     if (!def || def.role !== 'placement') return false;
     this.game.setPlacementMode?.(mode);
     this._showToast?.(`Placement mode: ${mode}`);
@@ -2794,26 +2004,27 @@ export class InputHandler {
    * rotation key so rotating refreshes the preview immediately.
    */
   _updatePlaceablePreview() {
-    if (!this.selectedPlaceableId) {
+    const armedId = this.armedPlaceableId;
+    if (!armedId) {
       this.hoverPlaceable = null;
       return;
     }
     // Beamline junction/placement hover is handled by BeamlineInputController.
-    const selDef = COMPONENTS[this.selectedPlaceableId];
+    const selDef = COMPONENTS[armedId];
     if (selDef?.role === 'junction' || selDef?.role === 'placement') {
       this.hoverPlaceable = null;
       const wx = this.lastMouseWorldX ?? 0;
       const wy = this.lastMouseWorldY ?? 0;
-      this.beamlineController.onHover(wx, wy);
+      this.beamlineController.onHover(wx, wy, armedId);
       return;
     }
     // Drawn connections (beam pipes) have their own preview system; skip the
     // full-tile ghost/grid overlay so hovering with the pipe tool stays clean.
-    if (this.selectedTool && COMPONENTS[this.selectedTool]?.isDrawnConnection) {
+    if (selDef?.isDrawnConnection) {
       this.hoverPlaceable = null;
       return;
     }
-    const placeable = PLACEABLES[this.selectedPlaceableId];
+    const placeable = PLACEABLES[armedId];
     if (!placeable) return;
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
@@ -2855,7 +2066,7 @@ export class InputHandler {
     }
 
     this.hoverPlaceable = {
-      id: this.selectedPlaceableId,
+      id: armedId,
       col: snap.col,
       row: snap.row,
       subCol: snap.subCol,
@@ -2869,6 +2080,52 @@ export class InputHandler {
   }
 
   /**
+   * Commit the unified placeable ghost at the hovered snap position.
+   * Shared by _handleClick (legacy beamline family) and
+   * PlaceableTool.onClick. Returns true when the click was consumed —
+   * either by placing, or by opening the window of an existing node the
+   * click landed on. Returns false when no ghost is armed.
+   */
+  _commitHoverPlaceable(screenX, screenY) {
+    if (!this.hoverPlaceable) return false;
+    const world = this.renderer.screenToWorld(screenX, screenY);
+    const grid = isoToGrid(world.x, world.y);
+    // For beamline modules, check if the click landed on an existing node
+    // (opens its beamline window instead of placing).
+    const comp = COMPONENTS[this.hoverPlaceable.id];
+    if (comp && comp.placement !== 'attachment') {
+      const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, grid.col, grid.row);
+      if (existingNode) {
+        this.selectedNodeId = existingNode.id;
+        const blId = existingNode.beamlineId;
+        if (blId) {
+          this.game.selectedBeamlineId = blId;
+          this.renderer._openBeamlineWindow(blId, existingNode);
+          this.game.emit('beamlineSelected', blId);
+        }
+        return true;
+      }
+    }
+    this.game._withUndo(() => {
+      const placedId = this.game.placePlaceable({
+        type: this.hoverPlaceable.id,
+        col: this.hoverPlaceable.col,
+        row: this.hoverPlaceable.row,
+        subCol: this.hoverPlaceable.subCol,
+        subRow: this.hoverPlaceable.subRow,
+        dir: this.hoverPlaceable.dir,
+        params: this.selectedParamOverrides,
+        variant: this.selectedPlaceableVariant,
+      });
+      // Auto-switch to beam pipe tool after placing a source.
+      if (placedId && comp?.isSource) {
+        this.selectComponentTool('drift');
+      }
+    });
+    return true;
+  }
+
+  /**
    * Build ghosts along the shift+drag line and render them as a batch.
    * Walks in fractional tile space so screen spacing stays uniform;
    * spacing = max(subW, subL) in subtiles (center-to-center footprint).
@@ -2877,7 +2134,8 @@ export class InputHandler {
    */
   _updateLinePlacePreview(wx, wy) {
     if (!this.linePlaceStartWorld) return;
-    const pl = PLACEABLES[this.selectedPlaceableId];
+    const armedId = this.armedPlaceableId;
+    const pl = PLACEABLES[armedId];
     if (!pl) return;
 
     const start = isoToGridFloat(this.linePlaceStartWorld.x, this.linePlaceStartWorld.y);
@@ -2888,8 +2146,8 @@ export class InputHandler {
 
     this._linePlaceLastWorld = { x: wx, y: wy };
     const defaultSpacingSub = Math.max(pl.subW || 1, pl.subL || 1);
-    const spacingSub = this.linePlaceSpacingSub.has(this.selectedPlaceableId)
-      ? this.linePlaceSpacingSub.get(this.selectedPlaceableId)
+    const spacingSub = this.linePlaceSpacingSub.has(armedId)
+      ? this.linePlaceSpacingSub.get(armedId)
       : defaultSpacingSub;
     const spacingTile = spacingSub / 4;
     const steps = Math.max(0, Math.floor(distTile / spacingTile));
@@ -2933,7 +2191,7 @@ export class InputHandler {
 
       hovers.push({
         hover: {
-          id: this.selectedPlaceableId,
+          id: armedId,
           col: snap.col, row: snap.row,
           subCol: snap.subCol, subRow: snap.subRow,
           dir: this.placementDir,
@@ -2946,259 +2204,68 @@ export class InputHandler {
     this.renderer.renderPlaceableGhosts(hovers);
   }
 
-  selectTool(compType, paramOverrides) {
-    this.selectedInfraTool = null;
-    this.bulldozerMode = false;
-    this.selectedParamOverrides = paramOverrides || null;
-    this.selectedNodeId = null;
-    // Route through unified selection...
-    this.selectPlaceable(compType);
-    // ...but beam pipes (drawn connections) still run through the legacy
-    // selectedTool path, so keep the legacy field set as a shadow copy.
-    // Harmless for non-drawn tools since Task 12 removes these reads.
-    this.selectedTool = compType;
-    this.renderer.hidePopup();
-    this.renderer.setBuildMode(true, compType);
+  /**
+   * Adjust the per-placeable line-placement spacing by delta sub-units
+   * (Shift+Z/X while shift-dragging) and re-preview at the last cursor
+   * position. Persists per-placeable for the session.
+   */
+  _adjustLinePlaceSpacing(delta) {
+    const armedId = this.armedPlaceableId;
+    const pl = PLACEABLES[armedId];
+    if (!pl) return;
+    const defaultSub = Math.max(pl.subW || 1, pl.subL || 1);
+    const minSub = Math.max(1, Math.min(pl.subW || 1, pl.subL || 1));
+    const cur = this.linePlaceSpacingSub.has(armedId)
+      ? this.linePlaceSpacingSub.get(armedId)
+      : defaultSub;
+    const next = Math.max(minSub, Math.min(64, cur + delta));
+    if (next !== cur) {
+      this.linePlaceSpacingSub.set(armedId, next);
+      this._showToast(`Spacing: ${next} sub${next === 1 ? '' : 's'}`);
+      if (this._linePlaceLastWorld) {
+        this._updateLinePlacePreview(
+          this._linePlaceLastWorld.x,
+          this._linePlaceLastWorld.y,
+        );
+      }
+    }
   }
 
-  // Select tool without auto-placing (for keyboard navigation preview)
-  _selectToolPreview(compType) {
-    this.selectedInfraTool = null;
-    this.selectedFacilityTool = null;
-    this.selectedFurnishingTool = null;
-    this.furnishingRotated = false;
-    this.selectedDecorationTool = null;
-    // selectPlaceable updates selectedPlaceableId, which BeamlineInputController
-    // and renderPlaceableGhost both read for hover-preview routing. Without it,
-    // hotkey selection sets selectedTool but leaves selectedPlaceableId stale,
-    // so beamline components never get their placement-ghost + grid drawn.
-    this.selectPlaceable(compType);
-    this.selectedTool = compType;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
-    this.renderer.setBuildMode(true, compType);
-  }
-
-  _selectFacilityToolPreview(compType) {
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.selectedFacilityTool = compType;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
-  }
-
-  _selectInfraToolPreview(infraType) {
-    this.selectedTool = null;
-    this.selectedFacilityTool = null;
-    this.selectedFurnishingTool = null;
-    this.furnishingRotated = false;
-    this.selectedDecorationTool = null;
-    this.renderer.setBuildMode(false);
-    this.selectedInfraTool = infraType;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
-  }
-
-  deselectTool() {
-    this.selectedTool = null;
-    this.renderer.setBuildMode(false);
-    this._updateShiftHint();
-  }
-
-  selectInfraTool(infraType, variant = 0) {
-    this.selectedTool = null;
-    this.selectedFurnishingTool = null;
-    this.furnishingRotated = false;
-    this.selectedDecorationTool = null;
-    this.demolishMode = false;
-    this.renderer.setBuildMode(false);
+  /**
+   * Commit the shift+drag decoration line: place every valid ghost (one
+   * undo push and one event dispatch for the whole gesture), then reset
+   * line-placement state. Without _batchEvents each placePlaceable's own
+   * 'placeableChanged' costs a full decoration/equipment/component rebuild.
+   */
+  _finishLinePlaceDecoration() {
+    const toPlace = this.linePlaceHovers.filter(h => h.valid);
+    if (toPlace.length > 0) {
+      this.game._withUndo(() => this.game._batchEvents(() => {
+        for (const h of toPlace) {
+          this.game.placePlaceable({
+            type: h.hover.id,
+            col: h.hover.col,
+            row: h.hover.row,
+            subCol: h.hover.subCol,
+            subRow: h.hover.subRow,
+            dir: h.hover.dir,
+            params: this.selectedParamOverrides,
+            variant: this.selectedPlaceableVariant,
+          });
+        }
+      }));
+    }
+    this.isLinePlacingDecoration = false;
+    this.linePlaceStartWorld = null;
+    this.linePlaceHovers = [];
+    // No _suppressNextClick here. Both callers (PlaceableTool.onMouseUp,
+    // MoveTool.onMouseUp) return true, so the canvas mouseup listener bails
+    // before _handleClick — the flag's only reader. Setting it left it armed
+    // until the player's NEXT canvas left click, which was then silently
+    // swallowed (one lost click after every shift-drag line place, and not
+    // just a placement click: whatever that click would have done).
     this.renderer.clearDragPreview();
-    this.selectedInfraTool = infraType;
-    this.selectedInfraVariant = variant;
-    this.floorOrientationOverride = null;
-    this.selectedNodeId = null;
-    this.renderer.hidePopup();
-    this._updateShiftHint();
-  }
-
-  deselectInfraTool() {
-    this.selectedInfraTool = null;
-    this.floorOrientationOverride = null;
-    this.isDragging = false;
-    this.dragStart = null;
-    this.dragEnd = null;
-    this.isDrawingLine = false;
-    this.linePath = [];
-    this.selectedWallTool = null;
-    this.isDrawingWall = false;
-    this.wallPath = [];
-    this._wallStart = null;
-    this.selectedDoorTool = null;
-    this.isDrawingDoor = false;
-    this.doorPath = [];
-    this._doorStart = null;
-    this.renderer.clearDragPreview();
-    this._updateShiftHint();
-  }
-
-  selectFacilityTool(compType) {
-    this.deselectInfraTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.selectedNodeId = null;
-    // Route through unified selection.
-    this.selectPlaceable(compType);
-    this.renderer.hidePopup();
-  }
-
-  deselectFacilityTool() {
-    this.selectedFacilityTool = null;
-  }
-
-  // Phase 6: rack-paint tool removed. deselectConnTool is kept as a no-op so
-  // the many call sites (each selectX() clears every other tool) don't need
-  // to be individually re-wired.
-  deselectConnTool() { /* no-op */ }
-
-  // --- Utility-line tool (Phase 4) ---
-  //
-  // Selects one of the six utility types defined in src/utility/registry.js.
-  // When active, the user clicks+drags between matching ports to commit a new
-  // utility line via UtilityLineSystem.addLine().
-  setUtilityLineTool(type) {
-    // Clear other tools so we don't stack selection state.
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.demolishMode = false;
-    this.bulldozerMode = false;
-    if (this.renderer && this.renderer.setBulldozerMode) {
-      this.renderer.setBulldozerMode(false);
-    }
-    this.selectedUtilityLineTool = type || null;
-    if (this.utilityLineController) {
-      this.utilityLineController.setUtilityType(type || null);
-    }
-    this.utilityPreview = null;
-    this.utilityHoverPort = null;
-    // Show the subtile grid around the cursor now that the tool is armed.
-    if (this.renderer && typeof this.renderer._renderCursors === 'function') {
-      this.renderer._renderCursors();
-    }
-  }
-
-  deselectUtilityLineTool() {
-    this.selectedUtilityLineTool = null;
-    if (this.utilityLineController) {
-      this.utilityLineController.setUtilityType(null);
-    }
-    this.utilityPreview = null;
-    this.utilityHoverPort = null;
-    // Clear the subtile grid now that no utility tool is armed.
-    if (this.renderer && typeof this.renderer._clearGridOverlay === 'function') {
-      this.renderer._clearGridOverlay();
-    }
-  }
-
-  // Phase 6: carrierRack and the rack-paint tool were removed. The selector/
-  // deselector methods remain as no-ops so the many call sites (each
-  // selectX() clears every other tool) don't need to be individually rewired.
-  selectRackTool() { /* no-op */ }
-  deselectRackTool() { /* no-op */ }
-
-  selectZoneTool(zoneType) {
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.demolishMode = false;
-    this.selectedZoneTool = zoneType;
-  }
-
-  deselectZoneTool() {
-    this.selectedZoneTool = null;
-    this.renderer.clearDragPreview();
-  }
-
-  selectFurnishingTool(furnType, variant = 0) {
-    this.deselectInfraTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.demolishMode = false;
-    this.selectedPlaceableVariant = variant;
-    // Route through unified selection.
-    this.selectPlaceable(furnType);
-  }
-
-  deselectFurnishingTool() {
-    this.selectedFurnishingTool = null;
-    this.furnishingRotated = false;
-  }
-
-  selectDecorationTool(decType, variant = 0) {
-    this.deselectInfraTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.demolishMode = false;
-    this.selectedPlaceableVariant = variant;
-    // Route through unified selection.
-    this.selectPlaceable(decType);
-  }
-
-  deselectDecorationTool() {
-    this.selectedDecorationTool = null;
-  }
-
-  selectWallTool(wallType, variant = 0) {
-    this.deselectInfraTool();
-    this.selectedDoorTool = null;
-    this.selectedWallTool = wallType;
-    this.selectedWallVariant = variant;
-    this._updateShiftHint();
-  }
-
-  selectDoorTool(doorType, variant = 0) {
-    this.deselectInfraTool();
-    this.selectedWallTool = null;
-    this.selectedDoorTool = doorType;
-    this.selectedDoorVariant = variant;
-    this._updateShiftHint();
-  }
-
-  selectDemolishTool(demolishType) {
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.demolishMode = true;
-    this.demolishType = demolishType || 'demolishAll';
-    this.renderer.canvas.style.cursor = 'crosshair';
-    this._updateShiftHint();
-  }
-
-  deselectDemolishTool() {
-    this.demolishMode = false;
-    this.demolishType = null;
-    this.renderer.clearDragPreview();
-    this._hideDemolishTooltip();
-    this.renderer.canvas.style.cursor = '';
-    this._updateShiftHint();
+    this._updatePlaceablePreview();
   }
 
   _demolishEverythingAt(col, row) {
@@ -3243,87 +2310,26 @@ export class InputHandler {
     if (this.game.state.infraOccupied[key]) this.game.removeInfraTile(col, row);
   }
 
-  // --- Move mode ---
+  // --- Move mode (MoveTool) ---
 
   _toggleMoveMode() {
-    if (this.moveMode) {
-      this._exitMoveMode();
-      return;
+    // setTool handles the exclusivity sweep; MoveTool.onExit restores a
+    // still-carried item to its origin.
+    if (this.activeTool?.kind === 'move') {
+      this.clearTool();
+    } else {
+      this.setTool(new MoveTool());
     }
-    // Enter move mode — clear all other tools
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.deselectDemolishTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
-    this.probeMode = false;
-    this.renderer.setProbeMode(false);
-    this.moveMode = true;
-    this._movePayload = null;
-    this.renderer.canvas.style.cursor = 'grab';
-    this._showToast('Move mode (click to pick up, ESC to exit)');
   }
 
-  _exitMoveMode() {
-    // If still carrying a lifted placeable, restore it to its origin.
-    // Beamline components are never lifted (they stay in place during move),
-    // so there's nothing to restore for the 'component' kind.
-    if (this._movePayload && this._movePayload.kind === 'placeable') {
-      const p = this._movePayload;
-      this.game.placePlaceable({
-        type: p.type,
-        col: p.originCol, row: p.originRow,
-        subCol: p.originSubCol, subRow: p.originSubRow,
-        dir: p.originDir,
-        params: p.params,
-        variant: p.variant,
-        free: true,
-        silent: true,
-      });
-    }
-    this.moveMode = false;
-    this._movePayload = null;
-    this.selectPlaceable(null);
-    this.renderer.canvas.style.cursor = '';
-    this.renderer._clearPreview();
-    this._showToast('Move mode off');
-  }
-
-  // Arms the unified placeable preview with a carried item so mousemove
-  // renders the rotated ghost + validity coloring automatically.
-  _armMovePreview(type, dir) {
-    this.selectPlaceable(type);
+  // Refreshes the unified placeable preview for a just-picked-up carried
+  // item (the carried type arms the preview via MoveTool.armedPlaceableId).
+  _armMovePreview(_type, dir) {
     this.placementDir = dir || 0;
     this.renderer.updatePlacementDir?.(this.placementDir);
+    this.hoverPlaceable = null;
+    this.renderer._clearPreview?.();
     this._updatePlaceablePreview();
-  }
-
-  _handleMoveClick(col, row, screenX, screenY) {
-    if (this._movePayload) {
-      // Carrying — try to drop. Stay in move mode on success so the user
-      // can keep clicking to move more things.
-      if (this._placeMovedObject(col, row)) {
-        this._movePayload = null;
-        this.selectPlaceable(null);
-        this.renderer._clearPreview();
-        this.renderer.canvas.style.cursor = 'grab';
-      }
-      return;
-    }
-
-    // Not carrying — try to pick up.
-    const picked = this._pickUpAt(col, row, screenX, screenY);
-    if (picked) {
-      this._movePayload = picked;
-      this.selectedPlaceableVariant = picked.variant ?? 0;
-      this._armMovePreview(picked.type, picked.dir);
-      this.renderer.canvas.style.cursor = 'grabbing';
-    }
   }
 
   _pickUpAt(col, row, screenX, screenY) {
@@ -3364,8 +2370,7 @@ export class InputHandler {
       }
     }
     if (hitEntry && hitEntry.kind !== 'beamline') {
-      this.game._pushUndo();
-      const snap = this.game.liftPlaceable(hitEntry.id);
+      const snap = this.game._withUndo(() => this.game.liftPlaceable(hitEntry.id));
       if (!snap) return null;
       const def = PLACEABLES[snap.type];
       this._showToast(`Moving ${def?.name || snap.type}`);
@@ -3426,22 +2431,23 @@ export class InputHandler {
     this.renderer._clearPreview();
   }
 
-  _placeMovedObject(col, row) {
-    const p = this._movePayload;
+  /** Drop MoveTool's carried payload `p` at the clicked tile. */
+  _placeMovedObject(p, col, row) {
     if (!p) return false;
 
     if (p.kind === 'component') {
       const placeable = this.game.getPlaceable(p.nodeId);
       if (!placeable) return false;
-      this.game._pushUndo();
-      placeable.col = col;
-      placeable.row = row;
-      if (this.placementDir != null) placeable.dir = this.placementDir;
-      this.game._rebuildPlaceableCells?.(placeable);
-      this.game._deriveBeamGraph();
-      this.game.recalcAllBeamlines();
-      this.game.emit('placeableChanged');
-      return true;
+      return this.game._withUndo(() => {
+        placeable.col = col;
+        placeable.row = row;
+        if (this.placementDir != null) placeable.dir = this.placementDir;
+        this.game._rebuildPlaceableCells(placeable);
+        this.game._deriveBeamGraph();
+        this.game.recalcAllBeamlines();
+        this.game.emit('placeableChanged');
+        return true;
+      });
     }
 
     if (p.kind === 'placeable') {
@@ -3480,24 +2486,23 @@ export class InputHandler {
     if (!el) return;
 
     const sep = `<span class="sep">•</span>`;
+    const tool = this.activeTool;
     let html = '';
-    if (this.demolishMode && this.demolishType === 'demolishBuilding') {
+    if (tool?.kind === 'demolish' && tool.demolishType === 'demolishBuilding') {
       html = `<span class="k">SHIFT</span>+click: delete whole run`;
-    } else if (this.selectedWallTool) {
+    } else if (tool?.kind === 'wall') {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
-    } else if (this.selectedPlaceableId
-        && !this.selectedInfraTool
-        && !this.selectedZoneTool) {
+    } else if (this.armedPlaceableId) {
       // Placement hint: F rotates every free-placed placeable (furnishings,
       // decorations, equipment, grid beamline components). Pipe-bound tools
       // (junctions, on-pipe placements, drawn pipes) take orientation from
       // the pipe, so no rotate hint for them.
-      const comp = COMPONENTS[this.selectedPlaceableId];
+      const comp = COMPONENTS[this.armedPlaceableId];
       const rotatable = !(comp && (comp.role === 'junction'
         || comp.role === 'placement' || comp.isDrawnConnection));
       if (rotatable) {
         const bits = [`<span class="k">F</span> Rotate`];
-        const pl = PLACEABLES[this.selectedPlaceableId];
+        const pl = PLACEABLES[this.armedPlaceableId];
         if (pl && pl.kind === 'decoration') {
           bits.push(`<span class="k">SHIFT</span>+drag: line place`);
           bits.push(`<span class="k">Z</span>/<span class="k">X</span>: spacing`);
@@ -3505,8 +2510,8 @@ export class InputHandler {
         bits.push(`<span class="k">ESC</span> Cancel`);
         html = bits.join(sep);
       }
-    } else if (this.selectedInfraTool) {
-      const infraDef = FLOORS[this.selectedInfraTool];
+    } else if (tool?.kind === 'floor') {
+      const infraDef = FLOORS[tool.floorType];
       if (infraDef?.orientable) {
         html = `<span class="k">F</span> Rotate`
           + sep + `<span class="k">ESC</span> Cancel`;
@@ -3536,8 +2541,8 @@ export class InputHandler {
 
   _toggleContextDemolish() {
     // If already in demolish mode, toggle it off
-    if (this.demolishMode) {
-      this.deselectDemolishTool();
+    if (this.activeTool?.kind === 'demolish') {
+      this.clearTool();
       this._hidePreview();
       return;
     }
@@ -3545,12 +2550,13 @@ export class InputHandler {
     // map to Building, beamline mode maps to Beamline, everything else gets
     // the catch-all.
     let demolishType;
+    const kind = this.activeTool?.kind;
     const cat = this.selectedCategory;
     const catDef = MODES[this.activeMode]?.categories?.[cat];
-    if (this.selectedWallTool || catDef?.isWallTab || cat === 'walls' || cat === 'fencing'
-        || this.selectedDoorTool || cat === 'doors'
-        || this.selectedInfraTool || cat === 'flooring' || catDef?.isSurfaceTab
-        || this.selectedZoneTool) {
+    if (kind === 'wall' || catDef?.isWallTab || cat === 'walls' || cat === 'fencing'
+        || kind === 'door' || cat === 'doors'
+        || kind === 'floor' || cat === 'flooring' || catDef?.isSurfaceTab
+        || kind === 'zone') {
       demolishType = 'demolishBuilding';
     } else if (this.activeMode === 'beamline') {
       demolishType = 'demolishBeamline';
@@ -3558,61 +2564,34 @@ export class InputHandler {
       demolishType = 'demolishAll';
     }
 
-    // Activate demolish in-place without changing mode/menu
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
-    this.selectDemolishTool(demolishType);
+    // Activate demolish in-place without changing mode/menu — setTool
+    // disarms whatever was active.
+    this.setTool(new DemolishTool(demolishType));
     const btn = DEMOLISH_BUTTONS.find(b => b.key === demolishType);
     this._renderPreview(btn?.name || 'Demolish', 'Press Delete or Esc to exit', []);
   }
 
-  _switchToDemolishMode() {
-    // Save current mode/category so Esc can restore it
-    if (!this.demolishMode && this.activeMode !== 'demolish') {
-      this._prevMode = this.activeMode;
-      this._prevCategory = this.selectedCategory;
+  /**
+   * Assign the active mode on both this handler and the renderer, and emit
+   * 'activeModeChanged'. main.js's sole subscriber mounts/destroys the
+   * UtilityStatsPanel off that event, so any path that assigns the two
+   * fields directly leaves the panel stranded in the wrong mode (or missing
+   * in Infra). Callers still own palette/tab/tool bookkeeping.
+   */
+  _applyActiveMode(mode) {
+    const prev = this.activeMode;
+    this.activeMode = mode;
+    this.renderer.activeMode = mode;
+    if (prev !== mode && this.game && typeof this.game.emit === 'function') {
+      this.game.emit('activeModeChanged', { prev, mode });
     }
-    // Switch to demolish mode
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
-    this.activeMode = 'demolish';
-    this.renderer.activeMode = 'demolish';
-    this.selectedCategory = 'demolish';
-    // Update mode button UI
-    document.querySelectorAll('.mode-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.mode === 'demolish');
-    });
-    this.renderer._generateCategoryTabs();
-    this.renderer.updatePalette('demolish');
-    // Arm the catch-all tool by default, mirroring setActiveMode('demolish').
-    this.selectDemolishTool('demolishAll');
-    this._syncPaletteClick(0);
   }
 
   _restorePreviousMode() {
-    this.deselectDemolishTool();
-    this.bulldozerMode = false;
-    this.renderer.setBulldozerMode(false);
+    this.clearTool();
     const mode = this._prevMode || 'beamline';
     const category = this._prevCategory || Object.keys(MODES[mode]?.categories || {})[0] || '';
-    this.activeMode = mode;
-    this.renderer.activeMode = mode;
+    this._applyActiveMode(mode);
     this.selectedCategory = category;
     // Update mode button UI
     document.querySelectorAll('.mode-btn').forEach(b => {
@@ -3650,16 +2629,20 @@ export class InputHandler {
 
   setActiveMode(mode) {
     const prev = this.activeMode;
+    // Record where the player came from so Esc out of demolish returns them
+    // there. This used to live in _switchToDemolishMode(), which lost its last
+    // caller before the branch — leaving _prevMode permanently undefined, so
+    // Esc dumped everyone into the Beamline palette regardless of origin.
+    // Must be read before selectedCategory is reset below.
+    if (mode === 'demolish' && prev !== 'demolish') {
+      this._prevMode = prev;
+      this._prevCategory = this.selectedCategory;
+    }
     this.activeMode = mode;
-    this.deselectTool();
-    this.deselectInfraTool();
-    this.deselectFacilityTool();
-    this.deselectFurnishingTool();
-    this.deselectDecorationTool();
-    this.deselectConnTool();
-    this.deselectRackTool();
-    this.deselectZoneTool();
-    this.deselectDemolishTool();
+    // Every family disarms via clearTool. (The old per-family deselect web
+    // missed the utility-line tool here — that exclusivity bug died with
+    // the tool conversion.)
+    this.clearTool();
     this.paletteIndex = -1;
     this._hidePreview();
     // Reset selected category to first in new mode
@@ -3674,7 +2657,7 @@ export class InputHandler {
     // listener runs before this one, so the palette DOM is already built;
     // highlight card 0 to match.
     if (mode === 'demolish') {
-      this.selectDemolishTool('demolishAll');
+      this.setTool(new DemolishTool('demolishAll'));
       this._syncPaletteClick(0);
     }
     // Emit so UI layers (stats panels, overlays) can react to mode transitions.
@@ -3693,7 +2676,7 @@ export class InputHandler {
     if (idx >= 0 && idx < items.length) {
       items[idx].classList.add('kb-focus');
     }
-    this._showPreviewForIndex();
+    this._showPreviewForFocusedItem();
   }
 
   // --- Palette keyboard navigation ---
@@ -3739,16 +2722,8 @@ export class InputHandler {
 
     // Switch mode if needed
     if (next.mode !== this.activeMode) {
-      this.activeMode = next.mode;
-      this.deselectTool();
-      this.deselectInfraTool();
-      this.deselectFacilityTool();
-      this.deselectFurnishingTool();
-      this.deselectConnTool();
-      this.deselectRackTool();
-      this.deselectZoneTool();
-      this.deselectDemolishTool();
-      this.renderer.activeMode = next.mode;
+      this.clearTool();
+      this._applyActiveMode(next.mode);
       // Update mode buttons
       document.querySelectorAll('.mode-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.mode === next.mode);
@@ -3784,94 +2759,74 @@ export class InputHandler {
     // Scroll into view
     focused.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
 
-    // Select the component as the active tool (without auto-placing)
-    const compKeys = this._getPaletteCompKeys();
-    if (this.paletteIndex < compKeys.length) {
-      const compKey = compKeys[this.paletteIndex];
-      const catDef = MODES.facility?.categories?.[this.selectedCategory];
-      if (catDef?.isZoneTab) {
-        // First item is zone paint tool, rest are furnishings
-        if (this.paletteIndex === 0) {
-          this.selectZoneTool(compKey);
-        } else {
-          this.selectFurnishingTool(compKey);
-        }
-      } else if (this.selectedCategory === 'demolish') {
-        this.selectDemolishTool(compKey);
-      } else if (this.selectedCategory === 'walls') {
-        this.selectWallTool(compKey);
-      } else if (this.selectedCategory === 'doors') {
-        this.selectDoorTool(compKey);
-      } else if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
-        this._selectInfraToolPreview(compKey);
-      } else if (isFacilityCategory(this.selectedCategory)) {
-        this._selectFacilityToolPreview(compKey);
-      } else {
-        this._selectToolPreview(compKey);
-      }
-    }
+    // Arm the focused item's tool. Each palette item carries its own
+    // {paletteKind, paletteKey} identity (stamped at render time in
+    // hud.js), so keyboard nav uses the exact same construction path as a
+    // mouse click — no category guessing.
+    const kind = focused.dataset.paletteKind;
+    const key = focused.dataset.paletteKey;
+    if (kind && key) this.selectPaletteTool(kind, key);
 
     // Show preview panel
-    this._showPreviewForIndex();
+    this._showPreviewForFocusedItem();
   }
 
-  _showPreviewForIndex() {
-    // Gather the component keys in the current palette
-    const compKeys = this._getPaletteCompKeys();
-    if (this.paletteIndex < 0 || this.paletteIndex >= compKeys.length) {
+  /**
+   * Render the preview panel for the keyboard-focused palette item, keyed
+   * by the item's own {paletteKind, paletteKey} dataset (stamped at render
+   * time in hud.js). Replaces the old category-guessing chain — palette
+   * identity lives on the item, so DOM section order no longer matters.
+   */
+  _showPreviewForFocusedItem() {
+    const items = document.querySelectorAll('#component-palette .palette-item');
+    const focused = (this.paletteIndex >= 0 && this.paletteIndex < items.length)
+      ? items[this.paletteIndex]
+      : null;
+    const kind = focused?.dataset.paletteKind;
+    const key = focused?.dataset.paletteKey;
+    if (!kind || !key) {
       this._hidePreview();
       return;
     }
 
-    const key = compKeys[this.paletteIndex];
-
-    // Could be infrastructure, flooring, or component
-    if (this.selectedCategory === 'walls') {
-      const wt = WALL_TYPES[key];
-      if (!wt) { this._hidePreview(); return; }
-      this._renderPreview(wt.name, wt.desc || '', [
-        ['Cost', `$${typeof wt.cost === 'object' ? wt.cost.funding : wt.cost}/segment`],
-        ['Placement', 'Drag along edges'],
-      ]);
-      return;
-    }
-
-    if (this.selectedCategory === 'doors') {
-      const dt = DOOR_TYPES[key];
-      if (!dt) { this._hidePreview(); return; }
-      this._renderPreview(dt.name, dt.desc || '', [
-        ['Cost', `$${typeof dt.cost === 'object' ? dt.cost.funding : dt.cost}/segment`],
-        ['Placement', 'Drag along edges'],
-      ]);
-      return;
-    }
-
-    if (this.selectedCategory === 'flooring' || this.selectedCategory === 'infrastructure') {
-      const infra = FLOORS[key];
-      if (!infra) { this._hidePreview(); return; }
-      this._renderPreview(infra.name, infra.desc || '', [
-        ['Cost', `$${typeof infra.cost === 'object' ? infra.cost.funding : infra.cost}/tile`],
-        ['Placement', infra.isDragPlacement ? 'Drag area' : infra.isLinePlacement ? 'Draw line' : 'Click'],
-      ]);
-      return;
-    }
-
-    // Zone tab items
-    const zoneCatDef = MODES.facility?.categories?.[this.selectedCategory];
-    if (zoneCatDef?.isZoneTab) {
-      // Invariant: index 0 is the zone paint tool. The hud renderer emits
-      // the "Zone" section before the "Furnishings" section (see hud.js
-      // ~line 1085 vs ~1129), so the DOM-order compKeys always puts the
-      // zone item first. Don't reorder those sections without updating
-      // this branch.
-      if (this.paletteIndex === 0) {
+    switch (kind) {
+      case 'wall': {
+        const wt = WALL_TYPES[key];
+        if (!wt) { this._hidePreview(); return; }
+        this._renderPreview(wt.name, wt.desc || '', [
+          ['Cost', `$${typeof wt.cost === 'object' ? wt.cost.funding : wt.cost}/segment`],
+          ['Placement', 'Drag along edges'],
+        ]);
+        return;
+      }
+      case 'door': {
+        const dt = DOOR_TYPES[key];
+        if (!dt) { this._hidePreview(); return; }
+        this._renderPreview(dt.name, dt.desc || '', [
+          ['Cost', `$${typeof dt.cost === 'object' ? dt.cost.funding : dt.cost}/segment`],
+          ['Placement', 'Drag along edges'],
+        ]);
+        return;
+      }
+      case 'floor': {
+        const infra = FLOORS[key];
+        if (!infra) { this._hidePreview(); return; }
+        this._renderPreview(infra.name, infra.desc || '', [
+          ['Cost', `$${typeof infra.cost === 'object' ? infra.cost.funding : infra.cost}/tile`],
+          ['Placement', infra.isDragPlacement ? 'Drag area' : infra.isLinePlacement ? 'Draw line' : 'Click'],
+        ]);
+        return;
+      }
+      case 'zone': {
         const zone = ZONES[key];
         if (!zone) { this._hidePreview(); return; }
         this._renderPreview(zone.name, zone.desc || '', [
           ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
           ['Placement', 'Drag area'],
         ]);
-      } else {
+        return;
+      }
+      case 'furnishing': {
         const furn = ZONE_FURNISHINGS[key];
         if (!furn) { this._hidePreview(); return; }
         const furnStats = [
@@ -3879,77 +2834,66 @@ export class InputHandler {
           ['Size', `${furn.gridW || 1}×${furn.gridH || 1}`],
         ];
         if (furn.energyCost) furnStats.push(['Energy', `${furn.energyCost} kW`]);
-        furnStats.push(['Zone', ZONES[zoneCatDef.zoneType]?.name || zoneCatDef.zoneType]);
+        const zoneType = MODES.facility?.categories?.[this.selectedCategory]?.zoneType;
+        if (zoneType) furnStats.push(['Zone', ZONES[zoneType]?.name || zoneType]);
         this._renderPreview(furn.name, furn.desc || '', furnStats);
+        return;
       }
-      return;
-    }
-
-    // Grounds mode tabs — surfaces, fencing (walls), decorations.
-    const groundsCatDef = MODES.grounds?.categories?.[this.selectedCategory];
-    if (groundsCatDef?.isSurfaceTab) {
-      const infra = FLOORS[key];
-      if (!infra) { this._hidePreview(); return; }
-      this._renderPreview(infra.name, infra.desc || '', [
-        ['Cost', `$${typeof infra.cost === 'object' ? infra.cost.funding : infra.cost}/tile`],
-        ['Placement', 'Drag area'],
-      ]);
-      return;
-    }
-    if (groundsCatDef?.isWallTab) {
-      const wt = WALL_TYPES[key];
-      if (!wt) { this._hidePreview(); return; }
-      this._renderPreview(wt.name, wt.desc || '', [
-        ['Cost', `$${typeof wt.cost === 'object' ? wt.cost.funding : wt.cost}/segment`],
-        ['Placement', 'Drag along edges'],
-      ]);
-      return;
-    }
-    if (groundsCatDef?.isDecorationTab) {
-      const dec = DECORATIONS[key];
-      if (!dec) { this._hidePreview(); return; }
-      const decStats = [['Cost', `$${typeof dec.cost === 'object' ? dec.cost.funding : dec.cost}`]];
-      if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
-      if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
-      if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
-      this._renderPreview(dec.name, dec.desc || '', decStats);
-      return;
-    }
-
-    // Demolish tools
-    if (this.selectedCategory === 'demolish') {
-      const btn = DEMOLISH_BUTTONS.find(b => b.key === key);
-      this._renderPreview(btn?.name || 'Demolish', btn?.desc || '', []);
-      return;
-    }
-
-    const comp = COMPONENTS[key];
-    if (!comp) { this._hidePreview(); return; }
-
-    const costs = Object.entries(comp.cost).map(([r, a]) => `${a} ${r}`).join(', ');
-    const statEntries = [
-      ['Cost', costs],
-      ['Energy Cost', `${comp.energyCost} kW`],
-      ['Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`],
-    ];
-    if (comp.stats) {
-      for (const [k, v] of Object.entries(comp.stats)) {
-        const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-        if (k === 'energyGain') {
-          const e = formatEnergy(v);
-          statEntries.push([label, `${e.val} ${e.unit}`]);
-        } else {
-          const unit = typeof UNITS !== 'undefined' && UNITS[k] ? ` ${UNITS[k]}` : '';
-          statEntries.push([label, `${v}${unit}`]);
+      case 'decoration': {
+        const dec = DECORATIONS[key];
+        if (!dec) { this._hidePreview(); return; }
+        const decStats = [['Cost', `$${typeof dec.cost === 'object' ? dec.cost.funding : dec.cost}`]];
+        if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
+        if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
+        if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
+        this._renderPreview(dec.name, dec.desc || '', decStats);
+        return;
+      }
+      case 'demolish': {
+        const btn = DEMOLISH_BUTTONS.find(b => b.key === key);
+        this._renderPreview(btn?.name || 'Demolish', btn?.desc || '', []);
+        return;
+      }
+      case 'utility': {
+        const descriptor = UTILITY_TYPES[key];
+        if (!descriptor) { this._hidePreview(); return; }
+        this._renderPreview(descriptor.displayName || key, descriptor.desc || '', [
+          ['Placement', 'Drag port → port'],
+        ]);
+        return;
+      }
+      case 'component':
+      case 'facility': {
+        const comp = COMPONENTS[key];
+        if (!comp) { this._hidePreview(); return; }
+        const costs = Object.entries(comp.cost).map(([r, a]) => `${a} ${r}`).join(', ');
+        const statEntries = [
+          ['Cost', costs],
+          ['Energy Cost', `${comp.energyCost} kW`],
+          ['Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`],
+        ];
+        if (comp.stats) {
+          for (const [k, v] of Object.entries(comp.stats)) {
+            const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+            if (k === 'energyGain') {
+              const en = formatEnergy(v);
+              statEntries.push([label, `${en.val} ${en.unit}`]);
+            } else {
+              const unit = typeof UNITS !== 'undefined' && UNITS[k] ? ` ${UNITS[k]}` : '';
+              statEntries.push([label, `${v}${unit}`]);
+            }
+          }
         }
+        if (comp.requires) {
+          const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
+          statEntries.push(['Requires', reqs.join(', ')]);
+        }
+        this._renderPreview(comp.name, comp.desc || '', statEntries, comp.id);
+        return;
       }
+      default:
+        this._hidePreview();
     }
-    if (comp.requires) {
-      const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
-      statEntries.push(['Requires', reqs.join(', ')]);
-    }
-
-    this._renderPreview(comp.name, comp.desc || '', statEntries, comp.id);
   }
 
   _renderPreview(name, desc, stats, componentId) {
@@ -3985,18 +2929,4 @@ export class InputHandler {
     if (panel) panel.classList.add('hidden');
   }
 
-  _getPaletteCompKeys() {
-    // DOM is the single source of truth: each rendered palette item stamps
-    // its own `dataset.paletteKey` at render time (see src/renderer/hud.js).
-    // Reading them back in DOM order keeps this list perfectly in sync with
-    // what the user actually sees — no re-deriving from raw data sources,
-    // no drift when the renderer hides locked items, filters by zone, etc.
-    const items = document.querySelectorAll('#component-palette .palette-item');
-    const keys = [];
-    for (const el of items) {
-      const k = el.dataset.paletteKey;
-      if (k) keys.push(k);
-    }
-    return keys;
-  }
 }

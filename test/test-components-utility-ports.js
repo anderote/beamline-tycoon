@@ -108,19 +108,26 @@ console.log('\n--- Test 6: drift / bellows unchanged ---');
 }
 
 // ==========================================================================
-// Test 7: injectionSeptum beam ports are preserved (3 beam ports, none utility).
+// Test 7: injectionSeptum keeps its 3 beam ports AND gains utility sinks.
+// (It requires powerCable + coolingWater, so utility-ports-v2 declares
+// pwr_in/cool_in — plus the auto-injected vac_in every beamline module gets.)
 // ==========================================================================
-console.log('\n--- Test 7: injectionSeptum beam ports intact ---');
+console.log('\n--- Test 7: injectionSeptum beam + utility ports ---');
 {
   const sep = COMPONENTS.injectionSeptum;
   assert(sep && sep.ports, 'injectionSeptum has ports');
   assert('linacEntry' in sep.ports, 'linacEntry present');
   assert('ringEntry' in sep.ports, 'ringEntry present');
   assert('ringExit' in sep.ports, 'ringExit present');
-  // injectionSeptum is NOT in the utility-port map, so no utility ports added.
-  for (const [name, spec] of Object.entries(sep.ports)) {
-    assert(!spec.utility, `${name} has no utility field`);
+  for (const name of ['linacEntry', 'ringEntry', 'ringExit']) {
+    assert(!sep.ports[name].utility, `${name} is a beam port (no utility field)`);
   }
+  assert(sep.ports.pwr_in?.utility === 'powerCable' && sep.ports.pwr_in.role === 'sink',
+    'pwr_in powerCable sink present');
+  assert(sep.ports.cool_in?.utility === 'coolingWater' && sep.ports.cool_in.role === 'sink',
+    'cool_in coolingWater sink present');
+  assert(sep.ports.vac_in?.utility === 'vacuumPipe' && sep.ports.vac_in.role === 'sink',
+    'vac_in vacuumPipe sink present');
 }
 
 // ==========================================================================

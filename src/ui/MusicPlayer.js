@@ -1,5 +1,7 @@
 // src/ui/MusicPlayer.js — Simple music player with shuffle, auto-advance, and persistent state
 
+import { makeDraggable } from './draggable.js';
+
 // The welcome/title screen always opens on this track (matched on its name):
 // "01 - Russian Doomer music Vol 1 (Night Drive)".
 const WELCOME_TRACK_MATCH = 'night drive';
@@ -113,40 +115,29 @@ export class MusicPlayer {
   }
 
   _initDrag() {
-    let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    this.el.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
+    makeDraggable(this.el, this.el, {
+      button: 0,
       // Only drag from the bar background / track-name area — not the
       // buttons, theme select, volume slider, or the open track list.
-      if (e.target.closest('.mp-btn, .mp-theme, .mp-volume, .mp-track-list')) return;
-      dragging = true;
-      moved = false;
-      sx = e.clientX;
-      sy = e.clientY;
-      const r = this.el.getBoundingClientRect();
-      ox = r.left;
-      oy = r.top;
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const dx = e.clientX - sx;
-      const dy = e.clientY - sy;
+      exclude: '.mp-btn, .mp-theme, .mp-volume, .mp-track-list',
       // Small threshold so a plain click on the track name still opens the list
-      if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
-      moved = true;
-      this.el.style.cursor = 'grabbing';
-      this._setPosition(ox + dx, oy + dy);
-    });
-    document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      this.el.style.cursor = '';
-      if (moved) {
-        this._suppressClick = true;
-        setTimeout(() => { this._suppressClick = false; }, 0);
-        this._savePosition();
-      }
+      threshold: 4,
+      onStart: () => {
+        const r = this.el.getBoundingClientRect();
+        return { ox: r.left, oy: r.top };
+      },
+      onMove: (e, dx, dy, s) => {
+        this.el.style.cursor = 'grabbing';
+        this._setPosition(s.ox + dx, s.oy + dy);
+      },
+      onEnd: (e, moved) => {
+        this.el.style.cursor = '';
+        if (moved) {
+          this._suppressClick = true;
+          setTimeout(() => { this._suppressClick = false; }, 0);
+          this._savePosition();
+        }
+      },
     });
   }
 

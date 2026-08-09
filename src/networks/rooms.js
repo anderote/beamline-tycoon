@@ -150,14 +150,6 @@ function classifyRoom(flooringBreakdown, zoneTypes, tileSet, state) {
     });
     if (hasBeamline) return 'beamHall';
 
-    // Check machines
-    const machines = state.machines || [];
-    const hasMachine = machines.some(m => {
-      const mTiles = m.tiles || [{ col: m.col, row: m.row }];
-      return mTiles.some(t => tileSet.has(t.col + ',' + t.row));
-    });
-    if (hasMachine) return 'machineHall';
-
     return 'emptyHall';
   }
 
