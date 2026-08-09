@@ -20,21 +20,22 @@
 // per-frame work is a flat typed-array copy.
 
 export const CRT_WARP_DEFAULTS = {
-  // Displacement at the corners as a fraction of the axis: 0.09 pushes the
-  // corners out by 9% of the width horizontally and 9% of the height
+  // Displacement at the corners as a fraction of the axis: 0.056 pushes the
+  // corners out by 5.6% of the width horizontally and 5.6% of the height
   // vertically. The "how curved is the tube" knob.
-  bulge: 0.09,
+  bulge: 0.056,
   // 0 = pure r² (an even dome). 1 = r² + r⁴, which keeps the middle of the
   // screen flat and puts the bend in the outer third, like a real tube.
-  corner: 0.6,
+  corner: 1,
   // Zoom applied before sampling, as a multiple of `bulge`. At 2 the bulged
   // edges land outside the frame and nothing is cropped away; below that the
-  // uncovered rim reads as the curved bezel around the glass.
-  overscanPad: 0.7,
+  // uncovered rim reads as the curved bezel around the glass. Well below 2 on
+  // purpose: the visible rim is what shows the curve of the tube.
+  overscanPad: 0.1,
   // Phosphor bloom hugging the inside of the tube. Drawn into the source
   // buffer before the warp, so it bends along the glass instead of tracing the
   // rectangular screen edge the way a DOM overlay would.
-  glow: 0,
+  glow: 0.18,
   // Depth of that bloom, in source-canvas pixels.
   glowSize: 9,
   glowColor: [150, 210, 255],
