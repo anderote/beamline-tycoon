@@ -6,7 +6,25 @@
 
 // Registers the <crt-effect> web component (self-contained, shadow-DOM styles).
 import 'vault66-crt-effect/element';
-import { applyCrtBarrel } from './crtBarrel.js';
+import { createCrtWarp } from './crtWarp.js';
+
+// ── Rare scene-event timing (seconds) ────────────────────────────────
+// Both of these are surprise gags, so every delay is drawn at random from
+// [min, max]: the *First pair is the wait before the first occurrence after
+// the title screen opens, the *Gap pair the wait between repeats. Tune here
+// — nothing else in the file hard-codes these schedules.
+const EVENT_TIMING = {
+  ufoFirst: [95, 185],     // UFO cow abduction — Easter egg, minutes apart
+  ufoGap: [170, 330],
+  crashFirst: [55, 105],   // cow wanders onto the road, car hits it
+  crashGap: [95, 175],
+};
+const randIn = ([a, b]) => a + Math.random() * (b - a);
+
+// Phase lengths for the abduction (seconds); 'gone' is how long the cow
+// stays missing before it quietly turns back up with the herd.
+const UFO_DUR = { hover: 1.1, open: 0.55, hold: 0.8, lift: 2.4, close: 0.5, zip: 1.1, gone: 7 };
+const UFO_CRUISE_Y = 92;   // saucer altitude: over the hill crests, under the logo
 
 export class TitleScreen {
   constructor() {
@@ -25,12 +43,29 @@ export class TitleScreen {
     }
 
     // ── DOM ──────────────────────────────────────────────────────────
+    // Black backdrop sitting directly under the title screen. The barrel warp
+    // pulls the tube's edges inward, and whatever the overscan doesn't cover
+    // reads as the bezel around the glass — without this it would be the live
+    // game HUD showing through instead of black.
+    this.bezelEl = document.createElement('div');
+    this.bezelEl.id = 'title-bezel';
+    this.bezelEl.style.cssText = 'position:fixed;inset:0;z-index:9499;background:#05060a;pointer-events:none;opacity:1;transition:opacity 0.4s ease;';
+    document.body.appendChild(this.bezelEl);
+
     this.el = document.createElement('div');
     this.el.id = 'title-screen';
 
+    // The scene is drawn to an offscreen buffer at its native low resolution,
+    // then warped pixel-by-pixel into the visible canvas (see crtWarp.js), so
+    // the tube curvature is identical on every machine regardless of device
+    // pixel ratio or browser zoom. `this.ctx` stays the drawing target, so all
+    // the scene code below is unaware any of this is happening.
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'title-bg';
-    this.ctx = this.canvas.getContext('2d');
+    this._viewCtx = this.canvas.getContext('2d');
+    this._src = document.createElement('canvas');
+    this.ctx = this._src.getContext('2d', { willReadFrequently: true });
+    this._warp = createCrtWarp();
     this.el.appendChild(this.canvas);
 
     // Logo — each letter is its own span so it can bob independently
@@ -89,27 +124,36 @@ export class TitleScreen {
     this.menuEl.className = 'title-menu hidden';
     this.el.appendChild(this.menuEl);
 
-    // CRT effect (vault66-crt-effect) as a full-screen overlay — real curved
-    // glass, vignette, glare, scanlines + flicker. Decorative only
-    // (pointer-events: none) and scoped to the title/welcome screen.
+    // CRT effect (vault66-crt-effect) as a full-screen overlay — glare,
+    // scanlines, flicker. Decorative only (pointer-events: none) and scoped to
+    // the title/welcome screen. Its "curvature" attribute paints a black radial
+    // gradient rather than bending anything, so it stays low — all the actual
+    // tube curve comes from the geometric barrel warp below.
     this.crtEl = document.createElement('crt-effect');
     const crtAttrs = {
       fill: '',
       'enable-curvature': '',
-      'curvature-intensity': '1',
-      // No vignette: the curvature already darkens the edges; stacking both
-      // made the screen too dark.
+      'curvature-intensity': '0.43',
+      'enable-vignette': '',
+      'vignette-intensity': '0.23',
       'enable-glare': '',
-      'glare-intensity': '0.18',
+      'glare-intensity': '0.14',
+      'enable-noise': '',
+      'noise-opacity': '0.09',
       'enable-flicker': '',
-      'flicker-intensity': 'medium',
-      'scanline-thickness': '3',
+      'flicker-intensity': '0.08',
+      'flicker-speed': '0.8',
+      'scanline-thickness': '4',
       'scanline-gap': '3',
-      'scanline-opacity': '0.18',
+      'scanline-opacity': '0.11',
       theme: 'custom',
       'scanline-color': 'rgba(0,0,0,0.42)',
+      // The rolling raster bar. enable-sweep is what actually switches it on —
+      // without it the component ignores sweep-style/duration entirely.
+      'enable-sweep': '',
       'sweep-style': 'soft',
       'sweep-duration': '9',
+      'sweep-thickness': '48',
     };
     for (const [k, v] of Object.entries(crtAttrs)) this.crtEl.setAttribute(k, v);
     this.crtEl.style.cssText = 'position:absolute;inset:0;z-index:40;pointer-events:none;';
@@ -135,9 +179,15 @@ export class TitleScreen {
 
     document.body.appendChild(this.el);
 
-    // Real geometric barrel bulge over the whole welcome screen (scene + logo +
-    // menu warp together like a CRT tube face). Scoped to the title screen.
-    applyCrtBarrel(this.el);
+    // Dev-only slider panel for re-tuning the CRT look. Compile-time gated, so
+    // in production builds the dynamic import below is dead-code-eliminated
+    // from the bundle.
+    if (import.meta.env.DEV) {
+      import('./CrtTuner.js').then(({ createCrtTuner }) => {
+        if (this._dismissed) return;
+        this._tuner = createCrtTuner({ warp: this._warp, crtEl: this.crtEl });
+      });
+    }
 
     // ── Scene state ──────────────────────────────────────────────────
     this._stars = [];
@@ -242,7 +292,7 @@ export class TitleScreen {
     // Gate traffic: cars arrive at the security gate, park, later leave
     this._cars = [];
     this._gate = { open: 0 };
-    this._spotBusy = [false, false];
+    this._spotBusy = [false, false, false, false];   // one flag per lot stall
     this._nextCarT = 5 + Math.random() * 6;
     this._roadPrevT = 0;
 
@@ -256,6 +306,8 @@ export class TitleScreen {
     const loop = (now) => {
       if (this._dismissed) return;
       this._draw(now);
+      this._warp.edge(this.ctx, this.W, this.H);
+      this._warp.apply(this.ctx, this._viewCtx, this.W, this.H, this.W * this.SS, this.H * this.SS);
       this._raf = requestAnimationFrame(loop);
     };
     this._raf = requestAnimationFrame(loop);
@@ -299,9 +351,14 @@ export class TitleScreen {
     this._dismissed = true;
     cancelAnimationFrame(this._raf);
     window.removeEventListener('resize', this._onResize);
+    this._tuner?.dispose();
     if (window.__titleFx === this._fxHook) delete window.__titleFx;
     this.el.classList.add('title-fade-out');
-    setTimeout(() => this.el.remove(), 450);
+    this.bezelEl.style.opacity = '0';
+    setTimeout(() => {
+      this.el.remove();
+      this.bezelEl.remove();
+    }, 450);
   }
 
   // ── Canvas scene ───────────────────────────────────────────────────
@@ -312,9 +369,16 @@ export class TitleScreen {
     const aspect = window.innerWidth / Math.max(1, window.innerHeight);
     this.H = 320;
     this.W = Math.max(360, Math.min(1024, Math.round(this.H * aspect)));
-    this.canvas.width = this.W;
-    this.canvas.height = this.H;
+    // The scene is drawn at W x H, but the warp resolves onto a larger buffer
+    // so the curved rim is a smooth arc instead of a staircase of scene-sized
+    // pixels. Matched roughly to the display so the steps fall below 1px.
+    this.SS = Math.max(1, Math.min(4, Math.round(window.innerHeight / this.H)));
+    this._src.width = this.W;
+    this._src.height = this.H;
+    this.canvas.width = this.W * this.SS;
+    this.canvas.height = this.H * this.SS;
     this.ctx.imageSmoothingEnabled = false;
+    this._viewCtx.imageSmoothingEnabled = false;
   }
 
   _draw(now) {
@@ -636,6 +700,10 @@ export class TitleScreen {
     // (escaped cows are drawn later by _drawCowEvent, in front of the fence)
     for (const c of this._cowsFG) if (!c.escaped) this._drawCowFG(ctx, c, t, pal);
 
+    // ── Cow/car collision: skid, tumbling wreck, burning car, frantic
+    //    driver — sits on the road/shoulder, so it draws with the cows ──
+    this._drawCrash(ctx, t, pal);
+
     // ── Chain-link perimeter fence, with a gap at the security gate ──
     const gapA = gateX - 14, gapB = gateX + 14;
     ctx.fillStyle = pal.fence;
@@ -701,6 +769,9 @@ export class TitleScreen {
 
     // ── Scientists, mishaps, ghosts (foreground) ──
     this._fxFrame(ctx, now, t, comps, W);
+
+    // ── UFO abduction: flies over everything, so it draws last ──
+    this._drawUfoEvent(ctx, t, pal, W);
   }
 
   // ── Day/night palette ──────────────────────────────────────────────
@@ -929,7 +1000,7 @@ export class TitleScreen {
   }
 
   _drawCowFG(ctx, c, t, pal) {
-    const x = Math.round(c.x), y = c.foot;
+    const x = Math.round(c.x), y = Math.round(c.foot);
     const hw = c.calf ? 3 : 4;                 // body half-width (hill-scale)
     const bh = c.calf ? 3 : 4;                 // body height
     const legH = 2;
@@ -1031,8 +1102,9 @@ export class TitleScreen {
     // spans ~0.4W..0.6W). The road arrives OUTSIDE the perimeter along the
     // ranch band, punches through the fence gap, and drops to the lot.
     const gateX = Math.floor(W * 0.28);
-    const lotX = gateX + 12;              // small visitor lot just inside
-    const roadEnd = lotX + 46;
+    const lotX = gateX + 12;              // visitor lot just inside the gate
+    const lotW = 86;                      // 4 stalls, 21px pitch
+    const roadEnd = lotX + lotW + 4;
     const dt = Math.min(0.1, Math.max(0, t - (this._roadPrevT || t)));
     this._roadPrevT = t;
 
@@ -1054,23 +1126,20 @@ export class TitleScreen {
       ctx.fillRect(x, this._roadTopY(x + 2, gateX) + 3, 4, 1);
     }
 
-    // small visitor lot off the road, just inside the gate
-    const lotW = 44;
+    // visitor lot off the road, just inside the gate
     ctx.fillStyle = asphalt;
-    ctx.fillRect(lotX, 171, lotW, 20);
+    ctx.fillRect(lotX, 170, lotW, 22);
     ctx.fillStyle = shoulder;
-    ctx.fillRect(lotX, 190, lotW, 1);
-    ctx.fillRect(lotX + lotW - 1, 171, 1, 20);
+    ctx.fillRect(lotX, 191, lotW, 1);
+    ctx.fillRect(lotX + lotW - 1, 170, 1, 22);
     ctx.fillStyle = 'rgba(232,206,130,0.35)';          // painted stall lines
-    ctx.fillRect(lotX + 1, 174, 1, 8);
-    ctx.fillRect(lotX + 21, 174, 1, 8);
-    ctx.fillRect(lotX + 41, 174, 1, 8);
-    const spots = [{ x: lotX + 4 }, { x: lotX + 25 }];
+    for (let k = 0; k <= 4; k++) ctx.fillRect(lotX + 1 + k * 21, 173, 1, 17);
+    const spots = [{ x: lotX + 4 }, { x: lotX + 25 }, { x: lotX + 46 }, { x: lotX + 67 }];
 
     // ── car traffic state machine ──
     if (t >= this._nextCarT) {
-      this._nextCarT = t + 15 + Math.random() * 15;
-      if (this._cars.length < 3 && this._spotBusy.some((b) => !b)) {
+      this._nextCarT = t + 11 + Math.random() * 13;
+      if (this._cars.length < 5 && this._spotBusy.some((b) => !b)) {
         this._cars.push(this._makeCar());
       }
     }
@@ -1262,9 +1331,11 @@ export class TitleScreen {
   _startCowEvent(t, W) {
     const gateX = Math.floor(W * 0.28);
     const breakX = Math.max(26, gateX - 34);           // fence break, left of gate
-    // borrow the two herd cows nearest the break point
-    const pool = this._cowsFG.slice()
+    // borrow the two herd cows nearest the break point (skipping any cow
+    // already on loan to another event)
+    const pool = this._cowsFG.filter((c) => !c.escaped && !c.held)
       .sort((a, b) => Math.abs(a.x - breakX) - Math.abs(b.x - breakX));
+    if (!pool.length) return false;
     const escapees = pool.slice(0, Math.min(2, pool.length));
     const cows = escapees.map((c, i) => {
       c.escaped = true;                                // pulled from the herd loop
@@ -1280,6 +1351,7 @@ export class TitleScreen {
       guard: { x: gateX + 6, foot: 158, dir: -1, pose: 'idle', phase: Math.random() * 6 },
     };
     this._nextCowEventAt = t + 999;                    // rescheduled when it ends
+    return true;
   }
 
   _updateCowEvent(t, dt, W) {
@@ -1556,6 +1628,480 @@ export class TitleScreen {
     ctx.fillRect(x - 1 + lean, headY - 1, 3, 1);
     ctx.fillStyle = capBrim;
     ctx.fillRect(x - 2 + lean + (dir > 0 ? 1 : 0), headY, 4, 1);
+  }
+
+  // Run fn() rotated by q quarter-turns about (cx, cy). The transform is an
+  // exact integer matrix, so axis-aligned rects stay perfectly crisp — no
+  // antialiased pixel mush from ctx.rotate()'s floating-point sin/cos.
+  _rotQ(ctx, cx, cy, q, fn) {
+    const n = ((Math.round(q) % 4) + 4) % 4;
+    if (!n) { fn(); return; }
+    const [a, b, c, d] = [[1, 0, 0, 1], [0, 1, -1, 0], [-1, 0, 0, -1], [0, -1, 1, 0]][n];
+    ctx.save();
+    ctx.transform(a, b, c, d, cx - (a * cx + c * cy), cy - (b * cx + d * cy));
+    fn();
+    ctx.restore();
+  }
+
+  // ── UFO cow abduction (rare Easter egg) ────────────────────────────
+  // A saucer drifts in over the hill crests, parks above a cow, drops a
+  // banded tractor beam with a glowing pool on the grass, reels the cow up
+  // kicking and wobbling, then zips off the way it came. Same time-driven
+  // shape as the cow-escape event: phases advance on elapsed time in
+  // _updateUfoEvent, everything renders in _drawUfoEvent.
+
+  _startUfoEvent(t, W) {
+    if (this._ufo || this._cowEvent || this._crash) return false;
+    const pool = this._cowsFG.filter((c) => !c.escaped && !c.held);
+    if (!pool.length) return false;
+    // Take the cow furthest from the screen centre so the saucer and its beam
+    // hang clear of the logo/menu column, but dodge the Stanford Dish on the
+    // left crest — the two silhouettes read as mush on top of each other.
+    const score = (c) => Math.abs(c.x - W / 2) - (Math.abs(c.x - W * 0.13) < 34 ? 80 : 0);
+    let cow = pool[0];
+    for (const c of pool) if (score(c) > score(cow)) cow = c;
+    cow.held = true;
+    const fromLeft = cow.x > W / 2;
+    this._ufo = {
+      phase: 'approach', t0: t, cow,
+      homeX: cow.x, homeFoot: cow.foot,
+      x: fromLeft ? -34 : W + 34,
+      y: UFO_CRUISE_Y,
+      targetX: Math.round(cow.x),
+      groundY: Math.round(cow.foot),
+      dir: fromLeft ? 1 : -1,
+      beam: 0, lift: 0, blink: Math.random() * 6,
+    };
+    this._nextUfoAt = t + 1e6;             // rescheduled when it ends
+    return true;
+  }
+
+  _updateUfoEvent(t, dt, W) {
+    const u = this._ufo;
+    if (!u) return;
+    const age = t - u.t0;
+    const cow = u.cow;
+    switch (u.phase) {
+      case 'approach': {
+        const dx = u.targetX - u.x;
+        const sp = Math.max(14, Math.min(150, Math.abs(dx) * 1.15));  // eases in
+        if (Math.abs(dx) <= sp * dt) { u.x = u.targetX; u.phase = 'hover'; u.t0 = t; }
+        else u.x += Math.sign(dx) * sp * dt;
+        cow.state = 'graze';                                   // blissfully unaware
+        break;
+      }
+      case 'hover':
+        cow.state = 'idle';                                    // head up: what's that?
+        if (age >= UFO_DUR.hover) { u.phase = 'open'; u.t0 = t; }
+        break;
+      case 'open':
+        u.beam = Math.min(1, age / UFO_DUR.open);
+        if (age >= UFO_DUR.open) { u.phase = 'hold'; u.t0 = t; cow.state = 'moo'; }
+        break;
+      case 'hold':
+        u.beam = 1;
+        if (age >= UFO_DUR.hold) {
+          u.phase = 'lift'; u.t0 = t;
+          cow.held = false; cow.escaped = true;                // the UFO draws it now
+        }
+        break;
+      case 'lift': {
+        const p = Math.min(1, age / UFO_DUR.lift);
+        u.lift = p * p * (3 - 2 * p);                          // smoothstep rise
+        if (age >= UFO_DUR.lift) { u.lift = 1; u.phase = 'close'; u.t0 = t; }
+        break;
+      }
+      case 'close':
+        u.beam = Math.max(0, 1 - age / UFO_DUR.close);
+        if (age >= UFO_DUR.close) { u.beam = 0; u.phase = 'zip'; u.t0 = t; }
+        break;
+      case 'zip': {
+        const p = Math.min(1, age / UFO_DUR.zip);
+        u.x += u.dir * (60 + 950 * p * p) * dt;
+        u.y -= 26 * p * dt;
+        if (u.x < -70 || u.x > W + 70) { u.phase = 'gone'; u.t0 = t; }
+        break;
+      }
+      case 'gone':
+        // ...and a while later the cow is back with the herd, no questions
+        if (age >= UFO_DUR.gone) {
+          cow.escaped = false; cow.held = false;
+          cow.x = u.homeX; cow.foot = u.homeFoot;
+          cow.state = 'idle'; cow.stateT = 0; cow.dur = 2; cow.flipped = false;
+          this._ufo = null;
+          this._nextUfoAt = t + randIn(EVENT_TIMING.ufoGap);
+        }
+        break;
+    }
+  }
+
+  _drawUfoEvent(ctx, t, pal, W) {
+    const u = this._ufo;
+    if (!u || u.phase === 'gone') return;
+    const sx = Math.round(u.x);
+    const sy = Math.round(u.y + Math.sin(t * 2.3) * 1.6);
+    const groundY = u.groundY;
+
+    // ── tractor beam: cone widening to the ground, bands scrolling down ──
+    if (u.beam > 0.02) {
+      const top = sy + 4;
+      const reach = Math.max(1, groundY - top);
+      const bot = top + reach * u.beam;
+      for (let y = top; y < bot; y++) {
+        const p = (y - top) / reach;
+        const hw = Math.round(2 + 10 * p);
+        const band = (((y - t * 34) % 9) + 9) % 9;
+        const a = (band < 3 ? 0.30 : 0.15) * u.beam;
+        ctx.fillStyle = `rgba(140,255,180,${a.toFixed(2)})`;
+        ctx.fillRect(sx - hw, y, hw * 2, 1);
+        ctx.fillStyle = `rgba(210,255,220,${(a * 1.6).toFixed(2)})`;
+        ctx.fillRect(sx - hw, y, 1, 1);                   // bright cone edges
+        ctx.fillRect(sx + hw - 1, y, 1, 1);
+      }
+      // glowing pool on the grass at the foot of the beam
+      const pulse = 0.6 + 0.4 * Math.sin(t * 6);
+      const gw = Math.max(1, Math.round(12 * u.beam));
+      ctx.fillStyle = `rgba(140,255,180,${(0.28 * u.beam * pulse).toFixed(2)})`;
+      ctx.fillRect(sx - gw, groundY - 2, gw * 2, 3);
+      ctx.fillStyle = `rgba(225,255,230,${(0.34 * u.beam).toFixed(2)})`;
+      ctx.fillRect(sx - (gw >> 1), groundY - 1, gw, 1);
+    }
+
+    // ── the cow, floating up in the beam, legs kicking ──
+    if (u.phase === 'lift') {
+      const cow = u.cow;
+      cow.state = 'amble';                                 // scissoring legs = kicking
+      cow.x = u.targetX + Math.round(Math.sin(t * 4.2) * 2);
+      cow.foot = Math.round(groundY + (sy + 9 - groundY) * u.lift);
+      // lit by the beam, so it doesn't read as a dark blob at night
+      this._drawCowFG(ctx, cow, t * 1.7, { ...pal, light: Math.max(pal.light, 0.6) });
+      if (u.lift < 0.55) this._drawBubble(ctx, Math.round(cow.x), cow.foot - 12, '!');
+    }
+
+    this._drawSaucer(ctx, sx, sy, t, pal, u);
+  }
+
+  // Flying saucer, ~25x12: glass dome on a two-tone hull with a ring of
+  // chasing running lights. Reads as a silhouette with lit portholes at
+  // night, brushed metal by day.
+  _drawSaucer(ctx, x, y, t, pal, u) {
+    const L = pal.light;
+    const hullHi = this._lerpHex('#3c4258', '#e2e7f0', L);
+    const hull = this._lerpHex('#2b2f42', '#b3bacb', L);
+    const hullLo = this._lerpHex('#191c29', '#7b8396', L);
+    const dome = this._lerpHex('#2b4a54', '#9fe6f2', L);
+
+    if (L < 0.55) {                                   // chunky halo after dark
+      for (let k = 0; k < 3; k++) {
+        this._blob(ctx, x, y, 9 + k * 5, `rgba(150,255,190,${(0.035 * (1 - L)).toFixed(2)})`);
+      }
+    }
+    ctx.fillStyle = dome;                             // cockpit dome
+    ctx.fillRect(x - 3, y - 6, 7, 2);
+    ctx.fillRect(x - 4, y - 4, 9, 2);
+    ctx.fillStyle = '#eaffff';
+    ctx.fillRect(x - 2, y - 6, 2, 1);                 // glass glint
+    ctx.fillStyle = hullHi;                           // upper hull
+    ctx.fillRect(x - 8, y - 2, 17, 1);
+    ctx.fillStyle = hull;                             // widest rim
+    ctx.fillRect(x - 12, y - 1, 25, 2);
+    ctx.fillStyle = hullLo;                           // underbelly
+    ctx.fillRect(x - 9, y + 1, 19, 2);
+    ctx.fillRect(x - 5, y + 3, 11, 1);
+    // ring of running lights chasing around the rim
+    const step = Math.floor(t * 9 + u.blink) % 5;
+    for (let i = 0; i < 5; i++) {
+      const on = i === step;
+      ctx.fillStyle = on ? '#ffe066' : this._lerpHex('#4a3a20', '#8a7a55', L);
+      ctx.fillRect(x - 10 + i * 5, y + 1, 2, 1);
+    }
+    // emitter port glows while the beam is on
+    if (u.beam > 0.02) {
+      ctx.fillStyle = `rgba(190,255,205,${(0.85 * u.beam).toFixed(2)})`;
+      ctx.fillRect(x - 2, y + 3, 4, 2);
+    }
+    // flash as the cow is swallowed
+    if (u.phase === 'close') {
+      ctx.fillStyle = `rgba(235,255,240,${(0.55 * (1 - u.beam)).toFixed(2)})`;
+      ctx.fillRect(x - 13, y - 7, 27, 12);
+    }
+  }
+
+  // ── Cow/car collision (slapstick, nobody gets hurt) ────────────────
+  // A cow ambles onto the perimeter road and grazes there; the next arrival
+  // can't stop, clips it, and cartwheels onto the grass shoulder where it
+  // sits burning while the driver runs in circles waving. The cow is punted
+  // into a high arc, lands on its feet, shakes it off and trots home. The
+  // wreck and driver fade out and the road goes back to normal.
+
+  _startCrash(t, W) {
+    if (this._crash || this._cowEvent || this._ufo) return false;
+    const gateX = Math.floor(W * 0.28);
+    const hitX = Math.max(44, gateX - 58);        // on the approach, before the gate
+    const pool = this._cowsFG.filter((c) => !c.escaped && !c.held);
+    if (!pool.length) return false;
+    let cow = pool[0];
+    for (const c of pool) if (Math.abs(c.x - hitX) < Math.abs(cow.x - hitX)) cow = c;
+    cow.held = true;
+    this._crash = {
+      phase: 'lure', t0: t, gateX, hitX, cow,
+      homeX: cow.x, homeFoot: cow.foot,
+      car: null, wreck: null, driver: null, fly: null,
+      cowT: -1, puffAt: 0, alpha: 1, skid: false,
+    };
+    this._nextCrashAt = t + 1e6;                  // rescheduled when the wreck clears
+    return true;
+  }
+
+  _updateCrash(t, dt, W) {
+    const ev = this._crash;
+    if (!ev) return;
+    const age = t - ev.t0;
+    const cow = ev.cow;
+    const ROAD = 150;         // hoof/wheel line of the outside road lane
+    const SHOULDER = 141;     // grass shoulder the wreck cartwheels onto
+    const LAND = ROAD - 4;    // where the punted cow touches back down
+    const approach = (o, k, target, sp) => {
+      const d = target - o[k];
+      if (Math.abs(d) <= sp * dt) { o[k] = target; return true; }
+      o[k] += Math.sign(d) * sp * dt;
+      return false;
+    };
+
+    // The punted cow runs on its own clock so it can pick itself up and trot
+    // home while the wreck is still burning.
+    if (ev.cowT >= 0) {
+      ev.cowT += dt;
+      if (ev.cowT < 1.25) {                       // airborne, tumbling
+        const p = ev.cowT / 1.25;
+        ev.fly.x = ev.fly.x0 + 62 * ev.cowT;           // clears the wreck comfortably
+        ev.fly.y = ROAD + (LAND - ROAD) * p - 44 * Math.sin(Math.PI * p);
+        ev.fly.q = Math.floor(p * 5);
+      } else if (ev.cowT < 1.8) {                 // four-point landing, dazed
+        cow.x = ev.fly.x; cow.foot = LAND;
+      } else if (ev.cowT < 4.8) {                 // shakes it off, trots home
+        if (cow.escaped) { cow.escaped = false; cow.held = true; }
+        cow.state = 'amble';
+        cow.dir = ev.homeX < cow.x ? -1 : 1;
+        approach(cow, 'x', ev.homeX, 15);
+        const p = Math.min(1, (ev.cowT - 1.8) / 2.4);
+        cow.foot = LAND + (ev.homeFoot - LAND) * p;
+      } else if (cow.held) {                      // back with the herd, unharmed
+        cow.held = false;
+        cow.foot = ev.homeFoot;
+        cow.state = 'graze'; cow.stateT = 0; cow.dur = 3; cow.flipped = false;
+      }
+    }
+
+    switch (ev.phase) {
+      case 'lure': {
+        cow.state = 'amble';
+        cow.dir = ev.hitX < cow.x ? -1 : 1;
+        const atX = approach(cow, 'x', ev.hitX, 13);
+        const atY = approach(cow, 'foot', ROAD, 9);
+        if ((atX && atY) || age > 16) {
+          cow.x = ev.hitX; cow.foot = ROAD;
+          cow.state = 'graze'; cow.stateT = 0; cow.dur = 40;   // head down, oblivious
+          const car = this._makeCar();
+          car.x = -30;
+          this._cars.push(car);
+          ev.car = car;
+          this._nextCarT = t + 45;                             // no other arrivals
+          ev.phase = 'approach'; ev.t0 = t;
+        }
+        break;
+      }
+      case 'approach': {
+        const car = ev.car;
+        if (!car || !this._cars.includes(car)) { this._endCrash(t); break; }
+        if (car.x > ev.hitX - 30) ev.skid = true;              // brakes, too late
+        if (car.x + 12 >= ev.hitX - 2) {
+          ev.phase = 'tumble'; ev.t0 = t;
+          ev.wreck = {
+            car: { x: car.x, dir: 1, color: car.color, phase: car.phase, state: 'wreck' },
+            x0: car.x, x: car.x, y: ROAD, q: 0,
+          };
+          this._cars = this._cars.filter((k) => k !== car);
+          ev.car = null;
+          cow.held = false; cow.escaped = true;                // the event draws it now
+          ev.fly = { x0: cow.x, x: cow.x, y: ROAD, q: 0 };
+          ev.cowT = 0;
+          this._nextCarT = t + 30;
+        }
+        break;
+      }
+      case 'tumble': {
+        const w = ev.wreck;
+        const p = Math.min(1, age / 0.95);
+        w.x = w.x0 + 30 * Math.min(age, 0.95);
+        w.y = ROAD + (SHOULDER - ROAD) * p - 22 * Math.sin(Math.PI * p);
+        w.q = Math.floor(p * 6);                               // 1.5 flips
+        if (p >= 1) {
+          w.x = Math.round(w.x); w.y = SHOULDER; w.q = 2;      // rests on its roof
+          ev.phase = 'burn'; ev.t0 = t;
+          ev.driver = {
+            x: w.x + 7, foot: 146, dir: -1, goal: w.x - 14,
+            phase: Math.random() * 6, out: false,
+          };
+        }
+        break;
+      }
+      case 'burn': {
+        const w = ev.wreck, d = ev.driver;
+        if (age > 0.6) {                                       // kicks the door, bolts
+          d.out = true;
+          if (approach(d, 'x', d.goal, 26)) {                  // paces back and forth
+            d.goal = d.goal < w.x ? w.x + 17 : w.x - 15;
+          }
+          d.dir = d.goal > d.x ? 1 : -1;
+        }
+        if (t >= ev.puffAt) {                                  // smoke column
+          ev.puffAt = t + 0.26;
+          this._smoke.push({
+            x: w.x + 6 + (Math.random() * 6 - 3), y: w.y - 12,
+            t0: t, dur: 1.5 + Math.random() * 0.9, drift: Math.random() * 7 - 3.5,
+          });
+        }
+        if (age >= 9) { ev.phase = 'fade'; ev.t0 = t; }
+        break;
+      }
+      case 'fade': {
+        ev.alpha = Math.max(0, 1 - age / 2.4);
+        ev.driver.dir = 1;                                     // trudges off to the gate
+        ev.driver.x += 20 * dt;
+        if (age >= 2.4) this._endCrash(t);
+        break;
+      }
+    }
+  }
+
+  _endCrash(t) {
+    const ev = this._crash;
+    if (ev) {
+      const cow = ev.cow;                       // never strand a cow off-herd
+      if (cow.escaped || cow.held) {
+        cow.escaped = false; cow.held = false;
+        cow.x = ev.homeX; cow.foot = ev.homeFoot;
+        cow.state = 'idle'; cow.stateT = 0; cow.dur = 2; cow.flipped = false;
+      }
+      if (ev.car) this._cars = this._cars.filter((k) => k !== ev.car);
+    }
+    this._crash = null;
+    this._nextCrashAt = t + randIn(EVENT_TIMING.crashGap);
+  }
+
+  _drawCrash(ctx, t, pal) {
+    const ev = this._crash;
+    if (!ev) return;
+    ctx.globalAlpha = ev.alpha;
+
+    // skid marks on the tarmac
+    if (ev.skid) {
+      ctx.fillStyle = 'rgba(10,10,14,0.45)';
+      for (let i = 0; i < 9; i++) {
+        if (i % 3 === 2) continue;
+        ctx.fillRect(ev.hitX - 22 + i * 3, 146, 2, 1);
+        ctx.fillRect(ev.hitX - 22 + i * 3, 149, 2, 1);
+      }
+    }
+
+    // the cow, punted into a spinning arc (drawn here only while airborne —
+    // the rest of the time it rides along in the normal herd pass)
+    if (ev.fly && ev.cowT >= 0 && ev.cowT < 1.8) {
+      const cow = ev.cow;
+      cow.x = ev.fly.x;
+      cow.foot = ev.fly.y;
+      const cx = Math.round(cow.x), cy = Math.round(cow.foot) - 4;
+      const spinning = ev.cowT < 1.25;
+      cow.state = spinning ? 'amble' : 'idle';
+      this._rotQ(ctx, cx, cy, spinning ? ev.fly.q : 0,
+        () => this._drawCowFG(ctx, cow, t * 2, pal));
+      if (!spinning) {                                   // dust puff on landing
+        const s = Math.round((ev.cowT - 1.25) * 9);
+        ctx.fillStyle = 'rgba(190,180,150,0.45)';
+        ctx.fillRect(cx - 5 - s, Math.round(cow.foot) - 1, 3, 1);
+        ctx.fillRect(cx + 3 + s, Math.round(cow.foot) - 1, 3, 1);
+      }
+      if (ev.cowT > 0.05 && ev.cowT < 1.7) {
+        this._drawBubble(ctx, cx, Math.round(cow.foot) - 13, '!');
+      }
+    }
+
+    // the wreck: quarter-turn tumble, then flat on its roof and burning
+    const w = ev.wreck;
+    if (w) {
+      const wx = Math.round(w.x), wy = Math.round(w.y);
+      w.car.x = wx;
+      this._rotQ(ctx, wx + 7, wy - 4, w.q, () => this._drawCar(ctx, w.car, wy, false, t, pal));
+      if (ev.phase === 'burn' || ev.phase === 'fade') {
+        ctx.fillStyle = 'rgba(58,46,28,0.5)';            // gouged dirt off the road
+        ctx.fillRect(wx - 11, 143, 19, 1);
+        ctx.fillRect(wx - 6, 142, 13, 1);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';               // seats the wreck
+        ctx.fillRect(wx, wy, 14, 1);
+        ctx.fillStyle = '#101016';                       // wheel that rolled clear
+        ctx.fillRect(wx - 7, wy - 2, 2, 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';              // dents / broken glass
+        ctx.fillRect(wx + 3, wy - 7, 3, 1);
+        const fy = wy - 9;
+        this._drawFlame(ctx, wx + 4, fy, t, 0, 1);
+        this._drawFlame(ctx, wx + 10, fy, t, 2.4, 0.7);
+        if (pal.light < 0.65) {                          // firelight after dark
+          const gl = (1 - pal.light) * (0.9 + 0.1 * Math.sin(t * 11));
+          for (let k = 0; k < 3; k++) {                  // stepped falloff, not a box
+            ctx.fillStyle = `rgba(255,150,60,${(0.07 * gl).toFixed(2)})`;
+            ctx.fillRect(wx - 1 - k * 5, fy - 4 - k * 4, 16 + k * 10, 12 + k * 7);
+          }
+        }
+      }
+    }
+
+    // the driver, running around waving both arms
+    const d = ev.driver;
+    if (d && d.out) {
+      const dx = Math.round(d.x);
+      this._drawDriver(ctx, dx, Math.round(d.foot), d.dir, t, d.phase, ev.wreck.car.color);
+      if (Math.floor(t * 1.7) % 2 === 0) this._drawBubble(ctx, dx, Math.round(d.foot) - 15, '!');
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Chunky 3-tongue flame, hottest at the base. scale shrinks the whole lick.
+  _drawFlame(ctx, x, baseY, t, seed, scale) {
+    for (let k = 0; k < 3; k++) {
+      const h = Math.max(2, Math.round((4 + 3 * Math.sin(t * 9 + k * 2.1 + seed)) * scale));
+      const dx = (k - 1) * 2;
+      ctx.fillStyle = '#e0451f';
+      ctx.fillRect(x + dx - 1, baseY - h, 3, h);
+      ctx.fillStyle = '#ff9a30';
+      ctx.fillRect(x + dx - 1, baseY - h + 1, 2, h - 1);
+      ctx.fillStyle = '#ffe680';
+      ctx.fillRect(x + dx, baseY - 2, 1, 2);
+    }
+  }
+
+  // The driver: same build as the little scene people, shirt in the car's
+  // paint colour, both arms flailing over their head.
+  _drawDriver(ctx, x, footY, dir, t, phase, shirt) {
+    const skin = '#d8a878';
+    const frame = Math.floor(t * 9 + phase) % 2;
+    ctx.fillStyle = '#2b2f40';                        // legs, mid-scramble
+    ctx.fillRect(x - 2 - frame, footY - 3, 2, 3);
+    ctx.fillRect(x + 1 + frame, footY - 3, 2, 3);
+    ctx.fillStyle = '#14141c';
+    ctx.fillRect(x + (frame ? -3 : 2), footY - 1, 2, 1);
+    ctx.fillStyle = shirt;                            // torso
+    ctx.fillRect(x - 2, footY - 9, 5, 6);
+    ctx.fillStyle = skin;                             // arms thrown overhead
+    ctx.fillRect(x - 4, footY - 12 + (frame ? 0 : 2), 1, 3);
+    ctx.fillRect(x + 4, footY - 12 + (frame ? 2 : 0), 1, 3);
+    ctx.fillRect(x - 1, footY - 12, 3, 3);            // head
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(x + (dir > 0 ? 1 : -1), footY - 11, 1, 1);   // eye
+    ctx.fillRect(x - 1, footY - 10, 3, 1);            // wide-open mouth
+    ctx.fillStyle = '#3a2e28';                        // hair on end
+    ctx.fillRect(x - 1, footY - 13, 3, 1);
+    ctx.fillRect(x - 1 + frame, footY - 14, 1, 1);
   }
 
   // ── Buildings (cutaway interiors) ──────────────────────────────────
@@ -1866,7 +2412,8 @@ export class TitleScreen {
     this._utilLine(ctx, eq.pumpX + 6, 224, eq.mgx(0.60) - 8, pipeY - 4);
 
     // ── Source cabinet (left) ──
-    const srcX = 14, srcW = 30, srcH = 40;
+    const { srcX, srcW, tgtX, tgtW } = this._beamGeom(W);
+    const srcH = 40;
     ctx.fillStyle = '#3d3d50';
     ctx.fillRect(srcX, groundY - srcH, srcW, srcH);
     ctx.fillStyle = '#4d4d64';
@@ -1896,8 +2443,7 @@ export class TitleScreen {
     const pipeStart = srcX + srcW;
 
     // ── Faraday cup / detector block (right end) ──
-    const tgtW = 30, tgtH = 34;
-    const tgtX = W - 14 - tgtW;
+    const tgtH = 34;
     ctx.fillStyle = '#33334a';
     ctx.fillRect(tgtX, groundY - tgtH, tgtW, tgtH);
     ctx.fillStyle = '#454560';
@@ -2028,10 +2574,22 @@ export class TitleScreen {
     return comps;
   }
 
+  // Beamline endpoints. Source cabinet and Faraday cup are inset from the
+  // screen edges so the machine reads as sitting inside the site instead of
+  // running off the picture (and clears the CRT barrel warp at the edges).
+  // Single source of truth — _drawBeamline and _equipPositions both use it.
+  _beamGeom(W) {
+    const INSET = 36, srcW = 30, tgtW = 30;
+    const srcX = INSET;
+    const tgtX = W - INSET - tgtW;
+    return { srcX, srcW, tgtX, tgtW, pipeStart: srcX + srcW, pipeEnd: tgtX - 2 };
+  }
+
   // Shared positions for support equipment + their concrete slabs
   _equipPositions(W) {
-    const span0 = (W - 46) - 44;
-    const mgx = (f) => Math.floor(44 + span0 * f);
+    const { pipeStart, pipeEnd } = this._beamGeom(W);
+    const span0 = pipeEnd - pipeStart;
+    const mgx = (f) => Math.floor(pipeStart + span0 * f);
     return { rackX: mgx(0.30) - 36, dewarX: mgx(0.44) + 30, pumpX: mgx(0.52) + 16, mgx };
   }
 
@@ -2236,6 +2794,12 @@ export class TitleScreen {
     this._cowEvent = null;
     this._nextCowEventAt = 9 + Math.random() * 6;  // s until the first breakout
 
+    // Rare surprise events, same time-driven pattern (see EVENT_TIMING).
+    this._ufo = null;
+    this._nextUfoAt = randIn(EVENT_TIMING.ufoFirst);
+    this._crash = null;
+    this._nextCrashAt = randIn(EVENT_TIMING.crashFirst);
+
     const W = this.W || 480;
     const n = 4;
     for (let i = 0; i < n; i++) {
@@ -2255,6 +2819,8 @@ export class TitleScreen {
         if (c) { c.state = 'moo'; c.stateT = 0; }
         return !!c;
       },
+      ufo: () => this._startUfoEvent(this._tNow, this.W),
+      crash: () => this._startCrash(this._tNow, this.W),
       setTime: (f) => { this._cycleOffset = (((f % 1) + 1) % 1) * this._cycleLen - this._tNow; },
       spawnCar: (leave) => {
         if (leave) {
@@ -2269,6 +2835,11 @@ export class TitleScreen {
         people: this._people.map((p) => p.state),
         ghostStaff: this._ghostStaff.map((g) => `${g.variant}:${g.state}`),
         meeting: this._meeting ? this._meeting.phase : null,
+        ufo: this._ufo ? this._ufo.phase : null,
+        crash: this._crash ? this._crash.phase : null,
+        // '*' = drawn by its event, '^' = driven by an event, drawn with the herd
+        cows: this._cowsFG.map((c) => c.state + (c.escaped ? '*' : '') + (c.held ? '^' : '')),
+        cars: this._cars.map((c) => c.state),
       }),
     };
     this._fxHook = hook;
@@ -2369,14 +2940,30 @@ export class TitleScreen {
       }
     }
 
-    // foreground cow herd (escaped cows are driven by the cow-escape event)
+    // Foreground cow herd. 'escaped' cows are both driven AND drawn by their
+    // event; 'held' cows are driven by an event but still drawn in the normal
+    // herd pass, so they keep their place in the scene's layering.
     if (this._cowsFG) {
-      for (const c of this._cowsFG) if (!c.escaped) this._updateCow(c, dt, t, W);
+      for (const c of this._cowsFG) if (!c.escaped && !c.held) this._updateCow(c, dt, t, W);
     }
 
     // slapstick cow-escape event: trigger periodically, then advance its phases
-    if (!this._cowEvent && t >= this._nextCowEventAt) this._startCowEvent(t, W);
+    if (!this._cowEvent && !this._ufo && !this._crash && t >= this._nextCowEventAt &&
+        !this._startCowEvent(t, W)) {
+      this._nextCowEventAt = t + 10;
+    }
     if (this._cowEvent) this._updateCowEvent(t, dt, W);
+
+    // rare surprise events (only one cow-borrowing event at a time — if
+    // another is running, back off and try again shortly)
+    if (!this._ufo && t >= this._nextUfoAt && !this._startUfoEvent(t, W)) {
+      this._nextUfoAt = t + 12;
+    }
+    if (this._ufo) this._updateUfoEvent(t, dt, W);
+    if (!this._crash && t >= this._nextCrashAt && !this._startCrash(t, W)) {
+      this._nextCrashAt = t + 12;
+    }
+    if (this._crash) this._updateCrash(t, dt, W);
 
     // chat gag
     if (t >= this._chatCooldownUntil) this._tryChat(t);
