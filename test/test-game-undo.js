@@ -1,11 +1,15 @@
 // test/test-game-undo.js — full-state snapshot undo/redo.
 //
-// _pushUndo() captures serialize() output; undo() must restore the exact
+// commitGesture() captures serialize() output; undo() must restore the exact
 // pre-action payload (byte-equal modulo the log, which accrues 'Undo'/action
 // entries) for every mutation family the input layer can trigger: placeables,
 // floors, walls, beam pipes (via BeamlineSystem), utility lines, demolish.
 // Also: redo restores the after-state, a new gesture clears the redo stack,
 // and the undo stack caps at 20 with oldest-first eviction.
+//
+// commitGesture is the only thing allowed to touch the undo stacks, and it
+// owns the ordering validate -> charge -> mutate -> snapshot; the ordering
+// itself is pinned in test-gesture-ordering.js.
 //
 // What undo deliberately does NOT rewind: the message log, and the sim's own
 // progress (tick, research, objectives, staff needs). Resources are reconciled
@@ -64,12 +68,11 @@ function placePadAndMagnetron(g) {
   return null;
 }
 
-// Run one input-layer gesture: capture before, push undo, mutate, undo,
-// and assert byte-equality with the before payload.
+// Run one input-layer gesture: capture before, mutate inside a gesture,
+// undo, and assert byte-equality with the before payload.
 function gestureRoundTrip(g, label, action) {
   const before = payload(g);
-  g._pushUndo();
-  const acted = action();
+  const acted = g.commitGesture({ mutate: action });
   assertOk(acted, `${label}: action applied`);
   assertOk(payload(g) !== before, `${label}: action changed serialized state`);
   g.undo();
@@ -125,8 +128,9 @@ console.log('\n=== Redo ===\n');
 
 {
   const before = payload(g);
-  g._pushUndo();
-  const ok = g.placeInfraTile(3, 30, 'concrete') || g.placeInfraTile(3, 31, 'concrete');
+  const ok = g.commitGesture({
+    mutate: () => g.placeInfraTile(3, 30, 'concrete') || g.placeInfraTile(3, 31, 'concrete'),
+  });
   assertOk(ok, 'redo setup: floor tile placed');
   const after = payload(g);
   assertOk(after !== before, 'redo setup: state changed');
@@ -143,8 +147,8 @@ console.log('\n=== New gesture clears redo ===\n');
 
 {
   assertOk(g._redoStack.length > 0, 'redo stack non-empty after undo');
-  g._pushUndo();   // new user gesture
-  assertOk(g._redoStack.length === 0, 'new _pushUndo clears the redo stack');
+  g.commitGesture({ mutate: () => g.placeInfraTile(3, 33, 'concrete') });   // new user gesture
+  assertOk(g._redoStack.length === 0, 'a new mutating gesture clears the redo stack');
 }
 
 console.log('\n=== _withUndo: no-op gestures keep undo/redo intact ===\n');
@@ -256,25 +260,25 @@ console.log('\n=== Undo rewinds the build, not the simulation ===\n');
     'redo re-charges the build cost without touching sim income');
 }
 
-// The same must hold for gestures that push directly (_pushUndo, used by the
-// beamline and utility-line controllers), whose spending is attributed to the
-// gesture until the end of the task that opened it.
+// The same must hold for the two-phase form (beginGesture/commit), which the
+// helper itself is built on: spending between open and commit is the
+// gesture's, everything after it is the ledger's.
 {
   const gp = makeGame(10);
   gp.state.resources.funding = 100000;
   const fundingBefore = gp.state.resources.funding;
-  gp._pushUndo();
+  const gesture = gp.beginGesture();
   gp.placeInfraRect(10, 10, 12, 12, 'concrete');
   const spent = fundingBefore - gp.state.resources.funding;
-  assertOk(spent > 0, `_pushUndo gesture charged the player ($${spent})`);
-  await new Promise(r => setTimeout(r, 0));   // gesture task ends
+  assertOk(spent > 0, `two-phase gesture charged the player ($${spent})`);
+  assertOk(gesture.commit() === true, 'two-phase gesture committed a snapshot');
 
   for (let i = 0; i < 25; i++) gp.tick();
   const fundingAfterTicks = gp.state.resources.funding;
   gp.undo();
-  assertOk(gp.state.tick === 25, '_pushUndo gesture: undo keeps the sim clock');
+  assertOk(gp.state.tick === 25, 'two-phase gesture: undo keeps the sim clock');
   assertOk(gp.state.resources.funding === fundingAfterTicks + spent,
-    `_pushUndo gesture: undo refunds only the build (got ${gp.state.resources.funding}, `
+    `two-phase gesture: undo refunds only the build (got ${gp.state.resources.funding}, `
     + `want ${fundingAfterTicks + spent})`);
 }
 
@@ -405,14 +409,15 @@ console.log('\n=== Cap eviction at 20 ===\n');
 
 {
   const gc = makeGame(7);
+  // Each gesture bumps funding, so the snapshot taken before gesture #i
+  // holds funding === i - 1.
   for (let i = 1; i <= 25; i++) {
-    gc.state.resources.funding = i;
-    gc._pushUndo();
+    gc.commitGesture({ mutate: () => { gc.state.resources.funding = i; } });
   }
   assertOk(gc._undoStack.length === 20, 'undo stack capped at 20');
   for (let i = 0; i < 20; i++) gc.undo();
-  assertOk(gc.state.resources.funding === 6,
-    'oldest snapshots evicted first (deepest undo lands on push #6)');
+  assertOk(gc.state.resources.funding === 5,
+    'oldest snapshots evicted first (deepest undo lands before gesture #6)');
   assertOk(gc._undoStack.length === 0, 'undo stack drained after 20 undos');
   const fundingBefore = gc.state.resources.funding;
   gc.undo();   // no-op: logs 'Nothing to undo'

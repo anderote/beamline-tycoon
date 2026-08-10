@@ -242,6 +242,17 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
       wireUtility(g, 'powerCable', { id: xfmr, port: 'pwr_out' }, { id: cup, port: 'pwr_in' });
       wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: src, port: 'vac_in' });
       wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: cup, port: 'vac_in' });
+      // The utility gate also demands a *working* operator, and one goes
+      // onBreak after ~40 ticks of fatigue — which this walk reaches before it
+      // gets here, making "Start Beam" trip on beam_unstaffed at a time that
+      // depends on how fast the machine ran the earlier steps. Reset the
+      // roster so the assertion below is about the beam, not the clock.
+      for (const m of g.state.staffMembers || []) {
+        if (m.role !== 'operator') continue;
+        m.status = 'working';
+        m._restTimer = null;
+        Object.assign(m.needs, { fatigue: 0, hunger: 0, morale: 1 });
+      }
       g.tick();
     });
     await frames(page);
@@ -346,8 +357,24 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.keyboard.press('Escape');
     await expect(page.locator('#designer-overlay')).toBeHidden();
 
-    // 5. save/load dialog
+    // 5. save/load dialog. The dropdown is a child of #top-bar, whose z-index
+    // opens a stacking context, so the menu's own 300 is scoped inside it and
+    // the whole dropdown used to stack at the bar's 100 — under #music-player
+    // (101), which parks directly beneath these very buttons and swallowed the
+    // clicks. Hit-test every item the walk goes on to click, so a stacking
+    // regression names the intercepting layer instead of timing out on a click.
     await page.click('#btn-menu');
+    for (const action of ['save-game', 'load-game', 'options', 'guide']) {
+      const covering = await page.evaluate((a) => {
+        const item = document.querySelector(`.menu-item[data-action="${a}"]`);
+        if (!item) return `missing menu item ${a}`;
+        const r = item.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        if (hit === item || item.contains(hit)) return null;
+        return hit ? (hit.closest('[id]')?.id || hit.className || hit.tagName) : 'nothing';
+      }, action);
+      expect(covering, `no layer intercepts clicks on the ${action} menu item`).toBeNull();
+    }
     await page.click('.menu-item[data-action="save-game"]');
     await expect(page.locator('#saveload-dialog')).toBeVisible();
     await page.keyboard.press('Escape');

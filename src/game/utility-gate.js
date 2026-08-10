@@ -24,7 +24,12 @@ const UNCONNECTED_CODES = {
 //   cryoQuality, vacuumQuality, dataQuality } }. Physics backend reads the
 // individual keys; JS consumers read e.g. .dataQuality. A missing utility
 // defaults to 1.0 (full quality) on the consumer side.
-const UTILITY_TO_QUALITY_FIELD = {
+//
+// Exported because this map IS the utility-type -> quality-field contract:
+// anything reading nodeQualities (panels deciding "is this beamline
+// connected?", the physics bridge) has to key off the same table the gate
+// wrote with, not a hand-copied one.
+export const UTILITY_TO_QUALITY_FIELD = {
   powerCable:   'powerQuality',
   rfWaveguide:  'rfQuality',
   coolingWater: 'coolingQuality',

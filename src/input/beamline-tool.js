@@ -153,18 +153,20 @@ export class BeamlineTool extends Tool {
         game.log('Must place on a beam pipe!', 'bad');
         return true;
       }
-      if (hit.collidesWithModule) {
-        game.log(`${def?.name || 'Attachment'} would overlap a placed module!`, 'bad');
-        return true;
-      }
-      // _withUndo: addAttachmentToPipe can still refuse (affordability),
-      // and a raw push on a rejected gesture wipes the redo stack.
-      game._withUndo(() => game.addAttachmentToPipe(
-        hit.pipe.id,
-        this.key,
-        hit.proj.position,
-        input.selectedParamOverrides,
-      ));
+      // Geometry is the validate step; addAttachmentToPipe prices itself and
+      // can still refuse (affordability), so the snapshot is conditional on
+      // the mutation, not on the click.
+      game.commitGesture({
+        validate: () => (hit.collidesWithModule
+          ? { ok: false, reason: `${def?.name || 'Attachment'} would overlap a placed module!` }
+          : true),
+        mutate: () => game.addAttachmentToPipe(
+          hit.pipe.id,
+          this.key,
+          hit.proj.position,
+          input.selectedParamOverrides,
+        ),
+      });
       return true;
     }
     // Grid modules: unified placeable commit (also opens an existing node's

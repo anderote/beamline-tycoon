@@ -20,6 +20,9 @@ import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data
 import { PLACEABLES } from '../data/placeables/index.js';
 
 import { computeSystemStats, computeTickIncome, computeBeamIncome, computeTickUpkeep } from './economy.js';
+import {
+  hardwareNodeCount, beamlineUptime, facilityUptime, billedDataRate,
+} from './aggregates.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
@@ -61,7 +64,7 @@ const SERIALIZED_FIELDS = [
 // non-gesture credit/debit since, so a build's cost comes back without also
 // reclaiming the upkeep the facility paid while the build stood.
 // `savedDesigns` is not sim state but is equally outside the undo model: the
-// designer library saves/deletes outside any gesture (no _pushUndo), so
+// designer library saves/deletes outside any gesture (no commitGesture), so
 // restoring it would silently destroy a design saved after the last snapshot
 // (and resurrect one deleted after it).
 const UNDO_PRESERVED_FIELDS = [
@@ -220,10 +223,14 @@ export class Game {
     this._UNDO_MAX = 20;
     // Resource accounting for undo (see _syncResourceLedger): running total
     // of every credit/debit undo must NOT reverse, plus the balance as of
-    // the last attribution boundary and whether a _pushUndo gesture is open.
+    // the last attribution boundary.
     this._resourceLedger = {};
     this._resourceMark = { ...this.state.resources };
-    this._undoGestureOpen = false;
+    // Open-gesture nesting depth (see beginGesture). Only the outermost
+    // gesture owns a snapshot; inner ones join it rather than pushing their
+    // own, so a tool that calls a Game method which itself commits a gesture
+    // still produces exactly one undo entry.
+    this._gestureDepth = 0;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.seed = seed;
@@ -475,15 +482,16 @@ export class Game {
     this.emit('resourcesChanged');
   }
 
-  // === UNDO ===
+  // === UNDO / GESTURES ===
 
-  // Undo works on full-state snapshots: _pushUndo() captures serialize()
-  // output (everything a save captures — placeables, beamPipes, terrain,
-  // utility lines, registry, ...), and undo()/redo() restore it via
-  // restoreSnapshot(). Input controllers wrap each user gesture's mutations
-  // in _withUndo() (or call _pushUndo() directly when the gesture is known
-  // to mutate); Game mutation methods never push (they also run
-  // programmatically from scenario generation, BeamlineSystem, load).
+  // Undo works on full-state snapshots: a gesture captures _snapshot()
+  // (everything a save captures — placeables, beamPipes, terrain, utility
+  // lines, registry, ... — minus the log and the host aux sections), and
+  // undo()/redo() restore it via restoreSnapshot(). Every user gesture that
+  // mutates the world goes through commitGesture()/beginGesture(), which are
+  // the ONLY places allowed to touch the undo stacks; Game mutation methods
+  // never push (they also run programmatically from scenario generation,
+  // BeamlineSystem, load).
   //
   // These parts of the payload are deliberately not restored:
   //   - the message log (snapshots are taken log-free, see _snapshot)
@@ -495,15 +503,19 @@ export class Game {
   //     gesture and so has no undo entry of its own
 
   /**
-   * Snapshot payload for the undo stacks: serialize() with the message log
-   * stripped. The log is not undoable state — Ctrl+Z must not delete log
-   * lines — and leaving it in would make every logged rejection ("Need $252
-   * for 9 tiles!") read as a mutation in _withUndo's change test.
+   * Snapshot payload for the undo stacks, and the thing gestures diff to
+   * decide whether anything happened. Everything non-semantic is left out,
+   * because anything in here is both stored AND compared:
+   *   - the message log: Ctrl+Z must not delete log lines, and leaving it in
+   *     made every logged rejection ("Need $252 for 9 tiles!") read as a
+   *     mutation;
+   *   - the host aux sections (camera, probe pins, designer session):
+   *     restoreSnapshot deliberately never dispatches them, so they are dead
+   *     weight in the payload, and a gesture that only moved the camera or
+   *     closed the designer session read as a mutation.
    */
   _snapshot() {
-    const log = this.state.log;
-    this.state.log = EMPTY_LOG;
-    try { return this.serialize(); } finally { this.state.log = log; }
+    return this.serialize({ includeLog: false, includeAux: false });
   }
 
   /** An undo/redo stack entry: the snapshot plus the resource ledger it was
@@ -515,72 +527,151 @@ export class Game {
   /**
    * Fold resource drift since the last mark into _resourceLedger — the
    * running total of credits/debits undo must NOT reverse (tick income and
-   * upkeep, hires, research spend). Changes made while a _pushUndo() gesture
-   * is open are attributed to that gesture instead (marked, not folded) so
-   * undo still refunds what the gesture spent. Called at every point where
-   * attribution can change: gesture start, and undo/redo.
+   * upkeep, hires, research spend). Called at every point where attribution
+   * can change: gesture start and undo/redo.
    */
   _syncResourceLedger() {
     const res = this.state.resources || {};
-    if (!this._undoGestureOpen) {
-      for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
-        this._resourceLedger[k] = (this._resourceLedger[k] || 0)
-          + ((res[k] || 0) - (this._resourceMark[k] || 0));
-      }
+    for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
+      this._resourceLedger[k] = (this._resourceLedger[k] || 0)
+        + ((res[k] || 0) - (this._resourceMark[k] || 0));
     }
-    this._undoGestureOpen = false;
     this._resourceMark = { ...res };
   }
 
-  /** Stop attributing resource changes to the gesture that just ended. */
+  /** Attribute the resource drift since the mark to the gesture that just
+   *  ended (drop it from the ledger) rather than to the simulation. */
   _closeUndoGesture() {
-    this._undoGestureOpen = false;
     this._resourceMark = { ...this.state.resources };
   }
 
-  /** Snapshot the full game state onto the undo stack. Call at the start
-   *  of a user gesture, before any mutation. Clears the redo stack. */
-  _pushUndo() {
-    this._syncResourceLedger();
-    this._undoStack.push(this._makeUndoEntry());
-    if (this._undoStack.length > this._UNDO_MAX) {
-      this._undoStack.shift();
-    }
+  /** Push a completed gesture's snapshot. The one place that writes the
+   *  undo stack; a new gesture always invalidates redo. */
+  _pushUndoEntry(entry) {
+    this._undoStack.push(entry);
+    if (this._undoStack.length > this._UNDO_MAX) this._undoStack.shift();
     this._redoStack.length = 0;
-    // Everything the caller mutates from here belongs to this gesture, not
-    // to the ledger. Unlike _withUndo there is no "after" hook, so the
-    // gesture closes at the end of the current task: its mutations all run
-    // synchronously in the same event handler, while tick() and later
-    // gestures are separate tasks whose spending must stay in the ledger.
-    this._undoGestureOpen = true;
-    queueMicrotask(() => this._closeUndoGesture());
   }
 
   /**
-   * Run one user gesture's mutations with undo capture. Snapshots before
-   * running `fn` and commits the snapshot (clearing the redo stack) only if
-   * `fn` actually changed the serialized state. No-op gestures — miss
-   * clicks, empty drag rects, failed placements — must neither fill the
-   * capped undo stack with identical snapshots nor clobber the redo stack.
-   * Returns fn's result.
+   * Open a gesture: take the "before" snapshot and mark the resource
+   * attribution boundary. Returns a handle:
+   *
+   *   commit()  — push the snapshot iff semantic state actually changed
+   *   abandon() — close without pushing
+   *
+   * Nested opens join the outer gesture — the inner handle is inert — so a
+   * tool path that calls a Game method which itself opens a gesture still
+   * produces exactly one undo entry for the one user action.
    */
-  _withUndo(fn) {
+  beginGesture() {
+    if (this._gestureDepth > 0) {
+      this._gestureDepth++;
+      const close = () => { this._gestureDepth--; return false; };
+      return { commit: close, abandon: close, nested: true };
+    }
+    this._gestureDepth = 1;
     this._syncResourceLedger();
     const entry = this._makeUndoEntry();
-    let result;
-    try {
-      result = fn();
-    } finally {
-      if (this._snapshot() !== entry.payload) {
-        this._undoStack.push(entry);
-        if (this._undoStack.length > this._UNDO_MAX) {
-          this._undoStack.shift();
-        }
-        this._redoStack.length = 0;
-      }
+    let closed = false;
+    const end = (push) => {
+      if (closed) return false;
+      closed = true;
+      this._gestureDepth = 0;
+      const changed = push && this._snapshot() !== entry.payload;
+      if (changed) this._pushUndoEntry(entry);
+      // Everything spent between open and close belongs to this gesture, not
+      // to the ledger, so undo refunds it.
       this._closeUndoGesture();
+      return changed;
+    };
+    return {
+      commit: () => end(true),
+      abandon: () => end(false),
+      nested: false,
+    };
+  }
+
+  /**
+   * The single entry point for a mutating user gesture. It owns the ordering
+   * the input layer kept getting wrong, in this order and no other:
+   *
+   *   1. validate — runs before anything is charged, mutated or snapshotted.
+   *      Return false / { ok: false, reason } to reject; a `reason` string is
+   *      logged. A rejected gesture charges nothing, mutates nothing, pushes
+   *      no undo entry and leaves the redo stack alone.
+   *   2. charge  — `cost` is deducted exactly once, here, and only for
+   *      mutations that do NOT price themselves (most Game.place* methods
+   *      do; passing `cost` for those double-charges). Refunded if the
+   *      mutation then reports failure.
+   *   3. mutate  — the state change.
+   *   4. snapshot — pushed only if step 3 changed semantic state, so a
+   *      gesture that did nothing can neither evict real undo history nor
+   *      clobber the redo stack.
+   *
+   * Returns the mutation's result, or undefined when the gesture was
+   * rejected before it ran.
+   *
+   * @param {object}   spec
+   * @param {function} [spec.validate] () => boolean | { ok, reason }
+   * @param {object|function} [spec.cost] resource cost, or () => cost
+   * @param {function} spec.mutate   () => result
+   * @param {function} [spec.failed] (result) => boolean; drives the refund
+   */
+  commitGesture({ validate, cost, mutate, failed } = {}) {
+    if (typeof mutate !== 'function') return undefined;
+
+    // 1. Validate.
+    if (typeof validate === 'function') {
+      const v = validate();
+      const ok = (v != null && typeof v === 'object') ? v.ok !== false : !!v;
+      if (!ok) {
+        const reason = (v && typeof v === 'object') ? v.reason : null;
+        if (reason) this.log(reason, 'bad');
+        return undefined;
+      }
+    }
+
+    // 2. Charge — before the mutation, exactly once, and never twice for the
+    //    same gesture (a nested commitGesture charges its own cost only).
+    const costs = typeof cost === 'function' ? cost() : cost;
+    if (costs) {
+      if (!this.canAfford(costs)) {
+        this.log('Insufficient funds!', 'bad');
+        return undefined;
+      }
+    }
+
+    const gesture = this.beginGesture();
+    let result;
+    let refund = !!costs;   // cleared once the mutation reports success
+    try {
+      if (costs) this.spend(costs);
+      result = mutate();
+      const didFail = typeof failed === 'function'
+        ? failed(result)
+        : (result === false || result === null);
+      refund = refund && didFail;
+    } finally {
+      // 3b. The mutation refused (or threw) after being charged — give it
+      //     back before the snapshot diff runs, so the gesture is a no-op.
+      if (refund) {
+        for (const [r, a] of Object.entries(costs)) this.state.resources[r] += a;
+      }
+      // 4. Snapshot.
+      gesture.commit();
     }
     return result;
+  }
+
+  /**
+   * Shorthand for the degenerate gesture — no separate validation step, no
+   * caller-supplied cost (the mutation prices itself). Exactly equivalent to
+   * commitGesture({ mutate: fn }); kept because most commit paths and the
+   * UI layer have nothing to validate.
+   */
+  _withUndo(fn) {
+    return this.commitGesture({ mutate: fn });
   }
 
   undo() {
@@ -602,7 +693,7 @@ export class Game {
     }
     this._syncResourceLedger();
     const entry = this._redoStack.pop();
-    // Push directly (not _pushUndo) — _pushUndo would clear the redo stack.
+    // Push directly, not via _pushUndoEntry — that clears the redo stack.
     this._undoStack.push(this._makeUndoEntry());
     this.restoreSnapshot(entry);
     this.log('Redo', 'info');
@@ -2716,10 +2807,11 @@ export class Game {
     // beam-on ticks over wall-clock ticks: totalBeamOnTicks accumulates once
     // per beamline, so dividing by state.tick produced a value up to N with N
     // beamlines and let the `highAvailability` objective (>= 0.95) pay out for
-    // a facility whose beams were down most of the time.
-    this.state.uptimeFraction = (entries.length > 0 && this.state.tick > 0)
-      ? (totalBeamOnTicks / entries.length) / this.state.tick
-      : 1;
+    // a facility whose beams were down most of the time. Same accessor the
+    // per-beamline figure uses, so the two can't drift apart again.
+    this.state.uptimeFraction = facilityUptime(
+      entries.map(e => e.beamState), this.state.tick,
+    );
 
     // For single-beamline compat: expose first running beamline's detailed
     // physics. NOTE: avgPressure is deliberately NOT mirrored here — no
@@ -3136,11 +3228,14 @@ export class Game {
         this._tickBeamline(entry);
       } else {
         entry.beamState.continuousBeamTicks = 0;
+        // A stopped beamline earns no data fees; leaving the last running
+        // value here would let a panel quote income the player is not paid.
+        entry.beamState.effectiveDataRate = 0;
       }
 
       // Uptime tracking per beamline
       if (this.state.tick > 0) {
-        entry.beamState.uptimeFraction = entry.beamState.beamOnTicks / this.state.tick;
+        entry.beamState.uptimeFraction = beamlineUptime(entry.beamState, this.state.tick);
       }
     }
 
@@ -3227,12 +3322,11 @@ export class Game {
 
     // Funding from running beam (MVP loop closure: beam on = income).
     // Scales with beam quality AND machine size — see economy.js ECON.
-    // Count HARDWARE only: the flattener also emits a synthetic 'drift' entry
-    // per gap between placements, so billing raw entries paid ~$100/tick for
-    // every gap — spacing identical hardware further apart minted income at
-    // zero cost. Every other flattenPath consumer (wear, dataQuality, the
-    // schematic) already skips drifts.
-    const hardwareNodes = blNodes.filter(n => n.kind !== 'drift');
+    // hardwareNodeCount, never blNodes.length: the flattener also emits a
+    // synthetic 'drift' entry per gap between placements, so billing raw
+    // entries paid ~$100/tick for every gap — spacing identical hardware
+    // further apart minted income at zero cost.
+    const nodeCount = hardwareNodeCount(blNodes);
 
     // Apply data fiber network quality. In the Phase 6 utility model,
     // dataFiber quality is 1.0 when a detector port is connected to an
@@ -3241,12 +3335,15 @@ export class Game {
     //
     // Derated BEFORE income, not after: billing the raw bs.dataRate paid the
     // player full data fees for a detector whose fiber had been cut, i.e. for
-    // science that demonstrably produced no `data` resource that tick.
-    const connectedDataRate = (bs.dataRate || 0) * this._dataConnectivityFactor(blNodes);
+    // science that demonstrably produced no `data` resource that tick. The
+    // derated value is published on beamState so panels quote the number the
+    // player is actually paid for rather than re-deriving it.
+    const connectedDataRate = billedDataRate(bs, this._dataConnectivityFactor(blNodes));
+    bs.effectiveDataRate = connectedDataRate;
 
     this.state.resources.funding += computeBeamIncome(
       connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
-      hardwareNodes.length,
+      nodeCount,
     );
 
     // Data from detectors (physics-driven)
@@ -3620,16 +3717,20 @@ export class Game {
 
   // Build the save payload string without writing it anywhere.
   // Used by save() (active/autosave key) and the named save-slot system.
-  serialize() {
+  // Undo snapshots pass includeLog/includeAux false — see _snapshot.
+  serialize({ includeLog = true, includeAux = true } = {}) {
     const saveState = {};
     for (const key of SERIALIZED_FIELDS) saveState[key] = this.state[key];
+    if (!includeLog) saveState.log = EMPTY_LOG;
     // Map-backed fields persist as entry arrays.
     saveState.cornerHeights = serializeCornerHeights(this.state.cornerHeights);
     saveState.utilityLines = Array.from((this.state.utilityLines || new Map()).entries());
     saveState.utilityNetworkState = Array.from((this.state.utilityNetworkState || new Map()).entries());
     saveState.utilityNextId = this.state.utilityNextId || 1;
     const aux = {};
-    for (const [key, s] of this._serializers) aux[key] = s.save();
+    if (includeAux) {
+      for (const [key, s] of this._serializers) aux[key] = s.save();
+    }
     return JSON.stringify({
       version: 9,
       state: saveState,

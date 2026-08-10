@@ -139,9 +139,10 @@ function sourceList(file, name, { key } = {}) {
 // failure go away; a scenario or palette list naming unbuilt hardware is a
 // real bug, only the forward-looking progression tables are exempt.
 const LISTS = [
-  // --- src/game/economy.js: the panel counters the review rounds found dead ---
-  ['src/game/economy.js PUMP_TYPES',        sourceList('src/game/economy.js', 'PUMP_TYPES'),     R.COMPONENTS],
-  ['src/game/economy.js pumpTypes',         sourceList('src/game/economy.js', 'pumpTypes'),      R.COMPONENTS],
+  // --- the panel counters the review rounds found dead ---
+  // PUMP_TYPES was two lists (billed in economy.js, displayed 120 lines
+  // below); it now lives once in aggregates.js.
+  ['src/game/aggregates.js PUMP_TYPES',     sourceList('src/game/aggregates.js', 'PUMP_TYPES'),  R.COMPONENTS],
   ['src/game/economy.js gaugeTypes',        sourceList('src/game/economy.js', 'gaugeTypes'),     R.COMPONENTS],
   ['src/game/economy.js rfSourceTypes',     sourceList('src/game/economy.js', 'rfSourceTypes'),  R.COMPONENTS],
 

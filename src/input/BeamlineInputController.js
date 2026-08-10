@@ -146,29 +146,32 @@ export class BeamlineInputController {
     if (!placeable) return false;
     const dir = this.input.placementDir || 0;
     const snap = snapForPlaceable(worldX, worldY, placeable, dir);
-    const result = canPlace(
-      this.game, placeable,
-      snap.col, snap.row, snap.subCol, snap.subRow, dir,
-    );
-    if (!result.ok) {
-      // Swallow the click — the generic click path is already suppressed for
-      // junction tools — but surface the reason. The red ghost is the only
-      // other cue and it disappears the moment the player looks away.
-      this.game.log(result.wallBlocked ? 'A wall is in the way!' : 'Space occupied!', 'bad');
-      return true;
-    }
-    // _withUndo, not _pushUndo: canPlace() above only checks geometry, so
-    // placeJunction can still reject (affordability, in particular). A raw
-    // push would leave a no-op undo entry and wipe the redo stack.
-    const placedId = this.game._withUndo(() => this.game.beamline.placeJunction({
-      type: selectedId,
-      col: snap.col,
-      row: snap.row,
-      subCol: snap.subCol,
-      subRow: snap.subRow,
-      dir,
-      params: this.input.selectedParamOverrides,
-    }));
+    // No `cost` here: placeJunction routes through placePlaceable, which
+    // prices itself — charging again would bill the player twice.
+    // The geometry check is the gesture's validate step, so a blocked click
+    // is swallowed with its reason logged and nothing else touched; the red
+    // ghost is the only other cue and it vanishes the moment the player
+    // looks away.
+    const placedId = this.game.commitGesture({
+      validate: () => {
+        const result = canPlace(
+          this.game, placeable,
+          snap.col, snap.row, snap.subCol, snap.subRow, dir,
+        );
+        return result.ok
+          ? true
+          : { ok: false, reason: result.wallBlocked ? 'A wall is in the way!' : 'Space occupied!' };
+      },
+      mutate: () => this.game.beamline.placeJunction({
+        type: selectedId,
+        col: snap.col,
+        row: snap.row,
+        subCol: snap.subCol,
+        subRow: snap.subRow,
+        dir,
+        params: this.input.selectedParamOverrides,
+      }),
+    });
     // Sources auto-advance the tool to the beam-pipe draw tool (same UX
     // the old generic path provided).
     if (placedId && def.isSource && typeof this.input?.selectComponentTool === 'function') {
@@ -212,10 +215,10 @@ export class BeamlineInputController {
     if (this._drawMode === 'remove') {
       this._pipeRemoveEnd(worldX, worldY);
     } else {
-      // _withUndo, not a raw push inside _pipeDrawEnd: drawPipe/extendPipe
+      // commitGesture, not a raw push inside _pipeDrawEnd: drawPipe/extendPipe
       // validate on commit (port_mismatch is the common one) and return null,
       // which would otherwise leave a phantom undo entry and clear redo.
-      this.game._withUndo(() => this._pipeDrawEnd(worldX, worldY));
+      this.game.commitGesture({ mutate: () => this._pipeDrawEnd(worldX, worldY) });
     }
     this._resetDrawing();
     return true;
@@ -382,19 +385,22 @@ export class BeamlineInputController {
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
     const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
-    if (mode === 'snap' && this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL)) {
-      this.game.log('That stretch of pipe is already occupied', 'bad');
-      return true;
-    }
-    // _withUndo: the overlap pre-check above doesn't cover capacity or cost,
-    // so placeOnPipe can still reject ("full", "can't afford").
-    const placedId = this.game._withUndo(() => this.game.beamline.placeOnPipe(hit.pipe.id, {
-      type: selectedId,
-      position: quantizedPosition,
-      subL,
-      mode,
-      params: this.input.selectedParamOverrides,
-    }));
+    // The overlap check is the validate step; placeOnPipe prices itself and
+    // can still reject beyond geometry ("full", "can't afford"), so the
+    // gesture only snapshots if it actually placed something.
+    const placedId = this.game.commitGesture({
+      validate: () => (mode === 'snap'
+        && this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL))
+        ? { ok: false, reason: 'That stretch of pipe is already occupied' }
+        : true,
+      mutate: () => this.game.beamline.placeOnPipe(hit.pipe.id, {
+        type: selectedId,
+        position: quantizedPosition,
+        subL,
+        mode,
+        params: this.input.selectedParamOverrides,
+      }),
+    });
     if (placedId) {
       // Refresh the ghost so the user sees the next valid hover immediately
       // after committing (the previous ghost may now overlap the new placement).
@@ -527,12 +533,15 @@ export class BeamlineInputController {
         }
       }
     }
-    if (pipesToRemove.size > 0) {
-      this.game._pushUndo();
-      for (const id of pipesToRemove) {
-        this.game.removeBeamPipe(id);
-      }
-    }
+    // commitGesture, not a raw push: a remove-sweep that crosses no pipe (or
+    // whose pipes all refuse removal) must not leave a phantom undo entry.
+    // _batchEvents so a multi-pipe sweep rebuilds the beamline meshes once.
+    this.game.commitGesture({
+      validate: () => pipesToRemove.size > 0,
+      mutate: () => this.game._batchEvents(() => {
+        for (const id of pipesToRemove) this.game.removeBeamPipe(id);
+      }),
+    });
   }
 
   // Outward unit vector (in pipe-path space) for the zero-drag stub. Uses the

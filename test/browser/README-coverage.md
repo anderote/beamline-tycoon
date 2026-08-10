@@ -11,8 +11,8 @@ npm run test:browser:headed     # watch it happen
 ```
 
 Playwright starts a throwaway vite server on **port 8123** (`BT_TEST_PORT` to
-change) and tears it down on pass, fail, or interrupt. It never touches port
-8000, so a dev server you already have running is left alone.
+change). It never touches port 8000, so a dev server you already have running is
+left alone.
 
 The test server runs `test/browser/vite.test.config.mjs`, which is the normal
 dev config **with HMR disabled**. That matters in a shared checkout: with HMR
@@ -25,6 +25,29 @@ The specs also intercept `demo-commands.json`. In dev, `main.js` polls that
 file every 800ms and `eval`s any command whose `seq` is higher than the last
 one it ran, so without the intercept every test tab would execute whatever the
 last hands-on dev session left behind in `public/demo-commands.json`.
+
+## The leaked-server problem, and how it is handled
+
+Playwright's `webServer` teardown runs on pass, fail and Ctrl-C — but **not**
+when the run is SIGKILLed or the process that launched it times out. The
+detached vite survives, and the next run dies on `strictPort` with
+"Port 8123 is already in use". This bit twice during development.
+
+`scripts/free-test-port.mjs` reclaims the port (SIGTERM, then SIGKILL, waiting
+for the listener to actually close) and runs from **both** entry points:
+
+* `npm run test:browser` — via its `pretest:browser` hook;
+* `npx playwright test` — from `playwright.config.mjs`'s module body, before
+  `webServer` binds.
+
+Playwright re-loads the config inside every worker process, where killing the
+port would take down the run it belongs to, so the config path is guarded twice:
+it skips when `TEST_WORKER_INDEX` is set, and again on the `BT_TEST_PORT_FREED`
+env var it stamps for the workers to inherit.
+
+Verified: SIGKILL a run mid-flight, confirm `lsof -ti tcp:8123` still shows the
+orphan, start the next run — it prints `[free-test-port] reclaimed :8123 from
+pid N` and goes green.
 
 ## The WebGL prerequisite
 
@@ -43,24 +66,37 @@ Verified in this environment: `WebGL 2.0 (OpenGL ES 3.0 Chromium)`,
 `expectRendererLive()`, which fails if the context is lost or no frame was drawn —
 so a regression back to "no GL" reports itself instead of passing vacuously.
 
-## What the three specs own
+Software GL runs the title screen at roughly **3 fps**, against ~50 fps headed on
+the real GPU. Nothing here may assume a frame rate: `frames(page, n)` waits on
+`requestAnimationFrame`, and everything else waits on a condition
+(`expect.poll`), never on a fixed sleep.
+
+## What the four specs own
 
 | Spec | Owns | Runtime |
 | --- | --- | --- |
-| `smoke.spec.mjs` | One continuous session: title → New Game → floor/wall/decoration → junctions → beam pipe → on-pipe component → utility line → beam on → save/reload/Continue → undo/redo → Escape from every UI layer. Everything world-mutating goes through real canvas input. | ~3–8 min |
-| `render-placement.spec.mjs` | Every `COMPONENTS` entry placed through the path its **current** taxonomy calls for, rendered, and disposed. Replaces `test-render-placement.mjs`. | ~6 min |
-| `palette-arm.spec.mjs` | Every palette item in every mode/category: arm via real clicks, hover-preview, commit, Escape-teardown. Replaces `test-ui-placement.mjs`. | ~6 min |
+| `smoke.spec.mjs` | One continuous session: title → New Game → floor/wall/decoration → junctions → beam pipe → on-pipe component → utility line → beam on → save/reload/Continue → undo/redo → Escape from every UI layer. Everything world-mutating goes through real canvas input. | 1.1–2.7 min |
+| `render-placement.spec.mjs` | Every `COMPONENTS` entry placed through the path its **current** taxonomy calls for, rendered, and disposed. Replaces `test-render-placement.mjs`. | 2.7–4.9 min |
+| `palette-arm.spec.mjs` | Every palette item in every mode/category: arm via real clicks, hover-preview, commit, Escape-teardown. Replaces `test-ui-placement.mjs`. | 4.4–7.4 min |
+| `preview-regress.spec.mjs` | Three placement-preview defects from commit `3e81e9f8` that no other suite can see: keyboard-arm ghost, stackable ghost vs. a component's invisible hitbox, decoration rotation. | 0.5–1 min |
+
+The low end of each range is the spec run on its own on an otherwise idle
+machine; the high end is the same spec inside a full run with other heavy work
+on the box. Software GL is CPU-bound, so these numbers move with load by
+roughly 2x — treat them as an order of magnitude, not a budget.
 
 Runtime is dominated by software-GL frame cost: an armed build tool re-renders
 its ghost every frame, and every placement triggers a full scene rebuild.
-Both of the sweep specs clear the generated map (~1k decorations) at boot for
-exactly this reason.
+The three specs that are not the smoke walk clear the generated map
+(~1k decorations) at boot for exactly this reason.
 
 Each spec's header comment carries its own detailed covers / does-not-cover list.
 The short version of what **none** of them do:
 
 - **No pixel assertions.** They prove the renderer runs and does not throw; they
   do not prove anything looks right. There is no visual-regression baseline.
+  `preview-regress.spec.mjs` asserts scene-graph *transforms*, which is as close
+  as this harness gets.
 - **No physics or economy assertions.** Pyodide loads and the beam runs, but the
   numbers belong to `test/test_*.py` and the node suites.
 - **No coverage of** research purchasing, staff, scenarios, the Designer's
@@ -77,17 +113,20 @@ else is filtered.
 
 ## Why this is not in `npm test`
 
-`npm test` is ~62 suites in about a minute with no external dependencies. The
-browser suite needs `npx playwright install chromium` (a ~150 MB download), a
-vite server, and CDN reachability for `three.min.js` (jsDelivr) and Pyodide,
-and takes **15–20 minutes** end to end under software GL — an order of
-magnitude more than everything else combined. Folding it into `npm test` would
-turn the fast gate into a coffee break and make it fail offline.
+Not a stability call — the suite is stable (see Status). It is a cost call, and
+the answer stays no:
+
+* `npm test` is 65 suites in about a minute. A full browser run is **9–16
+  minutes**, an order of magnitude more than everything else combined.
+* It needs `npx playwright install chromium` (a ~150 MB download) that nothing
+  else in the repo requires.
+* It needs the network: `three.min.js` from jsDelivr and Pyodide from its CDN.
+  `npm test` currently passes offline; folding this in would end that.
 
 Keep it separate; run `npm run test:browser` before anything that touches the
 renderer, the input layer, or the HUD, and in CI as its own job.
 
-## What these found on their first green run
+## What these found
 
 - **`ComponentBuilder._disposeWrapper` threw on every multi-material mesh.**
   `child.material.dispose()` is not a function when `material` is an array, and
@@ -102,7 +141,7 @@ renderer, the input layer, or the HUD, and in CI as its own job.
   belongs with the dialog-base convergence work. `smoke.spec.mjs` asserts the
   current behaviour so the gap is pinned rather than forgotten.
 
-## Two behaviours worth knowing before you write a spec here
+## Behaviours worth knowing before you write a spec here
 
 - **A click on existing equipment opens its inspector window, and that window
   owns Escape.** The esc-stack gives the topmost layer the key, so "press
@@ -111,26 +150,57 @@ renderer, the input layer, or the HUD, and in CI as its own job.
 - **Context windows re-render on every 1 Hz tick**, which detaches their action
   buttons out from under a click. `smoke.spec.mjs` pauses the sim (via the HUD
   pause button) before driving the beamline window.
+- **The beam needs a *working* operator, and operators tire on a wall clock.**
+  An operator goes `onBreak` after ~40 ticks, which a long walk reaches before
+  it gets to "Start Beam" — so the beam trips on `beam_unstaffed` at a moment
+  that depends on how fast the machine ran the earlier steps. `smoke.spec.mjs`
+  resets the roster in its scaffolding step rather than racing it.
+- **`InputHandler.lastMouseWorldX/Y` only updates in the no-tool branch** of the
+  canvas mousemove handler; with a tool armed the tool owns the move. And the
+  listener is bound to the canvas, so clicking HUD elements never moves the
+  world cursor — which is what makes the keyboard-arm assertion in
+  `preview-regress.spec.mjs` meaningful.
 
-## Status (paused 2026-08-09) — WORK IN PROGRESS
+## Status (2026-08-10) — green and stable
 
-Landed mid-development, not finished. Known state:
+Three consecutive full runs, no retries, nothing quarantined:
 
-- **SwiftShader works.** The long-standing blocker (headless Chromium has no
-  WebGL, so ThreeRenderer never booted) is solved — the specs drive the real
-  renderer. That was the hard part.
-- **Full pass/fail is unconfirmed.** A complete run exceeds ~7 minutes and was
-  never observed finishing. Individual specs were progressing without reported
-  failures, which is weak evidence, not a green suite.
-- **The server leaks on interrupt.** Playwright's `webServer` teardown does not
-  fire when the run is killed or times out, leaving vite on 8123 and making the
-  next run fail with "port is already used". Fix before wiring into CI:
-  `lsof -ti :8123 | xargs kill` in a pretest step, or manage the server outside
-  Playwright.
-- **Deliberately NOT in `npm test`** — it must prove stable across three
-  consecutive full runs first.
-- The two former Puppeteer harnesses (`test-render-placement.mjs`,
-  `test-ui-placement.mjs`) were deleted; `render-placement.spec.mjs` supersedes
-  them and fixes their stale premise (they assumed every `placement: 'module'`
-  component was free-grid placeable, which is false for the 19 `role:'placement'`
-  components that must go on a pipe).
+| Run | Result | Wall clock |
+| --- | --- | --- |
+| 1 | 4 passed | 13.3 min |
+| 2 | 4 passed | 14.2 min |
+| 3 | 4 passed | 17.5 min |
+
+All three ran with other heavy work on the same machine; the specs measured
+solo on an idle box total ~9 min. No spec contains a fixed sleep — every wait
+is `requestAnimationFrame` or `expect.poll` — which is why the 30% run-to-run
+spread costs nothing in flakes.
+
+The two things that were open at the last checkpoint are closed: the server
+leak is handled (see above, verified by SIGKILLing a run mid-flight), and a
+full run finishing green is now an observed fact rather than an inference from
+"no failures reported yet".
+
+Three ordinary bugs, all of which the harness caught rather than tolerated:
+the `smoke.spec.mjs` beam step was racing the staff fatigue clock (fixed in the
+spec's scaffolding); `render-placement.spec.mjs` was already carrying the
+`_disposeWrapper` fix described above; and the main-menu dropdown was
+unclickable whenever the music player happened to land on it.
+
+That third one is worth recording, because an earlier table in this section
+claimed three green runs while the defect was still live — the failure is
+position-dependent, so it hit roughly one full run in two and looked like
+flake. It is an app bug, not a harness artifact: `.menu-dropdown` is a child of
+`#top-bar`, whose `z-index: 100` opens a stacking context, so the dropdown's own
+`z-index: 300` is scoped inside it. `#music-player` (101) therefore out-stacked
+the entire open menu and intercepted the click on Save Game. `style.css` now
+raises `#top-bar` while a menu is open (`#top-bar:has(.menu-dropdown:not(.hidden))`),
+and the escape-ladder step in `smoke.spec.mjs` `elementFromPoint`s every menu
+item it is about to click, so a stacking regression names the intercepting
+layer instead of timing out after 20 s on `page.click`.
+
+The two former Puppeteer harnesses (`test-render-placement.mjs`,
+`test-ui-placement.mjs`) are gone; `render-placement.spec.mjs` supersedes them
+and fixes their stale premise (they assumed every `placement: 'module'`
+component was free-grid placeable, which is false for the 19 `role:'placement'`
+components that must go on a pipe).

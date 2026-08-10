@@ -1,5 +1,9 @@
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
+import {
+  poweredPlaceables, beamlineEnergyDraw, facilityEnergyDraw,
+  pumpCount as countPumps,
+} from './aggregates.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7 — economy tuning knobs. All per-tick revenue/upkeep coefficients
@@ -35,11 +39,6 @@ export const ECON = {
   pumpUpkeepEach: 8,
 };
 
-// Vacuum pumps that pay the per-tick service fee. Keep in sync with the
-// pumpTypes list in computeSystemStats — a pump missing here is billed
-// nothing while still counting as a pump everywhere else.
-const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']);
-
 /**
  * Facility-wide passive revenue for one tick: base grant + research passive
  * funding + reputation revenue, all scaled by the decoration reputation
@@ -54,11 +53,24 @@ export function computeTickIncome(state, researchPassive = 0) {
 }
 
 /**
- * Revenue for one tick of one running beamline. nodeCount is the flattened
- * HARDWARE count (junctions + pipe placements) — callers must exclude the
+ * The user-fee term of beam income, $/tick, for an already-billed (that is,
+ * connectivity-derated) data rate. The UI's "User Fees" readout re-derived
+ * this as `dataRate * 0.1` off the raw physics rate, which understated the
+ * money by 50x and still quoted a fee for a beamline whose fiber was cut.
+ * Anything that bills or displays data fees calls this.
+ */
+export function dataFeeIncome(billedRate) {
+  const rate = billedRate || 0;
+  return rate > 0 ? rate * ECON.dataFeeRate : 0;
+}
+
+/**
+ * Revenue for one tick of one running beamline. `nodeCount` comes from
+ * aggregates.hardwareNodeCount — junctions + pipe placements, never the
  * flattener's synthetic 'drift' entries, which are gaps, not machines.
- * Income scales with both beam quality and machine size, plus data fees
- * while detectors collect.
+ * `beamState.dataRate` must already be the billed (connectivity-derated)
+ * rate — see aggregates.billedDataRate. Income scales with both beam quality
+ * and machine size, plus data fees while detectors collect.
  */
 export function computeBeamIncome(beamState, nodeCount = 0) {
   // `|| 0.2` here treated a legitimate quality of exactly 0 (lattice.py
@@ -68,7 +80,7 @@ export function computeBeamIncome(beamState, nodeCount = 0) {
   const raw = beamState.beamQuality;
   const q = Number.isFinite(raw) ? raw : 0.2;
   let income = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
-  if ((beamState.dataRate || 0) > 0) income += beamState.dataRate * ECON.dataFeeRate;
+  income += dataFeeIncome(beamState.dataRate);
   return income;
 }
 
@@ -82,22 +94,10 @@ export function computeTickUpkeep(state) {
   const staffCost = Object.entries(state.staff || {}).reduce((sum, [type, count]) => {
     return sum + count * ((state.staffCosts || {})[type] || 0);
   }, 0);
-  let pumpCount = 0;
-  let equipDraw = 0;
-  for (const p of (state.placeables || [])) {
-    // Pumps, RF sources, chillers, etc. are kind 'infrastructure' in the
-    // unified placement registry; lab devices are kind 'equipment'. Both
-    // draw power while placed, and all PUMP_TYPES ids are infrastructure.
-    if (p.category !== 'equipment' && p.category !== 'infrastructure') continue;
-    if (PUMP_TYPES.has(p.type)) pumpCount++;
-    equipDraw += (COMPONENTS[p.type]?.energyCost || 0);
-  }
-  const pumpUpkeep = pumpCount * ECON.pumpUpkeepEach;
-  // state.totalEnergyCost already sums only the beamlines that are actually
-  // running (see Game._updateAggregateBeamline) — no global beamOn gate, which
-  // used to bill stopped beamlines whenever any one beamline ran.
-  const beamDraw = state.totalEnergyCost || 0;
-  const powerBill = ECON.powerBillPerKW * (equipDraw + beamDraw);
+  const pumpUpkeep = countPumps(state) * ECON.pumpUpkeepEach;
+  // facilityEnergyDraw is the same basis computeSystemStats reports as
+  // power.totalDraw — the bill and the panel cannot disagree.
+  const powerBill = ECON.powerBillPerKW * facilityEnergyDraw(state);
   return { staffCost, pumpUpkeep, powerBill, total: staffCost + pumpUpkeep + powerBill };
 }
 
@@ -108,13 +108,8 @@ export function computeTickUpkeep(state) {
 // load math; this file just produces rough summary stats for the HUD.
 
 export function computeSystemStats(state) {
-  // Pumps, chillers, cold boxes and RF sources are placed with kind (and so
-  // category) 'infrastructure'; 'equipment' is lab devices. Both count here,
-  // exactly as in computeTickUpkeep — filtering to 'equipment' alone left
-  // the HUD reporting zero pumps/draw for hardware the player is billed for.
-  const equip = (state.placeables || []).filter(
-    p => p.category === 'equipment' || p.category === 'infrastructure',
-  );
+  // Same population computeTickUpkeep bills — see aggregates.js.
+  const equip = poweredPlaceables(state);
   const beamline = state.beamline || [];
 
   // Count facility equipment by type
@@ -156,9 +151,8 @@ export function computeSystemStats(state) {
   };
 
   // === VACUUM ===
-  const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump'];
   const gaugeTypes = ['piraniGauge', 'coldCathodeGauge', 'baGauge'];
-  const pumpCount = pumpTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+  const pumpCount = countPumps(state);
   const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
   const totalPumpSpeed = portCapacity('vac_out', 'pumpSpeed');
   // Derived fresh every call. This used to read `state.avgPressure ||` first
@@ -310,7 +304,7 @@ export function computeSystemStats(state) {
   const emergCooling = counts.emergencyCooling || 0;
 
   const coolingCap = portCapacity('cool_out', 'capacity');
-  const coolingLoad = (state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
+  const coolingLoad = beamlineEnergyDraw(state) * 0.6; // ~60% of electrical becomes heat
 
   const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T
   const coolingMargin = coolingCap > 0 ? ((coolingCap - coolingLoad) / coolingCap * 100) : 0;
@@ -349,14 +343,13 @@ export function computeSystemStats(state) {
     if (typeof cap === 'number') powerCapacity += cap;
   }
   // Draw is the sum over every placed unit plus the running beamlines — the
-  // SAME basis computeTickUpkeep bills on. Adding the per-category draws
+  // SAME accessor computeTickUpkeep bills on. Adding the per-category draws
   // instead both under- and over-counted: it omitted the dataControls, ops and
   // power categories and the 34 lab items that have no `category` at all
   // (~68 kW on an ordinary build), while double-counting cryogenics, which is
   // a subsection of cooling and was added twice. A facility drawing 74 kW
   // against a 100 kW supply displayed a green 6%.
-  const equipDraw = equip.reduce((s, e) => s + (COMPONENTS[e.type]?.energyCost || 0), 0);
-  const totalDraw = (state.totalEnergyCost || 0) + equipDraw;
+  const totalDraw = facilityEnergyDraw(state);
   const powerUtil = powerCapacity > 0 ? (totalDraw / powerCapacity * 100) : 0;
 
   const power = {
@@ -371,7 +364,7 @@ export function computeSystemStats(state) {
       rfDraw: rfPower.energyDraw,
       cryoDraw: cryo.energyDraw,
       coolingDraw: cooling.energyDraw,
-      beamlineDraw: state.totalEnergyCost || 0,
+      beamlineDraw: beamlineEnergyDraw(state),
     },
   };
 

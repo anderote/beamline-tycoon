@@ -5,6 +5,8 @@ import { COMPONENTS } from '../data/components.js';
 import { formatEnergy } from '../data/units.js';
 import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
 import { flattenPath } from '../beamline/flattener.js';
+import { hardwareNodes } from '../game/aggregates.js';
+import { dataFeeIncome } from '../game/economy.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -179,7 +181,7 @@ export class BeamlineWindow {
 
     // Schematic preview via flattenPath
     const ordered = entry.sourceId
-      ? flattenPath(this.game.state, entry.sourceId).filter(e => e.kind !== 'drift')
+      ? hardwareNodes(flattenPath(this.game.state, entry.sourceId))
       : [];
     let schematic = '<div class="ctx-schematic">';
     if (ordered.length === 0) {
@@ -262,7 +264,7 @@ export class BeamlineWindow {
     if (!entry) { el.innerHTML = '<div class="ctx-empty">Beamline not found.</div>'; return; }
 
     const ordered = entry.sourceId
-      ? flattenPath(this.game.state, entry.sourceId).filter(e => e.kind !== 'drift')
+      ? hardwareNodes(flattenPath(this.game.state, entry.sourceId))
       : [];
     if (ordered.length === 0) {
       el.innerHTML = '<div class="ctx-empty">No components placed.</div>';
@@ -379,8 +381,11 @@ export class BeamlineWindow {
     }, 0);
 
     const energyDraw = bs.totalEnergyCost || 0;
-    const dataRateTick = bs.dataRate || 0;
-    const feePerTick = dataRateTick * 0.1;
+    // effectiveDataRate, not dataRate: the tick derates by data-fiber
+    // connectivity and credits/bills that value, so a cut fiber must read as
+    // zero science and zero fees here rather than as income nobody is paid.
+    const dataRateTick = bs.effectiveDataRate ?? 0;
+    const feePerTick = dataFeeIncome(dataRateTick);
 
     el.innerHTML = `
       <div class="ctx-section-label">Capital</div>

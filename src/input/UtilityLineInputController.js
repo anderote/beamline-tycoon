@@ -164,22 +164,21 @@ export class UtilityLineInputController {
       const endRef = endAnchor.open
         ? null
         : { placeableId: endAnchor.placeableId, portName: endAnchor.portName };
-      // Block trivially self-looping port-to-same-port commits.
-      const sameAnchor = startRef && endRef
-        && startRef.placeableId === endRef.placeableId
-        && startRef.portName === endRef.portName;
-      if (!sameAnchor) {
-        // _withUndo, not _pushUndo: addLine runs its own validation (port
-        // direction, overlap, port already taken, …) and returns null on
-        // rejection. A raw push would then leave a no-op undo entry behind
-        // AND clobber the redo stack for a gesture that changed nothing.
-        this.game._withUndo(() => this.game.utilityLineSystem.addLine({
+      // Trivially self-looping port-to-same-port commits are the gesture's
+      // validate step. addLine then runs its own validation (port direction,
+      // overlap, port already taken, …) and returns null on rejection, so
+      // the gesture snapshots only when a line actually appeared.
+      this.game.commitGesture({
+        validate: () => !(startRef && endRef
+          && startRef.placeableId === endRef.placeableId
+          && startRef.portName === endRef.portName),
+        mutate: () => this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
           start: startRef,
           end: endRef,
           path,
-        }));
-      }
+        }),
+      });
     }
     this._cancelDraw();
     return true;

@@ -1575,15 +1575,15 @@ export class InputHandler {
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
-      if (this.game._designPlacer.valid) {
-        // Design placement is a world-mutating gesture like any other tool
-        // commit — without _withUndo it was the only one outside the undo
-        // model, so Ctrl+Z after placing a design silently deleted it as a
-        // side effect of rewinding whatever came before.
-        this.game._withUndo(() => this.game._designPlacer.confirm());
-      } else {
-        this.game.log('Invalid placement!', 'bad');
-      }
+      // Design placement is a world-mutating gesture like any other tool
+      // commit — outside the gesture helper it was the only one outside the
+      // undo model, so Ctrl+Z after placing a design silently deleted it as
+      // a side effect of rewinding whatever came before.
+      this.game.commitGesture({
+        validate: () => (this.game._designPlacer.valid
+          ? true : { ok: false, reason: 'Invalid placement!' }),
+        mutate: () => this.game._designPlacer.confirm(),
+      });
       return;
     }
 

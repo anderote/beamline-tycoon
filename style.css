@@ -37,6 +37,17 @@ body {
   border-bottom: 1px solid rgba(100, 100, 160, 0.3);
 }
 
+/* The z-index here opens a stacking context, so .menu-dropdown's own 300 is
+   scoped INSIDE it: against #music-player (101) the whole open dropdown
+   stacked at 100 and the player — which #initPosition parks directly under
+   the top-right buttons, i.e. exactly where the dropdown opens — swallowed
+   pointer events on Save/Load Game. Raise the bar only while a menu is open,
+   so the player keeps painting above the bar the rest of the time. 600 clears
+   the context-window layer (500) and stays below the modal dialogs (9000+). */
+#top-bar:has(.menu-dropdown:not(.hidden)) {
+  z-index: 600;
+}
+
 #game-title {
   font-size: 11px;
   color: #aaccff;
@@ -161,7 +172,8 @@ body {
   position: absolute;
   top: 56px; /* no-JS fallback; MusicPlayer._initPosition() measures the top bar */
   right: 12px;
-  z-index: 101; /* above #top-bar (100) so it never paints underneath */
+  z-index: 101; /* above #top-bar (100) so it never paints underneath; the bar
+                   outranks it only while a menu is open — see #top-bar:has() */
   cursor: grab;
   display: flex;
   align-items: center;
