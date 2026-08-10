@@ -10,7 +10,9 @@ import { UtilityInspector } from '../ui/UtilityInspector.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
-import { snapForPlaceable, canPlace } from '../game/placement.js';
+import {
+  snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
+} from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
@@ -30,6 +32,11 @@ import {
 } from './demolishScopes.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
+
+// Per-key variant memory written by the HUD's variant flyouts (ui/hud.js).
+// Read here so keyboard palette navigation arms with the same variant a
+// mouse click on the item would.
+const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
 
 function _categoryColor(category) {
   const colors = {
@@ -297,6 +304,10 @@ export class InputHandler {
     if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
       const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
       if (hit && hit.lineId) {
+        // Drop the previous frame's outline/tile highlight like every sibling
+        // branch does — utility lines have no highlight of their own, so the
+        // stale one stayed on screen while the tooltip named the line.
+        this.renderer._clearPreview();
         const descriptor = UTILITY_TYPES[hit.utilityType];
         this._showDemolishTooltip(
           (descriptor?.displayName || hit.utilityType || 'Utility') + ' Line',
@@ -947,14 +958,29 @@ export class InputHandler {
   _updateAttachmentPreview(compKey, worldX, worldY) {
     const hit = this._snapAttachmentToPipe(compKey, worldX, worldY);
     if (!hit) {
-      this.renderer._clearPreview?.();
+      // No pipe under the cursor: drop the ghost mesh but keep the placement
+      // grid every other placement tool shows (a full _clearPreview stripped
+      // it, so gauges/valves flickered the grid away between pipes).
+      const gf = isoToGridFloat(worldX, worldY);
+      if (typeof this.renderer.renderPlacementGridOnly === 'function') {
+        // 'needs-pipe' tints the cursor tile so the player sees the
+        // requirement before the click logs it.
+        this.renderer.renderPlacementGridOnly(Math.floor(gf.col), Math.floor(gf.row), 'needs-pipe');
+      } else {
+        this.renderer._clearPreview?.();
+      }
       return;
     }
+    // Game.addAttachmentToPipe charges the component's cost, so an
+    // unaffordable attachment must not preview green.
+    const affordable = canAffordCost(this.game, COMPONENTS[compKey]?.cost);
+    const valid = !hit.collidesWithModule && affordable;
     this.renderer.renderAttachmentGhost(
       hit.proj.col, hit.proj.row,
       compKey,
       hit.proj.dir,
-      !hit.collidesWithModule,
+      valid,
+      (!hit.collidesWithModule && !affordable) ? PLACE_UNAFFORDABLE : null,
     );
   }
 
@@ -1238,13 +1264,11 @@ export class InputHandler {
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
           // Re-render unified ghost so the preview rotates immediately.
+          // (No legacy ghost for drawn connections: the beam-pipe tool draws
+          // its own preview and never took a placementDir — the old
+          // renderEquipmentGhost call here only painted a stray full-tile
+          // module ghost over the hover tile.)
           this._updatePlaceablePreview();
-          // Beam pipe drawn connections still use the legacy ghost path.
-          const t = this.activeTool;
-          if (t?.kind === 'beamline' && this.renderer.hoverCol !== undefined
-              && COMPONENTS[t.key]?.isDrawnConnection) {
-            this.renderer.renderEquipmentGhost(this.renderer.hoverCol, this.renderer.hoverRow, t.key, 0x44cc44);
-          }
           // Also toggle dipole bend direction
           this.dipoleBendDir = this.dipoleBendDir === 'right' ? 'left' : 'right';
           this.renderer.updateCursorBendDir(this.dipoleBendDir);
@@ -1641,14 +1665,44 @@ export class InputHandler {
     this.renderer.hidePopup();
     this.selectedNodeId = null;
     this._hideTooltip();
+    // Variant is per-armed-tool state: whatever the previous tool chose must
+    // not survive into the next one (a decoration swatch leaking into a
+    // facility item commits that item with a variant it never offered).
+    // Tools that own a variant write it back in onEnter.
+    this.selectedPlaceableVariant = 0;
     this.activeTool = tool || null;
     if (this.activeTool) {
       this.activeTool.onEnter?.(this._toolCtx);
       if (this.activeTool.cursor) {
         this.renderer.canvas.style.cursor = this.activeTool.cursor;
       }
+      // Keyboard arming (palette hotkeys, arrow nav, context demolish, mode
+      // switches) never produces a mousemove, and the _clearPreview above
+      // wiped whatever ghost was up — repaint at the last cursor position so
+      // the armed tool is visible before the mouse moves. The mousemove path
+      // repaints on its own, and nothing calls setTool from inside it, so
+      // this cannot double-render.
+      this._repaintArmedPreview();
     }
     this._updateShiftHint();
+  }
+
+  /**
+   * Repaint the armed tool's hover ghost at the last known cursor position.
+   * Attachment-kind beamline tools (gauges/valves) route to the pipe-projected
+   * ghost: the unified placeable ghost would be drawn and immediately
+   * overwritten by it.
+   */
+  _repaintArmedPreview() {
+    const armedId = this.armedPlaceableId;
+    if (!armedId) return;
+    if (this.lastMouseWorldX == null || this.lastMouseWorldY == null) return;
+    const def = COMPONENTS[armedId];
+    if (def?.placement === 'attachment' && !def.role) {
+      this._updateAttachmentPreview(armedId, this.lastMouseWorldX, this.lastMouseWorldY);
+      return;
+    }
+    this._updatePlaceablePreview();
   }
 
   /**
@@ -1730,7 +1784,7 @@ export class InputHandler {
   selectPaletteTool(kind, key, variant = 0) {
     switch (kind) {
       case 'component':  this.selectComponentTool(key); break;
-      case 'facility':   this.setTool(new PlaceableTool('facility', key)); break;
+      case 'facility':   this.setTool(new PlaceableTool('facility', key, variant)); break;
       case 'floor':      this.setTool(new FloorTool(key, variant)); break;
       case 'wall':       this.setTool(new WallTool(key, variant)); break;
       case 'door':       this.setTool(new DoorTool(key, variant)); break;
@@ -1866,7 +1920,11 @@ export class InputHandler {
         if (occ && scope.has(occ.kind)) {
           const entry = this.game.getPlaceable(occ.id);
           if (entry) {
-            const rootObj = this.renderer.componentBuilder?._meshMap?.get(entry.id) || null;
+            // Decorations live in the decoration builder's own registry, not
+            // the component mesh map — check both or they highlight nothing.
+            const rootObj = this.renderer.componentBuilder?._meshMap?.get(entry.id)
+              || this.renderer.decorationBuilder?.getGroup?.(entry.id)
+              || null;
             return {
               kind: occ.kind,
               entry,
@@ -2025,7 +2083,13 @@ export class InputHandler {
       return;
     }
     const placeable = PLACEABLES[armedId];
-    if (!placeable) return;
+    if (!placeable) {
+      // No unified def for the armed id — nothing can be committed, so the
+      // ghost left over from the previous tool must not stay on screen.
+      this.hoverPlaceable = null;
+      this.renderer._clearPreview?.();
+      return;
+    }
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
@@ -2033,6 +2097,7 @@ export class InputHandler {
     let placeY = 0;
     let stackTargetId = null;
     let ok = false;
+    let reason = null;
 
     if (placeable.stackable) {
       const getEntry = (id) => {
@@ -2047,22 +2112,27 @@ export class InputHandler {
       if (st) {
         placeY = st.placeY;
         stackTargetId = st.targetEntry.id;
-        ok = true;
+        // Stacking bypasses the footprint check, not the ledger — Game still
+        // charges for the stacked item.
+        ok = canAffordCost(this.game, placeable.cost);
+        reason = ok ? null : PLACE_UNAFFORDABLE;
       } else {
-        const result = canPlace(
+        const result = previewPlacement(
           this.game, placeable,
           snap.col, snap.row, snap.subCol, snap.subRow,
           this.placementDir,
         );
         ok = result.ok;
+        reason = result.reason;
       }
     } else {
-      const result = canPlace(
+      const result = previewPlacement(
         this.game, placeable,
         snap.col, snap.row, snap.subCol, snap.subRow,
         this.placementDir,
       );
       ok = result.ok;
+      reason = result.reason;
     }
 
     this.hoverPlaceable = {
@@ -2076,7 +2146,7 @@ export class InputHandler {
       stackTargetId,
       variant: this.selectedPlaceableVariant,
     };
-    this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok);
+    this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
   }
 
   /**
@@ -2122,6 +2192,12 @@ export class InputHandler {
         this.selectComponentTool('drift');
       }
     });
+    // Re-preview at the same cursor position: the tile the ghost sits on is
+    // now occupied, so leaving the stale green ghost up made a second click
+    // without moving report "Space occupied!" under a valid-looking preview.
+    // (BeamlineInputController._commitPlacement and
+    // _finishLinePlaceDecoration refresh the same way.)
+    this._repaintArmedPreview();
     return true;
   }
 
@@ -2155,6 +2231,12 @@ export class InputHandler {
 
     const hovers = [];
     const usedCells = new Set();
+    // Affordability is cumulative along the line: _finishLinePlaceDecoration
+    // commits every valid ghost in one gesture, so the Nth item is only
+    // payable if the N-1 before it were. Ghosts past the budget preview as
+    // unaffordable, which also keeps the commit from attempting them.
+    const unitCost = pl.cost || null;
+    const runningCost = {};
     for (let i = 0; i < count; i++) {
       const t = steps === 0 ? 0 : i / steps;
       const fcCol = start.col + dCol * t;
@@ -2189,14 +2271,30 @@ export class InputHandler {
         }
       }
 
+      const fits = result.ok && !overlapsEarlier;
+      let affordable = true;
+      if (fits && unitCost) {
+        for (const [r, a] of Object.entries(unitCost)) runningCost[r] = (runningCost[r] || 0) + a;
+        affordable = canAffordCost(this.game, runningCost);
+        // Don't bank the unpayable item's cost — a cheaper resource mix later
+        // in the line would otherwise be charged against it too.
+        if (!affordable) {
+          for (const [r, a] of Object.entries(unitCost)) runningCost[r] -= a;
+        }
+      }
+
       hovers.push({
         hover: {
           id: armedId,
           col: snap.col, row: snap.row,
           subCol: snap.subCol, subRow: snap.subRow,
           dir: this.placementDir,
+          // _finishLinePlaceDecoration commits selectedPlaceableVariant, so
+          // the ghosts have to carry it or the drag previews the wrong swatch.
+          variant: this.selectedPlaceableVariant,
         },
-        valid: result.ok && !overlapsEarlier,
+        valid: fits && affordable,
+        reason: fits ? (affordable ? null : PLACE_UNAFFORDABLE) : null,
       });
     }
 
@@ -2392,40 +2490,36 @@ export class InputHandler {
   }
 
   _updateMoveHover(grid, screenX, screenY) {
-    // Only highlight when raycast actually hits a moveable object (like demolish mode)
+    // Only highlight what a click would actually lift, so this resolves the
+    // hit the same way _pickUpAt does: registry node first (beamline
+    // components), then the unified subgrid probe at the hit mesh's world
+    // position. The old equipment branch keyed off the tile-granular legacy
+    // mirrors (facilityGrid / zoneFurnishingSubgrids), so only one of several
+    // sub-tile items on a tile ever resolved and decorations never did.
     const hit = this.renderer.raycastScreen(screenX, screenY);
-    if (hit) {
-      const info = this.renderer.identifyHit(hit);
-      if (info && info.group === 'component') {
-        // Beamline component
-        const comp = info.nodeId ? COMPONENTS[this.game.state.placeables.find(p => p.id === info.nodeId)?.type] : null;
-        const color = comp ? _categoryColor(comp.category) : 0x88aaff;
-        this.renderer._clearPreview();
-        this.renderer._outlineObject(info.rootObj, color);
-        return;
+    const info = hit ? this.renderer.identifyHit(hit) : null;
+    if (info?.rootObj
+        && (info.group === 'component' || info.group === 'equipment' || info.group === 'decoration')) {
+      if (info.group === 'component') {
+        const node = info.nodeId
+          ? this.game.state.placeables.find(p => p.id === info.nodeId)
+          : this._getNodeAtGrid(grid.col, grid.row);
+        if (node) {
+          const comp = COMPONENTS[node.type];
+          this.renderer._clearPreview();
+          this.renderer._outlineObject(info.rootObj, comp ? _categoryColor(comp.category) : 0x88aaff);
+          return;
+        }
+        // No registry node — an infrastructure module; fall through to the
+        // unified probe below.
       }
-      if (info && info.group === 'equipment') {
-        // Derive tile from 3D position to find the equipment entry
-        const p = info.rootObj.position;
-        const hitCol = Math.floor(p.x / 2);
-        const hitRow = Math.floor(p.z / 2);
-        const hitKey = hitCol + ',' + hitRow;
-        const equipId = this.game.state.facilityGrid[hitKey];
-        if (equipId) {
-          const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
-          const comp = equip ? COMPONENTS[equip.type] : null;
-          const color = comp ? _categoryColor(comp.category) : 0x88aaff;
-          this.renderer._clearPreview();
-          this.renderer._outlineObject(info.rootObj, color);
-          return;
-        }
-        // Furnishing hit
-        const subgrid = this.game.state.zoneFurnishingSubgrids[hitKey];
-        if (subgrid) {
-          this.renderer._clearPreview();
-          this.renderer._outlineObject(info.rootObj, 0x88ccff);
-          return;
-        }
+      const p = info.rootObj.position;
+      const entry = this._placeableAtWorldPos(p.x, p.z);
+      if (entry && entry.kind !== 'beamline') {
+        const comp = COMPONENTS[entry.type];
+        this.renderer._clearPreview();
+        this.renderer._outlineObject(info.rootObj, comp ? _categoryColor(comp.category) : 0x88ccff);
+        return;
       }
     }
     this.renderer._clearPreview();
@@ -2765,10 +2859,30 @@ export class InputHandler {
     // mouse click — no category guessing.
     const kind = focused.dataset.paletteKind;
     const key = focused.dataset.paletteKey;
-    if (kind && key) this.selectPaletteTool(kind, key);
+    if (kind && key) this.selectPaletteTool(kind, key, this._recallPaletteVariant(kind, key));
 
     // Show preview panel
     this._showPreviewForFocusedItem();
+  }
+
+  /**
+   * Variant a palette item must arm with. Keyboard nav re-arms through the
+   * same path as a mouse click, so it has to resolve the same variant the
+   * click would — passing the 0 default silently reset the player's chosen
+   * swatch every time focus moved. Re-focusing the already-armed item keeps
+   * that tool's variant; anything else falls back to hud.js's per-key variant
+   * memory (VARIANT_MEMORY_KEY), which is what a palette click reads.
+   */
+  _recallPaletteVariant(kind, key) {
+    const t = this.activeTool;
+    if (t?.id === `${kind}:${key}` && typeof t.variant === 'number') return t.variant;
+    try {
+      const raw = globalThis.localStorage?.getItem(VARIANT_MEMORY_KEY);
+      const vi = raw ? JSON.parse(raw)[key] : null;
+      return typeof vi === 'number' ? vi : 0;
+    } catch (err) {
+      return 0;
+    }
   }
 
   /**

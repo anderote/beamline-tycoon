@@ -237,9 +237,10 @@ function _prng(seed) {
 
 // Hash a decoration's grid position into a stable seed so each placed
 // instance gets consistent but unique variation — same tile always produces
-// the same tree shape. Seed 0 means "no variation" (used for ghosts and
-// thumbnails so they show the nominal designed form).
-function _hashDecorationPos(col, row, subCol, subRow) {
+// the same tree shape. Seed 0 means "no variation" — thumbnails use it to show
+// the nominal designed form; ghosts must NOT, or the preview is a different
+// tree than the one that lands.
+export function decorationSeed(col, row, subCol, subRow) {
   let h = ((col | 0) * 73856093)
     ^ ((row | 0) * 19349663)
     ^ ((subCol | 0) * 83492791)
@@ -1462,12 +1463,46 @@ function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 
   return _defaultBox(footW, footL, totalH);
 }
 
+/**
+ * Placement transform for one snapshot decoration. Geometry is authored
+ * unrotated (geoW × geoL along +X/+Z) and the whole group is spun by rotY, so
+ * the centering extents swap on dir 1/3 to match Placeable.footprintCells.
+ * Pure and exported so tests can pin it without a THREE global.
+ * @param {{col?:number,row?:number,subCol?:number,subRow?:number,subW?:number,subL?:number,subH?:number,dir?:number}} dec
+ */
+export function decorationPlacement(dec) {
+  const dir = dec.dir || 0;
+  const swap = dir === 1 || dir === 3;
+  const geoW = (dec.subW ?? 4) * SUB;
+  const geoL = (dec.subL ?? 4) * SUB;
+  const footW = swap ? geoL : geoW;
+  const footL = swap ? geoW : geoL;
+  return {
+    geoW,
+    geoL,
+    totalH: (dec.subH ?? 4) * SUB,
+    footW,
+    footL,
+    x: (dec.col ?? 0) * 2 + (dec.subCol ?? 0) * SUB + footW / 2,
+    z: (dec.row ?? 0) * 2 + (dec.subRow ?? 0) * SUB + footL / 2,
+    rotY: -dir * (Math.PI / 2),
+    seed: decorationSeed(dec.col ?? 0, dec.row ?? 0, dec.subCol ?? 0, dec.subRow ?? 0),
+  };
+}
+
 // --- Public builder class -----------------------------------------------
 
 export class DecorationBuilder {
   constructor() {
     /** @type {THREE.Group[]} */
     this._groups = [];
+    /** Placeable id → group, for hover/demolish/move mesh lookups. @type {Map<string, THREE.Group>} */
+    this._groupsById = new Map();
+  }
+
+  /** The rendered group for a placeable id, or null. Mirrors ComponentBuilder's _meshMap lookup. */
+  getGroup(id) {
+    return this._groupsById.get(id) || null;
   }
 
   /**
@@ -1479,15 +1514,22 @@ export class DecorationBuilder {
 
   /**
    * Create a ghost preview for placement. Looks up footprint from defs.
-   * Ghost uses seed=0 so preview shows the nominal (unjittered) form.
+   * `pos` is the hovered {col,row,subCol,subRow}; when supplied the ghost is
+   * seeded from that cell so the previewed silhouette is the one `build` will
+   * produce there. Without it the ghost falls back to seed 0 (nominal form),
+   * which is a DIFFERENT tree than gets placed.
+   * Geometry is authored unrotated — the caller applies rotY.
    */
-  _createGhost(typeId, placeable, variant = 0) {
+  _createGhost(typeId, placeable, variant = 0, pos = null) {
     const raw = DECORATIONS_RAW[typeId];
     if (!raw) return null;
     const sw = raw.subW ?? 4;
     const sl = raw.subL ?? 4;
     const sh = raw.subH ?? 4;
-    return buildDecorationGroup(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant, 0);
+    const seed = pos
+      ? decorationSeed(pos.col ?? 0, pos.row ?? 0, pos.subCol ?? 0, pos.subRow ?? 0)
+      : 0;
+    return this._buildOne(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant, seed);
   }
 
   /**
@@ -1500,22 +1542,17 @@ export class DecorationBuilder {
     if (!decorationData) return;
 
     for (const dec of decorationData) {
-      const footW = (dec.subW ?? 4) * SUB;
-      const footL = (dec.subL ?? 4) * SUB;
-      const totalH = (dec.subH ?? 4) * SUB;
-      const seed = _hashDecorationPos(dec.col ?? 0, dec.row ?? 0, dec.subCol ?? 0, dec.subRow ?? 0);
+      const p = decorationPlacement(dec);
 
-      const group = this._buildOne(dec.type, dec.category, footW, footL, totalH, dec.variant ?? 0, seed);
+      const group = this._buildOne(dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed);
 
-      const tileX = (dec.col ?? 0) * 2;
-      const tileZ = (dec.row ?? 0) * 2;
-      const subX = (dec.subCol ?? 0) * SUB;
-      const subZ = (dec.subRow ?? 0) * SUB;
       // Center the geometry within the footprint; sit on terrain via dec.y.
-      group.position.set(tileX + subX + footW / 2, dec.y ?? 0, tileZ + subZ + footL / 2);
+      group.position.set(p.x, dec.y ?? 0, p.z);
+      group.rotation.y = p.rotY;
 
       parentGroup.add(group);
       this._groups.push(group);
+      if (dec.id != null) this._groupsById.set(dec.id, group);
     }
   }
 
@@ -1532,6 +1569,7 @@ export class DecorationBuilder {
       });
     }
     this._groups = [];
+    this._groupsById.clear();
   }
 }
 
@@ -1541,10 +1579,16 @@ export class DecorationBuilder {
 // previews. Static PNGs under assets/textures/thumbnails/ override the live
 // render — bake them via gen-thumbnails.html for zero-cost palette loads.
 
-const _staticDecorationThumbs = import.meta.glob(
-  '/assets/textures/thumbnails/*.png',
-  { eager: true, query: '?url', import: 'default' }
-);
+// Vite rewrites the glob call at build time; under plain node (the test
+// runner) `import.meta.glob` is undefined, so guard it or the whole module
+// fails to evaluate and none of the placement math is testable.
+let _staticDecorationThumbs = {};
+try {
+  _staticDecorationThumbs = import.meta.glob(
+    '/assets/textures/thumbnails/*.png',
+    { eager: true, query: '?url', import: 'default' }
+  );
+} catch { /* no bundler — thumbnails fall back to live renders */ }
 const _staticDecorationThumbMap = {};
 for (const [p, v] of Object.entries(_staticDecorationThumbs)) {
   const id = p.split('/').pop().replace('.png', '');

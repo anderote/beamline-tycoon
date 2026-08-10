@@ -423,15 +423,24 @@ export class DoorTool extends Tool {
 
   onMouseMove(e, ctx) {
     const input = ctx.input;
+    const renderer = ctx.renderer;
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
       this._path = input._buildWallLine(this._start, edge);
-      ctx.renderer.renderDoorPreview(this._path, this.doorType);
+      renderer.renderDoorPreview(this._path, this.doorType);
       return true;
     }
+    // Every other tool keeps renderer.hoverCol/hoverRow and the last cursor
+    // world position current; without it the next tool armed by hotkey
+    // repaints its ghost at a stale position.
+    const world = renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    renderer.updateHover(grid.col, grid.row);
+    input.lastMouseWorldX = world.x;
+    input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    ctx.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
   }
@@ -451,5 +460,11 @@ export class DoorTool extends Tool {
       return true;
     }
     return false;
+  }
+
+  onRightClick(_e, ctx) {
+    // Right-click deselects, like every sibling structure tool.
+    ctx.input.clearTool();
+    return true;
   }
 }

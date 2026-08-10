@@ -14,7 +14,9 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
-import { snapForPlaceable, canPlace } from '../game/placement.js';
+import {
+  snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
+} from '../game/placement.js';
 import { DIR_DELTA } from '../data/directions.js';
 import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
 import {
@@ -240,7 +242,10 @@ export class BeamlineInputController {
     if (!placeable) return;
     const dir = this.input.placementDir || 0;
     const snap = snapForPlaceable(worldX, worldY, placeable, dir);
-    const result = canPlace(
+    // previewPlacement, not canPlace: placeJunction routes through
+    // Game.placePlaceable, which also rejects on cost — a green ghost over an
+    // unaffordable junction is a lie.
+    const result = previewPlacement(
       this.game, placeable,
       snap.col, snap.row, snap.subCol, snap.subRow, dir,
     );
@@ -257,7 +262,7 @@ export class BeamlineInputController {
       placeY: 0,
       stackTargetId: null,
     };
-    this.renderer.renderPlaceableGhost(hover, result.ok);
+    this.renderer.renderPlaceableGhost(hover, result.ok, result.reason);
   }
 
   // --- placement-on-pipe preview + commit --------------------------------
@@ -314,7 +319,9 @@ export class BeamlineInputController {
     const cursorRow = Math.floor(gf.row);
     if (!hit) {
       this._placementHover = null;
-      this.renderer.renderPlacementGridOnly?.(cursorCol, cursorRow);
+      // Tint the cursor tile as a refusal instead of showing a bare grid: the
+      // "must be placed on a beam pipe" rule was invisible until the click.
+      this.renderer.renderPlacementGridOnly?.(cursorCol, cursorRow, 'needs-pipe');
       return;
     }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
@@ -337,6 +344,11 @@ export class BeamlineInputController {
       });
       valid = !!dryRun.ok;
     }
+    // placeOnPipe charges def.cost itself, so the slot fitting isn't enough
+    // for a green ghost. Kept separate from `valid` so _placementHover still
+    // records the geometrically-good slot and the tint can say "too
+    // expensive" rather than "won't fit".
+    const affordable = canAffordCost(this.game, def.cost);
     this._placementHover = valid
       ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId }
       : null;
@@ -347,7 +359,9 @@ export class BeamlineInputController {
     const centerPoint = positionToPoint(hit.pipe, centerFraction) || hit.proj;
     if (this.renderer.renderAttachmentGhost) {
       this.renderer.renderAttachmentGhost(
-        centerPoint.col, centerPoint.row, selectedId, centerPoint.dir, valid,
+        centerPoint.col, centerPoint.row, selectedId, centerPoint.dir,
+        valid && affordable,
+        (valid && !affordable) ? PLACE_UNAFFORDABLE : null,
       );
     }
   }

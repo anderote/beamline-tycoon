@@ -91,3 +91,37 @@ export function canPlace(game, placeable, col, row, subCol, subRow, dir = 0) {
   const wallBlocked = footprintCrossesWall(game.state.wallOccupied, cells);
   return { ok: blocked.length === 0 && !wallBlocked, blockedCells: blocked, cells, wallBlocked };
 }
+
+/**
+ * Reasons a preview can refuse. Geometry outranks money: a blocked footprint
+ * is the more actionable message, and moving the cursor fixes it.
+ */
+export const PLACE_BLOCKED = 'blocked';
+export const PLACE_WALL = 'wall';
+export const PLACE_UNAFFORDABLE = 'unaffordable';
+
+/**
+ * Whether the ledger covers `cost`. Deliberately outside canPlace so the
+ * geometric check stays pure — previews combine the two and tint "can't
+ * afford" differently from "blocked". Games without a ledger (test stubs,
+ * free placement paths) are treated as always affordable.
+ */
+export function canAffordCost(game, cost) {
+  if (!cost) return true;
+  if (typeof game?.canAfford !== 'function') return true;
+  return game.canAfford(cost);
+}
+
+/**
+ * canPlace + affordability, i.e. everything Game._placePlaceableInner will
+ * reject on. Returns canPlace's shape plus `affordable` and `reason`
+ * (null when the placement would succeed).
+ */
+export function previewPlacement(game, placeable, col, row, subCol, subRow, dir = 0) {
+  const geo = canPlace(game, placeable, col, row, subCol, subRow, dir);
+  const affordable = canAffordCost(game, placeable.cost);
+  const reason = !geo.ok
+    ? (geo.wallBlocked ? PLACE_WALL : PLACE_BLOCKED)
+    : (affordable ? null : PLACE_UNAFFORDABLE);
+  return { ...geo, ok: geo.ok && affordable, affordable, reason };
+}

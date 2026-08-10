@@ -47,6 +47,9 @@ export class BeamlineTool extends Tool {
     const c = ctx.input.beamlineController;
     c.reset();       // cancel a mid-gesture pipe draw / remove sweep
     c.clearHover();  // drop the pre-click pipe marker
+    // The on-pipe placement hover is what the controller commits on click;
+    // leaving it set past the disarm let a stale slot survive the tool.
+    c._placementHover = null;
     ctx.renderer.setBuildMode(false);
   }
 
@@ -102,12 +105,15 @@ export class BeamlineTool extends Tool {
     input.lastMouseWorldY = placeWorld.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    // Unified ghost — routes junction/placement hover to the controller,
-    // skips drawn connections, renders the module ghost otherwise.
-    input._updatePlaceablePreview();
-    // Legacy attachment hover preview (placement:'attachment', no role).
+    // Legacy attachments (placement:'attachment', no role — infra gauges and
+    // valves) get the pipe-projected ghost instead of the unified one; running
+    // both drew a full ghost that the attachment preview immediately erased.
     if (def?.placement === 'attachment' && !def.role) {
       input._updateAttachmentPreview(this.key, world.x, world.y);
+    } else {
+      // Unified ghost — routes junction/placement hover to the controller,
+      // skips drawn connections, renders the module ghost otherwise.
+      input._updatePlaceablePreview();
     }
     // Hover tooltips were suppressed while a beamline tool was armed.
     if (input._hoverTooltipTarget) input._hideTooltip();

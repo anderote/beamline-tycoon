@@ -18,7 +18,7 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, createBeamlineGhost, getAccentMaterial, isDetailedComponent } from './component-builder.js';
+import { ComponentBuilder, getAccentMaterial, isDetailedComponent } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -27,7 +27,8 @@ import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { StaffPawns } from './StaffPawns.js';
-import { sampleSurfaceYAt, getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
+import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
+import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { OverlayShim } from './overlay-shim.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
@@ -38,7 +39,6 @@ import { tileCenterIso, gridToIso } from '../renderer/grid.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
-import { ZONE_FURNISHINGS } from '../data/facility.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { portSide } from '../beamline/junctions.js';
@@ -60,6 +60,23 @@ import {
   yawDivisionsForMode,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
+
+// Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
+// on at zoom 2.0, so anything above that is inside the high-detail band.
+const ZOOM_MAX = 14;
+
+// Ghost tints. Amber is not a softer red: the placement still fails, but the
+// fix is money rather than moving the cursor, so it must not be confusable
+// with either the green "this will work" or the red "this never will".
+const GHOST_TINT_OK = 0x44ff44;
+const GHOST_TINT_BLOCKED = 0xff4444;
+const GHOST_TINT_UNAFFORDABLE = 0xffb020;
+
+/** Ghost color for a (valid, reason) pair. Reasons come from placement.js. */
+function ghostTint(valid, reason) {
+  if (valid) return GHOST_TINT_OK;
+  return reason === PLACE_UNAFFORDABLE ? GHOST_TINT_UNAFFORDABLE : GHOST_TINT_BLOCKED;
+}
 
 /**
  * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
@@ -279,6 +296,17 @@ export class ThreeRenderer {
     this._portMarkersDirty = true;
     this._portMarkersSig = null;
 
+    // Beam-pipe preview / hover-marker memo: both renderers tear down and
+    // rebuild their whole geometry, so they run only when the signature of
+    // what they read changes — not on every rAF while the tool sits idle.
+    this._beamPipeSig = null;
+
+    // Grid-overlay memo. updateHover and the ghost renderer each ask for the
+    // overlay on the same mousemove; the built LineSegments are cached and
+    // re-attached so the ~400-segment rebuild happens once per cursor tile.
+    this._gridOverlaySig = null;
+    this._gridOverlayLines = [];
+
     // Cost-label sprite material memo: text → { material, scaleX, scaleY }.
     // The beam-pipe drawing cost label re-renders per rAF while dragging;
     // caching per text value avoids a canvas draw + texture upload per frame.
@@ -292,7 +320,6 @@ export class ThreeRenderer {
     this.buildMode = false;
     this._buildToolType = null;
     this.placementDir = 0;
-    this.cursorBendDir = 'right';
     this.hoverCol = 0;
     this.hoverRow = 0;
     this.labelLevel = 0;
@@ -681,7 +708,17 @@ export class ThreeRenderer {
     const hits = [];
     const groups = [this.equipmentGroup, this.decorationGroup, this.componentGroup];
     for (const g of groups) {
-      if (g) hits.push(...raycaster.intersectObjects(g.children, true));
+      if (!g) continue;
+      // three.js tests object.visible, not material.visible, so the invisible
+      // collision box ComponentBuilder._createObject adds at BEAM_HEIGHT is a
+      // live raycast target. Snapping to it lifts stackable ghosts a metre
+      // into the air next to any beamline module. (Same guard as
+      // _outlineObject.)
+      for (const h of raycaster.intersectObjects(g.children, true)) {
+        const mat = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
+        if (mat && mat.visible === false) continue;
+        hits.push(h);
+      }
     }
     if (this._terrainMesh) {
       hits.push(...raycaster.intersectObject(this._terrainMesh));
@@ -708,8 +745,10 @@ export class ThreeRenderer {
   raycastScreen(screenX, screenY) {
     if (!this.renderer || !this.camera) return null;
     const { raycaster } = this._screenRay(screenX, screenY);
-    // Only test component, equipment, and connection groups
-    const targets = [this.componentGroup, this.equipmentGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup, this.pipeAttachmentGroup];
+    // Decorations are demolishable/movable placeables, so they must be in the
+    // target set — identifyHit already resolves decorationGroup, but without
+    // this the decoration branch downstream is unreachable.
+    const targets = [this.componentGroup, this.equipmentGroup, this.decorationGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup, this.pipeAttachmentGroup];
     const all = [];
     for (const g of targets) {
       if (g) all.push(...raycaster.intersectObjects(g.children, true));
@@ -879,7 +918,7 @@ export class ThreeRenderer {
   zoomAt(screenX, screenY, delta) {
     // Remember which world point is under the cursor before the zoom.
     const before = this._raycastGround(screenX, screenY);
-    this.zoom = Math.max(0.2, Math.min(8, this.zoom + delta));
+    this.zoom = Math.max(0.2, Math.min(ZOOM_MAX, this.zoom + delta));
     // Rebuild frustum from new zoom so the subsequent raycast uses the new view.
     const screenH = this.app.screen.height;
     this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
@@ -1185,7 +1224,9 @@ export class ThreeRenderer {
     return this.showZoneLabels;
   }
 
-  updateCursorBendDir(dir) { this.cursorBendDir = dir; }
+  /** No-op. Dipole bend direction is baked into the placed geometry; nothing
+   *  in the renderer reads it. Retained only because InputHandler calls it. */
+  updateCursorBendDir() {}
   updatePlacementDir(dir) { this.placementDir = dir; this._renderCursors(); }
 
   /**
@@ -1258,81 +1299,64 @@ export class ThreeRenderer {
       const dx = delta.dc, dz = delta.dr;
       const px = perpDelta.dc, pz = perpDelta.dr;
 
-      if (!isDrawn) {
-        // Draw hover cursor showing footprint of selected component using sub-unit dims
-        const subL = comp ? (comp.subL || 4) : 4;
-        const subW = comp ? (comp.subW || 4) : 4;
+      // `isDrawn` is always false past the guard above, so there is no
+      // drawn-connection branch here — beam pipes preview via
+      // _renderBeamPipePreview / _renderPipeHoverMarker.
+      // Draw hover cursor showing footprint of selected component using sub-unit dims
+      const subL = comp ? (comp.subL || 4) : 4;
+      const subW = comp ? (comp.subW || 4) : 4;
 
-        // Dimensions in world units (1 tile = 2 world units = 4 sub-units, so 1 sub = 0.5 world)
-        const wLen = subL * 0.5;   // length in world units
-        const wWid = subW * 0.5;   // width in world units
+      // Dimensions in world units (1 tile = 2 world units = 4 sub-units, so 1 sub = 0.5 world)
+      const wLen = subL * 0.5;   // length in world units
+      const wWid = subW * 0.5;   // width in world units
 
-        // Rectangle: centered on tile, extends wLen along dir, wWid perpendicular
-        const x0 = cx - px * wWid / 2;
-        const z0 = cz - pz * wWid / 2;
-        const x1 = cx + px * wWid / 2;
-        const z1 = cz + pz * wWid / 2;
-        const x2 = cx + dx * wLen + px * wWid / 2;
-        const z2 = cz + dz * wLen + pz * wWid / 2;
-        const x3 = cx + dx * wLen - px * wWid / 2;
-        const z3 = cz + dz * wLen - pz * wWid / 2;
+      // Rectangle: centered on tile, extends wLen along dir, wWid perpendicular
+      const x0 = cx - px * wWid / 2;
+      const z0 = cz - pz * wWid / 2;
+      const x1 = cx + px * wWid / 2;
+      const z1 = cz + pz * wWid / 2;
+      const x2 = cx + dx * wLen + px * wWid / 2;
+      const z2 = cz + dz * wLen + pz * wWid / 2;
+      const x3 = cx + dx * wLen - px * wWid / 2;
+      const z3 = cz + dz * wLen - pz * wWid / 2;
 
-        // Check tile availability against the cached snapshot's components
-        const available = !(this._snapshot?.components || []).some(c => c.category === 'beamline' && c.tiles?.some(t => t.col === this.hoverCol && t.row === this.hoverRow));
-        const color = available ? 0x4488ff : 0xff4444;
+      // Check tile availability against the cached snapshot's components
+      const available = !(this._snapshot?.components || []).some(c => c.category === 'beamline' && c.tiles?.some(t => t.col === this.hoverCol && t.row === this.hoverRow));
+      const color = available ? 0x4488ff : 0xff4444;
 
-        // Draw filled preview quad
-        const mat = this._previewMat(color, 0.35);
-        const geo = new THREE.BufferGeometry();
-        const vertices = new Float32Array([
-          x0, 0.1, z0,  x1, 0.1, z1,  x2, 0.1, z2,
-          x0, 0.1, z0,  x2, 0.1, z2,  x3, 0.1, z3,
-        ]);
-        geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        this._addPreviewMesh(new THREE.Mesh(geo, mat));
+      // Draw filled preview quad
+      const mat = this._previewMat(color, 0.35);
+      const geo = new THREE.BufferGeometry();
+      const vertices = new Float32Array([
+        x0, 0.1, z0,  x1, 0.1, z1,  x2, 0.1, z2,
+        x0, 0.1, z0,  x2, 0.1, z2,  x3, 0.1, z3,
+      ]);
+      geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      this._addPreviewMesh(new THREE.Mesh(geo, mat));
 
-        // Wireframe border
-        const edgeMat = this._previewEdgeMat(color);
-        const pts = [
-          new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z1),
-          new THREE.Vector3(x2, 0.12, z2), new THREE.Vector3(x3, 0.12, z3),
-          new THREE.Vector3(x0, 0.12, z0),
-        ];
-        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+      // Wireframe border
+      const edgeMat = this._previewEdgeMat(color);
+      const pts = [
+        new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z1),
+        new THREE.Vector3(x2, 0.12, z2), new THREE.Vector3(x3, 0.12, z3),
+        new THREE.Vector3(x0, 0.12, z0),
+      ];
+      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
 
-        // Direction arrow on base tile (shows output direction)
-        const arrowMat = this._previewEdgeMat(0x88bbff);
-        const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
-        const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
-        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
-        // Arrowhead chevron
-        const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
-        const chevLen = 0.3;
-        const chevPts = [
-          new THREE.Vector3(tipX - dx * chevLen + px * chevLen, 0.15, tipZ - dz * chevLen + pz * chevLen),
-          new THREE.Vector3(tipX, 0.15, tipZ),
-          new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
-        ];
-        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
-      } else {
-        // Drawn connection (beam pipe): bidirectional arrow only, no tile highlight
-        const arrowMat = this._previewEdgeMat(0x88bbff);
-        const halfLen = 0.6;
-        const arrowStart = new THREE.Vector3(cx - dx * halfLen, 0.15, cz - dz * halfLen);
-        const arrowEnd = new THREE.Vector3(cx + dx * halfLen, 0.15, cz + dz * halfLen);
-        this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
-        // Chevron on both ends
-        const chevLen = 0.25;
-        for (const sign of [1, -1]) {
-          const tipX = cx + sign * dx * halfLen, tipZ = cz + sign * dz * halfLen;
-          const chevPts = [
-            new THREE.Vector3(tipX - sign * dx * chevLen + px * chevLen, 0.15, tipZ - sign * dz * chevLen + pz * chevLen),
-            new THREE.Vector3(tipX, 0.15, tipZ),
-            new THREE.Vector3(tipX - sign * dx * chevLen - px * chevLen, 0.15, tipZ - sign * dz * chevLen - pz * chevLen),
-          ];
-          this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
-        }
-      }
+      // Direction arrow on base tile (shows output direction)
+      const arrowMat = this._previewEdgeMat(0x88bbff);
+      const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
+      const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
+      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
+      // Arrowhead chevron
+      const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
+      const chevLen = 0.3;
+      const chevPts = [
+        new THREE.Vector3(tipX - dx * chevLen + px * chevLen, 0.15, tipZ - dz * chevLen + pz * chevLen),
+        new THREE.Vector3(tipX, 0.15, tipZ),
+        new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
+      ];
+      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
       return;
     }
 
@@ -1373,6 +1397,13 @@ export class ThreeRenderer {
   /** Clear only the ghost/preview meshes; leaves the blue grid overlay intact. */
   _clearPreviewMeshes() {
     if (!this.previewGroup) return;
+    // The beam-pipe preview and pipe hover marker live in previewGroup too but
+    // track their meshes in side arrays. Drop those references here or
+    // _clearBeamPipePreview / _clearPipeHoverMarker walk the entries we just
+    // disposed and dispose them a second time.
+    this._beamPipePreviewMeshes = null;
+    this._pipeHoverMeshes = null;
+    this._beamPipeSig = null;
     while (this.previewGroup.children.length > 0) {
       const child = this.previewGroup.children[0];
       this.previewGroup.remove(child);
@@ -1452,34 +1483,6 @@ export class ThreeRenderer {
   }
 
   /**
-   * Highlight a beamline component by its node ID with a red outline.
-   */
-  renderDemolishComponentOutline(nodeId) {
-    this._clearPreview();
-    const obj = this.componentBuilder._meshMap?.get(nodeId);
-    if (obj) this._outlineObject(obj);
-  }
-
-  /**
-   * Highlight equipment/furnishing at a given position by scanning the equipment group.
-   * Finds meshes whose position matches the target tile.
-   */
-  renderDemolishMeshOutline(col, row) {
-    this._clearPreview();
-    const tx = col * 2 + 1;
-    const tz = row * 2 + 1;
-    // Scan equipment group for meshes near this tile
-    this.equipmentGroup.children.forEach(child => {
-      if (!child.isMesh) return;
-      const p = child.position;
-      // Check if mesh center is within this tile's bounds
-      if (p.x > col * 2 && p.x < col * 2 + 2 && p.z > row * 2 && p.z < row * 2 + 2) {
-        this._outlineObject(child);
-      }
-    });
-  }
-
-  /**
    * Highlight a furnishing by its sub-tile bounds with a red outline.
    */
   renderDemolishFurnishingOutline(entry) {
@@ -1511,28 +1514,42 @@ export class ThreeRenderer {
     const minR = Math.min(row1, row2), maxR = Math.max(row1, row2);
     const color = isZone ? 0x44cc88 : 0x44aaff;
     const mat = this._previewMat(color, 0.3);
-    const geo = new THREE.PlaneGeometry(2, 2);
-    geo.rotateX(-Math.PI / 2);
+    const QUAD_OFFSET = 0.02;
+    const EDGE_OFFSET = 0.04;
+    const state = this._liveState();
+    // Per-tile deformed quad so the fill drapes the slope instead of hovering
+    // on a flat y=0.1 plane (matches renderDemolishPreview).
     for (let c = minC; c <= maxC; c++) {
       for (let r = minR; r <= maxR; r++) {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(c * 2 + 1, 0.1, r * 2 + 1);
-        this._addPreviewMesh(mesh);
+        this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(c, r, QUAD_OFFSET), mat));
       }
     }
-    // Wireframe border around full rectangle
+    // Border around the full rectangle — sample every perimeter vertex so it
+    // follows terrain across the multi-tile span.
     const edgeMat = this._previewEdgeMat(color);
-    const x0 = minC * 2, x1 = (maxC + 1) * 2;
-    const z0 = minR * 2, z1 = (maxR + 1) * 2;
-    const pts = [
-      new THREE.Vector3(x0, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
-    ];
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-    this._addPreviewMesh(new THREE.Line(lineGeo, edgeMat));
+    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + EDGE_OFFSET;
+    const pts = [];
+    const zN = minR * 2;
+    for (let c = minC; c <= maxC + 1; c++) {
+      const x = c * 2;
+      pts.push(new THREE.Vector3(x, surfY(x, zN), zN));
+    }
+    const xE = (maxC + 1) * 2;
+    for (let r = minR + 1; r <= maxR + 1; r++) {
+      const z = r * 2;
+      pts.push(new THREE.Vector3(xE, surfY(xE, z), z));
+    }
+    const zS = (maxR + 1) * 2;
+    for (let c = maxC; c >= minC; c--) {
+      const x = c * 2;
+      pts.push(new THREE.Vector3(x, surfY(x, zS), zS));
+    }
+    const xW = minC * 2;
+    for (let r = maxR; r >= minR; r--) {
+      const z = r * 2;
+      pts.push(new THREE.Vector3(xW, surfY(xW, z), z));
+    }
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
   }
 
   clearDragPreview() { this._clearPreview(); }
@@ -1548,58 +1565,6 @@ export class ThreeRenderer {
     for (const tile of path) {
       this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(tile.col, tile.row, 0.02), mat));
     }
-  }
-
-  /**
-   * Render a sub-tile placement preview for furnishings / decorations.
-   * Shows a small highlighted quad within the tile's sub-grid.
-   */
-  _renderSubtilePreview(col, row, subCol, subRow, gridW, gridH, rotated) {
-    this._clearPreview();
-    const w = rotated ? gridH : gridW;
-    const h = rotated ? gridW : gridH;
-    const subSize = 2 / 4; // each sub-cell is 0.5 world units
-    const tileX = col * 2;
-    const tileZ = row * 2;
-    const x0 = tileX + subCol * subSize;
-    const z0 = tileZ + subRow * subSize;
-    const x1 = x0 + w * subSize;
-    const z1 = z0 + h * subSize;
-    const QUAD_OFFSET = 0.02;
-    const EDGE_OFFSET = 0.04;
-    // Sample THIS tile's own corners — never reaching into a neighbour
-    // even if the footprint's east/south edge sits on the tile boundary.
-    const corners = getTileCornersY(this._liveState(), col, row);
-    const SUB = 4;
-    const uW = subCol / SUB;
-    const uE = (subCol + w) / SUB;
-    const vN = subRow / SUB;
-    const vS = (subRow + h) / SUB;
-    const yNW = sampleCornersTriangulated(corners, uW, vN) + QUAD_OFFSET;
-    const yNE = sampleCornersTriangulated(corners, uE, vN) + QUAD_OFFSET;
-    const ySE = sampleCornersTriangulated(corners, uE, vS) + QUAD_OFFSET;
-    const ySW = sampleCornersTriangulated(corners, uW, vS) + QUAD_OFFSET;
-    const mat = this._previewMat(0x88ccff, 0.4);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute([
-      x0, yNW, z0,
-      x1, yNE, z0,
-      x1, ySE, z1,
-      x0, ySW, z1,
-    ], 3));
-    geo.setIndex([0, 3, 1, 1, 3, 2]);
-    geo.computeVertexNormals();
-    this._addPreviewMesh(new THREE.Mesh(geo, mat));
-    const edgeMat = this._previewEdgeMat(0x88ccff);
-    const eY = (y) => y + (EDGE_OFFSET - QUAD_OFFSET);
-    const pts = [
-      new THREE.Vector3(x0, eY(yNW), z0),
-      new THREE.Vector3(x1, eY(yNE), z0),
-      new THREE.Vector3(x1, eY(ySE), z1),
-      new THREE.Vector3(x0, eY(ySW), z1),
-      new THREE.Vector3(x0, eY(yNW), z0),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
   }
 
   /**
@@ -1911,23 +1876,25 @@ export class ThreeRenderer {
   /**
    * Unified ghost renderer for any placeable. Looks up the entry in
    * PLACEABLES, builds the same 3D mesh that the committed instance will
-   * use via componentBuilder._createObject, tints it green (valid) or red
-   * (invalid), and positions it on the subtile grid with 4-way rotation.
+   * use via componentBuilder._createObject, tints it by validity, and
+   * positions it on the subtile grid with 4-way rotation.
    *
-   * Positioning math mirrors renderComponentGhost exactly so beamline
-   * items land in identical world positions under the unified path.
+   * Positioning math mirrors ComponentBuilder.build exactly so the ghost
+   * and the committed mesh land in identical world positions.
    *
    * @param {{id:string,col:number,row:number,subCol:number,subRow:number,dir:number}} hover
    * @param {boolean} valid
+   * @param {?string} reason  refusal reason from src/game/placement.js; only
+   *   'unaffordable' changes the tint, everything else reads as blocked.
    */
-  renderPlaceableGhost(hover, valid) {
-    try { return this._renderPlaceableGhostInner(hover, valid); } catch(e) { console.error('[renderPlaceableGhost] CRASH:', e); }
+  renderPlaceableGhost(hover, valid, reason = null) {
+    try { return this._renderPlaceableGhostInner(hover, valid, reason); } catch(e) { console.error('[renderPlaceableGhost] CRASH:', e); }
   }
   /**
    * Render multiple placeable ghosts at once (used for shift+drag line
    * placement of decorations). Clears preview once, draws grid around the
    * last hover, then adds each ghost additively.
-   * @param {Array<{hover:object, valid:boolean}>} list
+   * @param {Array<{hover:object, valid:boolean, reason?:string}>} list
    */
   renderPlaceableGhosts(list) {
     try {
@@ -1936,16 +1903,16 @@ export class ThreeRenderer {
       const last = list[list.length - 1].hover;
       this._renderGridAroundCursor(last.col, last.row);
       for (const item of list) {
-        this._addPlaceableGhostMeshes(item.hover, item.valid);
+        this._addPlaceableGhostMeshes(item.hover, item.valid, item.reason ?? null);
       }
     } catch (e) { console.error('[renderPlaceableGhosts] CRASH:', e); }
   }
-  _renderPlaceableGhostInner(hover, valid) {
+  _renderPlaceableGhostInner(hover, valid, reason = null) {
     this._clearPreview();
     this._renderGridAroundCursor(hover.col, hover.row);
-    this._addPlaceableGhostMeshes(hover, valid);
+    this._addPlaceableGhostMeshes(hover, valid, reason);
   }
-  _addPlaceableGhostMeshes(hover, valid) {
+  _addPlaceableGhostMeshes(hover, valid, reason = null) {
     const placeable = PLACEABLES[hover.id];
     if (!placeable) return;
 
@@ -1953,7 +1920,10 @@ export class ThreeRenderer {
     // the component builder's generic fallback box.
     let obj;
     if (placeable.kind === 'decoration') {
-      obj = this.decorationBuilder._createGhost(hover.id, placeable, hover.variant ?? 0);
+      // Pass the hover cell so the ghost is seeded exactly like the placed
+      // instance — without it the preview shows the seed-0 nominal form and
+      // a different tree pops in on click.
+      obj = this.decorationBuilder._createGhost(hover.id, placeable, hover.variant ?? 0, hover);
     }
     if (!obj) {
       obj = this.componentBuilder._createObject(placeable);
@@ -1964,7 +1934,7 @@ export class ThreeRenderer {
     // with an ARRAY of 6 face materials (from component-builder's fallback
     // path), so we have to clone every entry — calling .clone() directly
     // on an Array throws and kills the preview entirely.
-    const tintHex = valid ? 0x44ff44 : 0xff4444;
+    const tintHex = ghostTint(valid, reason);
     const ghostifyMat = (mat) => {
       const c = mat.clone();
       c.transparent = true;
@@ -2012,24 +1982,21 @@ export class ThreeRenderer {
     const pz = row * 2 + sr * SUB_UNIT + footH / 2;
     const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
-    // Sample THIS tile's own corners so the ghost stays on the local
-    // ground even if the footprint's east/south edge touches a neighbour.
-    const state = this._liveState();
-    const corners = getTileCornersY(state, col, row);
-    const SUB = 4; // sub-cells per tile edge
-    const uW = sc / SUB;
-    const uE = (sc + gwSub) / SUB;
-    const vN = sr / SUB;
-    const vS = (sr + ghSub) / SUB;
-    const surfaceY = sampleCornersTriangulated(corners, (uW + uE) / 2, (vN + vS) / 2);
+    // Game._placePlaceableInner auto-flattens every footprint tile to zero
+    // before committing, so the ghost previews the POST-flatten surface, not
+    // the slope currently under the cursor. Draping the live terrain instead
+    // made the ghost drop on click; showing the result is the WYSIWYG choice.
+    // Stacked items ride placeY above that same zero.
+    const surfaceY = 0;
     const y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
 
-    // Floor outline + fill draped over the terrain at the footprint corners.
-    const tileColor = valid ? 0x44ff44 : 0xff4444;
+    // Floor outline + fill on the post-flatten surface, so the footprint
+    // marker and the ghost mesh sit on the same plane.
+    const tileColor = ghostTint(valid, reason);
     const edgeMat = this._previewEdgeMat(tileColor);
     const fillMat = this._previewMat(tileColor, 0.15);
     const x0 = col * 2 + sc * SUB_UNIT;
@@ -2038,24 +2005,21 @@ export class ThreeRenderer {
     const z1 = z0 + footH;
     const FILL_OFFSET = 0.10;
     const EDGE_OFFSET = 0.12;
-    const yNW = sampleCornersTriangulated(corners, uW, vN) + placeYOffset;
-    const yNE = sampleCornersTriangulated(corners, uE, vN) + placeYOffset;
-    const ySE = sampleCornersTriangulated(corners, uE, vS) + placeYOffset;
-    const ySW = sampleCornersTriangulated(corners, uW, vS) + placeYOffset;
+    const footY = surfaceY + placeYOffset;
     const pts = [
-      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
-      new THREE.Vector3(x1, yNE + EDGE_OFFSET, z0),
-      new THREE.Vector3(x1, ySE + EDGE_OFFSET, z1),
-      new THREE.Vector3(x0, ySW + EDGE_OFFSET, z1),
-      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
+      new THREE.Vector3(x0, footY + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, footY + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, footY + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, footY + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, footY + EDGE_OFFSET, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
     const fillGeo = new THREE.BufferGeometry();
     fillGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-      x0, yNW + FILL_OFFSET, z0,
-      x1, yNE + FILL_OFFSET, z0,
-      x1, ySE + FILL_OFFSET, z1,
-      x0, ySW + FILL_OFFSET, z1,
+      x0, footY + FILL_OFFSET, z0,
+      x1, footY + FILL_OFFSET, z0,
+      x1, footY + FILL_OFFSET, z1,
+      x0, footY + FILL_OFFSET, z1,
     ], 3));
     fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
     fillGeo.computeVertexNormals();
@@ -2092,134 +2056,94 @@ export class ThreeRenderer {
   }
 
   /**
-   * Render a ghost (transparent) beamline component at a tile position.
-   * Uses the real component geometry from the component builder.
+   * Draw only the placement-grid overlay around the cursor tile — no ghost
+   * mesh. Used when no pipe is under the cursor but a placement tool is
+   * still active, so the user sees the same blue grid as for normal placeables.
+   *
+   * `hint === 'needs-pipe'` additionally paints the cursor tile red: without
+   * it the grid alone reads as "this is a legal spot" and the pipe-only rule
+   * only surfaced in the log after a wasted click.
    */
-  renderComponentGhost(col, row, compType, direction, color, subCol, subRow) {
-    this._clearPreview();
+  renderPlacementGridOnly(col, row, hint = null) {
+    this._clearPreviewMeshes();
     this._renderGridAroundCursor(col, row);
-    const compDef = COMPONENTS[compType];
-    if (!compDef) return;
-    // Build the real geometry via component builder
-    const obj = this.componentBuilder._createObject(compDef);
-    // Make all materials transparent
-    const ghostMat = (mat) => {
-      const c = mat.clone();
-      c.transparent = true;
-      c.opacity = 0.4;
-      c.depthWrite = false;
-      c.depthTest = false;
-      return c;
-    };
-    obj.traverse(child => {
-      if (child.isMesh) {
-        if (Array.isArray(child.material)) {
-          child.material = child.material.map(ghostMat);
-        } else {
-          child.material = ghostMat(child.material);
-        }
-        child.castShadow = false;
-        child.receiveShadow = false;
-        child.renderOrder = 999;
-      }
-    });
-    const isDetailed = isDetailedComponent(compType, compDef);
-    const SUB_UNIT = 0.5;
-    const gwRaw = compDef.gridW || compDef.subW || 4;
-    const ghRaw = compDef.gridH || compDef.subL || 4;
-    const swap = (direction === 1 || direction === 3);
-    const gwSub = swap ? ghRaw : gwRaw;
-    const ghSub = swap ? gwRaw : ghRaw;
-    const sc = subCol || 0;
-    const sr = subRow || 0;
-    const footW = gwSub * SUB_UNIT; // world units
-    const footH = ghSub * SUB_UNIT;
-    const px = col * 2 + sc * SUB_UNIT + footW / 2;
-    const pz = row * 2 + sr * SUB_UNIT + footH / 2;
-    const y = isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2;
-    obj.position.set(px, y, pz);
-    obj.rotation.y = -(direction || 0) * (Math.PI / 2);
-    obj.renderOrder = 999;
-    this.previewGroup.add(obj);
-    // Floor outline at sub-tile footprint
-    const tileColor = (typeof color === 'number') ? color : 0x88aaff;
-    const edgeMat = this._previewEdgeMat(tileColor);
-    const fillMat = this._previewMat(tileColor, 0.15);
-    const x0 = col * 2 + sc * SUB_UNIT;
-    const x1 = x0 + footW;
-    const z0 = row * 2 + sr * SUB_UNIT;
-    const z1 = z0 + footH;
+    if (hint !== 'needs-pipe') return;
+    const state = this._liveState();
+    const x0 = col * 2, x1 = x0 + 2;
+    const z0 = row * 2, z1 = z0 + 2;
+    const FILL_OFFSET = 0.10;
+    const EDGE_OFFSET = 0.12;
+    const yAt = (x, z) => sampleSurfaceYAt(state, x, z);
+    const yNW = yAt(x0, z0), yNE = yAt(x1, z0), ySE = yAt(x1, z1), ySW = yAt(x0, z1);
+    const edgeMat = this._previewEdgeMat(GHOST_TINT_BLOCKED);
+    const fillMat = this._previewMat(GHOST_TINT_BLOCKED, 0.12);
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, yNE + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, ySE + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, ySW + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    const fillGeo = new THREE.PlaneGeometry(footW, footH);
-    fillGeo.rotateX(-Math.PI / 2);
-    const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(px, 0.1, pz);
-    this._addPreviewMesh(fill);
-
-    // Direction arrow on base tile (shows output direction)
-    const dir = direction || 0;
-    const delta = DIR_DELTA[dir];
-    const perpDelta = DIR_DELTA[turnLeft(dir)];
-    const cx = px, cz = pz;
-    const dx = delta.dc, dz = delta.dr;
-    const perpX = perpDelta.dc, perpZ = perpDelta.dr;
-    const arrowMat = this._previewEdgeMat(0x88bbff);
-    const arrowStart = new THREE.Vector3(cx - dx * 0.4, 0.15, cz - dz * 0.4);
-    const arrowEnd = new THREE.Vector3(cx + dx * 0.6, 0.15, cz + dz * 0.6);
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
-    const tipX = cx + dx * 0.6, tipZ = cz + dz * 0.6;
-    const chevLen = 0.3;
-    const chevPts = [
-      new THREE.Vector3(tipX - dx * chevLen + perpX * chevLen, 0.15, tipZ - dz * chevLen + perpZ * chevLen),
-      new THREE.Vector3(tipX, 0.15, tipZ),
-      new THREE.Vector3(tipX - dx * chevLen - perpX * chevLen, 0.15, tipZ - dz * chevLen - perpZ * chevLen),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+      x0, yNW + FILL_OFFSET, z0,
+      x1, yNE + FILL_OFFSET, z0,
+      x1, ySE + FILL_OFFSET, z1,
+      x0, ySW + FILL_OFFSET, z1,
+    ], 3));
+    fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
+    fillGeo.computeVertexNormals();
+    this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
   }
 
   /**
    * Render a transparent ghost of an attachment component at a fractional
-   * position along a beam pipe. Mirrors `renderComponentGhost` but treats
-   * `col`/`row` as world-centered fractional coordinates (matching the
-   * world-snapshot convention for placed attachments) rather than tile
-   * top-left + sub-tile offset.
+   * position along a beam pipe. `col`/`row` are world-centered fractional
+   * coordinates (matching the world-snapshot convention for placed
+   * attachments), not tile top-left + sub-tile offset.
+   *
+   * `reason` follows renderPlaceableGhost: 'unaffordable' tints amber.
    */
-  /**
-   * Draw only the placement-grid overlay around the cursor tile — no ghost
-   * mesh. Used when no pipe is under the cursor but a placement tool is
-   * still active, so the user sees the same blue grid as for normal placeables.
-   */
-  renderPlacementGridOnly(col, row) {
-    this._clearPreviewMeshes();
-    this._renderGridAroundCursor(col, row);
-  }
-
-  renderAttachmentGhost(col, row, compType, direction, valid) {
+  renderAttachmentGhost(col, row, compType, direction, valid, reason = null) {
     this._clearPreviewMeshes();
     this._renderGridAroundCursor(Math.floor(col), Math.floor(row));
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
     const obj = this.componentBuilder._createObject(compDef);
     if (!obj) return;
+    // Same ghostify contract as _addPlaceableGhostMeshes: per-face material
+    // ARRAYS come back from component-builder's fallback path, and Array has
+    // no .clone(); depthTest goes off (not just depthWrite) or the ghost
+    // z-fights the pipe it straddles; renderOrder must land on each mesh
+    // because three.js does not inherit it from the wrapper Group.
+    const tintHex = ghostTint(valid, reason);
+    const ghostifyMat = (mat) => {
+      const c = mat.clone();
+      c.transparent = true;
+      c.opacity = 0.4;
+      c.depthWrite = false;
+      c.depthTest = false;
+      if (c.color) c.color.setHex(tintHex);
+      return c;
+    };
     obj.traverse(child => {
       if (child.isMesh) {
-        child.material = child.material.clone();
-        child.material.transparent = true;
-        child.material.opacity = 0.4;
-        child.material.depthWrite = false;
-        if (child.material.color) {
-          child.material.color.setHex(valid ? 0x44ff44 : 0xff4444);
+        if (Array.isArray(child.material)) {
+          child.material = child.material.map(ghostifyMat);
+        } else {
+          child.material = ghostifyMat(child.material);
         }
         child.castShadow = false;
         child.receiveShadow = false;
+        child.renderOrder = 999;
       }
     });
-    const isDetailed = !!obj.children?.length;
+    // _createObject always wraps the visual in a Group with an invisible
+    // hitbox, so a children-count test is always true. Use the same
+    // authoritative check ComponentBuilder.build uses to position committed
+    // attachment meshes, or the ghost sits a metre below the pipe.
+    const isDetailed = isDetailedComponent(compType, compDef);
     const SUB_UNIT = 0.5;
     // Attachments use `col * 2 + 1` (fractional col is already the
     // world-centered tile coordinate from the pipe projection).
@@ -2237,213 +2161,63 @@ export class ThreeRenderer {
     const ghSub = compDef.gridH || compDef.subL || 4;
     const footW = gwSub * SUB_UNIT;
     const footH = ghSub * SUB_UNIT;
-    const tileColor = valid ? 0x44ff44 : 0xff4444;
+    const tileColor = ghostTint(valid, reason);
     const edgeMat = this._previewEdgeMat(tileColor);
     const fillMat = this._previewMat(tileColor, 0.15);
     const x0 = px - footW / 2;
     const x1 = px + footW / 2;
     const z0 = pz - footH / 2;
     const z1 = pz + footH / 2;
+    // Drape the footprint marker on the terrain, like every other preview —
+    // a fixed y=0.12 buries it under any raised ground beneath the pipe.
+    const state = this._liveState();
+    const FILL_OFFSET = 0.10;
+    const EDGE_OFFSET = 0.12;
+    const yAt = (x, z) => sampleSurfaceYAt(state, x, z);
+    const yNW = yAt(x0, z0), yNE = yAt(x1, z0), ySE = yAt(x1, z1), ySW = yAt(x0, z1);
     const pts = [
-      new THREE.Vector3(x0, 0.12, z0), new THREE.Vector3(x1, 0.12, z0),
-      new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x0, 0.12, z1),
-      new THREE.Vector3(x0, 0.12, z0),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, yNE + EDGE_OFFSET, z0),
+      new THREE.Vector3(x1, ySE + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, ySW + EDGE_OFFSET, z1),
+      new THREE.Vector3(x0, yNW + EDGE_OFFSET, z0),
     ];
     this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    const fillGeo = new THREE.PlaneGeometry(footW, footH);
-    fillGeo.rotateX(-Math.PI / 2);
-    const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(px, 0.1, pz);
-    this._addPreviewMesh(fill);
-  }
-
-  /** Calculate the tile footprint for a component ghost preview. */
-  _ghostComponentTiles(col, row, dir, compDef) {
-    // Replicate Beamline._calcTiles logic
-    const DIR_DELTAS = [
-      { dc: 0, dr: -1 }, // NE (0)
-      { dc: 1, dr: 0 },  // SE (1)
-      { dc: 0, dr: 1 },  // SW (2)
-      { dc: -1, dr: 0 }, // NW (3)
-    ];
-    const PERP = [3, 0, 1, 2]; // turnLeft
-    const delta = DIR_DELTAS[dir] || DIR_DELTAS[0];
-    const perpDelta = DIR_DELTAS[PERP[dir] || 0];
-    const tilesAlong = Math.ceil((compDef.subL || 4) / 4);
-    const tilesAcross = Math.ceil((compDef.subW || 2) / 4);
-    const widthOffsets = [];
-    for (let j = 0; j < tilesAcross; j++) widthOffsets.push(j - (tilesAcross - 1) / 2);
-    const tiles = [];
-    for (let i = 0; i < tilesAlong; i++) {
-      for (const wOff of widthOffsets) {
-        tiles.push({
-          col: col + delta.dc * i + perpDelta.dc * wOff,
-          row: row + delta.dr * i + perpDelta.dr * wOff,
-        });
-      }
-    }
-    return tiles;
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+      x0, yNW + FILL_OFFSET, z0,
+      x1, yNE + FILL_OFFSET, z0,
+      x1, ySE + FILL_OFFSET, z1,
+      x0, ySW + FILL_OFFSET, z1,
+    ], 3));
+    fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
+    fillGeo.computeVertexNormals();
+    this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
   }
 
   /**
-   * Render a ghost (transparent) equipment at a tile position.
-   * Beamline components use actual 3D model with green wireframe edges.
-   * Other components use a simple translucent box.
+   * Detach the grid overlay. The built LineSegments are NOT disposed — they
+   * stay in `_gridOverlayLines` so a re-render at the same cursor tile can
+   * re-attach them (a single mousemove asks for the overlay twice: once from
+   * updateHover, once from the ghost renderer). `_invalidateGridOverlay`
+   * owns the actual teardown.
    */
-  renderEquipmentGhost(col, row, compType, color) {
-    this._clearPreview();
-    this._renderGridAroundCursor(col, row);
-    const compDef = COMPONENTS[compType];
-    if (!compDef) return;
-
-    const tileX = col * 2;
-    const tileZ = row * 2;
-    const tileColor = (typeof color === 'number') ? color : 0x88aaff;
-
-    const isBeamline = compDef.category === 'source' || compDef.category === 'optics'
-      || compDef.category === 'acceleration' || compDef.category === 'diagnostics'
-      || compDef.isDrawnConnection;
-
-    if (isBeamline) {
-      // Use actual 3D model ghost with green wireframe
-      const ghost = createBeamlineGhost(compType);
-      if (ghost) {
-        ghost.position.set(tileX + 1, 0, tileZ + 1);
-        ghost.rotation.y = -(this.placementDir || 0) * (Math.PI / 2);
-        this._addPreviewMesh(ghost);
-      }
-    } else {
-      // Non-beamline: simple translucent box. Position matches
-      // EquipmentBuilder.placeOne so the ghost lands where the real mesh
-      // will be placed (NW corner of the tile + w/2, l/2 offsets).
-      const SUB_UNIT = 0.5;
-      const w = (compDef.subW || 2) * SUB_UNIT;
-      const h = (compDef.subH || 1) * SUB_UNIT;
-      const l = (compDef.subL || compDef.subW || 2) * SUB_UNIT;
-      const ghostMat = new THREE.MeshBasicMaterial({
-        color: compDef.spriteColor || 0x888888,
-        transparent: true, opacity: 0.4,
-        depthTest: true, depthWrite: false,
-      });
-      const geo = new THREE.BoxGeometry(w, h, l);
-      const mesh = new THREE.Mesh(geo, ghostMat);
-      mesh.position.set(tileX + w / 2, h / 2, tileZ + l / 2);
-      this._addPreviewMesh(mesh);
-    }
-
-    // Floor outline. Y dropped to 0.02/0.01 so small sub-tile ghost meshes
-    // don't get visually submerged by the fill plane.
-    const edgeMat = this._previewEdgeMat(tileColor);
-    const x0 = tileX, x1 = tileX + 2, z0 = tileZ, z1 = tileZ + 2;
-    const pts = [
-      new THREE.Vector3(x0, 0.02, z0), new THREE.Vector3(x1, 0.02, z0),
-      new THREE.Vector3(x1, 0.02, z1), new THREE.Vector3(x0, 0.02, z1),
-      new THREE.Vector3(x0, 0.02, z0),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    const fillMat = this._previewMat(tileColor, 0.15);
-    const fillGeo = new THREE.PlaneGeometry(2, 2);
-    fillGeo.rotateX(-Math.PI / 2);
-    const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(tileX + 1, 0.01, tileZ + 1);
-    this._addPreviewMesh(fill);
-  }
-
-  /**
-   * Render a ghost (transparent) furnishing box at a sub-tile position.
-   * Also draws a sub-tile outline in the given color.
-   */
-  renderFurnishingGhost(col, row, subCol, subRow, furnType, rotated, color) {
-    this._clearPreview();
-    this._renderGridAroundCursor(col, row);
-    const furnDef = ZONE_FURNISHINGS[furnType];
-    if (!furnDef) return;
-    const SUB_UNIT = 0.5;
-    const gw = rotated ? furnDef.gridH : furnDef.gridW;
-    const gh = rotated ? furnDef.gridW : furnDef.gridH;
-    const w = (furnDef.subW || gw) * SUB_UNIT;
-    const h = (furnDef.subH || 1) * SUB_UNIT;
-    const l = (furnDef.subL || gh) * SUB_UNIT;
-    const ghostMat = new THREE.MeshBasicMaterial({
-      color: furnDef.color || 0x666666,
-      transparent: true, opacity: 0.4,
-      depthTest: true, depthWrite: false,
-    });
-    const geo = new THREE.BoxGeometry(w, h, l);
-    const mesh = new THREE.Mesh(geo, ghostMat);
-    const tileX = col * 2;
-    const tileZ = row * 2;
-    const subSize = 2 / 4; // 0.5
-    mesh.position.set(
-      tileX + subCol * subSize + w / 2,
-      h / 2,
-      tileZ + subRow * subSize + l / 2
-    );
-    this._addPreviewMesh(mesh);
-    // Sub-tile outline
-    const tileColor = (typeof color === 'number') ? color : 0x88ccff;
-    const edgeMat = this._previewEdgeMat(tileColor);
-    const x0 = tileX + subCol * subSize;
-    const z0 = tileZ + subRow * subSize;
-    const x1 = x0 + gw * subSize;
-    const z1 = z0 + gh * subSize;
-    const pts = [
-      new THREE.Vector3(x0, 0.02, z0), new THREE.Vector3(x1, 0.02, z0),
-      new THREE.Vector3(x1, 0.02, z1), new THREE.Vector3(x0, 0.02, z1),
-      new THREE.Vector3(x0, 0.02, z0),
-    ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
-    // Translucent fill
-    const fillMat = this._previewMat(tileColor, 0.15);
-    const fillGeo = new THREE.PlaneGeometry(gw * subSize, gh * subSize);
-    fillGeo.rotateX(-Math.PI / 2);
-    const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set((x0 + x1) / 2, 0.01, (z0 + z1) / 2);
-    this._addPreviewMesh(fill);
-  }
-
-  /** Highlight a furnishing for demolish — red tinted box over its bounds. */
-  _renderDemolishFurnishingHighlight(entry) {
-    this._clearPreview();
-    if (!entry) return;
-    const subSize = 2 / 4;
-    const w = (entry.rotated ? entry.gridH : entry.gridW) || 1;
-    const h = (entry.rotated ? entry.gridW : entry.gridH) || 1;
-    const mat = this._previewMat(0xff4444, 0.35);
-    const geo = new THREE.PlaneGeometry(w * subSize, h * subSize);
-    geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, mat);
-    const tileX = entry.col * 2;
-    const tileZ = entry.row * 2;
-    mesh.position.set(
-      tileX + entry.subCol * subSize + (w * subSize) / 2,
-      0.1,
-      tileZ + entry.subRow * subSize + (h * subSize) / 2
-    );
-    this._addPreviewMesh(mesh);
-  }
-
-  /** Highlight equipment for demolish — red box at equipment tile. */
-  _renderDemolishEquipmentHighlight(equip) {
-    this._clearPreview();
-    if (!equip) return;
-    const col = equip.col ?? 0;
-    const row = equip.row ?? 0;
-    this._addPreviewMesh(new THREE.Mesh(
-      this._terrainTileQuad(col, row, 0.02),
-      this._previewMat(0xff4444, 0.35)
-    ));
-  }
-
-  /** Clear grid overlay lines. */
   _clearGridOverlay() {
     if (!this.gridOverlayGroup) return;
     while (this.gridOverlayGroup.children.length > 0) {
-      const child = this.gridOverlayGroup.children[0];
-      this.gridOverlayGroup.remove(child);
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) child.material.dispose();
+      this.gridOverlayGroup.remove(this.gridOverlayGroup.children[0]);
     }
+  }
+
+  /** Dispose the cached overlay lines so the next render rebuilds them. */
+  _invalidateGridOverlay() {
+    for (const line of this._gridOverlayLines) {
+      if (line.parent) line.parent.remove(line);
+      if (line.geometry) line.geometry.dispose();
+      if (line.material) line.material.dispose();
+    }
+    this._gridOverlayLines = [];
+    this._gridOverlaySig = null;
   }
 
   /**
@@ -2456,12 +2230,21 @@ export class ThreeRenderer {
   _renderGridAroundCursor(col, row) {
     this._clearGridOverlay();
 
+    // Geometry depends only on the cursor tile and the heightmap; terrain
+    // rebuilds call _invalidateGridOverlay, so the tile key is enough.
+    const sig = col + ',' + row;
+    if (sig === this._gridOverlaySig && this._gridOverlayLines.length > 0) {
+      for (const line of this._gridOverlayLines) this.gridOverlayGroup.add(line);
+      return;
+    }
+    this._invalidateGridOverlay();
+    this._gridOverlaySig = sig;
+
     const majorRadius = 3;   // tiles around cursor for major grid
     const subRadius = 1;     // tiles around cursor for sub-grid
     const Y_OFFSET = 0.04;
 
     const state = this._liveState();
-    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + Y_OFFSET;
 
     // Each tile is drawn as its own self-contained square (border + sub-grid),
     // so cliffs and mismatched corners between tiles don't produce ugly
@@ -2548,6 +2331,8 @@ export class ThreeRenderer {
     const subLines = new THREE.LineSegments(subGeo, subMat);
     subLines.renderOrder = 997;
     this.gridOverlayGroup.add(subLines);
+
+    this._gridOverlayLines = [majorLines, subLines];
   }
 
   /** Highlight a single tile with a coloured quad + wireframe border. */
@@ -2742,16 +2527,37 @@ export class ThreeRenderer {
       }
     }
     // Beam pipe preview + pre-click hover marker — read straight off the
-    // beamline controller (single owner of pipe-draw render state).
+    // beamline controller (single owner of pipe-draw render state). Both
+    // renderers tear down and rebuild wholesale (the hover marker alone
+    // rebuilds a 7x7 major + 3x3 sub grid, ~400 segments), so gate them on a
+    // signature of everything they read instead of running per rAF while the
+    // tool sits idle. `_beamPipeSig` is nulled by _clearPreviewMeshes and
+    // _refreshBeamPipes, the two ways this geometry can go stale off-cursor.
     const blCtrl = this._inputHandler?.beamlineController;
-    if (blCtrl && blCtrl.isActive() && blCtrl.drawPath.length >= 1) {
-      this._renderBeamPipePreview(blCtrl.drawPath, blCtrl.drawMode, blCtrl.drawCost);
-    } else if (blCtrl && blCtrl.hoverPoint) {
-      this._renderBeamPipePreview([blCtrl.hoverPoint], 'add');
-      this._renderPipeHoverMarker(blCtrl.hoverPoint);
-    } else {
-      this._clearBeamPipePreview();
-      this._clearPipeHoverMarker();
+    const drawing = !!(blCtrl && blCtrl.isActive() && blCtrl.drawPath.length >= 1);
+    const hovering = !drawing && !!(blCtrl && blCtrl.hoverPoint);
+    let blSig = null;
+    if (drawing || hovering) {
+      const path = drawing ? blCtrl.drawPath : [blCtrl.hoverPoint];
+      const oe = blCtrl.hoverOpenEnd;
+      blSig = (drawing ? blCtrl.drawMode : 'add')
+        + '|' + path.map(p => p.col + ',' + p.row).join(';')
+        + '|' + (drawing && blCtrl.drawCost ? blCtrl.drawCost.funding : '')
+        + '|' + (oe ? oe.pipeId + ':' + oe.openEnd : '')
+        + '|' + (hovering && blCtrl.hoverValidAnchor ? 1 : 0)
+        + '|' + this._frustumSize;   // cost label counter-scales with zoom
+    }
+    if (blSig !== this._beamPipeSig) {
+      this._beamPipeSig = blSig;
+      if (drawing) {
+        this._renderBeamPipePreview(blCtrl.drawPath, blCtrl.drawMode, blCtrl.drawCost);
+      } else if (hovering) {
+        this._renderBeamPipePreview([blCtrl.hoverPoint], 'add');
+        this._renderPipeHoverMarker(blCtrl.hoverPoint);
+      } else {
+        this._clearBeamPipePreview();
+        this._clearPipeHoverMarker();
+      }
     }
     const _now = performance.now();
     const _dt = (_now - this._lastAnimTime) / 1000;
@@ -2893,6 +2699,7 @@ export class ThreeRenderer {
     this._refreshUtilityLinesV2();
     this._refreshBeamPipes();
     this._refreshZones();
+    this._invalidateGridOverlay();
   }
 
   refresh() {
@@ -2911,6 +2718,8 @@ export class ThreeRenderer {
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snap);
     this.grassTuftBuilder.rebuild(snap);
+    // Cached overlay lines bake the old heights (placement auto-flattens).
+    this._invalidateGridOverlay();
   }
 
   _refreshInfra() {
@@ -3244,6 +3053,9 @@ export class ThreeRenderer {
   }
 
   _refreshBeamPipes() {
+    // The hover stub reads pipe paths off the snapshot, so a pipe edit has to
+    // re-arm the preview memo even when the cursor hasn't moved.
+    this._beamPipeSig = null;
     // Remove old beam pipe meshes from group
     if (this.beamPipeGroup) {
       while (this.beamPipeGroup.children.length > 0) {

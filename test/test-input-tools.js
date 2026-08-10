@@ -12,6 +12,10 @@
 //      under it. (Regression: the pick-up pushed an undo snapshot, so Ctrl+Z
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
+//   4. Preview lifecycle around arming and committing: a keyboard-armed tool
+//      must show its ghost before the mouse moves, the variant must not
+//      survive an arm into another family, and a commit must re-preview so
+//      the ghost stops claiming a tile it just filled.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -20,6 +24,7 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { DemolishTool } from '../src/input/demolish-tool.js';
 import { MoveTool } from '../src/input/mode-tools.js';
 import { InputHandler } from '../src/input/InputHandler.js';
+import { tileCenterIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -186,6 +191,136 @@ console.log('\n=== 3. Shift+drag decoration line rebuilds decorations once ===\n
   // silently swallowed.
   assertOk(!ctx._suppressNextClick,
     'the line-place commit leaves no armed click suppressor');
+}
+
+console.log('\n=== 4. Preview lifecycle: arming, variants, post-commit refresh ===\n');
+
+// InputHandler needs a DOM to construct, so drive its prototype methods on a
+// record carrying only the members the preview paths touch — the same trick
+// the line-place case above uses, plus the tool-arming plumbing.
+function makeRenderer() {
+  return {
+    canvas: { style: {} },
+    ghosts: [],                 // every renderPlaceableGhost call: { hover, ok }
+    lastWorld: { x: 0, y: 0 },  // what screenToWorld reports
+    hoverCol: -1, hoverRow: -1,
+    _clearPreview() {},
+    clearDragPreview() {},
+    hidePopup() {},
+    setBuildMode() {},
+    updatePlacementDir() {},
+    updateHover(col, row) { this.hoverCol = col; this.hoverRow = row; },
+    screenToWorld() { return { x: this.lastWorld.x, y: this.lastWorld.y }; },
+    renderPlaceableGhost(hover, ok) { this.ghosts.push({ hover: { ...hover }, ok }); },
+    renderPlaceableGhosts() {},
+  };
+}
+
+function makeInput(game, renderer) {
+  const input = {
+    game, renderer,
+    activeTool: null,
+    hoverPlaceable: null,
+    selectedNodeId: null,
+    selectedPlaceableVariant: 0,
+    selectedParamOverrides: null,
+    placementDir: 0,
+    paletteIndex: 0,
+    lastMouseWorldX: null,
+    lastMouseWorldY: null,
+    isLinePlacingDecoration: false,
+    beamlineController: { onHover() {}, reset() {}, clearHover() {}, _placementHover: null },
+    get armedPlaceableId() { return this.activeTool?.armedPlaceableId ?? null; },
+    _hideTooltip() {}, _updateShiftHint() {}, _showToast() {}, _hidePreview() {},
+    _checkHoverTooltip() {}, _showPreviewForFocusedItem() {},
+  };
+  for (const m of [
+    'setTool', 'clearTool', '_repaintArmedPreview', '_updatePlaceablePreview',
+    '_commitHoverPlaceable', 'selectPaletteTool', 'selectComponentTool',
+    '_applyPaletteFocus', '_recallPaletteVariant',
+  ]) {
+    input[m] = InputHandler.prototype[m];
+  }
+  input._toolCtx = { game, renderer, input };
+  return input;
+}
+
+function fakeItem(kind, key) {
+  return {
+    dataset: { paletteKind: kind, paletteKey: key },
+    classList: { add() {}, remove() {} },
+    scrollIntoView() {},
+  };
+}
+
+// Drive the armed tool's real mousemove over a tile center; returns the ghost
+// it painted (or undefined). Also establishes lastMouseWorldX/Y, which is what
+// the keyboard-arming repaint reads.
+function hoverTile(input, renderer, col, row) {
+  const iso = tileCenterIso(col, row);
+  renderer.lastWorld = { x: iso.x, y: iso.y };
+  renderer.ghosts.length = 0;
+  input.activeTool.onMouseMove({ clientX: 100, clientY: 100 }, input._toolCtx);
+  return renderer.ghosts[renderer.ghosts.length - 1];
+}
+
+{
+  const g = makeGame(46);
+  const renderer = makeRenderer();
+  const input = makeInput(g, renderer);
+
+  // Find a tile where a flower bed is actually placeable (generated scenery
+  // occupies plenty of them).
+  input.selectPaletteTool('decoration', 'flowerBed', 0);
+  let spot = null;
+  for (let row = 2; row < 40 && !spot; row++) {
+    for (let col = 2; col < 40 && !spot; col++) {
+      const ghost = hoverTile(input, renderer, col, row);
+      if (ghost && ghost.ok) spot = { col, row };
+    }
+  }
+  assertOk(spot, 'setup: found a tile where the flower bed ghost is valid');
+
+  // --- keyboard arming paints a ghost with no mousemove ---
+  // The cursor last moved during the scan above; arrow-key/hotkey palette
+  // navigation goes through _applyPaletteFocus and never produces a mousemove,
+  // so the repaint has to come from the arm itself.
+  localStorage.setItem('bt_lastVariantByKey', JSON.stringify({ largeFlowerBed: 2 }));
+  const items = [fakeItem('decoration', 'flowerBed'), fakeItem('decoration', 'largeFlowerBed')];
+  input.paletteIndex = 1;
+  renderer.ghosts.length = 0;
+  input._applyPaletteFocus(items);
+
+  assertOk(renderer.ghosts.length === 1,
+    `arming by palette focus painted exactly one ghost (got ${renderer.ghosts.length})`);
+  assertOk(input.hoverPlaceable?.id === 'largeFlowerBed',
+    'the ghost is the newly armed item');
+  assertOk(input.selectedPlaceableVariant === 2 && renderer.ghosts[0]?.hover.variant === 2,
+    'palette focus kept the remembered variant instead of resetting it to 0');
+
+  // --- variant does not leak between families ---
+  input.selectPaletteTool('decoration', 'flowerBed', 4);
+  assertOk(input.selectedPlaceableVariant === 4, 'the decoration armed its own variant');
+  input.selectPaletteTool('facility', 'labBench');
+  assertOk(input.selectedPlaceableVariant === 0,
+    `arming a facility item reset the variant (got ${input.selectedPlaceableVariant})`);
+  input.selectPaletteTool('decoration', 'flowerBed', 5);
+  input.selectPaletteTool('component', 'drift');
+  assertOk(input.selectedPlaceableVariant === 0,
+    `arming a beamline component reset the variant (got ${input.selectedPlaceableVariant})`);
+
+  // --- committing re-previews so the ghost stops reading as valid ---
+  input.selectPaletteTool('decoration', 'flowerBed', 0);
+  const before = hoverTile(input, renderer, spot.col, spot.row);
+  assertOk(before && before.ok, 'the ghost is valid before the click');
+  const countBefore = g.state.placeables.length;
+  renderer.ghosts.length = 0;
+  const consumed = input._commitHoverPlaceable(100, 100);
+  assertOk(consumed && g.state.placeables.length === countBefore + 1,
+    'the click placed the flower bed');
+  const after = renderer.ghosts[renderer.ghosts.length - 1];
+  assertOk(after && !after.ok,
+    'the ghost re-previewed as blocked on the tile the click just filled');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

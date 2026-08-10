@@ -25,24 +25,23 @@ import { isoToGrid } from '../renderer/grid.js';
 /**
  * Placement of a unified placeable (facility equipment / furnishing /
  * decoration). `family` records which palette family armed it; `key` is the
- * PLACEABLES/COMPONENTS id; `variant` is the color/style variant index, or
- * null to leave the input handler's current variant untouched (the legacy
- * facility selector never wrote the variant field — preserve that).
+ * PLACEABLES/COMPONENTS id; `variant` is the color/style variant index.
+ * The variant belongs to the armed tool: it is written on every arm, so a
+ * swatch chosen for one item can never ride along into the next one.
  */
 export class PlaceableTool extends Tool {
-  constructor(family, key, variant = null) {
+  constructor(family, key, variant = 0) {
     super(`${family}:${key}`, 'placeable');
     this.family = family; // 'facility' | 'furnishing' | 'decoration'
     this.key = key;
-    this.variant = variant;
+    this.variant = variant | 0;
   }
 
   // Arms the unified placeable preview/commit path.
   get armedPlaceableId() { return this.key; }
 
   onEnter(ctx) {
-    const input = ctx.input;
-    if (this.variant != null) input.selectedPlaceableVariant = this.variant;
+    ctx.input.selectedPlaceableVariant = this.variant;
   }
 
   onExit(ctx) {

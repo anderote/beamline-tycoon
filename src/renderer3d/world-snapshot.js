@@ -5,7 +5,7 @@
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
-import { getTileCornersY, sampleCornersAt } from '../game/terrain.js';
+import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { inMapRegion } from '../game/map-generator.js';
 import { placementPose } from '../beamline/pipe-placements.js';
 
@@ -297,13 +297,23 @@ function buildDecorations(game) {
       const category = raw?.category ?? 'unknown';
       const subW = raw?.subW ?? raw?.gridW ?? 4;
       const subL = raw?.subL ?? raw?.gridH ?? 4;
-      // Centered (no sub-cell) decorations sample the tile midpoint.
+      // Occupancy extents swap on dir 1/3 — same rule as Placeable.footprintCells,
+      // so the sampled midpoint is the centre of the cells actually reserved.
+      const dir = d.dir || 0;
+      const swap = dir === 1 || dir === 3;
+      const footW = swap ? subL : subW;
+      const footL = swap ? subW : subL;
+      // Centered (no sub-cell) decorations sample the tile midpoint. Triangulated,
+      // not bilinear, so the base lands on the rendered mesh on unflattened slopes.
       const c = getTileCornersY(game.state, d.col, d.row);
       const subRes = 4;
-      const u = (d.subCol != null) ? ((d.subCol + subW / 2) / subRes) : 0.5;
-      const v = (d.subRow != null) ? ((d.subRow + subL / 2) / subRes) : 0.5;
-      const y = sampleCornersAt(c, u, v);
+      const u = (d.subCol != null) ? ((d.subCol + footW / 2) / subRes) : 0.5;
+      const v = (d.subRow != null) ? ((d.subRow + footL / 2) / subRes) : 0.5;
+      const y = sampleCornersTriangulated(c, u, v);
       return {
+        // Placeable id, so the builder can key its groups and hover/demolish
+        // lookups can resolve a decoration's mesh the way components do.
+        id: d.id,
         col: d.col,
         row: d.row,
         type: d.type,
@@ -312,6 +322,7 @@ function buildDecorations(game) {
         subRow: d.subRow ?? null,
         subW,
         subL,
+        dir,
         subH: raw?.subH ?? 4,
         variant: d.variant ?? null,
         tall: d.tall ?? false,
