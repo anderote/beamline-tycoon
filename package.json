@@ -10,9 +10,12 @@
     "build:web": "bash scripts/build-web.sh",
     "preview": "vite preview",
     "test": "node scripts/run-tests.mjs",
-    "assets": "node tools/asset-gen/server.cjs"
+    "assets": "node tools/asset-gen/server.cjs",
+    "test:browser": "playwright test",
+    "test:browser:headed": "playwright test --headed"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "pngjs": "^7.0.0",
     "vite": "^8.0.7"
   },

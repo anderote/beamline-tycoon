@@ -8,3 +8,7 @@ __pycache__/
 .superpowers/
 assets/rct2-extracted/
 .claude/worktrees/
+
+# Playwright browser tests (npm run test:browser)
+test-results/
+playwright-report/
