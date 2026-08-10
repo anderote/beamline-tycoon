@@ -1,203 +1,256 @@
-# Followups Plan — 2026-08-09
+# Followups Plan — remaining work after the overhaul
 
-Closes out `docs/superpowers/plans/overhaul-followups.md` (§1–§10 + smaller things), plus two items
-raised directly by the user (placement previews, zoom range). Executed **directly on `master`** —
-the overhaul is merged, so there is nothing to isolate from. Phase-by-phase by subagent workflows
-with a verify-fix loop per phase, one commit per phase. Consequence of not using a worktree: edits
-hot-reload into a running dev server, so avoid long-running builds while the user is mid-session.
-
-**User decisions locked in:**
-- On-pipe utility model: **wire each placement individually** (max fidelity). This makes bulk-wiring
-  ergonomics a first-class requirement, not a nice-to-have — see Phase 11.
-- Progression: **full design pass** — target playthrough length, tech-tree tiers laid against it,
-  beam income re-derived rather than patched with a compensating constant.
-
-**Invariants for every phase:** `npm test` green, `npx vite build` green, `node scripts/balance-sim.mjs`
-green, no behavior regressions beyond those explicitly planned. Work never touches the user's
-checkout.
+**Written to survive a context clear.** Everything needed to resume is in this file
+or in the two documents it points at. Last updated 2026-08-10.
 
 ---
 
-## Phase 9 — Verification foundation (do first; de-risks everything after)
+## 0. Where things stand right now
 
-Two gaps make every later phase riskier than it needs to be: nothing executes the app, and nothing
-checks that hand-written id strings still resolve.
+**Branch:** `master`. HEAD `71755c77`. All tests green (63 node suites + pytest), `npx vite build`
+clean, `node scripts/balance-sim.mjs` clean.
 
-**9a. Browser smoke, restored (§5).** Playwright with a software GL backend
-(`--use-gl=swiftshader --use-angle=swiftshader`) so `ThreeRenderer` actually comes up headless.
-Rewrite the two stale Puppeteer harnesses against the current `role` taxonomy (they still assume
-every `placement: 'module'` is free-grid placeable — 9 components are `module`+`role:'placement'`
-and correctly rejected, so they'd report ~9 spurious failures even with GL). Target scenario:
-boot → title → continue → place floor/wall/decoration → place a junction → draw a pipe → place an
-on-pipe component → wire a utility line → toggle beam → save → reload → undo/redo → Esc from each
-UI layer, asserting zero uncaught console errors throughout. Add `npm run test:browser`; fold into
-`npm test` only if it proves stable. **Acceptance: the app is proven to boot and render.**
+**Uncommitted in the working tree** (deliberate — the user sets commit boundaries on their own
+title-screen work):
+- `src/ui/TitleScreen.js`, `src/ui/crtWarp.js`, `style.css` — the music toggle moved from a DOM
+  button into the scene canvas so it bends with the CRT glass. Includes a new exported
+  `destToSource()` in `crtWarp.js` that maps a click on the warped screen back to scene
+  coordinates. Verified working by screenshot.
 
-**9b. Registry-integrity test (§10, first bullet).** One test that walks *every* hand-written id list
-in `src/` against the real registries — `economy.js` (`PUMP_TYPES`, RF/cryo stat lists),
-`research.js`, `Game.js`, `modes.js` categories, `MACHINE_TIER`. `validateResearch` already does
-exactly this for one table and found 27 dead nodes; generalize it. This is the cheapest possible
-insurance against the single largest bug class of rounds 4–6 (strings that used to be right).
+**Unpushed:** `71755c77` (deploy docs) is local-only. Everything before it is pushed.
 
-**9c. Placement previews (user-reported).** Investigation complete — 25 defects, nearly all
-**pre-existing**, not overhaul regressions. The overhaul's own surface came out clean: `onEnter`/
-`onExit` ordering is correct, there are zero snapshot-boundary violations in preview code, and
-`previewGroup` routing is right. Fix order:
+**Deployed:** the post-overhaul build is live at
+`https://www.deep-tech-week.com/beamline-tycoon-game/`, built from `c8fcc8bb`. The in-CRT speaker
+icon is NOT deployed yet (it postdates that build).
 
-*Tier 1 — the ghost lies about what you'll get:*
-- **A1/A2 Decorations ignore rotation entirely.** `buildDecorations` (`world-snapshot.js:306`) never
-  emits `dir`, so `DecorationBuilder` can't rotate — press R, the ghost turns, the placed bench
-  doesn't. Same root cause omits the dir 1/3 footprint swap that `Placeable.footprintCells` and the
-  ghost both apply, so a rotated bench renders offset from the cells it actually reserves.
-  `EquipmentBuilder` gets this right; decorations are the only family broken.
-- **G Stackable ghosts snap to an invisible hitbox.** `screenToPlacementWorld` raycasts
-  `componentGroup` recursively and hits the invisible collision box `_createObject` adds at beam
-  height (three.js tests `object.visible`, not `material.visible`). Hovering any of the 14 stackable
-  items near a beamline makes the ghost jump a metre into the air. `_outlineObject` already guards
-  this exact hazard — port the guard.
-- **A4/A5/E4 `renderAttachmentGhost` missed three fixes the unified path got:** it uses the
-  `obj.children.length` detail check that the unified path explicitly documents as always-true (so
-  the cryomodule ghost sits 1 m below where it lands), it will throw on array materials on every
-  mousemove for any future gauge without a role builder, and it sets `depthWrite` but not
-  `depthTest`/per-child `renderOrder`, so on-pipe ghosts z-fight with their own pipe.
+**Worktrees:**
+- `.claude/worktrees/followups` on branch `followups` (at `4ce31d08`) — set up, deps installed,
+  intended home for the long-running phases below. **Currently 3 commits behind master; rebase or
+  reset it onto master before starting.**
+- `.claude/worktrees/overhaul` on branch `overhaul` — fully merged into master, safe to delete
+  (`git worktree remove .claude/worktrees/overhaul && git branch -d overhaul`).
 
-*Tier 2 — missing or stale previews:*
-- **B4 Keyboard-armed tools show no ghost until you jiggle the mouse** (the one overhaul-introduced
-  defect: `setTool` clears the preview and nothing repaints it after `onEnter`, though the last
-  mouse position is known). One-line fix, kills a whole class of "the preview vanished".
-- **B1/B2 Demolish and Move show no highlight on decorations** — `raycastScreen` omits
-  `decorationGroup`, so the outline path is unreachable; Move additionally keys off tile-granular
-  legacy mirrors so sub-tile furnishings don't resolve.
-- **C1 Ghost stays green over the tile you just filled** — `_commitHoverPlaceable` doesn't
-  re-preview, so a second click reports "Space occupied!" under a green ghost.
+**Nothing is running in the background.** No workflows, no servers, no watchers.
 
-*Tier 3 — cosmetic and hygiene:* A3 (ghost tree is a different tree than you place — seed 0 vs
-position hash), A6 (validity coloring ignores affordability: green ghost, "Can't afford"), A7 +
-C4 (variant leaks/resets across tools), E1 (drag-rect preview is flat on slopes), E3 (ghost drapes
-the slope, click flattens it — needs a call: preview at post-flatten height?), D1/D2/D3 (per-frame
-grid + pipe-marker rebuilds at 60 Hz; stale tracking arrays double-dispose), D4/C5 (7 dead preview
-methods each carrying a copy of the flat-Y bug, plus a stale `renderEquipmentGhost` caller on F).
+### Read these two first when resuming
+- `docs/superpowers/plans/overhaul-followups.md` — the 331-line evidence base. Every item below
+  traces to a numbered section there, with real file:line references and repros. **Its line numbers
+  have drifted; re-derive before moving code.**
+- `docs/superpowers/plans/2026-08-07-overhaul-master-plan.md` — what the overhaul itself did
+  (9 phases, 6 review rounds, 105 confirmed defect fixes).
 
-Browser smoke (9a) grows preview cases for A1, B4 and G once they're fixed.
+---
 
-**9d. Zoom range — done.** Max zoom raised 8 → 14 (`ZOOM_MAX` in `ThreeRenderer.js`); the detail-LOD
-threshold at 2.0 is far below it, so the whole new range is inside the high-detail band. Zoom-out
-floor left at 0.2 — extend if the user meant "see more of the facility" rather than "get closer".
+## 1. Decisions already made — do not relitigate
 
-## Phase 10 — Structural fixes for the other two bug classes (§10)
+| Decision | Choice | Consequence |
+|---|---|---|
+| Legacy MACHINES system | **Removed** | Done. `MACHINE_TIER`/`MACHINE_TYPES` kept for palette gating. |
+| Wildlife / deer entities | **Deleted** | Done. ~1,400 lines gone. |
+| On-pipe utility model | **Wire each placement individually** (not aggregated onto junctions) | Phase 11 must ship bulk-wiring tooling or the game becomes data entry. |
+| Progression scope | **Full design pass** — pick a target playthrough length and derive costs/income from it | Phase 12 is design-led, not a tuning tweak. |
+| deep-tech-week deploy | **Manual** | Auto-sync workflow deleted (its secret was never configured). `npm run build:web` prints the publish steps. |
+| Save compatibility | **Ignore** — pre-release, single-user | Break saves freely; no migrators. |
 
-Rounds 4–6 fixed 60 bugs at their sites and pinned regressions; the *classes* stayed open.
+---
 
-- **Gesture ordering.** No shared helper enforces "validate → charge → mutate → snapshot", which
-  produced `_pushUndo()` before validation, `placeJunction` charging twice, and
-  `_abortPointerGesture` destroying a carried payload. Introduce one gesture helper (building on the
-  existing `_withUndo`) that owns the ordering, and route every mutating tool path through it.
-  Delete the ad-hoc push sites.
-- **Aggregates with two definitions.** Drift entries counted as machines, `totalBeamOnTicks` divided
-  by wall-clock ticks, `dataRate` billed raw while the tick derated it — each is "two call sites
-  compute the same quantity differently". Give each derived quantity exactly one accessor and make
-  the other call sites use it; assert single-source in tests.
+## 2. Completed since the overhaul merged
 
-## Phase 11 — Individual on-pipe utility wiring, made ergonomic (§1)
+- `3e81e9f8` — **all 25 placement-preview defects** (decoration rotation was dropped entirely;
+  stackable ghosts snapped to an invisible hitbox; attachment ghost missed three fixes the unified
+  path got; keyboard-armed tools painted no ghost; demolish/move didn't highlight decorations;
+  validity coloring ignored cost). Also max zoom 8 → 14.
+- `ee4fb660` — **registry-integrity test** (Phase 9b, done). Caught `machineShop.gatesCategory`
+  pointing at a mode id instead of category ids, an unreachable `distribution:` config key, and a
+  disposal path that threw on per-face material arrays. Also lands the reverse research check with
+  9 known contradictions parked in a labelled allowlist for Phase 12 to empty.
+- `4ce31d08` — **browser harness, WIP** (Phase 9a, unfinished — see below).
+- `d8485506`, `71755c77` — repo hygiene and deploy docs.
 
-The gating half of the on-pipe work, per the chosen model. Two halves, and the second is what makes
-the first playable rather than tedious.
+---
 
-**11a. Close the gate.**
+## 3. Phase 9a — finish the browser harness (START HERE, ~1h)
+
+Committed mid-development. `test/browser/README-coverage.md` has the full status. Summary:
+
+- **The hard blocker is solved.** Chromium under SwiftShader/ANGLE renders WebGL, so specs drive
+  the real app — vite, three.js, DOM HUD, real input. Flags that work:
+  `--use-gl=swiftshader --use-angle=swiftshader --enable-unsafe-swiftshader --disable-gpu-sandbox`.
+- **Full pass/fail was never observed.** A complete run exceeds ~7 minutes; individual specs were
+  progressing without failures, which is weak evidence, not a green suite.
+- **The server leaks on interrupt.** Playwright's `webServer` teardown doesn't fire when a run is
+  killed or times out, leaving vite on 8123 so the *next* run dies with "port is already used".
+  Fix with a pretest `lsof -ti :8123 | xargs kill` or manage the server outside Playwright.
+- **Not wired into `npm test`** — must survive three consecutive full runs first.
+
+Remaining work: make a full run finish and be observed green; fix the teardown leak; then add
+regression cases for the three preview bugs most likely to recur — decoration rotation, the
+keyboard-arm ghost, and the invisible-hitbox ghost jump.
+
+**Known environment fact:** the title screen only manages ~3 fps under SwiftShader (measured).
+Anything timing-sensitive must not assume 60 fps headless.
+
+---
+
+## 4. Phase 10 — structural fixes for the two open bug classes (~1h)
+
+Review found 105 bugs and fixed each where it sat; two *patterns* behind them are still open
+(followups §10).
+
+1. **Gesture ordering.** Nothing enforces "validate → charge → mutate → snapshot". That produced
+   `_pushUndo()` before validation (a miss-click wiped the redo stack), `placeJunction` charging
+   twice, and `_abortPointerGesture` destroying a carried payload. Build one helper on top of the
+   existing `_withUndo` that owns the order, route every mutating tool path through it, delete the
+   ad-hoc push sites.
+2. **Aggregates with two definitions.** Drift entries counted as machines (income roughly doubled
+   for a long time), `totalBeamOnTicks` divided by wall-clock ticks, `dataRate` billed raw while the
+   tick derated it. Give each derived quantity exactly one accessor; assert single-source in tests.
+
+---
+
+## 5. Phase 11 — on-pipe utility gating, made ergonomic (2–4h) ★ gameplay
+
+**The problem:** cavities, quads and BPMs *can* be wired but nothing checks that they are. An SRF
+cavity with no power runs at perfect quality — and because a missing `nodeQualities` entry defaults
+to fine, a **never-wired** component scores *better* than a badly-wired one. The whole
+infrastructure layer is currently optional for the components that make up a beamline.
+
+**11a — close the gate.**
 - Feed the unconnected-sink pass `listUtilityEndpoints(state)` instead of
-  `state.placeables.filter(category === 'beamline')` (`utility-gate.js:64`), so on-pipe placements
-  produce real hard blockers.
-- **Fail closed:** a sink with no `nodeQualities` entry must resolve to 0.0, not 1.0
-  (`Game.js:2515` currently `if (nq)` — a never-wired cavity outscores a half-wired one). This is
-  the actual correctness fix.
-- Scenario/demo generators and `scenario-wiring.js` updated so shipped content still comes up green
-  under the stricter gate; `test-scenarios.js` is the regression net.
+  `state.placeables.filter(category === 'beamline')` (`src/game/utility-gate.js`).
+- **Fail closed:** a sink with no `nodeQualities` entry must resolve to 0.0, not 1.0 (`Game.js`,
+  the `if (nq)` guard). This is the actual correctness fix.
+- Update scenario generators + `scenario-wiring.js` so shipped content still comes up green;
+  `test/test-scenarios.js` is the regression net.
 
-**11b. Make wiring dozens of components tractable.** Without this, 11a turns a strategy game into
-data entry. In rough priority:
-- **Run-wiring gesture:** drag a utility line *along* a pipe to connect every compatible sink it
-  passes, one gesture per utility per run (the analogue of the existing drag-rect placement).
-- **Distribution bus:** a placeable that serves every placement on the pipe segment it's attached
-  to, so the player's decision becomes "how many buses and where" rather than N identical stubs.
-  (This recovers the strategic content of the aggregate model while keeping per-component fidelity
-  in the data.)
-- **Unwired-sink affordances:** a clear visual for "this sink has no line" on the pipe itself, a
-  blocker list entry that frames-and-zooms to the offender, and a palette/HUD count of unwired
-  sinks so the player is never hunting.
-- Cost/balance follow-through: more wiring means more infrastructure spend — re-run `balance-sim`
-  and adjust so the new burden is a decision, not a tax.
-
-## Phase 12 — Progression design pass (§6, §7, §8)
-
-The one genuinely *design* phase. Order matters: pick the target, then derive everything from it.
-
-1. **Pick a target playthrough** — total ticks to reach the top of the tech tree, and tier
-   boundaries within it (early / mid / late / prestige). Everything below is derived from this
-   number, so it gets written down explicitly in the plan doc.
-2. **Extend `balance-sim.mjs` with a research-purchase policy** so it simulates a *playthrough*, not
-   a steady state: buy the cheapest affordable node, expand when affordable, report tick-at-which
-   each tier unlocks.
-3. **Re-derive `beamIncomePerNode`** from the target rather than the compensating 100→180 that was
-   fitted to double-counted numbers (§8). Decide deliberately whether income should scale with
-   hardware *density* or beamline *length* — currently density, by accident.
-4. **Lay the tech tree against the timeline:** research costs, and the 9 unlock contradictions
-   (§7) resolved coherently — for each of `cryomodule`, `rfq`, `target`, `sextupole`, `wireScanner`,
-   `ecrIonSource`, `ln2Precooler`, `cryocooler`, `ionSource`, decide *gate or free* against the
-   opening-hour experience, then make `unlocked`/`requires`/`unlocks` agree. Add the reverse
-   validator check (a node's `unlocks` id must actually be gated by that node) so this can't rot.
-   Fix the `gyrotron`/`advancedRf` asymmetry.
-5. **Milestone rewards as tier keys** rather than a bonus on top of passive accumulation.
-6. **Pin playthrough invariants** (tier-unlock ticks within bounds, no dead stretches) as tests, so
-   future balance edits get flagged.
-
-## Phase 13 — Code structure (§2, §3)
-
-Mechanical, low-behavioral-risk, and much safer once Phase 9 exists.
-
-- **InputHandler 2,932 → under 1,500:** extract the five verified clusters (beamline/pipe geometry
-  ~400, demolish lookup+hover ~450, wall/door/floor edge geometry ~250, tooltip/toast/preview DOM
-  ~350, palette keyboard nav ~150). Re-derive line ranges first — the doc's are ~80 lines stale.
-  One cluster per commit-sized step, each with its own test pass.
-- **Renderer internals behind a contract:** the 11 `_`-prefixed renderer members InputHandler
-  reaches into get an explicit surface (the `UIHost.PASS_THROUGH_PROPS` pattern).
-- **Kill `UI_METHODS` (§3):** replace the hand-maintained 44-name list with registration
-  (`registerUIMethods(obj)` at the bottom of each UI module). The existing drift check only catches
-  listed-but-missing, never added-but-unlisted.
-- **UI idiom convergence:** fold the hand-rolled modals (`HiringDialog`, `StaffInspector`,
-  `SaveLoadDialog`, `OptionsDialog`, `WelcomeDialog`, `UtilityStatsPanel`) onto one dialog base with
-  lifecycle + esc-stack + teardown built in. `ContextWindow` stays as-is for world-anchored windows.
-
-## Phase 14 — Performance and polish (§4, §9, smaller things)
-
-- Terrain content-hash computed **once** in `buildWorldSnapshot` (`snapshot.terrainKey`) and mixed
-  into each builder's key instead of three independent 5,041-tile walks (~3.7 ms → ~1.2 ms per
-  terrain event).
-- Orphan grace window stamps `state.tick`, not `stats.solvePasses` — currently the clock is negative
-  after a reload, so orphaned network state never expires.
-- **Code splitting:** dynamic-import the 3D renderer + physics loader behind the title screen. The
-  single 1.02 MB chunk (275 kB gz) warns on every build and delays first paint.
-- Close the `_liveState()` boundary: 11 call sites (drifting the wrong way) get proper snapshot
-  sections — terrain corner heights and cursor/hit-test paths.
-- Delete `UtilityLineSystem.js:40`'s `Math.random()` fallback id generator so a bare construction
-  can't silently reintroduce nondeterminism.
-- The two live TODOs: `BeamlineDesigner.js:515` (palette restricted to attachment tools while
-  editing) and `hud.js:1439` (tool-picker active-state highlight).
-- Consider renaming one of the two `placement` axes (`placement: module|attachment` vs
-  `role: junction|placement`) — the word meaning two things is a standing trap that already broke
-  the browser harnesses.
-
-## Phase 15 — Review to convergence
-
-Rounds 7+ on the same harness (multi-lens review → adversarial verify → fix), but now with Phase 9's
-registry test and Phase 10's structural fixes closing the three known bug classes. **Run until a
-round confirms zero findings** — no cap this time; if it hasn't converged after several rounds,
-that is itself the finding, and the honest conclusion goes in the doc rather than being papered over.
-New lenses to add: save/load-cycle fuzzing, long-run simulation drift (10k+ ticks), and a pass
-specifically over everything Phases 11–13 touched.
+**11b — make wiring dozens of components tractable.** Without this, 11a turns strategy into data
+entry. In priority order:
+- **Run-wiring gesture** — drag a utility line *along* a pipe to connect every compatible sink it
+  passes; one gesture per utility per run.
+- **Distribution bus** — a placeable serving every placement on its pipe segment, so the decision
+  becomes "how many buses and where" rather than N identical stubs. This recovers the strategic
+  content of the aggregate model while keeping per-component fidelity in the data.
+- **Unwired-sink affordances** — a clear on-pipe visual, a blocker entry that frames-and-zooms to
+  the offender, and a HUD count so the player is never hunting.
+- Re-run `balance-sim` afterwards: more wiring means more infrastructure spend, and that should be
+  a decision rather than a tax.
 
 ---
 
-**Execution:** fresh worktree off `master`, one background workflow per phase, verify-fix loop
-capped at 4 iterations per phase, commit per phase. Phases 9 and 10 can overlap (disjoint files);
-11 and 12 are sequential (12's balance depends on 11's costs); 13 and 14 can run parallel to each
-other; 15 is last.
+## 6. Phase 12 — progression design pass (2–4h) ★ gameplay
+
+Research and economy were never designed against each other (followups §6, §7, §8). Evidence:
+
+- $2.5M starting balance already pays for the first several research nodes → early research isn't a
+  choice.
+- Mid-game nets ~1,000/tick against $8M nodes → ~7,500 ticks per node. Reputation gates are worse:
+  ~0.008 rep/tick against `reputation: 10` requirements.
+- **9 components that research claims to unlock are buildable from tick 0** — five carry an explicit
+  `unlocked: true` that directly contradicts the node granting them, including the SRF branch's
+  headline $12M `cryomodule`. (`gyrotron` has the reverse problem: gated but never advertised.)
+- `ECON.beamIncomePerNode` was moved 100 → 180 as a compensating constant after the drift
+  double-count fix — so income now scales with hardware **density** rather than beamline **length**,
+  and nobody chose that.
+
+**Order matters.** Pick the target first, derive everything from it:
+1. Choose total ticks to reach the top of the tree, and tier boundaries within it. Write the number
+   down in this doc.
+2. Extend `scripts/balance-sim.mjs` with a research-purchase policy so it simulates a *playthrough*,
+   reporting the tick at which each tier unlocks.
+3. Re-derive `beamIncomePerNode` from that target. Decide deliberately: density or length?
+4. Lay research costs against the timeline; resolve the 9 gate-or-free contradictions against the
+   opening-hour experience; empty the Phase-9b allowlist; add the reverse validator check.
+5. Make milestone rewards the thing that unlocks the next tier, not a bonus on top.
+6. Pin playthrough invariants (tier-unlock ticks in bounds, no dead stretches) as tests.
+
+---
+
+## 7. Phase 13 — code structure (2–4h, no player impact)
+
+- **`InputHandler` is ~2,930 lines** (Phase 4 targeted <1,500). Five verified extraction clusters
+  totalling ~1,600 lines: beamline/pipe geometry (~400), demolish lookup+hover (~450), wall/door/
+  floor edge geometry (~250), tooltip/toast/preview DOM (~350), palette keyboard nav (~150).
+  **Re-derive the line ranges — followups §2's are ~80 lines stale.** One cluster per step, each
+  with its own test pass.
+- **11 `_`-prefixed renderer internals** are reached into from `InputHandler`; put them behind an
+  explicit surface (the `UIHost.PASS_THROUGH_PROPS` pattern).
+- **Kill `UI_METHODS`** — a hand-maintained 44-name list in `ThreeRenderer` that must stay in sync
+  with what `hud.js`/`overlays.js` attach. The existing drift check only catches listed-but-missing,
+  never added-but-unlisted. Replace with registration (`registerUIMethods(obj)`).
+- **Converge the three UI idioms** — fold the hand-rolled modals onto one dialog base with
+  lifecycle + esc-stack + teardown built in. `ContextWindow` stays for world-anchored windows.
+
+---
+
+## 8. Phase 14 — performance and polish (1–2h)
+
+- Terrain content-hash runs **3× per terrain refresh** (~3.7ms); compute once in
+  `buildWorldSnapshot` as `snapshot.terrainKey` and have builders mix in the scalar.
+- **Orphan grace window is broken across save/load**: `__orphanedAt` is stamped from
+  `stats.solvePasses`, which resets per `SolveRunner` while the value is serialized — so the delta
+  goes negative after a reload and abandoned network state never expires. Stamp `state.tick`.
+- **Code splitting**: single 1.02 MB JS chunk (275 kB gz). Dynamic-import the 3D renderer + physics
+  loader behind the title screen so first paint doesn't wait on three.js.
+- Close the `_liveState()` boundary — 11 call sites and drifting the wrong way; terrain corner
+  heights and cursor/hit-test paths need snapshot sections.
+- Delete `UtilityLineSystem.js`'s `Math.random()` fallback id generator (unreachable in the real
+  game, but a nondeterminism landmine for bare construction).
+- Two live TODOs: `BeamlineDesigner.js` (~:515, restrict palette to attachment tools while editing)
+  and `hud.js` (~:1439, tool-picker active-state highlight).
+- Consider renaming one of the two `placement` axes (`placement: module|attachment` vs
+  `role: junction|placement`) — one word meaning two things already broke the browser harnesses.
+
+---
+
+## 9. Phase 15 — review to convergence (unbounded — set a stopping rule)
+
+Six adversarial rounds have run: 105 confirmed findings, and **round 6 was still producing them**.
+Severity fell (structural breakage → "this feature silently never worked") but supply did not run
+out. Do not represent this codebase as "reviewed clean".
+
+**Set the stopping rule up front:** stop when a round's confirmed findings are all severity-low,
+rather than waiting for a zero that may never arrive. Budget ~3h.
+
+Lenses not yet used: save/load-cycle fuzzing, long-run simulation drift (10k+ ticks), and a pass
+specifically over whatever Phases 11–13 touch.
+
+---
+
+## 10. How to actually run this
+
+**Where:** `.claude/worktrees/followups` (rebase onto master first). Keeps long jobs from
+hot-reloading under a running dev server. Working directly on `master` is fine for short phases.
+
+**Shape that worked** (10 phases delivered this way): one background workflow per phase; agents
+partitioned by **file ownership** so they never edit the same file concurrently; each phase ends in
+a verify→fix loop capped at 4 iterations; the verifier is told to **independently audit, not trust
+the implementers** (e.g. "confirm the test fails when you plant a bad id, then revert").
+
+**Gates every phase must leave green:** `npm test` · `npx vite build` · `node scripts/balance-sim.mjs`.
+
+**Rules for agents:** never kill a server they didn't start (the user's dev server runs on 5173);
+use port 8123+ for their own; no scratch files in the repo root (use the scratchpad); no commits,
+no pushes, no branch switching.
+
+**Cost, measured from this session:** small focused phases 8–35 min; mid-size 35–50 min; large
+refactors and review loops 2.5–4.5h each. Phases 10–14 ≈ **8–15h wall-clock**, plus Phase 15.
+Roughly 18M subagent tokens were spent getting this far; expect a similar order again.
+
+**Suggested order:** 9a → 10 → **11 → 12** → play it → decide whether 13/14/15 are worth it.
+Phases 11 and 12 are the only ones a player will feel. 13 is craft no player sees, and 15 has
+sharply diminishing returns after six rounds.
+
+---
+
+## 11. Deploying (manual, by design)
+
+```
+npm run build:web        # prints the remaining steps when it finishes
+```
+Then rsync `dist/` into `deep-tech-week/apps/web/static/beamline-tycoon-game/`, commit, and push
+`main` — the push is what goes live via Vercel.
+
+**Boot `dist/` from a plain static server before pushing.** Vite's dev server hides base-path and
+missing-asset mistakes that only appear in the built bundle; a headless boot check catches them in
+seconds. Verify afterwards by comparing the live hashed bundle filename to the local one, and
+spot-checking runtime-fetched files (`beam_physics/*.py`, `music/tracks.json`) for 200s.
