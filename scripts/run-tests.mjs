@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // scripts/run-tests.mjs — run every Node test in test/ plus the pytest suite.
 //
-// Discovers test/*.js (plain .js only — the Puppeteer .mjs harnesses
-// test-render-placement.mjs / test-ui-placement.mjs need a dev server and are
-// excluded). Each file runs as "node <file>"; both conventions in the repo
-// (hand-rolled scripts that process.exit(1) on failure, and node:test files)
-// signal failure via a non-zero exit code. Then runs "python3 -m pytest test/ -q".
+// Discovers test/*.js at the top level only. The browser-level suite lives in
+// test/browser/*.spec.mjs, needs a dev server plus headless Chromium, and runs
+// separately via `npm run test:browser` (see playwright.config.mjs and
+// test/browser/README-coverage.md). Each file runs as "node <file>"; both
+// conventions in the repo (hand-rolled scripts that process.exit(1) on failure,
+// and node:test files) signal failure via a non-zero exit code. Then runs
+// "python3 -m pytest test/ -q".
 // Prints a per-file summary and exits non-zero if anything failed.
 
 import { readdirSync } from 'node:fs';

@@ -2783,7 +2783,14 @@ export class ComponentBuilder {
       }
       // Legacy/fallback mesh or hitbox — owned geometry/material, safe.
       if (child.geometry) child.geometry.dispose();
-      if (child.material) child.material.dispose();
+      // A mesh with per-face materials carries an ARRAY here, and Array has
+      // no .dispose — the untagged multi-material builders threw on every
+      // teardown. Materials only; `map` textures are shared via
+      // TextureManager and are not this wrapper's to free.
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      for (const mat of mats) {
+        if (mat && typeof mat.dispose === 'function') mat.dispose();
+      }
     });
   }
 

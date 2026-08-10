@@ -87,12 +87,15 @@ for (const mode of Object.values(MODES)) {
 }
 
 // Map each infra category to its relevant pipe types. Used by the palette
-// to drive the Utility Lines subsection in each category.
+// (hud.js) as the fallback when a category declares no `utilityLineTools`,
+// so every key MUST be an infra category above — an entry keyed on anything
+// else is unreachable. There used to be a `distribution:` catch-all here
+// listing all six utilities; `distribution` is a *subsection* name, never a
+// category, so it was never looked up.
 export const INFRA_DISTRIBUTION = {
   vacuum:       ['vacuumPipe'],
   rfPower:      ['rfWaveguide'],
   cooling:      ['coolingWater', 'cryoTransfer'],
   dataControls: ['dataFiber'],
   power:        ['powerCable'],
-  distribution: ['powerCable', 'coolingWater', 'cryoTransfer', 'rfWaveguide', 'vacuumPipe', 'dataFiber'],
 };
