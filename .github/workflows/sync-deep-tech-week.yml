@@ -1,0 +1,73 @@
+# Publishes the game to deep-tech-week.com on every push to master.
+#
+# deep-tech-week hosts a prebuilt copy of this repo at
+# apps/web/static/beamline-tycoon-game and deploys through Vercel, so pushing
+# the build there is what makes the live site update — there is no separate
+# deploy step to trigger.
+#
+# Requires a repository secret named DTW_SYNC_TOKEN: a token with contents:write
+# on anderote/deep-tech-week. The built-in GITHUB_TOKEN only ever grants access
+# to this repository, so it cannot push the result anywhere else.
+
+name: Sync build to deep-tech-week
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/**'
+  workflow_dispatch:
+
+# A queued run would only rebuild the same thing; let the newest push win.
+concurrency:
+  group: sync-deep-tech-week
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out beamline-tycoon
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Strips the unlicensed local music library and dev-only files, and pulls
+      # in the runtime sprite assets vite does not bundle. See scripts/build-web.sh.
+      - run: npm run build:web
+
+      - name: Check out deep-tech-week
+        uses: actions/checkout@v4
+        with:
+          repository: anderote/deep-tech-week
+          ref: main
+          token: ${{ secrets.DTW_SYNC_TOKEN }}
+          path: deep-tech-week
+
+      - name: Copy build into the site's static directory
+        run: |
+          rsync -a --delete --exclude='__pycache__' \
+            dist/ deep-tech-week/apps/web/static/beamline-tycoon-game/
+
+      - name: Commit and push if the build changed
+        working-directory: deep-tech-week
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/static/beamline-tycoon-game
+          # Asset filenames are content-hashed, so an unchanged game produces an
+          # identical tree and there is nothing worth deploying.
+          if git diff --cached --quiet; then
+            echo 'Build is identical to what is already published; nothing to do.'
+            exit 0
+          fi
+          git commit -m "chore(beamline-tycoon): sync game build from ${GITHUB_SHA:0:8}" \
+                     -m "Built from anderote/beamline-tycoon@${GITHUB_SHA}"
+          git push origin main

@@ -179,16 +179,6 @@ export class TitleScreen {
 
     document.body.appendChild(this.el);
 
-    // Dev-only slider panel for re-tuning the CRT look. Compile-time gated, so
-    // in production builds the dynamic import below is dead-code-eliminated
-    // from the bundle.
-    if (import.meta.env.DEV) {
-      import('./CrtTuner.js').then(({ createCrtTuner }) => {
-        if (this._dismissed) return;
-        this._tuner = createCrtTuner({ warp: this._warp, crtEl: this.crtEl });
-      });
-    }
-
     // ── Scene state ──────────────────────────────────────────────────
     this._stars = [];
     for (let i = 0; i < 46; i++) {
@@ -351,7 +341,6 @@ export class TitleScreen {
     this._dismissed = true;
     cancelAnimationFrame(this._raf);
     window.removeEventListener('resize', this._onResize);
-    this._tuner?.dispose();
     if (window.__titleFx === this._fxHook) delete window.__titleFx;
     this.el.classList.add('title-fade-out');
     this.bezelEl.style.opacity = '0';
