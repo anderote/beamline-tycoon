@@ -18,6 +18,9 @@ export default {
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',
+  // $7,200/tile — brazed precision copper. waveguideManifold ($160k) beats
+  // individual runs at about four sinks. Ladder: powerCable.js.
+  costPerSubUnit: 1800,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const byFreqSource = new Map();

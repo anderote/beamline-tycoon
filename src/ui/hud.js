@@ -17,6 +17,9 @@ import { ContextWindow } from './ContextWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
+import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
+import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
+import { portWorldPosition } from '../utility/ports.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -114,28 +117,33 @@ UIHost.prototype._updateHUD = function() {
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
 
-  // Facility overview (top-left panel) — aggregated stats across all beamlines/machines.
-  // Aggregate both legacy registry-backed beamlines and the main-map pipe graph.
+  // Facility overview (top-left panel) — aggregated stats across the facility.
+  //
+  // This panel used to sum the per-beamline beamState values AND add
+  // state.mainBeamState on top, described as "the main-map pipe-graph
+  // contribution". It is not a separate contribution: _deriveBeamGraph walks
+  // EVERY beamline source in state.placeables and _ensureBeamlineForSource-
+  // Placeable gives each of those sources a registry entry, so the two cover
+  // the same machines and every figure here read roughly double. Each
+  // quantity now comes from exactly one place:
+  //   data rate  — the sum of the published effectiveDataRate, i.e. the rate
+  //                the facility is PAID for (raw dataRate is the un-derated
+  //                physics number; a cut fiber earns nothing);
+  //   beam power — beamlineEnergyDraw, the same value economy.js bills;
+  //   length / peak energy — the roll-up _updateAggregateBeamline already
+  //                writes onto state.
   {
     const entries = this.game.registry.getAll();
-    const mbs = this.game.state.mainBeamState || {};
 
-    let totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.dataRate || 0), 0);
-    let totalBeamPower = entries.reduce((sum, e) => sum + (e.beamState.totalEnergyCost || 0), 0);
-    let totalLength = entries.reduce((sum, e) => sum + (e.beamState.totalLength || 0), 0);
-    let peakEnergy = 0;
-    for (const e of entries) {
-      if ((e.beamState.beamEnergy || 0) > peakEnergy) peakEnergy = e.beamState.beamEnergy;
-    }
+    const totalDataRate = entries.reduce((sum, e) => sum + (e.beamState.effectiveDataRate || 0), 0);
+    const totalBeamPower = beamlineEnergyDraw(s);
+    const totalLength = s.totalLength || 0;
+    const peakEnergy = s.beamEnergy || 0;
 
-    // Add main-map pipe-graph contribution
-    totalDataRate += mbs.dataRate || 0;
-    totalBeamPower += mbs.totalEnergyCost || 0;
-    totalLength += mbs.totalLength || 0;
-    if ((mbs.beamEnergy || 0) > peakEnergy) peakEnergy = mbs.beamEnergy;
-
-    // Power stats from systemStats
-    const totalPower = ss && ss.power ? Math.round(ss.power.totalDraw) : 0;
+    // Power stats. facilityEnergyDraw is the basis for the power bill and for
+    // systemStats.power.totalDraw alike — quoting it directly keeps the panel
+    // from drifting off the invoice if computeSystemStats hasn't run yet.
+    const totalPower = Math.round(facilityEnergyDraw(s));
     const rfPower = ss && ss.rfPower ? Math.round(ss.rfPower.totalFwdPower || 0) : 0;
     const coolingPower = ss && ss.cooling ? Math.round(ss.cooling.energyDraw || 0) : 0;
 
@@ -217,7 +225,12 @@ UIHost.prototype._updateBeamSummary = function() {
   const canRun = this.game.state.infraCanRun !== false;
   if (!canRun && blockers.length > 0) {
     const hardCount = blockers.filter(b => b.severity === 'hard').length;
-    el.textContent = `INFRA FAULT — ${hardCount} blocked (${blockers[0].code}) — beam tripped`;
+    const unwired = blockers.filter(b => b.fromUnconnectedCheck).length;
+    // The unwired count is called out separately because it is the one class
+    // of blocker the player fixes by drawing a line, and on-pipe placements
+    // produce it a dozen at a time.
+    const unwiredTxt = unwired > 0 ? ` — ${unwired} unwired sink${unwired > 1 ? 's' : ''}` : '';
+    el.textContent = `INFRA FAULT — ${hardCount} blocked${unwiredTxt} — beam tripped`;
     el.className = 'beam-summary fault';
     el.title = blockers.map(b => b.message || b.code).join('\n');
   } else if (total === 0) {
@@ -228,6 +241,172 @@ UIHost.prototype._updateBeamSummary = function() {
     el.textContent = `${running}/${total} beamlines running`;
     el.className = running > 0 ? 'beam-summary active' : 'beam-summary';
     el.title = '';
+  }
+  this._renderInfraBlockerList();
+};
+
+// --- Infrastructure blocker list ---
+//
+// One row per offending COMPONENT (not per port): a cavity missing power, RF
+// and cryo is one problem to the player, three blockers to the gate. Rows that
+// resolve to a world position are clickable and frame the camera on the
+// offender, which is the whole point — with on-pipe placements wired
+// individually, "20 hard blockers" is otherwise an unnavigable list.
+//
+// Panel DOM is created here rather than in index.html so this HUD element is
+// self-contained; styles are inline for the same reason.
+const BLOCKER_PANEL_ID = 'infra-blocker-panel';
+const BLOCKER_ROWS_SHOWN = 10;
+
+function ensureBlockerPanel() {
+  let panel = document.getElementById(BLOCKER_PANEL_ID);
+  if (panel) return panel;
+  const host = document.getElementById('game') || document.body;
+  if (!host) return null;
+  panel = document.createElement('div');
+  panel.id = BLOCKER_PANEL_ID;
+  // Left column, under the facility overview. The top-right column is taken
+  // by the music player and the infra-mode utility stats panel, which stack
+  // downward from ~56px and would bury this.
+  panel.style.cssText = [
+    'position:absolute', 'top:150px', 'left:10px', 'z-index:96',
+    'width:250px', 'max-height:44vh', 'overflow-y:auto',
+    'font-family:monospace', 'font-size:10px',
+    'background:rgba(30,8,8,0.88)', 'border:1px solid rgba(255,90,90,0.45)',
+    'border-radius:3px', 'padding:5px 6px', 'color:#ffa08c',
+    'display:none',
+  ].join(';');
+  host.appendChild(panel);
+  return panel;
+}
+
+// Park the panel below the top bar and below the facility overview, whose
+// height depends on how many stat rows are live (and which hides itself
+// entirely when none are). Both are measured rather than assumed — a fixed
+// offset slid under the top bar as soon as the overview collapsed.
+function positionBlockerPanel(panel) {
+  const bar = document.getElementById('top-bar');
+  let top = bar ? bar.offsetTop + bar.offsetHeight + 6 : 42;
+  const above = document.getElementById('beam-stats-panel');
+  if (above && above.style.display !== 'none' && above.offsetHeight > 0) {
+    top = Math.max(top, above.offsetTop + above.offsetHeight + 8);
+  }
+  panel.style.top = `${top}px`;
+}
+
+UIHost.prototype._renderInfraBlockerList = function() {
+  const panel = ensureBlockerPanel();
+  if (!panel) return;
+  const state = this.game.state;
+  const blockers = state.infraBlockers || [];
+
+  // Signature guard: this runs every tick, and the DOM rebuild below walks
+  // every utility endpoint (state.placeables plus every pipe placement) to
+  // resolve offender positions. A steady fault costs one string join.
+  const sig = blockers
+    .map(b => `${b.code}@${b.location?.placeableId || ''}:${b.location?.portName || ''}`)
+    .join('|');
+  // Reposition regardless: the facility overview above grows and shrinks with
+  // what is live, independently of the blocker set.
+  if (blockers.length > 0) positionBlockerPanel(panel);
+  if (sig === this._infraBlockerSig) return;
+  this._infraBlockerSig = sig;
+
+  panel.textContent = '';
+  if (blockers.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  // Only build the endpoint index when something actually needs locating.
+  const needsIndex = blockers.some(b => b.location?.placeableId);
+  const byId = needsIndex ? makeUtilityEndpointIndex(state) : new Map();
+
+  // Group by offender. Keyed on placeableId; blockers with no component
+  // (staffing, per-network faults) each stand alone.
+  const groups = new Map();
+  for (const b of blockers) {
+    const id = b.location?.placeableId;
+    const key = id || `#${groups.size}`;
+    let g = groups.get(key);
+    if (!g) {
+      const ep = id ? byId.get(id) : null;
+      g = {
+        ep,
+        // Frame on the offending PORT, not the component centre — that is the
+        // spot the player has to drag a line to.
+        world: ep ? portWorldPosition(ep, COMPONENTS[ep.type], b.location.portName) : null,
+        title: ep ? (COMPONENTS[ep.type]?.name || ep.type) : (b.message || b.code),
+        utilities: [],
+        codes: [],
+      };
+      groups.set(key, g);
+    }
+    g.codes.push(b.code);
+    if (g.ep) {
+      const util = COMPONENTS[g.ep.type]?.ports?.[b.location.portName]?.utility;
+      if (util && !g.utilities.includes(util)) g.utilities.push(util);
+    }
+  }
+
+  const header = document.createElement('div');
+  const unwired = blockers.filter(b => b.fromUnconnectedCheck).length;
+  header.textContent = `${blockers.length} INFRA BLOCKER${blockers.length > 1 ? 'S' : ''}`
+    + (unwired > 0 ? ` · ${unwired} UNWIRED SINK${unwired > 1 ? 'S' : ''}` : '');
+  header.style.cssText = 'font-size:9px;letter-spacing:0.5px;color:#ff7766;margin-bottom:4px;';
+  panel.appendChild(header);
+
+  const list = [...groups.values()];
+  for (const g of list.slice(0, BLOCKER_ROWS_SHOWN)) {
+    const row = document.createElement('div');
+    const locatable = !!g.world;
+    row.style.cssText = [
+      'padding:3px 4px', 'margin-bottom:2px', 'border-radius:2px',
+      'background:rgba(70,20,20,0.55)',
+      `cursor:${locatable ? 'pointer' : 'default'}`,
+      'display:flex', 'gap:6px', 'align-items:baseline',
+    ].join(';');
+
+    const label = document.createElement('span');
+    label.style.cssText = 'flex:1;color:#ffcbbc;';
+    label.textContent = g.title;
+    row.appendChild(label);
+
+    if (g.utilities.length > 0) {
+      const tags = document.createElement('span');
+      tags.style.cssText = 'flex-shrink:0;';
+      for (const u of g.utilities) {
+        const tag = document.createElement('span');
+        tag.textContent = '●';
+        tag.title = `${UTILITY_TYPES[u]?.displayName || u} not connected`;
+        tag.style.cssText = `color:${UTILITY_TYPES[u]?.color || '#fff'};margin-left:3px;`;
+        tags.appendChild(tag);
+      }
+      row.appendChild(tags);
+    }
+
+    if (locatable) {
+      const { x, z } = g.world;
+      row.title = `${g.title} — ${g.codes.join(', ')}\nClick to locate`;
+      row.addEventListener('click', () => {
+        this.renderer?.focusOnWorld?.(x, z);
+      });
+      const locate = document.createElement('span');
+      locate.textContent = '⌖';
+      locate.style.cssText = 'flex-shrink:0;color:#ff9a80;';
+      row.appendChild(locate);
+    } else {
+      row.title = g.codes.join(', ');
+    }
+    panel.appendChild(row);
+  }
+
+  if (list.length > BLOCKER_ROWS_SHOWN) {
+    const more = document.createElement('div');
+    more.textContent = `… and ${list.length - BLOCKER_ROWS_SHOWN} more`;
+    more.style.cssText = 'font-size:9px;color:#cc8877;padding:2px 4px;';
+    panel.appendChild(more);
   }
 };
 

@@ -321,6 +321,57 @@ function buildHoverMarker(hoverPort) {
   return buildPortMarker(hoverPort.worldPos, color, true);
 }
 
+// --- Unwired-sink markers ----------------------------------------------
+//
+// A component that declares a hard-required sink and has nothing wired to it
+// trips the beam (utility-gate HARD_REQUIRED_UTILS). Most such components are
+// role:'placement' modules living inside a pipe — a quadrupole with no cooling
+// looks exactly like the wired quadrupole next to it, and a FODO cell holds a
+// dozen of them. The marker must therefore read at normal zoom without hover:
+// a utility-coloured chevron floating above the offending port on a stem, all
+// drawn depthTest-off at a high renderOrder so pipe/building geometry can't
+// hide it.
+
+const UNWIRED_MARK_Y = PIPE_Y + 1.5;   // chevron tip height above ground
+
+const _unwiredMatCache = new Map();
+function getUnwiredMarkerMaterial(color) {
+  if (_unwiredMatCache.has(color)) return _unwiredMatCache.get(color);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.9,
+    roughness: 0.25, metalness: 0.1,
+    transparent: true, opacity: 0.95,
+    depthTest: false,
+  });
+  _unwiredMatCache.set(color, shared(mat));
+  return mat;
+}
+
+// One marker: a down-pointing cone over a thin stem that lands on the port.
+function buildUnwiredMarker(mark) {
+  const descriptor = UTILITY_TYPES[mark.utilityType];
+  const color = descriptor?.color || '#ff4444';
+  const mat = getUnwiredMarkerMaterial(color);
+  const g = new THREE.Group();
+
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 6), mat);
+  cone.rotation.x = Math.PI;               // apex down, at the stem top
+  cone.position.set(0, UNWIRED_MARK_Y + 0.28, 0);
+  cone.renderOrder = 1001;
+  g.add(cone);
+
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, UNWIRED_MARK_Y - PIPE_Y, 6), mat);
+  stem.position.set(0, (UNWIRED_MARK_Y + PIPE_Y) / 2, 0);
+  stem.renderOrder = 1001;
+  g.add(stem);
+
+  g.position.set(mark.x, 0, mark.z);
+  g.userData = { isUnwiredSinkMarker: true, placeableId: mark.id, utilityType: mark.utilityType };
+  return g;
+}
+
 // --- Main builder -------------------------------------------------------
 
 export class UtilityLineBuilderV2 {
@@ -329,9 +380,14 @@ export class UtilityLineBuilderV2 {
     this._lineGroups = new Map();
     // (line.id → hash string) to detect path/descriptor changes.
     this._lineHashes = new Map();
-    // Preview / hover layers — rebuilt every frame they're visible.
+    // Preview / hover layers. The preview is content-keyed (see setPreview) —
+    // a run-wiring drag makes it far too big to rebuild per frame.
     this._previewObject = null;
+    this._previewSig = null;
     this._hoverObject = null;
+    // Unwired-sink markers + the signature that guards their rebuild.
+    this._unwiredGroup = null;
+    this._unwiredSig = null;
   }
 
   /**
@@ -423,8 +479,20 @@ export class UtilityLineBuilderV2 {
     return out;
   }
 
-  /** Update the draw-mode preview polyline. Call every frame. */
+  /**
+   * Update the draw-mode preview polyline. Called every frame, so it rebuilds
+   * only when the preview actually changed: a run-wiring drag produces ~5
+   * points per stub, so a 20-quad FODO run is ~100 segments and rebuilding
+   * that per rAF is real GC churn for a stationary cursor.
+   */
   setPreview(preview, parentGroup) {
+    const sig = preview && preview.path && preview.path.length
+      ? preview.type + '|' + preview.valid + '|' +
+        preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';')
+      : null;
+    if (sig === this._previewSig) return false;
+    this._previewSig = sig;
+
     if (this._previewObject) {
       parentGroup.remove(this._previewObject);
       this._disposeObject(this._previewObject);
@@ -435,6 +503,7 @@ export class UtilityLineBuilderV2 {
       parentGroup.add(obj);
       this._previewObject = obj;
     }
+    return true;
   }
 
   /** Update the hover-port marker. Call every frame. */
@@ -498,6 +567,47 @@ export class UtilityLineBuilderV2 {
     this._portMarkerGroup = group;
   }
 
+  /**
+   * Render one marker per unwired declared sink.
+   *
+   * @param {Array<{id,portName,utilityType,x,z}>} marks world positions of the
+   *        offending ports, as resolved by the caller (the renderer owns the
+   *        endpoint lookup; this builder only draws).
+   * @param {THREE.Group} parentGroup
+   *
+   * Signature-guarded: the caller may hand the same set every tick and only
+   * a changed set costs a rebuild. Returns true when it rebuilt.
+   */
+  setUnwiredSinkMarkers(marks, parentGroup) {
+    const list = marks || [];
+    const sig = list.map(m => `${m.id}:${m.portName}:${m.utilityType}:${m.x.toFixed(2)},${m.z.toFixed(2)}`).join(';');
+    if (sig === this._unwiredSig && this._unwiredGroup) return false;
+    this._unwiredSig = sig;
+    if (this._unwiredGroup) {
+      parentGroup.remove(this._unwiredGroup);
+      this._disposeGroup(this._unwiredGroup);
+      this._unwiredGroup = null;
+    }
+    if (list.length === 0) return true;
+    const group = new THREE.Group();
+    group.userData = { isUnwiredSinkMarkers: true };
+    for (const m of list) group.add(buildUnwiredMarker(m));
+    parentGroup.add(group);
+    this._unwiredGroup = group;
+    return true;
+  }
+
+  /**
+   * Breathe the marker emissive so the chevrons read as an alert rather than
+   * as more scenery. Touches at most one material per utility colour and only
+   * while markers exist, so it is safe on the per-frame path.
+   */
+  pulseUnwiredMarkers(timeMs) {
+    if (!this._unwiredGroup) return;
+    const k = 0.6 + 0.6 * (0.5 + 0.5 * Math.sin(timeMs * 0.005));
+    for (const mat of _unwiredMatCache.values()) mat.emissiveIntensity = k;
+  }
+
   dispose(parentGroup) {
     for (const g of this._lineGroups.values()) {
       parentGroup.remove(g);
@@ -510,6 +620,9 @@ export class UtilityLineBuilderV2 {
       this._disposeObject(this._previewObject);
       this._previewObject = null;
     }
+    // Must clear with the object: a stale key would make the next identical
+    // preview a cache hit and render nothing.
+    this._previewSig = null;
     if (this._hoverObject) {
       parentGroup.remove(this._hoverObject);
       this._disposeObject(this._hoverObject);
@@ -519,6 +632,14 @@ export class UtilityLineBuilderV2 {
       parentGroup.remove(this._portMarkerGroup);
       this._disposeGroup(this._portMarkerGroup);
       this._portMarkerGroup = null;
+    }
+    if (this._unwiredGroup) {
+      // Markers live in their own scene group, not parentGroup — remove from
+      // whichever parent actually holds them.
+      this._unwiredGroup.parent?.remove(this._unwiredGroup);
+      this._disposeGroup(this._unwiredGroup);
+      this._unwiredGroup = null;
+      this._unwiredSig = null;
     }
   }
 

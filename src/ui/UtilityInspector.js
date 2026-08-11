@@ -294,7 +294,11 @@ export class UtilityInspector {
       if (typeof game.log === 'function') game.log('Cannot afford refill', 'bad');
       return;
     }
-    if (typeof game.spend === 'function') game.spend(cost);
+    // chargeReservoirRefill, not spend: it books the charge into the next
+    // tick's economy snapshot as well as deducting it. A bare spend() here
+    // leaves the economy panel reporting a refill cost of $0 forever.
+    if (typeof game.chargeReservoirRefill === 'function') game.chargeReservoirRefill(cost);
+    else if (typeof game.spend === 'function') game.spend(cost);
 
     // Reset reservoir fields from descriptor defaults. `persistentStateDefaults`
     // is the authoritative "full" state for a given utility type.

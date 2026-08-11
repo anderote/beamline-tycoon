@@ -11,7 +11,7 @@ import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
-import { UtilityGate } from './utility-gate.js';
+import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
@@ -19,7 +19,13 @@ import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
-import { computeSystemStats, computeTickIncome, computeBeamIncome, computeTickUpkeep } from './economy.js';
+import {
+  computeSystemStats, computeTickIncomeBreakdown, computeBeamIncomeBreakdown,
+  computeTickUpkeep,
+} from './economy.js';
+import {
+  hardwareNodeCount, beamlineUptime, facilityUptime, billedDataRate,
+} from './aggregates.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
@@ -61,7 +67,7 @@ const SERIALIZED_FIELDS = [
 // non-gesture credit/debit since, so a build's cost comes back without also
 // reclaiming the upkeep the facility paid while the build stood.
 // `savedDesigns` is not sim state but is equally outside the undo model: the
-// designer library saves/deletes outside any gesture (no _pushUndo), so
+// designer library saves/deletes outside any gesture (no commitGesture), so
 // restoring it would silently destroy a design saved after the last snapshot
 // (and resurrect one deleted after it).
 const UNDO_PRESERVED_FIELDS = [
@@ -85,6 +91,10 @@ const BEAMSTATE_PRESERVED_FIELDS = [
 
 // Stand-in log used while building an undo snapshot (see _snapshot).
 const EMPTY_LOG = [];
+
+// Samples of net-per-tick kept for the economy panel's sparkline. Fixed, so a
+// long game cannot grow the buffer; ~5 minutes of sim at 1 tick/s.
+const ECONOMY_HISTORY_MAX = 300;
 
 // Metres of dead s-axis inserted between independent source machines in
 // state.beamline, so an element at the very start of machine B can never tie
@@ -190,6 +200,11 @@ export class Game {
       utilityNetworks: null,   // derived: discovery output published by solveRunner
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
+      // What the last tick actually charged, and the net-per-tick window
+      // behind it. Derived: written by tick(), never serialized (absent from
+      // SERIALIZED_FIELDS), cleared on load. Read via getEconomySnapshot().
+      economySnapshot: null,
+      economyHistory: [],
       infraBlockers: [],          // blockers from solve-runner
       infraCanRun: true,          // true if no blockers
       // Saved beamline designs
@@ -220,10 +235,19 @@ export class Game {
     this._UNDO_MAX = 20;
     // Resource accounting for undo (see _syncResourceLedger): running total
     // of every credit/debit undo must NOT reverse, plus the balance as of
-    // the last attribution boundary and whether a _pushUndo gesture is open.
+    // the last attribution boundary.
     this._resourceLedger = {};
     this._resourceMark = { ...this.state.resources };
-    this._undoGestureOpen = false;
+    // Open-gesture nesting depth (see beginGesture). Only the outermost
+    // gesture owns a snapshot; inner ones join it rather than pushing their
+    // own, so a tool that calls a Game method which itself commits a gesture
+    // still produces exactly one undo entry.
+    this._gestureDepth = 0;
+
+    // Reservoir top-ups charged since the last economy snapshot. Refills are
+    // event costs, not per-tick ones, so they are booked when charged (see
+    // chargeReservoirRefill) and swept into the next tick's snapshot.
+    this._refillsCharged = 0;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.seed = seed;
@@ -334,6 +358,11 @@ export class Game {
       getPorts: getUtilityPortsV2,
       rng: () => this.rng(),
     });
+    // Signature of the nodeQualities the last full physics pass was built
+    // against (see _syncPhysicsToNodeQualities). '' is the signature of "no
+    // solved qualities at all", so a world with nothing to propagate never
+    // triggers a first-tick recalc.
+    this._nodeQualitySig = '';
 
     // RimWorld-like staff: seed one operator pawn if none exists
     this._ensureStaffSeed();
@@ -475,15 +504,16 @@ export class Game {
     this.emit('resourcesChanged');
   }
 
-  // === UNDO ===
+  // === UNDO / GESTURES ===
 
-  // Undo works on full-state snapshots: _pushUndo() captures serialize()
-  // output (everything a save captures — placeables, beamPipes, terrain,
-  // utility lines, registry, ...), and undo()/redo() restore it via
-  // restoreSnapshot(). Input controllers wrap each user gesture's mutations
-  // in _withUndo() (or call _pushUndo() directly when the gesture is known
-  // to mutate); Game mutation methods never push (they also run
-  // programmatically from scenario generation, BeamlineSystem, load).
+  // Undo works on full-state snapshots: a gesture captures _snapshot()
+  // (everything a save captures — placeables, beamPipes, terrain, utility
+  // lines, registry, ... — minus the log and the host aux sections), and
+  // undo()/redo() restore it via restoreSnapshot(). Every user gesture that
+  // mutates the world goes through commitGesture()/beginGesture(), which are
+  // the ONLY places allowed to touch the undo stacks; Game mutation methods
+  // never push (they also run programmatically from scenario generation,
+  // BeamlineSystem, load).
   //
   // These parts of the payload are deliberately not restored:
   //   - the message log (snapshots are taken log-free, see _snapshot)
@@ -495,15 +525,19 @@ export class Game {
   //     gesture and so has no undo entry of its own
 
   /**
-   * Snapshot payload for the undo stacks: serialize() with the message log
-   * stripped. The log is not undoable state — Ctrl+Z must not delete log
-   * lines — and leaving it in would make every logged rejection ("Need $252
-   * for 9 tiles!") read as a mutation in _withUndo's change test.
+   * Snapshot payload for the undo stacks, and the thing gestures diff to
+   * decide whether anything happened. Everything non-semantic is left out,
+   * because anything in here is both stored AND compared:
+   *   - the message log: Ctrl+Z must not delete log lines, and leaving it in
+   *     made every logged rejection ("Need $252 for 9 tiles!") read as a
+   *     mutation;
+   *   - the host aux sections (camera, probe pins, designer session):
+   *     restoreSnapshot deliberately never dispatches them, so they are dead
+   *     weight in the payload, and a gesture that only moved the camera or
+   *     closed the designer session read as a mutation.
    */
   _snapshot() {
-    const log = this.state.log;
-    this.state.log = EMPTY_LOG;
-    try { return this.serialize(); } finally { this.state.log = log; }
+    return this.serialize({ includeLog: false, includeAux: false });
   }
 
   /** An undo/redo stack entry: the snapshot plus the resource ledger it was
@@ -515,72 +549,151 @@ export class Game {
   /**
    * Fold resource drift since the last mark into _resourceLedger — the
    * running total of credits/debits undo must NOT reverse (tick income and
-   * upkeep, hires, research spend). Changes made while a _pushUndo() gesture
-   * is open are attributed to that gesture instead (marked, not folded) so
-   * undo still refunds what the gesture spent. Called at every point where
-   * attribution can change: gesture start, and undo/redo.
+   * upkeep, hires, research spend). Called at every point where attribution
+   * can change: gesture start and undo/redo.
    */
   _syncResourceLedger() {
     const res = this.state.resources || {};
-    if (!this._undoGestureOpen) {
-      for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
-        this._resourceLedger[k] = (this._resourceLedger[k] || 0)
-          + ((res[k] || 0) - (this._resourceMark[k] || 0));
-      }
+    for (const k of new Set([...Object.keys(res), ...Object.keys(this._resourceMark)])) {
+      this._resourceLedger[k] = (this._resourceLedger[k] || 0)
+        + ((res[k] || 0) - (this._resourceMark[k] || 0));
     }
-    this._undoGestureOpen = false;
     this._resourceMark = { ...res };
   }
 
-  /** Stop attributing resource changes to the gesture that just ended. */
+  /** Attribute the resource drift since the mark to the gesture that just
+   *  ended (drop it from the ledger) rather than to the simulation. */
   _closeUndoGesture() {
-    this._undoGestureOpen = false;
     this._resourceMark = { ...this.state.resources };
   }
 
-  /** Snapshot the full game state onto the undo stack. Call at the start
-   *  of a user gesture, before any mutation. Clears the redo stack. */
-  _pushUndo() {
-    this._syncResourceLedger();
-    this._undoStack.push(this._makeUndoEntry());
-    if (this._undoStack.length > this._UNDO_MAX) {
-      this._undoStack.shift();
-    }
+  /** Push a completed gesture's snapshot. The one place that writes the
+   *  undo stack; a new gesture always invalidates redo. */
+  _pushUndoEntry(entry) {
+    this._undoStack.push(entry);
+    if (this._undoStack.length > this._UNDO_MAX) this._undoStack.shift();
     this._redoStack.length = 0;
-    // Everything the caller mutates from here belongs to this gesture, not
-    // to the ledger. Unlike _withUndo there is no "after" hook, so the
-    // gesture closes at the end of the current task: its mutations all run
-    // synchronously in the same event handler, while tick() and later
-    // gestures are separate tasks whose spending must stay in the ledger.
-    this._undoGestureOpen = true;
-    queueMicrotask(() => this._closeUndoGesture());
   }
 
   /**
-   * Run one user gesture's mutations with undo capture. Snapshots before
-   * running `fn` and commits the snapshot (clearing the redo stack) only if
-   * `fn` actually changed the serialized state. No-op gestures — miss
-   * clicks, empty drag rects, failed placements — must neither fill the
-   * capped undo stack with identical snapshots nor clobber the redo stack.
-   * Returns fn's result.
+   * Open a gesture: take the "before" snapshot and mark the resource
+   * attribution boundary. Returns a handle:
+   *
+   *   commit()  — push the snapshot iff semantic state actually changed
+   *   abandon() — close without pushing
+   *
+   * Nested opens join the outer gesture — the inner handle is inert — so a
+   * tool path that calls a Game method which itself opens a gesture still
+   * produces exactly one undo entry for the one user action.
    */
-  _withUndo(fn) {
+  beginGesture() {
+    if (this._gestureDepth > 0) {
+      this._gestureDepth++;
+      const close = () => { this._gestureDepth--; return false; };
+      return { commit: close, abandon: close, nested: true };
+    }
+    this._gestureDepth = 1;
     this._syncResourceLedger();
     const entry = this._makeUndoEntry();
-    let result;
-    try {
-      result = fn();
-    } finally {
-      if (this._snapshot() !== entry.payload) {
-        this._undoStack.push(entry);
-        if (this._undoStack.length > this._UNDO_MAX) {
-          this._undoStack.shift();
-        }
-        this._redoStack.length = 0;
-      }
+    let closed = false;
+    const end = (push) => {
+      if (closed) return false;
+      closed = true;
+      this._gestureDepth = 0;
+      const changed = push && this._snapshot() !== entry.payload;
+      if (changed) this._pushUndoEntry(entry);
+      // Everything spent between open and close belongs to this gesture, not
+      // to the ledger, so undo refunds it.
       this._closeUndoGesture();
+      return changed;
+    };
+    return {
+      commit: () => end(true),
+      abandon: () => end(false),
+      nested: false,
+    };
+  }
+
+  /**
+   * The single entry point for a mutating user gesture. It owns the ordering
+   * the input layer kept getting wrong, in this order and no other:
+   *
+   *   1. validate — runs before anything is charged, mutated or snapshotted.
+   *      Return false / { ok: false, reason } to reject; a `reason` string is
+   *      logged. A rejected gesture charges nothing, mutates nothing, pushes
+   *      no undo entry and leaves the redo stack alone.
+   *   2. charge  — `cost` is deducted exactly once, here, and only for
+   *      mutations that do NOT price themselves (most Game.place* methods
+   *      do; passing `cost` for those double-charges). Refunded if the
+   *      mutation then reports failure.
+   *   3. mutate  — the state change.
+   *   4. snapshot — pushed only if step 3 changed semantic state, so a
+   *      gesture that did nothing can neither evict real undo history nor
+   *      clobber the redo stack.
+   *
+   * Returns the mutation's result, or undefined when the gesture was
+   * rejected before it ran.
+   *
+   * @param {object}   spec
+   * @param {function} [spec.validate] () => boolean | { ok, reason }
+   * @param {object|function} [spec.cost] resource cost, or () => cost
+   * @param {function} spec.mutate   () => result
+   * @param {function} [spec.failed] (result) => boolean; drives the refund
+   */
+  commitGesture({ validate, cost, mutate, failed } = {}) {
+    if (typeof mutate !== 'function') return undefined;
+
+    // 1. Validate.
+    if (typeof validate === 'function') {
+      const v = validate();
+      const ok = (v != null && typeof v === 'object') ? v.ok !== false : !!v;
+      if (!ok) {
+        const reason = (v && typeof v === 'object') ? v.reason : null;
+        if (reason) this.log(reason, 'bad');
+        return undefined;
+      }
+    }
+
+    // 2. Charge — before the mutation, exactly once, and never twice for the
+    //    same gesture (a nested commitGesture charges its own cost only).
+    const costs = typeof cost === 'function' ? cost() : cost;
+    if (costs) {
+      if (!this.canAfford(costs)) {
+        this.log('Insufficient funds!', 'bad');
+        return undefined;
+      }
+    }
+
+    const gesture = this.beginGesture();
+    let result;
+    let refund = !!costs;   // cleared once the mutation reports success
+    try {
+      if (costs) this.spend(costs);
+      result = mutate();
+      const didFail = typeof failed === 'function'
+        ? failed(result)
+        : (result === false || result === null);
+      refund = refund && didFail;
+    } finally {
+      // 3b. The mutation refused (or threw) after being charged — give it
+      //     back before the snapshot diff runs, so the gesture is a no-op.
+      if (refund) {
+        for (const [r, a] of Object.entries(costs)) this.state.resources[r] += a;
+      }
+      // 4. Snapshot.
+      gesture.commit();
     }
     return result;
+  }
+
+  /**
+   * Shorthand for the degenerate gesture — no separate validation step, no
+   * caller-supplied cost (the mutation prices itself). Exactly equivalent to
+   * commitGesture({ mutate: fn }); kept because most commit paths and the
+   * UI layer have nothing to validate.
+   */
+  _withUndo(fn) {
+    return this.commitGesture({ mutate: fn });
   }
 
   undo() {
@@ -602,7 +715,7 @@ export class Game {
     }
     this._syncResourceLedger();
     const entry = this._redoStack.pop();
-    // Push directly (not _pushUndo) — _pushUndo would clear the redo stack.
+    // Push directly, not via _pushUndoEntry — that clears the redo stack.
     this._undoStack.push(this._makeUndoEntry());
     this.restoreSnapshot(entry);
     this.log('Redo', 'info');
@@ -618,6 +731,18 @@ export class Game {
 
   spend(costs) {
     for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+  }
+
+  /**
+   * Charge a reservoir top-up (the UtilityInspector Refill button). Event
+   * cost rather than per-tick upkeep, so it is recorded here — at the one
+   * place it is charged — and swept into the next tick's snapshot under
+   * upkeep.refills. Anything that pays for a refill must go through this, or
+   * the panel reports a cost the player never paid, or misses one they did.
+   */
+  chargeReservoirRefill(costs) {
+    this.spend(costs);
+    this._refillsCharged += (costs?.funding || 0);
   }
 
   isComponentUnlocked(comp) {
@@ -2433,7 +2558,10 @@ export class Game {
     if (beamlineId) {
       const entry = this.registry.get(beamlineId);
       if (!entry) return;
+      this._ensureNodeQualitiesSolved();
       this._recalcSingleBeamline(entry);
+      // Deliberately NOT stamping _nodeQualitySig: only the all-entries pass
+      // may claim every beamState was rebuilt against the current qualities.
     } else {
       // Recalc all if no id given (backward compat)
       this.recalcAllBeamlines();
@@ -2445,12 +2573,61 @@ export class Game {
   }
 
   recalcAllBeamlines() {
+    this._ensureNodeQualitiesSolved();
     for (const entry of this.registry.getAll()) {
       this._recalcSingleBeamline(entry);
     }
+    this._nodeQualitySig = this._nodeQualitySignature();
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
     this.validateInfrastructure();
+  }
+
+  /**
+   * The physics pass stamps each element's fail-closed `infraQuality` from
+   * state.nodeQualities, which ONLY the gate writes — and the gate runs LAST
+   * in tick(). On the boot/load path it has never run, so the pass would read
+   * an empty map, floor every declared sink to 0 and latch there (nothing
+   * re-runs the pass per tick). Solve once so the first pass sees real
+   * qualities. No-op afterwards: the gate always leaves an object behind.
+   */
+  _ensureNodeQualitiesSolved() {
+    if (this.state.nodeQualities || !this.utilityGate) return;
+    this.utilityGate.run();
+  }
+
+  /**
+   * Signature of the solved qualities the physics pass consumes. Quantized to
+   * 1e-2 so a vacuum pumping down over hundreds of ticks re-runs physics a
+   * bounded number of times instead of every tick; keys sorted so network
+   * iteration order alone can never look like a change.
+   */
+  _nodeQualitySignature() {
+    const nq = this.state.nodeQualities;
+    if (!nq) return '';
+    const out = [];
+    for (const id of Object.keys(nq).sort()) {
+      const entry = nq[id] || {};
+      let s = id;
+      for (const field of Object.keys(entry).sort()) {
+        const v = entry[field];
+        s += `|${field}:${typeof v === 'number' ? Math.round(v * 100) : v}`;
+      }
+      out.push(s);
+    }
+    return out.join(';');
+  }
+
+  /**
+   * Re-stamp physics when the solved qualities moved since the last full pass
+   * — wiring a starved cavity, a vacuum pumping down, a quench. Called from
+   * tick() right after the gate, which is the only writer; without it a
+   * player who fixed the wiring saw the blocker clear while the beam stayed
+   * at the fail-closed 0 until the next build mutation.
+   */
+  _syncPhysicsToNodeQualities() {
+    if (this._nodeQualitySig === this._nodeQualitySignature()) return;
+    this.recalcAllBeamlines();
   }
 
   // Physics pass for the unified main-map pipe graph. Runs additively on top
@@ -2644,9 +2821,17 @@ export class Game {
       } else if (t.extractionEnergy !== undefined) {
         physEl.extractionEnergy = t.extractionEnergy;
       }
+      // Fail closed. A component that declares a utility sink and has no
+      // solved quality for it — never wired, so it appears in no network —
+      // must run at 0, not at the 1.0 an absent field defaults to; otherwise
+      // ignoring infrastructure entirely outscored wiring it badly. The floor
+      // covers only utilities the type declares a sink for, so anything it
+      // doesn't consume stays absent (= not applicable, no penalty), and it
+      // applies even before the gate's first pass has written nodeQualities.
       const nq = this.state.nodeQualities?.[el.id];
-      if (nq) {
-        physEl.infraQuality = nq;
+      const floor = declaredSinkQualityFloor(el.type);
+      if (floor || nq) {
+        physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
       }
       return physEl;
     });
@@ -2716,10 +2901,11 @@ export class Game {
     // beam-on ticks over wall-clock ticks: totalBeamOnTicks accumulates once
     // per beamline, so dividing by state.tick produced a value up to N with N
     // beamlines and let the `highAvailability` objective (>= 0.95) pay out for
-    // a facility whose beams were down most of the time.
-    this.state.uptimeFraction = (entries.length > 0 && this.state.tick > 0)
-      ? (totalBeamOnTicks / entries.length) / this.state.tick
-      : 1;
+    // a facility whose beams were down most of the time. Same accessor the
+    // per-beamline figure uses, so the two can't drift apart again.
+    this.state.uptimeFraction = facilityUptime(
+      entries.map(e => e.beamState), this.state.tick,
+    );
 
     // For single-beamline compat: expose first running beamline's detailed
     // physics. NOTE: avgPressure is deliberately NOT mirrored here — no
@@ -3105,13 +3291,33 @@ export class Game {
     this.state.furnishingMorale = totalFurnishingMorale;
     this.state.reputationTier = getReputationTier(decorationInstances.length);
 
-    // === Revenue === (tuning knobs live in economy.js ECON)
+    // === Economy === (tuning knobs live in economy.js ECON)
+    //
+    // Every term is accumulated here as it is charged and published once, at
+    // the end of the tick, as state.economySnapshot. Nothing downstream may
+    // re-derive one of these for display: a second derivation of the user fee
+    // is how the HUD came to quote it 50x off what was really paid.
+    const econ = {
+      grant: 0, reputation: 0, beam: 0, dataFees: 0,
+      staff: 0, power: 0, pumps: 0,
+      // Refills were charged between ticks, not by this one.
+      refills: this._refillsCharged,
+      beamlines: 0,
+    };
+    this._refillsCharged = 0;
+
     const passiveIncome = this.getEffect('passiveFunding', 0);
-    this.state.resources.funding += computeTickIncome(this.state, passiveIncome);
+    const income = computeTickIncomeBreakdown(this.state, passiveIncome);
+    econ.grant = income.grant;
+    econ.reputation = income.reputation;
+    this.state.resources.funding += income.total;
 
     // === Upkeep === staff salaries + pump service + electricity bill
     // (drain — creates pressure to complete objectives and run the beam)
     const upkeep = computeTickUpkeep(this.state);
+    econ.staff = upkeep.staffCost;
+    econ.pumps = upkeep.pumpUpkeep;
+    econ.power = upkeep.powerBill;
     this.state.resources.funding -= upkeep.total;
 
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
@@ -3133,16 +3339,23 @@ export class Game {
     // Tick all running beamlines
     for (const entry of this.registry.getAll()) {
       if (entry.status === 'running') {
-        this._tickBeamline(entry);
+        this._tickBeamline(entry, econ);
       } else {
         entry.beamState.continuousBeamTicks = 0;
+        // A stopped beamline earns no data fees; leaving the last running
+        // value here would let a panel quote income the player is not paid.
+        entry.beamState.effectiveDataRate = 0;
       }
 
       // Uptime tracking per beamline
       if (this.state.tick > 0) {
-        entry.beamState.uptimeFraction = entry.beamState.beamOnTicks / this.state.tick;
+        entry.beamState.uptimeFraction = beamlineUptime(entry.beamState, this.state.tick);
       }
     }
+
+    // The last economy term is now known — publish the breakdown before
+    // anything else in the tick can be tempted to recompute one.
+    this._publishEconomySnapshot(econ);
 
     // Update aggregate state for objectives/economy/renderers
     this._updateAggregateBeamline();
@@ -3184,6 +3397,12 @@ export class Game {
     // state.infraBlockers / infraCanRun / nodeQualities.
     this.utilityGate.run();
 
+    // The gate is the only writer of state.nodeQualities and it runs here, at
+    // the end of the tick — after the physics pass that reads them. Propagate
+    // any change now, or beamState keeps whatever quality the last build
+    // mutation happened to see.
+    this._syncPhysicsToNodeQualities();
+
     // Auto-save every 30 ticks. The synchronous serialize+localStorage write
     // is the most expensive thing in a tick, so keep it rare. Skipped while
     // paused: pause() clears the interval so tick() normally never runs
@@ -3193,6 +3412,63 @@ export class Game {
     if (this.state.tick % 30 === 0 && !this.state.paused) this.save();
 
     this.emit('tick');
+  }
+
+  /**
+   * Publish what the tick just charged as state.economySnapshot, and push its
+   * net onto the fixed-capacity history window.
+   *
+   * The terms are the amounts already applied to state.resources.funding, so
+   * `net` is the funding movement the tick's income and upkeep caused — not a
+   * second opinion about it. Callers display these; they do not recompute
+   * them. Both fields are derived: neither is in SERIALIZED_FIELDS, so
+   * neither reaches a save or an undo payload.
+   */
+  _publishEconomySnapshot(econ) {
+    const income = {
+      grant: econ.grant,
+      reputation: econ.reputation,
+      beam: econ.beam,
+      dataFees: econ.dataFees,
+      total: econ.grant + econ.reputation + econ.beam + econ.dataFees,
+    };
+    const upkeep = {
+      staff: econ.staff,
+      power: econ.power,
+      pumps: econ.pumps,
+      refills: econ.refills,
+      total: econ.staff + econ.power + econ.pumps + econ.refills,
+    };
+    this.state.economySnapshot = {
+      tick: this.state.tick,
+      income,
+      upkeep,
+      net: income.total - upkeep.total,
+      // Beamlines that actually contributed beam income this tick, so the
+      // panel can say "across N beamlines" without counting them again.
+      contributingBeamlines: econ.beamlines,
+    };
+    if (!Array.isArray(this.state.economyHistory)) this.state.economyHistory = [];
+    const history = this.state.economyHistory;
+    history.push(this.state.economySnapshot.net);
+    if (history.length > ECONOMY_HISTORY_MAX) {
+      history.splice(0, history.length - ECONOMY_HISTORY_MAX);
+    }
+  }
+
+  /**
+   * Read view of the recorded per-tick economy for panels: the last published
+   * breakdown, plus the net-per-tick window behind it. `snapshot` is null
+   * before the first tick. Read this rather than recomputing an economy term
+   * at the display site — the whole point is that the panel shows what was
+   * charged.
+   */
+  getEconomySnapshot() {
+    return {
+      snapshot: this.state.economySnapshot,
+      history: Array.isArray(this.state.economyHistory) ? [...this.state.economyHistory] : [],
+      historyCapacity: ECONOMY_HISTORY_MAX,
+    };
   }
 
   /**
@@ -3208,14 +3484,22 @@ export class Game {
       const comp = COMPONENTS[node.type];
       if (comp && (comp.stats?.dataRate || 0) > 0) {
         const nq = this.state.nodeQualities[node.id];
-        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
+        // Same fail-closed rule as the physics bridge: a declared but unsolved
+        // data sink is 0, a node that declares none is not applicable (1.0).
+        const fallback = declaredSinkQualityFloor(node.type)?.dataQuality ?? 1.0;
+        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : fallback;
         dataNodeCount++;
       }
     }
     return dataNodeCount > 0 ? totalDataQ / dataNodeCount : 1;
   }
 
-  _tickBeamline(entry) {
+  /**
+   * @param entry registry entry to bill and advance
+   * @param econ  tick()'s accumulator; this beamline's income terms are added
+   *              to it as they are credited (see _publishEconomySnapshot)
+   */
+  _tickBeamline(entry, econ = null) {
     const bs = entry.beamState;
 
     if (!this.state.infraCanRun) return;
@@ -3227,12 +3511,11 @@ export class Game {
 
     // Funding from running beam (MVP loop closure: beam on = income).
     // Scales with beam quality AND machine size — see economy.js ECON.
-    // Count HARDWARE only: the flattener also emits a synthetic 'drift' entry
-    // per gap between placements, so billing raw entries paid ~$100/tick for
-    // every gap — spacing identical hardware further apart minted income at
-    // zero cost. Every other flattenPath consumer (wear, dataQuality, the
-    // schematic) already skips drifts.
-    const hardwareNodes = blNodes.filter(n => n.kind !== 'drift');
+    // hardwareNodeCount, never blNodes.length: the flattener also emits a
+    // synthetic 'drift' entry per gap between placements, so billing raw
+    // entries paid ~$100/tick for every gap — spacing identical hardware
+    // further apart minted income at zero cost.
+    const nodeCount = hardwareNodeCount(blNodes);
 
     // Apply data fiber network quality. In the Phase 6 utility model,
     // dataFiber quality is 1.0 when a detector port is connected to an
@@ -3241,13 +3524,22 @@ export class Game {
     //
     // Derated BEFORE income, not after: billing the raw bs.dataRate paid the
     // player full data fees for a detector whose fiber had been cut, i.e. for
-    // science that demonstrably produced no `data` resource that tick.
-    const connectedDataRate = (bs.dataRate || 0) * this._dataConnectivityFactor(blNodes);
+    // science that demonstrably produced no `data` resource that tick. The
+    // derated value is published on beamState so panels quote the number the
+    // player is actually paid for rather than re-deriving it.
+    const connectedDataRate = billedDataRate(bs, this._dataConnectivityFactor(blNodes));
+    bs.effectiveDataRate = connectedDataRate;
 
-    this.state.resources.funding += computeBeamIncome(
+    const earned = computeBeamIncomeBreakdown(
       connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
-      hardwareNodes.length,
+      nodeCount,
     );
+    this.state.resources.funding += earned.total;
+    if (econ) {
+      econ.beam += earned.beam;
+      econ.dataFees += earned.dataFees;
+      econ.beamlines++;
+    }
 
     // Data from detectors (physics-driven)
     if (connectedDataRate > 0) {
@@ -3269,13 +3561,19 @@ export class Game {
     if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
       const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
       bs.totalBeamHours += beamHoursThisTick;
-      // User fees revenue
+      // User fees revenue. Booked under the snapshot's beam term rather than
+      // a term of its own: it is beam-on revenue, and leaving it out would
+      // make the reported net disagree with the balance on any facility that
+      // has a photon port.
       const userFees = photonPorts.length * 2 * bs.beamQuality;
       this.state.resources.funding += userFees;
+      if (econ) econ.beam += userFees;
       this.state.resources.reputation += photonPorts.length * 0.001;
     }
 
-    // Discovery chance (physics-driven)
+    // Discovery chance (physics-driven). The $5k is a one-off reward event,
+    // like an objective payout — not a per-tick flow, so it is deliberately
+    // outside the economy snapshot, whose terms are rates.
     const dc = bs.discoveryChance || 0;
     if (dc > 0 && this.rng() < dc) {
       this.state.discoveries++;
@@ -3316,6 +3614,11 @@ export class Game {
    */
   refreshInfrastructureGate() {
     if (this.utilityGate) this.utilityGate.run();
+    // Same invariant tick() keeps: wherever the gate runs, the physics pass
+    // follows it. Without this, starting a beam while paused (toggleBeam
+    // refreshes the gate) left every element on the fail-closed floor until
+    // the player unpaused.
+    this._syncPhysicsToNodeQualities();
     this.emit('infrastructureValidated');
   }
 
@@ -3591,11 +3894,13 @@ export class Game {
     }
 
     this.recomputeZoneConnectivity();
-    this.recalcAllBeamlines();
     // Placeables were replaced wholesale without going through the
     // place/remove seams, so the cached utility-network discovery must be
-    // invalidated by hand.
+    // invalidated by hand — BEFORE recalcAllBeamlines, whose first-pass gate
+    // solve would otherwise run against the previous world's topology.
     this.solveRunner.markTopologyDirty();
+    this.state.nodeQualities = null;
+    this.recalcAllBeamlines();
     this.validateInfrastructure();
 
     // Nudge renderers: 'beamlineChanged' triggers a full 3D rebuild, and the
@@ -3620,16 +3925,20 @@ export class Game {
 
   // Build the save payload string without writing it anywhere.
   // Used by save() (active/autosave key) and the named save-slot system.
-  serialize() {
+  // Undo snapshots pass includeLog/includeAux false — see _snapshot.
+  serialize({ includeLog = true, includeAux = true } = {}) {
     const saveState = {};
     for (const key of SERIALIZED_FIELDS) saveState[key] = this.state[key];
+    if (!includeLog) saveState.log = EMPTY_LOG;
     // Map-backed fields persist as entry arrays.
     saveState.cornerHeights = serializeCornerHeights(this.state.cornerHeights);
     saveState.utilityLines = Array.from((this.state.utilityLines || new Map()).entries());
     saveState.utilityNetworkState = Array.from((this.state.utilityNetworkState || new Map()).entries());
     saveState.utilityNextId = this.state.utilityNextId || 1;
     const aux = {};
-    for (const [key, s] of this._serializers) aux[key] = s.save();
+    if (includeAux) {
+      for (const [key, s] of this._serializers) aux[key] = s.save();
+    }
     return JSON.stringify({
       version: 9,
       state: saveState,
@@ -3726,6 +4035,16 @@ export class Game {
       this.state.resources = resources;
     }
 
+    // The economy breakdown is derived and unsaved, so a load would otherwise
+    // leave the previous session's numbers on screen until the first tick.
+    // Undo/redo keeps them: like `tick`, they are sim progress, not gesture
+    // state, and the tick that follows overwrites them anyway.
+    if (!opts.preserveSim) {
+      this.state.economySnapshot = null;
+      this.state.economyHistory = [];
+      this._refillsCharged = 0;
+    }
+
     // Sanitize loop-control state and resync the interval to the loaded
     // speed (no-op before start()).
     this.state.paused = !!this.state.paused;
@@ -3807,6 +4126,10 @@ export class Game {
     // wholesale, so the cached network discovery is stale — invalidate it.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    // Derived from the solve too, and the physics pass fails closed on it:
+    // carrying the pre-load session's map over would stamp a loaded facility
+    // with the qualities of the one it replaced.
+    this.state.nodeQualities = null;
     if (this.solveRunner) this.solveRunner.markTopologyDirty();
 
     // Ensure facility arrays exist

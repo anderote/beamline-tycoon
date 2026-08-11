@@ -13,9 +13,15 @@
 //   3. Staffing gate: stressed operator trips deterministically under a
 //      seeded rng (mulberry32) — same seed, same beam_unstaffed sequence.
 //   4. nodeQualities aggregation: perSinkQuality → min per placeable.
+//   5. Production cryoTransfer flow shape drives the quench flag.
+//   6. On-pipe placements (Phase 11a): a component living in pipe.placements
+//      is gated exactly like a placeable, and an unwired declared sink fails
+//      CLOSED at quality 0 instead of silently scoring 1.0.
+//   7. The topology cache invalidates when a placement is added or removed.
 
-import { UtilityGate } from '../src/game/utility-gate.js';
+import { UtilityGate, declaredSinkQualityFloor } from '../src/game/utility-gate.js';
 import { findUnconnectedSinks } from '../src/utility/network-discovery.js';
+import { SolveRunner } from '../src/utility/solve-runner.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -44,6 +50,13 @@ const PORT_TABLES = {
     pwr_in: { utility: 'powerCable', role: 'sink', params: { demand: 10 } },
     vac_in: { utility: 'vacuumPipe', role: 'sink', params: { demand: 1 } },
   },
+  // An on-pipe (role 'placement') module: power + RF sinks, and deliberately
+  // NO vacuum sink — the "declares nothing for this utility" case, which must
+  // stay unpenalised rather than fail closed at 0.
+  srfcav: {
+    pwr_in: { utility: 'powerCable',  role: 'sink', params: { demand: 20 } },
+    rf_in:  { utility: 'rfWaveguide', role: 'sink', params: { demand: 15 } },
+  },
 };
 const getPorts = type => PORT_TABLES[type] || {};
 
@@ -65,12 +78,24 @@ function workingOperator(overrides = {}) {
   };
 }
 
-function makeState({ lines = [], staff = [workingOperator()] } = {}) {
+// One straight pipe carrying `placements` (the pipe.placements storage that
+// role:'placement' components live in — see utility-endpoints.js).
+function makePipe(placements) {
+  return {
+    id: 'pipe1',
+    subL: 40,
+    path: [{ col: 0, row: 0 }, { col: 10, row: 0 }],
+    placements,
+  };
+}
+
+function makeState({ lines = [], staff = [workingOperator()], pipes = [] } = {}) {
   const utilityLines = new Map();
   for (const l of lines) utilityLines.set(l.id, l);
   return {
     tick: 0,
     placeables: [{ id: 'p1', type: 'dipole', category: 'beamline' }],
+    beamPipes: pipes,
     utilityLines,
     staffMembers: staff,
     infraBlockers: [],
@@ -222,6 +247,120 @@ console.log('\n--- Test 5: production cryoTransfer flow shape drives quench ---'
   makeGate(state, { solveRunner }).run();
   assert(state.nodeQualities?.p1?.cryoQuenched === true,
     'production flowState sets cryoQuenched on the sink placeable');
+}
+
+// ==========================================================================
+// Test 6: on-pipe placements are gated, and unwired sinks fail CLOSED.
+//
+// Regression: the gate built its unconnected-sink input from
+// state.placeables.filter(category === 'beamline'), so a component in
+// pipe.placements produced no blocker at all — and with no nodeQualities
+// entry it ran at the consumer's 1.0 default, i.e. never wiring an SRF cavity
+// scored better than wiring one badly.
+// ==========================================================================
+console.log('\n--- Test 6: on-pipe placements are gated and fail closed ---');
+{
+  const cav = { id: 'c1', type: 'srfcav', position: 0.2, subL: 8 };
+  const state = makeState({ lines: CONNECT_BOTH, pipes: [makePipe([cav])] });
+  makeGate(state).run();
+
+  const codes = state.infraBlockers.map(b => b.code);
+  const pw = state.infraBlockers.find(
+    b => b.code === 'power_unconnected' && b.location?.placeableId === 'c1');
+  const rf = state.infraBlockers.find(
+    b => b.code === 'rf_unconnected' && b.location?.placeableId === 'c1');
+  assert(!!pw, `unwired on-pipe power sink blocks (got ${codes.join(',')})`);
+  assert(pw?.fromUnconnectedCheck === true && pw?.severity === 'hard',
+    'placement blocker keeps the existing hard/fromUnconnectedCheck shape');
+  assert(!!rf, 'unwired on-pipe RF sink blocks');
+  assert(state.infraCanRun === false, 'infraCanRun false with an unwired placement');
+
+  const nq = state.nodeQualities?.c1;
+  assert(nq?.powerQuality === 0, `unwired declared sink fails closed at 0 (got ${nq?.powerQuality})`);
+  assert(nq?.rfQuality === 0, `unwired RF sink fails closed at 0 (got ${nq?.rfQuality})`);
+  assert(nq?.vacuumQuality === undefined,
+    `a utility the component declares no sink for is untouched (got ${nq?.vacuumQuality})`);
+  assert(state.nodeQualities?.p1?.powerQuality === 0,
+    'the same rule applies to placeables the solve reported nothing for');
+}
+{
+  // Wired + solved: no blocker, and the solved quality survives the
+  // fail-closed fill instead of being overwritten with 0.
+  const cav = { id: 'c1', type: 'srfcav', position: 0.2, subL: 8 };
+  const lines = [
+    ...CONNECT_BOTH,
+    makeLine('L3', 'powerCable', { placeableId: 'c1', portName: 'pwr_in' }),
+    makeLine('L4', 'rfWaveguide', { placeableId: 'c1', portName: 'rf_in' }),
+  ];
+  const state = makeState({ lines, pipes: [makePipe([cav])] });
+  const solveRunner = {
+    runSolve() {
+      state.utilityNetworkData = new Map([
+        ['powerCable', new Map([['netA', { perSinkQuality: { 'c1:pwr_in': 0.6, 'p1:pwr_in': 1 } }]])],
+        ['rfWaveguide', new Map([['netB', { perSinkQuality: { 'c1:rf_in': 0.9 } }]])],
+        ['vacuumPipe', new Map([['netC', { perSinkQuality: { 'p1:vac_in': 1 } }]])],
+      ]);
+      return { errors: [] };
+    },
+  };
+  makeGate(state, { solveRunner }).run();
+
+  assert(state.infraBlockers.length === 0,
+    `a fully wired placement produces no blocker (got ${state.infraBlockers.map(b => b.code).join(',')})`);
+  assert(state.infraCanRun === true, 'infraCanRun true when everything is wired');
+  assert(state.nodeQualities?.c1?.powerQuality === 0.6, 'solved placement quality is kept');
+  assert(state.nodeQualities?.c1?.rfQuality === 0.9, 'solved placement RF quality is kept');
+}
+{
+  // The floor helper Game's physics bridge uses: declared sinks only.
+  const floor = declaredSinkQualityFloor('ellipticalSrfCavity');
+  assert(floor?.cryoQuality === 0 && floor?.rfQuality === 0,
+    `real SRF cavity declares cryo + RF sinks (got ${JSON.stringify(floor)})`);
+  assert(declaredSinkQualityFloor('hvTransformer') === null,
+    'a pure source declares no sink floor at all');
+}
+
+// ==========================================================================
+// Test 7: the topology cache tracks placement add/remove.
+//
+// Endpoints now include pipe placements, so the pass is only affordable on
+// the topology-dirty path. Game bumps the revision from its 'beamlineChanged'
+// listener, which is what placement add/remove emits.
+// ==========================================================================
+console.log('\n--- Test 7: topology cache invalidation on placement add/remove ---');
+{
+  let portsCalls = 0;
+  const countingPorts = type => { portsCalls++; return PORT_TABLES[type] || {}; };
+  const pipe = makePipe([]);
+  const state = makeState({ lines: CONNECT_BOTH, pipes: [pipe] });
+  const solveRunner = new SolveRunner({
+    state, registry: { types: {}, list: [] }, portLookup: () => null,
+  });
+  const gate = new UtilityGate({ state, solveRunner, getPorts: countingPorts, rng: () => 0.99 });
+
+  gate.run();
+  const afterFirst = portsCalls;
+  assert(state.infraBlockers.length === 0, 'empty pipe → no blockers');
+
+  gate.run();
+  assert(portsCalls === afterFirst, `unchanged topology reuses the cache (${portsCalls} vs ${afterFirst})`);
+
+  // Add a placement the way the game does, then bump the revision.
+  pipe.placements.push({ id: 'c1', type: 'srfcav', position: 0.2, subL: 8 });
+  solveRunner.markTopologyDirty();
+  gate.run();
+  assert(portsCalls > afterFirst, 'placement add recomputes the topology pass');
+  assert(state.infraBlockers.some(b => b.location?.placeableId === 'c1'),
+    'the added placement is gated');
+  assert(state.nodeQualities?.c1?.powerQuality === 0, 'the added placement fails closed');
+
+  pipe.placements.length = 0;
+  solveRunner.markTopologyDirty();
+  gate.run();
+  assert(!state.infraBlockers.some(b => b.location?.placeableId === 'c1'),
+    'removing the placement clears its blocker');
+  assert(state.nodeQualities?.c1 === undefined,
+    'removing the placement clears its quality entry');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

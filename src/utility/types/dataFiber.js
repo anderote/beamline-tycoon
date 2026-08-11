@@ -11,6 +11,9 @@ export default {
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.01,
   capacityUnit: 'Gbps',
+  // $1,200/tile — the cheapest run to pull. fiberBus ($35k) beats individual
+  // runs at about five sinks. Ladder and derivation: powerCable.js.
+  costPerSubUnit: 300,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const hasSource = network.sources.length > 0;

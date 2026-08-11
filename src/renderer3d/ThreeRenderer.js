@@ -26,6 +26,7 @@ import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
+import { portWorldPosition } from '../utility/ports.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
@@ -286,8 +287,17 @@ export class ThreeRenderer {
     // and we can clear/rebuild them every frame independently.
     this.utilityLineGroup = null;
     this.utilityLinePreviewGroup = null;
+    this.unwiredSinkGroup = null;
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
+
+    // Unwired-sink marker memo: keyed on the gate's blocker set, so a steady
+    // world never pays for the endpoint-index walk the markers need.
+    this._unwiredBlockerSig = null;
+
+    // Camera focus animation (focusOnTile). Inert until a focus is requested;
+    // cancelled by any manual pan/zoom.
+    this._focusing = false;
 
     // Utility-port marker memo: markers rebuild only when a world event has
     // fired (_portMarkersDirty, set in the game event handler) or when the
@@ -496,6 +506,13 @@ export class ThreeRenderer {
     this.utilityLinePreviewGroup.renderOrder = 998;
     this.scene.add(this.utilityLinePreviewGroup);
 
+    // Unwired declared sinks — always-on markers, independent of the armed
+    // tool, so a tripped beam is traceable to its offenders without hovering.
+    this.unwiredSinkGroup = new THREE.Group();
+    this.unwiredSinkGroup.name = 'unwiredSinkMarkers';
+    this.unwiredSinkGroup.renderOrder = 1000;
+    this.scene.add(this.unwiredSinkGroup);
+
     this.equipmentGroup = new THREE.Group();
     this.equipmentGroup.name = 'equipment';
     this.scene.add(this.equipmentGroup);
@@ -578,6 +595,8 @@ export class ThreeRenderer {
           this._refreshDecorations();
           this._refreshComponents();
           this._refreshUtilityLinesV2();
+          // Geometry moved; the blocker set may be identical, so force.
+          this._refreshUnwiredSinkMarkers(true);
           break;
         case 'facilityChanged':
           this._refreshEquipment();
@@ -589,6 +608,14 @@ export class ThreeRenderer {
           break;
         case 'utilityLinesChanged':
           this._refreshUtilityLinesV2();
+          this._refreshUnwiredSinkMarkers();
+          break;
+        // The gate reran (beam toggle while paused, or a beamline recalc), so
+        // state.infraBlockers may have changed without a tick — and while
+        // paused there is no tick to repaint the HUD side of it either.
+        case 'infrastructureValidated':
+          this._refreshUnwiredSinkMarkers();
+          if (this._updateBeamSummary) this._updateBeamSummary();
           break;
         case 'beamToggled':
           this._refreshBeam();
@@ -601,6 +628,9 @@ export class ThreeRenderer {
           // latest per-network error status. The builder's hash cache
           // short-circuits unchanged lines, so this is cheap in practice.
           this._refreshUtilityLinesV2();
+          // Guarded on the blocker signature — a steady world costs one
+          // string join over a handful of entries.
+          this._refreshUnwiredSinkMarkers();
           break;
         case 'researchChanged':
           if (this._renderTechTree) this._renderTechTree();
@@ -916,6 +946,9 @@ export class ThreeRenderer {
   }
 
   zoomAt(screenX, screenY, delta) {
+    // Manual input wins over an in-flight focus animation, which would
+    // otherwise keep overwriting pan/zoom for the rest of its duration.
+    this._focusing = false;
     // Remember which world point is under the cursor before the zoom.
     const before = this._raycastGround(screenX, screenY);
     this.zoom = Math.max(0.2, Math.min(ZOOM_MAX, this.zoom + delta));
@@ -947,6 +980,7 @@ export class ThreeRenderer {
    */
   panBy(dxScreen, dyScreen) {
     if (!this.camera) return;
+    this._focusing = false;   // manual pan cancels a focus animation
     const rect = this.renderer.domElement.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
@@ -971,6 +1005,7 @@ export class ThreeRenderer {
    * it isn't affected by stale camera.matrixWorld between frames.
    */
   panScreenAligned(dxRight, dyUp) {
+    this._focusing = false;   // manual pan cancels a focus animation
     const a = this._effectiveYaw();
     const cosA = Math.cos(a);
     const sinA = Math.sin(a);
@@ -995,6 +1030,7 @@ export class ThreeRenderer {
    * behaviour independent of per-frame drift.
    */
   setPanFromDragDelta(startPanX, startPanY, dxTotal, dyTotal) {
+    this._focusing = false;   // manual pan cancels a focus animation
     this._panX = startPanX;
     this._panY = startPanY;
     this._updateCameraLookAt();
@@ -2488,6 +2524,7 @@ export class ThreeRenderer {
     try {
     this._tickViewRotation();
     this._tickFreeOrbitSnap();
+    this._tickCameraFocus();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
@@ -2562,6 +2599,8 @@ export class ThreeRenderer {
     const _now = performance.now();
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
+    // Emissive-only breathe on existing marker materials — no rebuild.
+    if (this.utilityLineBuilderV2) this.utilityLineBuilderV2.pulseUnwiredMarkers(_now);
     if (this.staffPawns) this.staffPawns.update(_dt);
     this.renderer.render(this.scene, this.camera);
     if (this._viewCube) this._viewCube.update();
@@ -2697,6 +2736,7 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this._refreshUtilityLinesV2();
+    this._refreshUnwiredSinkMarkers(true);
     this._refreshBeamPipes();
     this._refreshZones();
     this._invalidateGridOverlay();
@@ -3050,6 +3090,83 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
+  }
+
+  /**
+   * Rebuild the always-on markers over unwired declared sinks.
+   *
+   * Input is state.infraBlockers — the gate already did the topology work this
+   * tick, so nothing is re-derived here. The blocker signature is a cheap
+   * string over a handful of entries and guards the only expensive step (the
+   * endpoint-index walk, which has to cover pipe placements). Callers on the
+   * per-tick path pass no `force`; callers that moved geometry without
+   * changing the blocker set (a placeable drag) pass force=true.
+   */
+  _refreshUnwiredSinkMarkers(force = false) {
+    if (!this.unwiredSinkGroup || !this.utilityLineBuilderV2) return;
+    const state = this._liveState();
+    const blockers = (state && state.infraBlockers) || [];
+    const unwired = blockers.filter(b => b && b.fromUnconnectedCheck && b.location?.placeableId);
+    const sig = unwired.map(b => `${b.location.placeableId}:${b.location.portName}`).join(';');
+    if (!force && sig === this._unwiredBlockerSig) return;
+    this._unwiredBlockerSig = sig;
+    if (unwired.length === 0) {
+      this.utilityLineBuilderV2.setUnwiredSinkMarkers([], this.unwiredSinkGroup);
+      return;
+    }
+    // Endpoints, not placeables: every cavity/quad/BPM offender lives in
+    // pipe.placements (see utility/utility-endpoints.js).
+    const byId = makeUtilityEndpointIndex(state);
+    const marks = [];
+    for (const b of unwired) {
+      const ep = byId.get(b.location.placeableId);
+      if (!ep) continue;
+      const def = COMPONENTS[ep.type];
+      const wp = portWorldPosition(ep, def, b.location.portName);
+      if (!wp) continue;
+      const utilityType = def?.ports?.[b.location.portName]?.utility;
+      if (!utilityType) continue;
+      marks.push({ id: ep.id, portName: b.location.portName, utilityType, x: wp.x, z: wp.z });
+    }
+    this.utilityLineBuilderV2.setUnwiredSinkMarkers(marks, this.unwiredSinkGroup);
+  }
+
+  /**
+   * Frame the camera on a world point (metres): pan to it and, if the view is
+   * zoomed further out than `minZoom`, zoom in to it. Animated so the player
+   * keeps their bearings; any manual pan/zoom cancels the animation
+   * mid-flight. Drives the click-to-locate on HUD infrastructure blockers.
+   */
+  focusOnWorld(x, z, opts = {}) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    this._focusFromX = this._panX;
+    this._focusFromY = this._panY;
+    this._focusToX = x;
+    this._focusToY = z;
+    this._focusFromZoom = this.zoom;
+    this._focusToZoom = Math.min(ZOOM_MAX, Math.max(this.zoom, opts.minZoom ?? 3));
+    this._focusStartMs = performance.now();
+    this._focusDurationMs = opts.durationMs ?? 450;
+    this._focusing = true;
+  }
+
+  /** focusOnWorld on the centre of tile (col,row). 1 tile = 2 world metres. */
+  focusOnTile(col, row, opts = {}) {
+    this.focusOnWorld(col * 2 + 1, row * 2 + 1, opts);
+  }
+
+  _tickCameraFocus() {
+    if (!this._focusing) return;
+    const t = Math.min(1, (performance.now() - this._focusStartMs) / this._focusDurationMs);
+    const k = easeInOutQuad(t);
+    this._panX = this._focusFromX + (this._focusToX - this._focusFromX) * k;
+    this._panY = this._focusFromY + (this._focusToY - this._focusFromY) * k;
+    this.zoom = this._focusFromZoom + (this._focusToZoom - this._focusFromZoom) * k;
+    this._updateCameraLookAt();
+    // Rebuilds _frustumSize from the new zoom and re-syncs the overlay.
+    this._syncOverlayFromPan();
+    if (this._updateAnchoredWindows) this._updateAnchoredWindows();
+    if (t >= 1) this._focusing = false;
   }
 
   _refreshBeamPipes() {
@@ -3556,6 +3673,9 @@ export class ThreeRenderer {
       this._animFrameId = null;
     }
     window.removeEventListener('resize', this._boundOnResize);
+    if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
+      this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
+    }
     if (this.staffPawns) {
       this.staffPawns.dispose();
       this.staffPawns = null;

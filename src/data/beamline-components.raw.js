@@ -58,6 +58,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
     interiorVolume: 5,
+    // GATED: protons are a branch, not the opening. The free `source` electron
+    // gun already builds a first working beamline, so locking the proton front
+    // end behind protonAcceleration costs the player nothing on tick 0 and
+    // makes the machineTypes tree the thing that opens hadron physics.
+    requires: 'protonAcceleration',
     isSource: true,
     spriteKey: 'ionSource',
     spriteColor: 0x46c25a,
@@ -86,6 +91,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
     interiorVolume: 8,
+    // GATED: 4× the duoplasmatron's current is a capability step up, and the
+    // ecrIonSource node exists for exactly this. Sits one node past
+    // protonAcceleration, so it can never be reachable before ionSource.
+    requires: 'ecrIonSource',
     isSource: true,
     spriteKey: 'ecrIonSource',
     spriteColor: 0x46c25a,
@@ -257,7 +266,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 2,
     subH: 3, gridW: 2, gridH: 2, geometryType: 'cylinder',
     interiorVolume: 2,
-    unlocked: true,
+    // GATED: chromaticity correction is a second-order fix you only need once
+    // the lattice is real. advancedOptics is deep in the beamOptics tree, which
+    // is where the "sharpen an existing machine" decisions belong.
+    requires: 'advancedOptics',
     spriteKey: 'sextupole',
     spriteColor: 0x3d8ee6,
     accentColor: 0x3d8ee6,
@@ -477,7 +489,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
     interiorVolume: 15,
-    unlocked: true,
+    // GATED with ionSource: an RFQ only captures a DC ion beam, so it is dead
+    // hardware until protonAcceleration lands. Electron openings use the free
+    // buncher/pillboxCavity/rfCavity chain instead.
+    requires: 'protonAcceleration',
     spriteKey: 'rfq',
     spriteColor: 0xd8463a,
     accentColor: 0xd8463a,
@@ -603,7 +618,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 4,
     subH: 4, gridW: 4, gridH: 16, geometryType: 'cylinder',
     interiorVolume: 80,
-    unlocked: true,
+    // GATED: the headline SRF purchase. $12M of hardware that needs a cryo
+    // plant behind it — srfTechnology unlocks the plant (heCompressor,
+    // coldBox4K, ln2Precooler, cryomoduleHousing) and this in one step, so the
+    // module can never be buildable before the cooling it depends on.
+    requires: 'srfTechnology',
     spriteKey: 'rfCavity',
     spriteColor: 0xe89b2c,
     accentColor: 0xe89b2c,
@@ -705,7 +724,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 2,
     subH: 2, gridW: 2, gridH: 1, geometryType: 'cylinder',
     interiorVolume: 1.5,
-    unlocked: true,
+    // GATED: emittance measurement is the first diagnostics upgrade, not a
+    // starting instrument — bpm/screen/ict stay free so the opening beamline is
+    // still observable. beamDiagnostics is a root node, so this is reachable in
+    // the first research pass.
+    requires: 'beamDiagnostics',
     spriteKey: 'wireScanner',
     spriteColor: 0xe0e0e0,
     accentColor: 0xe0e0e0,
@@ -842,7 +865,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subW: 4,
     subH: 3, gridW: 4, gridH: 4, geometryType: 'box',
     interiorVolume: 15,
-    unlocked: true,
+    // GATED: 2× the collision rate of a detector is an income step up, so it
+    // must be bought. faradayCup and beamStop stay free, so a first beamline
+    // can still terminate legally; targetPhysics is a root node ($1M) and is
+    // meant to be one of the opening research choices.
+    requires: 'targetPhysics',
     isEndpoint: true,
     spriteKey: 'target',
     spriteColor: 0x8a8f96,

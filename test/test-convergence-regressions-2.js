@@ -10,7 +10,7 @@ import { UtilityRegistry } from '../src/utility/registry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
-import { computeSystemStats, computeTickUpkeep } from '../src/game/economy.js';
+import { computeSystemStats, computeTickUpkeep, ECON } from '../src/game/economy.js';
 import { _getFurnishingTier, getLabResearchTier, getResearchSpeedMultiplier } from '../src/game/research.js';
 import { ZONE_FURNISHINGS, itemMatchesZone } from '../src/data/facility.js';
 import { RESEARCH_LAB_MAP } from '../src/data/research.js';
@@ -374,7 +374,7 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
     beamline: [], staff: {}, totalEnergyCost: 0,
   };
   const panelDraw = computeSystemStats(state).power.totalDraw;
-  const billedKW = computeTickUpkeep(state).powerBill / 2; // ECON.powerBillPerKW
+  const billedKW = computeTickUpkeep(state).powerBill / ECON.powerBillPerKW;
   assert(Math.abs(panelDraw - billedKW) < 1e-9,
     `the panel's draw is the billed draw (panel ${panelDraw} kW, billed ${billedKW} kW)`);
 }

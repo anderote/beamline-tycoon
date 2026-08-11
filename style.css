@@ -37,6 +37,17 @@ body {
   border-bottom: 1px solid rgba(100, 100, 160, 0.3);
 }
 
+/* The z-index here opens a stacking context, so .menu-dropdown's own 300 is
+   scoped INSIDE it: against #music-player (101) the whole open dropdown
+   stacked at 100 and the player — which #initPosition parks directly under
+   the top-right buttons, i.e. exactly where the dropdown opens — swallowed
+   pointer events on Save/Load Game. Raise the bar only while a menu is open,
+   so the player keeps painting above the bar the rest of the time. 600 clears
+   the context-window layer (500) and stays below the modal dialogs (9000+). */
+#top-bar:has(.menu-dropdown:not(.hidden)) {
+  z-index: 600;
+}
+
 #game-title {
   font-size: 11px;
   color: #aaccff;
@@ -161,7 +172,8 @@ body {
   position: absolute;
   top: 56px; /* no-JS fallback; MusicPlayer._initPosition() measures the top bar */
   right: 12px;
-  z-index: 101; /* above #top-bar (100) so it never paints underneath */
+  z-index: 101; /* above #top-bar (100) so it never paints underneath; the bar
+                   outranks it only while a menu is open — see #top-bar:has() */
   cursor: grab;
   display: flex;
   align-items: center;
@@ -2313,6 +2325,26 @@ body {
 .ctx-utility-label { color:#8888aa; width:70px; font-size:8px; }
 .ctx-utility-status { font-size:8px; }
 .ctx-empty { color:#556; font-size:8px; padding:20px; text-align:center; }
+
+/* === ECONOMY WINDOW (src/ui/EconomyWindow.js) === */
+.ctx-window[data-ctx-id="economy"] { width:420px; }
+.ctx-window[data-ctx-id="economy"] .ctx-body { height:auto; max-height:70vh; }
+.econ-head { display:flex; justify-content:space-between; align-items:flex-start; padding:2px 2px 8px; }
+.econ-head-right { text-align:right; }
+.econ-head-label { color:#8888aa; font-size:7px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; }
+.econ-head-val { color:#44dd66; font-size:16px; }
+.econ-head-val.bad { color:#ff4444; }
+.econ-head-val.neutral { color:#aaaacc; }
+.econ-head-bal { color:#ccddff; font-size:12px; }
+.econ-spark { display:block; width:100%; height:54px; background:rgba(10, 10, 25, 0.8); border:1px solid rgba(80, 80, 120, 0.3); border-radius:3px; image-rendering:pixelated; }
+.econ-row { display:flex; align-items:center; gap:8px; padding:5px 2px; }
+.econ-row-zero { opacity:0.4; }
+.econ-row-label { color:#aaaacc; font-size:8px; width:110px; flex:0 0 auto; }
+.econ-row-note { display:block; color:#6666aa; font-size:7px; margin-top:3px; }
+.econ-row-bar { flex:1; height:4px; border-radius:2px; background:rgba(30, 30, 60, 0.8); overflow:hidden; }
+.econ-row-fill { display:block; height:100%; border-radius:2px; }
+.econ-row-val { font-size:9px; width:64px; text-align:right; flex:0 0 auto; }
+
 .beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; }
 .beam-summary.active { color:#4f4; }
 .beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; animation: beamFaultBlink 0.9s steps(2) infinite; }

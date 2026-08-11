@@ -1,5 +1,9 @@
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
+import {
+  poweredPlaceables, beamlineEnergyDraw, facilityEnergyDraw,
+  pumpCount as countPumps,
+} from './aggregates.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7 — economy tuning knobs. All per-tick revenue/upkeep coefficients
@@ -21,55 +25,144 @@ export const ECON = {
   // beamIncomePerNode * nodeCount). Scaling with machine size makes bigger
   // beamlines earn like bigger coasters.
   beamIncomeBase: 60,
-  // Raised 100 -> 180 when the per-node count stopped including the
-  // flattener's synthetic drift entries (gaps between placements were being
-  // billed as machines, which roughly doubled the count on a normal layout).
-  // Restores the pre-fix steady-state rates in scripts/balance-sim.mjs.
-  beamIncomePerNode: 180,
+  //
+  // === Phase 12: income scales with hardware DENSITY, not beamline LENGTH ===
+  //
+  // `nodeCount` is aggregates.hardwareNodeCount — junctions plus on-pipe
+  // placements, never the flattener's synthetic drift entries. That makes
+  // income a function of how much MACHINE is on the pipe, not how long the
+  // pipe is. Until now that was an accident: the 100 -> 180 bump was a
+  // compensating constant applied when a drift-double-count bug was fixed. It
+  // held the rate steady and silently re-weighted income from length to
+  // density. This is the deliberate version of that choice.
+  //
+  // Why density:
+  //   - Length would pay per tile of drift and bellows, the two cheapest parts
+  //     in the catalogue ($10k / $15k). A player could mint income by drawing
+  //     empty pipe across the map — income with no capital, no power draw and
+  //     no utility hookup behind it.
+  //   - Every dollar of density income is obliged by a component that costs
+  //     capital, draws power (billed below) and demands a utility connection
+  //     before the beam will run at all (the Phase 11 gate). Income is
+  //     self-limiting because the thing that earns it also bills for itself.
+  //   - Consequence to design around: a compact, densely instrumented machine
+  //     out-earns a long sparse one. Ambitious transport is rewarded only
+  //     indirectly, by the room it makes for more hardware. Long empty runs
+  //     are a cost, which is what they should be.
+  //
+  // Derivation of 240 against the 28,800-tick target (see
+  // scripts/balance-playthrough.mjs). The anchor is capital payback, because
+  // that is what ties income to the component catalogue rather than to itself:
+  //   - the reference extra beamline costs $3.83M all in and carries 8 billed
+  //     hardware nodes. All in means what the player is charged at the till:
+  //     $3.25M of catalogue, $120k of drift pipe (priced per tile) and $458k of
+  //     utility line (priced per sub-unit, both gestures — see
+  //     UtilityLineInputController). Wiring is 14% of the hardware it connects,
+  //     which is why the model may not quote the catalogue alone;
+  //   - measured marginally in the sim, the plant a line obliges eats ~56% of
+  //     the gross it earns, so net = 8 * P * 0.99 * 0.44 = 3.49 * P per tick;
+  //   - a line should pay itself back in about 1/6 of a full playthrough
+  //     (~4,600 ticks) — soon enough that expanding is obviously right, slow
+  //     enough that the first expansion is a real commitment of seed capital;
+  //   - P = 3,827,800 / (3.49 * 4,600) = 238.
+  // Rounded to 240, which is where the compensating constant happened to land.
+  // The number did not move; its justification did, and the research ladder is
+  // now priced against it rather than the other way round.
+  //
+  // Known open issue, deliberately NOT fixed here: this is linear in node
+  // count with no diminishing return, so building N copies of the same line
+  // earns N times as much for N times the cost and run length falls roughly as
+  // 1/N. Measured: a player who stops at four extra beamlines takes 2.34x the
+  // target, twelve takes 1.15x, twenty-four takes 0.79x (see the table in
+  // src/data/research.js). Compressing that spread needs a structural
+  // change (per-facility diminishing returns, or rising line prices), not a
+  // constant.
+  beamIncomePerNode: 240,
   // Detector data fees, $/tick per unit dataRate while collecting.
   dataFeeRate: 5,
   // Electricity, $/tick per kW of energyCost draw. Equipment draws whenever
   // placed; the beamline's own draw is billed only while the beam is on.
-  powerBillPerKW: 2,
+  // Halved 2 -> 1 alongside the gate change above. The rate was set when
+  // almost no plant was mandatory, so the bill read as the price of a choice;
+  // now that the gate obliges an RF source, a cooling loop and a pump before
+  // the beam will run at all, the same rate is a flat tax on existing rather
+  // than a cost of ambition. Re-checked against the fixed beam: still 1 —
+  // at 2 the late-game run pays 74% of gross out in upkeep, past the 70%
+  // ceiling test-economy-balance.js holds. Electricity remains the largest
+  // non-staff upkeep line in every sim run (623/t of run C's 1970/t).
+  powerBillPerKW: 1,
   // Vacuum pump service cost, $/tick each (legacy pump upkeep).
   pumpUpkeepEach: 8,
 };
 
-// Vacuum pumps that pay the per-tick service fee. Keep in sync with the
-// pumpTypes list in computeSystemStats — a pump missing here is billed
-// nothing while still counting as a pump everywhere else.
-const PUMP_TYPES = new Set(['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']);
-
 /**
- * Facility-wide passive revenue for one tick: base grant + research passive
- * funding + reputation revenue, all scaled by the decoration reputation
- * tier's funding bonus.
+ * Facility-wide passive revenue for one tick, split into the terms the
+ * economy panel reports: base grant + research passive funding, and
+ * reputation revenue, both scaled by the decoration reputation tier's
+ * funding bonus.
+ *
+ * `total` is the only value anything is allowed to credit, and the terms sum
+ * to it exactly — `reputation` carries the rounding residual, because the
+ * bill has always been floored once, on the sum. A panel that floors the
+ * terms separately would quote a total the balance never moved by.
  */
-export function computeTickIncome(state, researchPassive = 0) {
+export function computeTickIncomeBreakdown(state, researchPassive = 0) {
   const passive = ECON.baseGrant + researchPassive;
   const rep = Math.max(0, state.resources?.reputation || 0);
   const repIncome = ECON.repIncomeRate * Math.sqrt(rep);
   const repBonus = state?.reputationTier?.fundingBonus || 0;
-  return Math.floor((passive + repIncome) * (1 + repBonus));
+  const total = Math.floor((passive + repIncome) * (1 + repBonus));
+  const grant = Math.floor(passive * (1 + repBonus));
+  return { grant, reputation: total - grant, total };
 }
 
 /**
- * Revenue for one tick of one running beamline. nodeCount is the flattened
- * HARDWARE count (junctions + pipe placements) — callers must exclude the
- * flattener's synthetic 'drift' entries, which are gaps, not machines.
- * Income scales with both beam quality and machine size, plus data fees
- * while detectors collect.
+ * Facility-wide passive revenue for one tick. The breakdown's total and
+ * nothing else — the two must not be able to disagree.
  */
-export function computeBeamIncome(beamState, nodeCount = 0) {
+export function computeTickIncome(state, researchPassive = 0) {
+  return computeTickIncomeBreakdown(state, researchPassive).total;
+}
+
+/**
+ * The user-fee term of beam income, $/tick, for an already-billed (that is,
+ * connectivity-derated) data rate. The UI's "User Fees" readout re-derived
+ * this as `dataRate * 0.1` off the raw physics rate, which understated the
+ * money by 50x and still quoted a fee for a beamline whose fiber was cut.
+ * Anything that bills or displays data fees calls this.
+ */
+export function dataFeeIncome(billedRate) {
+  const rate = billedRate || 0;
+  return rate > 0 ? rate * ECON.dataFeeRate : 0;
+}
+
+/**
+ * Revenue for one tick of one running beamline. `nodeCount` comes from
+ * aggregates.hardwareNodeCount — junctions + pipe placements, never the
+ * flattener's synthetic 'drift' entries, which are gaps, not machines.
+ * `beamState.dataRate` must already be the billed (connectivity-derated)
+ * rate — see aggregates.billedDataRate. Income scales with both beam quality
+ * and machine size, plus data fees while detectors collect.
+ *
+ * Split into { beam, dataFees, total } because the economy panel reports the
+ * two separately and must report what was paid, not a second derivation of
+ * it — the 50x user-fee defect above came from exactly that.
+ */
+export function computeBeamIncomeBreakdown(beamState, nodeCount = 0) {
   // `|| 0.2` here treated a legitimate quality of exactly 0 (lattice.py
   // returns beam_quality 0.0 outright when the emittance ratio degenerates)
   // as 20%, so a fully scrambled beam still earned income forever. The 0.2 is
   // only a stand-in for "physics hasn't reported yet".
   const raw = beamState.beamQuality;
   const q = Number.isFinite(raw) ? raw : 0.2;
-  let income = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
-  if ((beamState.dataRate || 0) > 0) income += beamState.dataRate * ECON.dataFeeRate;
-  return income;
+  const beam = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  const dataFees = dataFeeIncome(beamState.dataRate);
+  return { beam, dataFees, total: beam + dataFees };
+}
+
+/** The breakdown's total, which is the amount one running beamline is paid. */
+export function computeBeamIncome(beamState, nodeCount = 0) {
+  return computeBeamIncomeBreakdown(beamState, nodeCount).total;
 }
 
 /**
@@ -82,22 +175,10 @@ export function computeTickUpkeep(state) {
   const staffCost = Object.entries(state.staff || {}).reduce((sum, [type, count]) => {
     return sum + count * ((state.staffCosts || {})[type] || 0);
   }, 0);
-  let pumpCount = 0;
-  let equipDraw = 0;
-  for (const p of (state.placeables || [])) {
-    // Pumps, RF sources, chillers, etc. are kind 'infrastructure' in the
-    // unified placement registry; lab devices are kind 'equipment'. Both
-    // draw power while placed, and all PUMP_TYPES ids are infrastructure.
-    if (p.category !== 'equipment' && p.category !== 'infrastructure') continue;
-    if (PUMP_TYPES.has(p.type)) pumpCount++;
-    equipDraw += (COMPONENTS[p.type]?.energyCost || 0);
-  }
-  const pumpUpkeep = pumpCount * ECON.pumpUpkeepEach;
-  // state.totalEnergyCost already sums only the beamlines that are actually
-  // running (see Game._updateAggregateBeamline) — no global beamOn gate, which
-  // used to bill stopped beamlines whenever any one beamline ran.
-  const beamDraw = state.totalEnergyCost || 0;
-  const powerBill = ECON.powerBillPerKW * (equipDraw + beamDraw);
+  const pumpUpkeep = countPumps(state) * ECON.pumpUpkeepEach;
+  // facilityEnergyDraw is the same basis computeSystemStats reports as
+  // power.totalDraw — the bill and the panel cannot disagree.
+  const powerBill = ECON.powerBillPerKW * facilityEnergyDraw(state);
   return { staffCost, pumpUpkeep, powerBill, total: staffCost + pumpUpkeep + powerBill };
 }
 
@@ -108,13 +189,8 @@ export function computeTickUpkeep(state) {
 // load math; this file just produces rough summary stats for the HUD.
 
 export function computeSystemStats(state) {
-  // Pumps, chillers, cold boxes and RF sources are placed with kind (and so
-  // category) 'infrastructure'; 'equipment' is lab devices. Both count here,
-  // exactly as in computeTickUpkeep — filtering to 'equipment' alone left
-  // the HUD reporting zero pumps/draw for hardware the player is billed for.
-  const equip = (state.placeables || []).filter(
-    p => p.category === 'equipment' || p.category === 'infrastructure',
-  );
+  // Same population computeTickUpkeep bills — see aggregates.js.
+  const equip = poweredPlaceables(state);
   const beamline = state.beamline || [];
 
   // Count facility equipment by type
@@ -156,9 +232,8 @@ export function computeSystemStats(state) {
   };
 
   // === VACUUM ===
-  const pumpTypes = ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump'];
   const gaugeTypes = ['piraniGauge', 'coldCathodeGauge', 'baGauge'];
-  const pumpCount = pumpTypes.reduce((s, t) => s + (counts[t] || 0), 0);
+  const pumpCount = countPumps(state);
   const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
   const totalPumpSpeed = portCapacity('vac_out', 'pumpSpeed');
   // Derived fresh every call. This used to read `state.avgPressure ||` first
@@ -310,7 +385,7 @@ export function computeSystemStats(state) {
   const emergCooling = counts.emergencyCooling || 0;
 
   const coolingCap = portCapacity('cool_out', 'capacity');
-  const coolingLoad = (state.totalEnergyCost || 0) * 0.6; // ~60% of electrical becomes heat
+  const coolingLoad = beamlineEnergyDraw(state) * 0.6; // ~60% of electrical becomes heat
 
   const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T
   const coolingMargin = coolingCap > 0 ? ((coolingCap - coolingLoad) / coolingCap * 100) : 0;
@@ -349,14 +424,13 @@ export function computeSystemStats(state) {
     if (typeof cap === 'number') powerCapacity += cap;
   }
   // Draw is the sum over every placed unit plus the running beamlines — the
-  // SAME basis computeTickUpkeep bills on. Adding the per-category draws
+  // SAME accessor computeTickUpkeep bills on. Adding the per-category draws
   // instead both under- and over-counted: it omitted the dataControls, ops and
   // power categories and the 34 lab items that have no `category` at all
   // (~68 kW on an ordinary build), while double-counting cryogenics, which is
   // a subsection of cooling and was added twice. A facility drawing 74 kW
   // against a 100 kW supply displayed a green 6%.
-  const equipDraw = equip.reduce((s, e) => s + (COMPONENTS[e.type]?.energyCost || 0), 0);
-  const totalDraw = (state.totalEnergyCost || 0) + equipDraw;
+  const totalDraw = facilityEnergyDraw(state);
   const powerUtil = powerCapacity > 0 ? (totalDraw / powerCapacity * 100) : 0;
 
   const power = {
@@ -371,7 +445,7 @@ export function computeSystemStats(state) {
       rfDraw: rfPower.energyDraw,
       cryoDraw: cryo.energyDraw,
       coolingDraw: cooling.energyDraw,
-      beamlineDraw: state.totalEnergyCost || 0,
+      beamlineDraw: beamlineEnergyDraw(state),
     },
   };
 

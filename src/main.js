@@ -27,6 +27,7 @@ import { CloudSaves } from './game/CloudSaves.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
+import { EconomyWindow } from './ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
@@ -372,6 +373,11 @@ function showScenarioPicker(game) {
     router.navigate('designer');
   });
 
+  // Economy button — toggles the cash-flow window (same gesture as the K key)
+  document.getElementById('btn-economy').addEventListener('click', () => {
+    EconomyWindow.toggle(game);
+  });
+
   // Load Design button inside the designer — opens library as a modal on top
   document.getElementById('dsgn-load-design').addEventListener('click', () => {
     designLibrary.open(true);
@@ -585,20 +591,43 @@ function showScenarioPicker(game) {
     const far = game.beamline.placeJunction({type:'faradayCup', col:8, row:12, dir:3}); renderer.refresh(); await sleep(600);
     const pipe = game.beamline.drawPipe({junctionId:src,portName:'exit'},{junctionId:far,portName:'entry'},[{col:0,row:12},{col:8,row:12}]);
     renderer.refresh(); panTo(4,7,1.3); await sleep(800);
+    let demoBpm = null;
     if (pipe) {
       game.beamline.placeOnPipe(pipe,{type:'quadrupole',position:0.25,mode:'snap'}); renderer.refresh(); await sleep(500);
       game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
-      game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
+      demoBpm = game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
     }
-    // Utility gating (Phase 6/7): junction power + vacuum sinks are
-    // hard-required, so wire the source + faraday cup before starting beam.
-    for (const [c, r] of [[2,14],[6,14]]) { const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true}); }
-    const xfmr = game.placePlaceable({type:'padMountTransformer', col:2, row:14});
-    const pump = game.placePlaceable({type:'roughingPump', col:6, row:14});
-    if (xfmr && src) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:src,port:'pwr_in'});
-    if (xfmr && far) wireUtility(game,'powerCable',{id:xfmr,port:'pwr_out'},{id:far,port:'pwr_in'});
-    if (pump && src) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:src,port:'vac_in'});
-    if (pump && far) wireUtility(game,'vacuumPipe',{id:pump,port:'vac_out'},{id:far,port:'vac_in'});
+    // Utility gating: every ON-PIPE component is gated individually too, so
+    // the showcase has to feed the quad / cavity / BPM as well as the two
+    // junctions. Row 13 is the distribution row (one bus per utility, each
+    // standing in for a handful of stubs), row 14 the service row. The
+    // 2856 MHz cavity needs a matching klystron — a broadband amp would do,
+    // but a frequency mismatch is only a soft error and would show a dead
+    // beam with no blocker to explain it.
+    for (let c = 0; c <= 9; c++) for (const r of [13, 14]) {
+      const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true});
+    }
+    const gear = game.placePlaceable({type:'switchgear', col:0, row:14});
+    const pump = game.placePlaceable({type:'turboPump', col:2, row:14});
+    const ioc  = game.placePlaceable({type:'rackIoc', col:4, row:14});
+    const chil = game.placePlaceable({type:'chiller', col:6, row:14});
+    const kly  = game.placePlaceable({type:'pulsedKlystron', col:8, row:14});
+    const pwrBus = game.placePlaceable({type:'powerBus', col:1, row:13});
+    const vacBus = game.placePlaceable({type:'vacuumManifold', col:3, row:13});
+    const rfBus  = game.placePlaceable({type:'waveguideManifold', col:5, row:13});
+    const coolBus= game.placePlaceable({type:'coolingManifold', col:7, row:13});
+    const wire = (util, fromId, fromPort, toId, toPort) => {
+      if (fromId && toId) wireUtility(game, util, {id:fromId, port:fromPort}, {id:toId, port:toPort});
+    };
+    for (const [id, port] of [[src,'pwr_in'],[far,'pwr_in'],[pump,'pwr_in'],[ioc,'pwr_in'],
+      [chil,'pwr_in'],[kly,'pwr_in'],[pwrBus,'bus_left']]) wire('powerCable', gear,'pwr_out', id, port);
+    for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
+      wire('vacuumPipe', pump,'vac_out', id, port);
+    wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');
+    for (const [id, port] of [[src,'cool_in'],[coolBus,'bus_left']])
+      wire('coolingWater', chil,'cool_out', id, port);
+    for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])
+      wire('dataFiber', ioc,'data_out', id, port);
     renderer.refresh(); await sleep(500);
     // Turn the beam on once the gate has seen the wired topology.
     game.tick();

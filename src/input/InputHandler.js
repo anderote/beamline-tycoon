@@ -7,6 +7,7 @@ import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
+import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -413,7 +414,8 @@ export class InputHandler {
   /**
    * Show a green-dollar cost tooltip next to the cursor during infra drag.
    * Passing cost=0 shows "Free". Passing a non-zero skippedNoFoundation also
-   * shows a red warning line about missing foundation.
+   * shows a red warning line about missing foundation. `opts.note` adds one
+   * neutral line above the warnings (utility run-wiring's sink count).
    */
   _showDragCostTooltip(cost, screenX, screenY, opts = {}) {
     if (!this._dragCostTooltipEl) {
@@ -428,6 +430,9 @@ export class InputHandler {
       html = `<span style="color:#66ff88">$${cost.toLocaleString()}</span>`;
     } else {
       html = `<span style="color:#88ccff">Free</span>`;
+    }
+    if (opts.note) {
+      html += `<br><span style="color:#ffd27a">${opts.note}</span>`;
     }
     if (opts.skippedNoFoundation > 0) {
       html += `<br><span style="color:#ff6666">${opts.skippedNoFoundation} tile(s) need ${opts.foundationName || 'foundation'}</span>`;
@@ -1227,6 +1232,13 @@ export class InputHandler {
           if (overlay) overlay.classList.toggle('hidden');
           break;
         }
+        case 'k': case 'K': {
+          // K, not E/F/B/M: every mnemonic for "economy" is already a mode,
+          // palette slot or camera key. Toggles like the Research/Goals keys.
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          EconomyWindow.toggle(this.game);
+          break;
+        }
         case 'q': case 'Q': {
           e.preventDefault();
           if (!this.isFreeOrbiting && !this.renderer._snapping) {
@@ -1575,15 +1587,15 @@ export class InputHandler {
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
-      if (this.game._designPlacer.valid) {
-        // Design placement is a world-mutating gesture like any other tool
-        // commit — without _withUndo it was the only one outside the undo
-        // model, so Ctrl+Z after placing a design silently deleted it as a
-        // side effect of rewinding whatever came before.
-        this.game._withUndo(() => this.game._designPlacer.confirm());
-      } else {
-        this.game.log('Invalid placement!', 'bad');
-      }
+      // Design placement is a world-mutating gesture like any other tool
+      // commit — outside the gesture helper it was the only one outside the
+      // undo model, so Ctrl+Z after placing a design silently deleted it as
+      // a side effect of rewinding whatever came before.
+      this.game.commitGesture({
+        validate: () => (this.game._designPlacer.valid
+          ? true : { ok: false, reason: 'Invalid placement!' }),
+        mutate: () => this.game._designPlacer.confirm(),
+      });
       return;
     }
 

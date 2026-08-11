@@ -9,13 +9,21 @@
 //   B) The smallBeamlineFacility scenario is clearly net-positive once its
 //      beam runs, without upkeep dominating — and its cooling loop actually
 //      drains the reservoir (refills are a real recurring cost).
-//   C) A late-game-ish build (second bigger beamline + detector + chiller
-//      loop + full staff roster) pays a meaningful fraction of gross income
-//      back out as upkeep: between 20% and 70% (tuned to ~43%).
+//   C) A late-game-ish build (second bigger beamline + detector + RF plant +
+//      cooling loop + full staff roster) pays a meaningful fraction of gross
+//      income back out as upkeep: between 20% and 70% (currently ~43%).
 //
 // Bounds are deliberately loose: this test flags economy regressions (a knob
 // change or new cost stream that breaks a whole phase of the game), it does
-// not pin exact numbers.
+// not pin exact numbers. They have NOT moved since Phase 7 — on-pipe utility
+// gating was absorbed by re-tuning ECON (beamIncomePerNode 180 -> 240,
+// powerBillPerKW 2 -> 1), and Phase 12's progression pass moved no ECON knob
+// at all (it re-derived beamIncomePerNode to the same 240 and did its work in
+// the research/objective/utility cost tables), so these bounds still stand.
+//
+// This file measures RATES — what a facility earns and pays per tick. What a
+// whole playthrough costs, and how long it takes, lives in
+// test/test-progression.js.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -23,10 +31,9 @@ import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { SCENARIOS } from '../src/data/scenarios.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
-import { wireUtility } from '../src/data/scenarios/scenario-wiring.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
-import { createStaffMember } from '../src/game/staff/staffSystem.js';
 import { computeTickUpkeep, computeSystemStats } from '../src/game/economy.js';
+import { buildLateGameFacility } from '../scripts/balance-sim.mjs';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -158,53 +165,15 @@ function measure(game, ticks) {
   const game = bootSmallFacility(303);
   const state = game.state;
 
-  const src2 = game.beamline.placeJunction({ type: 'source', col: -6, row: 10, dir: 3, free: true, silent: true });
-  const det = game.beamline.placeJunction({ type: 'detector', col: 6, row: 10, dir: 3, free: true, silent: true });
-  assert(!!src2 && !!det, 'second beamline junctions placed');
-  const pipe = game.beamline.drawPipe(
-    { junctionId: src2, portName: 'exit' },
-    { junctionId: det, portName: 'entry' },
-    [{ col: -6, row: 10 }, { col: 6, row: 10 }],
-  );
-  assert(!!pipe, 'second beam pipe drawn');
-  if (pipe) {
-    for (const [type, position] of [
-      ['buncher', 0.06], ['rfCavity', 0.18], ['rfCavity', 0.30], ['rfCavity', 0.42],
-      ['quadrupole', 0.54], ['rfCavity', 0.64], ['quadrupole', 0.76], ['bpm', 0.88],
-    ]) game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap', free: true });
-  }
-  const place = (type, col, row) => game.placePlaceable({ type, col, row, free: true, silent: true });
-  const sw = place('switchgear', -5, 8);
-  const tp = place('turboPump', 3, 8);
-  const ioc2 = place('rackIoc', 1, 8);
-  const ch = place('chiller', 5, 8);
-  assert(!!sw && !!tp && !!ioc2 && !!ch, 'support infra placed');
-  wireUtility(game, 'powerCable', { id: sw, port: 'pwr_out' }, { id: src2, port: 'pwr_in' });
-  wireUtility(game, 'powerCable', { id: sw, port: 'pwr_out' }, { id: det, port: 'pwr_in' });
-  wireUtility(game, 'vacuumPipe', { id: tp, port: 'vac_out' }, { id: src2, port: 'vac_in' });
-  wireUtility(game, 'vacuumPipe', { id: tp, port: 'vac_out' }, { id: det, port: 'vac_in' });
-  wireUtility(game, 'dataFiber', { id: ioc2, port: 'data_out' }, { id: det, port: 'data_in' });
-  wireUtility(game, 'coolingWater', { id: ch, port: 'cool_out' }, { id: det, port: 'cool_in' });
+  // The recipe is the sim's, imported rather than copied: when this file kept
+  // its own copy, the copy quietly stopped matching (and stopped being wired)
+  // while the numbers below claimed to describe it.
+  const buildErrors = [];
+  const built = buildLateGameFacility(game, { log: (...a) => buildErrors.push(a.join(' ')) });
+  assert(built === true, 'late-game facility built');
+  assert(buildErrors.length === 0,
+    `late-game build placed and wired cleanly (${buildErrors.join(' | ') || 'no errors'})`);
 
-  for (const role of ['operator', 'technician', 'technician', 'scientist', 'engineer']) {
-    const m = createStaffMember(role, `staff_${state.staffNextId++}`, state.tick, game.rng);
-    if (role === 'operator') { m.assignment.zoneId = 'controlRoom'; m.needs.fatigue = 0.5; }
-    state.staffMembers.push(m);
-  }
-  game._syncStaffCounts();
-
-  const decTypes = ['oakTree', 'flowerBed', 'parkBench', 'lamppost', 'shrub'];
-  for (let i = 0; i < 35; i++) {
-    state.placeables.push({
-      id: `dec_sim_${i}`, type: decTypes[i % decTypes.length],
-      col: -10 + (i % 12), row: 13 + Math.floor(i / 12),
-      subCol: 1, subRow: 1, dir: 0, kind: 'decoration',
-    });
-  }
-  state.resources.funding = 1500000;
-  state.resources.reputation = 30;
-
-  game.recalcAllBeamlines();
   startAllBeams(game);
   measure(game, 100); // rampup
   assert(state.infraCanRun === true,

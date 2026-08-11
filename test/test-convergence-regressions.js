@@ -323,8 +323,12 @@ console.log('\n=== 8. Data fees are billed on the rate actually collected ===\n'
   assert(g._dataConnectivityFactor(nodes) === 0, 'an unfed detector derates to 0');
   g.state.nodeQualities = { bl_x: { dataQuality: 1 } };
   assert(g._dataConnectivityFactor(nodes) === 1, 'a fed detector derates to 1');
+  // Fail closed (Phase 11a): a detector DECLARES a dataFiber sink, so no
+  // solved quality means never wired — 0, not the 1.0 it used to default to
+  // (which paid full data fees for a fibreless detector). A node that
+  // declares no data sink is not applicable and still reads 1.0.
   g.state.nodeQualities = {};
-  assert(g._dataConnectivityFactor(nodes) === 1, 'no solved quality fails open at 1');
+  assert(g._dataConnectivityFactor(nodes) === 0, 'a declared-but-unsolved data sink fails closed at 0');
 }
 
 // ---------------------------------------------------------------------------
