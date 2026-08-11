@@ -79,15 +79,23 @@ export function generateSmallBeamlineFacility() {
 }
 
 // Post-apply setup: build the promised beamline inside the shielded hall and
-// wire it so it comes up GREEN under utility gating (junction power + vacuum
-// sinks are hard-required; an operator pawn is seeded by Game itself).
-// Runs through the normal Game APIs after applyScenario(). The facility is
-// pre-built, so the player's starting funding is restored afterwards.
+// wire it so it comes up GREEN under utility gating (an operator pawn is
+// seeded by Game itself). Runs through the normal Game APIs after
+// applyScenario(). The facility is pre-built, so the player's starting funding
+// is restored afterwards.
+//
+// Every ON-PIPE component (buncher, cavities, quad, BPM) declares its own
+// power / vacuum / RF / cooling sinks and each one is gated individually, so
+// the starter layout has to demonstrate the two ways of feeding them:
+// distribution buses where a whole run shares one utility (power, vacuum, RF)
+// and point-to-point stubs where a single component needs a single feed
+// (the quad's cooling, the BPM's fiber).
 export function setupSmallBeamlineFacility(game) {
   const funding0 = game.state.resources.funding;
 
   // Beam hall interior: rows -1..1, cols -7..8 (see generator above).
-  // Beamline runs west→east along row 0.
+  // Beamline runs west→east along row 0; row -1 is the service row for
+  // sources, row 1 the distribution row for buses.
   const src = game.beamline.placeJunction({ type: 'source', col: -6, row: 0, dir: 3, free: true, silent: true });
   const cup = game.beamline.placeJunction({ type: 'faradayCup', col: 6, row: 0, dir: 3, free: true, silent: true });
   if (!src || !cup) { console.warn('[scenario] smallBeamlineFacility: junction placement failed'); return; }
@@ -97,41 +105,90 @@ export function setupSmallBeamlineFacility(game) {
     { junctionId: cup, portName: 'entry' },
     [{ col: -6, row: 0 }, { col: 6, row: 0 }],
   );
+  // Snapped centres, west→east: buncher -4.79, cavities -2.75 / -0.95 / 0.85,
+  // quad 2.89, BPM 4.69. Bus reaches below are checked against those.
+  let placements = [];
   if (pipe) {
-    game.beamline.placeOnPipe(pipe, { type: 'buncher',       position: 0.08, mode: 'snap', free: true });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.25, mode: 'snap', free: true });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.40, mode: 'snap', free: true });
-    game.beamline.placeOnPipe(pipe, { type: 'pillboxCavity', position: 0.55, mode: 'snap', free: true });
-    game.beamline.placeOnPipe(pipe, { type: 'quadrupole',    position: 0.72, mode: 'snap', free: true });
-    game.beamline.placeOnPipe(pipe, { type: 'bpm',           position: 0.88, mode: 'snap', free: true });
+    placements = [
+      ['buncher',       0.08],
+      ['pillboxCavity', 0.25],
+      ['pillboxCavity', 0.40],
+      ['pillboxCavity', 0.55],
+      ['quadrupole',    0.72],
+      ['bpm',           0.88],
+    ].map(([type, position]) =>
+      game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap', free: true }));
   }
+  // Only the two stub-wired components are named; the rest are bus-fed.
+  const quad = placements[4];
+  const bpm = placements[5];
 
-  // Support gear along the hall's north row: a 150 kW pad-mount transformer
-  // (source 50 + cup 1 kW leaves headroom for expansion), a roughing pump
-  // (15 L/s vs ~1.2e-6 mbar·L/s outgassing), and an IOC rack for the cup's
-  // data feed.
-  const xfmr = game.placePlaceable({ type: 'padMountTransformer', col: -5, row: -1, free: true, silent: true });
-  const pump = game.placePlaceable({ type: 'roughingPump', col: 4, row: -1, free: true, silent: true });
-  const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
+  // Service row (north). Power: 172 kW total draw — gun 50, cavities 30,
+  // quad 10, buncher 5, cup + BPM 2, support gear 5, and the amplifier's 70 —
+  // so the feed is a 400 kW switchgear cabinet, not a 150 kW pad-mount.
+  // RF: the buncher and the three pillbox cavities are all 200 MHz, which no
+  // fixed-frequency tube source in the catalogue covers; the broadband
+  // solid-state amp (35 kW against 17 kW of demand) is the one that fits.
+  const gear = game.placePlaceable({ type: 'switchgear', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
+  const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
+  const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
+  // Vacuum: the six on-pipe chambers outgas ~4.2e-6 on top of the junctions'
+  // 1.2e-6, and pressure is total outgassing over total pump speed — a 15 L/s
+  // roughing pump alone lands at 3.6e-7 mbar, i.e. every component on the pipe
+  // running at 0.61 vacuum quality. The turbo (300 L/s, roughing-pump-backed,
+  // as in the real thing) takes the whole line to ~1.7e-8.
+  const pump = game.placePlaceable({ type: 'roughingPump', col: 4, row: -1, free: true, silent: true });
 
-  // Hard-required hookups: power + vacuum to every junction (fanout from one
-  // source port is allowed and merges into a single network).
-  if (xfmr) {
-    wireUtility(game, 'powerCable', { id: xfmr, port: 'pwr_out' }, { id: src, port: 'pwr_in' });
-    wireUtility(game, 'powerCable', { id: xfmr, port: 'pwr_out' }, { id: cup, port: 'pwr_in' });
+  // Distribution row (south). One power bus (reach 10) spans the whole run;
+  // vacuum manifolds only reach 5, so the run needs two.
+  const pwrBus  = game.placePlaceable({ type: 'powerBus', col: 0, row: 1, free: true, silent: true });
+  const vacW    = game.placePlaceable({ type: 'vacuumManifold', col: -3, row: 1, free: true, silent: true });
+  const vacE    = game.placePlaceable({ type: 'vacuumManifold', col: 3, row: 1, free: true, silent: true });
+  const wgBus   = game.placePlaceable({ type: 'waveguideManifold', col: -2, row: 1, free: true, silent: true });
+  // Turbo sits on the distribution row and taps the east manifold's spare
+  // port: a sink/pass port takes ONE line, and the roughing pump already
+  // holds every bus_left.
+  const turbo   = game.placePlaceable({ type: 'turboPump', col: 5, row: 1, free: true, silent: true });
+
+  const wire = (util, from, to) => wireUtility(game, util, from, to);
+
+  // Power: junctions and the support gear take their own feeds; every on-pipe
+  // sink comes in through the bus (one line instead of six).
+  if (gear) {
+    for (const [id, port] of [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
+      [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
+      [pwrBus, 'bus_left']]) {
+      if (id) wire('powerCable', { id: gear, port: 'pwr_out' }, { id, port });
+    }
   }
+
+  // Both pumps land on the one vacuum network — pump speed sums across a
+  // network, so the turbo backs the whole line, not just the cup.
   if (pump) {
-    wireUtility(game, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: src, port: 'vac_in' });
-    wireUtility(game, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: cup, port: 'vac_in' });
+    for (const [id, port] of [[src, 'vac_in'], [cup, 'vac_in'],
+      [vacW, 'bus_left'], [vacE, 'bus_left']]) {
+      if (id) wire('vacuumPipe', { id: pump, port: 'vac_out' }, { id, port });
+    }
   }
-  if (ioc) {
-    wireUtility(game, 'dataFiber', { id: ioc, port: 'data_out' }, { id: cup, port: 'data_in' });
-  }
-  // Soft-required cooling loop: gun collector heat into an LCW skid. Gives
-  // the starter facility a live water reservoir (a recurring refill cost).
+  if (turbo && vacE) wire('vacuumPipe', { id: turbo, port: 'vac_out' }, { id: vacE, port: 'bus_right' });
+
+  // RF: one waveguide run into the manifold feeds the buncher and all three
+  // cavities.
+  if (ssa && wgBus) wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
+
+  // Cooling: gun collector heat plus the one quadrupole. A single magnet does
+  // not earn a header, so it gets a stub. Gives the starter facility a live
+  // water reservoir (a recurring refill cost).
   if (skid) {
-    wireUtility(game, 'coolingWater', { id: skid, port: 'cool_out' }, { id: src, port: 'cool_in' });
+    if (src) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: src, port: 'cool_in' });
+    if (quad) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: quad, port: 'cool_in' });
+  }
+
+  // Data: soft-gated, but an unwired diagnostic still derates data income.
+  if (ioc) {
+    if (cup) wire('dataFiber', { id: ioc, port: 'data_out' }, { id: cup, port: 'data_in' });
+    if (bpm) wire('dataFiber', { id: ioc, port: 'data_out' }, { id: bpm, port: 'data_in' });
   }
 
   game.state.resources.funding = funding0;

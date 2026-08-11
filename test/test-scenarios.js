@@ -21,6 +21,8 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { SCENARIOS } from '../src/data/scenarios.js';
 import { TUTORIAL_STEPS } from '../src/data/tutorial.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
+import { listUtilityEndpoints } from '../src/utility/utility-endpoints.js';
+import { declaredSinkQualityFloor } from '../src/game/utility-gate.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -66,6 +68,22 @@ for (const scenario of SCENARIOS) {
   assert((state.staffMembers || []).some(m => m.role === 'operator'),
     'operator pawn seeded');
 
+  // Blocker-free is not the same as served. Unwired sinks fail CLOSED to
+  // quality 0, and dataFiber never hard-blocks at all, so a scenario could be
+  // green and still run every cavity at zero. Assert the qualities directly,
+  // over every endpoint — pipe placements included.
+  const starved = [];
+  for (const e of listUtilityEndpoints(state)) {
+    const floor = declaredSinkQualityFloor(e.type);
+    if (!floor) continue;
+    const nq = state.nodeQualities?.[e.id] || {};
+    for (const field of Object.keys(floor)) {
+      if (!(nq[field] > 0)) starved.push(`${e.type}.${field}=${nq[field]}`);
+    }
+  }
+  assert(starved.length === 0,
+    `every declared sink is served (starved: ${starved.join(', ') || 'none'})`);
+
   const junctions = state.placeables.filter(p => p.category === 'beamline');
   if (junctions.length > 0) {
     // Scenario ships a beamline — it must be startable.
@@ -79,6 +97,15 @@ for (const scenario of SCENARIOS) {
       for (let i = 0; i < 5; i++) game.tick();
       assert(state.beamOn === true, 'state.beamOn true after ticking with beam running');
       assert(entry.status === 'running', 'beam stays running over 5 more ticks');
+      // 'running' is not 'producing'. A beam whose elements carry the
+      // fail-closed infraQuality floor stays green on status while emitting
+      // nothing, which is how the gate-vs-recalc ordering bug shipped once.
+      const accelerates = (state.beamline || [])
+        .some(n => (COMPONENTS[n.type]?.stats?.energyGain || 0) > 0);
+      if (accelerates) {
+        assert(entry.beamState.beamEnergy > 0,
+          `wired beamline actually produces energy (${entry.beamState.beamEnergy})`);
+      }
     }
   }
 }
@@ -97,10 +124,33 @@ for (const scenario of SCENARIOS) {
   assert(placements.filter(t => t === 'pillboxCavity').length === 3,
     'three pillbox cavities on the pipe');
 
-  // Wiring: power + vacuum to both junctions, data to the cup, cooling to
-  // the gun = 6 lines.
-  assert((state.utilityLines?.size || 0) === 6,
-    `six utility lines wired (got ${state.utilityLines?.size})`);
+  // Wiring: 8 power (2 junctions + 5 support units + the bus), 5 vacuum
+  // (2 junctions + 2 manifolds + the turbo's tap), 1 RF into the waveguide
+  // manifold, 2 cooling, 2 data = 18 lines. Four of them are bus feeds
+  // standing in for what would otherwise be 16 per-component stubs.
+  assert((state.utilityLines?.size || 0) === 18,
+    `eighteen utility lines wired (got ${state.utilityLines?.size})`);
+
+  // The buses must be what serves the on-pipe components — that is the whole
+  // point of shipping them in the starter layout. Cut the bus feeds and the
+  // hard blockers have to come back.
+  {
+    const cutGame = bootScenario(scenario);
+    const busIds = new Set(cutGame.state.placeables
+      .filter(p => ['powerBus', 'vacuumManifold', 'waveguideManifold'].includes(p.type))
+      .map(p => p.id));
+    for (const [id, line] of cutGame.state.utilityLines) {
+      if (busIds.has(line.end?.placeableId) || busIds.has(line.start?.placeableId)) {
+        cutGame.utilityLineSystem.removeLine(id);
+      }
+    }
+    for (let i = 0; i < 3; i++) cutGame.tick();
+    const cutHard = (cutGame.state.infraBlockers || []).filter(b => b.severity === 'hard');
+    // 6 power + 6 vacuum + 4 RF on-pipe sinks; the quad's stub-fed cooling
+    // and the junctions' own feeds are untouched.
+    assert(cutHard.length === 16,
+      `cutting the 4 bus feeds re-blocks 16 on-pipe sinks (got ${cutHard.length})`);
+  }
 
   // Prebuilt facility must not eat the starting budget (checked before any
   // ticks so the running economy doesn't muddy the number).
@@ -112,13 +162,25 @@ for (const scenario of SCENARIOS) {
     `starting funding preserved by setup (${fresh.state.resources.funding} vs ${funding0})`);
 
   // Differentiated demands: power network must show real numbers, not the
-  // old flat 50-per-sink placeholder.
+  // old flat 50-per-sink placeholder. Demand covers the on-pipe sinks the bus
+  // pulls in — a bus distributes, it does not generate, so the switchgear
+  // still has to carry them.
   const powerFlows = state.utilityNetworkData?.get?.('powerCable');
   const flow = powerFlows && [...powerFlows.values()][0];
-  assert(!!flow && flow.totalCapacity === 150,
-    `padMount capacity 150 kW seen by solver (got ${flow?.totalCapacity})`);
-  assert(!!flow && flow.totalDemand === 51,
-    `source(50)+cup(1) demand = 51 kW (got ${flow?.totalDemand})`);
+  assert(!!flow && flow.totalCapacity === 400,
+    `switchgear capacity 400 kW seen by solver (got ${flow?.totalCapacity})`);
+  // gun 50 + cup 1 + buncher 5 + 3x cavity 10 + quad 10 + bpm 1
+  //   + skid 3 + amp 70 + ioc 0.5 + roughing 0.5 + turbo 1
+  assert(!!flow && flow.totalDemand === 172,
+    `whole-facility demand = 172 kW (got ${flow?.totalDemand})`);
+
+  // The 200 MHz cavities have an RF source that actually covers them (the
+  // broadband amp) — a frequency mismatch is only a SOFT error, so it would
+  // otherwise sail past the blocker check at quality 0.
+  const rfFlows = state.utilityNetworkData?.get?.('rfWaveguide');
+  const rfFlow = rfFlows && [...rfFlows.values()][0];
+  assert(!!rfFlow && rfFlow.totalDemand === 17 && rfFlow.totalCapacity === 35,
+    `RF: 17 kW of 200 MHz demand against 35 kW broadband (got ${rfFlow?.totalDemand}/${rfFlow?.totalCapacity})`);
 }
 
 // --- tutorial + objective conditions run without throwing -----------------

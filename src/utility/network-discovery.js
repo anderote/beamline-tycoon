@@ -17,7 +17,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
-import { makeUtilityEndpointIndex } from './utility-endpoints.js';
+import { listUtilityEndpoints } from './utility-endpoints.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
@@ -52,6 +52,140 @@ class DSU {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Distribution buses.
+//
+// On-pipe components (role 'placement': cavities, quads, BPMs, cryomodules)
+// are wired INDIVIDUALLY — that is the high-fidelity model and it is not
+// negotiable. A FODO cell is a dozen quadrupoles, so without a bulk affordance
+// the player draws a dozen identical stubs. A distribution bus is that
+// affordance: a placeable that, once ONE line of its utility reaches it,
+// stands in for the stub to every on-pipe sink of that utility it covers.
+//
+// Coverage is deliberately bounded twice:
+//   1. ONE pipe segment — the segment carrying the nearest covered sink. A bus
+//      never bridges two beamlines, so a facility with three pipes needs at
+//      least three buses per utility.
+//   2. A reach in grid cells (`params.serviceRadius` on the bus port, 1 cell =
+//      2 m). Segments are arbitrarily long, so without a radius one bus would
+//      answer a whole beamline and the placement question would evaporate.
+// Together those are what make "how many buses, and where" the actual decision.
+//
+// The bus adds NO capacity: the sinks it covers land in the same network as
+// the source feeding it, so the source still has to carry their total demand.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_BUS_SERVICE_RADIUS = 8; // grid cells; ports normally declare it
+
+function footprintSub(def, dir) {
+  const subL = (def && def.subL) || 2;
+  const subW = (def && def.subW) || 2;
+  const d = ((((dir | 0) % 4) + 4) % 4);
+  const rotated = (d === 1 || d === 3);
+  return { col: rotated ? subL : subW, row: rotated ? subW : subL };
+}
+
+// Footprint center in GRID CELLS. Same formula as ports.portWorldPosition's
+// cx/cz (which works in world units, 1 cell = 2), so a bus and a placement are
+// measured from the same point. Placement records carry subCol/subRow of
+// -footprint/2, which recenters them onto their pipe sample point.
+function endpointCenter(rec, def) {
+  const f = footprintSub(def, rec.dir || 0);
+  return {
+    col: (rec.col || 0) + ((rec.subCol || 0) + f.col / 2) * 0.25,
+    row: (rec.row || 0) + ((rec.subRow || 0) + f.row / 2) * 0.25,
+  };
+}
+
+/**
+ * Which on-pipe sink ports each distribution bus covers.
+ *
+ * Pure: takes the flattened endpoint list (state.placeables + pipe placements,
+ * i.e. listUtilityEndpoints) and a port-table lookup, so both discovery and
+ * the unconnected-sink report can call it with their own lookup and agree.
+ * Wiring is NOT considered here — a bus covers the same sinks whether or not
+ * a line has reached it; callers decide what an unwired bus means.
+ *
+ * @param {Array<Placeable|PlacementRecord>} endpoints
+ * @param {(type: string) => Object} getPorts  type → {portName: spec}
+ * @param {(type: string) => Object} [getDef]  type → def (for subL/subW)
+ * @returns {Map<string, Map<string, string[]>>} busId → utility → sorted port keys
+ */
+export function computeBusService(endpoints, getPorts, getDef = t => COMPONENTS[t]) {
+  const out = new Map();
+  if (!endpoints || typeof getPorts !== 'function') return out;
+
+  const buses = [];       // { id, utility, radius, center }
+  const pipeSinks = [];   // { portKey, utility, pipeId, center }
+  const seenBus = new Set();
+  for (const rec of endpoints) {
+    if (!rec || !rec.id) continue;
+    const ports = getPorts(rec.type) || {};
+    let center = null;
+    for (const [portName, spec] of Object.entries(ports)) {
+      if (!spec || !spec.utility) continue;
+      const isBus = !!spec.bus && spec.role === 'pass';
+      const isPipeSink = spec.role === 'sink' && !!rec.isPlacement && !!rec.pipeId;
+      if (!isBus && !isPipeSink) continue;
+      if (center === null) center = endpointCenter(rec, getDef(rec.type));
+      if (isBus) {
+        // One bus node per (placeable, utility) — the four side ports are the
+        // same electrical/hydraulic node, not four buses.
+        const k = `${rec.id}|${spec.utility}`;
+        if (seenBus.has(k)) continue;
+        seenBus.add(k);
+        buses.push({
+          id: rec.id,
+          utility: spec.utility,
+          radius: (spec.params && spec.params.serviceRadius) || DEFAULT_BUS_SERVICE_RADIUS,
+          center,
+        });
+      } else {
+        pipeSinks.push({
+          portKey: `${rec.id}:${portName}`,
+          utility: spec.utility,
+          pipeId: rec.pipeId,
+          center,
+        });
+      }
+    }
+  }
+  if (buses.length === 0 || pipeSinks.length === 0) return out;
+
+  const EPS2 = 1e-9;
+  for (const bus of buses) {
+    const r2 = bus.radius * bus.radius;
+    const inRange = [];
+    for (const s of pipeSinks) {
+      if (s.utility !== bus.utility) continue;
+      const dc = s.center.col - bus.center.col;
+      const dr = s.center.row - bus.center.row;
+      const d2 = dc * dc + dr * dr;
+      if (d2 > r2 + EPS2) continue;
+      inRange.push({ portKey: s.portKey, pipeId: s.pipeId, d2 });
+    }
+    if (inRange.length === 0) continue;
+    // The nearest covered sink picks the ONE segment this bus attaches to.
+    // Ties break on pipe id then port key so the choice never depends on
+    // endpoint enumeration order (network ids are hashed from it).
+    let best = inRange[0];
+    for (const c of inRange) {
+      if (c.d2 < best.d2 - EPS2) { best = c; continue; }
+      if (c.d2 > best.d2 + EPS2) continue;
+      if (c.pipeId < best.pipeId
+          || (c.pipeId === best.pipeId && c.portKey < best.portKey)) best = c;
+    }
+    const served = inRange
+      .filter(c => c.pipeId === best.pipeId)
+      .map(c => c.portKey)
+      .sort();
+    let perUtil = out.get(bus.id);
+    if (!perUtil) { perUtil = new Map(); out.set(bus.id, perUtil); }
+    perUtil.set(bus.utility, served);
+  }
+  return out;
+}
+
 /**
  * Build the default portLookup backed by COMPONENTS and every utility
  * endpoint in the world — state.placeables AND the components living on beam
@@ -59,11 +193,17 @@ class DSU {
  * ports of every role:'placement' module, which is where all cryoTransfer
  * sinks and most rfWaveguide sinks live.
  *
- * Returns a function with a `.listPorts(placeableId)` attachment used by
- * `discoverNetworks` to enumerate pass-through ports on a placeable.
+ * Returns a function with two attachments used by `discoverNetworks`:
+ * `.listPorts(placeableId)` enumerates a placeable's ports, and
+ * `.busTargets(placeableId, utilityType)` reports the on-pipe sink port keys a
+ * distribution bus covers (see computeBusService).
  */
 export function makeDefaultPortLookup(state) {
-  const byId = makeUtilityEndpointIndex(state);
+  const endpoints = listUtilityEndpoints(state);
+  const byId = new Map();
+  for (const e of endpoints) byId.set(e.id, e);
+  const busService = computeBusService(
+    endpoints, t => (COMPONENTS[t] && COMPONENTS[t].ports) || null);
   const lookup = function (placeableId, portName) {
     const placeable = byId.get(placeableId);
     if (!placeable) return null;
@@ -76,6 +216,10 @@ export function makeDefaultPortLookup(state) {
     const def = COMPONENTS[placeable.type];
     if (!def || !def.ports) return [];
     return Object.entries(def.ports).map(([name, spec]) => ({ name, spec }));
+  };
+  lookup.busTargets = function (placeableId, utilityType) {
+    const perUtil = busService.get(placeableId);
+    return (perUtil && perUtil.get(utilityType)) || [];
   };
   return lookup;
 }
@@ -163,6 +307,34 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     }
   }
 
+  // Distribution buses: a bus that a line of this utility actually reaches
+  // pulls every on-pipe sink it covers into the same network, so one run
+  // serves a whole cell instead of one stub per component. An unwired bus is
+  // absent from touchedPlaceables and therefore inert.
+  if (portLookup && typeof portLookup.busTargets === 'function'
+      && typeof portLookup.listPorts === 'function') {
+    for (const pid of touchedPlaceables) {
+      const busNames = (portLookup.listPorts(pid) || [])
+        .filter(({ spec }) => spec && spec.bus && spec.role === 'pass'
+                              && spec.utility === utilityType)
+        .map(({ name }) => name);
+      if (busNames.length === 0) continue;
+      const targets = portLookup.busTargets(pid, utilityType) || [];
+      if (targets.length === 0) continue;
+      const anchor = `${pid}:${busNames[0]}`;
+      allPortKeys.add(anchor);
+      for (const n of busNames) {
+        const k = `${pid}:${n}`;
+        allPortKeys.add(k);
+        dsu.union(anchor, k);
+      }
+      for (const t of targets) {
+        allPortKeys.add(t);
+        dsu.union(anchor, t);
+      }
+    }
+  }
+
   // Group by root. Port keys and line-node keys may collide into the same
   // group. Lines without port anchors (fully open) still produce a group
   // (inert, solved as a no-op).
@@ -239,6 +411,10 @@ export function discoverNetworks(utilityType, lines, portLookup) {
  * component type (e.g. getUtilityPortsV2). Order of the returned reports is
  * utility-major, then placeable order, then port-table order.
  *
+ * `placeables` must be the flattened endpoint list (listUtilityEndpoints), not
+ * state.placeables: on-pipe placements are where most sinks live, and it is
+ * also what computeBusService needs to resolve bus coverage.
+ *
  * @param {Array<Placeable>} placeables
  * @param {Iterable<UtilityLine>|Map} utilityLines
  * @param {(placeableType: string) => Object} getPorts
@@ -255,6 +431,28 @@ export function findUnconnectedSinks(placeables, utilityLines, getPorts, utiliti
     if (line.start) connected.add(`${line.utilityType}|${portKey(line.start)}`);
     if (line.end) connected.add(`${line.utilityType}|${portKey(line.end)}`);
   }
+
+  // A distribution bus that a line has actually reached stands in for the
+  // per-component stub to every on-pipe sink it covers — otherwise the gate
+  // would keep reporting sinks the solver is already serving through the bus,
+  // and the bus would buy the player nothing.
+  const busService = computeBusService(placeables, getPorts);
+  if (busService.size > 0) {
+    const typeById = new Map();
+    for (const p of placeables || []) if (p && p.id) typeById.set(p.id, p.type);
+    for (const [busId, perUtil] of busService) {
+      const ports = getPorts(typeById.get(busId)) || {};
+      for (const [util, servedKeys] of perUtil) {
+        if (!wanted.has(util)) continue;
+        const wired = Object.entries(ports).some(([portName, spec]) =>
+          spec && spec.bus && spec.role === 'pass' && spec.utility === util
+          && connected.has(`${util}|${busId}:${portName}`));
+        if (!wired) continue;
+        for (const k of servedKeys) connected.add(`${util}|${k}`);
+      }
+    }
+  }
+
   const out = [];
   for (const util of utilities) {
     for (const p of placeables || []) {

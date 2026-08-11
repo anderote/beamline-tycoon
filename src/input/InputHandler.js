@@ -413,7 +413,8 @@ export class InputHandler {
   /**
    * Show a green-dollar cost tooltip next to the cursor during infra drag.
    * Passing cost=0 shows "Free". Passing a non-zero skippedNoFoundation also
-   * shows a red warning line about missing foundation.
+   * shows a red warning line about missing foundation. `opts.note` adds one
+   * neutral line above the warnings (utility run-wiring's sink count).
    */
   _showDragCostTooltip(cost, screenX, screenY, opts = {}) {
     if (!this._dragCostTooltipEl) {
@@ -428,6 +429,9 @@ export class InputHandler {
       html = `<span style="color:#66ff88">$${cost.toLocaleString()}</span>`;
     } else {
       html = `<span style="color:#88ccff">Free</span>`;
+    }
+    if (opts.note) {
+      html += `<br><span style="color:#ffd27a">${opts.note}</span>`;
     }
     if (opts.skippedNoFoundation > 0) {
       html += `<br><span style="color:#ff6666">${opts.skippedNoFoundation} tile(s) need ${opts.foundationName || 'foundation'}</span>`;

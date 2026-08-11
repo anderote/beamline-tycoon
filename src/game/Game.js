@@ -11,7 +11,7 @@ import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
-import { UtilityGate } from './utility-gate.js';
+import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
@@ -341,6 +341,11 @@ export class Game {
       getPorts: getUtilityPortsV2,
       rng: () => this.rng(),
     });
+    // Signature of the nodeQualities the last full physics pass was built
+    // against (see _syncPhysicsToNodeQualities). '' is the signature of "no
+    // solved qualities at all", so a world with nothing to propagate never
+    // triggers a first-tick recalc.
+    this._nodeQualitySig = '';
 
     // RimWorld-like staff: seed one operator pawn if none exists
     this._ensureStaffSeed();
@@ -2524,7 +2529,10 @@ export class Game {
     if (beamlineId) {
       const entry = this.registry.get(beamlineId);
       if (!entry) return;
+      this._ensureNodeQualitiesSolved();
       this._recalcSingleBeamline(entry);
+      // Deliberately NOT stamping _nodeQualitySig: only the all-entries pass
+      // may claim every beamState was rebuilt against the current qualities.
     } else {
       // Recalc all if no id given (backward compat)
       this.recalcAllBeamlines();
@@ -2536,12 +2544,61 @@ export class Game {
   }
 
   recalcAllBeamlines() {
+    this._ensureNodeQualitiesSolved();
     for (const entry of this.registry.getAll()) {
       this._recalcSingleBeamline(entry);
     }
+    this._nodeQualitySig = this._nodeQualitySignature();
     this._updateAggregateBeamline();
     this._recalcMainBeamGraph();
     this.validateInfrastructure();
+  }
+
+  /**
+   * The physics pass stamps each element's fail-closed `infraQuality` from
+   * state.nodeQualities, which ONLY the gate writes — and the gate runs LAST
+   * in tick(). On the boot/load path it has never run, so the pass would read
+   * an empty map, floor every declared sink to 0 and latch there (nothing
+   * re-runs the pass per tick). Solve once so the first pass sees real
+   * qualities. No-op afterwards: the gate always leaves an object behind.
+   */
+  _ensureNodeQualitiesSolved() {
+    if (this.state.nodeQualities || !this.utilityGate) return;
+    this.utilityGate.run();
+  }
+
+  /**
+   * Signature of the solved qualities the physics pass consumes. Quantized to
+   * 1e-2 so a vacuum pumping down over hundreds of ticks re-runs physics a
+   * bounded number of times instead of every tick; keys sorted so network
+   * iteration order alone can never look like a change.
+   */
+  _nodeQualitySignature() {
+    const nq = this.state.nodeQualities;
+    if (!nq) return '';
+    const out = [];
+    for (const id of Object.keys(nq).sort()) {
+      const entry = nq[id] || {};
+      let s = id;
+      for (const field of Object.keys(entry).sort()) {
+        const v = entry[field];
+        s += `|${field}:${typeof v === 'number' ? Math.round(v * 100) : v}`;
+      }
+      out.push(s);
+    }
+    return out.join(';');
+  }
+
+  /**
+   * Re-stamp physics when the solved qualities moved since the last full pass
+   * — wiring a starved cavity, a vacuum pumping down, a quench. Called from
+   * tick() right after the gate, which is the only writer; without it a
+   * player who fixed the wiring saw the blocker clear while the beam stayed
+   * at the fail-closed 0 until the next build mutation.
+   */
+  _syncPhysicsToNodeQualities() {
+    if (this._nodeQualitySig === this._nodeQualitySignature()) return;
+    this.recalcAllBeamlines();
   }
 
   // Physics pass for the unified main-map pipe graph. Runs additively on top
@@ -2735,9 +2792,17 @@ export class Game {
       } else if (t.extractionEnergy !== undefined) {
         physEl.extractionEnergy = t.extractionEnergy;
       }
+      // Fail closed. A component that declares a utility sink and has no
+      // solved quality for it — never wired, so it appears in no network —
+      // must run at 0, not at the 1.0 an absent field defaults to; otherwise
+      // ignoring infrastructure entirely outscored wiring it badly. The floor
+      // covers only utilities the type declares a sink for, so anything it
+      // doesn't consume stays absent (= not applicable, no penalty), and it
+      // applies even before the gate's first pass has written nodeQualities.
       const nq = this.state.nodeQualities?.[el.id];
-      if (nq) {
-        physEl.infraQuality = nq;
+      const floor = declaredSinkQualityFloor(el.type);
+      if (floor || nq) {
+        physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
       }
       return physEl;
     });
@@ -3279,6 +3344,12 @@ export class Game {
     // state.infraBlockers / infraCanRun / nodeQualities.
     this.utilityGate.run();
 
+    // The gate is the only writer of state.nodeQualities and it runs here, at
+    // the end of the tick — after the physics pass that reads them. Propagate
+    // any change now, or beamState keeps whatever quality the last build
+    // mutation happened to see.
+    this._syncPhysicsToNodeQualities();
+
     // Auto-save every 30 ticks. The synchronous serialize+localStorage write
     // is the most expensive thing in a tick, so keep it rare. Skipped while
     // paused: pause() clears the interval so tick() normally never runs
@@ -3303,7 +3374,10 @@ export class Game {
       const comp = COMPONENTS[node.type];
       if (comp && (comp.stats?.dataRate || 0) > 0) {
         const nq = this.state.nodeQualities[node.id];
-        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : 1.0;
+        // Same fail-closed rule as the physics bridge: a declared but unsolved
+        // data sink is 0, a node that declares none is not applicable (1.0).
+        const fallback = declaredSinkQualityFloor(node.type)?.dataQuality ?? 1.0;
+        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : fallback;
         dataNodeCount++;
       }
     }
@@ -3413,6 +3487,11 @@ export class Game {
    */
   refreshInfrastructureGate() {
     if (this.utilityGate) this.utilityGate.run();
+    // Same invariant tick() keeps: wherever the gate runs, the physics pass
+    // follows it. Without this, starting a beam while paused (toggleBeam
+    // refreshes the gate) left every element on the fail-closed floor until
+    // the player unpaused.
+    this._syncPhysicsToNodeQualities();
     this.emit('infrastructureValidated');
   }
 
@@ -3688,11 +3767,13 @@ export class Game {
     }
 
     this.recomputeZoneConnectivity();
-    this.recalcAllBeamlines();
     // Placeables were replaced wholesale without going through the
     // place/remove seams, so the cached utility-network discovery must be
-    // invalidated by hand.
+    // invalidated by hand — BEFORE recalcAllBeamlines, whose first-pass gate
+    // solve would otherwise run against the previous world's topology.
     this.solveRunner.markTopologyDirty();
+    this.state.nodeQualities = null;
+    this.recalcAllBeamlines();
     this.validateInfrastructure();
 
     // Nudge renderers: 'beamlineChanged' triggers a full 3D rebuild, and the
@@ -3908,6 +3989,10 @@ export class Game {
     // wholesale, so the cached network discovery is stale — invalidate it.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    // Derived from the solve too, and the physics pass fails closed on it:
+    // carrying the pre-load session's map over would stamp a loaded facility
+    // with the qualities of the one it replaced.
+    this.state.nodeQualities = null;
     if (this.solveRunner) this.solveRunner.markTopologyDirty();
 
     // Ensure facility arrays exist

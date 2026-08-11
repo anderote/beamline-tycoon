@@ -194,6 +194,28 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: [],
   },
+  // Distribution bus — serves every on-pipe RF sink within reach on ONE pipe
+  // segment (see computeBusService in src/utility/network-discovery.js).
+  waveguideManifold: {
+    id: 'waveguideManifold',
+    name: 'Waveguide Manifold',
+    desc: 'Magic-tee power divider that splits one waveguide feed among every cavity within reach on a single beamline segment. Saves running a separate waveguide to each structure — but waveguide runs are lossy, so its reach is short. It divides power, it does not add any: the RF source still has to cover the total demand.',
+    category: 'rfPower', subsection: 'distribution',
+    cost: { funding: 160000 },
+    stats: {},
+    energyCost: 0,
+    subL: 3, subW: 2, subH: 2, gridW: 2, gridH: 3, geometryType: 'box',
+    baseMaterial: 'copper',
+    zoneTier: 0,
+    spriteKey: 'rfCoupler',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    hasSurface: false,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
   llrfController: {
     id: 'llrfController',
     name: 'LLRF Controller',
@@ -445,6 +467,27 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
   },
+  // Distribution bus — serves every on-pipe cryo sink within reach on ONE
+  // pipe segment (see computeBusService in src/utility/network-discovery.js).
+  cryoValveBox: {
+    id: 'cryoValveBox',
+    name: 'Cryogenic Valve Box',
+    desc: 'Vacuum-jacketed distribution box that taps one 2 K transfer line into supply and return branches for every cryomodule within reach on a single beamline segment. Replaces a bundle of individual transfer lines. Reach is short — vacuum-jacketed line is the most expensive plumbing in the building.',
+    category: 'cooling', subsection: 'cryogenics',
+    accentColor: 0x2fbccc,
+    cost: { funding: 400000 },
+    stats: {},
+    energyCost: 0,
+    subL: 3, subW: 2, subH: 3, gridW: 2, gridH: 3, geometryType: 'box',
+    baseMaterial: 'cryo_frost',
+    zoneTier: 0,
+    spriteKey: 'coldBox4K',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
 
   // ── Vacuum ────────────────────────────────────────────────────────
   roughingPump: {
@@ -540,6 +583,28 @@ export const INFRASTRUCTURE_RAW = {
     baseMaterial: 'metal_brushed',
     requires: 'uhvSystems',
     spriteKey: 'tiSubPump',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    hasSurface: false,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
+  // Distribution bus — serves every on-pipe vacuum sink within reach on ONE
+  // pipe segment (see computeBusService in src/utility/network-discovery.js).
+  vacuumManifold: {
+    id: 'vacuumManifold',
+    name: 'Vacuum Manifold',
+    desc: 'Pumping manifold with a bank of short pump-out ports that evacuate every chamber within reach on a single beamline segment from one line. Conductance falls off fast down a long manifold, so its reach is the shortest of any bus. Adds no pumping speed of its own — the pumps still have to keep up.',
+    category: 'vacuum', subsection: 'distribution',
+    cost: { funding: 120000 },
+    stats: {},
+    energyCost: 0,
+    subL: 3, subW: 1, subH: 2, gridW: 1, gridH: 3, geometryType: 'box',
+    baseMaterial: 'metal_brushed',
+    zoneTier: 0,
+    spriteKey: 'roughingPump',
     spriteColor: 0x8a8f96,
     accentColor: 0x8a8f96,
     hasSurface: false,
@@ -661,6 +726,28 @@ export const INFRASTRUCTURE_RAW = {
     zoneTier: 1,
     spriteKey: 'waterLoad',
     spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
+  // Distribution bus — serves every on-pipe cooling sink within reach on ONE
+  // pipe segment (see computeBusService in src/utility/network-discovery.js).
+  coolingManifold: {
+    id: 'coolingManifold',
+    name: 'LCW Manifold',
+    desc: 'Supply-and-return header with isolation valves that feeds cooling water to every magnet and warm cavity within reach on a single beamline segment. One line in, a whole FODO cell cooled. Carries no capacity of its own — the skid or chiller upstream still has to absorb the heat.',
+    category: 'cooling', subsection: 'components',
+    accentColor: 0x2fbccc,
+    cost: { funding: 80000 },
+    stats: {},
+    energyCost: 0,
+    subL: 4, subW: 1, subH: 2, gridW: 1, gridH: 4, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue',
+    zoneTier: 0,
+    spriteKey: 'waterLoad',
+    spriteColor: 0x2fbccc,
+    hasSurface: false,
     placement: 'module',
     ports: {},
 
@@ -996,6 +1083,31 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable', 'dataFiber'],
   },
 
+  // Distribution bus — serves every on-pipe data sink within reach on ONE
+  // pipe segment (see computeBusService in src/utility/network-discovery.js).
+  // Unlike the Patch Panel (a hand-patched field you run one fiber out of),
+  // this is a trunk tap that picks up every instrument along the segment.
+  fiberBus: {
+    id: 'fiberBus',
+    name: 'Fiber Distribution Bus',
+    desc: 'Armoured fiber trunk with break-out cassettes that picks up every BPM, screen and toroid within reach on a single beamline segment. Fiber is cheap and low-loss, so this is the longest-reaching bus in the game — and the cheapest way to stop hand-patching a dozen diagnostics.',
+    category: 'dataControls', subsection: 'distribution',
+    cost: { funding: 35000 },
+    stats: {},
+    energyCost: 0,
+    subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_white',
+    zoneTier: 0,
+    spriteKey: 'patchPanel',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    hasSurface: false,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
+
   // ── Controls (additional) ─────────────────────────────────────────
   blmReadout: {
     id: 'blmReadout',
@@ -1175,6 +1287,28 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    requiredConnections: [],
+  },
+  // Distribution bus — serves every on-pipe power sink within reach on ONE
+  // pipe segment (see computeBusService in src/utility/network-discovery.js).
+  powerBus: {
+    id: 'powerBus',
+    name: 'Beamline Power Bus',
+    desc: 'Overhead busway with plug-in tap boxes that energizes every magnet, cavity and instrument within reach on a single beamline segment. One feeder in, a whole cell powered. It distributes, it does not generate — the panel or transformer upstream still has to carry the total load.',
+    category: 'power', subsection: 'distribution',
+    cost: { funding: 90000 },
+    stats: {},
+    energyCost: 0,
+    subL: 4, subW: 1, subH: 2, gridW: 1, gridH: 4, geometryType: 'box',
+    baseMaterial: 'metal_painted_green',
+    zoneTier: 0,
+    spriteKey: 'powerPanel',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    hasSurface: false,
+    placement: 'module',
+    ports: {},
+
     requiredConnections: [],
   },
   switchgear: {

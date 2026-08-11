@@ -8,14 +8,27 @@
 //   B) smallBeamlineFacility scenario with its beamline running. Target:
 //      net-positive but not explosive; reservoir refills show up as a
 //      recurring cost.
-//   C) A late-game-ish build (second, bigger beamline + detector + chiller
-//      loop + a real staff roster + decorations). Target: strong gross income
-//      with upkeep (staff + power + pumps + refills) eating 30-60% of gross.
+//   C) A late-game-ish build (second, bigger beamline + detector + its own RF
+//      plant and cooling loop + a real staff roster + decorations). Target:
+//      strong gross income with upkeep (staff + power + pumps + refills)
+//      eating 20-70% of gross.
 //
-// Run: node scripts/balance-sim.mjs
+// Run: node scripts/balance-sim.mjs   (or `... a` / `... bc` to pick runs)
 //
 // This is the tuning companion to test/test-economy-balance.js, which encodes
-// the three targets as loose assertions.
+// the three targets as loose assertions and imports run C's build recipe from
+// here so the two cannot describe different facilities.
+//
+// Last tuned after on-pipe utility gating landed (Phase 11): every component
+// on a pipe now has to be fed, which made an RF source, a cooling loop and a
+// distribution bus mandatory rather than optional. Re-measured once the gate's
+// solved qualities actually reached the physics pass (beamQuality reads 0.99
+// here, not the 0.51 the fail-closed floor latched at before
+// Game._syncPhysicsToNodeQualities), with beamIncomePerNode re-derived
+// 300 -> 240 against the fixed beam:
+//   A  -10.0/t          upkeep 119.8/t   (staff only) — idles ~250k ticks
+//   B +1306.8/t 15.6%   upkeep 241.2/t   (staff 120, power 98, pumps 16, refill 7)
+//   C +2557.0/t 43.5%   upkeep 1970.1/t  (staff 1150, power 623, pumps 24, refill 173)
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -100,6 +113,7 @@ function runSim(name, game, ticks, { refill = true, measureFrom = 0 } = {}) {
   let windowBeamOn = 0;
   // steady-state accumulators (from measureFrom)
   let ssUpkeep = 0, ssStartFunds = null;
+  const ssParts = { staffCost: 0, pumpUpkeep: 0, powerBill: 0 };
 
   const row = (t) => {
     const dt = t === 0 ? 1 : 100;
@@ -139,6 +153,7 @@ function runSim(name, game, ticks, { refill = true, measureFrom = 0 } = {}) {
     if (t >= measureFrom) {
       if (ssStartFunds === null) ssStartFunds = fundsBefore;
       ssUpkeep += upkeep.total;
+      for (const k of Object.keys(ssParts)) ssParts[k] += upkeep[k];
     }
     if (t % 100 === 0) row(t);
   }
@@ -152,6 +167,13 @@ function runSim(name, game, ticks, { refill = true, measureFrom = 0 } = {}) {
       `(${(dFunds / ssTicks).toFixed(1)}/t), upkeep=${Math.round(totalUpkeep)} ` +
       `(${(totalUpkeep / ssTicks).toFixed(1)}/t), gross=${Math.round(gross)} ` +
       `(${(gross / ssTicks).toFixed(1)}/t), upkeepFrac=${gross > 0 ? (100 * totalUpkeep / gross).toFixed(1) : '--'}%`);
+    // Split the upkeep — tuning needs to know whether the bill is people,
+    // electricity or consumables before anyone touches a coefficient.
+    console.log('  upkeep split: ' +
+      `staff=${(ssParts.staffCost / ssTicks).toFixed(1)}/t ` +
+      `power=${(ssParts.powerBill / ssTicks).toFixed(1)}/t ` +
+      `pumps=${(ssParts.pumpUpkeep / ssTicks).toFixed(1)}/t ` +
+      `refills=${(refillSpent / ssTicks).toFixed(1)}/t`);
   }
   const quality = state.beamQuality ?? 0;
   console.log(`final: funding=$${Math.round(state.resources.funding).toLocaleString()} ` +
@@ -197,57 +219,114 @@ function runB() {
 }
 
 // ---------------------------------------------------------------------------
-// Run C — late-game-ish: second bigger beamline with detector + cooling loop,
-// fuller staff roster, decorations. Built on the smallBeamlineFacility map
-// (flat terrain, existing starter line keeps running).
+// The late-game build — a second, bigger beamline with a detector, its own RF
+// plant and cooling loop, a fuller staff roster and decorations. Built on top
+// of a smallBeamlineFacility game (flat terrain, starter line keeps running).
+//
+// Exported because test/test-economy-balance.js pins its numbers: the test and
+// the tuning sim MUST measure the same facility, and when they were two copies
+// of the recipe the test's copy silently stopped being wired.
 // ---------------------------------------------------------------------------
-function runC() {
-  const game = bootSmallFacility(303);
+export function buildLateGameFacility(game, { log = console.error } = {}) {
   const state = game.state;
 
   // Bigger line on open flat ground south of the building (rows >= 8).
   const src2 = game.beamline.placeJunction({ type: 'source', col: -6, row: 10, dir: 3, free: true, silent: true });
   const det = game.beamline.placeJunction({ type: 'detector', col: 6, row: 10, dir: 3, free: true, silent: true });
-  if (!src2 || !det) { console.error('C: junction placement failed', { src2, det }); return; }
+  if (!src2 || !det) { log('C: junction placement failed', { src2, det }); return false; }
   const pipe = game.beamline.drawPipe(
     { junctionId: src2, portName: 'exit' },
     { junctionId: det, portName: 'entry' },
     [{ col: -6, row: 10 }, { col: 6, row: 10 }],
   );
-  if (!pipe) { console.error('C: drawPipe failed'); return; }
+  if (!pipe) { log('C: drawPipe failed'); return false; }
+  const onPipe = [];
   for (const [type, position] of [
     ['buncher', 0.06], ['rfCavity', 0.18], ['rfCavity', 0.30], ['rfCavity', 0.42],
     ['quadrupole', 0.54], ['rfCavity', 0.64], ['quadrupole', 0.76], ['bpm', 0.88],
   ]) {
     const ok = game.beamline.placeOnPipe(pipe, { type, position, mode: 'snap', free: true });
-    if (!ok) console.error('C: placeOnPipe failed', type, position);
+    if (!ok) log('C: placeOnPipe failed', type, position);
+    onPipe.push(ok);
   }
+  const bpm2 = onPipe[7];
 
-  // Support infra one row north of the line.
   const place = (type, col, row) => {
     const id = game.placePlaceable({ type, col, row, free: true, silent: true });
-    if (!id) console.error('C: placePlaceable failed', type, col, row);
+    if (!id) log('C: placePlaceable failed', type, col, row);
     return id;
   };
-  const sw = place('switchgear', -5, 8);
-  const tp = place('turboPump', 3, 8);
+  // Service row (8), two north of the line. Sizing, all of it forced by the
+  // on-pipe demands that now gate individually:
+  //   power ~830 kW (240 of it the four rfCavities, 380 the RF plant) -> the
+  //     1200 kW HV transformer, not the 400 kW switchgear;
+  //   RF at two frequencies — 2856 MHz cavities and a 200 MHz buncher — so a
+  //     multibeam klystron for the cavity bucket plus a broadband SSA for the
+  //     buncher, because a fixed-frequency source cannot cross buckets;
+  //   cooling 586 kW -> two 300 kW chillers;
+  //   data 41 -> a 40-capacity network switch alongside the IOC.
+  const hv   = place('hvTransformer', -6, 8);
+  const mbk  = place('multibeamKlystron', -3, 8);
+  const ssa2 = place('solidStateAmp', -1, 8);
+  const tp   = place('turboPump', 0, 8);
   const ioc2 = place('rackIoc', 1, 8);
-  const ch = place('chiller', 5, 8);
+  const nsw  = place('networkSwitch', 2, 8);
+  const ch1  = place('chiller', 3, 8);
+  // Second chiller on the far side of the line: its drop would otherwise have
+  // to share the service row with the west chiller's run to the detector, and
+  // two lines of one utility may not overlap unless they share a source.
+  const ch2  = place('chiller', 3, 11);
+
+  // Distribution row (9), hard against the line. One power bus and one
+  // waveguide manifold span the run; vacuum only reaches 5 cells, so it takes
+  // two manifolds. Cooling takes two as well, one per chiller — not for reach
+  // but so each chiller gets its own drop; both manifolds cover the same
+  // middle cavities, which unions them into a single 600 kW loop.
+  const pwrBus2  = place('powerBus', 0, 9);
+  const wgBus2   = place('waveguideManifold', -2, 9);
+  const coolW2   = place('coolingManifold', 1, 9);
+  const coolE2   = place('coolingManifold', 5, 11);
+  const vacW2    = place('vacuumManifold', -3, 9);
+  const vacE2    = place('vacuumManifold', 3, 9);
 
   const wire = (util, from, to) => {
     const id = wireUtility(game, util, from, to);
-    if (!id) console.error('C: wire failed', util, from.id, '->', to.id);
+    if (!id) log('C: wire failed', util, from.id, '->', to.id);
   };
-  if (sw) {
-    wire('powerCable', { id: sw, port: 'pwr_out' }, { id: src2, port: 'pwr_in' });
-    wire('powerCable', { id: sw, port: 'pwr_out' }, { id: det, port: 'pwr_in' });
+  if (hv) {
+    for (const [id, port] of [[src2, 'pwr_in'], [det, 'pwr_in'], [mbk, 'pwr_in'],
+      [ssa2, 'pwr_in'], [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'],
+      [ch1, 'pwr_in'], [ch2, 'pwr_in'], [pwrBus2, 'bus_left']]) {
+      if (id) wire('powerCable', { id: hv, port: 'pwr_out' }, { id, port });
+    }
   }
   if (tp) {
-    wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id: src2, port: 'vac_in' });
-    wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id: det, port: 'vac_in' });
+    for (const [id, port] of [[src2, 'vac_in'], [det, 'vac_in'],
+      [vacW2, 'bus_left'], [vacE2, 'bus_left']]) {
+      if (id) wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id, port });
+    }
   }
-  if (ioc2) wire('dataFiber', { id: ioc2, port: 'data_out' }, { id: det, port: 'data_in' });
-  if (ch) wire('coolingWater', { id: ch, port: 'cool_out' }, { id: det, port: 'cool_in' });
+  // Both RF sources land on the same manifold: the solver buckets by
+  // frequency, so the klystron feeds the cavities and the broadband amp tops
+  // up the buncher's bucket.
+  if (wgBus2) {
+    if (mbk) wire('rfWaveguide', { id: mbk, port: 'rf_out' }, { id: wgBus2, port: 'bus_left' });
+    if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out' }, { id: wgBus2, port: 'bus_right' });
+  }
+  // East chiller first: its drop runs along the same service row as the west
+  // chiller's feed to the detector, and lines of one utility may not overlap
+  // unless they share a source.
+  if (ch2 && coolE2) wire('coolingWater', { id: ch2, port: 'cool_out' }, { id: coolE2, port: 'bus_left' });
+  if (ch1) {
+    for (const [id, port] of [[src2, 'cool_in'], [det, 'cool_in'], [coolW2, 'bus_left']]) {
+      if (id) wire('coolingWater', { id: ch1, port: 'cool_out' }, { id, port });
+    }
+  }
+  if (nsw) {
+    for (const [id, port] of [[det, 'data_in'], [bpm2, 'data_in']]) {
+      if (id) wire('dataFiber', { id: nsw, port: 'data_out' }, { id, port });
+    }
+  }
 
   // Staff roster on top of the seeded operator: +1 operator (covers fatigue
   // breaks), 2 technicians, 1 scientist, 1 engineer.
@@ -280,11 +359,21 @@ function runC() {
   state.resources.reputation = 30; // an established lab
 
   game.recalcAllBeamlines();
+  return true;
+}
+
+function runC() {
+  const game = bootSmallFacility(303);
+  if (!buildLateGameFacility(game)) return;
   startAllBeams(game);
   runSim('C: late-game-ish, two beamlines + detector + cooling', game, 2000, { measureFrom: 300 });
 }
 
-const which = process.argv[2] || 'abc';
-if (which.includes('a')) runA();
-if (which.includes('b')) runB();
-if (which.includes('c')) runC();
+// Only run the tables when invoked as a script — test/test-economy-balance.js
+// imports buildLateGameFacility from here.
+if (process.argv[1] && process.argv[1].endsWith('balance-sim.mjs')) {
+  const which = process.argv[2] || 'abc';
+  if (which.includes('a')) runA();
+  if (which.includes('b')) runB();
+  if (which.includes('c')) runC();
+}

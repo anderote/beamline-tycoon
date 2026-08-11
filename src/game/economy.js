@@ -28,13 +28,31 @@ export const ECON = {
   // Raised 100 -> 180 when the per-node count stopped including the
   // flattener's synthetic drift entries (gaps between placements were being
   // billed as machines, which roughly doubled the count on a normal layout).
-  // Restores the pre-fix steady-state rates in scripts/balance-sim.mjs.
-  beamIncomePerNode: 180,
+  // Raised 180 -> 240 when on-pipe utility gating landed: a node no longer
+  // just sits on the pipe, it FORCES the plant that feeds it. One S-band
+  // rfCavity now obliges ~100 kW at the wall of RF and 120 kW of cooling
+  // capacity, and at 180 it earned less than the hardware it made mandatory.
+  // Briefly 300: that was derived against a beam stuck at quality 0.51 (the
+  // gate's qualities never reached the physics pass — see
+  // Game._syncPhysicsToNodeQualities), so it double-counted a ~2x income
+  // shortfall. Re-derived at 240 against the fixed beam, which puts run C's
+  // upkeep back on its long-standing ~43%-of-gross target.
+  // Phase 12 re-derives this against a target playthrough length; this value
+  // only restores "a node pays for what it obliges".
+  beamIncomePerNode: 240,
   // Detector data fees, $/tick per unit dataRate while collecting.
   dataFeeRate: 5,
   // Electricity, $/tick per kW of energyCost draw. Equipment draws whenever
   // placed; the beamline's own draw is billed only while the beam is on.
-  powerBillPerKW: 2,
+  // Halved 2 -> 1 alongside the gate change above. The rate was set when
+  // almost no plant was mandatory, so the bill read as the price of a choice;
+  // now that the gate obliges an RF source, a cooling loop and a pump before
+  // the beam will run at all, the same rate is a flat tax on existing rather
+  // than a cost of ambition. Re-checked against the fixed beam: still 1 —
+  // at 2 the late-game run pays 74% of gross out in upkeep, past the 70%
+  // ceiling test-economy-balance.js holds. Electricity remains the largest
+  // non-staff upkeep line in every sim run (623/t of run C's 1970/t).
+  powerBillPerKW: 1,
   // Vacuum pump service cost, $/tick each (legacy pump upkeep).
   pumpUpkeepEach: 8,
 };

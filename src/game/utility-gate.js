@@ -6,24 +6,43 @@
 // nodeQualities. Game.tick() calls run() once per tick; everything else is
 // internal.
 //
+// The gate's input is every utility ENDPOINT (listUtilityEndpoints), not
+// state.placeables: components with role 'placement' live in pipe.placements,
+// so keying off placeables meant cavities, quads, BPMs and cryomodules were
+// wirable but never checked — and, absent from nodeQualities, ran at the
+// consumer's 1.0 default. Never wiring outscored wiring badly.
+//
 // DI mirrors SolveRunner: constructor takes {state, solveRunner, getPorts,
 // rng}. `rng` must be a delegating closure (Game reassigns this.rng on load,
 // so capturing the function directly would freeze the pre-load stream).
 
 import { findUnconnectedSinks } from '../utility/network-discovery.js';
+import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
+import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 
-// MVP: unconnected power/vacuum sinks on beamline modules are hard-required.
-// This makes "build line → connect utilities → run" the required tycoon beat.
-const HARD_REQUIRED_UTILS = ['powerCable', 'vacuumPipe'];
+// Utilities whose unwired sinks hard-block the beam. Everything a component
+// physically cannot run without: no wall power, no beam vacuum, no RF drive,
+// no cooling for a magnet, no cryo for an SRF cavity. dataFiber is
+// deliberately NOT here — it is modelled as a soft derate (dataQuality scales
+// data income via Game._dataConnectivityFactor), so an unwired BPM costs
+// money rather than tripping the machine.
+const HARD_REQUIRED_UTILS = [
+  'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
+];
 const UNCONNECTED_CODES = {
-  powerCable: 'power_unconnected',
-  vacuumPipe: 'vacuum_unconnected',
+  powerCable:   'power_unconnected',
+  vacuumPipe:   'vacuum_unconnected',
+  rfWaveguide:  'rf_unconnected',
+  coolingWater: 'cooling_unconnected',
+  cryoTransfer: 'cryo_unconnected',
 };
 
 // Shape: { [placeableId]: { powerQuality, rfQuality, coolingQuality,
 //   cryoQuality, vacuumQuality, dataQuality } }. Physics backend reads the
 // individual keys; JS consumers read e.g. .dataQuality. A missing utility
-// defaults to 1.0 (full quality) on the consumer side.
+// means the component declares no sink for it and defaults to 1.0 (full
+// quality) on the consumer side — a declared sink is ALWAYS present, at 0 if
+// nothing solved it (see _aggregateNodeQualities).
 //
 // Exported because this map IS the utility-type -> quality-field contract:
 // anything reading nodeQualities (panels deciding "is this beamline
@@ -38,6 +57,39 @@ export const UTILITY_TO_QUALITY_FIELD = {
   dataFiber:    'dataQuality',
 };
 
+/**
+ * Quality fields a component type declares a SINK for, as an object of zeros —
+ * the fail-closed floor for that type. Returns null when the type declares no
+ * sinks at all, which is the "not applicable" case: absent field means the
+ * consumer's 1.0 default applies, and that must stay distinct from "declared
+ * this sink and never wired it" (quality 0).
+ *
+ * Exported for Game's physics bridge, which needs the same floor without
+ * depending on the gate having run.
+ */
+const _floorCache = new Map();
+export function declaredSinkQualityFloor(type) {
+  if (_floorCache.has(type)) return _floorCache.get(type);
+  const floor = sinkQualityFloorFrom(getUtilityPortsV2(type));
+  _floorCache.set(type, floor);
+  return floor;
+}
+
+// portTable -> {qualityField: 0, ...} or null. Split out so the gate can run
+// it over its injected getPorts (tests supply fake tables) while
+// declaredSinkQualityFloor runs it over the real registry.
+function sinkQualityFloorFrom(portTable) {
+  let floor = null;
+  for (const spec of Object.values(portTable || {})) {
+    if (!spec || spec.role !== 'sink') continue;
+    const field = UTILITY_TO_QUALITY_FIELD[spec.utility];
+    if (!field) continue;
+    if (!floor) floor = {};
+    floor[field] = 0;
+  }
+  return floor;
+}
+
 export class UtilityGate {
   constructor(opts = {}) {
     this.state = opts.state;
@@ -45,12 +97,14 @@ export class UtilityGate {
     this.getPorts = opts.getPorts;
     this.rng = opts.rng || Math.random;
     this._lastErrHash = '';
-    // Unconnected-sink cache — findUnconnectedSinks is pure topology, so it
-    // rides the SolveRunner's topologyRevision: recomputed only when the
-    // revision moved (or when the injected solveRunner has no revision at
-    // all, e.g. test fakes — then it recomputes every tick, the old behavior).
-    this._unconnectedCache = null;
-    this._unconnectedRev = -1;
+    // Topology cache — the unconnected-sink report AND the declared-sink
+    // floor are pure topology (endpoints x port tables x lines), so both ride
+    // the SolveRunner's topologyRevision: recomputed only when the revision
+    // moved (or when the injected solveRunner has no revision at all, e.g.
+    // test fakes — then it recomputes every tick, the old behavior).
+    // Endpoints now include pipe placements, so this must never go per-tick.
+    this._topoCache = null;
+    this._topoRev = -1;
   }
 
   /**
@@ -67,20 +121,20 @@ export class UtilityGate {
       const hardErrs = errs.filter(e => e && e.severity === 'hard');
       const softErrs = errs.filter(e => e && e.severity === 'soft');
 
-      const beamlinePlaceables = (state.placeables || []).filter(p => p.category === 'beamline');
-
       // Unconnected-sink detection lives in network-discovery (topology
       // knowledge); here we only map reports onto the hard-error shape.
       // Topology-only computation → reuse the cached report until the
-      // solver's topology revision moves. beamlinePlaceables changes only
-      // via place/remove, which also bumps the revision.
+      // solver's topology revision moves. Endpoints change only via
+      // place/remove (of a placeable OR a pipe placement), which also bumps
+      // the revision.
       const rev = this.solveRunner.topologyRevision;
-      if (rev === undefined || this._unconnectedCache == null || this._unconnectedRev !== rev) {
-        this._unconnectedCache = findUnconnectedSinks(
-          beamlinePlaceables, state.utilityLines, this.getPorts, HARD_REQUIRED_UTILS);
-        this._unconnectedRev = rev;
+      if (rev === undefined || this._topoCache == null || this._topoRev !== rev) {
+        this._topoCache = this._computeTopology();
+        this._topoRev = rev;
       }
-      for (const u of this._unconnectedCache) {
+      const { unconnected, declaredFloors, beamlineCount } = this._topoCache;
+
+      for (const u of unconnected) {
         hardErrs.push({
           severity: 'hard',
           code: UNCONNECTED_CODES[u.utility],
@@ -91,7 +145,7 @@ export class UtilityGate {
       }
 
       // RimWorld-like staffing: beamlines need an active operator in controlRoom
-      if (beamlinePlaceables.length > 0 && !this._hasActiveOperator()) {
+      if (beamlineCount > 0 && !this._hasActiveOperator()) {
         hardErrs.push({
           severity: 'hard',
           code: 'beam_unstaffed',
@@ -111,7 +165,7 @@ export class UtilityGate {
       }));
       state.infraCanRun = hardErrs.length === 0;
 
-      state.nodeQualities = this._aggregateNodeQualities();
+      state.nodeQualities = this._aggregateNodeQualities(declaredFloors);
 
       this._dedupLog(hardErrs, softErrs);
     } catch (e) {
@@ -152,12 +206,42 @@ export class UtilityGate {
     });
   }
 
-  // Aggregate perSinkQuality → nodeQualities (see UTILITY_TO_QUALITY_FIELD).
-  _aggregateNodeQualities() {
+  /**
+   * One pass over every utility endpoint in the world — state.placeables AND
+   * the components living on beam pipes (listUtilityEndpoints). Indexing
+   * placeables alone meant role:'placement' modules (cavities, quads, BPMs,
+   * cryomodules) could be wired but were never CHECKED: an SRF cavity with no
+   * power produced no blocker and, having no nodeQualities entry, ran at the
+   * consumer's 1.0 default — i.e. never wiring scored better than wiring
+   * badly.
+   *
+   * Returns the unconnected-sink report, the per-endpoint fail-closed quality
+   * floor, and the beamline-endpoint count the staffing gate keys on.
+   */
+  _computeTopology() {
+    const state = this.state;
+    const endpoints = listUtilityEndpoints(state);
+    const unconnected = findUnconnectedSinks(
+      endpoints, state.utilityLines, this.getPorts, HARD_REQUIRED_UTILS);
+    const declaredFloors = new Map();
+    let beamlineCount = 0;
+    for (const e of endpoints) {
+      if (e.category === 'beamline') beamlineCount++;
+      const floor = sinkQualityFloorFrom(this.getPorts(e.type));
+      if (floor) declaredFloors.set(e.id, floor);
+    }
+    return { unconnected, declaredFloors, beamlineCount };
+  }
+
+  // Aggregate perSinkQuality → nodeQualities (see UTILITY_TO_QUALITY_FIELD),
+  // then fail closed: every declared sink with no solved quality resolves to
+  // 0, not to the 1.0 an absent field means. `declaredFloors` only lists
+  // utilities a component actually declares a sink for, so "not applicable"
+  // (no such sink) stays absent and unpenalised.
+  _aggregateNodeQualities(declaredFloors) {
     const nodeQualities = {};
     const data = this.state.utilityNetworkData;
-    if (!data) return nodeQualities;
-    for (const [utilityType, perType] of data) {
+    for (const [utilityType, perType] of (data || [])) {
       const qualityField = UTILITY_TO_QUALITY_FIELD[utilityType];
       if (!qualityField) continue;
       for (const flow of perType.values()) {
@@ -187,6 +271,13 @@ export class UtilityGate {
             nodeQualities[placeableId].cryoQuenched = true;
           }
         }
+      }
+    }
+    for (const [placeableId, floor] of (declaredFloors || [])) {
+      let entry = nodeQualities[placeableId];
+      if (!entry) entry = nodeQualities[placeableId] = {};
+      for (const field of Object.keys(floor)) {
+        if (typeof entry[field] !== 'number') entry[field] = 0;
       }
     }
     return nodeQualities;

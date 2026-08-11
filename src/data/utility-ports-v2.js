@@ -253,7 +253,55 @@ for (const id of Object.keys(BEAMLINE_UTILITY_PORTS)) {
 // 'broadband' raws get `broadband: true` instead (see types/rfWaveguide.js).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Distribution buses.
+//
+// ONE UTILITY PER BUS. A bus could plausibly have carried several utilities in
+// one cabinet, but that collapses the decision: a single "service module" next
+// to the pipe would answer power, cooling, vacuum, RF and cryo at once and the
+// only remaining question would be "did I place it". One utility per bus keeps
+// each utility's reach, cost and placement an independent call — the RF
+// manifold wants to sit near the klystron gallery, the valve box near the cold
+// box, and neither wants to be where the power feeder lands. It also matches
+// the hardware: nobody builds a box that is simultaneously a busway, a water
+// header and a vacuum-jacketed cryo distribution box.
+//
+// A bus declares four `pass` ports, one per side, so a feed can approach from
+// any direction (portMatchesApproach keys off the port's outward side) and so
+// a trunk can run through it. discoverNetworks already unions same-utility
+// pass ports on one placeable, which is what makes the four behave as one node.
+//
+// `bus: true` is the marker computeBusService (src/utility/network-discovery.js)
+// looks for; `params.serviceRadius` is its reach in GRID CELLS (1 cell = 2 m)
+// and is the knob that decides "how many buses and where". Reach ladder, from
+// the physics each one is standing in for:
+//   fiber 12 (low-loss, cheap) > power 10 (busway) > cooling 8 (headered LCW)
+//   > RF 6 / cryo 6 (lossy waveguide, expensive vacuum-jacketed line)
+//   > vacuum 5 (conductance dies down a long manifold)
+// A bus adds NO capacity — it only changes how many lines the player draws.
+// ---------------------------------------------------------------------------
+
+const BUS_PORT_SIDES = { bus_back: 'back', bus_front: 'front', bus_left: 'left', bus_right: 'right' };
+
+function busPorts(utility, serviceRadius) {
+  const out = {};
+  for (const [name, side] of Object.entries(BUS_PORT_SIDES)) {
+    out[name] = {
+      utility, side, offsetAlong: 0.5, role: 'pass',
+      bus: true, params: { serviceRadius },
+    };
+  }
+  return out;
+}
+
 const INFRA_UTILITY_PORTS = {
+  // distribution buses (see busPorts above)
+  powerBus:            busPorts('powerCable',   10),
+  coolingManifold:     busPorts('coolingWater',  8),
+  vacuumManifold:      busPorts('vacuumPipe',    5),
+  waveguideManifold:   busPorts('rfWaveguide',   6),
+  cryoValveBox:        busPorts('cryoTransfer',  6),
+  fiberBus:            busPorts('dataFiber',    12),
   // power
   hvTransformer:       { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1200 } } },
   padMountTransformer: { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 150 } } },
@@ -382,9 +430,14 @@ export function getUtilityPortsV2(id) {
   if (!src) return {};
   const out = {};
   for (const [name, spec] of Object.entries(src)) {
-    const table = spec.role === 'source' ? SOURCE_DEFAULTS : SINK_DEFAULTS;
+    // A 'pass' port carries no load of its own — it must not inherit the sink
+    // demand default, or a distribution bus would bill itself for the traffic
+    // flowing through it.
+    const table = spec.role === 'pass'
+      ? {}
+      : (spec.role === 'source' ? SOURCE_DEFAULTS : SINK_DEFAULTS);
     const params = { ...(table[spec.utility] || {}), ...(spec.params || {}) };
-    if (spec.utility === 'rfWaveguide'
+    if (spec.utility === 'rfWaveguide' && spec.role !== 'pass'
         && params.frequency === undefined && params.broadband === undefined) {
       const rawFreq = rawRfFrequency(id);
       if (typeof rawFreq === 'number' && rawFreq > 0) {
