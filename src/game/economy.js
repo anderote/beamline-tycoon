@@ -25,20 +25,58 @@ export const ECON = {
   // beamIncomePerNode * nodeCount). Scaling with machine size makes bigger
   // beamlines earn like bigger coasters.
   beamIncomeBase: 60,
-  // Raised 100 -> 180 when the per-node count stopped including the
-  // flattener's synthetic drift entries (gaps between placements were being
-  // billed as machines, which roughly doubled the count on a normal layout).
-  // Raised 180 -> 240 when on-pipe utility gating landed: a node no longer
-  // just sits on the pipe, it FORCES the plant that feeds it. One S-band
-  // rfCavity now obliges ~100 kW at the wall of RF and 120 kW of cooling
-  // capacity, and at 180 it earned less than the hardware it made mandatory.
-  // Briefly 300: that was derived against a beam stuck at quality 0.51 (the
-  // gate's qualities never reached the physics pass — see
-  // Game._syncPhysicsToNodeQualities), so it double-counted a ~2x income
-  // shortfall. Re-derived at 240 against the fixed beam, which puts run C's
-  // upkeep back on its long-standing ~43%-of-gross target.
-  // Phase 12 re-derives this against a target playthrough length; this value
-  // only restores "a node pays for what it obliges".
+  //
+  // === Phase 12: income scales with hardware DENSITY, not beamline LENGTH ===
+  //
+  // `nodeCount` is aggregates.hardwareNodeCount — junctions plus on-pipe
+  // placements, never the flattener's synthetic drift entries. That makes
+  // income a function of how much MACHINE is on the pipe, not how long the
+  // pipe is. Until now that was an accident: the 100 -> 180 bump was a
+  // compensating constant applied when a drift-double-count bug was fixed. It
+  // held the rate steady and silently re-weighted income from length to
+  // density. This is the deliberate version of that choice.
+  //
+  // Why density:
+  //   - Length would pay per tile of drift and bellows, the two cheapest parts
+  //     in the catalogue ($10k / $15k). A player could mint income by drawing
+  //     empty pipe across the map — income with no capital, no power draw and
+  //     no utility hookup behind it.
+  //   - Every dollar of density income is obliged by a component that costs
+  //     capital, draws power (billed below) and demands a utility connection
+  //     before the beam will run at all (the Phase 11 gate). Income is
+  //     self-limiting because the thing that earns it also bills for itself.
+  //   - Consequence to design around: a compact, densely instrumented machine
+  //     out-earns a long sparse one. Ambitious transport is rewarded only
+  //     indirectly, by the room it makes for more hardware. Long empty runs
+  //     are a cost, which is what they should be.
+  //
+  // Derivation of 240 against the 28,800-tick target (see
+  // scripts/balance-playthrough.mjs). The anchor is capital payback, because
+  // that is what ties income to the component catalogue rather than to itself:
+  //   - the reference extra beamline costs $3.83M all in and carries 8 billed
+  //     hardware nodes. All in means what the player is charged at the till:
+  //     $3.25M of catalogue, $120k of drift pipe (priced per tile) and $458k of
+  //     utility line (priced per sub-unit, both gestures — see
+  //     UtilityLineInputController). Wiring is 14% of the hardware it connects,
+  //     which is why the model may not quote the catalogue alone;
+  //   - measured marginally in the sim, the plant a line obliges eats ~56% of
+  //     the gross it earns, so net = 8 * P * 0.99 * 0.44 = 3.49 * P per tick;
+  //   - a line should pay itself back in about 1/6 of a full playthrough
+  //     (~4,600 ticks) — soon enough that expanding is obviously right, slow
+  //     enough that the first expansion is a real commitment of seed capital;
+  //   - P = 3,827,800 / (3.49 * 4,600) = 238.
+  // Rounded to 240, which is where the compensating constant happened to land.
+  // The number did not move; its justification did, and the research ladder is
+  // now priced against it rather than the other way round.
+  //
+  // Known open issue, deliberately NOT fixed here: this is linear in node
+  // count with no diminishing return, so building N copies of the same line
+  // earns N times as much for N times the cost and run length falls roughly as
+  // 1/N. Measured: a player who stops at four extra beamlines takes 2.34x the
+  // target, twelve takes 1.15x, twenty-four takes 0.79x (see the table in
+  // src/data/research.js). Compressing that spread needs a structural
+  // change (per-facility diminishing returns, or rising line prices), not a
+  // constant.
   beamIncomePerNode: 240,
   // Detector data fees, $/tick per unit dataRate while collecting.
   dataFeeRate: 5,

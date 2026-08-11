@@ -333,19 +333,67 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 // the player never receives. 27 of 68 nodes — $403M of content — were dead
 // this way. Pure, like validateContent: returns problems, throws nothing.
 //
-// Deliberately NOT enforced here (see docs/superpowers/plans/
-// overhaul-followups.md): that every id in `unlocks` actually declares
-// `requires` naming the node back. Nine listed components are ungated today,
-// so tightening that is a gating decision, not a data repair.
+// The gating half of the contract IS enforced here (Phase 12): a node that
+// advertises an unlock must actually gate it, and a gate must be reachable.
+// Nine components used to be buildable from tick 0 while a node claimed to
+// grant them — five with an explicit `unlocked: true` contradicting the node.
+// The two rules:
+//   - forward: for every id in `unlocks`, the component must not ship
+//     `unlocked: true`, and its `requires` must name this node or one of this
+//     node's prerequisites (a prerequisite gate is stricter, so the unlock is
+//     still true when this node completes).
+//   - reachability: a component's `requires` must name real, startable nodes.
+//     A gate behind a hidden node (canStartResearch refuses those) or behind a
+//     node that does not exist is hardware no playthrough can ever build —
+//     worse than leaving it free.
 // ---------------------------------------------------------------------------
+
+// Transitive `requires` closure of a research node. Cycle-safe.
+function researchPrerequisites(research, nodeId) {
+  const seen = new Set();
+  const req = r => (Array.isArray(r) ? r : (r != null ? [r] : []));
+  const stack = [...req(research[nodeId]?.requires)];
+  while (stack.length) {
+    const id = stack.pop();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stack.push(...req(research[id]?.requires));
+  }
+  return seen;
+}
+
 export function validateResearch({ research = {}, components = {}, effectKeys = [] } = {}) {
   const problems = [];
   const known = new Set(effectKeys);
+  const requiresOf = comp =>
+    (Array.isArray(comp.requires) ? comp.requires : (comp.requires != null ? [comp.requires] : []));
+
   for (const [id, node] of Object.entries(research)) {
     if (!node) continue;
     for (const u of node.unlocks || []) {
-      if (!components[u]) {
+      const comp = components[u];
+      if (!comp) {
         problems.push({ id, field: 'unlocks', message: `unknown component id '${u}'` });
+        continue;
+      }
+      const requires = requiresOf(comp);
+      const prereqs = researchPrerequisites(research, id);
+      if (comp.unlocked === true) {
+        problems.push({
+          id, field: 'unlocks',
+          message: `claims to unlock '${u}' but it ships 'unlocked: true' — buildable from tick 0`,
+        });
+      } else if (requires.length === 0) {
+        problems.push({
+          id, field: 'unlocks',
+          message: `claims to unlock '${u}' but it declares no 'requires' — buildable from tick 0`,
+        });
+      } else if (!requires.some(r => r === id || prereqs.has(r))) {
+        problems.push({
+          id, field: 'unlocks',
+          message: `claims to unlock '${u}' but it is gated by '${requires.join(', ')}' — ` +
+            `neither this node nor one of its prerequisites`,
+        });
       }
     }
     for (const key of Object.keys(node.effect || {})) {
@@ -366,5 +414,33 @@ export function validateResearch({ research = {}, components = {}, effectKeys = 
       });
     }
   }
+
+  // Reachability: a gate is only a gate if some playthrough can open it.
+  // Skipped when `research` is empty (callers that validate components alone).
+  if (Object.keys(research).length > 0) {
+    for (const [compId, comp] of Object.entries(components)) {
+      if (!comp) continue;
+      for (const nodeId of requiresOf(comp)) {
+        const node = research[nodeId];
+        if (!node) {
+          problems.push({
+            id: compId, field: 'requires',
+            message: `gated by unknown research node '${nodeId}' — unbuildable`,
+          });
+          continue;
+        }
+        const chain = [nodeId, ...researchPrerequisites(research, nodeId)];
+        const blocked = chain.filter(n => research[n]?.hidden);
+        if (blocked.length > 0) {
+          problems.push({
+            id: compId, field: 'requires',
+            message: `gated behind hidden node(s) '${blocked.join(', ')}' which can never be ` +
+              `started — unbuildable in any playthrough`,
+          });
+        }
+      }
+    }
+  }
+
   return problems;
 }

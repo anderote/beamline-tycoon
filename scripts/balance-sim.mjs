@@ -1,7 +1,8 @@
 // scripts/balance-sim.mjs — headless economy balance simulation.
 //
-// Three scripted playthroughs, printing a tick-by-100 table of funds /
-// reputation / cumulative refill spend each:
+// Four scripted runs. A/B/C are steady-state rate measurements printing a
+// tick-by-100 table of funds / reputation / cumulative refill spend each; D is
+// a whole PLAYTHROUGH and is the one progression tuning reads.
 //
 //   A) Fresh sandbox doing nothing. Target: survives >300 ticks (funds stay
 //      positive) on starting money — passive income vs the seeded operator.
@@ -12,11 +13,21 @@
 //      plant and cooling loop + a real staff roster + decorations). Target:
 //      strong gross income with upkeep (staff + power + pumps + refills)
 //      eating 20-70% of gross.
+//   D) A full playthrough from the starter facility to the top of the tech
+//      tree, with a scripted research-purchase and facility-expansion policy.
+//      Target: 28,800 ticks (~8 h at 1x). Reports per-tier completion ticks,
+//      the funds/reputation/data trajectory, what the run was BLOCKED on, and
+//      the ratio against the target. Lives in scripts/balance-playthrough.mjs.
 //
-// Run: node scripts/balance-sim.mjs   (or `... a` / `... bc` to pick runs)
+// Run: node scripts/balance-sim.mjs           (A/B/C — D is opt-in, it is slow)
+//      node scripts/balance-sim.mjs bc        (pick runs by letter)
+//      node scripts/balance-sim.mjs d         (the playthrough table)
+//      node scripts/balance-sim.mjs d --sweep (run length vs build-out size)
+//      node scripts/balance-sim.mjs d --no-expand --max-ticks=400000
+//      flags: --seed --max-ticks --sample --max-lines --detectors --no-expand
 //
 // This is the tuning companion to test/test-economy-balance.js, which encodes
-// the three targets as loose assertions and imports run C's build recipe from
+// A/B/C's targets as loose assertions and imports run C's build recipe from
 // here so the two cannot describe different facilities.
 //
 // Last tuned after on-pipe utility gating landed (Phase 11): every component
@@ -29,72 +40,42 @@
 //   A  -10.0/t          upkeep 119.8/t   (staff only) — idles ~250k ticks
 //   B +1306.8/t 15.6%   upkeep 241.2/t   (staff 120, power 98, pumps 16, refill 7)
 //   C +2557.0/t 43.5%   upkeep 1970.1/t  (staff 1150, power 623, pumps 24, refill 173)
+//
+// Run D's baseline, measured before any Phase-12 tuning (`d --sweep`, seed 909;
+// "extra lines" is the cap on beamlines the expansion ladder may add):
+//   lines | tree done |   ticks | ratio | income/tick | blocked on
+//       0 |     54/68 | 150,000+|    -- |       1,843 | funding 97%
+//       2 |     68/68 | 114,034 |  3.96 |       5,733 | funding 95%
+//       4 |     68/68 |  78,175 |  2.71 |       8,455 | funding 94%
+//       8 |     68/68 |  50,264 |  1.75 |      13,435 | funding 91%
+//      16 |     68/68 |  32,502 |  1.13 |      21,646 | funding 87%
+//      24 |     68/68 |  26,238 |  0.91 |      27,879 | funding 86%
+// Read it as: run length is set almost entirely by how many identical beamlines
+// the player builds, because beam income is linear in hardware node count with
+// no diminishing return. One cup line — $3.37M at the time of this baseline,
+// $3.83M now that the drift pipe and the wiring are priced into it — adds
+// ~1,100/tick net and pays back in ~3,000 ticks, so line-spam is strictly
+// dominant and the tree's price tag is not what paces the game.
+//   `d --no-expand` (no labs either): NEVER finishes. 31 of 68 nodes stay
+//   unreachable and 95% of the run is blocked on labTier — the shipped starter
+//   facility has no opticsLab / coolingLab / diagnosticsLab / machineShop, and
+//   RESEARCH_SPEED_TABLE blocks depth-5+ and final nodes below lab tier 1/2.
+//   Reputation blocked 0% of every run measured; data under 2%.
 
+import './balance-env.mjs';
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
-import { COMPONENTS } from '../src/data/components.js';
-import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { SCENARIOS } from '../src/data/scenarios.js';
 import { wireUtility } from '../src/data/scenarios/scenario-wiring.js';
-import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { createStaffMember } from '../src/game/staff/staffSystem.js';
 import { computeTickUpkeep } from '../src/game/economy.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
-
-globalThis.COMPONENTS = COMPONENTS;
-globalThis.PARAM_DEFS = PARAM_DEFS;
-
-// Autosave writes through localStorage; back it with a Map.
-const store = new Map();
-globalThis.localStorage = {
-  getItem: (k) => (store.has(k) ? store.get(k) : null),
-  setItem: (k, v) => store.set(k, String(v)),
-  removeItem: (k) => store.delete(k),
-};
-
-// Silence the per-tick console.warn spam from the utility gate while keeping
-// real errors visible.
-const realWarn = console.warn;
-console.warn = (...args) => {
-  const s = String(args[0] ?? '');
-  if (s.startsWith('[utility]') || s.startsWith('[pipe-draw]')) return;
-  realWarn(...args);
-};
+import {
+  runPlaythrough, printPlaythrough, runSweep, autoRefill,
+} from './balance-playthrough.mjs';
 
 function mkGame(seed) {
   return new Game(new BeamlineRegistry(), { seed });
-}
-
-// ---------------------------------------------------------------------------
-// Auto-refill: emulate the player pressing the UtilityInspector refill button
-// whenever a reservoir runs low. Returns dollars spent this call.
-// ---------------------------------------------------------------------------
-const REFILL_TRIGGER = {
-  coolingWater: (p) => (p?.reservoirVolumeL ?? Infinity) < 100,
-  cryoTransfer: (p) => (p?.lheVolumeL ?? Infinity) < 60,
-};
-
-function autoRefill(game) {
-  const state = game.state;
-  let spent = 0;
-  const nets = state.utilityNetworks;
-  if (!nets) return 0;
-  for (const [utilityType, networks] of nets) {
-    const desc = UTILITY_TYPES[utilityType];
-    const trigger = REFILL_TRIGGER[utilityType];
-    if (!desc || !trigger || typeof desc.refillCost !== 'function') continue;
-    for (const net of networks) {
-      const persistent = state.utilityNetworkState.get(net.id);
-      if (!persistent || !trigger(persistent)) continue;
-      const cost = desc.refillCost(persistent);
-      if (!cost || !cost.funding) continue;
-      if (state.resources.funding < cost.funding) continue; // can't afford
-      state.resources.funding -= cost.funding;
-      spent += cost.funding;
-      state.utilityNetworkState.set(net.id, { ...persistent, ...desc.persistentStateDefaults });
-    }
-  }
-  return spent;
 }
 
 // ---------------------------------------------------------------------------
@@ -369,11 +350,37 @@ function runC() {
   runSim('C: late-game-ish, two beamlines + detector + cooling', game, 2000, { measureFrom: 300 });
 }
 
+// ---------------------------------------------------------------------------
+// Run D — the playthrough. A/B/C measure rates; only D measures LENGTH, which
+// is the question the progression pass exists to answer. Lives in
+// scripts/balance-playthrough.mjs.
+// ---------------------------------------------------------------------------
+function runD(args) {
+  const arg = (name, dflt) => {
+    const hit = args.find(a => a.startsWith(`--${name}=`));
+    return hit ? Number(hit.slice(name.length + 3)) : dflt;
+  };
+  if (args.includes('--sweep')) {
+    runSweep({ seed: arg('seed', 909), maxTicks: arg('max-ticks', 150_000) });
+    return;
+  }
+  printPlaythrough(runPlaythrough({
+    seed: arg('seed', 909),
+    maxTicks: arg('max-ticks', 400_000),
+    sampleEvery: arg('sample', 2000),
+    detectors: arg('detectors', undefined),
+    maxLines: arg('max-lines', undefined),
+    expand: !args.includes('--no-expand'),
+  }));
+}
+
 // Only run the tables when invoked as a script — test/test-economy-balance.js
 // imports buildLateGameFacility from here.
 if (process.argv[1] && process.argv[1].endsWith('balance-sim.mjs')) {
-  const which = process.argv[2] || 'abc';
+  const args = process.argv.slice(2);
+  const which = args.find(a => !a.startsWith('--')) || 'abc';
   if (which.includes('a')) runA();
   if (which.includes('b')) runB();
   if (which.includes('c')) runC();
+  if (which.includes('d')) runD(args);
 }

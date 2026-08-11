@@ -23,7 +23,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portWorldPosition } from '../utility/ports.js';
-import { buildManhattanPath } from '../utility/line-geometry.js';
+import { buildManhattanPath, pathLengthSubUnits } from '../utility/line-geometry.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
@@ -103,6 +103,18 @@ export class UtilityLineInputController {
   // the drag is an ordinary single line. The tool layer reads `stubs.length`
   // and `cost` for the drag tooltip.
   get runPlan() { return this._runPlan; }
+
+  // Public: what the gesture as it stands would be charged, in funding — the
+  // run plan's total, or the single line's own length. Both commits price
+  // through _wiringCost, so the tooltip cannot quote a number the commit
+  // does not take.
+  get dragCost() {
+    if (this._runPlan && this._runPlan.stubs.length > 0) {
+      return (this._runPlan.cost && this._runPlan.cost.funding) || 0;
+    }
+    const c = this._wiringCost(pathLengthSubUnits(this._drawPath));
+    return (c && c.funding) || 0;
+  }
 
   onMouseDown(worldX, worldY, button, modifiers = {}) {
     if (!this._utilityType || button !== 0) return false;
@@ -192,11 +204,20 @@ export class UtilityLineInputController {
       // Trivially self-looping port-to-same-port commits are the gesture's
       // validate step. addLine then runs its own validation (port direction,
       // overlap, port already taken, …) and returns null on rejection, so
-      // the gesture snapshots only when a line actually appeared.
+      // the gesture snapshots only when a line actually appeared (and
+      // commitGesture hands the charge back).
+      //
+      // Priced on the SAME rule as a run-wiring drag: per sub-unit of the path
+      // that commits. A free single line would make the bulk gesture the only
+      // one that costs anything, so the cheapest way to wire a facility would
+      // be one line at a time — and it would make a distribution bus (priced
+      // to break even against the individual runs it replaces) strictly worse
+      // than the runs.
       this.game.commitGesture({
         validate: () => !(startRef && endRef
           && startRef.placeableId === endRef.placeableId
           && startRef.portName === endRef.portName),
+        cost: this._wiringCost(pathLengthSubUnits(path)) || undefined,
         mutate: () => this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
           start: startRef,
@@ -295,12 +316,13 @@ export class UtilityLineInputController {
       runPath: trace,
       preferVerticalFirst: this._preferVerticalFirst,
     });
-    plan.cost = this._runCost(plan.totalSubL);
+    plan.cost = this._wiringCost(plan.totalSubL);
     return plan;
   }
 
-  /** Cost of `subL` sub-units of the armed utility. Seam for tests. */
-  _runCost(subL) {
+  /** Cost of `subL` sub-units of the armed utility — both commit paths price
+   *  through here, so single lines and runs can never diverge. Seam for tests. */
+  _wiringCost(subL) {
     return runWiringCost(this._utilityType, subL);
   }
 
@@ -329,7 +351,7 @@ export class UtilityLineInputController {
           if (id) { committed.push(id); subL += stub.subL; }
         }
         if (planCost && committed.length) {
-          const actual = this._runCost(subL) || {};
+          const actual = this._wiringCost(subL) || {};
           for (const [r, amount] of Object.entries(planCost)) {
             const back = amount - (actual[r] || 0);
             if (back > 0) game.state.resources[r] += back;

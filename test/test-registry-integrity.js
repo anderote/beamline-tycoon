@@ -280,30 +280,14 @@ console.log('\n--- no dead id literals anywhere in src/ ---');
 // shows an "Unlocks:" badge for hardware the player already had, or gates
 // hardware no node ever mentions.
 //
-// KNOWN_OPEN_GATING holds the cases that exist today. Closing them is a
-// progression design decision (Phase 12), not a data repair — until then this
-// list pins the exact set so no *new* asymmetry can slip in. Self-cleaning:
-// fixing one fails the "still open" assertion until it is removed here.
+// KNOWN_OPEN_GATING held the eleven cases Phase 9b found; Phase 12 closed
+// every one (the nine ungated/pre-unlocked components, heRecovery advertised
+// by a node that does not gate it, and gyrotron gated but never advertised).
+// It stays as an empty set so a regression has to *add* an exception rather
+// than delete an assertion — and the "nothing already fixed" check below keeps
+// any new entry honest.
 // ---------------------------------------------------------------------------
-const KNOWN_OPEN_GATING = new Set([
-  // node advertises an unlock for a component that is ungated (no `requires`)
-  'scMagnets->cryocooler',
-  'srfTechnology->ln2Precooler',
-  'protonAcceleration->ionSource',
-  'ecrIonSource->ecrIonSource',
-  // ...or that ships already unlocked
-  'advancedOptics->sextupole',
-  'srfTechnology->cryomodule',
-  'superconducting->cryomodule',
-  'beamDiagnostics->wireScanner',
-  'protonAcceleration->rfq',
-  'targetPhysics->target',
-  // ...or that a *different*, unrelated node gates
-  'highQSrf->heRecovery',
-  // gated but never advertised: gyrotron.requires = 'advancedRf', but
-  // advancedRf.unlocks lists only multibeamKlystron + highPowerSSA
-  'advancedRf<-gyrotron',
-]);
+const KNOWN_OPEN_GATING = new Set([]);
 
 function prerequisitesOf(nodeId) {
   const seen = new Set();

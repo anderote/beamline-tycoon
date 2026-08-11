@@ -339,6 +339,10 @@ export const INFRASTRUCTURE_RAW = {
     subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2, geometryType: 'box',
     baseMaterial: 'cryo_frost',
     zoneTier: 2,
+    // GATED: closed-cycle 40K cooling with no consumables is the step past the
+    // free ln2Dewar, and it is what makes SC magnets practical — scMagnets is
+    // the node that claims it.
+    requires: 'scMagnets',
     spriteKey: 'cryocooler',
     spriteColor: 0x2fbccc,
     params: { temperature: 40, coolingCapacity: 20 },
@@ -359,6 +363,9 @@ export const INFRASTRUCTURE_RAW = {
     subL: 3, subW: 2, subH: 4, gridW: 2, gridH: 3, geometryType: 'box',
     baseMaterial: 'cryo_frost',
     zoneTier: 3,
+    // GATED: only meaningful in front of a helium plant, which srfTechnology
+    // unlocks in the same step (heCompressor / coldBox4K / cryomoduleHousing).
+    requires: 'srfTechnology',
     spriteKey: 'ln2Precooler',
     spriteColor: 0x2fbccc,
     placement: 'module',

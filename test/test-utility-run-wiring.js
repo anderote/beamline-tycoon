@@ -11,6 +11,9 @@
 //      undo entry; undo restores all of them at once.
 //   3. Cost: charged off the committed length, checked BEFORE anything
 //      mutates — an unaffordable run leaves the world and the funds untouched.
+//      The ORDINARY single-line drag is priced by the same rule at the real
+//      descriptor rate; a free single line would make the bulk gesture the only
+//      one that costs anything.
 //   4. The modifier is what selects the gesture: the same drag without it is
 //      still a single line, and the tool passes the shift state through.
 
@@ -22,6 +25,7 @@ import { UtilityLineInputController } from '../src/input/UtilityLineInputControl
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
 import { planUtilityRun, runPreviewPath } from '../src/input/utility-run-wiring.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
+import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { gridToIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -221,11 +225,12 @@ console.log('\n--- 2. One drag, N lines, ONE undo entry ---');
 
 console.log('\n--- 3. Cost is validated before anything mutates ---');
 {
-  // Utility descriptors ship free today; _runCost is the seam the descriptor
-  // price flows through, so drive it directly to exercise the charge path.
+  // _wiringCost is the seam the descriptor price flows through; stub it to a
+  // round number so the assertion reads off the committed length rather than
+  // the live powerCable rate (which the real-price case below pins).
   const game = makeGame();
   const ctrl = makeController(game);
-  ctrl._runCost = (subL) => (subL > 0 ? { funding: subL * 10 } : null);
+  ctrl._wiringCost = (subL) => (subL > 0 ? { funding: subL * 10 } : null);
   const fundsBefore = game.state.resources.funding;
 
   dragRun(ctrl);
@@ -241,7 +246,7 @@ console.log('\n--- 3. Cost is validated before anything mutates ---');
 {
   const game = makeGame();
   const ctrl = makeController(game);
-  ctrl._runCost = (subL) => (subL > 0 ? { funding: 5_000_000 } : null);
+  ctrl._wiringCost = (subL) => (subL > 0 ? { funding: 5_000_000 } : null);
   game.state.resources.funding = 1000;
   const undoBefore = game._undoStack.length;
 
@@ -251,6 +256,42 @@ console.log('\n--- 3. Cost is validated before anything mutates ---');
   assert(game.state.resources.funding === 1000, 'and charges nothing');
   assert(game._undoStack.length === undoBefore,
     'and pushes no undo entry (nothing was mutated)');
+}
+
+{
+  // The ordinary single line, at the real descriptor price — nothing stubbed.
+  // This is the case that regressed: only the run path passed a cost, so the
+  // convenient bulk gesture was the only one that charged and the optimal play
+  // was to draw one free line at a time.
+  const perSubUnit = UTILITY_TYPES.powerCable.costPerSubUnit;
+  assert(perSubUnit > 0, `powerCable declares a price (got ${perSubUnit})`);
+
+  const game = makeGame();
+  const ctrl = makeController(game);
+  const fundsBefore = game.state.resources.funding;
+
+  dragRun(ctrl, { run: false });
+
+  const lines = powerLines(game);
+  assert(lines.length === 1, `the drag committed one line (got ${lines.length})`);
+  const expected = Math.round(perSubUnit * lines[0].subL);
+  assert(lines[0].subL > 0 && fundsBefore - game.state.resources.funding === expected,
+    `charged the descriptor rate for its ${lines[0].subL} sub-units `
+    + `(spent ${fundsBefore - game.state.resources.funding}, expected ${expected})`);
+}
+
+{
+  // …and it is checked before the mutation, same as a run.
+  const game = makeGame();
+  const ctrl = makeController(game);
+  game.state.resources.funding = 100;
+  const undoBefore = game._undoStack.length;
+
+  dragRun(ctrl, { run: false });
+
+  assert(powerLines(game).length === 0, 'an unaffordable single line commits nothing');
+  assert(game.state.resources.funding === 100, 'and charges nothing');
+  assert(game._undoStack.length === undoBefore, 'and pushes no undo entry');
 }
 
 console.log('\n--- 4. The modifier is what selects the gesture ---');

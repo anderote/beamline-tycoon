@@ -44,7 +44,7 @@ export class UtilityLineTool extends Tool {
     const { lastMouseWorldX: mx, lastMouseWorldY: my } = ctx.input;
     if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
     ctrl.onMouseMove(mx, my, { run: down });
-    this._updateRunTooltip(ctx, ctx.input._lastScreenX, ctx.input._lastScreenY);
+    this._updateDragTooltip(ctx, ctx.input._lastScreenX, ctx.input._lastScreenY);
   }
 
   // Off-canvas release / focus loss: drop the in-flight line draw.
@@ -75,7 +75,7 @@ export class UtilityLineTool extends Tool {
       input.lastMouseWorldY = world.y;
       input._lastScreenX = e.clientX;
       input._lastScreenY = e.clientY;
-      this._updateRunTooltip(ctx, e.clientX, e.clientY);
+      this._updateDragTooltip(ctx, e.clientX, e.clientY);
       return true;
     }
     const grid = isoToGrid(world.x, world.y);
@@ -102,18 +102,24 @@ export class UtilityLineTool extends Tool {
     return true;
   }
 
-  // Live payoff readout while run-wiring: how many sinks this drag will wire
-  // and what the committed length costs. Hidden for an ordinary single line.
-  _updateRunTooltip(ctx, screenX, screenY) {
-    const plan = ctx.input.utilityLineController.runPlan;
-    if (!plan || plan.stubs.length === 0 || screenX == null) {
+  // Live cost readout while drawing. Run-wiring adds the payoff (how many
+  // sinks the drag will wire); a single line shows its price alone — lines are
+  // charged per sub-unit either way, so a silent single-line drag would spend
+  // money the player never saw coming.
+  _updateDragTooltip(ctx, screenX, screenY) {
+    const ctrl = ctx.input.utilityLineController;
+    const plan = ctrl.runPlan;
+    const cost = ctrl.dragCost;
+    if (screenX == null || ((!plan || plan.stubs.length === 0) && cost <= 0)) {
       ctx.input._hideDragCostTooltip?.();
       return;
     }
-    const cost = (plan.cost && plan.cost.funding) || 0;
-    const n = plan.stubs.length;
-    let note = `wire ${n} component${n === 1 ? '' : 's'}`;
-    if (plan.skipped > 0) note += ` · ${plan.skipped} unreachable`;
+    let note = null;
+    if (plan && plan.stubs.length > 0) {
+      const n = plan.stubs.length;
+      note = `wire ${n} component${n === 1 ? '' : 's'}`;
+      if (plan.skipped > 0) note += ` · ${plan.skipped} unreachable`;
+    }
     ctx.input._showDragCostTooltip?.(cost, screenX, screenY, {
       note,
       insufficientFunding: cost > 0 && ctx.game.state.resources.funding < cost,

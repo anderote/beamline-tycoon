@@ -17,7 +17,13 @@
 // change or new cost stream that breaks a whole phase of the game), it does
 // not pin exact numbers. They have NOT moved since Phase 7 — on-pipe utility
 // gating was absorbed by re-tuning ECON (beamIncomePerNode 180 -> 240,
-// powerBillPerKW 2 -> 1), not by widening these.
+// powerBillPerKW 2 -> 1), and Phase 12's progression pass moved no ECON knob
+// at all (it re-derived beamIncomePerNode to the same 240 and did its work in
+// the research/objective/utility cost tables), so these bounds still stand.
+//
+// This file measures RATES — what a facility earns and pays per tick. What a
+// whole playthrough costs, and how long it takes, lives in
+// test/test-progression.js.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';

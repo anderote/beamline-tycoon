@@ -21,6 +21,10 @@ export default {
   capacityUnit: 'W@4K',
   capacityParam: 'coldCapacityW',
   demandParam: 'srfHeatW',
+  // $16,000/tile — a vacuum-jacketed LHe transfer line is the outlier of the
+  // ladder by design, and there is no cryo distribution component to undercut
+  // it: cryo plant belongs next to what it cools. Ladder: powerCable.js.
+  costPerSubUnit: 4000,
   persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(
