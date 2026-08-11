@@ -96,16 +96,32 @@ export const ECON = {
 };
 
 /**
- * Facility-wide passive revenue for one tick: base grant + research passive
- * funding + reputation revenue, all scaled by the decoration reputation
- * tier's funding bonus.
+ * Facility-wide passive revenue for one tick, split into the terms the
+ * economy panel reports: base grant + research passive funding, and
+ * reputation revenue, both scaled by the decoration reputation tier's
+ * funding bonus.
+ *
+ * `total` is the only value anything is allowed to credit, and the terms sum
+ * to it exactly — `reputation` carries the rounding residual, because the
+ * bill has always been floored once, on the sum. A panel that floors the
+ * terms separately would quote a total the balance never moved by.
  */
-export function computeTickIncome(state, researchPassive = 0) {
+export function computeTickIncomeBreakdown(state, researchPassive = 0) {
   const passive = ECON.baseGrant + researchPassive;
   const rep = Math.max(0, state.resources?.reputation || 0);
   const repIncome = ECON.repIncomeRate * Math.sqrt(rep);
   const repBonus = state?.reputationTier?.fundingBonus || 0;
-  return Math.floor((passive + repIncome) * (1 + repBonus));
+  const total = Math.floor((passive + repIncome) * (1 + repBonus));
+  const grant = Math.floor(passive * (1 + repBonus));
+  return { grant, reputation: total - grant, total };
+}
+
+/**
+ * Facility-wide passive revenue for one tick. The breakdown's total and
+ * nothing else — the two must not be able to disagree.
+ */
+export function computeTickIncome(state, researchPassive = 0) {
+  return computeTickIncomeBreakdown(state, researchPassive).total;
 }
 
 /**
@@ -127,17 +143,26 @@ export function dataFeeIncome(billedRate) {
  * `beamState.dataRate` must already be the billed (connectivity-derated)
  * rate — see aggregates.billedDataRate. Income scales with both beam quality
  * and machine size, plus data fees while detectors collect.
+ *
+ * Split into { beam, dataFees, total } because the economy panel reports the
+ * two separately and must report what was paid, not a second derivation of
+ * it — the 50x user-fee defect above came from exactly that.
  */
-export function computeBeamIncome(beamState, nodeCount = 0) {
+export function computeBeamIncomeBreakdown(beamState, nodeCount = 0) {
   // `|| 0.2` here treated a legitimate quality of exactly 0 (lattice.py
   // returns beam_quality 0.0 outright when the emittance ratio degenerates)
   // as 20%, so a fully scrambled beam still earned income forever. The 0.2 is
   // only a stand-in for "physics hasn't reported yet".
   const raw = beamState.beamQuality;
   const q = Number.isFinite(raw) ? raw : 0.2;
-  let income = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
-  income += dataFeeIncome(beamState.dataRate);
-  return income;
+  const beam = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  const dataFees = dataFeeIncome(beamState.dataRate);
+  return { beam, dataFees, total: beam + dataFees };
+}
+
+/** The breakdown's total, which is the amount one running beamline is paid. */
+export function computeBeamIncome(beamState, nodeCount = 0) {
+  return computeBeamIncomeBreakdown(beamState, nodeCount).total;
 }
 
 /**

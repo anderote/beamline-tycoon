@@ -19,7 +19,10 @@ import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
-import { computeSystemStats, computeTickIncome, computeBeamIncome, computeTickUpkeep } from './economy.js';
+import {
+  computeSystemStats, computeTickIncomeBreakdown, computeBeamIncomeBreakdown,
+  computeTickUpkeep,
+} from './economy.js';
 import {
   hardwareNodeCount, beamlineUptime, facilityUptime, billedDataRate,
 } from './aggregates.js';
@@ -88,6 +91,10 @@ const BEAMSTATE_PRESERVED_FIELDS = [
 
 // Stand-in log used while building an undo snapshot (see _snapshot).
 const EMPTY_LOG = [];
+
+// Samples of net-per-tick kept for the economy panel's sparkline. Fixed, so a
+// long game cannot grow the buffer; ~5 minutes of sim at 1 tick/s.
+const ECONOMY_HISTORY_MAX = 300;
 
 // Metres of dead s-axis inserted between independent source machines in
 // state.beamline, so an element at the very start of machine B can never tie
@@ -193,6 +200,11 @@ export class Game {
       utilityNetworks: null,   // derived: discovery output published by solveRunner
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
+      // What the last tick actually charged, and the net-per-tick window
+      // behind it. Derived: written by tick(), never serialized (absent from
+      // SERIALIZED_FIELDS), cleared on load. Read via getEconomySnapshot().
+      economySnapshot: null,
+      economyHistory: [],
       infraBlockers: [],          // blockers from solve-runner
       infraCanRun: true,          // true if no blockers
       // Saved beamline designs
@@ -231,6 +243,11 @@ export class Game {
     // own, so a tool that calls a Game method which itself commits a gesture
     // still produces exactly one undo entry.
     this._gestureDepth = 0;
+
+    // Reservoir top-ups charged since the last economy snapshot. Refills are
+    // event costs, not per-tick ones, so they are booked when charged (see
+    // chargeReservoirRefill) and swept into the next tick's snapshot.
+    this._refillsCharged = 0;
 
     // Generate terrain brightness blobs (multimodal 2D gaussian)
     this.state.seed = seed;
@@ -714,6 +731,18 @@ export class Game {
 
   spend(costs) {
     for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+  }
+
+  /**
+   * Charge a reservoir top-up (the UtilityInspector Refill button). Event
+   * cost rather than per-tick upkeep, so it is recorded here — at the one
+   * place it is charged — and swept into the next tick's snapshot under
+   * upkeep.refills. Anything that pays for a refill must go through this, or
+   * the panel reports a cost the player never paid, or misses one they did.
+   */
+  chargeReservoirRefill(costs) {
+    this.spend(costs);
+    this._refillsCharged += (costs?.funding || 0);
   }
 
   isComponentUnlocked(comp) {
@@ -3262,13 +3291,33 @@ export class Game {
     this.state.furnishingMorale = totalFurnishingMorale;
     this.state.reputationTier = getReputationTier(decorationInstances.length);
 
-    // === Revenue === (tuning knobs live in economy.js ECON)
+    // === Economy === (tuning knobs live in economy.js ECON)
+    //
+    // Every term is accumulated here as it is charged and published once, at
+    // the end of the tick, as state.economySnapshot. Nothing downstream may
+    // re-derive one of these for display: a second derivation of the user fee
+    // is how the HUD came to quote it 50x off what was really paid.
+    const econ = {
+      grant: 0, reputation: 0, beam: 0, dataFees: 0,
+      staff: 0, power: 0, pumps: 0,
+      // Refills were charged between ticks, not by this one.
+      refills: this._refillsCharged,
+      beamlines: 0,
+    };
+    this._refillsCharged = 0;
+
     const passiveIncome = this.getEffect('passiveFunding', 0);
-    this.state.resources.funding += computeTickIncome(this.state, passiveIncome);
+    const income = computeTickIncomeBreakdown(this.state, passiveIncome);
+    econ.grant = income.grant;
+    econ.reputation = income.reputation;
+    this.state.resources.funding += income.total;
 
     // === Upkeep === staff salaries + pump service + electricity bill
     // (drain — creates pressure to complete objectives and run the beam)
     const upkeep = computeTickUpkeep(this.state);
+    econ.staff = upkeep.staffCost;
+    econ.pumps = upkeep.pumpUpkeep;
+    econ.power = upkeep.powerBill;
     this.state.resources.funding -= upkeep.total;
 
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
@@ -3290,7 +3339,7 @@ export class Game {
     // Tick all running beamlines
     for (const entry of this.registry.getAll()) {
       if (entry.status === 'running') {
-        this._tickBeamline(entry);
+        this._tickBeamline(entry, econ);
       } else {
         entry.beamState.continuousBeamTicks = 0;
         // A stopped beamline earns no data fees; leaving the last running
@@ -3303,6 +3352,10 @@ export class Game {
         entry.beamState.uptimeFraction = beamlineUptime(entry.beamState, this.state.tick);
       }
     }
+
+    // The last economy term is now known — publish the breakdown before
+    // anything else in the tick can be tempted to recompute one.
+    this._publishEconomySnapshot(econ);
 
     // Update aggregate state for objectives/economy/renderers
     this._updateAggregateBeamline();
@@ -3362,6 +3415,63 @@ export class Game {
   }
 
   /**
+   * Publish what the tick just charged as state.economySnapshot, and push its
+   * net onto the fixed-capacity history window.
+   *
+   * The terms are the amounts already applied to state.resources.funding, so
+   * `net` is the funding movement the tick's income and upkeep caused — not a
+   * second opinion about it. Callers display these; they do not recompute
+   * them. Both fields are derived: neither is in SERIALIZED_FIELDS, so
+   * neither reaches a save or an undo payload.
+   */
+  _publishEconomySnapshot(econ) {
+    const income = {
+      grant: econ.grant,
+      reputation: econ.reputation,
+      beam: econ.beam,
+      dataFees: econ.dataFees,
+      total: econ.grant + econ.reputation + econ.beam + econ.dataFees,
+    };
+    const upkeep = {
+      staff: econ.staff,
+      power: econ.power,
+      pumps: econ.pumps,
+      refills: econ.refills,
+      total: econ.staff + econ.power + econ.pumps + econ.refills,
+    };
+    this.state.economySnapshot = {
+      tick: this.state.tick,
+      income,
+      upkeep,
+      net: income.total - upkeep.total,
+      // Beamlines that actually contributed beam income this tick, so the
+      // panel can say "across N beamlines" without counting them again.
+      contributingBeamlines: econ.beamlines,
+    };
+    if (!Array.isArray(this.state.economyHistory)) this.state.economyHistory = [];
+    const history = this.state.economyHistory;
+    history.push(this.state.economySnapshot.net);
+    if (history.length > ECONOMY_HISTORY_MAX) {
+      history.splice(0, history.length - ECONOMY_HISTORY_MAX);
+    }
+  }
+
+  /**
+   * Read view of the recorded per-tick economy for panels: the last published
+   * breakdown, plus the net-per-tick window behind it. `snapshot` is null
+   * before the first tick. Read this rather than recomputing an economy term
+   * at the display site — the whole point is that the panel shows what was
+   * charged.
+   */
+  getEconomySnapshot() {
+    return {
+      snapshot: this.state.economySnapshot,
+      history: Array.isArray(this.state.economyHistory) ? [...this.state.economyHistory] : [],
+      historyCapacity: ECONOMY_HISTORY_MAX,
+    };
+  }
+
+  /**
    * Mean dataFiber quality over the data-producing nodes of a flattened
    * beamline, in [0,1]. 1.0 when there is nothing to derate (no solved
    * qualities, or no data-producing hardware).
@@ -3384,7 +3494,12 @@ export class Game {
     return dataNodeCount > 0 ? totalDataQ / dataNodeCount : 1;
   }
 
-  _tickBeamline(entry) {
+  /**
+   * @param entry registry entry to bill and advance
+   * @param econ  tick()'s accumulator; this beamline's income terms are added
+   *              to it as they are credited (see _publishEconomySnapshot)
+   */
+  _tickBeamline(entry, econ = null) {
     const bs = entry.beamState;
 
     if (!this.state.infraCanRun) return;
@@ -3415,10 +3530,16 @@ export class Game {
     const connectedDataRate = billedDataRate(bs, this._dataConnectivityFactor(blNodes));
     bs.effectiveDataRate = connectedDataRate;
 
-    this.state.resources.funding += computeBeamIncome(
+    const earned = computeBeamIncomeBreakdown(
       connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
       nodeCount,
     );
+    this.state.resources.funding += earned.total;
+    if (econ) {
+      econ.beam += earned.beam;
+      econ.dataFees += earned.dataFees;
+      econ.beamlines++;
+    }
 
     // Data from detectors (physics-driven)
     if (connectedDataRate > 0) {
@@ -3440,13 +3561,19 @@ export class Game {
     if (photonPorts.length > 0 && bs.beamQuality > 0.5) {
       const beamHoursThisTick = photonPorts.length * (1 / 3600); // 1 second = 1/3600 hour
       bs.totalBeamHours += beamHoursThisTick;
-      // User fees revenue
+      // User fees revenue. Booked under the snapshot's beam term rather than
+      // a term of its own: it is beam-on revenue, and leaving it out would
+      // make the reported net disagree with the balance on any facility that
+      // has a photon port.
       const userFees = photonPorts.length * 2 * bs.beamQuality;
       this.state.resources.funding += userFees;
+      if (econ) econ.beam += userFees;
       this.state.resources.reputation += photonPorts.length * 0.001;
     }
 
-    // Discovery chance (physics-driven)
+    // Discovery chance (physics-driven). The $5k is a one-off reward event,
+    // like an objective payout — not a per-tick flow, so it is deliberately
+    // outside the economy snapshot, whose terms are rates.
     const dc = bs.discoveryChance || 0;
     if (dc > 0 && this.rng() < dc) {
       this.state.discoveries++;
@@ -3906,6 +4033,16 @@ export class Game {
     if (preserved) {
       Object.assign(this.state, preserved);
       this.state.resources = resources;
+    }
+
+    // The economy breakdown is derived and unsaved, so a load would otherwise
+    // leave the previous session's numbers on screen until the first tick.
+    // Undo/redo keeps them: like `tick`, they are sim progress, not gesture
+    // state, and the tick that follows overwrites them anyway.
+    if (!opts.preserveSim) {
+      this.state.economySnapshot = null;
+      this.state.economyHistory = [];
+      this._refillsCharged = 0;
     }
 
     // Sanitize loop-control state and resync the interval to the loaded

@@ -7,6 +7,7 @@ import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
+import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -1229,6 +1230,13 @@ export class InputHandler {
         case 'g': case 'G': {
           const overlay = document.getElementById('goals-overlay');
           if (overlay) overlay.classList.toggle('hidden');
+          break;
+        }
+        case 'k': case 'K': {
+          // K, not E/F/B/M: every mnemonic for "economy" is already a mode,
+          // palette slot or camera key. Toggles like the Research/Goals keys.
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          EconomyWindow.toggle(this.game);
           break;
         }
         case 'q': case 'Q': {

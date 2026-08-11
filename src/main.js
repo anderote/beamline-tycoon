@@ -27,6 +27,7 @@ import { CloudSaves } from './game/CloudSaves.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
+import { EconomyWindow } from './ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
@@ -370,6 +371,11 @@ function showScenarioPicker(game) {
   // Beamline Designer button — opens blank designer
   document.getElementById('btn-designer').addEventListener('click', () => {
     router.navigate('designer');
+  });
+
+  // Economy button — toggles the cash-flow window (same gesture as the K key)
+  document.getElementById('btn-economy').addEventListener('click', () => {
+    EconomyWindow.toggle(game);
   });
 
   // Load Design button inside the designer — opens library as a modal on top
