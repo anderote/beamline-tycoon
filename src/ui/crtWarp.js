@@ -72,6 +72,27 @@ function buildMap(dw, dh, sw, sh, { bulge, corner, overscanPad }) {
   return map;
 }
 
+/**
+ * Where a point on the warped screen came from in the flat scene, in
+ * normalised [0,1] coordinates. This is the same displacement `buildMap` uses,
+ * evaluated for one point instead of a whole grid — so anything DRAWN into the
+ * scene can still be CLICKED on the bulged screen. Returns null outside the
+ * tube (the bezel rim, which has no source pixel).
+ */
+export function destToSource(nx, ny, opts = {}) {
+  const { bulge, corner, overscanPad } = { ...CRT_WARP_DEFAULTS, ...opts };
+  const norm = 2 + corner * 4;
+  const zoom = 1 + bulge * overscanPad;
+  const u = nx * 2 - 1;
+  const v = ny * 2 - 1;
+  const r2 = u * u + v * v;
+  const f = (r2 + corner * r2 * r2) / norm;
+  const k = (1 + 2 * bulge * f) / zoom;
+  const sx = ((u * k) + 1) / 2;
+  const sy = ((v * k) + 1) / 2;
+  return sx < 0 || sy < 0 || sx > 1 || sy > 1 ? null : { x: sx, y: sy };
+}
+
 export function createCrtWarp(opts = {}) {
   const cfg = { ...CRT_WARP_DEFAULTS, ...opts };
   let map = null;
