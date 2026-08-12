@@ -7,6 +7,8 @@ import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
+import { getBeamlineType } from '../data/beamline-types.js';
+import { openBeamlineTypePicker, beamlineTypeHidesComponent } from './BeamlineTypePicker.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { formatEnergy, UNITS } from '../data/units.js';
@@ -14,6 +16,7 @@ import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { ContextWindow } from './ContextWindow.js';
+import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
@@ -420,6 +423,13 @@ UIHost.prototype._generateCategoryTabs = function() {
   const mode = MODES[this.activeMode];
   if (!mode || mode.disabled) return;
 
+  // Beamline mode leads with the New Beamline button — RCT2's ride list, and
+  // the only entry point to the type picker. It doubles as the readout for
+  // which type the palette below is currently filtered to.
+  if (this.activeMode === 'beamline') {
+    tabsContainer.appendChild(this._buildNewBeamlineButton());
+  }
+
   // Facility mode has a Labs/Rooms toggle that filters visible tabs
   const isFacility = this.activeMode === 'facility';
   if (isFacility && !this._facilityGroup) this._facilityGroup = 'labs';
@@ -471,6 +481,64 @@ UIHost.prototype._generateCategoryTabs = function() {
     this._updateSystemStatsContent(catKeys[0]);
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
+};
+
+/**
+ * The New Beamline button, rebuilt on every tab regeneration so its label
+ * always reports the live filter state:
+ *   - no type      → "+ New Beamline"
+ *   - pending pick → the type name, still waiting for a source to be placed
+ *   - typed line   → the type name of the beamline under edit
+ */
+UIHost.prototype._buildNewBeamlineButton = function() {
+  const btn = document.createElement('button');
+  btn.className = 'new-beamline-btn';
+
+  const typeId = this.game.getActiveBeamlineTypeId?.();
+  const type = typeId ? getBeamlineType(typeId) : null;
+  const pending = !!this.game.pendingBeamlineTypeId;
+
+  if (type) {
+    btn.textContent = (pending ? '▸ ' : '◆ ') + type.name;
+    btn.classList.add('has-type');
+    if (pending) btn.classList.add('pending');
+    const accent = '#' + type.accentColor.toString(16).padStart(6, '0');
+    btn.style.borderColor = accent;
+    btn.style.color = accent;
+    btn.title = pending
+      ? `${type.name} — place a source to start it. Click to pick a different type.`
+      : `Palette filtered to ${type.name}. Click to start another beamline.`;
+  } else {
+    btn.textContent = '+ New Beamline';
+    btn.title = 'Choose what your next beamline is for';
+  }
+
+  btn.addEventListener('click', () => this._openBeamlineTypePicker());
+  return btn;
+};
+
+/**
+ * Re-sync the New Beamline button and the palette to the active type without
+ * rebuilding the tab bar — the player's current tab survives, which matters
+ * because this runs on every beamline click.
+ */
+UIHost.prototype._syncBeamlineTypeChrome = function() {
+  const old = document.querySelector('#category-tabs .new-beamline-btn');
+  if (old) old.replaceWith(this._buildNewBeamlineButton());
+  this._refreshPalette();
+};
+
+/** Open the type picker and apply whatever it returns to the build palette. */
+UIHost.prototype._openBeamlineTypePicker = function() {
+  openBeamlineTypePicker(this.game, {
+    onConfirm: (typeId) => {
+      this.game.startNewBeamline(typeId);
+      // Rebuild tabs (the button label) and the palette (the filter) together,
+      // landing on Sources — the only category you can actually start from.
+      this._generateCategoryTabs();
+      this._applyPaletteHotkeyBadges();
+    },
+  });
 };
 
 UIHost.prototype._refreshPalette = function() {
@@ -1690,21 +1758,26 @@ UIHost.prototype._applyPaletteHotkeyBadges = function() {
   });
 };
 
+// Thin binding to the shared predicate — see BeamlineTypePicker.js for the
+// rule itself and why it lives there.
+UIHost.prototype._beamlineTypeHidesComponent = function(key, comp) {
+  return beamlineTypeHidesComponent(this.game.getActiveBeamlineTypeId?.(), key, comp);
+};
+
 UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const unlocked = this.game.isComponentUnlocked(comp);
   if (!unlocked) return null;
 
-  // NOTE: there used to be a MACHINE_TIER gate here, hiding any component whose
-  // MACHINE_TIER exceeded the editing beamline's machine-type tier. It was dead
-  // progression machinery: nothing ever sets machineType to anything but
-  // 'linac' (tier 1) — the only createBeamline() call site keys off three gun
-  // types that no longer exist in COMPONENTS, and research's machine-type
-  // effect had no consumer (it has since been replaced with a real effect on
-  // those three nodes). Its sole live effect was to permanently hide
-  // sextupole / cryomodule / detector / laserSystem from the map palette, which
-  // also made the "Full Catalog" objective unachievable. Unlocking is handled by
-  // isComponentUnlocked above; re-introduce tier gating only alongside a real
-  // machine-type progression path.
+  // Beamline-type filter. This slot used to hold a MACHINE_TIER gate keyed on
+  // the editing beamline's machine type, which was dead machinery — nothing
+  // ever set machineType to anything but 'linac' — and whose only live effect
+  // was to hide four components forever. It was removed with a note asking for
+  // "a real machine-type progression path" before tier gating came back. This
+  // is that path: a beamline's TYPE (src/data/beamline-types.js), chosen once
+  // in the New Beamline picker and never inferred, decides what its palette
+  // contains. Untyped beamlines — every pre-picker save, every scenario — see
+  // the whole catalogue, exactly as they do today.
+  if (this._beamlineTypeHidesComponent(key, comp)) return null;
 
   const isFacility = isFacilityCategory(comp.category);
 
@@ -2092,6 +2165,18 @@ UIHost.prototype.updatePalette = function(category) {
 // --- HUD event bindings ---
 
 UIHost.prototype._bindHUDEvents = function() {
+  // The build palette is filtered by the type of the beamline being edited, so
+  // any change of edit/selection focus can change what it is allowed to show.
+  // Nothing else in the app listens to these two events; without this the
+  // filter goes stale the moment the player clicks a beamline of another type.
+  if (typeof this.game?.on === 'function') {
+    this.game.on((ev) => {
+      if (ev !== 'editModeChanged' && ev !== 'beamlineSelected') return;
+      if (this.activeMode !== 'beamline') return;
+      this._syncBeamlineTypeChrome();
+    });
+  }
+
   // Mode switcher
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2215,6 +2300,9 @@ UIHost.prototype._bindHUDEvents = function() {
     });
   }
 
+  // Manual: "?" button in the top-right HUD cluster + F1 / ? hotkeys.
+  this._bindManualEntryPoints();
+
   // StaffChanged event refreshes staff bar and any open inspector/hiring windows
   if (this.game && this.game.on) {
     this.game.on((event) => {
@@ -2226,6 +2314,83 @@ UIHost.prototype._bindHUDEvents = function() {
         const hiring = document.querySelector('[data-ctx-id="hiring-dialog"]');
         if (hiring) this._openHiringDialog();
       }
+    });
+  }
+};
+
+// --- Manual / wiki entry points ---
+
+// One window-level F1/? listener for the whole app, pointed at the HUD host
+// that bound most recently.
+let _manualKeysBound = false;
+let _manualKeyHost = null;
+
+/**
+ * Component key the manual should open to, or null for the contents page.
+ * Preference order: the palette item under the cursor, then the armed tool
+ * (palette clicks arm `component:<key>` — see InputHandler.selectPaletteTool).
+ * Both are read-only peeks, so the palette needs no changes of its own.
+ */
+UIHost.prototype._contextualManualComponent = function() {
+  const hovered = this._hoveredPaletteComponent;
+  if (hovered && COMPONENTS[hovered]) return hovered;
+  const toolId = this.renderer?._inputHandler?.activeTool?.id;
+  if (typeof toolId === 'string' && toolId.startsWith('component:')) {
+    const key = toolId.slice('component:'.length);
+    if (COMPONENTS[key]) return key;
+  }
+  return null;
+};
+
+/** Open the manual, landing on the contextual component page when there is one. */
+UIHost.prototype._openManual = function({ toggle = false, contextual = false } = {}) {
+  const componentId = contextual ? this._contextualManualComponent() : null;
+  openWikiWindow({ componentId, toggle: toggle && !componentId });
+};
+
+UIHost.prototype._bindManualEntryPoints = function() {
+  // "?" button, appended to the top-right button cluster so it never has to
+  // be hand-maintained in index.html alongside the other hud-btns.
+  const topButtons = document.getElementById('top-buttons');
+  if (topButtons && !document.getElementById('btn-manual')) {
+    const btn = document.createElement('button');
+    btn.id = 'btn-manual';
+    btn.className = 'hud-btn hud-help-btn';
+    btn.textContent = '?';
+    btn.title = 'Operator Manual (F1)';
+    btn.setAttribute('aria-label', 'Open the operator manual');
+    btn.addEventListener('click', () => this._openManual({ toggle: true, contextual: true }));
+    // Sit just left of the Menu dropdown.
+    const menuWrapper = document.getElementById('menu-wrapper');
+    if (menuWrapper) topButtons.insertBefore(btn, menuWrapper);
+    else topButtons.appendChild(btn);
+  }
+
+  // Hovered palette item — a passive read for contextual opens.
+  const palette = document.getElementById('component-palette');
+  if (palette && !palette.dataset.manualHoverBound) {
+    palette.dataset.manualHoverBound = '1';
+    palette.addEventListener('mouseover', (e) => {
+      const item = e.target.closest?.('.palette-item');
+      this._hoveredPaletteComponent =
+        item && item.dataset.paletteKind === 'component' ? item.dataset.paletteKey : null;
+    });
+    palette.addEventListener('mouseleave', () => { this._hoveredPaletteComponent = null; });
+  }
+
+  // F1 (and Shift+/ "?") open the manual. Esc closing is inherited from the
+  // ContextWindow esc-stack slot. One listener, retargeted at whichever host
+  // bound last, so a rebuilt HUD never stacks duplicate handlers.
+  _manualKeyHost = this;
+  if (!_manualKeysBound) {
+    _manualKeysBound = true;
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (e.key !== 'F1' && e.key !== '?') return;
+      e.preventDefault();
+      _manualKeyHost?._openManual({ toggle: true, contextual: true });
     });
   }
 };
@@ -2416,12 +2581,22 @@ UIHost.prototype._renderRfPowerStats = function(d, summary, detail) {
 
 UIHost.prototype._renderCryoStats = function(d, summary, detail, append = false) {
   const mc = d.coolingCapacity > 0 ? this._marginColor(d.margin) : '';
+  // Bath temperature is now a live value that climbs under load, so it needs
+  // to read as an alarm before the quench rather than after it. Niobium loses
+  // superconductivity at 9.25 K, and cavity Q0 has already collapsed by ~35x
+  // on the way from 2 K to 4.2 K.
+  let tempColor = '';
+  if (d.quenched) tempColor = '#f44';
+  else if (d.warming || d.opTemp > 4.8) tempColor = '#fa4';
+  else if (d.opTemp > 2.5) tempColor = '#fd4';
+  const tempLabel = d.quenched ? 'QUENCH' : (d.warming ? 'Temp ↑' : 'Temp');
+
   const cryoSummary = [
     this._sstat('Cryo Cap', this._fmt(d.coolingCapacity), 'W'),
     this._ssep(),
     this._sstat('Cryo Load', this._fmt(d.heatLoad), 'W'),
     this._ssep(),
-    this._sstat('Temp', d.opTemp > 0 ? d.opTemp.toFixed(1) : '--', 'K'),
+    this._sstat(tempLabel, d.opTemp > 0 ? d.opTemp.toFixed(2) : '--', 'K', tempColor),
     this._ssep(),
     this._sstat('Cryo Margin', d.coolingCapacity > 0 ? d.margin.toFixed(0) : '--', '%', mc),
   ].join('');

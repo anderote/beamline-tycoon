@@ -188,6 +188,85 @@ export function computeTickUpkeep(state) {
 // simplification — the new utility solver already owns per-network capacity/
 // load math; this file just produces rough summary stats for the HUD.
 
+/**
+ * Worst residual-gas pressure, mbar, across every vacuum network that actually
+ * serves something. Returns atmosphere (1013) when nothing is pumped, which is
+ * both the physical truth and the fail-closed answer.
+ *
+ * Worst-case rather than average: a beamline is only as good as its dirtiest
+ * section, and a single unpumped run will scatter the beam regardless of how
+ * well the rest of the machine is pumped.
+ */
+export function worstVacuumPressure(state) {
+  let worst = null;
+  for (const [utilityType, perType] of (state?.utilityNetworkData || [])) {
+    if (utilityType !== 'vacuumPipe') continue;
+    for (const flow of perType.values()) {
+      // No sinks means this network pumps nothing — it cannot report a
+      // meaningful pressure, and counting it would let an unconnected pump
+      // claim a perfect vacuum.
+      const sinkPressures = flow.perSinkPressure || {};
+      if (Object.keys(sinkPressures).length === 0) continue;
+      const p = typeof flow.pressure === 'number' ? flow.pressure : 1013;
+      if (worst === null || p > worst) worst = p;
+    }
+  }
+  return worst === null ? 1013 : worst;
+}
+
+/**
+ * Worst RF reflected-power fraction across every cavity in the facility.
+ *
+ * Cavities are pipe placements, not placeables, so both stores are walked. The
+ * 0.02 floor is the ordinary standing-wave mismatch of a well-tuned cavity —
+ * VSWR is never exactly 1.
+ */
+export function worstReflectedFraction(state) {
+  let worst = 0.02;
+  for (const pipe of (state?.beamPipes || [])) {
+    for (const att of (pipe.placements || [])) {
+      const r = att && att.reflectedFraction;
+      if (typeof r === 'number' && r > worst) worst = r;
+    }
+  }
+  for (const p of (state?.placeables || [])) {
+    const r = p && p.reflectedFraction;
+    if (typeof r === 'number' && r > worst) worst = r;
+  }
+  return Math.min(worst, 0.99);
+}
+
+/**
+ * Live cryogenic state aggregated across every cryo network.
+ *
+ * Returns null when no network is solving, so callers can fall back rather
+ * than reporting a confident zero. Temperature is worst-case (the warmest
+ * bath), loads are summed, because a facility is judged by its weakest plant
+ * but pays for all of them.
+ */
+export function cryoNetworkSummary(state) {
+  let tempK = null, staticLoad = 0, dynamicLoad = 0, capacity = 0, rated = 0;
+  let quenched = false, warming = false, found = false;
+  for (const [utilityType, perType] of (state?.utilityNetworkData || [])) {
+    if (utilityType !== 'cryoTransfer') continue;
+    for (const flow of perType.values()) {
+      if (Object.keys(flow.perSinkQuality || {}).length === 0) continue;
+      found = true;
+      if (typeof flow.tempK === 'number' && (tempK === null || flow.tempK > tempK)) {
+        tempK = flow.tempK;
+      }
+      staticLoad += flow.staticLoad || 0;
+      dynamicLoad += flow.dynamicLoad || 0;
+      capacity += flow.totalCapacity || 0;
+      rated += flow.ratedCapacity || 0;
+      if (flow.quenched) quenched = true;
+      if (flow.warming) warming = true;
+    }
+  }
+  if (!found) return null;
+  return { tempK, staticLoad, dynamicLoad, capacity, rated, quenched, warming };
+}
+
 export function computeSystemStats(state) {
   // Same population computeTickUpkeep bills — see aggregates.js.
   const equip = poweredPlaceables(state);
@@ -236,19 +315,22 @@ export function computeSystemStats(state) {
   const pumpCount = countPumps(state);
   const gaugeCount = gaugeTypes.reduce((s, t) => s + (counts[t] || 0), 0);
   const totalPumpSpeed = portCapacity('vac_out', 'pumpSpeed');
-  // Derived fresh every call. This used to read `state.avgPressure ||` first
-  // — but Game.computeSystemStats writes this very result back to
-  // state.avgPressure, so the first value (1013 mbar, no pumps yet) latched
-  // forever and adding pumps never moved the readout.
+  // Pressure comes from the utility solver, which computes the real
+  // steady-state relation P = Q/S over the network's actual gas load and pump
+  // speed (src/utility/types/vacuumPipe.js).
   //
-  // A pumped volume is required, not just a pump: clamping totalVolume to 1
-  // meant a single turboPump placed anywhere, wired to nothing, with no
-  // beamline at all, reported 3.3e-9 mbar / "Good" and auto-completed the
-  // `goodVacuum` objective for $30k and a reputation point.
-  const pumped = pumpCount > 0 && totalVolume > 0;
-  const avgPressure = pumped
-    ? 1e-6 / Math.max(totalPumpSpeed / totalVolume, 0.01)
-    : 1013;
+  // This panel used to derive its own number instead — `1e-6 / (S/V)`, a
+  // volume-based formula with a magic constant that is not P = Q/S. So the
+  // pressure the player READ was never the pressure their beam responded to,
+  // and the `goodVacuum` objective keyed on the wrong one of the two. There is
+  // now a single pressure in the game.
+  //
+  // Networks with no sinks are skipped, which keeps the old exploit closed: a
+  // lone turboPump wired to nothing has zero gas load, and the solver's
+  // `pressure = totalOutgas / totalPumpSpeed` would read as a perfect vacuum
+  // for a facility that has no beamline at all.
+  const avgPressure = worstVacuumPressure(state);
+  const pumped = avgPressure < 1013;
   let pressureQuality = 'None';
   if (pumped) {
     if (avgPressure < 1e-9) pressureQuality = 'Excellent';
@@ -291,7 +373,13 @@ export function computeSystemStats(state) {
   const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
 
   const totalFwdPower = portCapacity('rf_out', 'capacity');
-  const reflFraction = 0.02;
+  // Reflected power comes from real cavity detuning rather than a flat 2%
+  // guess. An undercooled normal-conducting cavity expands, walks off
+  // resonance, and stops absorbing the power aimed at it — the physics pass
+  // stamps that fraction per cavity (beam_physics/srf.py detune_coupling) and
+  // Game._writeBackCavityResults puts it on the placement. Worst cavity wins:
+  // one badly mismatched load is what the klystron actually sees.
+  const reflFraction = worstReflectedFraction(state);
   const totalReflPower = totalFwdPower * reflFraction;
 
   const avgEfficiency = rfSourceCount > 0 ? 0.55 : 0; // rough average
@@ -346,21 +434,45 @@ export function computeSystemStats(state) {
   const srfCavities = beamline.filter(
     n => typeof getUtilityPortsV2(n.type)?.cryo_in?.params?.srfHeatW === 'number',
   ).length;
-  let staticLoad = cryoHousings * 3 + Math.round(srfHeat * 0.2);
-  let dynamicLoad = Math.round(srfHeat * 0.8);
+  // Live values from the cryo solver when it has run. The fallback split
+  // (20% static / 80% dynamic of declared srfHeat) is only for a facility
+  // whose networks have not solved yet — it is a guess, and the solver's
+  // numbers are real: dynamic load is computed from the gradient each cavity
+  // actually reached, at the temperature the bath actually reached.
+  const cryoLive = cryoNetworkSummary(state);
+  let staticLoad, dynamicLoad, opTemp;
+  if (cryoLive) {
+    staticLoad = Math.round(cryoLive.staticLoad + cryoHousings * 3);
+    dynamicLoad = Math.round(cryoLive.dynamicLoad);
+    opTemp = cryoLive.tempK != null ? cryoLive.tempK : 0;
+  } else {
+    staticLoad = cryoHousings * 3 + Math.round(srfHeat * 0.2);
+    dynamicLoad = Math.round(srfHeat * 0.8);
+    opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
+  }
   const totalCryoLoad = staticLoad + dynamicLoad;
-  const opTemp = subCooling2K > 0 ? 2.0 : (coldBox4K > 0 ? 4.5 : 0);
 
-  const carnot = opTemp === 2.0 ? 750 : 250;
+  // Carnot penalty: removing a watt at 2 K costs about three times what it
+  // costs at 4.5 K. This is the counter-pressure that makes the operating
+  // point a real choice rather than "always run colder" — 2 K buys ~35x the
+  // cavity Q0, and charges for it here.
+  const carnot = opTemp > 0 && opTemp <= 2.5 ? 750 : 250;
   const cryoWallPower = totalCryoLoad * carnot / 1000; // kW
-  const cryoMargin = cryoCapacity > 0 ? ((cryoCapacity - totalCryoLoad) / cryoCapacity * 100) : 0;
+  // Margin against the capacity actually available at the bath's current
+  // temperature, not the plant's nameplate rating — a 2 K plant delivers well
+  // under its 4.5 K number, which is exactly the trade the player is making.
+  const availableCryo = cryoLive ? cryoLive.capacity : cryoCapacity;
+  const cryoMargin = availableCryo > 0
+    ? ((availableCryo - totalCryoLoad) / availableCryo * 100) : 0;
 
   const cryo = {
-    coolingCapacity: cryoCapacity,
+    coolingCapacity: cryoLive ? cryoLive.capacity : cryoCapacity,
     heatLoad: totalCryoLoad,
     opTemp,
     wallPower: cryoWallPower,
     margin: Math.max(cryoMargin, 0),
+    quenched: !!(cryoLive && cryoLive.quenched),
+    warming: !!(cryoLive && cryoLive.warming),
     energyDraw: categoryDraw('cooling', 'cryogenics'),
     detail: {
       compressors,

@@ -303,10 +303,16 @@ console.log('\n=== 7. avgPressure tracks the pumps instead of latching ===\n');
   assert(g.state.systemStats.vacuum.pressureQuality === 'None',
     `no pumped volume → quality 'None' (got ${g.state.systemStats.vacuum.pressureQuality})`);
 
-  // _updateAggregateBeamline must not clobber it once a beamline exists.
+  // Pressure now comes from the utility solver's P = Q/S rather than from a
+  // separate volume-based formula in computeSystemStats, so pumping requires
+  // an actual WIRED vacuum network — the stricter, correct contract. An
+  // unwired pump next to an unwired source is still atmosphere.
   g.beamline.placeJunction({ type: 'source', col: -8, row: 30, dir: 3, free: true, silent: true });
   g.computeSystemStats();
-  assert(g.state.avgPressure < dry, `pumps lower the reported pressure (got ${g.state.avgPressure})`);
+  assert(g.state.avgPressure === 1013,
+    `unwired pumps beside a beamline are still atmospheric (got ${g.state.avgPressure})`);
+  // That a wired network DOES pump down is covered by test-scenarios.js
+  // (smallBeamlineFacility, fully wired) and test-vacuum-length.js.
   assert(g.state.systemStats.vacuum.pressureQuality !== 'Poor',
     `pressure quality is not stuck at 'Poor' (got ${g.state.systemStats.vacuum.pressureQuality})`);
   const good = g.state.avgPressure;

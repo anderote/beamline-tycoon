@@ -12,9 +12,11 @@
 
 ## B
 
-**Beam-beam effect:** The electromagnetic interaction between two colliding beams. Acts as a lens, causing tune shift and potentially instabilities.
+**Beam-beam effect:** The electromagnetic interaction between two colliding beams. Acts as a lens, causing tune shift and potentially instabilities. (Implemented but not currently reachable — see [tier4-physics.md](tier4-physics.md).)
 
 **Beam dump:** A massive block of material designed to safely absorb the full beam power.
+
+**Beam-gas scattering:** Interaction between the beam and residual gas in the pipe. Multiple small-angle Coulomb scatters grow emittance; large-angle and nuclear scatters remove particles. Emittance growth goes as `P x L / (beta gamma)^2` — low-energy beam is far more vulnerable — and current decays as `exp(-L/lambda)` with `lambda` inversely proportional to pressure. This is the only path by which vacuum affects beam quality.
 
 **Beamstrahlung:** Synchrotron-like radiation emitted when a particle passes through the strong electromagnetic field of the opposing bunch in a collision.
 
@@ -78,6 +80,8 @@
 
 **Geometric emittance:** Emittance not corrected for relativistic effects. Shrinks during acceleration (adiabatic damping).
 
+**Gradient, demanded vs achievable:** The accelerating field you ask a cavity for, versus what its supplied RF power and (for SRF) cryogenic temperature actually allow. `E_acc,max = sqrt(P r_shunt / L)` for normal-conducting, `sqrt(P (R/Q) Q0(T)) / L` for superconducting. The cavity delivers the smaller of the two. Gradient goes as the **square root** of power, not linearly.
+
 ## H
 
 **Harmonic linearizer:** An RF cavity at a higher harmonic of the main linac, used to cancel the sinusoidal curvature of the energy chirp for more uniform bunch compression.
@@ -130,7 +134,7 @@
 
 ## Q
 
-**Q0 (intrinsic quality factor):** Measures the RF losses in a cavity: Q0 = stored energy * omega / power dissipated. SRF cavities: Q0 ~ 10^10. Normal conducting: Q0 ~ 10^4.
+**Q0 (intrinsic quality factor):** Measures the RF losses in a cavity: Q0 = stored energy * omega / power dissipated. SRF cavities: Q0 ~ 10^10 at 2 K. Normal conducting: Q0 ~ 10^4. For a superconductor it is strongly temperature-dependent — `Q0 = G / (R_BCS(T) + R_res)` with `R_BCS` exponential in 1/T — which is why the difference between 2.0 K and 4.2 K is about 35x in Q0 and 5.9x in achievable gradient.
 
 **Quadrupole magnet:** A magnet with field increasing linearly from the axis. Focuses in one plane, defocuses in the other.
 

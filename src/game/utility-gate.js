@@ -57,6 +57,24 @@ export const UTILITY_TO_QUALITY_FIELD = {
   dataFiber:    'dataQuality',
 };
 
+// Physical per-sink quantities carried alongside the 0-1 quality scalars.
+//
+// The scalars say how well a sink is served; these say WHAT it is served with,
+// which is what the device-physics model needs. A cavity's gradient depends on
+// watts of RF and kelvin of helium, not on an abstract fraction — see
+// beam_physics/srf.py.
+//
+// `field` is the name on nodeQualities (and so on infraQuality); `flowKey` is
+// the per-sink map the utility solver publishes on its flowState; `worst` is
+// the fail-closed value for a declared-but-unsolved sink, chosen so that
+// forgetting to wire something is never better than wiring it badly.
+export const UTILITY_PHYSICAL_FIELDS = [
+  { utility: 'rfWaveguide',  field: 'rfPowerW',        flowKey: 'perSinkPower',    worst: 0, reduce: 'min' },
+  { utility: 'cryoTransfer', field: 'cryoTempK',       flowKey: 'perSinkTemp',     worst: 300, reduce: 'max' },
+  { utility: 'coolingWater', field: 'coolingDeltaT',   flowKey: 'perSinkDeltaT',   worst: 100, reduce: 'max' },
+  { utility: 'vacuumPipe',   field: 'vacuumPressure',  flowKey: 'perSinkPressure', worst: 1013, reduce: 'max' },
+];
+
 /**
  * Quality fields a component type declares a SINK for, as an object of zeros —
  * the fail-closed floor for that type. Returns null when the type declares no
@@ -83,9 +101,20 @@ function sinkQualityFloorFrom(portTable) {
   for (const spec of Object.values(portTable || {})) {
     if (!spec || spec.role !== 'sink') continue;
     const field = UTILITY_TO_QUALITY_FIELD[spec.utility];
-    if (!field) continue;
-    if (!floor) floor = {};
-    floor[field] = 0;
+    if (field) {
+      if (!floor) floor = {};
+      floor[field] = 0;
+    }
+    // Physical quantities fail closed to their WORST value, which is not
+    // always zero: no RF is 0 W, but no cooling is a hot cavity (300 K) and no
+    // pumping is atmosphere (1013 mbar). Zeroing those would read as "perfectly
+    // cold" and "perfect vacuum" — the exact inversion this floor exists to
+    // prevent.
+    for (const phys of UTILITY_PHYSICAL_FIELDS) {
+      if (phys.utility !== spec.utility) continue;
+      if (!floor) floor = {};
+      floor[phys.field] = phys.worst;
+    }
   }
   return floor;
 }
@@ -258,6 +287,27 @@ export class UtilityGate {
             prior === undefined ? q : Math.min(prior, q);
         }
       }
+
+      // Physical quantities alongside the scalar. Same worst-case-wins rule,
+      // but the direction depends on the quantity: less RF power is worse,
+      // while a HIGHER temperature or pressure is worse.
+      for (const phys of UTILITY_PHYSICAL_FIELDS) {
+        if (phys.utility !== utilityType) continue;
+        for (const flow of perType.values()) {
+          const map = flow[phys.flowKey] || {};
+          for (const portKey of Object.keys(map)) {
+            const v = map[portKey];
+            if (typeof v !== 'number') continue;
+            const colonIdx = portKey.indexOf(':');
+            const placeableId = colonIdx >= 0 ? portKey.slice(0, colonIdx) : portKey;
+            if (!nodeQualities[placeableId]) nodeQualities[placeableId] = {};
+            const prior = nodeQualities[placeableId][phys.field];
+            nodeQualities[placeableId][phys.field] = prior === undefined
+              ? v
+              : (phys.reduce === 'max' ? Math.max(prior, v) : Math.min(prior, v));
+          }
+        }
+      }
       // Also expose cryo-quench as a boolean on the placeable so the
       // Python backend can convert SRF cavities to drift.
       if (utilityType === 'cryoTransfer') {
@@ -276,8 +326,11 @@ export class UtilityGate {
     for (const [placeableId, floor] of (declaredFloors || [])) {
       let entry = nodeQualities[placeableId];
       if (!entry) entry = nodeQualities[placeableId] = {};
+      // Use the floor's own value, not a blanket 0 — physical quantities fail
+      // closed to 300 K / 1013 mbar, and zeroing them would mean "ice cold"
+      // and "perfect vacuum" for a sink that was never wired.
       for (const field of Object.keys(floor)) {
-        if (typeof entry[field] !== 'number') entry[field] = 0;
+        if (typeof entry[field] !== 'number') entry[field] = floor[field];
       }
     }
     return nodeQualities;

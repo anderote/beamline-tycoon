@@ -1,5 +1,11 @@
 # Tier 3 Physics — Free Electron Laser
 
+> **None of this is live yet.** The bunch-compression and FEL-gain modules are written, tested, and complete — but they only load for `machineType: 'fel'`, and nothing in the game ever sets a machine type other than `linac`. There is also no chicane and no undulator in the component catalogue. So no beamline you can currently build compresses a bunch or lases.
+>
+> CSR is described here as part of the compression story; it is a consequence of the bunch-compression module, and so is equally unreachable. Ordinary (incoherent) synchrotron radiation in dipoles **is** live — see [tier1-physics.md](tier1-physics.md).
+>
+> The physics below is the design target and the code exists. Read it as "what this will do", not "what your machine is doing".
+
 ---
 
 ## Bunch Compression

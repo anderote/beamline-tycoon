@@ -1,5 +1,11 @@
 # Tier 4 Physics — Electron-Positron Collider
 
+> **None of this is live yet.** The `beam_beam` module — luminosity, tune shift, disruption, pinch enhancement, Piwinski reduction — is written, tested, and complete, but it only loads for `machineType: 'collider'`, and nothing in the game ever sets a machine type other than `linac`. It has never executed.
+>
+> The luminosity figure the game reports today does **not** come from this module. It comes from the lattice's own summary, and the "discovery" check keys off beam energy and that figure. There is a **Collision Point** component in the catalogue, but it is modelled as a plain drift.
+>
+> There is also no positron target, no septum for beam separation, no kicker, and no way to build two beamlines that converge. Read this article as the design target for tier 4.
+
 ---
 
 ## Luminosity

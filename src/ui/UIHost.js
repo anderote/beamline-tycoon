@@ -25,6 +25,9 @@ export class UIHost {
     this._selectedParamOverrides = null;
     this._activeStatsCategory = null;
     this._activeStatsKey = null;
+    // Palette item under the cursor — read by the manual's contextual open
+    // (hud.js: _contextualManualComponent) so "?" lands on that component.
+    this._hoveredPaletteComponent = null;
 
     // --- Tech tree pan/zoom state ---
     this._treePanX = 0;

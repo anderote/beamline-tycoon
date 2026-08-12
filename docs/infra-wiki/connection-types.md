@@ -1,71 +1,95 @@
 # Connection Types
 
 ## Quick Tip
-Six types of pipes and cables connect facility equipment to the beamline. Each carries a different utility.
+Six types of pipes and cables connect facility equipment to the beamline. Each carries a different utility, and each is drawn port-to-port.
 
 ## Connection Types
 
 ### Power Cable (green)
-Carries electrical power from substations and power panels to all active equipment. Forms power networks with capacity budgets. Almost every active component needs one.
+Carries electrical power from transformers and panels to all active equipment. Forms power networks with capacity budgets. Almost every active component needs one.
 
 - **Color:** Green (0x44cc44)
 - **Network type:** Capacity-based (kW supply vs demand)
-- **Source equipment:** Substation, Power Distribution Panel
-- **Typical consumers:** Everything with energyCost > 0
+- **Source equipment:** Power Panel, Pad-Mount Transformer, Motor Control Center, Switchgear Cabinet, HV Transformer, UPS
+- **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
+- **Cost:** $600/sub-unit ($2,400/tile)
+- **Bus:** Power Bus, $90k, 10-cell service radius
 
 ### Vacuum Pipe (gray)
-Connects vacuum pumps to the beamline. Carries pumping speed, subject to conductance losses over distance. Any beamline component can be a vacuum connection point.
+Connects vacuum pumps to the beamline. Each pump adds its rated speed to the network; pressure is the network's total gas load divided by its total pump speed.
 
-- **Color:** Gray (0x999999)
-- **Network type:** Conductance-based (pump speed degraded by pipe length)
+- **Color:** Gray (0x888888)
+- **Network type:** Pressure-based, `P = Q/S`
 - **Source equipment:** Roughing pump, Turbo pump, Ion pump, NEG pump, Ti sublimation pump
-- **Consumers:** Global beamline vacuum (not per-component)
+- **Consumers:** Every beamline component — each declares its own gas load, and the beam pipe itself is charged by length
+- **Cost:** $1,400/sub-unit ($5,600/tile)
+- **Bus:** Vacuum Manifold, $120k, 5-cell service radius
+
+There is **no conductance model**. Pipe length between the pump and the beamline does not degrade pumping speed. What length *does* cost you is gas load: every metre of beam pipe outgasses. See [vacuum.md](vacuum.md).
 
 ### RF Waveguide (red)
-Carries RF power from sources to accelerating cavities. Frequency-matched: source must operate at the same frequency as the cavities it drives.
+Carries RF power from sources to accelerating cavities. Frequency-matched: source must operate at the same frequency as the cavities it drives, or be broadband.
 
 - **Color:** Red (0xcc4444)
-- **Network type:** Frequency + power budget
-- **Source equipment:** Klystron, CW Klystron, SSA, IOT, Magnetron, Multi-beam Klystron, High-power SSA
-- **Consumers:** RF cavities, accelerating structures, RF guns, bunchers, RFQ
-- **Support equipment:** Modulator (required for pulsed klystrons), Circulator (absorbs reflected power), High-power Coupler, LLRF Controller
+- **Network type:** Per-frequency power buckets, with a shared broadband pool
+- **Source equipment:** Magnetron, TWT, SSA, Pulsed Klystron, CW Klystron, IOT, Multi-beam Klystron, High-power SSA, Gyrotron
+- **Consumers:** All RF cavities and structures, the RFQ, bunchers, and the ECR ion source
+- **Cost:** $1,800/sub-unit ($7,200/tile)
+- **Bus:** Waveguide Manifold, $160k, 6-cell service radius
+- **Support equipment (flavour only — no mechanical effect):** Modulator, Circulator, High-power Coupler, LLRF Controller
 
 ### Cooling Water (blue)
 Carries cooling capacity from chillers and LCW systems to heat-producing components. Forms cooling networks with capacity budgets.
 
-- **Color:** Blue (0x4488cc)
-- **Network type:** Capacity-based (kW cooling vs heat load)
+- **Color:** Blue (0x4488ff)
+- **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
 - **Source equipment:** Chiller, LCW Skid, Cooling Tower
-- **Consumers:** Magnets, RF cavities, beam absorbers (targets, dumps, collimators), He compressors
+- **Consumers:** Magnets, normal-conducting RF structures, beam absorbers (target, beam stop), the detector, the electron gun and ion sources, and the He compressor
+- **Cost:** $900/sub-unit ($3,600/tile)
+- **Bus:** Cooling Manifold, $80k, 8-cell service radius
 - **Support equipment:** Deionizer, Heat Exchanger, Water Load, Emergency Cooling
 
+SRF cavities are **not** cooling-water consumers. Their thermal path is cryogenics.
+
 ### Cryo Transfer (cyan)
-Carries cryogenic helium between cryo plant equipment and SRF components. Forms cryo networks with capacity budgets at specific operating temperatures.
+Carries cryogenic helium between cold boxes and SRF components. The network's output is a **bath temperature**, not an abstract capacity fraction.
 
 - **Color:** Cyan (0x44aacc)
-- **Network type:** Capacity-based (watts cooling at operating temperature)
-- **Source equipment:** 4K Cold Box, 2K Cold Box, Cryocooler
-- **Required support:** He Compressor (cold boxes need one in-network to function)
-- **Consumers:** Cryomodule, Tesla 9-cell, SRF 650 Cavity, SC Quad, SC Dipole, SRF Gun
-- **Support equipment:** Cryomodule Housing, LN2 Pre-cooler, He Recovery
+- **Network type:** Thermal — heat load vs plant capacity, resolved into a bath temperature
+- **Source equipment:** 4K Cold Box (500 W), 2K Cold Box (800 W). A 2K Cold Box on the network sets its design temperature to 2.0 K.
+- **Consumers:** Half-Wave Resonator, Spoke Cavity, 9-cell Elliptical SRF, TESLA Cryomodule
+- **Cost:** $4,000/sub-unit ($16,000/tile) — the outlier of the ladder, by design
+- **Bus:** Cryo Valve Box, $400k, 6-cell service radius
+- **Support equipment (flavour only):** He Compressor, Cryomodule Housing, LN2 Pre-cooler, LN2 Dewar, He Recovery, Cryocooler
+
+The **He Compressor is not required** for a cold box to work — the solver has no compressor check. The **Cryocooler declares no cryo source port** and therefore contributes zero capacity.
 
 ### Data/Fiber (white)
-Carries control signals and measurement data between diagnostics and the control system. Binary connection: connected or not, no capacity concept.
+Carries control signals and measurement data between diagnostics and the control system. Binary connection: the network has a source or it doesn't.
 
 - **Color:** White (0xeeeeee)
-- **Network type:** Binary (path exists to Rack/IOC or not)
-- **Source equipment:** Rack/IOC
-- **Consumers:** All diagnostics (BPM, wire scanner, emittance scanner, etc.)
-- **Support equipment:** Timing System, MPS, LLRF Controller
+- **Network type:** Binary connectivity
+- **Source equipment:** Rack/IOC, Network Switch, Archiver, Timing System, BPM Electronics, BLM Readout, LLRF Controller, Patch Panel
+- **Consumers:** BPM, screen, ICT, wire scanner, Faraday cup, detector, target, collision point, MPS
+- **Cost:** $300/sub-unit ($1,200/tile) — the cheapest run to pull
+- **Bus:** Fiber Bus, $35k, 12-cell service radius
+
+Data fiber is the one utility that is **not hard-gated**. An unwired BPM costs you data income; it does not trip the beam.
 
 ## Network Formation
 
-All connection types form networks the same way: flood-fill through adjacent tiles of the same type. All facility equipment and beamline components touching tiles in a network are members of that network.
+Networks are **not** flood-filled through tiles. Each connection is a drawn line between two named **ports**, and two ports belong to the same network if a line joins them, directly or transitively. Network membership is a union-find over port keys (`placeableId:portName`), which is why a component with several ports of different utilities belongs to several independent networks at once.
 
-Two tiles of the same connection type that are not adjacent (including diagonally — only cardinal directions count) belong to different networks.
+A component with more than one sink of the same utility can therefore be fed by two different networks; where that happens, the worst feed wins.
+
+### Distribution Buses
+
+Wiring a FODO cell means a dozen individual quadrupole stubs, so each utility has a **bus** — a distribution component that stands in for the per-component stub to every on-pipe sink within its service radius (measured in grid cells; one cell is 2 m).
+
+A bus adds **no capacity**. It only changes how many lines you have to draw. Draw one line to a wired bus and every covered sink on the pipe counts as connected.
 
 ## Connection Placement
 
-Players place connection tiles on the isometric grid, one tile at a time or by dragging. Tiles can overlap with infrastructure (flooring, zones) but not with beamline components or facility equipment — pipes and cables run alongside, not through, the equipment they serve.
+Lines are drawn from a source port to a sink port, and priced per sub-unit of drawn path (a sub-unit is a quarter tile). The rates above bind on both the run-wiring drag and the ordinary single-line draw — free single runs would make every bus in the catalogue a strictly worse buy.
 
-A beamline component or facility equipment is "connected" to a network if any of its occupied tiles is cardinally adjacent to a tile in that network.
+Measured on the reference beamline: about $458k of wire against $3.25M of hardware — 14%, so wiring is a real budget line and never the dominant one.

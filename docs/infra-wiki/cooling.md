@@ -1,11 +1,11 @@
 # Cooling Water
 
 ## Quick Tip
-Magnets and RF cavities generate heat. Chillers and LCW skids remove it. No cooling = no beam.
+Magnets and normal-conducting RF cavities generate heat. Chillers and LCW skids remove it. Undercool a copper cavity and it walks off resonance.
 
 ## How It Works
 
-About 60% of the electrical power consumed by beamline and facility equipment ends up as waste heat. Without cooling, components overheat and shut down — or worse, get damaged. The cooling water system removes this heat and dumps it to the environment.
+About 60% of the electrical power consumed by beamline and facility equipment ends up as waste heat. Without cooling, components overheat — or, in the case of an RF cavity, expand and detune. The cooling water system removes this heat and dumps it to the environment.
 
 ### Cooling Plant
 
@@ -25,7 +25,7 @@ Cooling water pipes form isolated networks. A chiller only cools components it's
 
 This means you need to plan your pipe routing. A common strategy:
 - One cooling network for your magnet string
-- One cooling network for your RF system (which generates more heat)
+- One cooling network for your RF system (which generates far more heat)
 - Separate networks can have different capacity — build bigger where the heat is
 
 ### Heat Load
@@ -35,32 +35,41 @@ Each cooled component declares its own heat load (kW):
 | Load | Components |
 |------|------------|
 | 6-8 kW | Sextupole (6), quadrupole (8) |
-| 20-25 kW | Dipole (20), ion source (20), septum (25) |
+| 20-30 kW | Dipole (20), ion source (20), septum (25), electron gun (30) |
 | 40-60 kW | ECR source (40), target (40), beam stop (50), detector (60), RFQ (60) |
 | 100-120 kW | S-band structure (100), NC RF cavity (120) |
 
-Not all components need cooling water — passive elements and low-power electronics are air-cooled, and SRF cavities load the cryo plant instead. Only components with `coolingWater` in their required connections need to be in a cooling network.
+Not all components need cooling water — passive elements and low-power electronics are air-cooled, and **SRF cavities have no water loop at all**: their thermal path is the cryo model. Only components that declare a `coolingWater` sink need to be in a cooling network.
 
 The biggest heat producers are normal-conducting RF structures: a single NC cavity's 120 kW eats a whole chiller's margin. Magnets are gentle by comparison — a starter magnet string fits under one LCW skid.
 
+### What Undercooling Actually Does
+
+The solver turns an unmet heat load into a **temperature rise at the sink**: a fully starved loop reaches 40 K above design, a partly served one scales in between.
+
+For a normal-conducting cavity, that temperature rise causes thermal expansion, which shifts the resonant frequency. The cavity falls off resonance and stops absorbing the power aimed at it — the response is Lorentzian, so a small deficit is nearly free and a large one is catastrophic. At S-band, a 10 K rise couples only about 34% of forward power; a fully starved 40 K rise couples about 3%.
+
+**It does not gently fade.** The power that doesn't couple in reflects back at the klystron, and that reflected fraction is what drives the VSWR readout in the RF panel.
+
+> **Known limitation:** magnets have *no* graded response to cooling. A `coolingDegradation` emittance-growth factor is computed in the physics layer and read by nothing. A magnet's cooling connection is hard-gated — no connection, no beam — but an under-served cooling loop leaves the magnet's focusing strength untouched.
+
 ### Supporting Equipment
 
-**Deionizer/Water Treatment** — keeps cooling water resistivity high (>1 MOhm-cm). Without it, dissolved ions cause electrical leakage and corrosion. Doesn't add capacity but improves long-term reliability (reduces wear on cooled components).
+**Deionizer/Water Treatment** — keeps cooling water resistivity high (>1 MOhm-cm). Without it, dissolved ions cause electrical leakage and corrosion. Flavour only in gameplay: it adds no capacity and has no mechanical effect.
 
 **Heat Exchanger** — transfers heat between isolated cooling loops. Use between the beamline LCW circuit and the facility chilled water, or to isolate sensitive equipment.
 
-**High-Power Water Load** — absorbs reflected RF power as heat. Protects your RF chain. Place near circulators.
+**High-Power Water Load** — absorbs reflected RF power as heat. Place near circulators.
 
-**Emergency Cooling (UPS)** — keeps water flowing during power outages. Prevents thermal damage to expensive superconducting magnets and RF cavities.
+**Emergency Cooling (UPS)** — keeps water flowing during power outages.
 
 ### Strategy
 
 - Start with an LCW skid for a small beamline
-- Add a chiller when you add RF cavities (they need tight temperature control)
+- Add a chiller when you add NC RF structures — they are where the heat actually is
 - Cooling tower for large facilities with many heat-producing systems
-- Keep pipe runs simple — branch from a central chiller
-- Watch your cooling margin — running too close to capacity risks thermal trips
-- Deionizers prevent long-term corrosion problems
+- A cooling manifold ($80k) beats individual runs at about four sinks; cooling pipe is $3,600/tile
+- Watch the reservoir, not just the capacity bar. Big heat loads drink water fast, and an empty reservoir is a hard beam trip.
 
 ## The Math
 
@@ -72,9 +81,24 @@ C_network = sum(capacity_kW for each plant in network)
 **Network heat load:**
 ```
 Q_network = sum(heatLoad_kW for each cooling sink in network)
+quality   = min(1, C_network / Q_network)
 ```
 
-**Reservoir:** each cooling network evaporates `0.001 L per kW of heat load per tick` from its 500 L reservoir. Refills cost $10/L — big heat loads have a real operating cost. An empty reservoir is a hard beam trip.
+**Temperature rise at the sink:**
+```
+dT = 40 K x (1 - quality)
+```
+Quality 1 means the loop keeps up and the component sits at design temperature.
+
+**Thermal detuning of normal-conducting cavities:**
+```
+df       = 20 kHz/K x dT x (f_GHz / 2.856)
+coupling = 1 / (1 + (2 Q_L df / f)^2)          Q_L = 1e4
+P_eff    = P_forward x coupling
+reflected fraction = 1 - coupling
+```
+
+**Reservoir:** each cooling network evaporates `0.02 L per kW of heat load per tick` from its 500 L reservoir. Refills cost $12/L, so a full top-up is about $6,000. A 30 kW starter loop drinks 0.6 L/tick — a refill roughly every 830 ticks; a 60 kW detector loop refills about twice as often. A visible recurring cost, not a death spiral.
 
 **Margin:**
 ```
@@ -86,4 +110,4 @@ margin = (C_network - Q_network) / C_network * 100%
 flow_rate = C_network / (4.18 kJ/(kg*K) * 10 K) * 60 L/min
 ```
 
-**Hard gate:** `Q_network > C_network` in any cooling network blocks beam operation.
+**Hard gates:** a cooling sink not wired to any network, or a network whose reservoir has run dry (`cooling_dry`). Exceeding capacity is a **soft** derate — the loop warms and NC cavities detune, but the beam keeps running. A network with demand and zero chiller capacity is also soft (`cooling_starved`), though at quality 0 it produces the full 40 K rise.

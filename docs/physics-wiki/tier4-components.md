@@ -2,6 +2,10 @@
 
 Tier 4 is the endgame of the electron era. You build two beamlines that converge at an interaction point where electrons and positrons annihilate, producing new particles. This is particle physics at its most ambitious.
 
+> **Availability:** the **positron target, septum, kicker and Compton IP are not in the catalogue.** The **Detector** is, and works — it is the game's main data-producing endpoint (120 kW power, 60 kW cooling, 40 Gbps data). There is also an **Injection Septum** and a **Collision Point**, but both are modelled as plain drifts: the beam passes through unaffected.
+>
+> The beam-beam module that would turn a collision point into luminosity has never executed, because nothing sets `machineType: 'collider'`. Read the rest of this article as the design target.
+
 ---
 
 ## Positron Target

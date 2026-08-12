@@ -1,11 +1,11 @@
 # Cryogenic Systems
 
 ## Quick Tip
-SRF cavities need cryogenic cooling to superconduct. No cryo connection = zero energy gain from SRF.
+SRF cavities need cryogenic cooling to superconduct. The bath holds its design temperature until you overload it — then it warms, and warming feeds itself.
 
 ## How It Works
 
-Superconducting RF (SRF) cavities must be cooled to cryogenic temperatures — 4.5 Kelvin (-269 C) or 2 Kelvin (-271 C) — to become superconducting. At these temperatures, niobium has zero electrical resistance, so RF fields oscillate in the cavity walls with almost no energy loss. This is what makes SRF cavities dramatically more efficient than normal-conducting copper cavities.
+Superconducting RF (SRF) cavities must be cooled to cryogenic temperatures — 4.5 Kelvin (-269 C) or 2 Kelvin (-271 C) — to become superconducting. At these temperatures, niobium's surface resistance drops by orders of magnitude, so RF fields oscillate in the cavity walls with almost no energy loss. This is what makes SRF cavities dramatically more efficient than normal-conducting copper cavities.
 
 But maintaining these temperatures requires a complex cryo plant. The cryogenic system is the most expensive and demanding infrastructure in any SRF-based accelerator.
 
@@ -15,75 +15,117 @@ A complete cryogenic system has these components, roughly in order of the coolin
 
 1. **LN2 Dewar** — liquid nitrogen storage at 77K. Cheapest cryogen, used for pre-cooling.
 2. **LN2 Pre-cooler** — uses LN2 to cool helium gas from 300K to 80K before the main refrigerator, reducing compressor load.
-3. **Helium Compressor** — the heart of the system. Compresses warm return helium gas. High energy cost. Required for cold boxes to function.
-4. **4K Cold Box** — refrigerator that cools helium to 4.5K. Standard operating temperature for most SRF cavities. 500W capacity ($8M) — the entry-level plant.
-5. **2K Cold Box** — sub-atmospheric pumping to reach 2.0K (superfluid helium). Higher Q-factor operation. 800W capacity ($15M) — the industrial plant for multi-cryomodule linacs.
-6. **Cryomodule Housing** — insulated vacuum vessel surrounding SRF cavities. Provides thermal shielding between 2-4K interior and room temperature.
+3. **Helium Compressor** — compresses warm return helium gas. High energy cost, and it dumps 20 kW into the cooling water loop.
+4. **4K Cold Box** — refrigerator that cools helium to 4.5K. 500 W capacity ($8M) — the entry-level plant.
+5. **2K Cold Box** — sub-atmospheric pumping to reach 2.0K (superfluid helium). 800 W capacity ($15M) — and, crucially, **its presence is what sets the network's design temperature to 2.0 K**.
+6. **Cryomodule Housing** — insulated vacuum vessel surrounding SRF cavities. Provides thermal shielding between the cold interior and room temperature.
 7. **Helium Recovery** — captures boil-off helium gas for recycling. Reduces long-term costs.
-8. **Cryocooler** — small closed-cycle refrigerator (40-80K). Good for individual components, not powerful enough for SRF strings.
+8. **Cryocooler** — small closed-cycle refrigerator. Declares no cryo source port, so it contributes **zero** capacity to a cryo network.
 
-### Cryo Networks
+### Temperature Is the Thing That Matters
 
-Cryo transfer lines form isolated networks, just like other utility systems. A cold box only serves SRF cavities it's connected to via cryo transfer tiles. The key constraints per network:
+The cryo network does not produce an abstract "cooling quality." It produces a **bath temperature**, and that temperature is what reaches the beam.
 
-- **Compressor required**: cold boxes produce zero capacity without a helium compressor in the same network. The compressor drives the refrigeration cycle.
-- **Capacity vs load**: total cooling capacity must exceed total heat load
-- **Operating temperature**: determined by the coldest cold box in the network (4.5K or 2K)
+The bath's design temperature is **2.0 K** if any 2K Cold Box sits on the network, and **4.5 K** otherwise. While the plant's capacity covers the heat load, the bath sits at that temperature. When load exceeds capacity, the bath warms — and the warming accelerates on its own, because the cavity's quality factor collapses as it warms, which makes it dissipate more, which warms it faster.
 
-### Heat Load
+That runaway is the quench mechanic. It is emergent, not scripted, and it always gives you time to react. Measured against one cryomodule on a 300 W plant: a hard over-drive (25 MV/m) quenches at tick 21, a moderate one (22 MV/m) at tick 29, and a mild one (16 MV/m) never quenches at all. **Back off the demanded gradient and the plant pulls the bath back down.**
 
-Each SRF component declares its own heat load — a full cryomodule's load dwarfs a single cavity's:
+### Why 2 K Is Worth It (And Why It Isn't Free)
 
-| Component | Heat Load | Description |
+Going from 4.2 K to 2.0 K buys about **35x the cavity Q0**, which is about **5.9x the achievable gradient** at the same RF power. That is an enormous win.
+
+The counter-pressure is the Carnot penalty: removing a watt at 2 K costs about **750 W** of wall power, against **250 W** at 4.5 K. So 2 K buys 35x the Q0 at 3x the electricity per watt removed, and the operating point is a genuine engineering choice rather than a strictly-better setting.
+
+### Heat Load: Static and Dynamic
+
+Each SRF component declares a **static** heat load — the vessel, transfer line and radiation heat it leaks whether or not it is powered:
+
+| Component | Static Load | Description |
 |-----------|-----------|-------------|
-| Half-Wave Resonator | 15 W | Small coaxial cavity, 4K |
+| Half-Wave Resonator | 15 W | Small coaxial cavity |
 | Spoke Cavity | 25 W | Double-spoke resonator |
 | 9-cell Elliptical SRF | 40 W | High-gradient cavity in its own He vessel |
-| TESLA Cryomodule | 250 W | Eight 9-cell cavities in one 2K cryostat |
+| TESLA Cryomodule | 250 W | Eight 9-cell cavities in one cryostat |
 
-This seems tiny (watts, not kilowatts), but removing heat at 4K requires enormous energy input. The **Carnot penalty** means every watt removed at 4K costs about 250 watts of electrical power, and at 2K it costs about 750 watts. One 4K cold box (500 W) carries two cryomodules; a serious SRF linac needs the 800 W 2K plant — or several cold boxes on separate networks.
+On top of that sits the **dynamic** load: RF power dissipated in the cavity walls, computed from the gradient the cavity actually reached last tick and the bath's current temperature. This dominates while running, and it is what closes the feedback loop. A cryomodule at 20 MV/m dissipates about **429 W at 2.0 K** and about **18.5 kW at 4.5 K** — which is why the same hardware that is comfortable cold is hopeless warm.
+
+An idle machine still boils helium: static load counts even with no RF.
+
+### Quench
+
+Two independent causes, both hard trips:
+
+- **Thermal quench:** the bath reaches 9.25 K (niobium's Tc)
+- **Dry reservoir:** liquid helium falls below 20 L
+
+A quenched SRF cavity is converted to a drift — it accelerates nothing. It also contributes **no dynamic load**, because the machine-protection interlock drops its RF the moment it goes normal-conducting. That is what lets the plant recover; without it, Q0 would fall to the copper value, dissipation would go to megawatts, and the quench would latch forever.
 
 ### Strategy
 
-- You don't need cryo until you place SRF components (cryomodule, Tesla 9-cell, SRF 650, SC magnets)
-- Minimum viable cryo: He compressor + 4K cold box + cryo transfer to SRF cavities
-- LN2 pre-cooler reduces compressor energy cost — good optimization
-- 2K operation unlocks higher cavity Q but costs 3x more wall power per watt
-- Helium recovery is worth it for large installations — helium is expensive
-- Plan cryo network routing early — the components are large and the transfer lines need to reach every cryomodule
+- You don't need cryo until you place SRF components (half-wave resonator, spoke cavity, elliptical SRF, cryomodule)
+- Minimum viable cryo: 4K cold box + cryo transfer to the SRF cavities. **There is no compressor requirement in the solver** — a cold box produces its rated capacity on its own.
+- 2K operation unlocks far higher cavity Q0 but costs 3x more wall power per watt removed
+- Watch the temperature readout, not just the margin bar. A warming bath is the early warning; the margin bar goes red at the same moment but the temperature tells you how fast
+- Cryo transfer line is the most expensive utility run in the game at $16,000/tile — plan cryo network routing early and keep the plant next to what it cools
+- Helium is expensive. A cryomodule string has a real helium bill.
 
 ## The Math
 
-**Network cryo capacity:**
+**Surface resistance and quality factor** (niobium, BCS approximation):
 ```
-C_network = sum(capacity_W for each cold box or cryocooler in network)
-```
-Cold boxes contribute zero if no He compressor is in the network.
-
-**Network heat load:**
-```
-Q_total = sum(srfHeatW for each SRF sink in network)
+R_BCS(T) = (2e-4 x f_GHz^2 / T) x exp(-17.67 / T)      ohm
+Q0(T)    = G / (R_BCS(T) + R_res)                      R_res = 10 nohm
 ```
 
-**LHe reservoir:** boil-off is `0.0005 L per W of heat load per tick` from a 500 L reservoir; below 20 L the network **quenches** (hard trip). Refills cost $50/L — a cryomodule string has a real helium bill.
+Calibrated against the TESLA 9-cell (f = 1.3 GHz, R/Q = 1030 ohm, G = 270 ohm, L = 1.038 m):
 
-**Margin:**
+| T (K) | R_BCS (nohm) | Q0 | E_acc @ 42 W | P_diss @ 20 MV/m |
+|---|---|---|---|---|
+| 1.8 | 10 | 1.3e10 | 23.1 MV/m | 31 W |
+| 2.0 | 25 | 7.8e9 | 17.7 MV/m | 54 W |
+| 2.5 | 115 | 2.2e9 | 9.3 MV/m | 194 W |
+| 3.0 | 312 | 8.4e8 | 5.8 MV/m | 499 W |
+| 4.2 | 1198 | 2.2e8 | 3.0 MV/m | 1872 W |
+
+Real TESLA cavities run Q0 ~ 1e10 at 2 K and dissipate 30-50 W at 20 MV/m, so the model reproduces hardware with no free parameters.
+
+**Achievable gradient and wall dissipation** (per cavity — a cryomodule holds eight):
 ```
-margin = (C_network - Q_total) / C_network * 100%
+E_acc,max = sqrt(P_rf x (R/Q) x Q0) / L_active
+P_diss    = (E_acc x L_active)^2 / ((R/Q) x Q0)
 ```
+
+**Per-component SRF constants:**
+
+| Component | f (GHz) | R/Q (ohm) | G (ohm) | L_act (m) | cavities |
+|---|---|---|---|---|---|
+| Half-Wave Resonator | 0.161 | 275 | 50 | 0.30 | 1 |
+| Spoke Cavity | 0.325 | 220 | 110 | 0.46 | 1 |
+| 9-cell Elliptical SRF | 0.65 | 380 | 190 | 0.72 | 1 |
+| TESLA Cryomodule | 1.3 | 1030 | 270 | 1.038 | 8 |
+
+**Thermal step, per tick:**
+```
+T_design = 2.0 K if a coldBox2K is on the network, else 4.5 K
+load(T)  = sum(static heat) + sum(P_diss at last achieved gradient)
+cap(T)   = min(rated_W x (T / T_design)^1.3, rated_W x 3)
+T_next   = clamp(T + (load - cap) / 20000, T_design, 9.25)
+```
+`capacity` rises with temperature because a plant run warmer than its design point delivers more — which is exactly why 4 K operation is cheap. The thermal mass constant (20000 W-ticks/K) sets the whole warning window.
+
+**Network capacity:**
+```
+C_network = sum(coldCapacityW for each cold box in network)
+```
+Cryocoolers declare no cryo source port and add nothing.
+
+**LHe reservoir:** boil-off is `0.0005 L per W of total heat load per tick` from a 500 L reservoir; below 20 L the network **quenches**. Refills cost $50/L, so a full 480 L top-up is about $24,000. A 250 W cryomodule boils about 0.125 L/tick — roughly one refill every 3,800 ticks. Rare but painful, as LHe should be.
 
 **Wall power (Carnot penalty):**
 ```
-P_wall = Q_total * COP
+P_wall = Q_total x COP
 ```
-Where COP (coefficient of performance, inverse) is:
-- 4.5K operation: COP ~ 250 W_wall / W_cold
-- 2.0K operation: COP ~ 750 W_wall / W_cold
+- 2.5 K and below: COP ~ 750 W_wall / W_cold
+- Above 2.5 K: COP ~ 250 W_wall / W_cold
 
-**Operating temperature:**
-```
-T_op = min(T_coldbox for each cold box in network)
-```
-If no cold box, only cryocoolers: T_op = 40K (insufficient for SRF).
-
-**Hard gate:** `Q_total > C_network` or no compressor in network blocks SRF operation.
+**Hard gates:** an SRF cavity's cryo sink not wired to any network; or the network in quench (thermal or dry-reservoir). Merely exceeding capacity is a **soft** warning (`cryo_warming`) — the bath starts climbing, and you have time to do something about it.

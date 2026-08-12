@@ -33,7 +33,6 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import { ZONES } from '../src/data/facility.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { MODES, CATEGORIES, INFRA_DISTRIBUTION } from '../src/data/modes.js';
-import { MACHINE_TIER } from '../src/data/machines.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../src/data/structure.js';
 import { DECORATIONS } from '../src/data/decorations.js';
 import { SCENARIOS } from '../src/data/scenarios.js';
@@ -83,26 +82,29 @@ const UNIVERSE = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// Forward-looking content: ids named by shipped tables for components that do
-// not exist yet. Every one of these is photoinjector / FEL / collider hardware
-// the machine-type progression assumes and no registry defines. They are NOT
-// typos — dropping them would delete the design intent — so they are allowed
-// here and owned by Phase 12 (progression design), which should either
-// implement them or delete the tables that name them.
+// Forward-looking content: ids named by shipped code for components that do
+// not exist yet. They are NOT typos — dropping them would delete design intent.
+//
+// The table that used to name most of these (MACHINE_TIER) is gone, replaced by
+// the per-type allowlists in src/data/beamline-types.js. What remains is owned
+// by the beamline-types waves: photon-port hardware lands with the Light
+// Source, positron hardware with the Collider.
 //
 // Self-cleaning: implementing one of these fails the "no longer unimplemented"
 // assertion below until it is removed from this list.
 // ---------------------------------------------------------------------------
 const UNIMPLEMENTED_CONTENT = new Set([
-  // photoinjector (MACHINE_TIER tier 2, Game._ensureBeamlineForSourcePlaceable)
-  'dcPhotoGun', 'ncRfGun', 'srfGun', 'solenoid',
-  // FEL (MACHINE_TIER tier 3, Game._tickBeamlineEconomy photon-port user fees)
-  'chicane', 'harmonicLinearizer', 'dogleg', 'laserHeater',
-  'undulator', 'helicalUndulator', 'wiggler', 'apple2Undulator', 'photonPort',
+  // photoinjector guns (Game._ensureBeamlineForSourcePlaceable names these)
+  'dcPhotoGun', 'ncRfGun', 'srfGun',
+  // FEL hardware (Game._tickBeamlineEconomy has photon-port user-fee code)
+  // `chicane` and `undulator` were here and are now real components — adding
+  // them is what finally lets BunchCompressionModule and FELGainModule run.
+  'harmonicLinearizer', 'dogleg', 'laserHeater',
+  'helicalUndulator', 'wiggler', 'apple2Undulator', 'photonPort',
   'bunchLengthMonitor', 'energySpectrometer',
   'srf650Cavity', 'cbandCavity', 'xbandCavity',
-  'octupole', 'scQuad', 'scDipole', 'combinedFunctionMagnet',
-  // collider (MACHINE_TIER tier 4)
+  'octupole', 'scQuad', 'scDipole',
+  // collider hardware
   'positronTarget', 'kickerMagnet', 'septumMagnet', 'comptonIP',
   'fixedTargetAdv', 'stripperFoil',
 ]);
@@ -174,9 +176,6 @@ const LISTS = [
   ['src/data/research.js RESEARCH node.unlocks',   Object.values(RESEARCH).flatMap(n => n.unlocks || []),  R.COMPONENTS],
   ['components requires -> RESEARCH',              Object.values(COMPONENTS)
     .flatMap(c => (Array.isArray(c.requires) ? c.requires : [c.requires])).filter(Boolean),      R.RESEARCH],
-
-  // --- machine-type progression (28 of its 32 keys are unbuilt hardware) ---
-  ['src/data/machines.js MACHINE_TIER keys', Object.keys(MACHINE_TIER),                          R.COMPONENTS, true],
 
   // --- misc content lists ---
   ['src/game/map-generator.js SCATTER_POOL', sourceList('src/game/map-generator.js', 'SCATTER_POOL'), R.PLACEABLES],

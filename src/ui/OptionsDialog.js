@@ -12,6 +12,7 @@
 
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
+import { openWikiWindow } from './WikiWindow.js';
 
 export class OptionsDialog {
   constructor({ game, renderer, musicPlayer }) {
@@ -131,6 +132,12 @@ export class OptionsDialog {
           <input type="checkbox" id="opt-dev-mode" class="opt-check">
         </div>
 
+        <div class="opt-section-title">Help</div>
+        <div class="opt-row">
+          <span class="opt-label">Operator Manual <span class="opt-kbd">F1</span></span>
+          <button id="opt-open-wiki" class="opt-btn">Open Manual</button>
+        </div>
+
         <div class="opt-note">Settings apply immediately.</div>
       </div>
     `;
@@ -178,6 +185,13 @@ export class OptionsDialog {
       if (e.target.checked !== (this.renderer.showZoneLabels !== false)) {
         this.renderer.toggleZoneLabels();
       }
+    });
+
+    // Manual — same window the HUD "?" button and F1 open. Closing the
+    // dialog first keeps the manual from opening behind it.
+    el.querySelector('#opt-open-wiki').addEventListener('click', () => {
+      this.close();
+      openWikiWindow();
     });
 
     // Dev mode — setDevMode persists to localStorage itself.

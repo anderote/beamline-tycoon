@@ -110,7 +110,7 @@ export const RESEARCH = {
     desc: 'Study how charged particle beams propagate through magnetic fields and drift spaces. Develops the theoretical framework for transverse beam dynamics — emittance, beta functions, and phase space. Enables precision beam shaping with collimators to scrape halo particles and improve beam quality downstream.',
     cost: { data: 105, funding: 1700000 },
     duration: 30,
-    unlocks: [],
+    unlocks: ['collimator'],
     effect: { beamStability: 0.03 },
     requires: null,
   },
@@ -120,7 +120,7 @@ export const RESEARCH = {
     desc: 'Develop techniques to manipulate the longitudinal phase space of particle bunches, compressing them from picoseconds down to femtosecond lengths. Uses energy-dependent path length differences in magnetic chicanes to rotate the phase space. Essential for FEL lasing and high peak-current applications.',
     cost: { data: 140, funding: 2600000 },
     duration: 45,
-    unlocks: [],
+    unlocks: ['chicane'],
     effect: { beamStability: 0.05 },
     requires: 'beamOptics',
   },
@@ -149,7 +149,7 @@ export const RESEARCH = {
     desc: 'Advance the theory of periodic magnet lattice design — optimizing the arrangement of quadrupoles, dipoles, and correctors to control beam properties over long distances. Study combined-function magnets that provide both bending and focusing in a single element, reducing component count and beamline length.',
     cost: { data: 254, funding: 7500000 },
     duration: 65,
-    unlocks: [],
+    unlocks: ['combinedFunctionMagnet'],
     effect: { beamStability: 0.10 },
     requires: 'scMagnets',
   },
@@ -525,7 +525,7 @@ export const RESEARCH = {
     desc: 'Harness the intense electromagnetic radiation emitted when relativistic electrons are deflected by magnetic fields. Undulators use periodic magnet arrays to produce highly collimated, quasi-monochromatic light with brilliance billions of times brighter than X-ray tubes. Wigglers produce broader-spectrum, higher-flux radiation. This light can be delivered to user experiments via photon beamline ports.',
     cost: { data: 228, funding: 6700000 },
     duration: 70,
-    unlocks: [],
+    unlocks: ['undulator'],
     effect: { photonFluxMult: 1.2 },
     requires: null,
   },
@@ -583,6 +583,10 @@ export const RESEARCH = {
     desc: 'Research laser-driven plasma wakefield acceleration — a revolutionary technique where an intense laser pulse drives a plasma wave with electric fields exceeding 100 GV/m, thousands of times stronger than conventional RF cavities. Electrons surfing this wake can gain GeV energies in centimeters rather than kilometers. Still a frontier technology with challenges in beam quality and stability.',
     cost: { data: 412, funding: 15000000, reputation: 1100 },
     duration: 110,
+    // The station and the laser that drives it. Neither is any use alone:
+    // the station is a plasma cell with nothing to blow it open, and the
+    // laser is the most expensive room heater ever built.
+    unlocks: ['lwfaStation', 'petawattLaser'],
     effect: { energyCostMult: 0.60 },
     requires: 'felPhysics',
   },
@@ -659,6 +663,11 @@ export const RESEARCH = {
     desc: 'Study the principles of circular acceleration pioneered by Ernest Lawrence in 1932. A cyclotron uses a constant magnetic field and alternating electric field to spiral charged particles outward in an expanding orbit, gaining energy each revolution. Compact and relatively affordable — ideal for producing medical isotopes, ion beams for materials research, and proton therapy.',
     cost: { data: 140, funding: 2600000 },
     duration: 40,
+    // The compound machine this node has always described in prose and never
+    // actually handed over. A 30 MeV compact cyclotron is source,
+    // acceleration and extraction in one crate, so this is the first node in
+    // the game that unlocks a whole working front end rather than a part.
+    unlocks: ['cyclotron30'],
     effect: { beamStability: 0.04 },
     requires: null,
   },
@@ -668,6 +677,9 @@ export const RESEARCH = {
     desc: 'Overcome the relativistic energy limit of classical cyclotrons using sector-focused (azimuthally varying field) designs. By shaping the magnetic field to increase with radius in a specific pattern, the revolution frequency remains constant even as particles become relativistic. This enables cyclotrons to reach hundreds of MeV — powerful enough for nuclear physics and heavy-ion research.',
     cost: { data: 278, funding: 8900000, reputation: 600 },
     duration: 80,
+    // AVF field shaping is exactly what a 70 MeV machine needs and a 30 MeV
+    // one does not, so the node and the hardware are the same statement.
+    unlocks: ['cyclotron70'],
     effect: { beamStability: 0.08 },
     requires: 'cyclotronTech',
   },

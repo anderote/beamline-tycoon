@@ -89,6 +89,53 @@ const BEAMLINE_UTILITY_PORTS = {
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 2 } },
   },
 
+  // ── Compound machines ─────────────────────────────────────────────
+  // Source + acceleration + extraction in one crate. Their utility profiles
+  // are where the tiers separate: the tier-1 pair ask for almost nothing,
+  // the cyclotrons ask for a substation and a cooling tower, and the LWFA
+  // asks for both while conspicuously wanting no RF and no cryo at all.
+
+  // The cheapest working accelerator in the game, and the only one with a
+  // single utility. A belt in an SF6 tank has nothing to cool: 6 kW of beam
+  // and ~24 kW of column and vacuum losses go to the room. One power panel
+  // (40 kW) covers it exactly, which is the intended tick-1 shopping list.
+  vanDeGraaff: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
+  },
+  // 750 kV cascade plus a duoplasmatron in the terminal: 22 kW of beam and a
+  // rectifier stack that needs the heat taken off it.
+  cockcroftWalton: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 45 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.6, role: 'sink', params: { heatLoad: 25 } },
+  },
+  // A cyclotron is a water heater that occasionally emits protons. 10 kW of
+  // extracted beam against ~140 kW at the wall — RF, main coil, and the
+  // fraction of the internal beam that never makes it to the stripper all
+  // end up in the loop. One padMountTransformer (150 kW) is exactly enough
+  // and one lcwSkid (100 kW) is exactly not.
+  cyclotron30: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 140 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 115 } },
+  },
+  // Same physics, four times the machine: past a single switchgear feed and
+  // past a single cooling tower, so it forces distribution planning.
+  cyclotron70: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 380 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
+  },
+  // NO rf_in and NO cryo_in — the absence is the design. A plasma stage has
+  // no cavity to drive and nothing to keep at 2 K. What it has instead is a
+  // titanium-sapphire chain at a few tenths of a percent wall-plug
+  // efficiency, so a kilowatt of laser costs hundreds of kilowatts of
+  // electricity and gives essentially all of it back as heat. The fibre is
+  // the femtosecond timing link to petawattLaser: laser-to-plasma jitter is
+  // what sets the energy jitter of every bunch this thing makes.
+  lwfaStation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 420 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 8 } },
+  },
+
   // ── Magnets ───────────────────────────────────────────────────────
   dipole: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 25 } },
@@ -101,6 +148,34 @@ const BEAMLINE_UTILITY_PORTS = {
   sextupole: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 8 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 6 } },
+  },
+  // Low-field focusing coil, so a modest draw; the water is for the coil pack.
+  solenoid: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 6 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 5 } },
+  },
+  // No power: the jaws are motor-positioned and then sit still. The water is
+  // the point — a collimator absorbs the halo it scrapes off, and on a
+  // high-power machine that is a real thermal load.
+  collimator: {
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 18 } },
+  },
+  // Bend plus gradient in one yoke, so it draws like a dipole rather than
+  // like a quad.
+  combinedFunctionMagnet: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 24 } },
+  },
+  // Four dipoles on one girder — priced as such.
+  chicane: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 45 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 36 } },
+  },
+  // Permanent-magnet poles need no excitation current; the draw is the gap
+  // drive and the cooling is for the intercepted radiation power.
+  undulator: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 12 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 20 } },
   },
   injectionSeptum: {
     pwr_in:  { utility: 'powerCable',   side: 'front', offsetAlong: 0.3, role: 'sink', params: { demand: 40 } },
@@ -139,6 +214,14 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 100 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 45 } },
+  },
+  // A third of an S-band structure's length, so roughly a third of its loads.
+  // It is a self-contained industrial skid, which is why the water demand is
+  // proportionally the heaviest part: this thing runs all shift.
+  industrialLinac: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 25 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 45 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 20 } },
   },
 
   // ── RF — superconducting (pwr + cryo + rf) ────────────────────────
@@ -208,7 +291,39 @@ const BEAMLINE_UTILITY_PORTS = {
   },
 };
 
-// Per-component outgassing (mbar·L/s), roughly ~1e-7 × interior volume.
+// Outgassing (mbar·L/s).
+//
+// Real vacuum systems are dominated by SURFACE AREA — Q = q_specific × A, and
+// for a pipe A = 2πrL, so length is the whole story. This table used to be
+// flat per-component constants with `drift` and `bellows` missing from the
+// port table entirely, which meant the vac_in injection loop below never
+// reached them: a player could draw 500 m of beam pipe and add exactly zero
+// gas load. The loop's own comment claimed "every segment of beam pipe needs
+// vacuum" while beam pipe was precisely what it missed.
+//
+// Specific outgassing rates, mbar·L/(s·cm²), for stainless steel:
+//   unbaked, ~10 h pumping   1e-10
+//   baked UHV                1e-12
+// At the game's 0.06 m pipe radius that is 3770 cm² per metre, so one metre of
+// unbaked pipe outgasses ~3.8e-7 — about as much as an entire component used
+// to. A 100 m line on one 100 L/s pump lands at quality 0.61; baked, ~1.00.
+// Long machines therefore need distributed pumping, and `bakeoutSystem`
+// (already in the tree with no gameplay effect) becomes a real 100x upgrade.
+export const Q_SPECIFIC_UNBAKED = 1e-10;
+export const Q_SPECIFIC_BAKED = 1e-12;
+const PIPE_RADIUS_M = 0.06;
+const SUB_UNIT_M = 0.5;
+
+/** Internal surface area, cm², of `metres` of beam pipe. */
+export function pipeSurfaceAreaCm2(metres) {
+  return 2 * Math.PI * PIPE_RADIUS_M * metres * 1e4;
+}
+
+/** Unbaked outgassing load, mbar·L/s, for a component `subL` sub-units long. */
+export function outgassingForLength(subL) {
+  return Q_SPECIFIC_UNBAKED * pipeSurfaceAreaCm2((subL || 0) * SUB_UNIT_M);
+}
+
 // Anything not listed gets VACUUM_OUTGASSING_DEFAULT. ECR runs a deliberate
 // gas feed into its plasma chamber, so it outgasses far above its size class.
 const VACUUM_OUTGASSING_DEFAULT = 5e-7;
@@ -217,22 +332,47 @@ const VACUUM_OUTGASSING = {
   bpm: 2e-7, ict: 2e-7, screen: 2e-7, wireScanner: 2e-7, faradayCup: 2e-7,
   // medium modules
   source: 1e-6, ionSource: 1e-6, pillboxCavity: 1e-6, spokeCavity: 1e-6,
-  ellipticalSrfCavity: 1e-6, rfq: 1e-6, target: 1e-6,
+  ellipticalSrfCavity: 1e-6, rfq: 1e-6, target: 1e-6, industrialLinac: 1e-6,
   // large vessels / gas-loaded
   ecrIonSource: 5e-6, rfCavity: 2e-6, sbandStructure: 2e-6,
   cryomodule: 4e-6, detector: 5e-6,
+  // Compound machines. The electrostatic pair are large but dry columns; the
+  // cyclotrons are big vessels with an internal gas-fed ion source; the LWFA
+  // deliberately admits gas — a hydrogen or helium jet or capillary IS the
+  // accelerating medium, so it is the worst gas load in the catalogue and
+  // wants its own pumping rather than a share of the beamline's.
+  vanDeGraaff: 1.5e-6, cockcroftWalton: 2e-6,
+  cyclotron30: 3e-6, cyclotron70: 5e-6,
+  lwfaStation: 8e-6,
 };
 
 // Inject vacuum sinks for all beamline modules that lack one — every segment
 // of beam pipe needs vacuum, so the utility solver can trip the beam via
 // vacuum_no_pump when no pump is connected. Keep existing vac_in if present.
-for (const id of Object.keys(BEAMLINE_UTILITY_PORTS)) {
-  if (!BEAMLINE_UTILITY_PORTS[id].vac_in) {
-    BEAMLINE_UTILITY_PORTS[id].vac_in = {
-      utility: 'vacuumPipe', side: 'left', offsetAlong: 0.7, role: 'sink',
-      params: { outgassing: VACUUM_OUTGASSING[id] ?? VACUUM_OUTGASSING_DEFAULT },
-    };
-  }
+//
+// Driven off COMPONENTS rather than this table's own keys: iterating
+// BEAMLINE_UTILITY_PORTS meant a component with no OTHER utility port never
+// got a vacuum sink either, which is how `bellows` ended up contributing no
+// gas load at all.
+//
+// `drift` is deliberately excluded. It is a drawn connection — the beam pipe
+// itself — and never exists as a placeable, so a port declared on it could
+// never be discovered into a network and its outgassing would be silently
+// dropped. Beam-pipe surface area is instead added directly by the vacuum
+// solver, which can see state.beamPipes and knows which pumps serve them.
+// Length-scaled outgassing is the dominant term on any real machine, so it
+// has to be counted somewhere that actually runs.
+for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
+  if (comp.isDrawnConnection) continue;
+  if (!BEAMLINE_UTILITY_PORTS[id]) BEAMLINE_UTILITY_PORTS[id] = {};
+  if (BEAMLINE_UTILITY_PORTS[id].vac_in) continue;
+  const outgassing = id === 'bellows'
+    ? outgassingForLength(comp.subL)
+    : (VACUUM_OUTGASSING[id] ?? VACUUM_OUTGASSING_DEFAULT);
+  BEAMLINE_UTILITY_PORTS[id].vac_in = {
+    utility: 'vacuumPipe', side: 'left', offsetAlong: 0.7, role: 'sink',
+    params: { outgassing },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -310,15 +450,15 @@ const INFRA_UTILITY_PORTS = {
   mcc:                 { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 250 } } },
   ups:                 { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
   // rf (capacity kW = raw params.power)
-  magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5 } } },
-  solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35 } } },
-  twt:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20 } } },
-  pulsedKlystron:      { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50 } } },
-  cwKlystron:          { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50 } } },
-  iot:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80 } } },
-  multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 200 } } },
-  highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
-  gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000 } } },
+  magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
+  solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35, dutyFactor: 1.0 } } },
+  twt:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20, dutyFactor: 0.05 } } },
+  pulsedKlystron:      { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 0.001 } } },
+  cwKlystron:          { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 1.0 } } },
+  iot:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80, dutyFactor: 1.0 } } },
+  multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
+  highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
+  gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // cooling
   lcwSkid:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
   chiller:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
@@ -332,6 +472,15 @@ const INFRA_UTILITY_PORTS = {
   ionPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 600 } } },
   negPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 500 } } },
   tiSubPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 400 } } },
+  // Bakeout adds no pumping speed — it heats the pipe walls so adsorbed gas
+  // desorbs and gets pumped away once, after which the surface outgasses ~100x
+  // less (vacuumPipe.js BAKEOUT_FACTOR). It still needs a vacuum PORT: the
+  // solver decides a network is baked by looking for this component among the
+  // network's members, and a component with no vacuumPipe port can never BE a
+  // member. Declared `source` rather than `sink` deliberately — a sink would
+  // put it under HARD_REQUIRED_UTILS, so an unwired bakeout rig would trip the
+  // beam, and an optional upgrade must never do that.
+  bakeoutSystem:       { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 0 } } },
   // data
   rackIoc:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 10 } } },
   timingSystem:        { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5 } } },

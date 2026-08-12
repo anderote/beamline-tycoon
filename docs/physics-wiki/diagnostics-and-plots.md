@@ -41,7 +41,7 @@ Normalized emittance should ideally be flat along the beamline. That means your 
 
 - **Jump at a dipole** → synchrotron radiation (quantum excitation) is growing the emittance. Worse at high energy.
 - **Gradual growth at low energy** → space charge is pushing the beam apart
-- **Jump at a chicane** → CSR is degrading emittance during bunch compression
+- **Steady growth over long drifts, worst near the injector** → beam-gas scattering. Emittance growth from residual gas scales as `P x L / (beta gamma)^2`, so it shows up first at low energy and it gets worse the more pipe you have per pump.
 - **Slow drift upward** → possible mismatch or numerical effects
 
 The emittance plot shows normalized emittance (epsilon_n = beta*gamma * epsilon_geometric). This removes the adiabatic damping effect of acceleration — so you can see true degradation rather than the expected shrinkage from gaining energy.
@@ -58,10 +58,10 @@ Current should ideally stay flat from source to endpoint. Every drop means parti
 
 Red-shaded regions highlight where current decreases — these are your problem areas. Common causes:
 - **Large beam at a tight aperture** — fix your focusing upstream
-- **Collimator scraping** — intentional, but check if it's cutting too much
 - **After a dipole** — dispersion increases effective beam size; particles at different energies spread out and hit the wall
+- **A steady decay over a long stretch of pipe** — beam-gas loss. That is a vacuum problem, not an optics problem: add pumps, especially near the injector.
 
-If total loss exceeds 50%, the beam trips off automatically (machine protection). Fix the worst loss point first.
+Loss is not currently a trip condition — a beamline that loses 99% of its current keeps running, it just earns almost nothing. Fix the worst loss point first anyway; income scales with surviving current.
 
 ---
 

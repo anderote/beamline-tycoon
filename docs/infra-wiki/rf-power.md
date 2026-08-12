@@ -1,7 +1,7 @@
 # RF Power
 
 ## Quick Tip
-RF sources must match cavity frequency. Waveguides carry the power. Wrong frequency = zero acceleration.
+RF sources must match cavity frequency. Gradient goes as the square root of power — and for pulsed sources, what matters is *peak* power, not average.
 
 ## How It Works
 
@@ -9,25 +9,32 @@ RF (radio frequency) power is what actually accelerates the beam. Oscillating el
 
 ### RF Sources
 
-Different source types serve different purposes:
+Different source types serve different purposes. **Duty factor** is now a first-class stat: a pulsed source delivers its average power in short bursts, so its peak power is much higher.
 
-| Source | Frequency | Power | Cost | Notes |
-|--------|-----------|-------|------|------|
-| Magnetron | 2450 MHz | 5 kW | $50k | Fixed frequency — drives the ECR ion source |
-| TWT | Broadband | 20 kW | $400k | Flexible driver amplifier |
-| SSA | Broadband | 35 kW | $150k | The starter RF source — drives any bucket |
-| Pulsed Klystron | 2856 MHz (S-band) | 50 kW | $1.5M | Workhorse for NC structures, needs modulator |
-| CW Klystron | 1300 MHz (L-band) | 50 kW | $3M | For SRF cavities |
-| IOT | 1300 MHz (L-band) | 80 kW | $2M | High efficiency for SRF strings |
-| Multi-beam Klystron | 2856 MHz (S-band) | 200 kW | $5M | Drives several NC structures at once |
-| High-power SSA | Broadband | 300 kW | $4M | Best flexible CW source |
-| Gyrotron | Broadband | 1000 kW | $8M | The megawatt endgame source |
+| Source | Frequency | Avg Power | Duty | Peak Power | Cost |
+|--------|-----------|-----------|------|-----------|------|
+| Magnetron | 2450 MHz | 5 kW | 0.01 | 500 kW | $50k |
+| TWT | Broadband | 20 kW | 0.05 | 400 kW | $400k |
+| SSA | Broadband | 35 kW | 1.0 (CW) | 35 kW | $150k |
+| Pulsed Klystron | 2856 MHz (S-band) | 50 kW | 0.001 | **50 MW** | $1.5M |
+| CW Klystron | 1300 MHz (L-band) | 50 kW | 1.0 (CW) | 50 kW | $3M |
+| IOT | 1300 MHz (L-band) | 80 kW | 1.0 (CW) | 80 kW | $2M |
+| Multi-beam Klystron | 2856 MHz (S-band) | 200 kW | 0.005 | 40 MW | $5M |
+| High-power SSA | Broadband | 300 kW | 1.0 (CW) | 300 kW | $4M |
+| Gyrotron | Broadband | 1000 kW | 1.0 (CW) | 1000 kW | $8M |
+
+This is what reconciles the game's kilowatt-scale RF ladder with the **megawatt** peak power a normal-conducting structure actually needs. It also makes pulsed vs CW a real strategic axis rather than flavour text:
+
+- **Pulsed** buys enormous peak gradient at low average current — brightness machines
+- **CW** buys steady average current at lower gradient — power machines
+
+A network mixing pulsed and CW sources gets a capacity-weighted mean duty factor, which dilutes the pulsed advantage. Keep your pulsed and CW chains on separate waveguide networks.
 
 ### Frequency Matching
 
 This is the most important rule in RF power: **the source frequency must match the cavity frequency**. A 2856 MHz klystron cannot drive a 1300 MHz SRF cavity. The RF energy simply won't couple in.
 
-Cavity demand per frequency bucket:
+Sinks are bucketed by frequency and each bucket is solved independently:
 
 | Frequency | Cavity | RF Demand |
 |-----------|--------|-----------|
@@ -42,71 +49,82 @@ Cavity demand per frequency bucket:
 | 2856 MHz (S-band) | NC RF Cavity | 40 kW |
 | 2856 MHz (S-band) | S-band Structure | 45 kW |
 
-**Broadband sources** (TWT, SSA, high-power SSA, gyrotron) can drive any frequency. Their capacity is a shared pool: after fixed-frequency sources are counted, the pool tops up unmet demand bucket by bucket (lowest frequency first). They're flexible, but a shared pool spread across many buckets runs out — dedicated fixed-frequency sources are how a big machine scales.
+**Broadband sources** (TWT, SSA, high-power SSA, gyrotron) can drive any frequency. Their capacity is a shared pool: after fixed-frequency sources are counted, the pool tops up unmet demand bucket by bucket, lowest frequency first. They're flexible, but a shared pool spread across many buckets runs out — dedicated fixed-frequency sources are how a big machine scales.
 
-### Waveguide Networks
+A bucket with demand and no matching capacity gets **zero power** and a soft `rf_frequency_mismatch`. Those cavities accelerate nothing, but the beam keeps running.
 
-RF waveguide tiles carry power from sources to cavities. All sources and cavities connected by a contiguous run of waveguide form one **RF network**. Each network is validated independently:
+### Power Allocation
 
-1. Are all sources and cavities at the same frequency (or broadband)?
-2. Is total forward power from sources >= total power demanded by cavities?
-3. Are pulsed klystrons paired with a modulator in the network?
-4. Are circulators present to handle reflected power?
+Within a bucket, sinks share the available power **in proportion to their declared demand**. An over-subscribed bucket starves everything on it proportionally rather than picking winners by placement order.
+
+What each cavity receives is published in **watts of peak power** — that is what sets its gradient. The old model derated gradient linearly by an abstract RF quality scalar, which had the wrong exponent as well as the wrong units.
+
+### Gradient From Power
+
+For a normal-conducting standing-wave structure:
+
+```
+E_acc = sqrt(P_peak x r_shunt / L_active)
+```
+
+| Cavity | r_shunt | L_active | Frequency |
+|--------|---------|----------|-----------|
+| Pillbox Cavity | 30 MOhm/m | 0.5 m | 0.2 GHz |
+| RFQ | 25 MOhm/m | 2.0 m | 0.4 GHz |
+| NC RF Cavity | 55 MOhm/m | 3.0 m | 2.856 GHz |
+| S-band Structure | 55 MOhm/m | 3.0 m | 2.856 GHz |
+
+Sanity check: 55 MOhm/m over 3 m at 30 MW peak gives 23.5 MV/m. SLAC ran ~20 MV/m at 35 MW. Close enough for the accuracy this game needs.
+
+For a superconducting cavity, gradient depends on the cryogenic temperature too — see [cryogenics.md](cryogenics.md).
+
+Either way, the gradient the cavity delivers is `min(demanded, achievable)`. Provision it well and it reaches its catalogue energy gain exactly; starve it and the ceiling binds.
 
 ### Forward and Reflected Power
 
-Not all power from the source reaches the cavity. A small fraction reflects back due to impedance mismatch at the cavity coupler. In a well-tuned system this is about 2% — barely noticeable. But without a **circulator** in the waveguide chain, reflected power travels back to the source and can damage it.
+Not all power from the source reaches the cavity. A well-tuned system reflects about 2% — that's the floor. But a **thermally detuned** cavity reflects far more: an undercooled copper structure expands, walks off resonance, and stops absorbing the power aimed at it. At S-band a 10 K cooling deficit reflects about 66%; a fully starved loop reflects about 97%.
 
-Circulators absorb reflected power safely. Missing circulators increase wear on your RF sources. Always place one between the source and the cavities.
+The panel's VSWR readout is driven by the worst cavity in the facility, because one badly mismatched load is what the klystron actually sees.
 
-### Modulators
+Circulators absorb reflected power safely, and in a real machine that's what protects the source.
 
-Pulsed klystrons need extremely high voltage pulses (hundreds of kV) to operate. A **modulator** provides these pulses. Without a modulator in the same RF network, a pulsed klystron contributes zero power. Always pair them.
-
-CW sources (CW klystron, IOT, SSA) don't need modulators — they run continuously from normal power.
+> **Known limitation:** circulators and modulators have no mechanical effect. A pulsed klystron with no modulator in its network still delivers full capacity; a chain with no circulator suffers no extra wear. Component wear depends only on energy cost and whether an MPS exists in the facility.
 
 ### Strategy
 
 - Match frequencies carefully: plan which sources drive which cavities before building
-- One klystron can drive several cavities of the same frequency
-- Use SSAs for low-power applications (bunchers, low-energy cavities)
-- Use klystrons for high-power normal-conducting structures
-- Use CW klystrons or IOTs for SRF cavities
-- Always include circulators — cheap insurance against source damage
-- Modulators are mandatory for pulsed klystrons
+- Don't mix pulsed and CW sources on the same waveguide network — the mean duty factor dilutes the pulsed peak
+- One klystron can drive several cavities of the same frequency, but they split the power by demand share
+- Use broadband SSAs for low-power odds and ends (bunchers, pillboxes); use fixed-frequency klystrons where the real power goes
+- Waveguide is $7,200/tile; a waveguide manifold ($160k) beats individual runs at about four sinks
 
 ## The Math
 
-**Forward power budget:**
+**Peak power from average and duty:**
 ```
-P_forward_available = sum(P_source for each matched-frequency source in network)
-P_forward_required = sum(P_cavity for each cavity in network)
-```
-Beam runs only if `P_forward_available >= P_forward_required`.
-
-**Reflected power:**
-```
-P_reflected = P_forward * Gamma^2
-```
-Where `Gamma` is the reflection coefficient. For a simple mismatch model:
-```
-Gamma^2 ~ 0.02 (2% reflected)
+mean_duty  = sum(capacity x dutyFactor) / sum(capacity)     across the network's sources
+peak_factor = min(1 / mean_duty, 10000)
+P_sink_W    = bucket_capacity_kW x 1000 x peak_factor x (sink_demand / bucket_demand)
 ```
 
-**VSWR (Voltage Standing Wave Ratio):**
+**Gradient from power:**
 ```
-VSWR = (1 + |Gamma|) / (1 - |Gamma|)
-```
-For 2% reflected power: VSWR ~ 1.30.
-
-**Effective power to beam:**
-```
-P_beam = P_forward - P_reflected - P_wall_losses
+NC:   E_acc = sqrt(P_peak x r_shunt / L_active)          r_shunt in ohm/m
+SRF:  E_acc = sqrt(P x (R/Q) x Q0(T)) / L_active         per cavity
+E_acc,achieved = min(demanded, achievable)
 ```
 
-**Cavity gradient from available power (simplified):**
+**Bucket quality (the 0-1 scalar, used for the panel and warnings):**
 ```
-If P_available < P_required:
-    gradient_actual = gradient_rated * sqrt(P_available / P_required)
+quality = min(1, bucket_capacity / bucket_demand)
 ```
-Gradient scales as square root of power — halving the power reduces gradient by ~30%, not 50%.
+
+**Reflected power and VSWR:**
+```
+coupling  = 1 / (1 + (2 Q_L df / f)^2),   df = 20 kHz/K x dT_cooling x (f_GHz / 2.856)
+Gamma^2   = 1 - coupling                 (floored at 0.02 for a well-tuned cavity)
+VSWR      = (1 + |Gamma|) / (1 - |Gamma|)
+```
+For 2% reflected power, VSWR ~ 1.33.
+
+**Hard gate:** an RF sink not wired to any network. Everything else is soft — overload (`rf_overload`) and frequency mismatch (`rf_frequency_mismatch`) both degrade the cavity without stopping the beam.

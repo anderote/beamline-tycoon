@@ -7,6 +7,7 @@
 // Registers the <crt-effect> web component (self-contained, shadow-DOM styles).
 import 'vault66-crt-effect/element';
 import { createCrtWarp, destToSource } from './crtWarp.js';
+import { openWikiWindow } from './WikiWindow.js';
 
 // ── Rare scene-event timing (seconds) ────────────────────────────────
 // Both of these are surprise gags, so every delay is drawn at random from
@@ -363,6 +364,9 @@ export class TitleScreen {
     if (hasSave) addBtn('Continue', onContinue);
     addBtn('New Game', onNewGame);
     addBtn('Scenarios', onScenarios);
+    // The manual reads fine before a game exists — it is pure reference
+    // content. raiseAboveTitle lifts the window container over this overlay.
+    addBtn('Manual', () => openWikiWindow({ raiseAboveTitle: true }));
 
     this.menuEl.classList.remove('hidden');
   }

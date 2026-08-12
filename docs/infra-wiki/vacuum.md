@@ -1,11 +1,11 @@
 # Vacuum Systems
 
 ## Quick Tip
-Beam travels through vacuum. More pumps + shorter pipes = better pressure. Bad vacuum kills your beam.
+Beam travels through vacuum. Pressure is gas load over pump speed, and gas load scales with the length of your beam pipe. Long machines need distributed pumping.
 
 ## How It Works
 
-Particle beams must travel through ultra-high vacuum. At atmospheric pressure, beam particles would scatter off air molecules and be lost within millimeters. The better your vacuum, the longer your beam survives and the higher quality it maintains.
+Particle beams must travel through ultra-high vacuum. At atmospheric pressure, beam particles would scatter off air molecules and be lost within millimetres. The better your vacuum, the longer your beam survives and the higher quality it maintains.
 
 ### Pumps
 
@@ -13,111 +13,112 @@ Different pump types operate at different pressure ranges and speeds:
 
 | Pump | Speed (L/s) | Cost | Best For |
 |------|------------|------|----------|
-| Roughing pump | 15 | $50k | Entry level — keeps a starter chain alive at mediocre quality |
+| Roughing pump | 15 | $50k | Entry level — keeps a short starter chain alive at mediocre quality |
 | Turbo pump | 300 | $200k | Workhorse high-vacuum pump |
 | Ti sublimation pump | 400 | $300k | Extreme vacuum with ion pumps |
-| NEG pump | 500 | $600k | Distributed pumping, zero energy |
+| NEG pump | 500 | $600k | Distributed pumping, zero energy cost |
 | Ion pump | 600 | $400k | Ultra-high vacuum, maintenance-free |
 
-In a real accelerator, you stage pumps: roughing pumps bring the system from atmosphere to ~1 mbar, then turbo pumps take over to reach 1e-8 mbar, and ion/NEG pumps achieve the final ultra-high vacuum.
+In a real accelerator, you stage pumps: roughing pumps bring the system from atmosphere to ~1 mbar, then turbo pumps take over to reach 1e-8 mbar, and ion/NEG pumps achieve the final ultra-high vacuum. In gameplay, every pump on a network simply adds its speed to a single pumping-speed total.
 
-### Conductance
+### Gas Load Comes From Surface Area
 
-Here's where vacuum gets interesting. A pump's rated speed is what it delivers at its inlet. But the pump isn't inside the beam pipe — it's connected by vacuum pipe tiles. Those pipes have **conductance**: a measure of how easily gas flows through them.
+This is the key engineering constraint, and it is about **length**, not layout.
 
-A short, wide pipe has high conductance. A long, narrow pipe has low conductance. The effective pumping speed at the beamline is always less than the pump's rated speed because the pipe restricts gas flow.
+Real vacuum systems are dominated by outgassing from the chamber walls: `Q = q_specific x A`, and for a pipe `A = 2 pi r L`. Length is the whole story. At the game's 0.06 m pipe radius, one metre of beam pipe has **3,770 cm^2** of internal surface, which outgasses about **3.8e-7 mbar·L/s** unbaked — roughly as much as an entire component.
 
-This is the key engineering constraint: you can buy the biggest pump in the catalog, but if it's connected through 20 tiles of skinny pipe, most of that pumping speed is wasted. **Place pumps close to the beamline with short pipe runs.**
+So every metre of pipe you draw costs you vacuum. A 300 m beamline on one turbo pump is a fundamentally worse vacuum system than a 20 m beamline on the same pump, and no amount of clever routing changes that. **The fix is more pumps, spread along the line.**
 
-### Pipe Topology
+Each beam pipe is charged to whatever pumps serve the components mounted on it, once.
 
-Multiple pipes in **series** (end to end) reduce conductance:
-```
-1/C_total = 1/C_1 + 1/C_2 + 1/C_3 + ...
-```
-A 10-tile pipe run has 1/10th the conductance of a single tile.
+| Pipe length | 1 pump (100 L/s) | 4 pumps (400 L/s) |
+|---|---|---|
+| 20 m | 0.78 | 0.93 |
+| 100 m | 0.61 | 0.76 |
+| 300 m | 0.49 | 0.64 |
 
-Multiple pipes in **parallel** (side by side) add conductance:
-```
-C_total = C_1 + C_2 + C_3 + ...
-```
-Two parallel pipe runs deliver twice the conductance of one.
+Baked, all of these reach ~1.00.
 
-This means:
-- A single pump connected by a long pipe = poor effective speed
-- The same pump connected by two short parallel paths = much better
-- Multiple pumps with their own short connections = best
+### Bakeout
+
+A **Bakeout System** on the vacuum network drops the specific outgassing rate 100x — from 1e-10 to 1e-12 mbar·L/(s·cm^2) — which takes even a 300 m unbaked line to essentially perfect vacuum. This is the single biggest vacuum upgrade in the game.
+
+> **Known limitation:** the Bakeout System currently declares only a power sink and *no vacuum port*, so it cannot actually join a vacuum network. The 100x factor is implemented and tested, but there is no way to trigger it in play yet. Treat bakeout as a future upgrade rather than a current purchase.
+
+### How Vacuum Reaches the Beam
+
+Residual gas scatters the beam. Two effects, both live:
+
+- **Multiple Coulomb scattering** grows the beam's angular spread, and therefore its emittance. This is the only path by which vacuum affects beam *quality*, and therefore income.
+- **Beam-gas loss** removes particles outright through large-angle and nuclear scattering: `I *= exp(-L / lambda)`, where the loss length scales as 1/P.
+
+The scattering term scales as **1/(beta x gamma)^2**, which is the interesting part for gameplay: a low-energy beam is enormously more fragile than a high-energy one. **Protect the injector**, not the far end of the linac.
+
+The older "poor vacuum narrows the effective aperture" model is gone. It could never reach the quantity it was meant to affect — aperture clipping only scales current, never the beam's covariance matrix — and, since clipping a Gaussian scrapes halo, it arguably pointed the wrong way.
 
 ### Pressure Quality
 
-Average pressure across the whole beamline determines quality:
+One pressure, computed once, drives both the HUD readout and the beam:
 
 | Quality | Pressure (mbar) | Effect |
 |---------|-----------------|--------|
 | Excellent | < 1e-9 | Best beam lifetime and quality |
 | Good | < 1e-7 | Normal operation |
 | Marginal | < 1e-4 | Beam runs but with losses |
-| Poor | >= 1e-4 | **Beam blocked** |
-| None | No pumps | **Beam blocked** |
+| Poor | >= 1e-4 | Quality 0 — heavy scattering |
+| None | No pumps on a network with sinks | **Beam blocked** (hard error) |
+
+The panel reports the **worst** network in the facility, not an average: a beamline is only as good as its dirtiest section, and one unpumped run will scatter the beam regardless of how well the rest is pumped.
 
 ### Strategy
 
-- Place roughing + turbo pump pairs every few meters along the beamline
-- Keep pipe runs as short as possible (2-3 tiles ideal)
-- Use parallel pipe paths for high-speed pumps
-- Ion pumps and NEG pumps for the cleanest sections (near SRF cavities, undulators)
+- Distribute pumps along the beamline. Pipe *length* is what costs you, so one big pump at one end is the wrong shape of answer for a long machine.
+- A vacuum manifold ($120k) beats individual runs at about four sinks — vacuum pipe is $5,600/tile.
+- Ion pumps and NEG pumps for the cleanest sections (near SRF cavities)
 - Gate valves let you isolate sections for maintenance without venting the whole machine
-- Bakeout systems improve ultimate vacuum after any vacuum break
+- Watch the injector. Low-energy beam is where scattering hurts most.
 
 ## The Math
 
-**Effective pumping speed at beamline through a pipe path:**
+**Steady-state pressure:**
 ```
-1/S_eff = 1/S_pump + 1/C_path
+P = Q_total / S_total
 ```
-Where `S_pump` is the pump's rated speed and `C_path` is the total conductance of the pipe path from pump to beamline.
+Where `Q_total` is total outgassing (mbar·L/s) and `S_total` is total pump speed (L/s). That's it — there is **no conductance model**. Pipe runs do not degrade pumping speed, and pumps do not care how far from the beamline they sit. The pipe's *length* matters only because it adds gas load.
 
-**Series conductance (pipes end-to-end):**
+**Gas load:**
 ```
-1/C_series = 1/C_1 + 1/C_2 + ... + 1/C_n
-```
-For n identical tiles of conductance C_tile:
-```
-C_series = C_tile / n
-```
-
-**Parallel conductance (multiple paths):**
-```
-C_parallel = C_1 + C_2 + ... + C_n
+Q_total = sum(component outgassing) + sum(beam pipe outgassing)
+Q_pipe  = q_specific x 2 pi r L,   r = 0.06 m
+        = 3.77e-7 mbar·L/s per metre unbaked
+q_specific = 1e-10 mbar·L/(s·cm^2)  unbaked stainless
+           = 1e-12 mbar·L/(s·cm^2)  baked UHV  (100x better)
 ```
 
-**Total effective pump speed at beamline:**
+**Quality, mapped log-linearly:**
 ```
-S_total = sum(S_eff_i for each pump i connected to beamline)
+P <= 1e-8            -> quality 1
+P >= 1e-4            -> quality 0
+otherwise            -> 1 - (log10(P) + 8) / 4
+no pump, sinks present -> quality 0, hard error, pressure reported as 1013 mbar
 ```
 
-**Average pressure (simplified):**
+**Beam-gas scattering** (per element, added to the divergence terms of the covariance matrix):
 ```
-P_avg = Q_gas / S_total
+d<theta^2> = C_scatter x P x L / (beta x gamma)^2      C_scatter = 0.05
+I         *= exp(-L / lambda),   lambda = 100 m x (1e-5 mbar / P)
 ```
-Where `Q_gas` is the total gas load from outgassing of the beamline interior surfaces, proportional to beamline volume:
-```
-Q_gas = V_beamline * q_outgassing
-```
-With `q_outgassing` as the specific outgassing rate (mbar·L/s per liter of volume). Bakeout systems reduce `q_outgassing`.
+Emittance growth then emerges from the covariance determinant rather than being imposed on it. For a 50 MeV electron beam through a 10 m beta function: 1e-9 mbar over 100 m grows emittance ~0.03% (free); 1e-5 mbar over the same 100 m grows it ~2.5x (severe).
 
-**Per-component gas load (mbar·L/s), scaling with interior volume:**
+**Per-component gas load (mbar·L/s):**
 
 | Size class | Outgassing | Examples |
 |------------|------------|----------|
 | Tiny | 2e-7 | BPM, ICT, screen, wire scanner, Faraday cup |
-| Small | 5e-7 | Dipole, quad, sextupole, buncher, half-wave resonator, beam stop |
-| Medium | 1e-6 | Guns/ion sources, pillbox, RFQ, elliptical SRF, target |
+| Small | 5e-7 (default) | Dipole, quad, sextupole, buncher, half-wave resonator, aperture, septum, beam stop |
+| Medium | 1e-6 | Electron gun, ion source, pillbox, RFQ, spoke cavity, elliptical SRF, target |
 | Large | 2e-6 – 5e-6 | NC structures (2e-6), cryomodule (4e-6), detector (5e-6), ECR source (5e-6 — deliberate gas feed) |
 
-One roughing pump (15 L/s) holds a starter chain (~3e-6 total) around 2e-7 mbar — playable but mediocre. A turbo pump takes the same chain to ~1e-8 mbar and near-perfect quality.
+Bellows are charged by their own length rather than a size class. Beam pipe (`drift`) carries no port at all — it is a drawn connection, never a placeable, so its surface area is added directly by the vacuum solver, which can see the pipes and knows which pumps serve them.
 
-**Conductance per vacuum pipe tile:**
-```
-C_tile = 50 L/s (baseline)
-```
+**Hard gate:** a vacuum sink not wired to any network, or a vacuum network with sinks and zero pump speed. Merely *poor* pressure (> 1e-5 mbar) is a soft warning.

@@ -4,7 +4,7 @@ export const MODES = {
     name: 'Beamline',
     categories: {
       source:     { name: 'Sources',     color: '#4c4', subsections: { transport: { name: 'Transport' }, electron: { name: 'Electron' }, proton: { name: 'Proton' } } },
-      optics:     { name: 'Optics',      color: '#48c', subsections: { focusing: { name: 'Focusing' }, manipulation: { name: 'Manipulation' } } },
+      optics:     { name: 'Optics',      color: '#48c', subsections: { focusing: { name: 'Focusing' }, manipulation: { name: 'Manipulation' }, insertionDevices: { name: 'Insertion Devices' } } },
       rf:         { name: 'RF / Accel',  color: '#c44', subsections: { normalConducting: { name: 'Normal Conducting' }, superconducting: { name: 'Superconducting' } } },
       diagnostic: { name: 'Diagnostics', color: '#eee', subsections: { monitors: { name: 'Beam Monitors' }, spectrometers: { name: 'Spectrometers' } } },
       endpoint:   { name: 'Endpoints',   color: '#999', subsections: { detectors: { name: 'Detectors' }, targets: { name: 'Targets' }, photon: { name: 'Photon' } } },

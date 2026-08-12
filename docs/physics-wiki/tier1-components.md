@@ -38,8 +38,10 @@ A drift space is the simplest beamline element: just a vacuum tube with nothing 
 
 This is why you can't just have long stretches of beam pipe — the beam diverges and eventually hits the walls. Drifts between focusing elements should be kept reasonably short relative to the beta function.
 
+**Drift costs vacuum.** Beam pipe is not free any more: outgassing scales with internal surface area, so every metre of pipe you draw adds about 3.8e-7 mbar·L/s of gas load charged to whichever pumps serve the components mounted on it. A 300 m line on one pump is a genuinely worse vacuum system than a 20 m line on the same pump, and the residual gas scatters your beam. Long machines need **distributed pumping**.
+
 **Game parameters:**
-- `length` (m): How long the drift section is
+- `length` (m): How long the drift section is (a drawn connection, not a placed component)
 
 **The Math:**
 
@@ -71,8 +73,12 @@ Building a good FODO cell is the first real skill in the game. The quad strength
 - The **phase advance per cell** — ideally 60-90 degrees for stability
 
 **Game parameters:**
-- `focusStrength` (T/m): Quadrupole gradient. Higher = stronger focusing.
-- `polarity`: +1 (focus in x, defocus in y) or -1 (defocus in x, focus in y). You must set this!
+- `gradient` (T/m, 1-50, default 20): Quadrupole gradient. Higher = stronger focusing. `focusStrength` in m^-2 is derived from it.
+- `polarity`: Focus X or Focus Y. You must set this!
+
+**Infrastructure coupling:** a quadrupole's focusing strength scales **linearly** with its power network's quality. That is the physically correct exponent — the field goes as coil current, which goes as supply power. A quad on a 60%-loaded power network focuses at 60% strength.
+
+A quad also declares a cooling sink, so it must be plumbed to a cooling network or the beam won't run. But an *under-served* cooling loop does not currently weaken it — see the cooling article's known limitation.
 
 **Typical values:**
 | Parameter | Value |
@@ -184,26 +190,37 @@ The energy gain per cavity is:
 dE = gradient * length * cos(phase)
 ```
 
-At Tier 1, you run cavities on-crest (phase = 0) for maximum energy gain. At Tier 3, you'll learn to run off-crest to chirp the beam for bunch compression.
+At Tier 1, you run cavities on-crest (phase = 0) for maximum energy gain. Running off-crest to chirp the beam for bunch compression is a tier-3 technique, and the bunch-compression module that would consume that chirp is not yet reachable.
 
 **Adiabatic damping:** When the beam gains energy, its geometric emittance shrinks proportionally. This is *adiabatic damping* — the beam gets "stiffer" as it speeds up, so the angular spread decreases. Normalized emittance is conserved.
 
+**The gradient you ask for is a request, not a promise.** The number on the slider is a *demand*; what the cavity delivers is `min(demanded, achievable)`, and what is achievable comes from the RF power and — for SRF — the cryogenic temperature the cavity is actually supplied with:
+
+```
+NC:   E_acc,max = sqrt(P_peak x r_shunt / L_active)
+SRF:  E_acc,max = sqrt(P x (R/Q) x Q0(T)) / L_active      per cavity
+```
+
+Gradient goes as the **square root** of power, not linearly. Halving the RF costs you about 29% of gradient, not 50%. Provision the cavity properly and it hits its catalogue energy gain exactly; under-build and the ceiling binds.
+
+For SRF, the temperature term dominates everything: 2.0 K to 4.2 K costs a niobium cavity about 35x in Q0, which is about **5.9x in gradient**. And what the cavity dissipates, `(E_acc L)^2 / ((R/Q) Q0)`, is what the cryoplant has to remove next tick — over-drive it and the bath warms, Q0 falls, dissipation rises, and it quenches.
+
 **Game parameters:**
-- `gradient` (MV/m): Accelerating electric field strength
-- `voltage` (MV): Total voltage = gradient x length
-- `rfPhase` (deg): Phase relative to crest. 0 = max acceleration. (Relevant from Tier 3)
+- `voltage` (MV, 0.1-2.0) for the NC RF cavity, or `gradient` (MV/m, 5-35) for the cryomodule
+- `rfPhase` (deg, -40 to +40): Phase relative to crest. 0 = max acceleration.
+- `energyGain` (GeV) and `energySpread` are derived
 
 **Typical values:**
-| Cavity Type | Gradient | Frequency | Temperature |
-|-------------|----------|-----------|-------------|
-| Normal conducting copper | 10-30 MV/m | 1-12 GHz | Room temperature |
-| Superconducting niobium (SRF) | 15-50 MV/m | 0.65-1.3 GHz | 2 K |
+| Cavity Type | Gradient | Frequency | Temperature | Q0 |
+|-------------|----------|-----------|-------------|-----|
+| Normal conducting copper | 10-30 MV/m | 0.2-12 GHz | Room temperature | ~1e4 |
+| Superconducting niobium (SRF) | 15-35 MV/m | 0.16-1.3 GHz | 2.0 or 4.5 K | ~1e10 at 2 K |
 
-SRF cavities have much lower wall losses (Q0 ~ 10^10 vs 10^4) so they can run CW (continuously) instead of pulsed, but they require cryogenic cooling.
+SRF cavities have much lower wall losses so they can run CW instead of pulsed, but they require cryogenic cooling — and their whole thermal path is the cryo network, not cooling water.
 
 **The Math:**
 
-Energy gain: `dE = V_acc * cos(phi)` where `V_acc = E_acc * L_active`.
+Energy gain: `dE = V_acc * cos(phi)` where `V_acc = E_acc,achieved * L_active`.
 
 Adiabatic damping of transverse emittance:
 ```
@@ -221,6 +238,8 @@ sigma[:,3] *= E_before/E_after
 ---
 
 ## Collimator
+
+> **Not yet in the catalogue.** The collimation module is implemented and applies to any element with physics type `collimator`, but no component in the game declares that type, so it never runs. The closest placeable is the **Aperture**, which is modelled as a plain drift — the beam passes through unaffected. Everything below describes what the module does when a collimator component exists.
 
 **Quick Tip:** Collimators scrape off stray particles — they clean the beam at the cost of losing some current.
 

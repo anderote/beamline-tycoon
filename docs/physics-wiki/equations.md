@@ -294,30 +294,96 @@ loss_fraction = 1 - survived
 
 ---
 
+## Beam-Gas Scattering
+
+Residual gas grows emittance (multiple Coulomb scattering) and removes current
+(large-angle and nuclear scattering). This is the only path by which vacuum
+reaches beam quality.
+
+```
+d<theta^2> = C_scatter * P * L / (beta*gamma)^2       C_scatter = 0.05
+sigma[1,1] += d<theta^2>
+sigma[3,3] += d<theta^2>
+
+I *= exp(-L / lambda),   lambda = 100 m * (1e-5 mbar / P)
+```
+
+The `1/(beta*gamma)^2` scaling is the point: a low-energy beam is enormously
+more fragile than a high-energy one, so the injector is what needs protecting.
+
+---
+
 ## Engineering / Infrastructure
 
-### RF Power
+These are the equations the utility layer actually solves — they are not
+flavour text, they set what the beam does.
+
+### Cavity Gradient (superconducting)
 ```
-P_cavity = V_acc^2 / (R/Q * Q_L)
-P_beam = I_beam * V_acc * cos(phi)
-P_wall = P_forward / eta_klystron
+R_BCS(T) = (2e-4 * f_GHz^2 / T) * exp(-17.67 / T)      ohm
+Q0(T)    = G / (R_BCS(T) + R_res)                      R_res = 10 nohm
+E_acc    = sqrt(P_rf * (R/Q) * Q0) / L_active          MV/m, per cavity
+P_diss   = (E_acc * L_active)^2 / ((R/Q) * Q0)         W, per cavity
+```
+Calibrated on the TESLA 9-cell (f = 1.3 GHz, R/Q = 1030, G = 270, L = 1.038 m):
+Q0 = 7.8e9 and E_acc = 17.7 MV/m at 42 W at 2.0 K; Q0 = 2.2e8 and 3.0 MV/m at
+4.2 K. Real TESLA cavities run Q0 ~ 1e10 at 2 K, dissipating 30-50 W at
+20 MV/m — the model has no free parameters.
+
+### Cavity Gradient (normal-conducting)
+```
+E_acc = sqrt(P_peak * r_shunt / L_active)              r_shunt in ohm/m
+P_peak = P_average / duty_factor
+```
+S-band, r = 55 MOhm/m, L = 3 m, P = 30 MW gives 23.5 MV/m. SLAC ran ~20 MV/m
+at 35 MW.
+
+### Thermal Detuning (normal-conducting)
+```
+df       = 20 kHz/K * dT * (f_GHz / 2.856)
+coupling = 1 / (1 + (2 * Q_L * df / f)^2)              Q_L = 1e4
+P_eff    = P_forward * coupling
+reflected = 1 - coupling
+VSWR     = (1 + sqrt(reflected)) / (1 - sqrt(reflected))
 ```
 
-### Cryogenics
+### Cryogenic Bath
 ```
-P_dynamic = V_acc^2 / (R/Q * Q0)
-COP = T_cold / (T_hot - T_cold) * eta_Carnot
-P_wall_cryo = Q_cold / COP
+T_design = 2.0 K with a 2K cold box on the network, else 4.5 K
+load(T)  = static_heat + sum over cavities of P_diss(E_acc, T) * n_cav
+cap(T)   = min(rated_W * (T / T_design)^1.3, rated_W * 3)
+T_next   = clamp(T + (load - cap) / 20000, T_design, 9.25)
 ```
+Quench at T_c = 9.25 K. Wall power: 750 W/W at 2 K, 250 W/W at 4.5 K.
 
 ### Cooling
 ```
-Q = m_dot * c_p * dT
+quality = min(1, capacity_kW / heatLoad_kW)
+dT      = 40 K * (1 - quality)
+Q       = m_dot * c_p * dT
 ```
 
 ### Vacuum
 ```
-P = Q_gas / S_eff
-S_eff = S_pump * C / (S_pump + C)
-C_tube = 12.1 * d^3 / L  (molecular flow, d and L in cm)
+P = Q_total / S_total                       (no conductance model)
+Q_pipe = q_specific * 2*pi*r*L,  r = 0.06 m
+       = 3.77e-7 mbar.L/s per metre unbaked
+q_specific = 1e-10 (unbaked) or 1e-12 (baked) mbar.L/(s.cm^2)
 ```
+
+### Power
+```
+quality = min(1, capacity_kW / demand_kW)
+focusStrength *= quality                    (linear: k ~ I ~ P)
+```
+
+---
+
+## What Is Not Live
+
+`fel_gain` and `beam_beam` are implemented and complete, but they only load for
+machine types `fel` and `collider`. Nothing in the game ever sets a machine
+type other than `linac`, so **the FEL and beam-beam equations above the
+"Engineering" section have never executed in play**. Same for
+`bunch_compression`, which is a tier-3 module. They are documented because the
+physics is real and the code is there, not because you can currently reach it.

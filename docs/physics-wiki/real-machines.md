@@ -2,6 +2,8 @@
 
 How the game's machine types map to real facilities. Use these as reference points for whether your in-game beamline is performing realistically.
 
+> **Which of these you can currently build:** only tier 1. The game runs every beamline as a `linac`, and the catalogue is 30 components: sources, drifts, magnets, NC and SRF cavities, diagnostics and endpoints. There are no photoinjector guns, no chicanes, no undulators and no positron source, and the FEL and beam-beam modules — though written and complete — have never executed. The real-world facility data below is accurate; the "what makes a good tier N beamline" notes now say what is actually achievable and what is aspirational.
+
 ---
 
 ## Tier 1: Electron Linacs
@@ -27,7 +29,9 @@ How the game's machine types map to real facilities. Use these as reference poin
 - **Use:** Cancer radiation therapy, cargo inspection, sterilization
 - **Note:** The most common type of particle accelerator in the world — thousands in hospitals.
 
-**What makes a good Tier 1 beamline in the game:** Deliver >100 MeV at >0.1 mA to a target with reasonable transmission (>90%). This is well within what even a small university lab can achieve.
+**What makes a good Tier 1 beamline in the game:** deliver **100 MeV** to a target with good transmission — that is the `reach100mev` objective, and it is the natural first real milestone. **1 GeV** (`reach1gev`) and then **10 GeV** (`reach10gev`) are the ladder above it. Alongside those: hold beam continuously for 60 s, then 300 s, run power, vacuum, RF, cooling and data networks simultaneously, and get average pressure below **1e-8 mbar** (`goodVacuum`).
+
+All of this is achievable today, and getting there is mostly an *infrastructure* problem rather than an optics problem: enough RF power at the right frequency, enough cold for the SRF cavities, and enough distributed pumping that the beam pipe's own outgassing doesn't scatter the beam apart.
 
 ---
 
@@ -56,7 +60,9 @@ How the game's machine types map to real facilities. Use these as reference poin
 - **Specialty:** Produces polarized electron beams (essential for nuclear physics)
 - **Key insight:** DC guns have lower gradient but can run CW with high average current.
 
-**What makes a good Tier 2 beamline in the game:** Achieve normalized emittance < 1 um-rad at > 1 mA. The LCLS injector achieves 0.4 um-rad — that's world-class. Anything below 1 um-rad with reasonable current is excellent.
+**What makes a good Tier 2 beamline in the game:** the `subMicronEmittance` objective asks for normalized emittance below **1 um-rad at above 100 MeV**. That objective is live and checkable today.
+
+Reaching it with the current catalogue means preserving what the thermionic Electron Gun gives you rather than starting from a photoinjector — none of the three guns above are placeable yet, and there is no solenoid, so emittance compensation is not available. In practice that makes clean optics and *good vacuum at low energy* the two levers you have: beam-gas scattering grows emittance as 1/(beta gamma)^2, so the metres right after the gun are where emittance is won or lost.
 
 ---
 
@@ -93,7 +99,9 @@ How the game's machine types map to real facilities. Use these as reference poin
 - **Wavelength:** 4.2-52 nm (EUV/soft X-ray)
 - **Note:** The world's first FEL user facility. Paved the way for LCLS and European XFEL.
 
-**What makes a good Tier 3 beamline in the game:** Achieve FEL saturation at < 10 nm wavelength. This requires:
+**What makes a good Tier 3 beamline in the game:** the objectives exist — `bunchCompressed` (bunch length below 100 fs) and `felSaturation` — but **neither is currently reachable**. There is no chicane and no undulator in the catalogue, and the bunch-compression and FEL-gain modules only load for `machineType: 'fel'`, which nothing sets. `felSaturated` is always false.
+
+When tier 3 lands, saturation below 10 nm will require:
 - Normalized emittance < 1 um-rad (from Tier 2)
 - Peak current > 1 kA (from bunch compression)
 - Energy spread < Pierce parameter rho
@@ -136,7 +144,9 @@ How the game's machine types map to real facilities. Use these as reference poin
 - **Luminosity:** 10^32 /cm^2/s
 - **Note:** Highest energy e+e- collider ever operated. Limited by synchrotron radiation (~3 GeV lost per revolution at top energy). Demonstrated why future e+e- colliders at higher energy must be linear.
 
-**What makes a good Tier 4 beamline in the game:** Achieve luminosity > 10^30 /cm^2/s at the Z-pole (91 GeV center-of-mass). This requires:
+**What makes a good Tier 4 beamline in the game:** the live tier-4 objectives are `reach100gev` (beam energy 100 GeV) and `colliderMode` (run beam into a Collision Point) — both reachable, because the Collision Point is a placeable component. But it is modelled as a **plain drift**: the beam passes through it unaffected, and the beam-beam module that would compute a real luminosity has never executed.
+
+When tier 4 lands, luminosity above 1e30 /cm^2/s at the Z-pole will require:
 - Two full beamlines (electron + positron) from source to IP
 - Final focus achieving sigma_y* < 100 nm
 - Positron source with adequate yield

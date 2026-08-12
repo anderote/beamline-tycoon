@@ -2,6 +2,10 @@
 
 Tier 2 unlocks high-brightness electron sources and the diagnostics to characterize them. The challenge shifts from "get beam to the target" to "produce the brightest beam possible."
 
+> **Availability:** the **DC photogun, NC RF gun, SRF gun and solenoid described below are not in the component catalogue yet.** The engine has parameter definitions and emittance models for all four, and `machineType: 'photoinjector'` is wired to key off a placed gun — but since none of those gun types exist as placeable components, nothing ever sets it, and the game runs every beamline as a tier-1 linac.
+>
+> The diagnostics at the end of this article — **Screen/YAG, ICT, Wire Scanner** — *are* in the catalogue and work today, as does the thermionic **Electron Gun**. Space charge is a tier-1 module and is live for every beamline.
+
 ---
 
 ## DC Photogun

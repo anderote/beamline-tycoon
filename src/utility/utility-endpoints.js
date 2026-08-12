@@ -49,6 +49,12 @@ function placementRecord(pipe, att) {
     params: att.params,
     pipeId: pipe.id,
     isPlacement: true,
+    // Physics write-back (Game._writeBackCavityResults). The cryogenic solver
+    // needs the gradient a cavity actually reached to work out how much heat
+    // it is dumping into the bath, and every cryo sink in the game is a
+    // placement — so this has to survive the flattening or the thermal loop
+    // sees no dynamic load at all.
+    gradientAchieved: att.gradientAchieved,
   };
 }
 

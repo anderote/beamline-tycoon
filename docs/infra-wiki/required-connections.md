@@ -1,162 +1,176 @@
 # Required Connections by Component
 
 ## Quick Tip
-Each component lists exactly what it needs to function. No guessing — check the table.
+Every declared sink must be wired. Five utilities are hard-required — power, vacuum, RF, cooling, cryo. Data is soft.
 
 ## How It Works
 
-Every component has a `requiredConnections` array that explicitly lists which connection types it needs. If any required connection is missing, the component does not function (hard gate). Passive components like drift tubes need nothing. Active components need power, cooling, RF, cryo, or data connections depending on their role.
+What a component *needs* is not a hand-written list — it is the set of utility **sink ports** the component declares. If a component declares a sink for one of the five hard-required utilities and that sink is not wired to any network, the beam does not run, and that sink resolves to its worst-case value.
+
+Two consequences worth knowing:
+
+- **Every beamline component needs vacuum.** A vacuum sink is injected automatically for every placeable beamline module, whether or not it has any other utility. Bellows and apertures need nothing but vacuum — and they do need it.
+- **Beam pipe (`drift`) is the exception.** It is a drawn connection, never a placeable, so it declares no ports at all. Its outgassing is charged directly by the vacuum solver to whichever pumps serve the components mounted on it.
+
+The numbers below are the declared loads: power in kW, cooling in kW of heat, RF in kW (with the frequency bucket), cryo in watts of static heat, data in Gbps, vacuum in mbar·L/s.
 
 ## Beamline Components
 
 ### Sources
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Source (thermionic) | x | | | | |
-| DC Photocathode Gun | x | | | | |
-| NC RF Gun | x | x | x | | |
-| SRF Gun | x | | x | x | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| Electron Gun | 50 | 30 | | | | 1e-6 |
+| Duoplasmatron Ion Source | 30 | 20 | | | | 1e-6 |
+| ECR Ion Source | 60 | 40 | 2 @ 2450 MHz | | | 5e-6 |
 
 ### Drift / Beam Pipe
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Beam Pipe | | | | | |
-| Beam Pipe | | | | | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| Beam Pipe (`drift`) | | | | | | *charged by length to the pumps serving it* |
+| Bellows Section | | | | | | by length (~3.8e-7 per metre) |
+| Aperture | | | | | | 5e-7 |
 
 ### RF / Accelerating
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| RF Cavity | x | x | x | | |
-| Pillbox Cavity | x | | x | | |
-| Half-wave Cavity | x | | x | | |
-| RFQ | x | x | x | | |
-| S-band Structure | x | x | x | | |
-| C-band Structure | x | x | x | | |
-| X-band Structure | x | x | x | | |
-| Buncher Cavity | x | | x | | |
-| Cryomodule | x | | x | x | |
-| Tesla 9-cell | x | | x | x | |
-| SRF 650 Cavity | x | | x | x | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| Buncher | 5 | | 2 @ 200 MHz | | | 5e-7 |
+| Pillbox Cavity | 10 | | 5 @ 200 MHz | | | 1e-6 |
+| RFQ | 40 | 60 | 25 @ 400 MHz | | | 1e-6 |
+| NC RF Cavity | 60 | 120 | 40 @ 2856 MHz | | | 2e-6 |
+| S-band Structure | 60 | 100 | 45 @ 2856 MHz | | | 2e-6 |
+| Half-Wave Resonator | 8 | | 3 @ 161 MHz | 15 W | | 5e-7 |
+| Spoke Cavity | 10 | | 8 @ 325 MHz | 25 W | | 1e-6 |
+| 9-cell Elliptical SRF | 12 | | 5 @ 1300 MHz | 40 W | | 1e-6 |
+| TESLA Cryomodule | 80 | | 40 @ 1300 MHz | 250 W | | 4e-6 |
+
+SRF cavities take **no cooling water**. Their thermal path is the cryo network.
 
 ### Focusing / Steering
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Dipole | x | x | | | |
-| Quadrupole | x | x | | | |
-| Sextupole | x | x | | | |
-| Corrector | x | | | | |
-| Solenoid | x | x | | | |
-| SC Quad | x | x | | x | |
-| SC Dipole | x | x | | x | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| Dipole | 25 | 20 | | | | 5e-7 |
+| Quad | 10 | 8 | | | | 5e-7 |
+| Sextupole | 8 | 6 | | | | 5e-7 |
+| Injection Septum | 40 | 25 | | | | 5e-7 |
+| Velocity Selector | 15 | | | | | 5e-7 |
+| Pepper-pot Emittance Filter | 2 | | | | | 5e-7 |
 
 ### Diagnostics
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| BPM | x | | | | x |
-| Emittance Scanner | x | | | | x |
-| Wall Current Monitor | x | | | | x |
-| Wire Scanner | x | | | | x |
-| Stripline Pickup | x | | | | x |
-| Cavity BPM | x | | | | x |
-| Bunch Length Monitor | x | | | | x |
-| Energy Spectrometer | x | | | | x |
-| Beam Loss Monitor | x | | | | x |
-
-### Beam Optics / Manipulation
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Undulator | x | | | | |
-| Wiggler | x | | | | |
-| Chicane | x | | | | |
-| Bunch Compressor | x | | | | |
-| Septum | x | | | | |
-| Kicker | x | | | | |
-| Splitter | x | | | | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| BPM | 1 | | | | 1 | 2e-7 |
+| Screen/YAG | 2 | | | | 4 | 2e-7 |
+| Current Monitor (ICT) | 1 | | | | 1 | 2e-7 |
+| Wire Scanner | 3 | | | | 2 | 2e-7 |
+| Faraday Cup | 1 | | | | 1 | 2e-7 |
 
 ### Endpoints
-| Component | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Collimator | | x | | | |
-| Target | | x | | | |
-| Beam Stop | | x | | | |
-| Photon Port | | | | | |
-| Detector | x | x | | | x |
-| Positron Target | x | x | | | |
+| Component | Power | Cooling | RF | Cryo | Data | Vacuum |
+|-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
+| Beam Stop | | 50 | | | | 5e-7 |
+| Target | | 40 | | | 5 | 1e-6 |
+| Detector | 120 | 60 | | | 40 | 5e-6 |
+| Collision Point | 20 | | | | 10 | 5e-7 |
+
+That is the whole beamline catalogue — 30 components. Photoinjector guns, solenoids, chicanes, undulators, photon ports, positron targets and kickers are **not** in the game yet; see the physics wiki for what that means for the tier-2-and-up articles.
 
 ## Facility Equipment
 
+Equipment power demand is its own energy cost, so the panel and the bill can never disagree.
+
 ### RF Power
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Magnetron | x | | | | |
-| SSA | x | | | | |
-| Klystron | x | | | | |
-| CW Klystron | x | | | | |
-| IOT | x | | | | |
-| Multi-beam Klystron | x | | | | |
-| High-power SSA | x | | | | |
-| Modulator | x | | | | |
-| Circulator | | | | | |
-| High-power Coupler | | | | | |
-| LLRF Controller | x | | | | x |
+| Equipment | Power draw | Provides | Cooling | Data |
+|-----------|:----------:|----------|:-------:|:----:|
+| Magnetron | 7 | 5 kW RF @ 2450 MHz, 1% duty | | |
+| TWT | 55 | 20 kW RF broadband, 5% duty | | |
+| SSA | 70 | 35 kW RF broadband, CW | | |
+| Pulsed Klystron | 110 | 50 kW RF @ 2856 MHz, 0.1% duty | | |
+| CW Klystron | 90 | 50 kW RF @ 1300 MHz, CW | | |
+| IOT | 115 | 80 kW RF @ 1300 MHz, CW | | |
+| Multi-beam Klystron | 310 | 200 kW RF @ 2856 MHz, 0.5% duty | | |
+| High-power SSA | 500 | 300 kW RF broadband, CW | | |
+| Gyrotron | 2000 | 1000 kW RF broadband, CW | | |
+| Modulator | 3 | *nothing — inert* | | |
+| Circulator | | *nothing — inert* | | |
+| High-power Coupler | | *nothing — inert* | | |
+| LLRF Controller | 0.5 | 4 Gbps data | | 1 |
+| Waveguide Manifold | | RF bus, 6-cell reach | | |
 
 ### Vacuum
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Roughing Pump | x | | | | |
-| Turbo Pump | x | | | | |
-| Ion Pump | x | | | | |
-| NEG Pump | | | | | |
-| Ti Sublimation Pump | | | | | |
-| Pirani Gauge | | | | | |
-| Cold Cathode Gauge | x | | | | |
-| BA Gauge | x | | | | |
-| Gate Valve | | | | | |
-| Bakeout System | x | | | | |
+| Equipment | Power draw | Provides |
+|-----------|:----------:|----------|
+| Roughing Pump | 0.5 | 15 L/s |
+| Turbo Pump | 1 | 300 L/s |
+| Ti Sublimation Pump | | 400 L/s |
+| NEG Pump | | 500 L/s |
+| Ion Pump | 0.3 | 600 L/s |
+| Vacuum Manifold | | Vacuum bus, 5-cell reach |
+| Pirani Gauge | | *inert* |
+| Cold Cathode Gauge | 0.1 | *inert* |
+| BA Gauge | 0.1 | *inert* |
+| Gate Valve | | *inert* |
+| Bakeout System | 5 | 100x outgassing reduction — **but declares no vacuum port, so it cannot join a network** |
 
 ### Cooling
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| LCW Skid | x | | | | |
-| Chiller | x | | | | |
-| Cooling Tower | x | | | | |
-| Heat Exchanger | | | | | |
-| Water Load | | | | | |
-| Deionizer | x | | | | |
-| Emergency Cooling | x | | | | |
+| Equipment | Power draw | Provides | Cooling sink |
+|-----------|:----------:|----------|:------------:|
+| LCW Skid | 3 | 100 kW | |
+| Chiller | 5 | 300 kW | |
+| Cooling Tower | 4 | 800 kW | |
+| Cooling Manifold | | Cooling bus, 8-cell reach | |
+| Deionizer | 1 | *inert* | |
+| Emergency Cooling | 0.1 | *inert* | |
+| Water Load | | *inert* | |
 
 ### Cryogenics
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| LN2 Dewar | | | | | |
-| Cryocooler | x | | | | |
-| LN2 Pre-cooler | | | | | |
-| He Compressor | x | x | | | |
-| 4K Cold Box | x | | | | |
-| 2K Cold Box | x | | | | |
-| Cryomodule Housing | | | | | |
-| He Recovery | x | | | | |
+| Equipment | Power draw | Provides | Cooling sink |
+|-----------|:----------:|----------|:------------:|
+| 4K Cold Box | 15 | 500 W @ 4.5 K design | |
+| 2K Cold Box | 25 | 800 W, **sets network design temp to 2.0 K** | |
+| He Compressor | 20 | *nothing — not required by the solver* | 20 |
+| Cryo Valve Box | | Cryo bus, 6-cell reach | |
+| Cryocooler | 2 | *nothing — declares no cryo source port* | |
+| LN2 Dewar | | *inert* | |
+| LN2 Pre-cooler | | *inert* | |
+| Cryomodule Housing | | *inert* | |
+| He Recovery | 3 | *inert* | |
 
 ### Power
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Substation | | | | | |
-| Power Panel | | | | | |
-| Laser System | x | | | | |
+| Equipment | Provides |
+|-----------|----------|
+| Power Distribution Panel | 40 kW |
+| UPS / Battery Bank | 100 kW |
+| Pad-Mount Transformer | 150 kW |
+| Motor Control Center | 250 kW |
+| Switchgear Cabinet | 400 kW |
+| HV Transformer | 1200 kW |
+| Beamline Power Bus | Power bus, 10-cell reach |
+| Disconnect Switch | *inert* |
+| Laser System | 3 kW draw, *inert* |
+
+There is no "Substation" component.
 
 ### Controls & Safety
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Rack/IOC | x | | | | |
-| PPS Interlock | x | | | | |
-| MPS | x | | | | x |
-| Area Monitor | x | | | | |
-| Timing System | x | | | | x |
+| Equipment | Power draw | Data in | Provides |
+|-----------|:----------:|:-------:|----------|
+| Rack/IOC | 0.5 | | 10 Gbps |
+| Network Switch | 0.2 | 1 | 40 Gbps |
+| Archiver | 0.5 | 1 | 20 Gbps |
+| BPM Electronics | 0.3 | 1 | 8 Gbps |
+| BLM Readout | 0.3 | 1 | 8 Gbps |
+| Timing System | 0.5 | 1 | 5 Gbps |
+| Patch Panel | | 1 | 2 Gbps |
+| Fiber Bus | | | Data bus, 12-cell reach |
+| MPS | 0.5 | 1 | Halves component wear facility-wide |
+| PPS Interlock | 0.2 | | *inert — no gating check exists* |
+| Area Monitor | 0.1 | | *inert* |
+| Search & Secure Panel | 0.1 | | *inert* |
+| Access Control System | 0.1 | | *inert* |
 
 ### Ops
-| Equipment | Power | Cooling | RF | Cryo | Data |
-|-----------|:-----:|:-------:|:--:|:----:|:----:|
-| Shielding | | | | | |
-| Target Handling | x | | | | |
-| Beam Dump (facility) | | x | | | |
-| Rad Waste Storage | | | | | |
+| Equipment | Power draw | Cooling sink | Effect |
+|-----------|:----------:|:------------:|--------|
+| Beam Dump | | 50 | *inert beyond the cooling load* |
+| Target Handling Station | 1 | | *inert* |
+| Shielding | | | *inert — no shielding requirement is checked* |
+| Rad Waste Storage | | | *inert* |

@@ -77,6 +77,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     total_photon_rate = 0.0
     luminosities = []
     collision_rates = []
+    detector_rates = []
     n_focusing = 0
     prev_max_sigma = None  # for divergence rate estimation
     prev_s = 0.0
@@ -147,6 +148,17 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
             if etype == "target" and is_last:
                 collision_rates.append(beam.current * element.get("collisionRate", 2.0))
+
+            # Detectors record interactions at a rate set by the beam they
+            # intercept. Without this, detectors contributed NOTHING to the
+            # summary: data rate was derived from `luminosity`, which only the
+            # beam_beam module produces, which only runs on colliders — so
+            # every non-collider detector in the game produced exactly zero
+            # research data and the tech tree was unreachable under real
+            # physics. The headless fallback masked it by computing data a
+            # different way.
+            if etype == "detector" and is_last:
+                detector_rates.append(beam.current * element.get("dataRate", 1.0))
 
             context.cumulative_s += sub_el["length"]
 
@@ -231,6 +243,12 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         "initial_current": initial_current,
         "luminosity": sum(luminosities),
         "collision_rate": sum(collision_rates),
+        # Total rate of recorded interactions across every endpoint that
+        # records any — detectors and fixed targets. Both scale with the beam
+        # current reaching them, so they share a scale and can be summed.
+        # Luminosity is deliberately NOT folded in: it is cm^-2 s^-1 and runs
+        # ~1e33, so adding it would swamp everything else.
+        "event_rate": sum(detector_rates) + sum(collision_rates),
         "photon_rate": total_photon_rate,
         "beam_quality": beam_quality,
         "alive": beam.alive,

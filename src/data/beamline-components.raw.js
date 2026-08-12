@@ -10,6 +10,22 @@
 // capture efficiency, transit-time factor) still keys on the game `id`, which
 // physics receives as game_type.
 //
+// `beamlineTypes` is an OPTIONAL allowlist of BEAMLINE_TYPES ids (see
+// src/data/beamline-types.js). OMITTED MEANS TRUNK — visible in every type's
+// palette. Declare it only for hardware that is genuinely special-purpose: an
+// ion front end, a beta=1 structure, an insertion device, a productive
+// endpoint. The opposite statement — "this general hardware is wrong for that
+// type" — lives on the type's `excludes` instead, so a type's identity reads
+// in one place rather than being scattered across 36 component entries.
+//
+// The split that does the most work here is the RF one, and it is real
+// physics, not flavour: the cells of a 1.3 GHz elliptical cavity are cut for a
+// particle moving at the speed of light, so a 70 MeV proton (beta = 0.37)
+// arrives at each gap with the wrong phase and gets DECELERATED. The trunk
+// therefore holds exactly one accelerating structure (pillboxCavity, low
+// enough in frequency and energy to work for either species); everything above
+// it is allowlisted to one side of the beta divide or the other.
+//
 // Starter set: 24 components. The full 64-component design backlog lives at
 // docs/full-beamline-component-list.md and should be referenced when restoring
 // deferred components post-MVP.
@@ -42,6 +58,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // Every electron type. The photon machines would rather have a photogun,
+    // but none exists in the catalogue yet — so until one lands this is the
+    // only electron source there is, and excluding it would leave xfel/euvFel
+    // with no buildable source at all.
+    beamlineTypes: ['testStand', 'ebeamProcessing', 'lightSource', 'xfel', 'euvFel', 'collider'],
     requiredConnections: ['powerCable'],
   },
   ionSource: {
@@ -75,6 +96,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // The species declaration for the three hadron types.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   ecrIonSource: {
@@ -107,10 +130,255 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2450,
     rfBand: 'sband',
     rfPowerRequired: 2,
+  },
+
+  // ── Compound machines ───────────────────────────────────────────────────
+  //
+  // The flat-ride tier. Everything above is a PART of a front end — a gun
+  // that hands you 50 keV and leaves the acceleration to you. A compound
+  // machine is source + acceleration + extraction in one crate: you plop it,
+  // it has an exit port, and everything downstream is an ordinary
+  // player-designed beamline. It is not a substitute for designing a
+  // beamline, it is a front end for one.
+  //
+  // Mechanically they are pure data — no engine change was needed. A source
+  // with a high `extractionEnergy` is exactly what beam_physics/gameplay.py
+  // `extract_source_params()` already forwards as the initial beam energy,
+  // with `stats.emittance` becoming the source phase space and
+  // `params.particleType` picking the rest mass.
+  //
+  // READ THIS BEFORE TUNING `stats.emittance`. In physics_to_game,
+  // beamQuality = initial_emittance / final_emittance — it scores emittance
+  // PRESERVATION, not emittance. Sweeping a source from 0.5 to 200 mm·mrad
+  // leaves beamQuality pinned at 1.000 while finalNormEmittanceX tracks the
+  // source faithfully. So a big number here is NOT a quality penalty and must
+  // never be written as if it were; it is an honest statement of the phase
+  // space the machine delivers, and it only costs the player once a figure of
+  // merit reads absolute emittance (xfel's felBrilliance does).
+  // See docs/superpowers/specs/2026-08-11-compound-machines-design.md.
+  vanDeGraaff: {
+    id: 'vanDeGraaff',
+    physicsType: 'source',
+    name: 'Van de Graaff Generator',
+    desc: 'A rubber belt carries charge to a terminal inside an SF6 pressure tank until it sits at three million volts, and a thermionic gun at the terminal rides that potential straight down an evacuated column. No RF, no cooling loop, no timing system — one power feed and a vacuum pump and it makes beam. 3 MeV at a couple of milliamps: an honest few kilowatts, delivered continuously, forever. Every part of it was state of the art in 1935, which is exactly why it is the cheapest working accelerator you can own.',
+    category: 'source',
+    subsection: 'electron',
+    cost: { funding: 350000 },
+    // 3 MeV x 2 mA = 6 kW of beam. Deliberately an order of magnitude under
+    // the Rhodotron this tier's e-beam type is calibrated against: this is a
+    // trickle of low-tech revenue, not a competitive processing line.
+    stats: { beamCurrent: 2, emittance: 5 },
+    energyCost: 30,
+    subL: 6,
+    subW: 4,
+    subH: 6, gridW: 4, gridH: 6, geometryType: 'box',
+    interiorVolume: 12,
+    unlocked: true,
+    isSource: true,
+    spriteKey: 'vanDeGraaff',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    // 3 MV terminal, so 3 MeV of electrons.
+    extractionEnergy: 0.003,
+
+    // 3 MeV sits inside ebeamProcessing's 3-12 MeV regulatory window and at
+    // the bottom edge of testStand's 5-50 MeV band. Nothing else in the
+    // roster runs that low, which is the whole point of a tier-1 plop.
+    beamlineTypes: ['testStand', 'ebeamProcessing'],
+    // The only accelerator in the catalogue that asks for nothing but power.
+    // That is its identity: plop, draw pipe to a beam stop, hang one power
+    // panel and one roughing pump, and you have income on tick 1.
+    requiredConnections: ['powerCable'],
+  },
+  cockcroftWalton: {
+    id: 'cockcroftWalton',
+    physicsType: 'source',
+    name: 'Cockcroft-Walton Set',
+    desc: 'A cascade of rectifiers and capacitors stacked into a dome, multiplying line voltage up to 750 kV, with a duoplasmatron sitting in the terminal. Protons arrive at the far end already at 750 keV — past the space-charge-dominated stretch where an RFQ would otherwise be mandatory, and fast enough to inject straight into a drift-tube structure. The machine that split the atom in 1932 and then spent forty years as the front end of every proton linac worth the name.',
+    category: 'source',
+    subsection: 'proton',
+    cost: { funding: 900000 },
+    // Fermilab's preinjector ran ~50 mA of H-; 30 mA is a conservative read.
+    // Electrostatic column, no bunching: a fat, hot, DC beam.
+    stats: { beamCurrent: 30, emittance: 12 },
+    energyCost: 40,
+    subL: 6,
+    subW: 6,
+    subH: 8, gridW: 6, gridH: 6, geometryType: 'box',
+    interiorVolume: 14,
+    unlocked: true,
+    isSource: true,
+    spriteKey: 'cockcroftWalton',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    params: { particleType: 'proton' },
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    // The Fermilab / BNL / CERN Linac2 preinjector number, exactly.
+    extractionEnergy: 0.00075,
+
+    // Ungated as a component, but every proton type is itself gated behind
+    // protonAcceleration, so it can only ever appear in a palette the player
+    // has already earned. Its competition is ionSource + rfq (400k + 1.5M for
+    // 3.04 MeV, and an rfWaveguide network to feed the RFQ); this is 900k for
+    // 750 keV and no RF plant at all.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  cyclotron30: {
+    id: 'cyclotron30',
+    physicsType: 'source',
+    name: 'Compact Cyclotron (30 MeV)',
+    desc: 'A four-metre iron yoke, an internal ion source, two dees, and 350 microamps of 30 MeV protons out of a stripping foil. The workhorse of the medical isotope industry — this is the machine that makes the fluorine-18 in a PET scan and the thallium-201 in a cardiac study. Self-contained: plop it, pipe the beam to a target, and it earns. Drinks power and dumps essentially all of it into the cooling loop.',
+    category: 'source',
+    subsection: 'proton',
+    cost: { funding: 6000000 },
+    // IBA Cyclone 30: 30 MeV H-, 2 x 350 uA dual extraction. One port's worth.
+    stats: { beamCurrent: 0.35, emittance: 6 },
+    energyCost: 140,
+    subL: 8,
+    subW: 8,
+    subH: 6, gridW: 8, gridH: 8, geometryType: 'box',
+    interiorVolume: 20,
+    // GATED: cyclotronTech is the machineTypes root and exists for exactly
+    // this. It is also ungated itself, so a determined player can reach the
+    // first plop-and-earn machine early — which is the intended shape.
+    requires: 'cyclotronTech',
+    isSource: true,
+    spriteKey: 'cyclotron30',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    params: { particleType: 'proton' },
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    extractionEnergy: 0.030,
+
+    // 30 MeV x 350 uA sits inside isotopeIrradiation's 15-70 MeV / 0.1-1 mA
+    // bands on its own, which makes this the one compound machine that is a
+    // complete revenue beamline rather than a front end. It still needs a
+    // target, a pipe and a defocusing lattice to hit the spot-size band, so
+    // it is a small beamline, not a free one.
+    beamlineTypes: ['isotopeIrradiation'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  cyclotron70: {
+    id: 'cyclotron70',
+    physicsType: 'source',
+    name: 'Multi-particle Cyclotron (70 MeV)',
+    desc: 'A sector-focused isochronous cyclotron with a shaped, radially increasing field, so the revolution frequency holds constant as the protons go relativistic. 70 MeV, 750 microamps across two simultaneous extraction ports, and a source configurable for deuterons and alphas as well as protons. This is the machine that makes the isotopes a 30 MeV set cannot reach, and at 70 MeV it doubles as an ocular proton therapy beam.',
+    category: 'source',
+    subsection: 'proton',
+    cost: { funding: 22000000 },
+    // ARRONAX: 70 MeV, 2 x 375 uA. Taken as one 750 uA beam here because the
+    // flattener walks a single path and cannot express dual extraction.
+    stats: { beamCurrent: 0.75, emittance: 8 },
+    energyCost: 380,
+    subL: 10,
+    subW: 10,
+    subH: 8, gridW: 10, gridH: 10, geometryType: 'box',
+    interiorVolume: 40,
+    // GATED: the isochronous / AVF field shaping IS the node.
+    requires: 'isochronousCyclotron',
+    isSource: true,
+    spriteKey: 'cyclotron70',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    params: { particleType: 'proton' },
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    extractionEnergy: 0.070,
+
+    // therapy is in the list on the strength of Clatterbridge (62 MeV) and
+    // CATANA (62 MeV): 70 MeV protons treat ocular melanoma and nothing else,
+    // and 0.070 GeV is the exact bottom of therapy's band. Note the 750 uA is
+    // 15x over therapy's 1-50 uA window — plopping this and calling it a
+    // clinic scores badly on purpose. A therapy line is a designed line.
+    beamlineTypes: ['isotopeIrradiation', 'therapy'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  lwfaStation: {
+    id: 'lwfaStation',
+    physicsType: 'source',
+    name: 'LWFA Station',
+    desc: 'A petawatt laser pulse is focused into a centimetres-long plasma capillary, blows the electrons clean out of its own path, and leaves behind a charge-separation wake with a field above 100 GV/m. Electrons trapped in that wake surf it to a GeV in three centimetres — a job that takes a hundred metres of superconducting linac. What comes out the other end is a GeV in a crate. What also comes out is percent-level energy spread, milliradian divergence and shot-to-shot jitter, and no downstream optic gets that back.',
+    category: 'source',
+    subsection: 'electron',
+    cost: { funding: 48000000 },
+    // CHROMATIC-EQUIVALENT EMITTANCE, not the plasma-exit value. LWFA beams
+    // leave the capillary with a genuinely small normalised emittance (~1
+    // mm.mrad); what wrecks them is 1-3% energy spread folded through the
+    // first capture quadrupole, and the engine's source model has no energy
+    // spread to give. 10 mm.mrad is that chromatic blow-up expressed in the
+    // one number the engine reads — 7x a thermionic gun's 1.35.
+    //
+    // Average current is 100 pC at ~10 kHz. That is the kHz-class LWFA the
+    // field is actually building toward (kBELLA, ATHENA, LUX), not a 1 Hz
+    // demonstrator, and it is what keeps this inside xfel's 0.5-10 uA window
+    // so the penalty lands on emittance alone rather than being doubled.
+    stats: { beamCurrent: 0.001, emittance: 10 },
+    energyCost: 450,
+    subL: 12,
+    subW: 8,
+    subH: 5, gridW: 8, gridH: 12, geometryType: 'box',
+    interiorVolume: 30,
+    requires: 'plasmaAcceleration',
+    isSource: true,
+    spriteKey: 'lwfaStation',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    // 1 GeV. LBNL BELLA reached exactly this in a 3.3 cm capillary in 2006
+    // (Leemans et al.) and 8 GeV in a 30 cm one in 2019, so a GeV station is
+    // the conservative reading of the record, not the optimistic one.
+    extractionEnergy: 1.0,
+
+    // Every electron type except ebeamProcessing, where a GeV plasma stage in
+    // front of a 10 MeV sterilisation line is absurd. On its own it lands in
+    // euvFel's 0.8-1.2 GeV band and fails its 5-15 mA / CW requirement by
+    // four orders of magnitude; its real use is as a front end that hands an
+    // xfel or a collider a GeV for the price of five cryomodules, and then
+    // makes them live with the phase space.
+    beamlineTypes: ['testStand', 'lightSource', 'xfel', 'euvFel', 'collider'],
+    // NO rfWaveguide and NO cryoTransfer — that absence is the point. What it
+    // wants instead is a substation's worth of electricity, a chiller loop to
+    // take it back, and a fibre timing link to the drive laser: the
+    // laser-to-plasma synchronisation is femtosecond-class and is distributed
+    // over stabilised fibre, which is what dataFiber models. The petawatt
+    // laser itself is a separate infrastructure placeable (petawattLaser).
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
   drift: {
     id: 'drift',
@@ -227,6 +495,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
       ringExit: { side: 'right' },
     },
 
+    // Only two types have a ring to inject into.
+    beamlineTypes: ['lightSource', 'collider'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   quadrupole: {
@@ -250,6 +520,153 @@ export const BEAMLINE_COMPONENTS_RAW = {
     placement: 'attachment',
     role: 'placement',
     textures: { iron: 'metal_brushed' },
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  // Solenoid, collimator, chicane, combinedFunctionMagnet and undulator below
+  // exist to give the physics engine's orphaned element types a component to
+  // attach to. beam_physics/gameplay.py has mapped all five for a long time and
+  // KNOWN_PHYSICS_TYPES lists them, but NO component declared them — so
+  // CollimationModule (which runs in every machine tier), BunchCompressionModule
+  // and FELGainModule had never executed once, and the solenoid/combined-function
+  // transfer matrices in elements.py were unreachable. Adding the components is
+  // the whole fix; no engine change was needed.
+  solenoid: {
+    id: 'solenoid',
+    physicsType: 'solenoid',
+    name: 'Solenoid',
+    desc: 'Axial-field focusing magnet that focuses in BOTH planes at once, unlike a quadrupole. Its strength falls off sharply with energy, so it earns its place right after the source where the beam is slow and space charge is trying to blow it apart. Standard practice on every photoinjector and ion front end.',
+    category: 'optics',
+    subsection: 'focusing',
+    cost: { funding: 150000 },
+    stats: { fieldStrength: 0.2 },
+    energyCost: 1,
+    subL: 2,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
+    interiorVolume: 1.5,
+    unlocked: true,
+    spriteKey: 'quadrupole',
+    spriteColor: 0x4f9de0,
+    accentColor: 0x4f9de0,
+    params: { fieldStrength: 0.2 },
+    placement: 'attachment',
+    role: 'placement',
+    textures: { iron: 'metal_brushed' },
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  collimator: {
+    id: 'collimator',
+    physicsType: 'collimator',
+    name: 'Collimator',
+    desc: 'Adjustable jaws that scrape the outer halo off the beam. Costs you current but improves what survives, and protects everything downstream from the stray particles that would otherwise activate your tunnel. Essential on any high-power machine where uncontrolled loss is the thing that stops the beam.',
+    category: 'optics',
+    subsection: 'manipulation',
+    cost: { funding: 400000 },
+    stats: { beamQuality: 0.2 },
+    energyCost: 2,
+    subL: 2,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
+    interiorVolume: 1.5,
+    requires: 'beamOptics',
+    spriteKey: 'aperture',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    placement: 'attachment',
+    role: 'placement',
+    requiredConnections: ['coolingWater'],
+  },
+  combinedFunctionMagnet: {
+    id: 'combinedFunctionMagnet',
+    physicsType: 'combined_function',
+    name: 'Combined Function Magnet',
+    desc: 'Bends and focuses in a single magnet by shaping the pole faces so the field varies across the aperture. Two jobs, one power supply, one cooling circuit and one slot of beamline — the reason compact rings and cost-conscious lattices use them instead of separate dipoles and quads.',
+    category: 'optics',
+    subsection: 'focusing',
+    cost: { funding: 2000000 },
+    stats: { bendAngle: 45, focusStrength: 0.8 },
+    energyCost: 2,
+    subL: 4,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 4, geometryType: 'box',
+    interiorVolume: 3,
+    requires: 'latticeDesign',
+    isDipole: true,
+    spriteKey: 'dipole',
+    spriteColor: 0x6f7fd0,
+    accentColor: 0x6f7fd0,
+    placement: 'module',
+    role: 'junction',
+    routing: [{ from: 'entry', to: 'exit' }],
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+    textures: { iron: 'metal_brushed' },
+    // Multi-bend-achromat lattices are a storage-ring economy: two jobs per
+    // magnet is how you fit 40 bends into a ring you can afford to power.
+    beamlineTypes: ['lightSource'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  chicane: {
+    id: 'chicane',
+    physicsType: 'chicane',
+    name: 'Bunch Compressor (Chicane)',
+    desc: 'Four dipoles in a Z that send higher-energy particles the long way round, so a bunch that has been energy-chirped by an off-crest cavity arrives compressed. Peak current is what drives FEL gain, and this is how you get it — an FEL without a compressor never reaches saturation.',
+    category: 'optics',
+    subsection: 'manipulation',
+    cost: { funding: 2500000 },
+    stats: { r56: -50 },
+    energyCost: 3,
+    subL: 8,
+    subW: 4,
+    subH: 2, gridW: 4, gridH: 8, geometryType: 'box',
+    interiorVolume: 8,
+    requires: 'bunchCompression',
+    spriteKey: 'dipole',
+    spriteColor: 0x9d6fd0,
+    accentColor: 0x9d6fd0,
+    // r56 in mm; gameplay.py converts to metres. Negative is the usual sign
+    // convention for a compressing chicane.
+    params: { r56: -50 },
+    placement: 'attachment',
+    role: 'placement',
+    textures: { iron: 'metal_brushed' },
+    // The single-pass machines that live or die on peak current. Deliberately
+    // NOT the light source: a storage ring lengthens its bunches to fight
+    // Touschek scattering, it never compresses them — the exact inverse of
+    // what this does.
+    beamlineTypes: ['xfel', 'euvFel', 'collider'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  undulator: {
+    id: 'undulator',
+    physicsType: 'undulator',
+    name: 'Undulator',
+    desc: 'A long array of alternating magnet poles that whips the beam side to side, and at every wiggle it radiates. Get the beam bright enough and the emitted light starts bunching the electrons that made it, which makes more light still — that runaway is FEL gain, and it is what separates a light source from a laser.',
+    category: 'optics',
+    subsection: 'insertionDevices',
+    cost: { funding: 3000000 },
+    // period in mm (gameplay.py converts to metres); kParameter dimensionless.
+    stats: { photonRate: 1, period: 30, kParameter: 1.5 },
+    energyCost: 12,
+    subL: 10,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 10, geometryType: 'box',
+    interiorVolume: 6,
+    requires: 'synchrotronLight',
+    spriteKey: 'quadrupole',
+    spriteColor: 0xd06f9d,
+    accentColor: 0xd06f9d,
+    params: { period: 30, kParameter: 1.5 },
+    placement: 'attachment',
+    role: 'placement',
+    textures: { iron: 'metal_brushed' },
+    // The three types whose product is photons. Barred from the hadron types
+    // because a 70 MeV proton has gamma = 1.07 and does not radiate, and from
+    // the collider because there a photon leaving the beam takes luminosity
+    // with it — it is a loss mechanism, not a product.
+    beamlineTypes: ['lightSource', 'xfel', 'euvFel'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   sextupole: {
@@ -439,6 +856,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // beta = 1 normal conducting. euvFel is absent on purpose: at 1 GeV x
+    // 10 mA CW there is no duty cycle to hide in and copper would melt.
+    beamlineTypes: ['testStand', 'ebeamProcessing', 'lightSource', 'xfel', 'collider'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
     rfBand: 'sband',
@@ -470,10 +890,53 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    beamlineTypes: ['testStand', 'ebeamProcessing', 'lightSource', 'xfel', 'collider'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
     rfBand: 'sband',
     rfPowerRequired: 45,
+  },
+  industrialLinac: {
+    id: 'industrialLinac',
+    physicsType: 'rfCavity',
+    name: 'Industrial E-beam Linac',
+    desc: 'Short, rugged S-band structure built for one job: putting 10 MeV of electrons through a product stream all day. 10 MV/m over a 1 m structure in a single self-contained skid, pulsed off a magnetron or a klystron. Poor value per GeV and it will never take you past the regulatory 10 MeV ceiling — but nothing else in the catalogue lands a sterilisation line squarely in band without twenty pillbox cavities in a row.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 400000 },
+    // 10 MV/m x 1.0 m active = 10 MeV, the number the whole industry quotes:
+    // above ~10 MeV an electron beam starts activating what it irradiates, so
+    // the regulator caps the product there and every vendor builds to it.
+    // gradientDemanded is derived as energyGain*1000/length in gameplay.py,
+    // with length = subL x 0.5 m — so subL 2 must match l_active 1.0 in
+    // CAVITY_SPECS or the catalogue gain and the physics gain disagree.
+    stats: { energyGain: 0.010, gradient: 10 },
+    energyCost: 8,
+    subL: 2,
+    subW: 2,
+    subH: 4, gridW: 2, gridH: 2, geometryType: 'cylinder',
+    interiorVolume: 6,
+    // UNGATED, like the type it exists for. E-beam processing is the roster's
+    // tier-1 money line and its whole point is that a player can build it on
+    // tick 0; a research gate here would put $7.6M of tree in front of the
+    // first commercial beamline and turn the opening into a grind.
+    unlocked: true,
+    spriteKey: 'rfCavity',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { rfFrequency: 2856, gradient: 10 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['ebeamProcessing'],
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 2856,
+    rfBand: 'sband',
+    rfPowerRequired: 20,
   },
   rfq: {
     id: 'rfq',
@@ -504,6 +967,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // The only device that captures a DC ion beam, so it is dead hardware on
+    // any electron line.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 400,
     rfBand: 'vhf',
@@ -537,6 +1003,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // Low-beta SRF: cut for a particle still well short of light speed, which
+    // is exactly the ion front end and nowhere else.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 161,
     rfBand: 'vhf',
@@ -568,6 +1037,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 325,
     rfBand: 'vhf',
@@ -599,6 +1069,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    // beta = 1 SRF. Absent from the two tier-1 types on purpose: a 2 K
+    // cryoplant costs more than the building a test stand lives in, which is
+    // what makes cryogenics a tier-2 unlock story rather than something the
+    // tutorial trips over.
+    beamlineTypes: ['lightSource', 'xfel', 'euvFel', 'collider'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
     rfBand: 'lband',
@@ -634,6 +1109,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
+    beamlineTypes: ['lightSource', 'xfel', 'euvFel', 'collider'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 1300,
     rfBand: 'lband',
@@ -820,6 +1296,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
       entry: { side: 'back' },
     },
 
+    // A $50M 4-pi spectrometer is what a collider experiment IS, and it is not
+    // what any other kind of facility buys.
+    beamlineTypes: ['collider'],
     requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
   collisionPoint: {
@@ -849,6 +1328,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
       entryB: { side: 'front' },
     },
 
+    beamlineTypes: ['collider'],
     requiredConnections: ['powerCable', 'dataFiber'],
   },
   target: {
@@ -881,6 +1361,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
       entry: { side: 'back' },
     },
 
+    // The two types that consume their beam on a block of material. It stands
+    // in for four specialised endpoints the design calls for
+    // (sampleIrradiationStation, isotopeTargetStation, spallationTarget,
+    // positronTarget) and none of which exist yet — when they land, this
+    // allowlist should narrow to nothing and the component retire.
+    beamlineTypes: ['isotopeIrradiation', 'spallation'],
     requiredConnections: ['coolingWater', 'dataFiber'],
   },
 };

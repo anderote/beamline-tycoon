@@ -1,5 +1,7 @@
 # Tier 2 Physics — Photoinjector
 
+> **What runs today:** **space charge is live** — it is a tier-1 module and applies to every beamline in the game. Everything else on this page describes physics that is either implemented but unreachable (emittance compensation needs a solenoid, which is not in the catalogue) or reference material for a source model the game does not yet expose (photocathode MTE, laser spot size). The thermionic Electron Gun's emittance *is* computed from its cathode temperature and extraction voltage, so the source-emittance trade-off is partly real.
+
 ---
 
 ## Space Charge
@@ -69,6 +71,8 @@ The optimal solenoid position and strength depend on:
 - Distance to first accelerating cavity
 
 In the game, this means the solenoid is not just "a focusing element" — its exact strength matters critically. Too strong or too weak, and the compensation doesn't work. The player needs to tune it by watching the emittance diagnostic.
+
+> **Not reachable yet.** There is no solenoid in the component catalogue, so emittance compensation cannot be attempted. The solenoid transfer matrix and its parameter definitions are implemented and waiting.
 
 **The rule of thumb:**
 

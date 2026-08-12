@@ -7,6 +7,8 @@ import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { hardwareNodes } from '../game/aggregates.js';
 import { dataFeeIncome } from '../game/economy.js';
+import { endpointsById } from '../utility/endpoint-lookup.js';
+import { getCavitySpec } from '../beamline/cavity-specs.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -272,6 +274,7 @@ export class BeamlineWindow {
     }
 
     const compHealth = (entry.beamState.componentHealth) || {};
+    const byId = endpointsById(this.game.state);
 
     let html = '<div style="overflow-y:auto">';
     for (const node of ordered) {
@@ -291,9 +294,64 @@ export class BeamlineWindow {
           <span style="color:${healthColor};font-size:8px;width:32px;text-align:right">${healthPct.toFixed(0)}%</span>
         </div>
       `;
+      html += this._cavityRow(byId.get(node.id));
     }
     html += '</div>';
     el.innerHTML = html;
+  }
+
+  /**
+   * Gradient sub-row for a cavity: what the operator asked for, what the
+   * hardware actually delivered, and which resource is binding.
+   *
+   * The `gradient` slider is a DEMAND, not a setting — achievable gradient
+   * comes from the RF power and cryogenic temperature the cavity is
+   * provisioned with (beam_physics/srf.py). Without this readout a player
+   * whose cavity is capped has no way to see it, let alone see whether the
+   * fix is more RF or more cold.
+   */
+  _cavityRow(inst) {
+    if (!inst || typeof inst.gradientAchieved !== 'number') return '';
+    if (!getCavitySpec(inst.type)) return '';
+
+    if (inst.quenched) {
+      return `<div class="ctx-comp-row" style="padding-left:24px">
+        <span style="color:#ff4444;font-size:8px;flex:1">QUENCHED — not accelerating</span>
+      </div>`;
+    }
+
+    const demanded = inst.gradientDemanded || 0;
+    const achieved = inst.gradientAchieved || 0;
+    const achievable = inst.gradientAchievable || 0;
+    const atDemand = demanded > 0 && achieved >= demanded - 1e-6;
+
+    // What is holding it back. Cryo only binds on superconducting cavities;
+    // for normal-conducting ones a shortfall is always RF (or detuning, which
+    // shows up as reflected power).
+    let limit = 'at demand', limitColor = '#44dd66';
+    if (!atDemand) {
+      const spec = getCavitySpec(inst.type);
+      const warm = typeof inst.cavityQ0 === 'number' && spec.kind === 'srf'
+        && inst.cavityQ0 < 1e9;
+      if (warm) { limit = 'cryo-limited'; limitColor = '#ff8844'; }
+      else if ((inst.reflectedFraction || 0) > 0.1) {
+        limit = 'detuned'; limitColor = '#ff8844';
+      } else { limit = 'RF-limited'; limitColor = '#ddaa22'; }
+    }
+
+    const pct = demanded > 0
+      ? Math.max(0, Math.min(100, (achieved / demanded) * 100)) : 0;
+
+    return `<div class="ctx-comp-row" style="padding-left:24px">
+      <span style="color:#8888aa;font-size:8px;flex:1">
+        ${achieved.toFixed(1)} / ${demanded.toFixed(1)} MV/m
+        ${achievable > 0 && !atDemand ? `<span style="color:#666">(max ${achievable.toFixed(1)})</span>` : ''}
+      </span>
+      <div class="ctx-comp-health-bar" style="max-width:120px">
+        <div class="ctx-comp-health-fill" style="background:${limitColor};width:${pct}%"></div>
+      </div>
+      <span style="color:${limitColor};font-size:8px;width:64px;text-align:right">${limit}</span>
+    </div>`;
   }
 
   _renderSettings(el) {

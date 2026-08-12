@@ -22,7 +22,7 @@ import { SCENARIOS } from '../src/data/scenarios.js';
 import { TUTORIAL_STEPS } from '../src/data/tutorial.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
 import { listUtilityEndpoints } from '../src/utility/utility-endpoints.js';
-import { declaredSinkQualityFloor } from '../src/game/utility-gate.js';
+import { declaredSinkQualityFloor, UTILITY_TO_QUALITY_FIELD } from '../src/game/utility-gate.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -72,17 +72,34 @@ for (const scenario of SCENARIOS) {
   // quality 0, and dataFiber never hard-blocks at all, so a scenario could be
   // green and still run every cavity at zero. Assert the qualities directly,
   // over every endpoint — pipe placements included.
+  // Only the 0-1 QUALITY fields are checked. The floor also carries physical
+  // quantities (rfPowerW, cryoTempK, coolingDeltaT, vacuumPressure) where
+  // "good" is not uniformly "greater than zero" — a well-cooled component sits
+  // at coolingDeltaT 0, and a cold cavity wants a LOW cryoTempK. Those have
+  // their own directional fail-closed values in UTILITY_PHYSICAL_FIELDS.
+  const QUALITY_FIELDS = new Set(Object.values(UTILITY_TO_QUALITY_FIELD));
   const starved = [];
   for (const e of listUtilityEndpoints(state)) {
     const floor = declaredSinkQualityFloor(e.type);
     if (!floor) continue;
     const nq = state.nodeQualities?.[e.id] || {};
     for (const field of Object.keys(floor)) {
+      if (!QUALITY_FIELDS.has(field)) continue;
       if (!(nq[field] > 0)) starved.push(`${e.type}.${field}=${nq[field]}`);
     }
   }
   assert(starved.length === 0,
     `every declared sink is served (starved: ${starved.join(', ') || 'none'})`);
+
+  // A wired vacuum network must actually pump down. Pressure comes from the
+  // solver's P = Q/S and now includes beam-pipe surface area, so a scenario
+  // that ships pumps but under-sizes them for its pipe length would show up
+  // here rather than silently running a scattered beam.
+  if ((state.beamPipes || []).length > 0) {
+    game.computeSystemStats();
+    assert(state.avgPressure < 1013,
+      `wired vacuum network pumps down (got ${state.avgPressure})`);
+  }
 
   const junctions = state.placeables.filter(p => p.category === 'beamline');
   if (junctions.length > 0) {

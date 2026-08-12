@@ -9,6 +9,27 @@ Each article has three sections:
 - **How It Works** — plain-language explanation with real units
 - **The Math** — actual equations for players who want the full picture
 
+## What Is Currently Playable
+
+The physics engine models four machine tiers, but **only tier 1 currently
+executes**. Nothing in the game sets a machine type other than `linac`, and the
+component catalogue is 30 beamline modules: sources, drifts, bellows, magnets,
+NC and SRF cavities, diagnostics, and endpoints.
+
+That means the tier 2-4 articles describe **physics that is implemented and
+correct but not yet reachable**, using components that are not yet in the
+catalogue (photoinjector guns, solenoids, chicanes, undulators, photon ports,
+positron targets, septa, kickers). Each of those articles now carries a note
+saying so. They are kept because the physics is real, the modules are written
+and tested, and they are the design target — not because you can build one
+today.
+
+The live physics is: linear optics, RF acceleration with transit-time factor
+and capture efficiency, adiabatic damping, synchrotron radiation with quantum
+excitation, space charge, **beam-gas scattering**, and aperture loss — plus the
+utility-driven device physics that decides what a cavity can actually do
+(see the [infrastructure wiki](../infra-wiki/README.md)).
+
 ## Files
 
 ### Fundamentals

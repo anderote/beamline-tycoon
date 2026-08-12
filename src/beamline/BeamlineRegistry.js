@@ -43,8 +43,17 @@ export class BeamlineRegistry {
     this.nextBeamlineId = 1;
   }
 
-  /** Create a new beamline entry. */
-  createBeamline(machineType, sourceId = null) {
+  /**
+   * Create a new beamline entry.
+   *
+   * `typeId` is the BEAMLINE_TYPES id the player chose in the New Beamline
+   * picker, and it is the ONLY authority on this beamline's identity from here
+   * on: `beamState.machineType` is derived from it at creation and must never
+   * be re-derived by guessing at the component list. A null typeId means an
+   * untyped (pre-picker or scenario-authored) beamline, which keeps whatever
+   * machineType it was handed.
+   */
+  createBeamline(machineType, sourceId = null, typeId = null) {
     const id = `bl-${this.nextBeamlineId}`;
     const name = `Beamline-${this.nextBeamlineId}`;
     const accentColor = canonicalAccentFor(this.nextBeamlineId - 1);
@@ -56,6 +65,7 @@ export class BeamlineRegistry {
       accentColor,
       status: 'stopped',
       sourceId,
+      typeId: typeId || null,
       beamState: makeDefaultBeamState(machineType),
     };
 
@@ -87,6 +97,7 @@ export class BeamlineRegistry {
         accentColor: entry.accentColor,
         status: entry.status,
         sourceId: entry.sourceId,
+        typeId: entry.typeId ?? null,
         beamState: JSON.parse(JSON.stringify(entry.beamState)),
       });
     }
@@ -110,6 +121,7 @@ export class BeamlineRegistry {
         accentColor,
         status: e.status,
         sourceId: e.sourceId ?? null,
+        typeId: e.typeId ?? null,
         beamState: e.beamState,
       });
     }

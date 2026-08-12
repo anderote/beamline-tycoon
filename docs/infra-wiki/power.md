@@ -28,12 +28,14 @@ Each component's power sink declares its own draw (kW), in rough tiers:
 
 | Tier | Draw | Examples |
 |------|------|----------|
-| Tiny | 1-3 kW | BPM (1), ICT (1), screen (2), wire scanner (3), Faraday cup (1) |
-| Small | 5-25 kW | Buncher (5), sextupole (8), quad (10), pillbox (10), SRF cavities (8-15), dipole (25) |
+| Tiny | 1-3 kW | BPM (1), ICT (1), Faraday cup (1), pepper-pot filter (2), screen (2), wire scanner (3) |
+| Small | 5-25 kW | Buncher (5), half-wave resonator (8), sextupole (8), quad (10), pillbox (10), spoke cavity (10), elliptical SRF (12), velocity selector (15), collision point (20), dipole (25) |
 | Medium | 30-80 kW | Ion source (30), RFQ (40), septum (40), electron gun (50), NC structures (60), ECR source (60), cryomodule (80) |
 | Large | 100+ kW | Detector (120) |
 
-If total draw exceeds total capacity in a network, every component on it derates (quality = capacity/demand); a network with sinks but zero capacity blocks the beam.
+Facility equipment draws power too, and its demand is its own `energyCost` — the same number the electricity bill charges, so the two can never drift apart. A gyrotron is a 2,000 kW sink; a high-power SSA is 500 kW.
+
+If total draw exceeds total capacity in a network, every component on it derates (quality = capacity/demand). That derate is **linear on magnet focusing strength, and that is physically correct**: field goes as coil current, which goes as supply power. Power is the one utility where a linear scalar is the right model.
 
 ### Networks
 
@@ -67,4 +69,10 @@ U = D_network / C_network * 100%
 quality = min(1, C_network / D_network)   (uniform across the network's sinks)
 ```
 
-**Hard gate:** sinks present with `C_network = 0` blocks beam operation (power_starved). Overload (`D > C`) is a soft derate.
+**What quality does:**
+```
+focusStrength *= powerQuality     (linear — magnet field goes as coil current goes as power)
+```
+Power does *not* multiply into cavity gradient any more. A cavity's gradient comes from the RF power and (for SRF) the cryogenic temperature it is actually supplied with; see [rf-power.md](rf-power.md) and [cryogenics.md](cryogenics.md).
+
+**Hard gates:** a power sink not wired to any network at all, or a network with sinks and `C_network = 0` (`power_starved`). Overload (`D > C`) is a soft derate — and a *badly* powered magnet still beats an unwired one, which fails closed at quality 0.

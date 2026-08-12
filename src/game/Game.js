@@ -5,6 +5,7 @@ import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
+import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
@@ -124,6 +125,13 @@ export class Game {
 
     this.editingBeamlineId = null;
     this.selectedBeamlineId = null;
+
+    // The New Beamline picker's answer, waiting for a source to be placed.
+    // Registry entries are minted lazily by _ensureBeamlineForSourcePlaceable,
+    // so the picker cannot hand its choice straight to createBeamline — it
+    // parks it here and the next source placement consumes it, exactly once.
+    // Deliberately NOT persisted: it is a half-finished gesture, not state.
+    this.pendingBeamlineTypeId = null;
 
     // Dev mode — unlimited funding, ignores staff/build costs.
     // Persisted in localStorage, toggled via window.dev.enable() / .disable().
@@ -2521,6 +2529,14 @@ export class Game {
    * existing click/window flow (_getNodeAtGrid → registry → BeamlineWindow)
    * can find it. Sources placed via the unified placeable system have no
    * registry representation by default; this bridges the gap. Idempotent.
+   *
+   * This is also the single point where the New Beamline picker's choice lands
+   * in the model: `pendingBeamlineTypeId` is read here, stamped on the entry as
+   * `typeId`, and the type's `machineType` becomes the beamState's — the ONLY
+   * way a beamline ever gets a machine type other than the plain 'linac'
+   * fallback. There used to be a `dcPhotoGun`/`ncRfGun`/`srfGun` → 'photoinjector'
+   * branch here; none of those three ids has existed in COMPONENTS for some
+   * time, so it was unreachable and is gone.
    */
   _ensureBeamlineForSourcePlaceable(instance) {
     if (!instance) return null;
@@ -2529,13 +2545,68 @@ export class Game {
     if (instance.beamlineId && this.registry.get(instance.beamlineId)) {
       return instance.beamlineId;
     }
-    let machineType = 'linac';
-    if (instance.type === 'dcPhotoGun' || instance.type === 'ncRfGun' || instance.type === 'srfGun') {
-      machineType = 'photoinjector';
-    }
-    const entry = this.registry.createBeamline(machineType, instance.id);
+    const type = this.pendingBeamlineTypeId
+      ? getBeamlineType(this.pendingBeamlineTypeId)
+      : null;
+    const entry = this.registry.createBeamline(
+      type ? type.machineType : 'linac',
+      instance.id,
+      type ? type.id : null,
+    );
     instance.beamlineId = entry.id;
+
+    if (type) {
+      // Consume the pick, and drop the player straight into editing what they
+      // just started so the palette stays filtered to the type they chose.
+      this.pendingBeamlineTypeId = null;
+      this.editingBeamlineId = entry.id;
+      this.selectedBeamlineId = entry.id;
+      this.log(`${entry.name} started as a ${type.name}`, 'good');
+      this.emit('editModeChanged', entry.id);
+    }
     return entry.id;
+  }
+
+  /**
+   * The BEAMLINE_TYPES id for a beamline, or null if it has none.
+   *
+   * Reads the registry entry's `typeId` and nothing else. In particular it does
+   * NOT infer a type from the component list: inference is what let an
+   * undulator on a storage ring pass for an FEL.
+   */
+  getBeamlineTypeId(beamlineId) {
+    const entry = beamlineId ? this.registry.get(beamlineId) : null;
+    return entry?.typeId || null;
+  }
+
+  /**
+   * The type whose palette the player is currently building against.
+   *
+   * A beamline actually under edit (or merely selected) wins; failing that, the
+   * pick made in the New Beamline picker that has not yet been spent on a
+   * source. Null means "no type" and the palette shows everything, which is
+   * what every pre-picker save and every scenario-authored beamline gets.
+   */
+  getActiveBeamlineTypeId() {
+    return this.getBeamlineTypeId(this.editingBeamlineId)
+      || this.getBeamlineTypeId(this.selectedBeamlineId)
+      || this.pendingBeamlineTypeId
+      || null;
+  }
+
+  /**
+   * Arm the New Beamline flow: the next source placed becomes a beamline of
+   * this type. Passing null clears the pick (free build).
+   */
+  startNewBeamline(typeId) {
+    const type = typeId ? getBeamlineType(typeId) : null;
+    this.pendingBeamlineTypeId = type ? type.id : null;
+    // Clear the edit/selection focus so getActiveBeamlineTypeId reports the new
+    // pick rather than whatever beamline happened to be selected.
+    this.editingBeamlineId = null;
+    this.selectedBeamlineId = null;
+    this.emit('editModeChanged', null);
+    return this.pendingBeamlineTypeId;
   }
 
   /**
@@ -2757,6 +2828,14 @@ export class Game {
   }
 
   _recalcSingleBeamline(entry) {
+    // The type is authoritative over beamState.machineType, and re-asserting it
+    // here — before any early return — is what stops the two drifting. A typed
+    // beamline can then never be handed a machine type its type disagrees
+    // with, whatever a save file or an older code path wrote. Untyped entries
+    // keep whatever they carry.
+    const blType = entry.typeId ? getBeamlineType(entry.typeId) : null;
+    if (blType) entry.beamState.machineType = blType.machineType;
+
     const ordered = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
 
     // Calculate energy cost and total length from templates
@@ -2811,6 +2890,10 @@ export class Game {
         Object.assign(effectiveStats, computed);
       }
       const physEl = {
+        // `id` round-trips so per-cavity physics results (achieved gradient,
+        // wall dissipation) can be written back onto the placeable, where the
+        // cryogenic solver reads them for next tick's heat load.
+        id: el.id,
         type: el.type,
         subL: el.subL || t.subL || 4,
         stats: effectiveStats,
@@ -2842,6 +2925,8 @@ export class Game {
       const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
+    // Already reconciled against entry.typeId at the top of this method, so
+    // this is the type's machineType whenever the beamline has a type.
     researchEffects.machineType = entry.beamState.machineType;
 
     // Run physics simulation
@@ -2919,6 +3004,45 @@ export class Game {
     }
   }
 
+  /**
+   * Stamp per-cavity physics results onto their placeables.
+   *
+   * This is one half of the thermal feedback loop. The physics pass decides
+   * what gradient a cavity achieved at the temperature it was given; the
+   * cryogenic solver (src/utility/types/cryoTransfer.js) then reads `pDissW`
+   * off the placeable on the next tick to work out how much heat the plant has
+   * to remove, which sets the temperature the physics pass will see after
+   * that. Neither side can be evaluated first, so the loop is closed with a
+   * one-tick lag rather than a simultaneous solve.
+   *
+   * Transient — deliberately not serialised. On load the fields are absent,
+   * the solver bills static load only for one tick, and the loop re-converges.
+   */
+  _writeBackCavityResults(cavities) {
+    if (!Array.isArray(cavities) || cavities.length === 0) return;
+    // Cavities are role-'placement' modules and live inside pipe.placements,
+    // NOT state.placeables — the same trap utility-endpoints.js documents. A
+    // placeables-only lookup would find none of them and the thermal loop
+    // would never see any dynamic load.
+    const byId = new Map();
+    for (const p of (this.state.placeables || [])) byId.set(p.id, p);
+    for (const pipe of (this.state.beamPipes || [])) {
+      for (const att of (pipe.placements || [])) byId.set(att.id, att);
+    }
+    for (const cav of cavities) {
+      if (!cav || !cav.id) continue;
+      const inst = byId.get(cav.id);
+      if (!inst) continue;
+      inst.gradientAchieved = cav.gradientAchieved;
+      inst.gradientDemanded = cav.gradientDemanded;
+      inst.gradientAchievable = cav.gradientAchievable;
+      inst.pDissW = cav.pDissW;
+      inst.cavityQ0 = cav.q0;
+      inst.reflectedFraction = cav.reflectedFraction;
+      inst.quenched = cav.quenched;
+    }
+  }
+
   runPhysicsForBeamline(entry, physicsBeamline, researchEffects) {
     if (!BeamPhysics.isReady()) {
       // Physics not loaded yet -- use simple fallback
@@ -2951,6 +3075,7 @@ export class Game {
     bs.finalNormEmittanceX = result.finalNormEmittanceX;
     bs.finalBunchLength = result.finalBunchLength;
     bs.felSaturated = !!result.felSaturated;
+    this._writeBackCavityResults(result.cavities);
 
     // If physics says beam tripped, fault this beamline
     if (entry.status === 'running' && !result.beamAlive) {
@@ -3880,6 +4005,9 @@ export class Game {
     // entries for sources. Exported placeables may carry beamlineIds from
     // the editor session's registry — those are stale here, so clear them
     // and let _ensureBeamlineForSourcePlaceable mint fresh entries.
+    // Drop any half-finished New Beamline pick first: it belongs to the world
+    // being replaced, and the first imported source would otherwise eat it.
+    this.pendingBeamlineTypeId = null;
     for (const p of this.state.placeables) {
       if (p.category !== 'beamline') continue;
       p.beamlineId = null;
@@ -4307,7 +4435,10 @@ export class Game {
     }
 
     // Bridge any source placeables from older saves that don't yet have
-    // a registry entry (so clicks can open their beamline window).
+    // a registry entry (so clicks can open their beamline window). A pending
+    // New Beamline pick belongs to the pre-load session, so it is dropped
+    // rather than spent on whichever source happens to come first here.
+    this.pendingBeamlineTypeId = null;
     for (const p of this.state.placeables || []) {
       if (p.category !== 'beamline') continue;
       const comp = COMPONENTS[p.type];

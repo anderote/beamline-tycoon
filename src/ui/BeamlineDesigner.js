@@ -2,6 +2,7 @@
 // Full-screen 2D view for inspecting and editing a beamline with live physics preview.
 
 import { COMPONENTS } from '../data/components.js';
+import { getBeamlineType } from '../data/beamline-types.js';
 import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
@@ -739,6 +740,10 @@ export class BeamlineDesigner {
     this.game.log(`Design "${name}" saved as new copy.`, 'good');
   }
 
+  /**
+   * Design-library label. Free-form: it only groups saved designs in the UI.
+   * NOT a physics machine type — see _pickMachineType.
+   */
   _pickCategory() {
     const types = this.draftNodes.map(n => n.type);
     const hasBend = types.some(t => COMPONENTS[t]?.isDipole);
@@ -746,6 +751,44 @@ export class BeamlineDesigner {
     if (hasUndulator) return 'fel';
     if (hasBend) return 'synchrotron';
     return 'linac';
+  }
+
+  /**
+   * Machine type for the physics backend. MUST be one of MACHINE_TYPES in
+   * beam_physics/machines.py — get_machine_config() falls back to 'linac' on
+   * anything else, which is recoverable but silently drops the specialised
+   * modules, so guessing here is worse than useless.
+   *
+   * THERE IS EXACTLY ONE SOURCE OF TRUTH: the beamline's TYPE, chosen once in
+   * the New Beamline picker and stored as `entry.typeId`. This method used to
+   * be `_pickMachineType()`, a heuristic returning 'fel' whenever the draft
+   * contained an undulator or wiggler and 'linac' otherwise, and it ran
+   * whenever `this.beamlineId` was unset — which `openFromSource` always
+   * leaves unset. So editing a `lightSource` with an insertion device in it
+   * handed physics 'fel', and FELGainModule reported saturation a storage ring
+   * cannot physically reach: precisely the bug the capability sets in
+   * machines.py were introduced to prevent, reintroduced one layer up. The
+   * heuristic is gone rather than demoted, because a fallback that can
+   * contradict the type is a fallback that will.
+   *
+   * The remaining fallback is 'linac' — a plain transport stack that claims no
+   * specialised product — for the two genuinely typeless cases: an untyped
+   * registry entry (pre-picker saves, scenario-authored beamlines) keeps
+   * whatever machineType its beamState carries, and a design-library draft,
+   * which is not a beamline at all and has no registry entry to ask.
+   */
+  _machineTypeForDraft() {
+    // openFromSource deliberately leaves this.beamlineId null (the draft is
+    // pipe-graph-backed, not registry-backed), so resolve through the source
+    // placeable as well before giving up.
+    const entry = (this.beamlineId && this.game.registry.get(this.beamlineId))
+      || (this.editSourceId && this.game.registry.getBySourceId(this.editSourceId))
+      || null;
+    if (!entry) return 'linac';
+
+    const type = entry.typeId ? getBeamlineType(entry.typeId) : null;
+    if (type) return type.machineType;
+    return entry.beamState?.machineType || 'linac';
   }
 
   close() {
@@ -1626,12 +1669,7 @@ export class BeamlineDesigner {
       const v = this.game.getEffect(key, key.endsWith('Mult') ? 1 : 0);
       researchEffects[key] = v;
     }
-    if (this.beamlineId) {
-      const entry = this.game.registry.get(this.beamlineId);
-      if (entry) researchEffects.machineType = entry.beamState.machineType;
-    } else {
-      researchEffects.machineType = this._pickCategory();
-    }
+    researchEffects.machineType = this._machineTypeForDraft();
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
     this.draftEnvelope = result ? result.envelope : null;

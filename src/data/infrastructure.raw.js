@@ -1240,6 +1240,43 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
   },
+
+  // The LWFA Station's companion, and a different animal entirely from the
+  // gun-drive laser above: that one is a 3 kW UV oscillator that tickles a
+  // photocathode, this is a titanium-sapphire chirped-pulse chain that puts
+  // 30 joules into 30 femtoseconds — a petawatt of peak power, from a system
+  // whose wall-plug efficiency is a fraction of a percent. Hence the 320 kW:
+  // almost none of it reaches the plasma and almost all of it comes straight
+  // back out as heat.
+  //
+  // NOTE, and this is the one thing here that wants an engine change: there
+  // is no `laserBeam` utility type, so nothing MECHANICALLY forces an
+  // lwfaStation to have one of these on the plot. The station's dataFiber
+  // sink models the femtosecond timing link and is the only wire between
+  // them. Adding a seventh utility (or a general "companion placeable
+  // required" rule) is the clean fix and is out of scope for a data-only
+  // change — see the compound-machines spec.
+  petawattLaser: {
+    id: 'petawattLaser',
+    name: 'Petawatt Drive Laser',
+    desc: 'Chirped-pulse-amplification laser hall: an oscillator, a regenerative amplifier, four Ti:sapphire power stages pumped by kilojoule frequency-doubled Nd:glass, and a vacuum compressor the size of a car that squeezes the stretched pulse back down to thirty femtoseconds. Delivers the ~1 PW focus an LWFA Station needs to blow a plasma wake open. Drinks a substation and returns nearly all of it as heat. Place in the Facility layer near the station and give it power, chilled water, and a timing fibre.',
+    category: 'power', subsection: 'specialty',
+    cost: { funding: 18000000 },
+    stats: {},
+    energyCost: 320,
+    subL: 16, subW: 8, subH: 3, gridW: 8, gridH: 16, geometryType: 'box',
+    baseMaterial: 'metal_painted_green',
+    requires: 'plasmaAcceleration',
+    spriteKey: 'petawattLaser',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    hasSurface: false,
+    params: { wavelength: 800, pulseEnergy: 30000, pulseDuration: 30 },
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+  },
   powerPanel: {
     id: 'powerPanel',
     name: 'Power Distribution Panel',

@@ -147,13 +147,16 @@ The loss fraction depends on how many "sigmas" the aperture is:
 - 4 sigma: 0.006% loss
 - 5 sigma: 0.00006% loss
 
-In the game, if cumulative losses exceed 50%, the beam "trips" — it shuts off automatically (like a real machine protection system). You need to redesign your optics to reduce losses.
+Loss compounds down the line: current is scaled at every element, and since income scales with surviving current, a machine that scrapes 10% at each of twenty quads earns a fraction of what it should.
 
 Common causes of excessive loss:
 - **No focusing:** Beam diverges until it hits the wall
 - **Mismatched optics:** Beta beating causes the beam to be intermittently too large
 - **Dispersion:** Energy spread creates an effective beam size increase in dispersive regions
-- **Space charge (Tier 2):** Self-charge pushes the beam outward at low energy
+- **Space charge:** Self-charge pushes the beam outward at low energy
+- **Residual gas:** beam-gas collisions knock particles out along the whole line (see below)
+
+> **Known limitation:** the engine has a beam-trip path — a beamline whose beam reports `alive: false` is faulted and stopped — but nothing in the physics ever sets that flag. `beam.alive` is initialised true and never cleared. There is currently **no 50% loss trip**; a beamline that loses 99% of its current keeps running and simply earns almost nothing.
 
 **The Math:**
 
@@ -163,4 +166,42 @@ survived = erf(a / (sqrt(2) * sigma_x)) * erf(a / (sqrt(2) * sigma_y))
 loss = 1 - survived
 ```
 
-The beam trips when `total_loss > 0.5` (50% of initial current lost).
+---
+
+## Beam-Gas Scattering
+
+**Quick Tip:** Your beam collides with whatever gas is left in the pipe. It grows emittance and eats current — and it hurts a low-energy beam far more than a high-energy one.
+
+**How It Works:**
+
+No vacuum is perfect. The residual gas in the beam pipe scatters the beam two ways:
+
+**Multiple Coulomb scattering.** Each particle takes a huge number of tiny deflections off gas nuclei. The deflections are random, so they add in quadrature and show up as growth in the beam's angular spread — which is emittance growth, and emittance is the thing that pays. This is the *only* path by which vacuum reaches beam quality.
+
+**Beam-gas loss.** Large-angle and nuclear scattering removes particles outright. Current decays exponentially with the length of pipe traversed, with a loss length inversely proportional to pressure: a decade better vacuum buys a decade more lifetime.
+
+The scaling that matters for how you build:
+
+```
+d<theta^2> = C_scatter * P * L / (beta*gamma)^2
+```
+
+That `1/(beta*gamma)^2` is the whole design lesson. **A low-energy beam is enormously more fragile than a high-energy one.** Ten metres of mediocre vacuum right after the gun does more damage than a hundred metres of the same vacuum at 1 GeV. Put your pumps at the injector.
+
+For a 50 MeV electron beam through a 10 m beta function: 1e-9 mbar over 100 m grows emittance about 0.03% — free. 1e-5 mbar over the same 100 m grows it about 2.5x — severe. The utility solver already maps 1e-4 mbar to quality zero, so a beam that barely survives 1e-5 is the correct outcome, not an overtuned penalty.
+
+**What replaced the old model:** vacuum used to narrow the "effective aperture" in proportion to a 0-1 vacuum quality scalar. That could never work — aperture clipping only scales current, never the covariance matrix, and beam quality is an emittance ratio. Worse, clipping a Gaussian tighter scrapes halo, which is how emittance is *improved* in reality, so the proxy pointed backwards. It has been deleted.
+
+**The Math:**
+
+```
+d<theta^2> = C_scatter * P * L / (beta*gamma)^2      C_scatter = 0.05
+sigma[1,1] += d<theta^2>
+sigma[3,3] += d<theta^2>
+
+I *= exp(-L / lambda),   lambda = 100 m * (1e-5 mbar / P)
+```
+
+Divergence growth is added to the covariance matrix exactly as synchrotron radiation adds quantum excitation, so emittance growth emerges from the determinant rather than being imposed on it.
+
+Pressure below 1e-12 mbar is treated as negligible. A component with *no* solved pressure is skipped rather than assumed to be at either extreme — but an unwired vacuum sink fails closed at 1013 mbar, which will destroy the beam, and also blocks it outright.

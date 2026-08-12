@@ -84,8 +84,9 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.mouse.click(720, 450);
     await expect(page.locator('.title-btn').first()).toBeVisible();
     const labels = await page.locator('.title-btn').allTextContents();
-    // Fresh profile: no save, so no Continue button yet.
-    expect(labels).toEqual(['New Game', 'Scenarios']);
+    // Fresh profile: no save, so no Continue button yet. Manual is always
+    // present — the operator manual is readable before a game exists.
+    expect(labels).toEqual(['New Game', 'Scenarios', 'Manual']);
 
     await page.locator('.title-btn', { hasText: 'New Game' }).click();
     // New Game clears the save and reloads with skipTitle set.
@@ -293,7 +294,7 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.mouse.click(720, 450);
     await expect(page.locator('.title-btn').first()).toBeVisible();
     expect(await page.locator('.title-btn').allTextContents())
-      .toEqual(['Continue', 'New Game', 'Scenarios']);
+      .toEqual(['Continue', 'New Game', 'Scenarios', 'Manual']);
     await page.locator('.title-btn', { hasText: 'Continue' }).click();
     await expect(page.locator('#title-screen')).toHaveCount(0);
     await frames(page, 3);

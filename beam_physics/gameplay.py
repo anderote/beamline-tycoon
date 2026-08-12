@@ -8,6 +8,7 @@ applying scaling, clamping, and multipliers from research effects.
 import json
 from beam_physics.lattice import propagate
 from beam_physics.constants import DEFAULT_APERTURE
+from beam_physics import srf
 
 # Default stats per component type, matching data.js COMPONENTS
 # Note: length is NOT stored here — every component must declare subL in JS
@@ -110,6 +111,12 @@ def beamline_config_from_game(game_beamline):
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
+        # Placeable id, when the caller supplied one. Lets per-cavity results
+        # (achieved gradient, wall dissipation) be written back onto the
+        # placeable, which is where the JS cryogenic solver reads them to
+        # compute next tick's heat load.
+        if comp.get("id") is not None:
+            el["game_id"] = comp["id"]
         # subL sub-units × 0.5m per sub-unit — every component must declare subL
         sub_l = comp.get("subL", None)
         if sub_l is None:
@@ -172,6 +179,24 @@ def beamline_config_from_game(game_beamline):
             params = comp.get("params", {})
             el["rfPhase"] = params.get("rfPhase",
                                        stats.get("rfPhase", 0.0))
+            # The gradient the player is ASKING for, MV/m, ALWAYS back-derived
+            # from the effective energy gain over this element's own physics
+            # length.
+            #
+            # Deliberately NOT read from params/stats `gradient`, even though
+            # some components carry one. Those two disagree: pillboxCavity
+            # ships stats.energyGain 0.00035 GeV alongside stats.gradient 0.5
+            # MV/m over a 1.0 m element, which are different machines. Deriving
+            # from energyGain keeps ONE source of truth and makes the balance
+            # guarantee exact — a cavity with ample RF and cold reproduces its
+            # catalogue energy gain to the last digit, because achieved ==
+            # demanded feeds straight back through the same conversion below.
+            # Player sliders still reach this: component-physics.js computes
+            # energyGain from voltage/gradient/phase before it gets here.
+            cav_spec = srf.get_spec(ctype)
+            if cav_spec is not None and el["length"] > 0:
+                el["gradientDemanded"] = max(
+                    0.0, el["energyGain"] * 1000.0 / el["length"])
             # rfFrequency: game stores MHz, physics needs Hz
             raw_freq = (params.get("rfFrequency", None)
                         or comp.get("rfFrequency", None)
@@ -222,31 +247,88 @@ def beamline_config_from_game(game_beamline):
             else:
                 el["r56"] = defaults.get("r56", -0.05)
 
-        # === Infrastructure quality multipliers ===
+        # === Infrastructure coupling ===
+        #
+        # Utilities used to collapse to four abstract 0-1 scalars multiplied
+        # together onto energyGain. They now act through the quantities they
+        # physically control: RF power and cryo temperature set the achievable
+        # gradient (beam_physics/srf.py), cooling deficit detunes NC cavities,
+        # and vacuum acts on the beam directly via the beam_gas module rather
+        # than through an aperture proxy.
+        #
+        # ABSENT vs ZERO is load-bearing throughout. An absent field means the
+        # solver produced no value for this node (unwired, pre-solve, or a test
+        # fixture), and falls back to the legacy linear path so nothing
+        # silently zeroes. A present 0 means the solver decided this node gets
+        # nothing, and is honoured as starvation. Game.js stamps fail-closed
+        # floors so a declared-but-unwired sink arrives as an explicit 0.
         infra_q = comp.get("infraQuality", {})
         power_q = infra_q.get("powerQuality", 1.0)
         rf_q = infra_q.get("rfQuality", 1.0)
         cooling_q = infra_q.get("coolingQuality", 1.0)
         cryo_q = infra_q.get("cryoQuality", 1.0)
         cryo_quenched = infra_q.get("cryoQuenched", False)
+        rf_power_w = infra_q.get("rfPowerW")
+        cryo_temp_k = infra_q.get("cryoTempK")
+        cooling_dt = infra_q.get("coolingDeltaT")
 
-        # SRF quench: convert to drift (zero acceleration). Set must match
-        # the cryoTransfer-sink SRF cavities shipped in
-        # beamline-components.raw.js / utility-ports-v2.js.
+        cav_spec = srf.get_spec(ctype)
+        is_srf = cav_spec is not None and cav_spec["kind"] == "srf"
+
+        # SRF quench: convert to drift (zero acceleration). Either cause counts
+        # — the LHe reservoir emptying, or the cavity going over Tc thermally.
         SRF_TYPES_SET = {"cryomodule", "halfWaveResonator", "spokeCavity",
-                         "ellipticalSrfCavity"}
-        if cryo_quenched and ctype in SRF_TYPES_SET:
+                         "ellipticalSrfCavity", "srf650Cavity"}
+        thermally_quenched = (is_srf and cryo_temp_k is not None
+                              and cryo_temp_k >= srf.T_CRITICAL)
+        if (cryo_quenched or thermally_quenched) and ctype in SRF_TYPES_SET:
             el["type"] = "drift"
             el.pop("energyGain", None)
             el.pop("focusStrength", None)
+            el["quenched"] = True
             elements.append(el)
             continue
 
-        # Derate energy gain: power * rf * cooling * cryo
-        if "energyGain" in el:
-            el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+        # --- Achievable gradient ---
+        # Modelled cavities get their energy gain from the power and cold they
+        # are actually supplied with. Everything else keeps the legacy derate.
+        modelled = (cav_spec is not None and "gradientDemanded" in el
+                    and rf_power_w is not None)
+        if modelled:
+            n_cav = cav_spec["n_cav"]
 
-        # Derate focus strength: power only
+            # NC cavities that lose cooling detune off resonance and reflect
+            # power rather than absorbing it. SRF cavities have no separate
+            # water loop — their thermal path is the cryo model below.
+            coupling = 1.0
+            if not is_srf:
+                coupling = srf.detune_coupling(cooling_dt, cav_spec)
+            el["reflectedFraction"] = 1.0 - coupling
+
+            power_per_cavity = (rf_power_w * coupling) / n_cav if n_cav else 0.0
+            achievable = srf.e_acc_max(power_per_cavity, cav_spec, cryo_temp_k)
+            achieved = min(el["gradientDemanded"], achievable)
+
+            el["gradientAchievable"] = achievable
+            el["gradientAchieved"] = achieved
+            el["cavityQ0"] = srf.q0(cryo_temp_k if cryo_temp_k is not None else 2.0,
+                                    cav_spec)
+            # Heat the cryoplant has to remove next tick — the term that closes
+            # the thermal feedback loop. Dissipation is per cavity over the
+            # cavity's own active length, which is real hardware geometry, not
+            # the element's grid footprint.
+            el["pDissW"] = srf.p_diss(achieved, cav_spec, cryo_temp_k) * n_cav
+            # Same length used to derive the demand, so achieved == demanded
+            # returns the catalogue energy gain exactly.
+            el["energyGain"] = achieved * el["length"] / 1000.0
+        else:
+            # Legacy linear derate, retained for unmodelled cavities and for
+            # any node the utility solver has not produced power data for.
+            if "energyGain" in el:
+                el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+
+        # Derate focus strength: power only. Magnet field goes as coil current,
+        # which goes as supply power, so linear is already correct here.
         if "focusStrength" in el:
             el["focusStrength"] *= power_q
 
@@ -254,11 +336,14 @@ def beamline_config_from_game(game_beamline):
         if cooling_q < 1.0:
             el["coolingDegradation"] = 1.0 + 0.1 * (1.0 - cooling_q)
 
-        # Poor vacuum narrows effective aperture (gas scattering)
-        vac_q = infra_q.get("vacuumQuality", 1.0)
-        if vac_q < 1.0:
-            current_aperture = el.get("aperture", DEFAULT_APERTURE)
-            el["aperture"] = current_aperture * (0.5 + 0.5 * vac_q)
+        # Residual gas pressure in mbar, consumed by the beam_gas module. This
+        # replaced an `aperture *= (0.5 + 0.5 * vacuumQuality)` proxy that could
+        # never reach the quantity it was meant to affect: aperture_loss only
+        # scales beam.current, while beam_quality is an emittance ratio. Poor
+        # vacuum now grows emittance and scatters beam out directly.
+        pressure = infra_q.get("vacuumPressure")
+        if pressure is not None:
+            el["pressure"] = pressure
 
         elements.append(el)
 
@@ -311,7 +396,20 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     #   An uncontrolled beam can't reliably deliver particles to an experiment
     import math
     raw_luminosity = summary["luminosity"]
-    compressed_lumi = math.sqrt(max(raw_luminosity, 0))
+    # Interaction rate driving data collection.
+    #
+    # This used to be sqrt(luminosity), and luminosity is produced by exactly
+    # one module (beam_beam) which only runs on colliders — a machine type the
+    # game could never set. So dataRate was identically zero for every beamline
+    # ever built, research income was zero, and the tech tree was unreachable.
+    # It went unnoticed because the headless fallback computes data separately,
+    # which is what every balance sim measured.
+    #
+    # event_rate counts what the endpoints actually record and scales with the
+    # beam current reaching them. sqrt() keeps the original dynamic-range
+    # compression.
+    event_rate = summary.get("event_rate", 0.0)
+    compressed_lumi = math.sqrt(max(event_rate, 0))
     # Kinetic energy (total minus rest mass) is the game-facing figure: for
     # protons the 0.938 GeV rest mass would otherwise inflate every energy
     # readout, objective check, and data-rate factor.
@@ -324,9 +422,17 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     n_focusing = summary.get("n_focusing", 0)
     control_factor = 0.05 + min(0.95, n_focusing * 0.3)
 
+    # DATA_RATE_SCALE is calibrated so a general-purpose detector (dataRate 1)
+    # on a healthy ~20 mA, 0.5 GeV beam with a focused lattice yields ~1 data/s
+    # — matching what Game._fallbackStatsForBeamline produces for the same
+    # machine. The two paths MUST agree: the fallback runs headless (tests,
+    # balance sims, the agent env) while real physics runs in the browser, and
+    # a facility that earns differently in each is a balance trap. The old
+    # 0.001 was tuned against sqrt(luminosity) ~ 1e16 and is meaningless here.
+    DATA_RATE_SCALE = 0.2
     data_rate = (compressed_lumi * quality * current_frac
                  * energy_factor * control_factor
-                 * lumi_mult * data_mult * 0.001)
+                 * lumi_mult * data_mult * DATA_RATE_SCALE)
     # Minimum viable data rate if there's a detector and beam is alive
     if data_rate > 0 and data_rate < 0.1:
         data_rate = 0.1
@@ -426,6 +532,29 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
         "maxDispersion": summary.get("max_dispersion", 0),
         "dispersionWarnings": summary.get("dispersion_warnings", []),
     }
+
+    # Per-cavity results, keyed by placeable id. The JS cryogenic solver reads
+    # `pDissW` back off the placeable to compute next tick's heat load — that
+    # one-tick lag is what breaks the circular dependency between temperature
+    # and gradient (heat depends on gradient, gradient depends on temperature).
+    # Explicit-Euler coupling, and it makes thermal runaway something the
+    # player watches happen rather than something that snaps.
+    cavities = []
+    for el in elements:
+        if "gradientAchieved" not in el and not el.get("quenched"):
+            continue
+        cavities.append({
+            "id": el.get("game_id"),
+            "gameType": el.get("game_type"),
+            "gradientDemanded": el.get("gradientDemanded", 0.0),
+            "gradientAchieved": el.get("gradientAchieved", 0.0),
+            "gradientAchievable": el.get("gradientAchievable", 0.0),
+            "pDissW": el.get("pDissW", 0.0),
+            "q0": el.get("cavityQ0", 0.0),
+            "reflectedFraction": el.get("reflectedFraction", 0.0),
+            "quenched": bool(el.get("quenched", False)),
+        })
+    result["cavities"] = cavities
 
     # Extract FEL data from module reports
     reports = physics_result.get("reports", [])

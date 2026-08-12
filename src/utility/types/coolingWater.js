@@ -13,6 +13,14 @@ export const EVAP_PER_KW_PER_TICK = 0.02;
 export const RESERVOIR_MAX_L = 500;
 export const WATER_COST_PER_L = 12;
 
+// Temperature rise, in kelvin, at a sink whose heat is not being removed.
+// MAX_DELTA_T is what a fully starved loop reaches; a partially served loop
+// scales in between. This drives thermal detuning of normal-conducting
+// cavities (beam_physics/srf.py detune_coupling) — an undercooled cavity does
+// not fade gracefully, it walks off resonance and reflects power back at the
+// klystron, which is what the VSWR readout reports.
+export const MAX_DELTA_T = 40;
+
 export default {
   type: 'coolingWater',
   displayName: 'Cooling Water',
@@ -61,7 +69,14 @@ export default {
       quality = totalDemand > 0 ? Math.min(1, totalCapacity / totalDemand) : 1;
     }
 
-    for (const s of network.sinks) perSinkQuality[s.portKey] = quality;
+    // Unremoved heat becomes a temperature rise at the sink. Quality 1 means
+    // the loop keeps up and the component sits at design temperature.
+    const deltaT = MAX_DELTA_T * (1 - quality);
+    const perSinkDeltaT = {};
+    for (const s of network.sinks) {
+      perSinkQuality[s.portKey] = quality;
+      perSinkDeltaT[s.portKey] = deltaT;
+    }
 
     const evap = dry ? 0 : EVAP_PER_KW_PER_TICK * totalDemand;
     const nextReservoir = Math.max(0, currentReservoir - evap);
@@ -75,8 +90,10 @@ export default {
         utilization: totalCapacity > 0
           ? Math.min(1, totalDemand / totalCapacity)
           : (totalDemand > 0 ? 1 : 0),
+        deltaT,
         perSegmentLoad: [],
         perSinkQuality,
+        perSinkDeltaT,
         errors: [...errors],
       },
       nextPersistentState: { ...persistent, reservoirVolumeL: nextReservoir },
