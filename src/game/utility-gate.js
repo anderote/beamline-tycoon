@@ -37,6 +37,13 @@ const UNCONNECTED_CODES = {
   cryoTransfer: 'cryo_unconnected',
 };
 
+// Every utility the gate tracks, hard-required or not. The unwired-sink sweep
+// runs over ALL of these so panels can report wiring truthfully; only the
+// HARD_REQUIRED subset is turned into beam-tripping blockers. Without the
+// wider sweep an unwired dataFiber sink would be indistinguishable from a
+// wired one, since it produces no blocker by design.
+const ALL_GATED_UTILS = [...HARD_REQUIRED_UTILS, 'dataFiber'];
+
 // Shape: { [placeableId]: { powerQuality, rfQuality, coolingQuality,
 //   cryoQuality, vacuumQuality, dataQuality } }. Physics backend reads the
 // individual keys; JS consumers read e.g. .dataQuality. A missing utility
@@ -161,7 +168,7 @@ export class UtilityGate {
         this._topoCache = this._computeTopology();
         this._topoRev = rev;
       }
-      const { unconnected, declaredFloors, beamlineCount } = this._topoCache;
+      const { unconnected, unwiredSinks, declaredFloors, beamlineCount } = this._topoCache;
 
       for (const u of unconnected) {
         hardErrs.push({
@@ -195,6 +202,10 @@ export class UtilityGate {
       state.infraCanRun = hardErrs.length === 0;
 
       state.nodeQualities = this._aggregateNodeQualities(declaredFloors);
+      // Wiring topology, published alongside the qualities it can't be
+      // recovered from: a declared sink always carries a quality field, so
+      // "has a field" means "needs this utility", never "is wired to it".
+      state.unwiredSinks = unwiredSinks;
 
       this._dedupLog(hardErrs, softErrs);
     } catch (e) {
@@ -250,8 +261,19 @@ export class UtilityGate {
   _computeTopology() {
     const state = this.state;
     const endpoints = listUtilityEndpoints(state);
-    const unconnected = findUnconnectedSinks(
-      endpoints, state.utilityLines, this.getPorts, HARD_REQUIRED_UTILS);
+    // Sweep every gated utility, then split: blockers take the hard-required
+    // subset, `unwiredSinks` keeps them all so UI can distinguish "never wired"
+    // from "wired but starved". Both come from one pass because the sweep is
+    // the expensive part and it is cached on topologyRevision either way.
+    const allUnconnected = findUnconnectedSinks(
+      endpoints, state.utilityLines, this.getPorts, ALL_GATED_UTILS);
+    const unconnected = allUnconnected.filter(
+      u => HARD_REQUIRED_UTILS.includes(u.utility));
+    const unwiredSinks = {};
+    for (const u of allUnconnected) {
+      if (!unwiredSinks[u.placeableId]) unwiredSinks[u.placeableId] = {};
+      unwiredSinks[u.placeableId][u.utility] = true;
+    }
     const declaredFloors = new Map();
     let beamlineCount = 0;
     for (const e of endpoints) {
@@ -259,7 +281,7 @@ export class UtilityGate {
       const floor = sinkQualityFloorFrom(this.getPorts(e.type));
       if (floor) declaredFloors.set(e.id, floor);
     }
-    return { unconnected, declaredFloors, beamlineCount };
+    return { unconnected, unwiredSinks, declaredFloors, beamlineCount };
   }
 
   // Aggregate perSinkQuality → nodeQualities (see UTILITY_TO_QUALITY_FIELD),

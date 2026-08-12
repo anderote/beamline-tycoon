@@ -8,8 +8,11 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
+import { planDesignerApply } from '../beamline/designer-plan.js';
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
+import { applyPreviewDialog } from './ApplyPreviewDialog.js';
+import { portWorldPosition } from '../utility/ports.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -41,11 +44,22 @@ export class BeamlineDesigner {
     this.editEndpointId = null;
     this.availableEndpoints = [];
     this._originalPlacementIds = new Set();
+    this._originalModuleIds = new Set();
 
     // Draft state
     this.draftNodes = [];       // cloned ordered node list
     this.originalNodes = [];    // snapshot for diffing
     this.draftEnvelope = null;  // physics result for draft
+    // Physics result for originalNodes — the beamline as actually built, so the
+    // plots can show what the draft changes rather than only where it lands.
+    // Null in sandbox mode (openDesign), where there is no "current" at all.
+    // Computed once per open, never on the edit path: it cannot change while
+    // the draft is being edited, so recomputing it per keystroke would double
+    // the cost of every slider drag for an identical answer.
+    this.baselineEnvelope = null;
+    this._baselinePending = false;  // baseline deferred until physics is ready
+    // Utility lines a moveJunction op could not re-route, counted per apply.
+    this._danglingLineCount = 0;
     this.ghostQuads = [];      // suggested quad positions [{s, nodeIndex, polarity}]
     this.selectedIndex = -1;    // index into draftNodes
 
@@ -85,6 +99,7 @@ export class BeamlineDesigner {
     // Plot range modes
     this.plotRangeMode = 'full';   // x: 'full', '30', '9'
     this.plotYRangeMode = 'full';  // y: 'full', 'half', '30', '9'
+    this.plotSource = 'proposed';  // 'proposed' | 'current' | 'both'
 
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
@@ -98,7 +113,15 @@ export class BeamlineDesigner {
   }
 
   _bindButtons() {
-    document.getElementById('dsgn-confirm').addEventListener('click', () => this.confirm());
+    document.getElementById('dsgn-confirm').addEventListener('click', () => {
+      // confirm() is async (it awaits the apply preview). Swallow the promise
+      // here so a thrown apply surfaces as a log line rather than an unhandled
+      // rejection nobody sees.
+      Promise.resolve(this.confirm()).catch((err) => {
+        console.error('[designer] apply crashed', err);
+        this.game.log('Apply failed unexpectedly — nothing was changed', 'bad');
+      });
+    });
     document.getElementById('dsgn-cancel').addEventListener('click', () => this.cancel());
     document.getElementById('dsgn-close').addEventListener('click', () => this.close());
     document.getElementById('dsgn-action-replace').addEventListener('click', () => {
@@ -392,6 +415,17 @@ export class BeamlineDesigner {
       });
     });
 
+    // Plot source buttons (Proposed / Current / Both)
+    document.querySelectorAll('.dsgn-source-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!this.isOpen) return;
+        this.plotSource = btn.dataset.source;
+        document.querySelectorAll('.dsgn-source-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this._renderPlots();
+      });
+    });
+
     // Mousewheel on plot canvases (sync zoom with schematic)
     document.querySelectorAll('.dsgn-plot-canvas').forEach(canvas => {
       canvas.addEventListener('wheel', (e) => {
@@ -463,45 +497,7 @@ export class BeamlineDesigner {
     this.availableEndpoints = [];
     this.editEndpointId = endpointId;
 
-    // Walk the pipe graph (flattener ignores endpointId today but reserved
-    // for future multi-path support).
-    const flat = flattenPath(this.game.state, sourceId, { endpointId });
-
-    // Convert flattener entries to draftNodes format.
-    // (Flattener emits kind: 'module' | 'placement' | 'drift'.)
-    this.draftNodes = flat.map((entry, idx) => ({
-      // Use a negative id for drift nodes (they don't have stable identity)
-      id: entry.kind === 'module' ? entry.id
-          : entry.kind === 'placement' ? entry.id
-          : -1000 - idx,  // synthetic drift id
-      type: entry.kind === 'drift' ? 'drift' : entry.type,
-      col: 0, row: 0, dir: 0, entryDir: 0,
-      parentId: null,
-      bendDir: null,
-      tiles: [],
-      params: { ...(entry.params || {}) },
-      computedStats: null,
-      beamStart: entry.beamStart,
-      subL: entry.subL,
-      // Back-reference so reconciliation can find the underlying object
-      _pipeKind: entry.kind,
-      _sourceRef: entry.kind === 'module'
-                  ? { placeableId: entry.id }
-                  : entry.kind === 'placement'
-                    ? { pipeId: entry.pipeId, placementId: entry.id, position: entry.position }
-                    : { pipeId: entry.pipeId },
-    }));
-
-    // Snapshot original placement IDs so confirm can detect deletions
-    this._originalPlacementIds = new Set();
-    for (const entry of flat) {
-      if (entry.kind === 'placement') {
-        this._originalPlacementIds.add(entry.id);
-      }
-    }
-
-    // Snapshot originalNodes for diff (cost delta etc.)
-    this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
+    this._syncDraftFromMap();
 
     this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
     this.viewX = 0;
@@ -512,12 +508,13 @@ export class BeamlineDesigner {
     this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
-
-    // TODO(Task 11 follow-up): restrict palette to attachment tools only while
-    // in pipe-graph edit mode. Modules must be placed on the main map.
+    this.plotSource = 'proposed';
 
     this._updateTotalLength();
     this._recalcDraft();
+    // Baseline last: originalNodes is the snapshot taken above, and _recalcDraft
+    // is what pins totalLength, so the two envelopes share an s-axis.
+    this._recalcBaseline();
 
     // Close any popups
     ContextWindow.closeAll();
@@ -536,6 +533,62 @@ export class BeamlineDesigner {
     this._renderAll();
 
     window.location.hash = `designer?src=${sourceId}`;
+  }
+
+  /**
+   * (Re)build draftNodes and the original-state bookkeeping by walking the map
+   * from `editSourceId`. Called when the designer opens, and again after a
+   * successful Apply — at that moment every node the player added is on the
+   * map but still carries an EMPTY `_sourceRef`, which is exactly how the
+   * planner recognises an addition. Leaving them that way would make a second
+   * Apply plan the same additions all over again and build them twice.
+   */
+  _syncDraftFromMap() {
+    // Walk the pipe graph (flattener ignores endpointId today but reserved
+    // for future multi-path support).
+    const flat = flattenPath(this.game.state, this.editSourceId, {
+      endpointId: this.editEndpointId,
+    });
+
+    // Convert flattener entries to draftNodes format.
+    // (Flattener emits kind: 'module' | 'placement' | 'drift'.)
+    this.draftNodes = flat.map((entry, idx) => ({
+      // Use a negative id for drift nodes (they don't have stable identity)
+      id: entry.kind === 'module' ? entry.id
+          : entry.kind === 'placement' ? entry.id
+          : -1000 - idx,  // synthetic drift id
+      type: entry.kind === 'drift' ? 'drift' : entry.type,
+      col: 0, row: 0, dir: 0, entryDir: 0,
+      parentId: null,
+      bendDir: null,
+      tiles: [],
+      params: { ...(entry.params || {}) },
+      computedStats: null,
+      beamStart: entry.beamStart,
+      subL: entry.subL,
+      // Back-reference so the planner can align this node against the map
+      _pipeKind: entry.kind,
+      _sourceRef: entry.kind === 'module'
+                  ? { placeableId: entry.id }
+                  : entry.kind === 'placement'
+                    ? { pipeId: entry.pipeId, placementId: entry.id, position: entry.position }
+                    : { pipeId: entry.pipeId },
+    }));
+
+    // Snapshot original placement and module IDs so the draft bar can detect
+    // deletions: an id here that no draft node still references was deleted.
+    this._originalPlacementIds = new Set();
+    this._originalModuleIds = new Set();
+    for (const entry of flat) {
+      if (entry.kind === 'placement') {
+        this._originalPlacementIds.add(entry.id);
+      } else if (entry.kind === 'module') {
+        this._originalModuleIds.add(entry.id);
+      }
+    }
+
+    // Snapshot originalNodes for diff (cost delta etc.)
+    this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
   }
 
   openDesign(design = null) {
@@ -592,10 +645,18 @@ export class BeamlineDesigner {
     this.designerPaletteIndex = -1;
     this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
+    this.plotSource = 'proposed';
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
     this._recalcDraft();
+    // Sandbox: a design library entry is not a built beamline, so there is no
+    // "current" to compare against and the source toggle stays hidden. Clearing
+    // the pending flag too, or a designer that opened mid-boot in edit mode
+    // would have its retry fire here and grow a baseline sandbox has no use for.
+    this.baselineEnvelope = null;
+    this._baselinePending = false;
+    this._updatePlotSourceBar();
 
     ContextWindow.closeAll();
     this.renderer.hidePopup();
@@ -802,14 +863,10 @@ export class BeamlineDesigner {
   confirm() {
     if (!this.isOpen) return;
     if (this.mode === 'design') return; // designs are saved, not confirmed
-
-    // Pipe-graph mode: route to reconciler
-    if (this.editSourceId) {
-      this._reconcileToPipeGraph();
-      this._clearDraftState();
-      this._cleanup();
-      return;
-    }
+    if (!this.editSourceId) return;
+    // Returns a promise so tests (and any future caller) can await the
+    // preview; the button handler fires and forgets.
+    return this._planAndApply();
   }
 
   cancel() {
@@ -833,81 +890,339 @@ export class BeamlineDesigner {
     this.game.state.designerState = null;
   }
 
+  // ---------------------------------------------------------------------
+  // Apply: plan → preview → transaction
+  //
+  // The draft is a statement of the desired end state; designer-plan.js
+  // diffs it against the map and hands back an ORDERED op list plus a
+  // player-facing summary. Everything below is the executor for that list —
+  // the op contract, including the symbol table, is documented in the header
+  // of src/beamline/designer-plan.js.
+  // ---------------------------------------------------------------------
+
   /**
-   * Apply draft edits back to the pipe graph.
-   *
-   * Supported operations:
-   *   - Tune params on existing modules (writes to placeable.params)
-   *   - Tune params on existing placements (writes to pipe.placements[i].params)
-   *   - Add new placement (inserted into draft during editing — must carry
-   *     _targetPipeId on the draft node). Routed through BeamlineSystem so
-   *     the same slot-finding / invariants apply as on the map.
-   *   - Remove existing placement (was in _originalPlacementIds, not in draft).
-   *     Routed through BeamlineSystem.
-   *
-   * Adding/removing modules from the designer is NOT supported in pipe-graph
-   * mode — modules live on the main map.
+   * Plan the draft, show the preview, and — if the player says yes — execute
+   * the plan as one all-or-nothing transaction. Returns true when the map
+   * changed. Async only because the preview is a promise; nothing is planned
+   * or executed off the main task.
    */
-  _reconcileToPipeGraph() {
-    const stillPresentPlacementIds = new Set();
-    const beam = this.game.beamline;
-
-    for (const node of this.draftNodes) {
-      if (node._pipeKind === 'module' && node._sourceRef?.placeableId) {
-        // Apply param edits to the placeable (tuning only; adding/removing
-        // modules is not supported here).
-        const p = this.game.getPlaceable(node._sourceRef.placeableId);
-        if (p) {
-          p.params = { ...(p.params || {}), ...node.params };
-        }
-      } else if (node._pipeKind === 'placement' && node._sourceRef?.placementId) {
-        // Apply param edits to the existing placement. We still write directly
-        // here because BeamlineSystem has no param-tuning surface; this is a
-        // straight field update, not a slot mutation.
-        const pipe = this.game.state.beamPipes.find(
-          pp => pp.id === node._sourceRef.pipeId,
-        );
-        if (pipe) {
-          const pl = (pipe.placements || []).find(a => a.id === node._sourceRef.placementId);
-          if (pl) {
-            pl.params = { ...(pl.params || {}), ...node.params };
-            stillPresentPlacementIds.add(node._sourceRef.placementId);
-          }
-        }
-      } else if (node._pipeKind === 'placement' && !node._sourceRef?.placementId) {
-        // Newly added placement (needs _targetPipeId to know where).
-        // Route through BeamlineSystem so findSlot() enforces the same
-        // capacity / ordering invariants as map-driven placements.
-        if (node._targetPipeId && beam) {
-          beam.placeOnPipe(node._targetPipeId, {
-            type: node.type,
-            position: node._targetPosition ?? 0.5,
-            params: node.params,
-            mode: node._insertMode || (this.insertMode ? 'insert' : 'replace'),
-          });
-        }
-      }
-      // drift nodes are ignored — they're derived from pipes, not editable
+  async _planAndApply() {
+    const plan = planDesignerApply(this.game.state, {
+      sourceId: this.editSourceId,
+      draftNodes: this.draftNodes,
+      originalNodes: this.originalNodes,
+    });
+    if (!plan.ok) {
+      this._reportBlockers(plan.blockers);
+      return false;
     }
 
-    // Remove placements that were in the original but no longer in the draft.
-    // Collect first, mutate after: removeFromPipe filters pipe.placements,
-    // so mutating mid-scan is fine, but a two-pass form reads cleaner.
-    const toRemove = [];
-    for (const pipe of this.game.state.beamPipes) {
-      for (const pl of (pipe.placements || [])) {
-        if (this._originalPlacementIds.has(pl.id)
-            && !stillPresentPlacementIds.has(pl.id)) {
-          toRemove.push({ pipeId: pipe.id, placementId: pl.id });
-        }
-      }
+    const choice = await applyPreviewDialog.open(plan.summary, {
+      name: this._editedBeamlineName(),
+    });
+    if (choice !== 'apply') return false;
+    // The designer can be torn down while the preview is up (a load, a
+    // reload, the Esc ladder); applying then would write a plan built against
+    // a session that no longer exists.
+    if (!this.isOpen || !this.editSourceId) return false;
+
+    const snapshot = this.game.snapshotBeamlineState();
+    const failure = this._executePlan(plan.ops);
+    if (failure) {
+      // All-or-nothing. A half-applied beamline — a pipe cut in two with no
+      // module in the gap, a junction placed with nothing feeding it — is
+      // worse than no change at all, and the player has no way to see it
+      // happened, let alone undo it.
+      this.game.restoreBeamlineState(snapshot);
+      this.game.log(
+        `Apply failed at step ${failure.index + 1} (${failure.kind}: ${failure.reason}) — `
+        + 'nothing was changed',
+        'bad',
+      );
+      return false;
     }
-    for (const { pipeId, placementId } of toRemove) {
-      if (beam) beam.removeFromPipe(pipeId, placementId);
+
+    // Displacement can strand utility feeds that had no legal route to the
+    // module's new position. They are still on the map as loose ends, so say
+    // so — silently unwired hardware reads as a physics bug, not an edit the
+    // player asked for.
+    if (this._danglingLineCount > 0) {
+      const n = this._danglingLineCount;
+      this.game.log(
+        `${n} utility line${n === 1 ? '' : 's'} came loose and need${n === 1 ? 's' : ''} rewiring`,
+        'bad',
+      );
     }
 
     this.game.recalcBeamline();
     this.game.emit('beamlineChanged');
+
+    // Re-walk the map: every node the player added now exists on it, and the
+    // draft has to learn their real ids or a second Apply would build them
+    // again. _recalcBaseline then re-measures "current" against the line as
+    // actually built, since the old baseline describes a beamline that no
+    // longer exists.
+    this._syncDraftFromMap();
+    this._updateTotalLength();
+    this._recalcBaseline();
+
+    this._clearDraftState();
+    this._cleanup();
+    return true;
+  }
+
+  /** Registry name of the beamline under edit, for the preview header. */
+  _editedBeamlineName() {
+    const entry = this.editSourceId
+      ? this.game.registry?.getBySourceId(this.editSourceId)
+      : null;
+    return (entry && entry.name) || null;
+  }
+
+  /**
+   * Run the plan's ops in the ORDER GIVEN. Returns null on success, or
+   * `{index, kind, reason}` naming the op that refused.
+   *
+   * The order is load-bearing and must not be rearranged: mergePipes is
+   * deliberately emitted before removeJunction, because validateMergePipes
+   * proves two pipes are adjacent through the junction reference they share —
+   * the very reference removeJunction nulls.
+   */
+  _executePlan(ops) {
+    const beam = this.game.beamline;
+    if (!beam) return { index: 0, kind: '-', reason: 'no beamline system' };
+
+    // Reset per-transaction: a rolled-back apply must not leave its dangle
+    // count behind for the next one to report as its own.
+    this._danglingLineCount = 0;
+
+    const symbols = new Map();
+    for (let i = 0; i < (ops || []).length; i++) {
+      const raw = ops[i];
+      const missing = [];
+      // `out` declares the symbols this op is about to BIND, so it is the one
+      // field that must not be resolved: its values are unbound by definition
+      // and would every one of them read as a dangling reference.
+      const { out, ...args } = raw;
+      const op = this._resolve(args, symbols, missing);
+      if (missing.length) {
+        return { index: i, kind: raw.kind, reason: `unbound ${missing.join(', ')}` };
+      }
+      // A mutator that throws is still a failed op, and it has to be reported
+      // as one: letting the exception escape would skip the rollback and
+      // strand the map halfway through the plan.
+      let produced;
+      try {
+        produced = this._runOp(beam, op);
+      } catch (err) {
+        console.error('[designer] op threw', raw, err);
+        return { index: i, kind: raw.kind, reason: `threw ${err && err.message}` };
+      }
+      if (!produced) return { index: i, kind: raw.kind, reason: 'refused' };
+      for (const [key, symbol] of Object.entries(out || {})) {
+        if (!produced[key]) {
+          return { index: i, kind: raw.kind, reason: `no ${key} id returned` };
+        }
+        symbols.set(symbol, produced[key]);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Replace every `'$sym'` in an op's arguments with the id the producing op
+   * returned. Walks generically rather than per-op-kind: symbols turn up
+   * nested inside `{junctionId, portName}` endpoint refs and inside
+   * `connect[].pipe`, and a per-kind resolver would silently miss whichever
+   * nesting a future op kind invents.
+   *
+   * Unknown `$` strings are collected in `missing` rather than passed through:
+   * an unresolved symbol dispatched as a literal pipe id would fail somewhere
+   * downstream with a message about a missing pipe, hiding a planner bug
+   * behind a geometry complaint.
+   */
+  _resolve(value, symbols, missing) {
+    if (typeof value === 'string') {
+      if (value[0] !== '$') return value;
+      if (symbols.has(value)) return symbols.get(value);
+      missing.push(value);
+      return value;
+    }
+    if (Array.isArray(value)) return value.map(v => this._resolve(v, symbols, missing));
+    if (value && typeof value === 'object') {
+      const outv = {};
+      for (const [k, v] of Object.entries(value)) outv[k] = this._resolve(v, symbols, missing);
+      return outv;
+    }
+    return value;
+  }
+
+  /**
+   * Dispatch one resolved op. Returns null/false on failure, otherwise an
+   * object whose keys are the symbol names the planner's `out` may declare
+   * (`head`/`tail`, `pipe`, `junction`, `placement`) — the same table the
+   * designer-plan.js header documents, so binding stays generic.
+   */
+  _runOp(beam, op) {
+    switch (op.kind) {
+      case 'removeFromPipe':
+        return beam.removeFromPipe(op.pipeId, op.placementId) ? {} : null;
+
+      case 'removeJunction':
+        // removeJunction is void and cannot report; the placeable being gone
+        // is the only proof available that removePlaceable actually took.
+        beam.removeJunction(op.junctionId);
+        return this.game.getPlaceable(op.junctionId) ? null : {};
+
+      case 'mergePipes': {
+        const id = beam.mergePipes(op.pipeIdA, op.pipeIdB);
+        return id ? { pipe: id } : null;
+      }
+
+      case 'splitPipe': {
+        const res = beam.splitPipe(op.pipeId, op.atPosition, op.gapSubL);
+        return res ? { head: res.headPipeId, tail: res.tailPipeId } : null;
+      }
+
+      case 'trimPipe':
+        return beam.trimPipe(op.pipeId, op.newSubL) ? {} : null;
+
+      case 'drawPipe': {
+        const id = beam.drawPipe(op.start, op.end, op.path);
+        return id ? { pipe: id } : null;
+      }
+
+      case 'extendPipe':
+        return beam.extendPipe(op.pipeId, op.additionalPath) ? {} : null;
+
+      case 'placeJunction': {
+        const id = beam.placeJunction({
+          type: op.type,
+          col: op.col, row: op.row, subCol: op.subCol, subRow: op.subRow,
+          dir: op.dir,
+          params: op.params || {},
+        });
+        if (!id) return null;
+        // The bind is what re-joins the beam path: splitPipe and trimPipe
+        // leave the fresh ends open on purpose, and this junction is what
+        // closes them. Skipping it would leave the flattener walking into a
+        // dead stub with everything downstream silently off the beamline.
+        for (const c of op.connect || []) {
+          if (!beam.attachPipeEnd(c.pipe, c.end, id, c.port)) return null;
+        }
+        return { junction: id };
+      }
+
+      case 'placeOnPipe': {
+        const id = beam.placeOnPipe(op.pipeId, {
+          type: op.type,
+          position: op.position,
+          subL: op.subL,
+          params: op.params || {},
+          mode: op.mode,
+        });
+        return id ? { placement: id } : null;
+      }
+
+      case 'moveJunction': {
+        if (!beam.moveJunction(op.placeableId, {
+          col: op.col, row: op.row, subCol: op.subCol, subRow: op.subRow,
+          dir: op.dir,
+        })) return null;
+        // The placeable kept its id, so every utility line wired to it is
+        // still pointing at a real endpoint — but at the OLD coordinates. Drag
+        // them along now, while we still know which placeable moved.
+        this._reanchorLinesFor(op.placeableId);
+        return {};
+      }
+
+      case 'tuneParams':
+        return this._runTuneParams(op) ? {} : null;
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Re-anchor every utility line attached to a placeable that has just moved,
+   * accumulating how many could not be saved into `_danglingLineCount` so the
+   * apply flow can tell the player how much rewiring the displacement cost
+   * them. A dangle is never a failed op: the line survives as a visible loose
+   * end, which is a far better outcome than rolling back the whole beamline
+   * edit because one cable could not find a legal route.
+   */
+  _reanchorLinesFor(placeableId) {
+    const util = this.game.utilityLineSystem;
+    const lines = this.game.state.utilityLines;
+    if (!util || !lines) return;
+    const placeable = this.game.getPlaceable(placeableId);
+    const def = placeable ? COMPONENTS[placeable.type] : null;
+    if (!placeable || !def) return;
+
+    // Snapshot the ids first: reanchorLine writes to the same Map we would
+    // otherwise be iterating.
+    const attached = [];
+    for (const line of lines.values()) {
+      const ports = [];
+      if (line.start && line.start.placeableId === placeableId) ports.push(line.start.portName);
+      if (line.end && line.end.placeableId === placeableId) ports.push(line.end.portName);
+      if (ports.length) attached.push({ id: line.id, ports });
+    }
+
+    for (const { id, ports } of attached) {
+      // Keyed by port name, because a line can meet the same placeable at both
+      // ends and the two ports are at different corners of the footprint.
+      // portWorldPosition is in world metres; line paths are in tiles, and one
+      // tile is 2 m (the conversion UtilityLineInputController._worldToTile
+      // uses).
+      const byPort = {};
+      for (const name of ports) {
+        const wp = portWorldPosition(placeable, def, name);
+        if (wp) byPort[name] = { col: wp.x / 2, row: wp.z / 2 };
+      }
+      const res = util.reanchorLine(id, placeableId, byPort);
+      if (res && res.dangled) this._danglingLineCount++;
+    }
+  }
+
+  /**
+   * Param edits are written straight onto the target: BeamlineSystem has no
+   * tuning surface because this is a field update, not a slot mutation.
+   * Shallow-merged, so a draft never deletes a param it did not carry.
+   */
+  _runTuneParams(op) {
+    if (op.target === 'module') {
+      const p = this.game.getPlaceable(op.junctionId);
+      if (!p) return false;
+      p.params = { ...(p.params || {}), ...(op.params || {}) };
+      return true;
+    }
+    const pipe = (this.game.state.beamPipes || []).find(pp => pp.id === op.pipeId);
+    const pl = pipe && (pipe.placements || []).find(a => a.id === op.placementId);
+    if (!pl) return false;
+    pl.params = { ...(pl.params || {}), ...(op.params || {}) };
+    return true;
+  }
+
+  /**
+   * Refuse the apply and say why. Blockers are the planner's whole failure
+   * channel, so every one of them is surfaced — and the first that names a
+   * draft node selects it, which is what puts the highlight on the offending
+   * element in the schematic instead of leaving the player to guess.
+   */
+  _reportBlockers(blockers) {
+    const list = (blockers && blockers.length)
+      ? blockers
+      : [{ message: 'These changes cannot be applied.', nodeIndex: -1 }];
+    for (const b of list) this.game.log(`Can't apply: ${b.message}`, 'bad');
+
+    const pointed = list.find(b => b.nodeIndex >= 0 && b.nodeIndex < this.draftNodes.length);
+    if (pointed) {
+      this.selectedIndex = pointed.nodeIndex;
+      this._updateMarkerToComponentCenter();
+    }
+    this._renderAll();
   }
 
   _cleanup() {
@@ -919,9 +1234,12 @@ export class BeamlineDesigner {
     this.editEndpointId = null;
     this.availableEndpoints = [];
     this._originalPlacementIds = new Set();
+    this._originalModuleIds = new Set();
     this.draftNodes = [];
     this.originalNodes = [];
     this.draftEnvelope = null;
+    this.baselineEnvelope = null;
+    this._baselinePending = false;
     this.selectedIndex = -1;
     this._lastTuningKey = null;
     this._markerDir = 0;
@@ -1013,9 +1331,6 @@ export class BeamlineDesigner {
   insertComponent(index, type, position) {
     const comp = COMPONENTS[type];
     if (!comp) return;
-    // In pipe-graph edit mode only attachment-type components can be inserted;
-    // modules live on the main map.
-    if (this.editSourceId && comp.placement !== 'attachment') return;
     this._pushUndo();
 
     // Pick the target pipe and the fractional-s position on it, using the
@@ -1050,6 +1365,12 @@ export class BeamlineDesigner {
       newNode._targetPipeId = pipeCtx ? pipeCtx.pipeId : null;
       newNode._targetPosition = pipeCtx ? pipeCtx.position : 0.5;
       newNode._insertMode = this.insertMode ? 'insert' : 'replace';
+    } else if (this.editSourceId) {
+      // A module added to the draft. It carries no map bookkeeping — the draft
+      // states the desired stack and the planner resolves where it lands on the
+      // sub-grid. An empty _sourceRef is what marks it as not-yet-on-the-map.
+      newNode._pipeKind = 'module';
+      newNode._sourceRef = {};
     }
 
     const insertIdx = position === 'before' ? index : index + 1;
@@ -1631,14 +1952,19 @@ export class BeamlineDesigner {
     this.viewX = Math.max(minViewX, Math.min(maxViewX, this.viewX));
   }
 
-  _recalcDraft() {
-    if (this.draftNodes.length === 0) {
-      this.draftEnvelope = null;
-      return;
-    }
+  /**
+   * Run the physics engine over an ordered node list and return its envelope.
+   *
+   * Shared by the draft and the baseline so the two curves in a Proposed/Current
+   * comparison come out of the same code path — a baseline built by a parallel
+   * copy of this would drift from the draft on the next physics change and the
+   * comparison would quietly start reading differences that are not there.
+   */
+  _computeEnvelope(nodes) {
+    if (!nodes || nodes.length === 0) return null;
 
-    // Build physics beamline from draft nodes (same format as Game.recalcBeamline)
-    const physicsBeamline = this.draftNodes.map(node => {
+    // Build physics beamline from nodes (same format as Game.recalcBeamline)
+    const physicsBeamline = nodes.map(node => {
       const comp = COMPONENTS[node.type];
       if (!comp) return null;
       const effectiveStats = { ...(comp.stats || {}) };
@@ -1672,7 +1998,39 @@ export class BeamlineDesigner {
     researchEffects.machineType = this._machineTypeForDraft();
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
-    this.draftEnvelope = result ? result.envelope : null;
+    return result ? result.envelope : null;
+  }
+
+  /**
+   * Recompute the as-built envelope from originalNodes. Call after anything
+   * that changes what "current" means — opening the designer, or applying a
+   * draft to the map, after which the old baseline describes a beamline that no
+   * longer exists and would show the player a difference they just eliminated.
+   */
+  _recalcBaseline() {
+    // Pyodide boots asynchronously, so a designer opened during the first
+    // seconds of a session asks a physics engine that answers null to
+    // everything. The draft recovers on the next edit; the baseline is computed
+    // exactly once, so without this flag it would stay null for the rest of the
+    // session and the comparison would silently never appear.
+    this._baselinePending = !BeamPhysics.isReady();
+    this.baselineEnvelope = this._baselinePending
+      ? null
+      : this._computeEnvelope(this.originalNodes);
+    this._updatePlotSourceBar();
+  }
+
+  _recalcDraft() {
+    // Only ever fires for a baseline the physics engine refused while booting —
+    // never on the steady-state edit path, where re-running the as-built line on
+    // every keystroke would double the cost of a slider drag for no new answer.
+    if (this._baselinePending && BeamPhysics.isReady()) this._recalcBaseline();
+
+    this.draftEnvelope = this._computeEnvelope(this.draftNodes);
+    if (!this.draftEnvelope) {
+      this.ghostQuads = [];
+      return;
+    }
 
     // NOTE: this used to hold a "s-axis alignment" dev check comparing
     // draftEnvelope[i].s against draftNodes[i].beamStart. Those are different
@@ -1843,6 +2201,23 @@ export class BeamlineDesigner {
     }
   }
 
+  /**
+   * Show the Proposed/Current/Both toggle only when there is a baseline to
+   * compare against, and keep the active button in sync with plotSource.
+   * Without the visibility rule, sandbox mode would offer a "Current" that can
+   * only ever render "No beam data".
+   */
+  _updatePlotSourceBar() {
+    const group = document.getElementById('dsgn-plot-source');
+    if (!group) return;
+    const enabled = !!(this.baselineEnvelope && this.baselineEnvelope.length >= 2);
+    group.classList.toggle('hidden', !enabled);
+    if (!enabled) this.plotSource = 'proposed';
+    document.querySelectorAll('.dsgn-source-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.source === this.plotSource);
+    });
+  }
+
   _updateInsertButtons() {
     const replaceBtn = document.getElementById('dsgn-action-replace');
     const insertBtn = document.getElementById('dsgn-action-insert');
@@ -1852,6 +2227,10 @@ export class BeamlineDesigner {
 
   serializeState() {
     if (!this.isOpen) return null;
+    // Envelopes are deliberately absent: draftEnvelope and baselineEnvelope are
+    // both physics output, rebuilt by restoreState's _recalcDraft / by
+    // openFromSource. Persisting them would freeze a physics answer into the
+    // save file and show a stale curve after any balance change.
     return {
       isOpen: true,
       mode: this.mode,
@@ -1860,11 +2239,23 @@ export class BeamlineDesigner {
       editEndpointId: this.editEndpointId || null,
       designId: this.designId,
       designName: this.designName,
+      // The map back-references ride along in edit mode. They are what the
+      // planner aligns the draft against, so a draft restored without them
+      // reads as "every module is new, including the source" and Apply refuses
+      // the whole thing as source_immovable. subL travels for the same reason
+      // _nodeSubL exists: a drift's real length is on the node, not the
+      // component template.
       draftNodes: this.draftNodes.map(n => ({
         id: n.id,
         type: n.type,
         params: n.params ? { ...n.params } : {},
         bendDir: n.bendDir || null,
+        subL: n.subL,
+        _pipeKind: n._pipeKind,
+        _sourceRef: n._sourceRef ? { ...n._sourceRef } : undefined,
+        _targetPipeId: n._targetPipeId,
+        _targetPosition: n._targetPosition,
+        _insertMode: n._insertMode,
       })),
       selectedIndex: this.selectedIndex,
       viewX: this.viewX,
@@ -1885,6 +2276,14 @@ export class BeamlineDesigner {
           parentId: null, bendDir: n.bendDir || null, tiles: [],
           params: n.params ? { ...n.params } : {},
           computedStats: null,
+          subL: n.subL,
+          // Carried through so the restored draft still knows which map
+          // objects its nodes stand for — see serializeState.
+          _pipeKind: n._pipeKind,
+          _sourceRef: n._sourceRef ? { ...n._sourceRef } : (n._pipeKind ? {} : undefined),
+          _targetPipeId: n._targetPipeId,
+          _targetPosition: n._targetPosition,
+          _insertMode: n._insertMode,
         }));
         this.selectedIndex = state.selectedIndex;
         this.viewX = state.viewX;

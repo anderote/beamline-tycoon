@@ -1,0 +1,110 @@
+{
+  "testStand-bench": {
+    "beamEnergy": 0.005529564572973271,
+    "beamCurrent": 9.99987500078126,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.00448199873318411,
+    "finalBeamSizeY": 0.00448199873318411,
+    "totalLossFraction": 0.500006249960937,
+    "inBand": true
+  },
+  "testStand-sband": {
+    "beamEnergy": 0.037106482699910064,
+    "beamCurrent": 16.29921612355766,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.01974585920343967,
+    "finalBeamSizeY": 0.025501804790593642,
+    "totalLossFraction": 0.7066141097759622,
+    "inBand": true
+  },
+  "testStand-highpower": {
+    "beamEnergy": 0.03904039781172867,
+    "beamCurrent": 55.55468152513348,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0047267832906549585,
+    "finalBeamSizeY": 0.00447637224883447,
+    "totalLossFraction": 0.5000078662737986,
+    "inBand": true
+  },
+  "ebeam-crosslinker": {
+    "beamEnergy": 0.006273859605244241,
+    "beamCurrent": 31.249890621296835,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.007632800352292639,
+    "finalBeamSizeY": 0.007632800352292639,
+    "totalLossFraction": 0.5000017500592506,
+    "inBand": true
+  },
+  "ebeam-sterilisation": {
+    "beamEnergy": 0.010159032696902137,
+    "beamCurrent": 31.24985936494363,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.007727119747206723,
+    "finalBeamSizeY": 0.007727119747206723,
+    "totalLossFraction": 0.5000022501609018,
+    "inBand": true
+  },
+  "ebeam-highpower": {
+    "beamEnergy": 0.010204831456421832,
+    "beamCurrent": 62.4901655702242,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.004356965122860339,
+    "finalBeamSizeY": 0.004356965122860339,
+    "totalLossFraction": 0.5000786754382064,
+    "inBand": true
+  },
+  "isotope-cyclone30": {
+    "beamEnergy": 0.030000000000000027,
+    "beamCurrent": 0.2982578166263223,
+    "beamQuality": 0.9990267727506785,
+    "finalBeamSizeX": 0.01566771226151622,
+    "finalBeamSizeY": 0.019269865190879774,
+    "totalLossFraction": 0.14783480963907913,
+    "inBand": true
+  },
+  "isotope-spoke-booster": {
+    "beamEnergy": 0.04720986231687618,
+    "beamCurrent": 0.19614031272557025,
+    "beamQuality": 0.9606388695511127,
+    "finalBeamSizeX": 0.0186408598692453,
+    "finalBeamSizeY": 0.0148447635546623,
+    "totalLossFraction": 0.43959910649837064,
+    "inBand": true
+  },
+  "isotope-spoke-70": {
+    "beamEnergy": 0.06699759920076276,
+    "beamCurrent": 0.16826374114418702,
+    "beamQuality": 0.9800661097014822,
+    "finalBeamSizeX": 0.023014857004840725,
+    "finalBeamSizeY": 0.020726040321633162,
+    "totalLossFraction": 0.5192464538737513,
+    "inBand": true
+  },
+  "therapy-ocular70": {
+    "beamEnergy": 0.07000000000000006,
+    "beamCurrent": 0.02540405462481006,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.022214526823007136,
+    "finalBeamSizeY": 0.04683531565530005,
+    "totalLossFraction": 0.9661279271669199,
+    "inBand": true
+  },
+  "therapy-spoke145": {
+    "beamEnergy": 0.14448367197357603,
+    "beamCurrent": 0.022009761740436427,
+    "beamQuality": 0.8667810082153776,
+    "finalBeamSizeX": 0.05393277179443605,
+    "finalBeamSizeY": 0.03269253644289312,
+    "totalLossFraction": 0.9706536510127515,
+    "inBand": true
+  },
+  "therapy-spoke230": {
+    "beamEnergy": 0.2318933181171794,
+    "beamCurrent": 0.022874288858191816,
+    "beamQuality": 0.44378001907715203,
+    "finalBeamSizeX": 0.02494500677445991,
+    "finalBeamSizeY": 0.01951902178390669,
+    "totalLossFraction": 0.9695009481890776,
+    "inBand": true
+  }
+}

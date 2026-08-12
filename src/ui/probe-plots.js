@@ -3,15 +3,29 @@
 export const ProbePlots = (() => {
   const PAD = { top: 18, right: 10, bottom: 20, left: 46 };
 
-  function draw(canvas, type, envelope, pins, activePin, xRange, yScale) {
+  // Ghost pass: dimmed + dashed marks, drawn underneath a live curve for comparison.
+  const GHOST_ALPHA = 0.4;
+  const GHOST_DASH = [3, 3];
+
+  /** draw(canvas, type, envelope, pins, activePin, xRange, yScale, opts)
+   *  opts (all optional; omitting opts entirely === legacy single-pass behavior):
+   *    yDomain  [lo, hi] — or [[lo, hi], ...] for multi-channel plots — overrides
+   *             this pass's autoscale. Use yDomainFor()/unionYDomain() to build it.
+   *    noClear  skip the clear + background fill so this pass composites over the last.
+   *    ghost    draw data marks only (no bands, axes, pin lines, legend or labels),
+   *             dimmed and dashed, so the pass drawn on top of it reads first. */
+  function draw(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
     const ctx = canvas.getContext('2d');
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const o = { ghost: !!(opts && opts.ghost), yd: null };
+    if (!(opts && opts.noClear)) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     if (!envelope || envelope.length < 2) {
-      _msg(ctx, canvas, 'No beam data');
+      _msg(ctx, canvas, 'No beam data', o);
       return;
     }
 
@@ -26,12 +40,18 @@ export const ProbePlots = (() => {
       'eic-triangle': _drawEICTriangle,
     };
 
+    // One seam for every plot's y-range: an explicit override, else the same
+    // autoscale the plot used to do inline.
+    o.yd = _normYD(opts && opts.yDomain) ||
+           yDomainFor(type, envelope, yScale, pins, activePin);
+
     const fn = fns[type];
-    if (fn) fn(ctx, canvas, envelope, pins, activePin, xRange, yScale);
-    else _msg(ctx, canvas, 'Unknown: ' + type);
+    if (fn) fn(ctx, canvas, envelope, pins, activePin, xRange, yScale, o);
+    else _msg(ctx, canvas, 'Unknown: ' + type, o);
   }
 
-  function _msg(ctx, canvas, text) {
+  function _msg(ctx, canvas, text, o) {
+    if (o && o.ghost) return;  // the pass drawn over us owns the message
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
@@ -78,6 +98,101 @@ export const ProbePlots = (() => {
     // Fixed range: show [0, yScale] (or [-yScale, yScale] if data goes negative)
     if (yMin < 0) return [-yScale, yScale];
     return [0, yScale];
+  }
+
+  // --- Y domains ---
+  //
+  // Each plot's notion of "what it plots on y" lives here once, so a caller can
+  // ask for a domain without re-deriving it and both passes of a comparison land
+  // on identical axes. A domain is a list of [lo, hi] channels (dual-axis plots
+  // have two, point plots have one per panel); the values are only meaningful to
+  // the plot type they came from. Types absent from the table have no y-axis to
+  // pin (eic-triangle is on fixed log axes) and return null.
+  const _Y = {
+    'beam-envelope': (env, yScale) => [_applyYScale(
+      ..._range(env.flatMap(d => [(d.sigma_x || 0) * 1000, (d.sigma_y || 0) * 1000])), yScale)],
+
+    'current-loss': (env, yScale) => [_applyYScale(
+      ..._range(env.map(d => d.current).filter(v => v != null)), yScale)],
+
+    'emittance': (env, yScale) => [_applyYScale(
+      ..._range(env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)))), yScale)],
+
+    // Dual axis: [energy (GeV, pre unit-scaling), dispersion (m)]
+    'energy-dispersion': (env) => {
+      const dVals = env.map(d => d.eta_x).filter(v => v != null && isFinite(v));
+      return [
+        _range(env.map(d => d.energy).filter(v => v != null && isFinite(v))),
+        _range(dVals.length > 0 ? dVals : [0]),
+      ];
+    },
+
+    // Raw [min, max] of the plotted values — the plot derives log-vs-linear from
+    // it, so both passes agree on which mode they are in.
+    'peak-current': (env) => {
+      const vals = env.map(d => d.peak_current).filter(v => v != null && isFinite(v) && v > 0);
+      if (vals.length === 0) return null;
+      return [[Math.min(...vals), Math.max(...vals)]];
+    },
+
+    // Point plots: the domain is the ellipse's radial extent per panel, [0, maxR].
+    'phase-space': (env, yScale, pins, activePin) => {
+      const d = _pinDatum(env, pins, activePin);
+      if (!d) return null;
+      const rx = _ellipseMaxR(d.cov_xx, d.cov_xxp, d.cov_xpxp);
+      const ry = _ellipseMaxR(d.cov_yy, d.cov_yyp, d.cov_ypyp);
+      if (rx == null && ry == null) return null;
+      return [[0, rx || 0], [0, ry || 0]];
+    },
+
+    'longitudinal': (env, yScale, pins, activePin) => {
+      const d = _pinDatum(env, pins, activePin);
+      if (!d) return null;
+      const r = _ellipseMaxR(d.cov_tt || 1e-24, d.cov_tdE || 0, d.cov_dEdE || 1e-10);
+      return r == null ? null : [[0, r]];
+    },
+  };
+
+  /** The y domain a plot type would autoscale to for one envelope, or null if it
+   *  has none. pins/activePin only matter for the at-a-point plots. */
+  function yDomainFor(type, envelope, yScale, pins, activePin) {
+    const f = _Y[type];
+    if (!f || !envelope || envelope.length < 2) return null;
+    return f(envelope, yScale, pins || [], activePin || 0);
+  }
+
+  /** Channel-wise union of two domains from the same plot type. Either may be null. */
+  function unionYDomain(a, b) {
+    const da = _normYD(a), db = _normYD(b);
+    if (!da) return db;
+    if (!db) return da;
+    const n = Math.max(da.length, db.length);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const ca = da[i], cb = db[i];
+      if (!ca) { out.push(cb); continue; }
+      if (!cb) { out.push(ca); continue; }
+      out.push([Math.min(ca[0], cb[0]), Math.max(ca[1], cb[1])]);
+    }
+    return out;
+  }
+
+  // Accept both the documented [lo, hi] and the multi-channel [[lo, hi], ...]
+  function _normYD(yd) {
+    if (!yd || !yd.length) return null;
+    return Array.isArray(yd[0]) ? yd : [yd];
+  }
+
+  // Channel accessor: the override if there is one, else the fallback pair.
+  function _chan(o, i, fallback) {
+    const c = o && o.yd && o.yd[i];
+    return (c && isFinite(c[0]) && isFinite(c[1])) ? c : fallback;
+  }
+
+  function _pinDatum(env, pins, activePin) {
+    const pin = (pins && (pins[activePin] || pins[0])) || null;
+    if (!pin) return null;
+    return env[pin.elementIndex] || null;
   }
 
   /** Draw focus margin color bands behind a plot.
@@ -155,9 +270,20 @@ export const ProbePlots = (() => {
     ctx.textAlign = 'center'; ctx.fillText(yLblR, 0, 0); ctx.restore();
   }
 
-  function _lineScaled(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, scale) {
+  // Ghost stroke: same hue, dimmed and dashed, one pixel thinner.
+  function _strokeStyle(ctx, color, dashed, ghost) {
+    if (ghost) {
+      ctx.strokeStyle = `rgba(${_hexRgb(color)}, ${GHOST_ALPHA})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash(GHOST_DASH);
+      return;
+    }
     ctx.strokeStyle = color; ctx.lineWidth = 1.5;
     ctx.setLineDash(dashed ? [4, 3] : []);
+  }
+
+  function _lineScaled(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, scale, ghost) {
+    _strokeStyle(ctx, color, dashed, ghost);
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < data.length; i++) {
@@ -171,9 +297,8 @@ export const ProbePlots = (() => {
     ctx.stroke(); ctx.setLineDash([]);
   }
 
-  function _line(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed) {
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-    ctx.setLineDash(dashed ? [4, 3] : []);
+  function _line(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, ghost) {
+    _strokeStyle(ctx, color, dashed, ghost);
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < data.length; i++) {
@@ -227,27 +352,30 @@ export const ProbePlots = (() => {
 
   // --- "Along beamline" plots ---
 
-  function _drawBeamEnvelope(ctx, canvas, env, pins, activePin, xRange, yScale) {
+  function _drawBeamEnvelope(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
+    const ghost = o && o.ghost;
     // Focus health color bands (behind everything)
-    _drawFocusBands(ctx, a, env, [xMin, xMax]);
+    if (!ghost) _drawFocusBands(ctx, a, env, [xMin, xMax]);
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
-    const [yMin, yMax] = _applyYScale(..._range(scaled.flatMap(d => [d.sx_mm, d.sy_mm])), yScale);
-    _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
-    _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false);
-    _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true);
+    const [yMin, yMax] = _chan(o, 0, [0, 1]);
+    if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
+    _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost);
+    _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost);
+    if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03c3_x' }, { color: '#ff6644', label: '\u03c3_y' }]);
   }
 
-  function _drawCurrentLoss(ctx, canvas, env, pins, activePin, xRange, yScale) {
+  function _drawCurrentLoss(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
-    const [yMin, yMax] = _applyYScale(..._range(env.map(d => d.current).filter(v => v != null)), yScale);
-    _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
+    const ghost = o && o.ghost;
+    const [yMin, yMax] = _chan(o, 0, [0, 1]);
+    if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
     // Shade loss regions
-    for (let i = 1; i < env.length; i++) {
+    for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
       if (prev.current != null && curr.current != null && curr.current < prev.current - 0.001) {
         const x0V = prev.s != null ? prev.s : i - 1;
@@ -258,17 +386,22 @@ export const ProbePlots = (() => {
         ctx.fillRect(x0, a.y, x1 - x0, a.h);
       }
     }
-    _line(ctx, a, env, 'current', '#ddaa44', xMin, xMax, yMin, yMax, false);
+    _line(ctx, a, env, 'current', '#ddaa44', xMin, xMax, yMin, yMax, false, ghost);
+    if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ddaa44', label: 'Current' }]);
   }
 
-  function _drawEmittance(ctx, canvas, env, pins, activePin, xRange, yScale) {
+  function _drawEmittance(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
+    const [yMin, yMax] = _chan(o, 0, [0, 1]);
+    if (o && o.ghost) {
+      _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false, true);
+      _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true, true);
+      return;
+    }
     // Use normalized emittance — the conserved quantity
-    const vals = env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)));
-    const [yMin, yMax] = _applyYScale(..._range(vals), yScale);
     _axes(ctx, a, 's (m)', '\u03b5_n (m\u00b7rad)', yMin, yMax);
     _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false);
     _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true);
@@ -276,23 +409,27 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
   }
 
-  function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale) {
+  function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     // Shrink plot area slightly for right axis labels
     const aR = { ...a, w: a.w - 30 };
     const [xMin, xMax] = xRange || _xRange(env);
 
     // Left axis: energy with smart unit scaling
-    const eVals = env.map(d => d.energy).filter(v => v != null && isFinite(v));
-    const [eMinGev, eMaxGev] = _range(eVals);
+    const [eMinGev, eMaxGev] = _chan(o, 0, [0, 1]);
     const eRef = Math.max(Math.abs(eMinGev), Math.abs(eMaxGev)) || 1;
     const eScale = eRef >= 1000 ? 1e-3 : eRef >= 1 ? 1 : eRef >= 1e-3 ? 1e3 : 1e6;
     const eUnit = eRef >= 1000 ? 'TeV' : eRef >= 1 ? 'GeV' : eRef >= 1e-3 ? 'MeV' : 'keV';
     const eMin = eMinGev * eScale, eMax = eMaxGev * eScale;
 
     // Right axis: dispersion in metres
-    const dVals = env.map(d => d.eta_x).filter(v => v != null && isFinite(v));
-    const [dMin, dMax] = _range(dVals.length > 0 ? dVals : [0]);
+    const [dMin, dMax] = _chan(o, 1, [0, 1]);
+
+    if (o && o.ghost) {
+      _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, true);
+      _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true, true);
+      return;
+    }
 
     _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax);
     _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale);
@@ -301,18 +438,20 @@ export const ProbePlots = (() => {
     _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
   }
 
-  function _drawPeakCurrent(ctx, canvas, env, pins, activePin, xRange, yScale) {
+  function _drawPeakCurrent(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
+    const ghost = !!(o && o.ghost);
     const vals = env.map(d => d.peak_current).filter(v => v != null && isFinite(v) && v > 0);
     if (vals.length === 0) {
-      _msg(ctx, canvas, 'No peak current data');
+      _msg(ctx, canvas, 'No peak current data', o);
       return;
     }
 
-    // Use log scale if range spans > 2 orders of magnitude
-    const minVal = Math.min(...vals);
-    const maxVal = Math.max(...vals);
+    // Use log scale if range spans > 2 orders of magnitude.
+    // The span comes from the shared domain when there is one, so both passes of
+    // a comparison pick the same mode and the same decades.
+    const [minVal, maxVal] = _chan(o, 0, [Math.min(...vals), Math.max(...vals)]);
     const useLog = maxVal / Math.max(minVal, 1e-10) > 100;
 
     if (useLog) {
@@ -321,24 +460,10 @@ export const ProbePlots = (() => {
       const lMin = logMin - 0.3, lMax = logMax + 0.3;
 
       // Custom log axes
-      ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)'; ctx.lineWidth = 0.5;
-      for (let dec = logMin; dec <= logMax; dec++) {
-        const frac = (dec - lMin) / (lMax - lMin);
-        const y = a.y + a.h - frac * a.h;
-        ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
-        ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
-        ctx.font = '9px monospace'; ctx.textAlign = 'right';
-        ctx.fillText('10^' + dec, a.x - 3, y + 3);
-      }
-      ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
-      ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('s (m)', a.x + a.w / 2, a.y + a.h + 14);
-      ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
-      ctx.fillText('I_peak (A)', 0, 0); ctx.restore();
+      if (!ghost) _logAxes(ctx, a, logMin, logMax, lMin, lMax);
 
       // Draw line in log space
-      ctx.strokeStyle = '#ee55ee'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+      _strokeStyle(ctx, '#ee55ee', false, ghost);
       ctx.beginPath();
       let started = false;
       for (let i = 0; i < env.length; i++) {
@@ -350,35 +475,68 @@ export const ProbePlots = (() => {
         const y = a.y + a.h - ((logV - lMin) / (lMax - lMin)) * a.h;
         if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       }
-      ctx.stroke();
+      ctx.stroke(); ctx.setLineDash([]);
     } else {
-      const [yMin, yMax] = _range(vals);
-      _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax);
-      _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false);
+      const [yMin, yMax] = _range([minVal, maxVal]);
+      if (!ghost) _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax);
+      _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false, ghost);
     }
+    if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ee55ee', label: 'I_peak' }]);
   }
 
+  // Log-decade gridlines + frame + labels, factored out so a ghost pass can skip it.
+  function _logAxes(ctx, a, logMin, logMax, lMin, lMax) {
+    ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)'; ctx.lineWidth = 0.5;
+    for (let dec = logMin; dec <= logMax; dec++) {
+      const frac = (dec - lMin) / (lMax - lMin);
+      const y = a.y + a.h - frac * a.h;
+      ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
+      ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
+      ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.fillText('10^' + dec, a.x - 3, y + 3);
+    }
+    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
+    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('s (m)', a.x + a.w / 2, a.y + a.h + 14);
+    ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('I_peak (A)', 0, 0); ctx.restore();
+  }
+
   // --- "At this point" plots ---
 
-  function _drawPhaseSpace(ctx, canvas, env, pins, activePin) {
+  // Not an along-s curve: one operating point, two ellipses. A ghost pass draws a
+  // second, dimmed pair of outlines — same panels, same radial scale — rather than
+  // being pushed through the curve path.
+  function _drawPhaseSpace(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const pin = pins[activePin];
-    if (!pin) { _msg(ctx, canvas, 'No pin selected'); return; }
+    if (!pin) { _msg(ctx, canvas, 'No pin selected', o); return; }
     const d = env[pin.elementIndex];
-    if (!d) { _msg(ctx, canvas, 'No data at pin'); return; }
+    if (!d) { _msg(ctx, canvas, 'No data at pin', o); return; }
 
     const w = canvas.width, h = canvas.height;
     const halfW = Math.floor((w - 20) / 2);
     const plotH = h - PAD.top - PAD.bottom;
 
     _drawEllipse(ctx, 10, PAD.top, halfW - 5, plotH,
-      d.cov_xx, d.cov_xxp, d.cov_xpxp, pin.color, 'x', "x'", d.emit_x);
+      d.cov_xx, d.cov_xxp, d.cov_xpxp, pin.color, 'x', "x'", d.emit_x, o, 0);
     _drawEllipse(ctx, halfW + 15, PAD.top, halfW - 5, plotH,
-      d.cov_yy, d.cov_yyp, d.cov_ypyp, pin.color, 'y', "y'", d.emit_y);
+      d.cov_yy, d.cov_yyp, d.cov_ypyp, pin.color, 'y', "y'", d.emit_y, o, 1);
   }
 
-  function _drawEllipse(ctx, ox, oy, w, h, s11, s12, s22, color, xLbl, yLbl, emittance) {
+  // Radial extent an ellipse panel autoscales to (3 sigma of the major axis).
+  function _ellipseMaxR(s11, s12, s22) {
+    if (!s11 || !s22) return null;
+    const trace = s11 + s22;
+    const det = s11 * s22 - s12 * s12;
+    const disc = Math.sqrt(Math.max((trace * trace / 4) - det, 0));
+    const r = Math.sqrt(trace / 2 + disc) * 3;
+    return isFinite(r) && r > 0 ? r : null;
+  }
+
+  function _drawEllipse(ctx, ox, oy, w, h, s11, s12, s22, color, xLbl, yLbl, emittance, o, chan) {
     if (!s11 || !s22) return;
     const trace = s11 + s22;
     const det = s11 * s22 - s12 * s12;
@@ -387,26 +545,31 @@ export const ProbePlots = (() => {
     const lam2 = Math.max(trace / 2 - disc, 1e-30);
     const angle = Math.atan2(2 * s12, s11 - s22) / 2;
 
-    const maxR = Math.sqrt(lam1) * 3;
+    const ghost = !!(o && o.ghost);
+    const shared = _chan(o, chan, null);
+    const maxR = (shared && shared[1] > 0) ? shared[1] : Math.sqrt(lam1) * 3;
     const scale = Math.min(w, h) / 2 / maxR;
     const cx = ox + w / 2, cy = oy + h / 2;
 
     // Crosshairs
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.4)'; ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(ox, cy); ctx.lineTo(ox + w, cy);
-    ctx.moveTo(cx, oy); ctx.lineTo(cx, oy + h);
-    ctx.stroke();
+    if (!ghost) {
+      ctx.strokeStyle = 'rgba(60, 60, 100, 0.4)'; ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(ox, cy); ctx.lineTo(ox + w, cy);
+      ctx.moveTo(cx, oy); ctx.lineTo(cx, oy + h);
+      ctx.stroke();
+    }
 
     // Ellipse
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(-angle);
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    _strokeStyle(ctx, color, false, ghost);
     ctx.beginPath();
     ctx.ellipse(0, 0, Math.sqrt(lam1) * scale, Math.sqrt(lam2) * scale, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = `rgba(${_hexRgb(color)}, 0.1)`;
+    ctx.fillStyle = `rgba(${_hexRgb(color)}, ${ghost ? 0.05 : 0.1})`;
     ctx.fill();
     ctx.restore();
+    if (ghost) return;
 
     // Labels
     ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
@@ -419,12 +582,14 @@ export const ProbePlots = (() => {
     }
   }
 
-  function _drawLongitudinal(ctx, canvas, env, pins, activePin) {
+  // Also a single operating point, not a curve: ghost draws a second dimmed ellipse.
+  function _drawLongitudinal(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const pin = pins[activePin];
-    if (!pin) { _msg(ctx, canvas, 'No pin selected'); return; }
+    if (!pin) { _msg(ctx, canvas, 'No pin selected', o); return; }
     const d = env[pin.elementIndex];
-    if (!d) { _msg(ctx, canvas, 'No data at pin'); return; }
+    if (!d) { _msg(ctx, canvas, 'No data at pin', o); return; }
 
+    const ghost = !!(o && o.ghost);
     const a = _area(canvas);
     const s44 = d.cov_tt || 1e-24, s45 = d.cov_tdE || 0, s55 = d.cov_dEdE || 1e-10;
 
@@ -435,25 +600,29 @@ export const ProbePlots = (() => {
     const lam1 = trace / 2 + disc;
     const lam2 = Math.max(trace / 2 - disc, 1e-30);
     const angle = Math.atan2(2 * s45, s44 - s55) / 2;
-    const maxR = Math.sqrt(lam1) * 3;
+    const shared = _chan(o, 0, null);
+    const maxR = (shared && shared[1] > 0) ? shared[1] : Math.sqrt(lam1) * 3;
     const scale = Math.min(a.w, a.h) / 2 / maxR;
 
     // Crosshairs
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.4)'; ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(a.x, cy); ctx.lineTo(a.x + a.w, cy);
-    ctx.moveTo(cx, a.y); ctx.lineTo(cx, a.y + a.h);
-    ctx.stroke();
+    if (!ghost) {
+      ctx.strokeStyle = 'rgba(60, 60, 100, 0.4)'; ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(a.x, cy); ctx.lineTo(a.x + a.w, cy);
+      ctx.moveTo(cx, a.y); ctx.lineTo(cx, a.y + a.h);
+      ctx.stroke();
+    }
 
     // Ellipse
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(-angle);
-    ctx.strokeStyle = pin.color; ctx.lineWidth = 1.5;
+    _strokeStyle(ctx, pin.color, false, ghost);
     ctx.beginPath();
     ctx.ellipse(0, 0, Math.sqrt(lam1) * scale, Math.sqrt(lam2) * scale, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = `rgba(${_hexRgb(pin.color)}, 0.1)`;
+    ctx.fillStyle = `rgba(${_hexRgb(pin.color)}, ${ghost ? 0.05 : 0.1})`;
     ctx.fill();
     ctx.restore();
+    if (ghost) return;
 
     ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
     ctx.fillText('dt (s)', a.x + a.w / 2, a.y + a.h + 14);
@@ -492,32 +661,26 @@ export const ProbePlots = (() => {
     return Math.max(0, Math.min(1, f));
   }
 
-  function _drawEICTriangle(ctx, canvas, env, pins, activePin) {
-    const pin = pins[activePin] || pins[0];
-    if (!pin) { _msg(ctx, canvas, 'Place marker to probe beam'); return; }
-    const d = env[pin.elementIndex];
-    if (!d) { _msg(ctx, canvas, 'No data at marker'); return; }
+  // Path a triangle whose vertices sit at norms[i] along each spoke.
+  function _eicPath(ctx, cx, cy, R, angles, norms) {
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const r = R * norms[i];
+      const x = cx + Math.cos(angles[i]) * r;
+      const y = cy + Math.sin(angles[i]) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
 
-    const w = canvas.width, h = canvas.height;
-    const cx = w / 2;
-    const cy = h / 2 + 4;
-    const R = Math.min(w, h) * 0.38;
-
-    // Axis angles: Energy top, Current lower-right, Emittance lower-left.
-    const angles = [-Math.PI / 2, Math.PI / 6, 5 * Math.PI / 6];
-
+  // Rings, spokes and the reference "par" polygon — fixed furniture, so a ghost
+  // pass skips it and only contributes its own triangle.
+  function _eicChrome(ctx, cx, cy, R, angles) {
     // --- Background rings (0.25, 0.5, 0.75, 1.0) ---
     ctx.strokeStyle = 'rgba(60, 60, 100, 0.35)';
     ctx.lineWidth = 0.5;
     for (const frac of [0.25, 0.5, 0.75, 1.0]) {
-      ctx.beginPath();
-      for (let i = 0; i < 3; i++) {
-        const r = R * frac;
-        const x = cx + Math.cos(angles[i]) * r;
-        const y = cy + Math.sin(angles[i]) * r;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
+      _eicPath(ctx, cx, cy, R, angles, [frac, frac, frac]);
       ctx.stroke();
     }
 
@@ -532,24 +695,36 @@ export const ProbePlots = (() => {
     }
 
     // --- Reference "par" polygon (dashed) ---
-    const refNorms = [
-      _eicNormLog(EIC_REF_ENERGY_GEV, EIC_ENERGY_MIN_GEV, EIC_ENERGY_MAX_GEV),
-      _eicNormLog(EIC_REF_CURRENT_MA, EIC_CURRENT_MIN_MA, EIC_CURRENT_MAX_MA),
-      _eicNormEmit(EIC_REF_EMIT),
-    ];
     ctx.strokeStyle = 'rgba(150, 150, 190, 0.55)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    for (let i = 0; i < 3; i++) {
-      const r = R * refNorms[i];
-      const x = cx + Math.cos(angles[i]) * r;
-      const y = cy + Math.sin(angles[i]) * r;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
+    _eicPath(ctx, cx, cy, R, angles, [
+      _eicNormLog(EIC_REF_ENERGY_GEV, EIC_ENERGY_MIN_GEV, EIC_ENERGY_MAX_GEV),
+      _eicNormLog(EIC_REF_CURRENT_MA, EIC_CURRENT_MIN_MA, EIC_CURRENT_MAX_MA),
+      _eicNormEmit(EIC_REF_EMIT),
+    ]);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // Not an along-s curve either: one operating point on fixed log axes, so there is
+  // no y domain to share. Ghost draws a second dimmed triangle over the same rings.
+  function _drawEICTriangle(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const pin = pins[activePin] || pins[0];
+    if (!pin) { _msg(ctx, canvas, 'Place marker to probe beam', o); return; }
+    const d = env[pin.elementIndex];
+    if (!d) { _msg(ctx, canvas, 'No data at marker', o); return; }
+
+    const ghost = !!(o && o.ghost);
+    const w = canvas.width, h = canvas.height;
+    const cx = w / 2;
+    const cy = h / 2 + 4;
+    const R = Math.min(w, h) * 0.38;
+
+    // Axis angles: Energy top, Current lower-right, Emittance lower-left.
+    const angles = [-Math.PI / 2, Math.PI / 6, 5 * Math.PI / 6];
+
+    if (!ghost) _eicChrome(ctx, cx, cy, R, angles);
 
     // --- Current values ---
     const eGeV = d.energy;
@@ -563,19 +738,13 @@ export const ProbePlots = (() => {
     ];
 
     const color = '#ffbb44';
-    ctx.fillStyle = `rgba(${_hexRgb(color)}, 0.22)`;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 0; i < 3; i++) {
-      const r = R * norms[i];
-      const x = cx + Math.cos(angles[i]) * r;
-      const y = cy + Math.sin(angles[i]) * r;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
+    ctx.fillStyle = `rgba(${_hexRgb(color)}, ${ghost ? 0.08 : 0.22})`;
+    _strokeStyle(ctx, color, false, ghost);
+    _eicPath(ctx, cx, cy, R, angles, norms);
     ctx.fill();
     ctx.stroke();
+    ctx.setLineDash([]);
+    if (ghost) return;
 
     // Vertex dots
     ctx.fillStyle = color;
@@ -645,5 +814,5 @@ export const ProbePlots = (() => {
     return (ma * 1e6).toPrecision(3) + ' nA';
   }
 
-  return { draw };
+  return { draw, yDomainFor, unionYDomain };
 })();

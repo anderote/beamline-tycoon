@@ -111,6 +111,16 @@ def beamline_config_from_game(game_beamline):
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
+        # Physical half-aperture, metres. Declared per component in mm; a single
+        # global DEFAULT_APERTURE of 50 mm used to apply to everything, which
+        # was uniformly generous and most generous exactly where real machines
+        # are tightest — an RFQ bore is 3-5 mm, an undulator half-gap 3-5, a
+        # TESLA iris 35. That inverted a real design pressure: the front end,
+        # where aperture is genuinely fought for, was the most forgiving part of
+        # the machine.
+        ap_mm = comp.get("apertureRadius")
+        if ap_mm is not None and ap_mm > 0:
+            el["aperture"] = ap_mm * 1e-3
         # Placeable id, when the caller supplied one. Lets per-cavity results
         # (achieved gradient, wall dissipation) be written back onto the
         # placeable, which is where the JS cryogenic solver reads them to
@@ -627,13 +637,11 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
 
     source_params = extract_source_params(elements, game_beamline)
 
-    # Vacuum quality widens effective aperture during propagation
-    vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0
-    if vacuum_quality > 0:
-        wider_aperture = DEFAULT_APERTURE * (1.0 + vacuum_quality * 2.0)
-        for el in elements:
-            if "aperture" not in el:
-                el["aperture"] = wider_aperture
+    # Vacuum research used to WIDEN the aperture here — a leftover from the
+    # model where vacuum reached the beam by narrowing it. Better vacuum does
+    # not make a beam pipe physically bigger. Vacuum now acts on the beam
+    # properly, through gas scattering in beam_gas.py, and the aperture is
+    # fixed hardware declared per component.
 
     physics_result = propagate(elements, machine_type=machine_type,
                                source_params=source_params)

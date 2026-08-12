@@ -23,6 +23,10 @@ body {
 }
 
 /* === TOP BAR === */
+/* Wraps to a second (or third) row on narrow windows rather than pushing the
+   right-hand buttons off-screen. Everything that parks itself under the bar
+   (music player, facility overview, fault popup) measures offsetHeight, so a
+   taller bar is handled without extra bookkeeping. */
 #top-bar {
   position: absolute;
   top: 0;
@@ -30,8 +34,9 @@ body {
   right: 0;
   z-index: 100;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 6px 16px;
   padding: 6px 12px;
   background: rgba(20, 20, 40, 0.92);
   border-bottom: 1px solid rgba(100, 100, 160, 0.3);
@@ -57,12 +62,14 @@ body {
 
 #resources {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   margin-left: 16px;
 }
 
 #top-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   margin-left: auto;
@@ -2345,9 +2352,11 @@ body {
 .econ-row-fill { display:block; height:100%; border-radius:2px; }
 .econ-row-val { font-size:9px; width:64px; text-align:right; flex:0 0 auto; }
 
-.beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; }
+.beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; white-space:nowrap; }
 .beam-summary.active { color:#4f4; }
-.beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; animation: beamFaultBlink 0.9s steps(2) infinite; }
+/* Fault state is a compact chip only — the detail lives in the dismissable
+   fault popup at top-left, and clicking the chip brings it back. */
+.beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; cursor:pointer; animation: beamFaultBlink 0.9s steps(2) infinite; }
 @keyframes beamFaultBlink { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
 
 /* Designs Library */
@@ -2449,6 +2458,46 @@ body {
 .design-card-actions .btn-delete {
   color: #f88;
   border-color: rgba(180, 80, 80, 0.3);
+}
+
+/* Stock blueprints. Read-only, so the card must not invite a click the way a
+   saved design does — no hover lift, default cursor, and the actions are the
+   only live surface on it. */
+.design-card-stock {
+  cursor: default;
+  border-color: rgba(120, 110, 70, 0.45);
+}
+.design-card-stock:hover { border-color: rgba(190, 165, 90, 0.6); }
+.design-card-stock .design-card-actions { flex-wrap: wrap; }
+.design-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.design-card-head .design-card-name { margin-bottom: 4px; }
+.design-card-badge {
+  flex: 0 0 auto;
+  font-family: monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #d8b95e;
+  border: 1px solid rgba(190, 165, 90, 0.45);
+  border-radius: 2px;
+  padding: 1px 4px;
+  cursor: help;
+}
+.design-card-measured {
+  font-size: 10px;
+  color: #7fd39a;
+  margin-bottom: 4px;
+  cursor: help;
+}
+.design-card-blurb {
+  font-size: 10px;
+  color: #7a7a99;
+  line-height: 1.5;
+  margin-bottom: 6px;
 }
 
 /* === BEAMLINE DESIGNER OVERLAY === */
@@ -2778,6 +2827,14 @@ body {
   color: rgba(80, 80, 120, 0.4);
   font-size: 10px;
   margin: 0 4px;
+}
+/* Proposed/Current/Both toggle. A flex row of its own so hiding the group in
+   sandbox mode takes the separator and label with it, instead of leaving a
+   stray "|  Show:" behind in the bar. */
+.dsgn-plot-source-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .dsgn-plots-row {
   flex: 0.8;
@@ -3115,6 +3172,7 @@ body {
 /* === STAFF BAR (top bar, next to funding) === */
 #staff-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   margin-left: 8px;
@@ -3351,12 +3409,15 @@ body {
   animation: none;
 }
 #title-screen .title-menu {
-  position: relative;
-  margin-top: 6vh;
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  margin-top: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  align-items: center;
+  gap: 10px;
+  align-items: flex-end;
+  z-index: 5;
 }
 #title-screen .title-menu.hidden,
 #title-screen .title-loading.hidden {
@@ -3364,11 +3425,11 @@ body {
 }
 #title-screen .title-btn {
   font-family: 'Press Start 2P', monospace;
-  font-size: 13px;
+  font-size: 11px;
   color: #ffe9b0;
   background: #4a3b63;
-  min-width: 280px;
-  padding: 14px 24px;
+  min-width: 200px;
+  padding: 12px 18px;
   cursor: pointer;
   text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
   /* chunky RCT bevel: light top/left, dark bottom/right */
@@ -3864,6 +3925,163 @@ body {
 }
 .sl-btn-primary:hover { background: #5b4a78; color: #fff3cf; }
 .sl-btn-primary:active {
+  border-color: #241b36 #7d6a9e #7d6a9e #241b36;
+  background: #3d3053;
+}
+
+/* === APPLY PREVIEW DIALOG (src/ui/ApplyPreviewDialog.js) ===
+   Same pixel-bevel panel as the save/load dialog, sized to a short list.
+   z-index sits above the designer overlay (250) — it is the designer's own
+   confirmation step, so it has to draw on top of the full-screen view. */
+#apply-preview-dialog {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  z-index: 9200;
+  background: #1a1a2e;
+  border-style: solid;
+  border-width: 4px;
+  border-color: #4a4a72 #0c0c18 #0c0c18 #4a4a72;
+  outline: 2px solid #000;
+  border-radius: 2px;
+  box-shadow: 0 8px 0 rgba(0, 0, 0, 0.45), 0 0 40px rgba(0, 0, 0, 0.6);
+  color: #ccd2ee;
+  font-family: monospace;
+}
+#apply-preview-dialog.hidden { display: none; }
+
+.apv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 10px;
+  cursor: grab;
+  user-select: none;
+  background: linear-gradient(180deg, rgba(232, 194, 90, 0.14) 0%, transparent 100%);
+  border-bottom: 1px solid rgba(232, 194, 90, 0.4);
+}
+.apv-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #ffd76a;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 #000, 0 0 8px rgba(232, 194, 90, 0.35);
+}
+.apv-close {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  background: none;
+  border: none;
+  color: rgba(232, 194, 90, 0.55);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.apv-close:hover { color: #ff6644; }
+
+.apv-body {
+  padding: 12px 16px 4px;
+  overflow-y: auto;
+}
+.apv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.apv-sign {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  color: #8a90b4;
+}
+.apv-label { flex: 1; color: #ccd2ee; }
+.apv-value {
+  color: #e8c25a;
+  white-space: nowrap;
+  text-shadow: 1px 1px 0 #000;
+}
+.apv-add .apv-sign { color: #77dd88; }
+.apv-remove .apv-sign { color: #ff8866; }
+.apv-remove .apv-value { color: #77dd88; }
+.apv-move .apv-sign,
+.apv-move .apv-label { color: #aaccff; }
+.apv-warn .apv-sign,
+.apv-warn .apv-label { color: #ffcc55; }
+.apv-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  color: #888ea8;
+}
+
+.apv-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 10px;
+  padding: 8px 0 2px;
+  border-top: 1px solid rgba(232, 194, 90, 0.35);
+}
+.apv-total-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #e8c25a;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 1px 1px 0 #000;
+}
+.apv-total-value {
+  font-size: 14px;
+  text-shadow: 1px 1px 0 #000;
+}
+.apv-total-value.apv-cost { color: #ffd76a; }
+.apv-total-value.apv-credit { color: #77dd88; }
+
+.apv-footer {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 16px 14px;
+}
+.apv-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 10px 16px;
+  color: #ccd2ee;
+  background: #2c2c46;
+  cursor: pointer;
+  text-shadow: 2px 2px 0 #000;
+  letter-spacing: 1px;
+  border-style: solid;
+  border-width: 3px;
+  border-color: #565684 #14141f #14141f #565684;
+  outline: 2px solid #000;
+  border-radius: 2px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
+}
+.apv-btn:hover { background: #3a3a5c; color: #e6eaff; }
+.apv-btn:active {
+  border-color: #14141f #565684 #565684 #14141f;
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+.apv-btn-primary {
+  color: #ffe9b0;
+  background: #4a3a68;
+  border-color: #7d6a9e #241b36 #241b36 #7d6a9e;
+}
+.apv-btn-primary:hover { background: #5b4a78; color: #fff3cf; }
+.apv-btn-primary:active {
   border-color: #241b36 #7d6a9e #7d6a9e #241b36;
   background: #3d3053;
 }
@@ -4584,3 +4802,57 @@ body {
 }
 .bltype-blurb { font-size: 7px; color: #9999bb; line-height: 1.6; }
 .bltype-lock { font-size: 7px; color: #ddaa22; line-height: 1.5; }
+
+/* The blueprint gallery under the type grid: the folder of stock designs the
+   selected type ships with. One column rather than the grid's two — these are
+   read as a ladder (tier 1 up) and each carries a blurb worth reading, where
+   the type tiles above are scanned. */
+.blueprint-panel { margin-top: 10px; }
+.blueprint-panel-head {
+  color: #6666aa;
+  font-size: 7px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.2);
+  margin-bottom: 6px;
+}
+.blueprint-list { display: flex; flex-direction: column; gap: 5px; }
+.blueprint-card {
+  background: rgba(15, 15, 35, 0.7);
+  border: 1px solid rgba(80, 80, 120, 0.35);
+  border-radius: 3px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+}
+.blueprint-card:hover { background: rgba(30, 32, 60, 0.85); border-color: rgba(120, 150, 220, 0.5); }
+.blueprint-card.selected {
+  background: rgba(40, 55, 95, 0.9);
+  border-color: #88aaff;
+  box-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
+}
+.blueprint-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.blueprint-name { color: #ccddff; font-size: 8px; line-height: 1.4; }
+/* Measured numbers get their own colour so they never read as a spec band:
+   green is what the machine did, not what the type is allowed to do. */
+.blueprint-measured {
+  font-size: 7px;
+  color: #7fd39a;
+  line-height: 1.5;
+  cursor: help;
+}
+.blueprint-card-custom { border-style: dashed; }
+.blueprint-card-custom .blueprint-name { color: #aab4d8; }
+.blueprint-empty {
+  margin-top: 10px;
+  padding: 10px;
+  font-size: 7px;
+  color: #6666aa;
+  line-height: 1.6;
+  text-align: center;
+  border: 1px dashed rgba(80, 80, 120, 0.3);
+  border-radius: 3px;
+}

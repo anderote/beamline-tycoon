@@ -384,5 +384,77 @@ console.log('\n--- Test 10: extendPipe charges only the added length ---');
     `extend charged 2× drift only (got delta ${fundingAfterDraw - state.resources.funding})`);
 }
 
+// ==========================================================================
+// Test 11: attachPipeEnd binds an OPEN pipe terminal to a junction port.
+//
+// This is the step that re-joins a beam path after splitPipe/trimPipe leave a
+// fresh end open on purpose. Without it the flattener stops at the stub and
+// everything downstream falls off the beamline, so the failure cases matter as
+// much as the happy one: every rejection has to be a no-op with a player-facing
+// reason, never a half-bound pipe.
+// ==========================================================================
+console.log('\n--- Test 11: attachPipeEnd binds an open terminal ---');
+{
+  const { system, state, events, logs } = mockSystem();
+  const srcId = system.placeJunction({ type: 'source', col: 2, row: 2, dir: 0 });
+  const cupId = system.placeJunction({ type: 'faradayCup', col: 2, row: 10, dir: 0 });
+  // A free-floating pipe running south, both ends open — exactly the shape a
+  // split stub has.
+  const pipeId = system.drawPipe(null, null, [{ col: 2, row: 4 }, { col: 2, row: 8 }]);
+  const pipe = state.beamPipes.find(p => p.id === pipeId);
+
+  // Wrong end first: at the pipe's `end` the beam ARRIVES travelling south, so
+  // the port there must face north. The source's exit faces south.
+  logs.length = 0;
+  assert(system.attachPipeEnd(pipeId, 'end', srcId, 'exit') === false,
+    'a port facing the wrong way is refused');
+  assert(pipe.end === null, 'refused attach left the end open');
+  assert(logs.some(l => l.type === 'bad' && /align/i.test(l.msg)),
+    `port_mismatch logged in English (got ${JSON.stringify(logs)})`);
+
+  logs.length = 0;
+  assert(system.attachPipeEnd(pipeId, 'start', srcId, 'noSuchPort') === false,
+    'an unknown port name is refused');
+  assert(logs.some(l => l.type === 'bad' && /beam port/i.test(l.msg)),
+    'port_not_found logged');
+
+  assert(system.attachPipeEnd(pipeId, 'middle', srcId, 'exit') === false,
+    "an end other than 'start'/'end' is refused");
+  assert(system.attachPipeEnd('bp_nope', 'start', srcId, 'exit') === false,
+    'an unknown pipe is refused');
+  assert(system.attachPipeEnd(pipeId, 'start', 'j_nope', 'exit') === false,
+    'an unknown junction is refused');
+
+  events.length = 0;
+  assert(system.attachPipeEnd(pipeId, 'start', srcId, 'exit') === true,
+    'the aligned open end binds');
+  assert(pipe.start && pipe.start.junctionId === srcId && pipe.start.portName === 'exit',
+    'pipe.start now references the source exit');
+  assert(events.some(e => e.ev === 'beamlineChanged'), 'emits beamlineChanged');
+
+  logs.length = 0;
+  assert(system.attachPipeEnd(pipeId, 'start', srcId, 'exit') === false,
+    'a bound end cannot be re-bound');
+  assert(logs.some(l => l.type === 'bad' && /already attached/i.test(l.msg)),
+    'end_taken logged');
+
+  // The far end closes onto the cup, and the flattener now walks the whole run.
+  assert(system.attachPipeEnd(pipeId, 'end', cupId, 'entry') === true,
+    'the downstream end binds to the cup entry');
+  const flat = flattenPath(state, srcId);
+  assert(flat.some(e => e.kind === 'module' && e.id === cupId),
+    `the flattener reaches the cup through the bound pipe (got ${flat.map(e => e.kind).join(',')})`);
+
+  // A second pipe cannot claim a port the first one holds.
+  // Drawn on its own column: a path overlapping the bound pipe would be
+  // rejected by drawPipe itself and never reach the port check.
+  const rival = system.drawPipe(null, null, [{ col: 5, row: 4 }, { col: 5, row: 5 }]);
+  logs.length = 0;
+  assert(system.attachPipeEnd(rival, 'start', srcId, 'exit') === false,
+    'a port already claimed by another pipe is refused');
+  assert(logs.some(l => l.type === 'bad' && /already connected/i.test(l.msg)),
+    'port_taken logged');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

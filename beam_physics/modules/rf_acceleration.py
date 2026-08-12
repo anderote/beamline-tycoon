@@ -8,6 +8,13 @@ RF_ELEMENT_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
 
 DEFAULT_RF_FREQ = 1.3e9
 
+# RMS phase extent of the charge an RF bucket captures out of a DC beam, in
+# radians. 0.5 rad (~29 deg) is a typical capture window — wide enough that a
+# real fraction of the DC current survives, narrow enough to be a bunch. It
+# converts to a bunch length as sigma_t = PHASE / (2 pi f), so the same constant
+# gives 61 ps at 1.3 GHz and 400 ps at 200 MHz.
+BUNCH_PHASE_SIGMA_RAD = 0.5
+
 DESIGN_BETA = {
     "rfq":                0.04,
     "pillboxCavity":      0.1,
@@ -22,6 +29,19 @@ DESIGN_BETA = {
     "srf650Cavity":       0.65,
     "cryomodule":         0.65,
     "harmonicLinearizer": 0.9,
+    # NOT an RF structure. The energy degrader declares physicsType 'rfCavity'
+    # because signed `energyGain` is the only way anything in this engine can
+    # take energy OUT of a beam, and a graphite wedge has no design beta at all
+    # — the transit-time factor is meaningless for it. Without an entry here it
+    # would default to 0.9 (a beta=1 electron structure) and the TTF would eat
+    # 40-80% of the requested degradation across the therapy range, so the
+    # component's "degrade to 90 MeV" slider would silently deliver 150. 0.5
+    # sits in the middle of the proton betas this device sees (0.37 at 70 MeV,
+    # 0.60 at 230) and holds the TTF between 0.79 and 0.96 across the whole
+    # clinical range, which is as close to "no correction" as this table can
+    # express. See the physicsType note on energyDegrader in
+    # src/data/beamline-components.raw.js.
+    "energyDegrader": 0.5,
 }
 
 CAPTURE_EFFICIENCY = {
@@ -38,6 +58,15 @@ CAPTURE_EFFICIENCY = {
     "srf650Cavity":       0.50,
     "cryomodule":         0.50,
     "harmonicLinearizer": 0.55,
+    # On a cyclotron therapy line the degrader IS the first element this module
+    # sees, so it is what stamps the bunch structure — and the beam really is
+    # already bunched, at the cyclotron's own 106 MHz, which the component
+    # declares in stats.rfFrequency. What it is NOT doing is capturing a DC
+    # beam, so this number is not a capture efficiency: it is degrader
+    # transmission, and 0.35 is deliberately gentle against the 1-40% a real
+    # wedge-plus-slits system passes. The rest of the loss arrives honestly,
+    # through the emittance blow-up hitting downstream apertures.
+    "energyDegrader": 0.35,
 }
 
 
@@ -89,11 +118,27 @@ class RFAccelerationModule(PhysicsModule):
 
         # First RF element establishes the bunch structure
         if not context.bunch_frequency_set:
+            was_dc = beam.bunch_frequency <= 0
             beam.bunch_frequency = f_rf
             context.bunch_frequency_set = True
             capture = CAPTURE_EFFICIENCY.get(game_type, 0.5)
             beam.current *= capture
             beam.initial_current = beam.current
+            # Capturing a DC beam sets its bunch LENGTH as well as its
+            # frequency: the captured charge occupies a slice of RF phase, so
+            # the bunch is a fraction of the RF period. Lower frequency means
+            # longer bunches, and that is the whole reason a 200 MHz buncher
+            # and a 1.3 GHz cavity are different machines.
+            #
+            # Without this the bunch length stayed at whatever the source
+            # declared (1 ps) regardless of frequency, so a 200 MHz buncher
+            # reported 40 A peak from a 20 mA beam — two thousand times the
+            # average — and space charge annihilated it on the spot. Bunches
+            # start long here and are shortened later by a chicane, which is
+            # the real order of operations.
+            if was_dc:
+                sigma_t = BUNCH_PHASE_SIGMA_RAD / (2.0 * np.pi * f_rf)
+                beam.sigma[4, 4] = sigma_t ** 2
 
         # Adiabatic damping
         if energy_before > 0 and beam.energy > 0 and beam.energy != energy_before:

@@ -273,6 +273,17 @@
           <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="half">½</button>
           <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="30">30m</button>
           <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="9">9m</button>
+          <!-- Which beamline the plots draw: the draft, the as-built line, or
+               both on shared axes. Grouped in one span (and hidden by default)
+               because sandbox mode has no as-built line to compare against —
+               offering the choice there would show an empty "Current". -->
+          <span class="dsgn-plot-source-group hidden" id="dsgn-plot-source">
+            <span class="dsgn-range-sep">|</span>
+            <span class="dsgn-range-label">Show:</span>
+            <button class="dsgn-range-btn dsgn-source-btn active" data-source="proposed">Proposed</button>
+            <button class="dsgn-range-btn dsgn-source-btn" data-source="current">Current</button>
+            <button class="dsgn-range-btn dsgn-source-btn" data-source="both">Both</button>
+          </span>
         </div>
         <div class="dsgn-plots-row">
           <div class="dsgn-plot-panel">
@@ -328,6 +339,21 @@
           <div class="dsgn-tuning-params" id="dsgn-tuning-params">
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Apply preview (src/ui/ApplyPreviewDialog.js) — the confirmation step
+         between the designer's draft and the map. Rendered into by the dialog;
+         the root lives here so it has a fixed place in the DOM and the sheet. -->
+    <div id="apply-preview-dialog" class="hidden">
+      <div class="apv-header">
+        <span class="apv-title">Apply Changes</span>
+        <button class="apv-close" title="Back to editing">&times;</button>
+      </div>
+      <div class="apv-body"></div>
+      <div class="apv-footer">
+        <button class="apv-btn apv-btn-primary" data-act="apply">Apply</button>
+        <button class="apv-btn" data-act="back">Back to editing</button>
       </div>
     </div>
 

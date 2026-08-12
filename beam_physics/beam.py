@@ -19,7 +19,7 @@ class BeamState:
     Units: m, rad, m, rad, s, dimensionless
     """
 
-    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS, bunch_frequency=1.3e9):
+    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS, bunch_frequency=0.0):
         self.sigma = np.array(sigma, dtype=np.float64)
         self.energy = energy        # GeV
         self.current = current      # mA
@@ -36,9 +36,27 @@ class BeamState:
         self.gamma, self.beta = relativistic_params(self.energy, self.mass)
 
     def _update_bunch_properties(self):
-        """Derive peak current and n_particles from average current and bunch length."""
+        """Derive peak current and n_particles from average current and bunch length.
+
+        A beam is UNBUNCHED until an RF element bunches it — rf_acceleration.py
+        already models that handover via context.bunch_frequency_set. For a DC
+        beam, peak current IS the average current: there is no bunch to
+        concentrate the charge into.
+
+        This used to assume 1.3 GHz bunching for every beam from the moment it
+        left the source, including a DC thermionic gun. With the default 1 ps
+        bunch length that reported a 20 mA beam as 6.1 A peak — 307x — and that
+        inflated current went straight into the space-charge perveance, which is
+        linear in it. Together with the dimensional error in space_charge.py it
+        is why low-energy front ends were unusable.
+        """
         from beam_physics.constants import ELECTRON_CHARGE
-        charge_per_bunch = (self.current * 1e-3) / self.bunch_frequency if self.bunch_frequency > 0 else 0
+        if self.bunch_frequency <= 0:
+            # DC / unbunched: no per-bunch charge, and peak == average.
+            self.n_particles = 0.0
+            self.peak_current = self.current * 1e-3
+            return
+        charge_per_bunch = (self.current * 1e-3) / self.bunch_frequency
         self.n_particles = charge_per_bunch / ELECTRON_CHARGE if ELECTRON_CHARGE > 0 else 0
         sigma_t = self.bunch_length()
         if sigma_t > 0:
@@ -185,5 +203,7 @@ def create_initial_beam(params):
     sigma[4, 4] = params["sigma_dt"] ** 2
     sigma[5, 5] = params["sigma_dE"] ** 2
 
-    bunch_freq = params.get("bunch_frequency", 1.3e9)
+    # 0 = unbunched. rf_acceleration.py sets the real frequency at the first
+    # RF element; before that the beam is DC and peak current == average.
+    bunch_freq = params.get("bunch_frequency", 0.0)
     return BeamState(sigma, energy, current, mass, bunch_frequency=bunch_freq)

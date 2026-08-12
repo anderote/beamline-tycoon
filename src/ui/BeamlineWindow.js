@@ -8,6 +8,9 @@ import { flattenPath } from '../beamline/flattener.js';
 import { hardwareNodes } from '../game/aggregates.js';
 import { dataFeeIncome } from '../game/economy.js';
 import { endpointsById } from '../utility/endpoint-lookup.js';
+// Imported, not re-declared: this map IS the utility-type -> quality-field
+// contract, and a hand-copied local one drifts from the table the gate wrote.
+import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
 import { getCavitySpec } from '../beamline/cavity-specs.js';
 
 // Utility type keys to display in the utilities tab
@@ -460,40 +463,66 @@ export class BeamlineWindow {
     `;
   }
 
-  _renderUtilities(el) {
-    // Phase 6: connectivity is inferred from state.nodeQualities, which the
-    // tick loop populates from perSinkQuality. A beamline node is "connected"
-    // for a utility type iff any node in this beamline has that utility's
-    // quality field set (non-undefined) in nodeQualities.
-    const UTILITY_TO_QUALITY_FIELD = {
-      powerCable:   'powerQuality',
-      rfWaveguide:  'rfQuality',
-      coolingWater: 'coolingQuality',
-      cryoTransfer: 'cryoQuality',
-      vacuumPipe:   'vacuumQuality',
-      dataFiber:    'dataQuality',
-    };
+  /**
+   * Per-utility wiring status for this beamline.
+   *
+   * Two independent facts decide the row, and conflating them was a bug: a
+   * component's presence in `nodeQualities` says it DECLARES a sink for that
+   * utility (the gate floors every declared sink to 0 so an unwired one can
+   * never read as the 1.0 that an absent field means), while
+   * `state.unwiredSinks` says whether a line actually reaches it. Reading
+   * definedness alone made every declared sink report "Connected" — an
+   * isolated electron gun with nothing plugged in claimed power, vacuum and
+   * cooling while the HUD next to it counted 3 unwired sinks.
+   *
+   * Returns one of: 'unused' (declares no such sink), 'unwired', 'partial'
+   * (some nodes wired, some not), 'connected'.
+   */
+  _utilityStatus(utilityKey, nodeIds) {
+    const qualityField = UTILITY_TO_QUALITY_FIELD[utilityKey];
+    if (!qualityField) return 'unused';
     const nodeQualities = this.game.state.nodeQualities || {};
-    const entry = this.game.registry.get(this.beamlineId);
-    const myNodeIds = entry
-      ? new Set(this.game.state.placeables.filter(p => p.beamlineId === entry.id).map(p => p.id))
-      : new Set();
+    const unwiredSinks = this.game.state.unwiredSinks || {};
+    let declared = 0;
+    let unwired = 0;
+    for (const nodeId of nodeIds) {
+      const nq = nodeQualities[nodeId];
+      if (!nq || nq[qualityField] === undefined) continue;
+      declared++;
+      if (unwiredSinks[nodeId] && unwiredSinks[nodeId][utilityKey]) unwired++;
+    }
+    if (declared === 0) return 'unused';
+    if (unwired === 0) return 'connected';
+    if (unwired === declared) return 'unwired';
+    return 'partial';
+  }
 
+  _renderUtilities(el) {
+    const entry = this.game.registry.get(this.beamlineId);
+    // The flattened path, not `placeables.filter(beamlineId)` — components with
+    // role 'placement' (cavities, quads, BPMs, cryomodules) live in
+    // pipe.placements and never appear in placeables, so the old filter judged
+    // connectivity from the endpoint hardware alone and ignored every sink on
+    // the pipe between them.
+    const myNodeIds = entry && entry.sourceId
+      ? hardwareNodes(flattenPath(this.game.state, entry.sourceId)).map(n => n.id)
+      : [];
+
+    const PRESENTATION = {
+      connected: { color: '#44dd66', icon: '●', text: 'Connected' },
+      partial:   { color: '#ddaa33', icon: '◐', text: 'Partially wired' },
+      unwired:   { color: '#dd4444', icon: '○', text: 'Not connected' },
+      unused:    { color: '#556',    icon: '·', text: 'Not required' },
+    };
+
+    let requiredCount = 0;
     let connectedCount = 0;
     let html = '<div class="ctx-section-label">Utility Connections</div>';
     for (const { key, label } of UTILITY_TYPES) {
-      const qualityField = UTILITY_TO_QUALITY_FIELD[key];
-      let connected = false;
-      if (qualityField) {
-        for (const nodeId of myNodeIds) {
-          const nq = nodeQualities[nodeId];
-          if (nq && nq[qualityField] !== undefined) { connected = true; break; }
-        }
-      }
-      if (connected) connectedCount++;
-      const color = connected ? '#44dd66' : '#556';
-      const icon = connected ? '●' : '○';
-      const text = connected ? 'Connected' : 'Not connected';
+      const status = this._utilityStatus(key, myNodeIds);
+      if (status !== 'unused') requiredCount++;
+      if (status === 'connected') connectedCount++;
+      const { color, icon, text } = PRESENTATION[status];
       html += `
         <div class="ctx-utility-row">
           <span class="ctx-utility-dot" style="color:${color}">${icon}</span>
@@ -502,11 +531,16 @@ export class BeamlineWindow {
         </div>
       `;
     }
+    // Coverage is over the utilities this beamline actually NEEDS, not all six.
+    // A source that wants three and has none is at 0%, not the 50% a fixed
+    // denominator reported for having declared them.
+    const coverage = requiredCount > 0
+      ? `${(connectedCount / requiredCount * 100).toFixed(0)}%` : '—';
     html += `
       <div style="margin-top:12px">
         <div class="ctx-stats-grid">
-          <div class="ctx-stat"><div class="ctx-stat-label">Connected</div><div class="ctx-stat-val">${connectedCount} / ${UTILITY_TYPES.length}</div></div>
-          <div class="ctx-stat"><div class="ctx-stat-label">Coverage</div><div class="ctx-stat-val">${(connectedCount / UTILITY_TYPES.length * 100).toFixed(0)}%</div></div>
+          <div class="ctx-stat"><div class="ctx-stat-label">Connected</div><div class="ctx-stat-val">${connectedCount} / ${requiredCount}</div></div>
+          <div class="ctx-stat"><div class="ctx-stat-label">Coverage</div><div class="ctx-stat-val">${coverage}</div></div>
         </div>
       </div>
     `;

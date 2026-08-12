@@ -363,5 +363,70 @@ console.log('\n--- Test 7: topology cache invalidation on placement add/remove -
     'removing the placement clears its quality entry');
 }
 
+// ==========================================================================
+// Test 8: state.unwiredSinks — wiring topology, published separately from
+// quality.
+//
+// Regression: the beamline Utilities panel called a utility "Connected" when
+// its quality field was merely DEFINED. Every declared sink is defined (the
+// gate floors it to 0 so an unwired sink can never read as the 1.0 an absent
+// field means), so an isolated source with nothing plugged in reported power,
+// vacuum and cooling all connected while the HUD beside it counted 3 unwired
+// sinks. Definedness means "needs this utility"; only unwiredSinks says
+// whether a line reaches it.
+// ==========================================================================
+console.log('\n--- Test 8: unwiredSinks reports wiring, not declaration ---');
+{
+  // Nothing wired at all — the reported scenario.
+  const state = makeState({ lines: [] });
+  makeGate(state).run();
+
+  assert(state.unwiredSinks?.p1?.powerCable === true, 'unwired power sink is listed');
+  assert(state.unwiredSinks?.p1?.vacuumPipe === true, 'unwired vacuum sink is listed');
+  assert(state.nodeQualities?.p1?.powerQuality === 0,
+    'and its quality field is still DEFINED at the fail-closed floor');
+  assert(state.nodeQualities?.p1?.vacuumQuality === 0,
+    'same for vacuum — which is why definedness cannot mean "connected"');
+}
+{
+  // Both wired: the placeable drops out of the map entirely.
+  const state = makeState({ lines: CONNECT_BOTH });
+  makeGate(state).run();
+  assert(state.unwiredSinks?.p1 === undefined,
+    `a fully wired placeable is absent from unwiredSinks (got ${JSON.stringify(state.unwiredSinks)})`);
+}
+{
+  // Partial: power wired, vacuum not.
+  const state = makeState({ lines: [CONNECT_BOTH[0]] });
+  makeGate(state).run();
+  assert(state.unwiredSinks?.p1?.powerCable === undefined, 'wired power sink is not listed');
+  assert(state.unwiredSinks?.p1?.vacuumPipe === true, 'unwired vacuum sink still is');
+}
+{
+  // dataFiber is deliberately absent from HARD_REQUIRED_UTILS (it derates
+  // income rather than tripping the beam), so the blocker sweep never saw it.
+  // The panel still has to report it honestly, which is why the sweep now runs
+  // over every gated utility and only the hard subset becomes blockers.
+  const PORTS = {
+    bpm: { data_in: { utility: 'dataFiber', role: 'sink', params: { demand: 1 } } },
+  };
+  const state = {
+    tick: 0,
+    placeables: [{ id: 'b1', type: 'bpm', category: 'beamline' }],
+    beamPipes: [], utilityLines: new Map(),
+    staffMembers: [workingOperator()],
+    infraBlockers: [], infraCanRun: true,
+  };
+  new UtilityGate({
+    state, solveRunner: okSolveRunner, getPorts: t => PORTS[t] || {}, rng: () => 0.99,
+  }).run();
+
+  assert(state.unwiredSinks?.b1?.dataFiber === true,
+    'an unwired dataFiber sink is reported even though it raises no blocker');
+  assert(!state.infraBlockers.some(b => b.code === 'data_unconnected'),
+    'and it still does not trip the beam');
+  assert(state.infraCanRun === true, 'infraCanRun stays true for a soft-derated utility');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

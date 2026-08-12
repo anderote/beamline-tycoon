@@ -4,6 +4,13 @@ from beam_physics.lattice import propagate
 
 
 class TestFocusMargin(unittest.TestCase):
+    # focusStrength 0.3 is calibrated at 1 GeV (component-physics.js computes it
+    # with the momentum hardcoded there). A fixed-gradient magnet focuses as
+    # k = 0.2998 g / p, so on the 10 MeV default beam the same quad is ~95x
+    # stronger and the cell is violently over-focused. Propagate at the momentum
+    # the strength belongs to, so this tests the advisor rather than the optics.
+    FODO_SOURCE = {"energy": 1.0}
+
     def _simple_fodo(self):
         """FODO cell: source, quad, drift, quad, drift."""
         return [
@@ -15,24 +22,24 @@ class TestFocusMargin(unittest.TestCase):
         ]
 
     def test_snapshots_have_focus_margin(self):
-        result = propagate(self._simple_fodo())
+        result = propagate(self._simple_fodo(), source_params=self.FODO_SOURCE)
         for snap in result["snapshots"]:
             self.assertIn("focus_margin", snap)
 
     def test_snapshots_have_focus_urgency(self):
-        result = propagate(self._simple_fodo())
+        result = propagate(self._simple_fodo(), source_params=self.FODO_SOURCE)
         for snap in result["snapshots"]:
             self.assertIn("focus_urgency", snap)
 
     def test_focus_margin_range(self):
         """Focus margin should be <= 1.0 (beam smaller than aperture)."""
-        result = propagate(self._simple_fodo())
+        result = propagate(self._simple_fodo(), source_params=self.FODO_SOURCE)
         for snap in result["snapshots"]:
             self.assertLessEqual(snap["focus_margin"], 1.0)
 
     def test_focus_urgency_range(self):
         """Focus urgency should be clamped to [0, 1]."""
-        result = propagate(self._simple_fodo())
+        result = propagate(self._simple_fodo(), source_params=self.FODO_SOURCE)
         for snap in result["snapshots"]:
             self.assertGreaterEqual(snap["focus_urgency"], 0.0)
             self.assertLessEqual(snap["focus_urgency"], 1.0)
@@ -49,7 +56,7 @@ class TestFocusMargin(unittest.TestCase):
 
     def test_focused_beam_has_low_urgency(self):
         """Right after a quad, urgency should be low."""
-        result = propagate(self._simple_fodo())
+        result = propagate(self._simple_fodo(), source_params=self.FODO_SOURCE)
         # Find first snapshot after first quad (element_index=1)
         post_quad = [s for s in result["snapshots"] if s["element_index"] == 1]
         if post_quad:

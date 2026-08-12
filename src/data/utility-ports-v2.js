@@ -123,6 +123,19 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 380 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
   },
+  // The extreme case of "a cyclotron is a water heater that occasionally emits
+  // protons", and the one machine where the joke is arithmetic: 230 MeV at the
+  // nameplate microamp is a QUARTER OF A WATT of beam against 420 kW at the
+  // wall. Nothing goes into the product — it all goes into the loop. Roughly
+  // half is the room-temperature main coil holding a 2 T field in 220 tonnes of
+  // iron, most of the rest is the 106 MHz RF, and the ~30% of the internal beam
+  // the electrostatic deflector fails to extract lands on copper inside the
+  // vacuum chamber. Past a single tower and a single switchgear feed, same as
+  // the 70 MeV machine, so it forces the same distribution planning.
+  cyclotron230: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 420 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
+  },
   // NO rf_in and NO cryo_in — the absence is the design. A plasma stage has
   // no cavity to drive and nothing to keep at 2 K. What it has instead is a
   // titanium-sapphire chain at a few tenths of a percent wall-plug
@@ -134,6 +147,17 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 420 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 8 } },
+  },
+  // The only compound machine that asks for a waveguide, and the reason is
+  // that its capture section is a genuine S-band linac rather than something
+  // folded into the crate. The power and cooling are the drive beam: a
+  // tungsten target absorbing hundreds of kilowatts of shower, in a shielded
+  // block that has to survive it, plus the klystron plant behind the capture
+  // structure. Almost none of the energy that goes in comes out as positrons.
+  positronSource: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 800 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 760 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
   },
 
   // ── Magnets ───────────────────────────────────────────────────────
@@ -180,6 +204,26 @@ const BEAMLINE_UTILITY_PORTS = {
   injectionSeptum: {
     pwr_in:  { utility: 'powerCable',   side: 'front', offsetAlong: 0.3, role: 'sink', params: { demand: 40 } },
     cool_in: { utility: 'coolingWater', side: 'front', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 25 } },
+  },
+  // Four analysing dipoles on one girder, so it draws like a chicane. The
+  // water is for those dipoles and NOT for the wedge: a therapy beam is a
+  // fraction of a watt, and the block that stops 99% of it barely warms up.
+  // That inversion is worth knowing — this is the one intercepting device in
+  // the catalogue whose cooling has nothing to do with the beam it absorbs.
+  energyDegrader: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 24 } },
+  },
+  // Small magnets, dipole-class draw: the integrated field is tiny but the
+  // supplies have to slew it across the full scan range hundreds of times a
+  // second, and a supply built for dI/dt is not a cheap supply. The fibre is
+  // the scan pattern coming down from the control room and the dose signal
+  // going back up — without it this is a magnet pointing a beam somewhere
+  // nobody is checking.
+  scanningMagnet: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 35 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.6, role: 'sink', params: { heatLoad: 28 } },
+    data_in: { utility: 'dataFiber',    side: 'front', offsetAlong: 0.8, role: 'sink', params: { demand: 6 } },
   },
   velocitySelector: {
     pwr_in: { utility: 'powerCable', side: 'left', offsetAlong: 0.5, role: 'sink', params: { demand: 15 } },

@@ -228,33 +228,40 @@ UIHost.prototype._updateBeamSummary = function() {
   const canRun = this.game.state.infraCanRun !== false;
   if (!canRun && blockers.length > 0) {
     const hardCount = blockers.filter(b => b.severity === 'hard').length;
-    const unwired = blockers.filter(b => b.fromUnconnectedCheck).length;
-    // The unwired count is called out separately because it is the one class
-    // of blocker the player fixes by drawing a line, and on-pipe placements
-    // produce it a dozen at a time.
-    const unwiredTxt = unwired > 0 ? ` — ${unwired} unwired sink${unwired > 1 ? 's' : ''}` : '';
-    el.textContent = `INFRA FAULT — ${hardCount} blocked${unwiredTxt} — beam tripped`;
+    // The bar only carries a chip — the full breakdown is in the fault popup,
+    // which the chip reopens after it has been dismissed.
+    el.textContent = `⚠ ${hardCount} FAULT${hardCount === 1 ? '' : 'S'}`;
     el.className = 'beam-summary fault';
-    el.title = blockers.map(b => b.message || b.code).join('\n');
+    el.title = 'Beam tripped — click for details\n'
+      + blockers.map(b => b.message || b.code).join('\n');
+    el.onclick = () => this._showInfraBlockerPanel();
   } else if (total === 0) {
     el.textContent = 'No beamlines';
     el.className = 'beam-summary';
     el.title = '';
+    el.onclick = null;
   } else {
     el.textContent = `${running}/${total} beamlines running`;
     el.className = running > 0 ? 'beam-summary active' : 'beam-summary';
     el.title = '';
+    el.onclick = null;
   }
   this._renderInfraBlockerList();
 };
 
-// --- Infrastructure blocker list ---
+// --- Infrastructure fault popup ---
 //
-// One row per offending COMPONENT (not per port): a cavity missing power, RF
-// and cryo is one problem to the player, three blockers to the gate. Rows that
-// resolve to a world position are clickable and frame the camera on the
-// offender, which is the whole point — with on-pipe placements wired
-// individually, "20 hard blockers" is otherwise an unnavigable list.
+// The top-left popup that owns the whole fault story: a headline ("beam
+// tripped"), a dismiss button, and one row per offending COMPONENT (not per
+// port) — a cavity missing power, RF and cryo is one problem to the player,
+// three blockers to the gate. Rows that resolve to a world position are
+// clickable and frame the camera on the offender, which is the whole point —
+// with on-pipe placements wired individually, "20 hard blockers" is otherwise
+// an unnavigable list.
+//
+// Dismissal is keyed to the blocker signature, so closing it stays closed
+// while the same fault persists but a NEW fault pops back up. The top-bar
+// chip reopens it on demand.
 //
 // Panel DOM is created here rather than in index.html so this HUD element is
 // self-contained; styles are inline for the same reason.
@@ -272,11 +279,12 @@ function ensureBlockerPanel() {
   // by the music player and the infra-mode utility stats panel, which stack
   // downward from ~56px and would bury this.
   panel.style.cssText = [
-    'position:absolute', 'top:150px', 'left:10px', 'z-index:96',
+    'position:absolute', 'top:150px', 'left:10px', 'z-index:102',
     'width:250px', 'max-height:44vh', 'overflow-y:auto',
     'font-family:monospace', 'font-size:10px',
-    'background:rgba(30,8,8,0.88)', 'border:1px solid rgba(255,90,90,0.45)',
+    'background:rgba(30,8,8,0.94)', 'border:1px solid rgba(255,90,90,0.45)',
     'border-radius:3px', 'padding:5px 6px', 'color:#ffa08c',
+    'box-shadow:0 4px 14px rgba(0,0,0,0.5)',
     'display:none',
   ].join(';');
   host.appendChild(panel);
@@ -310,7 +318,8 @@ UIHost.prototype._renderInfraBlockerList = function() {
     .map(b => `${b.code}@${b.location?.placeableId || ''}:${b.location?.portName || ''}`)
     .join('|');
   // Reposition regardless: the facility overview above grows and shrinks with
-  // what is live, independently of the blocker set.
+  // what is live, independently of the blocker set — as does the top bar,
+  // which wraps to extra rows on a narrow window.
   if (blockers.length > 0) positionBlockerPanel(panel);
   if (sig === this._infraBlockerSig) return;
   this._infraBlockerSig = sig;
@@ -318,9 +327,14 @@ UIHost.prototype._renderInfraBlockerList = function() {
   panel.textContent = '';
   if (blockers.length === 0) {
     panel.style.display = 'none';
+    // Clearing the faults clears the dismissal too, so an identical fault set
+    // coming back later is treated as news rather than as still-dismissed.
+    this._infraBlockerDismissedSig = null;
     return;
   }
-  panel.style.display = '';
+  // A dismissal only silences the exact fault set it was aimed at; the
+  // signature changing means something new went wrong, so speak up again.
+  panel.style.display = this._infraBlockerDismissedSig === sig ? 'none' : '';
 
   // Only build the endpoint index when something actually needs locating.
   const needsIndex = blockers.some(b => b.location?.placeableId);
@@ -354,10 +368,38 @@ UIHost.prototype._renderInfraBlockerList = function() {
   }
 
   const header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;';
+
+  const headText = document.createElement('div');
+  headText.style.cssText = 'flex:1;font-size:9px;letter-spacing:0.5px;color:#ff7766;line-height:1.5;';
+  const title = document.createElement('div');
+  title.textContent = 'INFRA FAULT — BEAM TRIPPED';
+  title.style.cssText = 'color:#ff5544;';
+  headText.appendChild(title);
   const unwired = blockers.filter(b => b.fromUnconnectedCheck).length;
-  header.textContent = `${blockers.length} INFRA BLOCKER${blockers.length > 1 ? 'S' : ''}`
+  const sub = document.createElement('div');
+  // The unwired count is called out separately because it is the one class
+  // of blocker the player fixes by drawing a line, and on-pipe placements
+  // produce it a dozen at a time.
+  sub.textContent = `${blockers.length} BLOCKER${blockers.length > 1 ? 'S' : ''}`
     + (unwired > 0 ? ` · ${unwired} UNWIRED SINK${unwired > 1 ? 'S' : ''}` : '');
-  header.style.cssText = 'font-size:9px;letter-spacing:0.5px;color:#ff7766;margin-bottom:4px;';
+  headText.appendChild(sub);
+  header.appendChild(headText);
+
+  const close = document.createElement('button');
+  close.textContent = '×';
+  close.title = 'Dismiss (reopen from the fault chip in the top bar)';
+  close.style.cssText = [
+    'flex-shrink:0', 'width:14px', 'height:14px', 'line-height:1',
+    'background:rgba(70,20,20,0.8)', 'border:1px solid rgba(255,90,90,0.45)',
+    'border-radius:2px', 'color:#ffa08c', 'font-family:monospace',
+    'font-size:11px', 'cursor:pointer', 'padding:0',
+  ].join(';');
+  close.addEventListener('click', () => {
+    this._infraBlockerDismissedSig = sig;
+    panel.style.display = 'none';
+  });
+  header.appendChild(close);
   panel.appendChild(header);
 
   const list = [...groups.values()];
@@ -411,6 +453,13 @@ UIHost.prototype._renderInfraBlockerList = function() {
     more.style.cssText = 'font-size:9px;color:#cc8877;padding:2px 4px;';
     panel.appendChild(more);
   }
+};
+
+// Undo a dismissal and force a rebuild — the top-bar fault chip's click target.
+UIHost.prototype._showInfraBlockerPanel = function() {
+  this._infraBlockerDismissedSig = null;
+  this._infraBlockerSig = null;
+  this._renderInfraBlockerList();
 };
 
 // --- Palette rendering ---
@@ -528,15 +577,23 @@ UIHost.prototype._syncBeamlineTypeChrome = function() {
   this._refreshPalette();
 };
 
-/** Open the type picker and apply whatever it returns to the build palette. */
+/**
+ * Open the type picker and apply whatever it returns to the build palette.
+ *
+ * Two outcomes, both starting from the same armed pick: a custom build leaves
+ * the player with a filtered palette and nothing placed, while a stock
+ * blueprint goes straight to a placement ghost that carries its own source
+ * (see main.js's startDesignPlacement for why the arming has to come first).
+ */
 UIHost.prototype._openBeamlineTypePicker = function() {
   openBeamlineTypePicker(this.game, {
-    onConfirm: (typeId) => {
+    onConfirm: (typeId, design) => {
       this.game.startNewBeamline(typeId);
       // Rebuild tabs (the button label) and the palette (the filter) together,
       // landing on Sources — the only category you can actually start from.
       this._generateCategoryTabs();
       this._applyPaletteHotkeyBadges();
+      if (design) this.game._startDesignPlacement?.(design);
     },
   });
 };

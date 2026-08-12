@@ -115,7 +115,11 @@ export const PARAM_DEFS = {
 
   // ---- Quadrupole ----
   quadrupole: {
-    gradient:     { min: 1, max: 50, default: 20, unit: 'T/m', step: 0.5 },
+    // Magnet focusing is k = 0.2998 g / p, so the gradient a beam wants scales
+    // with its momentum: ~0.01 T/m at 10 MeV, ~0.8 at 1 GeV, ~8 at 10 GeV for a
+    // gentle 1 m quad. The old 1 T/m floor was only usable above ~1 GeV, so
+    // low-energy transport had no workable setting at all.
+    gradient:     { min: 0.01, max: 50, default: 20, unit: 'T/m', step: 0.01 },
     polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
                     labels: { 0: 'Focus X', 1: 'Focus Y' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
@@ -123,7 +127,7 @@ export const PARAM_DEFS = {
 
   // ---- Superconducting quadrupole ----
   scQuad: {
-    gradient:     { min: 1, max: 200, default: 100, unit: 'T/m', step: 1 },
+    gradient:     { min: 0.05, max: 200, default: 100, unit: 'T/m', step: 0.05 },
     polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
                     labels: { 0: 'Focus X', 1: 'Focus Y' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
@@ -142,9 +146,58 @@ export const PARAM_DEFS = {
   },
 
   // ---- Solenoid ----
+  // The floor used to be 0.01 T and the default 0.2 T, which meant the entire
+  // slider was "beam gone" at the energies a solenoid is FOR. Measured with
+  // scripts/eval-design.mjs — 250 kV gun, 20 mA, one 1 m solenoid, transmission
+  // to a Faraday cup:
+  //
+  //     0.5 T  -> 100% loss (peak sigma 765 mm)   0.05 T -> 83% loss
+  //     0.2 T  ->  98% loss                       0.02 T -> 31% loss
+  //     0.1 T  -> 100% loss                       0.01 T ->  0% loss  <- old min
+  //     0.005 T -> 0% loss (peak sigma 8.5 mm)    0.002 T -> 0% (3.5 mm)
+  //
+  // The arithmetic agrees. solenoid_matrix uses k = 0.2998 B / (2p), so at
+  // p = 5.84e-4 GeV/c (a 250 keV electron) k = 256.7 B per metre, and the
+  // quarter-wave match kL = pi/2 over the component's own 1 m length wants
+  // B = 0.0061 T — BELOW the old minimum. 98% of the control's travel sat past
+  // the point where the beam is already on the wall, and the one setting that
+  // worked was the end stop.
+  //
+  // Same bug as the quadrupole gradient floor two entries down, which was
+  // widened from 1 to 0.01 T/m for the same reason: a magnet range picked for
+  // GeV beams, applied to a front end where the beam is a thousand times
+  // softer. The max stays 0.5 T because it becomes useful once the beam
+  // stiffens — at 1 GeV the same 1 m solenoid gives kL = 0.075.
   solenoid: {
-    fieldStrength: { min: 0.01, max: 0.5, default: 0.2, unit: 'T', step: 0.01 },
+    fieldStrength: { min: 0.001, max: 0.5, default: 0.005, unit: 'T', step: 0.001 },
     focusStrength: { derived: true, unit: 'm⁻²' },
+  },
+
+  // ---- Energy degrader + energy-selection system ----
+  // One knob, and it is the output energy rather than a wedge thickness,
+  // because the output energy is what the operator of a real ESS dials in and
+  // what the treatment plan is written in. The range is the IBA Cyclone 230's
+  // clinical range exactly: 230 MeV is wedge-out (no degradation at all) and
+  // 70 MeV is as low as a clinical line goes before the transmission is not
+  // worth the activation.
+  energyDegrader: {
+    outputEnergy:  { min: 70, max: 230, default: 150, unit: 'MeV', step: 1 },
+    energyGain:    { derived: true, unit: 'GeV' },
+    transmission:  { derived: true, unit: '%' },
+    beamQuality:   { derived: true, unit: '' },
+  },
+
+  // ---- Scanning magnets ----
+  // Scan field is the side of the square the magnets paint, at the target.
+  // 5 mm is "don't scan, just point" and 400 mm covers a 40 cm treatment field
+  // or a fully defocused irradiation sample.
+  scanningMagnet: {
+    scanFieldMm: { min: 5, max: 400, default: 175, unit: 'mm', step: 5 },
+    // bendAngle is in GAME units — gameplay.py scales it by 15/90 on the way
+    // into the engine, so it reads 6x the physical angle. `deflection` is the
+    // same quantity in units a person can check against a nozzle drawing.
+    bendAngle:   { derived: true, unit: '' },
+    deflection:  { derived: true, unit: 'mrad' },
   },
 
   // ---- Sextupole ----
@@ -564,6 +617,85 @@ function computeOctupole(params) {
 }
 
 // ---------------------------------------------------------------------------
+// Energy degrader
+// ---------------------------------------------------------------------------
+
+// The fixed extraction energy this control is referenced to — cyclotron230,
+// the only source in therapy's palette that needs a degrader at all. It has to
+// be a constant because component-physics has no view of the lattice: it is
+// handed one component's params and nothing else, so it cannot know what
+// energy is arriving. `energyGain` is a DIFFERENCE and the engine applies it
+// to whatever beam shows up, which is why energyDegrader's beamlineTypes is
+// therapy alone — see the note there.
+const DEGRADER_INPUT_MEV = 230;
+
+// Transmission through wedge + energy-selection slits, fitted to the published
+// PSI COMET / IBA ProteusPLUS curve: ~100% at full energy, ~40% at 200 MeV,
+// ~15% at 150, ~1% at 70. exp(-dE/34.7) reproduces that to better than a
+// factor of two across the whole clinical range, which is as much fidelity as
+// a one-parameter fit to a Monte Carlo deserves.
+const DEGRADER_TRANSMISSION_MEV = 34.7;
+
+/**
+ * Energy degrader + energy-selection system.
+ *
+ * energyGain is NEGATIVE — this is the only component in the catalogue that
+ * takes energy out, and both the Pyodide path (RFAccelerationModule's
+ * `beam.energy += dE`) and the headless fallback (which sums stats.energyGain)
+ * read the sign correctly.
+ *
+ * beamQuality is also negative, and it is a STAND-IN. On the real physics path
+ * the emittance cost arrives on its own through adiabatic anti-damping, but
+ * that only accounts for the E_before/E_after ratio (~1.16 for a 230 -> 70
+ * degrade) and misses multiple Coulomb scattering entirely. The headless model
+ * has no emittance at all, so without this term the degrader would be free
+ * there — and the headless model is what every balance sim and test measures.
+ * It scales with the square root of the energy removed, which is the scattering
+ * angle's own dependence on material thickness.
+ */
+function computeEnergyDegrader(params) {
+  const outMeV = Math.min(params.outputEnergy, DEGRADER_INPUT_MEV);
+  const removedMeV = Math.max(0, DEGRADER_INPUT_MEV - outMeV);
+  const energyGain = -removedMeV / 1000;                       // GeV, negative
+  const transmission = 100 * Math.exp(-removedMeV / DEGRADER_TRANSMISSION_MEV);
+  // -0.30 at full 160 MeV of degradation, 0 with the wedge out.
+  const beamQuality = -0.30 * Math.sqrt(removedMeV / DEGRADER_INPUT_MEV) / Math.sqrt(160 / DEGRADER_INPUT_MEV);
+  return { energyGain, transmission, beamQuality };
+}
+
+// ---------------------------------------------------------------------------
+// Scanning magnets
+// ---------------------------------------------------------------------------
+
+// Distance from the scanning magnets to the target. 2.5 m is the IBA / Varian
+// nozzle geometry — the magnets sit above the snout and the isocentre is a
+// couple of metres past them, which is what sets how much angle a given field
+// size costs.
+const SCAN_THROW_M = 2.5;
+
+// gameplay.py: DIPOLE_ANGLE_SCALE = 15/90, i.e. the engine sees game/6 degrees.
+const GAME_DEG_PER_PHYSICAL_DEG = 90 / 15;
+
+/**
+ * Scanning magnets — the deflection needed to reach the edge of the scan field.
+ *
+ * A field of `scanFieldMm` centred on the axis needs a half-deflection of
+ * atan((field/2) / throw). That angle IS the dipole strength the engine gets:
+ * the sweep itself has no representation (the engine has no time structure), so
+ * what the physics sees is the extreme of the scan held static, and the
+ * dispersion that comes with it.
+ */
+function computeScanningMagnet(params) {
+  const halfFieldM = (params.scanFieldMm / 2) * 1e-3;
+  const thetaRad = Math.atan(halfFieldM / SCAN_THROW_M);
+  const physicalDeg = thetaRad * 180 / Math.PI;
+  return {
+    bendAngle: physicalDeg * GAME_DEG_PER_PHYSICAL_DEG,
+    deflection: thetaRad * 1e3,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // RF cavity physics
 // ---------------------------------------------------------------------------
 
@@ -794,6 +926,8 @@ const COMPUTE_STATS = {
   wiggler:                computeWiggler,
   apple2Undulator:        computeApple2Undulator,
   // beam manipulation
+  energyDegrader:         computeEnergyDegrader,
+  scanningMagnet:         computeScanningMagnet,
   corrector:              computeCorrector,
   kickerMagnet:           computeKickerMagnet,
   combinedFunctionMagnet: computeCombinedFunctionMagnet,

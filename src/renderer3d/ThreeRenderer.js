@@ -18,7 +18,7 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, getAccentMaterial, isDetailedComponent } from './component-builder.js';
+import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose } from './component-builder.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -263,6 +263,24 @@ export class ThreeRenderer {
     this.beamPipeGroup = null;
     this.decorationGroup = null;
     this.previewGroup = null;
+
+    // Design-placement ghost. Deliberately NOT in previewGroup: _clearPreview
+    // wipes and disposes that group on every mousemove, and a whole beamline's
+    // worth of component meshes cannot be rebuilt at pointer rate. This group
+    // is rebuilt only when _designGhostSig changes (design + cursor tile +
+    // rotation + validity) — see _updateDesignGhost.
+    this.designGhostGroup = null;
+    this._designGhostSig = null;
+    // compType|tint -> a ghostified wrapper, kept OFF-scene and only ever
+    // cloned into designGhostGroup. Clones share the prototype's geometry and
+    // materials by reference, so a rebuild allocates no GPU resources at all
+    // and the clear path has nothing to dispose. The prototypes themselves are
+    // freed when the placer goes away (_disposeDesignGhostProtos).
+    this._designGhostProtos = new Map();
+    // Unit-length ghost pipe, scaled per run. One geometry for every design
+    // ever previewed; see _designGhostPipeGeo.
+    this._designGhostPipeGeo = null;
+    this._designGhostPipeMats = new Map();
 
     this._boundOnResize = this._onResize.bind(this);
 
@@ -538,6 +556,15 @@ export class ThreeRenderer {
     this.previewGroup.name = 'preview';
     this.previewGroup.renderOrder = 999;
     this.scene.add(this.previewGroup);
+
+    // Design-placement ghost — see the constructor field comment. Added before
+    // previewGroup's tile quads in draw order would be wrong (the quads are
+    // depthTest:false floor markers meant to read *under* the machine), so it
+    // goes after: same renderOrder, later in the scene, drawn on top.
+    this.designGhostGroup = new THREE.Group();
+    this.designGhostGroup.name = 'designGhost';
+    this.designGhostGroup.renderOrder = 999;
+    this.scene.add(this.designGhostGroup);
 
     // Grid overlay group — placement grid lines (separate from preview so _clearPreview doesn't wipe them)
     this.gridOverlayGroup = new THREE.Group();
@@ -1305,6 +1332,14 @@ export class ThreeRenderer {
       this._renderGridAroundCursor(this.hoverCol, this.hoverRow);
     }
 
+    // Design placement runs first and unconditionally. It used to sit at the
+    // bottom of this method, behind `if (!this.buildMode) return` — and
+    // nothing in the design-placement flow arms a build tool (DesignPlacer is
+    // started from the library / blueprint gallery, not the palette; only
+    // beamline-tool.js ever sets buildMode), so the footprint preview was
+    // unreachable in the one mode it exists for.
+    this._renderDesignPlacerPreview(placer);
+
     if (!this.buildMode) return;
 
     // Get nodes for the currently edited beamline (from the cached world
@@ -1393,21 +1428,287 @@ export class ThreeRenderer {
         new THREE.Vector3(tipX - dx * chevLen - px * chevLen, 0.15, tipZ - dz * chevLen - pz * chevLen),
       ];
       this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+    }
+  }
+
+  /**
+   * Ground markings for a design placement: the concrete that will be poured,
+   * and — only when the placement is illegal — a red wash over the module
+   * footprint. The green fill that used to cover every footprint tile is gone;
+   * _updateDesignGhost now draws the actual machine there, and a 0.35-opacity
+   * green quad under it just turned the whole beamline into pea soup. Red
+   * survives because it is load-bearing: it is the at-a-glance "this spot will
+   * not take", and it has to read even where the ghost is thin.
+   *
+   * These are cheap floor quads and are rebuilt on every pointer move with the
+   * rest of previewGroup. The materials are hoisted out of the loops (rather
+   * than going through _previewTileHighlight, which mints two per tile) because
+   * a long blueprint is 40+ tiles and this runs at pointer rate.
+   */
+  _renderDesignPlacerPreview(placer) {
+    if (!placer || !placer.active) {
+      this._clearDesignGhost();
       return;
     }
 
-    // Design placer ghost preview
-    if (placer && placer.active) {
+    if (placer.foundationTiles.length > 0) {
+      const fillMat = this._previewMat(0x999999, 0.25);
+      const edgeMat = this._previewEdgeMat(0x999999);
       for (const ft of placer.foundationTiles) {
-        this._previewTileHighlight(ft.col, ft.row, 0x999999, 0.25);
-      }
-      const tint = placer.valid ? 0x44ff44 : 0xff4444;
-      const opacity = placer.valid ? 0.35 : 0.2;
-      for (const pt of placer.previewTiles) {
-        this._previewTileHighlight(pt.col, pt.row, tint, opacity);
+        this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(ft.col, ft.row, 0.02), fillMat));
+        this._addPreviewMesh(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(ft.col, ft.row, 0.04)),
+          edgeMat,
+        ));
       }
     }
+
+    if (!placer.valid && placer.previewTiles.length > 0) {
+      const fillMat = this._previewMat(GHOST_TINT_BLOCKED, 0.28);
+      const edgeMat = this._previewEdgeMat(GHOST_TINT_BLOCKED);
+      for (const pt of placer.previewTiles) {
+        this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(pt.col, pt.row, 0.02), fillMat));
+        this._addPreviewMesh(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(pt.col, pt.row, 0.04)),
+          edgeMat,
+        ));
+      }
+    }
+
+    this._updateDesignGhost(placer);
   }
+
+  /**
+   * Translucent 3D copy of the whole design at the transform it will actually
+   * be built at — junctions at their anchors and junction rotations, on-pipe
+   * hardware at the fractional pipe coordinates placementPose resolves, and a
+   * thin ghost pipe joining the module faces so the run reads as one machine
+   * instead of a scatter of boxes.
+   *
+   * REBUILD KEY. This is the expensive half of the preview and the pointer
+   * fires it dozens of times a second, so it is gated on a signature over
+   * everything that can move a mesh: which design, where its head sits, which
+   * way it runs, and whether it is legal (validity is in there because it
+   * picks the tint, which is baked into the prototype materials). Cursor
+   * motion inside one tile, camera pan, zoom and every unrelated
+   * _renderCursors call therefore cost one string compare.
+   *
+   * @param {import('../ui/DesignPlacer.js').DesignPlacer} placer
+   */
+  _updateDesignGhost(placer) {
+    const modules = placer.previewModules || [];
+    if (modules.length === 0) {
+      this._clearDesignGhost();
+      return;
+    }
+
+    const design = placer.design;
+    const sig = [
+      design?.id || design?.name || '?',
+      placer.startCol, placer.startRow, placer.direction,
+      // Inert today (DesignPlacer.reflect is a documented no-op until mirrored
+      // dipole components exist), but it is one of the placer's two transform
+      // knobs — leaving it out is a stale ghost waiting to happen.
+      placer.reflected ? 1 : 0,
+      placer.valid ? 1 : 0,
+    ].join('|');
+    if (sig === this._designGhostSig) return;
+    this._designGhostSig = sig;
+    // Detach only — every child is a clone whose geometry and materials belong
+    // to a prototype that is still alive in _designGhostProtos. Disposing here
+    // would free buffers the next rebuild (and every other clone) still points
+    // at, which is exactly the class of bug _clearPreviewMeshes documents.
+    this.designGhostGroup.clear();
+
+    // TINT, AND WHY A LEGAL PLACEMENT HAS NONE. The single-component ghost
+    // washes everything green because at that size the shape carries no
+    // information — you are placing "a quadrupole", and green/red is the whole
+    // message. A blueprint is the opposite: the point of showing the machine
+    // is that the player recognises the machine, and a whole beamline flooded
+    // green over green grass reads as a smear (it was tried; it is). So a legal
+    // placement keeps every component's real materials and only goes
+    // translucent, and red is reserved for the one state that must interrupt.
+    const tint = placer.valid ? null : GHOST_TINT_BLOCKED;
+
+    for (const m of modules) {
+      const proto = this._designGhostProto(m.type, tint);
+      if (!proto) continue;
+      const inst = proto.clone();
+      const compDef = COMPONENTS[m.type] || {};
+      // On-pipe hardware carries fractional pipe coordinates and no sub-tile
+      // origin — the same shape world-snapshot hands ComponentBuilder for a
+      // committed attachment, so componentPose centres it identically.
+      const isOnPipe = m.kind === 'onPipe';
+      const pose = componentPose(
+        compDef,
+        {
+          col: m.col, row: m.row,
+          subCol: isOnPipe ? null : 0,
+          subRow: isOnPipe ? null : 0,
+          direction: m.dir,
+        },
+        isDetailedComponent(m.type, compDef),
+      );
+      inst.position.set(pose.x, pose.y, pose.z);
+      inst.rotation.y = pose.rotY;
+      // Identity for anything inspecting the ghost — notably the browser spec,
+      // which asserts these poses against the meshes the click actually
+      // produces. Nothing in the render path reads them.
+      inst.userData.ghostKind = m.kind;
+      inst.userData.ghostType = m.type;
+      this.designGhostGroup.add(inst);
+    }
+
+    for (const p of placer.previewPipes || []) {
+      const mesh = this._designGhostPipe(p.from, p.to, tint);
+      if (!mesh) continue;
+      mesh.userData.ghostKind = 'pipe';
+      this.designGhostGroup.add(mesh);
+    }
+  }
+
+  /**
+   * A ghostified, off-scene wrapper for one component type at one tint, built
+   * once and cloned thereafter.
+   *
+   * Geometry comes from ComponentBuilder._createObject — the same factory the
+   * committed scene uses — so the ghost is the real model, not an approximation
+   * that can drift from it. The material work happens here, once per
+   * (type, tint) pair: cloning per mesh per rebuild would mint ~50 materials
+   * every time the cursor crossed a tile boundary.
+   *
+   * `tint` null keeps the component's own colours (see _updateDesignGhost).
+   */
+  _designGhostProto(compType, tint) {
+    const key = compType + '|' + (tint === null ? 'ok' : tint);
+    const cached = this._designGhostProtos.get(key);
+    if (cached) return cached;
+
+    const compDef = COMPONENTS[compType];
+    if (!compDef) return null;
+    const obj = this.componentBuilder._createObject(compDef);
+    if (!obj) return null;
+
+    // Same ghostify contract as renderAttachmentGhost: per-face material
+    // ARRAYS come back from component-builder's fallback path and Array has no
+    // .clone(); depthTest goes off (not just depthWrite) so the ghost is not
+    // z-fought by the terrain and floors it straddles; renderOrder must land on
+    // each mesh because three.js does not inherit it from the wrapper Group.
+    const ghostifyMat = (mat) => {
+      const c = mat.clone();
+      c.transparent = true;
+      c.opacity = 0.45;
+      c.depthWrite = false;
+      c.depthTest = false;
+      if (tint !== null && c.color) c.color.setHex(tint);
+      return c;
+    };
+    const doomed = [];
+    obj.traverse(child => {
+      if (!child.isMesh) return;
+      const first = Array.isArray(child.material) ? child.material[0] : child.material;
+      // The invisible raycast hitbox _createObject bolts on. designGhostGroup
+      // is not a raycast target, so it would only cost a clone per instance.
+      if (first && first.visible === false) { doomed.push(child); return; }
+      child.material = Array.isArray(child.material)
+        ? child.material.map(ghostifyMat)
+        : ghostifyMat(child.material);
+      child.castShadow = false;
+      child.receiveShadow = false;
+      child.renderOrder = 999;
+    });
+    for (const d of doomed) {
+      d.parent.remove(d);
+      d.geometry.dispose();
+      d.material.dispose();
+    }
+
+    this._designGhostProtos.set(key, obj);
+    return obj;
+  }
+
+  /**
+   * Ghost beam pipe between two module faces. `from`/`to` are the fractional
+   * grid coordinates DesignPlacer publishes, matching _buildPipePath.
+   *
+   * One unit-length cylinder geometry serves every run ever drawn (scaled on
+   * its axis) and one material per tint, so a rebuild allocates a Mesh and
+   * nothing else. Marked sharedGeometry for the same reason role meshes are:
+   * any generic teardown that walks this must not free it.
+   */
+  _designGhostPipe(from, to, tint) {
+    const x1 = from.col * 2 + 1, z1 = from.row * 2 + 1;
+    const x2 = to.col * 2 + 1, z2 = to.row * 2 + 1;
+    const dx = x2 - x1, dz = z2 - z1;
+    const length = Math.sqrt(dx * dx + dz * dz);
+    if (length < 0.01) return null;
+
+    if (!this._designGhostPipeGeo) {
+      // Unit length along +X, matching _renderBeamPipePreview's rotateZ trick,
+      // so scale.x is the run length in world units.
+      const geo = new THREE.CylinderGeometry(0.06, 0.06, 1, 8);
+      geo.rotateZ(Math.PI / 2);
+      this._designGhostPipeGeo = geo;
+    }
+    let mat = this._designGhostPipeMats.get(tint);
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial({
+        // Stainless blue-grey when legal — the same colour the committed pipe
+        // and _renderBeamPipePreview use, so the ghost run reads as pipe.
+        color: tint === null ? 0x99aabb : tint,
+        transparent: true, opacity: 0.35,
+        depthWrite: false, depthTest: false,
+      });
+      this._designGhostPipeMats.set(tint, mat);
+    }
+
+    const mesh = new THREE.Mesh(this._designGhostPipeGeo, mat);
+    mesh.userData.sharedGeometry = true;
+    // Beam axis height — the constant every component builder bakes in.
+    mesh.position.set((x1 + x2) / 2, 1.0, (z1 + z2) / 2);
+    mesh.rotation.y = -Math.atan2(dz, dx);
+    mesh.scale.x = length;
+    mesh.renderOrder = 999;
+    return mesh;
+  }
+
+  /**
+   * Drop the ghost and forget the signature so the next activation rebuilds.
+   * Clones are detached, never disposed (see _updateDesignGhost); the shared
+   * prototypes go too, because holding a full component model per type for a
+   * placement the player has finished is a leak by any other name — and the
+   * next placement rebuilds them in one frame.
+   */
+  _clearDesignGhost() {
+    if (this._designGhostSig === null && !this.designGhostGroup?.children.length) return;
+    this._designGhostSig = null;
+    if (this.designGhostGroup) this.designGhostGroup.clear();
+    this._disposeDesignGhostProtos();
+  }
+
+  _disposeDesignGhostProtos() {
+    for (const proto of this._designGhostProtos.values()) {
+      // Role-tagged meshes share merged template geometry with every committed
+      // instance of the type — same rule as ComponentBuilder._disposeWrapper.
+      // The ghost materials are ours (cloned in _designGhostProto), so those
+      // always go.
+      proto.traverse(child => {
+        if (!child.isMesh) return;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (const m of mats) if (m && typeof m.dispose === 'function') m.dispose();
+        if (child.userData.role || child.userData.sharedGeometry) return;
+        if (child.geometry) child.geometry.dispose();
+      });
+    }
+    this._designGhostProtos.clear();
+    for (const mat of this._designGhostPipeMats.values()) mat.dispose();
+    this._designGhostPipeMats.clear();
+    if (this._designGhostPipeGeo) {
+      this._designGhostPipeGeo.dispose();
+      this._designGhostPipeGeo = null;
+    }
+  }
+
   _renderComponents() { this._refreshComponents(); }
   _renderBeam() { this._refreshBeam(); }
   _renderInfrastructure() { this._refreshInfra(); }
@@ -3673,6 +3974,7 @@ export class ThreeRenderer {
       this._animFrameId = null;
     }
     window.removeEventListener('resize', this._boundOnResize);
+    this._clearDesignGhost();
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }

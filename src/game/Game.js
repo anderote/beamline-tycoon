@@ -2,8 +2,10 @@ import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
-import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
+import { PARAM_DEFS } from '../beamline/component-physics.js';
+import { seedComponentParams } from '../beamline/component-params.js';
 import { BeamPhysics } from '../beamline/physics.js';
+import { buildPhysicsElements } from '../beamline/physics-payload.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
@@ -30,6 +32,7 @@ import {
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
+import { canPlace } from './placement.js';
 import { generateStartingMap } from './map-generator.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 
@@ -93,6 +96,25 @@ const BEAMSTATE_PRESERVED_FIELDS = [
 // Stand-in log used while building an undo snapshot (see _snapshot).
 const EMPTY_LOG = [];
 
+// The state fields a Beamline Designer apply can touch, and therefore
+// everything snapshotBeamlineState()/restoreBeamlineState() must round-trip.
+// A deliberate subset of SERIALIZED_FIELDS: the plan places and removes
+// junctions, draws/splices pipes and their placements, disturbs utility
+// lines, and spends funding — nothing else. The id counters ride along so a
+// rolled-back apply leaves no hole in id space, exactly as undo rewinds them.
+// cornerHeights is in the list because placing a junction auto-flattens the
+// terrain under its footprint (see _placePlaceableInner): without it, an apply
+// that placed one junction and then failed on the next op rolled the junction
+// back but left a permanent flat scar in the hillside where it briefly stood,
+// with nothing on the map to explain it and no undo entry that predates it.
+const BEAMLINE_TX_FIELDS = [
+  'resources',
+  'placeables', 'placeableNextId',
+  'beamPipes', 'beamPipeNextId', 'placementNextId',
+  'utilityLines', 'utilityNextId',
+  'cornerHeights',
+];
+
 // Samples of net-per-tick kept for the economy panel's sparkline. Fixed, so a
 // long game cannot grow the buffer; ~5 minutes of sim at 1 tick/s.
 const ECONOMY_HISTORY_MAX = 300;
@@ -139,6 +161,18 @@ export class Game {
       try {
         if (typeof window !== 'undefined' && window.location?.search.includes('dev=1')) return true;
         return localStorage.getItem('beamlineTycoon.devMode') === '1';
+      } catch (_) { return false; }
+    })();
+
+    // Sandbox mode — nothing is charged, but the balance is REAL. Distinct
+    // from devMode, which pins funding at 1e12 and so hides what the facility
+    // actually earns. Here income, upkeep accounting, research and every
+    // physics consequence run normally and prices are still displayed; the
+    // debits simply do not land. Persisted the same way devMode is.
+    this.sandboxMode = (() => {
+      try {
+        if (typeof window !== 'undefined' && window.location?.search.includes('sandbox=1')) return true;
+        return localStorage.getItem('beamlineTycoon.sandboxMode') === '1';
       } catch (_) { return false; }
     })();
 
@@ -304,6 +338,7 @@ export class Game {
       isUnlocked: this.isComponentUnlocked.bind(this),
       placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
       removePlaceable: (id) => this._removePlaceableRaw(id),
+      movePlaceable: (id, pose) => this.movePlaceable(id, pose),
       // Late-bound: utilityLineSystem is constructed just below.
       onPlacementRemoved: (id) => this.utilityLineSystem?.onPlaceableRemoved(id),
       nextPipeId: () => 'bp_' + this.state.beamPipeNextId++,
@@ -731,14 +766,47 @@ export class Game {
 
   // === PLACEMENT ===
 
+  /**
+   * Sandbox mode: build anything without being charged for it.
+   *
+   * Deliberately narrow — it suppresses SPENDING only. Income, upkeep,
+   * research, reputation and every physics consequence still run exactly as in
+   * a normal game, and prices are still displayed, because the point is to
+   * design machines without the capital grind rather than to disable the
+   * economy. Upkeep is not exempt: a sandbox facility still pays its
+   * electricity bill, so an over-provisioned build still reads as expensive.
+   */
+  setSandboxMode(on) {
+    this.sandboxMode = !!on;
+    try { localStorage.setItem('beamlineTycoon.sandboxMode', this.sandboxMode ? '1' : '0'); } catch (_) {}
+    this.log(this.sandboxMode
+      ? 'SANDBOX MODE ON — nothing is charged. Income still accrues.'
+      : 'SANDBOX MODE OFF — costs are charged normally.', 'good');
+    this.emit('resourcesChanged');
+  }
+
   canAfford(costs) {
+    if (this.sandboxMode) return true;
     for (const [r, a] of Object.entries(costs))
       if ((this.state.resources[r] || 0) < a) return false;
     return true;
   }
 
   spend(costs) {
+    if (this.sandboxMode) return;
     for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+  }
+
+  /**
+   * Charge a construction cost in funding. Every build-time funding debit goes
+   * through here rather than writing `resources.funding -=` directly, so
+   * sandbox mode has ONE place to suppress and cannot be leaked by a code path
+   * that decrements the balance itself. Recurring upkeep deliberately does NOT
+   * use this — see setSandboxMode.
+   */
+  chargeConstruction(amount) {
+    if (this.sandboxMode) return;
+    this.state.resources.funding -= amount;
   }
 
   /**
@@ -828,7 +896,7 @@ export class Game {
       }
     }
 
-    this.state.resources.funding -= totalCost;
+    this.chargeConstruction(totalCost);
     const tileEntry = { type: infraType, col, row, variant };
     if (foundation) tileEntry.foundation = foundation;
     this.state.floors.push(tileEntry);
@@ -1018,7 +1086,7 @@ export class Game {
               this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
             }
           }
-          this.state.resources.funding -= tileCostForVariant + perTileExtra;
+          this.chargeConstruction(tileCostForVariant + perTileExtra);
           const tileEntry = { type: infraType, col: c, row: r, variant };
           if (foundation) tileEntry.foundation = foundation;
           if (orientation) tileEntry.orientation = orientation;
@@ -1104,7 +1172,7 @@ export class Game {
       );
     }
     if (this.state.resources.funding < segCost) return false;
-    this.state.resources.funding -= segCost;
+    this.chargeConstruction(segCost);
     const wallEntry = { type: wallType, col, row, edge };
     if (variant) wallEntry.variant = variant;
     this.state.walls.push(wallEntry);
@@ -1135,7 +1203,7 @@ export class Game {
           w => !(w.col === pt.col && w.row === pt.row && w.edge === pt.edge)
         );
       }
-      this.state.resources.funding -= segCost;
+      this.chargeConstruction(segCost);
       const wallEntry = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
       if (variant) wallEntry.variant = variant;
       this.state.walls.push(wallEntry);
@@ -1194,7 +1262,7 @@ export class Game {
       );
     }
     if (this.state.resources.funding < dt.cost) return false;
-    this.state.resources.funding -= dt.cost;
+    this.chargeConstruction(dt.cost);
     this.state.doors.push({ type: doorType, col, row, edge, variant });
     this.state.doorOccupied[key] = doorType;
     return true;
@@ -1214,7 +1282,7 @@ export class Game {
           d => !(d.col === pt.col && d.row === pt.row && d.edge === pt.edge)
         );
       }
-      this.state.resources.funding -= dt.cost;
+      this.chargeConstruction(dt.cost);
       this.state.doors.push({ type: doorType, col: pt.col, row: pt.row, edge: pt.edge, variant });
       this.state.doorOccupied[key] = doorType;
       placed++;
@@ -1798,19 +1866,16 @@ export class Game {
     };
 
     // Beamline param init (was previously inline; only kind that needs it).
+    // The three-step seed now lives in seedComponentParams so this path and
+    // BeamlineSystem.placeOnPipe cannot drift apart again — they had, and the
+    // pipe path was seeding nothing at all, which ran every on-pipe RF cavity
+    // at the Python engine's 1.3 GHz default instead of its catalogue
+    // frequency. See src/beamline/component-params.js for the full story.
+    // (`placeable` is PLACEABLES[type]; for kind 'beamline' COMPONENTS[type]
+    // IS that same overlaid instance, so reading the catalogue inside the
+    // helper is the identical object this used to read via `placeable`.)
     if (kind === 'beamline') {
-      entry.params = {};
-      if (PARAM_DEFS[type]) {
-        for (const [k, pdef] of Object.entries(PARAM_DEFS[type])) {
-          if (!pdef.derived) entry.params[k] = pdef.default;
-        }
-      }
-      if (placeable.params) {
-        for (const [k, v] of Object.entries(placeable.params)) {
-          if (!(k in entry.params)) entry.params[k] = v;
-        }
-      }
-      if (params) Object.assign(entry.params, params);
+      entry.params = seedComponentParams(type, params);
     }
 
     this.state.placeables.push(entry);
@@ -1880,6 +1945,101 @@ export class Game {
       const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
       this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
     }
+  }
+
+  /**
+   * Relocate an already-placed, ground-level placeable to a new pose, KEEPING
+   * ITS ID. Returns true on success; on refusal nothing at all is mutated and
+   * false comes back after a player-facing log.
+   *
+   * This exists because remove-then-place is not a move: it mints a new id,
+   * and utility lines, beam-pipe start/end refs and the beamline registry all
+   * anchor to the id. The designer's downstream-displacement plan slides a
+   * whole run of modules along the beamline; done as remove/place it would
+   * silently unwire every cavity's cryo and RF feed and orphan every pipe end.
+   *
+   * Money is deliberately untouched — displacement is not a purchase, and
+   * charging (or refunding) here would let a player mint funding by nudging a
+   * module back and forth.
+   *
+   * Occupancy is Game's alone to write (subgridOccupied has exactly one
+   * writer), so the primitive lives here rather than in BeamlineSystem, which
+   * reaches it through the injected `movePlaceable` callback.
+   */
+  movePlaceable(placeableId, pose = {}) {
+    const idx = this.state.placeableIndex[placeableId];
+    if (idx === undefined) return false;
+    const entry = this.state.placeables[idx];
+    if (!entry) return false;
+    const def = PLACEABLES[entry.type];
+    if (!def) return false;
+
+    const { col, row } = pose;
+    if (!Number.isFinite(col) || !Number.isFinite(row)) {
+      this.log(`Can't move ${def.name}: invalid destination`, 'bad');
+      return false;
+    }
+    const subCol = pose.subCol || 0;
+    const subRow = pose.subRow || 0;
+    const dir = (pose.dir === undefined || pose.dir === null)
+      ? (entry.dir || 0)
+      : pose.dir;
+
+    // Stacked items don't own their subtiles (the parent does) and a stack
+    // parent's children would be left hanging in mid-air over the old spot.
+    // Beamline junctions are never stackable, so this only ever fires on a
+    // caller pointing the move at the wrong kind of placeable.
+    if (entry.stackParentId || (entry.stackChildren || []).length) {
+      this.log(`Can't move ${def.name}: it is part of a stack`, 'bad');
+      return false;
+    }
+
+    const geo = canPlace(this, def, col, row, subCol, subRow, dir);
+    // A displacement almost always overlaps its OWN old footprint — a module
+    // sliding half a metre down the beamline keeps most of its cells — so
+    // cells this very placeable already owns are not collisions. Only a
+    // foreign occupant blocks.
+    const foreign = geo.blockedCells.filter((c) => {
+      const occ = this.state.subgridOccupied[
+        c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow
+      ];
+      return occ && occ.id !== placeableId;
+    });
+    if (foreign.length) {
+      this.log(`Can't move ${def.name}: space occupied`, 'bad');
+      return false;
+    }
+    if (geo.wallBlocked) {
+      this.log(`Can't move ${def.name}: intersects a wall`, 'bad');
+      return false;
+    }
+
+    entry.col = col;
+    entry.row = row;
+    entry.subCol = subCol;
+    entry.subRow = subRow;
+    entry.dir = dir;
+    this._rebuildPlaceableCells(entry);
+
+    // Flatten the DESTINATION tiles, and deliberately leave the origin flat.
+    // Placement flattens because everything is drawn at y = 0; a module that
+    // slid onto a slope without this would be half-buried in the hillside.
+    // The origin cannot be un-flattened — the pre-placement heights were never
+    // stored, and neighbouring footprints may share those tiles — which is
+    // exactly the asymmetry removePlaceable already lives with.
+    const flattened = new Set();
+    for (const c of entry.cells) {
+      const tk = c.col + ',' + c.row;
+      if (flattened.has(tk)) continue;
+      flattened.add(tk);
+      setTileCorners(this.state, c.col, c.row, { nw: 0, ne: 0, se: 0, sw: 0 });
+    }
+
+    // No event is emitted here on purpose: one Apply can displace a dozen
+    // modules, and the caller (BeamlineSystem.moveJunction) pairs
+    // placeableChanged with beamlineChanged for each so the two always arrive
+    // together. Emitting from both layers would double every refresh.
+    return true;
   }
 
   /**
@@ -2867,56 +3027,11 @@ export class Game {
       return;
     }
 
-    // Build ordered beamline for physics engine. Flattener drift entries
-    // (kind === 'drift') have no `type` field — pass them through as
-    // type: 'drift' with their subL length, matching _deriveBeamGraph.
-    const physicsBeamline = ordered.map(el => {
-      const t = COMPONENTS[el.type];
-      if (!t) {
-        return {
-          type: 'drift',
-          subL: el.subL || 4,
-          stats: {},
-          params: el.params || {},
-        };
-      }
-      const effectiveStats = { ...(t.stats || {}) };
-      const params = el.params || {};
-      let computed = null;
-      if (PARAM_DEFS[el.type] && params) {
-        computed = computeStats(el.type, params);
-      }
-      if (computed) {
-        Object.assign(effectiveStats, computed);
-      }
-      const physEl = {
-        // `id` round-trips so per-cavity physics results (achieved gradient,
-        // wall dissipation) can be written back onto the placeable, where the
-        // cryogenic solver reads them for next tick's heat load.
-        id: el.id,
-        type: el.type,
-        subL: el.subL || t.subL || 4,
-        stats: effectiveStats,
-        params,
-      };
-      if (computed && computed.extractionEnergy !== undefined) {
-        physEl.extractionEnergy = computed.extractionEnergy;
-      } else if (t.extractionEnergy !== undefined) {
-        physEl.extractionEnergy = t.extractionEnergy;
-      }
-      // Fail closed. A component that declares a utility sink and has no
-      // solved quality for it — never wired, so it appears in no network —
-      // must run at 0, not at the 1.0 an absent field defaults to; otherwise
-      // ignoring infrastructure entirely outscored wiring it badly. The floor
-      // covers only utilities the type declares a sink for, so anything it
-      // doesn't consume stays absent (= not applicable, no penalty), and it
-      // applies even before the gate's first pass has written nodeQualities.
-      const nq = this.state.nodeQualities?.[el.id];
-      const floor = declaredSinkQualityFloor(el.type);
-      if (floor || nq) {
-        physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
-      }
-      return physEl;
+    // Build ordered beamline for physics engine — drift passthrough, the
+    // computeStats overlay and the fail-closed infraQuality floor all live in
+    // physics-payload.js, which documents why each is shaped the way it is.
+    const physicsBeamline = buildPhysicsElements(ordered, {
+      nodeQualities: this.state.nodeQualities,
     });
 
     // Gather research effects for physics
@@ -3443,7 +3558,7 @@ export class Game {
     econ.staff = upkeep.staffCost;
     econ.pumps = upkeep.pumpUpkeep;
     econ.power = upkeep.powerBill;
-    this.state.resources.funding -= upkeep.total;
+    this.chargeConstruction(upkeep.total);
 
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
     // Uses facility tier for cafeteria etc.
@@ -3826,8 +3941,8 @@ export class Game {
     if (idx === -1) { this.log('Candidate not found', 'bad'); return false; }
     const cand = this.state.staffCandidates[idx];
     const cost = staffHireCost(cand.role, this.state.staffCosts);
-    if (this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
-    this.state.resources.funding -= cost;
+    if (!this.sandboxMode && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
+    this.chargeConstruction(cost);
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
     m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.role}` }];
     this.state.staffMembers.push(m);
@@ -3867,11 +3982,11 @@ export class Game {
     // compat: generate a random member of that role
     if (!this.state.staff[type] && this.state.staff[type] !== 0) return false;
     const hireCost = this.state.staffCosts[type] * 10; // 10 ticks upfront
-    if (this.state.resources.funding < hireCost) {
+    if (!this.sandboxMode && this.state.resources.funding < hireCost) {
       this.log(`Can't afford to hire (need $${hireCost})`, 'bad');
       return false;
     }
-    this.state.resources.funding -= hireCost;
+    this.chargeConstruction(hireCost);
     const m = createStaffMember(type.slice(0, -1) === 'operato' ? 'operator' : type.replace(/s$/,''), `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
     // normalize role: operators->operator etc but createStaffMember expects singular
     const singular = type.endsWith('s') ? type.slice(0,-1) : type;
@@ -4028,6 +4143,7 @@ export class Game {
     // solve would otherwise run against the previous world's topology.
     this.solveRunner.markTopologyDirty();
     this.state.nodeQualities = null;
+    this.state.unwiredSinks = null;
     this.recalcAllBeamlines();
     this.validateInfrastructure();
 
@@ -4126,6 +4242,125 @@ export class Game {
     // The 3D renderer handles 'restored' exactly like 'loaded' (full
     // scene rebuild); host layers hang load-only side effects off 'loaded'.
     this.emit('restored');
+  }
+
+  // === BEAMLINE APPLY TRANSACTION ===
+  //
+  // The Beamline Designer's Apply runs an ordered op list through
+  // BeamlineSystem / UtilityLineSystem, and any op in it can fail halfway
+  // (a sub-grid cell turns out occupied, a resulting pipe is not a legal
+  // straight run, funding runs out mid-list). Without a rollback the player
+  // is left holding half a beamline — some modules placed, the pipes meant to
+  // join them missing — with no way to tell which half is real and no undo
+  // entry that predates the mess. These two methods make Apply
+  // all-or-nothing: snapshot, execute, and on any op failing, restore.
+  //
+  // Deliberately narrower than the undo snapshot. This is not a user gesture
+  // boundary, so floors, walls, staff, research and the clock are outside the
+  // blob and a rollback must leave them alone. Terrain is the one exception
+  // and it is not a judgement call: placement flattens the heightmap itself,
+  // so leaving it out would not be "scoped", it would be a leak. The beamline
+  // registry is outside it too: rewinding registry entries would rewind the
+  // per-entry sim accumulators (componentHealth, beamOnTicks — see
+  // BEAMSTATE_PRESERVED_FIELDS), turning a failed apply into a free repair of
+  // the whole facility. The planner anchors the source junction and refuses
+  // multi-branch runs, so no op it emits can create or destroy a registry
+  // entry in the first place.
+
+  /**
+   * Capture everything a designer apply can touch, as an opaque blob for
+   * restoreBeamlineState(). Serialization goes through serialize() rather
+   * than a hand-rolled field copy so exactly one place in the codebase knows
+   * how these fields round-trip — notably the utilityLines Map, which
+   * persists as an entry array and would otherwise need a second, drifting
+   * copy of that conversion. The payload being a string also makes aliasing
+   * impossible: nothing mutated after the snapshot can reach into it.
+   */
+  snapshotBeamlineState() {
+    return {
+      // includeAux false: camera, probe pins and the designer session are
+      // host state a rollback must not touch. includeLog false: an aborted
+      // apply must not delete the log lines its own failing ops just wrote
+      // explaining why it aborted.
+      payload: this.serialize({ includeLog: false, includeAux: false }),
+      // subgridOccupied / placeableIndex are derived, so they are absent from
+      // the save payload — but they are precisely what a placeJunction op
+      // mutates, and a rollback that left them stale would leave the map
+      // refusing to build on cells no placeable occupies any more. Copied
+      // verbatim rather than rebuilt on restore; see restoreBeamlineState.
+      subgridOccupied: JSON.parse(JSON.stringify(this.state.subgridOccupied || {})),
+      placeableIndex: { ...(this.state.placeableIndex || {}) },
+    };
+  }
+
+  /**
+   * Roll the beamline-transaction fields back to a snapshotBeamlineState()
+   * blob. Returns false and touches nothing if the blob is missing or
+   * unreadable, so a caller that lost its snapshot fails loudly rather than
+   * wiping the map.
+   */
+  restoreBeamlineState(snapshot) {
+    if (!snapshot || typeof snapshot.payload !== 'string') return false;
+    let saved;
+    try { saved = JSON.parse(snapshot.payload).state; } catch (_) { return false; }
+    if (!saved) return false;
+
+    for (const key of BEAMLINE_TX_FIELDS) this.state[key] = saved[key];
+    // utilityLines persisted as an entry array; rehydrate it exactly as
+    // _applyState does, or the first .get()/.set() on the restored state
+    // throws and the utility layer dies on the rollback rather than the bug.
+    this.state.utilityLines = new Map(
+      Array.isArray(saved.utilityLines) ? saved.utilityLines : [],
+    );
+    // Same story for the terrain heightmap, which persists as [col,row,nw,ne,
+    // se,sw] tuples. The revision counter is bumped rather than restored: it
+    // is a monotonic renderer cache key, not state, and rewinding it to its
+    // pre-apply value would leave every terrain mesh builder convinced nothing
+    // had changed since the last frame — the un-flattened ground would stay on
+    // screen flat until some later edit happened to bump past the old value.
+    this.state.cornerHeights = deserializeCornerHeights(saved.cornerHeights || []);
+    this.state.cornerHeightsRevision = (this.state.cornerHeightsRevision | 0) + 1;
+
+    // Occupancy is restored from the snapshot rather than rebuilt from the
+    // restored placeables, because _rebuildPlaceableIndex() is not a faithful
+    // inverse of the incremental claims: it writes {id, kind, category} where
+    // the placement path writes {id, kind}. Rebuilding would rewrite every
+    // occupancy record in the facility — including cells the transaction never
+    // went near — and a rollback would no longer be byte-identical to the
+    // pre-apply state, which is the one thing Apply promises.
+    this.state.subgridOccupied = JSON.parse(JSON.stringify(snapshot.subgridOccupied || {}));
+    this.state.placeableIndex = { ...(snapshot.placeableIndex || {}) };
+
+    // Derived utility state, invalidated the same way and for the same reason
+    // _applyState invalidates it after replacing the utilityLines Map
+    // wholesale: the cached discovery and the solved qualities describe the
+    // half-applied facility that no longer exists, and the physics pass fails
+    // closed on nodeQualities. The topology revision itself is bumped by the
+    // emits below.
+    this.state.utilityNetworkData = null;
+    this.state.utilityNetworks = null;
+    this.state.nodeQualities = null;
+    this.state.unwiredSinks = null;
+
+    // Synchronous derived state that every place/remove path refreshes for
+    // itself. Skipping it would leave renderers hit-testing legacy mirrors of
+    // placeables the rollback just deleted, and state.beamline ordering the
+    // modules of the layout that failed to apply.
+    this._syncLegacyPlaceableState();
+    this.computeSystemStats();
+    this._deriveBeamGraph();
+
+    // All three emits are load-bearing and none subsumes another: the
+    // placeable meshes and the beam-pipe meshes rebuild off their own event,
+    // and the utility-line mesh builder off the third — a skipped emit leaves
+    // the rolled-back geometry on screen as unclickable ghosts. Any one of
+    // them marks the utility topology dirty, but only 'beamlineChanged'
+    // schedules the physics recalc, without which beamState keeps billing
+    // income for a beamline that was never built.
+    this.emit('placeableChanged');
+    this.emit('beamlineChanged');
+    this.emit('utilityLinesChanged', {});
+    return true;
   }
 
   /**
@@ -4258,6 +4493,7 @@ export class Game {
     // carrying the pre-load session's map over would stamp a loaded facility
     // with the qualities of the one it replaced.
     this.state.nodeQualities = null;
+    this.state.unwiredSinks = null;
     if (this.solveRunner) this.solveRunner.markTopologyDirty();
 
     // Ensure facility arrays exist

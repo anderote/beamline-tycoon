@@ -159,7 +159,12 @@ export const RESEARCH = {
     desc: 'Develop pulsed kicker magnet systems capable of deflecting individual bunches on nanosecond timescales. Uses stripline or ferrite-loaded transmission line designs to generate fast-rising magnetic field pulses. Essential for single-bunch extraction from storage rings and fast beam switching between multiple beamlines.',
     cost: { data: 278, funding: 8900000 },
     duration: 70,
-    unlocks: [],
+    // The node unlocked nothing at all until scanningMagnet landed on it. A
+    // raster/pencil-beam scanning pair is the same engineering problem as a
+    // stripline kicker one decade slower — a laminated yoke and a supply built
+    // to slew — and it is the only place in the tree where "pulsed magnet that
+    // moves the beam on purpose" lives.
+    unlocks: ['scanningMagnet'],
     effect: { beamStability: 0.12 },
     requires: 'beamTransport',
   },
@@ -678,8 +683,13 @@ export const RESEARCH = {
     cost: { data: 278, funding: 8900000, reputation: 600 },
     duration: 80,
     // AVF field shaping is exactly what a 70 MeV machine needs and a 30 MeV
-    // one does not, so the node and the hardware are the same statement.
-    unlocks: ['cyclotron70'],
+    // one does not, so the node and the hardware are the same statement. The
+    // node's own text promises "hundreds of MeV", and cyclotron230 is that
+    // promise — a clinical 230 MeV machine, plus the degrader that exists
+    // solely because a sector cyclotron's energy is fixed by its pole profile.
+    // One node, one coherent shopping list: the machine and the thing that
+    // makes its one energy into a band.
+    unlocks: ['cyclotron70', 'cyclotron230', 'energyDegrader'],
     effect: { beamStability: 0.08 },
     requires: 'cyclotronTech',
   },
@@ -745,7 +755,12 @@ export const RESEARCH = {
     desc: 'Develop positron production via electron-positron pair creation in high-Z targets. When a high-energy electron or photon beam strikes a dense target like tungsten, the intense electromagnetic fields near heavy nuclei convert energy into matter-antimatter pairs (E=mc²). The positrons are captured, cooled, and re-accelerated — enabling electron-positron collider physics, the cleanest way to study fundamental particles.',
     cost: { data: 529, funding: 27000000, reputation: 1800 },
     duration: 150,
-    unlocks: [],
+    // This node described the positron source in prose for a long time without
+    // ever handing one over, and the collider type declared `particle: 'e+e-'`
+    // with no hardware in the game that makes the second half. positronSource
+    // is that component; antimatter is a prerequisite of colliderTech, so it
+    // can never be missing from a palette that needs it.
+    unlocks: ['positronSource'],
     effect: { luminosityMult: 2.5 },
     requires: 'targetPhysicsAdv',
   },

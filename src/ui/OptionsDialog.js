@@ -81,6 +81,7 @@ export class OptionsDialog {
       this.renderer.showZoneLabels !== false;
 
     this.el.querySelector('#opt-dev-mode').checked = !!this.game.devMode;
+    this.el.querySelector('#opt-sandbox-mode').checked = !!this.game.sandboxMode;
   }
 
   _updateVolReadout() {
@@ -130,6 +131,10 @@ export class OptionsDialog {
         <div class="opt-row">
           <label class="opt-label" for="opt-dev-mode">Dev Mode (unlimited funding)</label>
           <input type="checkbox" id="opt-dev-mode" class="opt-check">
+        </div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-sandbox-mode">Sandbox (build free, still earn)</label>
+          <input type="checkbox" id="opt-sandbox-mode" class="opt-check">
         </div>
 
         <div class="opt-section-title">Help</div>
@@ -197,6 +202,13 @@ export class OptionsDialog {
     // Dev mode — setDevMode persists to localStorage itself.
     el.querySelector('#opt-dev-mode').addEventListener('change', (e) => {
       this.game.setDevMode(e.target.checked);
+    });
+
+    // Sandbox: unlike dev mode this leaves the balance real, so the player can
+    // still read what the facility earns while building without the capital
+    // grind. Prices stay on screen; they just are not charged.
+    el.querySelector('#opt-sandbox-mode').addEventListener('change', (e) => {
+      this.game.setSandboxMode(e.target.checked);
     });
 
     // Draggable by header (same pattern as WelcomeDialog / SaveLoadDialog).

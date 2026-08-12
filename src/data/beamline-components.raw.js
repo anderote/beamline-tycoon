@@ -40,6 +40,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 200000 },
     stats: { beamCurrent: 100 },
     energyCost: 15,
+    apertureRadius: 40,
     subL: 4,
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
@@ -75,6 +76,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 400000 },
     stats: { beamCurrent: 50 },
     energyCost: 25,
+    apertureRadius: 32,
     subL: 4,
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
@@ -110,6 +112,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 1200000 },
     stats: { beamCurrent: 200 },
     energyCost: 60,
+    apertureRadius: 40,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
@@ -174,6 +177,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // trickle of low-tech revenue, not a competitive processing line.
     stats: { beamCurrent: 2, emittance: 5 },
     energyCost: 30,
+    apertureRadius: 40,
     subL: 6,
     subW: 4,
     subH: 6, gridW: 4, gridH: 6, geometryType: 'box',
@@ -214,6 +218,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // Electrostatic column, no bunching: a fat, hot, DC beam.
     stats: { beamCurrent: 30, emittance: 12 },
     energyCost: 40,
+    apertureRadius: 32,
     subL: 6,
     subW: 6,
     subH: 8, gridW: 6, gridH: 6, geometryType: 'box',
@@ -253,6 +258,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // IBA Cyclone 30: 30 MeV H-, 2 x 350 uA dual extraction. One port's worth.
     stats: { beamCurrent: 0.35, emittance: 6 },
     energyCost: 140,
+    apertureRadius: 40,
     subL: 8,
     subW: 8,
     subH: 6, gridW: 8, gridH: 8, geometryType: 'box',
@@ -295,6 +301,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // flattener walks a single path and cannot express dual extraction.
     stats: { beamCurrent: 0.75, emittance: 8 },
     energyCost: 380,
+    apertureRadius: 40,
     subL: 10,
     subW: 10,
     subH: 8, gridW: 10, gridH: 10, geometryType: 'box',
@@ -323,6 +330,76 @@ export const BEAMLINE_COMPONENTS_RAW = {
     beamlineTypes: ['isotopeIrradiation', 'therapy'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
+  cyclotron230: {
+    id: 'cyclotron230',
+    physicsType: 'source',
+    name: 'Clinical Cyclotron (230 MeV)',
+    desc: 'A 220-tonne iron yoke, four spiral sectors, two dees driven at 106 MHz, and a fixed 230 MeV out of an electrostatic deflector. Fixed is the operative word: the pole profile is machined for one energy and one only, so a clinic varies treatment depth with a degrader downstream rather than by retuning the machine. Nameplate extraction is one microamp — a quarter of a watt of protons out of four hundred kilowatts at the wall — because a treatment room wants a pencil it can steer, not power. This is the box IBA, Varian and Sumitomo actually sell hospitals, and most operating proton centres in the world are built around one.',
+    category: 'source',
+    subsection: 'proton',
+    // IBA quotes roughly $25M for a complete single-room ProteusONE and a
+    // multi-room ProteusPLUS project runs past $100M once the building and the
+    // gantries are in. $45M is the accelerator, its vault and its power and
+    // cooling plant — the gantry is beamline the player draws themselves.
+    cost: { funding: 45000000 },
+    // 1 uA is the TOP of the machine class's extraction spec (Sumitomo quote
+    // 1 uA, Varian's ProBeam 800 nA, PSI's COMET 800 nA design), and it is
+    // deliberately the number here rather than the 1-10 nA a patient actually
+    // receives. Everything between this port and the nozzle — degrader, energy
+    // slits, collimators — only ever takes current AWAY, so a source parked in
+    // the middle of therapy's 1-50 uA window would leave the player nothing to
+    // spend. It sits exactly on the floor because the machine really does.
+    //
+    // Emittance goes DOWN from the 70 MeV machine above, which looks wrong
+    // until you notice what the two are for. ARRONAX extracts 750 uA through a
+    // stripper foil and does not care what the phase space looks like; this
+    // extracts a microamp through a deflector tuned for a millimetre-class
+    // pencil, because a scanned spot IS the product. Intensity and quality are
+    // the two ends of the same lever and these two machines pull opposite ends.
+    stats: { beamCurrent: 0.001, emittance: 5 },
+    // ~200 kW in the room-temperature main coil, ~120 kW into the RF at 106
+    // MHz, the rest in the ion source, vacuum plant and controls.
+    energyCost: 420,
+    apertureRadius: 40,
+    subL: 12,
+    subW: 12,
+    subH: 8, gridW: 12, gridH: 12, geometryType: 'box',
+    interiorVolume: 60,
+    // GATED on the same node as the 70 MeV machine, and for the reason the
+    // node's own text gives: sector focusing is what lets a cyclotron past the
+    // relativistic limit "to hundreds of MeV". There is no separate
+    // superconducting node to hang this on, and inventing one would be a lie
+    // anyway — the Cyclone 230 is room-temperature copper. The $23M price step
+    // over cyclotron70 is what makes it a later purchase, not a second gate.
+    requires: 'isochronousCyclotron',
+    isSource: true,
+    spriteKey: 'cyclotron70',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    params: { particleType: 'proton' },
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    extractionEnergy: 0.230,
+
+    // therapy ONLY, and the omission of isotopeIrradiation is the deliberate
+    // half. 230 MeV is 3x over that type's 15-70 MeV ceiling and 1 uA is 100x
+    // under its 0.1-1 mA floor, so it fails on both axes at once and no
+    // downstream hardware fixes either: a degrader can bring the energy back
+    // into band but nothing in the catalogue makes current. Listing it there
+    // would be a $45M trap.
+    //
+    // Within therapy it is the only source that reaches past 70 MeV without a
+    // hundred metres of SRF linac, which is the whole reason it exists — 0.230
+    // is 92% of the way up therapy's 0.07-0.25 GeV band, and the degrader
+    // below is what walks it back down.
+    beamlineTypes: ['therapy'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
   lwfaStation: {
     id: 'lwfaStation',
     physicsType: 'source',
@@ -344,6 +421,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // so the penalty lands on emittance alone rather than being doubled.
     stats: { beamCurrent: 0.001, emittance: 10 },
     energyCost: 450,
+    apertureRadius: 16,
     subL: 12,
     subW: 8,
     subH: 5, gridW: 8, gridH: 12, geometryType: 'box',
@@ -380,6 +458,91 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // laser itself is a separate infrastructure placeable (petawattLaser).
     requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
+  positronSource: {
+    id: 'positronSource',
+    physicsType: 'source',
+    name: 'Positron Source',
+    desc: 'A drive beam slams into six radiation lengths of tungsten-rhenium and the electromagnetic shower inside turns beam energy back into matter, half of it the wrong sign. A pulsed flux concentrator at 5.8 T grabs the positrons spraying off the back face, an S-band capture linac immersed in a 0.5 T solenoid takes what it caught to 200 MeV, and a chicane sweeps the surviving electrons and photons into a dump. The SLC ran exactly this and got about one usable positron per incident electron; everything else in the shower is heat in a target that has to survive it. What comes out is enormous in phase space and would go straight into a damping ring at any real facility.',
+    category: 'source',
+    // No 'positron' subsection exists and one would hold a single component.
+    // Same rest mass, same optics, same sign-blind engine — it belongs with
+    // the electrons.
+    subsection: 'electron',
+    // The most expensive single component in the catalogue, ahead of the $50M
+    // detector. The ILC TDR costs its positron source system at roughly $150M;
+    // the SLC's was cheaper because it stole its drive beam from a linac that
+    // already existed. $85M is that: target, flux concentrator, capture linac,
+    // remote handling and a drive line, bought as one crate.
+    cost: { funding: 85000000 },
+    // ILC baseline: 2e10 e+/bunch x 1312 bunches x 5 Hz = 1.3e14 positrons a
+    // second, which is 21 uA. That is the design number for the machine class
+    // this type models, and it is still four orders of magnitude under the
+    // thermionic gun's 100 mA — making positrons is the single hardest thing
+    // an e+e- collider does and this is what it costs.
+    //
+    // 40 mm.mrad is the largest value the roster's sanity range allows and it
+    // is a deliberate UNDERSTATEMENT. A real captured positron beam leaves the
+    // capture linac at something like 1e4 mm.mrad normalised; it is unusable
+    // until a damping ring has cooled it by three orders of magnitude, and the
+    // catalogue has no damping ring. Read this number as "the worst phase
+    // space in the game" rather than as a physical figure.
+    stats: { beamCurrent: 0.021, emittance: 40 },
+    // The drive beam is the cost. A few hundred kW of klystron plant feeding
+    // the drive linac and the capture section, essentially all of which ends
+    // up as heat in a tungsten target and its shielding.
+    energyCost: 800,
+    // The capture channel is the tightest bore on the machine — the flux
+    // concentrator's inner conductor is a couple of centimetres across, and
+    // everything that misses it is lost by construction.
+    apertureRadius: 20,
+    subL: 16,
+    subW: 8,
+    subH: 6, gridW: 8, gridH: 16, geometryType: 'box',
+    interiorVolume: 45,
+    // GATED on the node that already describes this exact machine in prose and
+    // has never handed anything over: RESEARCH.antimatter is "positron
+    // production via electron-positron pair creation in high-Z targets... the
+    // positrons are captured, cooled, and re-accelerated". It is also a
+    // prerequisite of colliderTech, so no player can unlock the collider type
+    // and then find its species missing from the palette.
+    requires: 'antimatter',
+    isSource: true,
+    spriteKey: 'lwfaStation',
+    spriteColor: 0x46c25a,
+    accentColor: 0x46c25a,
+    // Positrons have the electron rest mass exactly, and extract_source_params
+    // defaults to ELECTRON_MASS, so this string costs the engine nothing and
+    // gets the kinematics right for free. It is NOT doing more than that:
+    // charge sign is modelled nowhere in beam_physics, so nothing downstream
+    // bends this beam the other way and nothing checks that the two arms of a
+    // collider are opposite species. The declaration is honest bookkeeping and
+    // a hook for when either of those lands.
+    params: { particleType: 'positron' },
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      exit: { side: 'front' },
+    },
+
+    // 200 MeV — the SLC capture section's output energy, before the return
+    // line took the beam back up the linac to the damping ring.
+    extractionEnergy: 0.2,
+
+    // The one type whose declared species is e+e-, and until now the one type
+    // with no hardware that makes half of it. 200 MeV is far below the
+    // 45-120 GeV/beam band, so this is a front end and never a machine you get
+    // paid for on its own — every collider arm built on it still needs the
+    // full SRF chain behind it.
+    beamlineTypes: ['collider'],
+    // The capture linac is a real S-band structure and wants a real klystron
+    // behind it, which is what separates this from the cyclotrons: they fold
+    // their RF into the crate, this one asks for the waveguide.
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 2856,
+    rfBand: 'sband',
+    rfPowerRequired: 60,
+  },
   drift: {
     id: 'drift',
     physicsType: 'drift',
@@ -390,6 +553,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 10000 },
     stats: {},
     energyCost: 0,
+    apertureRadius: 80,
     subL: 4,
     subW: 2,
     subH: 2, gridW: 2, gridH: 4, geometryType: 'cylinder',
@@ -417,6 +581,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 15000 },
     stats: {},
     energyCost: 0,
+    apertureRadius: 64,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -441,6 +606,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 300000 },
     stats: { bendAngle: 90 },
     energyCost: 8,
+    apertureRadius: 48,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -475,6 +641,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 800000 },
     stats: { bendAngle: 15 },
     energyCost: 10,
+    apertureRadius: 32,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
@@ -509,6 +676,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 200000 },
     stats: { focusStrength: 1 },
     energyCost: 6,
+    apertureRadius: 48,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -538,8 +706,15 @@ export const BEAMLINE_COMPONENTS_RAW = {
     category: 'optics',
     subsection: 'focusing',
     cost: { funding: 150000 },
-    stats: { fieldStrength: 0.2 },
+    // 5 mT, not the 200 mT this used to ship. A quarter-wave match over this
+    // component's own 1 m length wants 6 mT at 250 keV, and anything above
+    // ~20 mT overfocuses hard enough to put a front-end beam on the wall
+    // inside the magnet — see the measurement table on PARAM_DEFS.solenoid in
+    // src/beamline/component-physics.js. The catalogue default has to be a
+    // setting that works, because it is the one every placed solenoid starts at.
+    stats: { fieldStrength: 0.005 },
     energyCost: 1,
+    apertureRadius: 40,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -548,7 +723,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'quadrupole',
     spriteColor: 0x4f9de0,
     accentColor: 0x4f9de0,
-    params: { fieldStrength: 0.2 },
+    params: { fieldStrength: 0.005 },
     placement: 'attachment',
     role: 'placement',
     textures: { iron: 'metal_brushed' },
@@ -564,6 +739,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 400000 },
     stats: { beamQuality: 0.2 },
     energyCost: 2,
+    apertureRadius: 32,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
@@ -586,6 +762,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 2000000 },
     stats: { bendAngle: 45, focusStrength: 0.8 },
     energyCost: 2,
+    apertureRadius: 48,
     subL: 4,
     subW: 2,
     subH: 2, gridW: 2, gridH: 4, geometryType: 'box',
@@ -618,6 +795,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 2500000 },
     stats: { r56: -50 },
     energyCost: 3,
+    apertureRadius: 64,
     subL: 8,
     subW: 4,
     subH: 2, gridW: 4, gridH: 8, geometryType: 'box',
@@ -650,6 +828,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // period in mm (gameplay.py converts to metres); kParameter dimensionless.
     stats: { photonRate: 1, period: 30, kParameter: 1.5 },
     energyCost: 12,
+    apertureRadius: 8,
     subL: 10,
     subW: 2,
     subH: 2, gridW: 2, gridH: 10, geometryType: 'box',
@@ -679,6 +858,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 350000 },
     stats: { focusStrength: 0.5, beamQuality: 0.3 },
     energyCost: 8,
+    apertureRadius: 48,
     subL: 2,
     subW: 2,
     subH: 3, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -707,6 +887,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 30000 },
     stats: { beamQuality: 0.1 },
     energyCost: 0,
+    apertureRadius: 24,
     subL: 1,
     subW: 2,
     subH: 3, gridW: 2, gridH: 1, geometryType: 'box',
@@ -730,6 +911,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 250000 },
     stats: { beamQuality: 0.3 },
     energyCost: 3,
+    apertureRadius: 32,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
@@ -754,6 +936,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 100000 },
     stats: { beamQuality: 0.15 },
     energyCost: 0,
+    apertureRadius: 16,
     subL: 1,
     subW: 2,
     subH: 3, gridW: 2, gridH: 1, geometryType: 'box',
@@ -767,6 +950,168 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     requiredConnections: [],
   },
+  energyDegrader: {
+    id: 'energyDegrader',
+    // ── PHYSICS TYPE: A KNOWN COMPROMISE, DOCUMENTED RATHER THAN HIDDEN ──
+    //
+    // What this device does is take kinetic energy out of the beam. Exactly
+    // two element types in beam_physics can change the beam energy at all —
+    // 'rfCavity' and 'cryomodule' — and both do it through the same
+    // `energyGain` field, which is signed and which lattice.py sub-steps
+    // correctly for negative values. So a degrader is an RF cavity run
+    // backwards, and that is the closest honest type available. It is NOT
+    // another inert 'drift' like aperture / velocitySelector /
+    // emittanceFilter: it moves the beam energy in both the Pyodide path and
+    // the headless fallback, and it is the only component in the catalogue
+    // that moves it DOWN.
+    //
+    // Three things the engine gets right by accident and one it cannot do:
+    //
+    //   * Energy. RFAccelerationModule does `beam.energy += dE`, clamped at
+    //     the rest mass, so a negative dE decelerates. _fallbackStatsForBeamline
+    //     sums stats.energyGain, so the headless model agrees.
+    //   * Emittance. The adiabatic-damping block runs on the ratio
+    //     E_before/E_after, which is > 1 here, so x' and y' grow and the
+    //     GEOMETRIC emittance grows with them. That is real physics and it is
+    //     what makes beamQuality fall and downstream aperture loss rise.
+    //   * Transmission. Nothing declares it, but the blown-up beam gets
+    //     scraped by every aperture after this point, which is precisely why
+    //     real degraded therapy lines transmit 1%.
+    //   * GAP: multiple Coulomb scattering and energy straggling in the wedge.
+    //     The engine has no material-interaction model, so the emittance
+    //     growth it produces (~16% for a 230 -> 70 MeV degrade, from adiabatic
+    //     anti-damping alone) is one to two orders of magnitude smaller than
+    //     the real thing, and the energy SPREAD growth is absent entirely. The
+    //     derived `beamQuality` penalty below stands in for it on the headless
+    //     path; the Pyodide path currently under-charges for this component.
+    //
+    // Two gameplay tables in beam_physics key on the game id and both needed
+    // an entry — DESIGN_BETA (or the transit-time factor for a beta=0.9 RF
+    // structure would eat 40-80% of the requested energy loss and the tunable
+    // output energy would be a lie) and CAPTURE_EFFICIENCY. See
+    // beam_physics/modules/rf_acceleration.py.
+    physicsType: 'rfCavity',
+    name: 'Energy Degrader & Selection',
+    desc: 'Graphite wedges driven into the beam to strip range off it, followed by a four-dipole momentum-analysis section and a pair of slits that throw away everything outside the momentum window you asked for. This is how a fixed-energy cyclotron treats a tumour at any depth. At full energy essentially the whole beam gets through; at 70 MeV about one part in a hundred does and the rest is stopped in the collimators. Every millimetre of wedge buys range at the price of scattering — what comes out is wider, more divergent and less monochromatic than what went in, and no optic downstream gives any of it back. PSI Gantry 1 and every IBA ProteusPLUS line has one.',
+    category: 'optics',
+    subsection: 'manipulation',
+    // Four analysing dipoles, two slit assemblies, a wedge drive and a lot of
+    // shielding: this is a beamline section, not a component, and it is priced
+    // between a chicane ($2.5M) and a combined-function magnet ($2M).
+    cost: { funding: 2800000 },
+    // NEGATIVE energyGain is the whole component. -0.080 GeV is the default
+    // 230 -> 150 MeV setting; computeStats overwrites it from the
+    // outputEnergy slider. rfFrequency is the IBA Cyclone 230's own 106 MHz —
+    // if this is the first RF-typed element on the line (and on a cyclotron
+    // therapy line it usually is) RFAccelerationModule stamps the bunch
+    // structure from it, and the cyclotron's RF really is what bunches this
+    // beam. beamQuality is negative on purpose: see the physicsType note.
+    stats: { energyGain: -0.080, beamQuality: -0.12, rfFrequency: 106 },
+    // Four dipoles' worth of coil current plus the wedge and slit drives.
+    energyCost: 30,
+    // The energy-selection slits are the tightest aperture on a therapy line
+    // by design — they are what makes the momentum window a window.
+    apertureRadius: 20,
+    subL: 12,
+    subW: 4,
+    subH: 3, gridW: 4, gridH: 12, geometryType: 'box',
+    interiorVolume: 10,
+    // GATED with the fixed-energy cyclotrons, because that is the only reason
+    // this exists: a machine whose pole profile is cut for one energy needs
+    // something else to vary depth. Same node, one shopping list.
+    requires: 'isochronousCyclotron',
+    spriteKey: 'collimator',
+    spriteColor: 0x8a8f96,
+    accentColor: 0x8a8f96,
+    params: { outputEnergy: 150 },
+    placement: 'attachment',
+    role: 'placement',
+
+    // therapy ONLY, and the restriction is about the slider rather than the
+    // hardware. ARRONAX really does degrade its 70 MeV beam to 30-40 MeV to
+    // sit on specific (p,xn) thresholds, so an isotope line has a genuine use
+    // for one — but this component's control is an OUTPUT energy referenced to
+    // a 230 MeV input, because that is what a clinician dials and what a
+    // treatment plan is written in. `energyGain` is a difference and the
+    // engine applies it to whatever beam actually arrives, so on a 70 MeV line
+    // the default 150 MeV setting would try to remove 80 MeV from a 70 MeV
+    // beam and kill it outright. A knob that lies on half its palette is worse
+    // than a missing entry; if the isotope case is wanted later, the honest
+    // shape is a second component whose knob is energy REMOVED.
+    //
+    // Deliberately absent from spallation for a physical reason instead:
+    // degrading a megawatt beam means absorbing most of a megawatt in a
+    // graphite block, which is a target station, not a beamline element.
+    beamlineTypes: ['therapy'],
+    // The water is for the four analysing dipoles, not for the wedge — a
+    // therapy beam is a quarter of a watt and the wedge barely notices it.
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  scanningMagnet: {
+    id: 'scanningMagnet',
+    // A scanning magnet pair IS two dipoles, so 'dipole' is the honest
+    // hardware identity and the engine gives it a real transfer matrix rather
+    // than a drift. What the engine cannot express is the SWEEP: it has no
+    // pulse structure, so it sees a static deflection where the machine is
+    // painting a field at metres per second. What survives is the chromatic
+    // part — dipole_matrix carries R[0,5] = rho(1-cos t), so a bigger scan
+    // field means more dispersion and a bigger spot for the same energy
+    // spread, which is exactly the real limit on how far you can scan a
+    // degraded beam. The time-averaged field size itself is a gap.
+    //
+    // No isDipole flag and both beam ports on the same axis, like
+    // combinedFunctionMagnet: the beamline stays straight on the grid while
+    // physics sees the bend.
+    physicsType: 'dipole',
+    name: 'Scanning Magnets',
+    desc: 'Two orthogonal dipoles two and a half metres upstream of the target that paint it by sweeping the pencil beam across it, one spot at a time, at metres per second. GSI raster-scanned its first patient in 1997 and it is now how proton therapy is delivered: no patient-specific collimator, no compensator, dose shaped in three dimensions by changing range between layers. The same magnets run at kilohertz are how ESS spreads five megawatts over a target that would otherwise get a hole punched in it. Scan field is yours to set — wide paints a sample uniformly, narrow puts everything in one spot.',
+    category: 'optics',
+    subsection: 'manipulation',
+    cost: { funding: 1800000 },
+    // bendAngle in GAME units. gameplay.py multiplies by DIPOLE_ANGLE_SCALE
+    // (15/90), so the engine sees game/6 physical degrees. 12 -> 2.0 deg,
+    // which is the half-deflection for a 175 mm field at a 2.5 m throw.
+    // computeStats recomputes this from scanFieldMm — keep the two consistent
+    // or the tooltip and the physics describe different magnets.
+    stats: { bendAngle: 12 },
+    // Fast-slewing supplies with real dI/dt, so the draw is dipole-class
+    // despite the small integrated field.
+    energyCost: 20,
+    // A scanning magnet's gap is generous by design: the beam is swept inside
+    // it, so the aperture has to hold the whole angular range, not one ray.
+    apertureRadius: 64,
+    subL: 4,
+    subW: 4,
+    subH: 3, gridW: 4, gridH: 4, geometryType: 'box',
+    interiorVolume: 4,
+    // GATED on fastKickers, which is about pulsed magnet systems with fast
+    // rise times and which unlocked nothing at all before this. A raster
+    // scanning magnet is that technology: a laminated or ferrite yoke and a
+    // supply built to slew, run closed-loop against a dose monitor. It is not
+    // the nanosecond stripline the node's text describes, but it is the same
+    // engineering problem one decade slower, and it is the closest real home
+    // in the tree.
+    requires: 'fastKickers',
+    spriteKey: 'dipole',
+    spriteColor: 0x6f7fd0,
+    accentColor: 0x6f7fd0,
+    params: { scanFieldMm: 175 },
+    placement: 'attachment',
+    role: 'placement',
+    textures: { iron: 'metal_brushed' },
+    // The three types that deliver beam onto something with an area. therapy
+    // and isotopeIrradiation want a uniform field over a tumour or a sample —
+    // and isotopeIrradiation's spec carries a spotSizeMm BAND, not a floor, so
+    // "add quadrupoles until sigma -> 0" is the wrong answer there and this is
+    // the right one. spallation is in on the strength of ESS's raster system,
+    // which exists for exactly the same reason at a thousand times the power.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
+    // The first optic in the catalogue that requires dataFiber, and the
+    // requirement is the identity: a scanning magnet without closed-loop dose
+    // feedback from the control room is not a delivery system, it is an
+    // accident. The scan pattern comes down the fibre.
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+  },
 
   // ── RF / Accel — Normal Conducting ────────────────────────────────
   buncher: {
@@ -779,6 +1124,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 150000 },
     stats: { energyGain: 0.0001, bunchCompression: 0.15 },
     energyCost: 1,
+    apertureRadius: 32,
     subL: 2,
     subW: 2,
     subH: 4, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -810,6 +1156,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 200000 },
     stats: { energyGain: 0.0005, gradient: 0.5 },
     energyCost: 3,
+    apertureRadius: 32,
     subL: 2,
     subW: 2,
     subH: 4, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -841,6 +1188,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 500000 },
     stats: { energyGain: 0.045, gradient: 15 },
     energyCost: 20,
+    apertureRadius: 19,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
@@ -874,6 +1222,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 600000 },
     stats: { energyGain: 0.051, gradient: 17 },
     energyCost: 15,
+    apertureRadius: 19,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
@@ -912,6 +1261,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // CAVITY_SPECS or the catalogue gain and the physics gain disagree.
     stats: { energyGain: 0.010, gradient: 10 },
     energyCost: 8,
+    apertureRadius: 19,
     subL: 2,
     subW: 2,
     subH: 4, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -948,6 +1298,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 1500000 },
     stats: { energyGain: 0.003, bunchCompression: 0.5, gradient: 1.0 },
     energyCost: 6,
+    apertureRadius: 6,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
@@ -987,6 +1338,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 400000 },
     stats: { energyGain: 0.001, gradient: 1 },
     energyCost: 4,
+    apertureRadius: 24,
     subL: 2,
     subW: 2,
     subH: 4, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -1021,6 +1373,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 600000 },
     stats: { energyGain: 0.01, gradient: 5 },
     energyCost: 5,
+    apertureRadius: 32,
     subL: 4,
     subW: 2,
     subH: 4, gridW: 2, gridH: 4, geometryType: 'cylinder',
@@ -1053,6 +1406,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 1800000 },
     stats: { energyGain: 0.0375, gradient: 25 },
     energyCost: 3,
+    apertureRadius: 56,
     subL: 3,
     subW: 2,
     subH: 4, gridW: 2, gridH: 3, geometryType: 'cylinder',
@@ -1089,6 +1443,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 12000000 },
     stats: { energyGain: 0.2, gradient: 25 },
     energyCost: 12,
+    apertureRadius: 56,
     subL: 16,
     subW: 4,
     subH: 4, gridW: 4, gridH: 16, geometryType: 'cylinder',
@@ -1127,6 +1482,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 30000 },
     stats: { beamQuality: 0.02 },
     energyCost: 0.1,
+    apertureRadius: 40,
     subL: 1,
     subW: 1,
     subH: 2, gridW: 1, gridH: 1, geometryType: 'cylinder',
@@ -1150,6 +1506,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 50000 },
     stats: { beamQuality: 0.03 },
     energyCost: 0.2,
+    apertureRadius: 40,
     subL: 1,
     subW: 2,
     subH: 2, gridW: 2, gridH: 1, geometryType: 'cylinder',
@@ -1173,6 +1530,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 40000 },
     stats: {},
     energyCost: 0.1,
+    apertureRadius: 40,
     subL: 1,
     subW: 1,
     subH: 2, gridW: 1, gridH: 1, geometryType: 'cylinder',
@@ -1196,6 +1554,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 200000 },
     stats: { beamQuality: 0.05 },
     energyCost: 0.5,
+    apertureRadius: 40,
     subL: 1,
     subW: 2,
     subH: 2, gridW: 2, gridH: 1, geometryType: 'cylinder',
@@ -1225,6 +1584,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 30000 },
     stats: { dataRate: 0.1 },
     energyCost: 0,
+    apertureRadius: 48,
     subL: 4,
     subW: 2,
     subH: 2, gridW: 2, gridH: 4, geometryType: 'cylinder',
@@ -1253,6 +1613,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 200000 },
     stats: {},
     energyCost: 0,
+    apertureRadius: 48,
     subL: 4,
     subW: 4,
     subH: 3, gridW: 4, gridH: 4, geometryType: 'box',
@@ -1281,6 +1642,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 50000000 },
     stats: { dataRate: 1 },
     energyCost: 15,
+    apertureRadius: 80,
     subL: 12,
     subW: 6,
     subH: 3, gridW: 6, gridH: 12, geometryType: 'box',
@@ -1311,6 +1673,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 500000 },
     stats: { collisionRate: 5 },
     energyCost: 2,
+    apertureRadius: 40,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
@@ -1341,6 +1704,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     cost: { funding: 1000000 },
     stats: { collisionRate: 2 },
     energyCost: 0,
+    apertureRadius: 48,
     subL: 4,
     subW: 4,
     subH: 3, gridW: 4, gridH: 4, geometryType: 'box',

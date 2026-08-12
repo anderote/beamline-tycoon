@@ -349,7 +349,9 @@ class TestBunchCompression(unittest.TestCase):
 
     def test_peak_current_increases(self):
         mod = BunchCompressionModule()
-        beam = make_beam(energy=0.5)
+        # Explicitly bunched: peak current is only meaningful for a bunched
+        # beam, and a beam is DC until an RF element bunches it.
+        beam = make_beam(energy=0.5, bunch_frequency=1.3e9)
         ctx = PropagationContext("fel")
         ctx.chirp = 20.0
         pk_before = beam.peak_current
@@ -358,7 +360,9 @@ class TestBunchCompression(unittest.TestCase):
 
     def test_csr_adds_energy_spread(self):
         mod = BunchCompressionModule()
-        beam = make_beam(energy=0.5)
+        # Explicitly bunched: peak current is only meaningful for a bunched
+        # beam, and a beam is DC until an RF element bunches it.
+        beam = make_beam(energy=0.5, bunch_frequency=1.3e9)
         ctx = PropagationContext("fel")
         ctx.chirp = 20.0
         spread_before = beam.energy_spread()

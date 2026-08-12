@@ -2255,6 +2255,54 @@ export function isDetailedComponent(compType, compDef) {
   return false;
 }
 
+/**
+ * World-space pose (position + Y rotation) of one component instance.
+ *
+ * Extracted from ComponentBuilder.build so the design-placement ghost in
+ * ThreeRenderer can put its translucent copies at exactly the coordinates the
+ * committed meshes will land on. Two copies of this arithmetic would drift the
+ * first time either the sub-tile centring or the dir 1/3 swap changed, and the
+ * whole value of the ghost is that it is not lying about where things go.
+ *
+ * @param {object} compDef   COMPONENTS entry (or {} for unknown types)
+ * @param {{col:number,row:number,subCol:?number,subRow:?number,direction:?number}} inst
+ * @param {boolean} isDetailed  true when the visual already has its origin at
+ *        the floor (role/detail builders, parts lists, placeholder boxes) —
+ *        fallback single-box visuals are centred and need the h/2 lift.
+ * @returns {{x:number, y:number, z:number, rotY:number}}
+ */
+export function componentPose(compDef, inst, isDetailed) {
+  const direction = inst.direction || 0;
+  // gridW/gridH store sub-cell counts (1 sub-cell = 0.5 world units).
+  const gwRaw = compDef.gridW || compDef.subW || 4;
+  const ghRaw = compDef.gridH || compDef.subL || 4;
+  // snapForPlaceable swaps w/h for dir 1/3 when computing the top-left subtile
+  // origin, so the render centre must swap too or committed meshes drift from
+  // the reserved subcells.
+  const swap = (direction === 1 || direction === 3);
+  const gwSub = swap ? ghRaw : gwRaw;
+  const ghSub = swap ? gwRaw : ghRaw;
+
+  let x, z;
+  // Pipe attachments are the exception: their col/row are interpolated float
+  // coordinates along a pipe path, so the mesh centres directly on that point
+  // regardless of the component's sub-tile footprint. subCol === null is the
+  // marker world-snapshot's buildPipeAttachments sets.
+  if (inst.subCol == null && inst.subRow == null) {
+    x = inst.col * 2 + 1;
+    z = inst.row * 2 + 1;
+  } else {
+    x = inst.col * 2 + ((inst.subCol || 0) + gwSub / 2) * SUB_UNIT;
+    z = inst.row * 2 + ((inst.subRow || 0) + ghSub / 2) * SUB_UNIT;
+  }
+
+  return {
+    x, z,
+    y: isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2,
+    rotY: -direction * (Math.PI / 2),
+  };
+}
+
 export function createBeamlineGhost(compType) {
   const compDef = COMPONENTS[compType];
   if (!compDef) return null;
@@ -2669,12 +2717,11 @@ export class ComponentBuilder {
     const seen = new Set();
 
     for (const comp of componentData) {
-      const { id, type, col, row, direction, dimmed } = comp;
+      const { id, type, dimmed } = comp;
       seen.add(id);
 
       const rawDef = COMPONENTS[type];
       const compDef = rawDef || {};
-      const subH = compDef.subH || 2;
       // Pipe placements carry subCol === null as a marker (set by
       // world-snapshot.buildPipeAttachments). When true, prefer the
       // placement's own subL over the type's default so varying-length
@@ -2711,37 +2758,12 @@ export class ComponentBuilder {
 
       const obj = this._meshMap.get(id);
 
-      // Position: center of sub-tile footprint within the tile.
-      // gridW/gridH store sub-cell counts (1 sub-cell = 0.5 world units).
-      // Pipe attachments are an exception: their col/row are interpolated
-      // float coordinates along a pipe path, so we center the mesh directly
-      // on that point (col*2+1, row*2+1) regardless of the component's
-      // sub-tile footprint. subCol === null is the marker set by
-      // world-snapshot's buildPipeAttachments.
-      const gwRaw = compDef.gridW || compDef.subW || 4;
-      const ghRaw = compDef.gridH || compDef.subL || 4;
-      // snapForPlaceable swaps w/h for dir 1/3 when computing the top-left
-      // subtile origin, so the render center must swap too or committed
-      // meshes will drift from the reserved subcells.
-      const swap = (direction === 1 || direction === 3);
-      const gwSub = swap ? ghRaw : gwRaw;
-      const ghSub = swap ? gwRaw : ghRaw;
-      let x, z;
-      if (comp.subCol == null && comp.subRow == null) {
-        x = col * 2 + 1;
-        z = row * 2 + 1;
-      } else {
-        const sc = comp.subCol || 0;
-        const sr = comp.subRow || 0;
-        x = col * 2 + (sc + gwSub / 2) * SUB_UNIT;
-        z = row * 2 + (sr + ghSub / 2) * SUB_UNIT;
-      }
-      // Detailed builders place Y=0 at floor; fallbacks center vertically
-      const y = isDetailed ? 0 : (subH * SUB_UNIT) / 2;
-      obj.position.set(x, y, z);
-
-      // Rotation
-      obj.rotation.y = -(direction || 0) * (Math.PI / 2);
+      // Position + rotation. Shared with the design-placement ghost via
+      // componentPose so a preview can never claim a spot the commit will not
+      // use.
+      const pose = componentPose(compDef, comp, isDetailed);
+      obj.position.set(pose.x, pose.y, pose.z);
+      obj.rotation.y = pose.rotY;
 
       // Dimming
       this._setDimmed(obj, dimmed);

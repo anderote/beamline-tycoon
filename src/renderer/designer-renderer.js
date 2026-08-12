@@ -8,6 +8,7 @@ import { formatEnergy } from '../data/units.js';
 import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
 import { isFacilityCategory } from './Renderer.js';
+import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 
 // Schematic pixel dimensions per component (same as overlays.js drawSchematic)
@@ -796,10 +797,43 @@ BeamlineDesigner.prototype._getEnvelopeAtSelected = function() {
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
 const PLOT_SCALE = 1.2;
 
+// An envelope the plot renderers can actually draw (they need two samples to
+// have a curve at all).
+function _plottable(env) {
+  return env && env.length >= 2 ? env : null;
+}
+
 BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
   const yScale = this._getPlotYScale();
+
+  // Which beamline(s) the panels show. `solid` is drawn in full colour with all
+  // the chrome; `ghost` is the dimmed comparison drawn underneath it.
+  const draft = _plottable(this.draftEnvelope);
+  const base = _plottable(this.baselineEnvelope);
+  const source = base ? (this.plotSource || 'proposed') : 'proposed';
+  let solid = draft;
+  let ghost = null;
+  if (source === 'current') {
+    solid = base;
+  } else if (source === 'both') {
+    solid = draft;
+    ghost = base;
+  }
+  // A Both/Proposed view of an emptied draft still has something worth showing:
+  // fall back to the as-built line rather than blanking the panel out from under
+  // the player the moment they delete the last component.
+  if (!solid && ghost) { solid = ghost; ghost = null; }
+
+  // One pin at the marker, shared by both passes so the at-a-point plots (phase
+  // space, longitudinal, E/I/eps) compare the same location on both beamlines.
+  // The marker indexes the draft; a baseline shorter than that simply has no
+  // datum there and its ghost pass draws nothing.
+  const markerIdx = this.getMarkerEnvelopeIndex();
+  const pins = markerIdx >= 0
+    ? [{ elementIndex: markerIdx, s: this.markerS, color: '#4488ff' }]
+    : [];
 
   const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
@@ -813,14 +847,13 @@ BeamlineDesigner.prototype._renderPlots = function() {
     if (plotW < 10 || plotH < 10) return;
 
     const plotType = select.value;
-    const envelope = this.draftEnvelope;
 
     // Render to a small offscreen canvas
     const off = document.createElement('canvas');
     off.width = plotW;
     off.height = plotH;
 
-    if (!envelope || envelope.length < 2) {
+    if (!solid) {
       const ctx = off.getContext('2d');
       ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
       ctx.fillRect(0, 0, plotW, plotH);
@@ -829,17 +862,23 @@ BeamlineDesigner.prototype._renderPlots = function() {
       ctx.textAlign = 'center';
       ctx.fillText('No beam data', plotW / 2, plotH / 2);
     } else {
-      // Build a pin at the marker position, passing exact s for alignment
-      const markerIdx = this.getMarkerEnvelopeIndex();
-      const pins = [];
-      if (markerIdx >= 0) {
-        pins.push({
-          elementIndex: markerIdx,
-          s: this.markerS,
-          color: '#4488ff',
-        });
+      // Both passes get the union of the two autoscales. Without it each pass
+      // would autoscale to its own envelope and the two curves would be drawn
+      // to different y-axes on the same pixels — a comparison that reads as a
+      // difference in beam size when it is only a difference in scale.
+      const yDomain = ProbePlots.unionYDomain(
+        ProbePlots.yDomainFor(plotType, solid, yScale, pins, 0),
+        ghost ? ProbePlots.yDomainFor(plotType, ghost, yScale, pins, 0) : null,
+      );
+      // Ghost first: it draws marks only, so the solid pass on top supplies the
+      // axes, bands, pin lines and legend. Reversed, the chrome would paint over
+      // the proposal and the as-built line would read as the real one.
+      if (ghost) {
+        ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
+          { yDomain, ghost: true });
       }
-      ProbePlots.draw(off, plotType, envelope, pins, 0, xRange, yScale);
+      ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
+        { yDomain, noClear: !!ghost });
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
@@ -900,6 +939,44 @@ BeamlineDesigner.prototype._hitTestSchematic = function(clientX, clientY) {
 
 // ---- Controller palette rendering (beamline-only, with preview cards) ----
 
+/**
+ * The type whose palette this designer session is building against.
+ *
+ * openFromSource leaves this.beamlineId null (the draft is pipe-graph-backed),
+ * so an edit session has to resolve through the source placeable — asking
+ * getActiveBeamlineTypeId alone would report whatever beamline happened to be
+ * selected instead. Null means no type, and nothing is filtered.
+ */
+BeamlineDesigner.prototype._designerBeamlineTypeId = function() {
+  if (this.editSourceId) {
+    return this.game.registry?.getBySourceId(this.editSourceId)?.typeId || null;
+  }
+  return this.game.getActiveBeamlineTypeId?.() || null;
+};
+
+/**
+ * The components a category's palette would actually show. Both the tab strip
+ * and the palette body go through here: if they each ran their own copy of the
+ * filter set, a tab could survive while its palette came up empty — the dead
+ * click this is here to prevent.
+ */
+BeamlineDesigner.prototype._visibleDesignerComps = function(category) {
+  // Same beamline-type filter the main HUD palette applies, so the designer
+  // can't offer a component the line's type excludes — placing one from here
+  // used to sneak past the gate the New Beamline picker set up.
+  const typeId = this._designerBeamlineTypeId();
+
+  const out = [];
+  for (const [key, comp] of Object.entries(COMPONENTS)) {
+    if (comp.category !== category) continue;
+    if (!this.game.isComponentUnlocked(comp)) continue;
+    if (isFacilityCategory(comp.category)) continue;
+    if (beamlineTypeHidesComponent(typeId, key, comp)) continue;
+    out.push({ key, comp });
+  }
+  return out;
+};
+
 BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   const palette = document.getElementById('component-palette');
   if (!palette) return;
@@ -910,13 +987,7 @@ BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   const catDef = mode?.categories?.[category];
   if (!catDef) return;
 
-  const catComps = [];
-  for (const [key, comp] of Object.entries(COMPONENTS)) {
-    if (comp.category !== category) continue;
-    if (!this.game.isComponentUnlocked(comp)) continue;
-    if (isFacilityCategory(comp.category)) continue;
-    catComps.push({ key, comp });
-  }
+  const catComps = this._visibleDesignerComps(category);
 
   const subsections = catDef.subsections;
   if (subsections && Object.keys(subsections).length > 0) {
@@ -1022,7 +1093,11 @@ BeamlineDesigner.prototype._setupDesignerTabs = function() {
   tabsContainer.innerHTML = '';
 
   const mode = MODES.beamline;
-  const catKeys = Object.keys(mode.categories);
+  // A tab whose every component is filtered out — by research or by the
+  // beamline type — would open onto an empty palette, which reads as a dead
+  // click. Drop the tab instead of shipping the dead end.
+  const catKeys = Object.keys(mode.categories)
+    .filter(key => this._visibleDesignerComps(key).length > 0);
 
   catKeys.forEach((key, idx) => {
     const cat = mode.categories[key];

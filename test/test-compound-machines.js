@@ -72,9 +72,25 @@ const MACHINES = [
     anchor: 'ARRONAX / IBA Cyclone 70, 70 MeV, 2 x 375 uA',
   },
   {
+    id: 'cyclotron230', species: 'proton', energyBand: [0.225, 0.250],
+    gate: 'isochronousCyclotron', standalone: true,
+    anchor: 'IBA Cyclone 230 / Varian ProBeam, 230 MeV fixed, ~1 uA',
+  },
+  {
     id: 'lwfaStation', species: 'electron', energyBand: [0.5, 2.0],
     gate: 'plasmaAcceleration', standalone: true,
     anchor: 'LBNL BELLA, 1 GeV in a 3.3 cm capillary (2006)',
+  },
+  {
+    // The species outlier. Positrons share the electron rest mass exactly, so
+    // 'positron' costs the engine nothing and gets the kinematics right for
+    // free — but charge sign is modelled NOWHERE in beam_physics, so nothing
+    // downstream treats this beam differently from an electron beam and
+    // nothing checks that a collider's two arms are opposite species. The
+    // declaration is bookkeeping and a hook, and the assertions below say so.
+    id: 'positronSource', species: 'positron', energyBand: [0.1, 0.5],
+    gate: 'antimatter', standalone: false,
+    anchor: 'SLC positron source, W-Re target + flux concentrator, 200 MeV capture',
   },
 ];
 
@@ -146,7 +162,8 @@ console.log('\n--- the roster is a monotonic energy ladder ---');
     (a, b) => BEAMLINE_COMPONENTS_RAW[a.id].extractionEnergy
             - BEAMLINE_COMPONENTS_RAW[b.id].extractionEnergy);
   const order = sorted.map(m => m.id).join(' < ');
-  assert(order === 'cockcroftWalton < vanDeGraaff < cyclotron30 < cyclotron70 < lwfaStation',
+  assert(order === 'cockcroftWalton < vanDeGraaff < cyclotron30 < cyclotron70 '
+                 + '< positronSource < cyclotron230 < lwfaStation',
     `energy ordering is the designed one: ${order}`);
 }
 
@@ -164,6 +181,16 @@ for (const m of MACHINES) {
     assert(declared === 'proton',
       `${m.id} declares params.particleType = 'proton' (got ${declared})`);
     assert(raw.subsection === 'proton', `${m.id} sits in the proton subsection`);
+  } else if (m.species === 'positron') {
+    // extract_source_params only branches on 'proton'; anything else falls
+    // through to ELECTRON_MASS, which is the correct rest mass for a positron.
+    // So this string must NOT be one the engine acts on, and the fact that it
+    // is inert is the point — the day charge sign gets modelled, this is where
+    // it reads from.
+    assert(declared === 'positron',
+      `${m.id} declares params.particleType = 'positron' (got ${declared})`);
+    assert(raw.subsection === 'electron',
+      `${m.id} sits in the electron subsection — same rest mass, same optics`);
   } else {
     assert(declared === undefined,
       `${m.id} declares no particleType — the engine's default is the electron mass`);

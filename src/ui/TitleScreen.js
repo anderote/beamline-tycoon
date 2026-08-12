@@ -768,10 +768,9 @@ export class TitleScreen {
     // base sits directly ON the machine pad's top edge — one continuous ground
     // surface shared with the equipment and beamline.
     const bldGround = padTop - 4;              // building ground line (base = padTop)
-    const bldX = Math.floor(W * 0.62);
+    const bldX = Math.floor(W * 0.5 - 49);       // centered: lab center (hx-19) lands at W/2
     // the whole frontage is laid out from the hall door, so the main entrance
-    // lands over the doorway and the west end stays clear of the visitor lot
-    // (which ends at x≈220).
+    // lands over the doorway and the whole 272px lab spans around center.
     this._hallDoorX = bldX + 68;
     const labDoors = this._drawCentralLab(ctx, this._hallDoorX, bldGround, t, pal);
     this._officeDoorX = labDoors.west;         // commuters from the lot head here
@@ -798,6 +797,9 @@ export class TitleScreen {
 
     // ── Beamline ──
     const comps = this._drawBeamline(ctx, t, W);
+    // beamline ops overlays (vacuum/bake/cavity/breakthrough) — in hall coordinates
+    this._updateBeamlineEvents(t, W, comps);
+    this._drawBeamlineEvents(ctx, t, W, comps);
 
     // ── Scientists, mishaps, ghosts (foreground) ──
     this._fxFrame(ctx, now, t, comps, W);
@@ -1356,11 +1358,12 @@ export class TitleScreen {
   }
 
   _roadFrame(ctx, t, W, pal) {
-    // Gate sits in the fence line, left of the centered menu column (menu
-    // spans ~0.4W..0.6W). The road arrives OUTSIDE the perimeter along the
-    // ranch band, punches through the fence gap, and drops to the lot.
-    const gateX = Math.floor(W * 0.28);
-    const lotX = gateX + 12;              // visitor lot just inside the gate
+    // Gate sits in the fence line, left of the now-centered lab. The road
+    // arrives OUTSIDE the perimeter along the ranch band, punches through
+    // the fence gap, and drops to the lot — lot moved hard left so the
+    // approach is noticeably shorter and clear of the centered building.
+    const gateX = Math.floor(W * 0.10);
+    const lotX = gateX + 8;               // visitor lot just inside the gate, far left
     const lotW = 65;                      // 3 stalls, 21px pitch
     const roadEnd = lotX + lotW + 4;
     const dt = Math.min(0.1, Math.max(0, t - (this._roadPrevT || t)));
@@ -2645,21 +2648,27 @@ export class TitleScreen {
   _drawCentralLab(ctx, hx, groundY, t, pal) {
     const g = groundY + 4;                        // 196: sits on the hall coping
     const V = {
-      off:  { x0: hx - 155, x1: hx - 83,  top: g - 40, base: g },              // 230..302
-      ctrl: { x0: hx - 83,  x1: hx - 11,  top: g - 50, base: g + 2, fwd: 1 },  // 302..374
+      off:  { x0: hx - 155, x1: hx - 83,  top: g - 40, base: g },
+      ctrl: { x0: hx - 83,  x1: hx - 11,  top: g - 50, base: g + 2, fwd: 1 },
       lob:  { x0: hx - 11,  x1: hx + 11,  top: g - 30, base: g + 3, fwd: 1, cast: 1 },
-      cafe: { x0: hx + 11,  x1: hx + 85,  top: g - 36, base: g },              // 396..470
-      svc:  { x0: hx + 85,  x1: hx + 117, top: g - 32, base: g },              // 470..502
+      cafe: { x0: hx + 11,  x1: hx + 85,  top: g - 36, base: g },
+      svc:  { x0: hx + 85,  x1: hx + 117, top: g - 32, base: g },
+      rf:   { x0: hx + 117, x1: hx + 182, top: g - 44, base: g },              // RF high-bay
+      cryo: { x0: hx + 182, x1: hx + 236, top: g - 38, base: g },              // cryogenics lab
     };
     this._labRoof(ctx, V, t, pal);                // plant first: parapets crop its feet
 
-    // back plane first, then the two volumes that step toward the camera
+    // back plane first, east labs before the forward-stepped ctrl/lob
     this._labShell(ctx, V.off, pal);
     this._labOfficeWing(ctx, V.off, t, pal);
     this._labShell(ctx, V.cafe, pal);
     this._labCafeteria(ctx, V.cafe, t, pal);
     this._labShell(ctx, V.svc, pal);
     this._labServices(ctx, V.svc, pal);
+    this._labShell(ctx, V.rf, pal);
+    this._labRfLab(ctx, V.rf, t, pal);
+    this._labShell(ctx, V.cryo, pal);
+    this._labCryoLab(ctx, V.cryo, t, pal);
     this._labShell(ctx, V.ctrl, pal);
     this._labControlRoom(ctx, V.ctrl, t, pal);
     this._labShell(ctx, V.lob, pal);
@@ -2671,8 +2680,12 @@ export class TitleScreen {
     this._labEntrance(ctx, westX, V.off.base, 7, 13, 9, pal, false);
     this._labEntrance(ctx, hx, V.lob.base, 8, 16, 13, pal, true);
 
-    this._labSign(ctx, V.ctrl.x0 + 4, V.ctrl.top - 17, pal);
-    this._labCafeSign(ctx, V.cafe.x0 + 22, V.cafe.top - 11);
+    // centered on their parapets — plate widths: CENTRAL 59, CAFE 23, RF 19, CRYO 24
+    const ctrlW = 59, cafeW = 23, rfW = 19, cryoW = 24;
+    this._labSign(ctx, V.ctrl.x0 + Math.floor((V.ctrl.x1 - V.ctrl.x0 - ctrlW) / 2), V.ctrl.top - 17, pal);
+    this._labCafeSign(ctx, V.cafe.x0 + Math.floor((V.cafe.x1 - V.cafe.x0 - cafeW) / 2), V.cafe.top - 11);
+    this._labRfSign(ctx, V.rf.x0 + Math.floor((V.rf.x1 - V.rf.x0 - rfW) / 2), V.rf.top - 11);
+    this._labCryoSign(ctx, V.cryo.x0 + Math.floor((V.cryo.x1 - V.cryo.x0 - cryoW) / 2), V.cryo.top - 11);
     return { west: westX, main: hx };
   }
 
@@ -2780,6 +2793,32 @@ export class TitleScreen {
     ctx.fillStyle = '#1d1a22';
     ctx.fillRect(V.svc.x0 + 14, s - 9, 5, 9);     // roof door
     stack(V.svc.x0 + 27, s - 8, 4, 10);
+
+    const rf = V.rf.top;                          // RF high-bay: klystron gallery + waveguide bridge
+    box(V.rf.x0 + 6, rf - 14, 18, 14);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    for (let k = 2; k < 10; k += 2) ctx.fillRect(V.rf.x0 + 8, rf - 14 + k, 9, 1);
+    box(V.rf.x0 + 30, rf - 10, 16, 12);
+    ctx.fillStyle = this._lerpHex('#3a3346', '#8a8296', L);
+    ctx.fillRect(V.rf.x0 + 30, rf - 10, 16, 1);
+    // waveguide bridge across the roof
+    ctx.fillStyle = this._lerpHex('#5a6a78', '#a0b0c0', L);
+    ctx.fillRect(V.rf.x0 + 24, rf - 6, 12, 3);
+    ctx.fillStyle = this._lerpHex('#3c4a58', '#7a8fa2', L);
+    ctx.fillRect(V.rf.x0 + 24, rf - 6, 12, 1);
+    stack(V.rf.x0 + 50, rf - 12, 4, 14);
+
+    const ky = V.cryo.top;                        // cryogenics: compressor + dewars
+    box(V.cryo.x0 + 8, ky - 12, 14, 10);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    for (let k = 2; k < 7; k += 2) ctx.fillRect(V.cryo.x0 + 10, ky - 12 + k, 6, 1);
+    stack(V.cryo.x0 + 28, ky - 14, 5, 16);
+    stack(V.cryo.x0 + 36, ky - 9, 3, 11);
+    // cryo transfer line
+    ctx.fillStyle = this._lerpHex('#7fb8d0', '#c8e6f2', L);
+    ctx.fillRect(V.cryo.x0 + 12, ky - 5, 22, 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(V.cryo.x0 + 12, ky - 5, 22, 1);
   }
 
   // Office wing: two floors of ribbon glazing, west entrance at the near end.
@@ -3105,6 +3144,125 @@ export class TitleScreen {
     ctx.fillRect(v.x0 + 25, v.base - 15, 8, 2);   // door hood
   }
 
+  // RF high-bay: klystron gallery, waveguide, racks. Tallest volume — reads
+  // as the high-power source for the cryomodules in the hall.
+  _labRfLab(ctx, v, t, pal) {
+    const gx0 = v.x0 + 3, gx1 = v.x1 - 3, w = gx1 - gx0;
+    const ceil = v.top + 8, fy = v.base - 4;
+    const L = pal.light;
+    // back wall
+    ctx.fillStyle = '#141220';
+    ctx.fillRect(gx0, ceil, w, fy - ceil);
+    ctx.fillStyle = 'rgba(232,194,90,0.04)';
+    ctx.fillRect(gx0, ceil, w, fy - ceil);
+    ctx.fillStyle = '#241f2e';
+    ctx.fillRect(gx0, fy - 1, w, 2);
+    // overhead waveguide run (silver rectangular duct)
+    ctx.fillStyle = this._lerpHex('#6a7688', '#c0cdd8', L);
+    ctx.fillRect(gx0 + 2, ceil + 6, w - 4, 4);
+    ctx.fillStyle = this._lerpHex('#4a5666', '#8aa0b8', L);
+    ctx.fillRect(gx0 + 2, ceil + 6, w - 4, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    for (let x = gx0 + 10; x < gx1 - 6; x += 12) ctx.fillRect(x, ceil + 8, 4, 1); // hangers
+    // vertical drop to klystron
+    ctx.fillStyle = this._lerpHex('#6a7688', '#c0cdd8', L);
+    ctx.fillRect(gx0 + 14, ceil + 10, 4, 14);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(gx0 + 15, ceil + 14, 2, 6);
+    // twin pulsed klystrons + modulators (RF — prominent, registry red waveguide)
+    for (let k = 0; k < 2; k++) {
+      const kx = gx0 + 10 + k * 22;
+      // modulator cabinet
+      ctx.fillStyle = '#1e2430';
+      ctx.fillRect(kx, fy - 20, 10, 16);
+      ctx.fillStyle = '#2e3a4e';
+      ctx.fillRect(kx + 1, fy - 19, 8, 1);
+      ctx.fillStyle = '#3a4a62';
+      for (let y = fy - 16; y < fy - 4; y += 3) ctx.fillRect(kx + 2, y, 6, 1);
+      ctx.fillStyle = '#8a2a2a';
+      ctx.fillRect(kx + 4, fy - 22, 2, 3); // HV bushing
+      // klystron tube
+      ctx.fillStyle = '#c8d4e0';
+      ctx.fillRect(kx + 12, fy - 26, 7, 20);
+      ctx.fillStyle = '#8a98b0';
+      ctx.fillRect(kx + 13, fy - 26, 1, 20);
+      ctx.fillStyle = '#2a3a4e';
+      for (let yy = 0; yy < 20; yy += 4) ctx.fillRect(kx + 12, fy - 26 + yy, 7, 1);
+      ctx.fillStyle = '#3a4a62'; // collector
+      ctx.fillRect(kx + 11, fy - 28, 9, 3);
+      ctx.fillStyle = '#d0d8e8';
+      ctx.fillRect(kx + 12, fy - 28, 7, 1);
+      // RF waveguide out (red) + pulse glow
+      ctx.fillStyle = '#cc4444';
+      ctx.fillRect(kx + 15, fy - 24, 2, 4);
+      const pulse = Math.sin(t * 3.0 + k * 1.1) > 0.25;
+      ctx.fillStyle = pulse ? '#ff6b6b' : '#8a2a2a';
+      ctx.fillRect(kx + 16, fy - 23, 1, 1);
+      if (pulse) {
+        ctx.fillStyle = 'rgba(255,80,80,0.16)';
+        ctx.fillRect(kx + 10, fy - 27, 11, 5);
+      }
+    }
+    // tiny operator at rack
+    this._drawTinyPerson(ctx, gx0 + 28, fy, 1, 'stand', '#c6c8d4', '#d8a878', '#6e6e78', t, { phase: 1.1 });
+    this._drawTinyPerson(ctx, gx0 + 52, fy, -1, 'stand', '#b7bcca', '#b0784f', '#3a2e28', t, { phase: 3.4 });
+    this._labGlazingFrame(ctx, gx0, ceil, w, fy - ceil, 11, pal, [ceil + 12]);
+  }
+
+  // Cryogenics lab: dewars, transfer line, frost. Cooler palette, vent stacks.
+  _labCryoLab(ctx, v, t, pal) {
+    const gx0 = v.x0 + 3, gx1 = v.x1 - 3, w = gx1 - gx0;
+    const ceil = v.top + 8, fy = v.base - 4;
+    const L = pal.light;
+    ctx.fillStyle = '#121830';
+    ctx.fillRect(gx0, ceil, w, fy - ceil);
+    ctx.fillStyle = 'rgba(84,216,240,0.06)';
+    ctx.fillRect(gx0, ceil, w, fy - ceil);
+    ctx.fillStyle = '#1c2a44';
+    ctx.fillRect(gx0, fy - 1, w, 2);
+    // overhead cryo transfer line (frosted)
+    ctx.fillStyle = this._lerpHex('#8fb8d0', '#e0f0f8', L);
+    ctx.fillRect(gx0 + 1, ceil + 7, w - 2, 3);
+    ctx.fillStyle = '#cce8f6';
+    ctx.fillRect(gx0 + 1, ceil + 7, w - 2, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    for (let x = gx0 + 6; x < gx1 - 4; x += 10) ctx.fillRect(x, ceil + 9, 3, 1);
+    // vertical drop
+    ctx.fillStyle = '#b0d0e8';
+    ctx.fillRect(gx0 + 10, ceil + 10, 3, 12);
+    // large vertical dewar (left)
+    ctx.fillStyle = '#d6e8f4';
+    ctx.fillRect(gx0 + 6, fy - 26, 10, 20);
+    ctx.fillStyle = '#8fb8d0';
+    ctx.fillRect(gx0 + 7, fy - 26, 1, 20);
+    ctx.fillStyle = '#4a6a8a';
+    for (let k = 0; k < 20; k += 4) ctx.fillRect(gx0 + 6, fy - 26 + k, 10, 1);
+    ctx.fillStyle = '#2a4a62';
+    ctx.fillRect(gx0 + 8, fy - 28, 6, 2); // cap
+    // frost plume at valve (subtle pulse)
+    if (Math.sin(t * 1.4 + 1.2) > 0.6) {
+      ctx.fillStyle = 'rgba(220,240,255,0.55)';
+      ctx.fillRect(gx0 + 10, fy - 30, 2, 2);
+      ctx.fillStyle = 'rgba(220,240,255,0.28)';
+      ctx.fillRect(gx0 + 11, fy - 32, 1, 2);
+    }
+    // horizontal cryomodule / cold box (right)
+    ctx.fillStyle = '#a8c0d8';
+    ctx.fillRect(gx0 + 24, fy - 18, 22, 10);
+    ctx.fillStyle = '#6a8aaa';
+    ctx.fillRect(gx0 + 24, fy - 18, 22, 1);
+    ctx.fillStyle = '#2a3a4a';
+    ctx.fillRect(gx0 + 26, fy - 17, 2, 8);
+    ctx.fillRect(gx0 + 32, fy - 17, 2, 8);
+    ctx.fillRect(gx0 + 38, fy - 17, 2, 8);
+    ctx.fillStyle = this._lerpHex('#2a5a8a', '#4af2a0', Math.max(0, Math.sin(t * 1.1) * 0.5 + 0.5));
+    ctx.fillRect(gx0 + 28, fy - 9, 10, 1); // cold status bar
+    // operator monitoring
+    this._drawTinyPerson(ctx, gx0 + 20, fy, 1, 'stand', '#c6c8d4', '#e8c9a2', '#8a5a2e', t, { phase: 2.7 });
+    this._drawTinyPerson(ctx, gx0 + 42, fy, -1, 'stand', '#b7bcca', '#b0784f', '#3a2e28', t, { phase: 5.1 });
+    this._labGlazingFrame(ctx, gx0, ceil, w, fy - ceil, 10, pal, []);
+  }
+
   // One live screen face. The same display vocabulary everywhere in the
   // building, so the video wall and the console row read as one system.
   _labScreen(ctx, x, y, w, h, kind, t, seed) {
@@ -3255,6 +3413,42 @@ export class TitleScreen {
     });
   }
 
+  _labRfSign(ctx, sx, sy) {
+    ctx.fillStyle = '#2a2620';
+    ctx.fillRect(sx + 3, sy + 8, 2, 4);
+    ctx.fillRect(sx + 14, sy + 8, 2, 4);
+    ctx.fillStyle = '#141020';
+    ctx.fillRect(sx, sy, 19, 9);
+    ctx.fillStyle = '#ff6a3a';
+    const rows = [
+      ['1110', '1001', '1110', '1010', '1001'], // R
+      ['1111', '1000', '1110', '1000', '1000'], // F
+    ];
+    rows.forEach((g, k) => {
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++)
+        if (g[r][c] === '1') ctx.fillRect(sx + 3 + k * 5 + c, sy + 2 + r, 1, 1);
+    });
+  }
+
+  _labCryoSign(ctx, sx, sy) {
+    ctx.fillStyle = '#2a2620';
+    ctx.fillRect(sx + 3, sy + 8, 2, 4);
+    ctx.fillRect(sx + 18, sy + 8, 2, 4);
+    ctx.fillStyle = '#0f1e2e';
+    ctx.fillRect(sx, sy, 24, 9);
+    ctx.fillStyle = '#7ec8e8';
+    const rows = [
+      ['0111', '1000', '1000', '1000', '0111'], // C
+      ['1110', '1001', '1110', '1010', '1001'], // R
+      ['1001', '1001', '0111', '0110', '0110'], // Y
+      ['0111', '1001', '1001', '1001', '0111'], // O
+    ];
+    rows.forEach((g, k) => {
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++)
+        if (g[r][c] === '1') ctx.fillRect(sx + 2 + k * 5 + c, sy + 2 + r, 1, 1);
+    });
+  }
+
   _drawBeamline(ctx, t, W) {
     const pipeY = 254;           // beam axis: waist height above the pad
     const groundY = 272;         // component base line
@@ -3280,25 +3474,43 @@ export class TitleScreen {
 
     // ── Pulse timing, resolved up front: the undulator has to know where the
     //    bunch is to light its gap, and the scanner steps on the pulse index ──
-    const period = 1.5;
+    //    Beam is intentionally slower than before (period 3.0 vs 1.5) so the
+    //    undulator build-up reads. Photons exit at the SAME linear speed the
+    //    electrons had — pEnd is derived from distance ratio, not a magic constant.
+    const period = 4.2;
     const pulseIdx = Math.floor(t / period);
     const phase = (t % period) / period;
-    // electron leg → then the beam SPLITS: photons carry straight on to the
-    // scanner (2× faster), the spent bunch is kicked down into the dump
-    const eEnd = 0.68, pEnd = 0.735, dEnd = 0.755;
+    const eEnd = 0.64;
+    // distances drive the split timing: same speed before and after the undulator
+    const _eDist = Math.max(1, undX1 - pipeStart);
+    const _pDist = Math.max(1, tgtX - undX1);
+    const seg1 = Math.hypot(dmp.midX - dmp.bx0, dmp.midY - dmp.by0);
+    const seg2 = Math.hypot(dmp.bx1 - dmp.midX, dmp.by1 - dmp.midY);
+    const _dumpLen = seg1 + seg2 + 4;
+    const _pDur = (_pDist / _eDist) * eEnd;                 // photon transit at electron speed
+    const _dDur = (_dumpLen / _eDist) * eEnd * 1.15;        // dump branch a touch slower (bent)
+    let pEnd = Math.min(0.92, eEnd + _pDur);
+    let dEnd = Math.min(0.95, eEnd + _dDur);
+    // keep photon and dump windows from collapsing at narrow W
+    if (pEnd - eEnd < 0.06) pEnd = eEnd + 0.06;
+    if (dEnd - eEnd < 0.05) dEnd = eEnd + 0.05;
     let beamLeg = 'arrive';
     this._beamX = -999;
     if (phase < eEnd) {
       beamLeg = 'e';                           // cyan bunch: gun → undulator exit
       this._beamX = Math.floor(pipeStart + 2 + (undX1 - pipeStart - 2) * (phase / eEnd));
     } else if (phase < pEnd) {
-      beamLeg = 'p';                           // photon pulse: undulator → scanner
+      beamLeg = 'p';                           // photon pulse: undulator → scanner at SAME speed
       this._beamX = Math.floor(undX1 + (tgtX - undX1) * ((phase - eEnd) / (pEnd - eEnd)));
     }
     // spent-bunch leg down the extraction branch, concurrent with the photons
     const dumpF = phase < eEnd || phase > dEnd ? -1 : (phase - eEnd) / (dEnd - eEnd);
     // dump afterglow: hot for a moment after the bunch lands
-    const dumpHot = phase > dEnd ? Math.max(0, 1 - (phase - dEnd) / 0.22) : 0;
+    const dumpHot = phase > dEnd ? Math.max(0, 1 - (phase - dEnd) / 0.18) : 0;
+    // cache for undulator build-up visual (fraction through undulator)
+    this._beamPhase = phase;
+    this._beamEEnd = eEnd;
+    this._pEnd = pEnd;
 
     // ── Cryo & RF services: floor-level runs from the support plant into each
     //    cryomodule. Drawn before the pipe, so the beamline crosses in front ──
@@ -3431,21 +3643,65 @@ export class TitleScreen {
       ctx.fillStyle = 'rgba(102,224,255,0.07)';
       ctx.fillRect(bx - 9, pipeY - 8, 20, 16);
     } else if (beamLeg === 'p') {
-      // white/violet X-ray pulse: a tight bar on the axis, brighter than what
-      // went in — the accumulated product of the undulator's rays
+      // coherent FEL light: the undulator's microbunched beam has converted to
+      // photons — they ride out as a wiggling sine, while the spent electrons
+      // (cyan) peel off to the dump. Light is white-violet and visibly wiggles.
       const bx = this._beamX;
-      ctx.fillStyle = 'rgba(226,208,255,0.55)';
-      ctx.fillRect(undX1 - 8, pipeY - 1, bx - undX1 + 8, 2);   // wake back to the exit
-      const trailCols = ['rgba(255,255,255,0.9)', 'rgba(238,226,255,0.6)', 'rgba(226,208,255,0.3)'];
-      for (let i = 0; i < trailCols.length; i++) {
-        ctx.fillStyle = trailCols[i];
-        ctx.fillRect(bx - 5 - i * 5, pipeY - 1, 5, 2);
+      // trailing coherent wave from undulator exit to pulse head — sine with
+      // same pitch as the undulator wiggle (≈6px period), 2px amplitude
+      const waveA = 2;
+      const k = Math.PI / 3; // 6px period
+      const phi = t * 11; // propagate — slower with 4.2s period
+      for (let x = undX1; x <= bx; x++) {
+        const dy = Math.round(waveA * Math.sin((x - undX1) * k + phi));
+        const g = (x - undX1) / Math.max(1, bx - undX1); // brighten toward head
+        const a = 0.18 + 0.45 * g;
+        // core sinusoid 1px
+        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+        ctx.fillRect(x, pipeY + dy, 1, 1);
+        // soft violet underglow
+        if (g > 0.25) {
+          ctx.fillStyle = `rgba(200,160,255,${(0.10 * g).toFixed(2)})`;
+          ctx.fillRect(x, pipeY + dy + 1, 1, 1);
+          ctx.fillRect(x, pipeY + dy - 1, 1, 1);
+        }
       }
+      // brighter head — still wiggles with the wave phase
+      const headDy = Math.round(waveA * Math.sin((bx - undX1) * k + phi));
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fillRect(bx - 1, pipeY - 1 + headDy, 3, 2);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(bx - 2, pipeY - 2, 6, 4);
-      ctx.fillStyle = 'rgba(200,160,255,0.20)';
-      ctx.fillRect(bx - 8, pipeY - 5, 18, 10);
+      ctx.fillRect(bx, pipeY + headDy, 2, 1);
+      ctx.fillStyle = 'rgba(200,160,255,0.22)';
+      ctx.fillRect(bx - 3, pipeY - 3 + headDy, 8, 6);
     } else {
+      // arrival — keep photon tail fading smoothly instead of vanishing abruptly
+      // draw a fading sine tail from undulator to scanner for ~0.14 phase after pEnd
+      const tailFade = Math.max(0, 1 - (phase - pEnd) / 0.14);
+      if (tailFade > 0.02) {
+        const waveA = 2;
+        const k = Math.PI / 3;
+        const phi = t * 11;
+        // tail shrinks from head toward exit
+        const tailX0 = undX1 + Math.floor((1 - tailFade) * (tgtX - undX1) * 0.65);
+        for (let x = tailX0; x < tgtX; x++) {
+          const dy = Math.round(waveA * Math.sin((x - undX1) * k + phi));
+          const a = 0.55 * tailFade * (0.35 + 0.65 * (x - tailX0) / Math.max(1, tgtX - tailX0));
+          ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+          ctx.fillRect(x, pipeY + dy, 1, 1);
+        }
+        // lingering electron trail near undulator exit also fades
+        const eFade = Math.max(0, 1 - (phase - eEnd) / 0.22);
+        if (eFade > 0.05) {
+          const trailLen = Math.floor(14 * eFade);
+          for (let i = 0; i < trailLen; i++) {
+            const tx = undX1 - 2 - i * 2;
+            const a2 = 0.35 * eFade * (1 - i / trailLen);
+            ctx.fillStyle = `rgba(102,224,255,${a2.toFixed(2)})`;
+            ctx.fillRect(tx, pipeY - 1 + this._undWiggle(tx, undX0 + 8, undX1 - 8), 2, 1);
+          }
+        }
+      }
       // arrival flash on the wafer — and cash in the pulse
       if (this._cashPops && this._lastPopPulse !== pulseIdx) {
         this._lastPopPulse = pulseIdx;
@@ -3472,14 +3728,16 @@ export class TitleScreen {
     return comps;
   }
 
-  // Extraction line geometry — where the dipole kicks the spent bunch and the
-  // branch pipe that carries it down into the dump. Shared by the drawing and
-  // the pulse that runs along it, so they can never drift apart.
+  // Extraction line geometry — two bends so the final stretch is parallel
+  // to the main beam pipe. First dipole kicks down-right, second bends back
+  // horizontal. Dump sits much further back behind the chip conveyor.
   _dumpGeom(undX1, pipeY) {
-    const dipX = undX1 + 10;                   // dipole centre, clear of the gap column
-    const bx0 = dipX + 7, by0 = pipeY + 2;     // branch leaves the yoke already kicked down
-    const bx1 = bx0 + 9, by1 = by0 + 8;        // short 42° run into the dump's entry boss
-    return { dipX, bx0, by0, bx1, by1, mx0: bx1 - 8, mx1: bx1 + 22, my0: by1 - 2 };
+    const dipX = undX1 + 12;                    // first bend — kicks out
+    const midX = dipX + 21, midY = pipeY + 14;  // elbow after first diagonal
+    const dipX2 = midX + 7;                     // second bend — back to parallel
+    const bx0 = dipX + 7, by0 = pipeY + 2;      // branch leaves first yoke
+    const bx1 = midX + 38, by1 = midY;          // final parallel stretch
+    return { dipX, dipX2, bx0, by0, midX, midY, bx1, by1, mx0: bx1 - 8, mx1: bx1 + 26, my0: by1 - 2 };
   }
 
   // Beamline endpoints. Gun cabinet and wafer scanner are inset from the
@@ -3504,26 +3762,43 @@ export class TitleScreen {
     return { rackX: mgx(0.08), dewarX: mgx(0.505), pumpX: mgx(0.96), mgx };
   }
 
-  // RF rack, cryo dewars, vacuum pump skid — quiet mid-ground depth.
+  // RF klystrons, cryo dewars, vacuum pump skid — quiet mid-ground depth.
   // Feet sit on the hall FLOOR, 10px clear of the wall base at y=230; the
   // bodies still rise past it, so the plant reads as standing against the wall.
   _drawSupportEquip(ctx, rackX, dewarX, pumpX, t) {
     const base = 240;
     const shadow = 'rgba(0,0,0,0.35)';
-    // RF equipment rack (feeds the cavity)
+    // Pulsed klystron + modulator (RF — registry red, prominent)
     ctx.fillStyle = shadow;
-    ctx.fillRect(rackX - 7, base, 15, 1);           // floor contact
-    ctx.fillStyle = '#2c2c3e';
-    ctx.fillRect(rackX - 6, base - 24, 13, 24);
-    ctx.fillStyle = '#35354a';
-    ctx.fillRect(rackX - 5, base - 23, 11, 1);
-    ctx.fillStyle = '#242434';
-    for (let i = 0; i < 5; i++) ctx.fillRect(rackX - 5, base - 20 + i * 4, 11, 1);
-    const on = Math.sin(t * 1.8 + 0.4) > 0;
-    ctx.fillStyle = on ? '#3e6a46' : '#2a3a2e';    // dim rack LEDs
-    ctx.fillRect(rackX + 3, base - 22, 1, 1);
-    ctx.fillStyle = '#5a3a40';
-    ctx.fillRect(rackX + 1, base - 22, 1, 1);
+    ctx.fillRect(rackX - 9, base, 19, 1);           // floor contact
+    // modulator cabinet (oil-filled, dark)
+    ctx.fillStyle = '#1e2430';
+    ctx.fillRect(rackX - 8, base - 22, 10, 18);
+    ctx.fillStyle = '#2e3a4e';
+    ctx.fillRect(rackX - 7, base - 21, 8, 1);
+    ctx.fillStyle = '#3a4a62';
+    for (let y = base - 18; y < base - 4; y += 3) ctx.fillRect(rackX - 6, y, 6, 1);
+    ctx.fillStyle = '#8a2a2a'; // HV bushing
+    ctx.fillRect(rackX - 2, base - 24, 2, 3);
+    // klystron tube (silver, collector on top, gun at bottom)
+    ctx.fillStyle = '#c8d4e0';
+    ctx.fillRect(rackX + 4, base - 28, 7, 22);
+    ctx.fillStyle = '#8a98b0';
+    ctx.fillRect(rackX + 5, base - 28, 1, 22); // seam
+    ctx.fillStyle = '#2a3a4e';
+    for (let k = 0; k < 22; k += 4) ctx.fillRect(rackX + 4, base - 28 + k, 7, 1);
+    ctx.fillStyle = '#3a4a62'; // collector
+    ctx.fillRect(rackX + 3, base - 30, 9, 3);
+    ctx.fillStyle = '#d0d8e8';
+    ctx.fillRect(rackX + 4, base - 30, 7, 1);
+    // waveguide from klystron to cryomodule (red)
+    ctx.fillStyle = '#cc4444';
+    ctx.fillRect(rackX + 7, base - 26, 2, 3);
+    const pulse = Math.sin(t * 3.2) > 0.3;
+    ctx.fillStyle = pulse ? '#ff6b6b' : '#8a2a2a';
+    ctx.fillRect(rackX + 5, base - 27, 1, 1);
+    ctx.fillStyle = pulse ? 'rgba(255,80,80,0.18)' : 'rgba(0,0,0,0)';
+    if (pulse) ctx.fillRect(rackX + 2, base - 28, 11, 4);
     // cryogenic dewars (pair, frost band at the bottom)
     for (let k = 0; k < 2; k++) {
       const dx = dewarX + k * 11;
@@ -3562,48 +3837,47 @@ export class TitleScreen {
   // periodic bellows ticks, jumping down into each cryomodule's top cryo port.
   _drawCryoLine(ctx, x1, x2, y, portXs, portY) {
     const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
-    ctx.fillStyle = '#4e5a68';                     // vacuum jacket
+    ctx.fillStyle = '#44aacc';                     // cryo jacket — registry cyan #44aacc
     ctx.fillRect(xa, y, xb - xa, 2);
-    ctx.fillStyle = '#7d8b9b';                     // top sheen
+    ctx.fillStyle = '#88d0e8';                     // top sheen
     ctx.fillRect(xa, y, xb - xa, 1);
-    ctx.fillStyle = '#9aa8b8';                     // bellows ticks
+    ctx.fillStyle = '#2a7a9a';                     // bellows ticks
     for (let x = xa + 3; x < xb - 1; x += 6) ctx.fillRect(x, y - 1, 1, 4);
     for (const x of portXs) {
-      ctx.fillStyle = '#3f4a57';                   // takeoff valve box on the run
+      ctx.fillStyle = '#1f4a5a';                   // takeoff valve box — cryo cyan
       ctx.fillRect(x - 3, y - 2, 6, 5);
-      ctx.fillStyle = '#7d8b9b';
+      ctx.fillStyle = '#44aacc';
       ctx.fillRect(x - 3, y - 2, 6, 1);
-      ctx.fillStyle = '#9aa8b8';
+      ctx.fillStyle = '#88d0e8';
       ctx.fillRect(x - 1, y - 1, 2, 1);            // handwheel
-      ctx.fillStyle = '#4e5a68';
+      ctx.fillStyle = '#44aacc';
       ctx.fillRect(x - 1, y + 2, 3, portY - y - 2);   // jumper down to the port
-      ctx.fillStyle = '#7d8b9b';
+      ctx.fillStyle = '#88d0e8';
       ctx.fillRect(x - 1, y + 2, 1, portY - y - 2);
-      ctx.fillStyle = '#9fc4d8';                   // frost where it turns cold
+      ctx.fillStyle = '#b8e6f2';                   // frost where it turns cold
       ctx.fillRect(x - 1, portY - 2, 3, 2);
     }
   }
 
-  // Brass rectangular waveguide: klystron rack → each cryomodule's RF coupler,
-  // running at floor level then down the module's left flank into the elbow.
+  // RF rectangular waveguide — registry red #cc4444, klystron → cryomodule coupler
   _drawWaveguide(ctx, x1, x2, y, ports, portY) {
     const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
-    ctx.fillStyle = '#5e4a1e';
+    ctx.fillStyle = '#cc4444';                     // RF red — registry #cc4444
     ctx.fillRect(xa, y, xb - xa, 3);
-    ctx.fillStyle = '#8a6f30';
+    ctx.fillStyle = '#e06060';                     // top highlight
     ctx.fillRect(xa, y, xb - xa, 1);
-    ctx.fillStyle = '#42330f';
+    ctx.fillStyle = '#8a2a2a';                     // bottom shadow
     ctx.fillRect(xa, y + 2, xb - xa, 1);
-    ctx.fillStyle = '#a68a44';                     // flange ribs
+    ctx.fillStyle = '#aa4444';                     // flange ribs
     for (let x = xa + 10; x < xb; x += 18) ctx.fillRect(x, y, 1, 3);
     for (const p of ports) {
-      ctx.fillStyle = '#5e4a1e';
-      ctx.fillRect(p.x, y + 3, 3, portY - y - 3);  // down the module flank
-      ctx.fillStyle = '#8a6f30';
+      ctx.fillStyle = '#cc4444';
+      ctx.fillRect(p.x, y + 3, 3, portY - y - 3);  // down the module flank — RF red
+      ctx.fillStyle = '#e06060';
       ctx.fillRect(p.x, y + 3, 1, portY - y - 3);
-      ctx.fillStyle = '#5e4a1e';
+      ctx.fillStyle = '#cc4444';
       ctx.fillRect(p.x, portY, p.ex - p.x, 3);     // elbow into the coupler
-      ctx.fillStyle = '#8a6f30';
+      ctx.fillStyle = '#e06060';
       ctx.fillRect(p.x, portY, p.ex - p.x, 1);
     }
   }
@@ -3643,7 +3917,7 @@ export class TitleScreen {
     ctx.fillRect(x0, y0 + h - 4, w, 3);
     ctx.fillStyle = '#6c7d95';                     // stiffener rings
     for (let bx = x0 + 6; bx < x0 + w - 4; bx += 11) ctx.fillRect(bx, y0 + 1, 1, h - 4);
-    // cutaway stripe: copper cavity cells inside the cold mass
+    // cutaway stripe: SRF niobium cavity cells inside the cold mass (not copper NC)
     const sx = x0 + 5, sw = w - 10;
     ctx.fillStyle = '#9fb4cb';                     // cut edge
     ctx.fillRect(sx - 1, pipeY - 7, sw + 2, 1);
@@ -3652,15 +3926,25 @@ export class TitleScreen {
     ctx.fillRect(sx, pipeY - 6, sw, 12);
     for (let k = 0; k < 3; k++) {
       const cx = sx + 3 + k * 12;
-      ctx.fillStyle = '#8a4f28';
+      // niobium SRF cells — cool silver-blue, not warm NC copper
+      ctx.fillStyle = '#6a7a96';
       ctx.fillRect(cx, pipeY - 5, 10, 10);
-      ctx.fillStyle = '#c47a3e';
+      ctx.fillStyle = '#c0d2e8';
       ctx.fillRect(cx + 1, pipeY - 4, 8, 8);
-      ctx.fillStyle = '#e09a58';
+      ctx.fillStyle = '#e8f0fa';
       ctx.fillRect(cx + 1, pipeY - 4, 8, 1);
-      ctx.fillStyle = '#5a3418';                   // iris throat
+      ctx.fillStyle = '#4a5a78';                   // iris throat
       ctx.fillRect(cx + 3, pipeY - 1, 4, 3);
+      // HOM coupler nub on cell
+      ctx.fillStyle = '#8ea2ba';
+      ctx.fillRect(cx + 7, pipeY - 5, 2, 2);
     }
+    // SRF stencil on vessel (tiny, reads at pixel scale)
+    ctx.fillStyle = '#2a3a52';
+    ctx.fillRect(x0 + w - 14, y0 + h - 6, 10, 1);
+    ctx.fillStyle = '#8fb8d8';
+    ctx.fillRect(x0 + w - 13, y0 + h - 6, 1, 1); // S
+    ctx.fillRect(x0 + w - 11, y0 + h - 6, 1, 1); // R (hint)
     // top cryo port turret (the transfer line lands on this)
     const portX = x0 + 12;
     ctx.fillStyle = '#46536a';
@@ -3723,39 +4007,66 @@ export class TitleScreen {
     ctx.fillRect(gx0, pipeY - 2, gx1 - gx0, 4);
     ctx.fillStyle = '#5c6880';
     ctx.fillRect(gx0, pipeY - 2, gx1 - gx0, 1);
-    // ── Lasing. The bunch snakes down the gap on the pole pitch and throws a
-    //    ray forward off every wiggle crest; both the ray spacing and the
-    //    brightness ramp with distance travelled, so the FEL gain reads as a
-    //    visible build-up from a dim trickle at the entrance to a hard white
-    //    beam at the exit ──
+    // ── Lasing. Photons are wiggled out of the bunch inside the gap,
+    //    then ride out as a coherent sine. The gap itself carries the same
+    //    propagating wave — no static remnant. While the bunch is inside,
+    //    the wave grows with the bunch; after it exits, the wave slips
+    //    forward and drains out the exit as continuous light.
     if (beamX > gx0) {
-      const gl = gx1 - gx0, bEnd = Math.min(beamX, gx1);
-      // accumulated photon field in the gap, stepped so it brightens downstream
-      for (let i = 0; i < 8; i++) {
-        const a = gx0 + Math.floor((gl * i) / 8);
-        if (a >= bEnd) break;
-        const w = Math.min(gx0 + Math.floor((gl * (i + 1)) / 8), bEnd) - a, g = (i + 1) / 8;
-        ctx.fillStyle = `rgba(212,186,255,${(0.04 + g * 0.30).toFixed(2)})`;
-        ctx.fillRect(a, pipeY - 1, w, 2);
-        ctx.fillStyle = `rgba(190,150,255,${(0.02 + g * 0.12).toFixed(2)})`;
-        ctx.fillRect(a, gapT + 1, w, gapB - gapT - 2);
+      const gl = gx1 - gx0;
+      const phi = t * 14; // same phase as the external photon wave
+      const k = Math.PI / 3; // 6px period — matches undulator poles
+      // gap wave: coherent sine that grows with cube gain and moves with phi
+      // during bunch transit (beamX <= gx1) wave fills gx0..beamX
+      // after exit (beamX > gx1) wave drains: gx0..gx1 fading with (t - eEnd)
+      let xStart = gx0, xEnd = Math.min(beamX, gx1);
+      let gapFade = 1;
+      if (beamX > gx1 && this._beamPhase !== undefined) {
+        const eEnd = this._beamEEnd || 0.64;
+        const pEnd = this._pEnd || 0.78;
+        const drain = Math.min(1, Math.max(0, (this._beamPhase - eEnd) / Math.max(0.04, pEnd - eEnd)));
+        gapFade = 1 - drain; // 1 → 0 as photons drain
+        // after half drain, also slide start forward so gap empties from entrance
+        if (drain > 0.45) {
+          xStart = gx0 + Math.floor((drain - 0.45) / 0.55 * gl);
+        }
+        xEnd = gx1;
+        if (gapFade <= 0.02) xStart = xEnd; // fully drained
       }
-      // one ray per wiggle crest — crests alternate every half period (3px),
-      // so the emission points zigzag; the stride drops to every crest past
-      // the first third, which is what makes the gain visible
-      for (let x = gx0 + 2; x < bEnd; x += (x - gx0) / gl < 0.32 ? 9 : 3) {
-        const g = (x - gx0) / gl, dy = this._undWiggle(x, gx0, gx1);
-        ctx.fillStyle = `rgba(255,255,255,${(0.14 + g * 0.66).toFixed(2)})`;
-        ctx.fillRect(x, pipeY - 1 + dy, 2, 1);              // emission point
-        ctx.fillStyle = `rgba(226,208,255,${(0.06 + g * 0.40).toFixed(2)})`;
-        ctx.fillRect(x + 2, pipeY - 1 + dy, 1 + Math.round(g * 5), 1);  // thrown forward
+      if (xEnd > xStart) {
+        for (let x = xStart; x < xEnd; x++) {
+          const g = (x - gx0) / gl;
+          const gg = g * g * g;
+          const dy = Math.round(2 * Math.sin((x - gx0) * k + phi));
+          // amplitude grows with gain, fades with gapFade
+          const a = (0.10 + gg * 0.45) * gapFade;
+          if (a < 0.02) continue;
+          ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+          ctx.fillRect(x, pipeY + dy, 1, 1);
+          // faint violet halo only in the brighter half
+          if (gg > 0.18 && gapFade > 0.25) {
+            ctx.fillStyle = `rgba(190,150,255,${(0.06 * gg * gapFade).toFixed(2)})`;
+            ctx.fillRect(x, pipeY + dy + 1, 1, 1);
+          }
+        }
+        // emission sparkle at the microbunch crests — only while bunch is inside
+        if (beamX <= gx1) {
+          for (let x = gx0 + 2; x < xEnd; x += (x - gx0) / gl < 0.32 ? 9 : 3) {
+            const g = (x - gx0) / gl, dy = this._undWiggle(x, gx0, gx1);
+            const gg = g * g;
+            ctx.fillStyle = `rgba(255,255,255,${(0.10 + gg * 0.55).toFixed(2)})`;
+            ctx.fillRect(x, pipeY - 1 + dy, 1, 1);
+          }
+        }
+        // exit concentration — brightens then drains with gapFade, not static
+        const exG = gapFade * (xEnd - gx0) / gl;
+        if (exG > 0.08) {
+          ctx.fillStyle = `rgba(226,208,255,${(exG * 0.22).toFixed(2)})`;
+          ctx.fillRect(gx1 - 14, pipeY - 1, 14, 2);
+          ctx.fillStyle = `rgba(255,255,255,${(exG * 0.62).toFixed(2)})`;
+          ctx.fillRect(gx1 - 8, pipeY, 8, 1);
+        }
       }
-      // exit: everything the gap made, collapsed onto the axis
-      const ex = (bEnd - gx0) / gl;
-      ctx.fillStyle = `rgba(226,208,255,${(ex * 0.30).toFixed(2)})`;
-      ctx.fillRect(gx1 - 16, pipeY - 2, 16, 4);
-      ctx.fillStyle = `rgba(255,255,255,${(ex * 0.80).toFixed(2)})`;
-      ctx.fillRect(gx1 - 10, pipeY - 1, 10, 2);
     }
     // gap-drive screw columns at each end
     for (const cx of [x0, x1 - 6]) {
@@ -3786,46 +4097,89 @@ export class TitleScreen {
   // placard, a hazard-striped corner guard, and a sickly green glow that flares
   // when a bunch lands.  dumpF: -1 = no bunch on the branch, 0..1 = along it.
   _drawBeamDump(ctx, d, pipeY, t, dumpF, hot) {
-    const { dipX, bx0, by0, bx1, by1, mx0, mx1, my0 } = d;
+    const { dipX, dipX2, bx0, by0, midX, midY, bx1, by1, mx0, mx1, my0 } = d;
     const mw = mx1 - mx0, my1 = my0 + 19;                 // mass span; my1 sits on the floor
 
-    // ── Extraction dipole: a bending magnet in the lattice's own vocabulary —
-    //    grey-blue yoke, copper pancake coils above and below the gap — sitting
-    //    ON the axis, with its throat flaring down into the branch ──
-    const dx0 = dipX - 7, dw = 14;
-    ctx.fillStyle = '#274b73';                            // dark yoke
-    ctx.fillRect(dx0, pipeY - 8, dw, 16);
-    ctx.fillStyle = '#3b6ea5';                            // lit face
-    ctx.fillRect(dx0 + 1, pipeY - 7, dw - 3, 14);
-    ctx.fillStyle = '#5a92c9';
-    ctx.fillRect(dx0 + 1, pipeY - 7, dw - 3, 2);          // top highlight
-    const coil = (cy) => {                                // copper pancake, as the quads
-      ctx.fillStyle = '#8c5522';
-      ctx.fillRect(dx0 + 2, cy, dw - 5, 3);
-      ctx.fillStyle = '#c07a35';
-      ctx.fillRect(dx0 + 2, cy, dw - 6, 2);
-      ctx.fillStyle = '#e0a055';
-      ctx.fillRect(dx0 + 2, cy, dw - 6, 1);
+    // ── Two extraction dipoles — first kicks out, second bends back parallel ──
+    const drawDipole = (cx, isSecond) => {
+      const dx0 = cx - 7, dw = 14;
+      ctx.fillStyle = '#274b73';
+      ctx.fillRect(dx0, pipeY - 8, dw, 16);
+      if (isSecond) ctx.fillRect(dx0, midY - 8, dw, 16);
+      ctx.fillStyle = '#3b6ea5';
+      ctx.fillRect(dx0 + 1, pipeY - 7, dw - 3, 14);
+      if (isSecond) ctx.fillRect(dx0 + 1, midY - 7, dw - 3, 14);
+      ctx.fillStyle = '#5a92c9';
+      ctx.fillRect(dx0 + 1, pipeY - 7, dw - 3, 2);
+      if (isSecond) ctx.fillRect(dx0 + 1, midY - 7, dw - 3, 2);
+      const coil = (cy) => {
+        ctx.fillStyle = '#8c5522';
+        ctx.fillRect(dx0 + 2, cy, dw - 5, 3);
+        ctx.fillStyle = '#c07a35';
+        ctx.fillRect(dx0 + 2, cy, dw - 6, 2);
+        ctx.fillStyle = '#e0a055';
+        ctx.fillRect(dx0 + 2, cy, dw - 6, 1);
+      };
+      coil(pipeY - 6); coil(pipeY + 3);
+      if (isSecond) { coil(midY - 6); coil(midY + 3); }
+      ctx.fillStyle = '#1c3450';
+      ctx.fillRect(dx0, pipeY - 3, dw, 6);
+      if (isSecond) ctx.fillRect(dx0, midY - 3, dw, 6);
+      ctx.fillStyle = '#16283e';
+      ctx.fillRect(dx0 + dw - 5, pipeY - 3, 5, 8);
+      if (isSecond) ctx.fillRect(dx0 + dw - 5, midY - 3, 5, 2);
+      ctx.fillStyle = '#4e6f92';
+      ctx.fillRect(dx0 + dw - 1, pipeY + 1, 2, 5);
+      if (isSecond) ctx.fillRect(dx0 + dw - 1, midY - 1, 2, 2);
     };
-    coil(pipeY - 6);                                      // above the gap
-    coil(pipeY + 3);                                      // and below it
-    ctx.fillStyle = '#1c3450';                            // beam gap through the yoke
-    ctx.fillRect(dx0, pipeY - 3, dw, 6);
-    ctx.fillStyle = '#16283e';
-    ctx.fillRect(dx0 + dw - 5, pipeY - 3, 5, 8);          // throat, opening downward
-    ctx.fillStyle = '#4e6f92';
-    ctx.fillRect(dx0 + dw - 1, pipeY + 1, 2, 5);          // exit flange, aimed low
-
-    // ── Branch pipe: 3px through, dark body, one lit line along the crown ──
-    const bl = bx1 - bx0;
-    for (let i = 0; i <= bl; i++) {
-      const x = bx0 + i, y = by0 + Math.round((i * (by1 - by0)) / bl);
-      ctx.fillStyle = '#15151d';                          // pipe body
-      ctx.fillRect(x, y - 1, 1, 3);
-      ctx.fillStyle = '#6c6c8a';
-      ctx.fillRect(x, y - 1, 1, 1);                       // crown highlight
-      if (i === 2 || i === 6) { ctx.fillStyle = '#4a4a62'; ctx.fillRect(x, y - 2, 1, 5); }  // flange tick
+    drawDipole(dipX, false);
+    drawDipole(dipX2, true);
+    // synchrotron fan at each bend when bunch traverses
+    const synFan = (cx, cy, ang0, spread, phase) => {
+      const a = Math.max(0, Math.min(0.42, 0.42 * (1 - Math.abs(phase - 0.5) * 1.6)));
+      if (a < 0.03) return;
+      for (let k = 0; k < 4; k++) {
+        const ang = ang0 + (k - 1.5) * spread;
+        const len = 4 + k * 2;
+        for (let s = 1; s <= len; s++) {
+          const x = Math.round(cx + Math.cos(ang) * s);
+          const y = Math.round(cy + Math.sin(ang) * s);
+          ctx.fillStyle = `rgba(255,240,180,${(a * 0.55).toFixed(2)})`;
+          ctx.fillRect(x, y, 1, 1);
+          if (k === 1 || k === 2) {
+            ctx.fillStyle = `rgba(255,255,255,${(a * 0.75).toFixed(2)})`;
+            ctx.fillRect(x, y, 1, 1);
+          }
+        }
+      }
+    };
+    if (dumpF >= 0 && dumpF < 0.92) {
+      const bendPhase = dumpF < 0.45 ? dumpF / 0.45 : 1 - (dumpF - 0.45) / 0.35;
+      if (dumpF < 0.5) synFan(dipX + 4, pipeY, -0.35, 0.28, bendPhase);
+      else synFan(dipX2 + 4, midY, 0.15, 0.22, 1 - bendPhase);
     }
+
+    // ── Branch pipe: SAME 6px beam pipe as main line, two segments ──
+    // diag: bx0→mid
+    const drawPipeSeg = (x0, y0, x1, y1) => {
+      const dx = x1 - x0, dy = y1 - y0, len = Math.max(Math.abs(dx), Math.abs(dy));
+      for (let i = 0; i <= len; i++) {
+        const x = x0 + Math.round(dx * i / len);
+        const y = y0 + Math.round(dy * i / len);
+        ctx.fillStyle = '#4c4c62'; // same as main pipe body
+        ctx.fillRect(x, y - 3, 1, 6);
+        ctx.fillStyle = '#6a6a85';
+        ctx.fillRect(x, y - 3, 1, 1);
+        ctx.fillStyle = '#33334a';
+        ctx.fillRect(x, y + 2, 1, 1);
+      }
+    };
+    drawPipeSeg(bx0, by0, midX, midY);
+    drawPipeSeg(midX, midY, bx1, by1);
+    // flanges at bends
+    ctx.fillStyle = '#5e5e78';
+    ctx.fillRect(midX - 1, midY - 4, 2, 8);
+    ctx.fillRect(bx1 - 2, by1 - 3, 2, 6);
 
     // ── Shielded block: concrete and lead, deliberately DARKER than the hall
     //    wall behind it so it reads as mass. Stepped courses, exactly one hard
@@ -3908,10 +4262,27 @@ export class TitleScreen {
     ctx.fillStyle = hot > 0.05 || Math.sin(t * 2.6) > 0.4 ? '#c4432a' : '#431a16';
     ctx.fillRect(mx1 - 9, my0 + 1, 2, 2);
 
-    // ── The spent bunch travelling down the branch, and its landing flash ──
+    // ── The spent bunch travelling down the two-bend branch, now parallel ──
     if (dumpF >= 0 && dumpF <= 1) {
-      const px = Math.round(bx0 + (bx1 - bx0) * dumpF);
-      const py = Math.round(by0 + (by1 - by0) * dumpF);
+      const seg1Len = Math.hypot(midX - bx0, midY - by0);
+      const seg2Len = Math.hypot(bx1 - midX, by1 - midY);
+      const tot = seg1Len + seg2Len || 1;
+      const dist = dumpF * tot;
+      let px, py;
+      if (dist <= seg1Len) {
+        const f = dist / (seg1Len || 1);
+        px = Math.round(bx0 + (midX - bx0) * f);
+        py = Math.round(by0 + (midY - by0) * f);
+      } else {
+        const f = (dist - seg1Len) / (seg2Len || 1);
+        px = Math.round(midX + (bx1 - midX) * f);
+        py = Math.round(midY + (by1 - midY) * f);
+      }
+      // subtle beam-bend glow at the kink
+      if (dumpF > 0.05 && dumpF < 0.25) {
+        ctx.fillStyle = 'rgba(102,224,255,0.12)';
+        ctx.fillRect(bx0 - 1, by0 - 2, 4, 6);
+      }
       ctx.fillStyle = 'rgba(102,224,255,0.45)';
       ctx.fillRect(px - 5, py - 2, 5, 2);
       ctx.fillStyle = '#aef4ff';
@@ -3927,6 +4298,313 @@ export class TitleScreen {
       ctx.fillRect(bx1 - 4, by1 - 3, 8, 7);
       ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
       ctx.fillRect(bx1 - 1, by1, 3, 3);
+    }
+
+    // ── Secondary radiation: cloud-chamber particle traces ──
+    // Each dump deposits a burst of short, pale tracks radiating from the
+    // entry boss — fresh tracks when hot, fading as the afterglow dies.
+    if (!this._dumpCloud) this._dumpCloud = [];
+    const cloud = this._dumpCloud;
+    // spawn: burst on arrival, then 1-2 per frame while hot
+    if (hot > 0.05) {
+      const want = hot > 0.6 ? 3 : hot > 0.3 ? 2 : 1;
+      for (let k = 0; k < want; k++) {
+        if (cloud.length > 28) break;
+        if (Math.random() > 0.55) continue;
+        const ang = (Math.random() * 0.95 - 0.15) * Math.PI; // mostly down/out, not back up the pipe
+        const sp = 6 + Math.random() * 10;
+        const len = 4 + (Math.random() * 6 | 0);
+        const kinkAt = 2 + (Math.random() * (len - 2) | 0);
+        const kinkAng = (Math.random() - 0.5) * 0.9;
+        cloud.push({ x: bx1, y: by1, ang, sp, len, kinkAt, kinkAng, t0: t, life: 0.7 + Math.random() * 0.6 });
+      }
+    }
+    // draw + age
+    for (let i = cloud.length - 1; i >= 0; i--) {
+      const tr = cloud[i];
+      const age = t - tr.t0;
+      if (age > tr.life) { cloud.splice(i, 1); continue; }
+      const fade = 1 - age / tr.life;
+      const a1 = (fade * 0.85).toFixed(2), a2 = (fade * 0.28).toFixed(2);
+      // first segment
+      const x1 = Math.round(tr.x + Math.cos(tr.ang) * Math.min(tr.kinkAt, tr.len * fade));
+      const y1 = Math.round(tr.y + Math.sin(tr.ang) * Math.min(tr.kinkAt, tr.len * fade));
+      const dx0 = x1 - tr.x, dy0 = y1 - tr.y;
+      const steps0 = Math.max(Math.abs(dx0), Math.abs(dy0)) || 1;
+      for (let s = 0; s <= steps0; s++) {
+        const x = tr.x + Math.round(dx0 * s / steps0);
+        const y = tr.y + Math.round(dy0 * s / steps0);
+        ctx.fillStyle = `rgba(255,255,255,${a1})`;
+        ctx.fillRect(x, y, 1, 1);
+        ctx.fillStyle = `rgba(180,220,255,${a2})`;
+        ctx.fillRect(x, y + 1, 1, 1);
+      }
+      // second segment after kink (shorter, dimmer)
+      if (tr.kinkAt < tr.len * fade) {
+        const ang2 = tr.ang + tr.kinkAng;
+        const rem = tr.len * fade - tr.kinkAt;
+        const x2 = Math.round(x1 + Math.cos(ang2) * rem);
+        const y2 = Math.round(y1 + Math.sin(ang2) * rem);
+        const dx1 = x2 - x1, dy1 = y2 - y1;
+        const steps1 = Math.max(Math.abs(dx1), Math.abs(dy1)) || 1;
+        for (let s = 0; s <= steps1; s++) {
+          const x = x1 + Math.round(dx1 * s / steps1);
+          const y = y1 + Math.round(dy1 * s / steps1);
+          ctx.fillStyle = `rgba(255,255,255,${(fade * 0.55).toFixed(2)})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      // droplet at end (condensation bead)
+      const ex = Math.round(tr.x + Math.cos(tr.ang + (age > 0.15 ? tr.kinkAng * 0.6 : 0)) * tr.len * fade * 0.92);
+      const ey = Math.round(tr.y + Math.sin(tr.ang + (age > 0.15 ? tr.kinkAng * 0.6 : 0)) * tr.len * fade * 0.92);
+      if (fade > 0.3) {
+        ctx.fillStyle = `rgba(255,255,255,${(fade * 0.6).toFixed(2)})`;
+        ctx.fillRect(ex, ey, 1, 1);
+      }
+    }
+  }
+
+  // ── Beamline ops events: vacuum leak, bakeout, cavity, breakthrough ──
+  _updateBeamlineEvents(t, W, comps) {
+    // vacuum leak — timed or 8% chance when beam passes BPM
+    const bpm = comps.find(c => c.id === 'bpm');
+    const canStart = !this._vacLeak && !this._mishap && !this._meeting && !this._cavity;
+    if (canStart) {
+      const beamNearBpm = bpm && this._beamX >= bpm.x - 4 && this._beamX <= bpm.x + 4 && this._beamPhase < this._beamEEnd;
+      if (t >= this._nextVacAt || (beamNearBpm && Math.random() < 0.08)) {
+        this._vacLeak = { t0: t, x: bpm ? bpm.x : Math.floor(W * 0.58) };
+        this._nextVacAt = t + 90 + Math.random() * 60;
+      }
+    }
+    if (this._vacLeak && t - this._vacLeak.t0 > 6.2) {
+      this._vacLeak = null;
+    }
+    // bakeout — timed on a random cryomodule
+    if (!this._bake && !this._cavity && t >= this._nextBakeAt) {
+      const srf = comps.filter(c => c.id.startsWith('srf'));
+      const pick = srf[(Math.random() * srf.length) | 0];
+      if (pick) {
+        this._bake = { t0: t, x: pick.x };
+        this._nextBakeAt = t + 100 + Math.random() * 60;
+      }
+    }
+    if (this._bake && t - this._bake.t0 > 8) this._bake = null;
+    // cavity disassembly — rare, exclusive
+    if (!this._cavity && !this._vacLeak && !this._bake && !this._breakthrough && !this._mishap && t >= this._nextCavityAt) {
+      const srf = comps.filter(c => c.id.startsWith('srf'));
+      const pick = srf[0];
+      if (pick) {
+        this._cavity = { t0: t, x: pick.x };
+        this._nextCavityAt = t + 180 + Math.random() * 120;
+      }
+    }
+    if (this._cavity && t - this._cavity.t0 > 6) this._cavity = null;
+    // breakthrough — on pulse arrival or timed
+    if (!this._breakthrough && !this._cavity && !this._mishap) {
+      const pulseArrival = this._lastPopPulse >= 0 && t - this._lastPopPulse < 0.1;
+      if ((pulseArrival && (this._lastPopPulse % 12 === 0)) || t >= this._nextBreakAt) {
+        if (!pulseArrival) this._nextBreakAt = t + 120 + Math.random() * 60;
+        else this._nextBreakAt = t + 90 + Math.random() * 50;
+        // only 35% of arrivals become breakthroughs
+        if (pulseArrival && Math.random() > 0.35) return;
+        this._breakthrough = { t0: pulseArrival ? t : t, hx: this._hallDoorX || Math.floor(W * 0.5 + 19) };
+        if (!pulseArrival) this._nextBreakAt = t + 120 + Math.random() * 60;
+      }
+    }
+    if (this._breakthrough && t - this._breakthrough.t0 > 7.3) {
+      this._breakthrough = null;
+      this._nextBreakAt = t + 110 + Math.random() * 60;
+    }
+  }
+
+  _drawBeamlineEvents(ctx, t, W, comps) {
+    if (this._vacLeak) this._drawVacLeak(ctx, t, this._vacLeak, comps);
+    if (this._bake) this._drawBakeout(ctx, t, this._bake);
+    if (this._cavity) this._drawCavity(ctx, t, this._cavity, W);
+    if (this._breakthrough) this._drawBreakthrough(ctx, t, this._breakthrough, W);
+  }
+
+  _drawVacLeak(ctx, t, ev, comps) {
+    const age = t - ev.t0;
+    const x = ev.x, pipeY = 254, groundY = 272;
+    // hissing jet
+    if (age < 5.2) {
+      const a = age < 1.2 ? age / 1.2 : 1 - (age - 1.2) / 4 * 0.6;
+      ctx.fillStyle = `rgba(200,240,255,${(0.35 * a).toFixed(2)})`;
+      const h = 2 + Math.floor(age * 3) % 3;
+      ctx.fillRect(x, pipeY - 10 - h, 1, h + 4);
+      ctx.fillStyle = `rgba(255,255,255,${(0.5 * a).toFixed(2)})`;
+      ctx.fillRect(x, pipeY - 8, 1, 2);
+      // alarm flash on BPM
+      if (Math.floor(t * 6) % 2 === 0) {
+        ctx.fillStyle = 'rgba(220,50,50,0.45)';
+        ctx.fillRect(x - 6, pipeY - 9, 12, 3);
+      }
+    }
+    // repairmen from service door
+    const doorX = (this._hallDoorX || Math.floor(W * 0.5 + 19)) + 117 + 25 - 32; // V.svc door approx
+    const prog = Math.min(1, Math.max(0, (age - 0.6) / 2.2));
+    for (let k = 0; k < 2; k++) {
+      const rx = Math.floor(doorX + (x - doorX) * prog + k * 6);
+      const ry = 272;
+      // leak detector box on first tech
+      if (k === 0 && age > 1.2 && age < 5.2) {
+        ctx.fillStyle = '#d9b53a';
+        ctx.fillRect(rx + 2, ry - 9, 4, 3);
+        ctx.fillStyle = '#1c4450';
+        ctx.fillRect(rx + 3, ry - 8, 2, 1);
+        // wand
+        ctx.fillStyle = '#3a3a5a';
+        ctx.fillRect(rx + 4, ry - 11, 1, 3);
+      }
+      this._drawTinyPerson(ctx, rx, ry, x > doorX ? 1 : -1, age > 3.5 ? 'stand' : 'walk', '#c6c8d4', '#d8a878', k ? '#3a2e28' : '#6e6e78', t, { walk: age < 3 });
+    }
+    if (age >= 5.2) {
+      ctx.fillStyle = 'rgba(80,220,120,0.35)';
+      ctx.fillRect(x - 4, pipeY - 11, 8, 2);
+    }
+  }
+
+  _drawBakeout(ctx, t, ev) {
+    const age = t - ev.t0;
+    const x = ev.x, pipeY = 254, groundY = 272;
+    const x0 = x - 26, w = 52, y0 = pipeY - 13;
+    if (age < 1) {
+      // jackets appearing
+      ctx.fillStyle = 'rgba(140,85,34,0.0)';
+    }
+    if (age < 6) {
+      // orange heat jackets
+      ctx.fillStyle = '#8c5522';
+      ctx.fillRect(x0 - 1, y0 - 1, w + 2, 28);
+      ctx.fillStyle = '#c47a3e';
+      ctx.fillRect(x0, y0, w, 26);
+      ctx.fillStyle = `rgba(255,90,20,${(0.12 + Math.sin(t * 8) * 0.05).toFixed(2)})`;
+      ctx.fillRect(x0, y0, w, 26);
+      // shimmer
+      if (Math.floor(t * 10) % 2 === 0) {
+        ctx.fillStyle = 'rgba(255,200,120,0.18)';
+        ctx.fillRect(x0 + 2, y0 + 2, w - 4, 2);
+      }
+    }
+    if (age >= 6) {
+      // cooling steam from roof stack (reuse cryo vent)
+      ctx.fillStyle = `rgba(255,255,255,${((1 - (age - 6) / 2) * 0.35).toFixed(2)})`;
+      ctx.fillRect(x0 + 12, y0 - 8, 2, 4);
+      ctx.fillRect(x0 + 14, y0 - 10, 1, 2);
+    }
+    // clipboard tech
+    const tx = x + 18;
+    this._drawTinyPerson(ctx, tx, groundY, -1, age < 6 ? 'stand' : 'walk', '#b7bcca', '#b0784f', '#1e1e28', t, { walk: false });
+    if (age < 6) {
+      ctx.fillStyle = '#d8d4c4';
+      ctx.fillRect(tx + 3, groundY - 11, 3, 4);
+    }
+  }
+
+  _drawCavity(ctx, t, ev, W) {
+    const age = t - ev.t0;
+    const x = ev.x, pipeY = 254, groundY = 272;
+    const x0 = x - 26, w = 52;
+    // white cleanroom tent
+    const tentA = age < 1.5 ? age / 1.5 : age > 4.5 ? 1 - (age - 4.5) / 1.5 : 1;
+    if (tentA > 0.02) {
+      ctx.globalAlpha = tentA * 0.92;
+      ctx.fillStyle = '#e8f0fa';
+      ctx.fillRect(x0 - 6, pipeY - 18, w + 12, 28);
+      ctx.fillStyle = '#c0d2e8';
+      ctx.fillRect(x0 - 6, pipeY - 18, w + 12, 1);
+      ctx.fillRect(x0 - 6, pipeY - 18, 1, 28);
+      ctx.fillRect(x0 + w + 5, pipeY - 18, 1, 28);
+      // stripe
+      ctx.fillStyle = '#7ec8e8';
+      ctx.fillRect(x0 - 6, pipeY - 12, w + 12, 1);
+      ctx.globalAlpha = 1;
+      // cavity string visible through
+      if (age > 1.5 && age < 4.5) {
+        const slide = Math.min(1, (age - 1.5) / 1.2);
+        const cx = x0 + 5 + Math.floor(slide * 14);
+        ctx.fillStyle = '#c0d2e8';
+        ctx.fillRect(cx, pipeY - 4, 22, 8);
+        ctx.fillStyle = '#4a5a78';
+        ctx.fillRect(cx + 2, pipeY - 1, 4, 2);
+        ctx.fillRect(cx + 10, pipeY - 1, 4, 2);
+        ctx.fillStyle = '#e8f0fa';
+        ctx.fillRect(cx, pipeY - 4, 22, 1);
+      }
+    }
+    // bunny suits carrying
+    if (age > 1.2 && age < 5) {
+      const bx = x0 + 8 + Math.floor((age - 1.2) * 4);
+      for (let k = 0; k < 2; k++) {
+        const px = bx + k * 8;
+        // white bunny hood + suit
+        this._drawTinyPerson(ctx, px, groundY, 1, 'walk', '#f0f4f8', '#d8a878', '#f0f4f8', t, { walk: true, phase: k * 1.3 });
+        ctx.fillStyle = '#c0d2e8';
+        ctx.fillRect(px - 2, groundY - 13, 4, 1); // hood brim
+      }
+    }
+  }
+
+  _drawBreakthrough(ctx, t, ev, W) {
+    const age = t - ev.t0;
+    const hx = ev.hx;
+    const g = 196;
+    const ctrlX0 = hx - 83, ctrlX1 = hx - 11;
+    const gx0 = ctrlX0 + 3, gx1 = ctrlX1 - 3;
+    // spike: video wall flash
+    if (age < 0.8) {
+      const a = 0.6 * (1 - age / 0.8);
+      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+      ctx.fillRect(gx0, g - 42, gx1 - gx0, 46);
+    }
+    // cheer inside
+    if (age < 2.3) {
+      if (Math.floor(t * 8) % 2 === 0) {
+        ctx.fillStyle = 'rgba(255,220,120,0.18)';
+        ctx.fillRect(gx0, g - 42, gx1 - gx0, 46);
+      }
+    }
+    // spill onto hall floor
+    if (age > 1.6) {
+      const spillT = Math.min(1, (age - 1.6) / 1.8);
+      const n = 4;
+      for (let i = 0; i < n; i++) {
+        const off = (i - 1.5) * 10;
+        const baseX = hx + off;
+        const run = spillT * (28 + i * 6);
+        const x = Math.floor(baseX + (i % 2 === 0 ? run : -run * 0.7));
+        const y = 292;
+        const tripped = i === 2 && age > 3.2 && age < 5.2;
+        if (tripped) {
+          // fallen
+          ctx.fillStyle = '#8f93a4';
+          ctx.fillRect(x - 4, y - 2, 8, 2);
+          ctx.fillStyle = '#c6c8d4';
+          ctx.fillRect(x - 3, y - 5, 6, 3);
+          ctx.fillStyle = '#1a1a22';
+          ctx.fillRect(x - 2, y - 7, 1, 1);
+          ctx.fillRect(x + 1, y - 7, 1, 1);
+          // stars
+          if (Math.floor(t * 6) % 2 === 0) {
+            ctx.fillStyle = '#ffd43b';
+            ctx.fillRect(x, y - 10, 1, 1);
+            ctx.fillRect(x + 2, y - 8, 1, 1);
+          }
+        } else {
+          const dir = (i % 2 === 0) ? 1 : -1;
+          this._drawTinyPerson(ctx, x, y, dir, 'walk', '#c6c8d4', '#e8c9a2', ['#3a2e28', '#6e6e78', '#8a5a2e'][i % 3], t, { walk: true, phase: i * 1.7 });
+          if (i === 0 && age < 4.5) {
+            ctx.fillStyle = '#f0f4f8';
+            ctx.fillRect(x + 3, y - 11, 3, 4); // printout
+          }
+          if (age > 2.0 && age < 3.5 && Math.sin(t * 4 + i) > 0.7) {
+            const bx = x + dir * 3, by = y - 14;
+            ctx.fillStyle = '#ffd43b';
+            ctx.fillRect(bx, by, 1, 1);
+          }
+        }
+      }
     }
   }
 
@@ -3955,7 +4633,7 @@ export class TitleScreen {
     ctx.fillStyle = '#22222e';                  // belt band
     ctx.fillRect(bL - 3, cy + 2, bR - bL + 6, 3);
     const step = 16;                            // px a chip advances per pulse period
-    const tread = Math.floor((t * step) / 1.5) % 6;   // tread keeps pace with the chips
+    const tread = Math.floor((t * step) / 4.2) % 6;   // tread keeps pace with the chips (period 4.2)
     ctx.fillStyle = '#3c3c50';
     for (let x = bL - 3 + ((6 - tread) % 6); x < bR + 3; x += 6) ctx.fillRect(x, cy + 2, 1, 3);
     ctx.fillStyle = '#2e2e3e';                  // lower rail
@@ -4197,6 +4875,16 @@ export class TitleScreen {
     // Rare surprise events, same time-driven pattern (see EVENT_TIMING).
     this._ufo = null;
     this._nextUfoAt = randIn(EVENT_TIMING.ufoFirst);
+
+    // Beamline ops events — vacuum leak, bakeout, cavity disassembly, breakthrough
+    this._vacLeak = null;
+    this._nextVacAt = 28 + Math.random() * 22;
+    this._bake = null;
+    this._nextBakeAt = 38 + Math.random() * 28;
+    this._cavity = null;
+    this._nextCavityAt = 55 + Math.random() * 35;
+    this._breakthrough = null;
+    this._nextBreakAt = 45 + Math.random() * 25;
 
     const W = this.W || 480;
     const n = 4;

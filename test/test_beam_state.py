@@ -5,10 +5,24 @@ from beam_physics.constants import DEFAULT_SOURCE, ELECTRON_CHARGE
 
 
 class TestBeamStateBunchProperties(unittest.TestCase):
-    def test_default_bunch_frequency(self):
+    def test_beam_leaves_the_source_unbunched(self):
+        """A source emits a DC beam; the first RF element bunches it.
+
+        This used to assert a 1.3 GHz default, which meant a DC thermionic gun
+        was modelled as bunched into 1 ps packets from the moment of emission —
+        reporting 307x its real peak current straight into the space-charge
+        perveance.
+        """
+        beam = create_initial_beam(dict(DEFAULT_SOURCE))
+        self.assertEqual(beam.bunch_frequency, 0.0)
+        self.assertAlmostEqual(beam.peak_current, beam.current * 1e-3)
+
+    def test_bunching_raises_peak_current(self):
         params = dict(DEFAULT_SOURCE)
-        beam = create_initial_beam(params)
-        self.assertGreater(beam.bunch_frequency, 0)
+        params["bunch_frequency"] = 1.3e9
+        bunched = create_initial_beam(params)
+        dc = create_initial_beam(dict(DEFAULT_SOURCE))
+        self.assertGreater(bunched.peak_current, dc.peak_current)
 
     def test_n_particles_from_current(self):
         params = dict(DEFAULT_SOURCE)

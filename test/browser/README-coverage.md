@@ -79,6 +79,7 @@ the real GPU. Nothing here may assume a frame rate: `frames(page, n)` waits on
 | `render-placement.spec.mjs` | Every `COMPONENTS` entry placed through the path its **current** taxonomy calls for, rendered, and disposed. Replaces `test-render-placement.mjs`. | 2.7–4.9 min |
 | `palette-arm.spec.mjs` | Every palette item in every mode/category: arm via real clicks, hover-preview, commit, Escape-teardown. Replaces `test-ui-placement.mjs`. | 4.4–7.4 min |
 | `preview-regress.spec.mjs` | Three placement-preview defects from commit `3e81e9f8` that no other suite can see: keyboard-arm ghost, stackable ghost vs. a component's invisible hitbox, decoration rotation. | 0.5–1 min |
+| `design-ghost.spec.mjs` | The blueprint placement ghost: that it renders at all, tracks the cursor and the rotate key, tears its prototype cache down on cancel, reuses prototype geometry across rebuilds rather than allocating, and — the fidelity check — stands at exactly the poses the click then builds. | 1–4 min |
 
 The low end of each range is the spec run on its own on an otherwise idle
 machine; the high end is the same spec inside a full run with other heavy work

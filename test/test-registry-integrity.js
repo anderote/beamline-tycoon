@@ -11,13 +11,15 @@
 // validateResearch() (src/data/validate.js) already does this for one table
 // and found 27 dead nodes. This generalizes it to every other list.
 //
-// Three checks:
+// Four checks:
 //   1. LISTS       — each curated list resolves against a named registry.
 //   2. SWEEP       — every id-shaped literal in an id position anywhere in
 //                    src/ resolves against *some* registry (catches the lists
 //                    nobody remembers writing).
 //   3. RESEARCH ↔  — the two-way gating contract between RESEARCH.unlocks and
 //      COMPONENTS    COMPONENTS.requires.
+//   4. SUBSECTION  — every beamline component names a subsection its category
+//                    actually declares, or the palette drops it on the floor.
 //
 // Adding a coverage entry is one line in LISTS. Ids that are deliberately
 // forward-looking go in UNIMPLEMENTED_CONTENT with a reason, never by
@@ -331,6 +333,49 @@ console.log('\n--- research gating is symmetric (unlocks <-> requires) ---');
   const fixed = [...KNOWN_OPEN_GATING].filter(k => !open.includes(k));
   assert(fixed.length === 0,
     `KNOWN_OPEN_GATING holds nothing already fixed (drop ${fixed.join(', ') || '—'})`);
+}
+
+// ---------------------------------------------------------------------------
+// Beamline components land in a subsection that exists.
+//
+// _renderDesignerPalette (src/renderer/designer-renderer.js) builds each group
+// with `comp.subsection ? comp.subsection === subKey : false` and renders
+// nothing else — a component with no `subsection`, or one naming a subsection
+// its category does not declare, matches no group and is silently absent from
+// the designer palette. The main HUD (_renderComponentPalette in src/ui/hud.js)
+// is one notch kinder, defaulting a *missing* subsection into the first group,
+// but a misspelled one vanishes there too. Same failure mode as the dead panel
+// counters this file was written for: nothing throws, the content just isn't
+// there.
+//
+// Nothing violates this today, so the check is a latch rather than a fix.
+//
+// A category that declares no `subsections` at all is exempt on purpose: both
+// palettes take their flat-render branch for it and show every component
+// regardless of the field, so the invariant does not apply. All five beamline
+// categories currently declare subsections, so the exemption is dormant — it is
+// here so adding a flat category later doesn't read as a violation.
+// ---------------------------------------------------------------------------
+console.log('\n--- every beamline component names a subsection that exists ---');
+{
+  const beamlineCats = MODES.beamline.categories;
+  const orphans = [];
+  let checked = 0;
+  for (const [key, comp] of Object.entries(COMPONENTS)) {
+    const catDef = beamlineCats[comp.category];
+    if (!catDef) continue; // infra / ops components; a different palette owns them
+    const subs = catDef.subsections;
+    if (!subs || Object.keys(subs).length === 0) continue; // flat-rendered, field unused
+    checked++;
+    const where = `MODES.beamline.categories.${comp.category}.subsections`;
+    if (!comp.subsection) {
+      orphans.push(`'${key}' declares no subsection — set one of ${Object.keys(subs).join('/')} (${where})`);
+    } else if (!Object.hasOwn(subs, comp.subsection)) {
+      orphans.push(`'${key}' names subsection '${comp.subsection}', absent from ${where} (has ${Object.keys(subs).join('/')})`);
+    }
+  }
+  assert(orphans.length === 0,
+    `all ${checked} beamline components sit in a declared subsection${orphans.length ? ` — dropped from the palette: ${orphans.join('; ')}` : ''}`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

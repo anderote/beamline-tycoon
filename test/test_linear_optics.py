@@ -37,7 +37,10 @@ class TestDrift(unittest.TestCase):
 class TestQuadrupole(unittest.TestCase):
     def test_emittance_preserved_in_quad(self):
         mod = LinearOpticsModule()
-        beam = make_beam()
+        # 1 GeV is the reference momentum focusStrength is calibrated at
+        # (component-physics.js computeQuadrupole). Below it a fixed-gradient
+        # magnet focuses harder, since k = 0.2998 g / p.
+        beam = make_beam(energy=1.0)
         ctx = make_context()
         eps_x_before = beam.emittance_x()
         eps_y_before = beam.emittance_y()
@@ -55,7 +58,10 @@ class TestQuadrupole(unittest.TestCase):
 
     def test_fodo_cell_stability(self):
         mod = LinearOpticsModule()
-        beam = make_beam()
+        # 1 GeV is the reference momentum focusStrength is calibrated at
+        # (component-physics.js computeQuadrupole). Below it a fixed-gradient
+        # magnet focuses harder, since k = 0.2998 g / p.
+        beam = make_beam(energy=1.0)
         ctx = make_context()
         max_size = 0
         for _ in range(10):
@@ -143,3 +149,26 @@ class TestAppliesTo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRigidityScaling(unittest.TestCase):
+    """A fixed-gradient magnet focuses harder on a softer beam: k = 0.2998 g / p.
+
+    This was missing entirely — component-physics.js computes focusStrength with
+    the momentum hardcoded to 1 GeV, so a quadrupole was equally strong on a
+    50 keV injector and a 10 GeV linac.
+    """
+
+    def test_quad_strength_scales_inversely_with_momentum(self):
+        mod = LinearOpticsModule()
+        soft = make_beam(energy=0.1)
+        stiff = make_beam(energy=10.0)
+        self.assertGreater(mod._rigidity_scale(soft), mod._rigidity_scale(stiff))
+        # Ten times the momentum, one tenth the focusing strength.
+        ratio = mod._rigidity_scale(soft) / mod._rigidity_scale(stiff)
+        self.assertAlmostEqual(ratio, 100.0, delta=1.0)
+
+    def test_reference_momentum_is_unchanged(self):
+        """At 1 GeV the scale is 1.0, so existing balance is untouched."""
+        mod = LinearOpticsModule()
+        self.assertAlmostEqual(mod._rigidity_scale(make_beam(energy=1.0)), 1.0, delta=0.002)

@@ -181,16 +181,34 @@ function showScenarioPicker(game) {
   const designPlacer = new DesignPlacer(game, renderer);
   game._designPlacer = designPlacer;
 
-  // Wire "Place" from design library
-  designLibrary.onPlace = (design) => {
+  // The one way a design becomes a placement ghost. Three surfaces reach it —
+  // the design library's "Place" button, its Stock tab, and the blueprint
+  // gallery in the New Beamline picker — and they must behave identically, so
+  // the sequencing lives here rather than three times over.
+  const startDesignPlacement = (design) => {
+    if (!design) return;
     if (designer.isOpen) {
       designer._suppressHashUpdate = true;
       designer._cleanup();
     }
     if (window.location.hash !== '#game') window.location.hash = 'game';
+
+    // ORDER IS LOAD BEARING. A stock blueprint carries the beamline type it IS,
+    // and its first component is a source — so DesignPlacer.confirm()'s first
+    // placeJunction is what mints the registry entry, and
+    // Game._ensureBeamlineForSourcePlaceable stamps it from
+    // pendingBeamlineTypeId at that instant. Arming here, before the ghost even
+    // exists, puts the pick strictly ahead of any click that could place
+    // anything; arming it inside the placer would put the same rule in a second
+    // place. A player-saved design has no typeId and arms nothing, exactly as
+    // before.
+    if (design.typeId) game.startNewBeamline(design.typeId);
+
     designPlacer.start(design);
     game.log('Click to place design. F=rotate, R=reflect, Esc=cancel', 'info');
   };
+  game._startDesignPlacement = startDesignPlacement;
+  designLibrary.onPlace = startDesignPlacement;
 
   // Palette item clicks route straight from hud.js into
   // InputHandler.selectPaletteTool via each item's {kind, key} dataset —
