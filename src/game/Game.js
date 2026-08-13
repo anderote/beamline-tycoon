@@ -178,7 +178,7 @@ export class Game {
     })();
 
     this.state = {
-      resources: { funding: 2500000, reputation: 0, data: 0 },
+      resources: { funding: 5000000, reputation: 0, data: 0 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,

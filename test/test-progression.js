@@ -60,7 +60,14 @@ log('\n--- A: research cost ladder ---');
   // Defect this pins: at $200k the cheapest nodes were pocket change against
   // the starting balance, so the bottom of every tree was bought on tick 1 and
   // early research was not a choice.
-  assert(cheapest > 0.25 * STARTING_FUNDS,
+  //
+  // The floor was 0.25 when seed capital was $2.5M. Seed doubled to $5M (so a
+  // player can lay a first beamline AND wire it without going broke), which
+  // moves the cheapest node to ~20% of the balance. That is still a real bite —
+  // a fifth of everything you have, and competing with hardware you need — so
+  // the invariant is recalibrated rather than abandoned. If early research
+  // starts feeling automatic, the fix is raising research costs, not this line.
+  assert(cheapest > 0.18 * STARTING_FUNDS,
     `cheapest node is a real bite out of seed capital (${money(cheapest)} vs ` +
     `${money(STARTING_FUNDS)} start = ${(100 * cheapest / STARTING_FUNDS).toFixed(0)}%)`);
   // ...but still reachable in the opening, not a first-hour wall.
