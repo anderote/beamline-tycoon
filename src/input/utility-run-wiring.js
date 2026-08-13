@@ -24,11 +24,11 @@ import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import {
   getPortSpec,
-  portSide,
+  portApproachVec,
   portWorldPosition,
   availablePorts,
 } from '../utility/ports.js';
-import { buildManhattanPath, pathLengthSubUnits } from '../utility/line-geometry.js';
+import { buildPortRoutedPath, pathLengthSubUnits } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 
@@ -38,19 +38,7 @@ import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-en
 // full tile catches both sides of the pipe without reaching the next one over.
 export const RUN_CORRIDOR_TILES = 1.0;
 
-// Length of the straight lead-out a stub takes off a port before it is allowed
-// to bend, in tiles. One sub-unit — the minimum that gives validateDrawLine a
-// first/last segment whose direction it can match against the port's side.
-const STUB_TILES = 0.25;
-
 const EPS = 1e-6;
-
-const SIDE_VEC = {
-  N: { dCol: 0, dRow: -1 },
-  E: { dCol: 1, dRow: 0 },
-  S: { dCol: 0, dRow: 1 },
-  W: { dCol: -1, dRow: 0 },
-};
 
 function snapQ(v) { return Math.round(v * 4) / 4; }
 
@@ -58,19 +46,6 @@ function snapQ(v) { return Math.round(v * 4) / 4; }
 // the utility-line path system stores. 1 tile = 2 world metres.
 function portTile(pos) {
   return { col: snapQ(pos.x / 2), row: snapQ(pos.z / 2) };
-}
-
-function samePoint(a, b) {
-  return Math.abs(a.col - b.col) < EPS && Math.abs(a.row - b.row) < EPS;
-}
-
-function dedupe(points) {
-  const out = [];
-  for (const p of points) {
-    if (out.length && samePoint(out[out.length - 1], p)) continue;
-    out.push({ col: p.col, row: p.row });
-  }
-  return out;
 }
 
 // --- corridor geometry -----------------------------------------------------
@@ -113,18 +88,7 @@ export function nearestOnPath(p, path) {
  * lead-outs it is an ordinary Manhattan path.
  */
 export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerticalFirst) {
-  const a1 = {
-    col: srcTile.col + srcVec.dCol * STUB_TILES,
-    row: srcTile.row + srcVec.dRow * STUB_TILES,
-  };
-  const b1 = {
-    col: sinkTile.col + sinkVec.dCol * STUB_TILES,
-    row: sinkTile.row + sinkVec.dRow * STUB_TILES,
-  };
-  const mid = buildManhattanPath(a1, b1, { preferVerticalFirst });
-  const pts = mid ? [srcTile, ...mid, sinkTile] : [srcTile, a1, sinkTile];
-  const path = dedupe(pts);
-  return path.length >= 2 ? path : null;
+  return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, { preferVerticalFirst });
 }
 
 // --- planning --------------------------------------------------------------
@@ -161,7 +125,7 @@ export function planUtilityRun(state, {
   // Only a source port can fan out: a sink port is claimed by the first line
   // and every later stub would reject with port_taken.
   if (!srcSpec || srcSpec.utility !== utilityType || srcSpec.role !== 'source') return empty;
-  const srcVec = SIDE_VEC[portSide(srcDef, source.portName, srcEndpoint.dir || 0)];
+  const srcVec = portApproachVec(srcEndpoint, srcDef, source.portName);
   const srcPos = portWorldPosition(srcEndpoint, srcDef, source.portName);
   if (!srcVec || !srcPos) return empty;
   const srcTile = portTile(srcPos);
@@ -178,7 +142,7 @@ export function planUtilityRun(state, {
       const spec = getPortSpec(def, portName);
       if (!spec || spec.role !== 'sink') continue;
       const pos = portWorldPosition(endpoint, def, portName);
-      const vec = SIDE_VEC[portSide(def, portName, endpoint.dir || 0)];
+      const vec = portApproachVec(endpoint, def, portName);
       if (!pos || !vec) continue;
       const tile = portTile(pos);
       const near = nearestOnPath(tile, runPath);

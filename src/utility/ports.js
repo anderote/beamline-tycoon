@@ -76,6 +76,16 @@ export function availablePorts(placeable, def, utilityType, lines) {
     .map(({ name }) => name);
 }
 
+/**
+ * The port's outward normal in path-coord space ({dCol, dRow}), i.e. the
+ * direction a line must leave it along (or arrive against). Null when the
+ * placeable/port has no resolvable side.
+ */
+export function portApproachVec(placeable, def, portName) {
+  const side = portSide(def, portName, (placeable && placeable.dir) || 0);
+  return (side && SIDE_VEC[side]) || null;
+}
+
 export function portMatchesApproach(placeable, def, portName, approachDir, isEnd) {
   const side = portSide(def, portName, placeable && placeable.dir || 0);
   if (!side) return false;

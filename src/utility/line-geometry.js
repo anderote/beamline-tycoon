@@ -31,6 +31,52 @@ export function buildManhattanPath(start, end, opts = {}) {
   ];
 }
 
+// Length of the straight lead-out a path takes off a port before it is allowed
+// to bend, in tiles. One sub-unit — the minimum that gives validateDrawLine a
+// first/last segment whose direction it can match against the port's side.
+const STUB_TILES = 0.25;
+
+function dedupePoints(points) {
+  const out = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.col - p.col) < EPS && Math.abs(last.row - p.row) < EPS) continue;
+    out.push({ col: p.col, row: p.row });
+  }
+  return out;
+}
+
+/**
+ * A Manhattan path that also satisfies the approach constraint of whichever of
+ * its two ends is anchored on a port: it leaves the start along that port's
+ * outward normal and arrives at the end against the end port's outward normal
+ * (what line-drawing's portMatchesApproach demands of the first and last
+ * segment). Ends with no port — an open-ended draw — take no lead-out.
+ *
+ * A plain start→end Manhattan L only satisfies those constraints by luck: with
+ * one bend the first leg is horizontal and the last vertical (or vice versa),
+ * so every drag between two ports whose sides don't happen to match that shape
+ * was rejected. The lead-outs make the shape a property of the ports instead.
+ *
+ * @param {{col,row}} start
+ * @param {{dCol,dRow}|null} startVec  outward normal of the start port
+ * @param {{col,row}} end
+ * @param {{dCol,dRow}|null} endVec    outward normal of the end port
+ * @returns {Array<{col,row}>|null}
+ */
+export function buildPortRoutedPath(start, startVec, end, endVec, opts = {}) {
+  if (!start || !end) return null;
+  const a1 = startVec
+    ? { col: start.col + startVec.dCol * STUB_TILES, row: start.row + startVec.dRow * STUB_TILES }
+    : start;
+  const b1 = endVec
+    ? { col: end.col + endVec.dCol * STUB_TILES, row: end.row + endVec.dRow * STUB_TILES }
+    : end;
+  const mid = buildManhattanPath(a1, b1, opts);
+  const path = dedupePoints(mid ? [start, ...mid, end] : [start, a1, b1, end]);
+  return path.length >= 2 ? path : null;
+}
+
 export function pathLengthSubUnits(path) {
   if (!Array.isArray(path) || path.length < 2) return 0;
   let total = 0;

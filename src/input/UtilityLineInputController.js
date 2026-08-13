@@ -22,10 +22,11 @@
 //     isoToGridFloat, then → 3D-world via (col*2, row*2) to match port worlds.
 
 import { COMPONENTS } from '../data/components.js';
-import { availablePorts, portWorldPosition } from '../utility/ports.js';
-import { buildManhattanPath, pathLengthSubUnits } from '../utility/line-geometry.js';
+import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
+import { buildPortRoutedPath, pathLengthSubUnits } from '../utility/line-geometry.js';
+import { validateDrawLine } from '../utility/line-drawing.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
-import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
+import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 
@@ -183,7 +184,6 @@ export class UtilityLineInputController {
     // during discovery), or just empty space.
     const endSnap = this._snapToNearestPort(worldX, worldY);
     const geom = this._dragGeometry(worldX, worldY, endSnap);
-    const endAnchor = geom.endAnchor;
     // Run-wiring wins over the single-line commit whenever it found something
     // to wire; an empty plan falls through so a modifier-held miss still
     // behaves like a normal drag.
@@ -195,12 +195,7 @@ export class UtilityLineInputController {
     }
     const path = geom.path;
     if (path) {
-      const startRef = this._drawStart.open
-        ? null
-        : { placeableId: this._drawStart.placeableId, portName: this._drawStart.portName };
-      const endRef = endAnchor.open
-        ? null
-        : { placeableId: endAnchor.placeableId, portName: endAnchor.portName };
+      const { startRef, endRef } = geom;
       // Trivially self-looping port-to-same-port commits are the gesture's
       // validate step. addLine then runs its own validation (port direction,
       // overlap, port already taken, …) and returns null on rejection, so
@@ -276,8 +271,20 @@ export class UtilityLineInputController {
 
   /**
    * Shared drag geometry for move and up: cursor snapped to a port when it is
-   * near one, start + end quantised to the 0.25 sub-tile grid, and the
-   * Manhattan path between them (null when the drag has not left the anchor).
+   * near one, start + end quantised to the 0.25 sub-tile grid, and the path
+   * between them (null when the drag has not left the anchor).
+   *
+   * Routing is port-aware and validator-checked, exactly as a run-wiring stub
+   * is: each port end gets a lead-out along its own outward normal, and of the
+   * two bend orders we keep whichever validateDrawLine accepts. A plain
+   * start→end Manhattan L only satisfied the ports' approach constraints by
+   * luck, so most drags — anything back toward a source, or between ports whose
+   * sides didn't match the L's shape — died at commit with
+   * "doesn't align with port direction".
+   *
+   * When neither order validates the first is returned anyway: the preview then
+   * shows the route the commit will attempt, and addLine reports the real
+   * reason rather than the gesture silently doing nothing.
    */
   _dragGeometry(worldX, worldY, snap) {
     const startTileRaw = this._worldToTile(this._drawStart.worldPos);
@@ -287,15 +294,41 @@ export class UtilityLineInputController {
       : { open: true, worldPos: this._isoFloatToWorld(worldX, worldY) };
     const endTileRaw = this._worldToTile(endAnchor.worldPos);
     const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
-    const rawPath = buildManhattanPath(startTile, endTile, {
-      preferVerticalFirst: this._preferVerticalFirst,
-    });
-    return {
-      startTile,
-      endTile,
-      endAnchor,
-      path: rawPath ? snapPath(rawPath) : null,
-    };
+    const startRef = this._anchorRef(this._drawStart);
+    const endRef = this._anchorRef(endAnchor);
+
+    let chosen = null;
+    let fallback = null;
+    for (const vf of [this._preferVerticalFirst, !this._preferVerticalFirst]) {
+      const raw = buildPortRoutedPath(
+        startTile, this._anchorVec(this._drawStart),
+        endTile, this._anchorVec(endAnchor),
+        { preferVerticalFirst: vf });
+      if (!raw) continue;
+      const path = snapPath(raw);
+      if (!fallback) fallback = path;
+      const res = validateDrawLine(this.game.state, {
+        utilityType: this._utilityType, start: startRef, end: endRef, path,
+      });
+      if (res.ok) { chosen = path; break; }
+    }
+    return { startTile, endTile, endAnchor, startRef, endRef, path: chosen || fallback };
+  }
+
+  /** {placeableId, portName} for a port-anchored draw end, null when open. */
+  _anchorRef(anchor) {
+    if (!anchor || anchor.open || !anchor.placeableId) return null;
+    return { placeableId: anchor.placeableId, portName: anchor.portName };
+  }
+
+  /** Outward normal of a draw end's port, null when the end is open. */
+  _anchorVec(anchor) {
+    const ref = this._anchorRef(anchor);
+    if (!ref) return null;
+    const endpoint = findUtilityEndpoint(this.game.state, ref.placeableId);
+    const def = endpoint ? COMPONENTS[endpoint.type] : null;
+    if (!def) return null;
+    return portApproachVec(endpoint, def, ref.portName);
   }
 
   /**
