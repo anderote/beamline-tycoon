@@ -293,18 +293,26 @@ function getPortMarkerMaterial(color, brightened) {
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
-    emissiveIntensity: brightened ? 1.0 : 0.55,
+    emissiveIntensity: brightened ? 1.0 : 0.5,
     transparent: true,
-    opacity: brightened ? 0.95 : 0.8,
+    opacity: brightened ? 0.95 : 0.7,
     depthTest: false,
   });
   _portMarkerMatCache.set(key, shared(mat));
   return mat;
 }
 
+// Dot radii in world metres (1 tile = 2 m). Deliberately small: a marker sits
+// on every available port of the armed utility, so at facility scale dozens are
+// on screen at once — they have to read as a hint about where the cursor can
+// grab, not as objects in the world. Hover is the only one allowed to be
+// conspicuous, and it is exactly one.
+const PORT_DOT_R = 0.07;
+const PORT_DOT_R_HOVER = 0.12;
+
 function buildPortMarker(worldPos, color, brightened) {
-  const r = brightened ? 0.22 : 0.13;
-  const geo = new THREE.SphereGeometry(r, 12, 10);
+  const r = brightened ? PORT_DOT_R_HOVER : PORT_DOT_R;
+  const geo = new THREE.SphereGeometry(r, 10, 8);
   const mat = getPortMarkerMaterial(color, brightened);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(worldPos.x, PIPE_Y + 0.3, worldPos.z);
@@ -331,8 +339,13 @@ function buildHoverMarker(hoverPort) {
 // a utility-coloured chevron floating above the offending port on a stem, all
 // drawn depthTest-off at a high renderOrder so pipe/building geometry can't
 // hide it.
+//
+// Sized as a map pin, not as scenery: at a metre and a half the stems read as
+// part of the facility and a wired-up hall turns into a forest of them, so the
+// pin sits just clear of the equipment it marks and the chevron is small enough
+// that a dozen of them still leave the machines legible.
 
-const UNWIRED_MARK_Y = PIPE_Y + 1.5;   // chevron tip height above ground
+const UNWIRED_MARK_Y = PIPE_Y + 0.7;   // chevron tip height above ground
 
 const _unwiredMatCache = new Map();
 function getUnwiredMarkerMaterial(color) {
@@ -356,13 +369,13 @@ function buildUnwiredMarker(mark) {
   const mat = getUnwiredMarkerMaterial(color);
   const g = new THREE.Group();
 
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 6), mat);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.26, 6), mat);
   cone.rotation.x = Math.PI;               // apex down, at the stem top
-  cone.position.set(0, UNWIRED_MARK_Y + 0.28, 0);
+  cone.position.set(0, UNWIRED_MARK_Y + 0.13, 0);
   cone.renderOrder = 1001;
   g.add(cone);
 
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, UNWIRED_MARK_Y - PIPE_Y, 6), mat);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, UNWIRED_MARK_Y - PIPE_Y, 6), mat);
   stem.position.set(0, (UNWIRED_MARK_Y + PIPE_Y) / 2, 0);
   stem.renderOrder = 1001;
   g.add(stem);
