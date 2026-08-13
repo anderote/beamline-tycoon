@@ -11,6 +11,10 @@ export default {
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.02,
   capacityUnit: 'kW',
+  // Adjacency bridging: components whose footprints touch share this utility
+  // with no line between them (network-discovery.computeAdjacency). Bolting a
+  // rack onto the one beside it is how a real hall distributes power.
+  bridgesAdjacent: true,
   // ---- Phase 12: utility lines have a price. ------------------------------
   // `costPerSubUnit` is dollars per sub-unit of drawn path; a sub-unit is a
   // quarter tile (line-geometry.SUB_PER_TILE = 4), so multiply by 4 for the

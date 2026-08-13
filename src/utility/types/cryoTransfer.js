@@ -140,6 +140,9 @@ export default {
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
   capacityUnit: 'W@4K',
+  // No adjacency bridging: a vacuum-jacketed LHe line is not something you get
+  // by pushing two cryostats together — every cryo sink is wired explicitly.
+  bridgesAdjacent: false,
   capacityParam: 'coldCapacityW',
   demandParam: 'srfHeatW',
   // $16,000/tile — a vacuum-jacketed LHe transfer line is the outlier of the

@@ -163,10 +163,21 @@ for (const scenario of SCENARIOS) {
     }
     for (let i = 0; i < 3; i++) cutGame.tick();
     const cutHard = (cutGame.state.infraBlockers || []).filter(b => b.severity === 'hard');
-    // 6 power + 6 vacuum + 4 RF on-pipe sinks; the quad's stub-fed cooling
-    // and the junctions' own feeds are untouched.
-    assert(cutHard.length === 16,
-      `cutting the 4 bus feeds re-blocks 16 on-pipe sinks (got ${cutHard.length})`);
+    // 3 power + 5 vacuum + 4 RF. Of the 16 on-pipe sinks the buses were
+    // serving, four now ride adjacency bridging instead: the placements that
+    // physically touch the wired end junctions pick power and vacuum up from
+    // them, and pass it down the string. RF is the control here — it does not
+    // bridge (rfWaveguide.bridgesAdjacent = false), so all four RF sinks come
+    // back exactly as they did before. The quad's stub-fed cooling and the
+    // junctions' own feeds are untouched either way.
+    const byUtil = cutHard.reduce((a, b) => {
+      a[b.code] = (a[b.code] || 0) + 1; return a;
+    }, {});
+    assert(cutHard.length === 12,
+      `cutting the 4 bus feeds re-blocks 12 on-pipe sinks (got ${cutHard.length}: `
+      + `${JSON.stringify(byUtil)})`);
+    assert(byUtil.rf_unconnected === 4,
+      `every RF sink comes back — RF does not bridge (got ${byUtil.rf_unconnected})`);
   }
 
   // Prebuilt facility must not eat the starting budget (checked before any

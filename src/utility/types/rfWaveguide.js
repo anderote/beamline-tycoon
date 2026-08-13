@@ -81,6 +81,9 @@ export default {
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',
+  // No adjacency bridging: RF has to be guided. Pushing two klystrons together
+  // does not make a waveguide, so every RF sink is wired explicitly.
+  bridgesAdjacent: false,
   // $7,200/tile — brazed precision copper. waveguideManifold ($160k) beats
   // individual runs at about four sinks. Ladder: powerCable.js.
   costPerSubUnit: 1800,

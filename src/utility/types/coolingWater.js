@@ -31,6 +31,9 @@ export default {
   // lcwSkid 100 → chiller 300 → coolingTower 800); litres only track the
   // reservoir level.
   capacityUnit: 'kW',
+  // Adjacency bridging: touching components share the loop — a skid manifolds
+  // straight into the unit bolted next to it.
+  bridgesAdjacent: true,
   // Per-port param names the inspector reads for its source/sink rows.
   capacityParam: 'capacity',
   demandParam: 'heatLoad',

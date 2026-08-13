@@ -11,6 +11,11 @@ export default {
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.01,
   capacityUnit: 'Gbps',
+  // Adjacency bridging: touching components share the link, as a rack's
+  // backplane does. Most data devices declare BOTH data_in and data_out, and
+  // discovery treats such a converter as a boundary that never bridges, so in
+  // practice this reaches read-only sinks parked against a wired device.
+  bridgesAdjacent: true,
   // $1,200/tile — the cheapest run to pull. fiberBus ($35k) beats individual
   // runs at about five sinks. Ladder and derivation: powerCable.js.
   costPerSubUnit: 300,
