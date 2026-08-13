@@ -11,6 +11,12 @@ const STEP = 0.25;
 const SUB_PER_TILE = 4;
 const EPS = 1e-6;
 
+// Height in world metres at which utility lines run. Geometric rather than
+// cosmetic: the renderer draws at this height AND the input tool has to pick
+// against a plane at this height, or the drawing lands up-screen of the cursor
+// (iso projection turns half a metre of elevation into 15-25 px of offset).
+export const UTILITY_LINE_Y = 0.5;
+
 export function buildManhattanPath(start, end, opts = {}) {
   if (!start || !end) return null;
   const dc = end.col - start.col;

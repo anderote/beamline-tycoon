@@ -13,6 +13,8 @@
 
 import { Tool } from './Tool.js';
 import { isoToGrid } from '../renderer/grid.js';
+import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
+import { UTILITY_TYPES } from '../utility/registry.js';
 
 export class UtilityLineTool extends Tool {
   constructor(utilityType) {
@@ -41,10 +43,73 @@ export class UtilityLineTool extends Tool {
   onShiftChange(down, ctx) {
     const ctrl = ctx.input.utilityLineController;
     if (!ctrl.isActive()) return;
+    this._replanFromLastCursor(ctx, { run: down });
+  }
+
+  // R flips which leg of the bend comes first. Both orders are legal routes
+  // whenever the ports allow it, and the controller was picking one for the
+  // player with no way to say otherwise — that is most of "hard to control the
+  // layout of the pipes". Consumed only mid-drag, so R keeps its usual meaning
+  // (rotate a placement / open research) the rest of the time.
+  onRotateKey(ctx) {
+    const ctrl = ctx.input.utilityLineController;
+    if (!ctrl.isActive()) return false;
+    ctrl.togglePreferVerticalFirst();
+    this._replanFromLastCursor(ctx, {});
+    return true;
+  }
+
+  // Re-run the drag geometry at the last known cursor position, so a change
+  // that isn't a mouse move (modifier, bend flip) still updates the preview
+  // and the cost tooltip immediately.
+  _replanFromLastCursor(ctx, modifiers) {
+    const ctrl = ctx.input.utilityLineController;
     const { lastMouseWorldX: mx, lastMouseWorldY: my } = ctx.input;
     if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
-    ctrl.onMouseMove(mx, my, { run: down });
+    ctrl.onMouseMove(mx, my, modifiers);
     this._updateDragTooltip(ctx, ctx.input._lastScreenX, ctx.input._lastScreenY);
+  }
+
+  // Right-click is the eraser for the utility you have armed: it takes back the
+  // line under the cursor without a trip to the demolish tool, which is what
+  // makes drawing cable a loop you can iterate in rather than a commitment.
+  //
+  // Scoped to the armed type on purpose — with six utilities stacked along the
+  // same wall, "remove whatever is under the cursor" deletes the wrong one
+  // often enough to be worse than useless.
+  //
+  // A miss returns false so the click falls through to the ordinary
+  // right-click-deselects behaviour; only an actual removal is consumed.
+  onRightClick(e, ctx) {
+    const ctrl = ctx.input.utilityLineController;
+    // Mid-drag, right-click means "abandon this line", not "delete one".
+    if (ctrl.isActive()) {
+      ctrl.onEscape?.();
+      ctx.input._hideDragCostTooltip?.();
+      return true;
+    }
+    const game = ctx.game;
+    if (!game.utilityLineSystem) return false;
+    // Mesh raycast first (exact), then a proximity test on the cursor's cable
+    // plane. A powerCable is a 2 cm cylinder; requiring a pixel-accurate hit on
+    // one would make the eraser feel broken at anything but maximum zoom.
+    const hit = ctx.renderer.raycastUtilityLine?.(e.clientX, e.clientY);
+    let lineId = (hit && hit.utilityType === this.utilityType) ? hit.lineId : null;
+    if (!lineId) {
+      const world = this._cableWorld(e, ctx);
+      lineId = ctrl.nearestLine(world.x, world.y, 0.4)?.lineId || null;
+    }
+    if (!lineId) return false;
+    let removed = false;
+    game._withUndo(() => {
+      removed = game.utilityLineSystem.removeLine(lineId);
+      return removed;
+    });
+    if (removed) {
+      const label = UTILITY_TYPES[this.utilityType]?.displayName || this.utilityType;
+      game.log(`Removed ${label} line`, 'info');
+    }
+    return removed;
   }
 
   // Off-canvas release / focus loss: drop the in-flight line draw.
@@ -53,9 +118,21 @@ export class UtilityLineTool extends Tool {
     ctx.input._hideDragCostTooltip?.();
   }
 
+  // Where the cursor lands ON THE CABLE PLANE. Lines are drawn at
+  // UTILITY_LINE_Y, so picking against the ground would offset every cable a
+  // fixed distance up-screen from the mouse. The floor-level pick is still the
+  // right one for tile hover and hover tooltips, which are about what is under
+  // the cursor on the ground — hence two conversions, not one.
+  _cableWorld(e, ctx) {
+    const r = ctx.renderer;
+    return r.screenToWorldAtHeight
+      ? r.screenToWorldAtHeight(e.clientX, e.clientY, UTILITY_LINE_Y)
+      : r.screenToWorld(e.clientX, e.clientY);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
-    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const world = this._cableWorld(e, ctx);
     // Anchors on a port when near one, otherwise starts an open-ended draw;
     // either way the controller consumes the click while armed. Shift arms
     // run-wiring: the drag sweeps a corridor and wires every compatible sink.
@@ -67,7 +144,7 @@ export class UtilityLineTool extends Tool {
     const input = ctx.input;
     const renderer = ctx.renderer;
     const ctrl = input.utilityLineController;
-    const world = renderer.screenToWorld(e.clientX, e.clientY);
+    const world = this._cableWorld(e, ctx);
     if (ctrl.isActive()) {
       // Mid-draw: update the Manhattan preview path.
       ctrl.onMouseMove(world.x, world.y, { run: e.shiftKey });
@@ -78,7 +155,8 @@ export class UtilityLineTool extends Tool {
       this._updateDragTooltip(ctx, e.clientX, e.clientY);
       return true;
     }
-    const grid = isoToGrid(world.x, world.y);
+    const ground = renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(ground.x, ground.y);
     renderer.updateHover(grid.col, grid.row);
     // Hover: highlight the nearest port that matches the utility type.
     ctrl.onHover(world.x, world.y);
@@ -86,8 +164,10 @@ export class UtilityLineTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    // Hover tooltips stayed live while the utility tool was armed.
-    input._checkHoverTooltip(world, grid, e.clientX, e.clientY);
+    // Hover tooltips stayed live while the utility tool was armed. They read
+    // the ground pick — they are about the thing under the cursor, not about
+    // the cable plane.
+    input._checkHoverTooltip(ground, grid, e.clientX, e.clientY);
     return true;
   }
 
@@ -96,7 +176,7 @@ export class UtilityLineTool extends Tool {
     if (!ctrl.isActive()) return false;
     // Draw end — commits through Game.commitGesture (one undo entry, whether
     // that is a single line or a whole run).
-    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const world = this._cableWorld(e, ctx);
     ctrl.onMouseUp(world.x, world.y, e.button, { run: e.shiftKey });
     ctx.input._hideDragCostTooltip?.();
     return true;

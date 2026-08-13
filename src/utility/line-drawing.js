@@ -72,6 +72,23 @@ function pointsOverlap(a, b) {
 function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
   const newExpanded = expandPath(newPath);
   const ignoreSharedSource = opts.ignoreSharedSource || null; // { start, end }
+  // Tap: this end of the new line deliberately lands ON an existing line, to
+  // branch off it. Exempt exactly ONE point — the terminal subtile at that end
+  // — against exactly that line. A path that then runs ALONG the trunk still
+  // overlaps at its second point and still rejects, which is what keeps the
+  // overlap rule meaning something.
+  const tapLineIds = opts.tapLineIds || null;
+  const tapExempt = new Map();   // lineId -> Set of exempt indices in newExpanded
+  if (tapLineIds && newExpanded.length > 0) {
+    const add = (id, idx) => {
+      if (!id) return;
+      let set = tapExempt.get(id);
+      if (!set) { set = new Set(); tapExempt.set(id, set); }
+      set.add(idx);
+    };
+    add(tapLineIds.start, 0);
+    add(tapLineIds.end, newExpanded.length - 1);
+  }
   const iter = lines && typeof lines.values === 'function'
     ? lines.values()
     : (lines || []);
@@ -94,7 +111,10 @@ function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
     // for that existing line.
     if (skipEndpoint) continue;
     const existing = expandPath(line.path || []);
-    for (const np of newExpanded) {
+    const exempt = tapExempt.get(line.id) || null;
+    for (let i = 0; i < newExpanded.length; i++) {
+      if (exempt && exempt.has(i)) continue;
+      const np = newExpanded[i];
       for (const ep of existing) {
         if (pointsOverlap(np, ep)) return true;
       }
@@ -143,7 +163,7 @@ function isPortTaken(state, placeableId, portName) {
 // Public: validateDrawLine
 // ---------------------------------------------------------------------------
 
-export function validateDrawLine(state, { utilityType, start, end, path } = {}) {
+export function validateDrawLine(state, { utilityType, start, end, path, tapLineIds } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
   if (!isManhattanPath(path)) return reject('not_manhattan');
@@ -219,7 +239,9 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
       ignoreSharedSource.end = end;
     }
   }
-  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource })) return reject('overlap_same_type');
+  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource, tapLineIds })) {
+    return reject('overlap_same_type');
+  }
 
   return {
     ok: true,

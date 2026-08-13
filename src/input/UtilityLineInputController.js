@@ -23,7 +23,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
-import { buildPortRoutedPath, pathLengthSubUnits } from '../utility/line-geometry.js';
+import { buildPortRoutedPath, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
@@ -35,6 +35,12 @@ import { isoToGridFloat } from '../renderer/grid.js';
 // pixel-perfect aim. Tightened automatically (0.5) near ports on the same
 // placeable since those are packed tighter.
 const PORT_SNAP_RADIUS_WORLD = 1.0;
+
+// How close the cursor has to be to an existing line of the same utility to
+// grab it, in tiles. Tighter than the port radius: ports are the primary
+// target and a trunk usually runs right past one, so a generous tap radius
+// would steal clicks meant for the port at the end of it.
+const TAP_SNAP_RADIUS_TILES = 0.4;
 
 // Run-wiring corridor sampling. The corridor is the polyline the cursor
 // actually traced, so it needs a floor on sample spacing (mouse jitter) and a
@@ -77,12 +83,22 @@ export class UtilityLineInputController {
     return this._drawing;
   }
 
+  // Which leg of a one-bend path comes first. The player's choice, bound to R
+  // by UtilityLineTool: _dragGeometry tries this order first and only falls
+  // back to the other when the ports make it illegal, so the flip is visible
+  // whenever there is a real choice to make.
+  get preferVerticalFirst() { return this._preferVerticalFirst; }
+
+  setPreferVerticalFirst(v) { this._preferVerticalFirst = !!v; }
+
+  togglePreferVerticalFirst() { this._preferVerticalFirst = !this._preferVerticalFirst; }
+
   onHover(worldX, worldY) {
     if (!this._utilityType) return;
     // Expose hover port for the renderer (glowing-sphere highlight). Include
     // utilityType so the marker is colored per-descriptor even when not
     // mid-draw.
-    const snap = this._snapToNearestPort(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY);
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
   }
@@ -122,7 +138,7 @@ export class UtilityLineInputController {
     // Prefer a port snap if the cursor is near one; otherwise start an
     // open-ended draw at the cursor's subtile. Either way, consume the click
     // since the utility-line tool is armed.
-    const snap = this._snapToNearestPort(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY);
     this._drawing = true;
     if (snap) {
       this._drawStart = snap;
@@ -151,7 +167,7 @@ export class UtilityLineInputController {
     const wasRunMode = this._runMode;
     if (modifiers.run !== undefined) this._runMode = !!modifiers.run;
     // Update hover-port during drag so the candidate end port highlights.
-    const snap = this._snapToNearestPort(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY);
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
     const grew = this._traceCursor(worldX, worldY);
@@ -182,7 +198,7 @@ export class UtilityLineInputController {
     this._traceCursor(worldX, worldY);
     // End may be a port, an existing line's subtile (detected via overlap
     // during discovery), or just empty space.
-    const endSnap = this._snapToNearestPort(worldX, worldY);
+    const endSnap = this._snapToNearest(worldX, worldY);
     const geom = this._dragGeometry(worldX, worldY, endSnap);
     // Run-wiring wins over the single-line commit whenever it found something
     // to wire; an empty plan falls through so a modifier-held miss still
@@ -218,6 +234,7 @@ export class UtilityLineInputController {
           start: startRef,
           end: endRef,
           path,
+          tapLineIds: geom.tapLineIds,
         }),
       });
     }
@@ -296,6 +313,12 @@ export class UtilityLineInputController {
     const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
     const startRef = this._anchorRef(this._drawStart);
     const endRef = this._anchorRef(endAnchor);
+    // A tap end is an open end that is allowed to touch one specific line, at
+    // exactly the subtile it lands on. Everything else about it is ordinary.
+    const tapLineIds = {
+      start: this._drawStart && this._drawStart.tap ? this._drawStart.lineId : null,
+      end: endAnchor && endAnchor.tap ? endAnchor.lineId : null,
+    };
 
     let chosen = null;
     let fallback = null;
@@ -308,11 +331,14 @@ export class UtilityLineInputController {
       const path = snapPath(raw);
       if (!fallback) fallback = path;
       const res = validateDrawLine(this.game.state, {
-        utilityType: this._utilityType, start: startRef, end: endRef, path,
+        utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
       });
       if (res.ok) { chosen = path; break; }
     }
-    return { startTile, endTile, endAnchor, startRef, endRef, path: chosen || fallback };
+    return {
+      startTile, endTile, endAnchor, startRef, endRef, tapLineIds,
+      path: chosen || fallback,
+    };
   }
 
   /** {placeableId, portName} for a port-anchored draw end, null when open. */
@@ -399,6 +425,62 @@ export class UtilityLineInputController {
       game.log(`${label}: wired ${committed.length} component${committed.length === 1 ? '' : 's'}`, 'good');
     }
     return committed;
+  }
+
+  /**
+   * What the cursor would grab: a port if one is close enough, otherwise a tap
+   * on a committed line of this utility, otherwise nothing.
+   *
+   * Ports win ties — a port under the cursor is the more specific intent, and a
+   * line usually runs right up to one.
+   *
+   * A tap is an OPEN end that happens to land on another line's subtile: the
+   * spatial-union pass in network discovery already merges lines that share a
+   * subtile, so a T-join needs no new endpoint concept in the data model. It
+   * carries `lineId` only so the overlap check can be told which line it is
+   * allowed to touch, at exactly that one point.
+   */
+  _snapToNearest(worldX, worldY) {
+    const port = this._snapToNearestPort(worldX, worldY);
+    if (port) return port;
+    const tap = this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
+    if (!tap) return null;
+    return { open: true, tap: true, lineId: tap.lineId, worldPos: tap.worldPos };
+  }
+
+  /**
+   * The nearest committed line of the armed utility to an iso-pixel cursor.
+   *
+   * Two callers, one notion of "on that line": right-click deletion (a power
+   * cable is a 2 cm cylinder, so a mesh raycast alone misses often enough to
+   * feel broken) and tapping a trunk to branch off it.
+   *
+   * Distance is measured against the expanded path — the same 0.25-tile
+   * sampling network discovery uses to decide two lines touch — so what the
+   * player can grab and what the sim will merge are the same points.
+   *
+   * @returns {{lineId, worldPos: {x, z}, dist}|null} dist in world metres
+   */
+  nearestLine(worldX, worldY, maxTiles = 0.5) {
+    const lines = this.game.state.utilityLines;
+    if (!lines || !this._utilityType) return null;
+    const cursor = this._isoFloatToWorld(worldX, worldY);
+    let best = null;
+    let bestDist = maxTiles * 2;   // tiles → world metres
+    const iter = typeof lines.values === 'function' ? lines.values() : lines;
+    for (const line of iter) {
+      if (!line || line.utilityType !== this._utilityType) continue;
+      for (const pt of expandPath(line.path || [])) {
+        const dx = pt.col * 2 - cursor.x;
+        const dz = pt.row * 2 - cursor.z;
+        const d = Math.hypot(dx, dz);
+        if (d < bestDist) {
+          bestDist = d;
+          best = { lineId: line.id, worldPos: { x: pt.col * 2, z: pt.row * 2 }, dist: d };
+        }
+      }
+    }
+    return best;
   }
 
   _snapToNearestPort(worldX, worldY) {

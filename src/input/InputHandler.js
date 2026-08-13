@@ -1202,6 +1202,10 @@ export class InputHandler {
           });
           break;
         case 'r': case 'R': {
+          // The active tool gets first refusal: a gesture with an orientation
+          // of its own (the utility line's bend order) is what the player
+          // means by "rotate" while they are mid-drag.
+          if (this.activeTool?.onRotateKey?.(this._toolCtx)) return;
           // Placement-role tools (attachments on pipes) use R to toggle
           // placement mode rather than rotating — their direction is
           // determined by the pipe's axis, so rotation is a no-op.

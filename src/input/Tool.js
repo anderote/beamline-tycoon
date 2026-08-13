@@ -20,6 +20,11 @@
 //   - onShiftChange(down, ctx): fired when the Shift key goes down/up so
 //     tools with shift-modified previews (wall boundary fill, demolish
 //     whole-run) can refresh without waiting for a mousemove.
+//   - onRotateKey(ctx): R, offered to the active tool BEFORE the unified
+//     placement rotation and the research-overlay fallback. Return true to
+//     consume it. For tools whose gesture has an orientation of its own —
+//     the utility line's bend order — R means "turn the thing I am drawing",
+//     which is the same promise it makes everywhere else.
 //   - cancelGesture(ctx, reason): fired when an in-flight gesture must end
 //     without committing. `reason` is 'stateReplaced' when undo/redo is
 //     about to swap game state wholesale, or 'abort' for a lost pointer
@@ -54,5 +59,6 @@ export class Tool {
   onRightClick(_e, _ctx) { return false; }
   onKey(_e, _ctx) { return false; }
   onShiftChange(_down, _ctx) {}
+  onRotateKey(_ctx) { return false; }
   cancelGesture(_ctx, _reason) {}
 }

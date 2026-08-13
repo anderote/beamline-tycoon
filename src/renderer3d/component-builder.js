@@ -3814,6 +3814,61 @@ function _getThumbRenderer(size) {
   return { renderer: _thumbRenderer, scene: _thumbScene, camera: _thumbCamera };
 }
 
+// type → {minY, maxY, maxX, maxZ} in metres, or null when the type has no
+// model at all. Measured once per type from a throwaway instance.
+const _boundsCache = new Map();
+
+/**
+ * The world-space extent of a component type's model, in metres.
+ *
+ * Utility port anchors need to know how tall a device actually is: a port dot
+ * and its cable have to sit on the shell, and a rack, a floor-standing pump and
+ * an on-pipe cavity have wildly different shells. Nothing in the component data
+ * records height — only the footprint — so the model is the only source, and
+ * measuring it is exactly what the thumbnail path below already does.
+ *
+ * Instantiate → measure → dispose, cached by type. Returns null when THREE is
+ * absent (headless tests) or the type has no model, and callers must have a
+ * fallback for that.
+ */
+export function getModelBounds(compType) {
+  if (_boundsCache.has(compType)) return _boundsCache.get(compType);
+  let out = null;
+  if (typeof THREE !== 'undefined') {
+    const compDef = COMPONENTS[compType] || PLACEABLES[compType];
+    if (compDef) {
+      const defId = compDef.id || compType;
+      const accent = compDef.accentColor || 0xc62828;
+      let model = null;
+      try {
+        if (ROLE_BUILDERS[defId]) model = _instantiateRoleTemplate(defId, accent);
+        else if (DETAIL_BUILDERS[defId]) model = DETAIL_BUILDERS[defId]();
+        else model = _buildPartsOrFallback(compDef);
+      } catch (_e) {
+        model = null;
+      }
+      if (model) {
+        const box = new THREE.Box3().setFromObject(model);
+        if (Number.isFinite(box.max.y)) {
+          out = {
+            minY: box.min.y, maxY: box.max.y,
+            maxX: box.max.x, maxZ: box.max.z,
+          };
+        }
+        // Never added to a scene; drop its GPU resources rather than waiting
+        // for the next GC of a model nothing will draw.
+        model.traverse?.((o) => {
+          if (o.geometry && typeof o.geometry.dispose === 'function') o.geometry.dispose();
+          const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+          for (const m of mats) if (!m.userData?.__shared && typeof m.dispose === 'function') m.dispose();
+        });
+      }
+    }
+  }
+  _boundsCache.set(compType, out);
+  return out;
+}
+
 export function renderComponentThumbnail(compType, size = 64) {
   if (_staticThumbMap[compType]) return _staticThumbMap[compType];
   if (typeof THREE === 'undefined') return null;
