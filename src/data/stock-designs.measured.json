@@ -106,5 +106,86 @@
     "finalBeamSizeY": 0.01951902178390669,
     "totalLossFraction": 0.9695009481890776,
     "inBand": true
+  },
+  "xfel-plasma-injector": {
+    "beamEnergy": 6.299482008656168,
+    "beamCurrent": 0.0006499470271586778,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0001208567057898666,
+    "finalBeamSizeY": 0.0005213821372467054,
+    "totalLossFraction": 0.3500529728413222,
+    "inBand": true
+  },
+  "xfel-hard-xray": {
+    "beamEnergy": 8.198175075481885,
+    "beamCurrent": 0.0006499259042235466,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.00024246009096997556,
+    "finalBeamSizeY": 0.00004997824584941172,
+    "totalLossFraction": 0.35007409577645343,
+    "inBand": true
+  },
+  "xfel-flagship": {
+    "beamEnergy": 16.54547680871131,
+    "beamCurrent": 0.0006498592902323961,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0003499784994758486,
+    "finalBeamSizeY": 0.00010581663897837265,
+    "totalLossFraction": 0.3501407097676039,
+    "inBand": true
+  },
+  "euvfel-pilot": {
+    "beamEnergy": 0.9963122619948832,
+    "beamCurrent": 9.999620007219942,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0003766959123243474,
+    "finalBeamSizeY": 0.0026882101230898963,
+    "totalLossFraction": 0.5000189996390029,
+    "inBand": true
+  },
+  "euvfel-production": {
+    "beamEnergy": 0.9942018735997186,
+    "beamCurrent": 12.49936251625602,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0011427178481252394,
+    "finalBeamSizeY": 0.001723513586305587,
+    "totalLossFraction": 0.5000254993497592,
+    "inBand": true
+  },
+  "euvfel-fab": {
+    "beamEnergy": 0.9922253283800773,
+    "beamCurrent": 14.705022083986709,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0008471280279186215,
+    "finalBeamSizeY": 0.002326117219347971,
+    "totalLossFraction": 0.5000292491444519,
+    "inBand": true
+  },
+  "collider-zpole": {
+    "beamEnergy": 45.699925158349565,
+    "beamCurrent": 0.010497611521699955,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0017992998987545277,
+    "finalBeamSizeY": 0.00008116848117919734,
+    "totalLossFraction": 0.500113737061907,
+    "inBand": true
+  },
+  "collider-higgs": {
+    "beamEnergy": 123.69979685356412,
+    "beamCurrent": 0.010496729759366758,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0018388701605702045,
+    "finalBeamSizeY": 0.000016228342834299535,
+    "totalLossFraction": 0.5001557257444401,
+    "inBand": true
+  },
+  "collider-tev": {
+    "beamEnergy": 490.699193163058,
+    "beamCurrent": 0.010495932038218915,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.0011959135898015527,
+    "finalBeamSizeY": 0.00103529303559854,
+    "totalLossFraction": 0.5001937124657659,
+    "inBand": true
   }
 }
