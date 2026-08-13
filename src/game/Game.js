@@ -659,7 +659,18 @@ export class Game {
   /** An undo/redo stack entry: the snapshot plus the resource ledger it was
    *  taken against (see _syncResourceLedger). */
   _makeUndoEntry() {
-    return { payload: this._snapshot(), ledger: { ...this._resourceLedger } };
+    return {
+      payload: this._snapshot(),
+      ledger: { ...this._resourceLedger },
+      // The New Beamline pick is session intent, not saved-game state, so it
+      // is deliberately absent from serialize() — but it still has to rewind.
+      // _ensureBeamlineForSourcePlaceable consumes it the moment a source
+      // lands, and a placement that then fails and rolls back used to leave it
+      // spent: the retry minted an UNTYPED beamline, with an unfiltered
+      // palette, from one misclick. Carrying it on the entry keeps it out of
+      // the save file and still restores it with the state it belonged to.
+      pendingBeamlineTypeId: this.pendingBeamlineTypeId,
+    };
   }
 
   /**
@@ -4307,9 +4318,15 @@ export class Game {
   // line, and sim progress is carried over rather than rewound.
   // Used by undo()/redo().
   restoreSnapshot(entry) {
-    const { payload, ledger } = typeof entry === 'string'
-      ? { payload: entry, ledger: null } : entry;
+    const { payload, ledger, pendingBeamlineTypeId } = typeof entry === 'string'
+      ? { payload: entry, ledger: null, pendingBeamlineTypeId: undefined }
+      : entry;
     this._applyState(JSON.parse(payload), { preserveSim: true, ledgerAt: ledger });
+    // Rewind the New Beamline pick with everything else. `undefined` means the
+    // entry predates this field (a bare payload string), and leaves it alone.
+    if (pendingBeamlineTypeId !== undefined) {
+      this.pendingBeamlineTypeId = pendingBeamlineTypeId;
+    }
     // The restore itself moved the balance; it is not ledger drift.
     this._closeUndoGesture();
     // The 3D renderer handles 'restored' exactly like 'loaded' (full

@@ -78,6 +78,24 @@ function placeDesign(design, seed) {
   game.setSandboxMode(true);
   game.state.resources.funding = 1e12;
 
+  // Buy land until the design has somewhere to stand. DesignPlacer now
+  // refuses a footprint that leaves the generated site, so the machines that
+  // cannot fold — the collider and the black hole factory, 121 to 225 tiles
+  // of straight run — do not fit the 61-tile starting map and are not meant
+  // to. Sandbox funding covers the parcels; buying them here is what the
+  // player does, not a way around the check.
+  // Buy land until the design has somewhere to stand. DesignPlacer now
+  // refuses a footprint that leaves the generated site, so the machines that
+  // cannot fold — the collider and the black hole factory, 121 to 225 tiles
+  // of straight run — do not fit the 61-tile starting map and are not meant
+  // to. Sandbox funding covers the parcels; buying them here is what the
+  // player does, not a way around the check. The run is measured from the
+  // catalogue rather than from previewTiles, which is not populated until a
+  // position has been set.
+  const runTiles = Math.ceil(
+    design.components.reduce((a, c) => a + (COMPONENTS[c.type]?.subL || 2), 0) / 4);
+  while (runTiles > game.state.mapHalfExtent && game.buyLand().ok) { /* next parcel */ }
+
   const placer = new DesignPlacer(game, stubRenderer);
   placer.start(design);
 
@@ -96,9 +114,12 @@ function placeDesign(design, seed) {
   // the generator moved and was never either.
   let origin = null;
   let before = null;
+  // Scan the site the game actually has, not a fixed window — buyLand above
+  // may have grown it to 121, 181 or 241 tiles.
+  const ext = game.state.mapHalfExtent;
   outer:
-  for (let row = -30; row <= 30; row++) {
-    for (let col = -30; col <= 20; col++) {
+  for (let row = -ext; row <= ext; row++) {
+    for (let col = -ext; col <= ext - 10; col++) {
       placer.setPosition(col, row);
       if (!placer.valid) continue;
       const ids = new Set(game.state.placeables.map(p => p.id));

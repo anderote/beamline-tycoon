@@ -36,6 +36,8 @@ import {
   generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT,
 } from '../src/game/map-generator.js';
 import { LAND_PARCELS, nextLandParcel, MAX_MAP_HALF_EXTENT } from '../src/data/land.js';
+import { STOCK_DESIGNS } from '../src/data/stock-designs.js';
+import { DesignPlacer } from '../src/ui/DesignPlacer.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -253,6 +255,68 @@ console.log('\n=== a bought map survives the save ===\n');
   assert(g2.state.placeables.length === count,
     `the bought land's terrain survives (${g2.state.placeables.length} vs ${count})`);
   assert(key(g2.state.placeables) === mapKey, 'and lands on exactly the same tiles');
+}
+
+// ---------------------------------------------------------------------------
+// The land ladder has to BIND. Nothing else in the placement path knows where
+// the ground ends — `valid` checks occupancy and affordability, and
+// validateDrawPipe checks ports, straightness and pipe overlap — so without an
+// on-site check in DesignPlacer a 121-tile collider lays itself out past the
+// edge of the world on the starting site and every parcel is decoration.
+// ---------------------------------------------------------------------------
+console.log('\n--- a machine that cannot fold needs the land bought for it ---');
+{
+  const design = STOCK_DESIGNS.find(d => d.id === 'collider-zpole');
+  assert(!!design, 'collider-zpole is in the roster');
+
+  const g = newGame(77);
+  g.setSandboxMode(true);
+  g.state.resources.funding = 1e12;
+
+  const p = new DesignPlacer(g, { _renderCursors() {} });
+  p.start(design);
+  p.setPosition(-25, 0);
+  assert(p.valid === false, 'a 121-tile straight run is refused on the 61-tile starting site');
+  assert(p.invalidReason === 'off-site',
+    `refused for leaving the site, not for something else (got ${p.invalidReason})`);
+
+  while (g.buyLand().ok) { /* to the last parcel */ }
+  assert(g.state.mapHalfExtent === MAX_MAP_HALF_EXTENT, 'bought every parcel');
+
+  const p2 = new DesignPlacer(g, { _renderCursors() {} });
+  p2.start(design);
+  p2.setPosition(-110, 0);
+  assert(p2.valid === true, 'and accepted once the land is there');
+}
+
+// ---------------------------------------------------------------------------
+// A refused placement must not spend the New Beamline pick.
+// `pendingBeamlineTypeId` lives on the Game instance rather than in `state`,
+// so serialize() does not carry it and restoreSnapshot used to leave it spent:
+// _ensureBeamlineForSourcePlaceable consumes it the moment a source lands, and
+// a placement that then failed and rolled back left the retry minting an
+// UNTYPED beamline with an unfiltered palette — from one misclick.
+// ---------------------------------------------------------------------------
+console.log('\n--- a rolled-back placement gives the beamline pick back ---');
+{
+  const g = newGame(77);
+  g.startNewBeamline('xfel');
+  assert(g.pendingBeamlineTypeId === 'xfel', 'the pick is armed');
+
+  const entry = g._makeUndoEntry();
+  g.pendingBeamlineTypeId = null;             // exactly what consuming it does
+  g.restoreSnapshot(entry);
+  assert(g.pendingBeamlineTypeId === 'xfel',
+    `the pick rewinds with the state it belonged to (got ${g.pendingBeamlineTypeId})`);
+
+  // A bare payload string is a WORLD REPLACEMENT, not an undo, and must still
+  // clear the pick — _applyState drops it because "it belongs to the world
+  // being replaced", and the first imported source would otherwise eat it.
+  // Only the undo path, which carries the field explicitly, puts it back.
+  g.startNewBeamline('collider');
+  g.restoreSnapshot(entry.payload);
+  assert(g.pendingBeamlineTypeId === null,
+    `a payload-only restore still drops the pick (got ${g.pendingBeamlineTypeId})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -235,6 +235,20 @@ export class DesignPlacer {
           const tr = row + delta.dr * i + perpDelta.dr * wOff;
           this.previewTiles.push({ col: tc, row: tr, type: item.type });
 
+          // On-site check. Nothing else in the placement path knows where the
+          // ground ends: `valid` below checks occupancy and affordability, and
+          // validateDrawPipe checks ports, straightness and pipe overlap.
+          // Without this a 204-tile collider lays itself out past the edge of
+          // the generated world on the starting site, which would make the
+          // whole land ladder decorative — the parcels exist precisely so that
+          // the machines which cannot fold have somewhere to go.
+          const ext = this.game.state.mapHalfExtent;
+          if (Math.abs(tc) > ext || Math.abs(tr) > ext) {
+            this.valid = false;
+            this.invalidReason = 'off-site';
+            break;
+          }
+
           // Collision check via sub-grid placeables
           const key = tc + ',' + tr;
           for (let sc = 0; sc < 4; sc++) {
