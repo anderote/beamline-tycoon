@@ -311,14 +311,17 @@ console.log('\n=== Locked tiles name what they want ===\n');
 
 {
   // A locked tile has to say what would open it, by NAME — an id like
-  // 'isochronousCyclotron' in the UI is a leaked internal.
+  // 'isochronousCyclotron' in the UI is a leaked internal. Counts come off the
+  // table rather than being restated, so retuning therapy's gate is a
+  // beamline-types decision and not a picker-test failure.
+  const gate = getBeamlineType('therapy').requires;
   const names = missingResearchNames('therapy', { completedResearch: [] });
-  assertEq(names.length, 2, 'therapy names both of its missing nodes');
+  assertEq(names.length, gate.length, 'therapy names every one of its missing nodes');
   assert(names.every(n => n && !/^[a-z][A-Za-z]*$/.test(n)),
     'missing nodes are reported as display names, not raw ids');
 
   const partly = missingResearchNames('therapy',
-    { completedResearch: ['isochronousCyclotron'] });
+    { completedResearch: gate.slice(1) });
   assertEq(partly.length, 1, 'a partly-researched type names only what is left');
 
   assertEq(missingResearchNames('testStand', { completedResearch: [] }).length, 0,

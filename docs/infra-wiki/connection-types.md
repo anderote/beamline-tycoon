@@ -28,10 +28,10 @@ Connects vacuum pumps to the beamline. Each pump adds its rated speed to the net
 There is **no conductance model**. Pipe length between the pump and the beamline does not degrade pumping speed. What length *does* cost you is gas load: every metre of beam pipe outgasses. See [vacuum.md](vacuum.md).
 
 ### RF Waveguide (red)
-Carries RF power from sources to accelerating cavities. Frequency-matched: source must operate at the same frequency as the cavities it drives, or be broadband.
+Carries RF power from sources to accelerating cavities. Band-matched: a source drives any cavity whose frequency falls inside one of the bands it covers. But a single waveguide network carries only **one** frequency, so cavities cut for different frequencies need separate networks even when one source could feed both.
 
 - **Color:** Red (0xcc4444)
-- **Network type:** Per-frequency power buckets, with a shared broadband pool
+- **Network type:** One frequency per network, fed by the sources covering its band
 - **Source equipment:** Magnetron, TWT, SSA, Pulsed Klystron, CW Klystron, IOT, Multi-beam Klystron, High-power SSA, Gyrotron
 - **Consumers:** All RF cavities and structures, the RFQ, bunchers, and the ECR ion source
 - **Cost:** $1,800/sub-unit ($7,200/tile)

@@ -56,6 +56,10 @@ import math
 # --- BCS surface resistance constants (niobium) ---
 # R_BCS = (A f_GHz^2 / T) exp(-Delta/T). Delta/k_B = 17.67 K corresponds to
 # Tc = 9.25 K with the standard Delta/kTc = 1.85 for Nb.
+#
+# These are the DEFAULTS, not the only possibility: a spec may carry its own
+# "bcs_a" / "bcs_delta_over_k" when the cavity is not bare niobium. Nb3Sn is
+# the case that forces this — see nbSnCryomodule below.
 BCS_A = 2e-4
 BCS_DELTA_OVER_K = 17.67
 
@@ -74,8 +78,25 @@ Q0_COPPER = 1e4
 # Cavity constants, keyed on game component id (beamline-components.raw.js).
 #
 # SRF entries: f_ghz, r_over_q (ohm), G (ohm), l_active (m, per cavity),
-#              n_cav (cavities per placed component), r_res (ohm)
+#              n_cav (cavities per placed component), r_res (ohm),
+#              optional bcs_a / bcs_delta_over_k for non-niobium surfaces
 # NC entries:  f_ghz, r_shunt (ohm/m), l_active (m), n_cav
+#
+# HOW n_cav IS CHOSEN. gameplay.py derives the demanded gradient over the
+# PLACEMENT's footprint (energyGain * 1000 / length), then compares it against
+# the per-cavity ceiling this module computes over l_active. The two only
+# describe the same machine when n_cav * l_active is about the footprint
+# length — i.e. when the cavities really do account for the energy the
+# catalogue promises. The TESLA entry already satisfies this by construction
+# (8 * 1.038 = 8.3 m against an 8 m footprint) and every entry added for the
+# RF ladder follows it: n_cav is the cavity count that fills the placement,
+# NOT the count in one real cryomodule. A placement is a cryostring or a
+# sector, so it holds several modules' worth of cavities; the desc in the
+# catalogue is where that abstraction is stated to the player.
+#
+# n_cav also decides the heat: the placement's voltage is split across n_cav
+# cavities, so total P_diss goes as 1/n_cav at fixed energy gain. Getting the
+# count wrong bills the cryoplant for heat that is not there.
 # ---------------------------------------------------------------------------
 CAVITY_SPECS = {
     # --- Superconducting ---
@@ -87,9 +108,51 @@ CAVITY_SPECS = {
         "kind": "srf", "f_ghz": 0.65, "r_over_q": 380.0, "G": 190.0,
         "l_active": 0.72, "n_cav": 1, "r_res": R_RES_DEFAULT,
     },
-    "srf650Cavity": {
-        "kind": "srf", "f_ghz": 0.65, "r_over_q": 380.0, "G": 190.0,
-        "l_active": 0.72, "n_cav": 5, "r_res": R_RES_DEFAULT,
+    # PIP-II LB650: 5-cell elliptical cut for beta = 0.61, so the active length
+    # is 5 * beta * lambda/2 = 0.70 m. R/Q and G are the measured cavity
+    # constants for that shape — both well below the 1.3 GHz TESLA values,
+    # which is the whole reason a proton linac needs its own rungs.
+    "srf650Cryomodule": {
+        "kind": "srf", "f_ghz": 0.65, "r_over_q": 375.0, "G": 191.0,
+        "l_active": 0.703, "n_cav": 14, "r_res": R_RES_DEFAULT,
+    },
+    # SNS high-beta: 6-cell at 805 MHz, here cut for beta = 0.86, giving
+    # 6 * 0.86 * lambda/2 = 0.96 m. A higher-beta cavity is a better resonator
+    # — more cells see the same field, so R/Q and G both climb.
+    "srf805Cryomodule": {
+        "kind": "srf", "f_ghz": 0.805, "r_over_q": 483.0, "G": 260.0,
+        "l_active": 0.961, "n_cav": 12, "r_res": R_RES_DEFAULT,
+    },
+    # LCLS-II: geometrically the same TESLA 9-cell as `cryomodule`, but built
+    # for CW. The difference that matters here is surface prep — nitrogen-doped
+    # niobium runs a lower residual resistance, and when the RF never switches
+    # off, residual resistance is the entire helium bill.
+    "cwCryomodule": {
+        "kind": "srf", "f_ghz": 1.3, "r_over_q": 1030.0, "G": 270.0,
+        "l_active": 1.038, "n_cav": 11, "r_res": 5e-9,
+    },
+    # Nb3Sn coating on the same TESLA 9-cell. Geometry is unchanged (a coating
+    # a few microns thick moves no field), but the SUPERCONDUCTOR is not
+    # niobium, so the BCS constants are not niobium's either: Tc = 18 K with
+    # Delta/kTc = 2.2 gives Delta/k_B = 39.6 K, and the prefactor is set so
+    # R_BCS = 20 nohm at 4.5 K and 1.3 GHz, which is what coated cavities
+    # measure. Residual resistance is worse than good niobium (15 nohm), and
+    # that is the honest trade: Nb3Sn wins at 4.5 K and gains nothing at 2 K.
+    #
+    # LIMITATION: T_CRITICAL is a module-wide constant because the cryo
+    # network quenches as a whole (src/utility/types/cryoTransfer.js), so this
+    # cavity still quenches at niobium's 9.25 K rather than its own 18 K. It
+    # is the conservative direction, and it keeps one quench rule for the plant.
+    "nbSnCryomodule": {
+        "kind": "srf", "f_ghz": 1.3, "r_over_q": 1030.0, "G": 270.0,
+        "l_active": 1.038, "n_cav": 11, "r_res": 15e-9,
+        "bcs_a": 3.6e-4, "bcs_delta_over_k": 39.6,
+    },
+    # A whole cryogenic sector of TESLA cryomodules under one placement. Same
+    # cavity as `cryomodule` in every respect; only the count differs.
+    "srfLinacSector": {
+        "kind": "srf", "f_ghz": 1.3, "r_over_q": 1030.0, "G": 270.0,
+        "l_active": 1.038, "n_cav": 15, "r_res": R_RES_DEFAULT,
     },
     "spokeCavity": {
         "kind": "srf", "f_ghz": 0.325, "r_over_q": 220.0, "G": 110.0,
@@ -116,11 +179,15 @@ CAVITY_SPECS = {
     "industrialLinac": {
         "kind": "nc", "f_ghz": 2.856, "r_shunt": 55e6, "l_active": 1.0, "n_cav": 1,
     },
-    "cbandCavity": {
-        "kind": "nc", "f_ghz": 5.712, "r_shunt": 90e6, "l_active": 0.6, "n_cav": 1,
+    # SACLA / SwissFEL class C-band travelling wave. r_shunt tracks roughly
+    # sqrt(f) off the S-band value, which is why the high-gradient rungs are
+    # about power, not impedance. l_active is the full 3 m placement — a
+    # disc-loaded structure accelerates over its whole length.
+    "cbandStructure": {
+        "kind": "nc", "f_ghz": 5.712, "r_shunt": 90e6, "l_active": 3.0, "n_cav": 1,
     },
-    "xbandCavity": {
-        "kind": "nc", "f_ghz": 11.424, "r_shunt": 110e6, "l_active": 0.23, "n_cav": 1,
+    "xbandStructure": {
+        "kind": "nc", "f_ghz": 11.424, "r_shunt": 110e6, "l_active": 3.0, "n_cav": 1,
     },
     "pillboxCavity": {
         "kind": "nc", "f_ghz": 0.2, "r_shunt": 30e6, "l_active": 0.5, "n_cav": 1,
@@ -128,6 +195,27 @@ CAVITY_SPECS = {
     "rfq": {
         "kind": "nc", "f_ghz": 0.4, "r_shunt": 25e6, "l_active": 2.0, "n_cav": 1,
     },
+
+    # --- Deliberately absent -------------------------------------------------
+    # `twoBeamModule` and `plasmaAfterburner` have NO entry, and must not get
+    # one invented for them. This table answers exactly one question — what
+    # gradient does the site RF network buy? — and neither device is driven by
+    # the site RF network:
+    #
+    #   twoBeamModule: the accelerating power arrives from a decelerating drive
+    #     beam through PETS transfer structures. Real CLIC-G copper has a shunt
+    #     impedance of ~36 Mohm/m, LOWER than S-band; the 100 MV/m comes from
+    #     tens of megawatts per 23 cm structure, not from a better resonator.
+    #     Entering it here at an honest r_shunt would starve it permanently,
+    #     and entering it at a dishonest one would be tuning a physical
+    #     constant to hit a game number.
+    #
+    #   plasmaAfterburner: it is not a cavity at all. There is no resonator, no
+    #     shunt impedance and no waveguide — the accelerating field is a plasma
+    #     wake, and the wall plug feeds a laser.
+    #
+    # Both fall through to gameplay.py's legacy linear derate, which is what
+    # that path exists for.
 }
 
 
@@ -136,12 +224,16 @@ def get_spec(component_id):
     return CAVITY_SPECS.get(component_id)
 
 
-def r_bcs(temp_k, f_ghz):
+def r_bcs(temp_k, f_ghz, bcs_a=BCS_A, delta_over_k=BCS_DELTA_OVER_K):
     """BCS surface resistance in ohms. Diverges as T -> 0 is approached from
     above only in the sense that it vanishes; clamped at T_FLOOR since the
-    model is not valid below the superfluid operating range."""
+    model is not valid below the superfluid operating range.
+
+    `bcs_a` and `delta_over_k` default to niobium. A spec that names a
+    different superconductor passes its own.
+    """
     t = max(temp_k, T_FLOOR)
-    return (BCS_A * f_ghz * f_ghz / t) * math.exp(-BCS_DELTA_OVER_K / t)
+    return (bcs_a * f_ghz * f_ghz / t) * math.exp(-delta_over_k / t)
 
 
 def q0(temp_k, spec, r_res=None):
@@ -157,7 +249,10 @@ def q0(temp_k, spec, r_res=None):
     if temp_k >= T_CRITICAL:
         return Q0_COPPER
     res = spec.get("r_res", R_RES_DEFAULT) if r_res is None else r_res
-    return spec["G"] / (r_bcs(temp_k, spec["f_ghz"]) + res)
+    surface = r_bcs(temp_k, spec["f_ghz"],
+                    spec.get("bcs_a", BCS_A),
+                    spec.get("bcs_delta_over_k", BCS_DELTA_OVER_K))
+    return spec["G"] / (surface + res)
 
 
 def e_acc_max(power_w, spec, temp_k=None, r_res=None):

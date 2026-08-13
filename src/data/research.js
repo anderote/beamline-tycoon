@@ -183,6 +183,11 @@ export const RESEARCH = {
     desc: 'Push the frontier of beam-beam interaction physics. Develop final-focus systems that squeeze beam sizes down to nanometers at collision points, crab-crossing schemes to maximize geometric overlap, and feedback systems to maintain collisions in the presence of beam-beam forces. Doubles your effective luminosity for all collision experiments.',
     cost: { data: 278, funding: 8900000 },
     duration: 70,
+    // The two pieces of hardware this node's description already named: the
+    // final-focus doublet that squeezes beta-star, and CLIC's two-beam
+    // module, which is how a linear collider reaches the energy worth
+    // focusing that hard.
+    unlocks: ['finalFocusDoublet', 'twoBeamModule'],
     effect: { luminosityMult: 2 },
     requires: 'advancedOptics',
   },
@@ -281,7 +286,10 @@ export const RESEARCH = {
     desc: 'Push normal-conducting cavity gradients beyond 30 MV/m by moving to higher RF frequencies. C-band (5.7 GHz) and X-band (11.4 GHz) cavities have smaller apertures but can sustain much higher surface fields before breakdown. These compact structures pack enormous energy gain into short distances — the path to TeV-scale linear colliders.',
     cost: { data: 325, funding: 11000000 },
     duration: 90,
-    unlocks: [],
+    // The two high-gradient copper rungs. Both are what this node's own
+    // description promises — C-band at 5.7 GHz and X-band at 11.4 GHz — and
+    // neither existed as buildable hardware until now.
+    unlocks: ['cbandStructure', 'xbandStructure'],
     effect: { energyCostMult: 0.85 },
     requires: 'rfPhotoinjectors',
   },
@@ -291,7 +299,11 @@ export const RESEARCH = {
     desc: 'Design optimized continuous-wave superconducting linacs for high average beam power. The 650 MHz elliptical SRF cavity is the workhorse of modern proton and ion linacs — its larger aperture handles higher beam loading and its geometry is optimized for medium-velocity particles. Enables MW-class beam power for neutrino sources and isotope production.',
     cost: { data: 370, funding: 13000000, reputation: 1100 },
     duration: 100,
-    unlocks: [],
+    // The 650 MHz medium-beta cryomodule this node's description is literally
+    // about. It is also what makes spallation reachable: without it the type
+    // has no high-beta accelerating structure at all and its 0.8-3 GeV band
+    // costs eighty-plus spoke cavities.
+    unlocks: ['srf650Cryomodule'],
     effect: { energyCostMult: 0.80 },
     requires: 'srfTechnology',
   },
@@ -301,7 +313,7 @@ export const RESEARCH = {
     desc: 'Pioneer nitrogen-doping surface treatment for niobium SRF cavities. Controlled nitrogen diffusion into the cavity surface dramatically increases the quality factor Q₀ while maintaining high gradients of 31+ MV/m. This enables the TESLA 9-cell cavity to deliver 3 GeV per unit at lower cryogenic losses — the pinnacle of SRF performance.',
     cost: { data: 529, funding: 15000000, reputation: 1500 },
     duration: 120,
-    unlocks: [],
+    unlocks: ['nbSnCryomodule'],
     effect: { cryoEfficiencyMult: 0.80 },
     requires: 'srfTechnology',
   },
@@ -311,6 +323,9 @@ export const RESEARCH = {
     desc: 'Develop energy recovery linac (ERL) techniques where the spent beam is decelerated through the same cavities it was accelerated in, returning its energy to the RF fields. This recycled energy then accelerates the next bunch. Reduces the net RF power requirement by 30% — a breakthrough for high-current, high-energy applications.',
     cost: { data: 254, funding: 6700000 },
     duration: 60,
+    // The return leg an ERL is built around. This node promised energy
+    // recovery and shipped only a discount on the electricity bill.
+    unlocks: ['recirculationArc'],
     effect: { energyCostMult: 0.7 },
     requires: 'srfTechnology',
   },
@@ -454,6 +469,12 @@ export const RESEARCH = {
     desc: 'Master the integrated engineering of cryomodules — the complex assemblies that house SRF cavities inside vacuum-insulated vessels with multi-layer insulation, magnetic shielding, precision alignment systems, and cryogenic plumbing. A well-designed cryomodule minimizes static heat load, maintains cavity alignment to sub-millimeter tolerance, and allows in-situ cool-down without mechanical stress.',
     cost: { data: 278, funding: 8900000, reputation: 600 },
     duration: 80,
+    // Two cryogenic SECTORS rather than two cavities, which is exactly what
+    // this node is about: the engineering of the vessel, not the niobium.
+    // srf805Cryomodule is here rather than on `superconducting` because that
+    // node is hidden: true and validate.js refuses any gate behind a node
+    // canStartResearch can never open.
+    unlocks: ['srf805Cryomodule', 'cwCryomodule'],
     effect: { cryoEfficiencyMult: 0.85 },
     requires: 'cryoDistribution',
   },
@@ -591,7 +612,10 @@ export const RESEARCH = {
     // The station and the laser that drives it. Neither is any use alone:
     // the station is a plasma cell with nothing to blow it open, and the
     // laser is the most expensive room heater ever built.
-    unlocks: ['lwfaStation', 'petawattLaser'],
+    // The station, the laser that drives it, and the afterburner stage that
+    // puts the same physics in the middle of a collider arm rather than at
+    // the front of a beamline.
+    unlocks: ['lwfaStation', 'petawattLaser', 'plasmaAfterburner'],
     effect: { energyCostMult: 0.60 },
     requires: 'felPhysics',
   },
@@ -727,6 +751,9 @@ export const RESEARCH = {
     desc: 'Develop storage ring techniques for maintaining stable circulating beams for hours or days. Requires precise orbit control, RF systems to replenish energy lost to synchrotron radiation, beam lifetime optimization through careful vacuum and lattice design, and insertion devices (undulators, wigglers) in straight sections. The basis for all modern synchrotron light sources.',
     cost: { data: 370, funding: 13000000, reputation: 1100 },
     duration: 100,
+    // Ring injection is a septum AND a kicker. The septum was already in the
+    // catalogue; the other half of the pair was not.
+    unlocks: ['fastKicker'],
     effect: { beamLifetimeMult: 1.6 },
     requires: 'synchrotronTech',
   },
@@ -791,7 +818,10 @@ export const RESEARCH = {
     desc: 'Master the art of colliding electron and positron beams at nanometre-scale interaction points. The ultimate challenge: everything from Tiers 1-3 must work simultaneously on two beamlines converging at a single point. Unlocks the Collider machine type.',
     cost: { data: 702, funding: 41000000, reputation: 2200 },
     duration: 200,
-    unlocks: [],
+    // The sector, not the module. Buying a linac by the cryogenic string is
+    // the thing that makes a collider arm a few dozen placements instead of
+    // a thousand.
+    unlocks: ['srfLinacSector'],
     effect: { luminosityMult: 3.0 },
     requires: ['highLuminosity', 'antimatter'],
   },

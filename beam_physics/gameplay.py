@@ -22,9 +22,18 @@ COMPONENT_DEFAULTS = {
     "cryomodule":   {"energyGain": 2.0},
     "buncher":      {"energyGain": 0.05},
     "harmonicLinearizer": {"energyGain": 0.02},
-    "cbandCavity":  {"energyGain": 0.8},
-    "xbandCavity":  {"energyGain": 1.2},
-    "srf650Cavity": {"energyGain": 1.5},
+    # The RF ladder. These are fallbacks only — the JS catalogue's `stats`
+    # win whenever a component is supplied. Keep them in agreement with
+    # beamline-components.raw.js; they must never diverge.
+    "cbandStructure":   {"energyGain": 0.12},
+    "xbandStructure":   {"energyGain": 0.30},
+    "srf650Cryomodule": {"energyGain": 0.15},
+    "srf805Cryomodule": {"energyGain": 0.40},
+    "cwCryomodule":     {"energyGain": 0.50},
+    "nbSnCryomodule":   {"energyGain": 1.2},
+    "srfLinacSector":   {"energyGain": 3.5},
+    "twoBeamModule":    {"energyGain": 6.0},
+    "plasmaAfterburner": {"energyGain": 15},
     # === Magnets ===
     "dipole":       {"bendAngle": 90.0},
     "quadrupole":   {"focusStrength": 1.0},
@@ -287,11 +296,17 @@ def beamline_config_from_game(game_beamline):
 
         # SRF quench: convert to drift (zero acceleration). Either cause counts
         # — the LHe reservoir emptying, or the cavity going over Tc thermally.
-        SRF_TYPES_SET = {"cryomodule", "halfWaveResonator", "spokeCavity",
-                         "ellipticalSrfCavity", "srf650Cavity"}
+        #
+        # Eligibility is `is_srf`, i.e. the component's own spec says kind
+        # "srf". This used to be a hand-maintained SRF_TYPES_SET of ids sitting
+        # next to the identical fact already derived one line above, and it
+        # failed silently in the only way that matters: a new superconducting
+        # component missing from the set kept accelerating through an empty
+        # helium vessel, skipping the entire cryogenic mechanic, with no test
+        # to notice. One source of truth (srf.CAVITY_SPECS) instead.
         thermally_quenched = (is_srf and cryo_temp_k is not None
                               and cryo_temp_k >= srf.T_CRITICAL)
-        if (cryo_quenched or thermally_quenched) and ctype in SRF_TYPES_SET:
+        if (cryo_quenched or thermally_quenched) and is_srf:
             el["type"] = "drift"
             el.pop("energyGain", None)
             el.pop("focusStrength", None)

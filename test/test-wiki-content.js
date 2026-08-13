@@ -304,7 +304,14 @@ console.log('\n--- Test 7: cavity performance tracks cavity-specs ---');
       const tempK = t ? Number(t[1]) : null;
       const [x, y] = gradientCurve.points[gradientCurve.points.length - 1];
       const direct = eAccMax(x, spec, tempK);
-      assert(Math.abs(direct - y) < 0.05,
+      // The x this reads back is the PLOTTED power, stored to 4 significant
+      // figures, so it is up to 5e-4 off the power the y was computed at.
+      // Gradient goes as sqrt(P), so the recomputed y inherits half of that —
+      // an error that scales with the gradient and therefore cannot be caught
+      // by a fixed absolute tolerance. 0.05 MV/m is nothing on a 20 MV/m
+      // cryomodule and smaller than the axis rounding on a 300 MV/m sector.
+      const tol = Math.max(0.05, Math.abs(direct) * 1e-3);
+      assert(Math.abs(direct - y) < tol,
         `${id}: curve endpoint ${y} MV/m matches eAccMax(${x} W) = ${direct.toFixed(3)}`);
     }
   }

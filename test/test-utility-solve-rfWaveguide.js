@@ -1,10 +1,12 @@
-// test/test-utility-solve-rfWaveguide.js — tests for rfWaveguide.solve() v1.
+// test/test-utility-solve-rfWaveguide.js — tests for rfWaveguide.solve().
 //
-// Physics: group sources and sinks by params.frequency. Each group independent.
-// Sinks in groups with no source get quality 0 + soft rf_frequency_mismatch.
-// Overloaded groups (demand > capacity) emit soft rf_overload.
+// Physics: a network carries ONE frequency — the one with the most demand on
+// it. Sinks at any other frequency are starved with a soft rf_frequency_split
+// telling the player to run a second network. Capacity comes from sources whose
+// declared `bands` include the served frequency's band; none of them means a
+// soft rf_frequency_mismatch, too few of them means a soft rf_overload.
 
-import desc from '../src/utility/types/rfWaveguide.js';
+import desc, { RF_BANDS, bandForFrequencyHz } from '../src/utility/types/rfWaveguide.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -35,79 +37,92 @@ console.log('\n--- Test 1: empty ---');
   assert(Object.keys(r.flowState.perSinkQuality).length === 0, 'perSinkQuality empty');
 }
 
-// ==========================================================================
-// Test 2: matching frequencies, sink demand < capacity.
-// ==========================================================================
-console.log('\n--- Test 2: match 1.3 GHz, capacity 100 vs demand 40 ---');
+console.log('\n--- Band match: one source feeds many same-frequency sinks ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { frequency: 1.3e9 } }],
-    sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40,    params: { frequency: 1.3e9 } }],
-  });
-  const r = desc.solve(net, {}, {});
-  assert(r.flowState.perSinkQuality.k1 === 1, `k1 quality 1 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(r.flowState.totalCapacity === 100, 'totalCapacity 100');
-  assert(r.flowState.totalDemand === 40, 'totalDemand 40');
-}
-
-// ==========================================================================
-// Test 3: frequency mismatch.
-// ==========================================================================
-console.log('\n--- Test 3: source 1.3 GHz, sink 2.856 GHz ---');
-{
-  const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { frequency: 1.3e9 } }],
-    sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40,    params: { frequency: 2.856e9 } }],
-  });
-  const r = desc.solve(net, {}, {});
-  assert(r.flowState.perSinkQuality.k1 === 0, `k1 quality 0 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.errors.length === 1, `1 error (got ${r.errors.length})`);
-  assert(r.errors[0].code === 'rf_frequency_mismatch', `code rf_frequency_mismatch (got ${r.errors[0].code})`);
-  assert(r.errors[0].severity === 'soft', 'severity soft');
-}
-
-// ==========================================================================
-// Test 4: one-freq overload.
-// ==========================================================================
-console.log('\n--- Test 4: 1.3 GHz source 50, sinks 30+40 ---');
-{
-  const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 50, params: { frequency: 1.3e9 } }],
+    sources: [{ portKey: 's1', capacity: 300, params: { bands: ['lband'], dutyFactor: 1 } }],
     sinks: [
-      { portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 30, params: { frequency: 1.3e9 } },
-      { portKey: 'k2', placeableId: 'p3', portName: 'rf', demand: 40, params: { frequency: 1.3e9 } },
+      { portKey: 'k1', demand: 40, params: { frequency: 1300e6, band: 'lband' } },
+      { portKey: 'k2', demand: 40, params: { frequency: 1300e6, band: 'lband' } },
+      { portKey: 'k3', demand: 40, params: { frequency: 1300e6, band: 'lband' } },
     ],
   });
   const r = desc.solve(net, {}, {});
-  assert(approx(r.flowState.perSinkQuality.k1, 50/70), `k1 quality ~50/70 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(approx(r.flowState.perSinkQuality.k2, 50/70), `k2 quality ~50/70 (got ${r.flowState.perSinkQuality.k2})`);
-  assert(r.errors.length === 1, `1 error (got ${r.errors.length})`);
-  assert(r.errors[0].code === 'rf_overload', `code rf_overload (got ${r.errors[0].code})`);
-  assert(r.errors[0].severity === 'soft', 'severity soft');
+  for (const k of ['k1', 'k2', 'k3']) {
+    assert(r.flowState.perSinkQuality[k] === 1, `${k} quality 1`);
+  }
+  assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
+  assert(r.flowState.totalCapacity === 300, 'totalCapacity 300');
+  assert(r.flowState.totalDemand === 120, 'totalDemand 120');
 }
 
-// ==========================================================================
-// Test 5: two independent frequency groups, each OK.
-// ==========================================================================
-console.log('\n--- Test 5: two freq groups, both OK ---');
+console.log('\n--- Band match: source out of band ---');
 {
   const net = mkNetwork({
-    sources: [
-      { portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { frequency: 1.3e9 } },
-      { portKey: 's2', placeableId: 'p3', portName: 'rf', capacity: 100, params: { frequency: 2.856e9 } },
-    ],
+    sources: [{ portKey: 's1', capacity: 300, params: { bands: ['sband'], dutyFactor: 1 } }],
+    sinks:   [{ portKey: 'k1', demand: 40, params: { frequency: 1300e6, band: 'lband' } }],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(r.flowState.perSinkQuality.k1 === 0, 'k1 quality 0');
+  assert(r.errors.some(e => e.code === 'rf_frequency_mismatch'), 'rf_frequency_mismatch raised');
+  assert(r.flowState.totalCapacity === 0, 'out-of-band capacity does not count');
+}
+
+console.log('\n--- Same band, two frequencies: network splits ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', capacity: 300, params: { bands: ['vhf'], dutyFactor: 1 } }],
     sinks: [
-      { portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40, params: { frequency: 1.3e9 } },
-      { portKey: 'k2', placeableId: 'p4', portName: 'rf', demand: 50, params: { frequency: 2.856e9 } },
+      { portKey: 'k1', demand: 50, params: { frequency: 162.5e6, band: 'vhf' } },
+      { portKey: 'k2', demand: 10, params: { frequency: 325e6,   band: 'vhf' } },
     ],
   });
   const r = desc.solve(net, {}, {});
-  assert(r.flowState.perSinkQuality.k1 === 1, `k1 quality 1 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.flowState.perSinkQuality.k2 === 1, `k2 quality 1 (got ${r.flowState.perSinkQuality.k2})`);
-  assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(r.flowState.totalCapacity === 200, 'totalCapacity 200');
-  assert(r.flowState.totalDemand === 90, 'totalDemand 90');
+  assert(r.flowState.perSinkQuality.k1 === 1, 'dominant frequency served');
+  assert(r.flowState.perSinkQuality.k2 === 0, 'minority frequency starved');
+  const split = r.errors.filter(e => e.code === 'rf_frequency_split');
+  assert(split.length === 1, `1 split error (got ${split.length})`);
+  assert(split[0].severity === 'soft', 'split severity soft');
+  assert(r.flowState.totalDemand === 60, 'totalDemand counts the split-off sink too');
+}
+
+console.log('\n--- Split tie broken by ascending frequency ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', capacity: 300, params: { bands: ['vhf'], dutyFactor: 1 } }],
+    sinks: [
+      { portKey: 'kHi', demand: 25, params: { frequency: 325e6,   band: 'vhf' } },
+      { portKey: 'kLo', demand: 25, params: { frequency: 162.5e6, band: 'vhf' } },
+    ],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(r.flowState.perSinkQuality.kLo === 1, 'lower frequency wins the tie');
+  assert(r.flowState.perSinkQuality.kHi === 0, 'higher frequency starved on tie');
+}
+
+console.log('\n--- Splitting into two networks clears the diagnostic ---');
+{
+  const mk = (freq, key) => mkNetwork({
+    id: 'net_' + key,
+    sources: [{ portKey: 's_' + key, capacity: 300, params: { bands: ['vhf'], dutyFactor: 1 } }],
+    sinks:   [{ portKey: key, demand: 50, params: { frequency: freq, band: 'vhf' } }],
+  });
+  const a = desc.solve(mk(162.5e6, 'k1'), {}, {});
+  const b = desc.solve(mk(325e6, 'k2'), {}, {});
+  assert(a.flowState.perSinkQuality.k1 === 1 && b.flowState.perSinkQuality.k2 === 1,
+    'both networks fully served');
+  assert(a.errors.length === 0 && b.errors.length === 0, 'no errors on either network');
+}
+
+console.log('\n--- Overload still works ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', capacity: 30, params: { bands: ['lband'], dutyFactor: 1 } }],
+    sinks:   [{ portKey: 'k1', demand: 60, params: { frequency: 1300e6, band: 'lband' } }],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(approx(r.flowState.perSinkQuality.k1, 0.5), 'quality 0.5 under 2x overload');
+  assert(r.errors.some(e => e.code === 'rf_overload'), 'rf_overload raised');
 }
 
 // ==========================================================================
@@ -116,7 +131,7 @@ console.log('\n--- Test 5: two freq groups, both OK ---');
 console.log('\n--- Test 6: purity ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { frequency: 1.3e9 } }],
+    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { bands: ['lband'] } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40,    params: { frequency: 1.3e9 } }],
   });
   const snap = JSON.stringify(net);
@@ -128,67 +143,24 @@ console.log('\n--- Test 6: purity ---');
   assert(r.nextPersistentState === persistent, 'nextPersistentState identity');
 }
 
-// ==========================================================================
-// Test 7: broadband source serves any frequency bucket.
-// ==========================================================================
-console.log('\n--- Test 7: broadband source covers two buckets ---');
+console.log('\n--- Band table ---');
 {
-  const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 100, params: { broadband: true } }],
-    sinks: [
-      { portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40, params: { frequency: 2e8 } },
-      { portKey: 'k2', placeableId: 'p3', portName: 'rf', demand: 50, params: { frequency: 1.3e9 } },
-    ],
-  });
-  const r = desc.solve(net, {}, {});
-  assert(r.flowState.perSinkQuality.k1 === 1, `k1 quality 1 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.flowState.perSinkQuality.k2 === 1, `k2 quality 1 (got ${r.flowState.perSinkQuality.k2})`);
-  assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(r.flowState.totalCapacity === 100, 'totalCapacity 100');
-  assert(r.flowState.totalDemand === 90, 'totalDemand 90');
-}
-
-// ==========================================================================
-// Test 8: broadband pool is shared — allocation ascends by frequency, so an
-// undersized pool fills the low bucket first and shorts the high one.
-// ==========================================================================
-console.log('\n--- Test 8: broadband pool exhausted across buckets ---');
-{
-  const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 60, params: { broadband: true } }],
-    sinks: [
-      { portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 40, params: { frequency: 2e8 } },
-      { portKey: 'k2', placeableId: 'p3', portName: 'rf', demand: 40, params: { frequency: 1.3e9 } },
-    ],
-  });
-  const r = desc.solve(net, {}, {});
-  assert(r.flowState.perSinkQuality.k1 === 1, `k1 (low freq) fully served (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.flowState.perSinkQuality.k2 === 0.5, `k2 gets remaining 20/40 (got ${r.flowState.perSinkQuality.k2})`);
-  const overloads = r.errors.filter(e => e.code === 'rf_overload');
-  assert(overloads.length === 1, `one rf_overload (got ${overloads.length})`);
-}
-
-// ==========================================================================
-// Test 9: broadband tops up an exact-frequency bucket only for unmet demand.
-// ==========================================================================
-console.log('\n--- Test 9: exact source + broadband top-up ---');
-{
-  const net = mkNetwork({
-    sources: [
-      { portKey: 's1', placeableId: 'p1', portName: 'rf', capacity: 30, params: { frequency: 1.3e9 } },
-      { portKey: 's2', placeableId: 'p3', portName: 'rf', capacity: 50, params: { broadband: true } },
-    ],
-    sinks: [
-      { portKey: 'k1', placeableId: 'p2', portName: 'rf', demand: 60, params: { frequency: 1.3e9 } },
-      { portKey: 'k2', placeableId: 'p4', portName: 'rf', demand: 20, params: { frequency: 2.856e9 } },
-    ],
-  });
-  const r = desc.solve(net, {}, {});
-  // 1.3 GHz: 30 exact + 30 broadband = 60 → quality 1. Remaining pool 20
-  // covers the 2.856 GHz bucket's 20 exactly.
-  assert(r.flowState.perSinkQuality.k1 === 1, `k1 topped up to 1 (got ${r.flowState.perSinkQuality.k1})`);
-  assert(r.flowState.perSinkQuality.k2 === 1, `k2 served from pool (got ${r.flowState.perSinkQuality.k2})`);
-  assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
+  assert(RF_BANDS.length === 6, `6 bands (got ${RF_BANDS.length})`);
+  const ids = RF_BANDS.map(b => b.id);
+  assert(ids.join(',') === 'vhf,uhf,lband,sband,cband,xband', `band order (got ${ids.join(',')})`);
+  // Ascending, non-overlapping, no gaps.
+  for (let i = 1; i < RF_BANDS.length; i++) {
+    assert(RF_BANDS[i].loMHz === RF_BANDS[i - 1].hiMHz,
+      `${RF_BANDS[i].id} starts where ${RF_BANDS[i - 1].id} ends`);
+  }
+  assert(bandForFrequencyHz(162.5e6) === 'vhf', '162.5 MHz -> vhf');
+  assert(bandForFrequencyHz(650e6) === 'uhf', '650 MHz -> uhf');
+  assert(bandForFrequencyHz(1300e6) === 'lband', '1300 MHz -> lband');
+  assert(bandForFrequencyHz(2856e6) === 'sband', '2856 MHz -> sband');
+  assert(bandForFrequencyHz(5712e6) === 'cband', '5712 MHz -> cband');
+  assert(bandForFrequencyHz(11424e6) === 'xband', '11424 MHz -> xband');
+  assert(bandForFrequencyHz(20e6) === null, 'below vhf -> null');
+  assert(bandForFrequencyHz(99e9) === null, 'above xband -> null');
 }
 
 // ==========================================================================

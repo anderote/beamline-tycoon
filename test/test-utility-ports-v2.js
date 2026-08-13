@@ -107,7 +107,7 @@ console.log('\n--- Test 6: unknown id ---');
 }
 
 // ==========================================================================
-// Test 7: RF-source infra — rf_out with frequency (from raw) and capacity.
+// Test 7: RF-source infra — rf_out with bands (from raw) and capacity.
 // ==========================================================================
 console.log('\n--- Test 7: pulsedKlystron rf_out ---');
 {
@@ -116,9 +116,9 @@ console.log('\n--- Test 7: pulsedKlystron rf_out ---');
   assert(ports.rf_out.utility === 'rfWaveguide', 'rf_out is rfWaveguide');
   assert(ports.rf_out.role === 'source', 'rf_out is source');
   assert(ports.rf_out.params.capacity > 0, 'rf_out.params.capacity > 0');
-  // Pulsed klystron raw: rfFrequency: 2856 MHz.
-  assert(ports.rf_out.params.frequency === 2856 * 1e6,
-    `rf_out.params.frequency === 2.856e9 Hz (got ${ports.rf_out.params.frequency})`);
+  // Pulsed klystron raw: rfBands: ['sband', 'cband'].
+  assert(ports.rf_out.params.bands.join(',') === 'sband,cband',
+    `rf_out.params.bands === sband,cband (got ${ports.rf_out.params.bands.join(',')})`);
 }
 
 // ==========================================================================
@@ -146,29 +146,50 @@ console.log('\n--- Test 8: per-component differentiation ---');
 }
 
 // ==========================================================================
-// Test 9: RF sources — magnetron is fixed 2.45 GHz (serves the ECR ion
-// source bucket); solid-state amp is broadband; capacity ladder ascends.
+// Test 9: RF sources — a source matches on the BANDS it covers, never on a
+// frequency, so no source port carries one. Capacity ladder still ascends.
 // ==========================================================================
-console.log('\n--- Test 9: RF source frequencies & ladder ---');
+console.log('\n--- Test 9: RF source bands & ladder ---');
 {
   const mag = getUtilityPortsV2('magnetron');
-  assert(mag.rf_out.params.frequency === 2450 * 1e6,
-    `magnetron frequency === 2.45e9 Hz (got ${mag.rf_out.params.frequency})`);
-  assert(!mag.rf_out.params.broadband, 'magnetron is not broadband');
+  assert(mag.rf_out.params.bands.join(',') === 'sband',
+    `magnetron covers sband only (got ${mag.rf_out.params.bands.join(',')})`);
+  assert(mag.rf_out.params.frequency === undefined,
+    'a source carries no frequency — bands are the matching key');
 
   const ecr = getUtilityPortsV2('ecrIonSource');
   assert(ecr.rf_in.params.frequency === 2450 * 1e6,
     `ecrIonSource rf_in frequency === 2.45e9 Hz (got ${ecr.rf_in.params.frequency})`);
+  assert(ecr.rf_in.params.band === 'sband',
+    `ecrIonSource rf_in lands in sband (got ${ecr.rf_in.params.band})`);
 
   const ssa = getUtilityPortsV2('solidStateAmp');
-  assert(ssa.rf_out.params.broadband === true, 'solidStateAmp is broadband');
-  assert(ssa.rf_out.params.frequency === undefined, 'broadband source has no fixed frequency');
+  assert(ssa.rf_out.params.bands.join(',') === 'vhf,uhf',
+    `solidStateAmp covers vhf,uhf (got ${ssa.rf_out.params.bands.join(',')})`);
 
   const gyro = getUtilityPortsV2('gyrotron');
-  assert(gyro.rf_out.params.broadband === true, 'gyrotron is broadband');
   assert(mag.rf_out.params.capacity < ssa.rf_out.params.capacity
       && ssa.rf_out.params.capacity < gyro.rf_out.params.capacity,
     'RF capacity ladder ascends magnetron < SSA < gyrotron');
+}
+
+// ==========================================================================
+console.log('\n--- RF band injection ---');
+{
+  const cryo = getUtilityPortsV2('cryomodule');
+  assert(cryo.rf_in.params.band === 'lband',
+    `cryomodule rf_in band lband (got ${cryo.rf_in.params.band})`);
+  assert(cryo.rf_in.params.frequency === 1300e6, 'cryomodule rf_in 1.3 GHz');
+
+  const gy = getUtilityPortsV2('gyrotron');
+  assert(Array.isArray(gy.rf_out.params.bands), 'gyrotron rf_out has bands array');
+  assert(gy.rf_out.params.bands.join(',') === 'cband,xband',
+    `gyrotron covers cband,xband (got ${gy.rf_out.params.bands.join(',')})`);
+  assert(gy.rf_out.params.broadband === undefined, 'broadband flag is gone');
+
+  const iot = getUtilityPortsV2('iot');
+  assert(iot.rf_out.params.bands.join(',') === 'uhf,lband',
+    `iot covers uhf,lband (got ${iot.rf_out.params.bands.join(',')})`);
 }
 
 // ==========================================================================

@@ -1,7 +1,7 @@
 # RF Power
 
 ## Quick Tip
-RF sources must match cavity frequency. Gradient goes as the square root of power — and for pulsed sources, what matters is *peak* power, not average.
+A source drives any cavity in a band it covers — but one waveguide network carries one frequency, so mixed-frequency cavities need separate networks. Gradient goes as the square root of power, and for pulsed sources what matters is *peak* power, not average.
 
 ## How It Works
 
@@ -11,17 +11,17 @@ RF (radio frequency) power is what actually accelerates the beam. Oscillating el
 
 Different source types serve different purposes. **Duty factor** is now a first-class stat: a pulsed source delivers its average power in short bursts, so its peak power is much higher.
 
-| Source | Frequency | Avg Power | Duty | Peak Power | Cost |
-|--------|-----------|-----------|------|-----------|------|
-| Magnetron | 2450 MHz | 5 kW | 0.01 | 500 kW | $50k |
-| TWT | Broadband | 20 kW | 0.05 | 400 kW | $400k |
-| SSA | Broadband | 35 kW | 1.0 (CW) | 35 kW | $150k |
-| Pulsed Klystron | 2856 MHz (S-band) | 50 kW | 0.001 | **50 MW** | $1.5M |
-| CW Klystron | 1300 MHz (L-band) | 50 kW | 1.0 (CW) | 50 kW | $3M |
-| IOT | 1300 MHz (L-band) | 80 kW | 1.0 (CW) | 80 kW | $2M |
-| Multi-beam Klystron | 2856 MHz (S-band) | 200 kW | 0.005 | 40 MW | $5M |
-| High-power SSA | Broadband | 300 kW | 1.0 (CW) | 300 kW | $4M |
-| Gyrotron | Broadband | 1000 kW | 1.0 (CW) | 1000 kW | $8M |
+| Source | Bands covered | Avg Power | Duty | Peak Power | Cost |
+|--------|---------------|-----------|------|-----------|------|
+| Magnetron | S | 5 kW | 0.01 | 500 kW | $50k |
+| TWT | VHF, UHF, L, S, C, X | 20 kW | 0.05 | 400 kW | $400k |
+| SSA | VHF, UHF | 35 kW | 1.0 (CW) | 35 kW | $150k |
+| Pulsed Klystron | S, C | 50 kW | 0.001 | **50 MW** | $1.5M |
+| CW Klystron | UHF, L | 50 kW | 1.0 (CW) | 50 kW | $3M |
+| IOT | UHF, L | 80 kW | 1.0 (CW) | 80 kW | $2M |
+| Multi-beam Klystron | S, C | 200 kW | 0.005 | 40 MW | $5M |
+| High-power SSA | VHF, UHF, L | 300 kW | 1.0 (CW) | 300 kW | $4M |
+| Gyrotron | C, X | 1000 kW | 1.0 (CW) | 1000 kW | $8M |
 
 This is what reconciles the game's kilowatt-scale RF ladder with the **megawatt** peak power a normal-conducting structure actually needs. It also makes pulsed vs CW a real strategic axis rather than flavour text:
 
@@ -30,32 +30,38 @@ This is what reconciles the game's kilowatt-scale RF ladder with the **megawatt*
 
 A network mixing pulsed and CW sources gets a capacity-weighted mean duty factor, which dilutes the pulsed advantage. Keep your pulsed and CW chains on separate waveguide networks.
 
-### Frequency Matching
+The bands themselves: **VHF** 50–500 MHz, **UHF** 500–1000, **L** 1000–2000, **S** 2000–4000, **C** 4000–8000, **X** 8000–16000. They are contiguous, so every cavity frequency lands in exactly one.
 
-This is the most important rule in RF power: **the source frequency must match the cavity frequency**. A 2856 MHz klystron cannot drive a 1300 MHz SRF cavity. The RF energy simply won't couple in.
+The TWT is the only source covering all six, and at 20 kW it is deliberately the weakest thing on the ladder. It exists to unblock a frequency you have no real source for, never to power a machine.
 
-Sinks are bucketed by frequency and each bucket is solved independently:
+### Band Matching
 
-| Frequency | Cavity | RF Demand |
-|-----------|--------|-----------|
-| 161 MHz | Half-Wave Resonator | 3 kW |
-| 200 MHz | Buncher | 2 kW |
-| 200 MHz | Pillbox Cavity | 5 kW |
-| 325 MHz | Spoke Cavity | 8 kW |
-| 400 MHz | RFQ | 25 kW |
-| 1300 MHz (L-band) | 9-cell Elliptical SRF | 5 kW |
-| 1300 MHz (L-band) | TESLA Cryomodule | 40 kW |
-| 2450 MHz | ECR Ion Source | 2 kW |
-| 2856 MHz (S-band) | NC RF Cavity | 40 kW |
-| 2856 MHz (S-band) | S-band Structure | 45 kW |
+**A source drives anything in a band it covers.** A klystron is built for S-band, not for one number on a dial, so a 2856 MHz tube drives any S-band cavity. What it cannot do is reach outside its bands: a gyrotron will never drive an L-band cryomodule, however many megawatts it has.
 
-**Broadband sources** (TWT, SSA, high-power SSA, gyrotron) can drive any frequency. Their capacity is a shared pool: after fixed-frequency sources are counted, the pool tops up unmet demand bucket by bucket, lowest frequency first. They're flexible, but a shared pool spread across many buckets runs out — dedicated fixed-frequency sources are how a big machine scales.
+**One network carries one frequency.** A waveguide run is a resonant structure — you cannot put 162.5 MHz and 325 MHz down the same copper and have both arrive. So each RF network serves the frequency with the most demand on it (ties go to the lower frequency), and every cavity on that network cut for a different frequency is starved with a soft `rf_frequency_split`. The fix is always to run a second waveguide network, never to buy a different tube. **This is what keeps RF a layout problem.**
 
-A bucket with demand and no matching capacity gets **zero power** and a soft `rf_frequency_mismatch`. Those cavities accelerate nothing, but the beam keeps running.
+The cavity frequencies you will be planning around:
+
+| Frequency | Band | Cavity | RF Demand |
+|-----------|------|--------|-----------|
+| 162.5 MHz | VHF | RFQ | 25 kW |
+| 162.5 MHz | VHF | Buncher | 2 kW |
+| 162.5 MHz | VHF | Pillbox Cavity | 5 kW |
+| 162.5 MHz | VHF | Half-Wave Resonator | 3 kW |
+| 325 MHz | VHF | Spoke Cavity | 8 kW |
+| 1300 MHz | L | 9-cell Elliptical SRF | 5 kW |
+| 1300 MHz | L | TESLA Cryomodule | 40 kW |
+| 2450 MHz | S | ECR Ion Source | 2 kW |
+| 2856 MHz | S | NC RF Cavity | 40 kW |
+| 2856 MHz | S | S-band Structure | 45 kW |
+
+The low-β front end is deliberately consolidated onto 162.5 MHz — the real PIP-II number for its RFQ, buncher and half-wave resonators. That is one network for the whole ion front end instead of four, at exactly the tier where you first meet the utility system.
+
+A served frequency with no in-band source on its network gets **zero power** and a soft `rf_frequency_mismatch`. Those cavities accelerate nothing, but the beam keeps running.
 
 ### Power Allocation
 
-Within a bucket, sinks share the available power **in proportion to their declared demand**. An over-subscribed bucket starves everything on it proportionally rather than picking winners by placement order.
+Sinks on the served frequency share the available power **in proportion to their declared demand**. An over-subscribed network starves everything on it proportionally rather than picking winners by placement order. Capacity from a source that does not cover the served band does not count at all — it is not headroom.
 
 What each cavity receives is published in **watts of peak power** — that is what sets its gradient. The old model derated gradient linearly by an abstract RF quality scalar, which had the wrong exponent as well as the wrong units.
 
@@ -69,8 +75,8 @@ E_acc = sqrt(P_peak x r_shunt / L_active)
 
 | Cavity | r_shunt | L_active | Frequency |
 |--------|---------|----------|-----------|
-| Pillbox Cavity | 30 MOhm/m | 0.5 m | 0.2 GHz |
-| RFQ | 25 MOhm/m | 2.0 m | 0.4 GHz |
+| Pillbox Cavity | 30 MOhm/m | 0.5 m | 0.1625 GHz |
+| RFQ | 25 MOhm/m | 2.0 m | 0.1625 GHz |
 | NC RF Cavity | 55 MOhm/m | 3.0 m | 2.856 GHz |
 | S-band Structure | 55 MOhm/m | 3.0 m | 2.856 GHz |
 
@@ -92,19 +98,19 @@ Circulators absorb reflected power safely, and in a real machine that's what pro
 
 ### Strategy
 
-- Match frequencies carefully: plan which sources drive which cavities before building
+- Group cavities by frequency first, then decide which source covers each group's band — a network with two frequencies on it wastes one of them
 - Don't mix pulsed and CW sources on the same waveguide network — the mean duty factor dilutes the pulsed peak
-- One klystron can drive several cavities of the same frequency, but they split the power by demand share
-- Use broadband SSAs for low-power odds and ends (bunchers, pillboxes); use fixed-frequency klystrons where the real power goes
+- One klystron can drive several cavities on the same network, but they split the power by demand share
+- Use SSAs for the VHF/UHF front end; klystrons and the gyrotron are where the real power lives, higher up the bands
 - Waveguide is $7,200/tile; a waveguide manifold ($160k) beats individual runs at about four sinks
 
 ## The Math
 
 **Peak power from average and duty:**
 ```
-mean_duty  = sum(capacity x dutyFactor) / sum(capacity)     across the network's sources
+mean_duty  = sum(capacity x dutyFactor) / sum(capacity)     across the ELIGIBLE sources
 peak_factor = min(1 / mean_duty, 10000)
-P_sink_W    = bucket_capacity_kW x 1000 x peak_factor x (sink_demand / bucket_demand)
+P_sink_W    = network_capacity_kW x 1000 x peak_factor x (sink_demand / served_demand)
 ```
 
 **Gradient from power:**
@@ -114,9 +120,11 @@ SRF:  E_acc = sqrt(P x (R/Q) x Q0(T)) / L_active         per cavity
 E_acc,achieved = min(demanded, achievable)
 ```
 
-**Bucket quality (the 0-1 scalar, used for the panel and warnings):**
+**Network quality (the 0-1 scalar, used for the panel and warnings):**
 ```
-quality = min(1, bucket_capacity / bucket_demand)
+served     = frequency with the most demand on the network (ties -> lower)
+capacity   = sum(capacity) over sources whose bands include band(served)
+quality    = min(1, capacity / demand_at(served))       0 for every other frequency
 ```
 
 **Reflected power and VSWR:**

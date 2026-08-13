@@ -2207,6 +2207,948 @@ function _buildEllipticalSrfCavityRoles() {
 }
 ROLE_BUILDERS.ellipticalSrfCavity = _buildEllipticalSrfCavityRoles;
 
+// ══ RF ladder + type-coverage builders ══════════════════════════════
+//
+// Twelve components whose whole point is that they sit on a ladder: five
+// SRF cryomodules that are the same machine at five scales, two NC copper
+// structures separated only by cell pitch, and five one-offs. Written
+// against a handful of shared primitives, because the thing a reader needs
+// to see in these functions is the *silhouette* — 5 fat cells vs 6 small
+// ones, a doubled beam axis, a laser hall instead of a waveguide — not
+// another forty lines of Matrix4 bookkeeping.
+
+/** Cylinder lying along the beam (+Z). `rTop` is the radius at the +Z end. */
+function _gCylZ(bucket, r, len, { x = 0, y = BEAM_HEIGHT, z = 0, rTop = r, segs = SEGS } = {}) {
+  const g = new THREE.CylinderGeometry(rTop, r, len, segs);
+  applyTiledCylinderUVs(g, (r + rTop) / 2, len, segs);
+  const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  const trans = new THREE.Matrix4().makeTranslation(x, y, z);
+  _pushTransformed(bucket, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+}
+
+/** Cylinder standing upright (+Y). */
+function _gCylY(bucket, r, len, { x = 0, y = BEAM_HEIGHT, z = 0, rTop = r, segs = SEGS } = {}) {
+  const g = new THREE.CylinderGeometry(rTop, r, len, segs);
+  applyTiledCylinderUVs(g, (r + rTop) / 2, len, segs);
+  _pushTransformed(bucket, g, new THREE.Matrix4().makeTranslation(x, y, z));
+}
+
+/** Cylinder lying across the beam (+X). `rTop` is the radius at the +X end. */
+function _gCylX(bucket, r, len, { x = 0, y = BEAM_HEIGHT, z = 0, rTop = r, segs = SEGS } = {}) {
+  const g = new THREE.CylinderGeometry(rTop, r, len, segs);
+  applyTiledCylinderUVs(g, (r + rTop) / 2, len, segs);
+  const rot = new THREE.Matrix4().makeRotationZ(-Math.PI / 2);
+  const trans = new THREE.Matrix4().makeTranslation(x, y, z);
+  _pushTransformed(bucket, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+}
+
+/** Axis-aligned box, optionally yawed about +Y (for magnets following a curve). */
+function _gBox(bucket, w, h, d, { x = 0, y = BEAM_HEIGHT, z = 0, rotY = 0 } = {}) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  applyTiledBoxUVs(g, w, h, d);
+  const trans = new THREE.Matrix4().makeTranslation(x, y, z);
+  if (rotY === 0) {
+    _pushTransformed(bucket, g, trans);
+  } else {
+    const rot = new THREE.Matrix4().makeRotationY(rotY);
+    _pushTransformed(bucket, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+  }
+}
+
+/**
+ * Cylinder spanning two arbitrary points — the primitive that makes curved
+ * beam pipes and draped pulse cables writable at all. `a`/`b` are [x, y, z].
+ */
+function _gSegment(bucket, a, b, r, segs = 10) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (len < 1e-6) return;
+  const g = new THREE.CylinderGeometry(r, r, len, segs);
+  applyTiledCylinderUVs(g, r, len, segs);
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(dx / len, dy / len, dz / len),
+  );
+  const m = new THREE.Matrix4().compose(
+    new THREE.Vector3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2),
+    q,
+    new THREE.Vector3(1, 1, 1),
+  );
+  _pushTransformed(bucket, g, m);
+}
+
+/**
+ * Beam-pipe stubs from `innerZ` out to the tile edge plus a CF flange on
+ * each edge. Every placement component needs this or the pipe visibly
+ * breaks at the join with its neighbour.
+ */
+function _gBeamEnds(buckets, tileEdge, innerZ, { pipeR = PIPE_R, y = BEAM_HEIGHT, x = 0 } = {}) {
+  for (const sign of [-1, 1]) {
+    const stubL = tileEdge - innerZ;
+    if (stubL > 0.001) {
+      _gCylZ(buckets.pipe, pipeR, stubL, { x, y, z: sign * (innerZ + stubL / 2) });
+    }
+    _gCylZ(buckets.detail, FLANGE_R, FLANGE_H, { x, y, z: sign * tileEdge });
+  }
+}
+
+/** A row of floor pedestals: foot plate plus column, one per z in `zList`. */
+function _gPedestals(buckets, zList, topY, { w = 0.24, d = 0.2, x = 0 } = {}) {
+  const baseH = 0.06;
+  const colH = Math.max(0.04, topY - baseH);
+  for (const z of zList) {
+    _gBox(buckets.stand, w + 0.18, baseH, d + 0.06, { x, y: baseH / 2, z });
+    _gBox(buckets.stand, w, colH, d, { x, y: baseH + colH / 2, z });
+  }
+}
+
+/** Evenly spaced positions inside a span of length `L` centred on `centre`. */
+function _gSpread(count, L, centre = 0) {
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(centre - L / 2 + ((i + 0.5) / count) * L);
+  return out;
+}
+
+/**
+ * The SRF cryomodule family — five catalogue entries built from one
+ * parametric cryostat, because that is what they physically are: a string
+ * of elliptical niobium cells in a helium vessel, inside a vacuum jacket,
+ * with end cans carrying the warm-to-cold transitions. The rungs differ in
+ * exactly the ways a player can read at 70×30 px:
+ *
+ *   cell count + cell size  — 650 MHz cells are physically twice the
+ *                             diameter of 805 MHz ones, so "fewer, fatter"
+ *                             is genuinely the lower rung.
+ *   cryo connection         — one stub (650), twin stubs (805), a full
+ *                             header (CW, whose heat load never pauses),
+ *                             one small stub (Nb3Sn at 4.5 K).
+ *   coupler rows            — one row, or doubled for CW duty.
+ *   shell role              — `accent` for Nb3Sn so its warmer catalogue
+ *                             colour owns the whole silhouette; `pipe`
+ *                             (stainless) for the 2 K units.
+ *   segments                — >1 splits the string into cavity groups with
+ *                             interconnect bellows: the linac-sector read.
+ *
+ * Beam along +Z, axis at BEAM_HEIGHT, footprint 2 m wide (subW 4).
+ */
+function _srfCryomoduleRoles(opts) {
+  const {
+    magL,                    // subL * 0.5
+    cellCount,               // cells per cavity string segment
+    cellPeakR,               // equator radius of one cell
+    cellPeriod,              // cell centre-to-centre along the beam
+    segments = 1,
+    interconnectL = 0.6,
+    cryoPorts = 1,
+    cryoPortR = 0.09,
+    cryoPortH = 0.32,
+    header = false,          // heavy cryogenic header along the top
+    distributionLine = false,// 2 K supply/return running the full length
+    couplerSides = [1],      // +1 = +X row, -1 = -X row
+    shellRole = 'pipe',
+    pedestalCount = 3,
+  } = opts;
+
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  const shell = buckets[shellRole];
+
+  const tileEdge  = magL / 2;
+  const vesselR   = cellPeakR + 0.09;      // vacuum jacket over the He vessel
+  const irisR     = Math.max(0.10, cellPeakR * 0.30);
+  const cellHalfZ = cellPeriod * 0.55;
+  const segL      = cellCount * cellPeriod;
+  const stringL   = segments * segL + (segments - 1) * interconnectL;
+
+  // Segment start z for each cavity group.
+  const segStarts = [];
+  for (let s = 0; s < segments; s++) segStarts.push(-stringL / 2 + s * (segL + interconnectL));
+
+  // --- Elliptical cells (pipe = bare niobium) ---
+  const cellZs = [];
+  for (const segStart of segStarts) {
+    for (let i = 0; i < cellCount; i++) {
+      const zc = segStart + (i + 0.5) * cellPeriod;
+      cellZs.push(zc);
+      const g = new THREE.SphereGeometry(1, SEGS, Math.max(8, Math.floor(SEGS / 2)));
+      g.scale(cellPeakR, cellPeakR, cellHalfZ);
+      _pushTransformed(buckets.pipe, g, new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, zc));
+    }
+    // Iris necks between cells — the beam sees a much smaller hole than the
+    // cell equator, and showing that is what makes the string read as cells.
+    for (let i = 0; i < cellCount - 1; i++) {
+      const zc = segStart + (i + 1) * cellPeriod;
+      _gCylZ(buckets.pipe, irisR, cellPeriod * 0.18, { z: zc });
+    }
+  }
+
+  // --- Vacuum-jacket stiffener rings over each cell junction ---
+  for (const segStart of segStarts) {
+    for (let i = 0; i <= cellCount; i++) {
+      _gCylZ(buckets.detail, vesselR, 0.07, { z: segStart + i * cellPeriod });
+    }
+  }
+
+  // --- Interconnect bellows between cavity groups ---
+  // A real module-to-module joint: a short small-bore bellows inside a
+  // collar. Only srfLinacSector has more than one group.
+  for (let s = 0; s < segments - 1; s++) {
+    const zc = segStarts[s] + segL + interconnectL / 2;
+    _gCylZ(shell, vesselR * 0.72, interconnectL, { z: zc });
+    for (const t of [-0.3, 0, 0.3]) {
+      _gCylZ(buckets.detail, vesselR * 0.82, 0.05, { z: zc + t * interconnectL });
+    }
+  }
+
+  // --- End cans + warm-to-cold transitions ---
+  // The cold string stops well short of the tile edge; the rest is end can,
+  // then a cone down to room-temperature beam pipe. Cryomodule end cans are
+  // genuinely this long — they hold the coupler feedthroughs and the
+  // gate valves.
+  const stubL  = 0.22;
+  const transL = 0.42;
+  const canOuterZ = tileEdge - stubL - transL;
+  const canL = canOuterZ - stringL / 2;
+  for (const sign of [-1, 1]) {
+    if (canL > 0.05) {
+      _gCylZ(shell, vesselR, canL, { z: sign * (stringL / 2 + canL / 2) });
+      _gCylZ(buckets.detail, vesselR + 0.03, 0.06, { z: sign * (stringL / 2 + 0.05) });
+    }
+    // Transition cone: wide (jacket) inboard, narrow (warm pipe) outboard.
+    const rOut = 0.20;
+    _gCylZ(shell, sign > 0 ? vesselR : rOut, transL, {
+      z: sign * (canOuterZ + transL / 2),
+      rTop: sign > 0 ? rOut : vesselR,
+    });
+  }
+
+  // --- Fundamental power couplers, one per cell per row ---
+  // Coax through the jacket, waveguide transformer box, bolted flange.
+  const coaxL = 0.20, boxL = 0.16, capL = 0.05;
+  for (const side of couplerSides) {
+    for (const zc of cellZs) {
+      const coaxX = side * (vesselR + coaxL / 2);
+      _gCylX(buckets.accent, 0.085, coaxL, { x: coaxX, z: zc });
+      const boxX = side * (vesselR + coaxL + boxL / 2);
+      _gBox(buckets.accent, boxL, 0.22, 0.24, { x: boxX, z: zc });
+      const capX = side * (vesselR + coaxL + boxL + capL / 2);
+      _gBox(buckets.detail, capL, 0.26, 0.28, { x: capX, z: zc });
+    }
+  }
+
+  // --- Cryogenic connections on top ---
+  for (const zc of _gSpread(cryoPorts, stringL * 0.7)) {
+    const portY = BEAM_HEIGHT + vesselR + cryoPortH / 2;
+    _gCylY(buckets.pipe, cryoPortR, cryoPortH, { y: portY, z: zc });
+    _gCylY(buckets.detail, cryoPortR * 1.5, 0.04, { y: portY + cryoPortH / 2 + 0.02, z: zc });
+  }
+
+  if (header) {
+    // CW means the 2 K heat load never pauses, so the header that carries it
+    // is a structural member running the whole module rather than a stub.
+    const headerH = 0.26, headerW = 0.34;
+    const headerY = BEAM_HEIGHT + vesselR + headerH / 2 + 0.06;
+    const headerL = 2 * canOuterZ;
+    _gBox(buckets.pipe, headerW, headerH, headerL, { y: headerY });
+    for (const zc of cellZs) {
+      _gCylY(buckets.detail, 0.05, 0.14, { y: headerY - headerH / 2 - 0.05, z: zc });
+    }
+    _gBox(buckets.detail, headerW + 0.06, 0.05, 0.10, { y: headerY + headerH / 2, z: 0 });
+  }
+
+  if (distributionLine) {
+    // Sector-scale modules are fed from a cryogenic distribution line that
+    // runs past every group rather than terminating on one module.
+    const lineX = -(vesselR + 0.16);
+    const lineY = BEAM_HEIGHT + vesselR * 0.6;
+    _gCylZ(buckets.pipe, 0.11, 2 * canOuterZ, { x: lineX, y: lineY });
+    for (const segStart of segStarts) {
+      const zc = segStart + segL / 2;
+      _gSegment(buckets.pipe, [lineX, lineY, zc], [-vesselR * 0.55, BEAM_HEIGHT + vesselR * 0.8, zc], 0.05);
+      _gCylZ(buckets.detail, 0.14, 0.06, { x: lineX, y: lineY, z: zc });
+    }
+  }
+
+  _gBeamEnds(buckets, tileEdge, canOuterZ + transL);
+  _gPedestals(buckets, _gSpread(pedestalCount, stringL + 2 * canL), BEAM_HEIGHT - vesselR, {
+    w: 0.26, d: 0.22,
+  });
+
+  return buckets;
+}
+
+/**
+ * 650 MHz cryomodule — the bottom rung of the SRF ladder. 650 MHz cells are
+ * roughly twice the diameter of the 1.3 GHz TESLA cells in
+ * `ellipticalSrfCavity`, so the module is squatter and fatter: five big
+ * beads, one cryo stub, warm-to-cold transitions at both ends. 10 m.
+ */
+function _buildSrf650CryomoduleRoles() {
+  return _srfCryomoduleRoles({
+    magL: 10,
+    cellCount: 5,
+    cellPeakR: 0.55,
+    cellPeriod: 1.45,
+    cryoPorts: 1,
+    pedestalCount: 3,
+  });
+}
+ROLE_BUILDERS.srf650Cryomodule = _buildSrf650CryomoduleRoles;
+
+/**
+ * 805 MHz cryomodule — one rung up. Same family, but the higher frequency
+ * shrinks every cell, so six smaller beads fit where five fat ones did, and
+ * the module is longer (12 m). Twin cryo stubs: more cavities to feed.
+ */
+function _buildSrf805CryomoduleRoles() {
+  return _srfCryomoduleRoles({
+    magL: 12,
+    cellCount: 6,
+    cellPeakR: 0.44,
+    cellPeriod: 1.20,
+    cryoPorts: 2,
+    pedestalCount: 4,
+  });
+}
+ROLE_BUILDERS.srf805Cryomodule = _buildSrf805CryomoduleRoles;
+
+/**
+ * CW cryomodule — the 805 silhouette carrying continuous-wave hardware.
+ * Duty cycle is the whole story: at CW the dynamic heat load never pauses,
+ * so the cryogenic header becomes a full-length structural member and every
+ * cavity gets a coupler on both sides to split the average power.
+ */
+function _buildCwCryomoduleRoles() {
+  return _srfCryomoduleRoles({
+    magL: 12,
+    cellCount: 6,
+    cellPeakR: 0.45,
+    cellPeriod: 1.20,
+    cryoPorts: 2,
+    header: true,
+    couplerSides: [1, -1],
+    pedestalCount: 4,
+  });
+}
+ROLE_BUILDERS.cwCryomodule = _buildCwCryomoduleRoles;
+
+/**
+ * Nb3Sn cryomodule — same cryostat, different metallurgy. Nb3Sn runs at
+ * 4.5 K rather than 2 K, so it needs no superfluid plant: the cryo
+ * connection is one small stub instead of a header, and the whole vacuum
+ * jacket goes in the `accent` bucket so the warmer catalogue colour owns
+ * the silhouette. Colour is the identity here — the shape is deliberately
+ * the same as the 2 K units.
+ */
+function _buildNbSnCryomoduleRoles() {
+  return _srfCryomoduleRoles({
+    magL: 12,
+    cellCount: 6,
+    cellPeakR: 0.45,
+    cellPeriod: 1.20,
+    cryoPorts: 1,
+    cryoPortR: 0.055,
+    cryoPortH: 0.22,
+    shellRole: 'accent',
+    pedestalCount: 4,
+  });
+}
+ROLE_BUILDERS.nbSnCryomodule = _buildNbSnCryomoduleRoles;
+
+/**
+ * SRF linac sector — one placement standing in for a whole cryogenic
+ * sector, and it has to look like it. Three cavity groups separated by
+ * interconnect bellows, a cryo distribution line running past all of them
+ * rather than terminating on one module, and a twelve-strong row of
+ * couplers. 16 m: the longest thing in the catalogue.
+ */
+function _buildSrfLinacSectorRoles() {
+  return _srfCryomoduleRoles({
+    magL: 16,
+    cellCount: 4,
+    cellPeakR: 0.40,
+    cellPeriod: 1.05,
+    segments: 3,
+    interconnectL: 0.6,
+    cryoPorts: 3,
+    distributionLine: true,
+    pedestalCount: 5,
+  });
+}
+ROLE_BUILDERS.srfLinacSector = _buildSrfLinacSectorRoles;
+
+/**
+ * C-band structure — travelling-wave copper at 5712 MHz. Same 3 m footprint
+ * as `sbandStructure` and deliberately the same family, separated by the
+ * one thing that actually changes with frequency: cell pitch. S-band's 22
+ * disks become 40 here, over a slimmer body, because the cell period is
+ * βλ/3 and λ has halved. One waveguide feed at the input coupler, and a
+ * water manifold along the top — 40 MV/m of copper is mostly a heater.
+ */
+function _buildCbandStructureRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 3.0;
+  const tileEdge = magL / 2;
+  const bodyR    = 0.34;
+  const couplerR = 0.44;
+  const couplerL = 0.26;
+  const bodyL    = magL - 2 * couplerL - 0.30;
+
+  _gCylZ(buckets.copper, bodyR, bodyL);
+
+  // Disc loading — the identity. Finer pitch than S-band, same protrusion.
+  const diskCount = 40;
+  for (const z of _gSpread(diskCount, bodyL)) {
+    _gCylZ(buckets.copper, bodyR + 0.03, 0.018, { z });
+  }
+
+  // Input and output coupler cells.
+  for (const sign of [-1, 1]) {
+    _gCylZ(buckets.copper, couplerR, couplerL, { z: sign * (bodyL / 2 + couplerL / 2) });
+  }
+
+  // Single waveguide feed into the input coupler, -X side. C-band runs one
+  // klystron into one structure; the X-band unit below is the one that
+  // needs a manifold.
+  {
+    const wgZ = -(bodyL / 2 + couplerL / 2);
+    const wgL = 0.40;
+    _gBox(buckets.accent, wgL, 0.15, 0.26, { x: -(couplerR + wgL / 2), z: wgZ });
+    _gBox(buckets.detail, 0.06, 0.22, 0.33, { x: -(couplerR + wgL + 0.03), z: wgZ });
+    // Output coupler dumps into a matched load on the far side.
+    _gBox(buckets.detail, 0.30, 0.20, 0.24, {
+      x: couplerR + 0.15, z: bodyL / 2 + couplerL / 2,
+    });
+  }
+
+  // Water manifold along the top with a jumper into every fourth cell.
+  {
+    const manY = BEAM_HEIGHT + bodyR + 0.14;
+    _gCylZ(buckets.pipe, 0.075, bodyL + 2 * couplerL, { y: manY });
+    for (const z of _gSpread(10, bodyL)) {
+      _gCylY(buckets.detail, 0.028, 0.14, { y: manY - 0.07, z });
+    }
+    _gCylZ(buckets.detail, 0.11, 0.05, { y: manY, z: -(bodyL / 2 + couplerL * 0.6) });
+  }
+
+  _gBeamEnds(buckets, tileEdge, bodyL / 2 + couplerL);
+  _gPedestals(buckets, _gSpread(3, magL * 0.8), BEAM_HEIGHT - couplerR, { w: 0.22, d: 0.18 });
+
+  return buckets;
+}
+ROLE_BUILDERS.cbandStructure = _buildCbandStructureRoles;
+
+/**
+ * X-band structure — 11424 MHz, the finest cell pitch on the ladder and a
+ * bore small enough that alignment stops being forgiving. 62 discs over a
+ * slim body reads as a dense copper comb. At 100 MV/m the RF and the water
+ * both have to arrive from everywhere at once, so this one carries
+ * waveguide manifolds above *and* below the axis and water headers on both
+ * flanks — the visual difference from C-band is density, not shape.
+ */
+function _buildXbandStructureRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 3.0;
+  const tileEdge = magL / 2;
+  const bodyR    = 0.26;
+  const couplerR = 0.34;
+  const couplerL = 0.22;
+  const bodyL    = magL - 2 * couplerL - 0.30;
+
+  _gCylZ(buckets.copper, bodyR, bodyL);
+
+  const diskCount = 62;
+  for (const z of _gSpread(diskCount, bodyL)) {
+    _gCylZ(buckets.copper, bodyR + 0.025, 0.012, { z });
+  }
+  for (const sign of [-1, 1]) {
+    _gCylZ(buckets.copper, couplerR, couplerL, { z: sign * (bodyL / 2 + couplerL / 2) });
+  }
+
+  // Waveguide manifolds above and below, each feeding the body through a
+  // row of short coupling irises.
+  const manL = bodyL + 2 * couplerL;
+  for (const ySign of [1, -1]) {
+    const manY = BEAM_HEIGHT + ySign * (bodyR + 0.16);
+    _gBox(buckets.accent, 0.22, 0.13, manL, { y: manY });
+    for (const z of _gSpread(8, bodyL)) {
+      _gCylY(buckets.detail, 0.035, 0.12, { y: manY - ySign * 0.11, z });
+    }
+    // Feed elbow at the upstream end of each manifold.
+    _gBox(buckets.detail, 0.28, 0.17, 0.09, { y: manY, z: -(manL / 2 + 0.05) });
+  }
+
+  // Water headers on both flanks, at axis height so they clear the manifolds.
+  for (const xSign of [1, -1]) {
+    const hx = xSign * (bodyR + 0.14);
+    _gCylZ(buckets.pipe, 0.055, manL, { x: hx });
+    for (const z of _gSpread(6, bodyL)) {
+      _gCylX(buckets.detail, 0.022, 0.10, { x: hx - xSign * 0.09, z });
+    }
+  }
+
+  _gBeamEnds(buckets, tileEdge, bodyL / 2 + couplerL);
+
+  // Two side columns rather than a centre pedestal: the lower waveguide
+  // manifold occupies the space a centre column would want, so the columns
+  // straddle it and cradle the body on its lower flanks instead.
+  {
+    const baseH = 0.06;
+    const colX = 0.24;
+    // Where a column at colX meets the body's surface.
+    const colTopY = BEAM_HEIGHT - Math.sqrt(Math.max(0, bodyR * bodyR - colX * colX));
+    for (const z of _gSpread(2, magL * 0.66)) {
+      for (const xSign of [1, -1]) {
+        _gBox(buckets.stand, 0.18, baseH, 0.28, { x: xSign * colX, y: baseH / 2, z });
+        _gBox(buckets.stand, 0.12, colTopY - baseH, 0.22, {
+          x: xSign * colX, y: (baseH + colTopY) / 2, z,
+        });
+      }
+    }
+  }
+
+  return buckets;
+}
+ROLE_BUILDERS.xbandStructure = _buildXbandStructureRoles;
+
+/**
+ * Two-beam module — CLIC's answer to "where does 100 MW of X-band come
+ * from": you don't build klystrons, you run a second, low-energy, very
+ * high-current drive beam alongside the main one and decelerate it through
+ * PETS structures that hand their power across. The doubled beam axis *is*
+ * the component. Drive beam above, main beam on the axis, PETS transfer
+ * blocks bridging them at every unit. 12 m.
+ */
+function _buildTwoBeamModuleRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 12.0;
+  const tileEdge = magL / 2;
+  const driveY   = BEAM_HEIGHT + 0.62;   // second axis, above the main one
+  const units    = 8;
+  const unitL    = 1.36;
+  const spanL    = units * unitL;
+  const mainR    = 0.17;                 // accelerating structure, small bore
+  const driveR   = 0.25;                 // PETS: large bore, low impedance
+
+  const unitZs = _gSpread(units, spanL);
+
+  for (const zc of unitZs) {
+    // Main accelerating structure — X-band, so densely disc-loaded.
+    _gCylZ(buckets.copper, mainR, unitL - 0.14, { z: zc });
+    for (const z of _gSpread(14, unitL - 0.2, zc)) {
+      _gCylZ(buckets.copper, mainR + 0.02, 0.012, { z });
+    }
+    // Drive-beam PETS — coarser periodic loading, much bigger aperture.
+    _gCylZ(buckets.copper, driveR, unitL - 0.14, { y: driveY, z: zc });
+    for (const z of _gSpread(6, unitL - 0.2, zc)) {
+      _gCylZ(buckets.copper, driveR + 0.03, 0.03, { y: driveY, z });
+    }
+    // Power transfer: PETS output waveguide down to the main structure's
+    // input coupler. Offset in +X so both axes stay visible in silhouette.
+    _gBox(buckets.accent, 0.17, 0.52, 0.34, { x: 0.30, y: (BEAM_HEIGHT + driveY) / 2, z: zc });
+    _gBox(buckets.detail, 0.30, 0.11, 0.24, { x: 0.22, y: driveY - 0.20, z: zc });
+    _gBox(buckets.detail, 0.30, 0.11, 0.24, { x: 0.22, y: BEAM_HEIGHT + 0.15, z: zc });
+  }
+
+  // Drift pipes bridging the units on both axes.
+  for (let i = 0; i < units - 1; i++) {
+    const zc = (unitZs[i] + unitZs[i + 1]) / 2;
+    _gCylZ(buckets.pipe, PIPE_R, 0.16, { z: zc });
+    _gCylZ(buckets.pipe, 0.12, 0.16, { y: driveY, z: zc });
+  }
+
+  // The drive beam enters from upstream and is dumped inside the module —
+  // it never reaches the exit port, and the dump block says so.
+  _gCylZ(buckets.pipe, 0.12, tileEdge - spanL / 2, {
+    y: driveY, z: -(spanL / 2 + (tileEdge - spanL / 2) / 2),
+  });
+  _gCylZ(buckets.detail, 0.20, FLANGE_H, { y: driveY, z: -tileEdge });
+  _gBox(buckets.iron, 0.5, 0.5, 0.44, { y: driveY, z: spanL / 2 + 0.24 });
+  _gBox(buckets.detail, 0.58, 0.10, 0.10, { y: driveY + 0.28, z: spanL / 2 + 0.24 });
+
+  _gBeamEnds(buckets, tileEdge, spanL / 2);
+
+  // Support frames carry both axes, so they are portal frames rather than
+  // the usual single column.
+  {
+    const baseH = 0.06;
+    const topY = driveY + driveR + 0.05;
+    for (const z of _gSpread(5, spanL)) {
+      for (const xSign of [1, -1]) {
+        const cx = xSign * 0.55;
+        _gBox(buckets.stand, 0.24, baseH, 0.30, { x: cx, y: baseH / 2, z });
+        _gBox(buckets.stand, 0.14, topY - baseH, 0.22, { x: cx, y: (baseH + topY) / 2, z });
+      }
+      _gBox(buckets.stand, 1.24, 0.09, 0.18, { y: BEAM_HEIGHT - 0.30, z });
+      _gBox(buckets.stand, 1.24, 0.09, 0.18, { y: driveY - 0.34, z });
+    }
+  }
+
+  return buckets;
+}
+ROLE_BUILDERS.twoBeamModule = _buildTwoBeamModuleRoles;
+
+/**
+ * Plasma afterburner — the one component on this ladder that must not read
+ * as RF. There is no waveguide, no klystron feed, no cryostat: the
+ * accelerating structure is a 20 cm sapphire capillary filled with hydrogen,
+ * and everything else in the 10 m footprint is the laser hall that drives
+ * it. So the silhouette is a big enclosure sitting beside a nearly bare
+ * beam pipe, with turning-mirror housings walking the drive pulse from the
+ * enclosure onto the axis, and an injection chicane upstream.
+ */
+function _buildPlasmaAfterburnerRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 10.0;
+  const tileEdge = magL / 2;
+
+  // --- The accelerator itself: small, central, and easy to miss ---
+  const capL = 0.30;
+  _gCylZ(buckets.pipe, 0.045, capL);                       // sapphire capillary
+  _gBox(buckets.iron, 0.30, 0.30, 0.46, { z: 0 });         // discharge housing
+  _gBox(buckets.detail, 0.36, 0.06, 0.08, { y: BEAM_HEIGHT + 0.17, z: -0.14 });
+  _gBox(buckets.detail, 0.36, 0.06, 0.08, { y: BEAM_HEIGHT + 0.17, z: 0.14 });
+  // Hydrogen feed line into the cell — the plasma is made fresh each shot.
+  _gCylY(buckets.detail, 0.03, 0.34, { x: -0.12, y: BEAM_HEIGHT + 0.32, z: 0 });
+
+  // --- Laser enclosure: the silhouette ---
+  // Class-4 laser at joule-scale pulse energy lives in a sealed, interlocked
+  // hall. It is offset to +X so the beam axis stays clear.
+  const encX = 0.60, encW = 0.78, encH = 1.35, encL = 6.0, encZ = -0.9;
+  _gBox(buckets.accent, encW, encH, encL, { x: encX, y: encH / 2, z: encZ });
+  // Panel seams and roof rails.
+  for (const z of _gSpread(6, encL, encZ)) {
+    _gBox(buckets.detail, encW + 0.03, 0.05, 0.06, { x: encX, y: encH * 0.62, z });
+  }
+  _gBox(buckets.detail, encW * 0.5, 0.10, encL * 0.9, { x: encX, y: encH + 0.05, z: encZ });
+  // Chiller / power-supply skid against the far end of the hall.
+  _gBox(buckets.iron, 0.62, 0.85, 1.0, { x: encX, y: 0.425, z: encZ - encL / 2 - 0.52 });
+  _gBox(buckets.detail, 0.66, 0.10, 0.34, { x: encX, y: 0.90, z: encZ - encL / 2 - 0.52 });
+
+  // --- Laser transport: enclosure -> turning mirrors -> capillary ---
+  // Evacuated transport tube out of the hall, two turning-mirror housings,
+  // then the final optic, which drops the pulse onto the beam axis. The
+  // transport runs above the beam pipe so the housings can sit on the axis
+  // in plan view without fouling the vacuum chamber.
+  const transY = BEAM_HEIGHT + 0.34;
+  const mirrorZ = -1.35;
+  const encFaceX = encX - encW / 2;
+  _gCylX(buckets.pipe, 0.075, encFaceX, { x: encFaceX / 2, y: transY, z: mirrorZ });
+  for (const mz of [mirrorZ, -0.55]) {
+    _gCylY(buckets.iron, 0.15, 0.28, { x: 0, y: transY, z: mz });
+    _gCylY(buckets.detail, 0.18, 0.04, { x: 0, y: transY + 0.16, z: mz });
+  }
+  _gSegment(buckets.pipe, [0, transY, mirrorZ], [0, transY, -0.55], 0.06);
+  // Final turning mirror drops the pulse onto the axis just upstream of the
+  // cell — collinear with the beam, which is the whole trick.
+  _gSegment(buckets.pipe, [0, transY, -0.55], [0, BEAM_HEIGHT, -0.30], 0.055);
+
+  // --- Injection chicane upstream: four small dipoles ---
+  // The witness bunch has to be dropped into the wake with sub-micron
+  // timing, so it arrives through its own chicane rather than straight on.
+  for (const [i, z] of _gSpread(4, 2.2, -2.9).entries()) {
+    const xOff = (i === 1 || i === 2) ? -0.13 : 0;
+    _gBox(buckets.accent, 0.36, 0.34, 0.30, { x: xOff, z });
+    _gBox(buckets.copper, 0.40, 0.07, 0.24, { x: xOff, y: BEAM_HEIGHT + 0.20, z });
+    _gBox(buckets.copper, 0.40, 0.07, 0.24, { x: xOff, y: BEAM_HEIGHT - 0.20, z });
+  }
+
+  // --- Diagnostics downstream: a spectrometer dipole and its screen tank ---
+  _gBox(buckets.accent, 0.40, 0.36, 0.40, { z: 1.6 });
+  _gCylY(buckets.pipe, 0.26, 0.44, { x: -0.32, y: BEAM_HEIGHT + 0.30, z: 2.5 });
+
+  // Beam pipe runs the full length; the capillary is the only break in it.
+  for (const sign of [-1, 1]) {
+    const inner = capL / 2;
+    const runL = tileEdge - inner;
+    _gCylZ(buckets.pipe, PIPE_R, runL, { z: sign * (inner + runL / 2) });
+    _gCylZ(buckets.detail, FLANGE_R, FLANGE_H, { z: sign * tileEdge });
+  }
+
+  _gPedestals(buckets, [-4.2, -2.9, -1.4, 0, 1.6, 3.2, 4.4], BEAM_HEIGHT - 0.22, {
+    w: 0.20, d: 0.18,
+  });
+
+  return buckets;
+}
+ROLE_BUILDERS.plasmaAfterburner = _buildPlasmaAfterburnerRoles;
+
+/**
+ * Fast kicker — a magnet that is almost entirely not a magnet. The ferrite
+ * window-frame yoke is small because it has to be: rise time scales with
+ * stored energy, so a kicker gets a tiny aperture and a handful of turns.
+ * The hardware that costs money and takes floor space is the
+ * pulse-forming network — a cabinet of charged line, thyratron and
+ * terminating load — and the thick coaxial pulse cables between them.
+ * Those cables are the identity: read them and this is not a dipole.
+ *
+ * subW is 2, not 4 — this is a 1 m × 2 m tile — so the cabinet cannot stand
+ * beside the magnet the way it does in a real tunnel. It stands *upstream*
+ * of it instead, hard against one side, and the magnet occupies the last
+ * half metre. Same story, told along Z.
+ */
+function _buildFastKickerRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 2.0;
+  const tileEdge = magL / 2;
+  const yokeZ    = 0.56;   // the magnet lives downstream; the cabinet owns the rest
+
+  // --- Ferrite window-frame yoke ---
+  // Small on purpose: kicker rise time goes as the stored energy, so the
+  // aperture is the minimum the beam will tolerate and the winding is one
+  // turn. This is the entire magnet.
+  const yokeOuter = 0.17, wall = 0.05, yokeL = 0.44;
+  for (const ySign of [1, -1]) {
+    _gBox(buckets.iron, 2 * yokeOuter, wall, yokeL, {
+      y: BEAM_HEIGHT + ySign * (yokeOuter - wall / 2), z: yokeZ,
+    });
+  }
+  for (const xSign of [1, -1]) {
+    _gBox(buckets.iron, wall, 2 * yokeOuter - 2 * wall, yokeL, {
+      x: xSign * (yokeOuter - wall / 2), z: yokeZ,
+    });
+  }
+  // Single-turn copper busbars on the inner faces — a kicker cannot afford
+  // more inductance than that.
+  for (const ySign of [1, -1]) {
+    _gBox(buckets.copper, 0.16, 0.035, yokeL + 0.06, {
+      y: BEAM_HEIGHT + ySign * (yokeOuter - wall - 0.025), z: yokeZ,
+    });
+  }
+  // Ceramic chamber collars either side of the yoke: a metal chamber would
+  // short out the kick before it reached the beam.
+  for (const sign of [-1, 1]) {
+    _gCylZ(buckets.detail, 0.11, 0.05, { z: yokeZ + sign * (yokeL / 2 + 0.04) });
+  }
+
+  // --- Pulse-forming network cabinet: the actual bulk of the component ---
+  const cabX = -0.32, cabW = 0.32, cabH = 1.50, cabL = 1.34;
+  const cabZ = -0.28;
+  _gBox(buckets.accent, cabW, cabH, cabL, { x: cabX, y: cabH / 2, z: cabZ });
+  _gBox(buckets.detail, cabW + 0.04, 0.08, cabL + 0.04, { x: cabX, y: cabH + 0.04, z: cabZ });
+  // Door louvres — a PFN dumps most of its stored energy as heat.
+  for (const z of _gSpread(4, cabL * 0.8, cabZ)) {
+    _gBox(buckets.detail, 0.04, 0.46, 0.20, { x: cabX + cabW / 2 + 0.02, y: 0.82, z });
+  }
+  // Thyratron stack rising out of the cabinet roof — the switch that decides
+  // which bunch gets kicked and which does not.
+  _gCylY(buckets.detail, 0.10, 0.28, { x: cabX, y: cabH + 0.22, z: cabZ - 0.42 });
+  _gCylY(buckets.detail, 0.14, 0.05, { x: cabX, y: cabH + 0.38, z: cabZ - 0.42 });
+
+  // --- Coaxial pulse cables, cabinet roof to yoke ---
+  // Four of them, arcing over the gap. Deliberately thick — 50 Ω coax at
+  // tens of kilovolts is wrist-sized, and at this scale it is the single
+  // most recognisable thing in the component.
+  const cableR = 0.05;
+  for (const xi of [-0.09, -0.03, 0.03, 0.09]) {
+    const path = [
+      [cabX + xi, cabH - 0.04, cabZ + cabL / 2 - 0.10],
+      [cabX + xi, cabH + 0.14, cabZ + cabL / 2 + 0.06],
+      [xi * 0.5, cabH + 0.10, yokeZ - 0.18],
+      [xi * 0.5, BEAM_HEIGHT + yokeOuter + 0.03, yokeZ],
+    ];
+    for (let i = 0; i < path.length - 1; i++) {
+      _gSegment(buckets.iron, path[i], path[i + 1], cableR);
+    }
+    // Cable-end connector at the magnet feedthrough.
+    _gCylY(buckets.detail, cableR * 1.5, 0.06, {
+      x: xi * 0.5, y: BEAM_HEIGHT + yokeOuter + 0.06, z: yokeZ,
+    });
+  }
+  // Matched terminating load on the far side, with its own return cable —
+  // the pulse has to go somewhere after it has crossed the aperture.
+  _gBox(buckets.iron, 0.20, 0.34, 0.34, { x: 0.32, y: BEAM_HEIGHT - 0.02, z: yokeZ });
+  _gSegment(buckets.iron,
+    [0.10, BEAM_HEIGHT + yokeOuter, yokeZ],
+    [0.30, BEAM_HEIGHT + 0.16, yokeZ], cableR);
+
+  // The beam pipe runs the full tile — the yoke is offset downstream, so
+  // there is no symmetric inner boundary to stub from.
+  _gBeamEnds(buckets, tileEdge, 0);
+  _gPedestals(buckets, [yokeZ], BEAM_HEIGHT - yokeOuter, { w: 0.18, d: 0.16 });
+
+  return buckets;
+}
+ROLE_BUILDERS.fastKicker = _buildFastKickerRoles;
+
+/**
+ * Recirculation arc — the beam leaves the straight, walks a lateral arc
+ * through a row of small dipoles, and rejoins downstream. Energy recovery
+ * lives or dies on getting the return path's phase right, and the arc is
+ * where that is set.
+ *
+ * The bypass leaves toward local -X, which is the 'left' / W side once the
+ * placeable's `dir` is applied (junctions.js SIDE_TO_COMPASS), and that is
+ * where the catalogue entry puts its `arcEntry` port. The apex therefore
+ * carries a real stub and CF flange out at the tile edge: the returning
+ * beam ties in there. If the routing ever moves that port to 'right', this
+ * geometry has to flip with it — the router and the picture must agree. 6 m.
+ */
+function _buildRecirculationArcRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 6.0;
+  const tileEdge = magL / 2;
+  const splitZ   = 2.35;    // where the arc leaves and rejoins
+  const arcX     = -0.70;   // lateral excursion at the apex (fits subW=4)
+
+  // Straight-through chord, full length.
+  _gBeamEnds(buckets, tileEdge, splitZ);
+  _gCylZ(buckets.pipe, PIPE_R, 2 * splitZ);
+
+  // Arc path: a raised-cosine bump, which gives zero lateral slope at both
+  // junctions so the arc pipe meets the chord tangentially.
+  const arcPt = (t) => {
+    const z = -splitZ + 2 * splitZ * t;
+    const x = arcX * 0.5 * (1 - Math.cos(2 * Math.PI * t));
+    return [x, BEAM_HEIGHT, z];
+  };
+  const arcSegs = 18;
+  for (let i = 0; i < arcSegs; i++) {
+    _gSegment(buckets.pipe, arcPt(i / arcSegs), arcPt((i + 1) / arcSegs), PIPE_R * 0.9, 8);
+  }
+
+  // Small dipoles along the arc, each yawed onto the local tangent. The
+  // apex is left clear for the arcEntry tie-in.
+  for (const t of [0.12, 0.28, 0.72, 0.88]) {
+    const p = arcPt(t);
+    const q = arcPt(Math.min(1, t + 0.01));
+    const rotY = Math.atan2(q[0] - p[0], q[2] - p[2]);
+    _gBox(buckets.accent, 0.42, 0.34, 0.34, { x: p[0], z: p[2], rotY });
+    for (const ySign of [1, -1]) {
+      _gBox(buckets.copper, 0.30, 0.06, 0.28, {
+        x: p[0], y: BEAM_HEIGHT + ySign * 0.20, z: p[2], rotY,
+      });
+    }
+  }
+
+  // Splitter and recombiner at the two junctions — bigger than the arc
+  // dipoles because they have to separate two beams of different energy.
+  for (const sign of [-1, 1]) {
+    _gBox(buckets.accent, 0.52, 0.44, 0.48, { z: sign * splitZ });
+    _gBox(buckets.iron, 0.60, 0.10, 0.34, { y: BEAM_HEIGHT + 0.27, z: sign * splitZ });
+    _gCylY(buckets.detail, 0.06, 0.22, { x: 0.20, y: BEAM_HEIGHT + 0.42, z: sign * splitZ });
+  }
+
+  // Apex: the merge box where the returning beam ties in, and the stub and
+  // CF flange that carry the `arcEntry` port out to the left tile edge.
+  {
+    const tileHalfW = 1.0;                    // subW 4
+    _gBox(buckets.accent, 0.30, 0.34, 0.44, { x: arcX, z: 0 });
+    const stubStart = arcX - 0.15;
+    const stubL = tileHalfW + stubStart;      // stubStart is negative
+    _gCylX(buckets.pipe, PIPE_R, stubL, { x: stubStart - stubL / 2, z: 0 });
+    _gCylX(buckets.detail, FLANGE_R, FLANGE_H, { x: -tileHalfW, z: 0 });
+  }
+
+  // Corrector and a BPM button block on the return leg.
+  _gBox(buckets.detail, 0.22, 0.20, 0.18, { x: arcX * 0.8, y: BEAM_HEIGHT + 0.12, z: 0.9 });
+
+  // Pedestals under both paths.
+  _gPedestals(buckets, [-2.35, 0, 2.35], BEAM_HEIGHT - 0.24, { w: 0.22, d: 0.18 });
+  for (const t of [0.25, 0.5, 0.75]) {
+    const p = arcPt(t);
+    _gPedestals(buckets, [p[2]], BEAM_HEIGHT - 0.22, { w: 0.20, d: 0.18, x: p[0] });
+  }
+
+  return buckets;
+}
+ROLE_BUILDERS.recirculationArc = _buildRecirculationArcRoles;
+
+/**
+ * Final focus doublet — the last two magnets before the interaction point,
+ * and the reason a collider's luminosity is what it is. Two superconducting
+ * quads back to back in one cryostat, at deliberately different apertures:
+ * the upstream one is wide because the beam is still large there, the
+ * IP-side one is narrow and its cryostat tapers to a cone so the detector
+ * can be pushed as close to the collision as the magnet allows. 3 m.
+ */
+function _buildFinalFocusDoubletRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 3.0;
+  const tileEdge = magL / 2;
+
+  // Two cold masses. QF1 upstream: big bore, big body. QD0 downstream:
+  // smaller everything, because it sits inside the detector's shadow.
+  const quads = [
+    { z: -0.62, len: 1.05, r: 0.42, bore: 0.135, label: 'QF1' },
+    { z: 0.58, len: 0.85, r: 0.31, bore: 0.075, label: 'QD0' },
+  ];
+
+  for (const q of quads) {
+    _gCylZ(buckets.accent, q.r, q.len, { z: q.z });
+    // Collar rings and four saddle coil packs — the quad read, at the only
+    // level of detail a cryostat lets you see.
+    for (const z of _gSpread(4, q.len * 0.86, q.z)) {
+      _gCylZ(buckets.detail, q.r + 0.025, 0.05, { z });
+    }
+    for (const a of [0.25, 0.75, 1.25, 1.75]) {
+      const ang = a * Math.PI;
+      _gBox(buckets.copper, 0.16, 0.16, q.len * 0.9, {
+        x: Math.cos(ang) * (q.r + 0.06),
+        y: BEAM_HEIGHT + Math.sin(ang) * (q.r + 0.06),
+        z: q.z,
+      });
+    }
+    // Cryo port and current-lead box for each cold mass.
+    _gCylY(buckets.pipe, 0.07, 0.30, { y: BEAM_HEIGHT + q.r + 0.15, z: q.z - q.len * 0.28 });
+    _gBox(buckets.iron, 0.24, 0.30, 0.26, { x: -(q.r + 0.14), y: BEAM_HEIGHT + 0.24, z: q.z + q.len * 0.3 });
+  }
+
+  // The interconnect between the two quads is the one place the aperture
+  // step is actually visible: wide bore in, cone, narrow bore out.
+  {
+    const aZ = quads[0].z + quads[0].len / 2;
+    const bZ = quads[1].z - quads[1].len / 2;
+    const midL = bZ - aZ;
+    _gCylZ(buckets.pipe, quads[0].bore, midL * 0.35, { z: aZ + midL * 0.175 });
+    _gCylZ(buckets.pipe, quads[0].bore, midL * 0.3, {
+      z: aZ + midL * 0.5, rTop: quads[1].bore,
+    });
+    _gCylZ(buckets.pipe, quads[1].bore, midL * 0.35, { z: bZ - midL * 0.175 });
+    _gCylZ(buckets.detail, quads[0].bore + 0.04, 0.04, { z: aZ + 0.02 });
+  }
+
+  // Upstream: flat cryostat end plate, then warm beam pipe to the tile edge.
+  {
+    const endZ = quads[0].z - quads[0].len / 2;
+    _gCylZ(buckets.accent, quads[0].r, 0.10, { z: endZ - 0.05 });
+    _gCylZ(buckets.detail, quads[0].r + 0.04, 0.05, { z: endZ - 0.10 });
+    const runL = tileEdge - (endZ - 0.10);
+    _gCylZ(buckets.pipe, quads[0].bore, runL, { z: -(tileEdge - runL / 2) });
+    _gCylZ(buckets.detail, FLANGE_R, FLANGE_H, { z: -tileEdge });
+  }
+
+  // Downstream: the conical nose toward the IP.
+  {
+    const startZ = quads[1].z + quads[1].len / 2;
+    const coneL = tileEdge - startZ - 0.14;
+    _gCylZ(buckets.accent, quads[1].r, coneL, { z: startZ + coneL / 2, rTop: 0.14 });
+    _gCylZ(buckets.pipe, PIPE_R, 0.14, { z: tileEdge - 0.07 });
+    _gCylZ(buckets.detail, FLANGE_R * 0.8, FLANGE_H, { z: tileEdge });
+  }
+
+  for (const q of quads) {
+    _gPedestals(buckets, [q.z], BEAM_HEIGHT - q.r, { w: 0.26, d: 0.22 });
+  }
+
+  return buckets;
+}
+ROLE_BUILDERS.finalFocusDoublet = _buildFinalFocusDoubletRoles;
+
 // ── Endpoint builders ───────────────────────────────────────────────
 ROLE_BUILDERS.faradayCup = _buildFaradayCupRoles;
 ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;

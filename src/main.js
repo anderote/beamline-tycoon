@@ -619,9 +619,9 @@ function showScenarioPicker(game) {
     // the showcase has to feed the quad / cavity / BPM as well as the two
     // junctions. Row 13 is the distribution row (one bus per utility, each
     // standing in for a handful of stubs), row 14 the service row. The
-    // 2856 MHz cavity needs a matching klystron — a broadband amp would do,
-    // but a frequency mismatch is only a soft error and would show a dead
-    // beam with no blocker to explain it.
+    // 2856 MHz cavity needs a source covering S-band — an SSA stops at UHF,
+    // and a frequency mismatch is only a soft error, so getting it wrong would
+    // show a dead beam with no blocker to explain it.
     for (let c = 0; c <= 9; c++) for (const r of [13, 14]) {
       const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true});
     }

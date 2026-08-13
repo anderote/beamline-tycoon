@@ -372,8 +372,8 @@ console.log('\n=== 9. Aborting a carry restores the object instead of deleting i
 
 // ---------------------------------------------------------------------------
 console.log('\n=== 10. The RF tutorial step needs a cavity that is actually fed ===\n');
-// Regression: hasRfFeed only tested flow.totalCapacity > 0, which is summed
-// across every frequency bucket — so a 2.45 GHz magnetron wired to a 200 MHz
+// Regression: hasRfFeed only tested flow.totalCapacity > 0, which was summed
+// across every frequency bucket — so an S-band magnetron wired to a 162.5 MHz
 // cavity (exactly what the hint told the player to build) ticked the step
 // green while every cavity sat at rfQuality 0. A dangling stub passed too.
 {
@@ -386,9 +386,9 @@ console.log('\n=== 10. The RF tutorial step needs a cavity that is actually fed 
   assert(step.condition(withFlow({ totalCapacity: 5, totalDemand: 0, perSinkQuality: {} })) === false,
     'a dangling waveguide stub with no sink does NOT satisfy the step');
   assert(step.condition(withFlow({ totalCapacity: 35, totalDemand: 5, perSinkQuality: { 'pl_2:rf_in': 1 } })) === true,
-    'a broadband amplifier actually driving the cavity does');
+    'an in-band amplifier actually driving the cavity does');
   assert(/solid-state amplifier/i.test(step.hint),
-    'the hint names a broadband source that can actually drive a 200 MHz cavity');
+    'the hint names a source whose bands actually cover a 162.5 MHz cavity');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

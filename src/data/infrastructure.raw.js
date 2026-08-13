@@ -1,5 +1,20 @@
 // Infrastructure components — placed in Infra build mode (power, vacuum, RF power, cooling, data/controls, ops).
 // subL/subW define size in sub-units (1 sub-unit = 50cm)
+//
+// RF SOURCES MATCH ON `rfBands`, NOT ON `rfFrequency`. A tube is built for a
+// band, not for one number on a dial: the same 2856 MHz klystron design covers
+// S-band, and asking the player to find a source at exactly 5712 MHz for a
+// C-band structure is bookkeeping, not a decision. `rfFrequency` survives here
+// only as display flavour — the solver never reads it on a source.
+//
+// The strictness lives on the other side: one network carries one frequency
+// (see src/utility/types/rfWaveguide.js), so two frequencies still cost two
+// networks and two source instances even when one tube covers both.
+//
+// Coverage is deliberately laid out so every band has an answer and no single
+// source is the answer to everything. The `twt` covers all six bands at 20 kW —
+// it unblocks any frequency and powers nothing serious, which is exactly what a
+// driver amplifier is for.
 export const INFRASTRUCTURE_RAW = {
   magnetron: {
     id: 'magnetron',
@@ -22,6 +37,8 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable'],
     rfFrequency: 2450,
     rfBand: 'sband',
+    // The 2.45 GHz ISM magnetron is a mass-produced part, not a tunable one.
+    rfBands: ['sband'],
   },
   solidStateAmp: {
     id: 'solidStateAmp',
@@ -44,7 +61,10 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
-    rfBands: ['vhf', 'lband', 'sband'],
+    // Solid-state transistor amplifiers are a 350-700 MHz technology — that is
+    // where the LDMOS parts and the combiner designs actually live. The first
+    // source the player meets covers the whole low end and nothing above it.
+    rfBands: ['vhf', 'uhf'],
   },
   twt: {
     id: 'twt',
@@ -66,7 +86,10 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
-    rfBands: ['lband', 'sband'],
+    // Genuinely wideband — a slow-wave helix has no resonant cavity to tie it
+    // to a band. At 20 kW it is the unblocker for any frequency and never the
+    // answer for a real linac, which is the role it plays in a real gallery too.
+    rfBands: ['vhf', 'uhf', 'lband', 'sband', 'cband', 'xband'],
   },
   pulsedKlystron: {
     id: 'pulsedKlystron',
@@ -89,6 +112,9 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable'],
     rfFrequency: 2856,
     rfBand: 'sband',
+    // Pulsed klystrons are the standard drive for warm high-gradient hardware,
+    // and the same tube family runs from S-band up into C-band.
+    rfBands: ['sband', 'cband'],
   },
   cwKlystron: {
     id: 'cwKlystron',
@@ -111,6 +137,9 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable'],
     rfFrequency: 1300,
     rfBand: 'lband',
+    // CW klystrons are built for SRF: 650/805 MHz proton cryomodules and the
+    // 1.3 GHz electron workhorse are the two markets that exist.
+    rfBands: ['uhf', 'lband'],
   },
   modulator: {
     id: 'modulator',
@@ -153,6 +182,9 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable'],
     rfFrequency: 1300,
     rfBand: 'lband',
+    // IOTs were built in volume for 470-700 MHz UHF broadcast transmitters;
+    // the accelerator versions push the same gridded-gun idea into L-band.
+    rfBands: ['uhf', 'lband'],
   },
   circulator: {
     id: 'circulator',
@@ -258,6 +290,9 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: ['powerCable'],
     rfFrequency: 2856,
     rfBand: 'sband',
+    // Same band coverage as the pulsed klystron it replaces, at four times the
+    // power — the upgrade is capacity, not reach.
+    rfBands: ['sband', 'cband'],
   },
   highPowerSSA: {
     id: 'highPowerSSA',
@@ -280,7 +315,9 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
-    rfBands: ['vhf', 'lband', 'sband'],
+    // The small SSA's territory plus L-band: solid-state combining scales in
+    // module count, so the big transmitter reaches one band higher, not four.
+    rfBands: ['vhf', 'uhf', 'lband'],
   },
 
   gyrotron: {
@@ -303,7 +340,10 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
     rfFrequency: 'broadband',
-    rfBands: ['vhf', 'lband', 'sband'],
+    // Cyclotron resonance in a several-tesla field puts a gyrotron's output at
+    // millimetre wavelengths by construction. It cannot go low, and it is the
+    // only megawatt answer at the top of the ladder.
+    rfBands: ['cband', 'xband'],
   },
 
   // ── Cryogenics ────────────────────────────────────────────────────

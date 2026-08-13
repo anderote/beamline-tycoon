@@ -141,7 +141,7 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-rf',
     name: 'Connect RF Power',
-    hint: 'Place a Solid-State Amplifier and run RF Waveguide to your cavities — it is broadband, so it drives the 200 MHz buncher and pillbox cavities. (A Magnetron is locked to 2.45 GHz and only feeds an ECR ion source.)',
+    hint: 'Place a Solid-State Amplifier and run RF Waveguide to your cavities — it covers VHF and UHF, which includes the 162.5 MHz buncher and pillbox cavities. (A Magnetron only reaches S-band, which feeds an ECR ion source and nothing else here.)',
     group: 'infrastructure',
     condition: (state) => hasRfFeed(state),
   },

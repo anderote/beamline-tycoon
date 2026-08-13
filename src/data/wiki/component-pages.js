@@ -386,28 +386,28 @@ function rfSourcePerformance(id, port, perf) {
   });
   perf.push({
     label: 'Peak power', value: round(peakW / 1e6, 3), unit: 'MW',
-    note: 'What a cavity alone on this network receives. Several cavities in the '
-      + 'same frequency bucket split it in proportion to their declared demand.',
+    note: 'What a cavity alone on this network receives. Several cavities on the '
+      + 'network split it in proportion to their declared demand.',
   });
 
-  const freq = port?.params.frequency;
-  const broadband = port?.params.broadband === true;
+  const bands = port?.params.bands || [];
   const drivable = Object.keys(CAVITY_SPECS)
     .filter(cid => COMPONENTS[cid])
     .filter((cid) => {
       const sink = Object.values(getUtilityPortsV2(cid))
         .find(p => p.utility === 'rfWaveguide' && p.role === 'sink');
-      return sink && (broadband || sink.params.frequency === freq);
+      return sink && bands.includes(sink.params.band);
     });
 
   perf.push({
     label: 'Cavities it can drive',
     value: drivable.length ? drivable.map(cid => COMPONENTS[cid].name).join(', ') : 'None',
     unit: '',
-    note: broadband
-      ? 'Broadband, so it tops up any frequency bucket with unmet demand.'
-      : `Fixed at ${round((freq || 0) / 1e6)} MHz. Cavities in any other bucket see `
-        + 'zero watts from it, however much capacity it has.',
+    note: bands.length
+      ? `Covers ${bands.map(b => b.toUpperCase()).join(', ')}. Cavities outside those `
+        + 'bands see zero watts from it, however much capacity it has — and a cavity '
+        + 'inside them still needs to be the frequency its network is serving.'
+      : 'Declares no band coverage, so it drives nothing.',
   });
 
   // What that peak power is actually worth, per cavity type. Rows rather than

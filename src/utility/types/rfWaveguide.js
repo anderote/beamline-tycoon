@@ -1,15 +1,26 @@
 // src/utility/types/rfWaveguide.js
 //
-// RF waveguide utility descriptor. Physics: sinks are bucketed by
-// params.frequency and each bucket is solved independently. Sources come in
-// two kinds:
-//   - fixed-frequency (params.frequency): capacity counts only toward the
-//     matching bucket (a 2856 MHz klystron cannot drive a 1300 MHz cavity);
-//   - broadband (params.broadband: true): capacity is a shared pool,
-//     allocated across buckets after fixed sources, in ascending-frequency
-//     order (deterministic), each bucket taking only its unmet demand.
-// Sinks in buckets with zero effective capacity get quality 0 and a soft
-// rf_frequency_mismatch; overloaded buckets get soft rf_overload.
+// RF waveguide utility descriptor.
+//
+// MATCHING IS BY BAND, ROUTING IS BY NETWORK. Those are the two halves of the
+// model and they pull in opposite directions on purpose.
+//
+// Generous half: a source declares `params.bands` — the bands its hardware can
+// physically produce — and drives any sink at any frequency inside one of them.
+// A klystron is built for S-band, not for one number on a dial, so demanding an
+// exact frequency match was bookkeeping rather than a decision, and it left
+// whole rungs of the accelerating ladder with no source that could feed them.
+//
+// Strict half: ONE NETWORK CARRIES ONE FREQUENCY. A waveguide run is a resonant
+// structure; you cannot put 162.5 MHz and 325 MHz down the same copper and have
+// both arrive. So the network serves the frequency with the most demand on it
+// (ties to the lower frequency, for stability across rebuilds) and everything
+// else on that network is starved with a soft rf_frequency_split naming both
+// frequencies — the fix is always "run a second network", never "buy a
+// different tube". That is what keeps RF a layout problem.
+//
+// A served frequency with no in-band source gets quality 0 and a soft
+// rf_frequency_mismatch; too little in-band capacity gets a soft rf_overload.
 //
 // Alongside the 0-1 quality, this publishes `perSinkPower` in WATTS OF PEAK
 // power. That is what actually sets a cavity's gradient — E_acc goes as
@@ -23,10 +34,36 @@
 // choices rather than flavour text — pulsed buys peak gradient (brightness
 // machines), CW buys average current (power machines).
 
-// Fraction of a bucket's capacity that reaches a sink, in watts of peak power.
-// Capacity is quoted in kW; sinks share it in proportion to their declared
-// demand so an oversubscribed bucket starves everything on it proportionally
-// rather than picking winners by iteration order.
+// Band table. Ranges are half-open [loMHz, hiMHz) and contiguous: every
+// frequency between 50 MHz and 16 GHz lands in exactly one band, so a
+// component can never fall between two.
+//
+// A source powers anything in a band it covers, at any frequency in that
+// band — that is the "generous" half of the rule. The strict half lives in
+// solve(): one network carries one frequency, so two frequencies in the same
+// band still need two networks and two source instances.
+export const RF_BANDS = [
+  { id: 'vhf',   loMHz:    50, hiMHz:   500, label: 'VHF',     tier: 'beginner' },
+  { id: 'uhf',   loMHz:   500, hiMHz:  1000, label: 'UHF',     tier: 'proton SRF' },
+  { id: 'lband', loMHz:  1000, hiMHz:  2000, label: 'L-band',  tier: 'SRF workhorse' },
+  { id: 'sband', loMHz:  2000, hiMHz:  4000, label: 'S-band',  tier: 'mid NC' },
+  { id: 'cband', loMHz:  4000, hiMHz:  8000, label: 'C-band',  tier: 'high-gradient NC' },
+  { id: 'xband', loMHz:  8000, hiMHz: 16000, label: 'X-band',  tier: 'expert NC' },
+];
+
+/** Band id for a frequency in HERTZ, or null if outside every band. */
+export function bandForFrequencyHz(hz) {
+  const mhz = hz / 1e6;
+  for (const b of RF_BANDS) {
+    if (mhz >= b.loMHz && mhz < b.hiMHz) return b.id;
+  }
+  return null;
+}
+
+// Fraction of the network's capacity that reaches a sink, in watts of peak
+// power. Capacity is quoted in kW; sinks share it in proportion to their
+// declared demand so an oversubscribed network starves everything on it
+// proportionally rather than picking winners by iteration order.
 function distributePower(sinks, capKw, demandTotal, peakFactor) {
   const out = {};
   const capW = capKw * 1000 * peakFactor;
@@ -49,86 +86,94 @@ export default {
   costPerSubUnit: 1800,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
-    const byFreqSource = new Map();
-    const byFreqSink = new Map();
-    let broadbandPool = 0;
-    // Capacity-weighted mean duty factor across the sources feeding this
-    // network. A network mixing pulsed and CW sources delivers something in
-    // between, weighted by how much each contributes.
-    let dutyWeighted = 0, dutyTotalCap = 0;
+    const errors = [];
+    const perSinkQuality = {};
+    const perSinkPower = {};
+
+    // 1. Group sinks by frequency; the largest-demand frequency is the one
+    //    this network carries. Ties go to the lower frequency so the result
+    //    is stable across rebuilds.
+    const byFreq = new Map();
+    let totalDemand = 0;
+    for (const sink of network.sinks) {
+      const f = (sink.params && sink.params.frequency) || 0;
+      if (!byFreq.has(f)) byFreq.set(f, []);
+      byFreq.get(f).push(sink);
+      totalDemand += sink.demand || 0;
+    }
+    const freqs = [...byFreq.keys()].sort((a, b) => a - b);
+    const demandAt = (f) => byFreq.get(f).reduce((a, s) => a + (s.demand || 0), 0);
+    let served = null;
+    for (const f of freqs) {
+      if (served === null || demandAt(f) > demandAt(served)) served = f;
+    }
+
+    // 2. Capacity-weighted mean duty factor across the sources that can
+    //    actually feed the served band. A network mixing pulsed and CW sources
+    //    delivers something in between, weighted by how much each contributes;
+    //    a source that cannot reach this band contributes neither watts nor
+    //    duty, or an out-of-band CW tube would flatten a pulsed network's peak.
+    const servedBand = served === null ? null : bandForFrequencyHz(served);
+    let capacity = 0, dutyWeighted = 0, dutyTotalCap = 0;
     for (const s of network.sources) {
+      const bands = (s.params && s.params.bands) || [];
+      if (!servedBand || !bands.includes(servedBand)) continue;
       const cap = s.capacity || 0;
-      const duty = (s.params && s.params.dutyFactor) || 1.0;
-      dutyWeighted += cap * duty;
+      capacity += cap;
+      dutyWeighted += cap * ((s.params && s.params.dutyFactor) || 1.0);
       dutyTotalCap += cap;
-      if (s.params && s.params.broadband) {
-        broadbandPool += cap;
-        continue;
-      }
-      const f = (s.params && s.params.frequency) || 0;
-      byFreqSource.set(f, (byFreqSource.get(f) || 0) + cap);
     }
     const meanDuty = dutyTotalCap > 0 ? dutyWeighted / dutyTotalCap : 1.0;
     // Peak power is average divided by duty. Clamped so a pathological duty
     // cannot mint unbounded gradient.
     const peakFactor = Math.min(1 / Math.max(meanDuty, 1e-4), 10000);
-    for (const sink of network.sinks) {
-      const f = (sink.params && sink.params.frequency) || 0;
-      if (!byFreqSink.has(f)) byFreqSink.set(f, []);
-      byFreqSink.get(f).push(sink);
-    }
 
-    const errors = [];
-    const perSinkQuality = {};
-    const perSinkPower = {};
-    let totalCapacity = broadbandPool;
-    let totalDemand = 0;
-
-    for (const cap of byFreqSource.values()) totalCapacity += cap;
-
-    // Deterministic bucket order: ascending frequency.
-    const buckets = [...byFreqSink.entries()].sort((a, b) => a[0] - b[0]);
-
-    for (const [freq, sinks] of buckets) {
-      const demand = sinks.reduce((a, s) => a + (s.demand || 0), 0);
-      totalDemand += demand;
-      let cap = byFreqSource.get(freq) || 0;
-      // Broadband pool tops up unmet demand in this bucket.
-      if (demand > cap && broadbandPool > 0) {
-        const take = Math.min(broadbandPool, demand - cap);
-        cap += take;
-        broadbandPool -= take;
-      }
-      if (cap === 0 && demand > 0) {
-        for (const s of sinks) {
+    if (served !== null) {
+      // 3. Everything not on the served frequency is starved, with a diagnostic
+      //    naming both sides so the fix ("run a second network") is obvious.
+      for (const f of freqs) {
+        if (f === served) continue;
+        for (const s of byFreq.get(f)) {
           perSinkQuality[s.portKey] = 0;
           perSinkPower[s.portKey] = 0;
         }
         errors.push({
           severity: 'soft',
-          code: 'rf_frequency_mismatch',
-          message: `No RF source at ${freq} Hz.`,
+          code: 'rf_frequency_split',
+          message: `This network carries ${(served / 1e6).toFixed(1)} MHz; `
+            + `${(f / 1e6).toFixed(1)} MHz needs its own network and source.`,
           location: { networkId: network.id },
         });
-      } else if (cap > 0 && demand > 0) {
-        const q = Math.min(1, cap / demand);
+      }
+
+      const sinks = byFreq.get(served);
+      const demand = demandAt(served);
+
+      if (capacity === 0 && demand > 0) {
+        for (const s of sinks) { perSinkQuality[s.portKey] = 0; perSinkPower[s.portKey] = 0; }
+        errors.push({
+          severity: 'soft',
+          code: 'rf_frequency_mismatch',
+          message: `No RF source covering ${servedBand || 'this frequency'} `
+            + `(${(served / 1e6).toFixed(1)} MHz).`,
+          location: { networkId: network.id },
+        });
+      } else {
+        // demand === 0 lands here too: the cavity is connected to whatever the
+        // network can supply, which is the honest answer for an idle sink.
+        const q = demand > 0 ? Math.min(1, capacity / demand) : 1;
         for (const s of sinks) perSinkQuality[s.portKey] = q;
         Object.assign(perSinkPower,
-          distributePower(sinks, cap, demand, peakFactor));
-        if (demand > cap) {
+          distributePower(sinks, capacity, demand, peakFactor));
+        if (demand > capacity) {
           errors.push({
             severity: 'soft',
             code: 'rf_overload',
-            message: `RF overload at ${freq} Hz (${demand}/${cap} kW).`,
+            message: `RF overload at ${(served / 1e6).toFixed(1)} MHz `
+              + `(${demand}/${capacity} kW).`,
             location: { networkId: network.id },
           });
         }
-      } else {
-        // demand === 0 — nothing to quality, but the cavity is still connected
-        // to whatever the bucket can supply.
-        for (const s of sinks) perSinkQuality[s.portKey] = 1;
-        Object.assign(perSinkPower,
-          distributePower(sinks, cap, 0, peakFactor));
       }
     }
 
@@ -136,10 +181,13 @@ export default {
       flowState: {
         networkId: network.id,
         utilityType: network.utilityType,
-        totalCapacity,
+        // Eligible capacity only. An out-of-band klystron parked on this
+        // network is not headroom, and reporting it as such would show a
+        // healthy utilisation bar over a network delivering zero watts.
+        totalCapacity: capacity,
         totalDemand,
-        utilization: totalCapacity > 0
-          ? Math.min(1, totalDemand / totalCapacity)
+        utilization: capacity > 0
+          ? Math.min(1, totalDemand / capacity)
           : (totalDemand > 0 ? 1 : 0),
         meanDuty,
         peakFactor,

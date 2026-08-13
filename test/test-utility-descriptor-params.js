@@ -23,9 +23,11 @@ function assert(cond, msg) {
 
 const CAP = 7;
 const DEM = 3;
-// Extra params some descriptors need before they aggregate at all (RF buckets
-// sources and sinks by frequency).
-const EXTRA = { rfWaveguide: { frequency: 1300 } };
+// Extra params some descriptors need before they aggregate at all. RF is the
+// asymmetric one: a sink declares the frequency it is cut for, a source
+// declares the bands it can produce, and capacity only counts if they meet.
+const EXTRA_SOURCE = { rfWaveguide: { bands: ['lband'] } };
+const EXTRA_SINK = { rfWaveguide: { frequency: 1300e6 } };
 
 for (const type of UTILITY_TYPE_LIST) {
   const desc = UTILITY_TYPES[type];
@@ -36,9 +38,8 @@ for (const type of UTILITY_TYPE_LIST) {
   assert(typeof capParam === 'string' && typeof demParam === 'string',
     `${type} declares capacity/demand param names (${capParam} / ${demParam})`);
 
-  const extra = EXTRA[type] || {};
-  const srcParams = { ...extra, [capParam]: CAP };
-  const sinkParams = { ...extra, [demParam]: DEM };
+  const srcParams = { ...(EXTRA_SOURCE[type] || {}), [capParam]: CAP };
+  const sinkParams = { ...(EXTRA_SINK[type] || {}), [demParam]: DEM };
   const network = {
     id: `net_${type}_test`,
     utilityType: type,

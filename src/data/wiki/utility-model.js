@@ -21,6 +21,12 @@ import {
   T_SUPERFLUID, T_NORMAL, COLD_CAPACITY_EXPONENT,
 } from '../../utility/types/cryoTransfer.js';
 import { T_CRITICAL } from '../../beamline/cavity-specs.js';
+import { RF_BANDS } from '../../utility/types/rfWaveguide.js';
+
+/** 'lband' → 'L-band'. Reads the live band table so it can never drift. */
+function bandLabel(id) {
+  return RF_BANDS.find(b => b.id === id)?.label || id;
+}
 
 /**
  * Per-utility metadata the wiki needs and the descriptors don't carry:
@@ -94,10 +100,9 @@ function buildLadder(utility) {
         name: comp.name || id,
         capacity: port.params[param] ?? 0,
         cost: comp.cost?.funding ?? 0,
-        // Fixed-frequency RF sources only feed their own bucket; broadband
-        // sources feed any. Undefined for every other utility.
-        frequencyHz: port.params.frequency,
-        broadband: port.params.broadband === true,
+        // An RF source is defined by the bands it covers, not by a frequency
+        // of its own. Undefined for every other utility.
+        bands: port.params.bands,
         dutyFactor: port.params.dutyFactor,
       });
       break;
@@ -180,12 +185,14 @@ function sinkEffect(utility, klass, params, comp) {
     }
 
     case 'rfWaveguide': {
-      const f = params.frequency ? `${fmt(params.frequency / 1e6, 0)} MHz` : 'its band';
+      const f = params.frequency ? `${fmt(params.frequency / 1e6, 1)} MHz` : 'its band';
+      const bandName = params.band ? bandLabel(params.band) : 'its band';
       const cav = (klass === 'srfCavity' || klass === 'ncCavity');
-      const head = `Draws ${fmt(params.demand)} kW at ${f}. Sinks are bucketed by `
-        + 'frequency and solved independently: only a source tuned to this bucket, '
-        + 'or a broadband source with spare pool, feeds it. A bucket with demand '
-        + 'and no matching capacity delivers zero watts.';
+      const head = `Draws ${fmt(params.demand)} kW at ${f}. Any source covering `
+        + `${bandName} can drive it — but a network carries one frequency, the one `
+        + 'with the most demand on it, and everything else on that network is '
+        + 'starved until you run it a second waveguide. A served frequency with no '
+        + 'in-band source anywhere on its network delivers zero watts.';
       if (!cav) return head;
       return `${head} Delivered power is peak, not average — average ÷ duty factor — `
         + 'and gradient goes as sqrt(P), so doubling RF power buys 41% more '
@@ -231,11 +238,12 @@ function sourceEffect(utility, params, componentId) {
   switch (utility) {
     case 'rfWaveguide': {
       const duty = params.dutyFactor ?? 1;
-      const band = params.broadband
-        ? 'Broadband: its capacity is a shared pool allocated to any frequency '
-          + 'bucket with unmet demand, in ascending-frequency order.'
-        : `Fixed at ${fmt((params.frequency ?? 0) / 1e6, 0)} MHz: capacity counts `
-          + 'only toward that bucket, and cavities at any other frequency see zero.';
+      const covered = params.bands || [];
+      const band = covered.length
+        ? `Covers ${covered.map(bandLabel).join(', ')}: it drives any cavity whose `
+          + 'frequency falls in one of those bands, and nothing outside them. Its '
+          + 'capacity only counts on a network whose served frequency it covers.'
+        : 'Declares no band coverage, so it drives nothing.';
       const peak = duty < 1
         ? ` Pulsed at ${fmt(duty * 100, 3)}% duty, so ${fmt(cap)} kW average is `
           + `${fmt(cap / duty / 1000)} MW peak — peak power is what sets gradient.`

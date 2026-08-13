@@ -126,9 +126,10 @@ export function setupSmallBeamlineFacility(game) {
   // Service row (north). Power: 172 kW total draw — gun 50, cavities 30,
   // quad 10, buncher 5, cup + BPM 2, support gear 5, and the amplifier's 70 —
   // so the feed is a 400 kW switchgear cabinet, not a 150 kW pad-mount.
-  // RF: the buncher and the three pillbox cavities are all 200 MHz, which no
-  // fixed-frequency tube source in the catalogue covers; the broadband
-  // solid-state amp (35 kW against 17 kW of demand) is the one that fits.
+  // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they
+  // share one network — which is the point of the low-band consolidation. Only
+  // the SSA and the TWT cover VHF, and the SSA (35 kW against 17 kW of demand)
+  // is the one with the power.
   const gear = game.placePlaceable({ type: 'switchgear', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });

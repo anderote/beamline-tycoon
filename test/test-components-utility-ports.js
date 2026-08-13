@@ -8,6 +8,8 @@
 //   4. Components without declared utility ports are unchanged.
 
 import { COMPONENTS } from '../src/data/components.js';
+import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
+import { RF_BANDS } from '../src/utility/types/rfWaveguide.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -128,6 +130,31 @@ console.log('\n--- Test 7: injectionSeptum beam + utility ports ---');
     'cool_in coolingWater sink present');
   assert(sep.ports.vac_in?.utility === 'vacuumPipe' && sep.ports.vac_in.role === 'sink',
     'vac_in vacuumPipe sink present');
+}
+
+// ==========================================================================
+// Test 8: RF source band coverage.
+// ==========================================================================
+console.log('\n--- Every RF source declares bands; every band is covered ---');
+{
+  const bandIds = RF_BANDS.map(b => b.id);
+  const covered = new Set();
+  let sources = 0;
+  for (const [id, c] of Object.entries(COMPONENTS)) {
+    if (c.category !== 'rfPower') continue;
+    const ports = getUtilityPortsV2(id);
+    const out = Object.values(ports).find(p => p.utility === 'rfWaveguide' && p.role === 'source');
+    if (!out) continue;
+    sources++;
+    const bands = out.params.bands;
+    assert(Array.isArray(bands) && bands.length > 0, `${id} declares rfBands`);
+    for (const b of (Array.isArray(bands) ? bands : [])) {
+      assert(bandIds.includes(b), `${id} band '${b}' is a real band`);
+      covered.add(b);
+    }
+  }
+  assert(sources === 9, `9 RF sources (got ${sources})`);
+  for (const b of bandIds) assert(covered.has(b), `band ${b} has at least one source`);
 }
 
 // ==========================================================================

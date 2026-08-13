@@ -666,6 +666,80 @@ export const BEAMLINE_COMPONENTS_RAW = {
     beamlineTypes: ['lightSource', 'collider'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
+  fastKicker: {
+    id: 'fastKicker',
+    physicsType: 'dipole',
+    name: 'Fast Kicker',
+    desc: 'Ferrite window-frame magnet with a 50 ns rise time, fired by a pulse-forming network the size of a wardrobe. Ring injection is a septum AND a kicker: the septum brings the new bunch in alongside the stored beam, and the kicker bumps the stored orbit out of its way for exactly one turn and puts it back before the next. Miss the timing and you scrape the beam you already have.',
+    category: 'optics',
+    subsection: 'focusing',
+    cost: { funding: 2500000 },
+    // A kicker is a milliradian device, not a bend. bendAngle 2 lands at
+    // ~0.33 degrees after BEND_ANGLE_SCALE, which is the right order.
+    stats: { bendAngle: 2 },
+    energyCost: 12,
+    apertureRadius: 40,
+    subL: 4,
+    subW: 2,
+    subH: 2, gridW: 2, gridH: 4, geometryType: 'box',
+    interiorVolume: 2,
+    requires: 'storageRingTech',
+    // NO isDipole: the beam goes straight through. The flag marks components
+    // the designer treats as corners, and a kicker deflects by a fraction of
+    // a degree — it never turns a beamline.
+    spriteKey: 'dipole',
+    spriteColor: 0x6457d6,
+    accentColor: 0x6457d6,
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    textures: { iron: 'metal_brushed' },
+    // The two ring types, matching injectionSeptum — the pair only works as a
+    // pair. scanningMagnet, the catalogue's other fast magnet, is allowlisted
+    // to the three proton types, so lightSource had a septum and nothing to
+    // fire alongside it.
+    beamlineTypes: ['lightSource', 'collider'],
+    // dataFiber, like scanningMagnet: a PFN with no timing link is a magnet
+    // firing at a moment nobody chose. The trigger comes down the fibre.
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+  },
+  finalFocusDoublet: {
+    id: 'finalFocusDoublet',
+    physicsType: 'quadrupole',
+    name: 'Final Focus Doublet',
+    desc: 'Two superconducting quadrupoles back to back in one cryostat — the last magnets before the interaction point, and the ones that decide whether you have a collider or a very expensive light bulb. Squeezing beta-star to a millimetre needs gradients past 200 T/m through an aperture wide enough to pass the disrupted outgoing beam as well as focus the incoming one. Nothing else in the catalogue sits this close to a detector or is this unforgiving about alignment.',
+    category: 'optics',
+    subsection: 'focusing',
+    cost: { funding: 35000000 },
+    stats: { focusStrength: 4 },
+    energyCost: 8,
+    apertureRadius: 20,
+    subL: 6,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
+    interiorVolume: 8,
+    requires: 'highLuminosity',
+    spriteKey: 'quadrupole',
+    spriteColor: 0x3d8ee6,
+    accentColor: 0x3d8ee6,
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    // One type has an interaction point to focus onto.
+    beamlineTypes: ['collider'],
+    // cryoTransfer and NOT coolingWater: 200 T/m through a usable aperture is
+    // a superconducting magnet, and a superconducting magnet wants helium
+    // rather than a water loop.
+    requiredConnections: ['powerCable', 'cryoTransfer'],
+  },
   quadrupole: {
     id: 'quadrupole',
     physicsType: 'quadrupole',
@@ -815,6 +889,53 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // Touschek scattering, it never compresses them — the exact inverse of
     // what this does.
     beamlineTypes: ['xfel', 'euvFel', 'collider'],
+    requiredConnections: ['powerCable', 'coolingWater'],
+  },
+  recirculationArc: {
+    id: 'recirculationArc',
+    physicsType: 'chicane',
+    name: 'Recirculation Arc',
+    desc: 'A lateral bypass that lifts the beam off-axis, walks it around a bend and merges it back onto the same line — the return leg of an energy-recovery linac, so a spent beam re-enters the cavities 180 degrees out of phase and hands its energy back to the RF instead of to a dump. Near-isochronous by design: the arc is tuned to preserve bunch length rather than compress it, which is exactly what separates a return leg from a bunch compressor that happens to bend.',
+    category: 'optics',
+    subsection: 'manipulation',
+    cost: { funding: 18000000 },
+    // A few mm of residual R56 for longitudinal matching, not the -50 of a
+    // compressor. An ERL arc that compressed would defeat its own purpose.
+    stats: { r56: -5 },
+    energyCost: 20,
+    apertureRadius: 48,
+    subL: 12,
+    subW: 4,
+    subH: 2, gridW: 4, gridH: 12, geometryType: 'box',
+    interiorVolume: 12,
+    requires: 'energyRecovery',
+    spriteKey: 'dipole',
+    spriteColor: 0x9d6fd0,
+    accentColor: 0x9d6fd0,
+    params: { r56: -5 },
+    placement: 'module',
+    // Junction, following injectionSeptum exactly: two inbound ports merging
+    // onto ONE outbound port. That single-target shape is load-bearing —
+    // detectMultiBranch (src/beamline/designer-plan.js) blocks any component
+    // whose routing has more than one distinct `to`, so a genuine splitter
+    // would make every design containing it unplannable. No new routing
+    // primitive is needed or wanted here.
+    role: 'junction',
+    routing: [
+      { from: 'entry', to: 'exit' },
+      { from: 'arcEntry', to: 'exit' },
+    ],
+    ports: {
+      entry: { side: 'back' },
+      arcEntry: { side: 'left' },
+      exit: { side: 'front' },
+    },
+
+    textures: { iron: 'metal_brushed' },
+    // euvFel first: an ERL is the only way to drive 13.5 nm at CW power
+    // without a dump that eats the facility's whole electricity bill.
+    // lightSource second, where a recirculating injector is a real topology.
+    beamlineTypes: ['euvFel', 'lightSource'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   undulator: {
@@ -1142,7 +1263,15 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     requiredConnections: ['powerCable', 'rfWaveguide'],
-    rfFrequency: 200,
+    // 162.5 MHz — the low-band consolidation. One network carries one frequency
+    // (src/utility/types/rfWaveguide.js), so the old spread of 200 / 161 / 325 /
+    // 400 MHz across the front end forced a tier-2 proton line onto four
+    // separate RF networks at exactly the tier where the player first meets the
+    // utility system. PIP-II runs its RFQ, buncher and half-wave resonators all
+    // at 162.5 MHz and its spoke resonators at 325, so the real values are also
+    // the kinder ones: a proton line drops to three networks, a test stand to
+    // one. Anything sharing this number shares a network.
+    rfFrequency: 162.5,
     rfBand: 'vhf',
     rfPowerRequired: 2,
   },
@@ -1174,7 +1303,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     requiredConnections: ['powerCable', 'rfWaveguide'],
-    rfFrequency: 200,
+    // 162.5 MHz — shares the buncher's network. See the note there.
+    rfFrequency: 162.5,
     rfBand: 'vhf',
     rfPowerRequired: 5,
   },
@@ -1244,6 +1374,84 @@ export const BEAMLINE_COMPONENTS_RAW = {
     rfFrequency: 2856,
     rfBand: 'sband',
     rfPowerRequired: 45,
+  },
+  // The NC frequency ladder continues here. Copper's shunt impedance goes as
+  // sqrt(f), so every doubling of frequency buys gradient — and costs bore.
+  // Both of these are physically honest: subL x 0.5 m is the real structure
+  // length, so the gradient the balance readout derives (energyGain*1000 /
+  // length) is the gradient the hardware actually holds.
+  cbandStructure: {
+    id: 'cbandStructure',
+    physicsType: 'rfCavity',
+    name: 'C-band Structure',
+    desc: 'Travelling-wave copper at 5712 MHz — the frequency SACLA chose when it wanted an X-ray FEL that fit on a Japanese site. Halving the S-band wavelength roughly doubles the shunt impedance, which buys 40 MV/m over a 3 m structure: 120 MeV a module, better than twice what the same footprint of S-band returns. The bore shrinks with the wavelength, so wakefields bite harder and alignment stops being forgiving.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 6000000 },
+    // 40 MV/m x 3.0 m = 120 MeV. subL 6 -> length 3 m, so gradientDemanded
+    // lands on 40 exactly. Do not change one without the other.
+    stats: { energyGain: 0.12, gradient: 40 },
+    energyCost: 45,
+    apertureRadius: 13,
+    subL: 6,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
+    interiorVolume: 18,
+    requires: 'highGradientRf',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { rfFrequency: 5712, gradient: 40 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    // beta = 1 NC, same divide as rfCavity/sbandStructure. euvFel is out for
+    // the same reason it is out of those two: 40 MV/m of copper at CW duty is
+    // not a structure, it is a heater.
+    beamlineTypes: ['lightSource', 'xfel', 'collider'],
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 5712,
+    rfBand: 'cband',
+    rfPowerRequired: 110,
+  },
+  xbandStructure: {
+    id: 'xbandStructure',
+    physicsType: 'rfCavity',
+    name: 'X-band Structure',
+    desc: 'Disc-loaded copper at 11.424 GHz — the NLC/JLC structure SLAC and KEK spent two decades learning to run without breaking down. 100 MV/m over 3 m puts 300 MeV in a module, the highest gradient any metal structure will hold. The price is an 8 mm bore, RF pulses measured in hundreds of nanoseconds, and a breakdown-rate spec that turns surface finish into a physics problem.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 14000000 },
+    // 100 MV/m x 3.0 m = 300 MeV, and 100 MV/m is where X-band copper really
+    // sits — CLIC's 12 GHz test structures run exactly this.
+    stats: { energyGain: 0.30, gradient: 100 },
+    energyCost: 90,
+    apertureRadius: 8,
+    subL: 6,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
+    interiorVolume: 14,
+    requires: 'highGradientRf',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { rfFrequency: 11424, gradient: 100 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['lightSource', 'xfel', 'collider'],
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 11424,
+    rfBand: 'xband',
+    rfPowerRequired: 240,
   },
   industrialLinac: {
     id: 'industrialLinac',
@@ -1322,9 +1530,100 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // any electron line.
     beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
-    rfFrequency: 400,
+    // 162.5 MHz, the PIP-II RFQ frequency — shares the buncher's network so the
+    // ion front end is one waveguide run, not three. See the note on buncher.
+    rfFrequency: 162.5,
     rfBand: 'vhf',
     rfPowerRequired: 25,
+  },
+  // The two top rungs of the whole ladder. Both are filed under
+  // normalConducting because neither has a cryostat, but neither is an
+  // ordinary copper structure either: one gets its power from a second beam,
+  // the other from a plasma.
+  twoBeamModule: {
+    id: 'twoBeamModule',
+    physicsType: 'rfCavity',
+    name: 'Two-Beam Module',
+    desc: "CLIC's answer to \"where do you get 100 MV/m of X-band from\": you don't build klystrons, you build a second beam. A high-current 12 GHz drive beam runs alongside the main line and hands its energy across through PETS decelerators. One placement is FIVE two-beam modules end to end — a CLIC module is about 2 m long and nobody places sixty of them by hand — so what you are buying is 6 GeV of main linac in 12 m of map, not a single device holding 500 MV/m.",
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 126000000 },
+    // ABSTRACTION. 6.0 GeV over subL 24 (12 m) derives 500 MV/m, which no
+    // copper holds; the real structures run 100 MV/m and this placement stands
+    // for five of them. stats.gradient states the derived sector figure so the
+    // balance readout and the catalogue agree — the desc is where the honesty
+    // about what it represents lives.
+    stats: { energyGain: 6.0, gradient: 500 },
+    energyCost: 120,
+    apertureRadius: 6,
+    subL: 24,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 24, geometryType: 'box',
+    interiorVolume: 90,
+    requires: 'highLuminosity',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { rfFrequency: 11994, gradient: 100 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['collider'],
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    // 11994 MHz, CLIC's number rather than the 11424 of the NLC line — same
+    // band, different network. The waveguide feed is modest for the energy
+    // because the DRIVE BEAM carries the power; what comes down the guide is
+    // the drive-beam injector's share, not 6 GeV of RF.
+    rfFrequency: 11994,
+    rfBand: 'xband',
+    rfPowerRequired: 400,
+  },
+  plasmaAfterburner: {
+    id: 'plasmaAfterburner',
+    physicsType: 'rfCavity',
+    name: 'Plasma Afterburner',
+    desc: 'A sapphire capillary, a metre of hydrogen plasma and a wakefield of 1.5 GV/m — a thousand times what copper holds before it arcs. Fifteen GeV in ten metres, driven by a laser hall that costs more than the accelerator and turns under a percent of its wall power into light. Emittance growth, energy spread and shot-to-shot jitter are all worse than anything else on this ladder, which is precisely the trade a TeV machine makes when the alternative is thirty more kilometres of tunnel.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 255000000 },
+    // HONEST. 15 GeV over subL 20 (10 m) derives 1500 MV/m = 1.5 GV/m, which
+    // is what a laser-driven wake actually sustains. This is the one rung
+    // where the absurd number in the balance readout is the real number.
+    stats: { energyGain: 15, gradient: 1500 },
+    // The drive laser, not the beam. A titanium-sapphire chain at a few
+    // tenths of a percent wall-plug efficiency is the single largest
+    // electrical load any beamline component in this catalogue presents.
+    energyCost: 500,
+    apertureRadius: 12,
+    subL: 20,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 20, geometryType: 'cylinder',
+    interiorVolume: 40,
+    requires: 'plasmaAcceleration',
+    spriteKey: 'lwfaStation',
+    spriteColor: 0x9d6fd0,
+    accentColor: 0x9d6fd0,
+    params: { rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['collider'],
+    // NOT RF HARDWARE, and the absence of rfWaveguide is the identity — there
+    // is no cavity to drive and no frequency to match, so it carries no
+    // rfFrequency and no rfBand either. What it wants instead is a
+    // substation's worth of electricity for the laser, a chiller loop to take
+    // that same power back as heat, and a femtosecond timing fibre: the
+    // laser-to-plasma synchronisation is what sets the energy jitter of every
+    // bunch it makes. Same shape as lwfaStation, for the same reasons.
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
 
   // ── RF / Accel — Superconducting ──────────────────────────────────
@@ -1347,7 +1646,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'pillboxCavity',
     spriteColor: 0xe89b2c,
     accentColor: 0xe89b2c,
-    params: { rfFrequency: 161, voltage: 1.0 },
+    params: { rfFrequency: 162.5, voltage: 1.0 },
     placement: 'module',
     role: 'placement',
     ports: {
@@ -1359,7 +1658,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // is exactly the ion front end and nowhere else.
     beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
-    rfFrequency: 161,
+    // 162.5, not 161 — the real PIP-II HWR number, and the same one the RFQ and
+    // buncher use, so the whole low-β front end rides one network.
+    rfFrequency: 162.5,
     rfBand: 'vhf',
     rfPowerRequired: 3,
   },
@@ -1433,6 +1734,92 @@ export const BEAMLINE_COMPONENTS_RAW = {
     rfBand: 'lband',
     rfPowerRequired: 5,
   },
+  // The proton beta-ladder. 650 MHz medium-beta then 805 MHz high-beta is
+  // literally how SNS and PIP-II are sectioned, so the optimal spallation
+  // build reproduces the real machine's layout. These are the structures the
+  // header note's beta divide was always pointing at: at 800 MeV a proton is
+  // beta = 0.84 and an elliptical cavity is exactly the right hardware, which
+  // is why the ban on elliptical cavities for protons stops at the front end.
+  srf650Cryomodule: {
+    id: 'srf650Cryomodule',
+    physicsType: 'cryomodule',
+    name: '650 MHz Cryomodule',
+    desc: 'Five beta = 0.61 elliptical niobium cavities at 650 MHz in one 10 m cryostat — the medium-beta section of PIP-II, and the exact hardware that carries a proton linac from 180 MeV to about half a GeV. 15 MV/m across the module gives 150 MeV. The cells are cut for a particle at 61% of light speed, which is precisely why a 1.3 GHz electron cryomodule would arrive out of phase and decelerate the same beam.',
+    category: 'rf',
+    subsection: 'superconducting',
+    cost: { funding: 9000000 },
+    // HONEST. 0.15 GeV over subL 20 (10 m) derives 15 MV/m, which is what a
+    // 650 MHz medium-beta string really runs.
+    stats: { energyGain: 0.15, gradient: 15 },
+    energyCost: 8,
+    apertureRadius: 72,
+    subL: 20,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 20, geometryType: 'cylinder',
+    interiorVolume: 100,
+    requires: 'cwLinacDesign',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xe89b2c,
+    accentColor: 0xe89b2c,
+    params: { rfFrequency: 650, gradient: 15, rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    // The only type in the roster that needs 0.8-3 GeV of protons. therapy
+    // tops out at 250 MeV and isotopeIrradiation at 70, so neither would ever
+    // reach the energy where a medium-beta elliptical is the right answer.
+    beamlineTypes: ['spallation'],
+    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
+    rfFrequency: 650,
+    rfBand: 'uhf',
+    rfPowerRequired: 60,
+  },
+  srf805Cryomodule: {
+    id: 'srf805Cryomodule',
+    physicsType: 'cryomodule',
+    name: '805 MHz Cryomodule',
+    desc: 'Beta = 0.86 elliptical niobium at 805 MHz — the high-beta half of the SNS layout, what you put after the 650s to take protons from half a GeV to a megawatt-class target. One placement is TWO cryomodules plus the warm intermodule section between them, plumbed and commissioned as a single cryogenic sector: 400 MeV over 12 m of tunnel. Buying the sector rather than the module is the only reason a spallation linac fits on a map you can afford.',
+    category: 'rf',
+    subsection: 'superconducting',
+    cost: { funding: 20000000 },
+    // ABSTRACTION. 0.4 GeV over subL 24 (12 m) derives 33 MV/m; a real 805 MHz
+    // high-beta cavity runs about half that, and this placement stands for two
+    // modules. stats.gradient states the derived sector figure so the balance
+    // readout agrees with the catalogue.
+    stats: { energyGain: 0.40, gradient: 33 },
+    energyCost: 14,
+    apertureRadius: 60,
+    subL: 24,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 24, geometryType: 'cylinder',
+    interiorVolume: 120,
+    // NOT `superconducting`: that node is hidden: true (merged into
+    // srfTechnology, kept for save compat) and validate.js refuses any gate
+    // behind a hidden node — canStartResearch can never open it, so the
+    // hardware would be unbuildable in every playthrough. cryomoduleDesign is
+    // the live node whose whole subject is integrated cryomodule engineering.
+    requires: 'cryomoduleDesign',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xe89b2c,
+    accentColor: 0xe89b2c,
+    params: { rfFrequency: 805, gradient: 18, rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['spallation'],
+    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
+    rfFrequency: 805,
+    rfBand: 'uhf',
+    rfPowerRequired: 120,
+  },
   cryomodule: {
     id: 'cryomodule',
     physicsType: 'cryomodule',
@@ -1469,6 +1856,121 @@ export const BEAMLINE_COMPONENTS_RAW = {
     rfFrequency: 1300,
     rfBand: 'lband',
     rfPowerRequired: 40,
+  },
+  // Above the TESLA cryomodule the unit of purchase stops being a module and
+  // starts being a cryogenic SECTOR. That is the governing principle of this
+  // whole ladder: cost tracks energy, footprint does not, so research buys
+  // COMPACTNESS rather than making energy free. Each desc below states how
+  // many modules the placement stands for, because the gradient the balance
+  // readout derives (energyGain*1000 / length) is a sector average and not a
+  // number any single cavity holds.
+  cwCryomodule: {
+    id: 'cwCryomodule',
+    physicsType: 'cryomodule',
+    name: 'CW Cryomodule Sector',
+    desc: 'LCLS-II-style 1.3 GHz niobium run at continuous duty — nitrogen-doped cavities at 2 K with no pulse structure to hide the heat load in. One placement is THREE cryomodules on one cryogenic string, 500 MeV over 12 m. The cryoplant behind it is the real purchase: CW means every watt of wall loss is a watt you pay Carnot for forever, at roughly 300 W of room-temperature power per watt of cooling. The right answer for an ERL, or any machine that wants MHz repetition rates.',
+    category: 'rf',
+    subsection: 'superconducting',
+    cost: { funding: 22000000 },
+    // ABSTRACTION — three modules. 0.5 GeV over 12 m derives 42 MV/m; real CW
+    // 1.3 GHz cavities run about 16.
+    stats: { energyGain: 0.50, gradient: 42 },
+    energyCost: 16,
+    apertureRadius: 56,
+    subL: 24,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 24, geometryType: 'cylinder',
+    interiorVolume: 120,
+    requires: 'cryomoduleDesign',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xe89b2c,
+    accentColor: 0xe89b2c,
+    params: { rfFrequency: 1300, gradient: 16, rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['lightSource', 'xfel', 'euvFel', 'collider'],
+    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
+    rfFrequency: 1300,
+    rfBand: 'lband',
+    rfPowerRequired: 100,
+  },
+  nbSnCryomodule: {
+    id: 'nbSnCryomodule',
+    physicsType: 'cryomodule',
+    name: 'Nb3Sn Cryomodule Sector',
+    desc: 'Nb3Sn films grown on the niobium, so the cavities superconduct at 4.5 K instead of 2 K and the refrigerator behind them costs a fraction as much to run — no cold compressors, no sub-atmospheric helium, no superfluid. One placement is SIX cryomodules on a single cryogenic string: 1.2 GeV over 12 m of tunnel. Cornell and Fermilab have had Nb3Sn cavities past 15 MV/m for years; buying a whole sector of them is what turns an XFEL from a two-kilometre machine into something you can site.',
+    category: 'rf',
+    subsection: 'superconducting',
+    cost: { funding: 42000000 },
+    // ABSTRACTION — six modules. 1.2 GeV over 12 m derives 100 MV/m; Nb3Sn
+    // cavities run about 17.
+    stats: { energyGain: 1.2, gradient: 100 },
+    energyCost: 20,
+    apertureRadius: 56,
+    subL: 24,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 24, geometryType: 'cylinder',
+    interiorVolume: 120,
+    requires: 'nDopedSrf',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xf0b455,
+    accentColor: 0xf0b455,
+    params: { rfFrequency: 1300, gradient: 17, rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['lightSource', 'xfel', 'euvFel', 'collider'],
+    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
+    rfFrequency: 1300,
+    rfBand: 'lband',
+    rfPowerRequired: 200,
+  },
+  srfLinacSector: {
+    id: 'srfLinacSector',
+    physicsType: 'cryomodule',
+    name: 'SRF Linac Sector',
+    desc: 'Not a module — a SECTOR. Seventeen 1.3 GHz cryomodules on one cryogenic string with its own feed cap, end cap and distribution box, delivered and commissioned as a unit: 3.5 GeV in 16 m of map. This is how European XFEL and the ILC design are actually costed and built, in sectors rather than modules, and it is the only thing that stops a linear collider arm from being a thousand separate placements.',
+    category: 'rf',
+    subsection: 'superconducting',
+    cost: { funding: 91000000 },
+    // ABSTRACTION — seventeen modules. 3.5 GeV over subL 32 (16 m) derives
+    // 219 MV/m; the cavities in it run about 25, same as a TESLA cryomodule.
+    stats: { energyGain: 3.5, gradient: 219 },
+    energyCost: 45,
+    apertureRadius: 56,
+    subL: 32,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 32, geometryType: 'cylinder',
+    interiorVolume: 160,
+    requires: 'colliderTech',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xe89b2c,
+    accentColor: 0xe89b2c,
+    params: { rfFrequency: 1300, gradient: 25, rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    // The two single-pass machines with kilometres to fill. Deliberately not
+    // lightSource or euvFel: 3.5 GeV in one placement overshoots both bands
+    // on its own, so it would be a trap rather than an upgrade.
+    beamlineTypes: ['xfel', 'collider'],
+    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
+    rfFrequency: 1300,
+    rfBand: 'lband',
+    rfPowerRequired: 600,
   },
 
   // ── Diagnostics ───────────────────────────────────────────────────

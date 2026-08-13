@@ -3,8 +3,13 @@ from beam_physics.modules.base import PhysicsModule
 from beam_physics.context import EffectReport
 from beam_physics.constants import SPEED_OF_LIGHT
 
-RF_ELEMENT_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                    "cbandCavity", "xbandCavity", "srf650Cavity"}
+# Matched against element["type"], which gameplay.py sets to the component's
+# PHYSICS type, not its catalogue id. Every rung of the RF ladder declares
+# physicsType 'rfCavity' or 'cryomodule', so all of them arrive here through
+# these four names. Three speculative catalogue ids used to sit in this set
+# alongside them; being catalogue ids rather than physics types, they could
+# never match anything and were dead the day they were written.
+RF_ELEMENT_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer"}
 
 DEFAULT_RF_FREQ = 1.3e9
 
@@ -15,6 +20,17 @@ DEFAULT_RF_FREQ = 1.3e9
 # gives 61 ps at 1.3 GHz and 400 ps at 200 MHz.
 BUNCH_PHASE_SIGMA_RAD = 0.5
 
+# Keyed on game_type (the catalogue id), NOT on the physics type — this is
+# where two components sharing physicsType 'cryomodule' stop being the same
+# machine. beta is the particle velocity the structure's cell spacing is cut
+# for, and the transit-time factor punishes a beam that arrives at any other
+# speed.
+#
+# It is the entire content of the proton ladder: a 650 MHz beta=0.61 module
+# runs a 200 MeV proton (beta 0.57) at TTF 0.99 and an 800 MeV one (beta 0.84)
+# at 0.88, while the 805 MHz beta=0.86 module inverts that — 0.61 at 200 MeV,
+# 1.00 at 800. Build them in the wrong order and the machine tells you.
+# Electron structures are beta=1 hardware and sit at 0.999.
 DESIGN_BETA = {
     "rfq":                0.04,
     "pillboxCavity":      0.1,
@@ -23,11 +39,31 @@ DESIGN_BETA = {
     "spokeCavity":        0.35,
     "rfCavity":           0.999,
     "sbandStructure":     0.95,
-    "cbandCavity":        0.95,
-    "xbandCavity":        0.99,
+    # Disc-loaded travelling wave, phase velocity c. C- and X-band linacs
+    # (SACLA, SwissFEL, CLIC) exist to accelerate already-relativistic
+    # electrons and are useless on anything slower — which 0.999 is what says.
+    "cbandStructure":     0.999,
+    "xbandStructure":     0.999,
+    "twoBeamModule":      0.999,
+    # Not an RF structure. A plasma wake only traps and holds a bunch that is
+    # already moving at c; there is no low-beta regime for it at all.
+    "plasmaAfterburner":  0.999,
     "ellipticalSrfCavity":0.65,
-    "srf650Cavity":       0.65,
+    # The proton beta ladder. These two numbers are the reason spallation is
+    # built 650-then-805, exactly as SNS and PIP-II are laid out.
+    "srf650Cryomodule":   0.61,
+    "srf805Cryomodule":   0.86,
     "cryomodule":         0.65,
+    # TESLA 9-cell cavities are beta=1 structures — the cell spacing is
+    # lambda/2 with no beta derating — so the 1.3 GHz electron rungs take
+    # 0.999. NOTE the `cryomodule` entry above says 0.65 for the same hardware,
+    # which costs it ~19% of its catalogue energy gain against a relativistic
+    # beam. That looks like an error, but it is existing calibration and
+    # changing it moves every electron machine already built, so it is left
+    # alone here and flagged rather than quietly rewritten.
+    "cwCryomodule":       0.999,
+    "nbSnCryomodule":     0.999,
+    "srfLinacSector":     0.999,
     "harmonicLinearizer": 0.9,
     # NOT an RF structure. The energy degrader declares physicsType 'rfCavity'
     # because signed `energyGain` is the only way anything in this engine can
@@ -52,11 +88,23 @@ CAPTURE_EFFICIENCY = {
     "spokeCavity":        0.60,
     "rfCavity":           0.45,
     "sbandStructure":     0.45,
-    "cbandCavity":        0.45,
-    "xbandCavity":        0.40,
+    # Capture narrows with frequency: the RF bucket is a fixed slice of phase,
+    # and a shorter period is a shorter bucket in time.
+    "cbandStructure":     0.42,
+    "xbandStructure":     0.40,
+    "twoBeamModule":      0.40,
+    # A plasma stage cannot capture a DC beam at all — it needs a bunch already
+    # short compared to the plasma wavelength and already at c. This number only
+    # ever fires in the pathological case where one is placed as the first RF
+    # element in a line, and it is low to make that read as the mistake it is.
+    "plasmaAfterburner":  0.25,
     "ellipticalSrfCavity":0.50,
-    "srf650Cavity":       0.50,
+    "srf650Cryomodule":   0.50,
+    "srf805Cryomodule":   0.50,
     "cryomodule":         0.50,
+    "cwCryomodule":       0.50,
+    "nbSnCryomodule":     0.50,
+    "srfLinacSector":     0.50,
     "harmonicLinearizer": 0.55,
     # On a cyclotron therapy line the degrader IS the first element this module
     # sees, so it is what stamps the bunch structure — and the beam really is

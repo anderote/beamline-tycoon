@@ -21,8 +21,8 @@
 //   - Power demand tiers: tiny 1-3, small 5-25, medium 40-150, large 300+ kW.
 //     A mid-tier transformer (150 kW) feeds a starter beamline; a serious
 //     facility needs planned distribution across several sources.
-//   - RF demand is per-cavity within its frequency bucket; sources either
-//     match a bucket exactly or are broadband (see utility/types/rfWaveguide).
+//   - RF demand is per-cavity at the sink's own frequency; a source drives it
+//     if it covers that frequency's BAND (see utility/types/rfWaveguide).
 //   - Cooling heat loads roughly track wall-plug power for resistive magnets
 //     and NC RF; SRF cavities instead load the cryo plant in watts, with a
 //     cryomodule's load dwarfing a single warm-bore cavity's.
@@ -32,18 +32,25 @@
 
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
+import { bandForFrequencyHz } from '../utility/types/rfWaveguide.js';
 
 // ---------------------------------------------------------------------------
 // Per-utility fallback params (safety net only — ports declare their own).
 // ---------------------------------------------------------------------------
 
 // RF frequency in Hz. The raw components store MHz as numbers (e.g. 1300 for
-// L-band, 2856 for S-band) or the string 'broadband' for wideband sources.
+// L-band, 2856 for S-band). Only SINKS carry a frequency: a cavity is cut to
+// one, a tube is built for a band. Sources carry `rfBands` instead.
 const DEFAULT_RF_FREQ_HZ = 1.3e9;
 
 function rawRfFrequency(id) {
   const raw = BEAMLINE_COMPONENTS_RAW[id] || INFRASTRUCTURE_RAW[id];
   return raw ? raw.rfFrequency : undefined;
+}
+
+function rawRfBands(id) {
+  const raw = BEAMLINE_COMPONENTS_RAW[id] || INFRASTRUCTURE_RAW[id];
+  return raw ? raw.rfBands : undefined;
 }
 
 const SINK_DEFAULTS = {
@@ -205,6 +212,29 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'front', offsetAlong: 0.3, role: 'sink', params: { demand: 40 } },
     cool_in: { utility: 'coolingWater', side: 'front', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 25 } },
   },
+  // Septum-class draw, and for the same reason: the integrated field is small
+  // but the PFN has to slam it up in 50 ns and hold flat-top, which is a
+  // supply built for dI/dt rather than for amps. The fibre is the injection
+  // trigger — a kicker firing at a moment nobody chose scrapes the stored beam.
+  fastKicker: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 35 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.6, role: 'sink', params: { heatLoad: 28 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.85, role: 'sink', params: { demand: 4 } },
+  },
+  // Superconducting, so no water loop at all: the load is a helium one. Two
+  // strong quads in one cryostat sit between ellipticalSrfCavity (40 W) and a
+  // full cryomodule (250 W) — a magnet has no RF wall losses, only static
+  // heat leak plus the current leads.
+  finalFocusDoublet: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 20 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.6, role: 'sink', params: { srfHeatW: 90 } },
+  },
+  // A dozen small dipoles and their quads around a 6 m bypass — heavier than
+  // the four-dipole chicane it is filed next to, lighter than a cryomodule.
+  recirculationArc: {
+    pwr_in:  { utility: 'powerCable',   side: 'right', offsetAlong: 0.3, role: 'sink', params: { demand: 70 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 56 } },
+  },
   // Four analysing dipoles on one girder, so it draws like a chicane. The
   // water is for those dipoles and NOT for the wedge: a therapy beam is a
   // fraction of a watt, and the block that stops 99% of it barely warms up.
@@ -259,6 +289,42 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 100 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 45 } },
   },
+  // The high-gradient copper rungs. RF demand and heat both climb faster than
+  // energy gain does: dissipation goes as the square of the gradient, so a
+  // C-band structure at 40 MV/m asks for more than twice an S-band's RF to
+  // deliver twice its energy, and an X-band at 100 MV/m more than twice again.
+  // That is the real cost of compactness and it should show up on the bill.
+  cbandStructure: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 130 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 220 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 110 } },
+  },
+  xbandStructure: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 280 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 480 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 240 } },
+  },
+  // Five CLIC modules' worth of hardware, but the waveguide demand is the ONE
+  // number that does not scale with the energy: the drive beam carries the
+  // power to the main line, so what comes down the guide is the drive-beam
+  // injector's share. The wall power and the water are where the real cost of
+  // 6 GeV lands.
+  twoBeamModule: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 900 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 780 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 400 } },
+  },
+  // NO rf_in and NO cryo_in, exactly like lwfaStation — the absence is the
+  // design. There is no cavity to drive and nothing to hold at 2 K. What
+  // there is instead is a titanium-sapphire chain at a few tenths of a
+  // percent wall-plug efficiency, which gives essentially all of that power
+  // straight back as heat, plus the femtosecond timing fibre that keeps the
+  // laser and the bunch in step.
+  plasmaAfterburner: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 1400 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 1350 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 10 } },
+  },
   // A third of an S-band structure's length, so roughly a third of its loads.
   // It is a self-contained industrial skid, which is why the water demand is
   // proportionally the heaviest part: this thing runs all shift.
@@ -291,6 +357,47 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 80 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 250 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 40 } },
+  },
+  // The SRF ladder above the TESLA cryomodule. Cryo load scales with the
+  // number of modules the placement stands for, NOT with its energy gain —
+  // that is the whole difference between the two axes this ladder trades on.
+  // The proton pair are duty-cycle honest: a 650 MHz medium-beta string runs
+  // CW into a heavy beam load, so it asks for more RF than an electron
+  // cryomodule of similar size and less cold.
+  srf650Cryomodule: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 180 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
+  },
+  srf805Cryomodule: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 110 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 380 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 120 } },
+  },
+  // Three modules at CW duty. Continuous operation is what makes the cold
+  // expensive: there is no pulse gap for the helium to catch up in, so this
+  // asks for more cryogenics than the six-module Nb3Sn sector below it does
+  // at 4.5 K.
+  cwCryomodule: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 140 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 900 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 100 } },
+  },
+  // Six modules, but at 4.5 K rather than 2 K — which is the entire point of
+  // Nb3Sn. Twice the modules of the CW sector for less than the cold, because
+  // 4.5 K helium is roughly three times cheaper per watt than superfluid.
+  nbSnCryomodule: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 220 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 700 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 200 } },
+  },
+  // Seventeen cryomodules on one string. The cryo number is the reason a
+  // sector is a sector: no single coldBox2K (800 W) covers it, so a collider
+  // arm is a cryoplant-planning problem before it is anything else.
+  srfLinacSector: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 600 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 4200 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 600 } },
   },
 
   // ── Diagnostics (pwr + data) — draw almost nothing ────────────────
@@ -380,6 +487,16 @@ const VACUUM_OUTGASSING = {
   // large vessels / gas-loaded
   ecrIonSource: 5e-6, rfCavity: 2e-6, sbandStructure: 2e-6,
   cryomodule: 4e-6, detector: 5e-6,
+  // The RF ladder. The copper structures track length and bore; the SRF
+  // sectors track how many cryomodules the placement stands for. The one
+  // outlier is plasmaAfterburner, which like lwfaStation ADMITS gas on
+  // purpose — a hydrogen capillary IS the accelerating medium, so it is the
+  // worst gas load on any beamline that has one and wants its own pumping.
+  cbandStructure: 2e-6, xbandStructure: 2e-6, twoBeamModule: 4e-6,
+  plasmaAfterburner: 8e-6,
+  srf650Cryomodule: 5e-6, srf805Cryomodule: 6e-6,
+  cwCryomodule: 6e-6, nbSnCryomodule: 6e-6, srfLinacSector: 8e-6,
+  recirculationArc: 2e-6,
   // Compound machines. The electrostatic pair are large but dry columns; the
   // cyclotrons are big vessels with an internal gas-fed ion source; the LWFA
   // deliberately admits gas — a hydrogen or helium jet or capillary IS the
@@ -424,17 +541,18 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //
 //   power   (kW):   powerPanel 40 → padMount 150 → mcc 250 → switchgear 400
 //                   → hvTransformer 1200; ups 100 (critical loads)
-//   rf      (kW):   magnetron 5 @2.45 GHz → SSA 35 bb → TWT 20 bb
-//                   → pulsedKlystron 50 @S / cwKlystron 50 @L → IOT 80 @L
-//                   → MBK 200 @S → highPowerSSA 300 bb → gyrotron 1000 bb
+//   rf      (kW):   magnetron 5 @S → TWT 20 @all → SSA 35 @VHF/UHF
+//                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
+//                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
+//                   @VHF/UHF/L → gyrotron 1000 @C/X
 //   cooling (kW):   lcwSkid 100 → chiller 300 → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
 //   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20
 //                   → networkSwitch 40
 //
-// RF sources: `frequency` is filled from the raw rfFrequency (MHz → Hz);
-// 'broadband' raws get `broadband: true` instead (see types/rfWaveguide.js).
+// RF sources: `bands` is filled from the raw `rfBands` array — a source has no
+// frequency of its own, only coverage (see types/rfWaveguide.js).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -612,11 +730,11 @@ for (const [id, ports] of Object.entries(INFRA_SINK_PORTS)) {
  * fully populated. Declared per-port params win; the per-utility DEFAULTS
  * fill anything missing.
  *
- * RF ports additionally get their frequency from the raw component's
- * `rfFrequency` field (MHz → Hz). Raw `rfFrequency: 'broadband'` sources get
- * `broadband: true` instead of a frequency; sinks with no usable raw value
- * fall back to L-band 1.3 GHz. An explicitly declared `params.frequency` or
- * `params.broadband` always wins.
+ * RF ports are the asymmetric case. A SINK gets `frequency` from the raw
+ * component's `rfFrequency` (MHz → Hz), falling back to L-band 1.3 GHz, plus
+ * the `band` that frequency lands in. A SOURCE gets `bands` from the raw
+ * `rfBands` array and no frequency at all — a tube is built for a band, and
+ * the solver matches on band membership. Declared params always win.
  */
 export function getUtilityPortsV2(id) {
   const src = BEAMLINE_UTILITY_PORTS[id] || INFRA_UTILITY_PORTS[id];
@@ -630,15 +748,23 @@ export function getUtilityPortsV2(id) {
       ? {}
       : (spec.role === 'source' ? SOURCE_DEFAULTS : SINK_DEFAULTS);
     const params = { ...(table[spec.utility] || {}), ...(spec.params || {}) };
-    if (spec.utility === 'rfWaveguide' && spec.role !== 'pass'
-        && params.frequency === undefined && params.broadband === undefined) {
-      const rawFreq = rawRfFrequency(id);
-      if (typeof rawFreq === 'number' && rawFreq > 0) {
-        params.frequency = rawFreq * 1e6; // MHz → Hz
-      } else if (rawFreq === 'broadband' && spec.role === 'source') {
-        params.broadband = true;
-      } else {
-        params.frequency = DEFAULT_RF_FREQ_HZ;
+    if (spec.utility === 'rfWaveguide' && spec.role === 'source') {
+      // Bands, not a frequency: a source that declares no coverage at all
+      // would silently power nothing, so the empty array is left visible
+      // rather than papered over with a default.
+      if (params.bands === undefined) params.bands = rawRfBands(id) || [];
+    } else if (spec.utility === 'rfWaveguide' && spec.role !== 'pass') {
+      if (params.frequency === undefined) {
+        const rawFreq = rawRfFrequency(id);
+        params.frequency = (typeof rawFreq === 'number' && rawFreq > 0)
+          ? rawFreq * 1e6 // MHz → Hz
+          : DEFAULT_RF_FREQ_HZ;
+      }
+      // A frequency outside every band would leave the sink unservable by any
+      // source; the DEFAULT_RF_FREQ_HZ fallback above keeps that from happening
+      // for missing data, and this catches a declared-but-absurd frequency.
+      if (params.band === undefined) {
+        params.band = bandForFrequencyHz(params.frequency);
       }
     }
     out[name] = { ...spec, params };

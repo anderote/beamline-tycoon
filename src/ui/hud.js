@@ -1891,7 +1891,10 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   item.appendChild(previewEl);
 
   // RF band badge (top-right corner)
-  const bandLabels = { vhf: 'VHF', lband: 'L-band', sband: 'S-band' };
+  const bandLabels = {
+    vhf: 'VHF', uhf: 'UHF', lband: 'L-band',
+    sband: 'S-band', cband: 'C-band', xband: 'X-band',
+  };
   const bands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
   if (bands) {
     const bandEl = document.createElement('div');

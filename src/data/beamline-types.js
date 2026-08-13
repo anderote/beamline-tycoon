@@ -126,9 +126,13 @@ export const BEAMLINE_TYPES = {
     dutyFactor: 1.0,
     requires: null,
     // Chromaticity correction on a 10 MeV sterilisation line is hardware
-    // nobody in the industry has ever bought. The rest of this type's identity
-    // is withheld by allowlists: no cryo, no ion front end, no detector.
-    excludes: ['sextupole'],
+    // nobody in the industry has ever bought, and the two intercepting
+    // devices are worse: this is a 100 kW CW beam, so a foil or a pepper-pot
+    // plate in it is a consumable that lasts one shift. Every other type
+    // above 10 MeV already denies them; this one was the gap. The rest of
+    // this type's identity is withheld by allowlists: no cryo, no ion front
+    // end, no detector.
+    excludes: ['sextupole', 'velocitySelector', 'emittanceFilter'],
     requiredEndpoint: ['beamStop', 'faradayCup'],
     blurb: 'You sell dose, by the pallet. Medical-device sterilisation, cable crosslinking, food irradiation — paid on beam power, not beam quality.',
     accentColor: 0x46c25a,
@@ -161,7 +165,11 @@ export const BEAMLINE_TYPES = {
     fomRef: 0.02,
     bandWidth: 0.30,
     dutyFactor: 0.8,
-    requires: 'protonAcceleration',
+    // Two nodes, because this type is two jobs sharing a tunnel. Protons get
+    // you to 70 MeV; `targetPhysics` is what lets you put them into something
+    // and take an isotope back out. Gating on the accelerator alone would open
+    // the type before its own `requiredEndpoint` existed.
+    requires: ['protonAcceleration', 'targetPhysics'],
     // Nothing denied. A 70 MeV proton line is exactly where a Wien filter and
     // a pepper-pot still make sense, and it is the last type where they do.
     excludes: [],
@@ -196,7 +204,12 @@ export const BEAMLINE_TYPES = {
     // economic: a 300 MeV proton overshoots the patient.
     bandWidth: 0.12,
     dutyFactor: 1.0,
-    requires: ['isochronousCyclotron', 'machineProtection'],
+    // `isochronousCyclotron` names the machine and `machineProtection` names
+    // the interlocks, but neither implies you can accelerate a proton at all —
+    // both descend from `cyclotronTech`, which stops short of the front end.
+    // Without `protonAcceleration` the type unlocks onto a palette with no
+    // proton hardware in it.
+    requires: ['isochronousCyclotron', 'machineProtection', 'protonAcceleration'],
     // You do not put an uncooled scattering foil in a clinical beam. Both of
     // these are trunk hardware everywhere below 250 MeV — this is the exact
     // case the type-side denylist exists for.
@@ -227,7 +240,11 @@ export const BEAMLINE_TYPES = {
     bandWidth: 0.25,
     // SNS-class: 60 Hz x ~1 ms pulses.
     dutyFactor: 0.05,
-    requires: ['cwLinacDesign', 'targetPhysics'],
+    // `cwLinacDesign` descends from `srfTechnology`, so it buys the linac and
+    // says nothing about what is in it. A spallation source is a PROTON linac
+    // into a heavy-metal target; without `protonAcceleration` the type opens
+    // with an electron front end and no way to make a neutron.
+    requires: ['cwLinacDesign', 'targetPhysics', 'protonAcceleration'],
     // Destructive intercepting devices in a 1 MW beam are the single worst
     // idea available. wireScanner survives because real MW machines do use
     // them, at low duty cycle and briefly.
@@ -257,7 +274,14 @@ export const BEAMLINE_TYPES = {
     fomRef: 1e20,
     bandWidth: 0.30,
     dutyFactor: 1.0,
-    requires: ['storageRingTech', 'synchrotronLight'],
+    // `storageRingTech` buys the ring and `synchrotronLight` buys the reason to
+    // build one, but neither says anything about the injector that fills it.
+    // Without `srfTechnology` the best accelerating structure on the palette is
+    // `sbandStructure` at 51 MeV a placement, so reaching the 2.5 GeV band floor
+    // takes fifty of them — the type unlocks onto a machine nobody would build.
+    // It is also simply what these facilities are: ESRF-EBS, APS-U, MAX IV and
+    // every other fourth-generation ring runs a superconducting RF system.
+    requires: ['storageRingTech', 'synchrotronLight', 'srfTechnology'],
     // The electron beam has to survive for eight hours. Anything that
     // intercepts it kills a stored beam outright — which is a stronger
     // statement than "degrades it", and is why screen is denied here and not
@@ -290,7 +314,13 @@ export const BEAMLINE_TYPES = {
     bandWidth: 0.25,
     // Burst mode: European XFEL's 27,000 pulses/s in 600 us trains.
     dutyFactor: 0.006,
-    requires: 'felTech',
+    // `felTech` buys the undulator and the physics of lasing; it does not buy
+    // the 6-17.5 GeV linac in front of it. On copper alone the band floor is 118
+    // `sbandStructure` placements away, which is not a machine, it is a
+    // corridor. Every operating hard X-ray FEL that is not LCLS-I is
+    // superconducting — European XFEL, LCLS-II, SHINE — so this is the honest
+    // gate as well as the playable one.
+    requires: ['felTech', 'srfTechnology'],
     // An XFEL is an emittance-preservation machine; a pepper-pot plate in
     // front of a 17 GeV, 5 kA beam is a plasma experiment, not a filter.
     excludes: ['velocitySelector', 'emittanceFilter'],
@@ -349,20 +379,45 @@ export const BEAMLINE_TYPES = {
     // linear collider ever operated, and the only kind this engine can express
     // — `collisionPoint` already carries entryA/entryB on opposite sides.
     // Ring colliders (LEP, SuperKEKB, FCC-ee) are the machines you
-    // conspicuously cannot build. Band stops at 120 GeV/beam rather than the
-    // ILC's 250 for cost reasons; 45 is the Z pole and 80 the WW threshold, so
-    // it still covers real physics goals.
+    // conspicuously cannot build.
+    //
+    // The band runs the full length of the real e+e- linear-collider
+    // programme. 45 GeV/beam is the Z pole — where the SLC and LEP actually
+    // ran, and the cheapest thing worth colliding. 500 GeV/beam is 1 TeV in
+    // the centre of mass, CLIC's stage 2, and the top of every serious design
+    // study anyone has published. Nothing between those is a wrong answer: 80
+    // is the WW threshold, 125 is the Higgs factory, 175 is ttbar.
+    //
+    // That makes this the widest band in the roster — 1.05 decades, against
+    // 0.18 for euvFel — and the width is TRADED, not conceded. Every other
+    // type's band is a customer's tolerance; the monument's band is the
+    // programme's ambition, and the reward for spending twenty years and
+    // several billion climbing it is that you never leave spec while doing so.
+    // `plasmaAfterburner` is what makes the top half reachable at all; without
+    // it the ceiling would have to come back down to the ~120 it sat at when
+    // the roster shipped.
     spec: {
-      energyGeV: [45, 120],
+      energyGeV: [45, 500],
       // No current band: luminosity, not current, is the currency here.
       dutyMin: 0,
     },
     fom: 'integratedLuminosity',
     // SLC ran ~1e30 cm^-2 s^-1; a game-scale design target two orders up.
+    // TODO(balance): 1e32 was measured against the old [45, 120] band. A
+    // reference machine on the [45, 500] band is a different machine, so this
+    // number is now describing hardware that no longer exists — re-measure the
+    // raw FoM in scripts/balance-sim.mjs and replace it. Left stale rather
+    // than guessed at, per the calibration rule in this file's header.
     fomRef: 1e32,
     bandWidth: 0.30,
     dutyFactor: 0.005,
-    requires: 'colliderTech',
+    // Three nodes for the one type that has to be earned. `colliderTech`
+    // names the collider; `bunchCompression` and `srfTechnology` are what
+    // make it collide anything — luminosity is set by how short the bunch is,
+    // and everything above the SLC's energy is superconducting. Neither is
+    // implied by `colliderTech`'s own ancestry (highLuminosity, antimatter),
+    // which is exactly why they are stated here.
+    requires: ['colliderTech', 'bunchCompression', 'srfTechnology'],
     // Intercepting devices, plus: here your photons are a loss mechanism
     // rather than a product, so every insertion device is withheld by
     // allowlist. Real colliders do use damping wigglers; dropping that nuance

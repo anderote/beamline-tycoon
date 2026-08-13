@@ -501,11 +501,18 @@ BeamlineDesigner.prototype._renderTuning = function() {
   }
 
   // RF-specific component properties
-  if (comp.rfFrequency) {
+  // Only a sink is cut for a frequency. Wideband sources carry the legacy
+  // string 'broadband' here, which would render as "broadband MHz" — their
+  // coverage is the band row below.
+  if (typeof comp.rfFrequency === 'number') {
     statsHtml += `<div class="ts-row"><span class="ts-label">RF Frequency</span><span class="ts-val">${comp.rfFrequency} <span class="ts-unit">MHz</span></span></div>`;
   }
-  if (comp.rfBand) {
-    statsHtml += `<div class="ts-row"><span class="ts-label">RF Band</span><span class="ts-val">${comp.rfBand.toUpperCase()}</span></div>`;
+  // A source covers several bands; a cavity sits in exactly one. Prefer the
+  // array so a klystron does not advertise half its reach.
+  const rfBands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
+  if (rfBands) {
+    const label = rfBands.map(b => b.toUpperCase()).join(', ');
+    statsHtml += `<div class="ts-row"><span class="ts-label">RF Band</span><span class="ts-val">${label}</span></div>`;
   }
 
   // Health from game state

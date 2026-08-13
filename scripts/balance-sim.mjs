@@ -241,9 +241,9 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // on-pipe demands that now gate individually:
   //   power ~830 kW (240 of it the four rfCavities, 380 the RF plant) -> the
   //     1200 kW HV transformer, not the 400 kW switchgear;
-  //   RF at two frequencies — 2856 MHz cavities and a 200 MHz buncher — so a
-  //     multibeam klystron for the cavity bucket plus a broadband SSA for the
-  //     buncher, because a fixed-frequency source cannot cross buckets;
+  //   RF at two frequencies — 2856 MHz cavities and a 162.5 MHz buncher — so a
+  //     multibeam klystron for the cavities plus an SSA for the buncher;
+  //     see the TODO(balance) on the waveguide wiring below;
   //   cooling 586 kW -> two 300 kW chillers;
   //   data 41 -> a 40-capacity network switch alongside the IOC.
   const hv   = place('hvTransformer', -6, 8);
@@ -287,9 +287,13 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       if (id) wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id, port });
     }
   }
-  // Both RF sources land on the same manifold: the solver buckets by
-  // frequency, so the klystron feeds the cavities and the broadband amp tops
-  // up the buncher's bucket.
+  // TODO(balance): both RF sources land on the same manifold, which used to be
+  // fine when the solver bucketed by frequency. It no longer is — one network
+  // now carries ONE frequency, so this network serves the cavities' 2856 MHz
+  // (120 kW of demand against the buncher's 2 kW) and the buncher is starved
+  // with rf_frequency_split. The SSA on this manifold contributes nothing.
+  // Re-laying this as two waveguide networks is a layout change that has to be
+  // made and measured together, so it belongs with the balance pass, not here.
   if (wgBus2) {
     if (mbk) wire('rfWaveguide', { id: mbk, port: 'rf_out' }, { id: wgBus2, port: 'bus_left' });
     if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out' }, { id: wgBus2, port: 'bus_right' });

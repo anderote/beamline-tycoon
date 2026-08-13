@@ -225,20 +225,106 @@ console.log('\n--- lookup and unlock helpers ---');
   const all = beamlineTypesFor(Object.keys(RESEARCH));
   assert(all.length === TYPES.length, 'a complete tech tree opens every type');
 
-  // Every shape a caller might reasonably hand it.
-  const gates = ['isochronousCyclotron', 'machineProtection'];
+  // Every shape a caller might reasonably hand it. `therapy` is the fixture
+  // because it is multi-node; read its gate off the table rather than
+  // restating it, so retuning the gate does not fail four unrelated helper
+  // assertions.
+  const gates = asArray(BEAMLINE_TYPES.therapy.requires);
+  assert(gates.length > 1, `therapy is still a multi-node gate (${gates.join(', ')})`);
   assert(beamlineTypeUnlocked('therapy', gates), 'accepts an array of node ids');
   assert(beamlineTypeUnlocked('therapy', new Set(gates)), 'accepts a Set');
   assert(beamlineTypeUnlocked('therapy', { completedResearch: gates }), 'accepts a game state');
-  assert(!beamlineTypeUnlocked('therapy', ['isochronousCyclotron']),
+  assert(!beamlineTypeUnlocked('therapy', gates.slice(0, 1)),
     'a multi-node gate needs every node');
   assert(!beamlineTypeUnlocked('nope', gates), 'an unknown id is never unlocked');
   assert(beamlineTypeUnlocked('testStand', undefined), 'an ungated type needs no state at all');
 
-  assert(JSON.stringify(missingResearchFor('therapy', ['machineProtection']))
-    === JSON.stringify(['isochronousCyclotron']),
+  assert(JSON.stringify(missingResearchFor('therapy', gates.slice(1)))
+    === JSON.stringify(gates.slice(0, 1)),
     'missingResearchFor names only what is still missing');
   assert(missingResearchFor('testStand', []).length === 0, 'an ungated type is missing nothing');
+}
+
+// ---------------------------------------------------------------------------
+// Gating that names the hardware, not just the theme. A type whose `requires`
+// does not imply the research that unlocks its DEFINING component unlocks into
+// an unbuildable palette: the tile lights up, the player starts the machine,
+// and the one thing that would let it reach its own energy band is still
+// greyed out two nodes away. Checking the transitive closure rather than the
+// literal `requires` list is the point — `spallation` requiring `cwLinacDesign`
+// says nothing about protons.
+// ---------------------------------------------------------------------------
+console.log('\n--- Types unlock with their defining hardware available ---');
+{
+  const closure = (ids) => {
+    const out = new Set(); const stack = [...ids];
+    while (stack.length) {
+      const id = stack.pop(); if (out.has(id)) continue; out.add(id);
+      const n = RESEARCH[id]; if (!n) continue;
+      const r = n.requires;
+      for (const p of (!r ? [] : Array.isArray(r) ? r : [r])) stack.push(p);
+    }
+    return out;
+  };
+  const reqOf = (t) => Array.isArray(t.requires) ? t.requires : (t.requires ? [t.requires] : []);
+
+  for (const [need, types] of Object.entries({
+    protonAcceleration: ['spallation', 'therapy'],
+    bunchCompression:   ['collider'],
+    srfTechnology:      ['collider'],
+    targetPhysics:      ['isotopeIrradiation'],
+  })) {
+    for (const tid of types) {
+      const done = closure(reqOf(BEAMLINE_TYPES[tid]));
+      assert(done.has(need), `${tid} unlock implies ${need}`);
+    }
+  }
+
+  const eb = BEAMLINE_TYPES.ebeamProcessing.excludes;
+  assert(eb.includes('velocitySelector'), 'ebeamProcessing excludes velocitySelector');
+  assert(eb.includes('emittanceFilter'), 'ebeamProcessing excludes emittanceFilter');
+
+  assert(BEAMLINE_TYPES.collider.spec.energyGeV[1] === 500, 'collider band tops at 500 GeV/beam');
+}
+
+// ---------------------------------------------------------------------------
+// The RF ladder. A component that exists but is allowlisted to nothing is
+// invisible in every palette — the same silent failure as a misspelled
+// subsection, and the reason each of these carries a beamlineTypes array.
+// plasmaAfterburner gets its own pair of assertions because the absence of RF
+// is its identity: it has no cavity to drive and no frequency to match, so a
+// well-meaning "all accelerating structures need a waveguide" edit would make
+// it wrong rather than merely different.
+// ---------------------------------------------------------------------------
+console.log('\n--- New RF ladder present and allowlisted ---');
+{
+  const LADDER = ['cbandStructure','xbandStructure','srf650Cryomodule','srf805Cryomodule',
+                  'cwCryomodule','nbSnCryomodule','srfLinacSector','twoBeamModule','plasmaAfterburner'];
+  for (const id of LADDER) {
+    const c = COMPONENTS[id];
+    assert(!!c, `${id} exists`);
+    assert(c.category === 'rf', `${id} is category rf`);
+    assert(Array.isArray(c.beamlineTypes) && c.beamlineTypes.length > 0, `${id} is allowlisted`);
+  }
+  assert(COMPONENTS.plasmaAfterburner.requiredConnections.includes('dataFiber'),
+    'plasmaAfterburner needs dataFiber, not rfWaveguide');
+  assert(!COMPONENTS.plasmaAfterburner.requiredConnections.includes('rfWaveguide'),
+    'plasmaAfterburner is not RF-fed');
+}
+
+// ---------------------------------------------------------------------------
+// The three non-RF additions. recirculationArc is the one with a shape worth
+// pinning: it is a junction with a routing array, following injectionSeptum,
+// so the router never has to learn a new primitive to place it.
+// ---------------------------------------------------------------------------
+console.log('\n--- Non-RF additions ---');
+{
+  assert(COMPONENTS.fastKicker.beamlineTypes.includes('lightSource'),
+    'lightSource can build a fast kicker');
+  assert(COMPONENTS.recirculationArc.role === 'junction', 'recirculationArc is a junction');
+  assert(Array.isArray(COMPONENTS.recirculationArc.routing), 'recirculationArc declares routing');
+  assert(COMPONENTS.finalFocusDoublet.physicsType === 'quadrupole',
+    'finalFocusDoublet models as a quadrupole');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

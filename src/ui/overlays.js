@@ -537,6 +537,34 @@ function _drawBeamPipe(px, dot, W, cy, C, opts = {}) {
   }
 }
 
+// Shared body for the SRF cryomodule family: vacuum vessel, 80 K thermal
+// shield and a run of elliptical cells. Cell count and bulge are what separate
+// the rungs of the ladder at 70x30, so both are the caller's choice.
+// Options: cells, bulge, cellColor, shield (bool), vesselHalf.
+function _drawCryoShell(px, dot, cy, C, L, R, opts) {
+  const { cells, bulge, cellColor, shield = true, vesselHalf = 12 } = opts;
+  // Outer vacuum vessel
+  px(L, cy - vesselHalf, R - L, 1, C.wall);
+  px(L, cy + vesselHalf, R - L, 1, C.wall);
+  px(L, cy - vesselHalf, 1, vesselHalf * 2 + 1, C.wallHi);
+  px(R, cy - vesselHalf, 1, vesselHalf * 2 + 1, C.wallHi);
+  if (shield) {
+    px(L + 2, cy - vesselHalf + 2, R - L - 4, 1, '#886633');
+    px(L + 2, cy + vesselHalf - 2, R - L - 4, 1, '#886633');
+  }
+  // Elliptical cell string
+  const cellW = (R - L - 8) / cells, hw = Math.max(2, Math.floor(cellW / 2));
+  for (let i = 0; i < cells; i++) {
+    const cx2 = L + 4 + Math.round(cellW * (i + 0.5));
+    for (let dx = -hw; dx <= hw; dx++) {
+      const t = Math.abs(dx) / hw;
+      const h = Math.round(bulge * (1 - t * t));
+      dot(cx2 + dx, cy - 1 - h, cellColor);
+      dot(cx2 + dx, cy + 1 + h, cellColor);
+    }
+  }
+}
+
 UIHost.prototype._schematicDrawers = {
   // === SOURCE (cathode ray / electron gun style) ===
   source(p, px, dot, W, H, cy, C) {
@@ -1536,6 +1564,57 @@ UIHost.prototype._schematicDrawers = {
     }
   },
 
+  // === FAST KICKER ===
+  // Identity is the pulse-forming network, not the magnet: a tiny ferrite
+  // window-frame aperture fed by fat coaxial pulse cables from a big rack.
+  fastKicker(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
+    const ferrite = '#6a5a7a', ferriteDk = '#443355';
+    const cabL = 2, cabR = 32;
+    // Pulse-forming-network racks — stacked above and below the line so the
+    // beam pipe stays clear while the cabinet still dwarfs the magnet
+    for (const sgn of [-1, 1]) {
+      const top = sgn < 0 ? cy - 14 : cy + 6;
+      px(cabL, top, cabR - cabL, 9, C.metalDk);
+      px(cabL + 1, top + 1, cabR - cabL - 2, 7, '#1a1f2a');
+      // PFN capacitor stack
+      for (let i = 0; i < 5; i++) {
+        const rx = cabL + 3 + i * 5;
+        px(rx, top + 2, 3, 5, C.wallDk);
+        px(rx, top + 3, 3, 1, C.wall);
+      }
+      // Inductor bus tying the stack together
+      for (let x = cabL + 3; x < cabR - 3; x += 2) dot(x, top + 7, C.coilDk);
+      // Thyratron switch — the hot element of the rack
+      px(cabR - 4, top + 2, 2, 5, C.hot);
+      dot(cabR - 4, top + 4, C.hotBright);
+    }
+
+    const magL = 46, magR = 60;
+    // Thick coaxial pulse cables: braid sheath with a bright inner conductor
+    for (const sgn of [-1, 1]) {
+      for (let x = cabR; x <= magL + 1; x++) {
+        const t = (x - cabR) / (magL + 1 - cabR);
+        const y = cy + sgn * Math.round(9 - 4 * t * t);
+        px(x, y - 1, 1, 3, '#33404f');
+        dot(x, y, '#e8b45a');
+      }
+    }
+    // Ferrite window-frame magnet (small)
+    px(magL, cy - 7, magR - magL, 15, ferriteDk);
+    px(magL, cy - 7, magR - magL, 1, ferrite);
+    px(magL, cy + 7, magR - magL, 1, ferrite);
+    px(magL + 2, cy - 4, magR - magL - 4, 9, C.bg);
+    // Deflecting plates inside the window
+    px(magL + 2, cy - 5, magR - magL - 4, 1, C.metal);
+    px(magL + 2, cy + 5, magR - magL - 4, 1, C.metal);
+    // Beam kicked out on the downstream side
+    for (let x = 2; x < magR; x++) dot(x, cy, C.beam);
+    for (let x = magR; x < W - 2; x++) {
+      dot(x, cy - Math.round((x - magR) / (W - 2 - magR) * 4), C.beam);
+    }
+  },
+
   // === SEPTUM MAGNET ===
   septumMagnet(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C);
@@ -1591,6 +1670,81 @@ UIHost.prototype._schematicDrawers = {
       dot(x, cy - Math.round(t * 6), C.beam);
     }
     for (let x = d2; x < W - 4; x++) dot(x, cy - 6, C.beam);
+  },
+
+  // === RECIRCULATION ARC ===
+  // The pipe splits, arcs laterally away from the straight-through leg and
+  // rejoins it; small dipoles bend the recirculated beam around.
+  recirculationArc(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
+    // Shallow enough that the channel never breaks into a staircase
+    const sx = 8, ex = 62;
+    const arcY = (x) => cy - Math.round(9 * Math.sin(Math.PI * (x - sx) / (ex - sx)));
+    // Straight-through leg
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beamDim);
+    // Arc channel walls plus the recirculated beam
+    for (let x = sx; x <= ex; x++) {
+      const y = arcY(x);
+      if (y < cy - 1) {
+        dot(x, y - 2, C.wallDk);
+        dot(x, y + 2, C.wallDk);
+      }
+      dot(x, y, C.beam);
+    }
+    // Splitter and recombiner septa
+    for (let dy = -2; dy <= 2; dy++) {
+      dot(sx, cy + dy, C.metal);
+      dot(ex, cy + dy, C.metal);
+    }
+    // Small dipoles along the arc, kept clear of the straight-through leg
+    for (const t of [0.28, 0.39, 0.5, 0.61, 0.72]) {
+      const x = Math.round(sx + t * (ex - sx));
+      const y = arcY(x);
+      px(x - 1, y - 5, 3, 2, C.magnet);
+      px(x - 1, y + 4, 3, 2, C.magnet);
+    }
+  },
+
+  // === FINAL FOCUS DOUBLET ===
+  // Two SC quads back-to-back at different apertures in one cryostat, with a
+  // conical taper running down to the interaction point at the right edge.
+  finalFocusDoublet(p, px, dot, W, H, cy, C) {
+    const L = 3, R = 56;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: W, rightFlange: false });
+    // Shared cryostat
+    px(L, cy - 13, R - L, 1, C.wall);
+    px(L, cy + 13, R - L, 1, C.wall);
+    px(L, cy - 13, 1, 27, C.wallHi);
+    px(L + 2, cy - 11, R - L - 4, 1, C.scMagDk);
+    px(L + 2, cy + 11, R - L - 4, 1, C.scMagDk);
+    // Q1 — the large-aperture quad
+    const q1 = 18;
+    px(q1 - 10, cy - 10, 20, 5, C.scMagnet);
+    px(q1 - 7, cy - 6, 14, 2, C.scMagDk);
+    px(q1 - 10, cy + 6, 20, 5, C.scMagnet);
+    px(q1 - 7, cy + 5, 14, 2, C.scMagDk);
+    // Q2 — poles reach further in, so a visibly tighter aperture
+    const q2 = 42;
+    px(q2 - 9, cy - 10, 18, 6, C.scMagnet);
+    px(q2 - 6, cy - 4, 12, 2, C.scMagDk);
+    px(q2 - 9, cy + 5, 18, 6, C.scMagnet);
+    px(q2 - 6, cy + 3, 12, 2, C.scMagDk);
+    // Conical taper toward the IP
+    for (let x = R; x < W - 1; x++) {
+      const h = Math.round(9 - 7 * (x - R) / (W - 1 - R));
+      dot(x, cy - h, C.metal);
+      dot(x, cy + h, C.metal);
+    }
+    // Beam envelope converging onto the IP
+    for (let x = 2; x < W - 1; x++) {
+      const hw = Math.round(4 * (1 - Math.max(0, (x - 6) / (W - 8))));
+      if (hw > 0) {
+        dot(x, cy - hw, C.beamDim);
+        dot(x, cy + hw, C.beamDim);
+      }
+      dot(x, cy, C.beam);
+    }
+    dot(W - 2, cy, '#ffffff');
   },
 
   // === STRIPPER FOIL ===
@@ -1831,66 +1985,259 @@ UIHost.prototype._schematicDrawers = {
     for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
   },
 
-  // === C-BAND CAVITY ===
-  cbandCavity(p, px, dot, W, H, cy, C) {
-    const L = 12, R = 58;
+  // === C-BAND STRUCTURE ===
+  // Copper disc-loaded waveguide, cell pitch a step finer than S-band, one
+  // waveguide feed and a water manifold along the top.
+  cbandStructure(p, px, dot, W, H, cy, C) {
+    const L = 6, R = 64;
     _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
-    px(L, cy - 8, R - L, 1, C.wall);
-    px(L, cy + 8, R - L, 1, C.wall);
-    px(L, cy - 8, 1, 17, C.wallHi);
-    px(R, cy - 8, 1, 17, C.wallHi);
-    // Compact cells (C-band = higher frequency, smaller)
-    for (let x = L + 2; x < R - 1; x += 4) {
-      for (let dx = 0; dx < 3; dx++) {
-        const t = dx / 3;
-        const h = Math.round(3 * Math.sin(t * Math.PI));
-        dot(x + dx, cy - 2 - h, C.hot);
-        dot(x + dx, cy + 2 + h, C.hot);
-      }
-    }
-    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
-  },
-
-  // === X-BAND CAVITY ===
-  xbandCavity(p, px, dot, W, H, cy, C) {
-    const L = 12, R = 58;
-    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
-    px(L, cy - 7, R - L, 1, C.wall);
-    px(L, cy + 7, R - L, 1, C.wall);
-    px(L, cy - 7, 1, 15, C.wallHi);
-    px(R, cy - 7, 1, 15, C.wallHi);
-    // Very compact cells (X-band = highest frequency)
+    // Copper body
+    px(L, cy - 8, R - L, 17, '#4a2a1a');
+    px(L, cy - 8, R - L, 1, C.coil);
+    px(L, cy + 8, R - L, 1, C.coil);
+    px(L, cy - 8, 1, 17, C.coilDk);
+    px(R - 1, cy - 8, 1, 17, C.coilDk);
+    // Loading discs on a 3px pitch — denser than S-band's, coarser than X-band's
     for (let x = L + 2; x < R - 1; x += 3) {
-      dot(x, cy - 4, C.hot);
-      dot(x + 1, cy - 5, C.hot);
-      dot(x, cy + 4, C.hot);
-      dot(x + 1, cy + 5, C.hot);
+      px(x, cy - 7, 1, 4, C.coil);
+      px(x, cy + 4, 1, 4, C.coil);
+      dot(x, cy - 3, C.coilDk);
+      dot(x, cy + 3, C.coilDk);
     }
-    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    // Water manifold along the top, with drops into the body
+    px(L, cy - 14, R - L, 2, C.pipeCooling);
+    for (let x = L + 8; x < R - 4; x += 12) px(x, cy - 12, 1, 4, C.pipeCooling);
+    // Single waveguide feed
+    px(24, cy - 12, 8, 4, C.metalDk);
+    px(25, cy - 11, 6, 2, C.hot);
+    px(27, cy - 9, 2, 2, C.metal);
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
   },
 
-  // === SRF 650 CAVITY (Tesla 9-cell shares) ===
-  srf650Cavity(p, px, dot, W, H, cy, C) {
-    const L = 8, R = 62;
+  // === X-BAND STRUCTURE ===
+  // Finest cell pitch on the ladder and the smallest bore, with waveguide
+  // manifolds above and below — reads as a dense copper comb.
+  xbandStructure(p, px, dot, W, H, cy, C) {
+    const L = 6, R = 64;
     _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
-    px(L - 2, cy - 12, R - L + 4, 1, C.wallDk);
-    px(L - 2, cy + 12, R - L + 4, 1, C.wallDk);
-    // Large elliptical cells
-    const cells = 3;
-    const cellW = (R - L) / cells;
-    for (let i = 0; i < cells; i++) {
-      const cx2 = L + Math.floor(cellW * (i + 0.5));
-      for (let dx = -Math.floor(cellW / 2) + 1; dx < Math.floor(cellW / 2); dx++) {
-        const t = Math.abs(dx) / (cellW / 2);
-        const h = Math.round(8 * (1 - t * t));
-        dot(cx2 + dx, cy - 1 - h, C.scMagnet);
-        dot(cx2 + dx, cy + 1 + h, C.scMagnet);
+    // Copper body — shallower than C-band
+    px(L, cy - 7, R - L, 15, '#4a2a1a');
+    px(L, cy - 7, R - L, 1, C.coil);
+    px(L, cy + 7, R - L, 1, C.coil);
+    // Comb of loading discs every other column, leaving a ±2 bore
+    for (let x = L + 1; x < R - 1; x += 2) {
+      px(x, cy - 6, 1, 4, C.coil);
+      px(x, cy + 3, 1, 4, C.coil);
+    }
+    for (let x = L + 2; x < R - 1; x += 2) {
+      dot(x, cy - 6, C.coilDk);
+      dot(x, cy + 6, C.coilDk);
+    }
+    // Waveguide manifolds above and below, each feeding the body
+    for (const sgn of [-1, 1]) {
+      const my = cy + sgn * 11;
+      px(L + 2, my - 1, R - L - 4, 3, C.metalDk);
+      for (let x = L + 4; x < R - 4; x += 4) dot(x, my, C.hot);
+      for (const fx of [18, 34, 50]) px(fx, cy + sgn * 8, 2, 2, C.metal);
+    }
+    // Water headers on both sides
+    px(L, cy - 14, R - L, 1, C.pipeCooling);
+    px(L, cy + 14, R - L, 1, C.pipeCooling);
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === TWO-BEAM MODULE ===
+  // The doubled axis is the identity: a drive line above feeding PETS
+  // decelerators, which power the main accelerating structures below.
+  twoBeamModule(p, px, dot, W, H, cy, C) {
+    // The shared background beam dash sits on neither axis here
+    px(0, cy - 1, W, 3, C.bg);
+    const dy = cy - 8, my = cy + 7;
+    for (const [ay, wallC] of [[dy, C.wallDk], [my, C.wallDk]]) {
+      px(0, ay - 3, W, 1, wallC);
+      px(0, ay + 3, W, 1, wallC);
+      px(0, ay - 5, FLANGE_W, 11, C.metal);
+      px(W - FLANGE_W, ay - 5, FLANGE_W, 11, C.metal);
+    }
+    const stations = [10, 30, 50];
+    for (const sx of stations) {
+      // PETS decelerator on the drive line
+      px(sx, dy - 4, 14, 9, C.coilDk);
+      px(sx + 1, dy - 3, 12, 7, '#4a2a1a');
+      for (let x = sx + 2; x < sx + 13; x += 2) {
+        dot(x, dy - 2, C.coil);
+        dot(x, dy + 2, C.coil);
+      }
+      // Accelerating structure on the main line
+      px(sx, my - 4, 14, 9, C.metalDk);
+      px(sx + 1, my - 3, 12, 7, '#3a2418');
+      for (let x = sx + 2; x < sx + 13; x += 2) {
+        dot(x, my - 2, C.hot);
+        dot(x, my + 2, C.hot);
+      }
+      // RF power transfer waveguide between the two lines
+      px(sx + 6, dy + 5, 3, my - dy - 9, C.metal);
+      dot(sx + 7, my - 5, C.hotBright);
+    }
+    // Drive beam above (dim, being decelerated), main beam below
+    for (let x = 2; x < W - 2; x++) {
+      dot(x, dy, C.beamDim);
+      dot(x, my, C.beam);
+    }
+  },
+
+  // === PLASMA AFTERBURNER ===
+  // A short capillary cell overshadowed by its laser hall: enclosure, turning
+  // mirror, drive beam down the axis. Deliberately no RF hardware anywhere.
+  plasmaAfterburner(p, px, dot, W, H, cy, C) {
+    const capL = 38, capR = 53;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: capL, skipTo: capR + 1 });
+    // Laser enclosure — the dominant structure
+    px(2, cy - 14, 24, 10, C.metalDk);
+    px(3, cy - 13, 22, 8, '#1a0d0d');
+    px(7, cy - 10, 14, 3, '#882244');
+    px(5, cy - 11, 1, 5, '#ccaa44');
+    px(23, cy - 11, 1, 5, C.metal);
+    px(10, cy - 14, 8, 1, '#44ff44');
+    // Drive laser out to the turning mirror
+    for (let x = 26; x < 45; x++) {
+      dot(x, cy - 9, '#ff2222');
+      dot(x, cy - 10, '#cc1111');
+      dot(x, cy - 8, '#cc1111');
+    }
+    // Turning-mirror housing, folding the laser down onto the axis
+    px(42, cy - 12, 7, 8, C.metalDk);
+    for (let k = 0; k < 4; k++) dot(44 + k, cy - 11 + k, '#ccaa44');
+    for (let y = cy - 8; y < cy - 4; y++) dot(45, y, '#ff2222');
+    // Sapphire capillary cell with its plasma channel
+    px(capL, cy - 4, capR - capL, 9, '#334466');
+    px(capL, cy - 4, capR - capL, 1, C.metal);
+    px(capL, cy + 4, capR - capL, 1, C.metal);
+    px(capL + 1, cy - 1, capR - capL - 2, 3, '#8866ff');
+    // Discharge electrodes and gas feed
+    px(capL, cy - 7, 2, 3, C.metal);
+    px(capR - 2, cy - 7, 2, 3, C.metal);
+    px(capL + 6, cy + 5, 2, 4, C.metalDk);
+    // Beam in, and out with the energy gain
+    for (let x = 2; x < capL; x++) dot(x, cy, C.beam);
+    for (let x = capL; x < W - 2; x++) dot(x, cy, '#ccffdd');
+  },
+
+  // === SRF 650 MHz CRYOMODULE ===
+  // Five big cells (650 MHz is physically large) under a single cryo port.
+  srf650Cryomodule(p, px, dot, W, H, cy, C) {
+    const L = 4, R = 66;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+    _drawCryoShell(px, dot, cy, C, L, R, { cells: 5, bulge: 8, cellColor: C.scMagnet });
+    // Single cryogenic port on top
+    px(34, cy - 15, 3, 4, C.metal);
+    px(32, cy - 15, 7, 1, C.pipeCryo);
+    // Warm-to-cold transitions at both ends
+    for (const [ex, dir] of [[L + 1, 1], [R - 3, -1]]) {
+      for (let k = 0; k < 3; k++) {
+        dot(ex + dir * k, cy - 5 + k, C.metalDk);
+        dot(ex + dir * k, cy + 5 - k, C.metalDk);
       }
     }
-    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
   },
 
-  // === TESLA 9-CELL (uses same as srf650Cavity basically) ===
+  // === SRF 805 MHz CRYOMODULE ===
+  // One rung up from the 650: six visibly smaller cells and twin cryo ports.
+  srf805Cryomodule(p, px, dot, W, H, cy, C) {
+    const L = 4, R = 66;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+    _drawCryoShell(px, dot, cy, C, L, R, { cells: 6, bulge: 6, cellColor: C.scMagnet });
+    // 2 K cold mass boundary, tighter than the 650's
+    px(L + 4, cy - 8, R - L - 8, 1, C.scMagDk);
+    px(L + 4, cy + 8, R - L - 8, 1, C.scMagDk);
+    // Twin cryogenic ports
+    for (const sx of [20, 46]) {
+      px(sx, cy - 15, 3, 4, C.metal);
+      px(sx - 2, cy - 15, 7, 1, C.pipeCryo);
+    }
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === CW CRYOMODULE ===
+  // Same cell count as the pulsed cryomodule, but sized for a continuous heat
+  // load: a heavy cryogenic header overhead and doubled coupler boxes.
+  cwCryomodule(p, px, dot, W, H, cy, C) {
+    const L = 4, R = 66;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+    // Heavy cryogenic header along the whole top edge, with drop legs
+    px(0, cy - 15, W, 3, C.pipeCryo);
+    px(0, cy - 12, W, 1, '#2a7799');
+    for (const x of [12, 26, 40, 54]) px(x, cy - 12, 2, 3, C.metalDk);
+    _drawCryoShell(px, dot, cy, C, L, R, {
+      cells: 4, bulge: 6, cellColor: C.scMagnet, vesselHalf: 10,
+    });
+    // Doubled coupler boxes — two per feed point
+    for (const x of [14, 20, 44, 50]) {
+      px(x, cy + 10, 5, 4, C.coil);
+      px(x + 1, cy + 14, 3, 1, C.coilDk);
+    }
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === Nb3Sn CRYOMODULE ===
+  // The 650's silhouette in a warmer palette: bronze Nb3Sn cells running at
+  // 4.5 K, so the cryogenic connection is a fraction of the size.
+  nbSnCryomodule(p, px, dot, W, H, cy, C) {
+    const L = 4, R = 66;
+    const nbSn = '#ddaa66', nbSnDk = '#aa7733';
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+    _drawCryoShell(px, dot, cy, C, L, R, { cells: 5, bulge: 7, cellColor: nbSn });
+    // 4.5 K cold mass in the same warm accent
+    px(L + 4, cy - 8, R - L - 8, 1, nbSnDk);
+    px(L + 4, cy + 8, R - L - 8, 1, nbSnDk);
+    // Small cryocooler connection instead of a 2 K plant header
+    px(35, cy - 15, 1, 3, C.metalDk);
+    px(34, cy - 15, 3, 1, nbSn);
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === SRF LINAC SECTOR ===
+  // Several cryomodules on one distribution line: cell groups split by
+  // interconnect bellows, cryo header end to end, a whole row of couplers.
+  srfLinacSector(p, px, dot, W, H, cy, C) {
+    const L = 2, R = 68;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+    // Cryogenic distribution line spanning the full width
+    px(0, cy - 15, W, 2, C.pipeCryo);
+    for (let x = 6; x < W - 4; x += 12) px(x, cy - 13, 1, 2, C.pipeCryo);
+    // Vacuum jacket
+    px(L, cy - 11, R - L, 1, C.wall);
+    px(L, cy + 11, R - L, 1, C.wall);
+    px(L, cy - 11, 1, 23, C.wallHi);
+    px(R, cy - 11, 1, 23, C.wallHi);
+    // Three cell groups
+    for (const [gl, gr] of [[5, 21], [27, 43], [49, 65]]) {
+      px(gl, cy - 9, gr - gl, 1, C.scMagDk);
+      px(gl, cy + 9, gr - gl, 1, C.scMagDk);
+      const n = 3, cw = (gr - gl) / n;
+      for (let i = 0; i < n; i++) {
+        const cx2 = gl + Math.round(cw * (i + 0.5));
+        for (let dx = -2; dx <= 2; dx++) {
+          const h = Math.round(6 * (1 - (dx * dx) / 6));
+          dot(cx2 + dx, cy - 1 - h, C.scMagnet);
+          dot(cx2 + dx, cy + 1 + h, C.scMagnet);
+        }
+      }
+    }
+    // Interconnect bellows between groups
+    for (const bx of [23, 45]) {
+      for (let dy = -7; dy <= 7; dy += 2) {
+        dot(bx, cy + dy, C.metal);
+        dot(bx + 1, cy + dy, C.metalDk);
+      }
+    }
+    // Row of coupler boxes along the bottom
+    for (let x = 6; x < R - 6; x += 8) px(x, cy + 11, 4, 3, C.coil);
+    for (let x = 2; x < W - 2; x++) dot(x, cy, C.beam);
+  },
+
+  // === TESLA 9-CELL ===
   tesla9Cell(p, px, dot, W, H, cy, C) {
     const L = 4, R = 66;
     _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });

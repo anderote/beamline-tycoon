@@ -220,22 +220,6 @@ export const PARAM_DEFS = {
     energySpread:  { derived: true, unit: '' },
   },
 
-  // ---- C-band cavity ----
-  cbandCavity: {
-    gradient: { min: 10, max: 50, default: 35, unit: 'MV/m', step: 0.5 },
-    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
-    energyGain:   { derived: true, unit: 'GeV' },
-    energySpread: { derived: true, unit: '' },
-  },
-
-  // ---- X-band cavity ----
-  xbandCavity: {
-    gradient: { min: 20, max: 100, default: 65, unit: 'MV/m', step: 0.5 },
-    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
-    energyGain:   { derived: true, unit: 'GeV' },
-    energySpread: { derived: true, unit: '' },
-  },
-
   // ---- Cryomodule (SRF, 1.3 GHz, TESLA-style) ----
   cryomodule: {
     gradient: { min: 5, max: 35, default: 25, unit: 'MV/m', step: 0.5 },
@@ -244,10 +228,103 @@ export const PARAM_DEFS = {
     energySpread: { derived: true, unit: '' },
   },
 
-  // ---- SRF 650 MHz cavity ----
-  srf650Cavity: {
-    gradient: { min: 5, max: 25, default: 18, unit: 'MV/m', step: 0.5 },
+  // ---- The RF ladder -------------------------------------------------------
+  // Nine placements from 0.12 to 15 GeV. Every one of them takes its energy
+  // gain as `gradient x the placement's own length`, so the DEFAULT gradient
+  // here is not a taste decision: PARAM_DEFS defaults beat the catalogue's
+  // `params` (see seedComponentParams) and computeStats OVERLAYS the
+  // catalogue's `stats` (see physics-payload.js). If the default does not
+  // reproduce the catalogue `energyGain` exactly, the component silently
+  // delivers something other than what it advertises, and the placement-count
+  // guarantees the whole ladder was designed around stop being true.
+  //
+  // Each default below is therefore written as `energyGain [MeV] / length [m]`
+  // rather than as a rounded number, and gameplay.py derives the same quantity
+  // a third way (energyGain * 1000 / length) for the utility solve. All three
+  // agree by construction.
+  //
+  // The upper rungs quote gradients no single device reaches — one placement
+  // is a cryostring or a sector standing for several modules, and the
+  // catalogue `desc` is where that is said out loud.
+
+  // 0.12 GeV over 3 m. 40 MV/m is a real C-band number (SACLA, SwissFEL).
+  cbandStructure: {
+    gradient: { min: 10, max: 50, default: 120 / 3, unit: 'MV/m', step: 0.5 },
     rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 0.30 GeV over 3 m. 100 MV/m is the CLIC X-band design gradient.
+  xbandStructure: {
+    gradient: { min: 20, max: 120, default: 300 / 3, unit: 'MV/m', step: 1 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 0.15 GeV over 10 m. 15 MV/m is what a beta=0.61 elliptical really runs.
+  srf650Cryomodule: {
+    gradient: { min: 5, max: 20, default: 150 / 10, unit: 'MV/m', step: 0.5 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 0.40 GeV over 12 m — about two real 805 MHz cryomodules per placement.
+  srf805Cryomodule: {
+    gradient: { min: 10, max: 45, default: 400 / 12, unit: 'MV/m', step: 0.1 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 0.50 GeV over 12 m — about three LCLS-II-class CW modules per placement.
+  cwCryomodule: {
+    gradient: { min: 15, max: 55, default: 500 / 12, unit: 'MV/m', step: 0.1 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 1.2 GeV over 12 m — about six modules per placement.
+  nbSnCryomodule: {
+    gradient: { min: 40, max: 130, default: 1200 / 12, unit: 'MV/m', step: 1 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 3.5 GeV over 16 m — a full cryogenic sector under one placement.
+  srfLinacSector: {
+    gradient: { min: 100, max: 260, default: 3500 / 16, unit: 'MV/m', step: 1.25 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // 6.0 GeV over 12 m. Not a klystron-fed structure — the drive beam does the
+  // work — so there is no cavity model behind it in srf.py.
+  twoBeamModule: {
+    gradient: { min: 200, max: 600, default: 6000 / 12, unit: 'MV/m', step: 5 },
+    rfPhase:  { min: -40, max: 40, default: 0, unit: 'deg', step: 1 },
+    energyGain:   { derived: true, unit: 'GeV' },
+    energySpread: { derived: true, unit: '' },
+  },
+
+  // ---- Plasma afterburner --------------------------------------------------
+  // 15 GeV over 10 m. NOT RF: there is no resonator, no waveguide and no RF
+  // phase to set — the accelerating field is a plasma wake and the knob is how
+  // hard the stage is driven. `gradient` stays in MV/m so it reads on the same
+  // axis as the rest of the ladder; 1500 MV/m is 1.5 GV/m, an order of
+  // magnitude below the multi-GV/m fields real wakefield stages reach over
+  // centimetres, because this is a metres-long staged device.
+  //
+  // No rfPhase entry, deliberately. energySpread is flat because it is not
+  // tunable here: percent-level correlated spread is the technology's defining
+  // weakness, not a setting.
+  plasmaAfterburner: {
+    gradient: { min: 500, max: 2000, default: 15000 / 10, unit: 'MV/m', step: 25 },
     energyGain:   { derived: true, unit: 'GeV' },
     energySpread: { derived: true, unit: '' },
   },
@@ -713,31 +790,6 @@ function computeRfCavity(params) {
 }
 
 /**
- * C-band cavity (active length 0.6 m representative).
- * energyGain [GeV] = G [MV/m] * length [m] * cos(φ) / 1000
- */
-function computeCbandCavity(params) {
-  const G       = params.gradient; // MV/m
-  const phi_rad = params.rfPhase * Math.PI / 180;
-  const length  = 0.6; // m
-  const energyGain   = G * length * Math.cos(phi_rad) / 1000;
-  const energySpread = 0.008 * Math.abs(Math.sin(phi_rad));
-  return { energyGain, energySpread };
-}
-
-/**
- * X-band cavity (active length 0.23 m representative).
- */
-function computeXbandCavity(params) {
-  const G       = params.gradient; // MV/m
-  const phi_rad = params.rfPhase * Math.PI / 180;
-  const length  = 0.23; // m
-  const energyGain   = G * length * Math.cos(phi_rad) / 1000;
-  const energySpread = 0.008 * Math.abs(Math.sin(phi_rad));
-  return { energyGain, energySpread };
-}
-
-/**
  * Cryomodule (TESLA 9-cell, 1.3 GHz, active length 5 m for 8 cavities).
  * Lower energy spread due to CW / low-loss operation.
  */
@@ -751,15 +803,37 @@ function computeCryomodule(params) {
 }
 
 /**
- * SRF 650 MHz cavity (active length 4 m).
+ * Every rung of the RF ladder: gradient x the placement's own length, off
+ * crest by the phase.
+ *
+ *   energyGain [GeV]  = G [MV/m] * length [m] * cos(φ) / 1000
+ *   energySpread      = spreadCoeff * |sin(φ)|
+ *
+ * `length` is the PLACEMENT length (subL * 0.5 m), which is the same length
+ * gameplay.py divides by to get the demanded gradient. Using a shorter
+ * "active" length here — as the older per-cavity helpers above do — makes this
+ * function and the physics backend disagree about what the same slider means.
+ *
+ * @param {number} lengthM      placement length, metres
+ * @param {number} spreadCoeff  off-crest energy spread per unit |sin φ|
  */
-function computeSrf650Cavity(params) {
-  const G       = params.gradient; // MV/m
-  const phi_rad = params.rfPhase * Math.PI / 180;
-  const length  = 4.0; // m active
-  const energyGain   = G * length * Math.cos(phi_rad) / 1000;
-  const energySpread = 0.003 * Math.abs(Math.sin(phi_rad));
-  return { energyGain, energySpread };
+function makeLadderCavity(lengthM, spreadCoeff) {
+  return function (params) {
+    const phi_rad = (params.rfPhase || 0) * Math.PI / 180;
+    const energyGain   = params.gradient * lengthM * Math.cos(phi_rad) / 1000;
+    const energySpread = spreadCoeff * Math.abs(Math.sin(phi_rad));
+    return { energyGain, energySpread };
+  };
+}
+
+/**
+ * Plasma afterburner. Same energy arithmetic as the ladder, but the spread is
+ * a constant: a plasma stage hands back percent-level correlated energy spread
+ * whatever you do to it, and there is no phase knob to trade against.
+ */
+function computePlasmaAfterburner(params) {
+  const energyGain = params.gradient * 10.0 / 1000; // 10 m placement
+  return { energyGain, energySpread: 0.02 };
 }
 
 /**
@@ -914,10 +988,20 @@ const COMPUTE_STATS = {
   octupole:               computeOctupole,
   // RF cavities
   rfCavity:               computeRfCavity,
-  cbandCavity:            computeCbandCavity,
-  xbandCavity:            computeXbandCavity,
   cryomodule:             computeCryomodule,
-  srf650Cavity:           computeSrf650Cavity,
+  // The RF ladder. Lengths are the placement lengths (subL * 0.5 m) and must
+  // stay in step with subL in beamline-components.raw.js. Normal-conducting
+  // copper carries more off-crest spread than SRF; the two-beam module is
+  // X-band copper, so it takes the copper coefficient.
+  cbandStructure:         makeLadderCavity(3.0, 0.008),
+  xbandStructure:         makeLadderCavity(3.0, 0.008),
+  twoBeamModule:          makeLadderCavity(12.0, 0.008),
+  srf650Cryomodule:       makeLadderCavity(10.0, 0.003),
+  srf805Cryomodule:       makeLadderCavity(12.0, 0.003),
+  cwCryomodule:           makeLadderCavity(12.0, 0.003),
+  nbSnCryomodule:         makeLadderCavity(12.0, 0.003),
+  srfLinacSector:         makeLadderCavity(16.0, 0.003),
+  plasmaAfterburner:      computePlasmaAfterburner,
   buncher:                computeBuncher,
   harmonicLinearizer:     computeHarmonicLinearizer,
   // insertion devices

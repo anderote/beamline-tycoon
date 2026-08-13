@@ -159,9 +159,9 @@ function buildLab(game, zoneType, index) {
 //              under 2% of ticks even on cup lines only, so DETECTOR_EVERY
 //              defaults to 0 and this grade exists to be re-measured, not used.
 //
-// Everything on the pipe runs at 200 MHz (pillbox cavities and a buncher), so
-// ONE broadband solid-state amp covers the whole RF bucket — the same reason
-// the shipped starter facility uses one. Cost is derived from the catalogue,
+// Everything on the pipe runs at 162.5 MHz (pillbox cavities and a buncher),
+// so it is ONE RF network and one VHF-covering solid-state amp serves all of
+// it — the same reason the shipped starter facility uses one. Cost is derived from the catalogue,
 // never hardcoded: placements run `free` and the caller is charged the recipe
 // total, which makes the buy atomic (no half-built line when a wire fails).
 // ---------------------------------------------------------------------------

@@ -33,12 +33,12 @@ The numbers below are the declared loads: power in kW, cooling in kW of heat, RF
 ### RF / Accelerating
 | Component | Power | Cooling | RF | Cryo | Data | Vacuum |
 |-----------|:-----:|:-------:|:--:|:----:|:----:|:------:|
-| Buncher | 5 | | 2 @ 200 MHz | | | 5e-7 |
-| Pillbox Cavity | 10 | | 5 @ 200 MHz | | | 1e-6 |
-| RFQ | 40 | 60 | 25 @ 400 MHz | | | 1e-6 |
+| Buncher | 5 | | 2 @ 162.5 MHz | | | 5e-7 |
+| Pillbox Cavity | 10 | | 5 @ 162.5 MHz | | | 1e-6 |
+| RFQ | 40 | 60 | 25 @ 162.5 MHz | | | 1e-6 |
 | NC RF Cavity | 60 | 120 | 40 @ 2856 MHz | | | 2e-6 |
 | S-band Structure | 60 | 100 | 45 @ 2856 MHz | | | 2e-6 |
-| Half-Wave Resonator | 8 | | 3 @ 161 MHz | 15 W | | 5e-7 |
+| Half-Wave Resonator | 8 | | 3 @ 162.5 MHz | 15 W | | 5e-7 |
 | Spoke Cavity | 10 | | 8 @ 325 MHz | 25 W | | 1e-6 |
 | 9-cell Elliptical SRF | 12 | | 5 @ 1300 MHz | 40 W | | 1e-6 |
 | TESLA Cryomodule | 80 | | 40 @ 1300 MHz | 250 W | | 4e-6 |
@@ -81,15 +81,15 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 ### RF Power
 | Equipment | Power draw | Provides | Cooling | Data |
 |-----------|:----------:|----------|:-------:|:----:|
-| Magnetron | 7 | 5 kW RF @ 2450 MHz, 1% duty | | |
-| TWT | 55 | 20 kW RF broadband, 5% duty | | |
-| SSA | 70 | 35 kW RF broadband, CW | | |
-| Pulsed Klystron | 110 | 50 kW RF @ 2856 MHz, 0.1% duty | | |
-| CW Klystron | 90 | 50 kW RF @ 1300 MHz, CW | | |
-| IOT | 115 | 80 kW RF @ 1300 MHz, CW | | |
-| Multi-beam Klystron | 310 | 200 kW RF @ 2856 MHz, 0.5% duty | | |
-| High-power SSA | 500 | 300 kW RF broadband, CW | | |
-| Gyrotron | 2000 | 1000 kW RF broadband, CW | | |
+| Magnetron | 7 | 5 kW RF, S-band, 1% duty | | |
+| TWT | 55 | 20 kW RF, all six bands, 5% duty | | |
+| SSA | 70 | 35 kW RF, VHF/UHF, CW | | |
+| Pulsed Klystron | 110 | 50 kW RF, S/C-band, 0.1% duty | | |
+| CW Klystron | 90 | 50 kW RF, UHF/L-band, CW | | |
+| IOT | 115 | 80 kW RF, UHF/L-band, CW | | |
+| Multi-beam Klystron | 310 | 200 kW RF, S/C-band, 0.5% duty | | |
+| High-power SSA | 500 | 300 kW RF, VHF/UHF/L-band, CW | | |
+| Gyrotron | 2000 | 1000 kW RF, C/X-band, CW | | |
 | Modulator | 3 | *nothing — inert* | | |
 | Circulator | | *nothing — inert* | | |
 | High-power Coupler | | *nothing — inert* | | |

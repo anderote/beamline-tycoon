@@ -24,6 +24,7 @@ import {
 import { PARAM_DEFS } from '../../beamline/component-physics.js';
 import { T_SUPERFLUID, T_NORMAL } from '../../utility/types/cryoTransfer.js';
 import { UTILITY_LADDERS } from './utility-model.js';
+import { bandForFrequencyHz } from '../../utility/types/rfWaveguide.js';
 
 // Reference bath temperatures for the two operating points the plants offer,
 // plus the 4.2 K of a plain atmospheric-pressure LHe bath for contrast.
@@ -94,12 +95,14 @@ function declaredDrive(componentId, spec) {
 }
 
 /**
- * RF sources that can actually drive this cavity: same frequency bucket, or
- * broadband. Ranked by peak power, because peak is what sets gradient.
+ * RF sources that can actually drive this cavity: any source whose declared
+ * bands include the one this frequency falls in. Ranked by peak power, because
+ * peak is what sets gradient.
  */
 export function compatibleRfSources(frequencyHz) {
+  const band = bandForFrequencyHz(frequencyHz ?? 0);
   return UTILITY_LADDERS.rfWaveguide
-    .filter(s => s.broadband || s.frequencyHz === frequencyHz)
+    .filter(s => band && (s.bands || []).includes(band))
     .map(s => ({ ...s, peakKw: s.capacity / Math.max(s.dutyFactor ?? 1, 1e-4) }))
     .sort((a, b) => b.peakKw - a.peakKw);
 }

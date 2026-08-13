@@ -4,7 +4,7 @@ Tier 3 introduces the components needed to build a free electron laser. The chal
 
 > **Availability:** **none of the components on this page are in the catalogue yet** — no chicane, no harmonic linearizer, no undulator of any kind, no photon port, no bunch length monitor, no energy spectrometer. The engine maps undulator parameters (`period`, `kParameter`, `photonRate`) and knows the `undulator` and `chicane` physics types, and the FEL gain module is complete — but with no component declaring those types and no beamline ever running as a `fel` machine, the code has never executed in play.
 >
-> The one component here that *does* exist is the **Buncher** (200 MHz, 2 kW RF), which is modelled as an ordinary RF cavity rather than as a sub-harmonic buncher with its own drift-compression behaviour.
+> The one component here that *does* exist is the **Buncher** (162.5 MHz, 2 kW RF), which is modelled as an ordinary RF cavity rather than as a sub-harmonic buncher with its own drift-compression behaviour.
 >
 > Read this article as the design target for tier 3.
 

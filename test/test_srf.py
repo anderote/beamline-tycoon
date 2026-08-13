@@ -104,7 +104,7 @@ def test_nc_ignores_temperature():
 
 
 def test_nc_dissipation_round_trips():
-    spec = CAVITY_SPECS["cbandCavity"]
+    spec = CAVITY_SPECS["cbandStructure"]
     for power in (1e6, 30e6):
         grad = e_acc_max(power, spec)
         assert p_diss(grad, spec) == pytest.approx(power, rel=1e-9)

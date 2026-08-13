@@ -191,13 +191,14 @@ for (const scenario of SCENARIOS) {
   assert(!!flow && flow.totalDemand === 172,
     `whole-facility demand = 172 kW (got ${flow?.totalDemand})`);
 
-  // The 200 MHz cavities have an RF source that actually covers them (the
-  // broadband amp) — a frequency mismatch is only a SOFT error, so it would
-  // otherwise sail past the blocker check at quality 0.
+  // The 162.5 MHz cavities have an RF source that actually covers their band
+  // (the SSA) — a frequency mismatch is only a SOFT error, so it would
+  // otherwise sail past the blocker check at quality 0. totalCapacity counts
+  // eligible sources only, so 35 here also proves the SSA is in band.
   const rfFlows = state.utilityNetworkData?.get?.('rfWaveguide');
   const rfFlow = rfFlows && [...rfFlows.values()][0];
   assert(!!rfFlow && rfFlow.totalDemand === 17 && rfFlow.totalCapacity === 35,
-    `RF: 17 kW of 200 MHz demand against 35 kW broadband (got ${rfFlow?.totalDemand}/${rfFlow?.totalCapacity})`);
+    `RF: 17 kW of 162.5 MHz demand against 35 kW of in-band capacity (got ${rfFlow?.totalDemand}/${rfFlow?.totalCapacity})`);
 }
 
 // --- tutorial + objective conditions run without throwing -----------------

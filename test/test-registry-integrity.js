@@ -104,7 +104,10 @@ const UNIMPLEMENTED_CONTENT = new Set([
   'harmonicLinearizer', 'dogleg', 'laserHeater',
   'helicalUndulator', 'wiggler', 'apple2Undulator', 'photonPort',
   'bunchLengthMonitor', 'energySpectrometer',
-  'srf650Cavity', 'cbandCavity', 'xbandCavity',
+  // `srf650Cavity`, `cbandCavity` and `xbandCavity` were here. The RF ladder
+  // implemented all three, under the names the hardware actually goes by:
+  // srf650Cryomodule, cbandStructure, xbandStructure. The intent survived the
+  // rename — only the placeholder ids died with it.
   'octupole', 'scQuad', 'scDipole',
   // collider hardware
   'positronTarget', 'kickerMagnet', 'septumMagnet', 'comptonIP',
