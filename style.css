@@ -4856,3 +4856,11 @@ body {
   border: 1px dashed rgba(80, 80, 120, 0.3);
   border-radius: 3px;
 }
+
+/* Exact RF frequency under the band badge. Dimmer than the band: the band is
+   what you match a source against, the frequency is what forces a separate
+   network when two structures in the same band disagree. */
+.palette-item .palette-rf-freq {
+  color: #bbaa77;
+  font-size: 7px;
+}
