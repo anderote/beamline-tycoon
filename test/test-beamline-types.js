@@ -77,9 +77,11 @@ for (const t of TYPES) {
     `${t.id}.requires: ${dead.length === 0 ? 'all gates resolve' : `dead node(s) ${dead.join(', ')}`}`);
 }
 
-// The roster's design claim, and worth pinning: adding nine types required
+// The roster's design claim, and worth pinning: adding ten types required
 // adding zero research nodes. If a future type needs a new node, that is a
-// decision to make deliberately rather than discover.
+// decision to make deliberately rather than discover. blackHoleFactory kept
+// that claim intact — it gates on `particleDiscovery`, a node that had sat in
+// the tree unlocking nothing at all since the tree shipped.
 console.log('\n--- the roster is gated entirely on pre-existing research ---');
 {
   const ungated = TYPES.filter(t => !t.requires).map(t => t.id);
@@ -190,7 +192,7 @@ for (const t of TYPES) {
     `${t.id}.bandWidth = ${t.bandWidth} is a positive falloff`);
   assert(t.dutyFactor > 0 && t.dutyFactor <= 1,
     `${t.id}.dutyFactor = ${t.dutyFactor} is a fraction`);
-  assert(Number.isInteger(t.tier) && t.tier >= 1 && t.tier <= 5, `${t.id}.tier = ${t.tier}`);
+  assert(Number.isInteger(t.tier) && t.tier >= 1 && t.tier <= 6, `${t.id}.tier = ${t.tier}`);
 }
 
 console.log('\n--- ids, keys and display fields line up ---');
@@ -203,11 +205,16 @@ for (const [key, t] of Object.entries(BEAMLINE_TYPES)) {
 }
 
 // The money/data/prestige triangle only works if every tier holds something.
-console.log('\n--- the roster spans tier 1 through 5 ---');
+// Tier 6 is the deliberate exception — one machine, no money — so it is
+// asserted as a singleton rather than folded into the triangle.
+console.log('\n--- the roster spans tier 1 through 6 ---');
 {
   const tiers = new Set(TYPES.map(t => t.tier));
-  assert([1, 2, 3, 4, 5].every(n => tiers.has(n)), `tiers present: ${[...tiers].sort().join(', ')}`);
-  assert(TYPES.length === 9, `nine types (got ${TYPES.length})`);
+  assert([1, 2, 3, 4, 5, 6].every(n => tiers.has(n)), `tiers present: ${[...tiers].sort().join(', ')}`);
+  assert(TYPES.length === 10, `ten types (got ${TYPES.length})`);
+  const top = TYPES.filter(t => t.tier === 6);
+  assert(top.length === 1 && top[0].id === 'blackHoleFactory',
+    `tier 6 holds exactly the Black Hole Factory (${top.map(t => t.id).join(', ')})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +228,8 @@ console.log('\n--- lookup and unlock helpers ---');
   const opening = beamlineTypesFor([]);
   assert(opening.length === 2 && opening.every(t => t.tier === 1),
     `an empty research state opens exactly the two tier-1 types (${opening.map(t => t.id).join(', ')})`);
+  assert(getBeamlineType('blackHoleFactory') === BEAMLINE_TYPES.blackHoleFactory,
+    'getBeamlineType finds the tier-6 entry');
 
   const all = beamlineTypesFor(Object.keys(RESEARCH));
   assert(all.length === TYPES.length, 'a complete tech tree opens every type');
@@ -270,9 +279,19 @@ console.log('\n--- Types unlock with their defining hardware available ---');
 
   for (const [need, types] of Object.entries({
     protonAcceleration: ['spallation', 'therapy'],
-    bunchCompression:   ['collider'],
+    bunchCompression:   ['collider', 'blackHoleFactory'],
     srfTechnology:      ['collider'],
     targetPhysics:      ['isotopeIrradiation'],
+    // The tier-6 type's whole hardware set, and the reason the closure check
+    // matters more here than anywhere else: `targetPhysicsAdv` gates the ONLY
+    // accelerating structure blackHoleFactory can see, and nothing in the
+    // type's literal `requires` names it. It arrives via colliderTech ->
+    // antimatter -> targetPhysicsAdv. Break that chain and the type unlocks
+    // onto a palette whose best rung is a 3.5 GeV cryogenic sector, i.e.
+    // 28,572 placements to the band floor.
+    targetPhysicsAdv:   ['blackHoleFactory'],
+    particleDiscovery:  ['blackHoleFactory'],
+    colliderTech:       ['blackHoleFactory'],
   })) {
     for (const tid of types) {
       const done = closure(reqOf(BEAMLINE_TYPES[tid]));
@@ -325,6 +344,92 @@ console.log('\n--- Non-RF additions ---');
   assert(Array.isArray(COMPONENTS.recirculationArc.routing), 'recirculationArc declares routing');
   assert(COMPONENTS.finalFocusDoublet.physicsType === 'quadrupole',
     'finalFocusDoublet models as a quadrupole');
+}
+
+// ---------------------------------------------------------------------------
+// The tier-6 rung and its endpoints.
+//
+// crystalChannelStage gets the same pair of assertions plasmaAfterburner does,
+// for the same reason and one more: like the afterburner it is not RF-fed, so
+// a well-meaning "every accelerating structure needs a waveguide" edit would
+// make it wrong. The extra one is the gradient. `stats.gradient` is not read by
+// the engine — gameplay.py back-derives gradientDemanded as
+// energyGain * 1000 / length — so the catalogue number is free to drift away
+// from what the machine actually does, silently, and it is the only number in
+// the balance readout the player sees. Every rung on the ladder pins it here.
+// ---------------------------------------------------------------------------
+console.log('\n--- crystalChannelStage: the top of the ladder ---');
+{
+  const c = COMPONENTS.crystalChannelStage;
+  assert(!!c, 'crystalChannelStage exists');
+  assert(c.category === 'rf' && c.subsection === 'normalConducting',
+    'crystalChannelStage is rf / normalConducting');
+  assert(c.physicsType === 'rfCavity',
+    'crystalChannelStage models as an rfCavity — no new physics type');
+  assert(Array.isArray(c.beamlineTypes) && c.beamlineTypes.length === 1
+    && c.beamlineTypes[0] === 'blackHoleFactory',
+    'crystalChannelStage is allowlisted to blackHoleFactory alone');
+  assert(c.requiredConnections.includes('dataFiber')
+    && !c.requiredConnections.includes('rfWaveguide'),
+    'crystalChannelStage is not RF-fed');
+  assert(c.rfFrequency === undefined && c.rfBand === undefined,
+    'crystalChannelStage carries no RF frequency or band');
+
+  // subL is in half-metre sub-units; gradientDemanded = energyGain*1000/length
+  // in MV/m, which for 12000 GeV over 10 m is 1.2e6 MV/m = 1.2 TeV/m.
+  const lengthM = c.subL * 0.5;
+  const derived = c.stats.energyGain * 1000 / lengthM;
+  assert(c.stats.gradient === derived,
+    `crystalChannelStage.stats.gradient ${c.stats.gradient} MV/m is what the `
+    + `engine derives (${derived})`);
+  assert(derived >= 1e6 && derived <= 1e7,
+    `${derived / 1e6} TeV/m sits inside the 1-10 TeV/m the channeling `
+    + 'literature discusses');
+
+  // The same identity every rung of the ladder has to keep.
+  assert(c.stats.energyGain / c.subL === 600,
+    `crystalChannelStage delivers ${c.stats.energyGain / c.subL} GeV per `
+    + 'sub-unit (2,400 GeV per 4-sub-unit tile)');
+}
+
+console.log('\n--- the Black Hole Factory type ---');
+{
+  const t = BEAMLINE_TYPES.blackHoleFactory;
+  assert(!!t && t.tier === 6, 'blackHoleFactory is tier 6');
+  assert(t.particle === 'p+p-', 'blackHoleFactory collides hadrons');
+  assert(t.spec.energyGeV[0] === 100000 && t.spec.energyGeV[1] === 500000,
+    'band runs 100,000-500,000 GeV/beam (200 TeV - 1 PeV c.o.m.)');
+  assert(t.spec.currentMA === undefined,
+    'no current band — the currency is luminosity, as on the collider');
+  assert(t.fom === 'blackHoleYield', 'paid on blackHoleYield');
+  assert(t.dutyFactor < BEAMLINE_TYPES.collider.dutyFactor,
+    `duty factor ${t.dutyFactor} is below the collider's `
+    + `${BEAMLINE_TYPES.collider.dutyFactor} — it fires rarely`);
+  assert(asArray(t.requires).includes('colliderTech'),
+    'the tier-6 type is strictly downstream of the tier-5 one');
+
+  // The endpoints, and the identity that makes hawkingDetector worth having:
+  // it is the only endpoint in the catalogue that records at scale and sells
+  // nothing at all. `detector` (the collider's) is the comparison.
+  const chamber = COMPONENTS.blackHoleChamber;
+  const hawking = COMPONENTS.hawkingDetector;
+  assert(chamber && chamber.isEndpoint, 'blackHoleChamber is an endpoint');
+  assert(chamber.category === 'endpoint' && hawking.category === 'endpoint',
+    'both new endpoints are category endpoint');
+  assert(!!chamber.ports.entryA && !!chamber.ports.entryB,
+    'blackHoleChamber takes two counter-propagating arms, as collisionPoint does');
+  assert(chamber.physicsType === 'detector',
+    'blackHoleChamber models as a detector so beam_beam fires on it');
+  assert((hawking.stats.dataRate || 0) > (COMPONENTS.detector.stats.dataRate || 0),
+    `hawkingDetector records more than the collider's detector `
+    + `(${hawking.stats.dataRate} vs ${COMPONENTS.detector.stats.dataRate})`);
+  assert(!hawking.stats.collisionRate && !hawking.stats.photonRate,
+    'hawkingDetector sells nothing — no collision rate, no photon rate');
+  for (const [id, c] of [['blackHoleChamber', chamber], ['hawkingDetector', hawking]]) {
+    assert(Array.isArray(c.beamlineTypes) && c.beamlineTypes.length === 1
+      && c.beamlineTypes[0] === 'blackHoleFactory',
+      `${id} is allowlisted to blackHoleFactory alone`);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

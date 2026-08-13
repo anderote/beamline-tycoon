@@ -197,6 +197,14 @@ export const RESEARCH = {
     desc: 'Develop novel detection techniques and analysis methods for discovering new fundamental particles. Combines advanced trigger algorithms, machine learning for signal-background separation, and statistical methods for claiming discovery at 5-sigma significance. Each discovery advances human knowledge and brings enormous prestige to your facility.',
     cost: { data: 452, funding: 15000000 },
     duration: 120,
+    // The node about claiming a result at five sigma finally hands over the
+    // hardware that would do it: the interaction region a 200 TeV to 1 PeV
+    // collision happens in, and the calorimeter that reads the one signature
+    // no Standard Model process makes. It advertised nothing at all before
+    // this, which for the deepest node in the beam-optics tree was a promise
+    // with no delivery. Both are allowlisted to blackHoleFactory, so this node
+    // is a prerequisite of that machine and not a shortcut to it.
+    unlocks: ['blackHoleChamber', 'hawkingDetector'],
     effect: { discoveryChance: 0.1 },
     requires: 'highLuminosity',
   },
@@ -772,7 +780,13 @@ export const RESEARCH = {
     desc: 'Extend target physics to extreme conditions using high-Z materials (tungsten, depleted uranium) and cryogenic targets (liquid hydrogen, liquid deuterium). High-Z targets maximize secondary particle yield for neutrino beams and muon production. Liquid hydrogen targets enable clean proton-proton scattering experiments. Requires advanced remote handling due to intense activation.',
     cost: { data: 370, funding: 13000000, reputation: 1100 },
     duration: 100,
-    unlocks: [],
+    // Crystal channeling is a beam INSIDE dense matter, held cold, remote-
+    // handled because of what it activates — this node's subject exactly, and
+    // it advertised nothing before now. It is also a prerequisite of
+    // `antimatter` and therefore of `colliderTech`, so the stage can never be
+    // missing when blackHoleFactory unlocks. It stays unbuildable until then
+    // regardless: crystalChannelStage is allowlisted to that type alone.
+    unlocks: ['crystalChannelStage'],
     effect: { luminosityMult: 1.5 },
     requires: 'targetPhysics',
   },

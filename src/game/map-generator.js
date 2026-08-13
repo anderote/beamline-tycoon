@@ -76,6 +76,11 @@ function pickClumpSpecies(entry, rng) {
 // trees" rather than re-asserting any of the named clump species.
 const SCATTER_POOL = ['shrub', 'smallTree', 'birchTree'];
 
+// Lone trees per tile between the clumps. Expressed as a density rather than
+// a count so it means the same thing at any map size — a fixed count would
+// read as sparse scatter on a small map and as nothing at all on a large one.
+const LONELY_TREE_DENSITY = 0.007;
+
 // ── Decoration placement ────────────────────────────────────────────
 
 function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdRef) {
@@ -104,11 +109,18 @@ function placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdR
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// Map shape is an axis-aligned square (|col| <= MAP_EXTENT, |row| <= MAP_EXTENT).
-const MAP_EXTENT = 35;        // half-side of the square map region
-const LONG_EXTENT = MAP_EXTENT;    // retained names used by clump-center margin checks
-const NARROW_EXTENT = MAP_EXTENT;
-const WORLD_BOUND = MAP_EXTENT;    // axis-aligned iteration bound; matches GRASS_RANGE in world-snapshot.js
+// Map shape is an axis-aligned square (|col| <= halfExtent, |row| <= halfExtent).
+//
+// The half-extent used to be a compile-time constant here, duplicated in
+// world-snapshot.js and agent/observation.js — three numbers that had to agree
+// and nothing that made them. It is now state the player buys (see
+// src/data/land.js and Game.buyLand), so every bound below is derived per call
+// from a halfExtent argument. This is the ONE place the starting value lives;
+// Game.js seeds state from it and the other two sites read state.
+//
+// 30 is deliberately smaller than the 35 that shipped before: a starting map
+// you outgrow is what makes land worth buying at all.
+export const DEFAULT_MAP_HALF_EXTENT = 30;   // 61x61 tiles
 const CLEARING_RADIUS = 6;    // |col| <= 6 && |row| <= 6 is off-limits
 const MAX_CLUSTERS = 18;      // distinct, notable forest clumps across the map
 const DRAMATIC_CLUMP_COUNT = 3; // this many clumps get a bigger radius + density
@@ -126,18 +138,19 @@ const CLUMP_MIN_SEPARATION = 22; // minimum distance between clump centers, so g
 const TREE_BAND_SCALE = 5.0;
 const TREE_BAND_MAX = 5;
 
-/** True if (col, row) lies inside the axis-aligned long-narrow map region.
- * Exported so the renderer-side snapshot can mask grass to the same shape. */
-export function inMapRegion(col, row) {
-  return Math.abs(col) <= LONG_EXTENT && Math.abs(row) <= NARROW_EXTENT;
+/** True if (col, row) lies inside the axis-aligned square map region.
+ * Exported so the renderer-side snapshot can mask grass to the same shape;
+ * it passes the extent from state, which is why there is no literal here. */
+export function inMapRegion(col, row, halfExtent = DEFAULT_MAP_HALF_EXTENT) {
+  return Math.abs(col) <= halfExtent && Math.abs(row) <= halfExtent;
 }
 
 function inClearing(col, row) {
   return Math.abs(col) <= CLEARING_RADIUS && Math.abs(row) <= CLEARING_RADIUS;
 }
 
-function outOfBounds(col, row) {
-  return !inMapRegion(col, row);
+function outOfBounds(col, row, halfExtent) {
+  return !inMapRegion(col, row, halfExtent);
 }
 
 function footprintCells(def, col, row) {
@@ -152,10 +165,10 @@ function footprintCells(def, col, row) {
   return cells;
 }
 
-function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng) {
+function tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng, halfExtent) {
   const def = PLACEABLES[type];
   if (!def) return false;
-  if (outOfBounds(col, row)) return false;
+  if (outOfBounds(col, row, halfExtent)) return false;
   if (inClearing(col, row)) return false;
   const cells = footprintCells(def, col, row);
   for (const key of cells) {
@@ -204,13 +217,13 @@ function featureContribution(col, row, feature) {
 /** Iteratively shave peaks (toward min+1 per 2×2 window) until every 2×2
  *  corner window spans ≤ 1 step. Safety net — our gentle slopes usually
  *  satisfy this already. */
-function smoothCornerGrid(grid) {
+function smoothCornerGrid(grid, halfExtent) {
   const MAX_PASSES = 64;
   const get = (c, r) => grid.get(c + ',' + r) ?? 0;
   for (let pass = 0; pass < MAX_PASSES; pass++) {
     let changed = false;
-    for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
-      for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
+    for (let col = -halfExtent; col <= halfExtent; col++) {
+      for (let row = -halfExtent; row <= halfExtent; row++) {
         const nw = get(col,     row);
         const ne = get(col + 1, row);
         const se = get(col + 1, row + 1);
@@ -229,8 +242,8 @@ function smoothCornerGrid(grid) {
   }
 }
 
-function pickFeatureCenter(existing, rng) {
-  const range = MAP_EXTENT - 4;
+function pickFeatureCenter(existing, rng, halfExtent) {
+  const range = halfExtent - 4;
   for (let attempt = 0; attempt < FEATURE_PICK_ATTEMPTS; attempt++) {
     const cx = Math.round((rng() * 2 - 1) * range);
     const cy = Math.round((rng() * 2 - 1) * range);
@@ -244,10 +257,10 @@ function pickFeatureCenter(existing, rng) {
   return null;
 }
 
-function addHillsAndHollows(cornerHeights, rng) {
+function addHillsAndHollows(cornerHeights, rng, halfExtent) {
   const features = [];
   for (let i = 0; i < NUM_HILLS; i++) {
-    const c = pickFeatureCenter(features, rng);
+    const c = pickFeatureCenter(features, rng, halfExtent);
     if (!c) break;
     let peak;
     if (i < NUM_DRAMATIC_HILLS) {
@@ -260,7 +273,7 @@ function addHillsAndHollows(cornerHeights, rng) {
     features.push({ ...c, amp: peak, radius: peak * FEATURE_RADIUS_MULTIPLIER });
   }
   for (let i = 0; i < NUM_HOLLOWS; i++) {
-    const c = pickFeatureCenter(features, rng);
+    const c = pickFeatureCenter(features, rng, halfExtent);
     if (!c) break;
     const depth = 1 + Math.floor(rng() * HOLLOW_MAX_STEPS);
     features.push({ ...c, amp: -depth, radius: depth * FEATURE_RADIUS_MULTIPLIER });
@@ -268,19 +281,19 @@ function addHillsAndHollows(cornerHeights, rng) {
   if (features.length === 0) return;
 
   const grid = new Map();
-  for (let col = -WORLD_BOUND; col <= WORLD_BOUND + 1; col++) {
-    for (let row = -WORLD_BOUND; row <= WORLD_BOUND + 1; row++) {
+  for (let col = -halfExtent; col <= halfExtent + 1; col++) {
+    for (let row = -halfExtent; row <= halfExtent + 1; row++) {
       let v = 0;
       for (const f of features) v += featureContribution(col, row, f);
       grid.set(col + ',' + row, Math.round(v));
     }
   }
-  smoothCornerGrid(grid);
+  smoothCornerGrid(grid, halfExtent);
 
   const get = (c, r) => grid.get(c + ',' + r) ?? 0;
   const fakeState = { cornerHeights, cornerHeightsRevision: 0 };
-  for (let col = -WORLD_BOUND; col <= WORLD_BOUND; col++) {
-    for (let row = -WORLD_BOUND; row <= WORLD_BOUND; row++) {
+  for (let col = -halfExtent; col <= halfExtent; col++) {
+    for (let row = -halfExtent; row <= halfExtent; row++) {
       const nw = get(col,     row);
       const ne = get(col + 1, row);
       const se = get(col + 1, row + 1);
@@ -304,12 +317,12 @@ const MEADOW_RADIUS_MIN = 4;
 const MEADOW_RADIUS_MAX = 10;
 const MEADOW_MIN_BLOB_SIZE = 3;
 
-function placeMeadowGrass(blobs, floors, rng) {
+function placeMeadowGrass(blobs, floors, rng, halfExtent) {
   const candidates = blobs
     .filter(b => b.brightness >= MEADOW_BRIGHTNESS_THRESHOLD
       && Math.min(b.sx, b.sy) >= MEADOW_MIN_BLOB_SIZE
-      && Math.abs(b.cx) <= LONG_EXTENT
-      && Math.abs(b.cy) <= NARROW_EXTENT)
+      && Math.abs(b.cx) <= halfExtent
+      && Math.abs(b.cy) <= halfExtent)
     .slice()
     .sort((a, b) => b.brightness - a.brightness);
 
@@ -334,7 +347,7 @@ function placeMeadowGrass(blobs, floors, rng) {
     const rowMax = Math.ceil(blob.cy) + extent;
     for (let col = colMin; col <= colMax; col++) {
       for (let row = rowMin; row <= rowMax; row++) {
-        if (outOfBounds(col, row) || inClearing(col, row)) continue;
+        if (outOfBounds(col, row, halfExtent) || inClearing(col, row)) continue;
         const key = col + ',' + row;
         if (placed.has(key)) continue;
         const dx = col - blob.cx;
@@ -360,8 +373,14 @@ function placeMeadowGrass(blobs, floors, rng) {
  * Produce the natural starter map: tree decorations only, placed on the
  * darkest terrain-brightness blobs. Returns the same shape as the old
  * Fermilab generator so Game.js can drop the result into state directly.
+ *
+ * `halfExtent` is the map's half-side. Note that this generator draws from a
+ * SEQUENTIAL LCG, so its output depends on how many tiles it iterates:
+ * calling it again at a larger extent produces a different map, not the same
+ * map with a border added. That is exactly why bought land goes through
+ * generateAnnulus instead — see the note there.
  */
-export function generateStartingMap(seed = 42, terrainBlobs = []) {
+export function generateStartingMap(seed = 42, terrainBlobs = [], halfExtent = DEFAULT_MAP_HALF_EXTENT) {
   // Seeded LCG PRNG
   let _seed = (seed | 0) || 1;
   const rng = () => {
@@ -381,8 +400,8 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   const candidates = terrainBlobs
     .filter(b => b.brightness <= DARK_CLUSTER_THRESHOLD
       && Math.min(b.sx, b.sy) >= CLUMP_MIN_BLOB_SIZE
-      && Math.abs(b.cx) <= LONG_EXTENT + CLUMP_CENTER_MARGIN
-      && Math.abs(b.cy) <= NARROW_EXTENT + CLUMP_CENTER_MARGIN)
+      && Math.abs(b.cx) <= halfExtent + CLUMP_CENTER_MARGIN
+      && Math.abs(b.cy) <= halfExtent + CLUMP_CENTER_MARGIN)
     .slice()
     .sort((a, b) => a.brightness - b.brightness);
   const clusters = [];
@@ -433,11 +452,11 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
       const col = Math.round(worldX);
       const row = Math.round(worldY);
 
-      if (outOfBounds(col, row)) continue;
+      if (outOfBounds(col, row, halfExtent)) continue;
       if (inClearing(col, row)) continue;
 
       const type = pickClumpSpecies(clumpEntry, rng);
-      if (tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng)) {
+      if (tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng, halfExtent)) {
         placed++;
       }
     }
@@ -448,17 +467,19 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   //    clumps isn't completely bare. Skipped when terrainBlobs is empty so
   //    generateStartingMap(seed, []) returns an empty map for testing.
   if (terrainBlobs.length > 0) {
-    for (let i = 0; i < 35; i++) {
-      const col = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
-      const row = Math.floor(rng() * (WORLD_BOUND * 2 + 1)) - WORLD_BOUND;
+    const side = halfExtent * 2 + 1;
+    const lonelyCount = Math.round(side * side * LONELY_TREE_DENSITY);
+    for (let i = 0; i < lonelyCount; i++) {
+      const col = Math.floor(rng() * (halfExtent * 2 + 1)) - halfExtent;
+      const row = Math.floor(rng() * (halfExtent * 2 + 1)) - halfExtent;
       const type = SCATTER_POOL[Math.floor(rng() * SCATTER_POOL.length)];
-      tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng);
+      tryPlaceTree(type, col, row, placeables, treeCells, nextIdRef, rng, halfExtent);
     }
   }
 
   const floors = [];
   if (terrainBlobs.length > 0) {
-    placeMeadowGrass(terrainBlobs, floors, rng);
+    placeMeadowGrass(terrainBlobs, floors, rng, halfExtent);
   }
   const walls = [];
   // Flat mode: no hills/hollows — keeps all default elevations at z=0
@@ -466,7 +487,7 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
   // underground system (RCT-style levels) will re-enable terrain features
   // behind a level flag.
   const cornerHeights = new Map();
-  // addHillsAndHollows(cornerHeights, rng); // flat for now
+  // addHillsAndHollows(cornerHeights, rng, halfExtent); // flat for now
 
   return {
     floors,
@@ -477,4 +498,112 @@ export function generateStartingMap(seed = 42, terrainBlobs = []) {
     placeableNextId: nextIdRef.value,
     cornerHeights,
   };
+}
+
+// ── Bought land ─────────────────────────────────────────────────────
+//
+// New ground CANNOT come from generateStartingMap. That generator walks a
+// sequential LCG, so a tile's contents depend on how many tiles were drawn
+// before it: re-running it at a larger extent hands every tile a different
+// draw and relocates every tree on the map — including the ones the player
+// routed a beamline around and the ones they cleared to make room. Land you
+// buy has to arrive as a border, not as a reshuffle.
+//
+// So the annulus generator is POSITION-HASHED instead. Each tile seeds its own
+// tiny LCG from hash(seed, col, row) and draws only from that, which makes a
+// tile's contents a pure function of its coordinates and the terrain seed —
+// independent of iteration order, of how the ring was sliced, and of how much
+// land has been bought. The property that proves it, and the one the test
+// asserts, is that 30->60 followed by 60->90 is exactly 30->90.
+//
+// Species and density still read the same terrainBlobs field the starting map
+// does, so bought land looks like a continuation of the site rather than a
+// different planet — dark ground forests up, bright ground stays open. The
+// blob field is finite (roughly ±100 tiles), so the outermost parcel fades to
+// featureless grass with lone trees on it. That reads correctly: the far
+// perimeter of a lab site is farmland, not old-growth forest.
+
+const ANNULUS_FOREST_DENSITY = 0.55;   // tree chance per tile at the darkest ground
+const ANNULUS_SCATTER_DENSITY = 0.02;  // ...and on ground with no blob over it
+const ANNULUS_FULL_DARK = 0.6;         // brightness at which forest density saturates
+
+/** 32-bit mix of (seed, col, row). Order-free by construction: no state
+ *  carries between tiles. */
+function tileHash(seed, col, row) {
+  let h = Math.imul(seed | 0, 374761393);
+  h = (h + Math.imul(col | 0, 668265263)) | 0;
+  h = (h + Math.imul(row | 0, 2246822519)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** A per-tile random stream. Several draws per tile (occupancy, species,
+ *  sub-cell jitter) without any of them depending on a neighbour. */
+function tileRandom(seed, col, row) {
+  let s = tileHash(seed, col, row) & 0x7fffffff;
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+/**
+ * Generate the ring of new ground between two half-extents: every tile with
+ * `max(|col|, |row|)` in `(fromHalfExtent, toHalfExtent]`. Ids continue from
+ * `startId` so the caller can splice the result straight into state.placeables.
+ *
+ * Returns `{ placeables, placeableNextId }`. Meadow floors are deliberately not
+ * generated out here — they are chosen per blob against the whole map, and
+ * re-choosing them on each purchase would move the ones already on the ground.
+ */
+export function generateAnnulus(seed = 42, terrainBlobs = [], fromHalfExtent = 0, toHalfExtent = 0, startId = 1) {
+  const placeables = [];
+  const nextIdRef = { value: startId };
+  if (!(toHalfExtent > fromHalfExtent)) return { placeables, placeableNextId: nextIdRef.value };
+
+  for (let col = -toHalfExtent; col <= toHalfExtent; col++) {
+    for (let row = -toHalfExtent; row <= toHalfExtent; row++) {
+      // The ring, not the square: everything at or inside the old extent is
+      // land the player already owns and already has trees on.
+      if (Math.max(Math.abs(col), Math.abs(row)) <= fromHalfExtent) continue;
+
+      const rng = tileRandom(seed, col, row);
+      const brightness = sampleTerrainBrightness(col, row, terrainBlobs);
+
+      // Dark ground forests; anything at or above the clump threshold gets the
+      // lone-tree scatter instead, so meadows stay open the way they do on the
+      // starting map.
+      const forested = brightness <= DARK_CLUSTER_THRESHOLD;
+      let density = ANNULUS_SCATTER_DENSITY;
+      if (forested) {
+        const darkness = Math.min(1, -brightness / ANNULUS_FULL_DARK);
+        density += (ANNULUS_FOREST_DENSITY - ANNULUS_SCATTER_DENSITY) * darkness;
+      }
+      if (rng() >= density) continue;
+
+      let type;
+      if (forested) {
+        const band = Math.max(0,
+          Math.min(TREE_BAND_MAX, Math.round(-brightness * TREE_BAND_SCALE)));
+        const entry = CLUMP_CATEGORIES[pickClumpCategory(brightness, band, rng)];
+        type = pickClumpSpecies(entry, rng);
+      } else {
+        type = SCATTER_POOL[Math.floor(rng() * SCATTER_POOL.length)];
+      }
+
+      // One tree per tile, and every tree species is a single-tile footprint,
+      // so no cross-tile collision test is needed — which is what keeps the
+      // whole pass order-independent. A multi-tile decoration added to
+      // SCATTER_POOL or CLUMP_CATEGORIES would break that; keep them 1x1.
+      const def = PLACEABLES[type];
+      if (!def) continue;
+      const subW = def.subW || 4;
+      const subL = def.subL || 4;
+      const subCol = Math.floor(rng() * Math.max(1, 5 - subW));
+      const subRow = Math.floor(rng() * Math.max(1, 5 - subL));
+      placeTreeDecoration(placeables, type, col, row, subCol, subRow, nextIdRef);
+    }
+  }
+
+  return { placeables, placeableNextId: nextIdRef.value };
 }

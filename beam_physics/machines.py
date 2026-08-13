@@ -76,7 +76,7 @@ def _sorted_modules(modules):
 
 
 _MACHINE_CONFIGS = {
-    # --- The nine game beamline types (ids match BEAMLINE_TYPES) -----------
+    # --- The ten game beamline types (ids match BEAMLINE_TYPES) ------------
     "testStand": {
         "modules": _sorted_modules(_TRANSPORT),
         "tier": 1,
@@ -148,6 +148,21 @@ _MACHINE_CONFIGS = {
         "capabilities": frozenset({"beam_beam", "bunch_compression"}),
         "success_metric": "integrated_luminosity",
         "description": "Linear Collider",
+    },
+    "blackHoleFactory": {
+        # The collider's stack exactly, and that is the point: a black hole
+        # factory is a collider, three orders of magnitude up. Nothing about
+        # 500 TeV/beam calls for physics the collider does not already run —
+        # what changes is the number the machine is paid on, not the modules
+        # that produce it. `black_hole_yield` is computed analytically in
+        # gameplay.py from the energy and the luminosity beam_beam already
+        # reports; there is deliberately no black_hole.py, because a module
+        # here would imply the game simulates production, and it does not.
+        "modules": _sorted_modules(_TRANSPORT + [_BUNCH_COMPRESSION, _BEAM_BEAM]),
+        "tier": 6,
+        "capabilities": frozenset({"beam_beam", "bunch_compression"}),
+        "success_metric": "black_hole_yield",
+        "description": "Black Hole Factory",
     },
 
     # --- Legacy type names ------------------------------------------------

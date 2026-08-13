@@ -2278,6 +2278,32 @@ function _gSegment(bucket, a, b, r, segs = 10) {
 }
 
 /**
+ * Circular arc drawn as `steps` chords, centred on `centre` = [x, y, z], with
+ * angle 0 pointing straight DOWN from the centre. `plane` picks which pair of
+ * axes the arc sweeps in: 'zy' (arc opens along ±Z, the goniometer-cradle
+ * case) or 'xy' (opens along ±X).
+ *
+ * Real precision mounts are arcs — a cradle rail whose centre of curvature is
+ * the sample, a girth strap round a pressure vessel — and chording them keeps
+ * that hardware in the same _gSegment vocabulary as every other curved run
+ * here rather than dragging in a torus with its own UV rules.
+ */
+function _gArc(bucket, centre, r, a0, a1, steps, tubeR) {
+  const pt = (a) => (
+    [centre[0], centre[1] - r * Math.cos(a), centre[2] + r * Math.sin(a)]
+  );
+  for (let i = 0; i < steps; i++) {
+    _gSegment(
+      bucket,
+      pt(a0 + (a1 - a0) * (i / steps)),
+      pt(a0 + (a1 - a0) * ((i + 1) / steps)),
+      tubeR,
+      8,
+    );
+  }
+}
+
+/**
  * Beam-pipe stubs from `innerZ` out to the tile edge plus a CF flange on
  * each edge. Every placement component needs this or the pipe visibly
  * breaks at the join with its neighbour.
@@ -2882,6 +2908,145 @@ function _buildPlasmaAfterburnerRoles() {
 ROLE_BUILDERS.plasmaAfterburner = _buildPlasmaAfterburnerRoles;
 
 /**
+ * Crystal channeling stage — the one accelerating component in the game that
+ * contains no accelerating structure at all. The medium is a bent silicon
+ * wafer a few centimetres across; everything else inside the 10 m footprint
+ * is the machine that holds it still.
+ *
+ * Modelled on UA9's goniometer at the SPS and its LHC crystal-collimation
+ * descendants: pneumatic isolators, a granite bench, a pitch cradle whose
+ * centre of curvature is the crystal itself, a yaw stage under a small UHV
+ * cross, and a laser interferometer watching the stack because the Lindhard
+ * critical angle is tens of microradians and nothing mechanical holds that
+ * open-loop. The mount outweighs the crystal by roughly 100:1, and that ratio
+ * IS the read — what the player is buying is alignment, not a resonator. So:
+ * no waveguide, no coupler, no cryostat, nothing that bulges into cells.
+ */
+function _buildCrystalChannelStageRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 10.0;              // subL 20
+  const tileEdge = magL / 2;
+
+  // --- Pneumatic isolators + granite bench ---
+  // The bench is the single largest object here and it is inert: mass and
+  // damping are the whole product. Six air legs, because three-point support
+  // is what a real optical table uses and six reads as "heavier still".
+  const benchH = 0.28, benchTop = 0.40, benchW = 1.80, benchL = 6.4;
+  for (const z of [-2.6, 0, 2.6]) {
+    for (const x of [-0.62, 0.62]) _gCylY(buckets.stand, 0.15, 0.12, { x, y: 0.06, z });
+  }
+  _gBox(buckets.stand, benchW, benchH, benchL, { y: benchTop - benchH / 2 });
+  // Kinematic mounting rails let the stage stack be lifted off and put back
+  // on the same three points — the only reason a bench this big is useful.
+  for (const x of [-0.72, 0.72]) {
+    _gBox(buckets.detail, 0.10, 0.05, benchL - 0.4, { x, y: benchTop + 0.025 });
+  }
+
+  // --- Pitch cradle: two arc rails centred ON the crystal ---
+  // A goniometer's defining trick. Because the arc's centre of curvature sits
+  // at the beam axis, rotating the carriage tilts the crystal without
+  // translating it, so the beam never walks off the channel while you search
+  // for the alignment angle.
+  const cradleR = 0.56, cradleX = 0.60;
+  for (const sx of [-1, 1]) {
+    _gArc(buckets.iron, [sx * cradleX, BEAM_HEIGHT, 0], cradleR, -1.08, 1.08, 10, 0.055);
+    // Saddle tying the arc's low point down to the bench.
+    _gBox(buckets.iron, 0.18, 0.07, 0.44, { x: sx * cradleX, y: benchTop + 0.02 });
+    // Worm drive that walks the carriage along the rail.
+    _gCylZ(buckets.detail, 0.035, 0.9, { x: sx * (cradleX - 0.10), y: 0.50 });
+  }
+
+  // --- Tilt carriage riding the cradle ---
+  const carY = 0.545;
+  _gBox(buckets.iron, 1.44, 0.09, 0.40, { y: carY });
+  for (const sx of [-1, 1]) _gBox(buckets.iron, 0.15, 0.09, 0.24, { x: sx * cradleX, y: 0.50 });
+
+  // --- Yaw (theta) stage: the axis that actually finds the channel ---
+  // Everything else is a convenience; this one is swept in microradian steps
+  // until the beam falls into the corridor between lattice planes.
+  _gCylY(buckets.iron, 0.30, 0.16, { y: 0.67 });
+  _gCylY(buckets.accent, 0.325, 0.03, { y: 0.765 });   // graduated angle readout
+  _gCylY(buckets.pipe, 0.10, 0.08, { y: 0.79 });        // rotary vacuum feedthrough
+
+  // --- Micrometer / piezo actuators ---
+  // Coarse micrometers on the outside, a piezo flexure under the yaw stage.
+  // Two stages of resolution is what gets you from millimetres to the
+  // microradian setting range the crystal needs.
+  for (const sx of [-1, 1]) {
+    _gCylX(buckets.iron, 0.045, 0.22, { x: sx * 0.44, y: 0.67 });
+    _gCylX(buckets.detail, 0.075, 0.04, { x: sx * 0.575, y: 0.67 });
+    _gCylY(buckets.iron, 0.04, 0.24, { x: sx * 0.34, y: 0.50, z: 0.28 });
+    _gCylY(buckets.detail, 0.065, 0.035, { x: sx * 0.34, y: 0.635, z: 0.28 });
+  }
+  _gBox(buckets.accent, 0.30, 0.05, 0.30, { y: 0.615 });
+
+  // --- The crystal chamber: a small UHV cross on the axis ---
+  // Physically the smallest vessel on any beamline in the catalogue. The
+  // silicon inside it is centimetres across and never visible; the bright
+  // band and the viewports are what mark where it is.
+  const chR = 0.20, chHalf = 0.22;
+  _gCylZ(buckets.pipe, chR, chHalf * 2);
+  _gCylZ(buckets.accent, chR + 0.015, 0.07);
+  for (const sign of [-1, 1]) {
+    _gCylZ(buckets.detail, 0.26, 0.05, { z: sign * (chHalf + 0.025) });
+    // Viewport nozzle: alignment is checked optically before the beam is let in.
+    _gCylX(buckets.pipe, 0.09, 0.16, { x: sign * 0.28 });
+    _gCylX(buckets.accent, 0.105, 0.03, { x: sign * 0.375 });
+  }
+  _gCylY(buckets.pipe, 0.07, 0.20, { y: BEAM_HEIGHT + 0.30 });
+  _gCylY(buckets.detail, 0.105, 0.035, { y: BEAM_HEIGHT + 0.417 });
+
+  // Ion pump on a tee downstream — a channeling crystal is a UHV device and
+  // an oil-free one, because a hydrocarbon film on the surface destroys the
+  // channel long before the radiation damage does.
+  _gCylY(buckets.pipe, 0.09, 0.30, { y: BEAM_HEIGHT + 0.25, z: 0.90 });
+  _gBox(buckets.iron, 0.30, 0.26, 0.34, { y: BEAM_HEIGHT + 0.53, z: 0.90 });
+
+  // --- Laser interferometer arm ---
+  // The readout that makes the whole thing an instrument instead of a stand:
+  // a heterodyne interferometer measuring the carriage against a fixed
+  // reference, continuously, while a TeV beam deposits into the crystal and
+  // tries to move it.
+  const armX = -0.86, armY = BEAM_HEIGHT + 0.12;
+  _gBox(buckets.iron, 0.16, 0.10, 5.2, { x: armX, y: BEAM_HEIGHT });
+  for (const z of [-2.0, 2.0]) _gCylY(buckets.stand, 0.05, 0.55, { x: armX, y: 0.675, z });
+  _gBox(buckets.accent, 0.26, 0.22, 0.62, { x: armX, y: BEAM_HEIGHT + 0.16, z: -2.10 });
+  _gBox(buckets.detail, 0.14, 0.14, 0.14, { x: armX, y: armY, z: -0.60 });  // beam splitter
+  _gBox(buckets.detail, 0.12, 0.12, 0.12, { x: armX, y: armY, z: 1.60 });   // reference retro
+  // Measurement retroreflector, posted up off the carriage itself.
+  _gCylY(buckets.iron, 0.03, 0.52, { x: -0.40, y: 0.86, z: -0.60 });
+  _gBox(buckets.detail, 0.11, 0.11, 0.11, { x: -0.40, y: armY, z: -0.60 });
+  _gCylZ(buckets.accent, 0.014, 1.12, { x: armX, y: armY, z: -1.23 });
+  _gCylZ(buckets.accent, 0.014, 2.13, { x: armX, y: armY, z: 0.53 });
+  _gCylX(buckets.accent, 0.014, 0.40, { x: -0.63, y: armY, z: -0.60 });
+
+  // --- Stage controller and interferometer electronics ---
+  for (const z of [-3.70, 3.70]) {
+    _gBox(buckets.iron, 0.50, 0.72, 0.66, { x: 0.62, y: 0.36, z });
+    _gBox(buckets.detail, 0.06, 0.30, 0.50, { x: 0.89, y: 0.50, z });
+    _gBox(buckets.accent, 0.10, 0.06, 0.30, { x: 0.89, y: 0.66, z });
+  }
+
+  // --- Beam line through: bare pipe, a bellows and a sector valve each side ---
+  // Ten metres of tile and almost all of it is plain pipe. Nothing here
+  // accelerates except the 300 µm of silicon at z = 0.
+  _gBeamEnds(buckets, tileEdge, chHalf + 0.05);
+  for (const sign of [-1, 1]) {
+    for (let k = 0; k < 4; k++) {
+      _gCylZ(buckets.detail, PIPE_R + 0.035, 0.035, { z: sign * (1.5 + k * 0.06) });
+    }
+    _gBox(buckets.accent, 0.26, 0.34, 0.14, { z: sign * 2.4, y: BEAM_HEIGHT + 0.06 });
+    _gCylX(buckets.detail, 0.09, 0.04, { x: 0.17, y: BEAM_HEIGHT + 0.06, z: sign * 2.4 });
+  }
+  _gPedestals(buckets, [-4.3, -3.4, 3.4, 4.3], BEAM_HEIGHT - 0.14, { w: 0.18, d: 0.16 });
+
+  return buckets;
+}
+ROLE_BUILDERS.crystalChannelStage = _buildCrystalChannelStageRoles;
+
+/**
  * Fast kicker — a magnet that is almost entirely not a magnet. The ferrite
  * window-frame yoke is small because it has to be: rise time scales with
  * stored energy, so a kicker gets a tiny aperture and a handful of turns.
@@ -3148,6 +3313,198 @@ function _buildFinalFocusDoubletRoles() {
   return buckets;
 }
 ROLE_BUILDERS.finalFocusDoublet = _buildFinalFocusDoubletRoles;
+
+/**
+ * Black hole chamber — the interaction region of the tier-6 machine, and the
+ * only endpoint in the game with a beam port on both faces (entryA/entryB).
+ *
+ * The read wanted here is containment, not observation: this is closer to a
+ * reactor vessel in a shielded pit than to `detector`'s open barrel. A heavy
+ * spherical shell on a saddle, girth straps, two opposed nozzles with their
+ * final-focus doublets squeezing beta-star down to millimetres just outside,
+ * and shield walls stacked from discrete blocks with the roof beams only
+ * partly on — so the silhouette says the vessel is normally buried and is
+ * being looked at through a gap.
+ *
+ * Sphere radius is set by the floor, not by the catalogue's 12 m: the beam
+ * axis is fixed at BEAM_HEIGHT = 1 m, the vessel is centred on the beam, so
+ * anything past ~0.95 m radius would sink through the ground.
+ */
+function _buildBlackHoleChamberRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 6.0;               // subL 12
+  const tileEdge = magL / 2;
+  const vesselR  = 0.92;
+
+  // --- Plinth and saddle ---
+  // A vessel this heavy is not on legs; it sits in a cradle on a poured pad.
+  _gBox(buckets.stand, 2.80, 0.16, 2.60, { y: 0.08 });
+  for (const z of [-0.62, 0.62]) {
+    _gBox(buckets.stand, 0.70, 0.16, 0.50, { y: 0.24, z });
+    _gBox(buckets.iron, 0.92, 0.10, 0.56, { y: 0.35, z });
+  }
+
+  // --- Containment vessel ---
+  // Sphere UVs are already 0→1 per hemisphere, so unlike Box/Cylinder this
+  // one needs no applyTiled* pass (same as the SRF cell strings above).
+  {
+    const g = new THREE.SphereGeometry(vesselR, SEGS * 2, SEGS);
+    _pushTransformed(buckets.iron, g, new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0));
+  }
+  // Girth straps: an accent belt on the equator plus two meridional bands.
+  // Each is a disc slightly larger than the sphere, so only the rim shows —
+  // exactly how a welded reinforcing strap reads from outside.
+  _gCylY(buckets.accent, vesselR + 0.035, 0.12, { y: BEAM_HEIGHT });
+  _gCylZ(buckets.iron, vesselR + 0.030, 0.10);
+  _gCylX(buckets.iron, vesselR + 0.030, 0.10);
+
+  // --- Two opposed beam entries ---
+  // entryA on -Z, entryB on +Z. Each nozzle flares from beam-pipe bore up to
+  // the vessel penetration; the doublet outside it is the final focus, which
+  // is what buys the luminosity a 200 TeV collision rate needs.
+  for (const sign of [-1, 1]) {
+    _gCylZ(buckets.detail, 0.36, 0.06, { z: sign * 0.90 });
+    _gCylZ(buckets.pipe, sign > 0 ? 0.30 : 0.14, 0.55, {
+      z: sign * 1.10, rTop: sign > 0 ? 0.14 : 0.30,
+    });
+    for (const qz of [1.72, 2.24]) {
+      _gBox(buckets.accent, 0.62, 0.62, 0.42, { z: sign * qz });
+      for (const dy of [-0.24, 0.24]) {
+        _gBox(buckets.copper, 0.68, 0.10, 0.34, { y: BEAM_HEIGHT + dy, z: sign * qz });
+      }
+    }
+  }
+  _gBeamEnds(buckets, tileEdge, 1.375);
+
+  // --- Instrumentation penetrations on the upper hemisphere ---
+  // Every port is a hole in the shielding, which is why they all point up and
+  // away from the plane the debris fan lives in.
+  for (const d of [
+    [0.62, 0.66, 0.42], [-0.62, 0.66, 0.42],
+    [0.62, 0.66, -0.42], [-0.62, 0.66, -0.42],
+    [0.0, 0.72, 0.70], [0.0, 0.72, -0.70],
+  ]) {
+    const n = Math.hypot(d[0], d[1], d[2]);
+    const u = [d[0] / n, d[1] / n, d[2] / n];
+    const p0 = [u[0] * (vesselR - 0.05), BEAM_HEIGHT + u[1] * (vesselR - 0.05), u[2] * (vesselR - 0.05)];
+    const p1 = [u[0] * (vesselR + 0.24), BEAM_HEIGHT + u[1] * (vesselR + 0.24), u[2] * (vesselR + 0.24)];
+    const p2 = [u[0] * (vesselR + 0.30), BEAM_HEIGHT + u[1] * (vesselR + 0.30), u[2] * (vesselR + 0.30)];
+    _gSegment(buckets.pipe, p0, p1, 0.075, 10);
+    _gSegment(buckets.detail, p1, p2, 0.115, 10);
+  }
+
+  // --- Top access hatch ---
+  _gCylY(buckets.pipe, 0.20, 0.24, { y: BEAM_HEIGHT + vesselR + 0.10 });
+  _gCylY(buckets.accent, 0.26, 0.05, { y: BEAM_HEIGHT + vesselR + 0.245 });
+
+  // --- Radial shielding ---
+  // Tungsten close in, stacked concrete outside it. Blocks rather than one
+  // slab, with the joints visible: shielding at this scale is assembled and
+  // disassembled around the vessel every time anyone goes in.
+  for (const sx of [-1, 1]) {
+    _gBox(buckets.iron, 0.34, 1.50, 1.90, { x: sx * 1.16, y: 0.75 });
+    for (const z of [-1.0, 0, 1.0]) {
+      _gBox(buckets.stand, 0.72, 1.55, 0.92, { x: sx * 1.60, y: 0.775, z });
+      _gBox(buckets.detail, 0.76, 0.06, 0.08, { x: sx * 1.60, y: 1.58, z });
+    }
+  }
+  // Two roof beams only — the pit is open over the vessel.
+  for (const z of [-1.2, 1.2]) _gBox(buckets.iron, 3.10, 0.14, 0.34, { y: 2.10, z });
+  // Area radiation monitor on the shield wall.
+  _gCylY(buckets.detail, 0.04, 0.60, { x: 1.60, y: 1.85, z: -1.60 });
+  _gCylY(buckets.accent, 0.08, 0.10, { x: 1.60, y: 2.20, z: -1.60 });
+
+  return buckets;
+}
+ROLE_BUILDERS.blackHoleChamber = _buildBlackHoleChamberRoles;
+
+/**
+ * Hawking radiation detector — a calorimeter that records rather than
+ * collects, and it has to be distinguishable at a glance from `detector`,
+ * which is a big magnetised barrel. The difference is not size: it is
+ * instrumentation density.
+ *
+ * So the silhouette is a sampling stack — tungsten absorber alternating with
+ * scintillator, fine pitch in the electromagnetic section and coarse in the
+ * hadronic one, exactly the way a real sandwich calorimeter is graded — with
+ * every layer's light piped out through wavelength-shifting fibre into a
+ * manifold and fanned to readout racks. No yoke, no coil, no tracker: nothing
+ * here bends a particle, because the measurement is the spectrum of what
+ * comes out, not the momentum of any one thing in it.
+ */
+function _buildHawkingDetectorRoles() {
+  /** @type {Record<string, THREE.BufferGeometry[]>} */
+  const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+
+  const magL     = 7.0;               // subL 14
+  const tileEdge = magL / 2;
+
+  // --- Steel deck the stack is assembled on ---
+  _gBox(buckets.stand, 2.00, 0.22, 3.40, { y: 0.11, z: 0.15 });
+
+  // --- Sampling stack ---
+  // EM section first: thin absorber at fine pitch, because a shower from a
+  // photon or electron is short and you need many samples inside it. Then the
+  // hadronic section: thicker plates, coarser pitch, more of them.
+  let z = -1.30;
+  const layers = [
+    { n: 8,  pitch: 0.085, absD: 0.055, sciD: 0.022, w: 1.56, h: 1.50 },
+    { n: 12, pitch: 0.175, absD: 0.115, sciD: 0.038, w: 1.56, h: 1.56 },
+  ];
+  for (const sec of layers) {
+    for (let i = 0; i < sec.n; i++) {
+      _gBox(buckets.iron, sec.w, sec.h, sec.absD, { z: z + sec.absD / 2 });
+      _gBox(buckets.accent, sec.w + 0.04, sec.h + 0.04, sec.sciD,
+        { z: z + sec.absD + sec.sciD / 2 });
+      z += sec.pitch;
+    }
+  }
+  const stackFront = -1.30, stackBack = z;
+
+  // --- Hermetic frame ---
+  // Four corner rails carrying the plate stack. "Hermetic" is the whole point
+  // of the device: an evaporating black hole radiates into every degree of
+  // freedom, so anything that escapes through a crack is the signal you lost.
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      _gBox(buckets.iron, 0.09, 0.09, stackBack - stackFront + 0.12,
+        { x: sx * 0.82, y: BEAM_HEIGHT + sy * 0.80, z: (stackFront + stackBack) / 2 });
+    }
+  }
+  // Entrance snout: the beam pipe flares into the front face and stops there.
+  _gCylZ(buckets.pipe, 0.10, 0.24, { z: stackFront - 0.12, rTop: 0.16 });
+
+  // --- Fibre readout: manifold over the stack, bundles out to the racks ---
+  _gBox(buckets.detail, 1.70, 0.12, stackBack - stackFront + 0.10,
+    { y: BEAM_HEIGHT + 0.86, z: (stackFront + stackBack) / 2 });
+  for (const sx of [-1, 1]) {
+    for (const fz of _gSpread(5, 2.40, (stackFront + stackBack) / 2)) {
+      _gSegment(buckets.copper,
+        [sx * 0.30, BEAM_HEIGHT + 0.92, fz],
+        [sx * 1.45, BEAM_HEIGHT + 0.45, 2.35], 0.035, 8);
+    }
+    // Readout rack: this endpoint's product is data, and the rack is where it
+    // becomes data. Nothing here is a magnet power supply.
+    _gBox(buckets.iron, 0.56, 1.40, 0.62, { x: sx * 1.52, y: 0.70, z: 2.55 });
+    _gBox(buckets.detail, 0.06, 1.10, 0.46, { x: sx * 1.82, y: 0.75, z: 2.55 });
+    _gBox(buckets.accent, 0.08, 0.05, 0.34, { x: sx * 1.83, y: 1.28, z: 2.55 });
+    _gCylZ(buckets.copper, 0.05, 1.50, { x: sx * 1.52, y: 1.46, z: 1.45 });
+  }
+
+  // --- Beam entry only: this is an endpoint, the pipe stops in the stack ---
+  {
+    const inner = stackFront - 0.24;
+    const stubL = tileEdge + inner;
+    if (stubL > 0.001) _gCylZ(buckets.pipe, PIPE_R, stubL, { z: inner - stubL / 2 });
+    _gCylZ(buckets.detail, FLANGE_R, FLANGE_H, { z: -tileEdge });
+  }
+  _gPedestals(buckets, [-2.90], BEAM_HEIGHT - 0.14, { w: 0.20, d: 0.18 });
+
+  return buckets;
+}
+ROLE_BUILDERS.hawkingDetector = _buildHawkingDetectorRoles;
 
 // ── Endpoint builders ───────────────────────────────────────────────
 ROLE_BUILDERS.faradayCup = _buildFaradayCupRoles;

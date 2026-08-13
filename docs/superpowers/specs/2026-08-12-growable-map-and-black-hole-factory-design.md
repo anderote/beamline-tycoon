@@ -36,19 +36,18 @@ Today `MAP_EXTENT = 35` is a compile-time constant meaning "half-side of the squ
 
 Replace the constant with **`state.mapHalfExtent`**, a saved number. All three sites read it rather than a literal.
 
-| `mapHalfExtent` | tiles per side | max straight run |
-|---|---|---|
-| **35** *(start)* | **71** | 71 |
-| 50 | 101 | 101 |
-| 65 | 131 | 131 |
-| 80 | 161 | 161 |
-| 95 | 191 | 191 |
-| 110 | 221 | 221 |
-| 125 | 251 | 251 |
+| `mapHalfExtent` | tiles per side | max straight run | what it makes siteable |
+|---|---|---|---|
+| **30** *(start)* | **61** | 61 | everything through tier 4 |
+| 60 | 121 | 121 | `collider-zpole` (118 tiles) |
+| 90 | 181 | 181 | `collider-higgs` (160) |
+| 120 | 241 | 241 | `collider-tev` (198) **and** the Black Hole Factory (209) |
 
-Each purchase adds **+15 half-extent = +30 tiles per side**. The starting value is today's, so no existing content regresses and the first-hour map is unchanged.
+Each purchase adds **+30 half-extent = +60 tiles per side**, and there are exactly three of them. The ladder is sized so **every purchase unlocks precisely one collider tier**, and the last also unlocks the tier-6 machine — the land ladder and the machine ladder are the same progression seen from two sides.
 
 The map stays square. Growth is symmetric on both axes — simpler than an elongated map, and the straight-run budget rises just as fast because a run may lie along either axis.
+
+**The starting map shrinks.** 61×61 is 3,721 tiles against today's 71×71 = 5,041, a 26% reduction. This is deliberate — a starting map you outgrow is what makes land worth buying — but it is a real change to every existing save and to the first hour of play. Task 1 must verify that every *non-collider* blueprint still places at 61 tiles; `xfel-flagship` is the one at risk, at 111 tiles of path folded through 2 bends.
 
 ### B. Land is purchasable
 
@@ -56,14 +55,11 @@ A tycoon-genre land purchase, in RCT2's shape: **pure money, no research gate**,
 
 Costs escalate steeply because each chunk is a bigger annulus of land than the last (the area added by +15 half-extent grows linearly with the current extent):
 
-| purchase | half-extent | tiles/side | cost |
-|---|---|---|---|
-| Land Acquisition I | 50 | 101 | $250M |
-| II | 65 | 131 | $750M |
-| III | 80 | 161 | $2B |
-| IV | 95 | 191 | $5B |
-| V | 110 | 221 | $12B |
-| VI — *Site Condemnation* | 125 | 251 | $30B |
+| purchase | half-extent | tiles/side | cost | unlocks |
+|---|---|---|---|---|
+| Land Acquisition | 60 | 121 | $500M | Z-pole collider |
+| Compulsory Purchase | 90 | 181 | $3B | Higgs factory |
+| *Site Condemnation* | 120 | 241 | $15B | TeV collider · Black Hole Factory |
 
 Provisional, per the project's standing rule: measure against the economy in `scripts/balance-sim.mjs` before shipping.
 
@@ -78,9 +74,11 @@ Provisional, per the project's standing rule: measure against the economy in `sc
 | rung | GeV/placement | subL | gradient | GeV/tile |
 |---|---|---|---|---|
 | `plasmaAfterburner` *(existing)* | 15 | 20 | 1.5 GV/m | 3 |
-| **`crystalChannelStage`** | **10,000** | 20 | **1 TeV/m** | **2,000** |
+| **`crystalChannelStage`** | **12,000** | 20 | **1.2 TeV/m** | **2,400** |
 
-500,000 GeV ÷ 10,000 = **50 placements = 250 tiles**, which requires `mapHalfExtent` 125 — the final land purchase. The machine and the last chunk of land are designed against each other: Site Condemnation exists to make the Black Hole Factory siteable, and nothing else needs it.
+500,000 GeV ÷ 12,000 = **42 placements = 210 tiles**, leaving ~31 tiles of the 241-tile map for the injector chain and the interaction region. That requires `mapHalfExtent` 120 — Site Condemnation, the final purchase. The machine and the last chunk of land are designed against each other: nothing else in the game needs that land, and the Black Hole Factory cannot exist without it.
+
+1.2 TeV/m sits inside the 1–10 TeV/m range the channeling literature discusses, so the top rung is the most physically honest one on the whole ladder — as `plasmaAfterburner` already is at 1.5 GV/m.
 
 Type entry:
 

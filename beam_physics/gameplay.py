@@ -7,6 +7,7 @@ applying scaling, clamping, and multipliers from research effects.
 
 import json
 from beam_physics.lattice import propagate
+from beam_physics.machines import get_machine_config
 from beam_physics.constants import DEFAULT_APERTURE
 from beam_physics import srf
 
@@ -34,6 +35,7 @@ COMPONENT_DEFAULTS = {
     "srfLinacSector":   {"energyGain": 3.5},
     "twoBeamModule":    {"energyGain": 6.0},
     "plasmaAfterburner": {"energyGain": 15},
+    "crystalChannelStage": {"energyGain": 12000},
     # === Magnets ===
     "dipole":       {"bendAngle": 90.0},
     "quadrupole":   {"focusStrength": 1.0},
@@ -57,6 +59,8 @@ COMPONENT_DEFAULTS = {
     "photonPort":   {"photonRate": 0.5},
     "positronTarget": {"collisionRate": 3.0},
     "comptonIP":    {"photonRate": 1.0},
+    "blackHoleChamber": {"collisionRate": 12.0},
+    "hawkingDetector":  {"dataRate": 40.0},
 }
 
 # Component types that are diagnostics (game types; used for coverage counting)
@@ -80,6 +84,70 @@ KNOWN_PHYSICS_TYPES = {
 # Game energyGain stays as-is (already in GeV)
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
 DIPOLE_ANGLE_SCALE = 15.0 / 90.0  # game bendAngle -> physical degrees
+
+# --- black_hole_yield ------------------------------------------------------
+#
+# The success metric for machines.py's "blackHoleFactory", and the only figure
+# of merit in the game computed here rather than on the JS side. It is here for
+# one reason: it needs the luminosity, and luminosity is produced by the
+# beam_beam module, which only this file ever sees the reports of.
+#
+# ANALYTIC, and no new physics module. In a theory with `n` flat extra
+# dimensions and a fundamental scale M_D of order a TeV, two partons that pass
+# within their common Schwarzschild radius form a black hole, and the
+# production cross-section is simply the area of that disc — the standard
+# Dimopoulos-Landsberg / Giddings-Thomas geometric estimate:
+#
+#     r_s ~ (1 / M_D) * (sqrt(s) / M_D)^(1 / (n + 1))
+#     sigma = pi * r_s^2
+#
+# with sqrt(s) = 2 * E_beam for head-on equal beams. Yield is then sigma x L,
+# which is the same shape as every other metric in the roster: a physics
+# quantity times the beam that delivers it, with no fitted constants. The one
+# input that is a CHOICE rather than a measurement is M_D, and the choice is
+# stated below rather than buried.
+#
+# Note what this does NOT claim. Nothing here models formation, evaporation, or
+# the parton distribution that decides how much of the beam energy is actually
+# available — real yield estimates integrate over PDFs and lose orders of
+# magnitude doing it. This is a figure of merit with the right dependence on
+# the two things the player controls, exactly as `fluence` and `photon_flux`
+# are, and the spec (docs/superpowers/specs/2026-08-12-*) puts a real
+# production model explicitly out of scope.
+
+# Fundamental (higher-dimensional) Planck scale, GeV. 5 TeV is inside what LHC
+# searches have not excluded for large n, and it is the number the band floor
+# was chosen against: below ~200 TeV in the centre of mass nothing is above
+# threshold by enough to see.
+PLANCK_SCALE_GEV = 5000.0
+# Number of flat extra dimensions. 6 is the ADD benchmark and the value that
+# makes r_s scale as the seventh root — a very weak energy dependence, which is
+# why this machine is bought for luminosity and not for the last 100 TeV.
+EXTRA_DIMENSIONS = 6
+# (hbar c)^2 = 0.3894 mb GeV^2, and 1 mb = 1e-27 cm^2.
+GEV_MINUS_2_TO_CM2 = 3.894e-28
+
+
+def black_hole_yield(beam_energy_gev, luminosity_cm2_s,
+                     planck_scale_gev=PLANCK_SCALE_GEV,
+                     extra_dimensions=EXTRA_DIMENSIONS):
+    """Black holes produced per second: sigma(E) x L.
+
+    `beam_energy_gev` is the KINETIC energy of one beam; both beams are assumed
+    equal and head-on, so sqrt(s) = 2 E. Returns 0 below threshold, where the
+    centre-of-mass energy does not exceed the fundamental scale and the
+    semiclassical estimate does not apply at all.
+    """
+    import math
+    if luminosity_cm2_s <= 0 or beam_energy_gev <= 0:
+        return 0.0
+    sqrt_s = 2.0 * beam_energy_gev
+    if sqrt_s <= planck_scale_gev:
+        return 0.0
+    r_s = (sqrt_s / planck_scale_gev) ** (1.0 / (extra_dimensions + 1.0))
+    r_s /= planck_scale_gev                       # GeV^-1
+    sigma_cm2 = math.pi * r_s * r_s * GEV_MINUS_2_TO_CM2
+    return sigma_cm2 * luminosity_cm2_s
 
 
 def beamline_config_from_game(game_beamline):
@@ -600,6 +668,18 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
         result["luminosity"] = bb_reports[0].details.get("luminosity", 0)
         result["tuneShiftY"] = bb_reports[0].details.get("tune_shift_y", 0)
         result["beamStable"] = bb_reports[0].details.get("beam_stable", True)
+
+    # The type's own figure of merit, when the type has one this file can
+    # compute. Keyed off `success_metric` rather than off the machine type
+    # string, for the same reason machines.py uses capability sets instead of
+    # type literals: a renamed or added type that is paid on black_hole_yield
+    # gets the number automatically, and one that is not can never
+    # accidentally inherit it. Deliberately AFTER the beam-beam block — the
+    # luminosity this reads is the one that module just reported.
+    machine_type = effects.get("machineType")
+    if get_machine_config(machine_type)["success_metric"] == "black_hole_yield":
+        result["blackHoleYield"] = black_hole_yield(
+            max(kinetic_energy, 0.0), result.get("luminosity", 0.0))
 
     return result
 

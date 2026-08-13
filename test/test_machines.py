@@ -9,6 +9,7 @@ so neither can drift back.
 """
 import pytest
 
+from beam_physics.gameplay import black_hole_yield
 from beam_physics.lattice import propagate
 from beam_physics.machines import (
     CAPABILITIES, MACHINE_TYPES, _MACHINE_CONFIGS,
@@ -18,11 +19,12 @@ from beam_physics.modules.beam_beam import BeamBeamModule
 from beam_physics.modules.bunch_compression import BunchCompressionModule
 from beam_physics.modules.fel_gain import FELGainModule
 
-# The nine game beamline types. Ids must match BEAMLINE_TYPES on the JS side —
+# The ten game beamline types. Ids must match BEAMLINE_TYPES on the JS side —
 # the machineType a beamline stores is looked up here verbatim.
 GAME_TYPES = [
     "testStand", "ebeamProcessing", "isotopeIrradiation", "therapy",
     "spallation", "lightSource", "xfel", "euvFel", "collider",
+    "blackHoleFactory",
 ]
 
 # Names still passed by saved games, BeamlineDesigner._pickMachineType() and
@@ -143,9 +145,15 @@ def test_only_fel_types_have_fel():
         "xfel", "euvFel", "fel"}
 
 
-def test_only_collider_has_beam_beam():
+def test_only_colliding_types_have_beam_beam():
+    """Two beams meeting at an IP is what beam_beam models, and exactly two
+    types do it: the linear collider and the tier-6 machine that is a linear
+    collider three orders of magnitude up. Nothing else may acquire it — a
+    single-beam machine that reported luminosity would be paid for a collision
+    that never happened."""
     assert {t for t in MACHINE_TYPES
-            if machine_has_capability(t, "beam_beam")} == {"collider"}
+            if machine_has_capability(t, "beam_beam")} == {
+                "collider", "blackHoleFactory"}
 
 
 def test_light_source_is_the_sr_light_type():
@@ -226,3 +234,50 @@ def test_only_capable_types_emit_beam_beam_reports(machine_type):
     result = propagate(_minimal_beamline(), machine_type=machine_type)
     emitted = any(r.module == "beam_beam" for r in result["reports"])
     assert emitted == machine_has_capability(machine_type, "beam_beam")
+
+
+# --- The tier-6 success metric -------------------------------------------
+#
+# black_hole_yield is the one figure of merit computed in beam_physics rather
+# than on the JS side, because it needs the luminosity only beam_beam reports.
+# It is analytic — a geometric cross-section times a luminosity — and these
+# pin the three properties that make it a figure of merit rather than a fudge.
+
+def test_black_hole_factory_is_paid_on_black_hole_yield():
+    assert (_MACHINE_CONFIGS["blackHoleFactory"]["success_metric"]
+            == "black_hole_yield")
+
+
+def test_black_hole_yield_is_zero_below_threshold():
+    """Below the fundamental scale the semiclassical estimate does not apply
+    at all, so the machine earns nothing rather than a small number. A collider
+    at 500 GeV/beam must not quietly produce black holes."""
+    assert black_hole_yield(500.0, 1e34) == 0.0
+    assert black_hole_yield(250000.0, 0.0) == 0.0
+    assert black_hole_yield(0.0, 1e34) == 0.0
+
+
+def test_black_hole_yield_is_linear_in_luminosity():
+    """sigma x L, so doubling the luminosity doubles the yield exactly. This is
+    what makes the type a luminosity machine rather than an energy one."""
+    a = black_hole_yield(250000.0, 1e34)
+    b = black_hole_yield(250000.0, 2e34)
+    assert a > 0
+    assert abs(b - 2 * a) < 1e-12 * b
+
+
+def test_black_hole_yield_rises_weakly_with_energy():
+    """r_s goes as the seventh root of sqrt(s) for n=6, so five times the
+    energy is well under twice the yield. The band top is worth having and is
+    not where the machine is won."""
+    lo = black_hole_yield(100000.0, 1e34)
+    hi = black_hole_yield(500000.0, 1e34)
+    assert hi > lo
+    assert hi < 2.0 * lo
+
+
+def test_black_hole_yield_matches_the_declared_fomRef():
+    """src/data/beamline-types.js declares fomRef 1.8 for a reference machine
+    at 250,000 GeV/beam and 1e34 cm^-2 s^-1. The two numbers are written in
+    different languages and nothing else forces them to agree."""
+    assert abs(black_hole_yield(250000.0, 1e34) - 1.8) < 0.1

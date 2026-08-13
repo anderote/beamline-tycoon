@@ -537,6 +537,20 @@ function _drawBeamPipe(px, dot, W, cy, C, opts = {}) {
   }
 }
 
+// Hatched shielding block. Bulk shielding is the one thing in these schematics
+// that has no interesting internal structure — it is just a lot of dense
+// material — so it gets the conventional drawing-office answer: a flat fill
+// with a diagonal hatch over it, which reads as "solid" without competing for
+// attention with the hardware it surrounds.
+function _drawHatchBlock(px, dot, x, y, w, h, base, hatch) {
+  px(x, y, w, h, base);
+  for (let iy = 0; iy < h; iy++) {
+    for (let ix = 0; ix < w; ix++) {
+      if ((x + ix + y + iy) % 4 === 0) dot(x + ix, y + iy, hatch);
+    }
+  }
+}
+
 // Shared body for the SRF cryomodule family: vacuum vessel, 80 K thermal
 // shield and a run of elliptical cells. Cell count and bulge are what separate
 // the rungs of the ladder at 70x30, so both are the caller's choice.
@@ -961,6 +975,148 @@ UIHost.prototype._schematicDrawers = {
     dot(cx, cy, '#ffffff');
     dot(cx - 1, cy, C.hotBright);
     dot(cx + 1, cy, C.hotBright);
+  },
+
+  // === BLACK HOLE CHAMBER ===
+  // The only endpoint with a beam arriving on both faces, so it is drawn as an
+  // interaction region rather than a terminus: a spherical containment vessel
+  // in a shielded pit, two beams converging on it, final-focus doublets just
+  // outside the shield. Closer to a reactor vessel than to `detector` — the
+  // hardware is there to hold something in, not to look at it.
+  blackHoleChamber(p, px, dot, W, H, cy, C) {
+    const cx = 35, R = 10;
+    const shell = '#4d5a6b', core = '#0f131b', strap = '#c86a20', strapHi = '#ff7a18';
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: cx - R, skipTo: cx + R + 1 });
+
+    // --- Shielded pit: walls the beams penetrate, roof partly lifted ---
+    for (const [wx, gapY] of [[2, cy], [61, cy]]) {
+      _drawHatchBlock(px, dot, wx, 2, 7, 26, '#3a3a44', '#565663');
+      px(wx, gapY - 4, 7, 9, C.bg);            // beam penetration
+      px(wx, gapY - 4, 7, 1, '#565663');
+      px(wx, gapY + 4, 7, 1, '#565663');
+    }
+    for (const rx of [10, 42]) _drawHatchBlock(px, dot, rx, 1, 18, 3, '#3a3a44', '#565663');
+    _drawHatchBlock(px, dot, 10, 27, 50, 2, '#3a3a44', '#565663');
+
+    // --- Containment vessel ---
+    for (let dy = -R; dy <= R; dy++) {
+      const hw = Math.round(Math.sqrt(R * R - dy * dy));
+      px(cx - hw, cy + dy, hw * 2 + 1, 1, shell);
+      const ir = 8;
+      if (Math.abs(dy) < ir) {
+        const iw = Math.round(Math.sqrt(ir * ir - dy * dy));
+        px(cx - iw, cy + dy, iw * 2 + 1, 1, core);
+      }
+    }
+    // Girth straps: an equatorial belt and two meridians, drawn as the
+    // ellipses they project to, which is what makes the shell read as a sphere.
+    for (let a = 0; a < Math.PI * 2; a += 0.08) {
+      dot(cx + Math.round(Math.cos(a) * R), cy + Math.round(Math.sin(a) * 2.6), strapHi);
+      dot(cx + Math.round(Math.cos(a) * 6.2), cy + Math.round(Math.sin(a) * R), strap);
+      dot(cx + Math.round(Math.cos(a) * 2.6), cy + Math.round(Math.sin(a) * R), strap);
+    }
+
+    // --- Instrumentation penetrations, all on the upper hemisphere ---
+    for (const a of [-2.3, -1.9, -1.25, -0.85]) {
+      const nx = Math.round(cx + Math.cos(a) * R), ny = Math.round(cy + Math.sin(a) * R);
+      const ex = Math.round(cx + Math.cos(a) * (R + 3)), ey = Math.round(cy + Math.sin(a) * (R + 3));
+      dot(nx, ny, C.metal); dot(ex, ey, C.metal);
+      dot(Math.round((nx + ex) / 2), Math.round((ny + ey) / 2), C.metalDk);
+      px(ex - 1, ey - 1, 3, 2, C.metalDk);
+    }
+    // Top access hatch, in the gap the roof blocks leave open
+    px(cx - 2, cy - R - 3, 5, 3, C.metal);
+    px(cx - 3, cy - R - 4, 7, 1, strapHi);
+
+    // --- Final-focus doublets, one per arm ---
+    for (const [qx, sgn] of [[13, -1], [52, 1]]) {
+      px(qx, cy - 5, 5, 11, C.magnetDk);
+      px(qx, cy - 5, 5, 1, C.magnet);
+      px(qx, cy + 5, 5, 1, C.magnet);
+      px(qx + 1, cy - 3, 3, 2, C.coil);
+      px(qx + 1, cy + 2, 3, 2, C.coil);
+      dot(qx + (sgn > 0 ? 5 : -1), cy, C.beam);
+    }
+
+    // --- Two beams converging, and what happens where they meet ---
+    for (let x = 3; x < cx - R; x++) dot(x, cy, x > cx - R - 8 ? '#ccffdd' : C.beam);
+    for (let x = cx + R + 1; x < W - 3; x++) dot(x, cy, x < cx + R + 9 ? '#ccffdd' : C.beam);
+    dot(cx - R - 2, cy - 1, C.beam); dot(cx - R - 2, cy + 1, C.beam);
+    dot(cx + R + 2, cy - 1, C.beam); dot(cx + R + 2, cy + 1, C.beam);
+    // The event: a white core and debris spraying out through the vessel
+    for (const [dx, dy] of [[3, -2], [3, 2], [-3, -2], [-3, 2], [2, -4], [-2, 4], [4, 1], [-4, -1]]) {
+      dot(cx + dx, cy + dy, C.hot);
+      dot(cx + dx * 2, cy + dy * 2, C.glow);
+    }
+    px(cx - 1, cy - 1, 3, 3, C.hotBright);
+    dot(cx, cy, '#ffffff');
+  },
+
+  // === HAWKING RADIATION DETECTOR ===
+  // A calorimeter, not a barrel: no yoke, no coil, no tracker, nothing here
+  // bends a particle. What it has instead is instrumentation density — a fine
+  // sampling stack graded from EM pitch to hadronic pitch, every layer piped
+  // out through fibre to readout racks. The fan-out is the identity.
+  hawkingDetector(p, px, dot, W, H, cy, C) {
+    const top = cy - 11, bot = cy + 11, sci = '#ff9c3c', fib = '#d9a05a';
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
+    px(47, 0, W - 47, H, C.bg);      // nothing downstream — the beam stops in here
+
+    // --- Hermetic frame. Anything that escapes through a crack is signal lost ---
+    px(17, top, 30, 1, C.metal);
+    px(17, bot, 30, 1, C.metal);
+    px(17, top, 1, bot - top + 1, C.metalDk);
+    px(46, top, 1, bot - top + 1, C.metalDk);
+
+    // --- Sampling stack: fine EM pitch first, then coarse hadronic pitch ---
+    const layerH = bot - top - 1;
+    for (let x = 18; x < 30; x += 3) {
+      px(x, top + 1, 2, layerH, C.metalDk);
+      px(x + 2, top + 1, 1, layerH, sci);
+    }
+    for (let x = 30; x < 46; x += 4) {
+      px(x, top + 1, 3, layerH, '#3d4450');
+      px(x + 3, top + 1, 1, layerH, sci);
+    }
+
+    // --- Entrance snout, and the shower dying inside the stack ---
+    px(14, cy - 3, 3, 7, C.metal);
+    for (let x = 19; x < 44; x++) {
+      const t = (x - 19) / 24;
+      const amp = Math.round(9 * Math.sin(Math.PI * Math.min(1, t * 1.3)) * (1 - t * 0.5));
+      for (let dy = -amp; dy <= amp; dy++) {
+        if ((x + dy) % 3) continue;
+        dot(x, cy + dy, Math.abs(dy) < 2 ? C.hotBright : C.hot);
+      }
+    }
+    for (let x = 2; x < 14; x++) dot(x, cy, C.beam);
+
+    // --- Fibre readout: a riser off every layer into the manifolds, then the
+    // fan-out that is this endpoint's whole identity ---
+    px(17, 1, 30, 2, C.metalDk);
+    px(17, bot + 1, 30, 2, C.metalDk);
+    for (let x = 18; x < 46; x += 2) { dot(x, 3, fib); dot(x, bot + 1, fib); }
+    for (let i = 0; i < 6; i++) {
+      const x1 = 51 + i * 3;
+      for (let x = 47; x <= x1; x++) {
+        dot(x, Math.round(2 + 5 * ((x - 47) / (x1 - 47))), fib);
+      }
+    }
+    for (let x = 47; x < 50; x++) dot(x, 28 - (x - 47), fib);
+
+    // --- Readout racks. What this endpoint produces is data, not events ---
+    for (const rx of [50, 59]) {
+      px(rx, 7, 8, 11, C.metalDk);
+      px(rx + 1, 8, 6, 9, '#101420');
+      for (let k = 0; k < 4; k++) px(rx + 2, 9 + k * 2, 4, 1, C.wallDk);
+      dot(rx + 6, 9, C.beam);
+      dot(rx + 6, 13, sci);
+      px(rx + 3, 18, 2, 1, fib);
+    }
+    px(50, 19, 17, 8, C.metalDk);
+    px(51, 20, 15, 6, '#101420');
+    for (let k = 0; k < 3; k++) px(52, 21 + k * 2, 13, 1, C.wallDk);
+    for (const lx of [63, 65]) dot(lx, 25, C.beam);
   },
 
   // === APERTURE / COLLIMATOR ===
@@ -2121,6 +2277,87 @@ UIHost.prototype._schematicDrawers = {
     // Beam in, and out with the energy gain
     for (let x = 2; x < capL; x++) dot(x, cy, C.beam);
     for (let x = capL; x < W - 2; x++) dot(x, cy, '#ccffdd');
+  },
+
+  // === CRYSTAL CHANNELING STAGE ===
+  // The accelerating medium is the three white pixels at the centre. Everything
+  // else on this card is the mount: a granite bench on air legs, a pitch cradle
+  // curved about the crystal, a yaw stage, micrometers, and a laser
+  // interferometer watching the whole stack. That 100:1 ratio is the read — so
+  // no cells, no bulges, no coupler boxes, nothing that says "cavity".
+  crystalChannelStage(p, px, dot, W, H, cy, C) {
+    const cx = 35, chL = 31, chR = 39;
+    const crystal = '#cdf4ff', laser = '#7fd4e8', laserDk = '#3d8ba6';
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: chL, skipTo: chR + 1 });
+
+    // --- Granite bench on pneumatic isolators ---
+    px(4, cy + 11, 58, 3, '#6b6b74');
+    px(4, cy + 11, 58, 1, '#8d8d97');
+    for (let x = 7; x < 60; x += 5) dot(x + (x % 3), cy + 12, '#53535c');
+    for (const fx of [8, 33, 54]) px(fx, cy + 14, 6, 1, C.metalDk);
+
+    // --- Pitch cradle: an arc whose centre of curvature IS the crystal, so
+    // tilting the stage rotates the wafer without translating it off the beam ---
+    for (let a = -1.08; a <= 1.08; a += 0.04) {
+      const ax = Math.round(cx + Math.sin(a) * 11);
+      const ay = Math.round(cy + Math.cos(a) * 11);
+      dot(ax, ay, C.metal);
+      dot(ax, ay + 1, C.metalDk);
+    }
+
+    // --- Stage stack: carriage on the cradle, yaw table, graduated readout ---
+    px(26, cy + 9, 19, 2, C.metalDk);
+    px(26, cy + 9, 19, 1, C.metal);
+    px(29, cy + 6, 12, 3, C.metalDk);
+    px(29, cy + 6, 12, 1, laser);
+    px(cx - 1, cy + 5, 2, 1, C.metal);       // rotary vacuum feedthrough
+
+    // --- Micrometers: on the yaw table, and walking the carriage along the arc ---
+    px(26, cy + 7, 3, 1, C.metal); dot(25, cy + 7, C.metalDk);
+    px(41, cy + 7, 3, 1, C.metal); dot(44, cy + 7, C.metalDk);
+    px(22, cy + 9, 4, 1, C.metal); dot(21, cy + 9, C.metalDk);
+    px(45, cy + 9, 4, 1, C.metal); dot(49, cy + 9, C.metalDk);
+
+    // --- The crystal chamber: the smallest vessel on any beamline here ---
+    px(chL, cy - 4, 9, 9, '#182231');
+    px(chL, cy - 4, 9, 1, C.metal);
+    px(chL, cy + 4, 9, 1, C.metal);
+    px(chL, cy - 4, 1, 9, C.metalDk);
+    px(chR, cy - 4, 1, 9, C.metalDk);
+    px(cx - 1, cy - 6, 2, 2, C.metal);
+    px(cx - 2, cy - 7, 4, 1, C.metalDk);
+    // Alignment viewports either side — the stage is set optically before beam
+    px(chL - 2, cy - 2, 2, 3, C.metal); dot(chL - 2, cy - 1, laser);
+    px(chR + 1, cy - 2, 2, 3, C.metal); dot(chR + 2, cy - 1, laser);
+
+    // --- Laser interferometer arm: the readout that makes this an instrument ---
+    px(6, cy - 11, 42, 2, C.metalDk);
+    px(4, cy - 14, 9, 5, C.metal);
+    px(5, cy - 13, 7, 3, '#12202a');
+    dot(11, cy - 12, laser);
+    for (let x = 13; x < 44; x++) dot(x, cy - 9, x % 2 ? laser : laserDk);
+    px(23, cy - 10, 3, 3, C.metal);          // beam splitter
+    px(44, cy - 10, 3, 3, C.metalDk);        // reference retroreflector
+    for (let y = cy - 8; y < cy + 2; y++) dot(24, y, y % 2 ? laser : laserDk);
+    px(22, cy + 2, 5, 2, C.metal);           // measurement retro
+    px(23, cy + 4, 2, 6, C.metalDk);         // …posted off the carriage itself
+
+    // --- Stage controller rack, bolted to the bench ---
+    px(50, cy + 4, 10, 7, C.metalDk);
+    px(51, cy + 5, 8, 5, '#12141c');
+    px(52, cy + 6, 6, 1, laser);
+    for (const lx of [52, 54, 56]) dot(lx, cy + 8, C.beam);
+
+    // Beam in, channeled between lattice planes, out 12 TeV richer
+    for (let x = 2; x < chL; x++) dot(x, cy, C.beam);
+    for (let x = chL; x <= chR; x++) dot(x, cy, laser);
+    for (let x = chR + 1; x < W - 2; x++) dot(x, cy, '#ccffdd');
+
+    // --- The silicon. Three pixels, on a holder, in the middle of all that. ---
+    px(cx, cy + 2, 1, 3, C.metalDk);
+    dot(cx, cy - 1, crystal);
+    dot(cx, cy, '#ffffff');
+    dot(cx, cy + 1, crystal);
   },
 
   // === SRF 650 MHz CRYOMODULE ===

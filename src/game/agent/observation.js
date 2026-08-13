@@ -1,8 +1,14 @@
-export const MAP_EXTENT = 35;
-export const GRID_SIZE = 71;
+import { DEFAULT_MAP_HALF_EXTENT } from '../map-generator.js';
+
+// The observation grid is exactly the map, so it grows when the player buys
+// land (see Game.buyLand). This module used to declare its own MAP_EXTENT/
+// GRID_SIZE constants — a third independent copy of a number that had to match
+// the generator's and the renderer's — so the size is now read off the state
+// being observed and the shape of every grid below follows from it.
 export function buildObservation(game) {
   const s = game.state ?? game;
-  const N = GRID_SIZE, E = MAP_EXTENT;
+  const E = s.mapHalfExtent ?? DEFAULT_MAP_HALF_EXTENT;
+  const N = E * 2 + 1;
   const mk = () => Array.from({ length: N }, () => Array(N).fill(0));
   const floorsGrid = mk();
   const zoneGrid = mk();
@@ -52,6 +58,9 @@ export function buildObservation(game) {
   }));
   return {
     tick: s.tick ?? 0,
+    // Published because the grids are no longer a fixed size: an agent that
+    // assumed 71x71 would read the wrong tile the moment land is bought.
+    mapHalfExtent: E,
     resources: { ...(s.resources ?? { funding: 0, reputation: 0, data: 0 }) },
     floorsGrid, zoneGrid, wallMask, placeables, beamPipes, faults, staff,
     researchUnlocked: [...(s.completedResearch ?? [])]

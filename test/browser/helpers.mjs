@@ -215,9 +215,10 @@ export async function installPageHelpers(page) {
 
       /**
        * Top-left of the first w x h block of clear tiles, or null.
-       * Bounded to the generated map (map-generator's MAP_EXTENT is 35, so
-       * anything outside |col|,|row| <= 30 is off-terrain void that would
-       * make placements render into nothing).
+       * Bounded to the generated map (a new game's state.mapHalfExtent is 30,
+       * so anything outside |col|,|row| <= 30 is off-terrain void that would
+       * make placements render into nothing). Land purchases grow that; these
+       * specs never buy any, so the starting bound is the right one here.
        */
       findClearArea(w, h, limit = 30) {
         for (let r0 = -limit; r0 + h <= limit; r0++) {

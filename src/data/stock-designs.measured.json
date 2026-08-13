@@ -187,5 +187,32 @@
     "finalBeamSizeY": 0.00103529303559854,
     "totalLossFraction": 0.5001937124657659,
     "inBand": true
+  },
+  "blackhole-threshold": {
+    "beamEnergy": 105771.96621013581,
+    "beamCurrent": 0.27928476617611037,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.014857470686163932,
+    "finalBeamSizeY": 0.014857470686163932,
+    "totalLossFraction": 0.6276203117651862,
+    "inBand": true
+  },
+  "blackhole-quarter-pev": {
+    "beamEnergy": 247414.9228148672,
+    "beamCurrent": 0.45635038857297183,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.004147427192053209,
+    "finalBeamSizeY": 0.00877920211100635,
+    "totalLossFraction": 0.39153281523603756,
+    "inBand": true
+  },
+  "blackhole-pev": {
+    "beamEnergy": 495290.0968721664,
+    "beamCurrent": 0.45606225333488004,
+    "beamQuality": 1,
+    "finalBeamSizeX": 0.004069454205272329,
+    "finalBeamSizeY": 0.008766687065288215,
+    "totalLossFraction": 0.39191699555349324,
+    "inBand": true
   }
 }

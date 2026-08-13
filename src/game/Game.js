@@ -33,7 +33,8 @@ import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import { canPlace } from './placement.js';
-import { generateStartingMap } from './map-generator.js';
+import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
+import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 
 // Every game.state key that persists in saves. Everything else on state is
@@ -50,7 +51,7 @@ const SERIALIZED_FIELDS = [
   // staff
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
   // world / terrain
-  'seed', 'terrainSeed', 'terrainBlobs', 'floors', 'cornerHeights',
+  'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
   'zones', 'walls', 'doors',
   // facility + placement
   'facilityEquipment', 'facilityGrid', 'facilityNextId',
@@ -196,6 +197,13 @@ export class Game {
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
       staffCandidates: [], // hiring pool (3 offered)
+      // Half-side of the square map, in tiles: the site is
+      // |col| <= mapHalfExtent, |row| <= mapHalfExtent. Saved, and growable —
+      // the player buys it a parcel at a time (see buyLand and
+      // src/data/land.js), because the top-tier machines are limited by
+      // straight-run length rather than by money. Every map bound in the game
+      // reads this; nothing holds a copy.
+      mapHalfExtent: DEFAULT_MAP_HALF_EXTENT,
       // Infrastructure tiles (paths, concrete pads)
       floors: [],       // [{ type, col, row }]
       infraOccupied: {},        // "col,row" -> type
@@ -297,7 +305,8 @@ export class Game {
     this.state.terrainBlobs = this._generateTerrainBlobs(this.state.terrainSeed);
 
     // Apply natural starter map (trees clumped on dark soil).
-    const starter = generateStartingMap(this.state.terrainSeed, this.state.terrainBlobs);
+    const starter = generateStartingMap(
+      this.state.terrainSeed, this.state.terrainBlobs, this.state.mapHalfExtent);
     this.state.floors = starter.floors;
     this.state.zones = starter.zones;
     this.state.walls = starter.walls;
@@ -493,6 +502,70 @@ export class Game {
       });
     }
     return blobs;
+  }
+
+  // === LAND ===
+
+  /** The parcel currently on offer, or null once the ladder runs out. The UI
+   *  reads this to price the button; buyLand re-derives it rather than trusting
+   *  a caller-supplied parcel. */
+  getNextLandParcel() {
+    return nextLandParcel(this.state.mapHalfExtent);
+  }
+
+  /**
+   * Buy the next parcel of land, growing the map by 60 tiles per side.
+   *
+   * The map is the one constraint the player cannot engineer around. A linear
+   * collider must not bend — synchrotron loss goes as E^4/rho, so folding the
+   * beam radiates away the energy the last thirty placements bought it — which
+   * means the tier-5 and tier-6 machines are limited by how long a straight
+   * line the site can hold, not by money-for-hardware. Selling that ground is
+   * how the late game gets a cash sink that buys progress.
+   *
+   * The new ring's terrain is generated here and kept in placeables like any
+   * other decoration; only `mapHalfExtent` is a new saved field. generateAnnulus
+   * is position-hashed off terrainSeed precisely so this cannot disturb what is
+   * already on the ground — see the note above it.
+   *
+   * Runs inside a gesture so the purchase is one undo entry: the extent and the
+   * ground that arrived with it rewind together, or neither does. Returns
+   * `{ ok, reason?, parcel? }` — the caller is a button that has to say why.
+   */
+  buyLand() {
+    const parcel = this.getNextLandParcel();
+    if (!parcel) return { ok: false, reason: 'There is no more land to buy.' };
+    if (!this.canAfford({ funding: parcel.cost })) {
+      return { ok: false, reason: `${parcel.name} costs $${parcel.cost.toLocaleString()}.` };
+    }
+    return this.commitGesture({ mutate: () => this._buyLandInner(parcel) });
+  }
+
+  _buyLandInner(parcel) {
+    const from = this.state.mapHalfExtent;
+    // Charged through chargeConstruction like every other build-time debit, so
+    // sandbox mode has exactly one place to suppress (see setSandboxMode).
+    this.chargeConstruction(parcel.cost);
+    const { placeables, placeableNextId } = generateAnnulus(
+      this.state.terrainSeed, this.state.terrainBlobs,
+      from, parcel.halfExtent, this.state.placeableNextId,
+    );
+    this.state.placeables.push(...placeables);
+    this.state.placeableNextId = placeableNextId;
+    this.state.mapHalfExtent = parcel.halfExtent;
+    // The new decorations have to reach subgridOccupied, or the player can
+    // build straight through the trees that just appeared.
+    this._rebuildPlaceableIndex();
+    this.log(`${parcel.name} — the site is now ${parcel.tilesPerSide}×${parcel.tilesPerSide} tiles.`, 'good');
+    this.emit('mapExpanded');
+    // Two events because two things changed and the renderer rebuilds them
+    // from different handlers: the ground itself is wider
+    // ('infrastructureChanged' → _refreshTerrain) and there are trees on it
+    // that were not there a frame ago ('decorationsChanged').
+    this.emit('infrastructureChanged');
+    this.emit('decorationsChanged');
+    this.emit('resourcesChanged');
+    return { ok: true, parcel };
   }
 
   /** Subscribe to game events. Returns an unsubscribe function. */

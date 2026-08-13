@@ -54,6 +54,7 @@ import { PROTON_DESIGNS } from './stock-designs/proton.js';
 import { PHOTON_RING_DESIGNS } from './stock-designs/photon-ring.js';
 import { PHOTON_FEL_DESIGNS } from './stock-designs/photon-fel.js';
 import { COLLIDER_DESIGNS } from './stock-designs/collider.js';
+import { BLACK_HOLE_DESIGNS } from './stock-designs/black-hole.js';
 
 export const STOCK_DESIGNS = [
   ...ELECTRON_LOW_TIER_DESIGNS,
@@ -61,6 +62,7 @@ export const STOCK_DESIGNS = [
   ...PHOTON_RING_DESIGNS,
   ...PHOTON_FEL_DESIGNS,
   ...COLLIDER_DESIGNS,
+  ...BLACK_HOLE_DESIGNS,
 ];
 
 /** Blueprints for one type id, in tier order. */

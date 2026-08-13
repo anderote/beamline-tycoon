@@ -18,6 +18,26 @@ function dirFromCompass(side) {
 }
 
 /**
+ * The name of the port an arriving pipe should land on.
+ *
+ * Almost every junction calls it `entry`. The two-beam endpoints do not:
+ * `collisionPoint` and `blackHoleChamber` are the shape the engine already
+ * supports for a collider — two counter-propagating arms terminating on
+ * entryA and entryB — and neither publishes a plain `entry`. Falling back to
+ * the first `entry`-prefixed port is what lets a design walk into one, and it
+ * is deliberately a NAME fallback rather than a geometric one: the arm a
+ * design arrives on is decided by the layout walk, not by which side happens
+ * to face the pipe, and picking geometrically would silently reorder the two
+ * arms of a collider.
+ */
+function _entryPortName(compType) {
+  const ports = COMPONENTS[compType]?.ports || {};
+  if (ports.entry) return 'entry';
+  const named = Object.keys(ports).filter(k => k.startsWith('entry')).sort();
+  return named[0] || 'entry';
+}
+
+/**
  * The junction `dir` a module must be placed at so that its `entry` port faces
  * the pipe arriving along `travelDir`.
  *
@@ -378,10 +398,17 @@ export class DesignPlacer {
       // Connect to previous module via a pipe
       if (prevModuleId) {
         const pipePath = this._buildPipePath(prevModuleId, placeableId, dir);
-        // Use default exit/entry port names (linac phase: single port per direction)
+        // The exit side has always resolved its port name; the entry side used
+        // to hardcode 'entry', which silently made every two-entry endpoint
+        // unplaceable. `collisionPoint` and `blackHoleChamber` publish entryA
+        // and entryB and no `entry` at all, so validateDrawPipe rejected with
+        // port_mismatch at every origin on every map size — the collider and
+        // the black hole factory could be designed, costed and previewed, and
+        // then refused to build, with the failure reading as "couldn't
+        // connect" rather than "this endpoint has no port by that name".
         const pipeId = this.game.beamline.drawPipe(
           { junctionId: prevModuleId, portName: prevModuleExitPort || 'exit' },
-          { junctionId: placeableId, portName: 'entry' },
+          { junctionId: placeableId, portName: _entryPortName(item.type) },
           pipePath,
         );
         // A design that cannot be wired up is not a design — bail rather than

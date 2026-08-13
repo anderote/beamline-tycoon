@@ -325,6 +325,20 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 1350 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 10 } },
   },
+  // Same three-port shape as the afterburner and no rf_in for the same
+  // reason, but the balance between them inverts. There is no drive laser and
+  // no plasma: the accelerating field costs nothing to make. What the power
+  // goes on is the goniometer and the cryostat holding a wafer at microradian
+  // alignment while a TeV-scale beam deposits into it, and nearly all of that
+  // comes straight back out through the water. The fibre is the heaviest data
+  // load on any beamline component in the catalogue because it is not
+  // telemetry — it is the alignment interferometer running closed-loop, and
+  // losing it means the crystal stops channeling and starts scattering.
+  crystalChannelStage: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 2400 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 2300 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
+  },
   // A third of an S-band structure's length, so roughly a third of its loads.
   // It is a self-contained industrial skid, which is why the water demand is
   // proportionally the heaviest part: this thing runs all shift.
@@ -440,6 +454,24 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable', side: 'left',  offsetAlong: 0.5, role: 'sink', params: { demand: 20 } },
     data_in: { utility: 'dataFiber',  side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 10 } },
   },
+  // Same side-entry constraint as collisionPoint — entryA/entryB take back and
+  // front — but three orders of magnitude more of everything, because this is
+  // not a bare crossing point: it is a 4-pi vessel with its own final focus,
+  // its own shielding and a debris load a 500 TeV collision actually makes.
+  blackHoleChamber: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.25, role: 'sink', params: { demand: 600 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.65, role: 'sink', params: { heatLoad: 900 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5,  role: 'sink', params: { demand: 300 } },
+  },
+  // The heaviest data sink in the game and by a wide margin, which is the
+  // whole identity: it earns nothing, it measures a spectrum, and the fibre is
+  // the product. Power and water are a hermetic calorimeter's front-end
+  // electronics — large, but nothing next to the readout.
+  hawkingDetector: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 380 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.45, role: 'sink', params: { heatLoad: 340 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.75, role: 'sink', params: { demand: 900 } },
+  },
 };
 
 // Outgassing (mbar·L/s).
@@ -487,6 +519,8 @@ const VACUUM_OUTGASSING = {
   // large vessels / gas-loaded
   ecrIonSource: 5e-6, rfCavity: 2e-6, sbandStructure: 2e-6,
   cryomodule: 4e-6, detector: 5e-6,
+  // Bigger vessels than `detector`, with more surface and more feedthroughs.
+  blackHoleChamber: 8e-6, hawkingDetector: 9e-6,
   // The RF ladder. The copper structures track length and bore; the SRF
   // sectors track how many cryomodules the placement stands for. The one
   // outlier is plasmaAfterburner, which like lwfaStation ADMITS gas on
@@ -494,6 +528,12 @@ const VACUUM_OUTGASSING = {
   // worst gas load on any beamline that has one and wants its own pumping.
   cbandStructure: 2e-6, xbandStructure: 2e-6, twoBeamModule: 4e-6,
   plasmaAfterburner: 8e-6,
+  // The opposite outlier to plasmaAfterburner. There is no gas: the
+  // accelerating medium is a solid held cold, and a cryogenic surface in the
+  // bore is a distributed pump. This is the lowest gas load of any ten-metre
+  // module in the catalogue, and it has to be — nothing else on the line
+  // survives a 200-tile run at ordinary pressure.
+  crystalChannelStage: 4e-7,
   srf650Cryomodule: 5e-6, srf805Cryomodule: 6e-6,
   cwCryomodule: 6e-6, nbSnCryomodule: 6e-6, srfLinacSector: 8e-6,
   recirculationArc: 2e-6,

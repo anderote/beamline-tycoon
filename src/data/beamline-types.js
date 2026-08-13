@@ -26,7 +26,7 @@
 // `beamlineTypes` allowlist (see beamline-components.raw.js) meaning "this is
 // special-purpose hardware"; a type carries `excludes` meaning "this is general
 // hardware that is wrong here". An allowlist alone would force all 18 trunk
-// components to enumerate all nine types and rot the moment a tenth landed; a
+// components to enumerate all ten types and rot the moment an eleventh landed; a
 // denylist alone could not say "undulators exist only for photon machines"
 // without repeating it five times. Keeping the denials on the TYPE is what
 // makes each type's identity readable in one place — this file.
@@ -43,15 +43,16 @@
 // starter machine, or the 2.5 score clamp binds after one energy upgrade.
 
 /**
- * Nine types, arranged as a money / data / prestige triangle rather than a
+ * Ten types, arranged as a money / data / prestige triangle rather than a
  * power ladder: every tier holds at least one money type and at least one data
  * type, so climbing the tree buys research throughput while staying low buys
- * the cash that pays for it.
+ * the cash that pays for it. Tier 6 is the exception that proves it — one
+ * machine, no money at all, and the only tier gated on another tier's node.
  *
  * Entry shape:
  *   id               registry key, and the `machineType` string physics reads
  *   name             display name
- *   tier             1-5, an economic ordering — NOT a physics containment
+ *   tier             1-6, an economic ordering — NOT a physics containment
  *   machineType      key into beam_physics/machines.py MACHINE_TYPES
  *   particle         species the type's mandated source emits
  *   spec             { energyGeV: [lo, hi], currentMA: [lo, hi], ... } bands
@@ -426,6 +427,84 @@ export const BEAMLINE_TYPES = {
     requiredEndpoint: ['collisionPoint'],
     blurb: 'Nothing commercial. It loses money every tick, funded by grants and reputation exactly like the real thing, and it is the only way to a Nobel.',
     accentColor: 0x3d8ee6,
+  },
+
+  // ── Tier 6 — the machine you buy the map for ──────────────────────────
+  blackHoleFactory: {
+    id: 'blackHoleFactory',
+    name: 'Black Hole Factory',
+    tier: 6,
+    machineType: 'blackHoleFactory',
+    particle: 'p+p-',
+    // WHY THIS TYPE EXISTS. Every other type in this file is a machine you fit
+    // onto the map. This one is a machine the map has to be bought for, and
+    // that is its entire mechanical identity: 500,000 GeV/beam is 42
+    // crystalChannelStage placements, 210 tiles in a straight line, and a
+    // linear machine may not bend — synchrotron loss goes as E^4/rho, so the
+    // dipole that would fold it in half is the dipole that throws away
+    // everything the 42 placements bought. There is exactly one map in the
+    // game long enough (mapHalfExtent 120, the last land parcel), nothing else
+    // in the game needs that land, and this machine cannot exist without it.
+    // The decision it forces is therefore not "what do I build" but "do I
+    // spend $18.5B on ground before I have spent a cent on hardware".
+    //
+    // HADRONS, and the reason is the same one that shapes the collider. e+e-
+    // at 500 TeV/beam radiates in the final focus at a rate no lattice
+    // survives; the useful collision is partonic anyway, so what you want is a
+    // bag of quarks and gluons per bunch and no synchrotron problem. FCC-hh
+    // and SPPC are the design studies this is standing on, both proton
+    // machines, both at 50-75 TeV/beam — this is an order of magnitude past
+    // either, which is the honest scale of the ask.
+    //
+    // 200 TeV to 1 PeV in the centre of mass. The floor is not arbitrary: if
+    // the fundamental Planck scale sits at a few TeV, as large-extra-dimension
+    // models allow, black hole production turns on when the parton pair passes
+    // inside its own Schwarzschild radius, and nothing below a couple of
+    // hundred TeV puts enough partons above that line to see anything.
+    spec: {
+      energyGeV: [100000, 500000],
+      // No current band, as the collider has none: the currency is luminosity.
+      dutyMin: 0,
+    },
+    fom: 'blackHoleYield',
+    // Events per second, computed analytically in beam_physics/gameplay.py
+    // from energy and luminosity — a geometric cross-section pi*r_s^2 times
+    // the luminosity the beam-beam module already reports. No new physics
+    // module, and no new free parameter beyond the fundamental scale itself.
+    //
+    // PROVISIONAL, like every fomRef in this file. The reference machine is
+    // 250,000 GeV/beam at 1e34 cm^-2 s^-1, which the formula puts at 1.8
+    // events/s. MEASURE it in scripts/balance-sim.mjs and replace the number;
+    // do not tune it by feel.
+    fomRef: 1.8,
+    bandWidth: 0.30,
+    // The lowest duty factor in the roster, and the one place where the number
+    // is a mood as well as a fraction. This machine spends its life ramping,
+    // cooling down and being re-aligned; it delivers collisions for about a
+    // thousandth of the wall clock and every one of them is an event.
+    dutyFactor: 0.001,
+    // Three nodes, and unlike every other type one of them is another type's
+    // gate. `colliderTech` is required outright: you do not get here without
+    // having built the linear collider first, and the tier-6 machine being
+    // strictly downstream of the tier-5 one is the only place in the roster
+    // where the tiers are a real ordering rather than an economic one.
+    // `particleDiscovery` is what makes the result claimable at five sigma and
+    // is what gates the chamber and the detector. `bunchCompression` is the
+    // luminosity: cross-sections at this energy are geometric and tiny, so the
+    // only lever left is how tightly the bunch is squeezed.
+    requires: ['colliderTech', 'particleDiscovery', 'bunchCompression'],
+    // The collider's denials, plus one. Insertion devices are already withheld
+    // by allowlist for the same reason as there — a photon here is a loss
+    // term, not a product — and the three intercepting devices are the
+    // collider's list verbatim. `wireScanner` is the addition, and the collider
+    // is right to keep it while this type is not: a carbon filament survives a
+    // brief pass through a 500 GeV beam and is standard practice on real
+    // machines, but at 500 TeV the same filament is not a diagnostic, it is a
+    // one-shot experiment in vaporising carbon.
+    excludes: ['screen', 'velocitySelector', 'emittanceFilter', 'wireScanner'],
+    requiredEndpoint: ['blackHoleChamber'],
+    blurb: 'The collider loses money; this loses money and land. Two hundred tiles of crystal in a dead straight line, firing a thousandth of the time, to measure a cross-section that may well be zero.',
+    accentColor: 0xff7a18,
   },
 };
 

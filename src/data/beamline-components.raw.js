@@ -98,8 +98,12 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
-    // The species declaration for the three hadron types.
-    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
+    // The species declaration for every hadron type. blackHoleFactory is on
+    // the list for the same reason the others are — it is a p+p- machine and
+    // this is where the protons come from. The antiproton arm is the same
+    // abstraction the collider makes for its positrons: a production target
+    // and a damping ring the game does not ask you to build.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation', 'blackHoleFactory'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   ecrIonSource: {
@@ -133,7 +137,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
-    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation', 'blackHoleFactory'],
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2450,
     rfBand: 'sband',
@@ -327,7 +331,16 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // and 0.070 GeV is the exact bottom of therapy's band. Note the 750 uA is
     // 15x over therapy's 1-50 uA window — plopping this and calling it a
     // clinic scores badly on purpose. A therapy line is a designed line.
-    beamlineTypes: ['isotopeIrradiation', 'therapy'],
+    // blackHoleFactory is here for one measured reason: without it that type
+    // has no injector at all. Its palette holds two DC sources at 10-100 kV,
+    // and a 40 keV proton is beta 0.0092 with a 33 mm sigma against
+    // crystalChannelStage's 4 mm bore — every lattice buildable from the
+    // sources alone measures loss 1.000. A 70 MeV cyclotron hands the crystal
+    // string a beam it can actually channel. The collider's SRF ladder cannot
+    // do this job: those cavities are all DESIGN_BETA 0.999, so against a
+    // 40 keV proton the transit-time factor floors at 0.01 and a 3.5 GeV
+    // sector delivers 35 MeV over sixteen metres.
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'blackHoleFactory'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   cyclotron230: {
@@ -397,7 +410,16 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // hundred metres of SRF linac, which is the whole reason it exists — 0.230
     // is 92% of the way up therapy's 0.07-0.25 GeV band, and the degrader
     // below is what walks it back down.
-    beamlineTypes: ['therapy'],
+    // blackHoleFactory is the second home, and it is the OPPOSITE trade to
+    // cyclotron70's: 1 uA against 750, but a clean beam that reaches the
+    // crystal string at capture-only loss. Measured across 42 stages, the
+    // 230 MeV front end holds 0.5 uA the whole way while the 70 MeV one
+    // decays 279 -> 97 uA. Which injector you pick IS that type's tier
+    // ladder — see the note in stock-designs/black-hole.js. Energy cannot be
+    // the ladder there: with six extra dimensions the Schwarzschild radius
+    // goes as the seventh root of sqrt(s), so 4.7x the energy buys 1.55x the
+    // yield while swapping the front end buys five orders of magnitude.
+    beamlineTypes: ['therapy', 'blackHoleFactory'],
     requiredConnections: ['powerCable', 'coolingWater'],
   },
   lwfaStation: {
@@ -1625,6 +1647,75 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // bunch it makes. Same shape as lwfaStation, for the same reasons.
     requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
+  crystalChannelStage: {
+    id: 'crystalChannelStage',
+    physicsType: 'rfCavity',
+    name: 'Crystal Channeling Stage',
+    desc: "A bent silicon wafer in a goniometer, and a beam threaded down the corridor between two lattice planes. Inside that corridor the atomic rows themselves are the field: Tajima and Cavenago put the coherent accelerating gradient at 1-10 TeV/m in 1987, a thousand times a plasma wakefield and a million times copper, because the field is set by the spacing of atoms rather than by what a surface can hold before it arcs. CERN's UA9 and the LHC crystal-collimation programme have been steering 6.5 TeV protons through bent silicon for years, so the channeling is not the speculative part — driving the lattice hard enough to accelerate is. What you buy is 12 TeV in ten metres, an acceptance measured in microradians, and a crystal that has to be re-aligned continuously while a TeV beam deposits into it.",
+    category: 'rf',
+    subsection: 'normalConducting',
+    // PROVISIONAL, and deliberately off the ladder's $/GeV curve. Every rung
+    // below this one is priced on how much accelerating structure you are
+    // buying — $17M/GeV at plasmaAfterburner, $21M at twoBeamModule — and
+    // extrapolating that here gives $200B a placement. It is the wrong curve:
+    // the accelerating medium is a wafer of silicon and costs nothing. What
+    // costs is the goniometer, the interferometric alignment and the crystal's
+    // replacement schedule, none of which scale with energy. $900M a stage is
+    // $0.075M/GeV, and 42 of them — the full 500 TeV arm — is $37.8B against a
+    // land ladder that tops out at $18.5B. Calibrate in balance-sim.mjs.
+    cost: { funding: 900000000 },
+    // 12000 GeV over subL 20 (10 m) derives 1,200,000 MV/m = 1.2 TeV/m, the
+    // honest LOW end of the 1-10 TeV/m the channeling literature discusses.
+    // The unit is MV/m throughout the ladder and stays MV/m here so the number
+    // reads on the same axis as plasmaAfterburner's 1500 — which is the point:
+    // this rung is three orders of magnitude above it, and the readout should
+    // say so rather than quietly changing units.
+    stats: { energyGain: 12000, gradient: 1200000 },
+    // The crystal is passive; the bill is the mount. A cryogenic goniometer
+    // holding microradian alignment against the thermal shock of a TeV-scale
+    // beam is the largest electrical load in the catalogue, and essentially
+    // all of it comes back as heat into the water loop.
+    energyCost: 2000,
+    // The tightest bore in the catalogue, and it flatters the real device: a
+    // channeled beam has to arrive inside the Lindhard critical angle, which
+    // is tens of microradians. The game models the physical aperture only, so
+    // the acceptance penalty this hardware really carries is not charged here.
+    apertureRadius: 4,
+    subL: 20,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 20, geometryType: 'box',
+    interiorVolume: 40,
+    // targetPhysicsAdv is the tree's node for a beam inside dense matter under
+    // extreme conditions — high-Z, cryogenic, remote-handled because of the
+    // activation — which is exactly what a channeling stage is. It is also a
+    // prerequisite of antimatter and therefore of colliderTech, so the node can
+    // never be missing when blackHoleFactory unlocks. The node advertised
+    // nothing at all before this.
+    requires: 'targetPhysicsAdv',
+    spriteKey: 'rfCavity',
+    spriteColor: 0x7fd4e8,
+    accentColor: 0x7fd4e8,
+    // No PARAM_DEFS entry and no gradient slider, unlike every rung below it.
+    // The accelerating field is set by the lattice constant of silicon; there
+    // is no knob, only alignment. rfPhase is carried so gameplay.py's rfCavity
+    // branch reads a defined value rather than falling through to a default.
+    params: { rfPhase: 0 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+
+    beamlineTypes: ['blackHoleFactory'],
+    // NOT RF-fed, and for a different reason than plasmaAfterburner: there is
+    // no cavity, no resonance and no drive field of any kind, so no
+    // rfFrequency and no rfBand. Power and water run the goniometer and take
+    // the deposited beam back out as heat; the fibre is the alignment
+    // interferometer, which is the one system that decides whether this thing
+    // accelerates at all or just scatters a very expensive beam.
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+  },
 
   // ── RF / Accel — Superconducting ──────────────────────────────────
   halfWaveResonator: {
@@ -2195,6 +2286,76 @@ export const BEAMLINE_COMPONENTS_RAW = {
 
     beamlineTypes: ['collider'],
     requiredConnections: ['powerCable', 'dataFiber'],
+  },
+  blackHoleChamber: {
+    id: 'blackHoleChamber',
+    physicsType: 'detector', // beam_beam fires on physicsType 'detector' — this IS the interaction region
+    name: 'Black Hole Chamber',
+    desc: 'The interaction region of a 200 TeV to 1 PeV hadron collider: a twelve-metre spherical vessel, a final-focus doublet on each side squeezing beta-star to millimetres, and forty metres of tungsten and concrete around it because the debris from a collision at this energy is a shower nothing else in the facility is rated for. If the fundamental Planck scale really sits near a TeV, a parton pair passing inside its own Schwarzschild radius here makes a black hole with a lifetime of 10^-26 seconds; if it does not, this is the most expensive way ever built to measure a cross-section that is zero.',
+    category: 'endpoint',
+    subsection: 'detectors',
+    cost: { funding: 4000000000 },
+    stats: { collisionRate: 12 },
+    energyCost: 400,
+    apertureRadius: 60,
+    subL: 12,
+    subW: 8,
+    subH: 8, gridW: 8, gridH: 12, geometryType: 'box',
+    interiorVolume: 400,
+    // particleDiscovery is the tree's node about claiming a result at five
+    // sigma, and it unlocked nothing whatsoever until this. It sits one step
+    // past highLuminosity, the same parent colliderTech descends from, so a
+    // player who can build a linear collider is one node away from this.
+    requires: 'particleDiscovery',
+    isEndpoint: true,
+    spriteKey: 'detector',
+    spriteColor: 0xff7a18,
+    accentColor: 0xff7a18,
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      // Two counter-propagating arms terminate here, exactly as collisionPoint
+      // does. It is the one beam-port shape the router already knows how to
+      // lay out for a collider, and a black hole factory is a collider.
+      entryA: { side: 'back' },
+      entryB: { side: 'front' },
+    },
+
+    beamlineTypes: ['blackHoleFactory'],
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+  },
+  hawkingDetector: {
+    id: 'hawkingDetector',
+    physicsType: 'detector',
+    name: 'Hawking Radiation Detector',
+    desc: 'A hermetic calorimeter built around one question: does the thing that just decayed radiate democratically? A black hole evaporating by Hawking radiation emits into every degree of freedom in roughly equal measure — quarks, leptons, photons, gluons, all of them — which is a signature no Standard Model process produces, and it is why this is a detector for a spectrum rather than a detector for a particle. It sells nothing. There is no customer for a high-multiplicity event with a thermal spectrum, and there never will be; what it produces is reputation and the possibility of being right.',
+    category: 'endpoint',
+    subsection: 'detectors',
+    cost: { funding: 1800000000 },
+    // The highest data rate of any endpoint, and it earns no collisionRate at
+    // all — the collider's `detector` sells neither, but it still counts
+    // events. This one is paid entirely in what it learns.
+    stats: { dataRate: 40 },
+    energyCost: 250,
+    apertureRadius: 90,
+    subL: 14,
+    subW: 8,
+    subH: 6, gridW: 8, gridH: 14, geometryType: 'box',
+    interiorVolume: 500,
+    requires: 'particleDiscovery',
+    spriteKey: 'detector',
+    spriteColor: 0xff7a18,
+    accentColor: 0xff7a18,
+    placement: 'module',
+    role: 'junction',
+    routing: [],
+    ports: {
+      entry: { side: 'back' },
+    },
+
+    beamlineTypes: ['blackHoleFactory'],
+    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
   },
   target: {
     id: 'target',

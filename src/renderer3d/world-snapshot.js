@@ -6,10 +6,20 @@ import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
-import { inMapRegion } from '../game/map-generator.js';
+import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
 import { placementPose } from '../beamline/pipe-placements.js';
 
-const GRASS_RANGE = 35;
+/**
+ * How far the drawn ground reaches — always exactly the map the player owns,
+ * which grows when they buy land (see Game.buyLand). This used to be a
+ * constant 35 duplicated from map-generator.js, so the renderer's idea of the
+ * map and the generator's were two numbers that had to be kept in step by
+ * hand. The fallback covers states built before the field existed (scenario
+ * fixtures, hand-rolled test states), never a live game.
+ */
+function grassRange(game) {
+  return game.state.mapHalfExtent ?? DEFAULT_MAP_HALF_EXTENT;
+}
 
 // --- Terrain hash ---
 
@@ -44,10 +54,11 @@ function buildTerrain(game) {
   const zoneOccupied = game.state.zoneOccupied || {};
   const blobs = game.state.terrainBlobs || [];
   const terrain = [];
+  const range = grassRange(game);
 
-  for (let col = -GRASS_RANGE; col <= GRASS_RANGE; col++) {
-    for (let row = -GRASS_RANGE; row <= GRASS_RANGE; row++) {
-      if (!inMapRegion(col, row)) continue;
+  for (let col = -range; col <= range; col++) {
+    for (let row = -range; row <= range; row++) {
+      if (!inMapRegion(col, row, range)) continue;
       const key = col + ',' + row;
       // Grass-kind placements (grass/wildgrass/tallgrass) do NOT displace the
       // default terrain mesh — they just tag the cell for per-kind tuft
@@ -85,13 +96,14 @@ function buildTerrain(game) {
 function buildCliffs(game) {
   const state = game.state;
   const cliffs = [];
+  const range = grassRange(game);
 
-  for (let col = -GRASS_RANGE; col <= GRASS_RANGE; col++) {
-    for (let row = -GRASS_RANGE; row <= GRASS_RANGE; row++) {
+  for (let col = -range; col <= range; col++) {
+    for (let row = -range; row <= range; row++) {
       const self = getTileCornersY(state, col, row);
 
       // East edge — neighbor at (col+1, row). Skip if neighbor is outside range.
-      if (col + 1 <= GRASS_RANGE) {
+      if (col + 1 <= range) {
         const east = getTileCornersY(state, col + 1, row);
         const selfY = [self.ne, self.se];
         const neighborY = [east.nw, east.sw];
@@ -101,7 +113,7 @@ function buildCliffs(game) {
       }
 
       // South edge — neighbor at (col, row+1). Skip if neighbor is outside range.
-      if (row + 1 <= GRASS_RANGE) {
+      if (row + 1 <= range) {
         const south = getTileCornersY(state, col, row + 1);
         const selfY = [self.sw, self.se];
         const neighborY = [south.nw, south.ne];

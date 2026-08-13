@@ -81,18 +81,32 @@ function placeDesign(design, seed) {
   const placer = new DesignPlacer(game, stubRenderer);
   placer.start(design);
 
+  // `valid` is the preview's answer for the ghost's own footprint; confirm()
+  // then walks the design placing modules and pipes, and can still refuse —
+  // a bend can put a later module on ground the ghost never covered. So a
+  // rejected origin means "not this tile", not "this design does not place",
+  // and the scan carries on. confirm() rolls its own placements back on
+  // failure (see DesignPlacer's fail()), and cancels the session with them,
+  // so each retry re-arms the placer against untouched state.
+  //
+  // The scan used to stop at the first `valid` tile and report a failed
+  // confirm there as the design's failure. That made the suite a coin flip on
+  // the seed: therapy-spoke230's first valid tile is unusable on roughly one
+  // seed in ten, which read as a blueprint regression every time the map or
+  // the generator moved and was never either.
   let origin = null;
+  let before = null;
   outer:
   for (let row = -30; row <= 30; row++) {
     for (let col = -30; col <= 20; col++) {
       placer.setPosition(col, row);
-      if (placer.valid) { origin = { col, row }; break outer; }
+      if (!placer.valid) continue;
+      const ids = new Set(game.state.placeables.map(p => p.id));
+      if (placer.confirm()) { origin = { col, row }; before = ids; break outer; }
+      placer.start(design);
     }
   }
-  if (!origin) return { error: 'no free start tile on the generated map' };
-
-  const before = new Set(game.state.placeables.map(p => p.id));
-  if (!placer.confirm()) return { error: 'DesignPlacer.confirm() returned false', origin };
+  if (!origin) return { error: 'no start tile on the generated map where the design places' };
 
   // Modules are pushed to state.placeables in beam order by confirm(), so the
   // first new beamline placeable is the design's first module — the node
