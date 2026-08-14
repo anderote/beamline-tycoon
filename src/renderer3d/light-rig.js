@@ -25,9 +25,11 @@
 //     pools every fixture already has — see "Spot handover" below, which is
 //     where the interesting logic lives.
 //   - "glow" meshes: userData.role === 'glow' (component-builder.js's screens
-//     / indicator lamps / hot cathodes). These get the 8 non-shadow
-//     PointLights, so equipment that's already emissive under bloom also
-//     throws a little real light on what's next to it.
+//     / indicator lamps / hot cathodes), plus floor-glow.js's pixel-less
+//     utility-run proxies, which carry their own throw/tint/intensity in
+//     userData.utilityLightEmitter. These get the 8 non-shadow PointLights,
+//     so equipment that's already emissive under bloom — and a live utility
+//     run — also throws a little real light on what's next to it.
 //
 // SpotLight over PointLight for fixtures: a shadow-casting PointLight needs a
 // CUBE shadow map — six render passes per light per frame. A SpotLight needs
@@ -545,13 +547,21 @@ export class LightRig {
         continue;
       }
       const p = this._worldPos(cand.mesh);
-      slot.light.distance = AMBIENT_POINT_DISTANCE;
+      // A utility-run proxy (floor-glow.js) carries its own throw, tint and
+      // intensity in userData.utilityLightEmitter — a dead coolingWater run
+      // and a healthy one are the same object with different numbers there.
+      // A glow-role mesh has none of that and falls back to the tuned
+      // constants plus its own emissive colour.
+      const utilityEmitter = cand.mesh.userData && cand.mesh.userData.utilityLightEmitter;
+      slot.light.distance = utilityEmitter?.distance ?? AMBIENT_POINT_DISTANCE;
       slot.light.decay = AMBIENT_POINT_DECAY;
       slot.light.position.set(p.x, p.y, p.z);
       const emissive = cand.mesh.material && cand.mesh.material.emissive;
-      if (emissive) slot.light.color.copy(emissive);
+      if (utilityEmitter?.color != null) slot.light.color.set(utilityEmitter.color);
+      else if (emissive) slot.light.color.copy(emissive);
       else slot.light.color.set(DEFAULT_GLOW_LIGHT_COLOR);
-      slot.light.intensity = AMBIENT_POINT_INTENSITY * nightFactor;
+      slot.light.intensity = AMBIENT_POINT_INTENSITY
+        * (utilityEmitter?.intensity ?? 1) * nightFactor;
       slot.assignedRef = cand.mesh;
     }
   }
