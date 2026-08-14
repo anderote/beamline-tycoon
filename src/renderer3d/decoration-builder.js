@@ -1235,6 +1235,12 @@ function _lamppost(footW, footL, totalH) {
   finial.position.y = lanternY + 0.15;
   finial.rotation.y = Math.PI / 4;
   group.add(finial);
+  // Tags this group as a light-rig fixture (light-rig.js reads
+  // userData.lightFixture off placed decorations the same way component
+  // glow meshes are read off userData.role === 'glow' — no separate
+  // registry). offsetY lands the light at the lantern, not the ground the
+  // group is actually positioned at; color matches glowMat's emissive above.
+  group.userData.lightFixture = { offsetY: lanternY, color: 0xffc864 };
   return group;
 }
 

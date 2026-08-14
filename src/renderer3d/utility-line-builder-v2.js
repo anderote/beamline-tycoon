@@ -20,6 +20,7 @@ import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
+import { buildFloorGlowStrip } from './floor-glow.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -390,6 +391,18 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   if (errorStatus && errorStatus !== 'ok') {
     group.add(buildFaultMark(polylineMidpoint(points), errorStatus));
   }
+
+  // Floor glow: a painted pool of light on the deck beneath the run (see
+  // floor-glow.js — pipes can't cast real light along their length). Built
+  // from the SAME `points`, reversed the SAME way `reversed` already reverses
+  // the pipe's own baked run-distance above, so the pool travels source ->
+  // sink in lockstep with the pulses on the pipe it sits under rather than
+  // drifting out of orientation. Lives in this line's own group, so it is
+  // disposed with the line exactly like the fault mark above; returns null
+  // (no-op) for vacuumPipe and for a hard-faulted run.
+  const floorPoints = reversed ? points.slice().reverse() : points;
+  const floorGlow = buildFloorGlowStrip(floorPoints, line.utilityType, errorStatus);
+  if (floorGlow) group.add(floorGlow);
 
   return group;
 }
