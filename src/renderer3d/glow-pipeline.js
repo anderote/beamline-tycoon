@@ -45,6 +45,20 @@ const DEFAULT_THRESHOLD = 0.85;
 // softens the bloom knee for every object on BLOOM_LAYER, not just the glow
 // role's screens/lamps — any future bloom source (Task 4/5) inherits the
 // same wider, softer cutoff rather than a hard one.
+//
+// TWO INDEPENDENT SOFTENERS, AND NEITHER ONE HINTS AT THE OTHER. Whoever
+// retunes one of these will not find the other by reading the code around it:
+//
+//   1. this constant, which widens the luminance knee, and
+//   2. dayNightGrade()'s `darkness` (src/renderer3d/day-night.js), which is
+//      smoothstepped through a twilight band, so a glow surface APPROACHES
+//      its crossing gradually instead of at a constant rate.
+//
+// They reinforce rather than duplicate: (1) softens the threshold in
+// brightness space, (2) softens the approach in time. Drop either and glow
+// surfaces snap on and off as the sun moves — the exact pop this replaced.
+// If a future grading change makes `darkness` linear again, this needs to go
+// wider to compensate, and vice versa.
 const DEFAULT_SMOOTH_WIDTH = 0.3;
 
 const MIX_VERTEX_SHADER = `

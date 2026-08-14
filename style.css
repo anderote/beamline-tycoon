@@ -4985,7 +4985,19 @@ body {
 .stubby {
   position: fixed;
   right: 14px;
-  bottom: 14px;
+  /* Sits above the view cube, clear of the whole bottom-right control stack.
+     At bottom:14px his box fell inside #component-palette: the bubble covered
+     14.4% of the bar. Nothing was blocked while only a few cards existed —
+     they are left-aligned and the bubble starts around x=1038 — but the
+     palette is `overflow-x: auto` with fixed-height cards, so it never grows,
+     it fills and then scrolls. Once a category has ~8 unlocked components,
+     cards reach that x and a wordy blocker bubble sits silently on top of
+     real, clickable ones.
+     Anchored off #view-cube-widget (bottom:321px + height:110px = top edge at
+     431px) plus a gap, because everything below that edge is occupied — the
+     wall-visibility buttons, the palette search input and the palette itself
+     leave no 135px window lower down. Re-derive if the cube widget moves. */
+  bottom: 445px;
   z-index: 900;
   display: flex;
   align-items: flex-end;

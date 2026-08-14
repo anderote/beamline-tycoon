@@ -539,18 +539,16 @@ test('buildFloorGlowStrip refuses to paint a pool under vacuumPipe (no flow) or 
     'a dead network paints nothing, same as the pipe above it going dark');
 });
 
-test('buildFloorGlowStrip builds a strip for a healthy flowing run, and its material is never tagged __shared', () => {
+test('buildFloorGlowStrip builds a non-rendered real-light proxy for a healthy flowing run', () => {
   const strip = buildFloorGlowStrip(makePoints(), 'coolingWater', 'ok');
-  assert.ok(strip, 'a healthy coolingWater run gets a floor-glow strip');
+  assert.ok(strip, 'a healthy coolingWater run gets a light proxy');
   assert.equal(strip.userData.isFloorGlowStrip, true, 'tagged so ThreeRenderer can find/toggle it by traversal');
-  assert.ok(strip.children.length >= 2, 'one segment per waypoint pair (3 points -> 2 segments)');
-  for (const seg of strip.children) {
-    assert.ok(seg.isMesh, 'each segment is a mesh');
-    assert.ok(!seg.material.userData.__shared,
-      'the strip\'s material is per-line, unlike getLineMaterial/getJacketMaterial — it must never be tagged __shared, ' +
-      'or one line\'s group disposing would free a material another line\'s strip still depends on');
-  }
+  assert.equal(strip.children.length, 0, 'the proxy paints no translucent floor geometry');
+  assert.ok(strip.userData.utilityLightEmitter, 'tagged as a LightRig point-light candidate');
+  assert.ok(strip.userData.utilityLightEmitter.distance > 0, 'real light has a bounded falloff distance');
 
   const soft = buildFloorGlowStrip(makePoints(), 'coolingWater', 'soft');
-  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still paints a pool, just dimmer per FLOW_STATE_MODS.soft');
+  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still emits light');
+  assert.ok(soft.userData.utilityLightEmitter.intensity < strip.userData.utilityLightEmitter.intensity,
+    'soft-faulted utility light is dimmer than healthy light');
 });
