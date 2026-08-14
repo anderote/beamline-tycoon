@@ -48,6 +48,7 @@ import {
   footprintHalfExtents,
   rotateLocalOffset,
   getPortSpec,
+  portWorldPosition,
 } from './ports.js';
 import { portAnchorOverride } from '../data/utility-port-anchors.js';
 
@@ -135,8 +136,8 @@ function clamp(v, lo, hi) {
  * `offsetAlong` is declared on nearly every port in utility-ports-v2.js and has
  * never been read: 0.5 and 0.8 on the same side of a 8 m cryomodule resolved to
  * the same point. It is a fraction of the machine's own length, so it needs the
- * measured extent to become metres; headless, everything lands at 0 — the face
- * midpoint, exactly where the sim puts it.
+ * measured extent to become metres. Headless, use the footprint extent so the
+ * answer remains identical to the sim's `portWorldPosition`.
  */
 function resolveAlong(spec, override, bounds, perpAxis, halfPerp) {
   let along = 0;
@@ -148,6 +149,9 @@ function resolveAlong(spec, override, bounds, perpAxis, halfPerp) {
     if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
       along = lo + (hi - lo) * spec.offsetAlong;
     }
+  } else if (spec && Number.isFinite(spec.offsetAlong)) {
+    const fraction = clamp(spec.offsetAlong, 0.1, 0.9);
+    along = -halfPerp + (halfPerp * 2) * fraction;
   }
   // Never past the footprint: a connector that pokes into the neighbouring
   // tile reads as belonging to whatever is placed there.
@@ -262,6 +266,14 @@ export function portAnchor3D(placeable, def, portName) {
   const mount = mountFor(type, def, portName);
   if (!mount) return null;
 
+  // With no renderer geometry to measure, presentation must land exactly on
+  // the simulation endpoint. This also preserves the sim's clockwise
+  // offsetAlong convention on opposite faces; measured model anchors use
+  // their authored local coordinates instead.
+  const simFallback = (!_boundsProvider && !_measureProvider && !onPipe)
+    ? portWorldPosition(placeable, def, portName)
+    : null;
+
   const vec = portApproachVec(placeable, def, portName);
   // Path coords are (col, row) = (x/2, z/2), so an outward normal of one tile
   // step is one unit in each — direction only, magnitude comes from standoff.
@@ -279,9 +291,9 @@ export function portAnchor3D(placeable, def, portName) {
   );
 
   return {
-    x: centre.x + offset.x,
+    x: simFallback ? simFallback.x : centre.x + offset.x,
     y: mount.y,
-    z: centre.z + offset.z,
+    z: simFallback ? simFallback.z : centre.z + offset.z,
     out,
     standoff,
   };

@@ -127,6 +127,14 @@ const SIDE_TO_LOCAL = {
   front: { axis: 'z', sign:  1 },
 };
 
+// Keep authored ports off footprint corners, where adjacent faces would
+// otherwise become ambiguous. Missing offsets retain the historical midpoint.
+function alongOffset(spec) {
+  const value = spec && spec.offsetAlong;
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(0.9, Math.max(0.1, value)) - 0.5;
+}
+
 /**
  * World {x, z} of the footprint's centre, or null. This is the point every
  * port on the placeable is measured from.
@@ -209,6 +217,7 @@ export function rotateLocalOffset(off, dir) {
  */
 export function portWorldPosition(placeable, def, portName) {
   if (!placeable || !portName) return null;
+  const spec = getPortSpec(def, portName);
   const local = portLocalAxis(def, portName);
   if (!local) return null;
   const centre = placeableCenterWorld(placeable, def);
@@ -216,8 +225,18 @@ export function portWorldPosition(placeable, def, portName) {
 
   const half = footprintHalfExtents(def);
   const lat = local.sign * (local.axis === 'x' ? half.x : half.z);
+  // offsetAlong advances clockwise around the unrotated footprint. For an
+  // outward normal (x,z), that tangent is (-z,x), scaled by the face length.
+  const slide = alongOffset(spec);
+  const normal = local.axis === 'x'
+    ? { x: local.sign, z: 0 }
+    : { x: 0, z: local.sign };
+  const faceLength = local.axis === 'x' ? half.z * 2 : half.x * 2;
+  const localOffset = local.axis === 'x'
+    ? { x: lat, z: normal.x * slide * faceLength }
+    : { x: -normal.z * slide * faceLength, z: lat };
   const off = rotateLocalOffset(
-    local.axis === 'x' ? { x: lat, z: 0 } : { x: 0, z: lat },
+    localOffset,
     placeable.dir || 0,
   );
   return { x: centre.x + off.x, z: centre.z + off.z };

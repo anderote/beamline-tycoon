@@ -329,11 +329,11 @@ console.log('\n--- 5. With a renderer, the anchor lands on the measured shell --
       `cryomodule.${port} mounts at (${wantX}, ${Y[port]}, ${wantZ}) — got ${fmtA(a)}`);
   }
 
-  // The sim, meanwhile, has not moved: it still says the footprint edge, and
-  // it is a whole 0.55 m away from where the connector is now drawn.
+  // The sim uses the footprint for its longitudinal fraction while the
+  // renderer uses measured model bounds.
   const sim = portWorldPosition(place(CM), CM_DEF, 'rf_in');
-  assert(near(sim.x, 8) && near(sim.z, 12),
-    `portWorldPosition still returns the footprint edge (${sim.x}, ${sim.z})`);
+  assert(near(sim.x, 8) && near(sim.z, 14.4),
+    `portWorldPosition uses the footprint edge and authored offset (${sim.x}, ${sim.z})`);
   assert(near(anchors.rf_in.x - 7, SHELL) && (8 - 7) > SHELL,
     'and the drawn anchor is inboard of it, on the same side');
 }
@@ -385,8 +385,8 @@ console.log('\n--- 7. offsetAlong finally displaces along the machine ---');
   // metres from the coupler either belongs to.
   useProviders(null, null);
   const flatZ = CM_PORTS.map(p => portAnchor3D(place(CM), CM_DEF, p).z);
-  assert(flatZ.every(z => z === 12),
-    `headless they all still collapse onto the face midpoint (${flatZ.join(',')})`);
+  assert(flatZ.some(z => z !== 12),
+    `headless offsets use the simulation footprint (${flatZ.join(',')})`);
 
   useProviders(FAKE_BOUNDS, SHELL);
   const z = {};

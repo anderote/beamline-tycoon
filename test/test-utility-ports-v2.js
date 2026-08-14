@@ -221,9 +221,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
   assert(panelOutputs.length === 4
-      && panelOutputs.every(spec => spec.side === 'front')
-      && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4,
-    'power panel mounts four distinct branch sockets on its front face');
+      && new Set(panelOutputs.map(spec => spec.side)).size === 4,
+    'power panel exposes four independently routable branch sockets');
   assert(outlets('hvTransformer') === 0,
     'a supply hands out no branch circuits — everything goes through distribution');
 

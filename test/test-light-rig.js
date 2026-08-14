@@ -175,7 +175,7 @@ globalThis.THREE = {
 };
 
 const { LightRig } = await import('../src/renderer3d/light-rig.js');
-const { fixtureLightTag, buildLightFixture } = await import('../src/renderer3d/lighting-builder.js');
+const { fixtureLightTag } = await import('../src/renderer3d/lighting-builder.js');
 const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
 const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
 const { buildFloorGlowStrip } = await import('../src/renderer3d/floor-glow.js');
@@ -283,56 +283,23 @@ test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does
     `a flash barely into its decay should still be near its starting intensity regardless of nightFactor=0 (got ${flashingSlot.light.intensity})`);
 });
 
-// --- Real fixture discovery: the tag contract, both halves -----------------
-//
-// The fixture half of this rig was dead once already: it discovered fixtures
-// by scanning for userData.lightFixture, a tag whose only producer (an old
-// lamppost builder in decoration-builder.js) was deleted when lighting moved
-// to lighting-builder.js. Nothing in src/ set it any more, so all four shadow
-// spots sat at intensity 0 forever — and the suite stayed green, because every
-// test in it hand-built the tag itself. A synthetic Group with hand-set
-// userData can never catch that.
-//
-// So this one test uses a REAL buildLightFixture() group and asserts BOTH
-// halves of the contract that revives the feature: an untagged real fixture is
-// invisible to the rig (exactly the dead state, asserted loudly rather than
-// assumed away), and the tag decoration-builder.js actually stamps —
-// fixtureLightTag(), same call, same arguments — is what makes it visible.
-// Should that stamp ever be dropped or renamed again, this fails instead of
-// passing silently.
-
-test('a real buildLightFixture() group is invisible to the rig until decoration-builder\'s tag is stamped on it', () => {
+test('production fixture registry drives real spots without a legacy scene tag', () => {
   const scene = new SceneStub();
-  const group = buildLightFixture(DEF.lamppost, { dir: 0 });
-  group.position.set(4, 0, 4);
+  const group = new Group();
+  group.position.set(6, 0, 2);
+  group.rotation.y = -Math.PI / 2;
   scene.add(group);
-  assert.equal(group.userData.lightFixture, undefined,
-    'sanity: geometry alone carries no tag — stamping it is decoration-builder.js\'s job, and this is the exact state the feature was silently dead in');
 
   const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
-  const camera = { position: new V3(0, 0, 0) };
-  rig.update(camera, 1, 1); // dt 1 s: any assignment would be at full weight
-
-  assert.equal(rig._spotSlots[0].assignedRef, null,
-    'an untagged fixture is not a candidate — discovery has exactly one hook, and this is it');
-  assert.equal(rig.getFixtureSuppression().size, 0,
-    'and nothing is suppressed, so an undiscovered fixture keeps its painted pool');
-
-  // Precisely what decoration-builder.js does where it pushes {id, def, group}.
-  group.userData.lightFixture = fixtureLightTag(DEF.lamppost, { id: 'L1', dir: 0 });
-  rig.markDirty();
-  rig.update(camera, 1, 1);
+  rig.setFixtureRegistry([{ id: 'registry-flood', def: DEF.floodLight, group }]);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 1);
 
   const slot = rig._spotSlots[0];
-  assert.equal(slot.assignedRef, group, 'the tagged real fixture is found by the traversal');
-  assert.equal(slot.light.position.y, DEF.lamppost.light.emitterY,
-    'a ground mount\'s spot hangs at the def\'s own emitterY above the group origin');
-  assert.equal(slot.light.distance, DEF.lamppost.light.radius,
-    'and throws exactly as far as the painted pool it is about to suppress');
-  assert.ok(Math.abs(slot.light.intensity - 6 * DEF.lamppost.light.intensity) < 1e-9,
-    `and is lit by the def's own intensity, not a flat constant (got ${slot.light.intensity})`);
-  assert.equal(rig.getFixtureSuppression().get('L1'), 1,
-    'a fully faded-in spot suppresses that fixture\'s pool completely — never both at once');
+  assert.equal(slot.assignedRef.id, 'registry-flood', 'the untagged registry fixture receives the real spot');
+  assert.equal(rig.getFixtureSuppression().get('registry-flood'), 1,
+    'the same fixture id suppresses its painted pool');
+  assert.ok(slot.target.position.z > slot.light.position.z,
+    'the spot follows the rendered group rotation instead of assuming dir=0');
 });
 
 // --- Spot handover: hysteresis, crossfade, and pool suppression ------------
