@@ -148,11 +148,19 @@ export function getResearchSpeedMultiplier(id, state) {
 export function tickResearch(state, log, getResearchSpeedMult, recalcBeamline) {
   if (!state.activeResearch) return false;
   const r = RESEARCH[state.activeResearch];
-  const sciBonus = 1 + state.staff.scientist * 0.05;
+  // Task 6 (staff-professions-3, jobs-and-gates) removed the old
+  // `sciBonus = 1 + state.staff.scientist * 0.05` term: it rewarded merely
+  // HAVING scientists on the roster, not any of them actually doing
+  // anything — the same presence-vs-work gap Game._tickBeamline's own
+  // sciMult had (see that call site's own comment). The passive trickle
+  // below (lab tier via speedMult, beam quality, morale) is now the whole
+  // story for research progress that isn't work-gated; the WORK-gated half
+  // is jobEffects/analyze.js's completion effect, which adds directly to
+  // state.researchProgress when a scientist finishes converting data.
   const bqFactor = state.beamOn ? (0.5 + 0.5 * state.beamQuality) : 0.5;
   const speedMult = getResearchSpeedMult(state.activeResearch) || 1;
   // Apply morale bonus to research speed
-  state.researchProgress += (1 / speedMult) * sciBonus * bqFactor * (state.moraleMultiplier || 1.0);
+  state.researchProgress += (1 / speedMult) * bqFactor * (state.moraleMultiplier || 1.0);
   if (state.researchProgress >= r.duration) {
     state.completedResearch.push(state.activeResearch);
     log(`Research done: ${r.name}!`, 'reward');

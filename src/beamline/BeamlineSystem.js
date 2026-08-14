@@ -18,7 +18,7 @@
 //   - isUnlocked(componentDef) → boolean: research gate (Game.isComponentUnlocked).
 //   - nextPipeId() → string, nextPlacementId() → string.
 
-import { COMPONENTS } from '../data/components.js';
+import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
 import {
   validateSplitPipe, validateMergePipes, validateTrimPipe, validateRemovePipeSection,
@@ -775,6 +775,13 @@ export class BeamlineSystem {
     this.emit('beamlineChanged');
     // The new placement is the one whose id is not in priorIds.
     const newPl = pipe.placements.find(pl => !priorIds.has(pl.id));
+    if (newPl) {
+      // Task 6 (staff-professions-3, jobs-and-gates): the other of the two
+      // choke points that can ever mint a new beamline component — see
+      // Game._placePlaceableInner's identical stamp for junctions/modules.
+      newPl.needsCommissioning = true;
+      newPl.specialty = commissioningSpecialtyFor(opts.type);
+    }
     return newPl ? newPl.id : null;
   }
 

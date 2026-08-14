@@ -1,6 +1,6 @@
-import { COMPONENTS } from '../data/components.js';
+import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
-import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
+import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { seedComponentParams } from '../beamline/component-params.js';
@@ -293,7 +293,12 @@ export class Game {
       // Zone overlays
       zones: [],                // [{ type, col, row }]
       zoneOccupied: {},         // "col,row" -> zoneType
-      zoneConnectivity: {},     // zoneType -> { active: bool, tileCount: int, tier: int }
+      zoneConnectivity: {},     // zoneType -> { active, tileCount, tileTier, tier, staffedOutput, peakTier }
+      // Published each tick by jobRunner.js's tickJobs — see that field's
+      // own comment there and _tickBeamline's sciMult line. Not serialized
+      // (derived, like economySnapshot): a fresh tick republishes it before
+      // anything downstream reads it.
+      staffDataEfficiency: 0,
       // Facility equipment (off-beamline support systems)
       facilityEquipment: [],      // [{ id, type, col, row }]
       facilityGrid: {},           // "col,row" -> equipment id
@@ -2212,10 +2217,30 @@ export class Game {
   }
 
   // Flood-fill from Control Room through hallways to determine zone connectivity
+  //
+  // Task 6 (staff-professions-3, jobs-and-gates) added the zone-tier
+  // ratchet: `tier` is now min(tileTier, tierFromStaffedOutput), not tile
+  // count alone, for the zone types a labWork bench can ever be staffed in
+  // (LABWORK_CAPABLE_ZONES — cafeteria/controlRoom/officeSpace/meetingRoom
+  // sit outside it and keep the old tile-count-only behaviour, since
+  // nothing can ever raise their staffedOutput off 0). `staffedOutput`
+  // itself is NOT recomputed here — jobRunner.js's tickJobs/
+  // updateZoneStaffedOutput owns its per-tick rise/decay — so it and
+  // `peakTier` (the highest `tier` this zone has ever reached, read by
+  // palette-unlock checks so a lapsed staffing level can never re-lock a
+  // component the player already paid for) are carried forward from
+  // whatever this.state.zoneConnectivity already held, not reset to 0 on
+  // every zone-tile edit the way tileCount/tileTier/active are.
   recomputeZoneConnectivity() {
+    const prevConnectivity = this.state.zoneConnectivity || {};
     const connectivity = {};
     for (const zoneType of Object.keys(ZONES)) {
-      connectivity[zoneType] = { active: false, tileCount: 0, tier: 0 };
+      const prev = prevConnectivity[zoneType];
+      connectivity[zoneType] = {
+        active: false, tileCount: 0, tileTier: 0, tier: 0,
+        staffedOutput: prev?.staffedOutput || 0,
+        peakTier: prev?.peakTier || 0,
+      };
     }
 
     // Count tiles per zone type
@@ -2225,12 +2250,19 @@ export class Game {
       }
     }
 
-    // Compute tier from tile count
-    for (const info of Object.values(connectivity)) {
-      info.tier = 0;
+    // Compute tier from tile count, then ratchet it against staffedOutput
+    // for the zone types staffing can gate at all.
+    for (const [zoneType, info] of Object.entries(connectivity)) {
+      let tileTier = 0;
       for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
-        if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { info.tier = t + 1; break; }
+        if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { tileTier = t + 1; break; }
       }
+      info.tileTier = tileTier;
+      const staffTier = LABWORK_CAPABLE_ZONES.has(zoneType)
+        ? zoneTierFromStaffedOutput(info.staffedOutput)
+        : tileTier; // not staffing-gated — "absent" reads as unconstrained, same as tileTier alone
+      info.tier = Math.min(tileTier, staffTier);
+      if (info.tier > info.peakTier) info.peakTier = info.tier;
     }
 
     // Find all Control Room tiles
@@ -2499,6 +2531,16 @@ export class Game {
     // helper is the identical object this used to read via `placeable`.)
     if (kind === 'beamline') {
       entry.params = seedComponentParams(type, params);
+      // Task 6 (staff-professions-3, jobs-and-gates): every beamline
+      // component placed from here forward starts uncommissioned — see
+      // jobEffects/commission.js (the engineer job that clears this) and
+      // physics-payload.js's COMMISSIONING_DERATE (the 0.7x rated-output
+      // penalty while it's set). This is one of exactly two choke points
+      // that can ever mint a new beamline component; the other is
+      // BeamlineSystem.placeOnPipe, for on-pipe placements, which stamps
+      // the identical two fields itself.
+      entry.needsCommissioning = true;
+      entry.specialty = commissioningSpecialtyFor(type);
     }
 
     this.state.placeables.push(entry);
@@ -4596,9 +4638,17 @@ export class Game {
       econ.beamlines++;
     }
 
-    // Data from detectors (physics-driven)
+    // Data from detectors (physics-driven). Task 6 (staff-professions-3,
+    // jobs-and-gates): sciMult used to be `1 + state.staff.scientist * 0.1`
+    // — a bonus for merely HAVING scientists on the roster, whether or not
+    // any of them were doing anything. It now reads the summed efficiency
+    // of scientists actually in phase 'work' on a takeData job this tick,
+    // published by jobRunner.js's tickJobs (see state.staffDataEfficiency's
+    // own comment there). No working scientist -> 0 -> no data gain at all,
+    // full stop; a working one scales this directly by their efficiency,
+    // same as every other work job in the game.
     if (connectedDataRate > 0) {
-      const sciMult = 1 + this.state.staff.scientist * 0.1;
+      const sciMult = this.state.staffDataEfficiency || 0;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
       bs.totalDataCollected += dataGain;

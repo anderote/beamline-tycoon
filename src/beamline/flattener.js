@@ -79,6 +79,13 @@ export function flattenPath(gameState, sourceId, opts = {}) {
       beamStart,
       subL,
       placeable,
+      // Task 6 (staff-professions-3, jobs-and-gates): physics-payload.js
+      // reads this off the flattened node, not off `.placeable` directly —
+      // a 'placement'-kind node (below) carries no `.placeable` at all, so
+      // a consumer that only ever checked `.placeable.needsCommissioning`
+      // would silently never derate the majority of the catalogue (every
+      // on-pipe component). Both kinds carry this same flag for that reason.
+      needsCommissioning: !!placeable.needsCommissioning,
     });
     beamStart += subL * 0.5;
 
@@ -142,6 +149,7 @@ export function flattenPath(gameState, sourceId, opts = {}) {
         subL: plSubL,
         pipeId: pipe.id,
         position: pl.position,
+        needsCommissioning: !!pl.needsCommissioning,
       });
       pipeCursor += plBeamLen;
       consumed += plBeamLen;

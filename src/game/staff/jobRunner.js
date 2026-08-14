@@ -31,6 +31,7 @@ import {
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
 import { getNavGrid, findPath, isReachable } from './nav.js';
 import { countBeamlines } from '../utility-gate.js';
+import { LABWORK_CAPABLE_ZONES, zoneTierFromStaffedOutput } from '../../data/facility.js';
 
 // --- Needs vs. work — the deadlock guard ----------------------------------
 //
@@ -327,12 +328,38 @@ function targetKey(target) {
   return target ? `${target.beamlineId}::${target.nodeId}` : null;
 }
 
-function claimedRepairTargets(members) {
-  const set = new Set();
+// Task 6 (staff-professions-3, jobs-and-gates): 'commission' is the other
+// target-addressed job type (see jobs.js's own header) and gets the exact
+// same double-assignment bug repair had — commissionOffers' offer object is
+// reused, unmutated, across every member's scan this pass, so nothing
+// stopped two engineers being routed to the same uncommissioned component.
+// Unreachable before this task (needsCommissioning was never set on any
+// live placeable), so the gap sat dormant in jobs.js's own header comment
+// ("repair/commission are target-addressed") without ever being closed for
+// the second half of that sentence.
+//
+// Tracked per JOB TYPE, not in one shared set: a single node can genuinely
+// need BOTH a repair and a commission at once (damaged AND never signed
+// off — the two are independent facts about the same component), and
+// targetKey's own `beamlineId::nodeId` shape carries no job-type
+// information, so sharing one set across both would let a claimed REPAIR
+// target falsely block an unrelated COMMISSION offer on the identical node,
+// or vice versa.
+const TARGET_ADDRESSED_JOB_TYPES = ['repair', 'commission'];
+
+function claimedTargetsByType(members) {
+  const map = new Map(TARGET_ADDRESSED_JOB_TYPES.map(jt => [jt, new Set()]));
   for (const m of members) {
-    if (m.job?.jobType === 'repair' && m.job.target) set.add(targetKey(m.job.target));
+    const jt = m.job?.jobType;
+    if (m.job?.target && map.has(jt)) map.get(jt).add(targetKey(m.job.target));
   }
-  return set;
+  return map;
+}
+
+function targetConflictReason(jobType) {
+  return jobType === 'repair'
+    ? 'Someone else is already repairing that component.'
+    : 'Someone else is already commissioning that component.';
 }
 
 function capShortageReason(jobType, cap) {
@@ -492,13 +519,13 @@ function pickBestOffer(member, offers, game, caps, holders, claimedTargets) {
         continue;
       }
 
-      // See claimedRepairTargets' own header for the bug this closes: a
-      // repair offer is one per damaged NODE, reused unmutated across every
-      // member's scan this pass, so without this a second technician could
-      // take the identical target a first technician (this pass or a prior
-      // one) already holds.
-      if (offer.jobType === 'repair' && offer.target && claimedTargets?.has(targetKey(offer.target))) {
-        if (bestReason == null) bestReason = 'Someone else is already repairing that component.';
+      // See claimedTargetsByType's own header for the bug this closes: a
+      // repair/commission offer is one per node, reused unmutated across
+      // every member's scan this pass, so without this a second technician
+      // or engineer could take the identical target a first one (this pass
+      // or a prior one) already holds.
+      if (offer.target && claimedTargets?.get(offer.jobType)?.has(targetKey(offer.target))) {
+        if (bestReason == null) bestReason = targetConflictReason(offer.jobType);
         continue;
       }
 
@@ -743,7 +770,7 @@ export function assignJobs(game) {
   const { offers, suppressions } = buildJobOffers(game);
   const caps = capsFor(game);
   const holders = currentHolders(members);
-  const claimedTargets = claimedRepairTargets(members);
+  const claimedTargets = claimedTargetsByType(members);
 
   for (const member of members) {
     if (member.job != null) continue;
@@ -763,7 +790,7 @@ export function assignJobs(game) {
       if (destNode) {
         assignOffer(member, game, offer, destNode);
         if (holders[offer.jobType] != null) holders[offer.jobType]++;
-        if (offer.jobType === 'repair' && offer.target) claimedTargets.add(targetKey(offer.target));
+        if (offer.target && claimedTargets.has(offer.jobType)) claimedTargets.get(offer.jobType).add(targetKey(offer.target));
       } else {
         member.idleReason = member.idleReason || 'Could not find anywhere to stand for that job.';
       }
@@ -783,6 +810,43 @@ function zoneTierFor(state, member) {
   const zoneId = member.assignment?.zoneId;
   if (!zoneId) return 0;
   return state.zoneConnectivity?.[zoneId]?.tier || 0;
+}
+
+// --- Zone-tier ratchet (staff-professions-3, jobs-and-gates, task 6) ------
+//
+// staffedOutput rises while a labWork bench in a zone is actively worked,
+// decays slowly otherwise — see the brief's own "an engineer taking a lunch
+// break must not un-unlock the palette" framing. Game.recomputeZoneConnectivity
+// (tile-count tier, tileTier) only runs when zone tiles themselves change;
+// this runs every tick regardless, alongside tickJobs' own per-member work
+// loop, and is what makes staffedOutput (and the tier/peakTier it drives)
+// track labour in real time rather than only on the next zone edit.
+const LABWORK_OUTPUT_RISE_PER_TICK = 0.01;   // x member efficiency, while worked
+const LABWORK_OUTPUT_DECAY_PER_TICK = 0.001; // flat, while idle — ~1000 ticks full to empty
+
+// Applies this tick's labWork boosts (zoneType -> summed efficiency, from
+// tickJobs' own member loop) to every staffing-gated zone, decaying any zone
+// that got no boost this tick, then re-derives tier = min(tileTier,
+// tierFromStaffedOutput) and ratchets peakTier upward. Zones outside
+// LABWORK_CAPABLE_ZONES (cafeteria, controlRoom, ...) are left alone
+// entirely — their tier has never been staffing-gated (see that set's own
+// comment in facility.js) and touching staffedOutput for them would just be
+// dead state that decays forever and does nothing.
+function updateZoneStaffedOutput(state, zoneBoosts) {
+  const connectivity = state.zoneConnectivity;
+  if (!connectivity) return;
+  for (const zoneType of Object.keys(connectivity)) {
+    if (!LABWORK_CAPABLE_ZONES.has(zoneType)) continue;
+    const info = connectivity[zoneType];
+    const boost = zoneBoosts[zoneType] || 0;
+    const delta = boost > 0 ? boost : -LABWORK_OUTPUT_DECAY_PER_TICK;
+    info.staffedOutput = Math.max(0, Math.min(1, (info.staffedOutput || 0) + delta));
+
+    const tileTier = info.tileTier || 0;
+    const staffTier = zoneTierFromStaffedOutput(info.staffedOutput);
+    info.tier = Math.min(tileTier, staffTier);
+    if (info.tier > (info.peakTier || 0)) info.peakTier = info.tier;
+  }
 }
 
 // Whether `job`'s station/target still resolves against the live world.
@@ -986,6 +1050,23 @@ function needsBudgetRecompute(job, speedNow) {
  */
 export function tickJobs(game) {
   const state = game.state;
+  // Task 6 (staff-professions-3, jobs-and-gates): two per-tick aggregates
+  // built alongside the ordinary per-member work loop below, rather than as
+  // separate passes over staffMembers — labWork/takeData accrual is
+  // continuous (every worked tick), not a one-shot completion effect, so
+  // there is no onJobComplete hook to hang either off of.
+  //   - zoneBoosts: zoneType -> summed labWork efficiency this tick, fed to
+  //     updateZoneStaffedOutput (above) after the loop so every staffing-
+  //     gated zone gets exactly one rise-or-decay step per tick, whether or
+  //     not anyone worked it.
+  //   - takeDataEfficiencySum: summed takeData efficiency this tick,
+  //     published on state for Game._tickBeamline to read directly — see
+  //     that method's own sciMult line. No scientist actually in phase
+  //     'work' on takeData this tick leaves this at 0, and 0 x anything is
+  //     0: "no scientist -> no data from detectors, full stop" falls out of
+  //     the formula rather than needing a separate special case.
+  const zoneBoosts = {};
+  let takeDataEfficiencySum = 0;
   for (const member of (state.staffMembers || [])) {
     const job = member.job;
     if (!job) continue;
@@ -1041,13 +1122,38 @@ export function tickJobs(game) {
     // skill/mood/zone-tier/specialty-match as before.
     const flatNeedJob = job.jobType === 'eat' || job.jobType === 'rest';
     const zoneTier = zoneTierFor(state, member);
-    job.progress += flatNeedJob ? 1 : member.efficiency(zoneTier, job.specialty);
+    const workEfficiency = flatNeedJob ? null : member.efficiency(zoneTier, job.specialty);
+    job.progress += flatNeedJob ? 1 : workEfficiency;
+
+    // Task 6: labWork/takeData's continuous, per-worked-tick contribution
+    // to the zone-tier ratchet / science multiplier — see this function's
+    // own header. Both reuse the SAME workEfficiency value job.progress
+    // just accrued by, rather than calling member.efficiency() a second
+    // time, so a future change to that method can never make the two
+    // numbers disagree.
+    if (!flatNeedJob && job.jobType === 'labWork' && job.stationKey) {
+      const stationZoneType = getStationIndex(state).byKey[job.stationKey]?.zoneType;
+      if (stationZoneType) {
+        zoneBoosts[stationZoneType] = (zoneBoosts[stationZoneType] || 0) + workEfficiency * LABWORK_OUTPUT_RISE_PER_TICK;
+      }
+    }
+    if (!flatNeedJob && job.jobType === 'takeData') {
+      takeDataEfficiencySum += workEfficiency;
+    }
 
     if (jobType.workTicks != null && job.progress >= jobType.workTicks) {
       onJobComplete(game, member, job);
       abandonJob(member, game, null);
     }
   }
+
+  // Task 6: published for Game._tickBeamline (the science multiplier) —
+  // see this function's own header comment.
+  state.staffDataEfficiency = takeDataEfficiencySum;
+  // Every staffing-gated zone gets exactly one rise-or-decay step this
+  // tick, whether or not zoneBoosts names it — see updateZoneStaffedOutput's
+  // own header for why a zone with no boost still has to decay.
+  updateZoneStaffedOutput(state, zoneBoosts);
 }
 
 /**
@@ -1112,6 +1218,8 @@ export function abandonJob(member, game, reason = null) {
 import { registerJobEffect, onJobComplete } from './jobEffects/registry.js';
 import './jobEffects/repair.js';
 import './jobEffects/fabricate.js';
+import './jobEffects/analyze.js';
+import './jobEffects/commission.js';
 
 export { registerJobEffect, onJobComplete };
 

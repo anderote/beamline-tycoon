@@ -420,18 +420,51 @@ function repairOffers(nodes, nav, state) {
 
 // commission: one offer per placed component flagged `needsCommissioning`
 // (Task 6 sets this, alongside a `specialty` naming which engineering
-// specialty is qualified to sign off on it — neither field exists on any
-// placeable yet, so this is forward-compatible dead code today, not
-// reachable from any current game state). No reachability pre-filter here
-// — the brief only specifies one for repair; eligibleFor still gates a
-// specific member's reachability to either job type (see below).
-function commissionOffers(nodes) {
+// specialty is qualified to sign off on it — see components.js's
+// commissioningSpecialtyFor and the two placement choke points that set it,
+// Game._placePlaceableInner and BeamlineSystem.placeOnPipe). No
+// reachability pre-filter here — the brief only specifies one for repair;
+// eligibleFor still gates a specific member's reachability to either job
+// type (see below).
+//
+// `node.placeable` only resolves for a 'module'-kind node (see flattener.js's
+// own header) — a 'placement'-kind node (quadrupole, BPM, RF cavity, ... —
+// the majority of the catalogue by count, per beamlineComponentNodes' own
+// comment on repair) carries no `.placeable` at all. Reading it directly
+// here, the way an earlier draft of this function did, silently never
+// offered commissioning for any on-pipe component at any point — exactly
+// the "second unguarded route" this plan's own hazard review calls out.
+//
+// Resolves the on-pipe half via a placement-id index built ONCE per call
+// (buildPlacementIndex, below) rather than jobs.js's own findPipePlacement
+// per node — that helper re-scans every pipe's whole placements array on
+// EVERY call, so calling it once per placement-kind node here would make
+// this function O(nodes x total on-pipe placements) across the WHOLE
+// facility, not just the current beamline, on a path (buildJobOffers) that
+// runs every single tick. One index built per buildJobOffers call, shared
+// by every node the loop below checks, keeps this linear regardless of how
+// large the on-pipe catalogue grows. (A large-facility playthrough
+// [scripts/balance-playthrough.mjs] was independently found to run well
+// below its own historical throughput while this task was in progress —
+// see task-6-report.md's performance section for what was and wasn't ruled
+// out as the cause; this index is cheap insurance either way, not a claimed
+// fix for that measurement.)
+function buildPlacementIndex(state) {
+  const map = new Map();
+  for (const pipe of state?.beamPipes || []) {
+    for (const pl of pipe.placements || []) map.set(pl.id, pl);
+  }
+  return map;
+}
+
+function commissionOffers(nodes, state) {
   const offers = [];
+  const placementIndex = buildPlacementIndex(state);
   for (const { entry, node } of nodes) {
-    const placeable = node.placeable;
-    if (!placeable?.needsCommissioning) continue;
+    const record = node.kind === 'module' ? node.placeable : placementIndex.get(node.id);
+    if (!record?.needsCommissioning) continue;
     const priority = JOB_TYPES.commission.basePriority;
-    offers.push(makeOffer('commission', { beamlineId: entry.id, nodeId: node.id }, placeable.specialty ?? null, priority, null));
+    offers.push(makeOffer('commission', { beamlineId: entry.id, nodeId: node.id }, record.specialty ?? null, priority, null));
   }
   return offers;
 }
@@ -518,7 +551,7 @@ export function buildJobOffers(game) {
   const offers = [
     ...runBeamOffers(index, reservations),
     ...repair.offers,
-    ...commissionOffers(nodes),
+    ...commissionOffers(nodes, state),
     ...plainStationOffers(index, reservations),
     ...meetOffers(index, reservations, state),
   ];

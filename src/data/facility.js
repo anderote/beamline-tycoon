@@ -70,3 +70,42 @@ export function itemMatchesZone(def, zoneType) {
   if (Array.isArray(def.zoneTypes) && def.zoneTypes.includes(zoneType)) return true;
   return false;
 }
+
+// --- Zone-tier ratchet (staff-professions-3, jobs-and-gates, task 6) ------
+//
+// Zone tier used to be a pure function of tile count. It is now
+// `min(tierFromTiles, tierFromStaffedOutput)` — see Game.recomputeZoneConnectivity
+// and jobRunner.js's own per-tick zone update — so a lab a player painted
+// big can still sit at tier 0 until an engineer actually staffs it.
+//
+// zoneTierFromStaffedOutput maps a zone's `staffedOutput` (a float in
+// [0, 1], accumulated by worked labWork ticks — see jobRunner.js) through
+// the SAME four tile-count thresholds, normalised into [0, 1] by dividing
+// by the largest one. A fully-staffed zone (staffedOutput === 1) always
+// reaches the top tier this way, independent of ZONE_TIER_THRESHOLDS'
+// absolute numbers.
+export function zoneTierFromStaffedOutput(staffedOutput) {
+  const max = ZONE_TIER_THRESHOLDS[ZONE_TIER_THRESHOLDS.length - 1];
+  let tier = 0;
+  for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
+    if (staffedOutput >= ZONE_TIER_THRESHOLDS[t] / max) { tier = t + 1; break; }
+  }
+  return tier;
+}
+
+// Which zone types can ever host a labWork bench at all, derived from
+// ZONE_FURNISHINGS itself (not a hand-maintained list, which could drift
+// silently from the catalogue) via the same itemMatchesZone match research.js's
+// own _getFurnishingTier uses. A zone type absent from this set — cafeteria,
+// meetingRoom, officeSpace, controlRoom: no lab bench belongs in any of them
+// — can never accrue staffedOutput, so the ratchet above would otherwise
+// permanently pin its tier to 0. recomputeZoneConnectivity treats a zone
+// outside this set as "not staffing-gated at all" (tier = tierFromTiles,
+// same as before this task), the same "absent = not applicable" rule
+// physics-payload.js's own header already uses for a utility a component
+// never declared a sink for.
+export const LABWORK_CAPABLE_ZONES = new Set(
+  Object.keys(ZONES).filter(zoneType => Object.values(ZONE_FURNISHINGS).some(
+    def => def.station?.jobs?.includes('labWork') && itemMatchesZone(def, zoneType),
+  )),
+);
