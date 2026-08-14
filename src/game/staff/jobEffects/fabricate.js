@@ -13,9 +13,27 @@
 // check to make.
 
 import { registerJobEffect } from './registry.js';
+import { logCareerEvent } from '../careerLog.js';
+
+// Task 7 (staff-professions-3, jobs-and-gates): every hundredth spare gets
+// a diary entry (see repair.js's identical HISTORY_LOG_EVERY comment for
+// why this is throttled at all, not just capped after the fact).
+// `made` can be more than 1 per completion (skilled machinists), so a plain
+// `sparesMade % 100 === 0` check can jump straight over an exact multiple —
+// the boundary-crossing check below (comparing floor(before/100) against
+// floor(after/100)) catches a threshold crossed mid-jump the same as one
+// landed on exactly.
+const HISTORY_LOG_EVERY = 100;
 
 registerJobEffect('fabricate', (game, member) => {
+  const state = game.state;
   const made = 1 + Math.floor((member.skills?.construction ?? 0) / 3);
-  game.state.resources.spares = (game.state.resources.spares || 0) + made;
-  member.stats.sparesMade = (member.stats.sparesMade || 0) + made;
+  state.resources.spares = (state.resources.spares || 0) + made;
+
+  const before = member.stats.sparesMade || 0;
+  const after = before + made;
+  member.stats.sparesMade = after;
+  if (Math.floor(before / HISTORY_LOG_EVERY) < Math.floor(after / HISTORY_LOG_EVERY)) {
+    logCareerEvent(member, state.tick, 'fabricate', `Fabricated ${after} spares over their career.`);
+  }
 });

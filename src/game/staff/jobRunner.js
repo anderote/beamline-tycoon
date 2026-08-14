@@ -1220,6 +1220,16 @@ import './jobEffects/repair.js';
 import './jobEffects/fabricate.js';
 import './jobEffects/analyze.js';
 import './jobEffects/commission.js';
+// Task 7 (staff-professions-3, jobs-and-gates): admin's two job types —
+// paperwork.js (reputation -> funding, plus the next-hire discount) and
+// meet.js (the facility-wide morale bump) — registered the exact same way,
+// as leaf sibling modules under jobEffects/, never inline here. See
+// registry.js's own header for why an effect module importing
+// registerJobEffect from jobRunner.js ITSELF (rather than from
+// jobEffects/registry.js, as both of these do) would be a real
+// module-graph cycle.
+import './jobEffects/paperwork.js';
+import './jobEffects/meet.js';
 
 export { registerJobEffect, onJobComplete };
 

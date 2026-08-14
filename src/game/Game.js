@@ -61,7 +61,7 @@ const SERIALIZED_FIELDS = [
   'completedObjectives', 'discoveries', 'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'tutorialDismissed', 'welcomeSeen',
   // staff
-  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'stationReservations',
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
@@ -92,7 +92,7 @@ const UNDO_PRESERVED_FIELDS = [
   'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'activeResearch', 'researchProgress', 'completedResearch',
   'completedObjectives', 'discoveries',
-  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'savedDesigns', 'savedDesignNextId',
   // stationReservations names staffMembers by id (a slot claim is exactly
   // as much "the sim's" as the roster it references) — rewinding the
@@ -272,6 +272,13 @@ export class Game {
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
       staffCandidates: [], // hiring pool (3 offered)
+      // Task 7 (staff-professions-3, jobs-and-gates): built up by an admin's
+      // paperwork completions (src/game/staff/jobEffects/paperwork.js), 0..
+      // 0.4, and spent in full (reset to 0) the moment the NEXT hire lands —
+      // see hireStaffMember/hireStaff below, the only two readers. A
+      // one-shot discount against whichever hire comes next, not a standing
+      // markdown on every future hire.
+      staffHireDiscount: 0,
       // Work-station slot claims (src/game/staff/stations.js): key
       // ("placeableId:slotIndex") -> staffId. Sanitized in _applyState —
       // any entry naming a demolished/reconfigured station or a staffer no
@@ -4390,7 +4397,7 @@ export class Game {
         // ensure StaffMember instance (load from JSON may be plain object)
         if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
         const zoneTier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, rng: this.rng })) anyChange = true;
+        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, tick: this.state.tick, rng: this.rng })) anyChange = true;
       }
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
@@ -4778,9 +4785,18 @@ export class Game {
     const idx = (this.state.staffCandidates || []).findIndex(c => c.id === candidateId);
     if (idx === -1) { this.log('Candidate not found', 'bad'); return false; }
     const cand = this.state.staffCandidates[idx];
-    const cost = staffHireCost(cand, this.state.staffCosts);
+    // Task 7 (staff-professions-3, jobs-and-gates): an admin's accumulated
+    // paperwork discount (jobEffects/paperwork.js), applied to whichever
+    // hire happens next and spent in full regardless of outcome — see
+    // state.staffHireDiscount's own comment at its declaration. Spent even
+    // in sandbox mode: the discount describes "a hire happened", not a
+    // charge, and sandbox mode's own contract only ever waives charges (see
+    // repair.js's identical sandbox reasoning for its own one spend).
+    const discount = this.state.staffHireDiscount || 0;
+    const cost = Math.round(staffHireCost(cand, this.state.staffCosts) * (1 - discount));
     if (!this.sandboxMode && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
     this.chargeConstruction(cost);
+    this.state.staffHireDiscount = 0;
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
     m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.profession}` }];
     this.state.staffMembers.push(m);
@@ -4822,12 +4838,20 @@ export class Game {
   hireStaff(profession) {
     // compat: generate a random member of that profession
     if (!this.state.staff[profession] && this.state.staff[profession] !== 0) return false;
-    const hireCost = this.state.staffCosts[profession] * 10; // 10 ticks upfront
+    // Same discount hireStaffMember applies (see that method's own comment)
+    // — this is a SECOND hiring route (used by the RL agent's action space,
+    // src/game/agent/actions.js), and a discount that only ever discounted
+    // one of the two would be exactly the kind of unguarded route this
+    // plan's own hazard review keeps finding: a real way to hire that never
+    // sees the benefit an admin's paperwork is supposed to buy every hire.
+    const discount = this.state.staffHireDiscount || 0;
+    const hireCost = Math.round(this.state.staffCosts[profession] * 10 * (1 - discount)); // 10 ticks upfront
     if (!this.sandboxMode && this.state.resources.funding < hireCost) {
       this.log(`Can't afford to hire (need $${hireCost})`, 'bad');
       return false;
     }
     this.chargeConstruction(hireCost);
+    this.state.staffHireDiscount = 0;
     const m = createStaffMember(profession, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
     this.state.staffMembers.push(m);
     this._syncStaffCounts();

@@ -211,9 +211,17 @@ console.log('\n=== 1. Repair heals the target and consumes one spare on completi
   );
   assertOk(state.resources.spares === 4, `spares dropped by exactly one (5 -> 4, got ${state.resources.spares})`);
   assertOk(technician.stats.repairs === 1, `technician.stats.repairs incremented (got ${technician.stats.repairs})`);
-  const lastEntry = technician.history[technician.history.length - 1];
-  assertOk(lastEntry?.event === 'repair' && lastEntry.note.includes(COMPONENTS.source.name),
-    `history entry names the repaired component (got ${JSON.stringify(lastEntry)})`);
+  // Task 7 (staff-professions-3, jobs-and-gates) throttled repair's diary
+  // entry (src/game/staff/jobEffects/repair.js, via careerLog.js's
+  // logCareerEvent) to every TENTH repair, not every one — an unconditional
+  // push per completion was itself the unbounded-history-growth hazard that
+  // task closes (see repair.js's own HISTORY_LOG_EVERY comment and
+  // test/test-admin-and-career.js's section 6a for the dedicated coverage).
+  // A single completion therefore leaves history exactly where it started —
+  // just the 'hired' entry — which is the assertion this test now makes,
+  // in place of the pre-Task-7 "every repair gets its own line" behavior.
+  assertOk(technician.history.length === 1 && technician.history[0].event === 'hired',
+    `a single repair leaves history untouched — no diary entry until the tenth (got ${JSON.stringify(technician.history)})`);
 }
 
 // =============================================================================

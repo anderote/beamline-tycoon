@@ -3,6 +3,7 @@
 import { StaffMember } from './StaffMember.js';
 import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professions.js';
 import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstories.js';
+import { logCareerEvent } from './careerLog.js';
 
 // Base fatigue accrual per tick while 'working' (before trait multipliers).
 // Exported so jobRunner.js's own test (test-job-runner.js) can assert, as a
@@ -51,8 +52,11 @@ export function createStaffMember(profession, id, tick = 0, rng = Math.random, s
   return m;
 }
 
-// Tick needs for one member. Returns true if status changed.
-export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Math.random }) {
+// Tick needs for one member. Returns true if status changed. `tick` (the
+// sim tick this call is running at — Game.js's own state.tick) is used only
+// for the breakdown diary entry below; every other caller-supplied field
+// was already required.
+export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, tick = 0, rng = Math.random }) {
   const isGourmand = m.traits.includes('gourmand');
   const isStoic = m.traits.includes('stoic');
   const isNightOwl = m.traits.includes('nightOwl');
@@ -92,7 +96,15 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
       m.stats.breakdowns++;
-      m.history.push({ tick: 0, event: 'breakdown', note: 'Stressed breakdown — resting 30 ticks' });
+      // Task 7 (staff-professions-3, jobs-and-gates): routed through
+      // careerLog.js's logCareerEvent, same as every job-completion effect —
+      // this used to push unconditionally with a hardcoded `tick: 0`
+      // (a pre-existing bug this same call site's own rewrite fixes:
+      // `tick` is now the sim tick actually passed in, not a placeholder),
+      // and a chronically stressed staffer can break down many times in a
+      // long game — exactly the unbounded-growth shape logCareerEvent's own
+      // header exists to close off.
+      logCareerEvent(m, tick, 'breakdown', 'Stressed breakdown — resting 30 ticks.');
       m._restTimer = 30;
       statusChanged = true;
     }

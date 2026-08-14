@@ -14,6 +14,8 @@
 // not from jobRunner.js — see repair.js's own header for why that matters.
 
 import { registerJobEffect } from './registry.js';
+import { logCareerEvent } from '../careerLog.js';
+import { RESEARCH } from '../../../data/research.js';
 
 // Duplicated from jobRunner.js's own (unexported) zoneTierFor — see
 // repair.js's identical duplicate and its comment on why this small a
@@ -55,11 +57,30 @@ registerJobEffect('analyze', (game, member, job) => {
   const consumed = Math.min(available, DATA_PER_ANALYSIS * efficiency);
   state.resources.data -= consumed;
 
+  // Task 7 (staff-professions-3, jobs-and-gates): a diary entry only when
+  // THIS analysis is the one that pushes the active research item over its
+  // duration — "every analysis that completes a research item", not every
+  // analysis (an unconditional push here, the pre-Task-7 behavior, was the
+  // same unbounded-growth hazard repair.js/commission.js/fabricate.js also
+  // had — see repair.js's HISTORY_LOG_EVERY comment). Determined entirely
+  // within this handler's own contribution (before/after around ONLY this
+  // completion's own researchProgress addition) rather than waiting to see
+  // whether Game.js's later research.tickResearch call actually flips
+  // completedResearch this same tick: tickResearch's own completion check
+  // is the identical `>= duration` test, runs synchronously later in the
+  // same Game.tick() (no other write to researchProgress can land between
+  // this effect and that check), so crossing the line here is exactly
+  // equivalent to "this analysis completed it."
   if (state.activeResearch) {
-    state.researchProgress = (state.researchProgress || 0) + consumed * RESEARCH_PROGRESS_PER_DATA;
+    const before = state.researchProgress || 0;
+    const duration = RESEARCH[state.activeResearch]?.duration;
+    state.researchProgress = before + consumed * RESEARCH_PROGRESS_PER_DATA;
+    if (duration != null && before < duration && state.researchProgress >= duration) {
+      const label = RESEARCH[state.activeResearch]?.name || 'the active research';
+      logCareerEvent(member, state.tick, 'research', `Ran the analysis that finished ${label}.`);
+    }
   }
   state.resources.reputation = (state.resources.reputation || 0) + consumed * REPUTATION_PER_DATA;
 
   member.stats.analyses = (member.stats.analyses || 0) + 1;
-  member.history.push({ tick: state.tick, event: 'analyze', note: `Analyzed ${consumed.toFixed(1)} data` });
 });

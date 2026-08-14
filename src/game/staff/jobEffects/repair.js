@@ -45,8 +45,17 @@
 
 import { registerJobEffect } from './registry.js';
 import { COMPONENTS } from '../../../data/components.js';
+import { logCareerEvent } from '../careerLog.js';
 
 const HEAL_PER_COMPLETION = 25;
+// Task 7 (staff-professions-3, jobs-and-gates): this used to push a
+// member.history entry on EVERY repair completion — exactly the unbounded-
+// growth hazard careerLog.js's own header warns about (a technician
+// running for thousands of ticks racks up thousands of identical-shaped
+// entries, capped nowhere). Throttled to every Nth repair — a diary entry,
+// not a log line — with careerLog.js's own cap/dedup as the backstop for
+// whatever DOES get logged.
+const HISTORY_LOG_EVERY = 10;
 
 // Duplicates jobRunner.js's own (unexported) zoneTierFor — the same small
 // lookup, not worth importing across the module boundary for.
@@ -110,5 +119,8 @@ registerJobEffect('repair', (game, member, job) => {
   game.spend({ spares: 1 });
 
   member.stats.repairs = (member.stats.repairs || 0) + 1;
-  member.history.push({ tick: state.tick, event: 'repair', note: `Repaired ${label}` });
+  if (member.stats.repairs % HISTORY_LOG_EVERY === 0) {
+    logCareerEvent(member, state.tick, 'repair',
+      `Recovered the beam ${member.stats.repairs} times now — most recently the ${label}.`);
+  }
 });

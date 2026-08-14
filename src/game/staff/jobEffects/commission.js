@@ -20,6 +20,7 @@
 
 import { registerJobEffect } from './registry.js';
 import { COMPONENTS } from '../../../data/components.js';
+import { logCareerEvent } from '../careerLog.js';
 
 // A commission target's live, MUTABLE record — the same placeable object
 // Game._placePlaceableInner stamped needsCommissioning onto for a module, or
@@ -56,5 +57,14 @@ registerJobEffect('commission', (game, member, job) => {
   record.needsCommissioning = false;
   member.stats.commissions = (member.stats.commissions || 0) + 1;
   const label = COMPONENTS[record.type]?.name || record.type || 'component';
-  member.history.push({ tick: state.tick, event: 'commission', note: `Commissioned ${label}` });
+  // Task 7 (staff-professions-3, jobs-and-gates): only the FIRST commission
+  // gets a diary entry — see repair.js's HISTORY_LOG_EVERY comment for why
+  // an unconditional push here (the pre-Task-7 behavior) was itself the
+  // unbounded-growth hazard careerLog.js exists to close. Every commission
+  // still counts toward member.stats.commissions (careerMilestones reads
+  // that, not history) and toward the facility's commissioning economy —
+  // only the DIARY ENTRY is throttled.
+  if (member.stats.commissions === 1) {
+    logCareerEvent(member, state.tick, 'commission', `Commissioned their first component: the ${label}.`);
+  }
 });
