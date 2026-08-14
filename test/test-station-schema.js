@@ -5,9 +5,24 @@
 // station/seat yet. Verifies:
 //   1. validateContent reports zero station/seat problems over real content.
 //   2. Every def in the assignment table carries the expected jobs/slots.
-//   3. All six chairs carry a seat with a cardinal facing.
-//   4. No chair carries a station (chairs are matched by adjacency).
-//   5. Every job id used anywhere in the data is in the closed vocabulary.
+//   3. Stackable benchtop instruments never carry a station (fix-round-1:
+//      their def-local anchor resolves against the wrong footprint once
+//      they're stacked on a bench/table/rack).
+//   4. All ten geometry-driven anchor deviations (the defs whose "face a
+//      person works from" isn't the brief's +Z/facing:'n' example) are
+//      pinned to their exact coordinates, so a later edit can't silently
+//      flip one back without a red test.
+//   5. All six chairs carry a seat facing exactly 'n' (their backrests are
+//      all authored at local +Z).
+//   6. No chair carries a station (chairs are matched by adjacency).
+//   7. The job-id vocabulary itself is exactly the eleven ids from the
+//      brief — distinct from "content only uses known ids" (validate.js
+//      already enforces that; this locks the vocabulary's own contents).
+//   8. Synthetic bad defs are rejected by validateContent, covering every
+//      rule checkStation enforces (inside-footprint, bad job id, bad
+//      seated, slots/anchors mismatch, bad facing, bad seat.facing,
+//      station+seat mutual exclusion, facing-away-from-object,
+//      duplicate anchors, anchor too far outside).
 
 import { validateContent, JOB_IDS } from '../src/data/validate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
@@ -24,12 +39,21 @@ function assert(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
+function hasProblem(problems, id, field, messagePart) {
+  return problems.some(p =>
+    p.id === id &&
+    p.field === field &&
+    (messagePart === undefined || p.message.includes(messagePart)));
+}
+
 const CHAIR_IDS = [
   'officeChair', 'ergonomicChair', 'executiveChair',
   'operatorChair', 'meetingChair', 'cafeteriaChair',
 ];
 
-// Assignment table from task-3-brief.md.
+// Assignment table from task-3-brief.md. Stackable benchtop instruments
+// (oscilloscope, spectrumAnalyzer, networkAnalyzer, flowMeter, scopeStation)
+// are deliberately absent — see Test 3.
 const EXPECTED_STATIONS = {
   operatorConsole: { jobs: ['runBeam'], slots: 1 },
   monitorBank: { jobs: ['runBeam'], slots: 1 },
@@ -39,15 +63,10 @@ const EXPECTED_STATIONS = {
   conferenceTable: { jobs: ['meet'], slots: 6 },
   diningTable: { jobs: ['eat'], slots: 4 },
   labBench: { jobs: ['labWork'], slots: 2 },
-  oscilloscope: { jobs: ['labWork'], slots: 1 },
-  networkAnalyzer: { jobs: ['labWork'], slots: 1 },
-  spectrumAnalyzer: { jobs: ['labWork'], slots: 1 },
   testChamber: { jobs: ['labWork'], slots: 1 },
   rga: { jobs: ['labWork'], slots: 1 },
   heatExchanger: { jobs: ['labWork'], slots: 1 },
-  flowMeter: { jobs: ['labWork'], slots: 1 },
   opticalTable: { jobs: ['labWork', 'takeData'], slots: 2 },
-  scopeStation: { jobs: ['takeData'], slots: 1 },
   daqRack: { jobs: ['takeData'], slots: 1 },
   lathe: { jobs: ['fabricate'], slots: 1 },
   millingMachine: { jobs: ['fabricate'], slots: 1 },
@@ -56,6 +75,36 @@ const EXPECTED_STATIONS = {
   toolChest: { jobs: ['rest'], slots: 1 },
   workCart: { jobs: ['rest'], slots: 1 },
 };
+
+// Stackable benchtop instruments: fix-round-1, finding 1. A stackable
+// instrument's def-local anchor is only valid on bare floor; once stacked on
+// a labBench/opticalTable/daqRack (the normal use case) it resolves against
+// the wrong host footprint, so these must never carry a station.
+const STACKABLE_NO_STATION_IDS = [
+  'oscilloscope', 'spectrumAnalyzer', 'networkAnalyzer', 'flowMeter', 'scopeStation',
+];
+
+// The ten defs whose anchor deviates from the brief's +Z/facing:'n' example
+// because their part geometry puts the "face a person works from" somewhere
+// else (see task-3-report.md for the per-def reasoning). Pinned exactly so a
+// later edit can't silently flip one back to +Z without a red test.
+const DEVIATING_ANCHORS = {
+  desk: { subCol: 1, subRow: -1, facing: 's' },
+  workstation: { subCol: 1, subRow: -1, facing: 's' },
+  operatorConsole: { subCol: 1, subRow: -1, facing: 's' },
+  monitorBank: { subCol: 1, subRow: -1, facing: 's' },
+  daqRack: { subCol: 0, subRow: -1, facing: 's' },
+  toolChest: { subCol: 1, subRow: -1, facing: 's' },
+  lathe: { subCol: -1, subRow: 1, facing: 'e' },
+  millingMachine: { subCol: 0, subRow: -1, facing: 's' },
+  drillPress: { subCol: 0, subRow: -1, facing: 's' },
+  cncMill: { subCol: 1, subRow: -1, facing: 's' },
+};
+
+const EXPECTED_JOB_IDS = [
+  'runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze',
+  'fabricate', 'paperwork', 'meet', 'eat', 'rest',
+];
 
 function sameSet(a, b) {
   if (a.length !== b.length) return false;
@@ -104,21 +153,49 @@ for (const [id, expected] of Object.entries(EXPECTED_STATIONS)) {
 }
 
 // ==========================================================================
-// Test 3: all six chairs have a seat with a cardinal facing.
+// Test 3: stackable benchtop instruments never carry a station.
 // ==========================================================================
-console.log('\n--- Test 3: chairs have seat.facing ---');
-const CARDINALS = new Set(['n', 'e', 's', 'w']);
+console.log('\n--- Test 3: stackable instruments have no station ---');
+for (const id of STACKABLE_NO_STATION_IDS) {
+  const p = PLACEABLES[id];
+  assert(!!p, `${id}: placeable exists`);
+  if (!p) continue;
+  assert(p.stackable === true, `${id}: is stackable (sanity check on the fixture list itself)`);
+  assert(p.station == null, `${id}: does not carry a station block`);
+}
+
+// ==========================================================================
+// Test 4: the ten geometry-driven anchor deviations are pinned exactly.
+// ==========================================================================
+console.log('\n--- Test 4: deviating anchor coordinates are pinned ---');
+for (const [id, expected] of Object.entries(DEVIATING_ANCHORS)) {
+  const p = PLACEABLES[id];
+  assert(!!p && !!p.station, `${id}: has a station block`);
+  if (!p || !p.station) continue;
+  const a = (p.station.anchors || [])[0];
+  assert(!!a, `${id}: has at least one anchor`);
+  if (!a) continue;
+  assert(a.subCol === expected.subCol && a.subRow === expected.subRow && a.facing === expected.facing,
+    `${id}: anchor[0] is (${expected.subCol},${expected.subRow},'${expected.facing}') ` +
+    `(got (${a.subCol},${a.subRow},'${a.facing}'))`);
+}
+
+// ==========================================================================
+// Test 5: all six chairs have seat.facing exactly 'n'.
+// ==========================================================================
+console.log("\n--- Test 5: chairs have seat.facing === 'n' ---");
 for (const id of CHAIR_IDS) {
   const p = PLACEABLES[id];
   assert(!!p, `${id}: placeable exists`);
   if (!p) continue;
-  assert(!!p.seat && CARDINALS.has(p.seat.facing), `${id}: seat.facing is a cardinal (got ${JSON.stringify(p.seat?.facing)})`);
+  assert(!!p.seat && p.seat.facing === 'n',
+    `${id}: seat.facing is 'n' (got ${JSON.stringify(p.seat?.facing)})`);
 }
 
 // ==========================================================================
-// Test 4: no chair carries a station — chairs are matched by adjacency.
+// Test 6: no chair carries a station — chairs are matched by adjacency.
 // ==========================================================================
-console.log('\n--- Test 4: chairs have no station ---');
+console.log('\n--- Test 6: chairs have no station ---');
 for (const id of CHAIR_IDS) {
   const p = PLACEABLES[id];
   if (!p) continue;
@@ -126,19 +203,102 @@ for (const id of CHAIR_IDS) {
 }
 
 // ==========================================================================
-// Test 5: every job id used anywhere in the data is in the vocabulary.
+// Test 7: the job-id vocabulary itself is exactly the brief's eleven ids.
 // ==========================================================================
-console.log('\n--- Test 5: job id vocabulary closure ---');
+console.log('\n--- Test 7: JOB_IDS vocabulary is exactly the brief\'s eleven ---');
 {
-  let allKnown = true;
-  const unknown = new Set();
-  for (const p of Object.values(PLACEABLES)) {
-    if (!p.station) continue;
-    for (const j of p.station.jobs || []) {
-      if (!JOB_IDS.has(j)) { allKnown = false; unknown.add(j); }
-    }
-  }
-  assert(allKnown, `every job id used in the data is in JOB_IDS (unknown: [${[...unknown].join(', ')}])`);
+  const got = [...JOB_IDS].sort();
+  const want = [...EXPECTED_JOB_IDS].sort();
+  assert(got.length === want.length && got.every((v, i) => v === want[i]),
+    `JOB_IDS === [${want.join(', ')}] (got [${got.join(', ')}])`);
+}
+
+// ==========================================================================
+// Test 8: synthetic bad defs are rejected by validateContent.
+// ==========================================================================
+console.log('\n--- Test 8: synthetic bad station/seat defs are rejected ---');
+{
+  const badPlaceables = {
+    insideFootprint: {
+      kind: 'furnishing', subW: 2, subL: 2, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 0, facing: 'n' }] },
+    },
+    badJobId: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      station: { jobs: ['doTheThing'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] },
+    },
+    badSeated: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'sometimes',
+        anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] },
+    },
+    slotsAnchorsMismatch: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      station: { jobs: ['analyze'], slots: 2, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] },
+    },
+    badAnchorFacing: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 1, facing: 'up' }] },
+    },
+    badSeatFacing: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      seat: { facing: 'sideways' },
+    },
+    stationAndSeat: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] },
+      seat: { facing: 'n' },
+    },
+    facingAwayFromObject: {
+      // On the +Z edge (subRow === subL) but faces 's' — away from the
+      // footprint instead of back into it.
+      kind: 'furnishing', subW: 2, subL: 2, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 2, facing: 's' }] },
+    },
+    duplicateAnchors: {
+      kind: 'furnishing', subW: 2, subL: 2, subH: 1,
+      station: { jobs: ['analyze'], slots: 2, seated: 'never',
+        anchors: [
+          { subCol: 0, subRow: 2, facing: 'n' },
+          { subCol: 0, subRow: 2, facing: 'n' },
+        ] },
+    },
+    tooFarOutside: {
+      // subL is 2, so subRow: 3 is two subtiles past the +Z edge, not one.
+      kind: 'furnishing', subW: 2, subL: 2, subH: 1,
+      station: { jobs: ['analyze'], slots: 1, seated: 'never',
+        anchors: [{ subCol: 0, subRow: 3, facing: 'n' }] },
+    },
+  };
+
+  const problems = validateContent({ placeables: badPlaceables });
+
+  assert(hasProblem(problems, 'insideFootprint', 'station.anchors[0]', 'lies inside'),
+    'anchor inside footprint is rejected');
+  assert(hasProblem(problems, 'badJobId', 'station.jobs', "'doTheThing'"),
+    'unknown job id is rejected');
+  assert(hasProblem(problems, 'badSeated', 'station.seated'),
+    "invalid seated value ('sometimes') is rejected");
+  assert(hasProblem(problems, 'slotsAnchorsMismatch', 'station.anchors', 'must match station.slots'),
+    'anchors.length/slots mismatch is rejected');
+  assert(hasProblem(problems, 'badAnchorFacing', 'station.anchors[0].facing'),
+    "invalid anchor facing ('up') is rejected");
+  assert(hasProblem(problems, 'badSeatFacing', 'seat.facing'),
+    "invalid seat.facing ('sideways') is rejected");
+  assert(hasProblem(problems, 'stationAndSeat', 'station', 'both station and seat'),
+    'a def carrying both station and seat is rejected');
+  assert(hasProblem(problems, 'facingAwayFromObject', 'station.anchors[0].facing', 'would look away'),
+    'an anchor facing away from the footprint is rejected');
+  assert(hasProblem(problems, 'duplicateAnchors', 'station.anchors[1]', 'duplicates'),
+    'two anchors on the same subtile are rejected');
+  assert(hasProblem(problems, 'tooFarOutside', 'station.anchors[0]', 'not immediately outside'),
+    'an anchor more than one subtile outside the footprint is rejected');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,4 +1,12 @@
 // Facility lab furnishings — items placed inside lab zones (RF, cooling, vacuum, optics, diagnostics, machine shop, maintenance).
+//
+// Station note: `stackable: true` defs never carry a `station` block. A
+// stackable instrument's footprint frame is only valid on bare floor — once
+// it's placed on top of a labBench/opticalTable/daqRack (the normal use
+// case), its own def-local anchor resolves against the wrong host footprint
+// entirely (inside the bench, or colliding with the bench's own anchor).
+// The bench/table/rack is the workstation; benchtop instruments contribute
+// through `effects.zoneOutput` instead, same as they already do.
 export const FACILITY_LAB_FURNISHINGS_RAW = {
   labBench:      {
     id: 'labBench', name: 'Lab Bench',
@@ -16,7 +24,12 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
     // Part coords are in subtile units, centered on the footprint.
     // y=0 is the floor (it's the BOTTOM of the part). Footprint = 4×2.
     parts: [
-      // Four legs
+      // Four legs. Note the leg names ('F'/'B' = front/back) disagree with
+      // the station anchor above: legFL/legFR sit at z:-0.85, the same side
+      // as the backsplash below. The backsplash is the trustworthy cue (a
+      // pegboard backsplash is mounted against the wall, opposite the
+      // working side), so the station anchor uses +Z as the tech's side and
+      // ignores the F/B leg naming.
       { name: 'legFL', x: -1.85, y: 0,    z: -0.85, w: 0.2,  h: 1.4, l: 0.2, material: 'metal_dark' },
       { name: 'legFR', x:  1.85, y: 0,    z: -0.85, w: 0.2,  h: 1.4, l: 0.2, material: 'metal_dark' },
       { name: 'legBL', x: -1.85, y: 0,    z:  0.85, w: 0.2,  h: 1.4, l: 0.2, material: 'metal_dark' },
@@ -43,15 +56,15 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       { top: { material: null, color: 0x606068 }, backsplash: { material: null, color: 0x707078 } },
     ],
   },
-  oscilloscope:     { id: 'oscilloscope',      name: 'Oscilloscope',       zoneType: 'rfLab',       cost: { funding: 2000 },  energyCost: 0.5, spriteColor: 0xc6bea8, gridW: 1, gridH: 1, subH: 0.45, visualSubW: 0.8, visualSubH: 0.45, visualSubL: 0.5, spriteKey: 'oscilloscope',     effects: { zoneOutput: 0.05 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'oscilloscope_front' }, '-X': { decal: 'oscilloscope_side' }, '+X': { decal: 'oscilloscope_side' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] }, stackable: true },
+  oscilloscope:     { id: 'oscilloscope',      name: 'Oscilloscope',       zoneType: 'rfLab',       cost: { funding: 2000 },  energyCost: 0.5, spriteColor: 0xc6bea8, gridW: 1, gridH: 1, subH: 0.45, visualSubW: 0.8, visualSubH: 0.45, visualSubL: 0.5, spriteKey: 'oscilloscope',     effects: { zoneOutput: 0.05 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'oscilloscope_front' }, '-X': { decal: 'oscilloscope_side' }, '+X': { decal: 'oscilloscope_side' } }, stackable: true },
   signalGenerator:  { id: 'signalGenerator',   name: 'Signal Generator',   zoneType: 'rfLab',       cost: { funding: 5000 },  energyCost: 0.8, spriteColor: 0x3a3e46, gridW: 1, gridH: 1, subH: 0.36, visualSubW: 0.9, visualSubH: 0.36, visualSubL: 0.6, spriteKey: 'signalGenerator',  effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_dark',     faces: { '+Z': { decal: 'signal_generator_front' }, '-X': { decal: 'signal_generator_side' }, '+X': { decal: 'signal_generator_side' } }, stackable: true },
-  spectrumAnalyzer: { id: 'spectrumAnalyzer',  name: 'Spectrum Analyzer',  zoneType: 'rfLab',       cost: { funding: 15000 },  energyCost: 1.0, spriteColor: 0x888c94, gridW: 1, gridH: 1, subH: 0.5, visualSubW: 0.9, visualSubH: 0.5, visualSubL: 0.6, spriteKey: 'spectrumAnalyzer', effects: { zoneOutput: 0.08 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'spectrum_analyzer_front' }, '-X': { decal: 'spectrum_analyzer_side' }, '+X': { decal: 'spectrum_analyzer_side' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] }, stackable: true },
-  networkAnalyzer:  { id: 'networkAnalyzer',   name: 'Network Analyzer',   zoneType: 'rfLab',       cost: { funding: 50000 },  energyCost: 1.2, spriteColor: 0xd2c4a0, gridW: 1, gridH: 1, subH: 0.7, visualSubW: 1.1, visualSubH: 0.7, visualSubL: 0.8, spriteKey: 'networkAnalyzer',  effects: { zoneOutput: 0.10 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'network_analyzer_front' }, '-X': { decal: 'network_analyzer_side' }, '+X': { decal: 'network_analyzer_side' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] }, stackable: true },
+  spectrumAnalyzer: { id: 'spectrumAnalyzer',  name: 'Spectrum Analyzer',  zoneType: 'rfLab',       cost: { funding: 15000 },  energyCost: 1.0, spriteColor: 0x888c94, gridW: 1, gridH: 1, subH: 0.5, visualSubW: 0.9, visualSubH: 0.5, visualSubL: 0.6, spriteKey: 'spectrumAnalyzer', effects: { zoneOutput: 0.08 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'spectrum_analyzer_front' }, '-X': { decal: 'spectrum_analyzer_side' }, '+X': { decal: 'spectrum_analyzer_side' } }, stackable: true },
+  networkAnalyzer:  { id: 'networkAnalyzer',   name: 'Network Analyzer',   zoneType: 'rfLab',       cost: { funding: 50000 },  energyCost: 1.2, spriteColor: 0xd2c4a0, gridW: 1, gridH: 1, subH: 0.7, visualSubW: 1.1, visualSubH: 0.7, visualSubL: 0.8, spriteKey: 'networkAnalyzer',  effects: { zoneOutput: 0.10 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'network_analyzer_front' }, '-X': { decal: 'network_analyzer_side' }, '+X': { decal: 'network_analyzer_side' } }, stackable: true },
   coolantPump:      { id: 'coolantPump',       name: 'Coolant Pump',       zoneType: 'coolingLab',  cost: { funding: 3000 },   energyCost: 2.0, spriteColor: 0x33bbbb, gridW: 2, gridH: 2, subH: 2, spriteKey: 'coolantPump',      effects: { zoneOutput: 0.04 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'coolant_pump_front' }, '-X': { decal: 'coolant_pump_side' }, '+X': { decal: 'coolant_pump_side' } }, hasSurface: false },
   heatExchanger:    { id: 'heatExchanger',     name: 'Heat Exchanger',     zoneType: 'coolingLab',  cost: { funding: 8000 },  energyCost: 3.0, spriteColor: 0x4499aa, gridW: 3, gridH: 2, subH: 2, spriteKey: 'heatExchanger',    effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'heat_exchanger_front' }, '-X': { decal: 'heat_exchanger_side' }, '+X': { decal: 'heat_exchanger_side' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 1, subRow: 2, facing: 'n' }] } },
   pipeRack:         { id: 'pipeRack',          name: 'Pipe Rack',          zoneType: 'coolingLab',  cost: { funding: 500 },   energyCost: 0,   spriteColor: 0x667788, gridW: 1, gridH: 3, subH: 5, spriteKey: 'pipeRack',         effects: { zoneOutput: 0.02 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'pipe_rack_front' } }, hasSurface: false },
   chillerUnit:      { id: 'chillerUnit',       name: 'Chiller Unit',       zoneType: 'coolingLab',  cost: { funding: 25000 },  energyCost: 10.0, spriteColor: 0x2288aa, gridW: 4, gridH: 3, subH: 4, spriteKey: 'chillerUnit',      effects: { zoneOutput: 0.12 }, baseMaterial: 'metal_painted_white', faces: { '+Z': { decal: 'chiller_unit_front' }, '-X': { decal: 'chiller_unit_side' }, '+X': { decal: 'chiller_unit_side' } } },
-  flowMeter:        { id: 'flowMeter',         name: 'Flow Meter',         zoneType: 'coolingLab',  cost: { funding: 800 },  energyCost: 0.1, spriteColor: 0x55cccc, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.35, visualSubH: 0.4, visualSubL: 0.35, spriteKey: 'flowMeter',        effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'flow_meter_front' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] }, stackable: true },
+  flowMeter:        { id: 'flowMeter',         name: 'Flow Meter',         zoneType: 'coolingLab',  cost: { funding: 800 },  energyCost: 0.1, spriteColor: 0x55cccc, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.35, visualSubH: 0.4, visualSubL: 0.35, spriteKey: 'flowMeter',        effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'flow_meter_front' } }, stackable: true },
   testChamber:      { id: 'testChamber',       name: 'Test Chamber',       zoneType: 'vacuumLab',   cost: { funding: 15000 },  energyCost: 4.0, spriteColor: 0x8855bb, gridW: 3, gridH: 3, subH: 2, spriteKey: 'testChamber',      effects: { zoneOutput: 0.08 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'test_chamber_front' }, '-X': { decal: 'test_chamber_side' }, '+X': { decal: 'test_chamber_side' } }, station: { jobs: ['labWork'], slots: 1, seated: 'never', anchors: [{ subCol: 1, subRow: 3, facing: 'n' }] } },
   leakDetector:     { id: 'leakDetector',      name: 'Leak Detector',      zoneType: 'vacuumLab',   cost: { funding: 12000 },  energyCost: 0.8, spriteColor: 0x6644aa, gridW: 2, gridH: 1, subH: 0.4, visualSubW: 0.8, visualSubH: 0.4, visualSubL: 0.6, spriteKey: 'leakDetector',     effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'leak_detector_front' } }, stackable: true },
   pumpCart:         { id: 'pumpCart',           name: 'Pump Cart',          zoneType: 'vacuumLab',   cost: { funding: 5000 },   energyCost: 2.0, spriteColor: 0x9966cc, gridW: 2, gridH: 1, subH: 2, spriteKey: 'pumpCart',         effects: { zoneOutput: 0.02 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'pump_cart_front' }, '-X': { decal: 'pump_cart_side' }, '+X': { decal: 'pump_cart_side' } } },
@@ -73,7 +86,12 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       // Bed (precision ways — long rail)
       { name: 'bed', x: 0, y: 0.225, z: 0, w: 0.7, h: 0.3, l: 3.8, color: 0x80848c },
       { name: 'bedTop', x: 0, y: 0.525, z: 0, w: 0.72, h: 0.045, l: 3.8, color: 0x98a0ac },
-      // Lead screw underneath bed
+      // Lead screw underneath bed. Sits at x:+0.3, superficially pulling
+      // toward +X — but it's a hidden mechanical part run underneath the
+      // bed, not something an operator faces or reaches for. The carriage
+      // hand wheel (hwCarriage, below) is the part actually worked by hand
+      // during turning, and it sits on -X, which is what the station anchor
+      // follows.
       { name: 'leadScrew', x: 0.3, y: 0.12, z: 0, w: 0.06, h: 0.09, l: 3.4, color: 0xb0b4bc },
       // Headstock (left end — houses spindle)
       { name: 'headBody', x: 0, y: 0.57, z: -1.6, w: 0.9, h: 1.8, l: 0.7, color: 0x6ab86a },
@@ -398,7 +416,7 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
   opticalChopper:   { id: 'opticalChopper',     name: 'Optical Chopper',         zoneType: 'opticsLab', cost: { funding: 3000 },  energyCost: 0.2,  spriteColor: 0x556677, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.4, visualSubH: 0.4, visualSubL: 0.35, spriteKey: 'opticalChopper',   effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'optical_chopper_front' } } },
   powerMeter:       { id: 'powerMeter',         name: 'Power Meter',             zoneType: 'opticsLab', cost: { funding: 2500 },   energyCost: 0.1,  spriteColor: 0x445566, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.3, visualSubH: 0.4, visualSubL: 0.2, spriteKey: 'powerMeter',       effects: { zoneOutput: 0.02 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'power_meter_front' } } },
   spatialFilter:    { id: 'spatialFilter',      name: 'Spatial Filter',          zoneType: 'opticsLab', cost: { funding: 600 },   energyCost: 0,    spriteColor: 0x8899aa, gridW: 1, gridH: 1, subH: 1, visualSubW: 0.25, visualSubH: 0.5, visualSubL: 0.25, spriteKey: 'spatialFilter',    effects: { zoneOutput: 0.02 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'spatial_filter_front' } } },
-  scopeStation:     { id: 'scopeStation',      name: 'Scope Station',           zoneType: 'diagnosticsLab', cost: { funding: 2000 },  energyCost: 0.2, spriteColor: 0x44aa44, gridW: 1, gridH: 1, subH: 2, visualSubW: 0.9, visualSubH: 1.8, visualSubL: 0.9, spriteKey: 'scopeStation',     effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_painted_white', faces: { '+Z': { decal: 'scope_station_front' } }, station: { jobs: ['takeData'], slots: 1, seated: 'preferred', anchors: [{ subCol: 0, subRow: 1, facing: 'n' }] }, stackable: true },
+  scopeStation:     { id: 'scopeStation',      name: 'Scope Station',           zoneType: 'diagnosticsLab', cost: { funding: 2000 },  energyCost: 0.2, spriteColor: 0x44aa44, gridW: 1, gridH: 1, subH: 2, visualSubW: 0.9, visualSubH: 1.8, visualSubL: 0.9, spriteKey: 'scopeStation',     effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_painted_white', faces: { '+Z': { decal: 'scope_station_front' } }, stackable: true },
   wireScannerBench: { id: 'wireScannerBench',  name: 'Wire Scanner Readout',    zoneType: 'diagnosticsLab', cost: { funding: 5000 },  energyCost: 1.5, spriteColor: 0x888888, gridW: 1, gridH: 1, subH: 0.6, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.8, spriteKey: 'wireScannerBench', effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'wire_scanner_bench_front' }, '-X': { decal: 'wire_scanner_bench_side' }, '+X': { decal: 'wire_scanner_bench_side' } } },
   bpmTestFixture:   { id: 'bpmTestFixture',    name: 'BPM Electronics',         zoneType: 'diagnosticsLab', cost: { funding: 10000 },  energyCost: 1.0, spriteColor: 0xcccc44, gridW: 1, gridH: 1, subH: 0.5, visualSubW: 1.0, visualSubH: 0.5, visualSubL: 0.8, spriteKey: 'bpmTestFixture',   effects: { zoneOutput: 0.08 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'bpm_test_fixture_front' }, '-X': { decal: 'bpm_test_fixture_side' }, '+X': { decal: 'bpm_test_fixture_side' } } },
   daqRack: {
