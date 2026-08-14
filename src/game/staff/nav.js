@@ -23,12 +23,61 @@ import { isBlocked } from '../../networks/rooms.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
 import { FLOORS } from '../../data/structure.js';
 
-// Fallback margin added around infraOccupied's bounding box when a state
-// has no mapHalfExtent (hand-built states, mostly in tests). Real Game
-// states always set mapHalfExtent (see buildNavGrid's bounds computation
-// below) — this only exists so nav.js stays usable against a minimal
-// state shape without requiring every caller to fabricate a map size.
+// Fallback margin added around the content bounding box when a state has no
+// mapHalfExtent (hand-built states, mostly in tests). Real Game states
+// always set mapHalfExtent (see buildNavGrid's bounds computation below) —
+// this only exists so nav.js stays usable against a minimal state shape
+// without requiring every caller to fabricate a map size.
 const BOUNDS_INFLATE_TILES = 8;
+
+// Margin added around the BUILT content bbox (floors ∪ walls ∪ doors ∪
+// placeable footprints) for the connected-component labelling — see
+// buildLabels' doc comment. 2 tiles is enough to cover a boundary step
+// (the labelling only needs to see one ring of subtiles past whatever a
+// pawn could actually be adjacent to) without dragging in bare map area
+// nobody has touched.
+const BUILT_LABEL_MARGIN_TILES = 2;
+
+// Sentinels returned by a label lookup's get(), guaranteed to never equal a
+// real (non-negative) component id: OUTDOOR is the one implicit component
+// covering all bare ground outside the labelled bbox (see buildLabels'
+// doc comment); OUT_OF_MAP is a node outside the grid's own `bounds`
+// entirely — callers already bounds-check before reaching here, so this is
+// pure defense, but it must never collide with OUTDOOR or a real id.
+const OUTDOOR = -2;
+const OUT_OF_MAP = -1;
+
+/**
+ * The object returned by a label lookup — deliberately a MODULE-LEVEL
+ * factory, not a closure created inside buildLabels(). buildLabels() builds
+ * a union-find scratch (`parent`/`rank`, several MB on a large map) to
+ * produce `componentId`, then has no further use for that scratch — but a
+ * closure created *inside* buildLabels would share its entire function
+ * scope (including `parent`/`rank`) whether or not it actually reads them,
+ * because V8 heap-allocates one "context" per scope that has an escaping
+ * closure, not one per variable. Building the lookup as a call to a
+ * function declared OUTSIDE buildLabels makes that lexically impossible:
+ * this closure's scope is exactly its own parameter list, so `parent`/
+ * `rank` become collectible as soon as buildLabels() returns. Measured
+ * effect: retained size at mapHalfExtent 120 dropped from 8.0 MB to the
+ * 3.5 MB `componentId` actually needs.
+ */
+function makeLabelLookup(componentId, w, minColSub, minRowSub, maxColSub, maxRowSub,
+                          mapMinColSub, mapMinRowSub, mapMaxColSub, mapMaxRowSub) {
+  return {
+    get(node) {
+      const absCol = node.col * 4 + node.subCol;
+      const absRow = node.row * 4 + node.subRow;
+      if (absCol < mapMinColSub || absCol > mapMaxColSub || absRow < mapMinRowSub || absRow > mapMaxRowSub) {
+        return OUT_OF_MAP;
+      }
+      if (absCol < minColSub || absCol > maxColSub || absRow < minRowSub || absRow > maxRowSub) {
+        return OUTDOOR;
+      }
+      return componentId[(absRow - minRowSub) * w + (absCol - minColSub)];
+    },
+  };
+}
 
 // Movement cost multipliers. Floored tiles are cheap; bare ground (no floor)
 // is walkable but expensive, so pawns cross grass to reach a detached
@@ -111,24 +160,61 @@ export function subtileToWorld(node) {
 export function buildNavGrid(state) {
   const infraOccupied = state.infraOccupied || {};
   const subgridOccupied = state.subgridOccupied || {};
+  const wallOccupied = state.wallOccupied || {};
+  const doorOccupied = state.doorOccupied || {};
   const placeableIndex = state.placeableIndex || {};
   const placeables = state.placeables || [];
 
+  // Union of every tile touched by floors, walls, doors, or a placeable
+  // footprint — "built" content in the broadest sense. Walls and doors
+  // matter here even with no floor nearby: a fence built on bare ground
+  // must still shrink/shape the labelling region (see buildLabels below),
+  // or the region on either side of it gets treated as trivially connected
+  // bare ground and the fence does nothing.
   let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  // Tiles with a true floor (not an outdoor grounds surface like grass/
-  // dirt/pavement — those are walkable ground, not flooring, and must cost
-  // the same as unpaved bare ground or a pawn will detour onto a meadow to
-  // avoid grass it is already standing on).
-  const flooredTiles = new Set();
-  for (const key of Object.keys(infraOccupied)) {
-    const [c, r] = key.split(',').map(Number);
+  function extendContent(c, r) {
     if (c < minCol) minCol = c;
     if (c > maxCol) maxCol = c;
     if (r < minRow) minRow = r;
     if (r > maxRow) maxRow = r;
+  }
+  // Tiles with a true floor (not an outdoor grounds surface like grass/
+  // dirt/pavement — those are walkable ground, not flooring, and must cost
+  // the same as unpaved bare ground or a pawn will detour onto a meadow to
+  // avoid grass it is already standing on). Critically, a groundsSurface
+  // tile must NOT feed the content bbox either: map-generator.js's
+  // placeMeadowGrass scatters these across essentially the WHOLE site at
+  // world generation (see this file's own header comment — "infraOccupied's
+  // bbox ... IS the map from turn 1"), so a real Game state's infraOccupied
+  // spans nearly the entire map from the first tick regardless of what the
+  // player has actually built. Feeding the bbox from every infraOccupied
+  // key indiscriminately would make the labelling region ~always the whole
+  // map in practice, silently defeating the point of scoping it to what's
+  // built at all.
+  const flooredTiles = new Set();
+  for (const key of Object.keys(infraOccupied)) {
     const type = infraOccupied[key];
     const def = FLOORS[type];
-    if (!def || def.groundsSurface !== true) flooredTiles.add(key);
+    if (!def || def.groundsSurface !== true) {
+      flooredTiles.add(key);
+      const [c, r] = key.split(',').map(Number);
+      extendContent(c, r);
+    }
+  }
+  for (const key of Object.keys(wallOccupied)) {
+    const [c, r] = key.split(',');
+    extendContent(+c, +r);
+  }
+  for (const key of Object.keys(doorOccupied)) {
+    const [c, r] = key.split(',');
+    extendContent(+c, +r);
+  }
+  for (const entry of placeables) {
+    if (Array.isArray(entry.cells) && entry.cells.length) {
+      for (const cell of entry.cells) extendContent(cell.col, cell.row);
+    } else if (Number.isFinite(entry.col) && Number.isFinite(entry.row)) {
+      extendContent(entry.col, entry.row);
+    }
   }
 
   let bounds;
@@ -144,12 +230,12 @@ export function buildNavGrid(state) {
     bounds = { minCol: -h, maxCol: h, minRow: -h, maxRow: h };
   } else {
     // Fallback for hand-built states without mapHalfExtent (see the
-    // BOUNDS_INFLATE_TILES comment above) — derive from infraOccupied's own
-    // bbox instead, inflated so a small hand-built floor patch still has
-    // room to path across surrounding bare ground.
+    // BOUNDS_INFLATE_TILES comment above) — derive from the content bbox
+    // instead, inflated so a small hand-built floor patch still has room to
+    // path across surrounding bare ground.
     if (!Number.isFinite(minCol)) {
-      // No floor anywhere yet — bound a small area around the origin rather
-      // than leaving the grid empty.
+      // No content anywhere yet — bound a small area around the origin
+      // rather than leaving the grid empty.
       minCol = maxCol = minRow = maxRow = 0;
     }
     bounds = {
@@ -157,6 +243,25 @@ export function buildNavGrid(state) {
       minRow: minRow - BOUNDS_INFLATE_TILES, maxRow: maxRow + BOUNDS_INFLATE_TILES,
     };
   }
+
+  // The region the connected-component labelling actually materializes:
+  // the content bbox plus a small margin, clamped to the map's own
+  // `bounds` (never wider than the map, and collapses to a single point
+  // rather than an inverted range on the pathological empty-content-outside-
+  // bounds case). See buildLabels' doc comment for why this must stay
+  // proportional to what's built rather than to the whole map.
+  let labelMinCol = Number.isFinite(minCol) ? minCol : 0;
+  let labelMaxCol = Number.isFinite(maxCol) ? maxCol : 0;
+  let labelMinRow = Number.isFinite(minRow) ? minRow : 0;
+  let labelMaxRow = Number.isFinite(maxRow) ? maxRow : 0;
+  labelMinCol -= BUILT_LABEL_MARGIN_TILES; labelMaxCol += BUILT_LABEL_MARGIN_TILES;
+  labelMinRow -= BUILT_LABEL_MARGIN_TILES; labelMaxRow += BUILT_LABEL_MARGIN_TILES;
+  labelMinCol = Math.max(labelMinCol, bounds.minCol);
+  labelMaxCol = Math.min(labelMaxCol, bounds.maxCol);
+  labelMinRow = Math.max(labelMinRow, bounds.minRow);
+  labelMaxRow = Math.min(labelMaxRow, bounds.maxRow);
+  if (labelMinCol > labelMaxCol) { labelMinCol = labelMaxCol = bounds.minCol; }
+  if (labelMinRow > labelMaxRow) { labelMinRow = labelMaxRow = bounds.minRow; }
 
   // Subtiles an occupant actually blocks (see the passability rule below).
   // Proportional to placed-item footprints, not to the bounded area.
@@ -216,24 +321,42 @@ export function buildNavGrid(state) {
   // Connected-component labelling, built lazily on first use (see
   // getComponentLabels() below the A* section) and cached on the returned
   // nav object for its lifetime — i.e. once per navRevision, same as the
-  // grid itself. A closure over `blockedSubtiles`/`bounds` directly, rather
-  // than going through `passable.has()`, so the (single) full-grid sweep
-  // skips that closure's per-call bounds re-verification and string
-  // reparsing — this loop already iterates only within `bounds`, so both
-  // are redundant work here.
+  // grid itself.
+  //
+  // Only the BUILT region (labelMinCol/labelMaxCol/labelMinRow/labelMaxRow,
+  // computed above as the content bbox + BUILT_LABEL_MARGIN_TILES, clamped
+  // to `bounds`) is actually materialized into union-find cells. Labelling
+  // the WHOLE map (an earlier version of this function did) reintroduces
+  // exactly the area-proportional blowup `899f6e31` removed from the sparse
+  // grid: bare ground is uniformly passable, so there is nothing to
+  // partition out there — every outdoor subtile is trivially connected to
+  // every other. Everything outside the built bbox is instead one implicit
+  // OUTDOOR pseudo-component (an extra union-find slot, OUTDOOR_NODE below,
+  // that never gets its own row in `componentId`): a built-region cell on
+  // the bbox's outer rim joins it whenever the cell itself is passable
+  // (guaranteed by the loop's own blockedSubtiles skip) and its outward
+  // step isn't wall-blocked. This is also why walls/doors/placeables (not
+  // just floors) had to feed the content bbox above — a fence built on bare
+  // ground with no floor anywhere must still shrink/shape this region, or
+  // both sides of it get labelled as the same trivially-connected outdoors
+  // and the fence does nothing.
   function buildLabels() {
-    const minColSub = bounds.minCol * 4, minRowSub = bounds.minRow * 4;
-    const maxColSub = bounds.maxCol * 4 + 3, maxRowSub = bounds.maxRow * 4 + 3;
+    const minColSub = labelMinCol * 4, minRowSub = labelMinRow * 4;
+    const maxColSub = labelMaxCol * 4 + 3, maxRowSub = labelMaxRow * 4 + 3;
+    const mapMinColSub = bounds.minCol * 4, mapMinRowSub = bounds.minRow * 4;
+    const mapMaxColSub = bounds.maxCol * 4 + 3, mapMaxRowSub = bounds.maxRow * 4 + 3;
     const w = maxColSub - minColSub + 1;
     const h = maxRowSub - minRowSub + 1;
     const n = w * h;
+    const OUTDOOR_NODE = n; // one extra slot, not a real grid cell
 
-    // Union-find over a flat Int32Array of subtile indices — see the
-    // component-labelling comment above search() for why this replaces a
-    // per-query A* reachability check with one full-grid pass per world edit.
-    const parent = new Int32Array(n);
-    const rank = new Uint8Array(n);
-    for (let i = 0; i < n; i++) parent[i] = i;
+    // Union-find over a flat Int32Array of subtile indices (plus the one
+    // extra OUTDOOR_NODE slot) — see the component-labelling comment above
+    // search() for why this replaces a per-query A* reachability check with
+    // one pass over the built region per world edit.
+    const parent = new Int32Array(n + 1);
+    const rank = new Uint8Array(n + 1);
+    for (let i = 0; i <= n; i++) parent[i] = i;
     function find(x) {
       let root = x;
       while (parent[root] !== root) root = parent[root];
@@ -255,7 +378,14 @@ export function buildNavGrid(state) {
     // "west of A" and "north of A" together cover the same edges "east of
     // A's west neighbor" / "south of A's north neighbor" would from the
     // other side (isBlocked is symmetric regardless of which side asks —
-    // see neighborsOf()'s comment).
+    // see neighborsOf()'s comment). Boundary cells (on the built bbox's
+    // outer rim) ALSO union with OUTDOOR_NODE on whichever side(s) actually
+    // face outward — skipped on any side that is also the map's own hard
+    // edge (`bounds`), since there is no "outdoor" beyond the map itself.
+    // The outward side's own passability needs no check: everything outside
+    // the built bbox is guaranteed unblocked (every blocked subtile comes
+    // from a placeable footprint, and every placeable footprint fed the
+    // content bbox this region was built around).
     for (let absRow = minRowSub; absRow <= maxRowSub; absRow++) {
       const row = Math.floor(absRow / 4);
       const subRow = absRow - row * 4;
@@ -273,6 +403,8 @@ export function buildNavGrid(state) {
           if (!blockedSubtiles.has(subtileKey(col - 1, row, 3, subRow)) && !isBlocked(col, row, 'w', state)) {
             union(i, idxAt(absCol - 1, absRow));
           }
+        } else if (minColSub > mapMinColSub && !isBlocked(col, row, 'w', state)) {
+          union(i, OUTDOOR_NODE);
         }
 
         if (subRow > 0) {
@@ -283,26 +415,37 @@ export function buildNavGrid(state) {
           if (!blockedSubtiles.has(subtileKey(col, row - 1, subCol, 3)) && !isBlocked(col, row, 'n', state)) {
             union(i, idxAt(absCol, absRow - 1));
           }
+        } else if (minRowSub > mapMinRowSub && !isBlocked(col, row, 'n', state)) {
+          union(i, OUTDOOR_NODE);
+        }
+
+        if (absCol === maxColSub && maxColSub < mapMaxColSub && !isBlocked(col, row, 'e', state)) {
+          union(i, OUTDOOR_NODE);
+        }
+        if (absRow === maxRowSub && maxRowSub < mapMaxRowSub && !isBlocked(col, row, 's', state)) {
+          union(i, OUTDOOR_NODE);
         }
       }
     }
 
-    // Flatten every entry to its final root once, so a query is a single
-    // array read (find() with path compression is already near-O(1), but a
-    // pre-flattened array needs no pointer-chasing at all at query time).
+    // Flatten every real cell to its final root once, remapping anything
+    // that landed in OUTDOOR_NODE's component to the fixed OUTDOOR sentinel
+    // so get()'s equality check works the same way whether a query lands
+    // inside the built bbox (via this array) or outside it entirely (via
+    // makeLabelLookup's own bbox check, below) — both cases return the
+    // identical OUTDOOR value.
+    const outdoorRoot = find(OUTDOOR_NODE);
     const componentId = new Int32Array(n);
-    for (let i = 0; i < n; i++) componentId[i] = find(i);
+    for (let i = 0; i < n; i++) {
+      const root = find(i);
+      componentId[i] = (root === outdoorRoot) ? OUTDOOR : root;
+    }
 
-    return {
-      get(node) {
-        const absCol = node.col * 4 + node.subCol;
-        const absRow = node.row * 4 + node.subRow;
-        if (absCol < minColSub || absCol > maxColSub || absRow < minRowSub || absRow > maxRowSub) {
-          return -1; // out of bounds — never equal to any real component id
-        }
-        return componentId[idxAt(absCol, absRow)];
-      },
-    };
+    // See makeLabelLookup's doc comment for why this is a call to a
+    // function declared outside buildLabels rather than an object literal
+    // built right here.
+    return makeLabelLookup(componentId, w, minColSub, minRowSub, maxColSub, maxRowSub,
+      mapMinColSub, mapMinRowSub, mapMaxColSub, mapMaxRowSub);
   }
 
   return {
@@ -316,7 +459,12 @@ export function buildNavGrid(state) {
     _state: state,
     // Internal, lazy — see getComponentLabels() below. `_labels` starts
     // unbuilt so a nav grid built and never reachability-queried (e.g. most
-    // hand-built test grids) never pays the full-grid labelling cost.
+    // hand-built test grids) never pays the labelling cost. `_buildLabels`
+    // itself (a closure over buildNavGrid's locals — `bounds`,
+    // `blockedSubtiles`, `state`, the label bbox — not huge, but not
+    // nothing) is dropped by getComponentLabels() once `_labels` exists, so
+    // it isn't kept alive on the nav object for the rest of its lifetime
+    // after the one call that needed it.
     _buildLabels: buildLabels,
     _labels: null,
   };
@@ -401,16 +549,29 @@ function inBounds(bounds, n) {
 // 48 of them in one findStation call, long enough to block the main thread
 // for one idle pawn.
 //
-// buildLabels() (see buildNavGrid above) flood-fills the WHOLE bounded grid
-// into union-find components once per navRevision — grass is passable
-// everywhere in bounds, so this touches every subtile regardless of how few
-// are actually blocked, an O(bounds area) cost independent of how many
-// pawns or stations query it afterward (measured ~49ms on that same 61x61
-// map, once per world edit, versus ~27ms PER PROBE PER PAWN PER SCAN
-// before). Two subtiles are reachable from each other iff they land in the
-// same component — isReachable becomes a single array-read comparison.
+// buildLabels() (see buildNavGrid above) flood-fills the BUILT region —
+// content bbox plus a small margin, NOT the whole map — into union-find
+// components once per navRevision, treating everything outside that region
+// as one implicit OUTDOOR component. Grass is passable everywhere, so
+// there is nothing to partition out there — an earlier version of this
+// function labelled the whole `bounds` instead, which reintroduced an
+// area-proportional cost on a large, mostly-empty map (measured ~184ms at
+// mapHalfExtent 120 even with only a 21x21 area actually built), the exact
+// blowup the sparse `passable`/`cost` closures above exist to avoid. This
+// version costs proportional to what's built (once per world edit) rather
+// than to the map size, independent of how many pawns or stations query it
+// afterward. Two subtiles are reachable from each other iff they land in
+// the same component (or both land in OUTDOOR) — isReachable becomes a
+// single array-read comparison.
 function getComponentLabels(nav) {
-  if (!nav._labels) nav._labels = nav._buildLabels();
+  if (!nav._labels) {
+    nav._labels = nav._buildLabels();
+    // The closure that produced `_labels` (and everything IT closed over —
+    // bounds, blockedSubtiles, state, the label bbox) has no further use
+    // once the lookup exists; drop the reference so it doesn't outlive the
+    // one call that needed it.
+    nav._buildLabels = null;
+  }
   return nav._labels;
 }
 
@@ -524,14 +685,12 @@ function runAStar(nav, from, to, fromKey, toKey, wantPath, weight, maxExpanded) 
 
 // Two-pass search, used by findPath. `wantPath` controls whether the goal's
 // predecessor chain is walked back into an array — kept as a parameter
-// (rather than splitting into two functions) mostly for history; isReachable
-// no longer calls this at all (see the connected-components section above),
-// so `wantPath` is always true from findPath's one caller today. Kept as a
-// parameter rather than hard-coded so a future caller that wants "reached,
-// no path needed, but via full A* rather than the labelling" (there is no
-// such caller today) doesn't have to fork the function to get it.
+// rather than hard-coded mostly for history (isReachable no longer calls
+// this at all, so `wantPath` is always true from findPath's one caller
+// today), and so a future caller wanting "reached, no path needed, but via
+// full A* rather than the labelling" (no such caller exists yet) doesn't
+// have to fork the function to get it.
 //
-
 // Why two passes instead of one fixed weight (this replaces an earlier,
 // single-weight version of this file — see the fix-round writeup in
 // .superpowers/sdd/.../task-1-2-report.md for the full history):

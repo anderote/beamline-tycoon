@@ -343,5 +343,97 @@ console.log('\n=== 12. passable.has() rejects a malformed subCol/subRow ===\n');
   assertOk(nav.passable.has('0,0,0,-1') === false, 'a negative subRow is rejected');
 }
 
+console.log('\n=== 13. Component labelling cost is proportional to the BUILT region, not the whole map ===\n');
+{
+  // Regression for the exact blowup 899f6e31 removed from the sparse grid:
+  // an earlier version of the connected-component labelling flood-filled
+  // the WHOLE `bounds` rectangle, so a small built room on a max-size map
+  // cost the same as a fully-built one (measured 184-240ms at
+  // mapHalfExtent 120 even with only a 21x21 area actually built). The
+  // labelling now only materializes the content bbox (+ a small margin);
+  // everything else is one implicit OUTDOOR component.
+  const state = makeState({ mapHalfExtent: 120 });
+  // A tiny 3x3 floored room near the origin — the only "built" content
+  // anywhere on an otherwise untouched 241x241-tile map.
+  floorRect(state, 0, 2, 0, 2);
+  const nav = getNavGrid(state);
+
+  // Two points deep in untouched grass, far from the room AND far from
+  // each other, on opposite corners of the map — must be trivially
+  // reachable (grass is uniformly passable everywhere) without the
+  // labelling having materialized anywhere near either of them.
+  const from = { col: -100, row: -100, subCol: 0, subRow: 0 };
+  const to = { col: 100, row: 100, subCol: 3, subRow: 3 };
+  const t0 = performance.now();
+  const reached = isReachable(nav, from, to);
+  const elapsedMs = performance.now() - t0;
+  assertOk(reached, 'two far-apart outdoor points on a huge map are reachable via the implicit OUTDOOR component');
+  // Generous threshold (whole-map cost at this size was measured at
+  // 184-240ms) — robust to CI noise while still catching a regression back
+  // to map-proportional cost.
+  assertOk(elapsedMs < 60, `labelling + lookup for a tiny built room on a halfExtent-120 map stays fast (got ${elapsedMs.toFixed(2)} ms)`);
+}
+
+console.log('\n=== 14. A wall built on bare ground (no floor anywhere) still separates two outdoor points ===\n');
+{
+  // The case the labelling must get right: walls/doors alone (not just
+  // floors) have to feed the "built" content bbox, or a fence built on
+  // untouched grass is invisible to the region computation and both sides
+  // of it get treated as the same trivially-connected outdoors.
+  const state = makeState({ mapHalfExtent: 60 });
+  const wall = (col, row, edge) => { state.wallOccupied[`${col},${row},${edge}`] = 'officeWall'; };
+  // A 2x2 pen, walled solid on every outer edge, with ZERO floor tiles
+  // anywhere in the whole state.
+  wall(10, 10, 'n'); wall(11, 10, 'n');
+  wall(10, 11, 's'); wall(11, 11, 's');
+  wall(10, 10, 'w'); wall(10, 11, 'w');
+  wall(11, 10, 'e'); wall(11, 11, 'e');
+
+  const nav = getNavGrid(state);
+  const inside = { col: 10, row: 10, subCol: 0, subRow: 0 };
+  const outside = { col: 20, row: 20, subCol: 0, subRow: 0 }; // well clear of the pen, bare grass
+  assertOk(!isReachable(nav, inside, outside),
+    'a walled pen on bare ground is NOT trivially connected to the outdoors, despite having no floor anywhere');
+
+  state.doorOccupied['10,10,n'] = 'officeDoor';
+  state.navRevision++;
+  const navOpen = getNavGrid(state);
+  assertOk(isReachable(navOpen, inside, outside), 'a door in the pen wall reopens the connection');
+}
+
+console.log('\n=== 15. Meadow scattered across the WHOLE map does not defeat the built-region scoping ===\n');
+{
+  // The realistic-shaped case, not just an artificial empty-map one:
+  // map-generator.js's placeMeadowGrass scatters groundsSurface floor
+  // tiles across essentially the entire site at world generation, so a
+  // real Game state's infraOccupied is NOT sparse even on turn 1 — only
+  // excluding groundsSurface tiles from the content bbox (see
+  // buildNavGrid's comment on the flooredTiles loop) keeps the labelling
+  // region actually proportional to what the player built, rather than to
+  // the meadow scatter that was always there.
+  const half = 90;
+  const state = makeState({ mapHalfExtent: half });
+  for (let c = -half; c <= half; c++) {
+    for (let r = -half; r <= half; r++) {
+      state.infraOccupied[`${c},${r}`] = 'wildgrass'; // groundsSurface: true
+    }
+  }
+  // One small REAL built area: a 10x10 concrete pad near the origin.
+  for (let c = 0; c < 10; c++) {
+    for (let r = 0; r < 10; r++) {
+      state.infraOccupied[`${c},${r}`] = 'concrete';
+    }
+  }
+  const nav = getNavGrid(state);
+  const from = { col: -half, row: -half, subCol: 0, subRow: 0 };
+  const to = { col: half, row: half, subCol: 3, subRow: 3 };
+  const t0 = performance.now();
+  const reached = isReachable(nav, from, to);
+  const elapsedMs = performance.now() - t0;
+  assertOk(reached, 'two far corners of an all-meadow map are reachable (uniformly passable ground either way)');
+  assertOk(elapsedMs < 60,
+    `labelling stays fast even with infraOccupied covering the whole map, because meadow tiles don't count as "built" (got ${elapsedMs.toFixed(2)} ms)`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

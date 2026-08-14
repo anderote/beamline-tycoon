@@ -204,9 +204,14 @@ export function buildStationIndex(state) {
       if (!seated && seatedPref === 'required') return;
 
       const key = `${entry.id}:${slotIndex}`;
+      // node and jobs are each fresh (never-shared-elsewhere) objects built
+      // just above/here — Object.freeze on the outer ref alone is shallow
+      // and would leave both mutable, so a caller writing e.g. ref.node.col
+      // would silently corrupt the shared index entry every other caller
+      // reads. Freeze all three levels.
       const ref = Object.freeze({
         key, placeableId: entry.id, defId: entry.type, slotIndex,
-        jobs: jobs.slice(), node, facing, seated, seatPlaceableId, zoneType,
+        jobs: Object.freeze(jobs.slice()), node: Object.freeze(node), facing, seated, seatPlaceableId, zoneType,
       });
       byKey[key] = ref;
       for (const job of jobs) {

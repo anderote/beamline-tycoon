@@ -149,6 +149,13 @@ console.log('\n=== 3. desk + officeChair seat matching ===\n');
     "seated ref's node is the chair's subtile, not the desk's anchor");
   assertOk(ref.facing === 's', "seated ref's facing is the chair's resolved facing");
   assertOk(Object.isFrozen(ref), 'the returned StationRef is frozen — callers must not stamp state on it');
+  assertOk(Object.isFrozen(ref.node), 'ref.node is frozen too, not just the outer ref (freeze is shallow by default)');
+  assertOk(Object.isFrozen(ref.jobs), 'ref.jobs is frozen too');
+  const originalCol = ref.node.col;
+  let threwOnFrozenWrite = false;
+  try { ref.node.col = 999; } catch (e) { threwOnFrozenWrite = true; } // ESM is strict mode: throws rather than silently no-oping
+  assertOk(threwOnFrozenWrite, 'writing to a frozen ref.node throws (strict mode)');
+  assertOk(ref.node.col === originalCol, 'writing to ref.node does not corrupt the shared index entry');
 
   const navSeated = getNavGrid(state);
   const from = { col: 5, row: 8, subCol: 0, subRow: 0 };
