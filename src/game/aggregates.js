@@ -30,6 +30,7 @@
 // site needs a variant, it takes an argument — it does not re-derive.
 
 import { COMPONENTS } from '../data/components.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 
 // Vacuum pumps: billed the per-tick service fee AND counted in the vacuum
 // panel. These were two lists.
@@ -70,10 +71,36 @@ export function beamlineEnergyDraw(state) {
   return state?.totalEnergyCost || 0;
 }
 
+/**
+ * kW drawn by facility lighting fixtures. Lights are decorations
+ * (kind: 'decoration'), so poweredPlaceables — which deliberately excludes
+ * decorations for the pump/equipment consumers below — cannot be reused
+ * here; this is its own walk over state.placeables, filtered on the def
+ * carrying a `light` block rather than on category.
+ *
+ * Also sums state.wallFixtures, the edge-keyed store a later task (wall-
+ * mounted sconces/bulkheads) introduces for fixtures that never enter
+ * state.placeables. That store does not exist yet, so it is read
+ * defensively: absent, empty, or holding entries with no matching def all
+ * contribute zero rather than throwing.
+ */
+export function lightingEnergyDraw(state) {
+  let draw = 0;
+  for (const p of state?.placeables || []) {
+    const def = PLACEABLES[p.type];
+    if (def?.light) draw += (def.energyCost || 0);
+  }
+  for (const f of Object.values(state?.wallFixtures || {})) {
+    const def = PLACEABLES[f?.type];
+    if (def?.light) draw += (def.energyCost || 0);
+  }
+  return draw;
+}
+
 /** The facility's total electrical draw — the basis for both the power bill
  *  and the power panel's utilization. */
 export function facilityEnergyDraw(state) {
-  return equipmentEnergyDraw(state) + beamlineEnergyDraw(state);
+  return equipmentEnergyDraw(state) + beamlineEnergyDraw(state) + lightingEnergyDraw(state);
 }
 
 /** Placed vacuum pumps, the basis for both the service fee and the panel. */
