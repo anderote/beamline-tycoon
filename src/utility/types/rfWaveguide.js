@@ -81,6 +81,14 @@ export default {
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',
+  // A waveguide run is flanged end to end. A tee is a component you buy (the
+  // manifold), not something you cut into a run.
+  allowsTap: false,
+  // Ports still fan out, though. Socket-counting is a POWER mechanic — it is
+  // what makes distribution panels a decision — and applying it here would
+  // mean re-authoring every amplifier and IOC with a port per client for no
+  // gameplay gained. Tapping and fanning are separate axes.
+  fansOut: true,
   // No adjacency bridging: RF has to be guided. Pushing two klystrons together
   // does not make a waveguide, so every RF sink is wired explicitly.
   bridgesAdjacent: false,

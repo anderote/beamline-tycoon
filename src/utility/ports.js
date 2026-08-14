@@ -12,6 +12,7 @@
 // (the utility-line equivalent of pipe.start.junctionId on beam pipes).
 
 import { COMPONENTS } from '../data/components.js';
+import { UTILITY_TYPES } from './registry.js';
 
 const SIDE_TO_COMPASS = { back: 'N', front: 'S', left: 'W', right: 'E' };
 const COMPASS_CW = ['N', 'E', 'S', 'W'];
@@ -54,6 +55,20 @@ export function portSide(def, portName, dir) {
   return rotateCompass(base, dir || 0);
 }
 
+/**
+ * Does a claimed SOURCE port of this utility stay available for more lines?
+ *
+ * A manifold outlet genuinely feeds several branches, so fluids fan out. A
+ * power socket takes one plug: that is what makes a panel's outlet count a
+ * resource rather than decoration, and what stops one transformer port wiring
+ * an entire facility. Unknown utilities keep the old permissive behaviour so a
+ * test's fake port table is unaffected.
+ */
+function sourceFansOut(utilityType) {
+  const d = UTILITY_TYPES[utilityType];
+  return !d || d.fansOut !== false;
+}
+
 export function availablePorts(placeable, def, utilityType, lines) {
   if (!placeable || !def || !def.ports) return [];
   const claimed = new Set();
@@ -71,8 +86,9 @@ export function availablePorts(placeable, def, utilityType, lines) {
   const candidates = Object.entries(def.ports)
     .filter(([_, spec]) => spec && spec.utility === utilityType)
     .map(([name, spec]) => ({ name, spec }));
+  const fanOut = sourceFansOut(utilityType);
   return candidates
-    .filter(({ name, spec }) => !claimed.has(name) || spec.role === 'source')
+    .filter(({ name, spec }) => !claimed.has(name) || (fanOut && spec.role === 'source'))
     .map(({ name }) => name);
 }
 

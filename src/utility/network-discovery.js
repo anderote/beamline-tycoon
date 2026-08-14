@@ -398,23 +398,36 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     }
   }
 
-  // Spatial union: lines that share ANY subtile (0.25-precision) merge. This
-  // handles line-to-line joins (a trunk running past a branch) regardless of
-  // whether either endpoint is a port or an open end.
+  // Spatial union: lines that meet END-ON merge. A run that ENDS on another
+  // run is a tee — the two are one network. A run that CROSSES another mid-span
+  // is not: one passes over the other, and merging them would silently wire
+  // together two networks that only happen to share a floor tile.
+  //
+  // Line-drawing enforces the same distinction geometrically (a crossing must
+  // be perpendicular and interior to both; an end-on contact is legal only for
+  // a utility that allows taps), so by the time geometry reaches here, an
+  // endpoint contact is always a deliberate join.
   const subtileToLines = new Map();
   for (const line of lineArr) {
     const expanded = expandPath(line.path || []);
-    for (const pt of expanded) {
+    for (let i = 0; i < expanded.length; i++) {
+      const pt = expanded[i];
       const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;
       let arr = subtileToLines.get(key);
       if (!arr) { arr = []; subtileToLines.set(key, arr); }
-      arr.push(line.id);
+      arr.push({ id: line.id, terminal: i === 0 || i === expanded.length - 1 });
     }
   }
-  for (const ids of subtileToLines.values()) {
-    if (ids.length < 2) continue;
-    const first = lineNodeKey(ids[0]);
-    for (let i = 1; i < ids.length; i++) dsu.union(first, lineNodeKey(ids[i]));
+  for (const hits of subtileToLines.values()) {
+    if (hits.length < 2) continue;
+    for (let a = 0; a < hits.length; a++) {
+      for (let b = a + 1; b < hits.length; b++) {
+        if (hits[a].id === hits[b].id) continue;
+        // At least one of the two has to END here for this to be a join.
+        if (!hits[a].terminal && !hits[b].terminal) continue;
+        dsu.union(lineNodeKey(hits[a].id), lineNodeKey(hits[b].id));
+      }
+    }
   }
 
   // For every placeable that a line touches, unite all of its pass-through
@@ -425,15 +438,30 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     for (const pid of touchedPlaceables) {
       const ports = portLookup.listPorts(pid) || [];
       const passNames = [];
+      const sourceNames = [];
       for (const { name, spec } of ports) {
         if (!spec) continue;
         if (spec.utility !== utilityType) continue;
         if (spec.role === 'pass') passNames.push(name);
+        else if (spec.role === 'source') sourceNames.push(name);
       }
-      if (passNames.length < 2) continue;
-      const keys = passNames.map(n => `${pid}:${n}`);
-      for (const k of keys) allPortKeys.add(k);
-      for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+      // Pass-through ports: logically continuous within the device.
+      if (passNames.length >= 2) {
+        const keys = passNames.map(n => `${pid}:${n}`);
+        for (const k of keys) allPortKeys.add(k);
+        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+      }
+      // A multi-outlet device is ONE busbar, not N independent supplies. The
+      // four sockets on a distribution panel are the same bar behind the
+      // faceplate, so they share one network and one rating — each outlet
+      // declares rating/N and uniting them here is what adds back up to the
+      // panel's rating. Without this a 4-way panel would read as four separate
+      // full-rating supplies and quadruple the facility's capacity.
+      if (sourceNames.length >= 2) {
+        const keys = sourceNames.map(n => `${pid}:${n}`);
+        for (const k of keys) allPortKeys.add(k);
+        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+      }
     }
   }
 

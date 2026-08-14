@@ -48,6 +48,23 @@ function portTile(pos) {
   return { col: snapQ(pos.x / 2), row: snapQ(pos.z / 2) };
 }
 
+/**
+ * The device's free source ports of this utility, anchored port first.
+ *
+ * Order matters twice: the anchor is what the player actually clicked, so it
+ * must be used before its neighbours, and the rest follow port-table order so
+ * a plan is reproducible.
+ */
+function orderedFreeOutlets(endpoint, def, utilityType, lines, anchorName) {
+  const free = availablePorts(endpoint, def, utilityType, lines)
+    .filter(name => {
+      const spec = getPortSpec(def, name);
+      return spec && spec.role === 'source';
+    });
+  const rest = free.filter(n => n !== anchorName);
+  return free.includes(anchorName) ? [anchorName, ...rest] : rest;
+}
+
 // --- corridor geometry -----------------------------------------------------
 
 function nearestOnSegment(p, a, b) {
@@ -122,13 +139,30 @@ export function planUtilityRun(state, {
   if (!srcEndpoint) return empty;
   const srcDef = COMPONENTS[srcEndpoint.type];
   const srcSpec = getPortSpec(srcDef, source.portName);
-  // Only a source port can fan out: a sink port is claimed by the first line
-  // and every later stub would reject with port_taken.
+  // The drag has to be anchored on a source port: a sink is claimed by the
+  // first line and every later stub would reject with port_taken.
   if (!srcSpec || srcSpec.utility !== utilityType || srcSpec.role !== 'source') return empty;
-  const srcVec = portApproachVec(srcEndpoint, srcDef, source.portName);
-  const srcPos = portWorldPosition(srcEndpoint, srcDef, source.portName);
-  if (!srcVec || !srcPos) return empty;
-  const srcTile = portTile(srcPos);
+
+  // How many stubs this gesture can start, and from where.
+  //
+  // A fanning utility (a manifold outlet feeding several branches) serves every
+  // stub from the one anchored port. A non-fanning one — power, HV, RF, fibre —
+  // takes one cable per socket, so the gesture walks the device's FREE OUTLETS
+  // in order and stops when they run out. That is the whole point of a
+  // distribution panel having four sockets instead of one: shift-dragging along
+  // a row of magnets wires as many as the panel can take, and says so.
+  const fanOut = (UTILITY_TYPES[utilityType] || {}).fansOut !== false;
+  const outletNames = fanOut
+    ? [source.portName]
+    : orderedFreeOutlets(srcEndpoint, srcDef, utilityType, state.utilityLines, source.portName);
+  const outlets = [];
+  for (const name of outletNames) {
+    const vec = portApproachVec(srcEndpoint, srcDef, name);
+    const pos = portWorldPosition(srcEndpoint, srcDef, name);
+    if (!vec || !pos) continue;
+    outlets.push({ portName: name, vec, tile: portTile(pos) });
+  }
+  if (outlets.length === 0) return empty;
 
   const lines = state.utilityLines;
   const candidates = [];
@@ -158,16 +192,37 @@ export function planUtilityRun(state, {
   const stubs = [];
   let totalSubL = 0;
   let skipped = 0;
+  let outletIdx = 0;
+  // Each stub is validated against the world INCLUDING the stubs already
+  // planned, not just the committed ones. With one shared source port that was
+  // unnecessary — the overlap check exempts lines that share a source — but a
+  // non-fanning utility gives every stub its own outlet, so two stubs from the
+  // same panel can collide with each other. Validating against a clean world
+  // made the planner promise four lines and the commit land three, which is
+  // exactly the plan/commit disagreement this module exists to prevent.
+  const planned = [];
+  const probeState = { ...state, utilityLines: planned };
+  const existingLines = state.utilityLines;
+  const iterExisting = existingLines && typeof existingLines.values === 'function'
+    ? Array.from(existingLines.values())
+    : (existingLines || []);
+  planned.push(...iterExisting);
+
   for (const c of candidates) {
-    const start = { placeableId: source.placeableId, portName: source.portName };
+    // Out of sockets: the rest of the swept sinks are reported as unreachable
+    // rather than silently dropped, so the tooltip's "N unreachable" is the
+    // player's cue that this panel is full.
+    if (outletIdx >= outlets.length) { skipped++; continue; }
+    const outlet = outlets[outletIdx];
+    const start = { placeableId: source.placeableId, portName: outlet.portName };
     const end = { placeableId: c.placeableId, portName: c.portName };
     let chosen = null;
     // Both bend orders are legal routes; take whichever the real validator
     // accepts, so an incompatible sink is skipped rather than failing the run.
     for (const vf of [preferVerticalFirst, !preferVerticalFirst]) {
-      const path = buildRunStubPath(srcTile, srcVec, c.tile, c.vec, vf);
+      const path = buildRunStubPath(outlet.tile, outlet.vec, c.tile, c.vec, vf);
       if (!path) continue;
-      if (validateDrawLine(state, { utilityType, start, end, path }).ok) {
+      if (validateDrawLine(probeState, { utilityType, start, end, path }).ok) {
         chosen = path;
         break;
       }
@@ -175,7 +230,11 @@ export function planUtilityRun(state, {
     if (!chosen) { skipped++; continue; }
     const subL = pathLengthSubUnits(chosen);
     stubs.push({ start, end, path: chosen, subL });
+    planned.push({ id: `__plan_${stubs.length}`, utilityType, start, end, path: chosen });
     totalSubL += subL;
+    // A fanning utility keeps serving every stub from the one port; a
+    // non-fanning one consumes a socket per committed stub.
+    if (!fanOut) outletIdx++;
   }
 
   return { stubs, totalSubL, skipped };
@@ -197,6 +256,19 @@ export function runPreviewPath(stubs) {
     if (i < stubs.length - 1) {
       const back = fwd.slice(0, -1).reverse();
       out.push(...back.map(p => ({ col: p.col, row: p.row })));
+      // Stubs no longer all start from the same port: a non-fanning utility
+      // gives each one its own outlet, so the hop from this stub's origin to
+      // the next one's is a real move across the device's faceplate. Walk it
+      // as a corner rather than a straight line — the renderer draws whatever
+      // it is handed, and a diagonal is geometry no stub has.
+      const from = out[out.length - 1];
+      const to = stubs[i + 1].path[0];
+      if (Math.abs(from.col - to.col) > 1e-9 && Math.abs(from.row - to.row) > 1e-9) {
+        out.push({ col: to.col, row: from.row });
+      }
+      // Land ON the next stub's origin: the next iteration appends from its
+      // second point, so without this the walk jumps straight to the lead-out.
+      out.push({ col: to.col, row: to.row });
     }
   });
   return out;

@@ -31,6 +31,9 @@ export default {
   // lcwSkid 100 → chiller 300 → coolingTower 800); litres only track the
   // reservoir level.
   capacityUnit: 'kW',
+  // Pipework: tees and manifolds, same as vacuum.
+  allowsTap: true,
+  fansOut: true,
   // Adjacency bridging: touching components share the loop — a skid manifolds
   // straight into the unit bolted next to it.
   bridgesAdjacent: true,

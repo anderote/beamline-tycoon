@@ -27,9 +27,15 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 // data income via Game._dataConnectivityFactor), so an unwired BPM costs
 // money rather than tripping the machine.
 const HARD_REQUIRED_UTILS = [
+  // hvCable is hard-required too: a distribution panel with no feeder behind
+  // it powers nothing, so an unwired hv_in is every bit as fatal as an unwired
+  // machine — and reporting it AT THE PANEL is the only way the player finds
+  // out why a whole bank of machines went dark.
+  'hvCable',
   'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
 ];
 const UNCONNECTED_CODES = {
+  hvCable:      'hv_unconnected',
   powerCable:   'power_unconnected',
   vacuumPipe:   'vacuum_unconnected',
   rfWaveguide:  'rf_unconnected',
@@ -56,6 +62,7 @@ const ALL_GATED_UTILS = [...HARD_REQUIRED_UTILS, 'dataFiber'];
 // connected?", the physics bridge) has to key off the same table the gate
 // wrote with, not a hand-copied one.
 export const UTILITY_TO_QUALITY_FIELD = {
+  hvCable:      'hvQuality',
   powerCable:   'powerQuality',
   rfWaveguide:  'rfQuality',
   coolingWater: 'coolingQuality',
@@ -157,7 +164,16 @@ export class UtilityGate {
     const state = this.state;
     if (!state || !this.solveRunner) return;
     try {
-      const result = this.solveRunner.runSolve({ tick: state.tick });
+      // The whole state, not a {tick} stub: descriptors reach the world through
+      // this argument (endpointsById reads worldState.placeables /
+      // .beamPipes). With only a tick on it, vacuumPipe.solve saw no endpoints
+      // at all — isBaked was permanently false and beam-pipe outgassing
+      // permanently zero, so bakeout was a purchasable upgrade that did nothing
+      // and every vacuum network pumped down more easily than the model says.
+      // The solver unit tests pass a real state, which is why it never showed.
+      // `state` already carries `tick`, so worldState.tick readers are
+      // unaffected.
+      const result = this.solveRunner.runSolve(state);
       const errs = Array.isArray(result && result.errors) ? result.errors : [];
       const hardErrs = errs.filter(e => e && e.severity === 'hard');
       const softErrs = errs.filter(e => e && e.severity === 'soft');

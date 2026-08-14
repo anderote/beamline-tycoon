@@ -140,6 +140,9 @@ export default {
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
   capacityUnit: 'W@4K',
+  // Jacketed, but still pipework — a distribution box tees it.
+  allowsTap: true,
+  fansOut: true,
   // No adjacency bridging: a vacuum-jacketed LHe line is not something you get
   // by pushing two cryostats together — every cryo sink is wired explicitly.
   bridgesAdjacent: false,
