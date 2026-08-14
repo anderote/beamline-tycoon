@@ -25,6 +25,13 @@ import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
 import { assignJobs, tickJobs } from './staff/jobRunner.js';
+// Task 5 (staff-professions-3, jobs-and-gates) completion effects. Imported
+// here for their side effect only — each module calls jobRunner.js's own
+// registerJobEffect at its top level — rather than added to jobRunner.js
+// itself, which the plan reserves for the dispatch hook, not every job
+// type's effect (see jobRunner.js's own "Completion effects" comment).
+import './staff/jobEffects/repair.js';
+import './staff/jobEffects/fabricate.js';
 import { PROFESSIONS } from '../data/professions.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
@@ -985,15 +992,24 @@ export class Game {
   }
 
   /**
-   * Charge a construction cost in funding. Every build-time funding debit goes
-   * through here rather than writing `resources.funding -=` directly, so
-   * sandbox mode has ONE place to suppress and cannot be leaked by a code path
-   * that decrements the balance itself. Recurring upkeep deliberately does NOT
-   * use this — see setSandboxMode.
+   * Charge a construction cost — funding, and (task 5, staff-professions-3)
+   * optionally spares — in one debit. Every build-time debit of either
+   * resource goes through here rather than writing `resources.funding -=` /
+   * `resources.spares -=` directly, so sandbox mode has ONE place to suppress
+   * and cannot be leaked by a code path that decrements a balance itself.
+   * Recurring upkeep deliberately does NOT use this — see setSandboxMode.
+   *
+   * Accepts either a bare number (funding only — every call site this method
+   * had before task 5, kept as-is rather than rewritten) or a cost object
+   * `{ funding, spares }`. A beamline junction's spares cost (see
+   * _placePlaceableInner) is the one caller that needs the object form today;
+   * a plain funding debit is free to keep passing a number.
    */
-  chargeConstruction(amount) {
+  chargeConstruction(cost) {
     if (this.sandboxMode) return;
-    this.state.resources.funding -= amount;
+    const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
+    if (c.funding) this.state.resources.funding -= c.funding;
+    if (c.spares) this.state.resources.spares -= c.spares;
   }
 
   /**
@@ -2297,7 +2313,20 @@ export class Game {
       // (defensive; shouldn't happen after A1).
     }
 
-    if (!free && !this.canAfford(placeable.cost)) {
+    // Beamline junctions are the only 'beamline'-kind placeable that reaches
+    // this point (a 'placement'-role component is turned away above, and
+    // must go through BeamlineSystem.placeOnPipe instead) — so this is the
+    // one place a junction's purchase is charged, and the natural place to
+    // add its spares cost: parts a machinist has to fabricate, drawn down at
+    // build time alongside the funding. See chargeConstruction's own doc
+    // comment for why this goes through it rather than a bare
+    // `resources.spares -=` here, which sandbox mode could not suppress.
+    const sparesCost = (kind === 'beamline')
+      ? Math.max(1, Math.ceil((placeable.cost?.funding || 0) / 5000))
+      : 0;
+    const cost = sparesCost > 0 ? { ...placeable.cost, spares: sparesCost } : placeable.cost;
+
+    if (!free && !this.canAfford(cost)) {
       this.log(`Can't afford ${placeable.name}!`, 'bad');
       return false;
     }
@@ -2377,7 +2406,10 @@ export class Game {
       : 'eq_';
     const id = prefix + this.state.placeableNextId++;
 
-    if (!free) this.spend(placeable.cost);
+    if (!free) {
+      if (kind === 'beamline') this.chargeConstruction(cost);
+      else this.spend(placeable.cost);
+    }
 
     const entry = {
       id,
@@ -4284,10 +4316,13 @@ export class Game {
     // Update aggregate state for objectives/economy/renderers
     this._updateAggregateBeamline();
 
-    // Technician auto-repair (across all beamlines)
-    if (this.state.staff.technician > 0 && this.state.tick % 5 === 0) {
-      this._autoRepair();
-    }
+    // Repair is now exclusively the completion effect of a technician's own
+    // 'repair' job (see src/game/staff/jobEffects/repair.js, wired via
+    // assignJobs/tickJobs above) — there is no separate facility-wide
+    // auto-heal pass here anymore. The old flat-rate version of this ran on
+    // a bare technician-count timer regardless of whether anyone was
+    // actually dispatched to the broken component, or whether there were
+    // any spares on hand to fix it with.
 
     // Research progress (delegates to research module)
     const researchCompleted = research.tickResearch(
@@ -4572,33 +4607,6 @@ export class Game {
       if (entry.beamState.componentHealth[node.id] < 20 && this.rng() < 0.05) {
         entry.beamState.componentHealth[node.id] = 0;
         this.log(`${t.name} FAILED! Repair needed.`, 'bad');
-      }
-    }
-  }
-
-  _autoRepair() {
-    // RimWorld-like: technicians assigned to maintenance, efficiency matters
-    let repairRate = 0;
-    for (const m of (this.state.staffMembers || []).filter(s => s.profession === 'technician' && s.status === 'working')) {
-      const tier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-      // ensure instance
-      if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
-      repairRate += 2 * m.efficiency(tier);
-    }
-    // fallback to legacy count if no individual pawns (old saves)
-    if (repairRate === 0) repairRate = (this.state.staff?.technician || 0) * 2;
-    let remaining = repairRate;
-    // Iterate all beamlines' elements
-    for (const entry of this.registry.getAll()) {
-      const elements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
-      for (const node of elements) {
-        if (remaining <= 0) return;
-        const health = entry.beamState.componentHealth[node.id];
-        if (health !== undefined && health < 100) {
-          const repair = Math.min(remaining, 100 - health);
-          entry.beamState.componentHealth[node.id] += repair;
-          remaining -= repair;
-        }
       }
     }
   }

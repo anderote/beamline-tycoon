@@ -272,6 +272,40 @@ function currentHolders(members) {
   };
 }
 
+// Task 5 (staff-professions-3, jobs-and-gates) fix for a real bug review
+// found live: the repair cap above counts HOW MANY technicians hold a
+// repair job, not WHICH damaged component each one is working. With 2
+// spares and 2 damaged components, nothing stopped two technicians from
+// both being routed to the SAME node — repairOffers (jobs.js) emits one
+// offer per damaged node, and that one offer object is reused, unmutated,
+// across every member's pickBestOffer call this pass, so a second member
+// processed after the first already took it saw the identical offer, still
+// eligible (eligibleFor has no notion of "someone already has this exact
+// target's job" — that check exists for STATION-addressed offers via
+// stationReservations, but repair/commission are target-addressed with no
+// reservation table at all — see stations.js's own header). The result:
+// both complete, double-consuming a spare and double-healing a component
+// that's already at 100%, while some OTHER damaged node never gets offered
+// to anyone.
+//
+// The fix mirrors currentHolders' own shape: a set of "already spoken for"
+// targets, seeded from every member's CURRENT job before this pass starts,
+// and grown in lockstep with holders as assignJobs hands out new ones (see
+// its own call site) — so a target claimed within THIS pass is excluded
+// from the very next member's offer just as reliably as one claimed on a
+// prior tick.
+function targetKey(target) {
+  return target ? `${target.beamlineId}::${target.nodeId}` : null;
+}
+
+function claimedRepairTargets(members) {
+  const set = new Set();
+  for (const m of members) {
+    if (m.job?.jobType === 'repair' && m.job.target) set.add(targetKey(m.job.target));
+  }
+  return set;
+}
+
 function capShortageReason(jobType, cap) {
   if (jobType === 'runBeam') {
     return cap > 0
@@ -406,7 +440,7 @@ function pickNearestInTier(member, tier, state) {
  * assignJobs) — this function only ever prefers `reason` over it, never the
  * reverse.
  */
-function pickBestOffer(member, offers, game, caps, holders) {
+function pickBestOffer(member, offers, game, caps, holders, claimedTargets) {
   const state = game.state;
   let bestReason = null;
   let fallbackReason = null;
@@ -426,6 +460,16 @@ function pickBestOffer(member, offers, game, caps, holders) {
       const cap = caps[offer.jobType];
       if (cap != null && holders[offer.jobType] >= cap) {
         if (bestReason == null) bestReason = capShortageReason(offer.jobType, cap);
+        continue;
+      }
+
+      // See claimedRepairTargets' own header for the bug this closes: a
+      // repair offer is one per damaged NODE, reused unmutated across every
+      // member's scan this pass, so without this a second technician could
+      // take the identical target a first technician (this pass or a prior
+      // one) already holds.
+      if (offer.jobType === 'repair' && offer.target && claimedTargets?.has(targetKey(offer.target))) {
+        if (bestReason == null) bestReason = 'Someone else is already repairing that component.';
         continue;
       }
 
@@ -648,6 +692,7 @@ export function assignJobs(game) {
   const { offers, suppressions } = buildJobOffers(game);
   const caps = capsFor(game);
   const holders = currentHolders(members);
+  const claimedTargets = claimedRepairTargets(members);
 
   for (const member of members) {
     if (member.job != null) continue;
@@ -656,7 +701,7 @@ export function assignJobs(game) {
       continue;
     }
 
-    const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders);
+    const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders, claimedTargets);
     if (offer) {
       // resolveDestNode should not come back null here — eligibleFor
       // already confirmed a reachable destination exists for this exact
@@ -667,6 +712,7 @@ export function assignJobs(game) {
       if (destNode) {
         assignOffer(member, game, offer, destNode);
         if (holders[offer.jobType] != null) holders[offer.jobType]++;
+        if (offer.jobType === 'repair' && offer.target) claimedTargets.add(targetKey(offer.target));
       } else {
         member.idleReason = member.idleReason || 'Could not find anywhere to stand for that job.';
       }
