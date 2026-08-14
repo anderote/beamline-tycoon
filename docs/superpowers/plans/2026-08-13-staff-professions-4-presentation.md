@@ -15,7 +15,7 @@ crowd look alive. Everything stays in the style config so the foundry can render
 it, and everything stays in the module-level geometry cache so a 25-person crowd
 still shares a handful of geometries.
 
-**Tech Stack:** Three.js (CDN global — never import it), vanilla ES modules,
+**Tech Stack:** Three.js (a runtime `THREE` global — never import it in renderer files), vanilla ES modules,
 Playwright for browser tests, `staff-foundry.html` as the iteration surface.
 
 **Spec:** `docs/superpowers/specs/2026-08-13-staff-professions-and-work-design.md`
@@ -33,7 +33,7 @@ Playwright for browser tests, `staff-foundry.html` as the iteration surface.
   include a file you did not write; if one appears in your commit, say so in
   your report.
 - **Don't start or kill a dev server.** The user keeps one running.
-- **Three.js is a CDN global.** Do not add an import to any renderer file.
+- **`THREE` is a runtime global in renderer files.** Do not add an import. (Master has since made `three` an npm dependency, but `src/three-global.js` promotes it to `globalThis.THREE`; these builder files deliberately still use the bare global, and node tests inject their own stub which that shim's `??=` preserves.)
 - **Geometry dabs, never textures.** A face, a badge, a hat band is a few tiny
   boxes. A texture smears at 30px where a dab holds its silhouette. This is the
   builder's existing documented convention — do not break it.
@@ -69,7 +69,7 @@ Playwright for browser tests, `staff-foundry.html` as the iteration surface.
 - Modify: `src/renderer3d/StaffPawns.js:157-192` — `_addPawn`'s look assembly
 - Modify: `staff-foundry.html` — a profession row
 - Test: extend `test/test-staff-builder.js` (headless — the substantive
-  assertions) and add `test/browser/staff-outfits.spec.js` (smoke only)
+  assertions) and add `test/browser/staff-outfits.spec.mjs` (smoke only)
 
 **Interfaces:**
 - Consumes: Plan 1's `PROFESSIONS`, `SPECIALTY_AXES`, and `ZONES[id].color`.
@@ -114,7 +114,7 @@ In `test/test-staff-builder.js`, headless:
 - The origin-at-feet and shadow-flag assertions that already exist still pass
   for every profession.
 
-Then `test/browser/staff-outfits.spec.js`, smoke only: the profession row
+Then `test/browser/staff-outfits.spec.mjs`, smoke only: the profession row
 renders six labelled figures with no console errors.
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -127,7 +127,7 @@ Expected: FAIL on the new assertions, PASS on the pre-existing ones.
 - [ ] **Step 4: Run the test, then do the squint check**
 
 Run: `node test/test-staff-builder.js`, then `npm test`, then
-`npx playwright test test/browser/staff-outfits.spec.js`
+`npx playwright test test/browser/staff-outfits.spec.mjs`
 Expected: PASS. Then open the foundry, shrink the figures to roughly in-game
 size, and confirm you can tell the six apart. If you cannot, the silhouettes are
 wrong and no amount of color fixes it.
@@ -135,7 +135,7 @@ wrong and no amount of color fixes it.
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(staff): profession outfits, headwear, and carried props" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-outfits.spec.js
+git commit -m "feat(staff): profession outfits, headwear, and carried props" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-outfits.spec.mjs
 ```
 
 ---
@@ -147,7 +147,7 @@ git commit -m "feat(staff): profession outfits, headwear, and carried props" -- 
 - Modify: `src/renderer3d/StaffPawns.js` — drive expression from `member.mood`
 - Modify: `staff-foundry.html` — a mood row
 - Test: extend `test/test-staff-builder.js` (headless — the substantive
-  assertions) and add `test/browser/staff-faces.spec.js` (smoke only)
+  assertions) and add `test/browser/staff-faces.spec.mjs` (smoke only)
 
 **Interfaces:**
 - Consumes: `member.mood` — `'content' | 'tired' | 'stressed' | 'inspired'`,
@@ -193,7 +193,7 @@ In `test/test-staff-builder.js`, headless:
 - `safetyGlasses` and `weldingVisor` add an eyewear part; `none` does not.
 - The pre-existing origin and shadow assertions still pass.
 
-Then `test/browser/staff-faces.spec.js`, smoke only: the mood row renders four
+Then `test/browser/staff-faces.spec.mjs`, smoke only: the mood row renders four
 labelled heads with no console errors.
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -206,7 +206,7 @@ Expected: FAIL on the new assertions, PASS on the pre-existing ones.
 - [ ] **Step 4: Run the test, then judge it by eye**
 
 Run: `node test/test-staff-builder.js`, then `npm test`, then
-`npx playwright test test/browser/staff-faces.spec.js`
+`npx playwright test test/browser/staff-faces.spec.mjs`
 Expected: PASS. Then look at the mood row at in-game scale. The four must be
 distinguishable, and none of them may be unsettling. If a face is creepy, the
 fix is less detail, not more.
@@ -214,7 +214,7 @@ fix is less detail, not more.
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(staff): brows, nose, eyewear, and mood-driven expression" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-faces.spec.js
+git commit -m "feat(staff): brows, nose, eyewear, and mood-driven expression" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-faces.spec.mjs
 ```
 
 ---
@@ -224,7 +224,7 @@ git commit -m "feat(staff): brows, nose, eyewear, and mood-driven expression" --
 **Files:**
 - Modify: `src/renderer3d/builders/staff-builder.js` — extend `POSES`
 - Modify: `src/renderer3d/StaffPawns.js:313` — `_animate`
-- Test: `test/browser/staff-poses.spec.js` — extend the spec from Plan 2 Task 5
+- Test: `test/browser/staff-poses.spec.mjs` — extend the spec from Plan 2 Task 5
 
 **Interfaces:**
 - Consumes: Plan 2's `POSES` and `applyPose`; Plan 3's `member.job.jobType`.
@@ -244,28 +244,28 @@ using the same additive structure the walk swing already uses over `stand`.
 
 - [ ] **Step 1: Write the failing test**
 
-Extend `test/browser/staff-poses.spec.js` to assert that a figure held in
+Extend `test/browser/staff-poses.spec.mjs` to assert that a figure held in
 `deskWork` for several frames shows a changing hand position, that a figure in
 `sit` does not drift its hip angle, and that two pawns with different seeds
 fidget at different times.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx playwright test test/browser/staff-poses.spec.js`
+Run: `npx playwright test test/browser/staff-poses.spec.mjs`
 Expected: FAIL on the new assertions.
 
 - [ ] **Step 3: Implement**
 
 - [ ] **Step 4: Run the test, then watch the game**
 
-Run: `npx playwright test test/browser/staff-poses.spec.js` then `npm test`
+Run: `npx playwright test test/browser/staff-poses.spec.mjs` then `npm test`
 Expected: PASS. In game, a control room with three seated operators should look
 occupied, not like a waxwork.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(staff): working pose overlays and idle fidgets" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js test/browser/staff-poses.spec.js
+git commit -m "feat(staff): working pose overlays and idle fidgets" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js test/browser/staff-poses.spec.mjs
 ```
 
 ---
@@ -277,7 +277,7 @@ git commit -m "feat(staff): working pose overlays and idle fidgets" -- src/rende
 - Modify: `src/renderer3d/StaffPawns.js:157-172` — seeded look assembly
 - Modify: `staff-foundry.html` — a crowd row
 - Test: extend `test/test-staff-builder.js` (headless — the substantive
-  assertions, including the cache guard) and add `test/browser/staff-crowd.spec.js`
+  assertions, including the cache guard) and add `test/browser/staff-crowd.spec.mjs`
   (smoke only)
 
 **Interfaces:**
@@ -311,7 +311,7 @@ inference:
 - `disposeStaffFigure` on all twenty-five disposes zero shared geometries.
 - Skins and hairs each have at least eight entries in `STAFF_PALETTES.rct2`.
 
-Then `test/browser/staff-crowd.spec.js`, smoke only: the crowd row renders with
+Then `test/browser/staff-crowd.spec.mjs`, smoke only: the crowd row renders with
 no console errors.
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -324,13 +324,13 @@ Expected: FAIL on the new assertions, PASS on the pre-existing ones.
 - [ ] **Step 4: Run the test, then check frame time**
 
 Run: `node test/test-staff-builder.js`, then `npm test`, then
-`npx playwright test test/browser/staff-crowd.spec.js`
+`npx playwright test test/browser/staff-crowd.spec.mjs`
 Expected: PASS. Confirm a 25-pawn facility has not lost frame rate.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(staff): crowd variety with shared geometry" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-crowd.spec.js
+git commit -m "feat(staff): crowd variety with shared geometry" -- src/renderer3d/builders/staff-builder.js src/renderer3d/StaffPawns.js staff-foundry.html test/test-staff-builder.js test/browser/staff-crowd.spec.mjs
 ```
 
 ---
@@ -342,7 +342,7 @@ The payoff loop: face work shows up where you can actually see it.
 **Files:**
 - Create: `src/ui/StaffPortrait.js`
 - Modify: `src/ui/StaffBioCard.js` — fill the placeholder slot from Plan 1 Task 6
-- Test: `test/browser/staff-portrait.spec.js` (create)
+- Test: `test/browser/staff-portrait.spec.mjs` (create)
 
 **Interfaces:**
 - Consumes: `buildStaffFigure`, `applyExpression`, the member's seeded look.
@@ -365,7 +365,7 @@ animation.
 
 - [ ] **Step 1: Write the failing test**
 
-`test/browser/staff-portrait.spec.js` asserts: opening the inspector for a
+`test/browser/staff-portrait.spec.mjs` asserts: opening the inspector for a
 staffer renders a non-blank portrait canvas; two staff with different ids produce
 visibly different portraits (compare pixel data); opening and closing twenty
 cards does not increase the WebGL context count; and changing a member's mood
@@ -373,21 +373,21 @@ changes their portrait.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx playwright test test/browser/staff-portrait.spec.js`
+Run: `npx playwright test test/browser/staff-portrait.spec.mjs`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
 - [ ] **Step 4: Run the test, then the whole suite**
 
-Run: `npx playwright test test/browser/staff-portrait.spec.js` then `npm test`
+Run: `npx playwright test test/browser/staff-portrait.spec.mjs` then `npm test`
 and `npm run test:browser`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(ui): live staff portraits on bio cards" -- src/ui/StaffPortrait.js src/ui/StaffBioCard.js test/browser/staff-portrait.spec.js
+git commit -m "feat(ui): live staff portraits on bio cards" -- src/ui/StaffPortrait.js src/ui/StaffBioCard.js test/browser/staff-portrait.spec.mjs
 ```
 
 ---
