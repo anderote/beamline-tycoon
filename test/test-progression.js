@@ -265,8 +265,17 @@ log('\n--- E: full playthrough (seed 909, 24 extra lines) ---');
     `data paces rather than walls (${(100 * b.data / T).toFixed(1)}% of ticks)`);
   assert(b.labTier === 0,
     `the lab ladder never blocks a run that builds labs (${b.labTier} ticks)`);
-  assert(rec.beamOnTicks > 0.8 * T,
-    `the beam is actually on for the run (${(100 * rec.beamOnTicks / T).toFixed(0)}%)`);
+  // Balance fix round 4: this used to read `rec.beamOnTicks > 0.8 * T`,
+  // which passed at 99% straight through a ~24,000-tick stall — beamOnTicks
+  // only asks "is ANY line running", and line 1 kept running the whole
+  // time while lines 2-4 sat built, staffed, and off (a one-line bug in
+  // balance-playthrough.mjs's own gate-check handling: it never pressed
+  // Start again after a new line's staffing race cleared). Asserting
+  // running lines against REGISTERED lines is the number that would have
+  // caught this on day one — a facility with 4 registered lines and only 1
+  // running reads as 25%, not 99%.
+  assert(rec.runningLineFraction > 0.8,
+    `running beamlines average >80% of registered ones across the run (${(100 * rec.runningLineFraction).toFixed(1)}%, ${rec.runningLineTicks}/${rec.registeredLineTicks} line-ticks)`);
 }
 
 log(`\n${passed} passed, ${failed} failed`);

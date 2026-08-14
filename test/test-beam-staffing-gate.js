@@ -514,5 +514,57 @@ console.log('\n=== 13. beamHours: flat over 300 ticks, staffed but beam never st
     `beamHours stays at 0 over 300 ticks of a staffed-but-never-started facility (got ${op.stats.beamHours})`);
 }
 
+// ==========================================================================
+// 14. Balance fix round 3/4: an operator carrying unservicedPenalty (jobRunner.
+// js's deadlock-guard flag) contributes capacity 1 FLAT, never the skill-
+// scaled 1 + floor(skill/4) + tierBonus a serviced operator of the same skill
+// would be worth — and never 0 either (the deadlock guard's own guarantee,
+// expressed one layer up through this gate). Nothing asserted this before
+// round 4: reverting `if (m.unservicedPenalty) return sum + 1;` in
+// operatorCoverage left this whole suite green.
+// ==========================================================================
+console.log('\n=== 14. Balance fix round 3/4: unservicedPenalty caps operator coverage at 1, never scaling with skill and never zeroing ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  addBeamline(state, 'bl2');
+  addBeamline(state, 'bl3');
+  // Max skill: 1 + floor(10/4) = 3, the exact number this test proves
+  // unservicedPenalty overrides.
+  const op = makeOperator({
+    skills: { operating: 10 },
+    unservicedPenalty: true,
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console_.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+
+  let cov = operatorCoverage(state);
+  assert(cov.capacity === 1, `unserviced max-skill operator contributes capacity 1, not 1+floor(10/4)=3 (got ${cov.capacity})`);
+  makeGate(state).run();
+  assert(!!beamUnstaffed(state), '3 beamlines against capacity 1 correctly blocks (proves the cap is really 1, not silently still 3)');
+
+  // The floor: capacity is 1, never 0, for the SAME operator against a
+  // single beamline — the deadlock guard's "never permanently unstaffed"
+  // guarantee surviving through this gate.
+  state.placeables = state.placeables.filter(p => p.category !== 'beamline');
+  addBeamline(state, 'bl1');
+  cov = operatorCoverage(state);
+  assert(cov.capacity === 1, `still capacity 1 against one beamline (got ${cov.capacity})`);
+  makeGate(state).run();
+  assert(!beamUnstaffed(state), 'one beamline against capacity 1 is covered — an unserviced operator can still run a beamline solo');
+
+  // And a SERVICED operator of the same skill is unaffected — this cap only
+  // ever engages for the flag, never as a side effect of anything else.
+  op.unservicedPenalty = false;
+  cov = operatorCoverage(state);
+  assert(cov.capacity === 3, `serviced, the same operator is worth the full 1+floor(10/4)=3 again (got ${cov.capacity})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

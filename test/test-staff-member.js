@@ -205,5 +205,43 @@ console.log('\n--- Test 9: staffHireCost ---');
   assert(unknown === 180 * 12, `unknown backstoryId falls back to salaryMult 1 (got ${unknown})`);
 }
 
+// ==========================================================================
+// Test 10: unservicedPenalty (balance fix round 3/4) — suppresses 'tired',
+// not 'stressed'. Nothing asserted this before round 4: reverting the
+// UNSERVICED_PENALTY_MULT line, or the tired-vs-stressed split, left
+// test-beam-staffing-gate.js/test-utility-gate.js/test-job-runner.js/
+// test-staff-economy.js all green.
+// ==========================================================================
+console.log("\n--- Test 10: unservicedPenalty suppresses 'tired' (same fact already taxed) but not 'stressed' (an independent one) ---");
+{
+  const skills = { operating: 5, technical: 5, research: 5, construction: 5, admin: 5 };
+  const baseline = new StaffMember({ id: 'base', profession: 'operator', traits: [], skills, rng: () => 0.5 });
+  const contentEfficiency = baseline.efficiency(0); // skill 5, tier 0, mood 'content' by default: 0.5
+
+  // 'tired' (fatigue > 0.85) + unservicedPenalty: the penalty suppresses the
+  // mood multiplier entirely (moodMult 1) and applies its own flat x0.6 —
+  // lands at exactly contentEfficiency x 0.6, not x0.85 x 0.6 (x0.51).
+  const tired = new StaffMember({ id: 'tired', profession: 'operator', traits: [], skills, rng: () => 0.5 });
+  tired.needs.fatigue = 1.0; tired.needs.morale = 0.6; tired.updateMood();
+  tired.unservicedPenalty = true;
+  assert(tired.mood === 'tired', `setup: mood is 'tired' (got ${tired.mood})`);
+  assert(Math.abs(tired.efficiency(0) - contentEfficiency * 0.6) < 1e-9,
+    `unserviced + tired lands at exactly x0.6 of content (got ${tired.efficiency(0)}, expected ${contentEfficiency * 0.6})`);
+  assert(Math.abs(tired.efficiency(0) - 0.3) < 1e-9, `= 0.300 for a skill-5/tier-0 operator (got ${tired.efficiency(0)})`);
+
+  // 'stressed' (morale < 0.15) + unservicedPenalty: stressed is an
+  // INDEPENDENT need (cafeteria zone tier + decay, nothing to do with
+  // whether an eat/rest job landed this pass) and still applies on top —
+  // x0.75 (stressed) x x0.6 (unserviced) = x0.45, not x0.6.
+  const stressed = new StaffMember({ id: 'stressed', profession: 'operator', traits: [], skills, rng: () => 0.5 });
+  stressed.needs.fatigue = 1.0; stressed.needs.morale = 0.05; stressed.updateMood();
+  stressed.unservicedPenalty = true;
+  assert(stressed.mood === 'stressed', `setup: mood is 'stressed', not 'tired' — morale check wins (got ${stressed.mood})`);
+  assert(Math.abs(stressed.efficiency(0) - contentEfficiency * 0.45) < 1e-9,
+    `unserviced + stressed lands at x0.45 of content, NOT the same x0.6 tired gets (got ${stressed.efficiency(0)}, expected ${contentEfficiency * 0.45})`);
+  assert(stressed.efficiency(0) < tired.efficiency(0),
+    `a chronically neglected, demoralised (stressed) staffer is worse off than a merely-hungry (tired) one, not equal (got ${stressed.efficiency(0)} vs ${tired.efficiency(0)})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

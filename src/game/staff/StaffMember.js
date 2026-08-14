@@ -139,26 +139,31 @@ export class StaffMember {
     const primary = this.primarySkill || 'operating';
     const skill = this.skills[primary] ?? 3;
     let moodMult = 1;
-    // Balance fix round 3: mood's own need-driven buckets are skipped while
-    // unservicedPenalty is active, rather than stacking with it. Pegged
-    // fatigue (jobRunner.js's NO_STATION_RECOVERY_RATE, round 2) makes
-    // updateMood() return 'tired' (x0.85) for as long as the guard is
-    // engaged, and chronic morale decay can independently land 'stressed'
-    // (x0.75) too — either one compounding with UNSERVICED_PENALTY_MULT
-    // (0.6) produces an effective multiplier (0.51, or worse) nobody chose:
-    // both penalties are reactions to the SAME underlying "this need isn't
-    // being met" fact, so taxing it twice through two unrelated mechanisms
-    // double-counts one problem. 'inspired' can never legitimately combine
-    // with an active penalty either way — it requires fatigue < 0.3, which
-    // contradicts a fatigue-pegged unserviced state — so skipping the mood
-    // bucket here never accidentally suppresses a bonus that would otherwise
-    // have applied on its own merits.
-    if (this.unservicedPenalty) {
-      // moodMult stays 1 — the flat penalty below is the only need-driven
-      // tax applied.
-    } else if (this.mood === 'stressed') moodMult = 0.75;
-    else if (this.mood === 'tired') moodMult = 0.85;
-    else if (this.mood === 'inspired') moodMult = 1.15;
+    // Balance fix round 3/4: ONLY the 'tired' mood bucket is skipped while
+    // unservicedPenalty is active — 'stressed' still applies on top of it.
+    // Round 3 originally skipped mood entirely, on the theory that both
+    // buckets were reacting to "this need isn't being met" and taxing that
+    // once through two unrelated mechanisms double-counted one problem.
+    // That reasoning holds for 'tired' (fires on fatigue > 0.85 — pegged by
+    // jobRunner.js's NO_STATION_RECOVERY_RATE for as long as the guard is
+    // engaged, the EXACT fact UNSERVICED_PENALTY_MULT already taxes) but
+    // NOT for 'stressed' (fires on morale < 0.15 — an INDEPENDENT need with
+    // an independent driver: cafeteria ZONE tier and plain decay, nothing
+    // to do with whether an eat/rest job landed this pass). Skipping both
+    // made the worst case (a chronically neglected, demoralised staffer)
+    // 33% MILDER than a merely-hungry one at the exact same flat 0.6 either
+    // way — directionally against the whole point of this penalty. Letting
+    // 'stressed' still apply restores 0.45 (0.75 x 0.6) as that staffer's
+    // floor while keeping 0.6 for one who is simply unfed. 'inspired' can
+    // never legitimately combine with an active penalty (it requires
+    // fatigue < 0.3, which contradicts a fatigue-pegged unserviced state),
+    // so there's no analogous case to worry about there.
+    if (this.mood === 'stressed') moodMult = 0.75;
+    else if (this.mood === 'tired') {
+      if (!this.unservicedPenalty) moodMult = 0.85;
+      // else: suppressed — the flat UNSERVICED_PENALTY_MULT below is the
+      // only tax for this specific fact.
+    } else if (this.mood === 'inspired') moodMult = 1.15;
     // careful trait slows a bit — a personal work-style trait, independent
     // of needs, so it still applies even while unservicedPenalty is active.
     if (this.traits.includes('careful')) moodMult *= 0.9;
