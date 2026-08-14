@@ -123,7 +123,7 @@ console.log('\n=== Grep guards ===\n');
 {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const srcRoot = path.join(here, '..', 'src');
-  const staffRoleRead = /(\bm|\bs|\bc|member|cand)\.role\b/;
+  const staffRoleRead = /(\bm|\bs|\bc|member|cand|staff)\.role\b/;
   const staffRoleEquals = /\.role\s*===\s*'(operator|technician|scientist|engineer)'/;
   const pluralKey = /\b(operators|technicians|scientists|engineers)\s*:/;
 
