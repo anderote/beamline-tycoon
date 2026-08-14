@@ -217,6 +217,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(outlets('ups') < outlets('powerPanel') && outlets('powerPanel') < outlets('mcc'),
     `outlet counts rise with the device (ups ${outlets('ups')}, `
     + `panel ${outlets('powerPanel')}, mcc ${outlets('mcc')})`);
+  const panelOutputs = Object.entries(panel)
+    .filter(([name]) => name.startsWith('pwr_out'))
+    .map(([, spec]) => spec);
+  assert(panelOutputs.length === 4
+      && panelOutputs.every(spec => spec.side === 'right')
+      && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4,
+    'power panel mounts four distinct branch sockets on its +X front face');
   assert(outlets('hvTransformer') === 0,
     'a supply hands out no branch circuits — everything goes through distribution');
 

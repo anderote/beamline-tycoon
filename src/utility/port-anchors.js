@@ -245,12 +245,14 @@ export function portAnchor3D(placeable, def, portName) {
   if (!placeable || !portName) return null;
   const local = portLocalAxis(def, portName);
   if (!local) return null;
-  // Pipe attachments store interpolated pipe coordinates in col/row and mark
-  // both subtile fields null. ComponentBuilder.componentPose renders their
-  // model around the containing tile's centre regardless of footprint size;
-  // using the normal top-left-footprint centre here displaced long modules by
-  // several metres (a 16-subtile cryomodule was the clearest example).
-  const onPipe = placeable.subCol == null && placeable.subRow == null;
+  // Renderer snapshot records mark pipe attachments with null subtile fields,
+  // while utility-endpoint records carry `isPlacement` and synthetic negative
+  // subtile fields for the simulation geometry. Both describe the same thing:
+  // col/row is the attachment's sampled pipe position and the rendered model
+  // is centred at the containing tile centre. Recognise both record shapes so
+  // presentation anchors do not lose the renderer's +1 m centre offset.
+  const onPipe = placeable.isPlacement === true
+    || (placeable.subCol == null && placeable.subRow == null);
   const centre = onPipe
     ? { x: (placeable.col || 0) * 2 + 1, z: (placeable.row || 0) * 2 + 1 }
     : placeableCenterWorld(placeable, def);

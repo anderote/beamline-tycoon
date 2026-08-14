@@ -678,7 +678,7 @@ function supplyPorts(capacity, count) {
  * transparent to the facility's power budget — the SUPPLY still has to cover
  * every panel it feeds, because each panel's hv_in demands its full rating.
  */
-function distributionPorts(rating, count) {
+function distributionPorts(rating, count, { outletSide = null } = {}) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
@@ -688,8 +688,13 @@ function distributionPorts(rating, count) {
   for (let i = 0; i < count; i++) {
     out[`pwr_out_${i + 1}`] = {
       utility: 'powerCable',
-      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
-      offsetAlong: 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
+      side: outletSide || OUTLET_SIDES[i % OUTLET_SIDES.length],
+      // A face-mounted panel presents its sockets as one evenly spaced row.
+      // Other distribution equipment keeps spreading outlets around its
+      // footprint, including the second row used by 8-way cabinets.
+      offsetAlong: outletSide
+        ? (i + 1) / (count + 1)
+        : 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
       role: 'source',
       // rating/N per outlet: discovery unites a device's outlets into one
       // busbar, so these add back up to exactly the panel's rating no matter
@@ -733,7 +738,9 @@ const INFRA_UTILITY_PORTS = {
   hvTransformer:       supplyPorts(1200, 4),
   switchgear:          supplyPorts(400, 2),
   padMountTransformer: supplyPorts(150, 1),
-  powerPanel:          distributionPorts(40, 4),
+  // Its artwork is on local +X (`faces['+X']`), so all four green branch
+  // sockets belong on that same visible front face.
+  powerPanel:          distributionPorts(40, 4, { outletSide: 'right' }),
   mcc:                 distributionPorts(250, 8),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.

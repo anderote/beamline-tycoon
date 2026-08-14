@@ -276,6 +276,22 @@ console.log('\n--- 4b. Pipe attachments share the rendered model centre ---');
   assert(near(turned.x, modelCentre.x - ALONG.cryo_in)
       && near(turned.z, modelCentre.z + SHELL),
     `rotated pipe anchor stays centred on the rendered component (got ${fmtA(turned)})`);
+
+  // utility-endpoints uses a second record shape for the same attachment: it
+  // marks isPlacement and supplies synthetic negative subtile offsets so the
+  // 2D simulation position remains centred. Visual anchors must still use the
+  // renderer's model centre, not interpret those offsets as a placed module's
+  // top-left footprint origin (which shifts every marker 1 m left/up).
+  const endpoint = {
+    ...p,
+    subCol: -CM_DEF.subW / 2,
+    subRow: -CM_DEF.subL / 2,
+    isPlacement: true,
+  };
+  const endpointAnchor = portAnchor3D(endpoint, CM_DEF, 'cryo_in');
+  assert(near(endpointAnchor.x, modelCentre.x + SHELL)
+      && near(endpointAnchor.z, modelCentre.z + ALONG.cryo_in),
+    `utility endpoint record shares rendered centre (got ${fmtA(endpointAnchor)})`);
 }
 
 console.log('\n--- 5. With a renderer, the anchor lands on the measured shell ---');
