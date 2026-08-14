@@ -36,17 +36,20 @@ export const ARTICLE_COMPONENTS = {
     'piraniGauge', 'coldCathodeGauge', 'baGauge',
   ],
   'infra-rf-power': [
-    'magnetron', 'solidStateAmp', 'twt', 'pulsedKlystron', 'cwKlystron', 'iot',
+    'magnetron', 'solidStateAmp', 'slac5045Klystron', 'twt',
+    'pulsedKlystron', 'cwKlystron', 'iot',
     'multibeamKlystron', 'highPowerSSA', 'gyrotron',
     'waveguideManifold', 'circulator', 'modulator', 'rfCoupler', 'llrfController',
   ],
   'infra-cooling': [
     'fanCoilCooler', 'packageChiller',
-    'lcwSkid', 'chiller', 'coolingTower', 'coolingManifold', 'deionizer',
+    'lcwSkid', 'dualCircuitChiller', 'chiller', 'dryCoolerBank',
+    'coolingTower', 'coolingManifold', 'deionizer',
     'emergencyCooling', 'waterLoad',
   ],
   'infra-cryogenics': [
     'coldBox2K', 'coldBox4K', 'cryoValveBox', 'heCompressor', 'heRecovery',
+    'heRecoveryHeader', 'heGasBag', 'hePurifier', 'heLiquefier',
     'ln2Dewar', 'ln2Precooler', 'cryocooler', 'cryomoduleHousing', 'cryomodule',
   ],
   'infra-controls': [

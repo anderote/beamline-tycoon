@@ -16,6 +16,7 @@ Different source types serve different purposes. **Duty factor** is now a first-
 | Magnetron | S | 5 kW | 0.01 | 500 kW | $50k |
 | TWT | VHF, UHF, L, S, C, X | 20 kW | 0.05 | 400 kW | $400k |
 | SSA | VHF, UHF | 35 kW | 1.0 (CW) | 35 kW | $150k |
+| SLAC 5045 Klystron | S | 25 kW | 0.001 | **25 MW** | $250k |
 | Pulsed Klystron | S, C | 50 kW | 0.001 | **50 MW** | $1.5M |
 | CW Klystron | UHF, L | 50 kW | 1.0 (CW) | 50 kW | $3M |
 | IOT | UHF, L | 80 kW | 1.0 (CW) | 80 kW | $2M |
@@ -33,6 +34,8 @@ A network mixing pulsed and CW sources gets a capacity-weighted mean duty factor
 The bands themselves: **VHF** 50–500 MHz, **UHF** 500–1000, **L** 1000–2000, **S** 2000–4000, **C** 4000–8000, **X** 8000–16000. They are contiguous, so every cavity frequency lands in exactly one.
 
 The TWT is the only source covering all six, and at 20 kW it is deliberately the weakest thing on the ladder. It exists to unblock a frequency you have no real source for, never to power a machine.
+
+The SLAC 5045 is the cheap way into megawatt peak power. At $10,000/kW it costs what a magnetron costs and a third of what the Pulsed Klystron costs, but it buys one band instead of two and packs less power into the floor it occupies — 4.2 kW per tile against the Pulsed Klystron's 6.25. It is the right first klystron for an S-band machine and never the last one.
 
 ### Band Matching
 

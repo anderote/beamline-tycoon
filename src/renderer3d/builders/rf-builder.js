@@ -134,6 +134,111 @@ export function _buildMultibeamKlystronRoles() {
   return b;
 }
 
+// The SLAC 5045 gets its own builder rather than another _buildKlystronBase
+// call: what makes it read as the cheap production tube is the oil tank it
+// stands in and the banded solenoid stack above it, neither of which the
+// shared helper models. Envelope is 2x3 sub-tiles by 4 tall — 1.0 x 1.5 x 2.0 m
+// — and every part below stays inside it.
+export function _buildSLAC5045KlystronRoles() {
+  const b = makeBuckets();
+
+  // Oil tank — the gun end lives down here, immersed for HV standoff.
+  const tankW = 0.86, tankD = 1.20, tankH = 0.30;
+  {
+    const g = new THREE.BoxGeometry(tankW, tankH, tankD);
+    applyTiledBoxUVs(g, tankW, tankH, tankD);
+    pushT(b.stand, g, trans(0, tankH / 2, 0));
+  }
+  // Tank lid, slightly proud of the tank sides.
+  const lidH = 0.05, lidTop = tankH + lidH;
+  {
+    const g = new THREE.BoxGeometry(tankW + 0.04, lidH, tankD + 0.04);
+    applyTiledBoxUVs(g, tankW + 0.04, lidH, tankD + 0.04);
+    pushT(b.iron, g, trans(0, tankH + lidH / 2, 0));
+  }
+  // HV bushing rising out of the tank behind the tube.
+  {
+    const bushR = 0.07, bushH = 0.20;
+    const g = new THREE.CylinderGeometry(bushR, bushR * 1.3, bushH, SEGS);
+    applyTiledCylinderUVs(g, bushR, bushH, SEGS);
+    pushT(b.pipe, g, trans(0, lidTop + bushH / 2, -0.42));
+  }
+
+  // Focusing solenoid — the body of the tube.
+  const solR = 0.28, solH = 0.98;
+  const solBase = lidTop;
+  {
+    const g = new THREE.CylinderGeometry(solR, solR, solH, SEGS);
+    applyTiledCylinderUVs(g, solR, solH, SEGS);
+    pushT(b.iron, g, trans(0, solBase + solH / 2, 0));
+  }
+  // Solenoid end plates.
+  for (const yOff of [0, solH]) {
+    const capR = 0.31, capH = 0.04;
+    const g = new THREE.CylinderGeometry(capR, capR, capH, SEGS);
+    applyTiledCylinderUVs(g, capR, capH, SEGS);
+    pushT(b.iron, g, trans(0, solBase + yOff + (yOff === 0 ? capH / 2 : -capH / 2), 0));
+  }
+  // Coil bands. rotX puts the ring in the horizontal plane so it wraps the
+  // solenoid rather than standing edge-on through it.
+  for (let i = 0; i < 5; i++) {
+    const frac = 0.12 + i * 0.19;
+    const g = new THREE.TorusGeometry(solR + 0.015, 0.022, 8, SEGS);
+    g.applyMatrix4(rotX(Math.PI / 2));
+    pushT(b.copper, g, trans(0, solBase + solH * frac, 0));
+  }
+
+  // Drift tube neck above the solenoid.
+  const neckR = 0.085, neckH = 0.16;
+  const neckBase = solBase + solH;
+  {
+    const g = new THREE.CylinderGeometry(neckR, neckR, neckH, SEGS);
+    applyTiledCylinderUVs(g, neckR, neckH, SEGS);
+    pushT(b.copper, g, trans(0, neckBase + neckH / 2, 0));
+  }
+
+  // Output waveguide, off the output cavity just below the collector.
+  const wgY = neckBase + neckH * 0.5;
+  {
+    const runW = 0.34, wgH = 0.075, wgD = 0.10;
+    const g = new THREE.BoxGeometry(runW, wgH, wgD);
+    applyTiledBoxUVs(g, runW, wgH, wgD);
+    pushT(b.copper, g, trans(neckR + runW / 2 - 0.02, wgY, 0));
+  }
+  // Waveguide flange at the far end of the run.
+  {
+    const flW = 0.04, flH = 0.14, flD = 0.17;
+    const g = new THREE.BoxGeometry(flW, flH, flD);
+    applyTiledBoxUVs(g, flW, flH, flD);
+    pushT(b.detail, g, trans(neckR + 0.32 + flW / 2 - 0.02, wgY, 0));
+  }
+
+  // Collector.
+  const collR = 0.16, collH = 0.26;
+  const collBase = neckBase + neckH;
+  {
+    const g = new THREE.CylinderGeometry(collR, collR, collH, SEGS);
+    applyTiledCylinderUVs(g, collR, collH, SEGS);
+    pushT(b.accent, g, trans(0, collBase + collH / 2, 0));
+  }
+  // Collector cooling discs.
+  for (let i = 0; i < 3; i++) {
+    const finR = 0.19;
+    const g = new THREE.CylinderGeometry(finR, finR, 0.012, SEGS);
+    applyTiledCylinderUVs(g, finR, 0.012, SEGS);
+    pushT(b.detail, g, trans(0, collBase + 0.06 + i * 0.07, 0));
+  }
+  // Ion pump stub on top.
+  {
+    const stubR = 0.05, stubH = 0.10;
+    const g = new THREE.CylinderGeometry(stubR, stubR, stubH, SEGS);
+    applyTiledCylinderUVs(g, stubR, stubH, SEGS);
+    pushT(b.pipe, g, trans(0, collBase + collH + stubH / 2, 0));
+  }
+
+  return b;
+}
+
 // ── Magnetron ──────────────────────────────────────────────────────
 
 export function _buildMagnetronRoles() {

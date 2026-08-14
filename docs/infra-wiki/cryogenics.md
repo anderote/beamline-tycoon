@@ -19,8 +19,32 @@ A complete cryogenic system has these components, roughly in order of the coolin
 4. **4K Cold Box** — refrigerator that cools helium to 4.5K. 500 W capacity ($8M) — the entry-level plant.
 5. **2K Cold Box** — sub-atmospheric pumping to reach 2.0K (superfluid helium). 800 W capacity ($15M) — and, crucially, **its presence is what sets the network's design temperature to 2.0 K**.
 6. **Cryomodule Housing** — insulated vacuum vessel surrounding SRF cavities. Provides thermal shielding between the cold interior and room temperature.
-7. **Helium Recovery** — captures boil-off helium gas for recycling. Reduces long-term costs.
+7. **Helium Recovery** — captures boil-off helium gas for recycling. One rung of the recovery chain below.
 8. **Cryocooler** — small closed-cycle refrigerator. Declares no cryo source port, so it contributes **zero** capacity to a cryo network.
+
+### Helium Recovery
+
+Boil-off is physics: a watt of heat into the bath evaporates a fixed volume of liquid, and nothing you buy changes that. What a recovery plant changes is where the gas goes. Vented, it is gone for good. Caught, cleaned and re-liquefied, it goes back in the reservoir and you only buy the difference.
+
+So recovery is a **fraction of net inventory loss**, not a change to the boil-off rate. The thermal model above is untouched — load, capacity, bath temperature and the quench mechanic all see exactly the same numbers.
+
+| Component | Cost | Recovery | Cost per point |
+|-----------|------|:--------:|---------------|
+| He Recovery Header | $350k | +0.25 | $1.4M |
+| He Gas Bag | $450k | +0.15 | $3.0M |
+| He Purifier | $1.2M | +0.20 | $6.0M |
+| Helium Recovery/Storage | $4M | +0.20 | $20M |
+| He Liquefier | $3.5M | +0.30 | $11.7M |
+
+Three rules govern the total:
+
+- **It is facility-wide.** A recovery plant serves the whole building. None of this hardware attaches to a cryo network, and every network's boil-off runs through the same plant.
+- **Each type contributes once.** Five gas bags are five bags on one plant, not five plants. The reward is for completing the chain, not for stamping out the cheapest rung.
+- **The total caps at 0.90.** No recovery plant is closed — cool-down transients, relief lifts, purge losses and the purifier's own vent all leave through the roof. A real facility recovering 90% of its helium is doing very well.
+
+The cheapest route to the cap is Header + Gas Bag + Purifier + Liquefier: 0.90 exactly, for $5.5M. The original $4M Helium Recovery/Storage block is the worst value on the ladder at $20M per point, and because the four-part chain already reaches the cap without it, it buys nothing at all once that chain is complete.
+
+The panel reports the fraction, not a yes/no.
 
 ### Temperature Is the Thing That Matters
 
@@ -120,6 +144,12 @@ C_network = sum(coldCapacityW for each cold box in network)
 Cryocoolers declare no cryo source port and add nothing.
 
 **LHe reservoir:** boil-off is `0.0005 L per W of total heat load per tick` from a 500 L reservoir; below 20 L the network **quenches**. Refills cost $50/L, so a full 480 L top-up is about $24,000. A 250 W cryomodule boils about 0.125 L/tick — roughly one refill every 3,800 ticks. Rare but painful, as LHe should be.
+
+**Recovery:**
+```
+net_loss = boiloff x (1 - f)      f = min(0.90, sum of installed TYPES)
+```
+The reservoir drains by `net_loss`, not by `boiloff`, so a full chain at f = 0.90 stretches that same cryomodule's refill interval from ~3,800 ticks to ~38,000 and cuts the helium bill by a factor of ten.
 
 **Wall power (Carnot penalty):**
 ```

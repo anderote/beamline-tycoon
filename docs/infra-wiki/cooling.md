@@ -9,19 +9,25 @@ About 60% of the electrical power consumed by beamline and facility equipment en
 
 ### Cooling Plant
 
-Five types of equipment provide cooling capacity:
+Seven types of equipment provide cooling capacity:
 
 | Equipment | Capacity | Cost | $/kW | Role |
 |-----------|----------|------|------|------|
 | Fan-Coil Cooler | 20 kW | $140k | $7,000 | Air-blast coil — one or two magnets, no refrigeration at all |
 | Package Chiller | 50 kW | $325k | $6,500 | Single-circuit skid — enough for a short beamline |
 | LCW Skid | 100 kW | $600k | $6,000 | Local distribution of low-conductivity water |
+| Dual-Circuit Chiller | 175 kW | $900k | $5,143 | Two circuits, two setpoints — survives a compressor trip |
 | Chiller | 300 kW | $1.2M | $4,000 | Precision temperature control (+/- 0.1 C) |
+| Dry Cooler Bank | 500 kW | $1.55M | $3,100 | Air-blast bank — bulk rejection with no water to treat |
 | Cooling Tower | 800 kW | $2M | $2,500 | Industrial bulk heat rejection |
 
 Cost per kilowatt falls monotonically up that ladder, and it is the number to plan against. The fan-coil and the package chiller are cheap to *buy*, not cheap to run: they exist so a first magnet is not gated behind $600k of plant. Once the machine is real, every kilowatt is cheaper from the bigger unit, so the entry-tier gear is something you outgrow rather than something you scale.
 
-In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, chiller provides stable-temperature water, LCW skid distributes deionized water to individual components. A fan-coil unit skips the whole hierarchy and rejects straight to room air, which is why its supply temperature can never get below ambient. In gameplay, each provides capacity and they all connect through cooling water networks.
+Capacity per tile and wall power per kilowatt improve up the same ladder, so the bigger unit wins on floor space and electricity too — there is never a reason to stack small plant beyond what you can currently afford.
+
+The 175 kW and 500 kW rungs exist so growing does not mean overbuying. Without them the ladder stepped 100 → 300 → 800 kW, and a machine that had just outgrown one LCW skid had to buy triple the capacity it needed or plumb a second skid alongside the first.
+
+In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, chiller provides stable-temperature water, LCW skid distributes deionized water to individual components. A fan-coil unit skips the whole hierarchy and rejects straight to room air, which is why its supply temperature can never get below ambient. A dry cooler bank does the same thing at plant scale — no basin, no make-up water, no water treatment — at the price of capacity that sags with the outdoor air temperature, which is exactly why the evaporative tower still sits above it. In gameplay, each provides capacity and they all connect through cooling water networks.
 
 ### Cooling Networks
 

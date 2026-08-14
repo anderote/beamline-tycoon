@@ -84,6 +84,7 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Magnetron | 7 | 5 kW RF, S-band, 1% duty | | |
 | TWT | 55 | 20 kW RF, all six bands, 5% duty | | |
 | SSA | 70 | 35 kW RF, VHF/UHF, CW | | |
+| SLAC 5045 Klystron | 50 | 25 kW RF, S-band, 0.1% duty | | |
 | Pulsed Klystron | 110 | 50 kW RF, S/C-band, 0.1% duty | | |
 | CW Klystron | 90 | 50 kW RF, UHF/L-band, CW | | |
 | IOT | 115 | 80 kW RF, UHF/L-band, CW | | |
@@ -117,7 +118,9 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Fan-Coil Cooler | 1 | 20 kW | |
 | Package Chiller | 2 | 50 kW | |
 | LCW Skid | 3 | 100 kW | |
+| Dual-Circuit Chiller | 4 | 175 kW | |
 | Chiller | 5 | 300 kW | |
+| Dry Cooler Bank | 5 | 500 kW | |
 | Cooling Tower | 4 | 800 kW | |
 | Cooling Manifold | | Cooling bus, 8-cell reach | |
 | Deionizer | 1 | *inert* | |
@@ -135,7 +138,13 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | LN2 Dewar | | *inert* | |
 | LN2 Pre-cooler | | *inert* | |
 | Cryomodule Housing | | *inert* | |
-| He Recovery | 3 | *inert* | |
+| He Recovery | 3 | +0.20 recovery fraction | |
+| He Recovery Header | | +0.25 recovery fraction | |
+| He Gas Bag | | +0.15 recovery fraction | |
+| He Purifier | 3 | +0.20 recovery fraction | |
+| He Liquefier | 12 | +0.30 recovery fraction | |
+
+Recovery is facility-wide, counts each type once, and caps at 0.90. It multiplies net LHe loss, not boil-off.
 
 ### Power
 | Equipment | Provides |

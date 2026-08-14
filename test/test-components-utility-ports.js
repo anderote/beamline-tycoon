@@ -153,7 +153,7 @@ console.log('\n--- Every RF source declares bands; every band is covered ---');
       covered.add(b);
     }
   }
-  assert(sources === 9, `9 RF sources (got ${sources})`);
+  assert(sources === 10, `10 RF sources (got ${sources})`);
   for (const b of bandIds) assert(covered.has(b), `band ${b} has at least one source`);
 }
 

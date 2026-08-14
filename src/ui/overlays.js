@@ -2556,6 +2556,49 @@ UIHost.prototype._schematicDrawers = {
     }
   },
 
+  // === SLAC 5045 KLYSTRON ===
+  // Drawn upright. The 5045 stands on end in its oil tank, and the vertical
+  // silhouette — banded solenoid, collector on top, waveguide off the neck —
+  // is what separates it at a glance from the two horizontal klystrons above.
+  slac5045Klystron(p, px, dot, W, H, cy, C) {
+    const ax = 35;           // tube axis
+    const tankTop = H - 8;   // y of the oil-tank lid
+    const bodyTop = 8;
+
+    // Oil tank and its lid
+    px(ax - 15, tankTop + 2, 30, 5, C.metalDk);
+    px(ax - 14, tankTop + 3, 28, 3, '#1a1a2a');
+    px(ax - 17, tankTop, 34, 2, C.metal);
+    // HV feed running into the tank
+    for (let x = 4; x < ax - 17; x += 2) dot(x, tankTop + 4, C.hotBright);
+
+    // Solenoid body
+    px(ax - 8, bodyTop, 16, tankTop - bodyTop, C.wallDk);
+    px(ax - 8, bodyTop, 1, tankTop - bodyTop, C.wallHi);
+    px(ax + 7, bodyTop, 1, tankTop - bodyTop, C.wallHi);
+    // End plates
+    px(ax - 10, bodyTop - 1, 20, 1, C.wall);
+    px(ax - 10, tankTop - 1, 20, 1, C.wall);
+    // Focusing coil bands
+    for (let i = 0; i < 4; i++) {
+      const y = bodyTop + 2 + i * 3;
+      px(ax - 9, y, 18, 2, C.coil);
+      px(ax - 9, y + 2, 18, 1, C.coilDk);
+    }
+    // Electron beam down the axis
+    for (let y = bodyTop; y < tankTop; y++) dot(ax, y, C.pipeRF);
+
+    // Drift-tube neck and collector
+    px(ax - 2, bodyTop - 4, 5, 3, C.metal);
+    px(ax - 4, bodyTop - 8, 9, 4, C.hot);
+    px(ax - 4, bodyTop - 8, 9, 1, C.hotBright);
+
+    // Output waveguide off the neck, flange, then RF out to the right edge
+    px(ax + 3, bodyTop - 4, 12, 3, C.hotBright);
+    px(ax + 15, bodyTop - 5, 2, 5, C.metal);
+    for (let x = ax + 18; x < W - 2; x += 2) dot(x, bodyTop - 3, C.pipeRF);
+  },
+
   // === MODULATOR ===
   modulator(p, px, dot, W, H, cy, C) {
     const my = cy - 3;
@@ -2836,6 +2879,156 @@ UIHost.prototype._schematicDrawers = {
     dot(35, my - 1, C.scMagDk);
   },
 
+  // === HE RECOVERY HEADER ===
+  // A run of vacuum-jacketed line on stands with relief branches teeing off
+  // it. Deliberately plain — it is the plumbing the rest of the chain hangs
+  // off, and it does nothing on its own.
+  heRecoveryHeader(p, px, dot, W, H, cy, C) {
+    const my = cy - 2;
+    // Stands
+    for (const x of [14, 34, 54]) {
+      px(x, my + 4, 3, 8, C.wallDk);
+      px(x - 1, my + 11, 5, 1, C.metalDk);
+    }
+    // Outer jacket
+    px(8, my - 3, 54, 7, C.metalDk);
+    px(8, my - 2, 54, 5, C.metal);
+    // Inner cold line visible through the cutaway
+    px(20, my - 1, 30, 3, C.pipeCryo);
+    px(20, my, 30, 1, '#66ccee');
+    // Jacket weld bands
+    for (const x of [16, 30, 44, 58]) px(x, my - 4, 1, 9, C.wallDk);
+    // Branch stubs alternating up and down, each with a blank flange
+    for (const [x, up] of [[22, 1], [33, 0], [44, 1], [55, 0]]) {
+      if (up) { px(x, my - 7, 2, 4, C.metal); px(x - 1, my - 8, 4, 1, C.wall); }
+      else { px(x, my + 4, 2, 4, C.metal); px(x - 1, my + 8, 4, 1, C.wall); }
+    }
+    // Relief stack — the header can still blow
+    px(12, my - 9, 2, 6, C.wallDk);
+    dot(12, my - 10, '#cccccc');
+    dot(13, my - 11, '#aaaaaa');
+  },
+
+  // === HE GAS BAG ===
+  // A slack balloon in a steel cage. The bag reads soft and the cage reads
+  // rigid — the contrast is the whole point of the picture.
+  heGasBag(p, px, dot, W, H, cy, C) {
+    const my = cy - 2;
+    // Cage: base, two posts, top rail
+    px(14, my + 11, 42, 2, C.wallDk);
+    px(14, my - 11, 42, 1, C.metalDk);
+    px(14, my - 11, 2, 22, C.metalDk);
+    px(54, my - 11, 2, 22, C.metalDk);
+    px(14, my, 2, 1, C.wallDk);
+    px(54, my, 2, 1, C.wallDk);
+    // Bag body — a fat teardrop, wider low than high
+    for (let y = -9; y <= 10; y++) {
+      const t = (y + 9) / 19;
+      const r = Math.round(17 * Math.sin(Math.PI * Math.pow(t, 0.78)) * 0.98 + 2);
+      if (r <= 1) continue;
+      px(35 - r, my + y, r * 2, 1, y < 0 ? '#556b8a' : '#44586f');
+    }
+    // Highlight down the left shoulder, so the surface reads as fabric
+    for (let y = -6; y <= 4; y++) dot(35 - 12 + Math.round(Math.abs(y) * 0.4), my + y, C.wall);
+    // Seam stitching around the belly
+    for (let x = 22; x <= 48; x += 3) dot(x, my + 6, C.wallDk);
+    // Lashing ring and inlet spool at the base
+    px(30, my + 9, 10, 2, C.metalDk);
+    px(33, my + 11, 4, 2, C.metal);
+    px(4, my + 11, 30, 1, C.pipeCryo);
+    // Tell-tale weight over the rail — bag height IS the inventory gauge
+    px(58, my - 11, 1, 9, C.metalDk);
+    px(57, my - 2, 3, 2, '#cc8844');
+  },
+
+  // === HE PURIFIER ===
+  // Twin adsorber beds with a switching manifold across the top: one bed on
+  // line, one regenerating, and a vent stack where the contaminant leaves.
+  hePurifier(p, px, dot, W, H, cy, C) {
+    // Tall subject in a 30 px buffer: the baseline sits low so the vent stack
+    // and the switching manifold above the beds still fit.
+    const my = cy + 2;
+    // Skid
+    px(12, my + 11, 54, 2, C.wallDk);
+    // Two beds
+    for (const x0 of [18, 38]) {
+      px(x0, my - 8, 14, 19, C.metalDk);
+      px(x0 + 1, my - 7, 12, 17, C.metal);
+      // Charcoal fill
+      px(x0 + 2, my - 3, 10, 12, '#2a2a30');
+      for (let y = my - 2; y < my + 9; y += 2) {
+        for (let x = x0 + 3; x < x0 + 11; x += 3) dot(x + (y % 4 ? 1 : 0), y, '#4a4a52');
+      }
+      // Cold collar — the beds sit at 80 K
+      px(x0, my + 1, 14, 1, C.scMagDk);
+      px(x0, my + 2, 14, 1, C.scMagnet);
+      // Dished head and inlet elbow
+      px(x0 + 2, my - 10, 10, 2, C.wall);
+      px(x0 + 6, my - 12, 2, 2, C.metal);
+    }
+    // Switching valve manifold tying the two heads together
+    px(24, my - 13, 22, 1, '#886644');
+    for (const x of [24, 45]) px(x, my - 14, 2, 2, '#cc8844');
+    // Regeneration vent stack
+    px(12, my - 12, 2, 23, C.wallDk);
+    px(11, my - 14, 4, 2, C.metalDk);
+    dot(12, my - 15, '#998877');
+    dot(13, my - 16, '#776655');
+    // Purity readout on its own stand — the number this box exists to hold up
+    px(62, my + 2, 2, 9, C.wallDk);
+    px(59, my - 4, 8, 7, C.metalDk);
+    px(60, my - 3, 6, 5, '#12202a');
+    dot(61, my - 1, '#44ff44');
+    dot(62, my - 1, '#44ff44');
+    dot(63, my - 1, '#44ff44');
+    dot(64, my - 1, '#44ff44');
+    // Sample line back to the bed outlet
+    px(52, my, 7, 1, '#886644');
+  },
+
+  // === HE LIQUEFIER ===
+  // Insulated cold box with two turbine expanders on the roof, feeding a
+  // horizontal dewar. The liquid level in the dewar is the payoff.
+  heLiquefier(p, px, dot, W, H, cy, C) {
+    // The tallest thing in the chain, drawn against the top of the 30 px
+    // buffer: turbines at y = 1, skid at y = 25.
+    // Skid
+    px(4, 25, 62, 2, C.wallDk);
+    // Cold box
+    px(6, 9, 34, 16, C.metalDk);
+    px(7, 10, 32, 14, C.metal);
+    // Cold-end frost on the lower half
+    px(7, 18, 32, 6, '#7f96a8');
+    for (let x = 9; x < 38; x += 4) dot(x, 20, '#c8dce8');
+    // Roof plate
+    px(5, 7, 36, 2, C.wallDk);
+    // Two turbine expanders
+    for (const x0 of [12, 28]) {
+      px(x0, 3, 8, 4, C.metalDk);
+      px(x0 + 1, 4, 6, 2, C.metal);
+      px(x0 + 2, 1, 4, 2, C.wallDk);
+      dot(x0 + 3, 0, '#cccccc');
+      // Cold return leg down the cold box face
+      px(x0 + 3, 10, 1, 12, C.pipeCryo);
+    }
+    // JT valve station between them
+    px(23, 4, 2, 3, '#cc8844');
+    // Warm-end transfer lines across to the dewar
+    px(40, 13, 6, 1, C.pipeCryo);
+    px(40, 21, 6, 1, C.pipeCryo);
+    // Storage dewar
+    px(46, 11, 20, 14, C.metalDk);
+    px(47, 12, 18, 12, C.wallDk);
+    // Liquid helium level — the whole reason the box is here
+    px(48, 16, 16, 7, '#2255aa');
+    px(48, 15, 16, 1, '#66ccee');
+    dot(52, 18, '#4499dd');
+    dot(58, 20, '#4499dd');
+    // Relief and level gauge on top
+    px(50, 9, 2, 2, C.wallDk);
+    px(60, 9, 2, 2, '#cc8844');
+  },
+
   // === ROUGHING PUMP ===
   roughingPump(p, px, dot, W, H, cy, C) {
     const my = cy - 3;
@@ -3104,6 +3297,37 @@ UIHost.prototype._schematicDrawers = {
     dot(50, my, '#44ff44');
   },
 
+  // === DUAL-CIRCUIT CHILLER ===
+  // Two mirrored halves split by a seam: each has its own compressor, its own
+  // condenser coil, its own roof fan and its own setpoint light. Losing one
+  // half is what this unit sells.
+  dualCircuitChiller(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Common skid under both circuits
+    px(10, my + 8, 44, 2, C.wallDk);
+    for (const x0 of [11, 33]) {
+      // Cabinet
+      px(x0, my - 4, 20, 12, C.metalDk);
+      px(x0 + 1, my - 3, 18, 10, C.metal);
+      // Scroll compressor
+      px(x0 + 3, my + 1, 6, 6, C.metalDk);
+      px(x0 + 4, my, 4, 1, C.wall);
+      // Condenser coil block
+      for (let x = x0 + 12; x <= x0 + 18; x += 2) px(x, my - 2, 1, 8, '#886644');
+      // Roof fan
+      px(x0 + 4, my - 7, 12, 3, C.wallDk);
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2 + 0.4;
+        dot(Math.round(x0 + 10 + Math.cos(a) * 4), Math.round(my - 6 + Math.sin(a) * 1), C.metal);
+      }
+      // This circuit's own supply/return pair and setpoint light
+      px(x0 + 5, my + 10, 10, 1, C.pipeCooling);
+      dot(x0 + 3, my - 1, '#44ff44');
+    }
+    // The seam — two circuits, not one big box
+    px(31, my - 5, 2, 14, C.wallDk);
+  },
+
   // === CHILLER ===
   chiller(p, px, dot, W, H, cy, C) {
     const my = cy - 3;
@@ -3123,6 +3347,38 @@ UIHost.prototype._schematicDrawers = {
     dot(43, my - 2, C.metalDk);
     dot(41, my + 2, C.metalDk);
     dot(43, my + 2, C.metalDk);
+  },
+
+  // === DRY COOLER BANK ===
+  // Long, raised and open underneath: coils and fans, no basin and no plume.
+  // The empty space under the frame is the read — nothing is evaporating here.
+  dryCoolerBank(p, px, dot, W, H, cy, C) {
+    const my = cy - 2;
+    // Legs and ground tie — the bank stands clear of the ground for airflow
+    for (const x of [13, 31, 49]) px(x, my + 6, 3, 7, C.wallDk);
+    px(12, my + 12, 41, 1, C.wallDk);
+    // Deck
+    px(11, my + 4, 42, 2, C.metalDk);
+    // Finned coil bank
+    px(11, my - 1, 42, 5, C.metalDk);
+    for (let x = 12; x <= 51; x += 2) px(x, my - 1, 1, 5, '#886644');
+    // Plenum closing the top of the V
+    px(11, my - 3, 42, 2, C.metal);
+    // Three axial fans pulling air up through the coils
+    for (const fx of [19, 32, 45]) {
+      px(fx - 6, my - 5, 12, 2, C.wallDk);
+      for (let i = 0; i < 4; i++) {
+        const a = i * Math.PI / 2 + 0.4;
+        dot(Math.round(fx + Math.cos(a) * 4), Math.round(my - 4 + Math.sin(a) * 1), C.metal);
+      }
+      dot(fx, my - 4, C.metalDk);
+    }
+    // Adiabatic spray header and nozzles under the coil face
+    px(11, my + 3, 42, 1, C.pipeCooling);
+    for (let x = 15; x <= 49; x += 6) dot(x, my + 2, C.pipeCooling);
+    // Water supply/return at the near end
+    px(5, my + 1, 6, 1, C.pipeCooling);
+    px(5, my + 5, 6, 1, C.pipeCooling);
   },
 
   // === COOLING TOWER ===

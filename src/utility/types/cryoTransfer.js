@@ -1,6 +1,6 @@
 // src/utility/types/cryoTransfer.js
 //
-// Cryogenic LHe transfer line. Two coupled models live here:
+// Cryogenic LHe transfer line. Three coupled models live here:
 //
 //   1. LHe inventory — boil-off scales with heat load, and running the
 //      reservoir dry is a hard quench. (Unchanged in kind, but boil-off now
@@ -8,6 +8,9 @@
 //
 //   2. Bath temperature — a real heat balance between what the SRF cavities
 //      dissipate and what the cold boxes can remove.
+//
+//   3. Helium recovery — what fraction of the boiled-off gas comes back as
+//      liquid instead of going out the roof vent. See HE_RECOVERY_CONTRIBUTION.
 //
 // The second is new and is the point of the module. Cryo quality used to be
 // `min(1, coldCapacityW / srfHeatW)` where srfHeatW was a hard-coded constant
@@ -45,6 +48,67 @@ export const QUENCH_THRESHOLD_L = 20;
 // Balance (Phase 7): a 250 W cryomodule boils ~0.125 L/tick — a ~$24k LHe
 // refill every ~3800 ticks. Rare but painful, as LHe should be.
 export const LHE_COST_PER_L = 50;
+
+// --- Helium recovery ---
+//
+// Boil-off is physics: a watt of heat into a helium bath boils a fixed volume
+// of liquid, and no purchase changes that. What a recovery plant changes is
+// where the gas GOES. Without one it leaves through the relief header and is
+// gone — helium is the one consumable in the building that genuinely cannot be
+// remade. With one it is caught, cleaned and re-liquefied, and the only thing
+// the player buys back is the difference.
+//
+// So recovery multiplies the NET inventory loss, not the boil-off rate. The
+// thermal model above is untouched: load, capacity, bath temperature and the
+// quench mechanic all see the same numbers they saw before. Only the litres
+// that actually leave the reservoir change, which is exactly the line item the
+// refill bill reads.
+//
+// WHY FACILITY-WIDE AND KEYED ON TYPE. A recovery plant is one plant. The
+// return header, the bag, the purifier and the liquefier are a chain, and a
+// facility has one of them serving every cryomodule in the building — it is
+// not per-network hardware and there is nothing on a cryo line to attach it
+// to. Each TYPE therefore contributes once: five gas bags are five bags on one
+// plant, not five plants. The reward is for completing the chain, which is the
+// real engineering, rather than for stamping out the cheapest rung.
+//
+// The cap is 0.90 because no recovery plant is closed. Cool-down and warm-up
+// transients, relief lifts, purge losses and the purifier's own vent all leave
+// through the roof, and a real facility that recovers 90% of its helium is
+// doing very well.
+export const HE_RECOVERY_CONTRIBUTION = {
+  heRecoveryHeader: 0.25,  // the manifold that makes recovery possible at all
+  heGasBag: 0.15,          // buffers surge so a ramp-down does not blow relief
+  hePurifier: 0.20,        // gas you cannot clean is gas you cannot re-use
+  heRecovery: 0.20,        // the original recovery/storage block
+  heLiquefier: 0.30,       // gas back to liquid — the end of the chain
+};
+export const HE_RECOVERY_CAP = 0.90;
+
+/**
+ * Recovery fraction from an iterable of installed component type ids.
+ * Duplicates are ignored by construction — the set is of TYPES, not units.
+ */
+export function heRecoveryFraction(types) {
+  let total = 0;
+  for (const type of new Set(types || [])) {
+    total += HE_RECOVERY_CONTRIBUTION[type] || 0;
+  }
+  return Math.min(HE_RECOVERY_CAP, total);
+}
+
+/**
+ * Recovery fraction for a whole facility. Walks every placeable rather than
+ * the network's own ports: none of this hardware sits on a cryo line.
+ */
+export function facilityHeRecoveryFraction(worldState) {
+  if (!worldState) return 0;
+  const types = [];
+  for (const p of (worldState.placeables || [])) {
+    if (p && p.type) types.push(p.type);
+  }
+  return heRecoveryFraction(types);
+}
 
 // --- Thermal model ---
 export const T_SUPERFLUID = 2.0;      // sub-cooled 2 K plant (coldBox2K)
@@ -236,8 +300,12 @@ export default {
       perSinkTemp[s.portKey] = tempK;
     }
 
+    // Boil-off is what the heat load evaporates; net loss is what the player
+    // has to buy back. A recovery plant only ever moves the second number.
     const boiloff = quenched ? 0 : BOILOFF_PER_W_PER_TICK * totalLoad;
-    const nextLhe = Math.max(0, currentLhe - boiloff);
+    const recoveryFraction = facilityHeRecoveryFraction(worldState);
+    const netLoss = boiloff * (1 - recoveryFraction);
+    const nextLhe = Math.max(0, currentLhe - netLoss);
 
     return {
       flowState: {
@@ -258,6 +326,15 @@ export default {
         dynamicLoad,
         ratedCapacity,
         warming,
+        // Litres per tick, before and after recovery, plus the fraction that
+        // separates them. Reported separately so a panel can show what the
+        // plant is saving rather than only the number that survived it; the
+        // HUD's own row is derived from the placed types in economy.js, since
+        // recovery is facility-wide and exists whether or not a cryo network
+        // has solved yet.
+        boiloffL: boiloff,
+        netLheLossL: netLoss,
+        heRecoveryFraction: recoveryFraction,
         perSegmentLoad: [],
         perSinkQuality,
         perSinkTemp,

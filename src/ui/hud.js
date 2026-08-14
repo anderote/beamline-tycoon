@@ -2669,7 +2669,7 @@ UIHost.prototype._renderCryoStats = function(d, summary, detail, append = false)
     ${this._detailRow('Sub-Cooling 2K', dd.subCooling2K)}
     ${this._detailRow('Cryo Housings', dd.cryoHousings)}
     ${this._detailRow('LN2 Pre-coolers', dd.ln2Precoolers)}
-    ${this._detailRow('He Recovery', dd.heRecovery > 0 ? 'Yes' : 'No')}
+    ${this._detailRow('He Recovery', `${Math.round((dd.heRecoveryFraction || 0) * 100)}%`)}
     ${this._detailRow('Cryocoolers', dd.cryocoolers)}
     ${this._detailRow('Static Load', dd.staticLoad.toFixed(1), 'W')}
     ${this._detailRow('Dynamic Load', dd.dynamicLoad.toFixed(1), 'W')}
@@ -2703,7 +2703,9 @@ UIHost.prototype._renderCoolingStats = function(d, summary, detail) {
     ${this._detailRow('Fan-Coil Coolers', dd.fanCoils)}
     ${this._detailRow('Package Chillers', dd.packageChillers)}
     ${this._detailRow('LCW Skids', dd.lcwSkids)}
+    ${this._detailRow('Dual-Circuit Chillers', dd.dualCircuitChillers)}
     ${this._detailRow('Chillers', dd.chillers)}
+    ${this._detailRow('Dry Cooler Banks', dd.dryCoolerBanks)}
     ${this._detailRow('Cooling Towers', dd.coolingTowers)}
     ${this._detailRow('Heat Exchangers', dd.heatExchangers)}
     ${this._detailRow('Water Loads', dd.waterLoads)}

@@ -581,12 +581,14 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //
 //   power   (kW):   powerPanel 40 → padMount 150 → mcc 250 → switchgear 400
 //                   → hvTransformer 1200; ups 100 (critical loads)
-//   rf      (kW):   magnetron 5 @S → TWT 20 @all → SSA 35 @VHF/UHF
+//   rf      (kW):   magnetron 5 @S → TWT 20 @all → slac5045Klystron 25 @S
+//                   → SSA 35 @VHF/UHF
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
 //                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
 //                   @VHF/UHF/L → gyrotron 1000 @C/X
 //   cooling (kW):   fanCoilCooler 20 → packageChiller 50 → lcwSkid 100
-//                   → chiller 300 → coolingTower 800
+//                   → dualCircuitChiller 175 → chiller 300
+//                   → dryCoolerBank 500 → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
 //   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20
@@ -656,6 +658,11 @@ const INFRA_UTILITY_PORTS = {
   magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
   solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35, dutyFactor: 1.0 } } },
   twt:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20, dutyFactor: 0.05 } } },
+  // The beginner rung into pulsed peak power. At $10,000/kW it matches the
+  // magnetron and undercuts the Pulsed Klystron's $30,000/kW threefold, but it
+  // is worse per tile (4.2 vs 6.25 kW) and covers S-band alone, so it never
+  // makes the bigger tube redundant.
+  slac5045Klystron:    { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 25, dutyFactor: 0.001 } } },
   pulsedKlystron:      { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 0.001 } } },
   cwKlystron:          { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 1.0 } } },
   iot:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80, dutyFactor: 1.0 } } },
@@ -663,12 +670,16 @@ const INFRA_UTILITY_PORTS = {
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // cooling. The bottom two rungs buy their way in and pay for it per kW:
-  // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 4000 → 2500),
-  // so a bigger plant is always the better deal once you can afford one.
+  // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 5143 → 4000
+  // → 3100 → 2500), so a bigger plant is always the better deal once you can
+  // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
+  // chiller does not mean buying 3x the capacity you actually need.
   fanCoilCooler:       { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20 } } },
   packageChiller:      { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50 } } },
   lcwSkid:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
+  dualCircuitChiller:  { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
   chiller:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
+  dryCoolerBank:       { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 500 } } },
   coolingTower:        { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 800 } } },
   // cryo
   coldBox4K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 500 } } },

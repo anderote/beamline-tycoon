@@ -66,6 +66,32 @@ export const INFRASTRUCTURE_RAW = {
     // source the player meets covers the whole low end and nothing above it.
     rfBands: ['vhf', 'uhf'],
   },
+  slac5045Klystron: {
+    id: 'slac5045Klystron',
+    name: 'SLAC 5045 Klystron',
+    desc: 'The production tube that filled the two-mile linac — SLAC built over 240 of them and hung them end to end. Solenoid-focused, sitting in its own oil tank, 25 kW average in 3.5-microsecond pulses at 120 Hz for about 45% efficiency. Cheap per kilowatt and the easiest way into klystron-class peak power, but it is cut for S-band and nothing else with no tuning to give, and 0.1% duty buys enormous peak power on almost no average power.',
+    category: 'rfPower', subsection: 'supply',
+    cost: { funding: 250000 },
+    stats: {},
+    energyCost: 50,
+    subL: 3, subW: 2, subH: 4, gridW: 2, gridH: 3, geometryType: 'box',
+    baseMaterial: 'metal_painted_red',
+    zoneTier: 1,
+    spriteKey: 'pulsedKlystron',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { power: 25, efficiency: 0.45, pulseLength: 3.5 },
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+    rfFrequency: 2856,
+    rfBand: 'sband',
+    // A fixed-frequency production tube, not a lab instrument: the 5045 was
+    // built in volume for one linac at one frequency. Single-band coverage is
+    // the price of the entry ticket.
+    rfBands: ['sband'],
+  },
   twt: {
     id: 'twt',
     name: 'Traveling Wave Tube',
@@ -514,6 +540,98 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
   },
+  // ── Helium recovery chain ─────────────────────────────────────────
+  // Four rungs that make the recovery fraction in
+  // src/utility/types/cryoTransfer.js worth building out. Each TYPE counts
+  // once, facility-wide, and the chain caps at 90% — see
+  // HE_RECOVERY_CONTRIBUTION there for the table and the reasoning. Recovery
+  // does not change boil-off, which is physics; it changes how much of the
+  // boiled-off gas you buy back.
+  heRecoveryHeader: {
+    id: 'heRecoveryHeader',
+    name: 'He Recovery Header',
+    desc: 'The vacuum-jacketed return manifold that ties every cryomodule relief line, every valve-box vent and every transfer-line burst disc back to one low-pressure header running to the plant. Sized for the whole building rather than one machine, because retro-fitting a second header means breaking vacuum on the first. On its own it does nothing at all: it collects gas and has nowhere to put it, so without a bag downstream it simply vents in a tidier place than before.',
+    category: 'cooling', subsection: 'cryogenics',
+    accentColor: 0x2fbccc,
+    cost: { funding: 350000 },
+    stats: {},
+    energyCost: 0,
+    // No `faces` decal: a ROLE_BUILDERS entry (cooling-builder.js) supplies
+    // the geometry, and the role path never reads compDef.faces.
+    subL: 4, subW: 1, subH: 2, gridW: 1, gridH: 4, geometryType: 'box',
+    baseMaterial: 'cryo_frost',
+    zoneTier: 1,
+    requires: 'srfTechnology',
+    spriteKey: 'ln2Precooler',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
+  heGasBag: {
+    id: 'heGasBag',
+    name: 'He Gas Bag',
+    desc: 'A rubberised fabric balloon in a steel cage, hung in the roof space and holding a few hundred cubic metres at barely above atmospheric pressure. It is the buffer the rest of the plant is sized against: a cryomodule ramp-down dumps gas far faster than any compressor can swallow it, and without somewhere for that surge to go the relief valves lift and the inventory goes out the roof. Low technology, visually unimpressive, and the single component that saves the most helium per dollar in the building.',
+    category: 'cooling', subsection: 'cryogenics',
+    accentColor: 0x2fbccc,
+    cost: { funding: 450000 },
+    stats: {},
+    energyCost: 0,
+    // No `faces` decal: role-built (see _buildHeGasBagRoles).
+    subL: 3, subW: 3, subH: 4, gridW: 3, gridH: 3, geometryType: 'box',
+    baseMaterial: 'metal_painted_white',
+    zoneTier: 1,
+    requires: 'srfTechnology',
+    spriteKey: 'heRecovery',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: [],
+  },
+  hePurifier: {
+    id: 'hePurifier',
+    name: 'He Purifier',
+    desc: 'Charcoal adsorber beds at 80 K with a molecular-sieve drier ahead of them, cleaning recovered gas back to better than 99.999% before it is allowed near the liquefier. Recovered helium is never clean: every relief lift breathes room air back down the header, and every warm-up carries moisture off the vessel walls. Feed that to a liquefier and the nitrogen and water freeze out in the heat exchanger, which then plugs solid and takes the plant down for a warm-up and a purge — days of downtime to save an afternoon.',
+    category: 'cooling', subsection: 'cryogenics',
+    accentColor: 0x2fbccc,
+    cost: { funding: 1200000 },
+    stats: {},
+    energyCost: 3,
+    // No `faces` decal: role-built (see _buildHePurifierRoles).
+    subL: 3, subW: 2, subH: 4, gridW: 2, gridH: 3, geometryType: 'box',
+    baseMaterial: 'cryo_frost',
+    zoneTier: 2,
+    requires: 'cryoOptimization',
+    spriteKey: 'heCompressor',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
+  heLiquefier: {
+    id: 'heLiquefier',
+    name: 'He Liquefier',
+    desc: 'Turbine-expander cold box that takes clean recovered gas at room temperature and hands back liquid at 4.2 K, closing the loop the rest of the chain only ever prepared for. Two expansion turbines, a Joule-Thomson stage and a dewar to catch what comes out the bottom. It is the largest and hungriest thing in the recovery plant, it unlocks nothing, and it will never show up as a capability — only as a helium bill that stops growing. Buy it because the machine is going to run for years, not because anything is currently broken.',
+    category: 'cooling', subsection: 'cryogenics',
+    accentColor: 0x2fbccc,
+    cost: { funding: 3500000 },
+    stats: {},
+    energyCost: 12,
+    // No `faces` decal: role-built (see _buildHeLiquefierRoles).
+    subL: 5, subW: 4, subH: 6, gridW: 4, gridH: 5, geometryType: 'box',
+    baseMaterial: 'cryo_frost',
+    zoneTier: 3,
+    requires: 'cryoOptimization',
+    spriteKey: 'coldBox4K',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
   // Distribution bus — serves every on-pipe cryo sink within reach on ONE
   // pipe segment (see computeBusService in src/utility/network-discovery.js).
   cryoValveBox: {
@@ -869,6 +987,33 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['powerCable'],
   },
+  // The two middle rungs. The ladder used to step 100 → 300 → 800 kW, which
+  // meant a machine that had outgrown one skid had to either buy 3x the
+  // capacity it needed or stack skids and eat the floor space. 175 and 500
+  // fill both gaps at $5,143 and $3,100 per kW, keeping $/kW, kW per tile and
+  // wall power per kW all monotonic across the seven-rung ladder. No existing
+  // unit's numbers moved.
+  dualCircuitChiller: {
+    id: 'dualCircuitChiller',
+    name: 'Dual-Circuit Chiller',
+    desc: 'Two independent refrigerant circuits on one frame — separate compressors, separate evaporator passes, separate setpoints — so the magnet loop can sit at 28°C while the RF cavities get their own 32°C water off the same skid. Losing a compressor now degrades the plant instead of killing it: one circuit keeps roughly 85 kW alive while the other is locked out for service. The trap is planning around the full 175 kW, which quietly buys a machine that cannot survive its own maintenance window.',
+    category: 'cooling', subsection: 'supply',
+    accentColor: 0x2fbccc,
+    cost: { funding: 900000 },
+    stats: {},
+    energyCost: 4,
+    // No `faces` decal: a ROLE_BUILDERS entry (cooling-builder.js) supplies
+    // the geometry, and the role path never reads compDef.faces.
+    subL: 3, subW: 3, subH: 3, gridW: 3, gridH: 3, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue',
+    zoneTier: 2,
+    spriteKey: 'chiller',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
   chiller: {
     id: 'chiller',
     name: 'Chiller',
@@ -886,6 +1031,27 @@ export const INFRASTRUCTURE_RAW = {
     },
     zoneTier: 0,
     spriteKey: 'chiller',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
+  dryCoolerBank: {
+    id: 'dryCoolerBank',
+    name: 'Dry Cooler Bank',
+    desc: 'A row of V-configuration finned coils under axial fans on a steel frame, rejecting 500 kW straight to outdoor air with an adiabatic pre-cool spray for the worst afternoons. No basin, no make-up water, no biocide dosing, no water-treatment contract and no Legionella sampling programme — every reason a facility reaches for one of these before it commits to a real evaporative tower. The rating is at design ambient, and that is the whole weakness: capacity sags as the air warms, so the August heat wave that has every magnet at full current is exactly when this bank has least to give.',
+    category: 'cooling', subsection: 'supply',
+    accentColor: 0x2fbccc,
+    cost: { funding: 1550000 },
+    stats: {},
+    energyCost: 5,
+    // No `faces` decal: a ROLE_BUILDERS entry (cooling-builder.js) supplies
+    // the geometry, and the role path never reads compDef.faces.
+    subL: 6, subW: 3, subH: 4, gridW: 3, gridH: 6, geometryType: 'box',
+    baseMaterial: 'metal_corrugated',
+    zoneTier: 3,
+    spriteKey: 'coolingTower',
     spriteColor: 0x2fbccc,
     placement: 'module',
     ports: {},

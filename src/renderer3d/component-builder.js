@@ -31,15 +31,22 @@ import {
   _buildCryocoolerRoles,
   _buildLN2PrecoolerRoles,
   _buildHeRecoveryRoles,
+  _buildHeRecoveryHeaderRoles,
+  _buildHeGasBagRoles,
+  _buildHePurifierRoles,
+  _buildHeLiquefierRoles,
   _buildWaterLoadRoles,
   _buildFanCoilCoolerRoles,
   _buildPackageChillerRoles,
+  _buildDualCircuitChillerRoles,
+  _buildDryCoolerBankRoles,
   _buildCoolingTowerRoles,
   _buildDeioniserRoles,
 } from './builders/cooling-builder.js';
 import {
   _buildPulsedKlystronRoles,
   _buildCWKlystronRoles,
+  _buildSLAC5045KlystronRoles,
   _buildMultibeamKlystronRoles,
   _buildMagnetronRoles,
   _buildTWTRoles,
@@ -1221,11 +1228,18 @@ ROLE_BUILDERS.ln2Dewar = _buildLN2DewarRoles;
 ROLE_BUILDERS.cryocooler = _buildCryocoolerRoles;
 ROLE_BUILDERS.ln2Precooler = _buildLN2PrecoolerRoles;
 ROLE_BUILDERS.heRecovery = _buildHeRecoveryRoles;
+ROLE_BUILDERS.heRecoveryHeader = _buildHeRecoveryHeaderRoles;
+ROLE_BUILDERS.heGasBag = _buildHeGasBagRoles;
+ROLE_BUILDERS.hePurifier = _buildHePurifierRoles;
+ROLE_BUILDERS.heLiquefier = _buildHeLiquefierRoles;
 ROLE_BUILDERS.waterLoad = _buildWaterLoadRoles;
 ROLE_BUILDERS.fanCoilCooler = _buildFanCoilCoolerRoles;
 ROLE_BUILDERS.packageChiller = _buildPackageChillerRoles;
+ROLE_BUILDERS.dualCircuitChiller = _buildDualCircuitChillerRoles;
+ROLE_BUILDERS.dryCoolerBank = _buildDryCoolerBankRoles;
 ROLE_BUILDERS.coolingTower = _buildCoolingTowerRoles;
 ROLE_BUILDERS.deionizer = _buildDeioniserRoles;
+ROLE_BUILDERS.slac5045Klystron = _buildSLAC5045KlystronRoles;
 ROLE_BUILDERS.pulsedKlystron = _buildPulsedKlystronRoles;
 ROLE_BUILDERS.cwKlystron = _buildCWKlystronRoles;
 ROLE_BUILDERS.multibeamKlystron = _buildMultibeamKlystronRoles;

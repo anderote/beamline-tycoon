@@ -309,6 +309,462 @@ export function _buildHeRecoveryRoles() {
   return b;
 }
 
+// ── Helium recovery chain ───────────────────────────────────────────
+
+/**
+ * He Recovery Header — 1×4 floor module, subH 2 (1.0 m tall).
+ *
+ * A vacuum-jacketed return manifold on short stands, running the long axis of
+ * the tile with branch stubs off both sides for the cryomodule relief lines.
+ * It reads as plumbing, because that is what it is.
+ *
+ * Footprint 0.5 m (X) × 2.0 m (Z): nothing may pass x = ±0.25 or z = ±1.00,
+ * which is tight. The jacket is r = 0.14 and the branch stubs reach x = ±0.24.
+ */
+export function _buildHeRecoveryHeaderRoles() {
+  const b = makeBuckets();
+
+  // jacketL leaves room for the end caps: 0.88 + 0.10 lands them at z = 0.98,
+  // inside the 1.00 half-tile.
+  const jacketR = 0.14, jacketL = 1.76, axisY = 0.62;
+
+  // Stands — three short posts under the run.
+  for (const sz of [-0.72, 0, 0.72]) {
+    const sw = 0.14, sh = axisY - jacketR, sd = 0.12;
+    const g = new THREE.BoxGeometry(sw, sh, sd);
+    applyTiledBoxUVs(g, sw, sh, sd);
+    pushT(b.stand, g, trans(0, sh / 2, sz));
+  }
+  // Ground rail tying the stands together
+  {
+    const rw = 0.16, rh = 0.05, rd = 1.70;
+    const g = new THREE.BoxGeometry(rw, rh, rd);
+    applyTiledBoxUVs(g, rw, rh, rd);
+    pushT(b.stand, g, trans(0, rh / 2, 0));
+  }
+
+  // The header itself — outer vacuum jacket along Z.
+  {
+    const g = new THREE.CylinderGeometry(jacketR, jacketR, jacketL, SEGS);
+    applyTiledCylinderUVs(g, jacketR, jacketL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, axisY, 0), rotX(Math.PI / 2)));
+  }
+  // Jacket end caps
+  for (const zSign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(0.05, jacketR, 0.10, SEGS);
+    applyTiledCylinderUVs(g, jacketR, 0.10, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, axisY, zSign * (jacketL / 2 + 0.05)),
+      rotX(zSign * Math.PI / 2)));
+  }
+
+  // Jacket weld bands — the giveaway that this is vacuum-jacketed line rather
+  // than bare pipe.
+  for (const zOff of [-0.62, -0.21, 0.21, 0.62]) {
+    const bandR = jacketR + 0.015, bandL = 0.05;
+    const g = new THREE.CylinderGeometry(bandR, bandR, bandL, SEGS);
+    applyTiledCylinderUVs(g, bandR, bandL, SEGS);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, axisY, zOff), rotX(Math.PI / 2)));
+  }
+
+  // Branch stubs — where each cryomodule's relief line ties in. Alternating
+  // sides, and short: x = ±0.24 is the whole budget on this tile.
+  for (let i = 0; i < 4; i++) {
+    const zOff = -0.66 + i * 0.44;
+    const xSign = i % 2 === 0 ? 1 : -1;
+    const stubR = 0.045, stubL = 0.11;
+    const g = new THREE.CylinderGeometry(stubR, stubR, stubL, 8);
+    applyTiledCylinderUVs(g, stubR, stubL, 8);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(xSign * (jacketR + stubL / 2 - 0.015), axisY, zOff),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2)));
+    // Blank flange on the stub end
+    const fR = 0.06, fL = 0.02;
+    const gf = new THREE.CylinderGeometry(fR, fR, fL, 8);
+    applyTiledCylinderUVs(gf, fR, fL, 8);
+    pushT(b.accent, gf, new THREE.Matrix4().multiplyMatrices(
+      trans(xSign * 0.235, axisY, zOff),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2)));
+  }
+
+  // Relief stack off the top — the header still has to be able to blow.
+  {
+    const rR = 0.035, rL = 0.20;
+    const g = new THREE.CylinderGeometry(rR, rR, rL, 8);
+    applyTiledCylinderUVs(g, rR, rL, 8);
+    pushT(b.accent, g, trans(0, axisY + jacketR + rL / 2, -0.44));
+  }
+
+  return b;
+}
+
+/**
+ * He Gas Bag — 3×3 floor module, subH 4 (2.0 m tall).
+ *
+ * A rubberised balloon slumped inside a steel cage. The soft body is a stack
+ * of cylinder slices with an oblate profile — widest at mid-height, sagging
+ * over the bottom rail — which is what makes it read as fabric rather than a
+ * pressure vessel.
+ *
+ * Footprint 1.5 m (X) × 1.5 m (Z), height 2.0 m: the cage posts sit at ±0.68
+ * with 0.08 section, so their outer face lands at ±0.72, and the bag's widest
+ * slice is r = 0.62 — clear of the cage on every side.
+ */
+export function _buildHeGasBagRoles() {
+  const b = makeBuckets();
+
+  // Base plate
+  const baseW = 1.44, baseH = 0.06, baseD = 1.44;
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  // Cage — four corner posts and a rail at top and mid-height.
+  const postH = 1.86;
+  for (const px2 of [-0.68, 0.68]) {
+    for (const pz of [-0.68, 0.68]) {
+      const pw = 0.08;
+      const g = new THREE.BoxGeometry(pw, postH, pw);
+      applyTiledBoxUVs(g, pw, postH, pw);
+      pushT(b.stand, g, trans(px2, baseH + postH / 2, pz));
+    }
+  }
+  for (const railY of [baseH + 0.95, baseH + postH - 0.04]) {
+    for (const pz of [-0.68, 0.68]) {
+      const rw = 1.44, rh = 0.06, rd = 0.06;
+      const g = new THREE.BoxGeometry(rw, rh, rd);
+      applyTiledBoxUVs(g, rw, rh, rd);
+      pushT(b.stand, g, trans(0, railY, pz));
+    }
+    for (const px2 of [-0.68, 0.68]) {
+      const rw = 0.06, rh = 0.06, rd = 1.44;
+      const g = new THREE.BoxGeometry(rw, rh, rd);
+      applyTiledBoxUVs(g, rw, rh, rd);
+      pushT(b.stand, g, trans(px2, railY, 0));
+    }
+  }
+
+  // The bag. Slice radii trace a fat teardrop: narrow where it is lashed to
+  // the base ring, widest just above half height, rounded over the top.
+  const SLICES = [
+    { y: 0.10, r: 0.30 },
+    { y: 0.28, r: 0.48 },
+    { y: 0.50, r: 0.58 },
+    { y: 0.74, r: 0.62 },
+    { y: 0.98, r: 0.62 },
+    { y: 1.20, r: 0.58 },
+    { y: 1.40, r: 0.50 },
+    { y: 1.56, r: 0.36 },
+    { y: 1.66, r: 0.18 },
+  ];
+  for (let i = 0; i < SLICES.length - 1; i++) {
+    const lo = SLICES[i], hi = SLICES[i + 1];
+    const h = hi.y - lo.y;
+    const g = new THREE.CylinderGeometry(hi.r, lo.r, h, SEGS);
+    applyTiledCylinderUVs(g, Math.max(lo.r, hi.r), h, SEGS);
+    pushT(b.iron, g, trans(0, baseH + lo.y + h / 2, 0));
+  }
+
+  // Lashing ring where the fabric clamps to the inlet spool
+  {
+    const rR = 0.32, rH = 0.05;
+    const g = new THREE.CylinderGeometry(rR, rR, rH, SEGS);
+    applyTiledCylinderUVs(g, rR, rH, SEGS);
+    pushT(b.detail, g, trans(0, baseH + 0.10, 0));
+  }
+
+  // Inlet spool from the header, up through the base plate
+  {
+    const sR = 0.09, sH = 0.14;
+    const g = new THREE.CylinderGeometry(sR, sR, sH, SEGS);
+    applyTiledCylinderUVs(g, sR, sH, SEGS);
+    pushT(b.pipe, g, trans(0, baseH + sH / 2, 0));
+  }
+  // Feed line running out the -Z face at ankle height
+  {
+    const fR = 0.07, fL = 0.55;
+    const g = new THREE.CylinderGeometry(fR, fR, fL, SEGS);
+    applyTiledCylinderUVs(g, fR, fL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, baseH + fR, -0.42), rotX(Math.PI / 2)));
+  }
+
+  // Contents tell-tale: a weighted cable over the top rail. Bag position IS
+  // the inventory gauge on a real plant.
+  {
+    const cR = 0.012, cL = 0.70;
+    const g = new THREE.CylinderGeometry(cR, cR, cL, 6);
+    applyTiledCylinderUVs(g, cR, cL, 6);
+    pushT(b.accent, g, trans(0.68, baseH + postH - 0.38, 0.34));
+  }
+  {
+    const wR = 0.05, wH = 0.10;
+    const g = new THREE.CylinderGeometry(wR, wR, wH, 8);
+    applyTiledCylinderUVs(g, wR, wH, 8);
+    pushT(b.accent, g, trans(0.68, baseH + postH - 0.78, 0.34));
+  }
+
+  return b;
+}
+
+/**
+ * He Purifier — 2×3 floor module, subH 4 (2.0 m tall).
+ *
+ * Two charcoal adsorber beds standing side by side on a skid with a smaller
+ * drier vessel ahead of them, a switching valve manifold between the beds and
+ * a regeneration vent stack. Two beds because one is always regenerating.
+ *
+ * Footprint 1.0 m (X) × 1.5 m (Z): the beds sit at x = ±0.24 with r = 0.20,
+ * so their outer face lands at 0.44.
+ */
+export function _buildHePurifierRoles() {
+  const b = makeBuckets();
+
+  // Skid
+  const baseW = 0.94, baseH = 0.07, baseD = 1.44;
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  const bedR = 0.20, bedH = 1.15, bedZ = -0.32;
+  for (const bx of [-0.24, 0.24]) {
+    // Adsorber vessel
+    {
+      const g = new THREE.CylinderGeometry(bedR, bedR, bedH, SEGS);
+      applyTiledCylinderUVs(g, bedR, bedH, SEGS);
+      pushT(b.pipe, g, trans(bx, baseH + bedH / 2, bedZ));
+    }
+    // Dished head
+    {
+      const g = new THREE.CylinderGeometry(0.07, bedR, 0.14, SEGS);
+      applyTiledCylinderUVs(g, bedR, 0.14, SEGS);
+      pushT(b.pipe, g, trans(bx, baseH + bedH + 0.07, bedZ));
+    }
+    // Cold-end insulation collar — the beds run at 80 K
+    {
+      const cR = bedR + 0.03, cH = 0.30;
+      const g = new THREE.CylinderGeometry(cR, cR, cH, SEGS);
+      applyTiledCylinderUVs(g, cR, cH, SEGS);
+      pushT(b.detail, g, trans(bx, baseH + 0.30, bedZ));
+    }
+    // Inlet elbow off the top head
+    {
+      const eR = 0.04, eL = 0.20;
+      const g = new THREE.CylinderGeometry(eR, eR, eL, 8);
+      applyTiledCylinderUVs(g, eR, eL, 8);
+      pushT(b.copper, g, trans(bx, baseH + bedH + 0.14 + eL / 2, bedZ));
+    }
+  }
+
+  // Switching valve manifold between the beds — the thing that flips which
+  // bed is on line and which is regenerating.
+  {
+    const mR = 0.05, mL = 0.44;
+    const g = new THREE.CylinderGeometry(mR, mR, mL, 8);
+    applyTiledCylinderUVs(g, mR, mL, 8);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, baseH + bedH + 0.30, bedZ),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2)));
+  }
+  for (const vx of [-0.24, 0.24]) {
+    const vR = 0.055, vH = 0.10;
+    const g = new THREE.CylinderGeometry(vR, vR, vH, 8);
+    applyTiledCylinderUVs(g, vR, vH, 8);
+    pushT(b.accent, g, trans(vx, baseH + bedH + 0.35, bedZ));
+  }
+
+  // Molecular-sieve drier ahead of the beds — shorter, fatter, warm.
+  {
+    const dR = 0.24, dH = 0.62, dZ = 0.42;
+    const g = new THREE.CylinderGeometry(dR, dR, dH, SEGS);
+    applyTiledCylinderUVs(g, dR, dH, SEGS);
+    pushT(b.iron, g, trans(0, baseH + dH / 2, dZ));
+    // Moisture analyser head
+    const aR = 0.05, aH = 0.12;
+    const ga = new THREE.CylinderGeometry(aR, aR, aH, 8);
+    applyTiledCylinderUVs(ga, aR, aH, 8);
+    pushT(b.accent, ga, trans(0.10, baseH + dH + aH / 2, dZ));
+  }
+
+  // Regeneration vent stack — where the contaminant actually leaves.
+  {
+    const sR = 0.045, sH = 1.60;
+    const g = new THREE.CylinderGeometry(sR, sR, sH, 8);
+    applyTiledCylinderUVs(g, sR, sH, 8);
+    pushT(b.detail, g, trans(-0.40, baseH + sH / 2, 0.14));
+  }
+  {
+    const cR = 0.07, cH = 0.10;
+    const g = new THREE.CylinderGeometry(cR, cR, cH, 8);
+    applyTiledCylinderUVs(g, cR, cH, 8);
+    pushT(b.accent, g, trans(-0.40, baseH + 1.60 + cH / 2, 0.14));
+  }
+
+  // Purity readout cabinet on the +X side
+  {
+    const cW = 0.08, cH = 0.34, cD = 0.26;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(0.44, baseH + 0.50, 0.30));
+  }
+
+  return b;
+}
+
+/**
+ * He Liquefier — 4×5 floor module, subH 6 (3.0 m tall).
+ *
+ * The endgame of the chain, and the largest thing in it: an insulated cold box
+ * with two turbine expanders on its roof, a horizontal storage dewar on
+ * saddles alongside, and warm-end process piping between them.
+ *
+ * Footprint 2.0 m (X) × 2.5 m (Z), height 3.0 m. Widest features are the cold
+ * box at x = ±0.85 and the dewar's saddles at z = 1.12; the turbine stacks top
+ * out at y = 2.86.
+ */
+export function _buildHeLiquefierRoles() {
+  const b = makeBuckets();
+
+  // Skid under the whole assembly
+  const baseW = 1.92, baseH = 0.09, baseD = 2.42;
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  // Cold box — the insulated tower. Sits toward -Z, leaving the +Z strip for
+  // the dewar.
+  // cbH is set by the turbine stack above it: 0.09 skid + 2.10 + 0.08 roof
+  // plate + 0.34 turbine + 0.22 brake head + 0.12 instrument cap = 2.95, under
+  // the 3.00 m envelope.
+  const cbW = 1.70, cbH = 2.10, cbD = 1.20, cbZ = -0.55;
+  {
+    const g = new THREE.BoxGeometry(cbW, cbH, cbD);
+    applyTiledBoxUVs(g, cbW, cbH, cbD);
+    pushT(b.iron, g, trans(0, baseH + cbH / 2, cbZ));
+  }
+  // Roof plate
+  {
+    const rW = 1.80, rH = 0.08, rD = 1.30;
+    const g = new THREE.BoxGeometry(rW, rH, rD);
+    applyTiledBoxUVs(g, rW, rH, rD);
+    pushT(b.detail, g, trans(0, baseH + cbH + rH / 2, cbZ));
+  }
+  // Vertical stiffeners on the cold box faces
+  for (const sx of [-0.56, 0, 0.56]) {
+    const sW = 0.10, sH = cbH, sD = 0.06;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.stand, g, trans(sx, baseH + sH / 2, cbZ - (cbD / 2 + sD / 2)));
+  }
+
+  const roofY = baseH + cbH + 0.08;
+
+  // Two turbine expanders on the roof — this is what makes it a liquefier
+  // rather than a storage tank.
+  for (const tx of [-0.44, 0.44]) {
+    // Turbine housing
+    {
+      const tR = 0.22, tH = 0.34;
+      const g = new THREE.CylinderGeometry(tR, tR, tH, SEGS);
+      applyTiledCylinderUVs(g, tR, tH, SEGS);
+      pushT(b.pipe, g, trans(tx, roofY + tH / 2, cbZ));
+    }
+    // Brake/oil head on top
+    {
+      const hR = 0.13, hH = 0.22;
+      const g = new THREE.CylinderGeometry(hR, hR, hH, SEGS);
+      applyTiledCylinderUVs(g, hR, hH, SEGS);
+      pushT(b.detail, g, trans(tx, roofY + 0.34 + hH / 2, cbZ));
+    }
+    // Instrument cap
+    {
+      const cR = 0.06, cH = 0.12;
+      const g = new THREE.CylinderGeometry(cR, cR, cH, 8);
+      applyTiledCylinderUVs(g, cR, cH, 8);
+      pushT(b.accent, g, trans(tx, roofY + 0.56 + cH / 2, cbZ));
+    }
+    // Cold return leg down the cold box face
+    {
+      const lR = 0.055, lH = 0.90;
+      const g = new THREE.CylinderGeometry(lR, lR, lH, 8);
+      applyTiledCylinderUVs(g, lR, lH, 8);
+      pushT(b.copper, g, trans(tx, roofY - lH / 2, cbZ + cbD / 2 + 0.06));
+    }
+  }
+
+  // Joule-Thomson valve station between the turbines
+  {
+    const vR = 0.09, vH = 0.26;
+    const g = new THREE.CylinderGeometry(vR, vR, vH, 8);
+    applyTiledCylinderUVs(g, vR, vH, 8);
+    pushT(b.accent, g, trans(0, roofY + vH / 2, cbZ - 0.34));
+  }
+
+  // Storage dewar — horizontal vessel on saddles, along X.
+  const dewR = 0.40, dewL = 1.50, dewZ = 0.72;
+  const dewY = baseH + 0.34 + dewR;
+  {
+    const g = new THREE.CylinderGeometry(dewR, dewR, dewL, SEGS);
+    applyTiledCylinderUVs(g, dewR, dewL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, dewY, dewZ), new THREE.Matrix4().makeRotationZ(Math.PI / 2)));
+  }
+  for (const xSign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(0.06, dewR, 0.16, SEGS);
+    applyTiledCylinderUVs(g, dewR, 0.16, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(xSign * (dewL / 2 + 0.08), dewY, dewZ),
+      new THREE.Matrix4().makeRotationZ(-xSign * Math.PI / 2)));
+  }
+  // Saddles
+  for (const sx of [-0.50, 0.50]) {
+    const sW = 0.14, sH = 0.34, sD = 0.36;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.stand, g, trans(sx, baseH + sH / 2, dewZ));
+  }
+  // Liquid level and relief on top of the dewar
+  {
+    const rR = 0.045, rH = 0.20;
+    const g = new THREE.CylinderGeometry(rR, rR, rH, 8);
+    applyTiledCylinderUVs(g, rR, rH, 8);
+    pushT(b.accent, g, trans(0.30, dewY + dewR + rH / 2, dewZ));
+  }
+  {
+    const gR = 0.06, gH = 0.09;
+    const g = new THREE.CylinderGeometry(gR, gR, gH, 8);
+    applyTiledCylinderUVs(g, gR, gH, 8);
+    pushT(b.accent, g, trans(-0.30, dewY + dewR + gH / 2, dewZ));
+  }
+
+  // Warm-end process piping tying cold box to dewar
+  for (const px2 of [-0.62, 0.62]) {
+    const pR = 0.06, pL = 0.60;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(px2, baseH + 0.42, 0.06), rotX(Math.PI / 2)));
+  }
+
+  // Control cabinet against the cold box, +X face
+  {
+    const cW = 0.12, cH = 0.80, cD = 0.50;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(cbW / 2 + cW / 2, baseH + cH / 2, cbZ - 0.20));
+  }
+
+  return b;
+}
+
 // ── Distribution ────────────────────────────────────────────────────
 
 /**
@@ -568,6 +1024,285 @@ export function _buildPackageChillerRoles() {
     const g = new THREE.BoxGeometry(cW, cH, cD);
     applyTiledBoxUVs(g, cW, cH, cD);
     pushT(b.accent, g, trans(0.16, baseH + 0.72, cabZ - (cabD / 2 + cD / 2)));
+  }
+
+  return b;
+}
+
+/**
+ * Dual-Circuit Chiller — 3×3 floor module, subH 3 (1.5 m tall).
+ * The silhouette has to say "two of everything": two cabinets split by a
+ * visible seam, two compressors, two roof fans, two supply/return pairs and
+ * two control panels. That redundancy is the entire reason this rung exists
+ * over the single-circuit package chiller below it.
+ *
+ * Footprint 1.5 m × 1.5 m, so nothing may pass x = ±0.75 or z = ±0.75.
+ * Widest features: the evaporator plate stacks at x = ±0.69 and the control
+ * panels at z = -0.72.
+ */
+export function _buildDualCircuitChillerRoles() {
+  const b = makeBuckets();
+
+  // Common skid — both circuits ship bolted to one frame.
+  const baseW = 1.38, baseH = 0.08, baseD = 1.38;
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  // Two cabinets with a 0.10 m seam down the middle. Shallower than the skid
+  // and pushed to -Z, leaving the +Z strip clear for the compressors.
+  const cabW = 0.62, cabH = 0.92, cabD = 1.00, cabZ = -0.16;
+  const CIRCUITS = [-0.36, 0.36];
+  for (const cx of CIRCUITS) {
+    const g = new THREE.BoxGeometry(cabW, cabH, cabD);
+    applyTiledBoxUVs(g, cabW, cabH, cabD);
+    pushT(b.iron, g, trans(cx, baseH + cabH / 2, cabZ));
+  }
+
+  // Shared water manifold riser in the seam — the two circuits chill
+  // different loops but they leave through the same set of headers.
+  {
+    const mR = 0.05, mH = 1.06;
+    const g = new THREE.CylinderGeometry(mR, mR, mH, SEGS);
+    applyTiledCylinderUVs(g, mR, mH, SEGS);
+    pushT(b.pipe, g, trans(0, baseH + mH / 2, cabZ));
+  }
+
+  const roofY = baseH + cabH;
+  for (const cx of CIRCUITS) {
+    // Condenser fan shroud
+    {
+      const shR = 0.27, shH = 0.10;
+      const g = new THREE.CylinderGeometry(shR, shR, shH, SEGS);
+      applyTiledCylinderUVs(g, shR, shH, SEGS);
+      pushT(b.detail, g, trans(cx, roofY + shH / 2, cabZ));
+    }
+    // Fan hub
+    {
+      const hubR = 0.07, hubH = 0.06;
+      const g = new THREE.CylinderGeometry(hubR, hubR, hubH, SEGS);
+      applyTiledCylinderUVs(g, hubR, hubH, SEGS);
+      pushT(b.accent, g, trans(cx, roofY + 0.10 + hubH / 2, cabZ));
+    }
+    // Fan blades — swept radius 0.21, so cx ± 0.21 = 0.57, well inside.
+    for (let i = 0; i < 4; i++) {
+      const bladeW = 0.42, bladeH = 0.015, bladeD = 0.09;
+      const g = new THREE.BoxGeometry(bladeW, bladeH, bladeD);
+      applyTiledBoxUVs(g, bladeW, bladeH, bladeD);
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(cx, roofY + 0.12, cabZ),
+        new THREE.Matrix4().makeRotationY((i / 4) * Math.PI * 2),
+      );
+      pushT(b.detail, g, m);
+    }
+
+    // Scroll compressor standing on the skid ahead of its cabinet
+    const compR = 0.14, compH = 0.38, compZ = 0.48;
+    {
+      const g = new THREE.CylinderGeometry(compR, compR, compH, SEGS);
+      applyTiledCylinderUVs(g, compR, compH, SEGS);
+      pushT(b.detail, g, trans(cx, baseH + compH / 2, compZ));
+    }
+    // Discharge line off the top of the compressor
+    {
+      const dR = 0.035, dL = 0.22;
+      const g = new THREE.CylinderGeometry(dR, dR, dL, 8);
+      applyTiledCylinderUVs(g, dR, dL, 8);
+      pushT(b.copper, g, trans(cx, baseH + compH + dL / 2, compZ));
+    }
+
+    // Brazed-plate evaporator stack on the outboard face. Outermost surface
+    // lands at |x| = 0.69, inside the 0.75 m half-tile.
+    const outX = cx + Math.sign(cx) * (cabW / 2 + 0.01);
+    for (let i = 0; i < 6; i++) {
+      const plW = 0.02, plH = 0.30, plD = 0.18;
+      const g = new THREE.BoxGeometry(plW, plH, plD);
+      applyTiledBoxUVs(g, plW, plH, plD);
+      pushT(b.copper, g, trans(outX, baseH + 0.40, cabZ - 0.15 + i * 0.06));
+    }
+
+    // Supply/return pair out the +Z face — one pair per circuit, because
+    // each circuit carries its own setpoint to its own loop.
+    for (const y of [baseH + 0.54, baseH + 0.72]) {
+      const pR = 0.04, pL = 0.14;
+      const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+      applyTiledCylinderUVs(g, pR, pL, 8);
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(cx, y, cabZ + cabD / 2 + pL / 2),
+        rotX(Math.PI / 2),
+      );
+      pushT(b.pipe, g, m);
+    }
+
+    // Control panel on the -Z face — two setpoints, two keypads.
+    {
+      const cW = 0.24, cH = 0.28, cD = 0.06;
+      const g = new THREE.BoxGeometry(cW, cH, cD);
+      applyTiledBoxUVs(g, cW, cH, cD);
+      pushT(b.accent, g, trans(cx, baseH + 0.60, cabZ - (cabD / 2 + cD / 2)));
+    }
+  }
+
+  return b;
+}
+
+/**
+ * Dry Cooler Bank — 3×6 floor module, subH 4 (2.0 m tall).
+ * Long, low and open: a raised steel frame on legs, a pair of V-configuration
+ * finned coils along its length, and a row of three axial fans pulling air up
+ * through them. No basin and no fill pack — the tell that this rejects to air
+ * rather than evaporating water, which is why the tower still outranks it.
+ *
+ * Footprint 1.5 m (X) × 3.0 m (Z): nothing may pass x = ±0.75 or z = ±1.50.
+ * Widest features: the adiabatic spray headers at x = ±0.63 and the water
+ * headers at z = -1.36.
+ */
+export function _buildDryCoolerBankRoles() {
+  const b = makeBuckets();
+
+  const legH = 0.80, deckY = legH + 0.05;
+
+  // Legs — three pairs down the length, so the bank reads as elevated with
+  // clear air under it.
+  for (const lx of [-0.55, 0.55]) {
+    for (const lz of [-1.15, 0, 1.15]) {
+      const lw = 0.10, ld = 0.10;
+      const g = new THREE.BoxGeometry(lw, legH, ld);
+      applyTiledBoxUVs(g, lw, legH, ld);
+      pushT(b.stand, g, trans(lx, legH / 2, lz));
+    }
+    // Longitudinal tie between the legs
+    const tW = 0.08, tH = 0.08, tD = 2.30;
+    const g = new THREE.BoxGeometry(tW, tH, tD);
+    applyTiledBoxUVs(g, tW, tH, tD);
+    pushT(b.stand, g, trans(lx, 0.22, 0));
+  }
+
+  // Deck the coils sit on
+  {
+    const dW = 1.30, dH = 0.10, dD = 2.70;
+    const g = new THREE.BoxGeometry(dW, dH, dD);
+    applyTiledBoxUVs(g, dW, dH, dD);
+    pushT(b.stand, g, trans(0, deckY, 0));
+  }
+
+  // V-coils — two slabs leaning in toward each other. Rotated ±25° about Z,
+  // a 0.70 × 0.05 slab reaches 0.328 in X, so centring at ±0.32 lands the
+  // outer edge at 0.65.
+  const coilTilt = 25 * Math.PI / 180;
+  const coilY = deckY + 0.40;
+  for (const side of [-1, 1]) {
+    const cW = 0.70, cH = 0.05, cD = 2.50;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(side * 0.32, coilY, 0),
+      new THREE.Matrix4().makeRotationZ(side * coilTilt),
+    );
+    pushT(b.copper, g, m);
+  }
+  // Fin-pack banding across each coil, so the slab reads as finned tube
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const fW = 0.72, fH = 0.03, fD = 0.03;
+      const g = new THREE.BoxGeometry(fW, fH, fD);
+      applyTiledBoxUVs(g, fW, fH, fD);
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.32, coilY + 0.045, -1.00 + i * 0.50),
+        new THREE.Matrix4().makeRotationZ(side * coilTilt),
+      );
+      pushT(b.pipe, g, m);
+    }
+  }
+
+  // Plenum deck closing the top of the V, carrying the fans
+  const plenumY = 1.45;
+  {
+    const pW = 1.30, pH = 0.06, pD = 2.70;
+    const g = new THREE.BoxGeometry(pW, pH, pD);
+    applyTiledBoxUVs(g, pW, pH, pD);
+    pushT(b.iron, g, trans(0, plenumY, 0));
+  }
+
+  // Three axial fans along the length
+  for (const fz of [-0.90, 0, 0.90]) {
+    {
+      const shR = 0.34, shH = 0.14;
+      const g = new THREE.CylinderGeometry(shR, shR, shH, SEGS);
+      applyTiledCylinderUVs(g, shR, shH, SEGS);
+      pushT(b.detail, g, trans(0, plenumY + 0.03 + shH / 2, fz));
+    }
+    {
+      const hubR = 0.08, hubH = 0.06;
+      const g = new THREE.CylinderGeometry(hubR, hubR, hubH, SEGS);
+      applyTiledCylinderUVs(g, hubR, hubH, SEGS);
+      pushT(b.accent, g, trans(0, plenumY + 0.16 + hubH / 2, fz));
+    }
+    for (let i = 0; i < 4; i++) {
+      const bladeW = 0.56, bladeH = 0.015, bladeD = 0.12;
+      const g = new THREE.BoxGeometry(bladeW, bladeH, bladeD);
+      applyTiledBoxUVs(g, bladeW, bladeH, bladeD);
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(0, plenumY + 0.18, fz),
+        new THREE.Matrix4().makeRotationY((i / 4) * Math.PI * 2 + 0.3),
+      );
+      pushT(b.detail, g, m);
+    }
+    // Finger guard over each fan
+    for (let i = 0; i < 3; i++) {
+      const gW = 0.62, gH = 0.02, gD = 0.02;
+      const g = new THREE.BoxGeometry(gW, gH, gD);
+      applyTiledBoxUVs(g, gW, gH, gD);
+      pushT(b.accent, g, trans(0, plenumY + 0.26, fz - 0.18 + i * 0.18));
+    }
+  }
+
+  // Adiabatic pre-cool spray headers running the length just below the coil
+  // faces — the thing that buys back capacity on a hot afternoon.
+  for (const sx of [-0.60, 0.60]) {
+    const sR = 0.03, sL = 2.40;
+    const g = new THREE.CylinderGeometry(sR, sR, sL, 8);
+    applyTiledCylinderUVs(g, sR, sL, 8);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(sx, deckY + 0.20, 0),
+      rotX(Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+    // Nozzle stubs pointing up into the coil
+    for (let i = 0; i < 5; i++) {
+      const nR = 0.02, nL = 0.08;
+      const ng = new THREE.CylinderGeometry(nR, nR, nL, 6);
+      applyTiledCylinderUVs(ng, nR, nL, 6);
+      pushT(b.accent, ng, trans(sx, deckY + 0.20 + nL / 2 + 0.02, -1.00 + i * 0.50));
+    }
+  }
+
+  // Water supply/return headers across the -Z end, with risers up to the coil
+  for (const y of [0.50, 0.68]) {
+    const hR = 0.06, hL = 1.20;
+    const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
+    applyTiledCylinderUVs(g, hR, hL, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, y, -1.30),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+  for (const rx of [-0.45, 0.45]) {
+    const rR = 0.05, rL = 0.60;
+    const g = new THREE.CylinderGeometry(rR, rR, rL, 8);
+    applyTiledCylinderUVs(g, rR, rL, 8);
+    pushT(b.pipe, g, trans(rx, 0.68 + rL / 2, -1.30));
+  }
+
+  // Fan-control / VFD panel on the -Z end frame
+  {
+    const cW = 0.30, cH = 0.36, cD = 0.08;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(0, 0.55, -(1.30 + cD / 2)));
   }
 
   return b;

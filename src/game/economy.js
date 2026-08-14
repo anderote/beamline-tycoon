@@ -1,5 +1,10 @@
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
+// Imported from the solver module directly, not through the utility registry:
+// the registry pulls in every type descriptor and economy.js is imported from
+// inside that graph. cryoTransfer.js itself only reaches for cavity-specs and
+// endpoint-lookup, both leaves.
+import { heRecoveryFraction } from '../utility/types/cryoTransfer.js';
 import {
   poweredPlaceables, beamlineEnergyDraw, facilityEnergyDraw,
   pumpCount as countPumps,
@@ -368,7 +373,8 @@ export function computeSystemStats(state) {
   // "Sources 0 / Fwd 0 kW" next to a non-zero draw.
   const rfSourceTypes = [
     'magnetron', 'iot', 'solidStateAmp', 'highPowerSSA', 'twt',
-    'pulsedKlystron', 'cwKlystron', 'multibeamKlystron', 'gyrotron',
+    'slac5045Klystron', 'pulsedKlystron', 'cwKlystron', 'multibeamKlystron',
+    'gyrotron',
   ];
   const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
 
@@ -396,8 +402,8 @@ export function computeSystemStats(state) {
     avgEfficiency: avgEfficiency * 100,
     energyDraw: categoryDraw('rfPower'),
     detail: {
-      klystrons: (counts.pulsedKlystron || 0) + (counts.cwKlystron || 0)
-        + (counts.multibeamKlystron || 0),
+      klystrons: (counts.slac5045Klystron || 0) + (counts.pulsedKlystron || 0)
+        + (counts.cwKlystron || 0) + (counts.multibeamKlystron || 0),
       ssas: (counts.solidStateAmp || 0) + (counts.highPowerSSA || 0),
       iots: counts.iot || 0,
       magnetrons: counts.magnetron || 0,
@@ -418,8 +424,13 @@ export function computeSystemStats(state) {
   const subCooling2K = counts.coldBox2K || 0;
   const cryoHousings = counts.cryomoduleHousing || 0;
   const ln2Precool = counts.ln2Precooler || 0;
-  const heRecovery = counts.heRecovery || 0;
   const cryocoolers = counts.cryocooler || 0;
+  // "He Recovery: Yes/No" counted a single $4M block and meant nothing to the
+  // solver. The recovery chain is now a fraction of boil-off returned instead
+  // of vented, contributed once per installed TYPE — so the panel reports the
+  // fraction, which is the number that actually shows up on the helium bill.
+  // The table and the 90% cap live with the solver that applies them.
+  const heRecoveryFrac = heRecoveryFraction(Object.keys(counts));
 
   const cryoCapacity = portCapacity('cryo_out', 'coldCapacityW');
   // Every cryo sink counts, not just `cryomodule`: halfWaveResonator,
@@ -480,7 +491,7 @@ export function computeSystemStats(state) {
       subCooling2K,
       cryoHousings,
       ln2Precoolers: ln2Precool,
-      heRecovery,
+      heRecoveryFraction: heRecoveryFrac,
       cryocoolers,
       staticLoad,
       dynamicLoad,
@@ -495,7 +506,9 @@ export function computeSystemStats(state) {
   const fanCoils = counts.fanCoilCooler || 0;
   const packageChillers = counts.packageChiller || 0;
   const lcwSkids = counts.lcwSkid || 0;
+  const dualCircuitChillers = counts.dualCircuitChiller || 0;
   const chillers = counts.chiller || 0;
+  const dryCoolerBanks = counts.dryCoolerBank || 0;
   const towers = counts.coolingTower || 0;
   const exchangers = counts.heatExchanger || 0;
   const waterLoads = counts.waterLoad || 0;
@@ -518,7 +531,9 @@ export function computeSystemStats(state) {
       fanCoils,
       packageChillers,
       lcwSkids,
+      dualCircuitChillers,
       chillers,
+      dryCoolerBanks,
       coolingTowers: towers,
       heatExchangers: exchangers,
       waterLoads,
