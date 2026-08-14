@@ -361,6 +361,36 @@ test('a decisive demotion does hand the spot over, once the minimum hold and the
   assert.equal(supp.get('A'), undefined, 'the demoted fixture\'s painted pool is fully back — it is no longer lit for real');
 });
 
+test('a demolished fixture releases its spot immediately, without serving out the minimum hold', () => {
+  // The minimum hold damps churn in the RANKING. It must not apply to a
+  // fixture that has left the scene: waiting it out would hang a lit spot in
+  // the air at a demolished lamppost's last position for over a second.
+  const scene = new SceneStub();
+  const lamp = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  const spare = placeFixture(scene, 'B', DEF.lamppost, 30, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+
+  const camera = { position: new V3(0, 0, 0) };
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, lamp, 'the near lamppost holds the spot');
+  assert.ok(rig.getFixtureSuppression().get('A') > 0, 'and its painted pool is suppressed');
+
+  // Demolish it: out of the scene, and tell the rig the world changed. Only
+  // 50 ms of its 1200 ms tenure has elapsed.
+  scene.remove(lamp);
+  rig.markDirty();
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].releasing, true,
+    'the slot starts releasing on the very next frame, not after SPOT_MIN_HOLD_MS');
+
+  // Let only the 250 ms crossfade run — far short of the 1200 ms hold.
+  for (let i = 0; i < 6; i++) rig.update(camera, 1, 0.05);   // +300 ms
+  assert.equal(rig._spotSlots[0].assignedRef, spare,
+    'the freed slot moves to the surviving fixture well inside the minimum hold');
+  assert.equal(rig.getFixtureSuppression().get('A'), undefined,
+    'and the demolished fixture no longer suppresses anything');
+});
+
 test('the crossfade takes exactly five 50 ms frames each way, and the slot holds its fixture for the whole fade-out', () => {
   const scene = new SceneStub();
   const lamp = placeFixture(scene, 'A', DEF.lamppost, 0, 0);

@@ -386,6 +386,15 @@ export class LightRig {
     }
 
     // --- 2. incumbents ---------------------------------------------------
+    // A fixture that has left the scene entirely (demolished, or its group
+    // detached) is a different case from one that merely lost its ranking,
+    // and must NOT wait out SPOT_MIN_HOLD_MS. The minimum tenure exists to
+    // damp churn in the *ranking* — it is not a reason to keep a spot burning
+    // over a lamppost the player just knocked down, which would hang a light
+    // in the air at the demolished fixture's last world position for over a
+    // second. Ranked only ever contains live candidates, so absence from
+    // `present` is exactly "gone".
+    const present = new Set(this._fixtureCandidates);
     const held = new Set();
     for (const slot of this._spotSlots) {
       if (!slot.assignedRef) continue;
@@ -400,6 +409,8 @@ export class LightRig {
           slot.releasing = false;      // climbed back in — fade straight back up
           slot.heldSinceMs = this._clockMs;
         }
+      } else if (!present.has(slot.assignedRef)) {
+        slot.releasing = true;         // gone from the scene — release now
       } else if (!slackPool.has(slot.assignedRef)
                  && (this._clockMs - slot.heldSinceMs) >= SPOT_MIN_HOLD_MS) {
         slot.releasing = true;
