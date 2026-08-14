@@ -46,10 +46,20 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
     const primary = m.primarySkill || 'operating';
     m.skills[primary] = Math.min(10, m.skills[primary] + gain);
-    if (m.needs.fatigue > 0.8 || m.needs.hunger > 0.8) {
-      m.status = 'onBreak';
-      statusChanged = true;
-    }
+    // Hunger/fatigue crossing 0.8 used to flip status to 'onBreak' here —
+    // deleted (staff-professions-3 Task 2). That transition is the scar this
+    // comment used to explain: hunger *rose* on break with no cafeteria,
+    // making its own recovery condition unsatisfiable, so a staffer who ever
+    // went on break in a cafeteria-less facility could never return to
+    // 'working' and permanently tripped the beam. Recovery is now a real job
+    // (JOB_TYPES.eat/rest, assigned and ticked by
+    // src/game/staff/jobRunner.js, which needs-preempts whatever the member
+    // was doing) rather than a status this function drives — and jobRunner
+    // carries its OWN deadlock guard for the exact same no-cafeteria case
+    // (see its handleNeeds/tryTakeNeedJob), so this function no longer needs
+    // to reason about it at all. status stays 'working' the entire time,
+    // including while the member is travelling to or working an eat/rest
+    // job — only a stress breakdown (below) still changes status here.
     // breakdown risk when morale very low
     if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
@@ -58,7 +68,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
       m._restTimer = 30;
       statusChanged = true;
     }
-  } else if (m.status === 'onBreak' || m.status === 'resting') {
+  } else if (m.status === 'resting') {
     if (m._restTimer != null) {
       m._restTimer--;
       if (m._restTimer <= 0) {
@@ -68,12 +78,6 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
       }
     }
     m.needs.fatigue = Math.max(0, m.needs.fatigue - 0.05);
-    // Hunger always recovers on break — a cafeteria just makes it 4x faster.
-    // (It used to *rise* without a cafeteria, which made the recovery
-    // condition below unsatisfiable: a staffer who went on break in a
-    // cafeteria-less facility could never return to 'working', permanently
-    // tripping the beam via the beam_unstaffed gate. Slower recovery keeps the
-    // cafeteria valuable as an uptime multiplier without deadlocking.)
     m.needs.hunger = Math.max(0, m.needs.hunger - (cafeteriaTier > 0 ? 0.08 : 0.02));
     m.needs.morale = Math.min(1, m.needs.morale + 0.015);
     if (m._restTimer == null && m.needs.fatigue < 0.25 && m.needs.hunger < 0.35) {

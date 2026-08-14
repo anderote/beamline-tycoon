@@ -39,47 +39,31 @@ function makeGame(seed) {
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
-// Regression: the onBreak branch INCREASED hunger at cafeteriaTier 0 while the
-// return-to-work condition required hunger < 0.35, so a staffer who ever went
-// on break in a cafeteria-less facility was stuck forever — and the sole
-// starting operator locking out permanently tripped the beam.
+console.log('\n=== 1. Staff needs no longer deadlock without a cafeteria ===\n');
+// Regression (superseded — see staff-professions-3 Task 2): the OLD onBreak
+// branch INCREASED hunger at cafeteriaTier 0 while the return-to-work
+// condition required hunger < 0.35, so a staffer who ever went on break in a
+// cafeteria-less facility was stuck forever — and the sole starting operator
+// locking out permanently tripped the beam.
+//
+// Task 2 deleted the onBreak transition entirely: tickStaffMember no longer
+// manages status on high hunger/fatigue at all (status stays 'working'
+// throughout — see its own updated comment), and recovery is now a real job
+// (eat/rest) assigned and ticked by src/game/staff/jobRunner.js, which
+// carries its OWN deadlock guard for the exact no-cafeteria case this
+// regression pins — see test-job-runner.js's 500-tick "no cafeteria anywhere"
+// scenario for the live equivalent of this test. This block just pins that
+// the OLD mechanism is gone, not reintroduced by accident.
 {
   const m = new StaffMember({ id: 's1', profession: 'operator', name: 'T', traits: [], rng: () => 0.5 });
   m.status = 'working';
-  let flippedAt = -1;
-  for (let t = 0; t < 200 && flippedAt < 0; t++) {
+  for (let t = 0; t < 200; t++) {
     tickStaffMember(m, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m.status === 'onBreak') flippedAt = t;
   }
-  assert(flippedAt >= 0, `worker goes on break from fatigue (tick ${flippedAt})`);
-
-  let backAt = -1;
-  for (let t = 0; t < 400 && backAt < 0; t++) {
-    tickStaffMember(m, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m.status === 'working') backAt = t;
-  }
-  assert(backAt >= 0, `worker returns to 'working' with NO cafeteria (tick ${backAt})`);
-
-  // A cafeteria must still be worth building: it shortens the break.
-  const m2 = new StaffMember({ id: 's2', profession: 'operator', name: 'U', traits: [], rng: () => 0.5 });
-  m2.status = 'onBreak';
-  m2.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
-  let fastBack = -1;
-  for (let t = 0; t < 400 && fastBack < 0; t++) {
-    tickStaffMember(m2, { isNight: false, cafeteriaTier: 1, zoneTier: 0, rng: () => 0.5 });
-    if (m2.status === 'working') fastBack = t;
-  }
-  const m3 = new StaffMember({ id: 's3', profession: 'operator', name: 'V', traits: [], rng: () => 0.5 });
-  m3.status = 'onBreak';
-  m3.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
-  let slowBack = -1;
-  for (let t = 0; t < 400 && slowBack < 0; t++) {
-    tickStaffMember(m3, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m3.status === 'working') slowBack = t;
-  }
-  assert(fastBack >= 0 && slowBack >= 0 && fastBack < slowBack,
-    `a cafeteria still shortens the break (${fastBack} vs ${slowBack} ticks)`);
+  assert(m.status === 'working',
+    "tickStaffMember no longer flips status on high fatigue/hunger — that's jobRunner's job now");
+  assert(m.needs.fatigue > 0.8 || m.needs.hunger > 0.8,
+    'needs climb unchecked here absent a job driving recovery — the deadlock guard lives in jobRunner, not this function');
 }
 
 // The beam_unstaffed blocker must name the real cause, not the Control Room.

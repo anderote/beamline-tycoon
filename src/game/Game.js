@@ -24,6 +24,7 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
+import { assignJobs, tickJobs } from './staff/jobRunner.js';
 import { PROFESSIONS } from '../data/professions.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
@@ -4221,6 +4222,16 @@ export class Game {
       }
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
+
+      // The job runner (src/game/staff/jobRunner.js): hands idle staff their
+      // next job (needs — hunger/fatigue over threshold — outrank any work
+      // offer, see jobRunner's own doc comment on the deadlock guard this
+      // replaces), then advances everyone already on one. Order matters:
+      // tickStaffMember just ran above, so a member who crossed the hunger/
+      // fatigue threshold THIS tick gets picked up by assignJobs immediately
+      // rather than sitting one tick behind.
+      assignJobs(this);
+      tickJobs(this);
     }
 
     // Tick all running beamlines

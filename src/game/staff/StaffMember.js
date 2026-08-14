@@ -77,6 +77,14 @@ export class StaffMember {
     this.shift = opts.shift || (rng() < 0.3 ? 'night' : rng() < 0.5 ? 'day' : 'flex');
     this.status = opts.status || 'working';
     this.mood = opts.mood || 'content';
+    // The job runner's state (src/game/staff/jobRunner.js) — { jobType,
+    // target, specialty, stationKey, phase, progress } or null when idle.
+    // idleReason is a player-facing string explaining why `job` is null (or,
+    // for the hunger/fatigue deadlock guard, why it's recovering slower than
+    // it could be even while still holding one) — never both null/empty at
+    // once for a member the runner has actually looked at; see jobRunner.js.
+    this.job = opts.job || null;
+    this.idleReason = opts.idleReason ?? null;
     this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.profession}` }];
     this.stats = makeStats(opts.stats);
   }
@@ -125,6 +133,7 @@ export class StaffMember {
       assignment: { ...this.assignment }, shift: this.shift,
       status: this.status, mood: this.mood, history: [...this.history],
       stats: { ...this.stats },
+      job: this.job ? { ...this.job } : null, idleReason: this.idleReason,
     };
   }
 
