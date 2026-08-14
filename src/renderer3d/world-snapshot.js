@@ -4,7 +4,7 @@
 
 import { FLOORS } from '../data/structure.js';
 import { COMPONENTS } from '../data/components.js';
-import { DECORATIONS_RAW } from '../data/decorations.raw.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
 import { placementPose } from '../beamline/pipe-placements.js';
@@ -305,7 +305,11 @@ function buildDecorations(game) {
   return (game.state.placeables || [])
     .filter(p => p.kind === 'decoration')
     .map(d => {
-      const raw = DECORATIONS_RAW[d.type];
+      // PLACEABLES is a superset of the legacy DECORATIONS_RAW map and the
+      // source of truth for every def, lighting fixtures included — a
+      // DECORATIONS_RAW-only lookup would silently resolve lighting fixtures
+      // to category 'unknown' and default 4x4x4 dims.
+      const raw = PLACEABLES[d.type];
       const category = raw?.category ?? 'unknown';
       const subW = raw?.subW ?? raw?.gridW ?? 4;
       const subL = raw?.subL ?? raw?.gridH ?? 4;

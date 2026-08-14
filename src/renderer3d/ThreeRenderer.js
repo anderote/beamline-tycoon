@@ -62,8 +62,8 @@ import {
   easeInOutQuad,
   pickSnapMode,
   targetPitchForMode,
-  yawStepForMode,
-  yawDivisionsForMode,
+  YAW_STEP,
+  YAW_DIVISIONS,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
 
@@ -1118,19 +1118,17 @@ export class ThreeRenderer {
   }
 
   /**
-   * Rotate the view by ±90° (RCT2-style). Animates to the new rest angle.
-   * Operates on the active mode's yaw index — iso and top-down keep
-   * independent facings.
+   * Rotate the view by ±45° (RCT2-style, extended to 8 facings). Animates to
+   * the new rest angle. Operates on the active mode's yaw index — iso and
+   * top-down keep independent facings.
    */
   rotateView(delta) {
     if (this._viewRotating || this._snapping) return;
     const step = delta > 0 ? 1 : -1;
-    const divs = yawDivisionsForMode(this.viewMode);
-    const stepRad = yawStepForMode(this.viewMode);
-    const nextIdx = (((this._currentYawIdx() + step) % divs) + divs) % divs;
+    const nextIdx = (((this._currentYawIdx() + step) % YAW_DIVISIONS) + YAW_DIVISIONS) % YAW_DIVISIONS;
     this._setCurrentYawIdx(nextIdx);
     this._viewRotFromAngle = this._viewRotationAngle;
-    this._viewRotToAngle = this._viewRotFromAngle + step * stepRad;
+    this._viewRotToAngle = this._viewRotFromAngle + step * YAW_STEP;
     this._viewRotStartMs = performance.now();
     this._viewRotating = true;
     if (this.world) this.world.visible = false;
@@ -1159,9 +1157,8 @@ export class ThreeRenderer {
     let toYaw = fromYaw;
     if (yawIdx !== undefined && yawIdx !== null) {
       // Shortest signed delta: choose the multiple of 2π so the animation
-      // takes the short way around the yaw circle. Step depends on target mode.
-      const stepRad = yawStepForMode(mode);
-      const target = yawIdx * stepRad;
+      // takes the short way around the yaw circle.
+      const target = yawIdx * YAW_STEP;
       const k = Math.round((fromYaw - target) / (2 * Math.PI));
       toYaw = target + k * 2 * Math.PI;
     }
@@ -1222,7 +1219,7 @@ export class ThreeRenderer {
   /**
    * End a free-orbit drag. Picks the closer preset (iso vs top-down) by
    * release pitch and kicks off a 400ms easeInOutQuad animation back to
-   * that view. Yaw snaps to the nearest π/2 multiple. On completion,
+   * that view. Yaw snaps to the nearest π/4 multiple. On completion,
    * viewMode and the destination mode's yaw index are updated so Q/E
    * continues from the snapped pose.
    */
@@ -1232,7 +1229,7 @@ export class ThreeRenderer {
     const targetMode = pickSnapMode(this._freePitch);
     this._snapFromYaw = this._freeYaw;
     this._snapFromPitch = this._freePitch;
-    this._snapToYaw = snapYaw(this._freeYaw, yawStepForMode(targetMode));
+    this._snapToYaw = snapYaw(this._freeYaw, YAW_STEP);
     this._snapToPitch = targetPitchForMode(targetMode);
     this._snapStartMs = performance.now();
     this._snapTargetMode = targetMode;
@@ -1251,9 +1248,7 @@ export class ThreeRenderer {
       // Commit the target mode and write the snapped yaw into that mode's index.
       this.viewMode = this._snapTargetMode;
       this._viewRotationAngle = this._snapToYaw;
-      const stepRad = yawStepForMode(this.viewMode);
-      const divs = yawDivisionsForMode(this.viewMode);
-      const idx = ((Math.round(this._snapToYaw / stepRad) % divs) + divs) % divs;
+      const idx = ((Math.round(this._snapToYaw / YAW_STEP) % YAW_DIVISIONS) + YAW_DIVISIONS) % YAW_DIVISIONS;
       this._setCurrentYawIdx(idx);
       this._freePitch = targetPitchForMode(this.viewMode);
       this._snapping = false;

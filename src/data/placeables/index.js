@@ -10,6 +10,7 @@ import { INFRASTRUCTURE_DEFS } from './infrastructure.js';
 import { FURNISHING_DEFS } from './furnishings.js';
 import { EQUIPMENT_DEFS } from './equipment.js';
 import { DECORATION_DEFS } from './decorations.js';
+import { LIGHTING_DEFS } from './lighting.js';
 
 const ALL_DEFS = [
   ...BEAMLINE_MODULE_DEFS,
@@ -17,6 +18,7 @@ const ALL_DEFS = [
   ...FURNISHING_DEFS,
   ...EQUIPMENT_DEFS,
   ...DECORATION_DEFS,
+  ...LIGHTING_DEFS,
 ];
 
 export const PLACEABLES = {};
