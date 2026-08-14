@@ -22,6 +22,7 @@ import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
 import { facilityStaffingReport, facilityProgressReport } from '../game/staff/staffDiagnostics.js';
+import { professionDef } from '../data/professions.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from './format.js';
 import { utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
@@ -535,19 +536,42 @@ function positionStaffingBanner(panel) {
 // round 1's F9, mirroring _renderInfraBlockerList's own "reposition
 // regardless" comment) since the top bar's height can change independently
 // of either report.
+//
+// Fix round 2's F2 (BLOCKING): facilityProgressReport used to be asked ONLY
+// when `staffing.idleCount === 0` — so a facility earning nothing (an
+// operator seated, beam never started — facilityProgressReport.stalled
+// true) lost its own headline the instant ONE ordinary admin happened to be
+// idle too (a near-default state for an early facility), replaced by a
+// lower-stakes "1 staff idle: no admin work available". `progress` is now
+// computed unconditionally, every call, and a real stall ALWAYS outranks
+// the idle-staff banner when both are true — a hard stall is a bigger
+// problem than one admin with nothing to do, and must never be hidden by
+// it.
 UIHost.prototype._renderStaffingBanner = function() {
   const panel = ensureStaffingBanner();
   if (!panel) return;
   positionStaffingBanner(panel);
 
-  const staffing = facilityStaffingReport(this.game);
-  const progress = staffing.idleCount === 0 ? facilityProgressReport(this.game) : null;
+  const progress = facilityProgressReport(this.game);
+  const staffing = progress.stalled ? null : facilityStaffingReport(this.game);
 
-  const sig = staffing.idleCount > 0
-    ? `idle|${staffing.idleCount}|${staffing.worst.reason}|${staffing.worst.count}`
-    : (progress && progress.stalled ? `stall|${progress.reason}` : '0');
+  const sig = progress.stalled
+    ? `stall|${progress.reason}`
+    : (staffing.idleCount > 0 ? `idle|${staffing.idleCount}|${staffing.worst.reason}|${staffing.worst.count}` : '0');
   if (sig === this._staffingBannerSig) return;
   this._staffingBannerSig = sig;
+
+  if (progress.stalled) {
+    panel.textContent = `⏸ Facility stalled: ${progress.reason}`;
+    panel.title = 'Nothing has completed in a while — this outranks idle-staff notices until it clears.';
+    panel.style.background = 'rgba(40,20,20,0.94)';
+    panel.style.border = '1px solid rgba(255,120,90,0.5)';
+    panel.style.color = '#ffb08c';
+    panel.style.cursor = 'default';
+    panel.style.display = '';
+    panel.onclick = null;
+    return;
+  }
 
   if (staffing.idleCount > 0) {
     const { reason, count } = staffing.worst;
@@ -559,18 +583,6 @@ UIHost.prototype._renderStaffingBanner = function() {
     panel.style.cursor = 'pointer';
     panel.style.display = '';
     panel.onclick = () => this._openStaffingBannerGroup();
-    return;
-  }
-
-  if (progress && progress.stalled) {
-    panel.textContent = `⏸ Facility stalled: ${progress.reason}`;
-    panel.title = 'Everyone is busy, but nothing has completed in a while.';
-    panel.style.background = 'rgba(40,20,20,0.94)';
-    panel.style.border = '1px solid rgba(255,120,90,0.5)';
-    panel.style.color = '#ffb08c';
-    panel.style.cursor = 'default';
-    panel.style.display = '';
-    panel.onclick = null;
     return;
   }
 
@@ -626,7 +638,7 @@ UIHost.prototype._openStaffingRoster = function(reason) {
       const roleColor = ROLE_COLORS[m.profession] || '#4466aa';
       html += `<div class="staffing-roster-row" data-staff-id="${escapeHtml(m.id)}" style="cursor:pointer;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:9px;display:flex;justify-content:space-between;">`
         + `<span>${escapeHtml(m.name || m.id)}</span>`
-        + `<span style="color:${roleColor};">${escapeHtml(m.profession)}</span>`
+        + `<span style="color:${roleColor};">${escapeHtml(professionDef(m.profession)?.name || m.profession)}</span>`
         + `</div>`;
     }
     html += '</div>';
@@ -3310,6 +3322,28 @@ UIHost.prototype._openHiringDialog = function() {
   openHiringDialog(this.game);
 };
 
+// A cheap fingerprint of everything a staff inspector window's "Work"/
+// Needs/Assignment sections actually SHOW — fix round 2's F6's own guard,
+// the same shape _renderStaffingBanner already uses for its DOM. Needs
+// values are rounded to the nearest 5% (the same precision the needs bars
+// display — Math.round(pct) in StaffInspector.js) rather than compared
+// exactly: raw fatigue/hunger/morale drift by a small fraction EVERY tick,
+// and comparing them at full precision would defeat the guard entirely —
+// every call would look "different" even though nothing visibly changed.
+function staffWindowSig(m) {
+  const job = m.job;
+  const s = m.stats || {};
+  return [
+    m.mood, m.status, m.shift,
+    m.assignment?.zoneId || '', m.assignment?.beamlineId || '',
+    job?.jobType || '', job?.phase || '', job?.stationKey || '', job?.target?.nodeId || '',
+    m.idleReason || '', m.unservicedPenalty ? 1 : 0,
+    Math.round((m.needs?.fatigue ?? 0) * 20), Math.round((m.needs?.hunger ?? 0) * 20), Math.round((m.needs?.morale ?? 0) * 20),
+    (m.history || []).length,
+    (s.repairs || 0) + (s.commissions || 0) + (s.sparesMade || 0) + (s.analyses || 0) + (s.beamHours || 0),
+  ].join('|');
+}
+
 // Refreshes every open staff-related window against LIVE state — called
 // every tick from _updateHUD (fix round 1's F3), not just on 'staffChanged'.
 // That event fires on hire/fire/assignment, never on a job or idleReason
@@ -3319,21 +3353,54 @@ UIHost.prototype._openHiringDialog = function() {
 // and the open roster (and any inspector opened from it) kept reading the
 // old text forever, directly contradicting this whole layer's reason for
 // existing.
+//
+// Fix round 2's F6: calling every tick with NO guard meant every open
+// inspector's whole body — including its three live <select> elements
+// (Zone/Beam/Shift, each freshly built and re-listened on every render —
+// see StaffInspector.js's renderInspector) — was destroyed and rebuilt
+// about once a second regardless of whether anything shown had actually
+// changed. An open <select>'s dropdown closes the instant its underlying
+// element is replaced, so a player mid-click on the Zone dropdown lost
+// their own in-progress selection before they could make it; scroll
+// position and text selection reset the same way on every refresh, on
+// both the inspector and the roster. `staffWindowSig`/the roster's own
+// membership+reason signature (mirroring `_renderStaffingBanner`'s own
+// guard) now skip the rebuild — and so skip destroying any of that —
+// whenever nothing visible actually changed since the last refresh.
 UIHost.prototype._refreshStaffWindows = function() {
   const members = (this.game && this.game.state && this.game.state.staffMembers) || [];
+  if (!this._staffWindowSigs) this._staffWindowSigs = new Map();
+  const liveIds = new Set();
   for (const m of members) {
     const win = ContextWindow.getWindow('staff-' + m.id);
-    if (win && typeof win.refresh === 'function') {
-      try { win.refresh(); } catch (_) {}
-    }
+    if (!win || typeof win.refresh !== 'function') continue;
+    liveIds.add(m.id);
+    const sig = staffWindowSig(m);
+    if (this._staffWindowSigs.get(m.id) === sig) continue;
+    this._staffWindowSigs.set(m.id, sig);
+    try { win.refresh(); } catch (_) {}
   }
+  // Drop signatures for staff no longer on the roster (fired, e.g.) so a
+  // later same-id member (shouldn't happen, but ids are otherwise unbounded
+  // over a long save) never inherits a stale comparison baseline.
+  for (const id of [...this._staffWindowSigs.keys()]) {
+    if (!liveIds.has(id)) this._staffWindowSigs.delete(id);
+  }
+
   const hiring = ContextWindow.getWindow('hiring-dialog');
   if (hiring && typeof hiring.refresh === 'function') {
     try { hiring.refresh(); } catch (_) {}
   }
+
   const roster = ContextWindow.getWindow(STAFFING_ROSTER_WINDOW_ID);
   if (roster && typeof roster.refresh === 'function') {
-    try { roster.refresh(); } catch (_) {}
+    const report = facilityStaffingReport(this.game);
+    const group = report.byReason.find(g => g.reason === roster._staffingRosterReason);
+    const rosterSig = group ? `${group.reason}|${group.members.map(m => m.id).join(',')}` : 'gone';
+    if (this._staffingRosterSig !== rosterSig) {
+      this._staffingRosterSig = rosterSig;
+      try { roster.refresh(); } catch (_) {}
+    }
   }
 };
 
