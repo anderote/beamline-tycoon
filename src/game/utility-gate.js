@@ -34,7 +34,10 @@ const HARD_REQUIRED_UTILS = [
   'hvCable',
   'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
 ];
-const UNCONNECTED_CODES = {
+// Exported because this map IS the utility -> blocker-code contract: the
+// advisor generates one advice rule per entry, so a utility added here gets
+// advice for free and can never drift from the blocker that produced it.
+export const UNCONNECTED_CODES = {
   hvCable:      'hv_unconnected',
   powerCable:   'power_unconnected',
   vacuumPipe:   'vacuum_unconnected',
