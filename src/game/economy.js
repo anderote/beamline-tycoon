@@ -390,8 +390,13 @@ export function computeSystemStats(state) {
   const reflFraction = worstReflectedFraction(state);
   const totalReflPower = totalFwdPower * reflFraction;
 
-  const avgEfficiency = rfSourceCount > 0 ? 0.55 : 0; // rough average
-  const rfWallPower = avgEfficiency > 0 ? totalFwdPower / avgEfficiency : 0;
+  // RF source energyCost is its wall-plug draw (output / efficiency, rounded
+  // for the catalogue). Use the placed sources themselves instead of
+  // re-converting all nameplate output through a fictional flat 55%: that
+  // estimate disagreed with both the electricity bill and the power gate for
+  // every mixed-source facility.
+  const rfWallPower = categoryDraw('rfPower', 'supply');
+  const avgEfficiency = rfWallPower > 0 ? totalFwdPower / rfWallPower : 0;
   const reflShown = totalFwdPower > 0 ? totalReflPower / totalFwdPower : 0;
   const vswr = reflShown > 0 ? ((1 + Math.sqrt(reflShown)) / (1 - Math.sqrt(reflShown))).toFixed(2) : '1.00';
 

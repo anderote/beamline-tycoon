@@ -271,6 +271,16 @@ console.log('\n=== 6. Systems panel counts real component ids ===\n');
   const st = computeSystemStats(state);
   assert(st.rfPower.sourceCount === 6, `all six RF sources counted (got ${st.rfPower.sourceCount})`);
   assert(st.rfPower.totalFwdPower > 0, `forward power non-zero (got ${st.rfPower.totalFwdPower})`);
+  const sourceTypes = ['pulsedKlystron', 'multibeamKlystron', 'gyrotron',
+    'solidStateAmp', 'highPowerSSA', 'twt'];
+  const actualWallDraw = sourceTypes.reduce((sum, id) => sum + COMPONENTS[id].energyCost, 0);
+  assert(st.rfPower.wallPower === actualWallDraw,
+    `RF wall power is the billed source draw (${actualWallDraw} kW, got ${st.rfPower.wallPower})`);
+  assert(Math.abs(st.rfPower.avgEfficiency
+    - st.rfPower.totalFwdPower / actualWallDraw * 100) < 1e-9,
+  `RF efficiency is output / actual wall draw (got ${st.rfPower.avgEfficiency}%)`);
+  assert(st.rfPower.energyDraw === actualWallDraw,
+    `RF category draw includes the same sources (${st.rfPower.energyDraw} kW)`);
   assert(st.rfPower.detail.klystrons === 2, `klystron detail row counts real ids (got ${st.rfPower.detail.klystrons})`);
   assert(st.rfPower.detail.ssas === 2, `SSA detail row counts real ids (got ${st.rfPower.detail.ssas})`);
   assert(st.cryo.detail.subCooling2K === 2, `coldBox2K counted as 2 K plant (got ${st.cryo.detail.subCooling2K})`);

@@ -272,28 +272,32 @@ const BEAMLINE_UTILITY_PORTS = {
 
   // ── RF — normal conducting ────────────────────────────────────────
   // RF demand mirrors raw rfPowerRequired; frequency comes from raw
-  // rfFrequency (MHz → Hz) via getUtilityPortsV2.
+  // rfFrequency (MHz → Hz) via getUtilityPortsV2. Electrical demand is
+  // only the cavity's local auxiliaries (tuners, controls, pumps): the RF
+  // source already draws and is billed for the wall-plug power that becomes
+  // rf_in. Including rfPowerRequired here as well charges the power network
+  // for the same conversion twice.
   buncher: {
-    pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 5 } },
+    pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 1 } },
     rf_in:  { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.7, role: 'sink', params: { demand: 2 } },
   },
   rfq: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 40 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 6 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 60 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 25 } },
   },
   pillboxCavity: {
-    pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 10 } },
+    pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 3 } },
     rf_in:  { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.7, role: 'sink', params: { demand: 5 } },
   },
   // Copper structures guzzle RF and dump most of it into the water loop.
   rfCavity: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 20 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 120 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 40 } },
   },
   sbandStructure: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 15 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 100 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 45 } },
   },
@@ -301,14 +305,15 @@ const BEAMLINE_UTILITY_PORTS = {
   // energy gain does: dissipation goes as the square of the gradient, so a
   // C-band structure at 40 MV/m asks for more than twice an S-band's RF to
   // deliver twice its energy, and an X-band at 100 MV/m more than twice again.
-  // That is the real cost of compactness and it should show up on the bill.
+  // That is the real RF-source and cooling cost of compactness; the cavity's
+  // direct power feed remains its separately billed auxiliary load.
   cbandStructure: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 130 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 45 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 220 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 110 } },
   },
   xbandStructure: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 280 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 90 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 480 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 240 } },
   },
@@ -318,7 +323,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // injector's share. The wall power and the water are where the real cost of
   // 6 GeV lands.
   twoBeamModule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 900 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 120 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 780 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 400 } },
   },
@@ -351,7 +356,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // It is a self-contained industrial skid, which is why the water demand is
   // proportionally the heaviest part: this thing runs all shift.
   industrialLinac: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 25 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 8 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 45 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 20 } },
   },
@@ -360,23 +365,23 @@ const BEAMLINE_UTILITY_PORTS = {
   // Near-zero wall losses: modest electric draw, tiny RF drive, but a
   // per-cavity heat load in watts on the cryo plant.
   halfWaveResonator: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 8 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 4 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 15 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 3 } },
   },
   spokeCavity: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 10 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 5 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 25 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 8 } },
   },
   ellipticalSrfCavity: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 12 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 3 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 40 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 5 } },
   },
   // Eight cavities in one cryostat: its cryo load dwarfs a single cavity's.
   cryomodule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 80 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 12 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 250 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 40 } },
   },
@@ -387,12 +392,12 @@ const BEAMLINE_UTILITY_PORTS = {
   // CW into a heavy beam load, so it asks for more RF than an electron
   // cryomodule of similar size and less cold.
   srf650Cryomodule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 8 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 180 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
   },
   srf805Cryomodule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 110 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 14 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 380 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 120 } },
   },
@@ -401,7 +406,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // asks for more cryogenics than the six-module Nb3Sn sector below it does
   // at 4.5 K.
   cwCryomodule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 140 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 16 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 900 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 100 } },
   },
@@ -409,7 +414,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // Nb3Sn. Twice the modules of the CW sector for less than the cold, because
   // 4.5 K helium is roughly three times cheaper per watt than superfluid.
   nbSnCryomodule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 220 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 20 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 700 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 200 } },
   },
@@ -417,7 +422,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // sector is a sector: no single coldBox2K (800 W) covers it, so a collider
   // arm is a cryoplant-planning problem before it is anything else.
   srfLinacSector: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 600 } },
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 45 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 4200 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 600 } },
   },

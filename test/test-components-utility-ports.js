@@ -158,6 +158,28 @@ console.log('\n--- Every RF source declares bands; every band is covered ---');
 }
 
 // ==========================================================================
+// Test 9: RF sinks keep electrical auxiliaries separate from RF power.
+// ==========================================================================
+console.log('\n--- RF sink power is counted exactly once ---');
+{
+  let sinks = 0;
+  for (const [id, c] of Object.entries(COMPONENTS)) {
+    const ports = getUtilityPortsV2(id);
+    const rf = Object.values(ports).find(
+      p => p.utility === 'rfWaveguide' && p.role === 'sink');
+    if (!rf) continue;
+    sinks++;
+    const pwr = Object.values(ports).find(
+      p => p.utility === 'powerCable' && p.role === 'sink');
+    assert(rf.params.demand === c.rfPowerRequired,
+      `${id} rf_in demand matches rfPowerRequired (${c.rfPowerRequired} kW)`);
+    assert(pwr?.params?.demand === c.energyCost,
+      `${id} pwr_in is only its billed auxiliary draw (${c.energyCost} kW)`);
+  }
+  assert(sinks > 0, `audited ${sinks} RF sinks`);
+}
+
+// ==========================================================================
 // Summary.
 // ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);

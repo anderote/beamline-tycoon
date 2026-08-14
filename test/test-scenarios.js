@@ -217,10 +217,12 @@ for (const scenario of SCENARIOS) {
   const flow = powerFlows && [...powerFlows.values()][0];
   assert(!!flow && flow.totalCapacity === 250,
     `the branch circuits see the panel's 250 kW (got ${flow?.totalCapacity})`);
-  // gun 50 + cup 1 + buncher 5 + 3x cavity 10 + quad 10 + bpm 1
+  // gun 50 + cup 1 + buncher 1 + 3x cavity 3 + quad 10 + bpm 1
   //   + skid 3 + amp 70 + ioc 0.5 + roughing 0.5 + turbo 1
-  assert(!!flow && flow.totalDemand === 172,
-    `whole-facility demand = 172 kW (got ${flow?.totalDemand})`);
+  // RF output is supplied by the amp; the buncher/cavity power feeds carry
+  // only the separately billed local auxiliaries.
+  assert(!!flow && flow.totalDemand === 147,
+    `whole-facility demand = 147 kW (got ${flow?.totalDemand})`);
 
   // The 162.5 MHz cavities have an RF source that actually covers their band
   // (the SSA) — a frequency mismatch is only a SOFT error, so it would
