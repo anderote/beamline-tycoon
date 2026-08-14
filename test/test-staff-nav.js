@@ -18,8 +18,12 @@ function assertOk(cond, msg) {
 }
 
 // A minimal Game.state stand-in. Every field nav.js reads is present, even
-// when empty, so buildNavGrid never has to guess at a missing map.
-function makeState() {
+// when empty, so buildNavGrid never has to guess at a missing map. No
+// mapHalfExtent by default — most scenarios below want the fallback
+// content-bbox bounds so a tiny hand-built floor patch still has room to
+// path across the surrounding "grass"; pass { mapHalfExtent } explicitly
+// for scenarios that need the real Game.js bounds behaviour.
+function makeState(extra = {}) {
   return {
     infraOccupied: {},
     wallOccupied: {},
@@ -28,6 +32,7 @@ function makeState() {
     placeableIndex: {},
     placeables: [],
     navRevision: 0,
+    ...extra,
   };
 }
 
@@ -180,13 +185,9 @@ console.log('\n=== 6b. Floor is preferred over grass along a non-detouring route
 {
   // A floored L (rightward along row 0, then downward along col 6) is one
   // of many equally-short MONOTONIC routes from (0,0) to (6,4) — every
-  // monotonic route covers the same 46 subtiles, so the (deliberately
-  // weighted, see nav.js's heuristic() comment) A* has no geometric reason
-  // to avoid it, and the true cost difference (floor vs grass) is what
-  // decides. A route requiring a geometric DETOUR to reach floor is a
-  // different, harder case the weighted heuristic deliberately does not
-  // guarantee — see nav.js's heuristic() comment for why bounded
-  // termination was chosen over that guarantee.
+  // monotonic route covers the same 46 subtiles, so even a heavily-weighted
+  // heuristic has no geometric reason to avoid it, and the true cost
+  // difference (floor vs grass) is what decides.
   const state = makeState();
   floorRect(state, 0, 6, 0, 0); // rightward run
   floorRect(state, 6, 6, 0, 4); // downward run
@@ -204,6 +205,38 @@ console.log('\n=== 6b. Floor is preferred over grass along a non-detouring route
   // confirmation that floor was preferred over the surrounding grass.
   assertOk(actualCost === manhattanSubtiles,
     `the route costs exactly ${manhattanSubtiles} (Manhattan distance at floor cost), meaning it never left the floored L (got ${actualCost})`);
+}
+
+console.log('\n=== 6c. A detour is chosen over cutting across grass (pass 1: admissible A*) ===\n');
+{
+  // Restores the original detour scenario from before the two-pass fix.
+  // Two floor blocks (cols 0-1 and col 6, row 0) separated by a 4-tile
+  // grass gap, plus a floored corridor one row south (row 1, cols 1-6) —
+  // reaching it from (0,0) requires stepping AWAY from the goal's row
+  // first, a real geometric detour, not just a monotonic reroute. This is
+  // exactly what a single fixed-weight heuristic (the round-1 fix) could
+  // not find: admissible search over the whole map is too slow to be
+  // usable, and any weight big enough to terminate on a 60-tile crossing
+  // (w >= ~2) also makes ordinary short detours like this one invisible to
+  // the search, so the pawn cuts across the lawn instead. nav.js's
+  // search() runs a small, cheap, ADMISSIBLE pass first — this scenario is
+  // well within its budget — so the true optimum (cost 32, all on floor
+  // except the unavoidable 4-tile grass crossing) is what gets returned.
+  const state = makeState();
+  floorRect(state, 0, 1, 0, 0);
+  floorRect(state, 6, 6, 0, 0);
+  floorRect(state, 1, 6, 1, 1);
+  const nav = buildNavGrid(state);
+
+  const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const to = { col: 6, row: 0, subCol: 0, subRow: 0 };
+  const path = findPath(nav, from, to);
+  assertOk(!!path, 'a path exists');
+  const actualCost = pathCost(nav, path);
+  assertOk(actualCost === 32,
+    `the path takes the floored detour (cost 32) rather than cutting across the 4-tile grass gap (cost 48) (got ${actualCost})`);
+  const usedCorridor = path.some(n => n.row === 1);
+  assertOk(usedCorridor, 'the path actually dips into the row-1 corridor rather than coincidentally costing the same');
 }
 
 console.log('\n=== 7. worldToSubtile / subtileToWorld round-trip ===\n');
@@ -245,26 +278,69 @@ console.log('\n=== 9. A goal outside bounds returns null rather than hanging ===
   const farGoal = { col: 10000, row: 10000, subCol: 0, subRow: 0 };
   assertOk(findPath(nav, from, farGoal) === null, 'findPath returns null for a goal outside bounds');
   assertOk(isReachable(nav, from, farGoal) === false, 'isReachable agrees');
+
+  // Same check against mapHalfExtent-derived bounds (the primary path, not
+  // the no-mapHalfExtent fallback the rest of this test file uses) — a goal
+  // past the map's own edge must still be rejected, not just a goal past
+  // wherever infraOccupied happens to have entries.
+  const bounded = makeState({ mapHalfExtent: 10 });
+  const navBounded = buildNavGrid(bounded);
+  const insideOrigin = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const justOutside = { col: 11, row: 0, subCol: 0, subRow: 0 };
+  assertOk(findPath(navBounded, insideOrigin, justOutside) === null,
+    'a goal one tile past mapHalfExtent returns null');
 }
 
-console.log('\n=== 10. A long cross-map path over bare ground is reachable, not null ===\n');
+console.log('\n=== 10. A corner-to-corner path on a default-sized map is reachable, not null ===\n');
 {
-  // Regression for the heuristic scale bug: an admissible heuristic scaled
-  // by FLOOR_COST underestimates a grass-heavy route by up to
-  // GRASS_COST/FLOOR_COST, degrading A* towards Dijkstra's uniform-cost
-  // search on open ground — which blows through MAX_EXPANDED_NODES and
-  // returns null for a routine, very much reachable crossing. The default
-  // map is 61x61 tiles (DEFAULT_MAP_HALF_EXTENT = 30 in Game.js), so a
-  // corner-to-corner walk of this size is not a contrived edge case.
-  const state = makeState();
-  floorRect(state, 0, 0, 0, 0);
-  floorRect(state, 30, 30, 30, 30);
+  // The critical regression: DEFAULT_MAP_HALF_EXTENT = 30 in Game.js makes
+  // this a 61x61 tile map, so a corner-to-corner walk is a routine 60-tile
+  // diagonal, not a contrived edge case. A single-weight heuristic —
+  // admissible (too slow, O(d^2)) or weighted by GRASS_COST exactly (still
+  // O(d^2): every node on the direct route shares the goal's f-score, so
+  // A* must drain the whole plateau) — returned null here. The two-pass
+  // search's pass 2 (only reached once pass 1's small admissible budget
+  // is exhausted) is what actually terminates at this scale.
+  const state = makeState({ mapHalfExtent: 30 });
   const nav = buildNavGrid(state);
-  const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const from = { col: -30, row: -30, subCol: 0, subRow: 0 };
   const to = { col: 30, row: 30, subCol: 3, subRow: 3 };
   const path = findPath(nav, from, to);
-  assertOk(!!path, 'a 30-tile diagonal crossing of open ground returns a path, not null');
+  assertOk(!!path, 'a corner-to-corner path on a default-sized (halfExtent 30) map returns a path, not null');
   assertOk(isReachable(nav, from, to), 'isReachable agrees');
+}
+
+console.log('\n=== 11. mapHalfExtent bounds cover the whole map, not just infraOccupied\'s content bbox ===\n');
+{
+  // Regression: bounds inflated from infraOccupied's bbox by a fixed margin
+  // put real map tiles out of bounds whenever the built area was lopsided
+  // (a starter map's floor footprint is rarely centered on the origin).
+  // Reproduces the reported case at a smaller scale: mapHalfExtent 30, but
+  // every floor tile sits in rows -29..18 — an old content-bbox+8 approach
+  // would cap out around row 26, well short of the map's real edge at
+  // row 30.
+  const state = makeState({ mapHalfExtent: 30 });
+  floorRect(state, -5, 5, -29, 18);
+  const nav = buildNavGrid(state);
+  assertOk(nav.bounds.maxRow === 30,
+    `bounds derive from mapHalfExtent (30), not the lopsided content bbox (got maxRow=${nav.bounds.maxRow})`);
+
+  const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const to = { col: 0, row: 20, subCol: 0, subRow: 0 }; // outside the content bbox, inside the map
+  assertOk(findPath(nav, from, to) !== null,
+    'a tile outside the content bbox but inside the map is still addressable');
+}
+
+console.log('\n=== 12. passable.has() rejects a malformed subCol/subRow ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 2, 0, 2);
+  const nav = buildNavGrid(state);
+  assertOk(nav.passable.has('0,0,0,0') === true, 'sanity: an ordinary in-range key is passable');
+  assertOk(nav.passable.has('0,0,9,9') === false, 'subCol/subRow of 9 (out of [0,3]) is rejected');
+  assertOk(nav.passable.has('0,0,4,0') === false, 'subCol of 4 (one past the valid range) is rejected');
+  assertOk(nav.passable.has('0,0,-1,0') === false, 'a negative subCol is rejected');
+  assertOk(nav.passable.has('0,0,0,-1') === false, 'a negative subRow is rejected');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

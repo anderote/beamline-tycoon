@@ -22,6 +22,7 @@ import {
 } from './edge-keys.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
+import { sanitizeStationReservations } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
 import { PROFESSIONS } from '../data/professions.js';
 
@@ -56,6 +57,7 @@ const SERIALIZED_FIELDS = [
   'tutorialDismissed', 'welcomeSeen',
   // staff
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'stationReservations',
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
   'zones', 'walls', 'doors', 'windows',
@@ -256,6 +258,11 @@ export class Game {
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
       staffCandidates: [], // hiring pool (3 offered)
+      // Work-station slot claims (src/game/staff/stations.js): key
+      // ("placeableId:slotIndex") -> staffId. Sanitized in _applyState —
+      // any entry naming a demolished/reconfigured station or a staffer no
+      // longer on the roster is dropped there.
+      stationReservations: {},
       // Half-side of the square map, in tiles: the site is
       // |col| <= mapHalfExtent, |row| <= mapHalfExtent. Saved, and growable —
       // the player buys it a parcel at a time (see buyLand and
@@ -5268,6 +5275,15 @@ export class Game {
     for (const w of this.state.windows) {
       this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
     }
+
+    // Drop station reservations that no longer point at anything real — a
+    // demolished/reconfigured station's key, or a staffer no longer on the
+    // roster (both staffMembers and placeableIndex/navRevision are already
+    // current at this point). A reservation surviving its station is the
+    // leak the staff-professions spec calls out as the highest-risk
+    // invariant in the whole work system.
+    if (!this.state.stationReservations) this.state.stationReservations = {};
+    sanitizeStationReservations(this.state);
 
     // Migrate: remove deprecated energy resource
     delete this.state.resources.energy;

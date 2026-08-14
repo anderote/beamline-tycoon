@@ -23,11 +23,11 @@ import { isBlocked } from '../../networks/rooms.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
 import { FLOORS } from '../../data/structure.js';
 
-// Tiles of margin added around infraOccupied's bounding box, in every
-// direction. Staff need to path across bare ground to reach a detached
-// building; this bounds that without turning an open-grass path search into
-// an unbounded walk (see MAX_EXPANDED_NODES below, the other half of the
-// same guard).
+// Fallback margin added around infraOccupied's bounding box when a state
+// has no mapHalfExtent (hand-built states, mostly in tests). Real Game
+// states always set mapHalfExtent (see buildNavGrid's bounds computation
+// below) — this only exists so nav.js stays usable against a minimal
+// state shape without requiring every caller to fabricate a map size.
 const BOUNDS_INFLATE_TILES = 8;
 
 // Movement cost multipliers. Floored tiles are cheap; bare ground (no floor)
@@ -36,10 +36,12 @@ const BOUNDS_INFLATE_TILES = 8;
 const FLOOR_COST = 1;
 const GRASS_COST = 2.5;
 
-// Hard cap on nodes actually expanded by one findPath/isReachable call.
-// Grass is walkable everywhere in bounds, so without a cap an unreachable
-// goal on an open map would walk the entire bounded area every time.
-const MAX_EXPANDED_NODES = 20000;
+// Two-pass search budget — see the comment on heuristic()/search() for why
+// there are two passes instead of one weight.
+const PASS1_WEIGHT = FLOOR_COST;   // admissible: optimal path when it lands
+const PASS1_MAX_EXPANDED = 6000;   // small budget — most routing is local
+const PASS2_WEIGHT = 3.0;          // inadmissible: guarantees termination
+const MAX_EXPANDED_NODES = 20000;  // pass 2's full cap
 
 function subtileKey(col, row, subCol, subRow) {
   return col + ',' + row + ',' + subCol + ',' + subRow;
@@ -51,11 +53,6 @@ function nodeKey(n) {
 
 function normalizeNode(n) {
   return { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow };
-}
-
-function parseSubtileKey(key) {
-  const p = key.split(',');
-  return { col: +p[0], row: +p[1], subCol: +p[2], subRow: +p[3] };
 }
 
 // --- Coordinate bridge -----------------------------------------------------
@@ -104,10 +101,12 @@ export function subtileToWorld(node) {
 // bounded area.
 
 /**
- * Build a fresh NavGrid from the current state. `bounds` is infraOccupied's
- * bounding box inflated by BOUNDS_INFLATE_TILES; `passable`/`cost` answer
- * per-subtile queries by consulting the sparse exception sets above rather
- * than a precomputed entry for every subtile.
+ * Build a fresh NavGrid from the current state. `bounds` is the map's own
+ * play area (state.mapHalfExtent — "the site is |col| <= mapHalfExtent,
+ * |row| <= mapHalfExtent", per Game.js) so every in-map tile is addressable,
+ * regardless of where infraOccupied happens to have entries. `passable`/
+ * `cost` answer per-subtile queries by consulting the sparse exception sets
+ * above rather than a precomputed entry for every subtile.
  */
 export function buildNavGrid(state) {
   const infraOccupied = state.infraOccupied || {};
@@ -131,16 +130,33 @@ export function buildNavGrid(state) {
     const def = FLOORS[type];
     if (!def || def.groundsSurface !== true) flooredTiles.add(key);
   }
-  if (!Number.isFinite(minCol)) {
-    // No floor anywhere yet — bound a small area around the origin rather
-    // than leaving the grid empty.
-    minCol = maxCol = minRow = maxRow = 0;
+
+  let bounds;
+  if (Number.isFinite(state.mapHalfExtent)) {
+    // The real, common case: bound to the map itself, not to wherever
+    // infraOccupied happens to have entries. An inflated CONTENT bbox put
+    // real map tiles out of bounds by construction whenever the built area
+    // was lopsided (a starter map's floor bbox is rarely centered on the
+    // origin) — e.g. at one measured seed, the bbox spanned rows -29..18,
+    // so row 20 (well inside a halfExtent-30 map) was rejected by
+    // findPath's bounds check before the search ever ran.
+    const h = state.mapHalfExtent;
+    bounds = { minCol: -h, maxCol: h, minRow: -h, maxRow: h };
+  } else {
+    // Fallback for hand-built states without mapHalfExtent (see the
+    // BOUNDS_INFLATE_TILES comment above) — derive from infraOccupied's own
+    // bbox instead, inflated so a small hand-built floor patch still has
+    // room to path across surrounding bare ground.
+    if (!Number.isFinite(minCol)) {
+      // No floor anywhere yet — bound a small area around the origin rather
+      // than leaving the grid empty.
+      minCol = maxCol = minRow = maxRow = 0;
+    }
+    bounds = {
+      minCol: minCol - BOUNDS_INFLATE_TILES, maxCol: maxCol + BOUNDS_INFLATE_TILES,
+      minRow: minRow - BOUNDS_INFLATE_TILES, maxRow: maxRow + BOUNDS_INFLATE_TILES,
+    };
   }
-  minCol -= BOUNDS_INFLATE_TILES;
-  maxCol += BOUNDS_INFLATE_TILES;
-  minRow -= BOUNDS_INFLATE_TILES;
-  maxRow += BOUNDS_INFLATE_TILES;
-  const bounds = { minCol, maxCol, minRow, maxRow };
 
   // Subtiles an occupant actually blocks (see the passability rule below).
   // Proportional to placed-item footprints, not to the bounded area.
@@ -164,10 +180,28 @@ export function buildNavGrid(state) {
   }
 
   const passable = {
+    // Runs on every A* edge test, so this is written to avoid allocating an
+    // intermediate array/object per call (a prior version's key.split(',')
+    // + destructure measured as most of an ~11% per-query regression versus
+    // the old dense-Set grid) — plain locals and string slices only. Also
+    // range-checks subCol/subRow: a caller-supplied `from`/`to` node with an
+    // out-of-[0,3] subCol/subRow (e.g. a bug upstream) must come back
+    // false, the same as the old dense Set did by simply never having that
+    // key — nothing here inferred bounds.min/max for subCol/subRow, so
+    // without an explicit check a key like "0,0,9,9" silently read as
+    // in-bounds-and-unblocked.
     has(key) {
-      const { col, row } = parseSubtileKey(key);
+      let i = key.indexOf(',');
+      const col = +key.slice(0, i);
       if (col < bounds.minCol || col > bounds.maxCol) return false;
+      let j = key.indexOf(',', i + 1);
+      const row = +key.slice(i + 1, j);
       if (row < bounds.minRow || row > bounds.maxRow) return false;
+      let k = key.indexOf(',', j + 1);
+      const subCol = +key.slice(j + 1, k);
+      if (subCol < 0 || subCol > 3) return false;
+      const subRow = +key.slice(k + 1);
+      if (subRow < 0 || subRow > 3) return false;
       return !blockedSubtiles.has(key);
     },
   };
@@ -257,30 +291,15 @@ function inBounds(bounds, n) {
       && n.row >= bounds.minRow && n.row <= bounds.maxRow;
 }
 
-// Weighted (deliberately INADMISSIBLE) heuristic: Manhattan distance in
-// subtiles, scaled by GRASS_COST rather than the cheapest possible per-step
-// cost (FLOOR_COST). A true admissible heuristic (scaled by FLOOR_COST) can
-// overestimate nothing, but it can underestimate a grass-heavy route by up
-// to GRASS_COST/FLOOR_COST — and on this game's default map (mostly bare/
-// meadow ground; DEFAULT_MAP_HALF_EXTENT = 30, so routine crossings run
-// 30-60 tiles), that underestimate is severe enough that A* degrades
-// towards Dijkstra's uniform-cost search (effective weight
-// FLOOR_COST/GRASS_COST = 0.4) and expands O(d^2) nodes. That blew through
-// MAX_EXPANDED_NODES on perfectly reachable goals — a 30-tile diagonal
-// grass crossing returned null — which presents downstream as "no staffer
-// will take this job", not as a pathfinding bug.
-//
-// Scaling by GRASS_COST instead trades bounded suboptimality for actually
-// terminating: a path this returns is not guaranteed to be the cheapest
-// possible (a floor detour that only marginally beats a grass-heavier
-// route could be missed), but it always returns SOME reachable path
-// quickly rather than hitting the node cap and returning null. For a game
-// where "pawn takes a slightly less than optimal route" is invisible and
-// "pawn refuses the job" is a visible bug, that's the right trade.
-function heuristic(a, b) {
+// Manhattan distance in subtiles, scaled by `weight`. `weight` is what makes
+// this admissible or not — see the two-pass explanation on search() below
+// for why both a weight of FLOOR_COST (admissible) and one of PASS2_WEIGHT
+// (deliberately inadmissible) are used, at different times, rather than one
+// fixed value.
+function heuristic(a, b, weight) {
   const dCol = (a.col * 4 + a.subCol) - (b.col * 4 + b.subCol);
   const dRow = (a.row * 4 + a.subRow) - (b.row * 4 + b.subRow);
-  return (Math.abs(dCol) + Math.abs(dRow)) * GRASS_COST;
+  return (Math.abs(dCol) + Math.abs(dRow)) * weight;
 }
 
 // The four cardinal neighbours of a subtile node. Steps that stay inside the
@@ -324,30 +343,19 @@ function reconstructPath(cameFrom, goalEntry) {
   return path;
 }
 
-// Shared A* core. `wantPath` controls whether the goal's predecessor chain is
-// walked back into an array (findPath) or the caller only cares that the
-// goal was reached (isReachable) — either way the search itself is
-// identical, so isReachable is not meaningfully cheaper, just simpler to
-// call.
-function search(nav, from, to, wantPath) {
-  if (!inBounds(nav.bounds, from) || !inBounds(nav.bounds, to)) {
-    return { reached: false, path: null };
-  }
-  const fromKey = nodeKey(from);
-  const toKey = nodeKey(to);
-  if (!nav.passable.has(fromKey) || !nav.passable.has(toKey)) {
-    return { reached: false, path: null };
-  }
-  if (fromKey === toKey) {
-    return { reached: true, path: wantPath ? [normalizeNode(from)] : null };
-  }
-
+// One weighted-A* run: expand up to `maxExpanded` nodes with heuristic
+// weight `weight`, from `fromKey`/`from` to `toKey`. Returns `capped: true`
+// when the expansion budget ran out without resolving the goal either way —
+// the caller (search(), below) needs that distinct from "definitively
+// unreachable" (the open set drained on its own) to know whether a second
+// pass is worth running.
+function runAStar(nav, from, to, fromKey, toKey, wantPath, weight, maxExpanded) {
   const open = new MinHeap();
   const gScore = new Map([[fromKey, 0]]);
   const cameFrom = new Map();
   const closed = new Set();
 
-  open.push({ node: normalizeNode(from), key: fromKey }, heuristic(from, to));
+  open.push({ node: normalizeNode(from), key: fromKey }, heuristic(from, to, weight));
 
   let expanded = 0;
   while (open.size > 0) {
@@ -356,18 +364,19 @@ function search(nav, from, to, wantPath) {
     closed.add(current.key);
 
     // Test the goal BEFORE charging this expansion against the cap: a goal
-    // popped as the (MAX_EXPANDED_NODES + 1)th node is still a real answer,
-    // and discarding it there would convert an actually-cheap search into a
-    // spurious null right at the threshold.
+    // popped as the (maxExpanded + 1)th node is still a real answer, and
+    // discarding it there would convert an actually-cheap search into a
+    // spurious cap-out right at the threshold.
     if (current.key === toKey) {
       return {
         reached: true,
         path: wantPath ? reconstructPath(cameFrom, current) : null,
+        capped: false,
       };
     }
 
     expanded++;
-    if (expanded > MAX_EXPANDED_NODES) return { reached: false, path: null };
+    if (expanded > maxExpanded) return { reached: false, path: null, capped: true };
 
     for (const step of neighborsOf(current.node)) {
       const nbKey = nodeKey(step.node);
@@ -381,17 +390,87 @@ function search(nav, from, to, wantPath) {
       if (prevG === undefined || tentativeG < prevG) {
         gScore.set(nbKey, tentativeG);
         cameFrom.set(nbKey, current);
-        open.push({ node: step.node, key: nbKey }, tentativeG + heuristic(step.node, to));
+        open.push({ node: step.node, key: nbKey }, tentativeG + heuristic(step.node, to, weight));
       }
     }
   }
-  return { reached: false, path: null };
+  // Open set drained without ever reaching the goal: definitively
+  // unreachable within `bounds`, not just within this pass's budget.
+  return { reached: false, path: null, capped: false };
+}
+
+// Two-pass search. `wantPath` controls whether the goal's predecessor chain
+// is walked back into an array (findPath) or the caller only cares that the
+// goal was reached (isReachable) — either way the search itself is
+// identical, so isReachable is not meaningfully cheaper, just simpler to
+// call.
+//
+// Why two passes instead of one fixed weight (this replaces an earlier,
+// single-weight version of this file — see the fix-round writeup in
+// .superpowers/sdd/.../task-1-2-report.md for the full history):
+//
+// Pass 1 runs plain, ADMISSIBLE A* (weight = FLOOR_COST = 1, so h never
+// overestimates) capped at a small budget (PASS1_MAX_EXPANDED). When it
+// resolves — reaches the goal, or drains its open set and proves the goal
+// unreachable — that result is exact and final: the genuinely cheapest
+// path, including a floor detour that requires backtracking away from the
+// goal first. This covers essentially all facility-interior and short/
+// medium-range pathing, which is the overwhelming majority of what a
+// 25-pawn facility actually does, and it is the case that matters
+// visually: a floored corridor whose entrance is two tiles behind the pawn
+// is exactly the kind of shortcut a player notices being skipped in favor
+// of cutting across the lawn.
+//
+// A single fixed weight can't have both properties. Admissible (weight =
+// FLOOR_COST) finds every detour but is a plain uniform-cost search on open
+// grass — O(d^2) expansions — and degrades to spurious "unreachable" results
+// on this game's normal map scale (DEFAULT_MAP_HALF_EXTENT = 30, so a
+// corner-to-corner crossing is a routine 60-tile diagonal). The obvious fix,
+// weighting h by GRASS_COST so it's exact on a pure-grass route, is in fact
+// the worst possible choice: at that weight every node on the direct
+// straight-grass path shares the SAME f-score as the goal, so A* must drain
+// the entire rectangle between start and goal before it can finish — still
+// O(d^2), still NULL on a routine 60-tile crossing (measured; see the
+// report). Nor does turning the weight up further alone fix it: at weight
+// >= ~2, ordinary facility layouts start skipping real, nearby floor
+// detours — measured at 1.75x optimal cost, ~73% grass, for a corridor
+// entrance just two tiles behind the pawn.
+//
+// So: pass 1 gets the optimality that matters for the common, local case,
+// budgeted small because on a long open crossing it can't help anyway and
+// its own budget is a few wasted ms. Pass 2 only runs when pass 1's budget
+// ran out inconclusively (not when pass 1 proves the goal unreachable),
+// at PASS2_WEIGHT (3.0 — chosen from a weight sweep as the smallest value
+// that reliably terminates within MAX_EXPANDED_NODES at map-scale spans),
+// with the FULL node budget, purely to guarantee SOME path is found on a
+// long cross-site walk rather than returning null.
+function search(nav, from, to, wantPath) {
+  if (!inBounds(nav.bounds, from) || !inBounds(nav.bounds, to)) {
+    return { reached: false, path: null };
+  }
+  const fromKey = nodeKey(from);
+  const toKey = nodeKey(to);
+  if (!nav.passable.has(fromKey) || !nav.passable.has(toKey)) {
+    return { reached: false, path: null };
+  }
+  if (fromKey === toKey) {
+    return { reached: true, path: wantPath ? [normalizeNode(from)] : null };
+  }
+
+  const pass1 = runAStar(nav, from, to, fromKey, toKey, wantPath, PASS1_WEIGHT, PASS1_MAX_EXPANDED);
+  if (pass1.reached || !pass1.capped) return pass1;
+
+  const pass2 = runAStar(nav, from, to, fromKey, toKey, wantPath, PASS2_WEIGHT, MAX_EXPANDED_NODES);
+  return pass2;
 }
 
 /**
- * A* from `from` to `to` (subtile nodes). Returns an array of subtile nodes
- * from `from` to `to` inclusive, or null when unreachable (including start/
- * goal outside bounds, or the node-expansion cap was hit).
+ * Two-pass A* from `from` to `to` (subtile nodes) — see the comment on
+ * search() for why two passes. Returns an array of subtile nodes from
+ * `from` to `to` inclusive, optimal when pass 1 resolves it (the common
+ * case), possibly suboptimal when pass 2 had to run, or null when
+ * unreachable (including start/goal outside `bounds`, or pass 2's node cap
+ * was hit).
  */
 export function findPath(nav, from, to) {
   return search(nav, from, to, true).path;
