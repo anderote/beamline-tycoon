@@ -211,7 +211,10 @@ export class Game {
     })();
 
     this.state = {
-      resources: { funding: 5000000, reputation: 0, data: 0 },
+      // spares starts at 50 so a fresh facility can absorb a few repairs
+      // before a machine shop exists. Nothing produces or consumes it yet —
+      // machinists produce it and repairs consume it in a later plan.
+      resources: { funding: 5000000, reputation: 0, data: 0, spares: 50 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,

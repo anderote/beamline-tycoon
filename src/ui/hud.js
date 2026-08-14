@@ -120,6 +120,7 @@ UIHost.prototype._updateHUD = function() {
   }
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
+  setEl('val-spares', Math.floor(res.spares));
 
   // Facility overview (top-left panel) — aggregated stats across the facility.
   //

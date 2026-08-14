@@ -142,6 +142,7 @@ body {
 #res-energy .res-icon, #res-energy .res-val { color: #dddd44; }
 #res-reputation .res-icon, #res-reputation .res-val { color: #4488ff; }
 #res-data .res-icon, #res-data .res-val { color: #ee66aa; }
+#res-spares .res-icon, #res-spares .res-val { color: #cc9944; }
 
 /* Sim speed controls (pause + 1x/2x/4x) */
 #sim-controls {
