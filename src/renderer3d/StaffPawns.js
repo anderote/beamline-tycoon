@@ -16,10 +16,20 @@
 // lives entirely in the builder's style config; this file renders whatever
 // DEFAULT_STAFF_STYLE currently points at and never hardcodes a color.
 //
-// Wandering is deliberately dumb (no pathfinding): pawns amble in straight
-// lines between nearby walkable tiles (tiles with floors placed —
-// game.state.infraOccupied), pausing 2-6s between legs. Staff with a zone
-// assignment bias their targets toward tiles of that zone type.
+// Movement now goes through the subtile navigator (src/game/staff/nav.js):
+// every walk — to a work station or just ambient wandering — is a path of
+// subtile nodes, followed node-to-node, so pawns go around walls and through
+// doors instead of in a straight line through them. The station index
+// (src/game/staff/stations.js) supplies reservable work slots; a pawn walks
+// to a slot's node, faces its facing, and adopts the slot's pose.
+//
+// There is no job system yet (that's the next plan) — see _chooseNextAction
+// for the deliberately dumb, throwaway driver this plan uses in its place:
+// pick a random reachable station, reserve it, walk there, hold the pose for
+// 20-60s, release, repeat; wander to a random reachable subtile when nothing
+// is reachable. Plan 3 deletes this driver wholesale and replaces it with a
+// real job board — nothing here should grow more sophisticated in the
+// meantime.
 //
 // Animation is fully procedural — no frames:
 //   - Facing: the figure's front is +Z, so heading = atan2(dx, dz) points it
@@ -29,6 +39,10 @@
 //     so stride locks to speed and the feet never skate. Legs swing
 //     amp*sin(phase), arms counter-phase, plus a body bob at twice the phase
 //     frequency. Idle damps the swing smoothly to zero instead of snapping.
+//   - Named poses (stand/walk/sit/benchWork/...) come from the builder's
+//     applyPose(), which eases hip/knee/torso/arm/head targets; the walk
+//     swing above composes ON TOP of that (walk's own pose targets are all
+//     zero) rather than fighting it.
 //
 // Owned by ThreeRenderer: it forwards sync() on staffChanged / full refresh,
 // update(dt) from the animation loop, and dispose() on teardown.
@@ -37,9 +51,17 @@
 
 import { sampleSurfaceYAt } from '../game/terrain.js';
 import {
+  getNavGrid, findPath, isReachable, worldToSubtile, subtileToWorld,
+} from '../game/staff/nav.js';
+import {
+  getStationIndex, findStation, reserveStation, releaseStation, releaseAllFor,
+} from '../game/staff/stations.js';
+import {
   buildStaffFigure,
   disposeStaffFigure,
   staffPalette,
+  staffStyleHipHeight,
+  applyPose,
   DEFAULT_STAFF_STYLE,
 } from './builders/staff-builder.js';
 
@@ -51,8 +73,11 @@ const DEFAULT_ROLE = PALETTE.roles.operator;
 
 const WALK_SPEED_MIN = 0.9;   // world units / sec
 const WALK_SPEED_VAR = 0.5;
-const IDLE_MIN = 2, IDLE_MAX = 6; // seconds
-const WANDER_RADIUS = 6;      // tiles (Chebyshev) for "nearby" targets
+const IDLE_MIN = 2, IDLE_MAX = 6; // seconds between actions
+const WORK_MIN = 20, WORK_MAX = 60; // seconds held at a station before releasing it
+const WANDER_RADIUS = 6;      // tiles, for a random ambient-wander target
+const WANDER_TRIES = 12;      // sampled candidates before giving up on wandering
+const SPAWN_TRIES = 10;       // sampled candidates before giving up on a nice spawn tile
 const ZONE_BIAS = 0.6;        // chance to head for the assigned zone
 
 const HEIGHT_JITTER = 0.04;   // ±4% per-staff scale
@@ -65,6 +90,15 @@ const BOB_AMP = 0.022;        // world units of vertical body bob at full swing
 // Exponential easing time constants (seconds to ~63% of the way there).
 const TURN_TAU = 0.06;        // ~0.15s to settle a turn
 const SWING_TAU = 0.10;       // idle damping of the limb swing
+
+// Heading (radians) that faces each cardinal facing letter, given front is
+// +Z and rotation.y = atan2(dx, dz) — same convention stations.js's
+// FACING_DELTA uses (n: -Z/row, e: +X/col, s: +Z/row, w: -X/col).
+const FACING_HEADING = { s: 0, e: Math.PI / 2, n: Math.PI, w: -Math.PI / 2 };
+
+// Arrival tolerance, in world units, for "close enough" to a path node or
+// amble target — small relative to a subtile (0.5 units).
+const ARRIVE_EPS = 0.05;
 
 // --- Seeded appearance -----------------------------------------------------
 
@@ -111,10 +145,6 @@ export class StaffPawns {
 
     /** @type {Map<string, object>} staffId → pawn record */
     this._pawns = new Map();
-
-    // Walkable-tile cache, invalidated when the floor count changes or on sync().
-    this._tiles = [];
-    this._tilesCount = -1;
   }
 
   // --- Lifecycle -----------------------------------------------------------
@@ -122,7 +152,6 @@ export class StaffPawns {
   /** Create/remove pawns to match game.state.staffMembers. */
   sync() {
     const members = this.game?.state?.staffMembers || [];
-    this._tilesCount = -1; // re-derive walkable tiles (floors may have changed)
 
     const seen = new Set();
     for (const m of members) {
@@ -144,12 +173,18 @@ export class StaffPawns {
   }
 
   /**
-   * Remove one pawn. Every geometry and material a figurine uses lives in the
-   * builder's module-level cache and is shared with every other pawn on
-   * screen, so disposeStaffFigure only detaches — nothing GPU-side is freed
-   * here, and nothing should be.
+   * Remove one pawn. Releases every station reservation it holds first — a
+   * pawn deleted mid-job (fired, or dropped by a sync() that no longer sees
+   * it in staffMembers) must never leave a slot reserved forever.
+   *
+   * Every geometry and material a figurine uses lives in the builder's
+   * module-level cache and is shared with every other pawn on screen, so
+   * disposeStaffFigure only detaches — nothing GPU-side is freed here, and
+   * nothing should be.
    */
   _destroyPawn(pawn) {
+    const state = this.game?.state;
+    if (state) releaseAllFor(state, pawn.id);
     this.group.remove(pawn.figure.group);
     disposeStaffFigure(pawn.figure);
   }
@@ -177,13 +212,22 @@ export class StaffPawns {
       figure,
       x: spawn.x,
       z: spawn.z,
-      target: null,
       mode: 'idle',
       idleT: IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN),
+      workT: 0,
       speed: WALK_SPEED_MIN + rng() * WALK_SPEED_VAR,
       heading: rng() * Math.PI * 2,
       phase: rng() * Math.PI * 2,   // desynchronise the crowd's stride
       swing: 0,
+      pose: 'stand',
+      // Path-following state (see _beginPathWalk / _advancePathWalk).
+      path: null,
+      pathIndex: 0,
+      pathNavRevision: 0,
+      // Set while walking to or occupying a work station; null while
+      // ambling with no job (see _chooseNextAction).
+      pendingStation: null,
+      stationKey: null,
     };
     figure.group.rotation.y = pawn.heading;
     this._placeFigure(pawn);
@@ -191,68 +235,230 @@ export class StaffPawns {
     this._pawns.set(member.id, pawn);
   }
 
-  // --- Walkable tiles ------------------------------------------------------
+  // --- Spawn / wander target picking (throwaway, nav-based) ---------------
+  //
+  // No job system yet — see _chooseNextAction's doc comment. These pick
+  // WHERE a pawn without a job goes; both route candidates through the
+  // navigator (nav.passable / isReachable) rather than assuming every floor
+  // tile is walkable in a straight line, the way the pre-nav version did.
 
-  _walkableTiles() {
-    const occ = this.game?.state?.infraOccupied || {};
-    const keys = Object.keys(occ);
-    if (keys.length !== this._tilesCount) {
-      const tiles = [];
-      for (const k of keys) {
-        const comma = k.indexOf(',');
-        tiles.push({ col: +k.slice(0, comma), row: +k.slice(comma + 1), key: k });
-      }
-      // Fallback: nothing built yet → amble on the grass near the origin.
-      if (tiles.length === 0) {
-        for (let c = -3; c <= 3; c++) {
-          for (let r = -3; r <= 3; r++) tiles.push({ col: c, row: r, key: c + ',' + r });
-        }
-      }
-      this._tiles = tiles;
-      this._tilesCount = keys.length;
-    }
-    return this._tiles;
-  }
-
-  _tileCenterJittered(tile) {
-    return {
-      x: tile.col * 2 + 1 + (Math.random() - 0.5),
-      z: tile.row * 2 + 1 + (Math.random() - 0.5),
-    };
-  }
-
+  /**
+   * A tile to spawn a new pawn on, biased toward its assigned zone when one
+   * exists on the map. Falls back to the map origin's subtile when nothing
+   * is built yet.
+   */
   _pickSpawn(member, rng) {
-    const tiles = this._walkableTiles();
-    const zoneTiles = this._assignedZoneTiles(member, tiles);
-    const pool = zoneTiles.length ? zoneTiles : tiles;
-    const tile = pool[Math.floor(rng() * pool.length)];
-    return this._tileCenterJittered(tile);
-  }
-
-  _assignedZoneTiles(member, tiles) {
+    const state = this.game?.state;
+    const floorKeys = Object.keys(state?.infraOccupied || {});
     const zid = member?.assignment?.zoneId;
-    if (!zid) return [];
-    const zoneOcc = this.game?.state?.zoneOccupied || {};
-    return tiles.filter(t => zoneOcc[t.key] === zid);
+    const zoneOcc = state?.zoneOccupied || {};
+    const zoneKeys = zid ? floorKeys.filter(k => zoneOcc[k] === zid) : [];
+    const pool = zoneKeys.length ? zoneKeys : floorKeys;
+
+    const nav = state ? getNavGrid(state) : null;
+    for (let i = 0; i < SPAWN_TRIES && pool.length; i++) {
+      const [col, row] = pool[Math.floor(rng() * pool.length)].split(',').map(Number);
+      const node = { col, row, subCol: Math.floor(rng() * 4), subRow: Math.floor(rng() * 4) };
+      if (!nav || nav.passable.has(`${node.col},${node.row},${node.subCol},${node.subRow}`)) {
+        return subtileToWorld(node);
+      }
+    }
+    return subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
   }
 
+  /**
+   * A random reachable subtile to wander to, biased toward the pawn's
+   * assigned zone when one exists. Returns null when nothing panned out in
+   * WANDER_TRIES samples (e.g. the pawn is stranded on an island of one).
+   */
   _pickTarget(pawn, member) {
-    const tiles = this._walkableTiles();
-    if (tiles.length === 0) return null;
+    const state = this.game?.state;
+    if (!state) return null;
+    const nav = getNavGrid(state);
+    const from = worldToSubtile(pawn.x, pawn.z);
+    const zid = member?.assignment?.zoneId;
+    const zoneOcc = state.zoneOccupied || {};
+    const zoneKeys = zid ? Object.keys(zoneOcc).filter(k => zoneOcc[k] === zid) : null;
 
-    // Bias toward the assigned zone when one exists on the map.
-    const zoneTiles = this._assignedZoneTiles(member, tiles);
-    if (zoneTiles.length && Math.random() < ZONE_BIAS) {
-      return this._tileCenterJittered(zoneTiles[Math.floor(Math.random() * zoneTiles.length)]);
+    for (let i = 0; i < WANDER_TRIES; i++) {
+      let node;
+      if (zoneKeys && zoneKeys.length && Math.random() < ZONE_BIAS) {
+        const [col, row] = zoneKeys[Math.floor(Math.random() * zoneKeys.length)].split(',').map(Number);
+        node = { col, row, subCol: (Math.random() * 4) | 0, subRow: (Math.random() * 4) | 0 };
+      } else {
+        node = {
+          col: from.col + Math.round((Math.random() * 2 - 1) * WANDER_RADIUS),
+          row: from.row + Math.round((Math.random() * 2 - 1) * WANDER_RADIUS),
+          subCol: (Math.random() * 4) | 0, subRow: (Math.random() * 4) | 0,
+        };
+      }
+      if (isReachable(nav, from, node)) return node;
+    }
+    return null;
+  }
+
+  // --- Public seams for Plan 3's job system --------------------------------
+
+  /** Walk to a bare subtile node, with no station involved. Releases any
+   * station reservation this pawn currently holds first. */
+  setDestination(pawnId, node) {
+    const pawn = this._pawns.get(pawnId);
+    if (!pawn || !this.game?.state) return;
+    this._releaseStationFor(pawn);
+    this._beginPathWalk(pawn, node);
+  }
+
+  /** Walk to and occupy a StationRef the caller has already reserved.
+   * Releases any different station this pawn currently holds first. */
+  sendToStation(pawnId, stationRef) {
+    const pawn = this._pawns.get(pawnId);
+    if (!pawn || !this.game?.state) return;
+    if (pawn.stationKey && pawn.stationKey !== stationRef.key) this._releaseStationFor(pawn);
+    if (!this._beginStationWalk(pawn, stationRef)) {
+      pawn.mode = 'idle';
+      pawn.idleT = IDLE_MIN;
+    }
+  }
+
+  // --- Throwaway "no job system yet" driver --------------------------------
+  //
+  // Plan 3 (the job board) replaces this whole method wholesale — it is
+  // deliberately dumb: grab any reachable station regardless of what job it
+  // offers, reserve it, walk there, hold its pose a while, release, repeat.
+  // Falls back to ambient wandering when nothing is reachable at all.
+  _chooseNextAction(pawn, member) {
+    const state = this.game?.state;
+    if (!state) { pawn.idleT = IDLE_MIN; return; }
+
+    const index = getStationIndex(state);
+    const jobs = Object.keys(index.byJob);
+    const fromNode = worldToSubtile(pawn.x, pawn.z);
+    const ref = jobs.length ? findStation(state, { jobs, fromNode, staffId: pawn.id }) : null;
+    if (ref) {
+      if (reserveStation(state, ref.key, pawn.id) && this._beginStationWalk(pawn, ref)) return;
+      releaseStation(state, ref.key, pawn.id);
     }
 
-    // Otherwise a nearby walkable tile (Chebyshev radius), or anywhere.
-    const col = Math.floor(pawn.x / 2);
-    const row = Math.floor(pawn.z / 2);
-    const near = tiles.filter(t =>
-      Math.max(Math.abs(t.col - col), Math.abs(t.row - row)) <= WANDER_RADIUS);
-    const pool = near.length ? near : tiles;
-    return this._tileCenterJittered(pool[Math.floor(Math.random() * pool.length)]);
+    const target = this._pickTarget(pawn, member);
+    if (target && this._beginPathWalk(pawn, target)) return;
+    pawn.idleT = IDLE_MIN;
+  }
+
+  _finishWork(pawn) {
+    this._releaseStationFor(pawn);
+    pawn.mode = 'idle';
+    pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
+  }
+
+  _releaseStationFor(pawn) {
+    const state = this.game?.state;
+    if (state && pawn.stationKey) releaseStation(state, pawn.stationKey, pawn.id);
+    pawn.stationKey = null;
+    pawn.pendingStation = null;
+  }
+
+  // --- Path following --------------------------------------------------
+
+  /** Compute a path to `node` and start following it. Returns false (and
+   * touches nothing) when `node` isn't reachable right now. */
+  _beginPathWalk(pawn, node) {
+    const state = this.game.state;
+    const nav = getNavGrid(state);
+    const from = worldToSubtile(pawn.x, pawn.z);
+    const path = findPath(nav, from, node);
+    if (!path) return false;
+    pawn.path = path;
+    pawn.pathIndex = 0;
+    pawn.pathNavRevision = state.navRevision || 0;
+    pawn.mode = 'pathWalk';
+    return true;
+  }
+
+  /** Like _beginPathWalk, but also stamps the pawn as walking toward (and
+   * on arrival, occupying) `ref`. Rolls back pendingStation/stationKey on
+   * failure so a failed walk never leaves the pawn thinking it has a job. */
+  _beginStationWalk(pawn, ref) {
+    pawn.pendingStation = ref;
+    pawn.stationKey = ref.key;
+    if (this._beginPathWalk(pawn, ref.node)) return true;
+    pawn.pendingStation = null;
+    pawn.stationKey = null;
+    return false;
+  }
+
+  /**
+   * Advance one frame of path-following. Re-paths first when navRevision has
+   * moved since the path was computed (the building changed under the
+   * pawn's feet); if the re-path comes back null, the destination is no
+   * longer reachable at all, so the reservation is released and the pawn
+   * goes idle rather than freezing mid-stride.
+   */
+  _advancePathWalk(pawn, dt) {
+    const state = this.game.state;
+    const revision = state.navRevision || 0;
+    if (revision !== pawn.pathNavRevision) {
+      const finalNode = pawn.path[pawn.path.length - 1];
+      const nav = getNavGrid(state);
+      const from = worldToSubtile(pawn.x, pawn.z);
+      const path = findPath(nav, from, finalNode);
+      if (!path) {
+        this._releaseStationFor(pawn);
+        pawn.path = null;
+        pawn.pathIndex = 0;
+        pawn.mode = 'idle';
+        pawn.idleT = IDLE_MIN;
+        return 0;
+      }
+      pawn.path = path;
+      pawn.pathIndex = 0;
+      pawn.pathNavRevision = revision;
+    }
+
+    const node = pawn.path[pawn.pathIndex];
+    const targetXZ = subtileToWorld(node);
+    const dx = targetXZ.x - pawn.x;
+    const dz = targetXZ.z - pawn.z;
+    const dist = Math.hypot(dx, dz);
+    const step = pawn.speed * dt;
+    let moved = 0;
+
+    if (dist <= step || dist < ARRIVE_EPS) {
+      moved = dist;
+      pawn.x = targetXZ.x;
+      pawn.z = targetXZ.z;
+      if (pawn.pathIndex < pawn.path.length - 1) {
+        pawn.pathIndex++;
+      } else {
+        this._arriveAtPathEnd(pawn);
+      }
+    } else {
+      moved = step;
+      pawn.x += (dx / dist) * step;
+      pawn.z += (dz / dist) * step;
+      // Front face is +Z: rotating +Z by θ about Y gives (sinθ, 0, cosθ),
+      // so θ = atan2(dx, dz) aims the figure ALONG travel, not away from it.
+      pawn.heading += angleDelta(pawn.heading, Math.atan2(dx, dz))
+        * (1 - Math.exp(-dt / TURN_TAU));
+    }
+    return moved;
+  }
+
+  /** The final path node was reached. Snaps to the station anchor and its
+   * facing (no easing — "arrived" is a discrete event), or just goes idle
+   * for a plain setDestination walk with no station attached. */
+  _arriveAtPathEnd(pawn) {
+    if (pawn.pendingStation) {
+      const ref = pawn.pendingStation;
+      const world = subtileToWorld(ref.node);
+      pawn.x = world.x;
+      pawn.z = world.z;
+      pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
+      pawn.mode = 'working';
+      pawn.workT = WORK_MIN + Math.random() * (WORK_MAX - WORK_MIN);
+    } else {
+      pawn.mode = 'idle';
+      pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
+    }
   }
 
   // --- Per-frame update ----------------------------------------------------
@@ -270,60 +476,50 @@ export class StaffPawns {
 
       if (pawn.mode === 'idle') {
         pawn.idleT -= dt;
-        if (pawn.idleT <= 0) {
-          pawn.target = this._pickTarget(pawn, member);
-          if (pawn.target) {
-            pawn.mode = 'walk';
-          } else {
-            pawn.idleT = IDLE_MIN;
-          }
-        }
-      } else {
-        const dx = pawn.target.x - pawn.x;
-        const dz = pawn.target.z - pawn.z;
-        const dist = Math.hypot(dx, dz);
-        const step = pawn.speed * dt;
-        if (dist <= step || dist < 0.05) {
-          moved = dist;
-          pawn.x = pawn.target.x;
-          pawn.z = pawn.target.z;
-          pawn.mode = 'idle';
-          pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
-        } else {
-          moved = step;
-          pawn.x += (dx / dist) * step;
-          pawn.z += (dz / dist) * step;
-          // Front face is +Z: rotating +Z by θ about Y gives (sinθ, 0, cosθ),
-          // so θ = atan2(dx, dz) aims the figure ALONG travel, not away from it.
-          pawn.heading += angleDelta(pawn.heading, Math.atan2(dx, dz))
-            * (1 - Math.exp(-dt / TURN_TAU));
-        }
+        if (pawn.idleT <= 0) this._chooseNextAction(pawn, member);
+      } else if (pawn.mode === 'pathWalk') {
+        moved = this._advancePathWalk(pawn, dt);
+      } else if (pawn.mode === 'working') {
+        pawn.workT -= dt;
+        if (pawn.workT <= 0) this._finishWork(pawn);
       }
 
+      pawn.pose = this._poseFor(pawn);
       this._animate(pawn, dt, moved);
       this._placeFigure(pawn);
     }
   }
 
+  _poseFor(pawn) {
+    if (pawn.mode === 'pathWalk') return 'walk';
+    if (pawn.mode === 'working') return pawn.pendingStation?.seated ? 'sit' : 'benchWork';
+    return 'stand';
+  }
+
   /**
    * Procedural walk. `moved` is the distance covered this frame — driving the
    * phase from it (rather than from dt) locks stride length to speed, so slow
-   * pawns take slow steps instead of moonwalking.
+   * pawns take slow steps instead of moonwalking. applyPose lays down the
+   * pose's own joint targets first (walk/stand's are all zero); the swing
+   * below composes ON TOP of that rather than overwriting it, which is what
+   * lets a pawn ease from walk into sit without a discontinuity.
    */
   _animate(pawn, dt, moved) {
-    const walking = pawn.mode === 'walk';
+    const walking = pawn.mode === 'pathWalk';
     if (walking) pawn.phase += moved * PHASE_PER_UNIT;
 
     // Ease the swing amplitude in and out so stopping settles rather than snaps.
     const targetSwing = walking ? SWING_AMP : 0;
     pawn.swing += (targetSwing - pawn.swing) * (1 - Math.exp(-dt / SWING_TAU));
 
+    applyPose(pawn.figure, pawn.pose, dt);
+
     const angle = pawn.swing * Math.sin(pawn.phase);
     const fig = pawn.figure;
-    fig.leftLeg.rotation.x = angle;
-    fig.rightLeg.rotation.x = -angle;
-    fig.leftArm.rotation.x = -angle;   // arms counter-phase their same-side leg
-    fig.rightArm.rotation.x = angle;
+    fig.leftLeg.rotation.x += angle;
+    fig.rightLeg.rotation.x += -angle;
+    fig.leftArm.rotation.x += -angle;   // arms counter-phase their same-side leg
+    fig.rightArm.rotation.x += angle;
 
     // Bob at twice the stride frequency, phased so it never dips below 0 —
     // the figure rises off its planted foot rather than sinking into the slab.
@@ -333,7 +529,10 @@ export class StaffPawns {
     fig.group.rotation.y = pawn.heading;
   }
 
-  /** Stand the figurine on the ground. Its origin is at the feet. */
+  /** Stand the figurine on the ground. Its origin is at the feet — a seated
+   * pawn instead raises the whole group so the hip lands at seat height,
+   * per staffStyleHipHeight's doc comment; the builder itself never moves
+   * parts to fake sitting. */
   _placeFigure(pawn) {
     const state = this.game?.state;
     const col = Math.floor(pawn.x / 2);
@@ -342,6 +541,8 @@ export class StaffPawns {
     // (see world-snapshot.buildFloors) — match that so feet stay on the slab.
     const isConcrete = state?.infraOccupied?.[col + ',' + row] === 'concrete';
     const groundY = isConcrete ? 0 : sampleSurfaceYAt(state, pawn.x, pawn.z);
-    pawn.figure.group.position.set(pawn.x, groundY + 0.01, pawn.z);
+    const seated = pawn.mode === 'working' && !!pawn.pendingStation?.seated;
+    const yOffset = seated ? staffStyleHipHeight(DEFAULT_STAFF_STYLE) : 0.01;
+    pawn.figure.group.position.set(pawn.x, groundY + yOffset, pawn.z);
   }
 }
