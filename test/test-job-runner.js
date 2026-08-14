@@ -404,6 +404,88 @@ console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-inv
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n=== 3e. fix-round-3: a mid-journey 1x -> 4x speed change does not abandon the job ===\n');
+{
+  // TRAVEL_BUDGET_SAFETY (2x) covers a speed increase up to double whatever
+  // the budget was last computed at — but a 1x -> 4x jump (VALID_SPEEDS is
+  // [1, 2, 4]) is exactly the uncovered case, and speeding the game up
+  // mid-walk is a completely ordinary player action, not an edge case.
+  //
+  // Same long-walk world as 3d (950-subtile path). Simulated as: walk the
+  // FIRST HALF of the path's worth of real time at 1x (requiredTravelTicks
+  // for half the path, at speed 1), switch state.speed to 4, then walk the
+  // SECOND HALF's worth of real time at 4x (requiredTravelTicks for the
+  // other half, at speed 4). That total tick count is what a real pawn
+  // actually walking the full path with that mid-journey speed change would
+  // produce.
+  //
+  // Under the pre-fix code (a single budget computed once at 1x and never
+  // revisited): budget stays fixed at the 1x figure (1056, from 3d) for the
+  // WHOLE journey. The total ticks this scenario ticks through (264 + 1056
+  // = 1320) exceeds that fixed 1056 partway into the 4x half, so the job
+  // gets abandoned with "Gave up trying to get there." well before the walk
+  // is actually done — reproducing the reviewer's report exactly. This test
+  // fails against that code and passes against the fix (recompute whenever
+  // the CURRENT speed exceeds the speed the cached budget was computed at).
+  const state = makeState();
+  state.mapHalfExtent = 60;
+  floorRect(state, -60, 60, -60, 60);
+  placeItem(state, 'diningTable', 58, 58, 0, 0, 0);
+  const table = state.placeables[state.placeables.length - 1];
+  placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+  bump(state);
+  state.speed = 1;
+  const game = makeGame(state, []);
+
+  const operator = makeMember('operator', 'op_switch');
+  operator.fromNode = { col: -60, row: -60, subCol: 0, subRow: 0 };
+  operator.needs.hunger = 0.85;
+  state.staffMembers = [operator];
+
+  assignJobs(game);
+  assertOk(operator.job?.jobType === 'eat', `setup: assigned eat at the far dining seat (got ${operator.job?.jobType})`);
+
+  const targetNode = getStationIndex(state).byKey[operator.job.stationKey].node;
+  const path = findPath(getNavGrid(state), operator.fromNode, targetNode);
+  assertOk(path.length > 900, `setup: sanity — this really is a long walk (${path.length} subtiles)`);
+
+  const SUB_UNIT_TEST = 0.5;
+  const SLOWEST_PAWN_SPEED_TEST = 0.9;
+  function requiredTravelTicks(pathSubtiles, speed) {
+    return Math.ceil(pathSubtiles * (SUB_UNIT_TEST / SLOWEST_PAWN_SPEED_TEST) * speed);
+  }
+  const halfPath = path.length / 2;
+  const ticksBeforeSwitch = requiredTravelTicks(halfPath, 1);
+  const ticksAfterSwitch = requiredTravelTicks(halfPath, 4);
+
+  for (let t = 0; t < ticksBeforeSwitch; t++) tickJobs(game);
+  assertOk(operator.job?.jobType === 'eat', `still travelling at 1x after ${ticksBeforeSwitch} ticks (first half)`);
+  assertOk(operator.job.travelBudgetSpeed === 1, 'the cached budget was computed at speed 1');
+  const budgetAt1x = operator.job.travelBudgetTicks;
+
+  state.speed = 4;
+  for (let t = 0; t < ticksAfterSwitch; t++) tickJobs(game);
+
+  assertOk(operator.job?.jobType === 'eat',
+    `the job survives the full mid-journey 1x->4x switch instead of being abandoned (job is now ${JSON.stringify(operator.job)})`);
+  assertOk(operator.job.phase === 'travel', 'still travelling (never reassigned/reset) through the whole switch');
+  assertOk(operator.job.travelBudgetSpeed === 4, 'the budget was recomputed at the new speed (4)');
+  assertOk(operator.job.travelBudgetTicks > budgetAt1x,
+    `the recomputed budget (${operator.job.travelBudgetTicks}) is larger than the stale 1x one (${budgetAt1x})`);
+  assertOk(!!operator.job.stationKey && state.stationReservations[operator.job.stationKey] === operator.id,
+    'the reservation was never dropped and reacquired — this was never actually abandoned, not even briefly');
+
+  // And it still completes normally afterward.
+  arrive(operator);
+  let completedAtTick = -1;
+  for (let t = 0; t < 200 && completedAtTick < 0; t++) {
+    tickJobs(game);
+    if (operator.job === null) completedAtTick = t;
+  }
+  assertOk(completedAtTick >= 0, `after arrival, the eat job completes normally (at tick ${completedAtTick})`);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n=== 4. Firing a staffer mid-job releases the reservation (via releaseAllFor, same as Game.js) ===\n');
 {
   const state = makeState();

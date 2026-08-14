@@ -531,12 +531,19 @@ function worstCaseMapSubtiles(state) {
   return (half * 2 + 1) * 4 * 2;
 }
 
+// game.state.speed, clamped to a known value — the same fallback
+// ticksPerSubtile uses, and also what tickJobs compares job.travelBudgetSpeed
+// against to decide whether a budget needs recomputing (see fix-round-3
+// below).
+function normalizedSpeed(game) {
+  return VALID_SPEEDS.includes(game.state.speed) ? game.state.speed : 1;
+}
+
 // Real seconds to cover one subtile at the slowest pawn speed, converted to
 // SIM ticks at the game's current speed multiplier — the exact conversion
 // that makes the old flat constant wrong (see this section's header).
 function ticksPerSubtile(game) {
-  const speed = VALID_SPEEDS.includes(game.state.speed) ? game.state.speed : 1;
-  return (SUBTILE_UNIT / SLOWEST_PAWN_SPEED) * speed;
+  return (SUBTILE_UNIT / SLOWEST_PAWN_SPEED) * normalizedSpeed(game);
 }
 
 function computeTravelBudget(game, member, node) {
@@ -550,6 +557,27 @@ function computeTravelBudget(game, member, node) {
     subtiles = worstCaseMapSubtiles(state);
   }
   return Math.max(MIN_TRAVEL_BUDGET_TICKS, Math.ceil(subtiles * ticksPerSubtile(game) * TRAVEL_BUDGET_SAFETY));
+}
+
+// fix-round-3: TRAVEL_BUDGET_SAFETY (2x) covers a speed increase up to
+// double whatever the budget was last computed at, but VALID_SPEEDS is
+// [1, 2, 4] — a 1x -> 4x jump mid-journey is exactly the uncovered case,
+// and a lone speed-up is a completely ordinary player action mid-walk, not
+// an edge case. Reproduced live: a job budgeted at 1x and then switched to
+// 4x got abandoned once ("Gave up trying to get there."), dropped its
+// reservation, and completed fine on reassignment with a freshly computed
+// (correct) budget — bounded and self-healing, never the original bug's
+// infinite loop, but a visible, avoidable stumble.
+//
+// Fixed by tracking the speed a budget was computed AT (job.travelBudgetSpeed)
+// alongside the budget itself, and recomputing whenever the CURRENT speed
+// exceeds it — see the call site in tickJobs. Deliberately NOT fixed by
+// raising TRAVEL_BUDGET_SAFETY to 4x instead: that's a blanket change that
+// also blunts what the backstop exists for — a genuinely stuck job would
+// then take twice as long (543 -> ~1086 ticks at the worst-case-map figure)
+// to be caught. This fix is scoped to the one case that actually needs it.
+function needsBudgetRecompute(job, speedNow) {
+  return job.travelBudgetTicks == null || speedNow > job.travelBudgetSpeed;
 }
 
 /**
@@ -586,7 +614,9 @@ function computeTravelBudget(game, member, node) {
  * resolvable node here at all — see this file's header). Every job still
  * gets a travel-tick budget as a hard backstop regardless — see this
  * section's header comment for why that budget is computed from the job's
- * own path length and the game's current speed, not a flat constant.
+ * own path length and the game's current speed, not a flat constant, and
+ * why it's re-derived (needsBudgetRecompute) whenever state.speed rises
+ * above whatever speed it was last computed at.
  *
  * Once `phase === 'work'`, progress accrues by the member's own efficiency
  * (skill/mood/zone-tier/specialty-match, all in StaffMember.efficiency) —
@@ -616,7 +646,11 @@ export function tickJobs(game) {
           continue;
         }
       }
-      if (job.travelBudgetTicks == null) job.travelBudgetTicks = computeTravelBudget(game, member, node);
+      const speedNow = normalizedSpeed(game);
+      if (needsBudgetRecompute(job, speedNow)) {
+        job.travelBudgetTicks = computeTravelBudget(game, member, node);
+        job.travelBudgetSpeed = speedNow;
+      }
       job.travelTicks = (job.travelTicks || 0) + 1;
       if (job.travelTicks > job.travelBudgetTicks) {
         abandonJob(member, game, 'Gave up trying to get there.');
