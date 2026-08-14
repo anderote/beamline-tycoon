@@ -582,3 +582,8 @@ test('buildFloorGlowStrip builds a non-rendered real-light proxy for a healthy f
   assert.ok(soft.userData.utilityLightEmitter.intensity < strip.userData.utilityLightEmitter.intensity,
     'soft-faulted utility light is dimmer than healthy light');
 });
+
+test('RF waveguide uses its travelling bloom wave, not a point-light hotspot', () => {
+  assert.equal(buildFloorGlowStrip(makePoints(), 'rfWaveguide', 'ok'), null,
+    'RF does not create a real-light proxy; its emissive geometry supplies the glow');
+});

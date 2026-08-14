@@ -46,9 +46,11 @@ export const FLOW_PARAMS = {
   },
   vacuumPipe: null,
   rfWaveguide: {
-    // Broad enough to grade smoothly like cooling water, with a slightly
-    // shorter repeat so RF retains some character without visibly flashing.
-    speed: 0.65, period: 3.0, width: 2.1, strength: 1.15, baseGlow: 0.12,
+    // The moving field itself is the light source. A strong, broad emissive
+    // crest crosses the selective-bloom threshold all along the geometry;
+    // the quieter base keeps the complete guide faintly luminous between
+    // crests without introducing a separate point-light hotspot.
+    speed: 0.65, period: 3.0, width: 2.1, strength: 2.6, baseGlow: 0.35,
   },
   coolingWater: {
     // The reference treatment: a broad, slow band whose neighbours nearly
