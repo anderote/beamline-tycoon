@@ -47,9 +47,13 @@
 //     (rotating +Z by θ about Y gives (sin θ, 0, cos θ)).
 //   - Total height is style.height world units; a tile is 2 units.
 //   - Limb geometries are pre-translated so their origin sits at the
-//     shoulder/hip joint; the mesh is then placed AT the joint. Rotating the
-//     mesh about X swings the limb from that joint. Hands and feet are
-//     CHILDREN of their limb, so they swing with it for free.
+//     shoulder/hip/knee joint; the mesh is then placed AT the joint. Rotating
+//     the mesh about X swings the limb from that joint. Hands and feet are
+//     CHILDREN of their limb, so they swing with it for free. The leg is two
+//     segments: leftLeg/rightLeg is the thigh (pivots at the hip, as before),
+//     leftShin/rightShin is a CHILD of it pivoting at the knee, and the foot
+//     is a child of the shin. At rotation 0 the knee is a no-op — the thigh
+//     and shin together span exactly the old single-piece leg.
 //   - Geometries and materials are cached at module level (the _partMatCache
 //     idiom from equipment-builder.js) and keyed on their own dimensions and
 //     colors, so variants share whatever they have in common and a 25-person
@@ -189,6 +193,15 @@ export function staffFigureHeight(style = DEFAULT_STAFF_STYLE) {
   return style.height;
 }
 
+/**
+ * World-space Y of the hip joint (feet at y=0), so a caller can drop a
+ * sitting figure onto a chair's seat height by raising the whole group —
+ * the builder itself never moves parts to fake a seat; see POSES.sit.
+ */
+export function staffStyleHipHeight(style = DEFAULT_STAFF_STYLE) {
+  return _proportions(style).hipY;
+}
+
 // ── Palettes ─────────────────────────────────────────────────────────
 // A palette is every color a figure can be made of, minus the per-staff random
 // choice. Styles name one; the builder and its callers read it through
@@ -277,6 +290,11 @@ export function staffPalette(style = DEFAULT_STAFF_STYLE) {
 
 const _propCache = new Map();
 
+// The knee sits at the midpoint of the leg — thigh and shin split the leg's
+// length and radius taper evenly. At rotation 0 they are collinear and span
+// exactly what the old single-piece leg did, so the knee is a no-op at rest.
+const KNEE_FRAC = 0.5;
+
 function _proportions(style) {
   let p = _propCache.get(style);
   if (p) return p;
@@ -305,6 +323,9 @@ function _proportions(style) {
     brimH: H * 0.026, brimPad: H * 0.096,
     footH, footW: H * 0.119 * ext, footD: H * 0.178 * ext, footFwd: H * 0.030 * ext,
     legLen, legRTop, legRBot: legRTop * style.limbTaper, legGap: H * 0.063,
+    // Thigh (hip -> knee) and shin (knee -> foot) split the leg at the knee.
+    thighLen: legLen * KNEE_FRAC, shinLen: legLen * (1 - KNEE_FRAC),
+    kneeR: legRTop + (legRTop * style.limbTaper - legRTop) * KNEE_FRAC,
     torsoH, torsoRTop, torsoRBot: torsoRTop * style.torsoTaper,
     collarH: H * 0.044, collarR: torsoRTop + H * 0.019,
     armLen: legLen * 0.95, armRTop, armRBot: armRTop * style.limbTaper,
@@ -450,8 +471,10 @@ function _mesh(geo, mat, x, y, z) {
  * @property {THREE.Mesh} torso
  * @property {THREE.Mesh} leftArm   rotate .rotation.x to swing from the shoulder
  * @property {THREE.Mesh} rightArm
- * @property {THREE.Mesh} leftLeg   rotate .rotation.x to swing from the hip
+ * @property {THREE.Mesh} leftLeg   the thigh — rotate .rotation.x to swing from the hip
  * @property {THREE.Mesh} rightLeg
+ * @property {THREE.Mesh} leftShin  child of leftLeg — rotate .rotation.x to swing from the knee
+ * @property {THREE.Mesh} rightShin child of rightLeg
  * @property {THREE.Mesh[]} parts   every mesh, in build order (hands/feet included)
  * @property {StaffStyle} style     the style it was built from
  */
@@ -484,18 +507,28 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
   const parts = [];
   const add = (mesh, parent) => { (parent || body).add(mesh); parts.push(mesh); return mesh; };
 
-  // Legs — origin at the hip so rotation.x swings the whole leg. Each carries
-  // an oversized boxy boot as a child, so the boot swings with it.
-  const legGeo = _limbGeo(style, p.legRTop, p.legRBot, p.legLen);
+  // Legs — origin at the hip so rotation.x swings the thigh. The shin is a
+  // CHILD of the thigh, its own origin at the knee, so rotating it swings the
+  // calf from there; the boot is a child of the shin so it swings with the
+  // true foot joint instead of the hip. At rotation 0 the two segments are
+  // collinear and span exactly the old single-piece leg — the knee is a
+  // geometric no-op at rest.
+  const thighGeo = _limbGeo(style, p.legRTop, p.kneeR, p.thighLen);
+  const shinGeo = _limbGeo(style, p.kneeR, p.legRBot, p.shinLen);
   const footGeo = _boxGeo(p.footW, p.footH, p.footD);
   const bootMat = _figureMaterial(pal.boot, style);
   const legs = [];
+  const shins = [];
   for (const side of [-1, 1]) {
-    const leg = add(_mesh(legGeo, trouserMat, side * p.legGap, p.hipY, 0));
-    // Foot in leg-local space: the leg hangs to -legLen, the boot sits under
-    // it, so the sole lands at world y = 0 exactly.
-    add(_mesh(footGeo, bootMat, 0, -(p.legLen + p.footH / 2), p.footFwd), leg);
+    const leg = add(_mesh(thighGeo, trouserMat, side * p.legGap, p.hipY, 0));
+    const shin = add(_mesh(shinGeo, trouserMat, 0, -p.thighLen, 0), leg);
+    // Foot in shin-local space: the shin hangs to -shinLen, the boot sits
+    // under it, so the sole lands at world y = 0 exactly (hipY - thighLen -
+    // shinLen - footH/2 = hipY - legLen - footH/2 = 0, since hipY = footH +
+    // legLen).
+    add(_mesh(footGeo, bootMat, 0, -(p.shinLen + p.footH / 2), p.footFwd), shin);
     legs.push(leg);
+    shins.push(shin);
   }
 
   // Torso — narrow at the waist, broad at the shoulders.
@@ -583,8 +616,90 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
     group, body, head, torso,
     leftArm: arms[0], rightArm: arms[1],
     leftLeg: legs[0], rightLeg: legs[1],
+    leftShin: shins[0], rightShin: shins[1],
     parts, style,
   };
+}
+
+// ── Poses ────────────────────────────────────────────────────────────
+// A pose is a plain description of where each joint eases toward — not an
+// animation, just a target. StaffPawns (or the foundry) calls applyPose()
+// every frame with the elapsed time, and the figure eases toward whatever
+// pose is current.
+//
+// walk's targets are identical to stand's (all zero): the walk swing is
+// driven separately (StaffPawns._animate composes amp*sin(phase) onto the
+// hip/knee), and it composes cleanly on top of a zero baseline instead of
+// fighting it. The same baseline-then-compose approach is what lets a
+// walking pawn ease into 'sit' without a discontinuity.
+
+/**
+ * @typedef {object} StaffPose
+ * @property {number} hip        thigh pivot, radians (+ leans the thigh forward)
+ * @property {number} knee       shin pivot, radians, relative to the thigh
+ * @property {number} torsoLean  torso pivot, radians
+ * @property {number} armL       left shoulder pivot, radians
+ * @property {number} armR       right shoulder pivot, radians
+ * @property {number} headTilt   head pivot, radians
+ */
+
+/** @type {Record<string, StaffPose>} */
+export const POSES = {
+  stand: { hip: 0, knee: 0, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
+  // Swing composes on top of this in the walk driver — see note above.
+  walk: { hip: 0, knee: 0, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
+  // Thigh horizontal, shin vertical: hip forward ~90°, knee back ~90°
+  // relative to the thigh so the two rotations cancel and the shin hangs
+  // straight down again, same as standing.
+  sit: { hip: Math.PI / 2, knee: -Math.PI / 2, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
+  // Seated at a console: same leg fold as sit, leaning in toward the desk
+  // with both hands forward on a keyboard/panel.
+  deskWork: {
+    hip: Math.PI / 2, knee: -Math.PI / 2,
+    torsoLean: 0.25, armL: -0.9, armR: -0.9, headTilt: 0.2,
+  },
+  // Standing at a bench, bent over close work: legs planted, torso and head
+  // pitched down, arms in front working with both hands.
+  benchWork: { hip: 0, knee: 0.12, torsoLean: 0.5, armL: -1.05, armR: -1.05, headTilt: 0.35 },
+  // Carrying a load in both arms, held out and slightly up in front.
+  carry: { hip: -0.08, knee: 0.18, torsoLean: 0.12, armL: -1.3, armR: -1.3, headTilt: 0 },
+  // Leaning into a cart or panel with both hands, weight forward.
+  push: { hip: 0, knee: 0, torsoLean: 0.45, armL: -0.6, armR: -0.6, headTilt: 0 },
+};
+
+const POSE_JOINTS = ['hip', 'knee', 'torsoLean', 'armL', 'armR', 'headTilt'];
+
+// Seconds to ease ~63% of the way to a pose target — the same time-constant
+// idiom as StaffPawns' TURN_TAU/SWING_TAU.
+const POSE_TAU = 0.15;
+
+/**
+ * Ease a figure's joints toward a named pose's targets and apply the result.
+ * `t` is the frame's elapsed seconds (dt); the ease uses the same
+ * `1 - Math.exp(-dt / TAU)` idiom StaffPawns._animate already uses for
+ * turn/swing damping. Per-figure state persists on `figure._pose` between
+ * calls (starting at 'stand', i.e. rest) so repeated calls pick up where the
+ * last one left off instead of snapping.
+ * @param {StaffFigure} figure
+ * @param {keyof typeof POSES} poseId
+ * @param {number} t elapsed seconds this frame
+ * @returns {StaffPose} the eased state actually applied
+ */
+export function applyPose(figure, poseId, t) {
+  const target = POSES[poseId] || POSES.stand;
+  const state = figure._pose || (figure._pose = { ...POSES.stand });
+  const k = 1 - Math.exp(-t / POSE_TAU);
+  for (const joint of POSE_JOINTS) state[joint] += (target[joint] - state[joint]) * k;
+
+  figure.leftLeg.rotation.x = state.hip;
+  figure.rightLeg.rotation.x = state.hip;
+  figure.leftShin.rotation.x = state.knee;
+  figure.rightShin.rotation.x = state.knee;
+  figure.leftArm.rotation.x = state.armL;
+  figure.rightArm.rotation.x = state.armR;
+  figure.torso.rotation.x = state.torsoLean;
+  figure.head.rotation.x = state.headTilt;
+  return state;
 }
 
 /**

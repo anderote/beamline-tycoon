@@ -15,11 +15,14 @@ import {
   buildStaffFigure,
   disposeStaffFigure,
   staffFigureHeight,
+  staffStyleHipHeight,
   STAFF_STYLES,
   STAFF_STYLE_LIST,
   STAFF_PALETTES,
   staffPalette,
   DEFAULT_STAFF_STYLE,
+  POSES,
+  applyPose,
 } from '../src/renderer3d/builders/staff-builder.js';
 
 // --- THREE stub ------------------------------------------------------------
@@ -181,11 +184,31 @@ test('figure builds a group with head, torso, four limbs and their extremities',
   for (const key of ['group', 'body', 'head', 'torso', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
     assert.ok(fig[key], `figure is missing handle "${key}"`);
   }
-  // 2 legs + 2 boots + torso + collar + 2 arms + 2 hands + head
-  // + hair cap + back-of-head panel = 13.
-  assert.equal(fig.parts.length, 13, 'unexpected part count for the plain-hair build');
-  assert.equal(walkMeshes(fig.group).length, 13, 'parts[] must list every mesh in the tree');
+  // 2 thighs + 2 shins + 2 boots + torso + collar + 2 arms + 2 hands + head
+  // + hair cap + back-of-head panel = 15.
+  assert.equal(fig.parts.length, 15, 'unexpected part count for the plain-hair build');
+  assert.equal(walkMeshes(fig.group).length, 15, 'parts[] must list every mesh in the tree');
   assert.equal(fig.group.children.length, 1, 'group holds exactly the bob node');
+});
+
+test('the shin is a child of the thigh, pivoting at the knee, and the foot is a child of the shin', () => {
+  const fig = buildStaffFigure(look(), STAFF_STYLES.osrsClassic);
+  assert.ok(fig.leftShin, 'figure is missing leftShin');
+  assert.ok(fig.rightShin, 'figure is missing rightShin');
+  assert.equal(fig.leftShin.parent, fig.leftLeg, 'left shin should be a child of the left thigh');
+  assert.equal(fig.rightShin.parent, fig.rightLeg, 'right shin should be a child of the right thigh');
+
+  // The thigh now carries only the shin; the boot moved down to the shin.
+  assert.equal(fig.leftLeg.children.length, 1, 'the thigh should carry only the shin');
+  assert.equal(fig.leftLeg.children[0], fig.leftShin);
+  assert.equal(fig.leftShin.children.length, 1, 'the shin should carry the boot');
+  assert.equal(fig.leftShin.children[0].parent, fig.leftShin, 'the foot must be a child of the shin');
+  assert.equal(fig.rightShin.children[0].parent, fig.rightShin);
+
+  // Existing walk code rotates leftLeg.rotation.x directly and must keep
+  // working unchanged with the shin sitting at zero rotation.
+  assert.equal(fig.leftShin.rotation.x, 0, 'the knee starts at rest');
+  assert.equal(fig.rightShin.rotation.x, 0);
 });
 
 test('long hair adds side panels', () => {
@@ -266,7 +289,7 @@ test('style config drives limb construction', () => {
   assert.equal(faceted[0].mesh.material.flatShading, true);
 
   const faced = buildStaffFigure(look(), STAFF_STYLES.facedScout);
-  assert.equal(faced.parts.length, 15, 'the faced style adds two eye dabs');
+  assert.equal(faced.parts.length, 17, 'the faced style adds two eye dabs');
   assert.equal(faced.head.children.length, 2, 'eye dabs ride on the head');
 });
 
@@ -416,4 +439,48 @@ test('face dabs scale with the head, and the mouth is opt-in', () => {
   // headRatio, so facedScout's face is untouched by the rework.
   assert.ok(Math.abs(facedEye - STAFF_STYLES.facedScout.height * 0.033) < 1e-12,
     `facedScout eye width drifted: ${facedEye}`);
+});
+
+// --- Poses -------------------------------------------------------------
+
+test('POSES defines all seven states with finite joint targets', () => {
+  const expectedIds = ['stand', 'walk', 'sit', 'deskWork', 'benchWork', 'carry', 'push'];
+  assert.deepEqual(Object.keys(POSES).sort(), expectedIds.sort());
+  for (const [id, pose] of Object.entries(POSES)) {
+    for (const joint of ['hip', 'knee', 'torsoLean', 'armL', 'armR', 'headTilt']) {
+      assert.equal(typeof pose[joint], 'number', `${id}.${joint} must be a number`);
+      assert.ok(Number.isFinite(pose[joint]), `${id}.${joint} must be finite`);
+    }
+  }
+});
+
+test('applyPose eases hip and knee toward sit, then back toward stand', () => {
+  const fig = buildStaffFigure(look(), STAFF_STYLES.osrsClassic);
+
+  applyPose(fig, 'sit', 1);
+  assert.ok(Math.abs(fig.leftLeg.rotation.x - Math.PI / 2) < 0.01,
+    `hip should ease to ~+pi/2 sitting, got ${fig.leftLeg.rotation.x}`);
+  assert.ok(Math.abs(fig.rightLeg.rotation.x - Math.PI / 2) < 0.01);
+  assert.ok(Math.abs(fig.leftShin.rotation.x - (-Math.PI / 2)) < 0.01,
+    `knee should ease to ~-pi/2 sitting, got ${fig.leftShin.rotation.x}`);
+  assert.ok(Math.abs(fig.rightShin.rotation.x - (-Math.PI / 2)) < 0.01);
+
+  applyPose(fig, 'stand', 1);
+  assert.ok(Math.abs(fig.leftLeg.rotation.x) < 0.01,
+    `hip should ease back to ~0, got ${fig.leftLeg.rotation.x}`);
+  assert.ok(Math.abs(fig.leftShin.rotation.x) < 0.01,
+    `knee should ease back to ~0, got ${fig.leftShin.rotation.x}`);
+});
+
+test('walk and stand share identical (zero) targets, so a swing overlay never fights sit', () => {
+  assert.deepEqual(POSES.walk, POSES.stand);
+});
+
+test('staffStyleHipHeight sits between the floor and the top of the figure', () => {
+  for (const style of STAFF_STYLE_LIST) {
+    const hip = staffStyleHipHeight(style);
+    assert.ok(hip > 0 && hip < style.height,
+      `${style.id}: hip height ${hip} should be within (0, ${style.height})`);
+  }
+  assert.equal(staffStyleHipHeight(), staffStyleHipHeight(DEFAULT_STAFF_STYLE));
 });

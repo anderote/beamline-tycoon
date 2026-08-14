@@ -51,6 +51,20 @@
     .tag.yes { color: #6fd39a; }
     .tag.no { color: #d3806f; }
     #warn { color: #d3a56f; font-size: 12px; margin-bottom: 12px; white-space: pre-wrap; }
+    #poseSection { margin-top: 28px; }
+    #poseGrid { display: flex; flex-wrap: wrap; gap: 14px; }
+    .pose-card {
+      background: #20202f; border: 1px solid #34344a; border-radius: 4px;
+      padding: 10px; width: 200px;
+    }
+    .pose-card canvas {
+      display: block; width: 100%; height: auto; aspect-ratio: 480 / 270;
+      image-rendering: pixelated; border-radius: 2px; background: #1a1a2e;
+    }
+    .pose-label {
+      margin-top: 6px; font-size: 12px; color: #dcdce8; text-align: center;
+      text-transform: capitalize;
+    }
     #out { width: 100%; height: 90px; background: #14141f; color: #9a9ab4;
            border: 1px solid #34344a; font-family: monospace; font-size: 11px;
            margin-top: 14px; display: none; }
@@ -82,9 +96,21 @@
   <div id="grid"></div>
   <textarea id="out" readonly></textarea>
 
+  <div id="poseSection">
+    <h2>Pose states</h2>
+    <p class="sub">
+      Every entry in <code>POSES</code>, applied with <code>applyPose(fig, poseId, 1)</code> to
+      one figure of the default style — the knee joint task's other deliverable, shown fully
+      eased toward each target so the joint angles are easy to eyeball.
+    </p>
+    <div id="poseGrid"></div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script type="module">
-    import { buildStaffFigure, staffPalette, STAFF_STYLE_LIST } from './src/renderer3d/builders/staff-builder.js';
+    import {
+      buildStaffFigure, staffPalette, STAFF_STYLE_LIST, DEFAULT_STAFF_STYLE, POSES, applyPose,
+    } from './src/renderer3d/builders/staff-builder.js';
     import { ComponentBuilder } from './src/renderer3d/component-builder.js';
     import { COMPONENTS } from './src/data/components.js';
     import { MATERIALS } from './src/renderer3d/materials/index.js';
@@ -374,6 +400,55 @@
       return card;
     }
 
+    // ── Pose row: every POSES entry, one figure of the default style ───
+    // Static demo, not a design comparison: no verdicts, no walk. Reuses the
+    // shared renderer and the sun/turntable controls above, so it still
+    // benefits from those while adding no new state to the copy/reset flow.
+    const poseViews = [];
+
+    function buildPoseView(poseId) {
+      const scene = new THREE.Scene();
+      const { sun, ambient } = makeLights(scene);
+      const content = new THREE.Group();
+      scene.add(content);
+      content.add(makeSlab(2.2, 2.2));
+
+      const pal = staffPalette(DEFAULT_STAFF_STYLE);
+      const role = pal.roles.operator;
+      const fig = buildStaffFigure({
+        skin: pal.skins[0], hair: pal.hairs[0], coat: pal.coats[0],
+        collar: role.collar, trouser: role.trouser, hardHat: role.hardHat,
+      }, DEFAULT_STAFF_STYLE);
+      fig.group.rotation.y = FIGURE_HEADING;
+      content.add(fig.group);
+      // t=1 second at POSE_TAU=0.15 is >99.9% eased — effectively the target.
+      applyPose(fig, poseId, 1);
+
+      return {
+        scene, sun, ambient, content, figures: [fig], poseId,
+        camera: makeCamera(CLOSE_FRUSTUM, CLOSE_LOOK_Y),
+        h: CLOSE_H,
+      };
+    }
+
+    function makePoseCard(poseId) {
+      const view = buildPoseView(poseId);
+      const el = document.createElement('div');
+      el.className = 'pose-card';
+      const canvas = document.createElement('canvas');
+      el.appendChild(canvas);
+      view.canvas = canvas;
+      view.ctx = canvas.getContext('2d');
+      const label = document.createElement('div');
+      label.className = 'pose-label';
+      label.textContent = poseId;
+      el.appendChild(label);
+      document.getElementById('poseGrid').appendChild(el);
+      poseViews.push(view);
+    }
+
+    Object.keys(POSES).forEach(makePoseCard);
+
     // ── Verdicts (localStorage) ───────────────────────────────────────
     const STORE_KEY = 'staffFoundryVerdicts';
 
@@ -439,6 +514,12 @@
           v.canvas.height = v.bufH;
           v.ctx.imageSmoothingEnabled = false;
         }
+      }
+      for (const v of poseViews) {
+        v.bufH = Math.round(v.h / scale);
+        v.canvas.width = bufW;
+        v.canvas.height = v.bufH;
+        v.ctx.imageSmoothingEnabled = false;
       }
     }
     cbPixel.onchange = resizeCanvases;
@@ -511,6 +592,16 @@
           v.ctx.drawImage(renderer.domElement, 0, 0, bufW, v.bufH,
                                                0, 0, bufW, v.bufH);
         }
+      }
+
+      // Pose row: static joint targets, so only the turntable/sun move.
+      for (const v of poseViews) {
+        for (const f of v.figures) f.group.rotation.y = FIGURE_HEADING + spin;
+        placeSun(v.sun, v.ambient, sunAngle);
+        renderer.setViewport(0, bufH - v.bufH, bufW, v.bufH);
+        renderer.render(v.scene, v.camera);
+        v.ctx.drawImage(renderer.domElement, 0, 0, bufW, v.bufH,
+                                             0, 0, bufW, v.bufH);
       }
       requestAnimationFrame(frame);
     }
