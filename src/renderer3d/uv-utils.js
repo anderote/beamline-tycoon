@@ -25,13 +25,16 @@ const METERS_PER_TILE = 2.0;
  * @param {number} width  size along X (m)
  * @param {number} height size along Y (m)
  * @param {number} depth  size along Z (m)
+ * @param {{ fullHeight?: boolean }} [options]
+ *   `fullHeight` maps vertical faces from V=0..1 instead of tiling by world
+ *   height. This is for cutout art containing a complete panel silhouette.
  */
-export function applyTiledBoxUVs(geometry, width, height, depth) {
+export function applyTiledBoxUVs(geometry, width, height, depth, options = {}) {
   const uv = geometry.attributes.uv;
   if (!uv) return;
   const arr = uv.array;
   const u_w = width / METERS_PER_TILE;
-  const u_h = height / METERS_PER_TILE;
+  const u_h = options.fullHeight ? 1 : height / METERS_PER_TILE;
   const u_d = depth / METERS_PER_TILE;
   // [uSpan, vSpan] per face, in default BoxGeometry order
   const spans = [

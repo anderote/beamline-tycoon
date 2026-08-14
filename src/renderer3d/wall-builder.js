@@ -306,10 +306,13 @@ export class WallBuilder {
       const geo = isNS
         ? new THREE.BoxGeometry(length, height, thickness)
         : new THREE.BoxGeometry(thickness, height, length);
+      // Cutout fence textures contain a complete panel from ground rail to
+      // post top. Repeat them along the run, but always show their full height.
+      const uvOptions = { fullHeight: def?.hasAlpha === true };
       if (isNS) {
-        applyTiledBoxUVs(geo, length, height, thickness);
+        applyTiledBoxUVs(geo, length, height, thickness, uvOptions);
       } else {
-        applyTiledBoxUVs(geo, thickness, height, length);
+        applyTiledBoxUVs(geo, thickness, height, length, uvOptions);
       }
       // Randomize U offset for segments whose def opts in. This breaks
       // the obvious pattern repeat without cloning the material.
@@ -553,10 +556,11 @@ export class WallBuilder {
         const sideGeo = isNS
           ? new THREE.BoxGeometry(side.width, wallHeight, wallThickness)
           : new THREE.BoxGeometry(wallThickness, wallHeight, side.width);
+        const uvOptions = { fullHeight: wallDef?.hasAlpha === true };
         if (isNS) {
-          applyTiledBoxUVs(sideGeo, side.width, wallHeight, wallThickness);
+          applyTiledBoxUVs(sideGeo, side.width, wallHeight, wallThickness, uvOptions);
         } else {
-          applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, side.width);
+          applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, side.width, uvOptions);
         }
 
         const sideMesh = new THREE.Mesh(sideGeo, sideMat);

@@ -71,6 +71,16 @@ test('box: 4m x 1m x 2m face spans match dimensions / 2m', () => {
   }
 });
 
+test('box: fullHeight preserves complete cutout panel artwork', () => {
+  const g = fakeBoxGeom();
+  applyTiledBoxUVs(g, 4, 0.8, 0.05, { fullHeight: true });
+  const uv = g.attributes.uv.array;
+
+  // +Z is a visible long face: two repeats along a 4m run, but one complete
+  // image vertically even though the rendered fence is only 0.8m tall.
+  assert.deepEqual(Array.from(uv.slice(32, 40)), [0, 1, 2, 1, 0, 0, 2, 0]);
+});
+
 test('box: needsUpdate is set after rewrite', () => {
   const g = fakeBoxGeom();
   applyTiledBoxUVs(g, 1, 1, 1);
