@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS } from '../data/facility.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
@@ -18,7 +18,7 @@ import { findStackTarget } from '../game/stacking.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
-import { FloorTool, WallTool, DoorTool } from './structure-tools.js';
+import { FloorTool, WallTool, DoorTool, WindowTool } from './structure-tools.js';
 import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
@@ -325,18 +325,28 @@ export class InputHandler {
       const nearest = this._getNearestEdge?.(screenX, screenY);
       const hit = nearest && this._findWallOrDoorAtEdge(nearest);
       if (hit) {
-        const { edge, wallType, doorType } = hit;
+        const { edge, wallType, doorType, windowType } = hit;
         if (this._shiftDown && dt === 'demolishBuilding') {
           const seg = wallType
             ? this._buildWallSegmentPath(edge)
-            : this._buildDoorSegmentPath(edge);
+            : doorType
+              ? this._buildDoorSegmentPath(edge)
+              : this._buildWindowSegmentPath(edge);
           if (seg.length > 1) this.renderer.renderDemolishPathPreview(seg);
           else this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
         } else {
           this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
         }
-        const def = wallType ? WALL_TYPES[wallType] : DOOR_TYPES[doorType];
-        this._showDemolishTooltip(def?.name || (wallType ? 'Wall' : 'Door'), demolishRefund(def), screenX, screenY);
+        const def = wallType ? WALL_TYPES[wallType] : doorType ? DOOR_TYPES[doorType] : WINDOW_TYPES[windowType];
+        // Price the variant that is actually standing there: walls and
+        // windows are charged and refunded per variant, so a base-cost
+        // preview would promise the wrong money back (a Reinforced
+        // structuralWall refunds 17, not 12).
+        const kind = wallType ? 'wall' : doorType ? 'door' : 'window';
+        this._showDemolishTooltip(
+          def?.name || (wallType ? 'Wall' : doorType ? 'Door' : 'Window'),
+          demolishRefund(def, this._placedEdgeVariant(kind, edge)), screenX, screenY,
+        );
         found = true;
       }
     }
@@ -555,28 +565,54 @@ export class InputHandler {
   }
 
   /**
-   * Resolve a wall/door segment at an edge, checking both representations.
-   * Returns { edge, wallType, doorType } normalized to the representation
-   * the segment is actually stored under, or null when neither alias holds
-   * a wall or a door.
+   * Resolve a wall/door/window segment at an edge, checking both
+   * representations. Returns { edge, wallType, doorType, windowType }
+   * normalized to the representation the segment is actually stored under,
+   * or null when no alias holds a wall, a door, or a window.
    */
   _findWallOrDoorAtEdge(edge) {
     for (const e of [edge, this._edgeAlias(edge)]) {
       const k = `${e.col},${e.row},${e.edge}`;
       const wallType = this.game.state.wallOccupied?.[k] || null;
       const doorType = this.game.state.doorOccupied?.[k] || null;
-      if (wallType || doorType) return { edge: e, wallType, doorType };
+      const windowType = this.game.state.windowOccupied?.[k] || null;
+      if (wallType || doorType || windowType) return { edge: e, wallType, doorType, windowType };
     }
     return null;
   }
 
-  /** Remove wall + door segments at an edge under either representation. */
+  /**
+   * The variant of the wall / door / window actually placed at this edge
+   * triple, for pricing a demolish preview. Entries only carry `variant`
+   * when it is non-zero (see Game.placeWall), so a missing field means 0.
+   * `edge` is expected to be the representation _findWallOrDoorAtEdge
+   * normalized to — the one the segment is stored under.
+   * @param {'wall'|'door'|'window'} kind
+   */
+  _placedEdgeVariant(kind, edge) {
+    const s = this.game.state;
+    const list = kind === 'wall' ? s.walls : kind === 'door' ? s.doors : s.windows;
+    const found = (list || []).find(
+      x => x.col === edge.col && x.row === edge.row && x.edge === edge.edge
+    );
+    return found?.variant ?? 0;
+  }
+
+  /**
+   * Remove wall + door + window segments at an edge under either
+   * representation. Windows are checked at both aliases explicitly (not
+   * just left to removeWall's cascade) because Game.placeWindow accepts a
+   * wall found under either edge representation, so a window's own storage
+   * key can differ from the wall's.
+   */
   _removeWallAndDoorAtEdge(pt) {
     const alias = this._edgeAlias(pt);
     this.game.removeWall(pt.col, pt.row, pt.edge);
     this.game.removeDoor(pt.col, pt.row, pt.edge);
+    this.game.removeWindow(pt.col, pt.row, pt.edge);
     this.game.removeWall(alias.col, alias.row, alias.edge);
     this.game.removeDoor(alias.col, alias.row, alias.edge);
+    this.game.removeWindow(alias.col, alias.row, alias.edge);
   }
 
   /**
@@ -686,6 +722,29 @@ export class InputHandler {
       for (;;) {
         if (horizontal) col += dir; else row += dir;
         if (!door[keyAt(col, row)]) break;
+        const pt = { col, row, edge };
+        if (dir === -1) path.unshift(pt); else path.push(pt);
+      }
+    }
+    return path;
+  }
+
+  /**
+   * Mirror of _buildDoorSegmentPath for window segments (windowOccupied).
+   */
+  _buildWindowSegmentPath(origin) {
+    const win = this.game.state.windowOccupied;
+    const { edge } = origin;
+    const keyAt = (col, row) => `${col},${row},${edge}`;
+    if (!win[keyAt(origin.col, origin.row)]) return [];
+    const horizontal = edge === 'n' || edge === 's';
+    const path = [{ col: origin.col, row: origin.row, edge }];
+    for (const dir of [-1, 1]) {
+      let col = origin.col;
+      let row = origin.row;
+      for (;;) {
+        if (horizontal) col += dir; else row += dir;
+        if (!win[keyAt(col, row)]) break;
         const pt = { col, row, edge };
         if (dir === -1) path.unshift(pt); else path.push(pt);
       }
@@ -1804,6 +1863,7 @@ export class InputHandler {
       case 'floor':      this.setTool(new FloorTool(key, variant)); break;
       case 'wall':       this.setTool(new WallTool(key, variant)); break;
       case 'door':       this.setTool(new DoorTool(key, variant)); break;
+      case 'window':     this.setTool(new WindowTool(key, variant)); break;
       case 'zone':       this.setTool(new ZonePaintTool(key)); break;
       case 'furnishing': this.setTool(new PlaceableTool('furnishing', key, variant)); break;
       case 'decoration': this.setTool(new PlaceableTool('decoration', key, variant)); break;
@@ -2665,6 +2725,7 @@ export class InputHandler {
     const catDef = MODES[this.activeMode]?.categories?.[cat];
     if (kind === 'wall' || catDef?.isWallTab || cat === 'walls' || cat === 'fencing'
         || kind === 'door' || cat === 'doors'
+        || kind === 'window' || cat === 'windows'
         || kind === 'floor' || cat === 'flooring' || catDef?.isSurfaceTab
         || kind === 'zone') {
       demolishType = 'demolishBuilding';
@@ -2923,8 +2984,11 @@ export class InputHandler {
       case 'wall': {
         const wt = WALL_TYPES[key];
         if (!wt) { this._hidePreview(); return; }
+        // Variant-aware, because placeWall charges variantCosts[variant].
+        // _recallPaletteVariant returns the armed tool's variant, else the
+        // one the palette flyout remembers — the variant this card describes.
         this._renderPreview(wt.name, wt.desc || '', [
-          ['Cost', `$${typeof wt.cost === 'object' ? wt.cost.funding : wt.cost}/segment`],
+          ['Cost', `$${variantCost(wt, this._recallPaletteVariant('wall', key))}/segment`],
           ['Placement', 'Drag along edges'],
         ]);
         return;
@@ -2935,6 +2999,16 @@ export class InputHandler {
         this._renderPreview(dt.name, dt.desc || '', [
           ['Cost', `$${typeof dt.cost === 'object' ? dt.cost.funding : dt.cost}/segment`],
           ['Placement', 'Drag along edges'],
+        ]);
+        return;
+      }
+      case 'window': {
+        const wt = WINDOW_TYPES[key];
+        if (!wt) { this._hidePreview(); return; }
+        // Variant-aware — placeWindow charges variantCosts[variant]. See 'wall'.
+        this._renderPreview(wt.name, wt.desc || '', [
+          ['Cost', `$${variantCost(wt, this._recallPaletteVariant('window', key))}/segment`],
+          ['Placement', 'Drag along a wall edge'],
         ]);
         return;
       }

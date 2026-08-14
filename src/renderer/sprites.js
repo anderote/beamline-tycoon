@@ -4,7 +4,7 @@
 // is the manifest → file-path mapping used by the DOM HUD (palette previews
 // via <img> tags) plus per-sprite offset data from the asset generator.
 
-import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES } from '../data/structure.js';
 
 export class SpriteManager {
   constructor() {
@@ -94,7 +94,12 @@ export class SpriteManager {
     // entry declares one. Variant-aware: if the def declares
     // variantTextures, pick the one matching the currently selected
     // variant so the palette preview mirrors what will be placed.
-    const def = FLOORS[gameId] || WALL_TYPES[gameId] || DOOR_TYPES[gameId];
+    // WINDOW_TYPES entries have no `texture`/`variantTextures` of their
+    // own (frameTexture drives the 3D frame material, not a palette
+    // thumbnail) — including them here just means a window key resolves to
+    // no def-driven path and falls through to the tilePaths/swatch
+    // fallback below, matching the design's colour-swatch-only scope.
+    const def = FLOORS[gameId] || WALL_TYPES[gameId] || DOOR_TYPES[gameId] || WINDOW_TYPES[gameId];
     if (def) {
       const varTex = def.variantTextures?.[variant];
       if (varTex) return `assets/textures/materials/${varTex}.png`;

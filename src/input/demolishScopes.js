@@ -10,18 +10,24 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { variantCost } from '../data/structure.js';
 
 /**
  * 50% refund of a placeable/component definition's funding cost.
+ *
+ * Variant-aware: defs that declare `variantCosts` are CHARGED per variant
+ * (Game.placeWall/placeWindow/placeInfraTile) and, for walls and windows,
+ * refunded per variant too — so the tooltip has to price the variant that
+ * was actually placed, not the def's base cost. Omitting `variant` keeps
+ * the old flat behaviour for defs that have no variant pricing.
+ *
  * @param {object} compOrDef - placeable or component def with `cost`
+ * @param {number} [variant] - placed variant index
  * @returns {number} integer refund amount
  */
-export function demolishRefund(compOrDef) {
+export function demolishRefund(compOrDef, variant = 0) {
   if (!compOrDef) return 0;
-  const cost = typeof compOrDef.cost === 'object'
-    ? (compOrDef.cost.funding || 0)
-    : (compOrDef.cost || 0);
-  return Math.floor(cost * 0.5);
+  return Math.floor(variantCost(compOrDef, variant) * 0.5);
 }
 
 // Placeable-kind scopes for the click-on-object delete path.

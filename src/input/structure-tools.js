@@ -11,6 +11,10 @@
 //     the start edge's axis; Shift+click auto-fills the whole floor
 //     boundary; Shift-hover previews that fill.
 //   - DoorTool: edge-based door drawing, preferring edges that carry walls.
+//   - WindowTool: edge-based window drawing, a direct mirror of DoorTool.
+//     Windows never touch state.doorOccupied — placement/removal and the
+//     passability map stay entirely separate from doors (see
+//     docs/superpowers/specs/2026-08-13-windows-design.md).
 //
 // These replaced the legacy per-family floor/wall/door selection fields
 // and their drawing-state webs (isDragging /
@@ -453,6 +457,85 @@ export class DoorTool extends Tool {
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
       ctx.game._withUndo(() => ctx.game.placeDoorPath(this._path, this.doorType, this.variant));
+      this._drawing = false;
+      this._start = null;
+      this._path = [];
+      ctx.renderer.clearDragPreview();
+      return true;
+    }
+    return false;
+  }
+
+  onRightClick(_e, ctx) {
+    // Right-click deselects, like every sibling structure tool.
+    ctx.input.clearTool();
+    return true;
+  }
+}
+
+export class WindowTool extends Tool {
+  constructor(windowType, variant = 0) {
+    super(`window:${windowType}`, 'window');
+    this.windowType = windowType;
+    this.variant = variant;
+    this._drawing = false;
+    this._start = null;
+    this._path = [];
+  }
+
+  onExit(ctx) {
+    this._drawing = false;
+    this._start = null;
+    this._path = [];
+    ctx.renderer.clearDragPreview();
+    ctx.input._hideDragCostTooltip();
+  }
+
+  // Off-canvas release / focus loss: drop the drag without committing.
+  cancelGesture(ctx) { this.onExit(ctx); }
+
+  onMouseDown(e, ctx) {
+    if (e.button !== 0) return false;
+    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    this._drawing = true;
+    this._start = edge;
+    this._path = [edge];
+    ctx.renderer.renderWindowPreview(this._path, this.windowType);
+    return true;
+  }
+
+  onMouseMove(e, ctx) {
+    const input = ctx.input;
+    const renderer = ctx.renderer;
+    const edge = input._getNearestWallEdge(e.clientX, e.clientY);
+    if (this._drawing) {
+      this._path = input._buildWallLine(this._start, edge);
+      renderer.renderWindowPreview(this._path, this.windowType);
+      return true;
+    }
+    // Every other tool keeps renderer.hoverCol/hoverRow and the last cursor
+    // world position current; without it the next tool armed by hotkey
+    // repaints its ghost at a stale position.
+    const world = renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    renderer.updateHover(grid.col, grid.row);
+    input.lastMouseWorldX = world.x;
+    input.lastMouseWorldY = world.y;
+    input._lastScreenX = e.clientX;
+    input._lastScreenY = e.clientY;
+    renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    if (input._hoverTooltipTarget) input._hideTooltip();
+    return true;
+  }
+
+  onMouseUp(e, ctx) {
+    // Only the left button commits a drag. A right release mid-drag used to
+    // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
+    // did not), firing the gesture early AND consuming the event so
+    // right-click-to-deselect never ran.
+    if (e.button !== 0) return false;
+    if (this._drawing && this._path.length > 0) {
+      ctx.game._withUndo(() => ctx.game.placeWindowPath(this._path, this.windowType, this.variant));
       this._drawing = false;
       this._start = null;
       this._path = [];

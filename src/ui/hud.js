@@ -4,7 +4,7 @@
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { getBeamlineType } from '../data/beamline-types.js';
@@ -717,11 +717,19 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.dataset.paletteKind = 'wall';
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
+        // Wall preview (variant-aware via remembered selection). The COST is
+        // variant-aware for the same reason the swatch is: placeWall charges
+        // variantCosts[variant], so a base-cost label would advertise a price
+        // the player is not the one being charged (structuralWall Reinforced
+        // is 35, not 25). The palette renders before any click, so the
+        // variant shown is the one the flyout has remembered for this type —
+        // exactly the one a click would arm the tool with.
+        const rememberedVi = recallVariant(key);
+        const segCost = variantCost(infra, rememberedVi);
+
+        const affordable = this.game.state.resources.funding >= segCost;
         if (!affordable) item.classList.add('unaffordable');
 
-        // Wall preview (variant-aware via remembered selection)
-        const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
         const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
@@ -746,13 +754,26 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `${_costLabel(infra.cost)}/seg`;
+        costEl.textContent = `${fmtMoney(segCost)}/seg`;
         item.appendChild(costEl);
 
-        this._attachSimpleHoverPreview(item, infra.name, infra.desc, [
-          ['Cost', `${_costLabel(infra.cost)}/segment`],
+        // Held by reference: _attachSimpleHoverPreview reads the rows at
+        // mouseenter, so the variant flyout below can retune the cost row in
+        // place instead of waiting for a palette re-render.
+        const hoverStats = [
+          ['Cost', `${fmtMoney(segCost)}/segment`],
           ['Placement', 'Drag along tile edges'],
-        ]);
+        ];
+        this._attachSimpleHoverPreview(item, infra.name, infra.desc, hoverStats);
+        // Repaint the cost label (and affordability) for a newly picked
+        // variant. The palette is not re-rendered on a flyout pick, so
+        // without this the tile would advertise the previous variant's price.
+        const retuneCost = (vi) => {
+          const c = variantCost(infra, vi);
+          costEl.textContent = `${fmtMoney(c)}/seg`;
+          hoverStats[0][1] = `${fmtMoney(c)}/segment`;
+          item.classList.toggle('unaffordable', this.game.state.resources.funding < c);
+        };
 
         if (infra.variants && infra.variants.length > 1) {
           item.addEventListener('click', () => {
@@ -777,6 +798,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                 e.stopPropagation();
                 rememberVariant(key, variantIdx);
                 this._selectPaletteTool('wall', key, variantIdx);
+                retuneCost(variantIdx);
                 const previewElNow = item.querySelector('.palette-preview');
                 const previewImg = previewElNow?.querySelector('img');
                 if (previewImg) {
@@ -954,6 +976,183 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
             this._selectPaletteTool('door', key);
+          });
+        }
+
+        itemsContainer.appendChild(item);
+      }
+
+      section.appendChild(itemsContainer);
+      palette.appendChild(section);
+      renderedSections++;
+    }
+    return;
+  }
+
+  // Structure mode — Windows tab. Modeled on the walls branch's variant
+  // flyout since five of six window types carry glass-tint variants;
+  // hutchViewport has no `variants` array at all, so the `win.variants &&
+  // win.variants.length > 1` guard below falls through to the plain-click
+  // handler for it, same as any non-variant wall or door.
+  if (compCategory === 'windows') {
+    const windowKeys = Object.keys(WINDOW_TYPES);
+    const catDef = MODES.structure.categories.windows;
+    const subsections = catDef.subsections;
+    const subKeys = Object.keys(subsections);
+    let renderedSections = 0;
+    for (const subKey of subKeys) {
+      const subDef = subsections[subKey];
+      const subItems = windowKeys.filter(k => WINDOW_TYPES[k]?.subsection === subKey);
+      if (subItems.length === 0) continue;
+
+      if (renderedSections > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'palette-subsection-divider';
+        palette.appendChild(divider);
+      }
+
+      const section = document.createElement('div');
+      section.className = 'palette-subsection';
+      const label = document.createElement('div');
+      label.className = 'palette-subsection-label';
+      label.textContent = subDef.name;
+      section.appendChild(label);
+
+      const itemsContainer = document.createElement('div');
+      itemsContainer.className = 'palette-subsection-items';
+
+      for (const key of subItems) {
+        const win = WINDOW_TYPES[key];
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.dataset.paletteIndex = paletteIdx;
+        item.dataset.paletteKey = key;
+        item.dataset.paletteKind = 'window';
+        const idx = paletteIdx++;
+
+        // Window preview (variant-aware via remembered selection). Windows
+        // have no manifest texture (frameTexture drives the 3D frame
+        // material, not a palette thumbnail), so getTilePath returns null
+        // here and every window falls to the colored swatch fallback —
+        // matching the design's "existing colour-swatch fallback" scope.
+        const rememberedVi = recallVariant(key);
+        // Same variant drives the COST: placeWindow charges
+        // variantCosts[variant] (a Mirrored Picture Window is 70, not 55), so
+        // the label has to follow or the palette advertises a price nobody
+        // pays. Pre-click, the remembered variant is the one a click arms.
+        const segCost = variantCost(win, rememberedVi);
+
+        const affordable = this.game.state.resources.funding >= segCost;
+        if (!affordable) item.classList.add('unaffordable');
+
+        const previewEl = document.createElement('div');
+        previewEl.className = 'palette-preview';
+        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
+        if (tilePath2) {
+          const img = document.createElement('img');
+          img.src = tilePath2;
+          img.alt = win.name;
+          previewEl.appendChild(img);
+          applyPreviewTint(previewEl, win, rememberedVi);
+        } else {
+          const swatch = document.createElement('div');
+          const c = resolveVariantPreview(win, rememberedVi) ?? (win.topColor || win.color || 0x888888);
+          const swatchColor = Array.isArray(c) ? c[0] : c;
+          swatch.style.cssText = `width:48px;height:32px;background:#${swatchColor.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
+          previewEl.appendChild(swatch);
+        }
+        item.appendChild(previewEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'palette-name';
+        nameEl.textContent = win.name;
+        item.appendChild(nameEl);
+
+        const costEl = document.createElement('div');
+        costEl.className = 'palette-cost';
+        costEl.textContent = `${fmtMoney(segCost)}/seg`;
+        item.appendChild(costEl);
+
+        // Rows held by reference so the variant flyout can retune the cost
+        // row in place — see the wall palette above.
+        const hoverStats = [
+          ['Cost', `${fmtMoney(segCost)}/segment`],
+          ['Placement', 'Place on a wall edge'],
+        ];
+        this._attachSimpleHoverPreview(item, win.name, win.desc, hoverStats);
+        const retuneCost = (vi) => {
+          const c = variantCost(win, vi);
+          costEl.textContent = `${fmtMoney(c)}/seg`;
+          hoverStats[0][1] = `${fmtMoney(c)}/segment`;
+          item.classList.toggle('unaffordable', this.game.state.resources.funding < c);
+        };
+
+        if (win.variants && win.variants.length > 1) {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._removeParamFlyout();
+            const flyout = document.createElement('div');
+            flyout.className = 'param-flyout';
+
+            const defaultVi = recallVariant(key);
+            // Pre-select on open so clicks elsewhere still use the remembered variant.
+            this._selectPaletteTool('window', key, defaultVi);
+
+            for (let vi = 0; vi < win.variants.length; vi++) {
+              const vBtn = document.createElement('div');
+              vBtn.className = 'param-flyout-btn';
+              const sw = makeVariantSwatch(resolveVariantPreview(win, vi));
+              if (sw) vBtn.appendChild(sw);
+              vBtn.appendChild(document.createTextNode(win.variants[vi]));
+              const variantIdx = vi;
+              if (vi === defaultVi) vBtn.classList.add('active');
+              vBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                rememberVariant(key, variantIdx);
+                this._selectPaletteTool('window', key, variantIdx);
+                retuneCost(variantIdx);
+                const previewElNow = item.querySelector('.palette-preview');
+                const previewImg = previewElNow?.querySelector('img');
+                if (previewImg) {
+                  const newPath = this.sprites.getTilePath(key, variantIdx);
+                  if (newPath) previewImg.src = newPath;
+                } else if (previewElNow) {
+                  const swatchEl = previewElNow.querySelector('div');
+                  if (swatchEl) {
+                    const nc = resolveVariantPreview(win, variantIdx) ?? (win.topColor || win.color || 0x888888);
+                    const swatchColorNow = Array.isArray(nc) ? nc[0] : nc;
+                    swatchEl.style.background = `#${swatchColorNow.toString(16).padStart(6,'0')}`;
+                  }
+                }
+                if (previewImg && previewElNow) {
+                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                  applyPreviewTint(previewElNow, win, variantIdx);
+                }
+                flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
+                vBtn.classList.add('active');
+                this._removeParamFlyout();
+              });
+              flyout.appendChild(vBtn);
+            }
+
+            document.body.appendChild(flyout);
+            const rect = item.getBoundingClientRect();
+            flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+            flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+            this._activeParamFlyout = flyout;
+
+            const closeHandler = (e) => {
+              if (!flyout.contains(e.target) && !item.contains(e.target)) {
+                this._removeParamFlyout();
+                document.removeEventListener('click', closeHandler, true);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+          });
+        } else {
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._selectPaletteTool('window', key);
           });
         }
 
