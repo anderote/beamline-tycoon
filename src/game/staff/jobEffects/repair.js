@@ -21,17 +21,26 @@
 // stale BEFORE onJobComplete ever runs, so this handler can assume both
 // resolve.
 //
-// Spares availability is not re-checked here on purpose. jobs.js's
-// repairOffers already suppresses a repair offer entirely once spares hit 0
-// (with its own player-facing idle-reason message), and jobRunner.js's
-// pickBestOffer (this task's own fix to a real bug review found live) now
-// refuses to hand the SAME damaged target to a second technician while one
-// is already working it — so by the time a repair job actually completes,
-// both "was there a spare to start this with" and "is this technician the
-// only one working this component" have already been enforced upstream.
-// Adding a second, quieter "no spares" branch here would silently swallow a
-// completed repair instead of healing it, which is exactly the failure mode
-// the brief for this task says not to introduce.
+// Spares availability WAS assumed already enforced upstream (jobs.js's
+// repairOffers suppresses an offer at spares === 0, and jobRunner.js's
+// pickBestOffer refuses to double-book the same target) — true at
+// ASSIGNMENT time, but fix round 1 found the live race those two checks
+// can't close: two technicians already mid-repair on two DIFFERENT
+// components, spares === 2, a beamline component purchase lands between
+// their assignment and their completion and takes spares to 0 — both
+// complete anyway, since neither re-checks anything at completion. Both
+// healed for free and spares went to -2, and every future repair stayed
+// suppressed (spares <= 0) until a machinist fabricated off a debt that was
+// never really borrowed.
+//
+// Ruling (fix round 1): a repair must never *silently* no-op, but a race
+// like this is real and has to resolve somehow — so if spares is actually 0
+// the instant this handler runs, this does NOT heal and does NOT consume
+// (there is nothing to consume), logs it loudly via game.log so it's not
+// silent, and simply returns. tickJobs' own abandonJob still clears
+// member.job right after this handler returns (same as every other
+// completion) and the target is still damaged, so jobs.js's repairOffers
+// re-offers it the moment a spare exists again — "re-offered", not lost.
 
 import { registerJobEffect } from '../jobRunner.js';
 import { COMPONENTS } from '../../../data/components.js';
@@ -46,10 +55,22 @@ function zoneTierFor(state, member) {
   return state.zoneConnectivity?.[zoneId]?.tier || 0;
 }
 
-function resolvePlaceable(state, nodeId) {
+// A repair target's live type, for the history note — a module (a
+// state.placeables entry) or, since fix round 1's on-pipe repair fix
+// (jobs.js's beamlineComponentNodes/repairOffers), an on-pipe placement
+// (inside some pipe's `.placements[]`, not state.placeables at all — see
+// jobs.js's own findPipePlacement, duplicated here rather than imported for
+// the same small-helper reason zoneTierFor above is).
+function resolveComponentType(state, nodeId) {
   const idx = state.placeableIndex?.[nodeId];
-  return idx !== undefined ? state.placeables?.[idx]
+  const placeable = idx !== undefined ? state.placeables?.[idx]
     : (state.placeables || []).find(p => p.id === nodeId);
+  if (placeable) return placeable.type;
+  for (const pipe of state.beamPipes || []) {
+    const pl = (pipe.placements || []).find(p => p.id === nodeId);
+    if (pl) return pl.type;
+  }
+  return null;
 }
 
 registerJobEffect('repair', (game, member, job) => {
@@ -60,6 +81,21 @@ registerJobEffect('repair', (game, member, job) => {
   const entry = (game.registry?.getAll?.() || []).find(e => e.id === target.beamlineId);
   if (!entry || !entry.beamState?.componentHealth) return;
 
+  const type = resolveComponentType(state, target.nodeId);
+  const label = COMPONENTS[type]?.name || type || 'component';
+
+  // The race this guards against — see this file's own header. Skipped
+  // entirely in sandbox mode: setSandboxMode's own contract is "nothing is
+  // charged" (verified directly: a sandbox facility with funding AND
+  // spares at 0 still places components and refuses nothing), so a sandbox
+  // repair blocking on a spares count it will never actually spend would
+  // contradict that same guarantee — the ONE thing repair ever spends
+  // (game.spend below) already no-ops there.
+  if (!game.sandboxMode && (state.resources.spares || 0) <= 0) {
+    game.log(`No spares to repair the ${label} with — the job will be re-offered once some are available.`, 'bad');
+    return;
+  }
+
   const efficiency = member.efficiency(zoneTierFor(state, member), job.specialty);
   const health = entry.beamState.componentHealth[target.nodeId] ?? 100;
   entry.beamState.componentHealth[target.nodeId] = Math.min(100, health + HEAL_PER_COMPLETION * efficiency);
@@ -68,11 +104,10 @@ registerJobEffect('repair', (game, member, job) => {
   // (not chargeConstruction, which this plan reserves for build-time
   // placement debits) so sandbox mode's blanket "nothing is charged" still
   // holds for repair the same way it already does for every other spend.
+  // spend() itself floors at 0 (fix round 1) as a second, independent
+  // backstop against the same race — belt and suspenders, not either/or.
   game.spend({ spares: 1 });
 
   member.stats.repairs = (member.stats.repairs || 0) + 1;
-
-  const placeable = resolvePlaceable(state, target.nodeId);
-  const label = COMPONENTS[placeable?.type]?.name || placeable?.type || 'component';
   member.history.push({ tick: state.tick, event: 'repair', note: `Repaired ${label}` });
 });

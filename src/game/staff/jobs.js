@@ -26,6 +26,7 @@ import { isBlocked } from '../../networks/rooms.js';
 import { PROFESSIONS, SPECIALTY_AXES, professionDef } from '../../data/professions.js';
 import { ZONES } from '../../data/facility.js';
 import { flattenPath } from '../../beamline/flattener.js';
+import { placementPose } from '../../beamline/pipe-placements.js';
 
 // --- Job type table ---------------------------------------------------
 
@@ -201,6 +202,50 @@ export function footprintCellsOf(placeable) {
   return single ? [single] : [];
 }
 
+// Fix round 1 (staff-professions-3, jobs-and-gates, task 5): a footprint for
+// an ON-PIPE component (COMPONENTS role: 'placement' — quadrupole, BPM, RF
+// cavity, and every other beamline part NOT mounted as its own junction).
+// These live in pipe.placements[], not state.placeables, and have none of a
+// module's real multi-subtile geometry — they sit at a fractional arc-length
+// position along their pipe's polyline (see pipe-placements.js's own
+// placementPose, reused here rather than reimplemented so a technician's
+// walk target and the mesh's actual render position can never drift apart).
+// Resolved to the single subtile nearest that position (rounded), the same
+// "no real cells" fallback footprintCellsOf already falls back to for a
+// module with none of its own — a single-subtile footprint is enough for
+// approachCandidates' perimeter walk to find a technician somewhere to
+// stand.
+//
+// This function existing (and beamlineComponentNodes/repairOffers below
+// actually calling it) closes a real, live bug: _applyWearForBeamline
+// (Game.js) has always written componentHealth for every flattenPath node,
+// module AND placement alike, but repairOffers used to filter to
+// `node.kind === 'module'` only — so every on-pipe component (measured: the
+// majority of the catalogue by both count and funding) could wear down,
+// fail, and log "FAILED! Repair needed." with NO repair offer ever
+// generated for it, at any spares level, forever. _autoRepair used to mask
+// this (it healed anything with a health entry, module or not); deleting it
+// (this same task) made the gap live.
+function footprintCellsForPlacement(pipe, att) {
+  const pose = pipe && placementPose(pipe, att);
+  if (!pose) return [];
+  return [{ col: Math.round(pose.col), row: Math.round(pose.row), subCol: 0, subRow: 0 }];
+}
+
+// The footprint to walk for ANY flattenPath node — a real placeable's cells
+// for a module, footprintCellsForPlacement's single-subtile approximation
+// for an on-pipe placement. Shared by repairOffers (which has the node
+// straight from flattenPath, carrying pipeId/position/subL already) and
+// resolveTarget/eligibleFor (which resolve the same node's live record
+// independently, below — see that function's own comment for why it can't
+// just reuse a flattenPath call).
+function footprintCellsForNode(state, node) {
+  if (node.kind === 'module') return footprintCellsOf(node.placeable);
+  if (node.kind !== 'placement') return [];
+  const pipe = (state.beamPipes || []).find(p => p.id === node.pipeId);
+  return footprintCellsForPlacement(pipe, node);
+}
+
 /**
  * Every passable subtile immediately outside `cells`' footprint that a
  * technician could actually stand on to work it — see this section's
@@ -273,14 +318,26 @@ function runBeamOffers(index, reservations) {
 }
 
 // repair + commission both walk every currently-registered beamline's
-// flattened path looking at each MODULE node (drift/placement synthetic
-// entries carry no placeable position to repair a technician toward, and
-// componentHealth is keyed by module placeable ids — see
-// Game.js:_applyWearForBeamline). Computed ONCE per buildJobOffers call and
-// shared by both — flattenPath rebuilds a full placeable-id map internally
-// every time it runs, so calling it once per beamline per job TYPE (an
-// earlier version of this file called it separately from repairOffers and
-// commissionOffers) is double the real work for no benefit.
+// flattened path looking at each MODULE and PLACEMENT node — every node
+// that carries a real physical position, as opposed to a synthetic 'drift'
+// entry (a bare connecting pipe run, no COMPONENTS type, no componentHealth
+// entry — see _applyWearForBeamline's own `if (!t) continue`). Computed ONCE
+// per buildJobOffers call and shared by both — flattenPath rebuilds a full
+// placeable-id map internally every time it runs, so calling it once per
+// beamline per job TYPE (an earlier version of this file called it
+// separately from repairOffers and commissionOffers) is double the real
+// work for no benefit.
+//
+// Fix round 1: this used to filter to `node.kind === 'module'` only, on the
+// belief that "drift/placement synthetic entries carry no placeable
+// position to repair a technician toward." True for 'drift', false for
+// 'placement' — an on-pipe component (quadrupole, BPM, RF cavity, ...) has a
+// perfectly real position (see footprintCellsForPlacement above), it just
+// isn't a `state.placeables` entry the way a module is. _applyWearForBeamline
+// has always written componentHealth for BOTH kinds; only this scan was
+// narrower than the wear it was supposed to be offering repairs against —
+// invisible while _autoRepair (deleted this same task) healed anything with
+// a health entry regardless of kind, and load-bearing the moment it didn't.
 //
 // Iterating only registry.getAll()'s CURRENT entries is what makes the
 // "stale target" rule (a beamline that no longer exists must never appear
@@ -303,7 +360,7 @@ function beamlineComponentNodes(game) {
     if (!entry.sourceId) continue;
     const nodes = flattenPath(game.state, entry.sourceId);
     for (const node of nodes) {
-      if (node.kind !== 'module' || !node.placeable) continue;
+      if (node.kind !== 'module' && node.kind !== 'placement') continue;
       out.push({ entry, node });
     }
   }
@@ -337,7 +394,7 @@ function repairOffers(nodes, nav, state) {
       suppressions.push({ jobType: 'repair', target, reason: 'No spares available to make the repair.' });
       continue;
     }
-    const cells = footprintCellsOf(node.placeable);
+    const cells = footprintCellsForNode(state, node);
     const reachable = cells.length > 0 && approachCandidates(nav, state, cells).some(n => reachableFromOutdoors(nav, n));
     if (!reachable) {
       suppressions.push({ jobType: 'repair', target, reason: 'Unreachable — no clear path to the component.' });
@@ -461,17 +518,37 @@ export function buildJobOffers(game) {
 
 // --- Eligibility ---------------------------------------------------------
 
-// Resolve a repair/commission `target` back to the live placeable it
-// addresses — null when either the beamline that owned it is no longer
-// registered, or the placeable itself is gone (both read as "stale job").
+// Every pipe's on-pipe placement matching `nodeId`, or null. Mirrors
+// state.placeableIndex's O(1)-ish lookup for a module, but on-pipe
+// placements live inside pipe.placements[] (see BeamlineSystem.placeOnPipe),
+// not state.placeables, so there is no index to check — this is a linear
+// scan over pipes (typically small) and their placements.
+function findPipePlacement(state, nodeId) {
+  for (const pipe of state?.beamPipes || []) {
+    const placement = (pipe.placements || []).find(p => p.id === nodeId);
+    if (placement) return { pipe, placement };
+  }
+  return null;
+}
+
+// Resolve a repair/commission `target` back to the live thing it addresses
+// — null when either the beamline that owned it is no longer registered, or
+// the target itself is gone (both read as "stale job"). Returns
+// `{ kind: 'module', placeable }` for a real placeable (the original,
+// unchanged shape) or `{ kind: 'placement', pipe, placement }` for an
+// on-pipe component (fix round 1 — see footprintCellsForPlacement's own
+// header for why these need a different resolution path entirely).
 function resolveTarget(game, target) {
   if (!target) return null;
   const beamlineLive = (game.registry?.getAll?.() || []).some(e => e.id === target.beamlineId);
   if (!beamlineLive) return null;
   const state = game?.state;
-  const idx = state?.placeableIndex?.[target.nodeId];
-  const placeable = idx !== undefined ? state.placeables?.[idx] : (state?.placeables || []).find(p => p.id === target.nodeId);
-  return placeable || null;
+  if (!state) return null;
+  const idx = state.placeableIndex?.[target.nodeId];
+  const placeable = idx !== undefined ? state.placeables?.[idx] : (state.placeables || []).find(p => p.id === target.nodeId);
+  if (placeable) return { kind: 'module', placeable };
+  const onPipe = findPipePlacement(state, target.nodeId);
+  return onPipe ? { kind: 'placement', pipe: onPipe.pipe, placement: onPipe.placement } : null;
 }
 
 /**
@@ -553,12 +630,18 @@ export function eligibleFor(member, offer, game) {
       }
     }
   } else if (offer.target) {
-    const placeable = resolveTarget(game, offer.target);
-    if (!placeable) return { ok: false, reason: 'That job no longer exists.' };
+    const resolved = resolveTarget(game, offer.target);
+    if (!resolved) return { ok: false, reason: 'That job no longer exists.' };
 
     if (member.fromNode) {
       const nav = getNavGrid(state);
-      const cells = footprintCellsOf(placeable);
+      // Fix round 1: resolved is now `{kind:'module', placeable}` or
+      // `{kind:'placement', pipe, placement}` — see resolveTarget's own
+      // header. footprintCellsForPlacement mirrors footprintCellsOf's
+      // "no real cells" fallback for the on-pipe case.
+      const cells = resolved.kind === 'module'
+        ? footprintCellsOf(resolved.placeable)
+        : footprintCellsForPlacement(resolved.pipe, resolved.placement);
       const reachable = cells.length > 0
         && approachCandidates(nav, state, cells).some(n => isReachable(nav, member.fromNode, n));
       if (!reachable) {

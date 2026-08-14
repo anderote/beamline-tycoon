@@ -4,6 +4,7 @@
 // inside placePlaceable / removePlaceable, which take game as an argument.
 
 import { isoToGridFloat } from '../renderer/grid.js';
+import { sparesCostForFunding } from '../beamline/BeamlineSystem.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -113,15 +114,36 @@ export function canAffordCost(game, cost) {
 }
 
 /**
+ * The cost `previewPlacement` should quote/check for `placeable` — its bare
+ * `.cost` for anything that isn't a beamline component, or that cost widened
+ * with a spares line for one that is (fix round 1). Mirrors
+ * Game._placePlaceableInner's own `kind === 'beamline'` branch exactly,
+ * using the SAME shared sparesCostForFunding — this is the fix for the
+ * preview and the real placement check having drifted apart: before this,
+ * previewPlacement quoted/checked funding only (via placeable.cost
+ * directly), so a junction whose funding the player could afford but whose
+ * spares they couldn't showed a green "affordable" ghost and then refused
+ * at the real _placePlaceableInner affordability check — a repeatable
+ * "green ghost, red click" with no visible reason why.
+ */
+function componentCostFor(placeable) {
+  if (placeable?.kind !== 'beamline' || !placeable.cost) return placeable?.cost;
+  return { ...placeable.cost, spares: sparesCostForFunding(placeable.cost.funding || 0) };
+}
+
+/**
  * canPlace + affordability, i.e. everything Game._placePlaceableInner will
- * reject on. Returns canPlace's shape plus `affordable` and `reason`
- * (null when the placement would succeed).
+ * reject on. Returns canPlace's shape plus `affordable`, `reason` (null when
+ * the placement would succeed), and `cost` — the actual quoted cost object
+ * (fix round 1: exposed so a caller can show the spares line, not just
+ * funding, alongside the ghost).
  */
 export function previewPlacement(game, placeable, col, row, subCol, subRow, dir = 0) {
   const geo = canPlace(game, placeable, col, row, subCol, subRow, dir);
-  const affordable = canAffordCost(game, placeable.cost);
+  const cost = componentCostFor(placeable);
+  const affordable = canAffordCost(game, cost);
   const reason = !geo.ok
     ? (geo.wallBlocked ? PLACE_WALL : PLACE_BLOCKED)
     : (affordable ? null : PLACE_UNAFFORDABLE);
-  return { ...geo, ok: geo.ok && affordable, affordable, reason };
+  return { ...geo, ok: geo.ok && affordable, affordable, reason, cost };
 }

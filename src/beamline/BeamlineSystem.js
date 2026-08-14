@@ -96,6 +96,19 @@ function reasonMessage(reason) {
   return REASON_MESSAGES[reason] || reason;
 }
 
+// Fix round 1 (staff-professions-3, jobs-and-gates, task 5): a beamline
+// component's spares cost, shared by every path that can ever mint one —
+// Game._placePlaceableInner (junctions), placeOnPipe below (on-pipe
+// placements), DesignPlacer (whole designs, junctions AND placements alike),
+// and src/game/placement.js's preview (so the ghost agrees with what the
+// real placement will actually charge). One implementation, imported
+// everywhere, rather than four copies of `Math.ceil(funding / 5000)` that
+// only agreed with each other by convention — which is exactly how the
+// preview and the real check drifted apart before this fix round.
+export function sparesCostForFunding(funding) {
+  return Math.max(1, Math.ceil((funding || 0) / 5000));
+}
+
 // Per-tile drift cost is the baseline for beam-pipe pricing; fall back to the
 // legacy 10000 if the component registry is somehow missing drift.
 function driftCostPerTile() {
@@ -674,7 +687,18 @@ export class BeamlineSystem {
     // Research gate + affordability. placeJunction gets both for free by
     // routing through Game.placePlaceable; this path owns the mutation
     // directly, so it has to charge itself.
-    const cost = (def && def.cost) || {};
+    //
+    // Fix round 1: every on-pipe component (quadrupole, BPM, RF cavity,
+    // etc — the majority of the catalogue by count and by funding, see
+    // sparesCostForFunding's own header) now costs spares alongside
+    // funding, the same as a junction does at Game._placePlaceableInner.
+    // Before this, placeOnPipe charged funding only — with the shared spares
+    // pool at zero, this path still happily mounted parts for money, which
+    // meant a player who only ever built through the designer (see
+    // DesignPlacer, also on-pipe-and-junction free:true through here) never
+    // met the spares gate at all.
+    const baseCost = (def && def.cost) || {};
+    const cost = { ...baseCost, spares: sparesCostForFunding(baseCost.funding || 0) };
     if (!opts.free) {
       if (def && !this.isUnlocked(def)) {
         this.log(`${def.name || opts.type} is not researched yet!`, 'bad');

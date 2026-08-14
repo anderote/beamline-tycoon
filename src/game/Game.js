@@ -10,7 +10,7 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund, sparesCostForFunding } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
@@ -986,9 +986,69 @@ export class Game {
     return true;
   }
 
+  /**
+   * Fix round 1: which resource(s) in `cost` are short, for a log message
+   * that names the actual blocker instead of a bare "Can't afford X!" — with
+   * a beamline component costing both funding and spares now, those are two
+   * different, differently-fixed problems (sell something / wait for
+   * funding vs. get a machinist fabricating) and the player couldn't tell
+   * which one they'd hit. Only meaningful to call after canAfford has
+   * already failed for this same `cost`.
+   */
+  _missingResourceLabel(cost) {
+    const short = [];
+    for (const [r, a] of Object.entries(cost || {})) {
+      const have = this.state.resources[r] || 0;
+      if (have < a) short.push(`need ${a - have} more ${r}`);
+    }
+    return short.length ? short.join(', ') : 'insufficient funds';
+  }
+
+  /**
+   * Fix round 1: the refund basis for a demolished placeable must mirror
+   * what it actually cost to place, not just its static PLACEABLES/
+   * COMPONENTS `.cost` entry. A beamline component's spares cost
+   * (sparesCostForFunding) is computed from funding at PURCHASE time and was
+   * never stored on the definition the way funding is — so every demolish
+   * refund loop that iterated `placeable.cost` directly (removePlaceable,
+   * _removePlaceableRaw, removeBeamPipe's on-pipe placements, and
+   * demolishTarget's 'beamlineWhole' lump sum) refunded funding only and
+   * silently destroyed the spares half of the cost. That bit hardest on a
+   * routine reposition (demolish + rebuild), which is supposed to be a
+   * funding-neutral shuffle and instead quietly drained the spares pool on
+   * every use.
+   */
+  _refundCostFor(placeable) {
+    if (!placeable?.cost) return null;
+    // `.kind === 'beamline'` catches a junction resolved via PLACEABLES
+    // (source, dipole, ...); a `role: 'placement'` on-pipe component
+    // (quadrupole, BPM, RF cavity, ...) resolved directly off COMPONENTS —
+    // as removeBeamPipe/demolishTarget's 'beamlineWhole' both do — carries
+    // no `.kind` at all (see components.js's own "legacy shim" header: it's
+    // a flat merge of every category, junction-only PLACEABLES aside), only
+    // `.role`. Checking either is what makes this one function work for
+    // both call shapes without the caller having to know which one it has.
+    if (placeable.kind !== 'beamline' && !placeable.role) return placeable.cost;
+    return { ...placeable.cost, spares: sparesCostForFunding(placeable.cost.funding || 0) };
+  }
+
   spend(costs) {
     if (this.sandboxMode) return;
-    for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+    // Fix round 1: floor every resource at 0. Funding is allowed to run
+    // negative today (an existing, separate design choice — upkeep can
+    // outrun income) and this floor deliberately does not touch that; it
+    // exists because a genuine two-technicians-race on the last spare (see
+    // jobEffects/repair.js's own comment) could otherwise push `spares`
+    // negative, which then means repair stays suppressed until a machinist
+    // fabricates off a debt that was never really borrowed. `spares` is the
+    // one resource this codebase currently spends outside of a player-
+    // initiated purchase (a completed job, not a click), so it's the one
+    // that needs the floor; funding's every debit is still a deliberate,
+    // player-visible spend.
+    for (const [r, a] of Object.entries(costs)) {
+      if (r === 'spares') this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - a);
+      else this.state.resources[r] -= a;
+    }
   }
 
   /**
@@ -1009,7 +1069,9 @@ export class Game {
     if (this.sandboxMode) return;
     const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
     if (c.funding) this.state.resources.funding -= c.funding;
-    if (c.spares) this.state.resources.spares -= c.spares;
+    // Floored at 0 — see spend()'s own comment on why spares specifically
+    // needs this and funding deliberately doesn't.
+    if (c.spares) this.state.resources.spares = Math.max(0, (this.state.resources.spares || 0) - c.spares);
   }
 
   /**
@@ -2321,13 +2383,12 @@ export class Game {
     // build time alongside the funding. See chargeConstruction's own doc
     // comment for why this goes through it rather than a bare
     // `resources.spares -=` here, which sandbox mode could not suppress.
-    const sparesCost = (kind === 'beamline')
-      ? Math.max(1, Math.ceil((placeable.cost?.funding || 0) / 5000))
-      : 0;
-    const cost = sparesCost > 0 ? { ...placeable.cost, spares: sparesCost } : placeable.cost;
+    const cost = (kind === 'beamline')
+      ? { ...placeable.cost, spares: sparesCostForFunding(placeable.cost?.funding || 0) }
+      : placeable.cost;
 
     if (!free && !this.canAfford(cost)) {
-      this.log(`Can't afford ${placeable.name}!`, 'bad');
+      this.log(`Can't afford ${placeable.name}! (${this._missingResourceLabel(cost)})`, 'bad');
       return false;
     }
 
@@ -2639,9 +2700,12 @@ export class Game {
     const updates = collapsePlan(placeableId, getEntry, getDef);
 
     // 50% refund — skipped when the caller is destroying the placeable
-    // (e.g. paving over a tree with concrete).
+    // (e.g. paving over a tree with concrete). Refund basis is
+    // _refundCostFor(placeable), not the bare placeable.cost — see that
+    // method's own header for why a beamline component's spares cost has to
+    // be folded back in here rather than read off the static definition.
     if (!opts.skipRefund && placeable.cost) {
-      for (const [r, a] of Object.entries(placeable.cost)) {
+      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
     }
@@ -2777,7 +2841,7 @@ export class Game {
     const updates = collapsePlan(placeableId, getEntry, getDef);
 
     if (placeable.cost) {
-      for (const [r, a] of Object.entries(placeable.cost)) {
+      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
     }
@@ -2928,12 +2992,19 @@ export class Game {
         const entry = this.registry.get(target.beamlineId);
         if (!entry) return false;
         let refund = 0;
+        // Fix round 1: same funding-only bug the other three refund sites
+        // had (see _refundCostFor's own header) — every module and on-pipe
+        // placement in a whole-beamline demolish also cost spares, and this
+        // lump-sum payout was silently dropping that half.
+        let sparesRefund = 0;
         const flat = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
         const placeableIdsToRemove = [];
         for (const el of flat) {
           if (el.kind === 'module') {
             const def = COMPONENTS[el.type];
-            refund += Math.floor((def?.cost?.funding || 0) * 0.5);
+            const funding = def?.cost?.funding || 0;
+            refund += Math.floor(funding * 0.5);
+            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
             placeableIdsToRemove.push(el.id);
           }
         }
@@ -2947,7 +3018,9 @@ export class Game {
               && !placeableIdsToRemove.includes(pipe.end?.junctionId)) continue;
           refund += pipeRefund(pipe);
           for (const att of (pipe.placements || [])) {
-            refund += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+            const funding = COMPONENTS[att.type]?.cost?.funding || 0;
+            refund += Math.floor(funding * 0.5);
+            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
           }
         }
         for (const pid of placeableIdsToRemove) {
@@ -2956,10 +3029,11 @@ export class Game {
           this.removePlaceable(pid, { skipRefund: true });
         }
         this.state.resources.funding += refund;
+        this.state.resources.spares = (this.state.resources.spares || 0) + sparesRefund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
         if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
         this.registry.removeBeamline(target.beamlineId);
-        this.log(`Demolished beamline (+$${refund.toLocaleString()})`, 'good');
+        this.log(`Demolished beamline (+$${refund.toLocaleString()}, +${sparesRefund} spares)`, 'good');
         this.recalcAllBeamlines();
         this.computeSystemStats();
         this.emit('beamlineChanged');
@@ -3138,7 +3212,7 @@ export class Game {
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
       if (!opts.skipRefund && attDef && attDef.cost) {
-        for (const [r, a] of Object.entries(attDef.cost)) {
+        for (const [r, a] of Object.entries(this._refundCostFor(attDef) || {})) {
           this.state.resources[r] += Math.floor(a * 0.5);
         }
       }
@@ -4290,6 +4364,30 @@ export class Game {
       // rather than sitting one tick behind.
       assignJobs(this);
       tickJobs(this);
+
+      // Fix round 1: task 5's own brief promised a spares-starved repair
+      // surfaces two ways — the idle reason (jobRunner.js's own idleReason
+      // string, already set above) and a log line the FIRST time it
+      // happens. Read here, in Game.js's own tick loop, rather than added
+      // as a side effect inside jobs.js's buildJobOffers/repairOffers: that
+      // module is documented as read-only (see its own header — a
+      // deep-freeze regression test enforces it), so a `this.log(...)` call
+      // in there would both violate that contract and mutate state.log
+      // against a frozen state. Rate-limited on an instance flag (not
+      // `state`, since this is an ephemeral log-dedupe concern, not
+      // something a save needs to remember) so a facility that stays out of
+      // spares for hours doesn't spam the log every tick, and cleared the
+      // moment no technician is reporting the shortage anymore so the next
+      // genuine one logs again.
+      const spareShortage = (this.state.staffMembers || []).some(
+        m => m.profession === 'technician' && m.idleReason === 'No spares available to make the repair.',
+      );
+      if (spareShortage && !this._spareShortageLogged) {
+        this.log('No spares available to make repairs — a machinist can fabricate more.', 'bad');
+        this._spareShortageLogged = true;
+      } else if (!spareShortage) {
+        this._spareShortageLogged = false;
+      }
     }
 
     // Tick all running beamlines

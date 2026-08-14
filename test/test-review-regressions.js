@@ -36,6 +36,12 @@ function assert(cond, msg) {
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e9;
+  // Fix round 1 (staff-professions-3, task 5): on-pipe placements now also
+  // cost spares (ceil(fundingCost/5000)) alongside funding — fund this the
+  // same generous way funding above is, so a non-free:true placement here
+  // (section 5's quadrupole builds, in particular) never runs out partway
+  // through and silently places fewer components than intended.
+  g.state.resources.spares = 1e9;
   return g;
 }
 

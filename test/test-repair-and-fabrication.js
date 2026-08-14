@@ -44,6 +44,16 @@
 //      component (the bug this task's own fix in jobRunner.js closes) — one
 //      heals it and consumes the one spare it costs; the other gets turned
 //      away with a reason naming the conflict, never a job.
+//
+// Fix round 1 (coordinator review) adds:
+//   8. An on-pipe component (role: 'placement' — quadrupole, BPM, RF
+//      cavity, ...) that wears down gets a real repair offer, not
+//      permanent silent decay — jobs.js's repairOffers used to filter to
+//      module-kind nodes only.
+//   9. A repair completing with 0 spares on the books (the race a
+//      component purchase or a sibling repair can create between
+//      assignment and completion) does not heal for free, does not drive
+//      spares negative, and logs loudly instead of silently no-op-ing.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -115,10 +125,21 @@ function makeGame(state, beamlines = []) {
     state,
     registry: { getAll: () => beamlines },
     sandboxMode: false,
+    logs: [],
+    // Recorded rather than printed — fix round 1's zero-spares race branch
+    // (jobEffects/repair.js) logs loudly instead of silently no-op-ing, and
+    // tests need to see it fired without polluting this run's own output.
+    log(msg, type) { this.logs.push({ msg, type }); },
     // Duplicated from Game.spend (src/game/Game.js) — see header comment.
+    // Floors `spares` at 0 (fix round 1) the same way the real one now
+    // does, since test 9 below exercises exactly the race that floor exists
+    // for.
     spend(costs) {
       if (this.sandboxMode) return;
-      for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+      for (const [r, a] of Object.entries(costs)) {
+        if (r === 'spares') this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - a);
+        else this.state.resources[r] -= a;
+      }
     },
   };
 }
@@ -382,6 +403,111 @@ console.log('\n=== 7. Same damaged component is never double-assigned ===\n');
   assertOk(state.resources.spares === 4, `exactly one spare consumed total (got ${state.resources.spares})`);
   assertOk(tech1.stats.repairs === 1 && tech2.stats.repairs === 0,
     `only tech1 gets credit for the repair (got ${tech1.stats.repairs}, ${tech2.stats.repairs})`);
+}
+
+// =============================================================================
+// 8. Fix round 1, CRITICAL 1: an on-pipe component (role: 'placement' —
+//    quadrupole, BPM, RF cavity, ...) that wears down gets a real repair
+//    offer, not silent, permanent, un-repairable decay. Before this fix,
+//    jobs.js's beamlineComponentNodes/repairOffers filtered to
+//    `node.kind === 'module'` only, so a damaged on-pipe component (the
+//    MAJORITY of the catalogue by count and by funding) never produced an
+//    offer OR a suppression at any spares level — _applyWearForBeamline
+//    (Game.js) wrote its componentHealth same as any module's, but nothing
+//    downstream of that ever looked at it once _autoRepair was gone.
+// =============================================================================
+console.log('\n=== 8. On-pipe components get real repair offers (fix round 1) ===\n');
+{
+  const { Game } = await import('../src/game/Game.js');
+  const { BeamlineRegistry } = await import('../src/beamline/BeamlineRegistry.js');
+  const { DesignPlacer } = await import('../src/ui/DesignPlacer.js');
+  const { STOCK_DESIGNS } = await import('../src/data/stock-designs.js');
+  const { buildJobOffers, eligibleFor } = await import('../src/game/staff/jobs.js');
+
+  // Small (4-component) real design with a source, a beamStop, and two
+  // on-pipe placements (industrialLinac, ict) — built for real via
+  // DesignPlacer.confirm() rather than hand-assembled, so the pipe geometry,
+  // ports and registry entry are all exactly what the real game produces.
+  const design = STOCK_DESIGNS.find(d => d.id === 'ebeam-crosslinker');
+  assertOk(!!design, 'setup: ebeam-crosslinker stock design exists');
+
+  const g = new Game(new BeamlineRegistry(), { seed: 55 });
+  g.state.resources.funding = 1e9;
+  g.state.resources.spares = 1e9;
+  const dp = new DesignPlacer(g, { _renderCursors() {} });
+  dp.start(design);
+  dp.startCol = 2;
+  dp.startRow = 2;
+  dp._recompute();
+  assertOk(dp.valid, `setup: design placement is valid (reason: ${dp.invalidReason})`);
+  const placed = dp.confirm();
+  assertOk(placed === true, 'setup: design placed for real');
+
+  // Find the on-pipe industrialLinac's placement id.
+  let linacId = null;
+  for (const pipe of g.state.beamPipes || []) {
+    const pl = (pipe.placements || []).find(p => p.type === 'industrialLinac');
+    if (pl) { linacId = pl.id; break; }
+  }
+  assertOk(!!linacId, 'setup: found the on-pipe industrialLinac placement id');
+
+  const entry = (g.registry.getAll() || [])[0];
+  assertOk(!!entry?.beamState?.componentHealth, 'setup: the placed beamline has a componentHealth dict');
+  entry.beamState.componentHealth[linacId] = 40; // damage it
+
+  const { offers, suppressions } = buildJobOffers(g);
+  const offer = offers.find(o => o.jobType === 'repair' && o.target?.nodeId === linacId);
+  assertOk(!!offer, 'a repair offer was generated for the damaged on-pipe component');
+  assertOk(!suppressions.some(s => s.target?.nodeId === linacId),
+    'no suppression was recorded for it either — it is a real, live offer');
+
+  if (offer) {
+    const technician = new (await import('../src/game/staff/StaffMember.js')).StaffMember({
+      id: 'tOnPipe', profession: 'technician', traits: [],
+      skills: { operating: 5, technical: 5, research: 5, construction: 5, admin: 5 },
+      rng: () => 0.5,
+    });
+    // No fromNode set: eligibleFor only runs the reachability probe when a
+    // position is known (see its own doc comment), so this checks the
+    // profession/skill/staleness gates without needing real pawn placement.
+    const res = eligibleFor(technician, offer, g);
+    assertOk(res.ok, `a technician is eligible for the on-pipe repair offer (reason: ${res.reason})`);
+  }
+}
+
+// =============================================================================
+// 9. Fix round 1, IMPORTANT 4: spares must never go negative. A repair
+//    completing with 0 spares on the books does not heal, does not spend,
+//    logs it loudly (not silently), and leaves the component damaged so
+//    jobs.js's repairOffers re-offers it once spares exist again.
+// =============================================================================
+console.log('\n=== 9. Zero-spares race at completion: no negative inventory, no free heal ===\n');
+{
+  const state = makeState(1);
+  floorRect(state, 0, 10, 0, 10);
+  const beamline = placeDamagedBeamline(state, 'bl-1', 5, 5, 50);
+  const game = makeGame(state, [beamline]);
+
+  const technician = makeMember('technician', 't1');
+  state.staffMembers = [technician];
+
+  assignJobs(game);
+  assertOk(technician.job?.jobType === 'repair', `setup: technician assigned repair (got ${technician.job?.jobType})`);
+  arrive(technician);
+
+  // Simulate the race the fix guards against: a beamline component purchase
+  // (or a sibling repair) drains the shared pool to 0 between assignment and
+  // this job's own completion tick.
+  state.resources.spares = 0;
+
+  const completedAt = runUntilComplete(game, technician);
+  assertOk(completedAt >= 0, `the job still completes (tick ${completedAt}) — it is not stuck`);
+  assertOk(beamline.beamState.componentHealth[beamline.sourceId] === 50,
+    'the component was NOT healed for free when spares hit 0 at completion');
+  assertOk(state.resources.spares === 0, 'spares did not go negative (still 0, not -1)');
+  assertOk(technician.stats.repairs === 0, 'no repair credit for a completion that healed nothing');
+  assertOk(game.logs.some(l => l.type === 'bad' && /no spares/i.test(l.msg)),
+    `a loud log line fired for the silent-no-op guard (got ${JSON.stringify(game.logs)})`);
 }
 
 // =============================================================================
