@@ -116,6 +116,38 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
     `no override names a type with no utility ports (dead: ${dead.join(',') || 'none'})`);
 }
 
+{
+  // Authoring a type means answering for ALL of its utility ports: a table
+  // entry suppresses nothing, but an entry that names only `rf_in` and no
+  // `_default` would leave its siblings on the derived height, which is the
+  // very thing the entry was written to escape.
+  const partial = [];
+  for (const type of Object.keys(PORT_ANCHOR_OVERRIDES)) {
+    const def = COMPONENTS[type];
+    if (!def || !def.ports) continue;
+    for (const [name, spec] of Object.entries(def.ports)) {
+      if (!spec || !spec.utility) continue;
+      const o = portAnchorOverride(type, name);
+      if (!o || !Number.isFinite(o.y)) partial.push(`${type}.${name}`);
+    }
+  }
+  assert(partial.length === 0,
+    `an authored type answers for every one of its ports (${partial.join(',') || 'all covered'})`);
+
+  // Heights are hand-authored per model, so nothing here can be checked
+  // against geometry headless — but a typo'd metre is still catchable: no
+  // connector belongs underfoot or above head height on any of this hardware.
+  const outOfBand = [];
+  for (const [type, entry] of Object.entries(PORT_ANCHOR_OVERRIDES)) {
+    for (const [port, spec] of Object.entries(entry)) {
+      if (!spec || !Number.isFinite(spec.y)) continue;
+      if (spec.y < 0.3 || spec.y > 2.5) outOfBand.push(`${type}.${port}=${spec.y}`);
+    }
+  }
+  assert(outOfBand.length === 0,
+    `every authored height is within reach (${outOfBand.join(',') || 'all in band'})`);
+}
+
 console.log('\n--- 4. The outward normal follows rotation ---');
 {
   const { type, def, name } = utilityPorts[0];

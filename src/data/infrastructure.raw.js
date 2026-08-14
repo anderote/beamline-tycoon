@@ -50,7 +50,6 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 70,
     subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_red',
-    faces: { '+X': { decal: 'ssa_rack_front' } },
     zoneTier: 2,
     spriteKey: 'solidStateAmp',
     spriteColor: 0xd8463a,
@@ -177,7 +176,6 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 3,
     subL: 3, subW: 2, subH: 4, gridW: 2, gridH: 3, geometryType: 'box',
     baseMaterial: 'metal_painted_red',
-    faces: { '+X': { decal: 'modulator_front' } },
     zoneTier: 4,
     spriteKey: 'modulator',
     spriteColor: 0xd8463a,
@@ -284,7 +282,6 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 0.5,
     subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_dark',
-    faces: { '+X': { decal: 'rack_ioc_front' } },
     requires: 'digitalLlrf',
     spriteKey: 'llrfController',
     spriteColor: 0xd8463a,
@@ -330,7 +327,6 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 500,
     subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
     baseMaterial: 'metal_painted_red',
-    faces: { '+X': { decal: 'ssa_rack_front' } },
     requires: 'advancedRf',
     spriteKey: 'highPowerSSA',
     spriteColor: 0xd8463a,
@@ -448,9 +444,11 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 5000000 },
     stats: {},
     energyCost: 20,
+    // No `faces` decal: role-built (see _buildHeCompressorRoles in
+    // renderer3d/builders/cryo-builder.js). The role path never reads
+    // compDef.faces, so a decal here would be dead config.
     subL: 6, subW: 4, subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
-    faces: { '+X': { decal: 'he_compressor_front' } },
     requires: 'srfTechnology',
     spriteKey: 'heCompressor',
     spriteColor: 0x2fbccc,
@@ -470,7 +468,7 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 15,
     subL: 8, subW: 4, subH: 5, gridW: 4, gridH: 8, geometryType: 'box',
     baseMaterial: 'cryo_frost',
-    faces: { '+X': { decal: 'cold_box_front' } },
+    // No `faces` decal: role-built (see _buildColdBox4KRoles).
     requires: 'srfTechnology',
     spriteKey: 'coldBox4K',
     spriteColor: 0x2fbccc,
@@ -491,7 +489,7 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 25,
     subL: 8, subW: 4, subH: 5, gridW: 4, gridH: 8, geometryType: 'box',
     baseMaterial: 'cryo_frost',
-    faces: { '+X': { decal: 'cold_box_front' } },
+    // No `faces` decal: role-built (see _buildColdBox2KRoles).
     requires: 'highQSrf',
     spriteKey: 'coldBox2K',
     spriteColor: 0x2fbccc,
@@ -976,9 +974,11 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 600000 },
     stats: {},
     energyCost: 3,
+    // No `faces` decal: a ROLE_BUILDERS entry (_buildLcwSkidRoles in
+    // cooling-builder.js) supplies the geometry, and the role path never
+    // reads compDef.faces — same as coolingTower and deionizer.
     subL: 4, subW: 2, subH: 3, gridW: 2, gridH: 4, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
-    faces: { '+X': { decal: 'chiller_front' } },
     zoneTier: 2,
     spriteKey: 'lcwSkid',
     spriteColor: 0x2fbccc,
@@ -1023,12 +1023,11 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 1200000 },
     stats: {},
     energyCost: 5,
+    // No `faces` decal: a ROLE_BUILDERS entry (_buildChillerRoles in
+    // cooling-builder.js) supplies the geometry, and the role path never
+    // reads compDef.faces.
     subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
-    faces: {
-      '+X': { decal: 'chiller_front' },
-      '+Y': { base: 'metal_corrugated' },
-    },
     zoneTier: 0,
     spriteKey: 'chiller',
     spriteColor: 0x2fbccc,
@@ -1108,6 +1107,11 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 0,
     subL: 3, subW: 2, subH: 3, gridW: 2, gridH: 3, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
+    // Role-built by _buildEmergencyCoolingRoles (cooling-builder.js). The
+    // battery/inverter bank, beacon dome and EPO mushroom all live in the
+    // `iron` bucket, so repainting that one role turns the emergency kit red
+    // while the water side stays plant-coloured.
+    textures: { iron: 'metal_painted_red' },
     requires: 'machineProtection',
     spriteKey: 'emergencyCooling',
     spriteColor: 0x2fbccc,
