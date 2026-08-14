@@ -14,9 +14,12 @@
 //   2. Operator hired, no Operator Console anywhere -> blocked, message
 //      names the console.
 //   3. Operator seated and working, one beamline -> not blocked.
-//   4. Two beamlines, one green (skill 0) operator -> blocked, message names
-//      the capacity shortfall with both numbers ("1 operator(s) cover(s) 2
-//      beamline(s)").
+//   4a. Two beamlines, one console fully staffed by a green operator ->
+//      blocked, message points at building another CONSOLE, not hiring.
+//   4b. Three beamlines, two consoles, one skilled operator (capacity 2 !=
+//      headcount 1) -> blocked, message reports headcount and coverage as
+//      two distinct numbers ("1 operator covers 2 of 3 beamlines"), and
+//      points at hiring/promoting since a free console exists.
 //   5. Two beamlines, one operator with skills.operating >= 4 (coverage 2)
 //      -> not blocked.
 //   6. Operator's runBeam job is still phase:'travel' -> blocked, message
@@ -29,6 +32,11 @@
 //   9. Determinism: the same state run through the gate twice (or many
 //      times) produces byte-identical blockers — no Math.random anywhere in
 //      the staffing path.
+//   10. A resting (stress-breakdown) operator contributes zero coverage,
+//      same as eating/resting-on-a-job.
+//   11. beamHours accrues once per in-game hour, deduped across multiple
+//      run() calls on the same tick (repeated toggleBeam while paused).
+//   12. beamHours does not accrue while blocked by an unrelated hard fault.
 
 import { UtilityGate, operatorCoverage } from '../src/game/utility-gate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
@@ -173,9 +181,17 @@ console.log('\n=== 3. Operator seated + working, one beamline -> not blocked ===
 }
 
 // ==========================================================================
-// 4/5. Two beamlines: undercovered (green operator) vs covered (skilled).
+// 4a/4b. Two flavors of "seated but short": every console already full
+// (build another one — hiring is wasted salary) vs. a free console sitting
+// empty (hiring/promoting genuinely helps). Fix-round-1: the old single
+// "capacity shortfall" branch conflated these, and separately reported
+// CAPACITY (coverage) as if it were a headcount — "2 operators cover 3
+// beamlines" printed even with exactly one operator on the roster (a
+// skilled or tier-boosted one). 4b exercises exactly that: one operator,
+// capacity 2, must read "1 operator covers 2 of 3 beamlines", not
+// "2 operators cover...".
 // ==========================================================================
-console.log('\n=== 4. Two beamlines, one green operator -> blocked, names the shortfall ===\n');
+console.log('\n=== 4a. Two beamlines, one console fully staffed by a green operator -> console-constrained ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
@@ -194,9 +210,40 @@ console.log('\n=== 4. Two beamlines, one green operator -> blocked, names the sh
   makeGate(state).run();
   const b = beamUnstaffed(state);
   assert(!!b, 'beam_unstaffed fires: 1 unit of coverage against 2 beamlines');
-  assert(/\b1\b/.test(b?.message || '') && /\b2\b/.test(b?.message || ''),
-    `message names both numbers (got "${b?.message}")`);
-  assert(/cover/i.test(b?.message || ''), `message uses "cover" (got "${b?.message}")`);
+  assert(/console/i.test(b?.message || ''), `message names the console, not hiring (got "${b?.message}")`);
+  assert(!/hire another or promote/i.test(b?.message || ''),
+    `message does NOT tell the player to hire (a wasted-salary answer here) (got "${b?.message}")`);
+}
+
+console.log('\n=== 4b. Three beamlines, two consoles, one skilled operator (capacity 2) -> headcount != coverage ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console1 = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  placeItem(state, 'operatorConsole', 2, 6, 0, 0, 0); // a second, FREE console
+  addBeamline(state, 'bl1');
+  addBeamline(state, 'bl2');
+  addBeamline(state, 'bl3');
+  const op = makeOperator({
+    skills: { operating: 4 }, // coverage 2 — capacity != headcount (1)
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console1.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+  const cov = operatorCoverage(state);
+  assert(cov.capacity === 2, `1 + floor(4/4) = 2 (got ${cov.capacity})`);
+  makeGate(state).run();
+  const b = beamUnstaffed(state);
+  assert(!!b, 'beam_unstaffed fires: 2 units of coverage against 3 beamlines, a free console available');
+  assert(/hire another or promote/i.test(b?.message || ''),
+    `a free console exists — the answer IS hiring/promoting (got "${b?.message}")`);
+  assert(/\b1\s+operator\b/i.test(b?.message || ''),
+    `headcount is reported as 1 (one operator), not as the capacity number (got "${b?.message}")`);
+  assert(/\b2\b/.test(b?.message || '') && /\b3\b/.test(b?.message || ''),
+    `message names both the coverage (2) and beamline count (3) (got "${b?.message}")`);
 }
 
 console.log('\n=== 5. Two beamlines, one operator with operating>=4 -> not blocked ===\n');
@@ -327,6 +374,99 @@ console.log('\n=== 9. Determinism: identical blockers on repeated runs ===\n');
   } finally {
     Math.random = originalRandom;
   }
+}
+
+// ==========================================================================
+// 10. A stress-breakdown operator (status !== 'working') does not count as
+// coverage — fix-round-1: operatorCoverage used to read only job.jobType/
+// phase, so a `runBeam`/`work` job left dangling through a breakdown still
+// scored full coverage while an eating/resting-on-a-JOB operator scored
+// zero for the same "not actually at the console" fact.
+// ==========================================================================
+console.log("\n=== 10. Operator status:'resting' (stress breakdown) -> zero coverage ===\n");
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  const op = makeOperator({
+    status: 'resting',
+    job: {
+      // Stale job, left over from before the breakdown — nothing abandons
+      // it on this path, which is exactly the inconsistency being pinned.
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console_.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+  const cov = operatorCoverage(state);
+  assert(cov.capacity === 0, `a resting operator contributes zero coverage despite job:runBeam/work (got ${cov.capacity})`);
+  makeGate(state).run();
+  const b = beamUnstaffed(state);
+  assert(!!b, 'beam_unstaffed fires while the only operator is resting off a breakdown');
+  assert(/breakdown|resting|recover/i.test(b?.message || ''), `message names the breakdown (got "${b?.message}")`);
+}
+
+// ==========================================================================
+// 11. beamHours accrues once per in-game hour, deduped even when run() is
+// called more than once on the same tick (toggleBeam -> refreshInfra-
+// structureGate -> run(), possibly several times while paused).
+// ==========================================================================
+console.log('\n=== 11. beamHours: deduped per tick, not per run() call ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  const op = makeOperator({
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console_.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+  state.tick = 10; // a multiple of DAY_LENGTH_TICKS/24 (240/24 = 10) — an accrual tick
+  const gate = makeGate(state);
+  for (let i = 0; i < 10; i++) gate.run(); // simulates toggling off/on repeatedly while paused
+  assert(op.stats.beamHours === 1,
+    `ten run() calls on the SAME tick accrue exactly once (got ${op.stats.beamHours})`);
+
+  state.tick = 20; // the next accrual tick
+  gate.run();
+  assert(op.stats.beamHours === 2, `a later accrual tick accrues again (got ${op.stats.beamHours})`);
+}
+
+// ==========================================================================
+// 12. beamHours does not accrue while the beam is provably blocked by an
+// UNRELATED hard fault (not staffing) — a seated operator sitting at a
+// console with, say, the power cut is not "running the beam".
+// ==========================================================================
+console.log('\n=== 12. beamHours: no accrual while blocked by an unrelated fault ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  const op = makeOperator({
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console_.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+  const faultySolveRunner = {
+    runSolve: () => ({
+      errors: [{ severity: 'hard', code: 'power_unconnected', message: 'unrelated fault', location: {} }],
+    }),
+  };
+  const gate = new UtilityGate({ state, solveRunner: faultySolveRunner, getPorts: noopPorts });
+  for (let t = 0; t <= 60; t += 10) { state.tick = t; gate.run(); }
+  assert(state.infraCanRun === false, 'setup: the facility is genuinely blocked (unrelated fault)');
+  assert((op.stats.beamHours || 0) === 0,
+    `a seated operator banks zero beamHours while an unrelated fault blocks the facility (got ${op.stats.beamHours})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

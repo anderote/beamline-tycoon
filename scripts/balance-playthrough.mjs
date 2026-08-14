@@ -378,10 +378,16 @@ function hireStaff(game, roles) {
 function ensureOperatorConsole(game) {
   const state = game.state;
   const existing = state.placeables.filter(p => p.type === 'operatorConsole').length;
-  game.placePlaceable({
+  // Charged like every other capital item in this ladder (labs, beamline
+  // hardware, wiring) — a console is real equipment ($25k, facility-room-
+  // furnishings.raw.js), not a free side effect of hiring. free:true here
+  // used to leave every console after the starter's own unbilled, up to
+  // 24 * $25k = $600k invisible to the run's economy over a full playthrough.
+  const ok = game.placePlaceable({
     type: 'operatorConsole', col: -30, row: existing * 4, subCol: 0, subRow: 0, dir: 0,
-    free: true, silent: true,
+    silent: true,
   });
+  if (!ok) console.error('[ensureOperatorConsole] placement failed', { existing });
 }
 
 // Labs are painted through the real (charging) brush; their price is small and

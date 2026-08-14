@@ -64,16 +64,15 @@ function bootScenario(scenario) {
   game.applyScenario(mapData);
   if (scenario.setup) scenario.setup(game);
   game.recalcAllBeamlines();
-  // A shipped starter scenario is meant to come up running, not merely
-  // buildable — and under the seated-operator gate (task-4-brief.md) that
-  // now matters for infraCanRun itself: jobRunner only offers a runBeam job
-  // for a console once its beamline is REGISTRY-running (capsFor's
-  // beamlineCount), so a beamline left 'stopped' can never be staffed no
-  // matter how many operators are on the roster. Start every beamline this
-  // scenario ships before the warmup ticks, exactly like a player would.
-  for (const entry of game.registry.getAll()) {
-    if (entry.status !== 'running') game.toggleBeam(entry.id);
-  }
+  // Deliberately does NOT toggle any beamline on: jobRunner's runBeam cap
+  // counts REGISTERED beamlines (src/game/staff/jobRunner.js's
+  // beamlineCount), not only running ones, so the seeded operator gets
+  // offered — and, over these 20 ticks, seated at — the scenario's console
+  // regardless of whether the beamline itself has ever been started. That's
+  // what makes `infraCanRun` true below without this helper having to press
+  // Start on the player's behalf; the dedicated "beamline is startable"
+  // block further down does that itself, from a genuinely cold 'stopped'
+  // registry entry.
   for (let i = 0; i < 20; i++) game.tick();
   return game;
 }
@@ -130,14 +129,17 @@ for (const scenario of SCENARIOS) {
 
   const junctions = state.placeables.filter(p => p.category === 'beamline');
   if (junctions.length > 0) {
-    // Scenario ships a beamline — it must be startable, and bootScenario
-    // already started it (ahead of the warmup ticks — see its own comment)
-    // so it stays running rather than being (re)toggled here.
+    // Scenario ships a beamline — it must be startable. bootScenario never
+    // toggles it on (see its own comment), so this starts genuinely cold: a
+    // 'stopped' registry entry whose operator is nonetheless already seated
+    // (the registered-beamline cap fix means staffing doesn't wait on the
+    // toggle at all), so the toggle itself should succeed cleanly.
     const sourceJ = junctions.find(p => COMPONENTS[p.type]?.isSource);
     assert(!!sourceJ, 'beamline has a source junction');
     const entry = game.registry.getAll().find(e => e.sourceId === sourceJ?.id);
     assert(!!entry, 'registry entry exists for the source');
     if (entry) {
+      game.toggleBeam(entry.id);
       assert(entry.status === 'running', `beam starts (status=${entry.status})`);
       for (let i = 0; i < 5; i++) game.tick();
       assert(state.beamOn === true, 'state.beamOn true after ticking with beam running');

@@ -12,9 +12,12 @@
 // wirable but never checked — and, absent from nodeQualities, ran at the
 // consumer's 1.0 default. Never wiring outscored wiring badly.
 //
-// DI mirrors SolveRunner: constructor takes {state, solveRunner, getPorts,
-// rng}. `rng` must be a delegating closure (Game reassigns this.rng on load,
-// so capturing the function directly would freeze the pre-load stream).
+// DI mirrors SolveRunner: constructor takes {state, solveRunner, getPorts}.
+// Deliberately no rng: the gate (staffing included, since staff-professions-3
+// Task 4) must be a pure function of state, never a dice roll — see
+// operatorCoverage's own doc comment. Callers may still pass an `rng` option
+// (several tests do); it is accepted and ignored rather than stored, so
+// nothing inside this class can ever be tempted to read it.
 
 import { findUnconnectedSinks } from '../utility/network-discovery.js';
 import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
@@ -177,13 +180,23 @@ const CONSOLE_TIER_BONUS_THRESHOLD = 3;
  * currently seated and working, can cover every beamline it has.
  *
  * `operators` is exactly the set contributing to `capacity`: staff whose
- * profession is 'operator' AND whose job is `{ jobType: 'runBeam', phase:
- * 'work' }` right now. Travelling to a console, eating, resting, idle, or
- * simply not an operator at all — none of those count, on purpose: an
- * operator mid-meal is not at the console, so the beam is not covered no
+ * profession is 'operator', whose `status` is 'working' (NOT e.g. 'resting'
+ * off a stress breakdown — see below), AND whose job is `{ jobType:
+ * 'runBeam', phase: 'work' }` right now. Travelling to a console, eating,
+ * idle, or simply not an operator at all — none of those count, on purpose:
+ * an operator mid-meal is not at the console, so the beam is not covered no
  * matter how content their morale bar looks (see task-4-brief.md's
  * carry-forward item 2 — this is a deliberate behavior change from the old
- * gate, which only checked `status === 'working'`).
+ * gate, which only checked `status === 'working'` and nothing else).
+ *
+ * The `status === 'working'` half of that guard matters on its own: a
+ * stress-breakdown operator (`status: 'resting'`, staffSystem.js's own
+ * mechanism — a different thing from the `rest` JOB TYPE, which leaves
+ * `status` at 'working' throughout) can still be holding a stale `job:
+ * {jobType:'runBeam', phase:'work'}` from before the breakdown, since
+ * nothing on that path abandons it. Without this check they'd count as full
+ * coverage while an eating/resting-on-a-JOB operator counts zero — the same
+ * "not actually at the console" fact, scored two different ways.
  *
  * Per-operator coverage is `1 + floor(skills.operating / 4)` — a green
  * (skill 0) operator covers exactly one beamline, a maxed one (skill 10, +2)
@@ -197,7 +210,8 @@ const CONSOLE_TIER_BONUS_THRESHOLD = 3;
 export function operatorCoverage(state) {
   const tierBonus = (state.zoneConnectivity?.controlRoom?.tier || 0) >= CONSOLE_TIER_BONUS_THRESHOLD ? 1 : 0;
   const operators = (state.staffMembers || []).filter(m =>
-    m.profession === 'operator' && m.job?.jobType === 'runBeam' && m.job?.phase === 'work');
+    m.profession === 'operator' && m.status === 'working'
+    && m.job?.jobType === 'runBeam' && m.job?.phase === 'work');
   const capacity = operators.reduce((sum, m) => {
     const skill = m.skills?.operating ?? 0;
     return sum + 1 + Math.floor(skill / 4) + tierBonus;
@@ -219,13 +233,16 @@ export class UtilityGate {
     this.state = opts.state;
     this.solveRunner = opts.solveRunner;
     this.getPorts = opts.getPorts;
-    this.rng = opts.rng || Math.random;
     // Player-facing message sink. Soft errors used to reach console.warn and
     // nowhere else, so an overloaded network announced itself ONLY by
     // recolouring its cables — a signal with no legend and no explanation.
     this.log = opts.log || (() => {});
     this._lastErrHash = '';
     this._loggedSoft = new Set();
+    // The sim tick this.tick last accrued beamHours for — see
+    // _accrueBeamHours's own doc comment. null (not 0) so tick 0 itself
+    // still accrues once.
+    this._lastBeamHourTick = null;
     // Topology cache — the unconnected-sink report AND the declared-sink
     // floor are pure topology (endpoints x port tables x lines), so both ride
     // the SolveRunner's topologyRevision: recomputed only when the revision
@@ -299,7 +316,6 @@ export class UtilityGate {
           fromStaffingCheck: true,
         });
       }
-      this._accrueBeamHours(coverage.operators);
 
       // The utility solve + the two synthesized checks are the only sources of
       // infraBlockers. Hard errors block the beam; soft errors are logged but
@@ -310,6 +326,16 @@ export class UtilityGate {
         reason: e.message || e.code || 'Utility fault',
       }));
       state.infraCanRun = hardErrs.length === 0;
+
+      // Accrue AFTER infraCanRun is final, and only when it's true: beamHours
+      // is meant to record time the beam actually ran, not time a seated
+      // operator happened to be at their console while an UNRELATED fault
+      // (unwired power, a quenched cavity, the staffing gate itself) held
+      // the whole facility down. `beamlineCount > 0` mirrors the same guard
+      // the blocker above uses — no beamline, nothing to accrue.
+      if (beamlineCount > 0 && state.infraCanRun) {
+        this._accrueBeamHours(coverage.operators);
+      }
 
       state.nodeQualities = this._aggregateNodeQualities(declaredFloors);
       // Wiring topology, published alongside the qualities it can't be
@@ -323,19 +349,19 @@ export class UtilityGate {
     }
   }
 
-  // The blocker text has to name the *actual* cause. Six distinct cases,
-  // checked most-fundamental-first: no operator hired at all; operators
-  // hired but no Operator Console anywhere in the world; a console exists
-  // but nothing can currently reach it (walled off, no door); operators are
-  // travelling there (transient — this should read as "any moment now", not
-  // as an error); operators are eating or resting (the modern equivalent of
-  // the deleted onBreak status — see task-4-brief.md's carry-forward item 1;
-  // note that per operatorCoverage, an eating/resting operator contributes
-  // ZERO coverage, so this case fires even for a facility with plenty of
-  // operators on the books); and, once someone genuinely IS at a console,
-  // simply not enough combined coverage for how many beamlines this facility
-  // runs — named with both numbers, e.g. "2 operators cover 3 beamlines;
-  // hire another or promote one."
+  // The blocker text has to name the *actual* cause. Checked
+  // most-fundamental-first: no operator hired at all; operators hired but no
+  // Operator Console anywhere in the world; a console exists but nothing can
+  // currently reach it (walled off, no door); then, with nobody yet seated
+  // (active.length === 0) — travelling (transient, "any moment now", not an
+  // error), eating/resting (the modern equivalent of the deleted onBreak
+  // status — task-4-brief.md's carry-forward item 1), recovering from a
+  // stress breakdown, or simply not assigned yet (the instant after pressing
+  // Start, before that tick's assignJobs has run); then, with SOMEONE seated
+  // but not enough of them — console-starved (every console already has an
+  // operator, so hiring more would sit idle; the fix is another console) vs.
+  // genuinely short-staffed (a free console exists; hire another operator or
+  // promote one already on shift).
   _unstaffedMessage() {
     const state = this.state;
     const operators = (state.staffMembers || []).filter(m => m.profession === 'operator');
@@ -375,22 +401,40 @@ export class UtilityGate {
     const capacity = coverage.capacity;
     const active = coverage.operators;
 
-    if (active.length === 0 && operators.some(m => m.job?.phase === 'travel')) {
-      return 'Operator on the way to the console — beam will resume once they arrive.';
+    if (active.length === 0) {
+      if (operators.some(m => m.job?.phase === 'travel')) {
+        return 'Operator on the way to the console — beam will resume once they arrive.';
+      }
+      if (operators.some(m => m.job?.jobType === 'eat' || m.job?.jobType === 'rest')) {
+        return 'Operator eating or resting — beam paused until they return to the console; hire another operator to cover the gap.';
+      }
+      // operatorCoverage also excludes status !== 'working' (a stress
+      // breakdown, staffSystem.js's 'resting' — distinct from the 'rest' JOB
+      // TYPE above, which leaves status at 'working'). Give it its own line
+      // rather than letting it fall into the generic case below.
+      if (operators.some(m => m.status && m.status !== 'working')) {
+        return 'Operator recovering from a stress breakdown — beam paused until they return to work.';
+      }
+      // Hired, a console exists and is reachable, but nobody has been
+      // assigned to it yet — most commonly the instant after pressing
+      // Start, before that tick's assignJobs has had a chance to run.
+      return 'Operator is not at a console yet — beam tripped.';
     }
 
-    if (active.length === 0 && operators.some(m => m.job?.jobType === 'eat' || m.job?.jobType === 'rest')) {
-      return 'Operator eating or resting — beam paused until they return to the console; hire another operator to cover the gap.';
+    // Someone IS seated — the shortfall is either too few CONSOLES (hiring
+    // more operators would just leave them with nowhere to sit) or too few
+    // OPERATORS (a free console is sitting empty). operatorConsole/
+    // monitorBank each declare slots: 1, so stations.length is also the
+    // hard ceiling on how many operators can ever be seated at once.
+    const beamlineCount = countBeamlines(state);
+    if (active.length >= stations.length) {
+      return `Every console is staffed (${active.length}) but only ${capacity} of `
+        + `${beamlineCount} beamlines are covered — build another Operator Console; `
+        + 'hiring more operators won\'t help until they have somewhere to sit.';
     }
-
-    if (active.length > 0) {
-      const beamlineCount = countBeamlines(state);
-      return `${capacity} operator${capacity === 1 ? '' : 's'} `
-        + `cover${capacity === 1 ? 's' : ''} ${beamlineCount} beamline${beamlineCount === 1 ? '' : 's'}; `
-        + 'hire another or promote one.';
-    }
-
-    return 'No active operator in Control Room — beam tripped.';
+    return `${active.length} operator${active.length === 1 ? '' : 's'} `
+      + `cover${active.length === 1 ? 's' : ''} ${capacity} of ${beamlineCount} beamlines; `
+      + 'hire another or promote one.';
   }
 
   // Every operator currently seated and running the beam accrues
@@ -398,9 +442,20 @@ export class UtilityGate {
   // — the counter Plan 1 declared and the "recovered the beam 47 times"
   // milestone (Task 7) reads from. Ticks, not wall-clock, so this scales
   // correctly with game speed exactly like the rest of the sim clock.
+  //
+  // Deduped per tick via _lastBeamHourTick: run() is not the only caller of
+  // the gate — toggleBeam() calls refreshInfrastructureGate() (== run())
+  // synchronously on every click, including while paused (tick frozen). Two
+  // calls landing on the same on-the-hour tick used to both accrue, so
+  // toggling a beam off/on repeatedly while paused banked beamHours with
+  // zero sim time elapsed. This makes the accrual idempotent per tick,
+  // matching "once per in-game hour" literally rather than "once per call
+  // that happens to land on an hour boundary."
   _accrueBeamHours(operators) {
     const tick = this.state.tick || 0;
     if (tick % BEAM_HOURS_TICK_INTERVAL !== 0) return;
+    if (this._lastBeamHourTick === tick) return;
+    this._lastBeamHourTick = tick;
     for (const m of operators) {
       if (!m.stats) m.stats = {};
       m.stats.beamHours = (m.stats.beamHours || 0) + 1;

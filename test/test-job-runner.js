@@ -759,7 +759,7 @@ console.log('\n=== 8. serialize() -> deserialize() round-trips job; a reservatio
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n=== 9. runBeam cap: at most (running) beamlineCount operators hold runBeam at once, even with more free consoles AND a higher-priority repair offer present ===\n");
+console.log("\n=== 9. runBeam cap: at most (registered) beamlineCount operators hold runBeam at once, even with more free consoles AND a higher-priority repair offer present ===\n");
 {
   // Deliberately NOT fixture-lucky: a damaged component (repair, priority
   // ~90-140) sorts ABOVE runBeam's (80) in the offer list. An operator is
@@ -768,22 +768,33 @@ console.log("\n=== 9. runBeam cap: at most (running) beamlineCount operators hol
   // priority order, it would report repair's "needs a Technician" message
   // instead of the actually-relevant beamline shortage. See pickBestOffer's
   // professionOk-relevance split.
+  //
+  // beamlineCount counts REGISTERED beamlines, not only running ones (see
+  // jobRunner.js's own comment on that function — utility-gate.js's
+  // operatorCoverage requires coverage for every isSource placeable
+  // regardless of run status, so the cap has to match or a stopped/damaged
+  // line can shrink it out from under an already-seated operator). This
+  // fixture registers TWO beamlines (one running, one damaged-but-
+  // registered) against THREE free consoles, so the cap (2) is still the
+  // real constraint, not console count.
   const state = makeState();
   floorRect(state, 0, 20, 0, 10);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   placeItem(state, 'monitorBank', 6, 2, 0, 0, 0);
+  placeItem(state, 'operatorConsole', 10, 8, 0, 0, 0);
   const damaged = placeDamagedBeamline(state, 'bl-2', 12, 4, 40);
   bump(state);
   const running = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
-  const game = makeGame(state, [running, damaged]); // ONE running beamline, two free consoles, one damaged part
+  const game = makeGame(state, [running, damaged]); // TWO registered beamlines, three free consoles
 
   const opA = makeMember('operator', 'opA');
   const opB = makeMember('operator', 'opB');
-  state.staffMembers = [opA, opB];
+  const opC = makeMember('operator', 'opC');
+  state.staffMembers = [opA, opB, opC];
 
   assignJobs(game);
   const runBeamHolders = state.staffMembers.filter(m => m.job?.jobType === 'runBeam');
-  assertOk(runBeamHolders.length === 1, `exactly 1 operator holds runBeam with 1 running beamline (got ${runBeamHolders.length})`);
+  assertOk(runBeamHolders.length === 2, `exactly 2 operators hold runBeam with 2 registered beamlines (got ${runBeamHolders.length})`);
   const surplus = state.staffMembers.find(m => m.job?.jobType !== 'runBeam');
   assertOk(!!surplus, 'sanity: one operator was left without runBeam');
   assertOk(surplus.job === null, 'the surplus operator was not assigned anything else instead (certainly not repair)');

@@ -3869,30 +3869,36 @@ export class Game {
       // player already fixed, or starting one with the utilities cut).
       this.refreshInfrastructureGate();
       if (!this.state.infraCanRun) {
-        // beam_unstaffed gets one exception: it is the one blocker whose OWN
-        // resolution depends on this beamline already being 'running' —
-        // jobRunner's runBeam cap is the count of RUNNING registry entries
-        // (src/game/staff/jobRunner.js's beamlineCount), so an operator
-        // cannot even be OFFERED this line's console until the toggle below
-        // has already flipped it. Refusing the toggle while merely unstaffed
-        // would make a facility's very first beam unstartable forever: no
-        // operator job without a running beamline, no running beamline
-        // without an operator job. Every OTHER hard blocker (unwired power,
-        // no vacuum, etc.) still refuses the toggle exactly as before —
-        // staffing is the only one that has to resolve AFTER the switch is
-        // flipped, over the next tick or two, the same way the gate already
-        // treats a travelling operator as transient rather than an error
-        // (see utility-gate.js's _unstaffedMessage).
-        const blocking = (this.state.infraBlockers || []).filter(b => b.code !== 'beam_unstaffed');
-        if (blocking.length > 0) {
-          const count = blocking.length;
+        // toggleBeam refuses the same way for every hard blocker, staffing
+        // included — fixing the cold-start deadlock belongs in the CAP
+        // (src/game/staff/jobRunner.js's beamlineCount, now counting
+        // registered beamlines rather than only running ones — see that
+        // function's own comment), not by having this method quietly start
+        // a beam it knows is unstaffed. With the cap fixed, an operator can
+        // be seated against a beamline the moment it's BUILT, so ordinary
+        // play never needs this toggle to succeed ahead of staffing.
+        const blockers = this.state.infraBlockers || [];
+        const nonStaffing = blockers.filter(b => b.code !== 'beam_unstaffed');
+        if (nonStaffing.length > 0) {
+          const count = nonStaffing.length;
           this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
-          for (const b of blocking.slice(0, 3)) {
+          for (const b of nonStaffing.slice(0, 3)) {
             this.log(`  - ${b.reason}`, 'bad');
           }
           if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
           return;
         }
+        // Every OTHER hard blocker is clear — beam_unstaffed is the only
+        // thing holding this line dark, and it's normally transient (an
+        // operator assigned moments ago is one or two ticks from phase:
+        // 'work' — see utility-gate.js's _unstaffedMessage). This must
+        // read as neither a real fault NOR a false "Beam ON!": the beam
+        // genuinely is not running yet, so the toggle still refuses, but
+        // the log says so without alarming the player over something that
+        // resolves itself.
+        const staffBlocker = blockers.find(b => b.code === 'beam_unstaffed');
+        this.log(`Beam armed — waiting on an operator: ${staffBlocker?.reason || ''}`, 'info');
+        return;
       }
       entry.status = 'running';
       this.log('Beam ON!', 'good');
