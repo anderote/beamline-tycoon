@@ -113,7 +113,14 @@ function modelBounds(type) {
 
 function derivedY(bounds) {
   if (!bounds || !Number.isFinite(bounds.maxY) || bounds.maxY <= 0) return null;
-  const y = bounds.maxY * DERIVED_HEIGHT_FRACTION;
+  // Fraction of the model's OWN vertical span, not of the distance from the
+  // floor. On-pipe hardware sits on the beam axis a metre up, so `maxY * 0.55`
+  // put the anchor below the model entirely and the connector hung in mid-air
+  // under it — the most visible case being unauthored RF plant. Falling back
+  // to 0 for a missing minY reproduces the old answer for floor-standing
+  // equipment, whose minY is 0 anyway.
+  const minY = Number.isFinite(bounds.minY) ? Math.max(0, bounds.minY) : 0;
+  const y = minY + (bounds.maxY - minY) * DERIVED_HEIGHT_FRACTION;
   return Math.min(MAX_ANCHOR_Y, Math.max(MIN_ANCHOR_Y, y));
 }
 
