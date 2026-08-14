@@ -40,10 +40,9 @@
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units — must match decoration-builder.js
 
-// A dim, deliberately "off" baseline. Task 6 overwrites this every frame
-// once it lands; this default is what a fixture looks like before Task 6
-// exists at all (i.e. right now), so it must not look lit at noon.
-const EMITTER_BASE_INTENSITY = 0.15;
+// A dim, deliberately "off" baseline. Task 6 (below) overwrites this every
+// frame once darkness rises; this is what a fixture looks like at noon.
+export const EMITTER_BASE_INTENSITY = 0.15;
 
 // --- Pure aim math — no THREE, safe to unit test directly in Node ---------
 
@@ -62,6 +61,64 @@ export function isAimedFixture(def) {
  */
 export function aimYaw(dir = 0) {
   return -((dir || 0) * (Math.PI / 2));
+}
+
+// --- Pool footprint math (Task 6) — pure, no THREE ---------------------------
+// Ground-pool sizing/shape knobs. `radius` is documented on the light block
+// itself as "the light pool radius in world units (meters)" (lighting.js),
+// so POOL_RADIUS_SCALE starts at 1 — it exists purely as a global retune
+// knob, not because the data needs correcting.
+export const POOL_RADIUS_SCALE = 1.0;
+// A cone pool's along-aim half-length, as a multiple of its across-aim
+// half-length (which stays the plain radius).
+export const CONE_ELONGATION = 1.6;
+// How far the cone pool's centre is pushed along the aim, as a fraction of
+// radius — the footprint should read as "in front of" the fixture, not
+// centred on it.
+export const CONE_OFFSET_FRAC = 0.45;
+
+/**
+ * Unit aim vector for a placement `dir` (0-3 quarter turns), derived from
+ * aimYaw so the two can never drift apart. Rounded because dir is always an
+ * exact quarter turn — the trig would otherwise leave ~1e-16 noise on the
+ * axis that should read as exactly 0.
+ */
+function _aimVector(dir) {
+  const yaw = aimYaw(dir);
+  return { x: Math.round(Math.cos(yaw)), z: Math.round(-Math.sin(yaw)) };
+}
+
+/**
+ * Ground-floor light pool shape for one fixture. Pure and exported for
+ * testing (no THREE).
+ *
+ * A `point` light gives a circle centred on the fixture (rx === rz, zero
+ * offset). A `cone` light gives an ellipse elongated along its aim
+ * (dir-derived, same -dir*90° convention as aimYaw), its centre pushed
+ * forward so the pool reads as being cast BY the fixture rather than sitting
+ * under it. Because dir is quantized to quarter turns, the aim vector is
+ * always axis-aligned ((±1,0) or (0,±1)) — so rx/rz stay plain axis-aligned
+ * half-extents, no rotated-quad geometry is ever needed downstream.
+ *
+ * @param {{shape?:string, radius?:number}} light - a LIGHTING_DEFS light block.
+ * @param {number} [dir] - 0-3 quarter turns; ignored for non-cone shapes.
+ * @returns {{rx:number, rz:number, offsetX:number, offsetZ:number}}
+ */
+export function poolFootprint(light, dir = 0) {
+  const radius = (light?.radius ?? 0) * POOL_RADIUS_SCALE;
+  if (!light || light.shape !== 'cone') {
+    return { rx: radius, rz: radius, offsetX: 0, offsetZ: 0 };
+  }
+  const aim = _aimVector(dir);
+  const along = radius * CONE_ELONGATION;
+  const across = radius;
+  const elongateOnX = aim.x !== 0;
+  return {
+    rx: elongateOnX ? along : across,
+    rz: elongateOnX ? across : along,
+    offsetX: aim.x * radius * CONE_OFFSET_FRAC,
+    offsetZ: aim.z * radius * CONE_OFFSET_FRAC,
+  };
 }
 
 function _dims(def) {
@@ -506,4 +563,254 @@ function _buildFallback(def) {
   group.add(glow);
   group.userData.emitterMaterial = glowMat;
   return group;
+}
+
+// --- Task 6: light pools + halos ---------------------------------------------
+// The payoff layer: no THREE.Light involved (that's Task 9's real point
+// lights). Everything here is a fake — an additive ground quad and a
+// billboard sprite — cheap enough for sixty fixtures because the pools are
+// merged into ONE mesh (buildLightPools) and rebuilt only when the fixture
+// set changes, never per frame. Per-frame work is limited to three scalar
+// ramps (see the darkness-ramp section below), driven by ThreeRenderer's
+// this._darkness (day-night.js's dayNightGrade().darkness) so pools, halos
+// and fixture emissive intensity switch on in lockstep.
+
+// Ceiling height Task 8 will mount overhead fixtures at (matches this file's
+// header comment). Used only to estimate the floor height under an overhead
+// fixture until Task 8 actually places one — see _mountFloorY.
+const OVERHEAD_MOUNT_HEIGHT = 1.5;
+
+// Small lift above the floor plane so the additive pool quad never z-fights
+// the floor mesh it's tinting.
+const POOL_Y_LIFT = 0.015;
+
+// Extra brightness baked into pool vertex colors (on top of each light's own
+// `intensity`) — a global "how punchy do pools read" knob, independent of
+// the runtime opacity ramp below.
+export const POOL_COLOR_SCALE = 1.1;
+
+// Halo sprite size: a small fixed core plus a modest fraction of the
+// fixture's pool radius, so a bollard's halo doesn't dwarf a high-mast's.
+const HALO_BASE_SIZE = 0.3;
+const HALO_RADIUS_FACTOR = 0.05;
+
+/**
+ * Reverse of aimYaw: recovers the 0-3 dir from an aimed fixture's actual
+ * world yaw. Safe because aimed fixtures' yaw is assigned (not summed with
+ * jitter) from that exact formula — see decoration-builder.js's lightingYaw
+ * opt-out for cone shapes.
+ */
+function _dirFromYaw(yaw) {
+  const d = Math.round(-yaw / (Math.PI / 2));
+  return ((d % 4) + 4) % 4;
+}
+
+/**
+ * Floor height under a fixture's mount origin. Ground fixtures' origin IS
+ * floor height (see this file's header). Wall/overhead origins sit above the
+ * floor by a known height (emitterY / OVERHEAD_MOUNT_HEIGHT respectively,
+ * per the header's mount conventions) — Tasks 7/8 haven't landed yet, so
+ * today this only matters once they do; the subtraction is a no-op until a
+ * wall/overhead fixture actually gets placed above floor level.
+ */
+function _mountFloorY(def, originY) {
+  if (def.mount === 'wall') return originY - (def.light?.emitterY ?? 0);
+  if (def.mount === 'overhead') return originY - OVERHEAD_MOUNT_HEIGHT;
+  return originY;
+}
+
+// One small procedural radial-gradient texture, generated once and cached
+// for the module's lifetime. Both the merged pool mesh and every halo
+// sprite sample the SAME texture object — one extra GPU upload regardless
+// of fixture count. IMPORTANT for callers: never dispose a pool/halo
+// material's `.map` on rebuild, only the material itself (see ThreeRenderer's
+// _clearLightGroup) — disposing this shared texture would blank every other
+// lamp on the very next rebuild.
+let _glowTextureCache = null;
+function _glowTexture() {
+  if (_glowTextureCache) return _glowTextureCache;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.65)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  _glowTextureCache = new THREE.CanvasTexture(canvas);
+  return _glowTextureCache;
+}
+
+/** Frees the cached glow texture. Call once, on full renderer teardown only. */
+export function disposeLightGlowTexture() {
+  if (_glowTextureCache) {
+    _glowTextureCache.dispose();
+    _glowTextureCache = null;
+  }
+}
+
+/**
+ * Merge every fixture's ground light pool into one additive mesh — the
+ * failure mode this exists to avoid is sixty draw calls for sixty lamps.
+ * Depth-tested but NOT depth-writing (material below), so overlapping pools
+ * and the geometry standing in them are never occluded.
+ *
+ * highBay is `shape: 'cone'` but NOT aimed (it points straight down — see
+ * isAimedFixture) — poolFootprint's ellipse only makes sense for a
+ * horizontally-aimed cone, so any non-aimed cone is treated as a circle here
+ * (falls back to a `point`-shaped footprint) rather than stretching its pool
+ * in an arbitrary direction.
+ *
+ * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures - ThreeRenderer.lightingGroup.
+ * @returns {THREE.Mesh|null} null when there is nothing to draw.
+ */
+export function buildLightPools(fixtures) {
+  if (!fixtures || !fixtures.length) return null;
+
+  const positions = [];
+  const uvs = [];
+  const colors = [];
+  const indices = [];
+  let vertCount = 0;
+  const tmpColor = new THREE.Color();
+
+  for (const fx of fixtures) {
+    const def = fx.def;
+    const light = def?.light;
+    if (!light) continue;
+
+    const aimed = isAimedFixture(def);
+    const dir = aimed ? _dirFromYaw(fx.group.rotation.y) : 0;
+    const footprintLight = (!aimed && light.shape === 'cone') ? { ...light, shape: 'point' } : light;
+    const { rx, rz, offsetX, offsetZ } = poolFootprint(footprintLight, dir);
+    if (rx <= 0 || rz <= 0) continue;
+
+    const floorY = _mountFloorY(def, fx.group.position.y) + POOL_Y_LIFT;
+    const cx = fx.group.position.x + offsetX;
+    const cz = fx.group.position.z + offsetZ;
+
+    tmpColor.set(light.color);
+    const brightness = (light.intensity ?? 1) * POOL_COLOR_SCALE;
+    const r = tmpColor.r * brightness, g = tmpColor.g * brightness, b = tmpColor.b * brightness;
+
+    const corners = [
+      [cx - rx, cz - rz, 0, 0],
+      [cx + rx, cz - rz, 1, 0],
+      [cx + rx, cz + rz, 1, 1],
+      [cx - rx, cz + rz, 0, 1],
+    ];
+    for (const [x, z, u, v] of corners) {
+      positions.push(x, floorY, z);
+      uvs.push(u, v);
+      colors.push(r, g, b);
+    }
+    indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
+    vertCount += 4;
+  }
+
+  if (vertCount === 0) return null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+
+  const material = new THREE.MeshBasicMaterial({
+    map: _glowTexture(),
+    vertexColors: true,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: true,
+    opacity: 0, // Task 6 ramp — ThreeRenderer sets this per frame from darkness.
+    toneMapped: false,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'lightPools';
+  mesh.renderOrder = 5;
+  // One mesh spans the whole facility — per-quad frustum culling isn't worth
+  // computing a bounding volume for; just always draw it.
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/**
+ * One soft additive billboard Sprite per glowing emitter mesh (traversing
+ * `group.userData.emitterMaterial` rather than hardcoding per-fixture-type
+ * positions — this is what makes a doubleLamppost's two heads or a
+ * highMastLight's four heads each get their own halo for free). Sprites
+ * always face the camera at zero per-frame CPU cost (three.js bills them in
+ * the vertex shader), so unlike the pools they don't need merging to stay
+ * cheap at sixty fixtures.
+ *
+ * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures
+ * @returns {THREE.Group} may be empty; always safe to add to the scene.
+ */
+export function buildLightHalos(fixtures) {
+  const group = new THREE.Group();
+  group.name = 'lightHalos';
+  if (!fixtures || !fixtures.length) return group;
+
+  const texture = _glowTexture();
+  const worldPos = new THREE.Vector3();
+
+  for (const fx of fixtures) {
+    const light = fx.def?.light;
+    const emitterMat = fx.group.userData.emitterMaterial;
+    if (!light || !emitterMat) continue;
+
+    const size = HALO_BASE_SIZE + (light.radius ?? 0) * HALO_RADIUS_FACTOR;
+    fx.group.updateMatrixWorld(true);
+    fx.group.traverse((child) => {
+      if (!child.isMesh || child.material !== emitterMat) return;
+      child.getWorldPosition(worldPos);
+      const spriteMat = new THREE.SpriteMaterial({
+        map: texture,
+        color: light.color,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 0, // Task 6 ramp — ThreeRenderer sets this per frame from darkness.
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.position.copy(worldPos);
+      sprite.scale.set(size, size, 1);
+      sprite.renderOrder = 6;
+      group.add(sprite);
+    });
+  }
+  return group;
+}
+
+// --- Darkness ramp (Task 6) --------------------------------------------------
+// Every visual channel that "switches a lamp on" reads the SAME darkness
+// value (ThreeRenderer's this._darkness, ultimately day-night.js's
+// dayNightGrade().darkness) through these three pure lerps, so pools, halos
+// and fixture emissive intensity move in lockstep — do not invent a second
+// darkness curve. Retune the end points here, not at the call sites.
+
+export const EMITTER_MAX_INTENSITY = 2.6; // emissiveIntensity at full darkness (vs EMITTER_BASE_INTENSITY by day)
+export const POOL_MAX_OPACITY = 0.55;     // merged pool mesh opacity at full darkness (0 by day)
+export const HALO_MAX_OPACITY = 0.85;     // halo sprite opacity at full darkness (0 by day)
+
+function _lerp(a, b, t) { return a + (b - a) * t; }
+
+/** Fixture emitter `emissiveIntensity` for a given darkness [0,1]. Pure. */
+export function emitterIntensityForDarkness(darkness) {
+  return _lerp(EMITTER_BASE_INTENSITY, EMITTER_MAX_INTENSITY, darkness);
+}
+
+/** Merged pool mesh opacity for a given darkness [0,1]. Pure. */
+export function poolOpacityForDarkness(darkness) {
+  return POOL_MAX_OPACITY * darkness;
+}
+
+/** Halo sprite opacity for a given darkness [0,1]. Pure. */
+export function haloOpacityForDarkness(darkness) {
+  return HALO_MAX_OPACITY * darkness;
 }
