@@ -16,6 +16,7 @@ import { DIR_NAMES } from '../data/directions.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { tileCenterIso } from '../renderer/grid.js';
 import { makeDraggable } from './draggable.js';
+import { utilityStatRows } from './utility-supply.js';
 
 // --- Component popup ---
 
@@ -54,7 +55,7 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     html += '<div class="popup-stats">';
     html += '<div class="popup-section-label">Info</div>';
     html += row('Direction', DIR_NAMES[node.dir] || '--', '');
-    html += row('Energy Cost', comp.energyCost, 'kW');
+    for (const r of utilityStatRows(comp)) html += row(r.label, r.value, '');
     html += row('Length', ((comp.subL || 4) * 0.5).toFixed(1), 'm');
     html += '</div>';
 
@@ -282,7 +283,7 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
     let html = `<div class="popup-stats">`;
     html += `<div>Type: ${comp.name}</div>`;
     html += `<div>Category: ${comp.category}</div>`;
-    html += `<div>Energy Cost: ${comp.energyCost} kW</div>`;
+    for (const r of utilityStatRows(comp)) html += `<div>${r.label}: ${r.value}</div>`;
     html += `</div>`;
     html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">Remove (50% refund)</button></div>`;
     body.innerHTML = html;

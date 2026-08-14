@@ -21,6 +21,7 @@ import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
+import { utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -2113,7 +2114,7 @@ UIHost.prototype._showPalettePreview = function(comp) {
 
     let html = '';
     html += statRow('Cost', costs);
-    html += statRow('Energy Cost', `${comp.energyCost} kW`);
+    for (const r of utilityStatRows(comp)) html += statRow(r.label, r.value);
     html += statRow('Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`);
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {

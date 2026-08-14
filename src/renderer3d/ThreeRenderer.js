@@ -35,6 +35,10 @@ import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
+import {
+  buildLightPools, buildLightHalos,
+  emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
+} from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
@@ -281,6 +285,15 @@ export class ThreeRenderer {
     // Task 6 (fake light pools) and Task 9 (real point lights) read this
     // instead of re-scanning every decoration.
     this.lightingGroup = [];
+    // Task 6 fake-lighting layer: one merged additive mesh for every ground
+    // light pool (lightPoolGroup) plus one Sprite billboard per glowing
+    // emitter (lightHaloGroup). Both are rebuilt only when lightingGroup
+    // above is reassigned (applySnapshot / _refreshDecorations) — see
+    // _rebuildLightPools. Per frame, only their material opacity moves (see
+    // _updateLightingRamp), driven by this._darkness in lockstep with the
+    // sun/ambient grade and fixture emissiveIntensity.
+    this.lightPoolGroup = null;
+    this.lightHaloGroup = null;
     this.previewGroup = null;
 
     // Design-placement ghost. Deliberately NOT in previewGroup: _clearPreview
@@ -599,6 +612,18 @@ export class ThreeRenderer {
     this.decorationGroup = new THREE.Group();
     this.decorationGroup.name = 'decorations';
     this.scene.add(this.decorationGroup);
+
+    // Task 6 fake-lighting layer — see the constructor field comment above
+    // lightPoolGroup/lightHaloGroup. Separate from decorationGroup: neither
+    // is a raycast target (no demolish/hover/move behavior), so they don't
+    // belong in the group _updateLOD/hit-testing traverse.
+    this.lightPoolGroup = new THREE.Group();
+    this.lightPoolGroup.name = 'lightPools';
+    this.scene.add(this.lightPoolGroup);
+
+    this.lightHaloGroup = new THREE.Group();
+    this.lightHaloGroup.name = 'lightHalos';
+    this.scene.add(this.lightHaloGroup);
 
     // Preview group — semi-transparent geometry for placement/demolish feedback
     this.previewGroup = new THREE.Group();
@@ -2895,6 +2920,7 @@ export class ThreeRenderer {
     this._updateZoneLabelFacing();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
+    this._updateLightingRamp();
     this._updateLOD();
     // New-system utility-line preview + port-hover highlight + candidate
     // port indicators (visible whenever a utility-line tool is armed).
@@ -3133,6 +3159,7 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
+    this._rebuildLightPools();
     this._refreshUtilityLinesV2();
     this._refreshUnwiredSinkMarkers(true);
     this._refreshPortFittings();
@@ -3503,6 +3530,74 @@ export class ThreeRenderer {
     const snap = this._updateSnapshot(['decorations']);
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
+    this._rebuildLightPools();
+  }
+
+  /**
+   * Rebuild the merged light-pool mesh and halo sprites from the current
+   * `this.lightingGroup` registry. Geometry only — this is NOT called per
+   * frame; per-frame opacity/emissive ramping lives in _updateLightingRamp.
+   * Triggers: every place that reassigns `this.lightingGroup`, i.e.
+   * applySnapshot() (full load) and _refreshDecorations() (any
+   * decoration-affecting game event) — never on a render tick, so placing
+   * sixty lamps costs sixty rebuilds total, not sixty rebuilds per second.
+   */
+  _rebuildLightPools() {
+    this._clearLightGroup(this.lightPoolGroup);
+    this._clearLightGroup(this.lightHaloGroup);
+    const fixtures = this.lightingGroup;
+    if (!fixtures || !fixtures.length) return;
+    const poolMesh = buildLightPools(fixtures);
+    if (poolMesh) this.lightPoolGroup.add(poolMesh);
+    const halos = buildLightHalos(fixtures);
+    if (halos) this.lightHaloGroup.add(halos);
+  }
+
+  /**
+   * Dispose geometry + material for every child of a light pool/halo group.
+   * Deliberately NOT dispose-utils.js's disposeGroupChildren: that also frees
+   * material.map, but every pool/halo material here shares ONE cached glow
+   * texture (lighting-builder.js's _glowTexture) across every rebuild —
+   * freeing it would blank every other lamp on the very next rebuild. Also
+   * never dispose a Sprite's own .geometry: three.js's Sprite class shares a
+   * single module-level plane geometry across every Sprite in the app (see
+   * the existing precedent at this file's zone-label sprite handling), so
+   * disposing it would break every sprite on screen, not just halos.
+   */
+  _clearLightGroup(group) {
+    if (!group) return;
+    while (group.children.length > 0) {
+      const child = group.children[0];
+      group.remove(child);
+      if (child.isGroup) { this._clearLightGroup(child); continue; }
+      if (!child.isSprite && child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    }
+  }
+
+  /**
+   * Per-frame darkness ramp for the Task 6 fake-lighting layer: fixture
+   * emissiveIntensity, pool mesh opacity, halo sprite opacity. All three
+   * read the SAME this._darkness (set by _updateSunCycle from
+   * dayNightGrade()) so they move in lockstep — no geometry work here, only
+   * scalar material properties, safe to run every frame even at sixty lamps.
+   */
+  _updateLightingRamp() {
+    const darkness = this._darkness ?? 0;
+    for (const fx of this.lightingGroup) {
+      const mat = fx.group.userData.emitterMaterial;
+      if (mat) mat.emissiveIntensity = emitterIntensityForDarkness(darkness);
+    }
+    if (this.lightPoolGroup) {
+      for (const child of this.lightPoolGroup.children) {
+        if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
+      }
+    }
+    if (this.lightHaloGroup) {
+      this.lightHaloGroup.traverse((child) => {
+        if (child.isSprite) child.material.opacity = haloOpacityForDarkness(darkness);
+      });
+    }
   }
 
   _refreshConnections() {
