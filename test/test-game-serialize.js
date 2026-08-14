@@ -100,29 +100,29 @@ assertOk(logB[0].msg === 'Game loaded.' &&
 
 console.log('\n=== Staff round-trip ===\n');
 
-// Regression: the StaffMember constructor used to hard-reset ticksWorked and
-// breakdowns to 0 after processing opts, so fromJSON(toJSON()) silently
-// dropped both — every load and every undo zeroed staff work history.
+// Regression: the StaffMember constructor used to hard-reset stats.ticksWorked
+// and stats.breakdowns to 0 after processing opts, so fromJSON(toJSON())
+// silently dropped both — every load and every undo zeroed staff work history.
 {
   const { StaffMember } = await import('../src/game/staff/StaffMember.js');
-  const m = new StaffMember({ id: 'staff_test', role: 'operator' });
-  m.ticksWorked = 40;
-  m.breakdowns = 2;
+  const m = new StaffMember({ id: 'staff_test', profession: 'operator' });
+  m.stats.ticksWorked = 40;
+  m.stats.breakdowns = 2;
   const r = StaffMember.fromJSON(m.toJSON());
-  assertOk(r.ticksWorked === 40, `fromJSON keeps ticksWorked (got ${r.ticksWorked})`);
-  assertOk(r.breakdowns === 2, `fromJSON keeps breakdowns (got ${r.breakdowns})`);
+  assertOk(r.stats.ticksWorked === 40, `fromJSON keeps ticksWorked (got ${r.stats.ticksWorked})`);
+  assertOk(r.stats.breakdowns === 2, `fromJSON keeps breakdowns (got ${r.stats.breakdowns})`);
 
   // End-to-end: a game whose staff has accrued work must round-trip it.
   const gS = makeGame(42);
   const seeded = gS.state.staffMembers[0];
-  seeded.ticksWorked = 17;
-  seeded.breakdowns = 1;
+  seeded.stats.ticksWorked = 17;
+  seeded.stats.breakdowns = 1;
   localStorage.setItem('beamlineTycoon', gS.serialize());
   const gT = makeGame(7);
   gT.load();
   const loaded = gT.state.staffMembers.find(s => s.id === seeded.id);
-  assertOk(loaded && loaded.ticksWorked === 17 && loaded.breakdowns === 1,
-           `staff work history survives save->load (got ${loaded && loaded.ticksWorked}/${loaded && loaded.breakdowns})`);
+  assertOk(loaded && loaded.stats.ticksWorked === 17 && loaded.stats.breakdowns === 1,
+           `staff work history survives save->load (got ${loaded && loaded.stats.ticksWorked}/${loaded && loaded.stats.breakdowns})`);
 }
 
 console.log('\n=== save() survives broken localStorage ===\n');

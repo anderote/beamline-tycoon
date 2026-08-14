@@ -24,20 +24,20 @@ export function openHiringDialog(game) {
     }
     let html = '<div class="hiring-grid">';
     for (const c of candidates) {
-      const cost = staffHireCost(c.role, game.state.staffCosts || {});
+      const cost = staffHireCost(c, game.state.staffCosts || {});
       const afford = funding >= cost;
       const traits = (c.traits || []).map(t => traitDesc(t)).join('<br>');
       const skills = c.skills ? Object.entries(c.skills).map(([k,v]) => `${k}: ${Number(v).toFixed(1)}`).join('<br>') : '';
       const mood = c.mood || 'content';
-      const roleColor = ROLE_COLORS[c.role] || '#4466aa';
+      const roleColor = ROLE_COLORS[c.profession] || '#4466aa';
       html += `<div class="hiring-card">`;
       html += `<div class="hiring-card-header">`;
       html += `<div class="hiring-portrait" style="background:${roleColor};border-color:${staffMoodColor(mood)};">${staffInitials(c.name)}</div>`;
-      html += `<div><div class="hiring-name">${c.name}</div><div class="hiring-role">${c.role}</div></div>`;
+      html += `<div><div class="hiring-name">${c.name}</div><div class="hiring-role">${c.profession}</div></div>`;
       html += `</div>`;
       html += `<div class="hiring-traits">${traits || 'No traits'}</div>`;
       html += `<div class="hiring-skills">${skills}</div>`;
-      html += `<div class="hiring-cost">$${cost.toLocaleString()} hire — $${(game.state.staffCosts?.[c.role + 's'] || game.state.staffCosts?.[c.role] || 0)}/tick</div>`;
+      html += `<div class="hiring-cost">$${cost.toLocaleString()} hire — $${(game.state.staffCosts?.[c.profession] || 0)}/tick</div>`;
       html += `<button class="hiring-hire-btn" data-hire-id="${c.id}" ${!afford ? 'disabled title="Insufficient funding"' : ''}>Hire</button>`;
       html += `</div>`;
     }

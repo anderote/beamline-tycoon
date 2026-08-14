@@ -36,6 +36,8 @@ export const ROLE_COLORS = {
   technician: '#aa6633',
   scientist: '#4488ff',
   engineer: '#aa8833',
+  machinist: '#886655',
+  admin: '#4466aa',
 };
 
 export function staffInitials(name) {

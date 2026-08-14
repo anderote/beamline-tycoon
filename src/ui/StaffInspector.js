@@ -12,9 +12,9 @@ export function openStaffInspector(game, staffId) {
 
   const ctx = new ContextWindow({
     id: winId,
-    title: `${m.name} — ${m.role}`,
+    title: `${m.name} — ${m.profession}`,
     icon: '👤',
-    accentColor: ROLE_COLORS[m.role] || '#4466aa',
+    accentColor: ROLE_COLORS[m.profession] || '#4466aa',
   });
 
   // store refs for refresh
@@ -25,7 +25,7 @@ export function openStaffInspector(game, staffId) {
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
     if (!staff) { container.innerHTML = '<div style="color:#888;font-size:8px;padding:12px;">Staff not found (released)</div>'; return; }
     const name = staff.name || staff.id;
-    const role = staff.role || 'unknown';
+    const role = staff.profession || 'unknown';
     const mood = staff.mood || 'content';
     const status = staff.status || 'idle';
     const needs = staff.needs || { fatigue:0, hunger:0, morale:0.5 };
@@ -192,7 +192,7 @@ export function openStaffInspector(game, staffId) {
     if (ctx._body) renderInspector(ctx._body);
     // update title in case name changed
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
-    if (staff) ctx.setTitle(`${staff.name} — ${staff.role} (${staff.mood})`);
+    if (staff) ctx.setTitle(`${staff.name} — ${staff.profession} (${staff.mood})`);
   };
   // This window has no tabs, so ContextWindow.update() -> _renderBody() would
   // clear the body and find no tab renderer to refill it — every update()

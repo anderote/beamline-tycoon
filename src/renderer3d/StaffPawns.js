@@ -156,7 +156,7 @@ export class StaffPawns {
 
   _addPawn(member) {
     const rng = mulberry32(hashString(member.id));
-    const role = PALETTE.roles[member.role] || DEFAULT_ROLE;
+    const role = PALETTE.roles[member.profession] || DEFAULT_ROLE;
     const look = {
       skin: PALETTE.skins[Math.floor(rng() * PALETTE.skins.length)],
       hair: PALETTE.hairs[Math.floor(rng() * PALETTE.hairs.length)],

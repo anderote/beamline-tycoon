@@ -2,7 +2,7 @@
 
 import { StaffMember } from './StaffMember.js';
 import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professions.js';
-import { rollBackstory, applyBackstory } from '../../data/backstories.js';
+import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstories.js';
 
 function pickSpecialty(profession, rng) {
   const specs = specialtiesFor(profession);
@@ -100,8 +100,13 @@ export function deriveStaffCounts(members) {
   return c;
 }
 
-export function staffHireCost(profession, costs) {
-  const def = professionDef(profession);
-  const base = (costs && costs[profession] != null) ? costs[profession] : (def?.baseSalary ?? 100);
-  return base * (def?.hireMultiplier ?? 12);
+// Takes the candidate StaffMember itself (not just a profession id) because
+// backstory is mechanically loaded on salary: a veteran costs more to hire
+// than a fresh grad of the same profession. Missing/unknown backstoryId
+// treats salaryMult as 1 rather than throwing.
+export function staffHireCost(member, costs) {
+  const def = professionDef(member.profession);
+  const base = (costs && costs[member.profession] != null) ? costs[member.profession] : (def?.baseSalary ?? 100);
+  const salaryMult = BACKSTORIES[member.backstoryId]?.salaryMult ?? 1;
+  return Math.round(base * (def?.hireMultiplier ?? 12) * salaryMult);
 }

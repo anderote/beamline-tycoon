@@ -217,6 +217,10 @@ export const STAFF_PALETTES = {
       technician: { collar: '#e08a2e', trouser: '#6e4522', hardHat: true },
       scientist:  { collar: '#8a5fd0', trouser: '#463462', hardHat: false },
       engineer:   { collar: '#3aa864', trouser: '#25503a', hardHat: true },
+      // Placeholders — Plan 4 replaces this whole block with real outfits.
+      // Just needs to read as distinct from the four above.
+      machinist:  { collar: '#607d8b', trouser: '#37474f', hardHat: true },
+      admin:      { collar: '#c9a733', trouser: '#7a6224', hardHat: false },
     },
   },
 
@@ -249,6 +253,11 @@ export const STAFF_PALETTES = {
       technician: { collar: '#db4f00', trouser: '#3f5353', hardHat: true },  // orange bucket
       scientist:  { collar: '#6b2b9b', trouser: '#3f5353', hardHat: false }, // purple bucket
       engineer:   { collar: '#47af27', trouser: '#3f5353', hardHat: true },  // green bucket
+      // Placeholders sampled from the same sheets — Plan 4 replaces this
+      // whole block with real outfits. Just needs to read as distinct from
+      // the four above (machinist vs. engineer in particular).
+      machinist:  { collar: '#5c7a8a', trouser: '#3f5353', hardHat: true },  // steel-grey bucket
+      admin:      { collar: '#c9a733', trouser: '#3f5353', hardHat: false }, // gold bucket
     },
   },
 };

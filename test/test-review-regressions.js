@@ -45,7 +45,7 @@ console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
 // on break in a cafeteria-less facility was stuck forever — and the sole
 // starting operator locking out permanently tripped the beam.
 {
-  const m = new StaffMember({ id: 's1', role: 'operator', name: 'T', traits: [], rng: () => 0.5 });
+  const m = new StaffMember({ id: 's1', profession: 'operator', name: 'T', traits: [], rng: () => 0.5 });
   m.status = 'working';
   let flippedAt = -1;
   for (let t = 0; t < 200 && flippedAt < 0; t++) {
@@ -62,7 +62,7 @@ console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
   assert(backAt >= 0, `worker returns to 'working' with NO cafeteria (tick ${backAt})`);
 
   // A cafeteria must still be worth building: it shortens the break.
-  const m2 = new StaffMember({ id: 's2', role: 'operator', name: 'U', traits: [], rng: () => 0.5 });
+  const m2 = new StaffMember({ id: 's2', profession: 'operator', name: 'U', traits: [], rng: () => 0.5 });
   m2.status = 'onBreak';
   m2.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
   let fastBack = -1;
@@ -70,7 +70,7 @@ console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
     tickStaffMember(m2, { isNight: false, cafeteriaTier: 1, zoneTier: 0, rng: () => 0.5 });
     if (m2.status === 'working') fastBack = t;
   }
-  const m3 = new StaffMember({ id: 's3', role: 'operator', name: 'V', traits: [], rng: () => 0.5 });
+  const m3 = new StaffMember({ id: 's3', profession: 'operator', name: 'V', traits: [], rng: () => 0.5 });
   m3.status = 'onBreak';
   m3.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
   let slowBack = -1;
@@ -87,7 +87,7 @@ console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
   const gate = new UtilityGate({
     state: {
       staffMembers: [{
-        id: 'a', role: 'operator', status: 'onBreak',
+        id: 'a', profession: 'operator', status: 'onBreak',
         needs: { fatigue: 0.1, hunger: 0.9, morale: 0.5 },
       }],
     },

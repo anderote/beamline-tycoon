@@ -18,6 +18,7 @@ import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
+import { PROFESSIONS } from '../data/professions.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -229,8 +230,8 @@ export class Game {
       speed: 1,        // 1 | 2 | 4
       log: [],
       // Staffing — counts are derived from staffMembers (RimWorld-like individuals)
-      staff: { operators: 1, technicians: 0, scientists: 0, engineers: 0 },
-      staffCosts: { operators: 120, technicians: 180, scientists: 250, engineers: 300 }, // $/tick — tuned for MVP drain
+      staff: Object.fromEntries(Object.keys(PROFESSIONS).map(id => [id, id === 'operator' ? 1 : 0])),
+      staffCosts: Object.fromEntries(Object.keys(PROFESSIONS).map(id => [id, PROFESSIONS[id].baseSalary])), // $/tick — tuned for MVP drain
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
       staffCandidates: [], // hiring pool (3 offered)
@@ -471,11 +472,11 @@ export class Game {
   }
 
   _refreshStaffCandidates() {
-    const roles = ['operator', 'technician', 'scientist', 'engineer'];
+    const professions = Object.keys(PROFESSIONS);
     this.state.staffCandidates = [];
     for (let i = 0; i < 3; i++) {
-      const role = roles[Math.floor(this.rng() * roles.length)];
-      const m = createStaffMember(role, `cand_${this.state.staffNextId++}`, this.state.tick, this.rng);
+      const profession = professions[Math.floor(this.rng() * professions.length)];
+      const m = createStaffMember(profession, `cand_${this.state.staffNextId++}`, this.state.tick, this.rng);
       // candidates are not yet in staffMembers
       this.state.staffCandidates.push(m);
     }
@@ -3727,7 +3728,7 @@ export class Game {
     this._updateAggregateBeamline();
 
     // Technician auto-repair (across all beamlines)
-    if (this.state.staff.technicians > 0 && this.state.tick % 5 === 0) {
+    if (this.state.staff.technician > 0 && this.state.tick % 5 === 0) {
       this._autoRepair();
     }
 
@@ -3909,7 +3910,7 @@ export class Game {
 
     // Data from detectors (physics-driven)
     if (connectedDataRate > 0) {
-      const sciMult = 1 + this.state.staff.scientists * 0.1;
+      const sciMult = 1 + this.state.staff.scientist * 0.1;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
       bs.totalDataCollected += dataGain;
@@ -4021,14 +4022,14 @@ export class Game {
   _autoRepair() {
     // RimWorld-like: technicians assigned to maintenance, efficiency matters
     let repairRate = 0;
-    for (const m of (this.state.staffMembers || []).filter(s => s.role === 'technician' && s.status === 'working')) {
+    for (const m of (this.state.staffMembers || []).filter(s => s.profession === 'technician' && s.status === 'working')) {
       const tier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
       // ensure instance
       if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
       repairRate += 2 * m.efficiency(tier);
     }
     // fallback to legacy count if no individual pawns (old saves)
-    if (repairRate === 0) repairRate = (this.state.staff?.technicians || 0) * 2;
+    if (repairRate === 0) repairRate = (this.state.staff?.technician || 0) * 2;
     let remaining = repairRate;
     // Iterate all beamlines' elements
     for (const entry of this.registry.getAll()) {
@@ -4066,17 +4067,17 @@ export class Game {
     const idx = (this.state.staffCandidates || []).findIndex(c => c.id === candidateId);
     if (idx === -1) { this.log('Candidate not found', 'bad'); return false; }
     const cand = this.state.staffCandidates[idx];
-    const cost = staffHireCost(cand.role, this.state.staffCosts);
+    const cost = staffHireCost(cand, this.state.staffCosts);
     if (!this.sandboxMode && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
     this.chargeConstruction(cost);
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
-    m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.role}` }];
+    m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.profession}` }];
     this.state.staffMembers.push(m);
     this.state.staffCandidates.splice(idx, 1);
     // refill pool if low
     if (this.state.staffCandidates.length < 2) this._refreshStaffCandidates();
     this._syncStaffCounts();
-    this.log(`Hired ${m.name} (${m.role}) — ${m.traits.join(', ')}`, 'good');
+    this.log(`Hired ${m.name} (${m.profession}) — ${m.traits.join(', ')}`, 'good');
     this.emit('staffChanged');
     return m;
   }
@@ -4085,9 +4086,9 @@ export class Game {
     const idx = (this.state.staffMembers || []).findIndex(s => s.id === staffId);
     if (idx === -1) return false;
     // keep at least one operator
-    const operators = this.state.staffMembers.filter(s => s.role === 'operator');
+    const operators = this.state.staffMembers.filter(s => s.profession === 'operator');
     const target = this.state.staffMembers[idx];
-    if (target.role === 'operator' && operators.length <= 1) { this.log('Need at least 1 operator!', 'bad'); return false; }
+    if (target.profession === 'operator' && operators.length <= 1) { this.log('Need at least 1 operator!', 'bad'); return false; }
     const removed = this.state.staffMembers.splice(idx, 1)[0];
     this._syncStaffCounts();
     this.log(`Released ${removed.name}`, 'info');
@@ -4104,43 +4105,35 @@ export class Game {
     return true;
   }
 
-  hireStaff(type) {
-    // compat: generate a random member of that role
-    if (!this.state.staff[type] && this.state.staff[type] !== 0) return false;
-    const hireCost = this.state.staffCosts[type] * 10; // 10 ticks upfront
+  hireStaff(profession) {
+    // compat: generate a random member of that profession
+    if (!this.state.staff[profession] && this.state.staff[profession] !== 0) return false;
+    const hireCost = this.state.staffCosts[profession] * 10; // 10 ticks upfront
     if (!this.sandboxMode && this.state.resources.funding < hireCost) {
       this.log(`Can't afford to hire (need $${hireCost})`, 'bad');
       return false;
     }
     this.chargeConstruction(hireCost);
-    const m = createStaffMember(type.slice(0, -1) === 'operato' ? 'operator' : type.replace(/s$/,''), `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
-    // normalize role: operators->operator etc but createStaffMember expects singular
-    const singular = type.endsWith('s') ? type.slice(0,-1) : type;
-    // fix role if we mangled it
-    const roleMap = { operator: 'operator', technician: 'technician', scientist: 'scientist', engineer: 'engineer' };
-    m.role = roleMap[singular] || 'operator';
+    const m = createStaffMember(profession, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
     this.state.staffMembers.push(m);
     this._syncStaffCounts();
-    this.log(`Hired ${m.name} (${m.role})`, 'good');
+    this.log(`Hired ${m.name} (${m.profession})`, 'good');
     this.emit('staffChanged');
     return true;
   }
 
-  fireStaff(type) {
-    // compat: fire one member of that role
-    const members = (this.state.staffMembers || []).filter(s => s.role === type.slice(0,-1) || s.role === type.replace(/s$/,'') || s.role === type);
-    // fallback: match singular/plural
-    const roleSingular = type.endsWith('s') ? type.slice(0,-1) : type;
-    const cand = (this.state.staffMembers || []).find(s => s.role === roleSingular);
+  fireStaff(profession) {
+    // compat: fire one member of that profession
+    const cand = (this.state.staffMembers || []).find(s => s.profession === profession);
     if (!cand) return false;
-    if (cand.role === 'operator' && (this.state.staffMembers.filter(s=>s.role==='operator').length <= 1)) {
+    if (cand.profession === 'operator' && (this.state.staffMembers.filter(s => s.profession === 'operator').length <= 1)) {
       this.log('Need at least 1 operator!', 'bad');
       return false;
     }
     const idx = this.state.staffMembers.indexOf(cand);
-    this.state.staffMembers.splice(idx,1);
+    this.state.staffMembers.splice(idx, 1);
     this._syncStaffCounts();
-    this.log(`Released ${type.slice(0, -1)}`, 'info');
+    this.log(`Released ${profession}`, 'info');
     this.emit('staffChanged');
     return true;
   }
@@ -4646,29 +4639,13 @@ export class Game {
     if (!this.state.beamPipes) this.state.beamPipes = [];
     if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
 
-    // Ensure RimWorld-like staff state exists — migrate old count-based saves
+    // Ensure RimWorld-like staff state exists. Pre-release, no save
+    // compatibility: a save with no staffMembers just gets reseeded rather
+    // than migrated from any older count-only shape.
     if (!this.state.staffMembers) this.state.staffMembers = [];
     if (!this.state.staffNextId) this.state.staffNextId = 1;
     if (!this.state.staffCandidates) this.state.staffCandidates = [];
-    // Migrate old saves that had only counts: generate pawns
-    if (this.state.staffMembers.length === 0 && this.state.staff && Object.values(this.state.staff).some(v => v > 0)) {
-      const counts = this.state.staff;
-      for (const role of ['operator', 'technician', 'scientist', 'engineer']) {
-        const n = counts[role + 's'] ?? counts[role] ?? 0;
-        for (let i = 0; i < n; i++) {
-          const m = createStaffMember(role, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
-          if (role === 'operator') m.assignment.zoneId = 'controlRoom';
-          else if (role === 'technician') m.assignment.zoneId = 'maintenance';
-          else if (role === 'scientist') m.assignment.zoneId = 'opticsLab';
-          else if (role === 'engineer') m.assignment.zoneId = 'machineShop';
-          this.state.staffMembers.push(m);
-        }
-      }
-      // also seed candidates if empty
-      if (this.state.staffCandidates.length === 0) this._refreshStaffCandidates();
-    } else if (this.state.staffMembers.length === 0) {
-      this._ensureStaffSeed();
-    }
+    if (this.state.staffMembers.length === 0) this._ensureStaffSeed();
     // Rehydrate plain objects as StaffMember instances
     for (let i = 0; i < this.state.staffMembers.length; i++) {
       const o = this.state.staffMembers[i];

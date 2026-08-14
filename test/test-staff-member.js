@@ -177,15 +177,32 @@ console.log('\n--- Test 8: same seed -> identical members; different seed -> dif
 }
 
 // ==========================================================================
-// Test 9: staffHireCost reads costs by profession id.
+// Test 9: staffHireCost reads costs by profession id, and loads backstory
+// salaryMult so two candidates of the same profession cost differently.
 // ==========================================================================
 console.log('\n--- Test 9: staffHireCost ---');
 {
   const costs = { operator: 120, technician: 180 };
-  assert(staffHireCost('operator', costs) === 120 * 12, `staffHireCost('operator') is ${120 * 12} (got ${staffHireCost('operator', costs)})`);
-  const fallback = staffHireCost('machinist', {});
+  const operatorCand = { profession: 'operator', backstoryId: null };
+  assert(staffHireCost(operatorCand, costs) === 120 * 12,
+    `staffHireCost(operator, salaryMult=1) is ${120 * 12} (got ${staffHireCost(operatorCand, costs)})`);
+  const fallback = staffHireCost({ profession: 'machinist', backstoryId: null }, {});
   assert(fallback === PROFESSIONS.machinist.baseSalary * PROFESSIONS.machinist.hireMultiplier,
     `staffHireCost falls back to baseSalary * hireMultiplier when costs is missing the key (got ${fallback})`);
+
+  // Backstory is mechanically loaded on salary: a veteran must cost more
+  // than a fresher hire of the same profession, so hiring is a real decision.
+  const veteran = { profession: 'technician', backstoryId: 'nationalLabVeteran' }; // salaryMult 1.4
+  const hobbyist = { profession: 'technician', backstoryId: 'hamRadioHobbyist' };  // salaryMult 0.9
+  const veteranCost = staffHireCost(veteran, costs);
+  const hobbyistCost = staffHireCost(hobbyist, costs);
+  assert(veteranCost !== hobbyistCost,
+    `two technician candidates with different-salaryMult backstories cost differently (veteran=${veteranCost}, hobbyist=${hobbyistCost})`);
+  assert(veteranCost > hobbyistCost, 'higher salaryMult backstory costs more to hire');
+
+  // Missing/unknown backstoryId treats salaryMult as 1, not a throw/NaN.
+  const unknown = staffHireCost({ profession: 'technician', backstoryId: 'nonexistent' }, costs);
+  assert(unknown === 180 * 12, `unknown backstoryId falls back to salaryMult 1 (got ${unknown})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
