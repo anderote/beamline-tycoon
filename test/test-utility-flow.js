@@ -203,6 +203,10 @@ function boxMeshes(group) {
   const out = [];
   const walk = (o) => {
     if (o.userData && o.userData.isFloorGlowStrip) return;
+    // Corner joints are boxes too on a rectWaveguide, but they are plumbing
+    // fittings rather than flow segments — no run-distance is baked into them,
+    // so they must not be counted among the segments the flow travels along.
+    if (o.userData && o.userData.isUtilityJoint) return;
     if (o.isMesh && o.geometry instanceof BoxGeometry) out.push(o);
     for (const c of o.children || []) walk(c);
   };

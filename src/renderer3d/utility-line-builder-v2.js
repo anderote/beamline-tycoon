@@ -254,6 +254,11 @@ function buildCornerJoint(prev, at, next, style, radius, material) {
   }
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.copy(at);
+  // A joint is not a flow segment: it carries no baked run-distance, so
+  // anything walking the group to reason about direction along the run has to
+  // be able to tell it apart from the segments it sits between. On a
+  // rectWaveguide the joint is itself a box, so geometry type alone won't do.
+  mesh.userData.isUtilityJoint = true;
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
   return mesh;
