@@ -95,7 +95,7 @@ gestureRoundTrip(g, 'place floor tiles', () => {
 
 gestureRoundTrip(g, 'place wall', () =>
   g.placeWallPath(
-    [{ col: 5, row: 5, edge: 'N' }, { col: 6, row: 5, edge: 'N' }],
+    [{ col: 5, row: 5, edge: 'n' }, { col: 6, row: 5, edge: 'n' }],
     'officeWall',
   ));
 

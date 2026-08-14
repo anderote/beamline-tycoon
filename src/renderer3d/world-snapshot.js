@@ -2,7 +2,8 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
-import { FLOORS } from '../data/structure.js';
+import { FLOORS, DOOR_TYPES } from '../data/structure.js';
+import { defaultDoorOff } from '../game/edge-keys.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
@@ -187,33 +188,46 @@ function buildFloors(game) {
   return out;
 }
 
-function buildWalls(game) {
-  return (game.state.walls || []).map(w => {
-    const c = getTileCornersY(game.state, w.col, w.row);
-    // Endpoints per edge — a = first-listed corner, b = second.
-    //   'n': NW -> NE
-    //   'e': NE -> SE
-    //   's': SE -> SW
-    //   'w': SW -> NW
-    let a, b;
-    switch (w.edge) {
-      case 'n': a = c.nw; b = c.ne; break;
-      case 'e': a = c.ne; b = c.se; break;
-      case 's': a = c.se; b = c.sw; break;
-      case 'w': a = c.sw; b = c.nw; break;
-      default:  a = 0;    b = 0;    break;
-    }
-    return {
-      col: w.col,
-      row: w.row,
-      edge: w.edge,
-      type: w.type,
-      variant: w.variant ?? 0,
-      baseY: { a, b },
-    };
-  });
+/**
+ * Terrain height at an edge's two endpoints — a = first-listed corner,
+ * b = second, in the corner order the renderer's `off` / baseY conventions
+ * use throughout:
+ *   'n': NW -> NE   'e': NE -> SE   's': SE -> SW   'w': SW -> NW
+ */
+function edgeBaseY(state, col, row, edge) {
+  const c = getTileCornersY(state, col, row);
+  switch (edge) {
+    case 'n': return { a: c.nw, b: c.ne };
+    case 'e': return { a: c.ne, b: c.se };
+    case 's': return { a: c.se, b: c.sw };
+    case 'w': return { a: c.sw, b: c.nw };
+    default:  return { a: 0, b: 0 };
+  }
 }
 
+function buildWalls(game) {
+  return (game.state.walls || []).map(w => ({
+    col: w.col,
+    row: w.row,
+    edge: w.edge,
+    type: w.type,
+    variant: w.variant ?? 0,
+    baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
+  }));
+}
+
+/**
+ * `off` is the subtile offset of the door opening along its edge, counted in
+ * quarter-tile slots from the edge's FIRST-listed corner in buildWalls' corner
+ * order ('n' = NW->NE, 'e' = NE->SE, 's' = SE->SW, 'w' = SW->NW). A single
+ * door is 2 slots wide (off 0..2), a double fills all 4 (off 0). Records
+ * written before `off` existed default to the centered geometry they were
+ * drawn with — 1 for singles, 0 for doubles.
+ *
+ * `baseY` carries the same endpoint heights walls get, so a gate in a fence
+ * on a slope sits on the ground instead of at y=0 while the fence around it
+ * climbs the hill.
+ */
 function buildDoors(game) {
   return (game.state.doors || []).map(d => ({
     col: d.col,
@@ -221,6 +235,8 @@ function buildDoors(game) {
     edge: d.edge,
     type: d.type,
     variant: d.variant || 0,
+    off: d.off ?? defaultDoorOff(DOOR_TYPES[d.type]),
+    baseY: edgeBaseY(game.state, d.col, d.row, d.edge),
   }));
 }
 

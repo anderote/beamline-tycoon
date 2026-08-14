@@ -11,12 +11,101 @@ const TILE_SIZE = 2;          // world units per tile (2m real)
 const M = TILE_SIZE / 2;     // 1 world unit = 2m, so 1m = 0.5 world units
 const DEFAULT_WALL_HEIGHT = 1.5 * M;  // 1.5m — one story
 const DEFAULT_WALL_THICKNESS = 0.15 * M; // 15cm
-const HEIGHT_SCALE = DEFAULT_WALL_HEIGHT / 14;   // maps data wallHeight 14 → 1.5m
+export const HEIGHT_SCALE = DEFAULT_WALL_HEIGHT / 14;   // maps data wallHeight 14 → 1.5m
 const THICKNESS_SCALE = DEFAULT_WALL_THICKNESS / 1.5; // maps data thickness 1.5 → 15cm
 const MIN_THICKNESS = 0.05 * M;  // 5cm min for fences/cubicles
 const DOOR_HEIGHT = 1.2 * M;     // 1.2m door
 const POST_WIDTH = 0.1 * M;      // 10cm posts
-const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
+export const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
+const PANEL_THICKNESS = 0.04 * M; // 4cm door panel
+const PANEL_GAP = 0.02 * M;       // gap between panel and frame
+
+// An edge is divided into 4 subtile slots; a door's `off` counts slots from
+// the edge's FIRST-listed corner. Mirrors SUBTILES_PER_EDGE in game/edge-keys.js
+// (duplicated rather than imported so the renderer stays free of game imports).
+export const SUBTILES_PER_EDGE = 4;
+export const SUBTILE_SIZE = TILE_SIZE / SUBTILES_PER_EDGE; // 0.5 world units
+
+/**
+ * Where a door opening sits along its edge, in world units.
+ *
+ * `off` is the integer subtile offset of the opening from the edge's
+ * first-listed corner, using buildWalls' corner order:
+ *   'n' = NW->NE   'e' = NE->SE   's' = SE->SW   'w' = SW->NW
+ * So 'n'/'e' run in the +axis direction and 's'/'w' in the -axis direction
+ * (axis = X for n/s edges, Z for e/w edges).
+ *
+ * Returned `center`/`leftCenter`/`rightCenter` are signed offsets from the
+ * edge MIDPOINT along that world axis, ready to add to _edgeCenter's x or z.
+ *
+ * Single doors are 2 slots wide (off 0..2, default 1 — the centred geometry
+ * every pre-`off` door was drawn with); doubles fill all 4 (off 0).
+ *
+ * @param {string} edge  'n'|'e'|'s'|'w'
+ * @param {number|null|undefined} off
+ * @param {boolean} isDouble
+ */
+export function doorOpeningLayout(edge, off, isDouble) {
+  const openingWidth = isDouble ? TILE_SIZE : TILE_SIZE * 0.5;
+  const maxOff = Math.round((TILE_SIZE - openingWidth) / SUBTILE_SIZE);
+  const raw = Number.isFinite(off) ? Math.round(off) : (isDouble ? 0 : 1);
+  const slot = Math.max(0, Math.min(maxOff, raw));
+
+  const leftWidth = slot * SUBTILE_SIZE;
+  const rightWidth = TILE_SIZE - leftWidth - openingWidth;
+  const dir = (edge === 'n' || edge === 'e') ? 1 : -1;
+  const half = TILE_SIZE / 2;
+  // Distance measured from the first-listed corner -> signed offset from mid.
+  const at = (d) => dir * (d - half);
+
+  return {
+    off: slot,
+    openingWidth,
+    leftWidth,
+    rightWidth,
+    dir,
+    center: at(leftWidth + openingWidth / 2),
+    leftCenter: at(leftWidth / 2),
+    rightCenter: at(leftWidth + openingWidth + rightWidth / 2),
+  };
+}
+
+/** Neighbour tile + mirrored edge name. Mirrors EDGE_DELTAS in game/edge-keys.js. */
+const MIRROR_DELTAS = {
+  n: { dc: 0, dr: -1, opposite: 's' },
+  e: { dc: 1, dr: 0, opposite: 'w' },
+  s: { dc: 0, dr: 1, opposite: 'n' },
+  w: { dc: -1, dr: 0, opposite: 'e' },
+};
+
+/**
+ * The other key naming the same physical edge ("5,5,s" -> "5,6,n"), or null
+ * for an unknown edge name. Wall and door records are stored under whichever
+ * spelling the player's cursor produced, so every edge-keyed lookup in here
+ * has to accept both.
+ */
+function mirrorEdgeKey(col, row, edge) {
+  const d = MIRROR_DELTAS[edge];
+  if (!d) return null;
+  return `${col + d.dc},${row + d.dr},${d.opposite}`;
+}
+
+/**
+ * Base Y under a point on an edge, given the edge's endpoint heights.
+ * `signedOffset` is the distance from the edge MIDPOINT along the varying
+ * world axis (the same frame doorOpeningLayout returns), and `dir` is that
+ * layout's axis direction: +1 when baseY.a sits at the low world coordinate
+ * ('n'/'e'), -1 when it sits at the high one ('s'/'w').
+ */
+function baseYAtOffset(baseY, dir, signedOffset) {
+  const a = baseY?.a || 0;
+  const b = baseY?.b || 0;
+  if (a === b) return a;
+  const half = TILE_SIZE / 2;
+  // Distance from the FIRST-listed corner, normalized to [0,1].
+  const t = dir === 1 ? (signedOffset + half) / TILE_SIZE : (half - signedOffset) / TILE_SIZE;
+  return a + (b - a) * Math.max(0, Math.min(1, t));
+}
 
 // Stable integer hash of (col, row, edge) — used to pick a random but
 // deterministic variant + UV offset per wall segment.
@@ -77,9 +166,14 @@ export class WallBuilder {
     // doors — the door builder creates its own side/above wall segments, and
     // letting the main wall render on top would both block the opening and
     // double-render the segment (causing z-fighting/shimmer in transparent mode).
+    // Both spellings of the edge go in: a wall drawn from one side of the
+    // line and a door recorded from the other name the same physical edge,
+    // and letting that wall through rendered a solid slab across the opening.
     const doorEdgeSet = new Set();
     for (const d of (doorData || [])) {
       doorEdgeSet.add(`${d.col},${d.row},${d.edge}`);
+      const m = mirrorEdgeKey(d.col, d.row, d.edge);
+      if (m) doorEdgeSet.add(m);
     }
     const wallsWithoutDoors = (wallData || []).filter(
       w => !doorEdgeSet.has(`${w.col},${w.row},${w.edge}`)
@@ -107,9 +201,12 @@ export class WallBuilder {
         : DEFAULT_WALL_THICKNESS;
       const color = def ? def.color : 0xcccccc;
 
-      // Determine if this wall should be transparent
-      const isCutawayWall = wallVisibility === 'cutaway' && cutawayRoom &&
-        this._wallBordersRoom(col, row, edge, cutawayRoom);
+      // Determine if this wall should be transparent. _mergeWalls resolved
+      // this per source wall and only merged spans that agree, so trust its
+      // answer — recomputing from the span's origin tile would paint a whole
+      // run by whether its FIRST tile happened to border the room.
+      const isCutawayWall = w.cutaway ?? (wallVisibility === 'cutaway' && !!cutawayRoom &&
+        this._wallBordersRoom(col, row, edge, cutawayRoom));
       const wallTransparent = isTransparent || isCutawayWall;
 
       // Materials cache keyed by type+variant+cutaway so walls placed
@@ -219,9 +316,16 @@ export class WallBuilder {
 
     // --- Doors ---
     // Build a lookup of wall types by edge key for matching doors to their walls
+    // Variant travels with the type so a door's side fills clad themselves
+    // like the wall they interrupt (brick door reveals in a brick wall).
+    // Registered under both spellings of the edge so a door finds its wall
+    // whichever side of the line that wall was drawn from.
     const wallTypeByEdge = {};
     for (const w of (wallData || [])) {
-      wallTypeByEdge[`${w.col},${w.row},${w.edge}`] = w.type;
+      const entry = { type: w.type, variant: w.variant ?? 0 };
+      wallTypeByEdge[`${w.col},${w.row},${w.edge}`] = entry;
+      const m = mirrorEdgeKey(w.col, w.row, w.edge);
+      if (m && !wallTypeByEdge[m]) wallTypeByEdge[m] = entry;
     }
 
     const doorMat = new THREE.MeshStandardMaterial({
@@ -239,28 +343,63 @@ export class WallBuilder {
       depthWrite: false,
     });
 
+    // One material per (door type, variant, ghost) so every leaf of the same
+    // kind shares an instance instead of allocating per door.
+    const panelMatCache = {};
+
     for (const d of (doorData || [])) {
       const { col, row, edge, type } = d;
+      const variant = d.variant ?? 0;
 
-      const isDoorCutaway = wallVisibility === 'cutaway' && cutawayRoom &&
+      const isDoorCutaway = wallVisibility === 'cutaway' && !!cutawayRoom &&
         this._wallBordersRoom(col, row, edge, cutawayRoom);
 
       const isNS = edge === 'n' || edge === 's';
       const edgeCenter = this._edgeCenter(col, row, edge);
-      const halfTile = TILE_SIZE / 2;
 
       // Door type properties
       const doorDef = type ? DOOR_TYPES[type] : null;
-      const doorHeight = doorDef && doorDef.doorHeight
-        ? doorDef.doorHeight * HEIGHT_SCALE
-        : DOOR_HEIGHT;
       const isDouble = doorDef ? doorDef.doorWidth === 'double' : true;
-      const doorOpeningWidth = isDouble ? TILE_SIZE : TILE_SIZE * 0.5;
+      // Where the opening sits along the edge. `off` comes from the door
+      // record; missing data falls back to the historic centred placement.
+      const layout = doorOpeningLayout(edge, d.off, isDouble);
+      const doorOpeningWidth = layout.openingWidth;
+      // Signed offsets along the edge's varying world axis.
+      const openX = isNS ? layout.center : 0;
+      const openZ = isNS ? 0 : layout.center;
+
+      // Ground under each part of the door. Walls bake their base Y into the
+      // geometry; door parts are boxes placed at a y, so they take theirs
+      // from the terrain height at their own point along the edge. Absent
+      // baseY (older snapshots) reads as flat ground at 0.
+      const baseAt = (signedOffset) => baseYAtOffset(d.baseY, layout.dir, signedOffset);
+      const openingBaseY = baseAt(layout.center);
 
       // Find the wall type on this edge to match height/thickness/color
-      const wallType = wallTypeByEdge[`${col},${row},${edge}`];
+      const wallEntry = wallTypeByEdge[`${col},${row},${edge}`];
+      const wallType = wallEntry?.type;
+      const wallVariant = wallEntry?.variant ?? 0;
+      // Same key the wall loop uses — cutaway suffix included, so a door's
+      // fills share the material of the run they sit in instead of staying
+      // opaque and plugging the hole the cutaway just opened.
+      const wallMatKey = wallType
+        ? `${wallType}:${wallVariant}${isDoorCutaway ? ':cutaway' : ''}`
+        : null;
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
-      const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
+      const wallHeight = wallDef
+        ? wallDef.wallHeight * HEIGHT_SCALE
+        : (doorDef?.wallHeight ? doorDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT);
+      // The lintel sits on top of the opening, so the opening plus lintel can
+      // never exceed the host wall — otherwise the frame pokes through the
+      // roofline. Door data is authored to fit its intended wall, but any door
+      // can be hung on any wall, so clamp against the wall actually there.
+      const nominalDoorHeight = doorDef && doorDef.doorHeight
+        ? doorDef.doorHeight * HEIGHT_SCALE
+        : DOOR_HEIGHT;
+      const doorHeight = Math.max(
+        0.1,
+        Math.min(nominalDoorHeight, wallHeight - LINTEL_HEIGHT)
+      );
       const wallThickness = wallDef
         ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
         : DEFAULT_WALL_THICKNESS;
@@ -269,30 +408,33 @@ export class WallBuilder {
       // Get or create wall material for wall segments around the door.
       // Match the main wall material — tint white if textured so the map shows
       // true colors, and disable depthWrite when transparent for consistent sort.
-      if (wallType && !matCache[wallType]) {
-        const baseMat = wallDef && wallDef.texture ? MATERIALS[wallDef.texture] : null;
-        matCache[wallType] = new THREE.MeshStandardMaterial({
+      const fillTransparent = isTransparent || isDoorCutaway;
+      if (wallMatKey && !matCache[wallMatKey]) {
+        const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
+        const baseMat = textureName ? MATERIALS[textureName] : null;
+        matCache[wallMatKey] = new THREE.MeshStandardMaterial({
           map: baseMat ? baseMat.map : null,
           color: baseMat ? 0xffffff : wallColor,
           roughness: 0.8,
-          transparent: isTransparent,
-          opacity: isTransparent ? 0.3 : 1.0,
-          depthWrite: !isTransparent,
+          transparent: fillTransparent,
+          opacity: fillTransparent ? 0.3 : 1.0,
+          depthWrite: !fillTransparent,
         });
       }
 
       const postGeo = new THREE.BoxGeometry(POST_WIDTH, doorHeight, POST_WIDTH);
 
-      // For single doors, opening is centered — posts at ±doorOpeningWidth/2
+      // Posts flank the opening — at its own centre ± half its width, not the
+      // edge centre, so they follow the subtile offset.
       const halfOpening = doorOpeningWidth / 2;
 
       // Post A
       const activeDoorMat = isDoorCutaway ? doorMatTransparent : doorMat;
       const postA = new THREE.Mesh(postGeo, activeDoorMat);
       postA.position.set(
-        edgeCenter.x + (isNS ? -halfOpening : 0),
-        doorHeight / 2,
-        edgeCenter.z + (isNS ? 0 : -halfOpening)
+        edgeCenter.x + openX + (isNS ? -halfOpening : 0),
+        baseAt(layout.center - halfOpening) + doorHeight / 2,
+        edgeCenter.z + openZ + (isNS ? 0 : -halfOpening)
       );
       postA.castShadow = !(isTransparent || isDoorCutaway);
       postA.matrixAutoUpdate = false;
@@ -303,9 +445,9 @@ export class WallBuilder {
       // Post B
       const postB = new THREE.Mesh(postGeo.clone(), activeDoorMat);
       postB.position.set(
-        edgeCenter.x + (isNS ? halfOpening : 0),
-        doorHeight / 2,
-        edgeCenter.z + (isNS ? 0 : halfOpening)
+        edgeCenter.x + openX + (isNS ? halfOpening : 0),
+        baseAt(layout.center + halfOpening) + doorHeight / 2,
+        edgeCenter.z + openZ + (isNS ? 0 : halfOpening)
       );
       postB.castShadow = !(isTransparent || isDoorCutaway);
       postB.matrixAutoUpdate = false;
@@ -319,9 +461,9 @@ export class WallBuilder {
         : new THREE.BoxGeometry(wallThickness, LINTEL_HEIGHT, doorOpeningWidth);
       const lintel = new THREE.Mesh(lintelGeo, activeDoorMat);
       lintel.position.set(
-        edgeCenter.x,
-        doorHeight + LINTEL_HEIGHT / 2,
-        edgeCenter.z
+        edgeCenter.x + openX,
+        openingBaseY + doorHeight + LINTEL_HEIGHT / 2,
+        edgeCenter.z + openZ
       );
       lintel.castShadow = !(isTransparent || isDoorCutaway);
       lintel.matrixAutoUpdate = false;
@@ -329,85 +471,122 @@ export class WallBuilder {
       parentGroup.add(lintel);
       this._meshes.push(lintel);
 
-      // For single doors, fill wall on both sides of the opening
-      if (!isDouble) {
-        const sideWidth = (TILE_SIZE - doorOpeningWidth) / 2;
-        if (sideWidth > 0.001) {
-          const sideMat = matCache[wallType] || matCache['__default'] ||
-            (matCache['__default'] = new THREE.MeshStandardMaterial({
-              color: wallColor, roughness: 0.8,
-              transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
-              depthWrite: !isTransparent,
-            }));
-          const sideGeo = isNS
-            ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
-            : new THREE.BoxGeometry(wallThickness, wallHeight, sideWidth);
-          if (isNS) {
-            applyTiledBoxUVs(sideGeo, sideWidth, wallHeight, wallThickness);
-          } else {
-            applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, sideWidth);
-          }
+      // Fill the wall on whichever sides of the opening still have room. With
+      // a subtile offset the two sides are no longer symmetric: off=0 and
+      // off=max leave a single fill, and doubles leave none at all.
+      const SIDE_EPS = 0.001;
+      const sideFills = [
+        { width: layout.leftWidth, offset: layout.leftCenter },
+        { width: layout.rightWidth, offset: layout.rightCenter },
+      ].filter(s => s.width > SIDE_EPS);
 
-          // Side A (negative direction)
-          const sideA = new THREE.Mesh(sideGeo, sideMat);
-          sideA.position.set(
-            edgeCenter.x + (isNS ? (-halfTile + sideWidth / 2) : 0),
-            wallHeight / 2,
-            edgeCenter.z + (isNS ? 0 : (-halfTile + sideWidth / 2))
-          );
-          sideA.castShadow = !isTransparent;
-          sideA.receiveShadow = true;
-          sideA.matrixAutoUpdate = false;
-          sideA.updateMatrix();
-          parentGroup.add(sideA);
-          this._meshes.push(sideA);
-
-          // Side B (positive direction)
-          const sideB = new THREE.Mesh(sideGeo.clone(), sideMat);
-          sideB.position.set(
-            edgeCenter.x + (isNS ? (halfTile - sideWidth / 2) : 0),
-            wallHeight / 2,
-            edgeCenter.z + (isNS ? 0 : (halfTile - sideWidth / 2))
-          );
-          sideB.castShadow = !isTransparent;
-          sideB.receiveShadow = true;
-          sideB.matrixAutoUpdate = false;
-          sideB.updateMatrix();
-          parentGroup.add(sideB);
-          this._meshes.push(sideB);
+      for (const side of sideFills) {
+        const sideMat = matCache[wallMatKey] || this._defaultFillMat(matCache, wallColor, fillTransparent);
+        const sideGeo = isNS
+          ? new THREE.BoxGeometry(side.width, wallHeight, wallThickness)
+          : new THREE.BoxGeometry(wallThickness, wallHeight, side.width);
+        if (isNS) {
+          applyTiledBoxUVs(sideGeo, side.width, wallHeight, wallThickness);
+        } else {
+          applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, side.width);
         }
+
+        const sideMesh = new THREE.Mesh(sideGeo, sideMat);
+        sideMesh.position.set(
+          edgeCenter.x + (isNS ? side.offset : 0),
+          baseAt(side.offset) + wallHeight / 2,
+          edgeCenter.z + (isNS ? 0 : side.offset)
+        );
+        sideMesh.castShadow = !fillTransparent;
+        sideMesh.receiveShadow = true;
+        sideMesh.matrixAutoUpdate = false;
+        sideMesh.updateMatrix();
+        parentGroup.add(sideMesh);
+        this._meshes.push(sideMesh);
       }
 
       // Wall segment above the door (from lintel top to wall top)
       const aboveDoorBottom = doorHeight + LINTEL_HEIGHT;
       const aboveDoorHeight = wallHeight - aboveDoorBottom;
       if (aboveDoorHeight > 0.001) {
-        const aboveMat = matCache[wallType] || matCache['__default'] ||
-          (matCache['__default'] = new THREE.MeshStandardMaterial({
-            color: wallColor, roughness: 0.8,
-            transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
-            depthWrite: !isTransparent,
-          }));
+        const aboveMat = matCache[wallMatKey] || this._defaultFillMat(matCache, wallColor, fillTransparent);
+        // Spans only the opening: the side fills already run the full wall
+        // height beside it, so a full-tile band here would double up (and
+        // compound opacity in transparent mode). For doubles the opening is
+        // the whole tile, so this is the same band as before.
         const aboveGeo = isNS
-          ? new THREE.BoxGeometry(TILE_SIZE, aboveDoorHeight, wallThickness)
-          : new THREE.BoxGeometry(wallThickness, aboveDoorHeight, TILE_SIZE);
+          ? new THREE.BoxGeometry(doorOpeningWidth, aboveDoorHeight, wallThickness)
+          : new THREE.BoxGeometry(wallThickness, aboveDoorHeight, doorOpeningWidth);
         if (isNS) {
-          applyTiledBoxUVs(aboveGeo, TILE_SIZE, aboveDoorHeight, wallThickness);
+          applyTiledBoxUVs(aboveGeo, doorOpeningWidth, aboveDoorHeight, wallThickness);
         } else {
-          applyTiledBoxUVs(aboveGeo, wallThickness, aboveDoorHeight, TILE_SIZE);
+          applyTiledBoxUVs(aboveGeo, wallThickness, aboveDoorHeight, doorOpeningWidth);
         }
         const aboveMesh = new THREE.Mesh(aboveGeo, aboveMat);
         aboveMesh.position.set(
-          edgeCenter.x,
-          aboveDoorBottom + aboveDoorHeight / 2,
-          edgeCenter.z
+          edgeCenter.x + openX,
+          openingBaseY + aboveDoorBottom + aboveDoorHeight / 2,
+          edgeCenter.z + openZ
         );
-        aboveMesh.castShadow = !isTransparent;
+        aboveMesh.castShadow = !fillTransparent;
         aboveMesh.receiveShadow = true;
         aboveMesh.matrixAutoUpdate = false;
         aboveMesh.updateMatrix();
         parentGroup.add(aboveMesh);
         this._meshes.push(aboveMesh);
+      }
+
+      // --- Door panel (the visible leaf) ---
+      // Textured types get a leaf filling the opening. Types with no texture
+      // are open passthroughs (hallwayDoor) and render as a bare frame.
+      if (doorDef && doorDef.texture) {
+        const ghost = isTransparent || isDoorCutaway;
+        const matKey = `${type}:${variant}:${ghost ? 'ghost' : 'solid'}`;
+        if (!panelMatCache[matKey]) {
+          const baseMat = MATERIALS[doorDef.texture] || null;
+          const tint = doorDef.variantTints?.[variant] ?? null;
+          const opts = {
+            map: baseMat ? baseMat.map : null,
+            // Textured panels tint white so the map shows true colors; a
+            // variant tint multiplies over it (that's what variantTints are).
+            color: tint ?? (baseMat ? 0xffffff : (doorDef.color ?? 0x8b7355)),
+            roughness: baseMat ? baseMat.roughness : 0.7,
+            metalness: baseMat ? baseMat.metalness : 0.0,
+            transparent: ghost,
+            opacity: ghost ? 0.3 : 1.0,
+            depthWrite: !ghost,
+          };
+          if (baseMat && baseMat.alphaTest > 0) {
+            // Cutout textures (chain link, security gate) keep their holes.
+            // alphaTest compares against opacity * map alpha, so the ghost
+            // pass has to scale the threshold or the whole leaf is discarded.
+            opts.alphaTest = ghost ? baseMat.alphaTest * opts.opacity : baseMat.alphaTest;
+            opts.transparent = true;
+            opts.side = THREE.DoubleSide;
+          }
+          panelMatCache[matKey] = new THREE.MeshStandardMaterial(opts);
+        }
+
+        const panelW = Math.max(0.01, doorOpeningWidth - PANEL_GAP * 2);
+        const panelH = Math.max(0.01, doorHeight - PANEL_GAP);
+        // One leaf across the whole opening — the door textures already depict
+        // a complete door (both leaves for the doubles), so splitting a double
+        // into two meshes would draw the artwork twice.
+        const panelGeo = isNS
+          ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
+          : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
+        const panel = new THREE.Mesh(panelGeo, panelMatCache[matKey]);
+        panel.position.set(
+          edgeCenter.x + openX,
+          openingBaseY + panelH / 2,
+          edgeCenter.z + openZ
+        );
+        panel.castShadow = !ghost;
+        panel.receiveShadow = true;
+        panel.matrixAutoUpdate = false;
+        panel.updateMatrix();
+        parentGroup.add(panel);
+        this._meshes.push(panel);
       }
     }
 
@@ -424,6 +603,23 @@ export class WallBuilder {
   }
 
   // --- Private helpers ---
+
+  /**
+   * Untextured fallback material for a door's wall fills, used when the door
+   * hangs on no known wall type. Cached per (color, ghost) inside the build's
+   * material cache so the ghosted and solid variants can coexist.
+   */
+  _defaultFillMat(matCache, color, ghost) {
+    const key = `__default:${color}:${ghost ? 'ghost' : 'solid'}`;
+    if (!matCache[key]) {
+      matCache[key] = new THREE.MeshStandardMaterial({
+        color, roughness: 0.8,
+        transparent: ghost, opacity: ghost ? 0.3 : 1.0,
+        depthWrite: !ghost,
+      });
+    }
+    return matCache[key];
+  }
 
   _wallGeometry(edge, height = DEFAULT_WALL_HEIGHT, thickness = DEFAULT_WALL_THICKNESS) {
     const isNS = edge === 'n' || edge === 's';
@@ -507,18 +703,22 @@ export class WallBuilder {
       return wallData.map(w => ({ ...w, span: 1 }));
     }
 
-    // Group walls by (edge, type, variant, and the axis-perpendicular
+    // Group walls by (edge, type, variant, cutaway, and the axis-perpendicular
     // coordinate). Variant must be part of the key so walls of the same
     // type but different claddings (e.g. cement vs brick exterior) stay
     // separate — otherwise a merged span would pick a single texture for
-    // the whole run.
+    // the whole run. Cutaway state likewise: a run that only partly borders
+    // the opened room would otherwise be ghosted (or left solid) end to end
+    // depending on which tile happened to sort first.
     const groups = {};
-    for (const w of wallData) {
-      const isNS = w.edge === 'n' || w.edge === 's';
-      const variant = w.variant ?? 0;
-      const groupKey = `${w.edge},${w.type},${variant},${isNS ? w.row : w.col}`;
+    for (const wall of wallData) {
+      const isNS = wall.edge === 'n' || wall.edge === 's';
+      const variant = wall.variant ?? 0;
+      const cutaway = !!hasCutaway &&
+        this._wallBordersRoom(wall.col, wall.row, wall.edge, cutawayRoom);
+      const groupKey = `${wall.edge},${wall.type},${variant},${cutaway ? 1 : 0},${isNS ? wall.row : wall.col}`;
       if (!groups[groupKey]) groups[groupKey] = [];
-      groups[groupKey].push(w);
+      groups[groupKey].push({ ...wall, cutaway });
     }
 
     const result = [];

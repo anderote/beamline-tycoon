@@ -21,7 +21,8 @@
 // because the demolish family shares them.
 
 import { Tool } from './Tool.js';
-import { FLOORS, WALL_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { doorOffFromFrac, findWallKey } from '../game/edge-keys.js';
 import { isoToGrid } from '../renderer/grid.js';
 
 export class FloorTool extends Tool {
@@ -256,15 +257,21 @@ export class WallTool extends Tool {
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
 
-  /** Cost of placing this wall along a path, skipping same-type edges. */
+  /**
+   * Cost of placing this wall along a path, skipping same-type edges. The
+   * edge may hold its wall under either spelling (see edge-keys.js), so
+   * resolve before comparing — quoting the direct key only made a run
+   * redrawn from the far side of the line look like it cost full price.
+   */
   _pathCost(ctx, path) {
     const wt = WALL_TYPES[this.wallType];
     if (!wt) return 0;
     const segCost = wt.variantCosts?.[this.variant] ?? wt.cost;
+    const occupied = ctx.game.state.wallOccupied;
     let count = 0;
     for (const pt of path) {
-      const key = `${pt.col},${pt.row},${pt.edge}`;
-      if (ctx.game.state.wallOccupied[key] === this.wallType) continue;
+      const key = findWallKey(occupied, pt.col, pt.row, pt.edge);
+      if (key && occupied[key] === this.wallType) continue;
       count++;
     }
     return count * segCost;
@@ -398,12 +405,16 @@ export class DoorTool extends Tool {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    // Subtile offset of the opening along the edge, quantized from the
+    // cursor's along-edge fraction. See _offFor.
+    this._off = null;
   }
 
   onExit(ctx) {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    this._off = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
   }
@@ -415,10 +426,12 @@ export class DoorTool extends Tool {
    * Subtile offset of the opening for the edge under the cursor.
    * _getNearestWallEdge hands back a raw along-edge fraction (it can't know
    * how wide this door is); doorOffFromFrac centers the opening on the cursor
-   * and clamps it inside the tile.
+   * and clamps it inside the tile. Quantizing here rather than in
+   * _getNearestWallEdge keeps the door-width knowledge on the tool, which is
+   * the only place that knows which door is armed.
    */
   _offFor(edge) {
-    return doorOffFromFrac(edge.frac, DOOR_TYPES[this.doorType]);
+    return doorOffFromFrac(edge?.frac, DOOR_TYPES[this.doorType]);
   }
 
   onMouseDown(e, ctx) {
@@ -437,9 +450,12 @@ export class DoorTool extends Tool {
     const renderer = ctx.renderer;
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
-      // _buildWallLine steps in whole tiles, so a multi-tile drag shares one
-      // opening offset — taken from the cursor's current position.
-      this._off = this._offFor(edge);
+      // _buildWallLine steps in whole tiles and locks every segment to the
+      // START edge's side, so a multi-tile drag shares one opening offset.
+      // The offset keeps tracking the cursor only while the hovered edge is
+      // the same side as the start (n/s vs e/w): `frac` runs along whichever
+      // edge produced it, so a perpendicular edge's frac is meaningless here.
+      if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
       this._path = input._buildWallLine(this._start, edge)
         .map(pt => ({ ...pt, off: this._off }));
       renderer.renderDoorPreview(this._path, this.doorType);
@@ -468,7 +484,10 @@ export class DoorTool extends Tool {
     // right-click-to-deselect never ran.
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
-      ctx.game._withUndo(() => ctx.game.placeDoorPath(this._path, this.doorType, this.variant));
+      // Each path point carries its own `off`; this._off is the fallback.
+      ctx.game._withUndo(
+        () => ctx.game.placeDoorPath(this._path, this.doorType, this.variant, this._off)
+      );
       this._drawing = false;
       this._start = null;
       this._path = [];

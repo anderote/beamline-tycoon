@@ -15,7 +15,7 @@ import {
   snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
-import { mirrorEdge, findWallKey } from '../game/edge-keys.js';
+import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
@@ -771,33 +771,27 @@ export class InputHandler {
    * Returns [] if the origin edge itself has no wall.
    */
   _buildWallSegmentPath(origin) {
-    const wo = this.game.state.wallOccupied;
-    const { edge } = origin;
-    const keyAt = (col, row) => `${col},${row},${edge}`;
-    if (!wo[keyAt(origin.col, origin.row)]) return [];
-    const horizontal = edge === 'n' || edge === 's';
-    const path = [{ col: origin.col, row: origin.row, edge }];
-    for (const dir of [-1, 1]) {
-      let col = origin.col;
-      let row = origin.row;
-      for (;;) {
-        if (horizontal) col += dir; else row += dir;
-        if (!wo[keyAt(col, row)]) break;
-        const pt = { col, row, edge };
-        if (dir === -1) path.unshift(pt); else path.push(pt);
-      }
-    }
-    return path;
+    return this._buildEdgeSegmentPath(this.game.state.wallOccupied, origin);
   }
 
   /**
    * Mirror of _buildWallSegmentPath for door segments (doorOccupied).
    */
   _buildDoorSegmentPath(origin) {
-    const door = this.game.state.doorOccupied;
+    return this._buildEdgeSegmentPath(this.game.state.doorOccupied, origin);
+  }
+
+  /**
+   * Walk an occupancy map along the origin edge's axis, collecting every
+   * consecutive occupied edge. Each step resolves BOTH spellings of the edge
+   * (findEdgeKey) — a run drawn in two drags from opposite sides of the same
+   * line is stored under mixed spellings, and a direct-key-only walk used to
+   * stop dead at the changeover. Returns [] if the origin edge is empty.
+   */
+  _buildEdgeSegmentPath(occupied, origin) {
     const { edge } = origin;
-    const keyAt = (col, row) => `${col},${row},${edge}`;
-    if (!door[keyAt(origin.col, origin.row)]) return [];
+    const occupiedAt = (col, row) => !!findEdgeKey(occupied, col, row, edge);
+    if (!occupiedAt(origin.col, origin.row)) return [];
     const horizontal = edge === 'n' || edge === 's';
     const path = [{ col: origin.col, row: origin.row, edge }];
     for (const dir of [-1, 1]) {
@@ -805,7 +799,7 @@ export class InputHandler {
       let row = origin.row;
       for (;;) {
         if (horizontal) col += dir; else row += dir;
-        if (!door[keyAt(col, row)]) break;
+        if (!occupiedAt(col, row)) break;
         const pt = { col, row, edge };
         if (dir === -1) path.unshift(pt); else path.push(pt);
       }
