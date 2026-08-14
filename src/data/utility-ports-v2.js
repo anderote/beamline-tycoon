@@ -12,6 +12,14 @@
 //     params:      { /* utility-specific, declared per component */ },
 //   }
 //
+// `offsetAlong` is how far along its face the port sits, counted CLOCKWISE
+// around the footprint seen from above (so 0.2 on the `right` face and 0.2 on
+// the `left` face sit at opposite ends of the machine, the way they would if
+// you walked round it). 0.5 is the face midpoint. Two ports on one face need
+// their offsets a good way apart to route independently: line paths quantise
+// to 0.5 m, so on a 1 m face the fittings draw apart but the pipes still leave
+// one point. See portWorldPosition in src/utility/ports.js.
+//
 // THIS FILE is the single home for per-component utility sink/source numbers.
 // Every port declares its own params inline (demand kW, heatLoad kW, srfHeatW,
 // pumpSpeed L/s, outgassing mbar·L/s, capacity, ...). The per-utility DEFAULTS

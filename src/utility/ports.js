@@ -113,11 +113,52 @@ export function portMatchesApproach(placeable, def, portName, approachDir, isEnd
   return vec.dCol === tgt.dCol && vec.dRow === tgt.dRow;
 }
 
+// A port's `offsetAlong` is authored as a fraction of its face, and the range
+// the registry documents is [0.1, 0.9]. Clamping to that here is not about
+// tidiness: an offset of 0 or 1 puts the fitting exactly on a footprint CORNER,
+// which is a point the adjacent face owns too, so two ports on two different
+// faces would silently merge — and on an abutting neighbour's footprint the
+// corner is shared outright. Staying a tenth of a face short of each end keeps
+// every port unambiguously on the face that declared it.
+const MIN_OFFSET_ALONG = 0.1;
+const MAX_OFFSET_ALONG = 0.9;
+
 /**
- * Return {x, z} in world coordinates at the center of the specified port on
- * the placeable's rotated edge. Ported verbatim from
- * src/beamline/junctions.js portWorldPosition (formulas unchanged) but looks
- * up the port spec via the passed-in `def` rather than COMPONENTS.
+ * How far to slide a port off its face's midpoint, as a signed fraction of the
+ * face length. Anything that has not declared an offset — beam ports, older
+ * specs, test fixtures — reads as dead centre, so this change moves only the
+ * ports that asked to be moved.
+ */
+function alongOffset(spec) {
+  const o = spec && spec.offsetAlong;
+  if (!Number.isFinite(o)) return 0;
+  return Math.min(MAX_OFFSET_ALONG, Math.max(MIN_OFFSET_ALONG, o)) - 0.5;
+}
+
+/**
+ * Return {x, z} in world coordinates for the specified port on the placeable's
+ * rotated edge.
+ *
+ * The point is the face's midpoint pushed out to the edge, then slid ALONG the
+ * edge by the spec's `offsetAlong` (0 = face start, 0.5 = midpoint, 1 = face
+ * end). A port with no `offsetAlong` — every beam entry/exit, and the fixtures
+ * in the tests — takes 0.5 and lands exactly where it always did.
+ *
+ * Which way "along" points is the part worth explaining. `offsetAlong` is
+ * authored in the component's own frame, so it has to rotate WITH the body:
+ * two ports on one face must keep the same arrangement relative to the machine
+ * at all four `dir` values, never mirroring at two of them. That falls out for
+ * free by defining the tangent as the outward normal turned one compass step
+ * clockwise — i.e. offsets count clockwise around the footprint's perimeter
+ * seen from above. Rotation commutes with "turn one step clockwise", so
+ * deriving the tangent from the already-rotated WORLD normal gives exactly the
+ * same layout the local frame would, with no per-rotation sign table to get
+ * wrong.
+ *
+ * Note the sub-tile routing grid does not have the resolution to keep every
+ * pair apart: path coords quantise to 0.5 m, so on a face only 1 m long the
+ * two ports draw in separate places but still route from one point. That is a
+ * property of the grid, not of the offsets — see test-utility-port-offsets.js.
  */
 export function portWorldPosition(placeable, def, portName) {
   if (!placeable || !portName) return null;
@@ -148,8 +189,16 @@ export function portWorldPosition(placeable, def, portName) {
   const halfAlongX = footColSub * 0.25;
   const halfAlongZ = footRowSub * 0.25;
 
-  const x = cx + vec.x * halfAlongX;
-  const z = cz + vec.z * halfAlongZ;
+  // One sub-tile is 0.5 m, so the face's own length in metres is whichever
+  // footprint extent runs perpendicular to the normal. `tan` is perpendicular
+  // to `vec` by construction, so only one of these two terms is ever non-zero.
+  const tan = COMPASS_VEC[rotateCompass(worldSide, 1)];
+  const slide = alongOffset(spec);
+  const alongX = tan.x * slide * footColSub * 0.5;
+  const alongZ = tan.z * slide * footRowSub * 0.5;
+
+  const x = cx + vec.x * halfAlongX + alongX;
+  const z = cz + vec.z * halfAlongZ + alongZ;
   return { x, z };
 }
 
