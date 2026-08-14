@@ -9,11 +9,25 @@
 // test-staff-stations.js), asserting on the pawn's own x/z/heading/pose
 // fields — plain numbers/strings the stub doesn't need to get rotation math
 // right to observe.
+//
+// Scenarios 6 and 7 are fix-round-1 additions:
+//   6. the seated hip's world Y (pawn.figure.group.position.y is a plain
+//      number too — it's the OUTERMOST group's own translation, not a child
+//      transform composed through rotation, so the stub's "doesn't apply
+//      rotations to positions" limitation doesn't apply to it) must land at
+//      the CHAIR's own seat height, not at 2x the rig's baked-in hip height.
+//   7. demolishing a station mid-walk, leaving its subtile ordinarily
+//      passable, must not let the pawn arrive and "work" the empty tile.
 
 import { StaffPawns } from '../src/renderer3d/StaffPawns.js';
 import { getNavGrid, subtileToWorld } from '../src/game/staff/nav.js';
 import { getStationIndex, reserveStation } from '../src/game/staff/stations.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
+import { staffStyleHipHeight, DEFAULT_STAFF_STYLE } from '../src/renderer3d/builders/staff-builder.js';
+
+// 1 subtile = 0.5 world units — same convention seat.seatY (subtiles) is
+// authored in and StaffPawns.js's _seatedYOffset converts through.
+const SUB_UNIT = 0.5;
 
 let passed = 0, failed = 0;
 function assertOk(cond, msg) {
@@ -285,26 +299,35 @@ console.log('\n=== 3. Resealing the route mid-walk releases the station reservat
 
 console.log('\n=== 4. Arrival pose matches the station: sit when seated, benchWork otherwise ===\n');
 {
-  function arrivePose(seated) {
+  // Real stations, not a fabricated ref — sendToStation now requires the
+  // ref's key to actually resolve in the live index (fix-round-1, finding
+  // 2), so a station that was never really placed can never be "arrived at".
+  function arrivePose(withChair) {
     const state = makeState();
-    floorRect(state, 0, 6, 0, 6);
+    floorRect(state, 0, 10, 0, 10);
+    placeItem(state, 'desk', 5, 5, 0, 0, 0);
+    if (withChair) {
+      // Same adjacency test-staff-stations.js scenario 3 pins: one subtile
+      // behind the desk's anchor, facing agreeing with it.
+      placeItem(state, 'officeChair', 5, 4, 1, 2, 2);
+    }
     state.staffMembers = [{ id: 's1', profession: 'operator' }];
+    bump(state);
+
     const pawns = makePawns(state);
     pawns.sync();
     const pawn = pawns._pawns.get('s1');
-
     const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
     pawn.x = startWorld.x; pawn.z = startWorld.z;
 
-    const node = { col: 3, row: 3, subCol: 0, subRow: 0 };
-    const ref = Object.freeze({
-      key: 'fake:0', placeableId: 'fake', defId: 'fakeDef', slotIndex: 0,
-      jobs: Object.freeze(['test']), node: Object.freeze(node), facing: 's',
-      seated, seatPlaceableId: null, zoneType: null,
-    });
+    const index = getStationIndex(state);
+    const ref = index.byJob.analyze?.[0];
+    assertOk(!!ref && ref.seated === withChair,
+      `sanity: desk resolves seated:${withChair} (${withChair ? 'with' : 'without'} a matching chair)`);
+
     pawns.sendToStation('s1', ref);
     for (let i = 0; i < 4000 && pawn.mode !== 'working'; i++) pawns.update(0.02);
-    assertOk(pawn.mode === 'working', `sanity: pawn reached the ${seated ? 'seated' : 'unseated'} station`);
+    assertOk(pawn.mode === 'working', `sanity: pawn reached the ${withChair ? 'seated' : 'unseated'} station`);
     return pawn.pose;
   }
 
@@ -340,6 +363,121 @@ console.log('\n=== 5. Every reservation is released on destroy — via _destroyP
   pawns.sync();
   assertOk(state.stationReservations[ref.key] === undefined,
     'sync() dropping a staffer from the roster releases their reservation too, not just an explicit destroy');
+}
+
+console.log("\n=== 6. Seated hip lands at the chair's own seat height, not at 2x the rig's baked-in hip height ===\n");
+{
+  // Same desk anchor / chair adjacency test-staff-stations.js's scenario 3
+  // uses: the desk's anchor resolves to {col:5,row:4,subCol:1,subRow:3},
+  // facing 's', and the ONE subtile that matches it (adjacent + facing
+  // agreement) is {col:5,row:4,subCol:1,subRow:2}, dir:2. Any seat-carrying
+  // chair placed there matches — stations.js's findMatchingChair doesn't
+  // care which chair "belongs" with a desk, only that it carries `seat`.
+  const CHAIR_POS = { col: 5, row: 4, subCol: 1, subRow: 2, dir: 2 };
+
+  function seatedHipWorldY(chairType) {
+    const state = makeState();
+    floorRect(state, 0, 10, 0, 10);
+    placeItem(state, 'desk', 5, 5, 0, 0, 0);
+    const chair = placeItem(state, chairType, CHAIR_POS.col, CHAIR_POS.row, CHAIR_POS.subCol, CHAIR_POS.subRow, CHAIR_POS.dir);
+    state.staffMembers = [{ id: 's1', profession: 'operator' }];
+    bump(state);
+
+    const pawns = makePawns(state);
+    pawns.sync();
+    const pawn = pawns._pawns.get('s1');
+    const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+    pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+    const index = getStationIndex(state);
+    const ref = index.byJob.analyze?.[0];
+    assertOk(!!ref && ref.seated === true && ref.seatPlaceableId === chair.id,
+      `sanity: ${chairType} resolves as a real seated station (not a fabricated ref)`);
+
+    pawns.sendToStation('s1', ref);
+    for (let i = 0; i < 4000 && pawn.mode !== 'working'; i++) pawns.update(0.02);
+    assertOk(pawn.mode === 'working', `sanity: pawn reached the ${chairType} station`);
+
+    // pawn.figure.group.position.y is the OUTERMOST group's own translation
+    // — set directly by _placeFigure, not a child transform the THREE stub
+    // would need to compose a rotation through — so it's exact, no THREE
+    // rotation math required to read it back.
+    const groupY = pawn.figure.group.position.y;
+    const hipY = staffStyleHipHeight(DEFAULT_STAFF_STYLE);
+    return { groupY, hipWorldY: groupY + hipY, hipY, seatY: PLACEABLES[chairType].seat.seatY };
+  }
+
+  for (const chairType of ['officeChair', 'operatorChair']) {
+    const { hipWorldY, hipY, seatY } = seatedHipWorldY(chairType);
+    const seatWorldY = seatY * SUB_UNIT;
+    // The rig can't sit a pawn BELOW its own natural hip height (see
+    // _seatedYOffset's clamp) — officeChair's seat (0.4) is actually a hair
+    // under this style's hip height (~0.406), so the target is whichever is
+    // taller, same as the implementation's own Math.max.
+    const target = Math.max(seatWorldY, hipY);
+    const diff = Math.abs(hipWorldY - target);
+    assertOk(diff < 0.01,
+      `${chairType}: seated hip world Y (${hipWorldY.toFixed(4)}) matches its seat height (target ${target.toFixed(4)}, diff ${diff.toFixed(4)})`);
+
+    // The bug fix-round-1 caught: yOffset === hipY unconditionally put the
+    // hip at group.y(=hipY) + hipY(local, baked into the rig) = 2x hip
+    // height, nowhere near the actual chair seat.
+    const oldBuggyHipWorldY = hipY + hipY;
+    assertOk(Math.abs(oldBuggyHipWorldY - seatWorldY) > 0.3,
+      `sanity: ${chairType}'s old hipY-only offset (${oldBuggyHipWorldY.toFixed(4)}) really was far off the seat (${seatWorldY}) — this assertion is what fails against the pre-fix code`);
+  }
+}
+
+console.log('\n=== 7. Demolishing the target station mid-walk (its subtile stays ordinarily passable) drops the pawn to idle, never "working" thin air ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const consoleEntry = placeItem(state, 'operatorConsole', 8, 8, 0, 0, 0);
+  state.staffMembers = [{ id: 's1', profession: 'operator' }];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  const index = getStationIndex(state);
+  const ref = (index.byJob.runBeam || [])[0];
+  assertOk(!!ref, 'sanity: the console yields a runBeam station');
+  assertOk(reserveStation(state, ref.key, 's1'), 'sanity: reservation succeeds');
+  pawns.sendToStation('s1', ref);
+  assertOk(pawn.mode === 'pathWalk', 'sanity: pawn starts walking toward the console');
+
+  // Advance partway — nowhere near arrival yet.
+  for (let i = 0; i < 5; i++) pawns.update(0.02);
+  assertOk(pawn.mode === 'pathWalk', 'sanity: still en route');
+
+  // Demolish the console: splice it out of placeables/placeableIndex/
+  // subgridOccupied exactly like Game.removePlaceable would (mirrors
+  // test-staff-stations.js's scenario 11), then bump navRevision like every
+  // structural edit does. The vacated subtile is now ordinary passable
+  // floor — nothing left to block a route to it — which is exactly the case
+  // a plain route re-check can't catch on its own.
+  const idx = state.placeables.findIndex(p => p.id === consoleEntry.id);
+  state.placeables.splice(idx, 1);
+  state.placeableIndex = {};
+  state.placeables.forEach((p, i) => { state.placeableIndex[p.id] = i; });
+  for (const key of Object.keys(state.subgridOccupied)) {
+    if (state.subgridOccupied[key].id === consoleEntry.id) delete state.subgridOccupied[key];
+  }
+  bump(state);
+
+  let everWorked = false;
+  for (let i = 0; i < 4000 && pawn.mode === 'pathWalk'; i++) {
+    pawns.update(0.02);
+    if (pawn.mode === 'working') { everWorked = true; break; }
+  }
+  assertOk(!everWorked, 'the pawn never enters "working" at the demolished station');
+  assertOk(pawn.mode === 'idle', 'the pawn falls back to idle instead of stalling in pathWalk or working');
+  assertOk(pawn.stationKey === null, 'pawn.stationKey is cleared');
+  assertOk(pawn.pendingStation === null, 'pawn.pendingStation is cleared');
+  assertOk(state.stationReservations[ref.key] === undefined, 'the reservation is released');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

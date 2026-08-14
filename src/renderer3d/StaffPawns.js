@@ -56,6 +56,7 @@ import {
 import {
   getStationIndex, findStation, reserveStation, releaseStation, releaseAllFor,
 } from '../game/staff/stations.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import {
   buildStaffFigure,
   disposeStaffFigure,
@@ -99,6 +100,11 @@ const FACING_HEADING = { s: 0, e: Math.PI / 2, n: Math.PI, w: -Math.PI / 2 };
 // Arrival tolerance, in world units, for "close enough" to a path node or
 // amble target — small relative to a subtile (0.5 units).
 const ARRIVE_EPS = 0.05;
+
+// 1 subtile = 0.5 world units — same convention equipment-builder.js and
+// component-builder.js each define locally for reading a def's `parts`
+// coordinates (subtile units) into world space.
+const SUB_UNIT = 0.5;
 
 // --- Seeded appearance -----------------------------------------------------
 
@@ -357,6 +363,21 @@ export class StaffPawns {
     pawn.pendingStation = null;
   }
 
+  /**
+   * Whether the station this pawn is walking to (or occupying) still exists
+   * in the live index. True (vacuously) when the pawn isn't tracking a
+   * station at all. getStationIndex() rebuilds — and prunes
+   * state.stationReservations of dead keys — on every navRevision bump, so
+   * this is an O(1) lookup against the current index, not a fresh scan.
+   * A demolished station leaves its subtile passable (nothing there to
+   * block it), so a path re-check alone can't catch this — the pawn would
+   * happily path to, and "work", an empty tile without this check.
+   */
+  _stationStillLive(state, pawn) {
+    if (!pawn.stationKey || !state) return true;
+    return !!getStationIndex(state).byKey[pawn.stationKey];
+  }
+
   // --- Path following --------------------------------------------------
 
   /** Compute a path to `node` and start following it. Returns false (and
@@ -397,6 +418,18 @@ export class StaffPawns {
     const state = this.game.state;
     const revision = state.navRevision || 0;
     if (revision !== pawn.pathNavRevision) {
+      // Check the STATION first, independent of path reachability: a
+      // demolished station's subtile is still passable (nothing left there
+      // to block it), so a route re-check alone would happily re-path the
+      // pawn onto the now-empty tile and let it "work" thin air.
+      if (!this._stationStillLive(state, pawn)) {
+        this._releaseStationFor(pawn);
+        pawn.path = null;
+        pawn.pathIndex = 0;
+        pawn.mode = 'idle';
+        pawn.idleT = IDLE_MIN;
+        return 0;
+      }
       const finalNode = pawn.path[pawn.path.length - 1];
       const nav = getNavGrid(state);
       const from = worldToSubtile(pawn.x, pawn.z);
@@ -445,9 +478,20 @@ export class StaffPawns {
 
   /** The final path node was reached. Snaps to the station anchor and its
    * facing (no easing — "arrived" is a discrete event), or just goes idle
-   * for a plain setDestination walk with no station attached. */
+   * for a plain setDestination walk with no station attached. Re-checks the
+   * station is still live first — it may have been demolished during the
+   * walk without ever severing the ROUTE to its (now empty) subtile, which
+   * is exactly the case _advancePathWalk's re-path check can't catch on its
+   * own (see _stationStillLive). */
   _arriveAtPathEnd(pawn) {
+    const state = this.game?.state;
     if (pawn.pendingStation) {
+      if (!this._stationStillLive(state, pawn)) {
+        this._releaseStationFor(pawn);
+        pawn.mode = 'idle';
+        pawn.idleT = IDLE_MIN;
+        return;
+      }
       const ref = pawn.pendingStation;
       const world = subtileToWorld(ref.node);
       pawn.x = world.x;
@@ -530,9 +574,9 @@ export class StaffPawns {
   }
 
   /** Stand the figurine on the ground. Its origin is at the feet — a seated
-   * pawn instead raises the whole group so the hip lands at seat height,
-   * per staffStyleHipHeight's doc comment; the builder itself never moves
-   * parts to fake sitting. */
+   * pawn instead raises the whole group so the hip lands at the CHAIR's own
+   * seat height (see _seatedYOffset); the builder itself never moves parts
+   * to fake sitting. */
   _placeFigure(pawn) {
     const state = this.game?.state;
     const col = Math.floor(pawn.x / 2);
@@ -542,7 +586,38 @@ export class StaffPawns {
     const isConcrete = state?.infraOccupied?.[col + ',' + row] === 'concrete';
     const groundY = isConcrete ? 0 : sampleSurfaceYAt(state, pawn.x, pawn.z);
     const seated = pawn.mode === 'working' && !!pawn.pendingStation?.seated;
-    const yOffset = seated ? staffStyleHipHeight(DEFAULT_STAFF_STYLE) : 0.01;
+    const yOffset = seated ? this._seatedYOffset(state, pawn.pendingStation) : 0.01;
     pawn.figure.group.position.set(pawn.x, groundY + yOffset, pawn.z);
+  }
+
+  /**
+   * The group's Y offset for a seated pawn. The rig BAKES IN the hip's
+   * local height (buildStaffFigure places the thigh mesh at local y=hipY;
+   * sit only ROTATES the thigh/shin about that fixed pivot, per
+   * staffStyleHipHeight's doc comment — pose rotation never moves it). So
+   * the hip's world Y is always `group.position.y + hipY`, and lifting the
+   * group by hipY (an earlier version of this method did) puts the hip at
+   * 2x hip height instead of at the chair. The correct lift is the
+   * DIFFERENCE between the chair's own seat height and the rig's baked-in
+   * hip height: `seatY*SUB_UNIT - hipY`, so hip world Y comes out to
+   * exactly the chair's seat height. Clamped to >= 0 so a stool shorter
+   * than the rig's hip height never sinks the pawn's feet into the floor —
+   * the hip then rests at its own natural (standing) height instead, no
+   * lower.
+   */
+  _seatedYOffset(state, ref) {
+    const chairDef = this._resolveChairDef(state, ref?.seatPlaceableId);
+    const seatY = chairDef?.seat?.seatY;
+    if (typeof seatY !== 'number') return 0; // no seat data resolvable — sit at the rig's own hip height rather than re-introduce the old double-hip bug
+    const hipY = staffStyleHipHeight(DEFAULT_STAFF_STYLE);
+    return Math.max(0, seatY * SUB_UNIT - hipY);
+  }
+
+  /** Resolve a placed chair instance's id back to its PLACEABLES def. */
+  _resolveChairDef(state, seatPlaceableId) {
+    if (!state || !seatPlaceableId) return null;
+    const idx = state.placeableIndex?.[seatPlaceableId];
+    const entry = idx !== undefined ? state.placeables?.[idx] : undefined;
+    return entry ? PLACEABLES[entry.type] : null;
   }
 }

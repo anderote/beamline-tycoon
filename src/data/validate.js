@@ -234,11 +234,12 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 
   // A `station` describes where a pawn stands or sits to do a job at a def,
   // and a `seat` marks a chair as sit-able (nav.js's def.seat passability
-  // clause) plus the direction a seated pawn faces. Neither is consumed yet
-  // — the station index (next plan task) is the first reader — but a bad
-  // anchor or job id would otherwise sit silently dead until then, so it is
-  // caught here instead. Chairs are matched to stations by adjacency, never
-  // worked directly, so a def must never carry both blocks.
+  // clause) plus the direction a seated pawn faces and the seat cushion's
+  // own height (StaffPawns.js's seated hip placement — see seatY below). A
+  // bad anchor, job id, or seat height would otherwise sit silently wrong
+  // until it's visible in the running game, so it is caught here instead.
+  // Chairs are matched to stations by adjacency, never worked directly, so
+  // a def must never carry both blocks.
   function checkStation(id, def) {
     if (def.station == null && def.seat == null) return;
     if (def.station != null && def.seat != null) {
@@ -247,6 +248,15 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (def.seat != null) {
       if (!FACINGS.has(def.seat.facing)) {
         problem(id, 'seat.facing', `seat.facing must be one of ${[...FACINGS].join(', ')}, got ${JSON.stringify(def.seat.facing)}`);
+      }
+      // seatY is the seat cushion's own bottom-of-part y, in subtiles (the
+      // same coordinate space `parts[].y` uses) — read directly off the
+      // def's own 'seat' part, not guessed. StaffPawns.js uses it to lift a
+      // seated pawn's hip to the CHAIR's actual seat height rather than to
+      // a fixed, style-only guess (which drifts as soon as two chair tiers
+      // don't share a seat height, or the figure style changes).
+      if (typeof def.seat.seatY !== 'number' || !Number.isFinite(def.seat.seatY) || def.seat.seatY < 0) {
+        problem(id, 'seat.seatY', `seat.seatY must be a non-negative number (subtiles, matching the def's own 'seat' part y), got ${JSON.stringify(def.seat.seatY)}`);
       }
     }
     if (def.station == null) return;

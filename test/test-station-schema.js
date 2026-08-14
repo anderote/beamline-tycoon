@@ -1,8 +1,10 @@
 // test/test-station-schema.js
 //
 // Tests for the station/seat schema on placeable defs (Task 3 of the
-// staff-professions-2 nav-and-stations plan). Data only — nothing consumes
-// station/seat yet. Verifies:
+// staff-professions-2 nav-and-stations plan). Data only — station/seat.facing
+// and station.anchors feed Task 6's StaffPawns.js pathing/pose logic;
+// seat.seatY (fix-round-1 on Task 6) feeds its seated hip placement, see
+// test-pawn-pathing.js for the world-Y math that consumes it. Verifies:
 //   1. validateContent reports zero station/seat problems over real content.
 //   2. Every def in the assignment table carries the expected jobs/slots.
 //   3. Stackable benchtop instruments never carry a station (fix-round-1:
@@ -13,16 +15,17 @@
 //      pinned to their exact coordinates, so a later edit can't silently
 //      flip one back without a red test.
 //   5. All six chairs carry a seat facing exactly 'n' (their backrests are
-//      all authored at local +Z).
+//      all authored at local +Z), and (5b) the exact seatY read off each
+//      chair's own 'seat' part.
 //   6. No chair carries a station (chairs are matched by adjacency).
 //   7. The job-id vocabulary itself is exactly the eleven ids from the
 //      brief — distinct from "content only uses known ids" (validate.js
 //      already enforces that; this locks the vocabulary's own contents).
 //   8. Synthetic bad defs are rejected by validateContent, covering every
 //      rule checkStation enforces (inside-footprint, bad job id, bad
-//      seated, slots/anchors mismatch, bad facing, bad seat.facing,
-//      station+seat mutual exclusion, facing-away-from-object,
-//      duplicate anchors, anchor too far outside).
+//      seated, slots/anchors mismatch, bad facing, bad seat.facing, bad/
+//      missing seat.seatY, station+seat mutual exclusion,
+//      facing-away-from-object, duplicate anchors, anchor too far outside).
 
 import { validateContent, JOB_IDS } from '../src/data/validate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
@@ -50,6 +53,18 @@ const CHAIR_IDS = [
   'officeChair', 'ergonomicChair', 'executiveChair',
   'operatorChair', 'meetingChair', 'cafeteriaChair',
 ];
+
+// seat.seatY per chair (subtiles — the same coordinate space as the def's
+// own `parts[].y`), pinned to the exact value read off each chair's own
+// 'seat' part in facility-room-furnishings.raw.js. Not all six share a
+// height (fix-round-1 on this task: StaffPawns.js used to lift every seated
+// pawn by a fixed, style-only hip height, landing the hip at roughly TWICE
+// hip height regardless of which chair — see test-pawn-pathing.js's seated
+// hip world-Y test for the placement math this schema data feeds).
+const CHAIR_SEAT_Y = {
+  officeChair: 0.8, ergonomicChair: 0.8, executiveChair: 0.8,
+  operatorChair: 0.82, meetingChair: 0.82, cafeteriaChair: 0.82,
+};
 
 // Assignment table from task-3-brief.md. Stackable benchtop instruments
 // (oscilloscope, spectrumAnalyzer, networkAnalyzer, flowMeter, scopeStation)
@@ -193,6 +208,21 @@ for (const id of CHAIR_IDS) {
 }
 
 // ==========================================================================
+// Test 5b: chairs carry the exact seatY read off their own 'seat' part.
+// ==========================================================================
+console.log('\n--- Test 5b: chairs have the pinned seat.seatY ---');
+for (const [id, expected] of Object.entries(CHAIR_SEAT_Y)) {
+  const p = PLACEABLES[id];
+  assert(!!p, `${id}: placeable exists`);
+  if (!p) continue;
+  assert(p.seat?.seatY === expected,
+    `${id}: seat.seatY is ${expected} (got ${JSON.stringify(p.seat?.seatY)})`);
+  const seatPart = (p.parts || []).find(part => part.name === 'seat');
+  assert(!!seatPart && seatPart.y === expected,
+    `${id}: seat.seatY matches the actual 'seat' part's own y (part y ${seatPart?.y})`);
+}
+
+// ==========================================================================
 // Test 6: no chair carries a station — chairs are matched by adjacency.
 // ==========================================================================
 console.log('\n--- Test 6: chairs have no station ---');
@@ -246,7 +276,15 @@ console.log('\n--- Test 8: synthetic bad station/seat defs are rejected ---');
     },
     badSeatFacing: {
       kind: 'furnishing', subW: 1, subL: 1, subH: 1,
-      seat: { facing: 'sideways' },
+      seat: { facing: 'sideways', seatY: 0.8 },
+    },
+    badSeatY: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      seat: { facing: 'n', seatY: -0.5 },
+    },
+    missingSeatY: {
+      kind: 'furnishing', subW: 1, subL: 1, subH: 1,
+      seat: { facing: 'n' },
     },
     stationAndSeat: {
       kind: 'furnishing', subW: 1, subL: 1, subH: 1,
@@ -291,6 +329,10 @@ console.log('\n--- Test 8: synthetic bad station/seat defs are rejected ---');
     "invalid anchor facing ('up') is rejected");
   assert(hasProblem(problems, 'badSeatFacing', 'seat.facing'),
     "invalid seat.facing ('sideways') is rejected");
+  assert(hasProblem(problems, 'badSeatY', 'seat.seatY'),
+    'a negative seat.seatY is rejected');
+  assert(hasProblem(problems, 'missingSeatY', 'seat.seatY'),
+    'a missing seat.seatY is rejected');
   assert(hasProblem(problems, 'stationAndSeat', 'station', 'both station and seat'),
     'a def carrying both station and seat is rejected');
   assert(hasProblem(problems, 'facingAwayFromObject', 'station.anchors[0].facing', 'would look away'),
