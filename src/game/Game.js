@@ -3869,13 +3869,30 @@ export class Game {
       // player already fixed, or starting one with the utilities cut).
       this.refreshInfrastructureGate();
       if (!this.state.infraCanRun) {
-        const count = this.state.infraBlockers.length;
-        this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
-        for (const b of this.state.infraBlockers.slice(0, 3)) {
-          this.log(`  - ${b.reason}`, 'bad');
+        // beam_unstaffed gets one exception: it is the one blocker whose OWN
+        // resolution depends on this beamline already being 'running' —
+        // jobRunner's runBeam cap is the count of RUNNING registry entries
+        // (src/game/staff/jobRunner.js's beamlineCount), so an operator
+        // cannot even be OFFERED this line's console until the toggle below
+        // has already flipped it. Refusing the toggle while merely unstaffed
+        // would make a facility's very first beam unstartable forever: no
+        // operator job without a running beamline, no running beamline
+        // without an operator job. Every OTHER hard blocker (unwired power,
+        // no vacuum, etc.) still refuses the toggle exactly as before —
+        // staffing is the only one that has to resolve AFTER the switch is
+        // flipped, over the next tick or two, the same way the gate already
+        // treats a travelling operator as transient rather than an error
+        // (see utility-gate.js's _unstaffedMessage).
+        const blocking = (this.state.infraBlockers || []).filter(b => b.code !== 'beam_unstaffed');
+        if (blocking.length > 0) {
+          const count = blocking.length;
+          this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
+          for (const b of blocking.slice(0, 3)) {
+            this.log(`  - ${b.reason}`, 'bad');
+          }
+          if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
+          return;
         }
-        if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
-        return;
       }
       entry.status = 'running';
       this.log('Beam ON!', 'good');

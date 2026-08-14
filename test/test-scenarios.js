@@ -41,12 +41,39 @@ function assert(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
+// Headless tests have no renderer to report pawn arrival (that's
+// StaffPawns.js's job — see jobRunner.js's own header comment on
+// job.phase), so every game.tick() call here also instantly completes any
+// in-flight walk. Same shim test-job-runner.js's own arrive() helper covers
+// for a single member.
+function withInstantArrival(game) {
+  const rawTick = game.tick.bind(game);
+  game.tick = (...args) => {
+    const result = rawTick(...args);
+    for (const m of (game.state.staffMembers || [])) {
+      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
+    }
+    return result;
+  };
+  return game;
+}
+
 function bootScenario(scenario) {
-  const game = new Game(new BeamlineRegistry(), { seed: 1234 });
+  const game = withInstantArrival(new Game(new BeamlineRegistry(), { seed: 1234 }));
   const mapData = scenario.generator();
   game.applyScenario(mapData);
   if (scenario.setup) scenario.setup(game);
   game.recalcAllBeamlines();
+  // A shipped starter scenario is meant to come up running, not merely
+  // buildable — and under the seated-operator gate (task-4-brief.md) that
+  // now matters for infraCanRun itself: jobRunner only offers a runBeam job
+  // for a console once its beamline is REGISTRY-running (capsFor's
+  // beamlineCount), so a beamline left 'stopped' can never be staffed no
+  // matter how many operators are on the roster. Start every beamline this
+  // scenario ships before the warmup ticks, exactly like a player would.
+  for (const entry of game.registry.getAll()) {
+    if (entry.status !== 'running') game.toggleBeam(entry.id);
+  }
   for (let i = 0; i < 20; i++) game.tick();
   return game;
 }
@@ -103,13 +130,14 @@ for (const scenario of SCENARIOS) {
 
   const junctions = state.placeables.filter(p => p.category === 'beamline');
   if (junctions.length > 0) {
-    // Scenario ships a beamline — it must be startable.
+    // Scenario ships a beamline — it must be startable, and bootScenario
+    // already started it (ahead of the warmup ticks — see its own comment)
+    // so it stays running rather than being (re)toggled here.
     const sourceJ = junctions.find(p => COMPONENTS[p.type]?.isSource);
     assert(!!sourceJ, 'beamline has a source junction');
     const entry = game.registry.getAll().find(e => e.sourceId === sourceJ?.id);
     assert(!!entry, 'registry entry exists for the source');
     if (entry) {
-      game.toggleBeam(entry.id);
       assert(entry.status === 'running', `beam starts (status=${entry.status})`);
       for (let i = 0; i < 5; i++) game.tick();
       assert(state.beamOn === true, 'state.beamOn true after ticking with beam running');

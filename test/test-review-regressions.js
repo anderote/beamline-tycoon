@@ -12,6 +12,7 @@ import { computeSystemStats, computeBeamIncome } from '../src/game/economy.js';
 import { BeamlineInputController } from '../src/input/BeamlineInputController.js';
 import { ZonePaintTool } from '../src/input/placement-tools.js';
 import { UtilityGate } from '../src/game/utility-gate.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { portSide } from '../src/beamline/junctions.js';
 import { ProbeWindow } from '../src/ui/probe.js';
@@ -83,17 +84,45 @@ console.log('\n=== 1. Staff needs no longer deadlock without a cafeteria ===\n')
 }
 
 // The beam_unstaffed blocker must name the real cause, not the Control Room.
+//
+// Carry-forward from staff-professions-3 Task 4 (task-4-brief.md): the OLD
+// status==='onBreak' this block used to pin (see block 1 above — that
+// status can no longer be produced at all) is gone. Its modern equivalent
+// is an operator whose job is eat/rest — and, unlike the deleted onBreak
+// check, an eating/resting operator does NOT count as active coverage
+// (operatorCoverage only counts phase:'work' on a runBeam job), so the
+// blocker fires and has to name the break rather than the Control Room.
 {
-  const gate = new UtilityGate({
-    state: {
-      staffMembers: [{
-        id: 'a', profession: 'operator', status: 'onBreak',
-        needs: { fatigue: 0.1, hunger: 0.9, morale: 0.5 },
-      }],
-    },
+  const state = {
+    tick: 0,
+    infraOccupied: {}, wallOccupied: {}, doorOccupied: {}, subgridOccupied: {},
+    placeableIndex: {}, placeables: [], zoneOccupied: {},
+    stationReservations: {}, navRevision: 0,
+    staffMembers: [{
+      id: 'a', profession: 'operator', status: 'working',
+      needs: { fatigue: 0.1, hunger: 0.9, morale: 0.5 },
+      job: {
+        jobType: 'eat', target: null, specialty: null, stationKey: 'cafeteria1:0',
+        destNode: { col: 0, row: 0, subCol: 0, subRow: 0 }, phase: 'work', progress: 10,
+      },
+    }],
+  };
+  for (let c = 0; c <= 8; c++) for (let r = 0; r <= 8; r++) state.infraOccupied[`${c},${r}`] = 'concrete';
+  // A real console so the blocker reaches the eat/rest branch of the ladder
+  // rather than stopping earlier at "no console built".
+  const consoleDef = PLACEABLES.operatorConsole;
+  const cells = consoleDef.footprintCells(2, 2, 0, 0, 0);
+  state.placeables.push({
+    id: 'console1', type: 'operatorConsole', kind: consoleDef.kind,
+    col: 2, row: 2, subCol: 0, subRow: 0, dir: 0, cells,
   });
+  for (const c of cells) {
+    state.subgridOccupied[`${c.col},${c.row},${c.subCol},${c.subRow}`] = { id: 'console1', kind: consoleDef.kind };
+  }
+
+  const gate = new UtilityGate({ state });
   const msg = gate._unstaffedMessage();
-  assert(/cafeteria/i.test(msg), `hungry-on-break blocker mentions the cafeteria ("${msg}")`);
+  assert(/eat|rest|break/i.test(msg), `hungry operator on an eat job names the break ("${msg}")`);
   const empty = new UtilityGate({ state: { staffMembers: [] } });
   assert(/hired/i.test(empty._unstaffedMessage()), 'empty roster blocker says no operator hired');
 }

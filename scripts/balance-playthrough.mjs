@@ -104,6 +104,24 @@ function newFacility(seed) {
   game.applyScenario(scenario.generator());
   scenario.setup(game);
   game.recalcAllBeamlines();
+  return withInstantArrival(game);
+}
+
+// Headless sim, no renderer to report pawn arrival (that's StaffPawns.js's
+// job — see jobRunner.js's own header comment on job.phase), so every
+// game.tick() call here also instantly completes any in-flight walk. Real
+// walks are short relative to a 400k-tick playthrough; this just keeps the
+// walk itself out of what the sim is measuring, the same way the operator
+// seeded at game start is assumed to already be at their post.
+function withInstantArrival(game) {
+  const rawTick = game.tick.bind(game);
+  game.tick = (...args) => {
+    const result = rawTick(...args);
+    for (const m of (game.state.staffMembers || [])) {
+      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
+    }
+    return result;
+  };
   return game;
 }
 
@@ -337,10 +355,33 @@ function hireStaff(game, roles) {
       // Stagger shifts so fatigue breaks alternate instead of tripping the beam
       // in sync.
       m.needs.fatigue = 0.5 * (state.staffMembers.length % 2);
+      // One operator needs one console to actually sit at: the new beam gate
+      // (task-4-brief.md) only counts an operator toward coverage while
+      // phase:'work' on a runBeam job, and jobRunner offers at most one
+      // runBeam job per free console SLOT — so hiring operators without also
+      // building them somewhere to sit caps this facility's coverage at
+      // whatever the starter scenario's one console can hold, no matter how
+      // many more beamlines get added. The starter scenario already ships
+      // one console for the seeded starting operator; this covers every
+      // operator hired after that.
+      ensureOperatorConsole(game);
     }
     state.staffMembers.push(m);
   }
   game._syncStaffCounts();
+}
+
+// Placed in its own dedicated strip, well clear of the beamline rows and lab
+// blocks the rest of the ladder uses, so it never collides with them. Free —
+// this rides the STAFF_STEP_BUDGET readiness gate the hire itself already
+// passed, rather than adding a second itemized budget step for a $25k item.
+function ensureOperatorConsole(game) {
+  const state = game.state;
+  const existing = state.placeables.filter(p => p.type === 'operatorConsole').length;
+  game.placePlaceable({
+    type: 'operatorConsole', col: -30, row: existing * 4, subCol: 0, subRow: 0, dir: 0,
+    free: true, silent: true,
+  });
 }
 
 // Labs are painted through the real (charging) brush; their price is small and
@@ -371,6 +412,9 @@ const CASH_FLOOR = 500_000;
 const SAVE_HORIZON = 3000;
 // Window over which net income is measured for that decision.
 const RATE_WINDOW = 500;
+// Grace ticks a fresh beamline gets before an unstaffed gate counts as a
+// real stall — see the pendingGateCheck handling in the run loop below.
+const GATE_CHECK_GRACE_TICKS = 20;
 
 /**
  * The expansion ladder, in the order a player climbs it. Each step declares a
@@ -394,6 +438,23 @@ function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
   for (let i = 0; i < maxLines; i++) {
     const grade = detectorEvery > 0 && (i + 1) % detectorEvery === 0 ? 'detector' : 'cup';
     const cost = beamlineRecipeCost(grade);
+    // Staff BEFORE beamline: the operator's coverage has to already exist
+    // the instant a new beamline comes online, or the facility trips
+    // beam_unstaffed the moment it's built (operatorCoverage.capacity
+    // couldn't possibly cover a beamline count it hasn't caught up to yet —
+    // see task-4-brief.md's new gate). The staff step is cheap
+    // (STAFF_STEP_BUDGET) and gets bought well before the much larger
+    // beamline recipe cost, so by the time a run affords line N+1, its
+    // operator has been on payroll for a while — no gap.
+    steps.push({
+      kind: 'staff', label: `staff:line${i + 2}`, budget: STAFF_STEP_BUDGET,
+      apply: (game) => {
+        hireStaff(game, i % 2 === 0
+          ? ['operator', 'technician', 'scientist']
+          : ['operator', 'technician']);
+        return true;
+      },
+    });
     steps.push({
       kind: 'beamline', label: `line${i + 2}:${grade}`, budget: cost,
       apply: (game) => {
@@ -403,15 +464,6 @@ function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
         // measurement the budget gated on, so a row that ever routes
         // differently pays the difference instead of quietly diverging.
         game.state.resources.funding -= beamlineHardwareCost(grade) + built.wiringCost;
-        return true;
-      },
-    });
-    steps.push({
-      kind: 'staff', label: `staff:line${i + 2}`, budget: STAFF_STEP_BUDGET,
-      apply: (game) => {
-        hireStaff(game, i % 2 === 0
-          ? ['operator', 'technician', 'scientist']
-          : ['operator', 'technician']);
         return true;
       },
     });
@@ -540,12 +592,25 @@ export function runPlaythrough({
     if (state.beamOn) beamOnTicks++;
 
     if (pendingGateCheck) {
-      if (!state.infraCanRun) {
+      if (state.infraCanRun) {
+        pendingGateCheck = null;
+      } else if (state.tick >= pendingGateCheck.deadline) {
+        // Grace period (GATE_CHECK_GRACE_TICKS) expired and the facility is
+        // STILL down — that is a real stall, not just staffing latency. A
+        // freshly hired operator needs jobRunner to assign them (their
+        // runBeam job is capped at the currently-RUNNING beamline count —
+        // see jobRunner.js's capsFor — so they cannot even be offered the
+        // job until THIS beamline is already live) and then "arrive"
+        // (withInstantArrival flips phase on the tick AFTER assignment) —
+        // one tick of unavoidable lag a real player's operator would also
+        // need to physically walk over. Checking on the very next tick (the
+        // old behavior) flagged that ordinary lag as a stall on every single
+        // beamline rung once operators had to be individually seated.
         const codes = [...new Set((state.infraBlockers || []).map(b => b.code))];
         pendingGateCheck.gate = codes.join(',') || 'unknown';
         ladderStalled = `${pendingGateCheck.label} (gate: ${pendingGateCheck.gate})`;
+        pendingGateCheck = null;
       }
-      pendingGateCheck = null;
     }
 
     if (state.tick - rateWindowTick >= RATE_WINDOW) {
@@ -638,10 +703,13 @@ export function runPlaythrough({
           game.refreshInfrastructureGate();
           startAllBeams(game);
           // infraCanRun is FACILITY-wide, not per line: one badly fed component
-          // on a new build stops every beam in the place. Read it on the next
-          // tick (the gate needs a solve with the beams actually on) rather
-          // than three thousand ticks later when the funds curve inverts.
-          pendingGateCheck = record;
+          // on a new build stops every beam in the place. Read it within a
+          // short grace window (the gate needs a solve with the beams
+          // actually on, and — since staff-professions-3 — a newly hired
+          // operator needs a tick to be assigned plus a tick to "arrive",
+          // see the pendingGateCheck handling above) rather than three
+          // thousand ticks later when the funds curve inverts.
+          pendingGateCheck = { ...record, deadline: state.tick + GATE_CHECK_GRACE_TICKS };
         }
         // A failed build leaves half-wired hardware that the gate will hold the
         // whole facility down on. Stop climbing rather than compound it — and
