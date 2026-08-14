@@ -3293,28 +3293,6 @@ body {
   gap: 6px;
 }
 .hiring-card:hover { border-color: rgba(100,150,255,0.5); }
-.hiring-card-header {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.hiring-portrait {
-  width: 32px;
-  height: 32px;
-  border: 2px solid #44dd66;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  color: #fff;
-  flex-shrink: 0;
-}
-.hiring-name { font-size: 9px; color: #ccddff; }
-.hiring-role { font-size: 7px; color: #888; text-transform: capitalize; }
-.hiring-traits { font-size: 7px; color: #aacc88; line-height: 1.4; }
-.hiring-skills { font-size: 7px; color: #aaa; line-height: 1.5; }
 .hiring-cost { font-size: 8px; color: #44dd66; }
 .hiring-hire-btn {
   margin-top: 4px;
@@ -3329,6 +3307,57 @@ body {
 }
 .hiring-hire-btn:hover { background: rgba(50,100,50,0.9); }
 .hiring-hire-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Bio cards — shared by the hiring dialog (compact) and staff inspector
+   (full). See src/ui/StaffBioCard.js. */
+.bio-card-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+/* Empty placeholder — a later plan fills this with a live head render. */
+.bio-card-portrait {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #44dd66;
+  background: #1a1a2e;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.bio-card-heading { display: flex; flex-direction: column; gap: 2px; }
+.bio-card-name { font-size: 10px; color: #ccddff; }
+.bio-card-profession { font-size: 7px; text-transform: capitalize; }
+.bio-card-specialty { text-transform: none; }
+.bio-card-backstory {
+  background: rgba(20,20,40,0.6);
+  border: 1px solid rgba(80,80,120,0.25);
+  border-radius: 3px;
+  padding: 5px 6px;
+  margin-bottom: 6px;
+}
+.bio-card-backstory-name { font-size: 8px; color: #aaccff; margin-bottom: 2px; }
+.bio-card-backstory-blurb { font-size: 7px; color: #999; line-height: 1.4; font-style: italic; }
+.bio-card-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+.bio-card-trait {
+  background: rgba(20,20,40,0.8);
+  border: 1px solid rgba(80,80,120,0.25);
+  border-radius: 3px;
+  padding: 4px 6px;
+  color: #aacc88;
+  font-size: 7px;
+}
+.bio-card-trait-none { color: #666; }
+.bio-card-skills { margin-bottom: 6px; }
+.bio-card-career { display: flex; flex-direction: column; gap: 2px; }
+.bio-card-career-row { display: flex; justify-content: space-between; gap: 8px; }
+.bio-card-career-label { font-size: 7px; color: #8888aa; text-transform: uppercase; }
+.bio-card-career-value { font-size: 7px; color: #ccc; }
 
 /* === TITLE SCREEN (RCT-style opening menu) === */
 #title-screen {
