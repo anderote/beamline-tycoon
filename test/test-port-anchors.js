@@ -257,6 +257,27 @@ function useProviders(bounds, surface) {
   });
 }
 
+console.log('\n--- 4b. Pipe attachments share the rendered model centre ---');
+{
+  useProviders(FAKE_BOUNDS, SHELL);
+
+  // ComponentBuilder.componentPose centres a pipe attachment at col*2+1,
+  // row*2+1. Its footprint length must not be added a second time.
+  const p = place(CM, { col: 2.25, row: 3.5, subCol: null, subRow: null, dir: 0 });
+  const a = portAnchor3D(p, CM_DEF, 'cryo_in');
+  const modelCentre = { x: p.col * 2 + 1, z: p.row * 2 + 1 };
+  assert(near(a.x, modelCentre.x + SHELL),
+    `pipe anchor is measured laterally from rendered centre (got ${fmtA(a)})`);
+  assert(near(a.z, modelCentre.z + ALONG.cryo_in),
+    `pipe anchor does not add half the ${CM_DEF.subL}-subtile footprint length`);
+
+  // Rotation turns the local mount but never changes that same world centre.
+  const turned = portAnchor3D({ ...p, dir: 1 }, CM_DEF, 'cryo_in');
+  assert(near(turned.x, modelCentre.x - ALONG.cryo_in)
+      && near(turned.z, modelCentre.z + SHELL),
+    `rotated pipe anchor stays centred on the rendered component (got ${fmtA(turned)})`);
+}
+
 console.log('\n--- 5. With a renderer, the anchor lands on the measured shell ---');
 {
   useProviders(FAKE_BOUNDS, SHELL);

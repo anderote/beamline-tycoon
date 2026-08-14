@@ -245,7 +245,15 @@ export function portAnchor3D(placeable, def, portName) {
   if (!placeable || !portName) return null;
   const local = portLocalAxis(def, portName);
   if (!local) return null;
-  const centre = placeableCenterWorld(placeable, def);
+  // Pipe attachments store interpolated pipe coordinates in col/row and mark
+  // both subtile fields null. ComponentBuilder.componentPose renders their
+  // model around the containing tile's centre regardless of footprint size;
+  // using the normal top-left-footprint centre here displaced long modules by
+  // several metres (a 16-subtile cryomodule was the clearest example).
+  const onPipe = placeable.subCol == null && placeable.subRow == null;
+  const centre = onPipe
+    ? { x: (placeable.col || 0) * 2 + 1, z: (placeable.row || 0) * 2 + 1 }
+    : placeableCenterWorld(placeable, def);
   if (!centre) return null;
 
   const type = placeable.type;
