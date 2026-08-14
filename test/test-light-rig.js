@@ -48,6 +48,14 @@ class ColorStub {
   getHex() { return this._raw; }
 }
 
+// lighting-builder.js's fixture builders (_buildLamppost etc.) only need
+// these to not crash — the discovery test below builds a REAL fixture group,
+// but never inspects a lamppost's vertex data, only its group transform.
+class SimpleGeometry {
+  constructor(...args) { this.args = args; }
+  dispose() {}
+}
+
 // Reproduces three's actual generateTorso()/BoxGeometry uv/position layout
 // closely enough to exercise the real bake functions — see
 // test/test-utility-flow.js's identical stub for the verification notes.
@@ -158,6 +166,9 @@ globalThis.THREE = {
   Mesh,
   MeshStandardMaterial,
   BoxGeometry,
+  CylinderGeometry: SimpleGeometry,
+  ConeGeometry: SimpleGeometry,
+  TorusGeometry: SimpleGeometry,
   SpotLight,
   PointLight,
   AdditiveBlending: 2,
