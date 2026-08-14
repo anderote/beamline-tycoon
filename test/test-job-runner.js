@@ -109,6 +109,20 @@ function placeDamagedBeamline(state, beamlineId, col, row, health) {
   return { id: beamlineId, sourceId: src.id, beamState: { componentHealth: { [src.id]: health } } };
 }
 
+// A registered beamline's registry entry (the `{ id, sourceId, status,
+// beamState }` shape most scenarios below build by hand) needs a matching
+// isSource PLACEABLE for jobRunner's runBeam cap to count it: fix-round-2
+// made that cap call utility-gate.js's exported countBeamlines(state)
+// directly (one implementation shared with operatorCoverage, instead of two
+// that happened to agree — see jobRunner.js's own comment on beamlineCount),
+// which counts isSource placeables, not registry entries. A bare record is
+// enough — countBeamlines only reads `.type`, so this doesn't need the full
+// footprint/nav machinery placeDamagedBeamline's real 'source' module gets.
+let _srcPlaceableNextId = 1;
+function addSourcePlaceable(state) {
+  state.placeables.push({ id: `srcplaceable_${_srcPlaceableNextId++}`, type: 'source', category: 'beamline' });
+}
+
 const FLAT_SKILLS = { operating: 5, technical: 5, research: 5, construction: 5, admin: 5 };
 
 function makeMember(profession, id) {
@@ -137,6 +151,7 @@ console.log('\n=== 1. Idle operator -> assigned runBeam, holds the reservation, 
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state); // matches the registry entry below — see that helper's own comment
   bump(state);
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
@@ -209,6 +224,7 @@ console.log('\n=== 3. Demolishing the station mid-job abandons it and releases t
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state);
   bump(state);
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
@@ -491,6 +507,7 @@ console.log('\n=== 4. Firing a staffer mid-job releases the reservation (via rel
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state);
   bump(state);
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
@@ -600,6 +617,7 @@ console.log("\n=== 6. Deadlock guard: no cafeteria anywhere -> a hungry operator
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state);
   bump(state);
   // Deliberately no diningTable/toolChest/workCart anywhere in this facility.
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
@@ -657,6 +675,7 @@ console.log('\n=== 6b. A cafeteria has real mechanical value: an operator who CA
       const table = placeItem(state, 'diningTable', 8, 8, 0, 0, 0);
       placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
     }
+    addSourcePlaceable(state);
     bump(state);
     const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
     const game = makeGame(state, [beamline]);
@@ -728,6 +747,7 @@ console.log('\n=== 8. serialize() -> deserialize() round-trips job; a reservatio
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state);
   bump(state);
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
@@ -769,20 +789,23 @@ console.log("\n=== 9. runBeam cap: at most (registered) beamlineCount operators 
   // instead of the actually-relevant beamline shortage. See pickBestOffer's
   // professionOk-relevance split.
   //
-  // beamlineCount counts REGISTERED beamlines, not only running ones (see
-  // jobRunner.js's own comment on that function — utility-gate.js's
-  // operatorCoverage requires coverage for every isSource placeable
-  // regardless of run status, so the cap has to match or a stopped/damaged
-  // line can shrink it out from under an already-seated operator). This
-  // fixture registers TWO beamlines (one running, one damaged-but-
-  // registered) against THREE free consoles, so the cap (2) is still the
-  // real constraint, not console count.
+  // beamlineCount counts isSource PLACEABLES (utility-gate.js's shared
+  // countBeamlines, staff-professions-3 fix-round-2 — see jobRunner.js's
+  // own comment on that function), not registry entries directly, and not
+  // only running ones: operatorCoverage requires coverage for every
+  // isSource placeable regardless of run status, so the cap has to match or
+  // a stopped/damaged line can shrink it out from under an already-seated
+  // operator. This fixture places TWO isSource 'source' modules — one via
+  // placeDamagedBeamline (bl-2, damaged-but-registered), one added directly
+  // for bl-1 (running) — against THREE free consoles, so the cap (2) is
+  // still the real constraint, not console count.
   const state = makeState();
   floorRect(state, 0, 20, 0, 10);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   placeItem(state, 'monitorBank', 6, 2, 0, 0, 0);
   placeItem(state, 'operatorConsole', 10, 8, 0, 0, 0);
   const damaged = placeDamagedBeamline(state, 'bl-2', 12, 4, 40);
+  addSourcePlaceable(state); // matches bl-1 (running), below
   bump(state);
   const running = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [running, damaged]); // TWO registered beamlines, three free consoles
@@ -873,6 +896,7 @@ console.log('\n=== 11. abandonJob is the single choke point: releases the statio
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addSourcePlaceable(state);
   bump(state);
   const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);

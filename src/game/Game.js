@@ -3891,13 +3891,16 @@ export class Game {
         // Every OTHER hard blocker is clear — beam_unstaffed is the only
         // thing holding this line dark, and it's normally transient (an
         // operator assigned moments ago is one or two ticks from phase:
-        // 'work' — see utility-gate.js's _unstaffedMessage). This must
-        // read as neither a real fault NOR a false "Beam ON!": the beam
-        // genuinely is not running yet, so the toggle still refuses, but
-        // the log says so without alarming the player over something that
-        // resolves itself.
+        // 'work' — see utility-gate.js's _unstaffedMessage). This must read
+        // as neither a real fault NOR a false "Beam ON!": the beam genuinely
+        // is not running, so the toggle still refuses (no status change, no
+        // pending-start state of any kind — this method sets nothing up to
+        // retry automatically), and the log must not promise otherwise. The
+        // player has to press Start again once staffed; "armed" previously
+        // implied they wouldn't.
         const staffBlocker = blockers.find(b => b.code === 'beam_unstaffed');
-        this.log(`Beam armed — waiting on an operator: ${staffBlocker?.reason || ''}`, 'info');
+        this.log(`Beam not started — waiting on an operator: ${staffBlocker?.reason || ''}. `
+          + 'Press Start again once they are at the console.', 'info');
         return;
       }
       entry.status = 'running';

@@ -162,7 +162,21 @@ function sinkQualityFloorFrom(portTable) {
 // this facility at all" (see run()'s own `beamlineCount > 0` guard, which
 // keeps using it), not "how many lines need an operator's attention" — using
 // it here would turn "hire one more operator" into "hire fifteen more".
-function countBeamlines(state) {
+//
+// Exported so jobRunner.js's runBeam assignment cap can call this SAME
+// function instead of deriving its own count off the beamline registry
+// (`game.registry.getAll().length`). The two used to agree only by
+// convention — one counting isSource placeables, the other counting
+// registry entries, correct only because `_ensureBeamlineForSourcePlaceable`
+// keeps them 1:1 today. That's two implementations of one rule, which is
+// exactly the shape of bug the seated-operator gate itself exists to close:
+// if anything ever lets an isSource placeable and its registry entry drift
+// apart (Game.js:3355's `_removeBeamlineForSourcePlaceable` is dead code
+// with no caller — removing a source junction currently leaves a phantom
+// registry entry; not this task's to fix, see task-4-report.md), the cap
+// and the gate now degrade IDENTICALLY instead of asymmetrically, because
+// they're the same call.
+export function countBeamlines(state) {
   let n = 0;
   for (const p of (state.placeables || [])) {
     if (COMPONENTS[p.type]?.isSource) n++;
@@ -327,13 +341,26 @@ export class UtilityGate {
       }));
       state.infraCanRun = hardErrs.length === 0;
 
-      // Accrue AFTER infraCanRun is final, and only when it's true: beamHours
-      // is meant to record time the beam actually ran, not time a seated
-      // operator happened to be at their console while an UNRELATED fault
-      // (unwired power, a quenched cavity, the staffing gate itself) held
-      // the whole facility down. `beamlineCount > 0` mirrors the same guard
-      // the blocker above uses — no beamline, nothing to accrue.
-      if (beamlineCount > 0 && state.infraCanRun) {
+      // Accrue AFTER infraCanRun is final, and only when it's true AND some
+      // beamline is actually RUNNING: beamHours is meant to record time the
+      // beam actually ran, not time a seated operator happened to be at
+      // their console while an UNRELATED fault (unwired power, a quenched
+      // cavity, the staffing gate itself) held the facility down — or,
+      // fix-round-2's own bug, while every registered beamline sat
+      // `'stopped'` and nobody had ever pressed Start at all. Before the
+      // runBeam cap counted registered (not running) beamlines this branch
+      // was unreachable: an operator could not even be SEATED against a
+      // beamline that wasn't running. Widening the cap made it reachable,
+      // so the guard has to widen too. `state.beamOn` (Game.js's
+      // _updateAggregateBeamline, `entry.status==='running' &&
+      // infraCanRun`) is one tick stale here — it's computed earlier in
+      // Game.tick(), before this gate re-derives infraCanRun for the
+      // CURRENT tick — the same pre-existing, symmetric one-tick lag
+      // _tickBeamline's own income read already has; not worth a second
+      // registry-status plumbing path through this gate just to shave off
+      // one tick. `beamlineCount > 0` mirrors the same guard the blocker
+      // above uses — no beamline, nothing to accrue.
+      if (beamlineCount > 0 && state.infraCanRun && state.beamOn) {
         this._accrueBeamHours(coverage.operators);
       }
 

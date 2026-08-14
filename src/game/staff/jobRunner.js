@@ -29,6 +29,7 @@ import {
 } from './jobs.js';
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
 import { getNavGrid, findPath, isReachable } from './nav.js';
+import { countBeamlines } from '../utility-gate.js';
 
 // --- Needs vs. work — the deadlock guard ----------------------------------
 //
@@ -143,26 +144,35 @@ function handleNeeds(member, game) {
 // because the board has no notion of "who's asking" and capping in its own
 // (arbitrary) offer order would throw away the nearest option before the
 // assigner ever saw it:
-//   - runBeam: at most one operator per REGISTERED beamline (see
-//     beamlineCount). This USED to filter to status === 'running' — "a
-//     registered-but-stopped beamline doesn't need continuous operator
-//     attention" — but that directly contradicts utility-gate.js's
-//     operatorCoverage (staff-professions-3 Task 4), which requires coverage
-//     for every isSource placeable regardless of run status. With the two
-//     disagreeing, stopping ONE line among several (a redesign, or a line
-//     built and never started) shrank this cap out from under an already-
-//     seated operator, the board refused to reseat them ("All N beamlines
-//     already have an operator" — true of the cap, false of the roster) and
-//     the STILL-RUNNING lines went dark with the only on-screen advice
-//     (hire/promote) doing nothing, because hiring was never the bottleneck.
-//     Matching the gate's own count (one per registered beamline,
-//     `_ensureBeamlineForSourcePlaceable` creates exactly one registry entry
-//     per isSource placeable) closes that gap: an operator can now be seated
-//     against a beamline the moment it's BUILT, not only once it's running,
-//     which is also what makes a beamline startable from cold at all (no
+//   - runBeam: at most one operator per beamline this facility HAS (see
+//     beamlineCount — calls utility-gate.js's exported countBeamlines(state)
+//     directly, rather than deriving a second count off the registry). This
+//     USED to filter the registry to status === 'running' — "a registered-
+//     but-stopped beamline doesn't need continuous operator attention" —
+//     but that directly contradicted utility-gate.js's operatorCoverage
+//     (staff-professions-3 Task 4), which requires coverage for every
+//     isSource placeable regardless of run status. With the two disagreeing,
+//     stopping ONE line among several (a redesign, or a line built and never
+//     started) shrank this cap out from under an already-seated operator,
+//     the board refused to reseat them ("All N beamlines already have an
+//     operator" — true of the cap, false of the roster) and the STILL-
+//     RUNNING lines went dark with the only on-screen advice (hire/promote)
+//     doing nothing, because hiring was never the bottleneck.
+//     Fix-round-1 first matched the two counts independently (both landed on
+//     "one per registered beamline", since `_ensureBeamlineForSourcePlaceable`
+//     keeps one registry entry per isSource placeable 1:1 today) — but two
+//     implementations of one rule is exactly the shape of bug the gate
+//     exists to close, and they'd only ever agreed by convention. Fix-
+//     round-2 makes it one implementation: this cap calls the gate's own
+//     countBeamlines(state), so if that correspondence ever breaks (e.g.
+//     Game.js:3355's `_removeBeamlineForSourcePlaceable`, currently dead
+//     code with no caller — not this task's to fix), the cap and the gate
+//     degrade IDENTICALLY instead of drifting apart. Seating an operator
+//     against a beamline the moment it's BUILT (not only once it's running)
+//     is also what makes a beamline startable from cold at all — no
 //     operator job without a running beamline, no running beamline without
-//     an operator job, otherwise). The board still offers one slot per free
-//     CONSOLE, which can outnumber (or undernumber) registered beamlines.
+//     an operator job, otherwise. The board still offers one slot per free
+//     CONSOLE, which can outnumber (or undernumber) this count.
 //   - repair: at most one technician per SPARE currently in inventory.
 //     repairOffers (jobs.js) reads state.resources.spares once per board
 //     scan and suppresses ALL repair offers only when spares is exactly
@@ -175,7 +185,7 @@ function handleNeeds(member, game) {
 //     StationRef, no reservation — see jobs.js's header comment) so there
 //     is no reservation table to count holders from.
 function beamlineCount(game) {
-  return (game.registry?.getAll?.() || []).length;
+  return countBeamlines(game.state);
 }
 
 function capsFor(game) {

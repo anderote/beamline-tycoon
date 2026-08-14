@@ -37,6 +37,9 @@
 //   11. beamHours accrues once per in-game hour, deduped across multiple
 //      run() calls on the same tick (repeated toggleBeam while paused).
 //   12. beamHours does not accrue while blocked by an unrelated hard fault.
+//   13. beamHours stays flat over 300 ticks when the facility is fully
+//      staffed but the beam was never started (state.beamOn false) —
+//      fix-round-2's own finding.
 
 import { UtilityGate, operatorCoverage } from '../src/game/utility-gate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
@@ -427,6 +430,14 @@ console.log('\n=== 11. beamHours: deduped per tick, not per run() call ===\n');
     },
   });
   state.staffMembers = [op];
+  // Real Game.js sets state.beamOn from _updateAggregateBeamline
+  // (entry.status==='running' && infraCanRun), computed earlier in
+  // Game.tick() than this gate re-derives infraCanRun for the CURRENT tick
+  // — see run()'s own comment on why accrual gates on it and why that's a
+  // deliberate, pre-existing one-tick lag rather than fresh registry access
+  // this headless gate doesn't have. Set directly here since nothing else
+  // in this hand-built state computes it.
+  state.beamOn = true;
   state.tick = 10; // a multiple of DAY_LENGTH_TICKS/24 (240/24 = 10) — an accrual tick
   const gate = makeGate(state);
   for (let i = 0; i < 10; i++) gate.run(); // simulates toggling off/on repeatedly while paused
@@ -467,6 +478,40 @@ console.log('\n=== 12. beamHours: no accrual while blocked by an unrelated fault
   assert(state.infraCanRun === false, 'setup: the facility is genuinely blocked (unrelated fault)');
   assert((op.stats.beamHours || 0) === 0,
     `a seated operator banks zero beamHours while an unrelated fault blocks the facility (got ${op.stats.beamHours})`);
+}
+
+// ==========================================================================
+// 13. beamHours stays flat over a real run when the facility is fully
+// STAFFED (covered) but the beam was never started — fix-round-2's own
+// finding: the accrual guard used to check infraCanRun only, and widening
+// the runBeam cap to registered (not running) beamlines made "seated but
+// never toggled on" reachable for the first time.
+// ==========================================================================
+console.log('\n=== 13. beamHours: flat over 300 ticks, staffed but beam never started ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  const op = makeOperator({
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: `${console_.id}:0`, destNode: { col: 2, row: 1, subCol: 1, subRow: 3 },
+      phase: 'work', progress: 0,
+    },
+  });
+  state.staffMembers = [op];
+  // state.beamOn deliberately left unset (falsy) — no entry is 'running',
+  // matching a facility whose registered beamline was built but never
+  // toggled on. Coverage is nonetheless full: the operator is seated,
+  // phase:'work'.
+  const gate = makeGate(state);
+  for (let t = 0; t <= 300; t += 10) { state.tick = t; gate.run(); }
+  const cov = operatorCoverage(state);
+  assert(cov.covered === true, 'setup: the facility is fully covered (staffed)');
+  assert(!beamUnstaffed(state), 'setup: no beam_unstaffed blocker — staffing is not the problem here');
+  assert((op.stats.beamHours || 0) === 0,
+    `beamHours stays at 0 over 300 ticks of a staffed-but-never-started facility (got ${op.stats.beamHours})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
