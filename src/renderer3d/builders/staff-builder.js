@@ -164,7 +164,14 @@ export const STAFF_STYLES = {
       legFrac: 0.38,          // hair cap on top pushes the visual head to ~1/3
       bulk: 1.08,
       extremityScale: 1.25,
-      saturation: 1.5,
+      // 1.25, not 1.5: the rct2 palette is sampled from RCT2 sprites that are
+      // already at RCT2 saturation, so a 1.5x multiplier pushes past the source
+      // material. Measured against the rfCavity in the in-context render, 1.5
+      // put the figures at mean S 0.64 with 59% of chromatic pixels above 0.6,
+      // versus the machine's 0.60 / 43% — same average, far more near-maximum
+      // area, which is what read as pasted-on. 1.25 lands at parity (~0.57)
+      // while keeping a deliberate pop.
+      saturation: 1.25,
       swingAmp: 0.9,
       face: true,
       faceScale: 1.4,         // a chibi head needs chibi features, not pinpricks
