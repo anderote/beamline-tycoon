@@ -164,6 +164,9 @@ globalThis.THREE = {
 };
 
 const { LightRig } = await import('../src/renderer3d/light-rig.js');
+const { fixtureLightTag } = await import('../src/renderer3d/lighting-builder.js');
+const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
+const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
 const { buildFloorGlowStrip } = await import('../src/renderer3d/floor-glow.js');
 const { FLOW_PARAMS } = await import('../src/renderer3d/utility-flow.js');
 
@@ -267,6 +270,229 @@ test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does
   rig.update(camera, 0, 0.01); // 10ms of a 1000ms flash, at full daylight
   assert.ok(flashingSlot.light.intensity > 45,
     `a flash barely into its decay should still be near its starting intensity regardless of nightFactor=0 (got ${flashingSlot.light.intensity})`);
+});
+
+// --- Spot handover: hysteresis, crossfade, and pool suppression ------------
+//
+// There are far more fixtures than shadow spots, so the spots are an LOD over
+// the painted floor pools every fixture already has. Everything below guards
+// the two ways that LOD can look broken to a player: STROBING (a spot swapping
+// back and forth between two fixtures at nearly equal camera distance, each
+// swap popping a painted pool off and another on) and a DARK GAP (a fixture
+// suppressed while its real light hasn't faded in yet, or vice versa).
+//
+// All of it runs on the rig's internal _clockMs, advanced by the dt handed to
+// update() — never performance.now(). That's what makes a 1200 ms minimum hold
+// and a 250 ms crossfade assertable in a unit test with no timers at all.
+
+function placeFixture(scene, id, def, x, z, dir = 0) {
+  const g = new Group();
+  g.position.set(x, 0, z);
+  g.userData.lightFixture = fixtureLightTag(def, { id, dir });
+  scene.add(g);
+  return g;
+}
+
+test('a fixture at the rank boundary never strobes: no slot swap across 120 oscillating frames', () => {
+  const scene = new SceneStub();
+  // Two fixtures a hair apart, and one spot to fight over.
+  const a = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  const b = placeFixture(scene, 'B', DEF.lamppost, 0.2, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+
+  const camera = { position: new V3(-5, 0, 0) };
+  rig.update(camera, 1, 0.016);
+  const first = rig._spotSlots[0].assignedRef;
+  assert.ok(first === a || first === b, 'one of the two fixtures takes the only spot');
+
+  // Oscillate the camera across the midpoint every frame — naive
+  // nearest-N ranking would flip the winner on literally every frame. 120
+  // frames at 16 ms is ~1.9 s, comfortably past SPOT_MIN_HOLD_MS, so this is
+  // not the min-hold timer doing the work: it's the rank slack.
+  let swaps = 0;
+  let prev = first;
+  for (let i = 0; i < 120; i++) {
+    camera.position.set(i % 2 === 0 ? 5 : -5, 0, 0);
+    rig.update(camera, 1, 0.016);
+    if (rig._spotSlots[0].assignedRef !== prev) swaps++;
+    prev = rig._spotSlots[0].assignedRef;
+  }
+  assert.equal(swaps, 0, 'the incumbent keeps the spot for all 120 frames — ordering jitter inside the slack band is not a demotion');
+  assert.ok(rig._clockMs > 1200, 'sanity: the run really did outlast the minimum hold, so slack (not tenure) is what held the spot');
+
+  // And the pool it suppresses is exactly the fixture it holds — never both.
+  const supp = rig.getFixtureSuppression();
+  const heldId = prev.userData.lightFixture.id;
+  assert.equal(supp.size, 1, 'exactly one fixture is suppressed — the one holding the real spot');
+  assert.equal(supp.get(heldId), 1, 'a fully faded-in spot suppresses its own pool completely');
+  const otherId = prev === a ? 'B' : 'A';
+  assert.equal(supp.get(otherId), undefined, 'the fixture WITHOUT a spot keeps its painted pool at full strength');
+});
+
+test('a decisive demotion does hand the spot over, once the minimum hold and the crossfade have both elapsed', () => {
+  const scene = new SceneStub();
+  const near = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  placeFixture(scene, 'B', DEF.lamppost, 10, 0);
+  placeFixture(scene, 'C', DEF.lamppost, 20, 0);
+  placeFixture(scene, 'D', DEF.lamppost, 30, 0);
+  const far = placeFixture(scene, 'E', DEF.lamppost, 40, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+
+  const camera = { position: new V3(0, 0, 0) };
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, near, 'the nearest fixture takes the spot');
+
+  // Jump the camera to the far end. `near` is now 5th of 5 — well outside
+  // the top 1 + slack 2 band — but its tenure is only 50 ms so far.
+  camera.position.set(40, 0, 0);
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, near,
+    'a genuine demotion still waits out the minimum hold — a fixture cannot be picked up and dropped inside one gesture');
+
+  // Run out the hold (1200 ms), then the outgoing 250 ms fade, then the
+  // incoming one.
+  for (let i = 0; i < 45; i++) rig.update(camera, 1, 0.05); // +2250 ms
+  assert.equal(rig._spotSlots[0].assignedRef, far,
+    'once the hold expired and the outgoing fade finished, the spot really does move to the fixture that deserves it');
+  assert.ok(rig._spotSlots[0].weight > 0.99, 'and the new holder has faded back in');
+
+  const supp = rig.getFixtureSuppression();
+  assert.equal(supp.get('E'), rig._spotSlots[0].weight, 'suppression tracks the winner');
+  assert.equal(supp.get('A'), undefined, 'the demoted fixture\'s painted pool is fully back — it is no longer lit for real');
+});
+
+test('the crossfade takes exactly five 50 ms frames each way, and the slot holds its fixture for the whole fade-out', () => {
+  const scene = new SceneStub();
+  const lamp = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+  const camera = { position: new V3(0, 0, 0) };
+  const slot = () => rig._spotSlots[0];
+
+  // Fade IN: SPOT_CROSSFADE_MS is 250, so 50 ms frames land on 0.2 steps.
+  for (let i = 1; i <= 5; i++) {
+    rig.update(camera, 1, 0.05);
+    if (i < 5) {
+      assert.ok(slot().weight > 0 && slot().weight < 1,
+        `frame ${i} of the fade-in is partway (got ${slot().weight}) — the handover is a ramp, not a pop`);
+      assert.equal(rig.getFixtureSuppression().get('A'), slot().weight,
+        'the pool is suppressed by EXACTLY the weight the real light is faded in by — the two are complementary at every instant, so the fixture is never double-lit and never dark');
+    }
+  }
+  assert.equal(slot().weight, 1, 'five 50 ms frames reach exactly 1, not 0.9999');
+
+  // Run out the minimum hold, then take the fixture out of the world so the
+  // slot has to let go.
+  for (let i = 0; i < 30; i++) rig.update(camera, 1, 0.05);
+  assert.equal(slot().weight, 1, 'a steady incumbent stays pinned at full weight');
+  scene.remove(lamp);
+  rig.markDirty();
+
+  // Fade OUT: the slot must keep holding `lamp` the whole way down. If it
+  // dropped the reference at the moment of eviction, the fixture would have
+  // no real light AND (for one frame) a suppressed pool — a visible dropout.
+  const seen = [];
+  for (let i = 1; i <= 5; i++) {
+    rig.update(camera, 1, 0.05);
+    seen.push(slot().weight);
+    assert.equal(slot().assignedRef, lamp, `frame ${i} of the fade-out still holds the outgoing fixture`);
+  }
+  assert.ok(seen.slice(0, 4).every((w, i) => w > 0 && w < (i === 0 ? 1.0001 : seen[i - 1] + 1e-9)),
+    `the fade-out is monotonically decreasing and stays positive until the end (got ${seen.join(', ')})`);
+  assert.equal(seen[4], 0, 'and lands on exactly 0 after five frames — float dust is snapped off, or the slot would never free');
+  assert.equal(slot().light.intensity, 0, 'a zero-weight spot contributes no light');
+
+  rig.update(camera, 1, 0.05);
+  assert.equal(slot().assignedRef, null, 'the frame after the fade completes, the slot is genuinely free for someone else');
+  assert.equal(rig.getFixtureSuppression().size, 0, 'and nothing is suppressed — every pool is painted again');
+});
+
+test('a spot is aimed, angled, throttled and tinted by the fixture def itself, not by generic constants', () => {
+  // --- floodLight: a ground-mounted AIMED cone ---
+  const scene = new SceneStub();
+  placeFixture(scene, 'F1', DEF.floodLight, 2, 3, 0); // dir 0 => aim along +x
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.update({ position: new V3(0, 0, 0) }, 1, 1); // dt 1 s: straight to full weight
+
+  const spot = rig._spotSlots[0];
+  const light = spot.light;
+  assert.equal(spot.weight, 1, 'a long frame clamps the crossfade at 1 rather than overshooting');
+  assert.equal(light.distance, DEF.floodLight.light.radius,
+    'throw comes from the def\'s pool radius, so the real cone reaches exactly as far as the painted pool it replaces');
+  assert.ok(Math.abs(light.angle - (DEF.floodLight.light.coneDeg / 2) * Math.PI / 180) < 1e-9,
+    `SpotLight.angle is HALF of coneDeg (got ${light.angle})`);
+  assert.equal(light.color.getHex(), DEF.floodLight.light.color, 'the light is tinted with the def\'s own colour string');
+  assert.ok(Math.abs(light.intensity - 6 * DEF.floodLight.light.intensity) < 1e-9,
+    `intensity is the rig's base scaled by the def's intensity, nightFactor and weight (got ${light.intensity})`);
+  assert.ok(Math.abs(light.position.y - DEF.floodLight.light.emitterY) < 1e-9,
+    'the light sits at the emitter height above the fixture group\'s origin');
+
+  // Aim: down AND forward along +x. Forward matters because poolFootprint
+  // pushes the painted ellipse forward too — a spot that pointed straight
+  // down would light a different patch of floor than the pool it suppresses.
+  assert.ok(spot.target.position.y < light.position.y, 'an aimed flood still points downward overall');
+  assert.ok(spot.target.position.x > light.position.x, 'and forward along its aim, matching where its pool ellipse is painted');
+  assert.ok(Math.abs(spot.target.position.z - light.position.z) < 1e-9, 'with no sideways drift for dir=0');
+
+  // Rotating the fixture rotates the aim with it.
+  const scene2 = new SceneStub();
+  // dir 1 => yaw -90°, which lighting-builder.js's _aimVector reads as +z
+  // (x = cos(yaw) = 0, z = -sin(yaw) = +1). The rig must agree with THAT
+  // convention, not with intuition, or the cone and the painted ellipse end
+  // up on opposite sides of the fixture.
+  placeFixture(scene2, 'F2', DEF.floodLight, 0, 0, 1);
+  const rig2 = new LightRig(scene2, { shadowSpotCount: 1, pointCount: 1 });
+  rig2.update({ position: new V3(0, 0, 0) }, 1, 1);
+  const t2 = rig2._spotSlots[0].target.position;
+  assert.ok(Math.abs(t2.x) < 1e-9 && t2.z > 0,
+    `dir=1 swings the aim onto +z, matching poolFootprint's own aim vector (got x=${t2.x}, z=${t2.z})`);
+
+  // --- highBay: a cone that is NOT aimed (overhead, points straight down) ---
+  const scene3 = new SceneStub();
+  placeFixture(scene3, 'H1', DEF.highBay, 5, 5, 2);
+  const rig3 = new LightRig(scene3, { shadowSpotCount: 1, pointCount: 1 });
+  rig3.update({ position: new V3(0, 0, 0) }, 1, 1);
+  const bay = rig3._spotSlots[0];
+  assert.ok(Math.abs(bay.light.angle - 45 * Math.PI / 180) < 1e-9, 'highBay\'s 90 degree cone becomes a 45 degree half-angle');
+  assert.ok(Math.abs(bay.target.position.x - bay.light.position.x) < 1e-9
+    && Math.abs(bay.target.position.z - bay.light.position.z) < 1e-9,
+    'an overhead cone points STRAIGHT down regardless of dir — it has no aim to follow');
+  assert.ok(bay.target.position.y < bay.light.position.y, 'down, not up');
+  assert.equal(bay.light.position.y, 0,
+    'an overhead fixture\'s emitter is at its own origin (offsetY 0) — emitterY is measured from the ceiling it hangs off, not from the floor');
+});
+
+test('the flash reserve keeps idle point slots back, so an explosion never has to darken a lit console', () => {
+  const scene = new SceneStub();
+  // Eight glow meshes for eight point lights: without a reserve, the ambient
+  // pass would claim every slot and a flash would have to steal a lit one.
+  for (let i = 0; i < 8; i++) {
+    const m = new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ emissive: new ColorStub(0x00ff00) }));
+    m.position.set(i, 0, 0);
+    m.userData.role = 'glow';
+    scene.add(m);
+  }
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 8, flashReserve: 2 });
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.016);
+
+  const lit = rig._pointSlots.filter((s) => s.light.intensity > 0);
+  assert.equal(lit.length, 6, 'ambient glow claims pointCount - flashReserve slots and no more');
+  const litBefore = rig._pointSlots.map((s) => s.light.intensity);
+
+  const flashed = rig.flash(new V3(0, 0, 0), 0xff8844, 30, 500);
+  const flashIdx = rig._pointSlots.findIndex((s) => s.light === flashed);
+  assert.ok(flashIdx >= 6, `the flash claimed a RESERVED slot (index ${flashIdx}), not one of the six ambient ones`);
+  for (let i = 0; i < 6; i++) {
+    assert.equal(rig._pointSlots[i].light.intensity, litBefore[i],
+      `ambient slot ${i} is completely undisturbed by the flash`);
+  }
+  assert.equal(flashed.intensity, 30, 'and the flash itself is lit');
+
+  // Saturating the reserve is the only thing that lets a flash spill into the
+  // ambient band — at which point stealing a console is the correct trade.
+  rig.flash(new V3(1, 0, 0), 0xff8844, 30, 500);
+  const third = rig.flash(new V3(2, 0, 0), 0xff8844, 30, 500);
+  const thirdIdx = rig._pointSlots.findIndex((s) => s.light === third);
+  assert.ok(thirdIdx < 6, `with the reserve saturated the third flash spills into the ambient band (index ${thirdIdx})`);
 });
 
 // --- buildFloorGlowStrip -----------------------------------------------

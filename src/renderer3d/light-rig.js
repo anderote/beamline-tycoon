@@ -18,10 +18,12 @@
 //
 // Two emitter sources feed the rig, both found by tag rather than a separate
 // registry (mirrors Task 3's userData.role === 'glow' ruling):
-//   - "fixtures": placed decorations tagged userData.lightFixture = { offsetY,
-//     color } at build time (decoration-builder.js's _lamppost is the first —
-//     see its comment for why the tag lives on the group returned there).
-//     These get the 4 shadow-casting SpotLights, pointed straight down.
+//   - "fixtures": placed lighting decorations tagged userData.lightFixture at
+//     build time by decoration-builder.js, from lighting-builder.js's
+//     fixtureLightTag(). These get the 4 shadow-casting SpotLights. There are
+//     far more fixtures than spots, so the spots are an LOD over the painted
+//     pools every fixture already has — see "Spot handover" below, which is
+//     where the interesting logic lives.
 //   - "glow" meshes: userData.role === 'glow' (component-builder.js's screens
 //     / indicator lamps / hot cathodes). These get the 8 non-shadow
 //     PointLights, so equipment that's already emissive under bloom also
@@ -64,6 +66,41 @@ const FLASH_POINT_DISTANCE = 10;     // an explosion's throw is bigger than a co
 const FLASH_POINT_DECAY = 2;
 const DEFAULT_FLASH_DURATION_MS = 600;
 
+// ---- Spot handover (the fixture LOD) ---------------------------------------
+//
+// There are two lighting systems and they are an LOD, not rivals: every
+// fixture gets lighting-builder.js's cheap painted floor pool, and the nearest
+// few also get one of the 4 real shadow spots here. THE CORRECTNESS CONDITION
+// is that a fixture holding a real spot SUPPRESSES ITS OWN PAINTED POOL — the
+// rig owns that decision and publishes it through getFixtureSuppression(),
+// which lighting-builder.js's applyPoolSuppression consumes verbatim. Never
+// let the pool builder infer "am I lit for real?" on its own: it would have
+// to duplicate the ranking below, and the two answers would disagree for
+// exactly the frames that matter (mid-crossfade).
+//
+// Naive "just take the nearest 4 every frame" is the failure mode this block
+// exists to prevent: with two fixtures at nearly equal distance, one frame of
+// camera drift swaps them, the outgoing pool pops back on, the incoming pool
+// pops off, and panning slowly across a row of lampposts strobes. Three
+// dampers, all needed:
+//   - RANK SLACK: an incumbent isn't evicted the instant it falls out of the
+//     top N, only once it falls out of the top N + slack. Pure ordering
+//     jitter never crosses that band.
+//   - MIN HOLD: even a genuine demotion waits out a minimum tenure, so a
+//     fixture can't be picked up and dropped inside one gesture.
+//   - CROSSFADE: handover is a weighted fade, and the SAME weight drives both
+//     the real light's intensity and the painted pool's suppression, so the
+//     two are complementary at every instant of the fade — total light on the
+//     fixture stays roughly constant instead of dipping or doubling.
+const SPOT_RANK_SLACK = 2;
+const SPOT_MIN_HOLD_MS = 1200;
+const SPOT_CROSSFADE_MS = 250;
+
+const DEG2RAD = Math.PI / 180;
+// Three clamps SpotLight.angle at PI/2; stay just inside it so a 180° coneDeg
+// in some future def can't produce a degenerate projection matrix.
+const MAX_SPOT_ANGLE = Math.PI / 2 - 1e-3;
+
 export class LightRig {
   /**
    * @param {THREE.Scene} scene
@@ -72,6 +109,14 @@ export class LightRig {
    * @param {number} [opts.pointCount=8] non-shadow pool size — ambient glow + flashes
    * @param {number} [opts.shadowMapSize=1024] one dial for the whole spot pool,
    *        so a frame-budget complaint is a one-line change, not a rewrite.
+   * @param {number} [opts.flashReserve=2] how many of the point slots the
+   *        ambient glow pass may NOT claim. Without a reserve, a facility with
+   *        eight-plus glowing screens keeps every point light permanently
+   *        assigned, so the first explosion has to steal a lit console — the
+   *        screen it stole from visibly blinks out at the exact moment the
+   *        player's attention is elsewhere. Two idle slots means the common
+   *        case (one or two simultaneous flashes) never disturbs the ambient
+   *        pool at all.
    * @param {boolean} [opts.enabled=true]
    */
   constructor(scene, opts = {}) {
@@ -80,6 +125,7 @@ export class LightRig {
     this._shadowSpotCount = opts.shadowSpotCount ?? 4;
     this._pointCount = opts.pointCount ?? 8;
     this._shadowMapSize = opts.shadowMapSize ?? 1024;
+    this._flashReserve = Math.max(0, Math.min(opts.flashReserve ?? 2, this._pointCount));
 
     // Internal clock, advanced by the dt passed to update() — not
     // performance.now(). Keeps "how long has this slot been idle" testable
@@ -97,7 +143,14 @@ export class LightRig {
       light.castShadow = true;
       light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
       light.shadow.camera.near = 0.2;
-      light.shadow.camera.far = FIXTURE_SPOT_DISTANCE;
+      // shadow.camera.far is DELIBERATELY not set here (and must not be set in
+      // _applyFixtureSpot either — see the note there). SpotLightShadow's
+      // updateMatrices does `const far = light.distance || camera.far` and
+      // only calls updateProjectionMatrix() when it observes that value
+      // CHANGE. Assigning camera.far by hand makes that comparison pass
+      // silently, leaving the projection matrix stale — the shadow keeps being
+      // rendered with the previous frustum. Set light.distance; three does the
+      // rest.
       // A small local light at modest shadow-map resolution needs more bias
       // headroom than the sun's global 4096 map (ThreeRenderer._sunLight) —
       // its texels cover far less world space per pixel than you'd think
@@ -108,7 +161,17 @@ export class LightRig {
       scene.add(target);
       light.target = target;
       scene.add(light);
-      this._spotSlots.push({ light, target, assignedRef: null });
+      // weight:     0..1 crossfade weight; drives BOTH this light's intensity
+      //             and the held fixture's pool suppression.
+      // releasing:  true once the fixture has been evicted but is still fading
+      //             out — assignedRef is deliberately kept until weight hits
+      //             0, otherwise the outgoing fixture is dark for the whole
+      //             fade (no real light, and its pool already suppressed).
+      // heldSinceMs: clock reading when assignedRef was last (re)assigned, for
+      //             the min-hold test.
+      this._spotSlots.push({
+        light, target, assignedRef: null, weight: 0, releasing: false, heldSinceMs: 0,
+      });
     }
 
     // ---- The non-shadow pool: ambient glow + flash target, allocated once
@@ -133,8 +196,19 @@ export class LightRig {
     this._glowCandidates = [];
     this._candidatesDirty = true;
 
+    // fixture id -> pool-suppression weight in [0,1]. Rebuilt IN PLACE every
+    // update (clear + set, never reallocated) so ThreeRenderer can hold the
+    // reference once and read it per frame without churning garbage. See
+    // getFixtureSuppression.
+    this._fixtureSuppression = new Map();
+
     this._tmpWorld = new THREE.Vector3();
     this._tmpTarget = new THREE.Vector3();
+    // Separate from _tmpWorld on purpose: _worldPos() overwrites _tmpWorld for
+    // every candidate it ranks, so a camera-less fallback that parked its
+    // origin in _tmpWorld would find "the camera" silently relocated to the
+    // last fixture examined, and the whole ranking would collapse.
+    this._tmpCam = new THREE.Vector3();
   }
 
   get enabled() {
@@ -154,11 +228,28 @@ export class LightRig {
       // Zero immediately rather than waiting for the next update() — the
       // Options toggle should kill every light (and any flash in flight) on
       // the frame it's clicked, not fade out over the next tick.
-      for (const s of this._spotSlots) { s.light.intensity = 0; s.assignedRef = null; }
+      for (const s of this._spotSlots) {
+        s.light.intensity = 0; s.assignedRef = null; s.weight = 0; s.releasing = false;
+      }
       for (const p of this._pointSlots) {
         p.light.intensity = 0; p.assignedRef = null; p.flash = null;
       }
+      // Every fixture goes back to its painted pool on the same frame — the
+      // toggle must never leave a fixture suppressed with nothing lighting it.
+      this._fixtureSuppression.clear();
     }
+  }
+
+  /**
+   * fixture id -> [0,1] suppression weight for the painted floor pools, i.e.
+   * "how much of this fixture's lighting is currently being done for real".
+   * The returned Map is live and rebuilt in place each update() — read it, do
+   * not retain copies of its entries. Consumed by lighting-builder.js's
+   * applyPoolSuppression; see the "Spot handover" block above for why this rig
+   * (not the pool builder) owns the decision.
+   */
+  getFixtureSuppression() {
+    return this._fixtureSuppression;
   }
 
   /**
@@ -185,6 +276,7 @@ export class LightRig {
       // off (a newly-placed lamppost mustn't light itself up mid-toggle).
       for (const s of this._spotSlots) s.light.intensity = 0;
       for (const p of this._pointSlots) if (!p.flash) p.light.intensity = 0;
+      this._fixtureSuppression.clear();
       return;
     }
 
@@ -193,9 +285,9 @@ export class LightRig {
       this._candidatesDirty = false;
     }
 
-    const camPos = (camera && camera.position) ? camera.position : this._tmpWorld.set(0, 0, 0);
+    const camPos = (camera && camera.position) ? camera.position : this._tmpCam.set(0, 0, 0);
     const nf = Number.isFinite(nightFactor) ? Math.max(0, Math.min(1, nightFactor)) : 0;
-    this._assignSpots(camPos, nf);
+    this._assignSpots(camPos, nf, dtMs);
     this._assignPoints(camPos, nf);
   }
 
@@ -261,34 +353,170 @@ export class LightRig {
     return obj.getWorldPosition(this._tmpWorld);
   }
 
-  _assignSpots(camPos, nightFactor) {
+  /**
+   * Decide which fixtures hold the real shadow spots this frame, fade them
+   * in/out, and publish the matching pool suppression. Four ordered passes —
+   * the ordering matters and is the reason this isn't one loop:
+   *
+   *   1. RANK every candidate by distance. `pool` is who deserves a spot;
+   *      `slackPool` is who is allowed to KEEP one.
+   *   2. INCUMBENTS: free any slot whose fade already finished, un-release a
+   *      fixture that climbed back into the pool mid-fade (a player who pans
+   *      away and immediately back must not see the light die and restart),
+   *      and start releasing an incumbent that has both fallen out of the
+   *      slack band and served its minimum tenure.
+   *   3. FILL genuinely free slots (assignedRef === null) from the pool,
+   *      skipping fixtures another slot still holds. Runs AFTER pass 2 so a
+   *      slot freed this frame is immediately reusable.
+   *   4. ADVANCE the crossfade and publish — intensity and suppression from
+   *      the SAME weight, so the two systems stay complementary.
+   */
+  _assignSpots(camPos, nightFactor, dtMs) {
     const n = this._spotSlots.length;
+
+    // --- 1. rank ---------------------------------------------------------
     const ranked = this._fixtureCandidates
       .map((obj) => ({ obj, dist: this._worldPos(obj).distanceTo(camPos) }))
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, n);
-    for (let i = 0; i < n; i++) {
-      const slot = this._spotSlots[i];
-      const cand = ranked[i];
-      if (!cand) {
-        slot.light.intensity = 0;
+      .sort((a, b) => a.dist - b.dist);
+    const pool = new Set();
+    for (let i = 0; i < Math.min(n, ranked.length); i++) pool.add(ranked[i].obj);
+    const slackPool = new Set(pool);
+    for (let i = n; i < Math.min(n + SPOT_RANK_SLACK, ranked.length); i++) {
+      slackPool.add(ranked[i].obj);
+    }
+
+    // --- 2. incumbents ---------------------------------------------------
+    const held = new Set();
+    for (const slot of this._spotSlots) {
+      if (!slot.assignedRef) continue;
+      if (slot.releasing && slot.weight <= 0) {
+        // The fade finished on a previous frame; only now is the slot free.
         slot.assignedRef = null;
+        slot.releasing = false;
         continue;
       }
-      const fx = cand.obj.userData.lightFixture || {};
-      const p = this._worldPos(cand.obj);
-      const lx = p.x, ly = p.y + (fx.offsetY || 0), lz = p.z;
-      slot.light.position.set(lx, ly, lz);
-      slot.target.position.set(lx, 0, lz); // straight down — fixtures point down, per the brief
-      slot.target.updateMatrixWorld();
-      slot.light.color.set(fx.color != null ? fx.color : DEFAULT_FIXTURE_COLOR);
-      slot.light.intensity = FIXTURE_SPOT_INTENSITY * nightFactor;
-      slot.assignedRef = cand.obj;
+      if (slot.releasing) {
+        if (pool.has(slot.assignedRef)) {
+          slot.releasing = false;      // climbed back in — fade straight back up
+          slot.heldSinceMs = this._clockMs;
+        }
+      } else if (!slackPool.has(slot.assignedRef)
+                 && (this._clockMs - slot.heldSinceMs) >= SPOT_MIN_HOLD_MS) {
+        slot.releasing = true;
+      }
+      held.add(slot.assignedRef);
+    }
+
+    // --- 3. fill free slots ----------------------------------------------
+    let next = 0;
+    for (const slot of this._spotSlots) {
+      if (slot.assignedRef) continue;
+      while (next < ranked.length && held.has(ranked[next].obj)) next++;
+      if (next >= ranked.length || !pool.has(ranked[next].obj)) break;
+      slot.assignedRef = ranked[next].obj;
+      slot.releasing = false;
+      slot.heldSinceMs = this._clockMs;
+      held.add(ranked[next].obj);
+      next++;
+    }
+
+    // --- 4. crossfade + publish ------------------------------------------
+    this._fixtureSuppression.clear();
+    const step = SPOT_CROSSFADE_MS > 0 ? dtMs / SPOT_CROSSFADE_MS : 1;
+    for (const slot of this._spotSlots) {
+      if (!slot.assignedRef) {
+        slot.weight = 0;
+        slot.light.intensity = 0;
+        continue;
+      }
+      if (slot.releasing) {
+        slot.weight = Math.max(0, slot.weight - step);
+        // Snap the float dust off the end of the ramp — 1 - 5*0.2 lands on
+        // ~5e-17, and a weight that never reaches exactly 0 would keep the
+        // slot held forever and keep the pool imperceptibly suppressed.
+        if (slot.weight < 1e-9) slot.weight = 0;
+      } else {
+        slot.weight = Math.min(1, slot.weight + step);
+      }
+      const tag = slot.assignedRef.userData.lightFixture || {};
+      this._applyFixtureSpot(slot, tag, nightFactor);
+      if (tag.id != null) {
+        const prev = this._fixtureSuppression.get(tag.id) ?? 0;
+        this._fixtureSuppression.set(tag.id, Math.max(prev, slot.weight));
+      }
     }
   }
 
+  /**
+   * Point one spot at one fixture. Reads only the pure tag
+   * (lighting-builder.js's fixtureLightTag) plus the object's world position,
+   * so a def's own radius/cone/tilt drive the real light instead of the
+   * generic tuning constants — a bollard and a high-mast should not throw the
+   * same beam.
+   */
+  _applyFixtureSpot(slot, tag, nightFactor) {
+    const light = slot.light;
+    const p = this._worldPos(slot.assignedRef);
+    const lx = p.x, ly = p.y + (tag.offsetY || 0), lz = p.z;
+    light.position.set(lx, ly, lz);
+
+    // Throw comes from the def's pool radius so the real cone reaches exactly
+    // as far as the painted pool it replaces. Setting `distance` is also the
+    // ONLY correct way to move the shadow frustum's far plane: three derives
+    // `far = light.distance || camera.far` inside SpotLightShadow and rebuilds
+    // the projection matrix only when it sees that derived value change, so
+    // writing shadow.camera.far here would defeat its own guard and leave a
+    // stale matrix. Do not "help" it.
+    const throwDist = tag.radius > 0 ? tag.radius : FIXTURE_SPOT_DISTANCE;
+    light.distance = throwDist;
+    light.angle = tag.coneDeg > 0
+      ? Math.min(MAX_SPOT_ANGLE, (tag.coneDeg / 2) * DEG2RAD)
+      : FIXTURE_SPOT_ANGLE;
+
+    // Aim. Non-aimed fixtures (every point light, plus overhead cones like
+    // highBay) point straight down. An aimed ground cone (floodLight) tilts
+    // tiltDeg OFF straight-down, TOWARD its aim yaw.
+    //
+    // KNOWN WART, deliberate: the flood's GEOMETRY tilts its head off vertical
+    // the other way (_buildFloodLight does head.rotation.z = -tilt, i.e. the
+    // muzzle rides upward toward +x), so the model and its light disagree
+    // about which way "tilt" leans. The light wins, because the correctness
+    // condition here is that the real spot replaces the pool it suppresses,
+    // and poolFootprint paints its ellipse on the FLOOR, pushed forward along
+    // the aim. Aiming the light where the geometry points would put the cone
+    // on a wall while the suppressed pool sat unlit on the ground.
+    let tx = lx, tz = lz;
+    let ty = ly - throwDist;
+    if (tag.aimed && tag.tiltDeg) {
+      const t = tag.tiltDeg * DEG2RAD;
+      const yaw = tag.aimYaw || 0;
+      // Same convention as lighting-builder.js's _aimVector.
+      const ax = Math.cos(yaw), az = -Math.sin(yaw);
+      const horiz = Math.sin(t) * throwDist;
+      tx = lx + ax * horiz;
+      tz = lz + az * horiz;
+      ty = ly - Math.cos(t) * throwDist;
+    }
+    slot.target.position.set(tx, ty, tz);
+    slot.target.updateMatrixWorld();
+
+    light.color.set(tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR);
+    light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1) * nightFactor * slot.weight;
+  }
+
   _assignPoints(camPos, nightFactor) {
-    const freeSlots = this._pointSlots.filter((s) => !s.flash);
+    // The head of the pool is the ambient glow's to claim; the tail
+    // (_flashReserve slots) is kept idle for flash() — see the constructor's
+    // note on why an explosion must not have to steal a lit console.
+    const ambientLimit = Math.max(0, this._pointCount - this._flashReserve);
+    const freeSlots = [];
+    for (let i = 0; i < this._pointSlots.length; i++) {
+      const s = this._pointSlots[i];
+      if (s.flash) continue;
+      if (i < ambientLimit) { freeSlots.push(s); continue; }
+      s.light.intensity = 0;
+      s.assignedRef = null;
+    }
     const ranked = this._glowCandidates
       .map((mesh) => ({ mesh, dist: this._worldPos(mesh).distanceTo(camPos) }))
       .sort((a, b) => a.dist - b.dist)
@@ -333,14 +561,26 @@ export class LightRig {
   }
 
   _pickFlashSlot() {
-    // Prefer a slot that isn't currently flashing, oldest-idle first — a
-    // slot that has never flashed carries lastUsedAt = -Infinity, so a cold
-    // rig always fills its flash pool front-to-back before reusing anything.
-    const idle = this._pointSlots.filter((s) => !s.flash);
-    if (idle.length > 0) {
-      idle.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-      return idle[0];
-    }
+    // Prefer the RESERVED TAIL — those slots are held idle precisely so a
+    // flash never has to darken an ambient glow. Only when the reserve is
+    // saturated does a flash spill into the ambient head, and only then can it
+    // take a lit console away. Within each band: oldest-idle first — a slot
+    // that has never flashed carries lastUsedAt = -Infinity, so a cold rig
+    // fills its flash pool front-to-back before reusing anything.
+    const ambientLimit = Math.max(0, this._pointCount - this._flashReserve);
+    const oldestIdle = (from, to) => {
+      let best = null;
+      for (let i = from; i < to && i < this._pointSlots.length; i++) {
+        const s = this._pointSlots[i];
+        if (s.flash) continue;
+        if (!best || s.lastUsedAt < best.lastUsedAt) best = s;
+      }
+      return best;
+    };
+    const reserved = oldestIdle(ambientLimit, this._pointSlots.length);
+    if (reserved) return reserved;
+    const ambient = oldestIdle(0, ambientLimit);
+    if (ambient) return ambient;
     // Every slot is mid-flash: steal the dimmest one right now, not the one
     // closest to finishing — interrupting always kills the least-noticeable
     // burst rather than the one that was about to end anyway.

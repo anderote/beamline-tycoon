@@ -12,6 +12,8 @@
 
 import {
   poolFootprint,
+  fixtureLightTag,
+  aimYaw,
   POOL_RADIUS_SCALE,
   CONE_ELONGATION,
   CONE_OFFSET_FRAC,
@@ -23,6 +25,9 @@ import {
   poolOpacityForDarkness,
   haloOpacityForDarkness,
 } from '../src/renderer3d/lighting-builder.js';
+import { LIGHTING_DEFS } from '../src/data/placeables/lighting.js';
+
+const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -159,6 +164,79 @@ console.log('\n=== darkness ramp: bounded, monotonic, matches its documented end
   assert(emitterMono, 'emitterIntensityForDarkness is non-decreasing as darkness rises');
   assert(poolMono, 'poolOpacityForDarkness is non-decreasing as darkness rises');
   assert(haloMono, 'haloOpacityForDarkness is non-decreasing as darkness rises');
+}
+
+// ---------------------------------------------------------------------------
+// fixtureLightTag — the ONLY contract between the painted-pool system and the
+// real-light rig (light-rig.js). It is pure by design: no THREE, no scene
+// graph, so the aim and mount-height math is assertable headlessly right here
+// rather than only visible on a GPU.
+console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
+{
+  // --- a plain ground point fixture ---
+  const lamp = fixtureLightTag(DEF.lamppost, { id: 'L1', dir: 0 });
+  assert(lamp.id === 'L1', 'the placement id is carried through (it keys pool suppression)');
+  assert(lamp.shape === 'point', `lamppost is a point light (got ${lamp.shape})`);
+  assert(lamp.aimed === false, 'a point fixture is never aimed');
+  assert(lamp.aimYaw === 0, 'an unaimed fixture reports zero yaw regardless of dir');
+  assert(lamp.color === DEF.lamppost.light.color, 'color is passed through verbatim as the def\'s css string');
+  assert(lamp.radius === DEF.lamppost.light.radius, 'radius is the def\'s pool radius — the rig sets light.distance from it');
+  assert(lamp.intensity === DEF.lamppost.light.intensity, 'intensity comes from the def');
+
+  // dir must not leak into an unaimed fixture's yaw.
+  const lampTurned = fixtureLightTag(DEF.lamppost, { id: 'L1', dir: 3 });
+  assert(lampTurned.aimYaw === 0, 'dir=3 still yields zero yaw for a point fixture');
+
+  // --- ground mount: offsetY IS emitterY ---
+  assert(lamp.offsetY === DEF.lamppost.light.emitterY,
+    `a ground fixture's origin is on the floor, so offsetY === emitterY (got ${lamp.offsetY})`);
+
+  // --- wall mount: offsetY is ZERO, not emitterY ---
+  // The regression this guards: emitterY is measured from the MOUNT SURFACE,
+  // and a wall fixture's group origin already IS that mounting point 2.1 m up
+  // the wall. Copying emitterY raw would hang the real spot another 2.1 m
+  // above the sconce's own geometry.
+  const sconce = fixtureLightTag(DEF.wallSconce, { id: 'W1', dir: 1 });
+  assert(sconce.offsetY === 0,
+    `a wall fixture's emitter sits AT its origin, so offsetY is 0, not emitterY=${DEF.wallSconce.light.emitterY} (got ${sconce.offsetY})`);
+  assert(DEF.wallSconce.light.emitterY !== 0, 'sanity: the wall def really does carry a non-zero emitterY to be ignored');
+
+  const panel = fixtureLightTag(DEF.ceilingPanel, { id: 'C1' });
+  assert(panel.offsetY === 0, 'an overhead fixture hangs from its origin too — offsetY 0');
+
+  // --- aimed ground cone (floodLight) ---
+  const flood = fixtureLightTag(DEF.floodLight, { id: 'F1', dir: 2 });
+  assert(flood.shape === 'cone', 'floodLight is a cone');
+  assert(flood.aimed === true, 'a ground-mounted cone IS aimed by dir');
+  assert(flood.aimYaw === aimYaw(2), `an aimed fixture's yaw follows aimYaw(dir) exactly (got ${flood.aimYaw}, want ${aimYaw(2)})`);
+  assert(flood.coneDeg === DEF.floodLight.light.coneDeg, 'coneDeg is carried (the rig halves it for SpotLight.angle)');
+  assert(flood.tiltDeg === DEF.floodLight.light.tiltDeg, 'tiltDeg is carried (tilt off straight-down, toward the aim)');
+  assert(flood.offsetY === DEF.floodLight.light.emitterY, 'floodLight is ground-mounted, so offsetY === emitterY');
+
+  // Every dir gives a distinct yaw — otherwise a rotated flood's real cone
+  // would land somewhere its painted pool isn't.
+  const yaws = [0, 1, 2, 3].map((d) => fixtureLightTag(DEF.floodLight, { id: 'F', dir: d }).aimYaw);
+  assert(new Set(yaws).size === 4, `all four dirs give distinct aim yaws (got ${yaws.join(', ')})`);
+
+  // --- overhead cone (highBay): a cone, but NOT aimed ---
+  const bay = fixtureLightTag(DEF.highBay, { id: 'H1', dir: 1 });
+  assert(bay.shape === 'cone', 'highBay is a cone');
+  assert(bay.aimed === false, 'an OVERHEAD cone points straight down — it is not aimed, even with dir set');
+  assert(bay.aimYaw === 0, 'and so reports zero yaw');
+  assert(bay.coneDeg === 90, 'highBay keeps its wide 90 degree cone');
+
+  // --- defs with no light block, and field defaults ---
+  assert(fixtureLightTag({ id: 'bench', mount: 'ground' }, { id: 'B1' }) === null,
+    'a def with no light block produces null — nothing for the rig to hold');
+  assert(fixtureLightTag(null, { id: 'X' }) === null, 'a null def is null, not a crash');
+
+  const bare = fixtureLightTag({ id: 'bare', mount: 'ground', light: { color: '#fff' } }, { id: 'Z1' });
+  assert(bare.intensity === 1, `a light block with no intensity defaults to 1 (got ${bare.intensity})`);
+  assert(bare.radius === 0, `no radius defaults to 0 — the rig reads that as "use my own throw" (got ${bare.radius})`);
+  assert(bare.shape === 'point', 'no shape defaults to point');
+  assert(bare.coneDeg === 0 && bare.tiltDeg === 0, 'no cone fields default to 0, so the rig falls back to its own angle');
+  assert(bare.offsetY === 0, 'a light block with no emitterY sits at its origin');
+  assert(bare.aimed === false, 'a shapeless light is not an aimed cone');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

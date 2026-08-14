@@ -121,6 +121,67 @@ export function poolFootprint(light, dir = 0) {
   };
 }
 
+// --- Real-light handoff (light-rig.js) --------------------------------------
+// The rig (src/renderer3d/light-rig.js) hands its 4 shadow-casting SpotLights
+// to the nearest few fixtures on camera; every other fixture keeps the cheap
+// painted pool below. The two systems meet through ONE tag —
+// `group.userData.lightFixture` — stamped by decoration-builder.js from
+// fixtureLightTag(). Keeping the tag pure (no THREE, no scene graph) is what
+// lets the aim/height math be unit tested headlessly, and keeps the rig from
+// having to know anything about LIGHTING_DEFS' schema.
+
+/**
+ * Height of the emitter ABOVE THE FIXTURE GROUP'S ORIGIN.
+ *
+ * NOT a copy of `def.light.emitterY`. emitterY is measured from the MOUNT
+ * SURFACE, and each mount puts the group origin somewhere different (see this
+ * file's header): a ground fixture's origin is on the floor, so the emitter
+ * really is emitterY above it — but a wall fixture's origin IS the mounting
+ * point at emitterY up the wall, and an overhead fixture's origin is the
+ * ceiling attachment. Copying emitterY raw would hang a wall sconce's spot
+ * ~2.1 m above its own geometry.
+ *
+ * This is the exact inverse of _mountFloorY (below), which the painted pools
+ * already use — that identity is the reason a fixture's real spot and its
+ * painted pool agree on height. Change one, change the other.
+ */
+function _emitterOffsetY(def) {
+  return def?.mount === 'ground' ? (def.light?.emitterY ?? 0) : 0;
+}
+
+/**
+ * The per-fixture data packet the light rig consumes. Pure (no THREE), so it
+ * can be built at decoration-build time and asserted in Node.
+ *
+ * `coneDeg`/`radius` default to 0 rather than to some plausible cone — the rig
+ * reads 0 as "this def didn't say", and falls back to its own tuning
+ * constants, so a malformed def degrades to the generic spot instead of
+ * silently inheriting a wrong-looking beam.
+ *
+ * @param {object} def - a LIGHTING_DEFS entry.
+ * @param {{id?:*, dir?:number}} [placement] - the placement's id (the key the
+ *   rig publishes suppression under — it must match the id in ThreeRenderer's
+ *   `lightingGroup` registry) and 0-3 quarter-turn dir.
+ * @returns {object|null} null when the def carries no light block.
+ */
+export function fixtureLightTag(def, { id, dir = 0 } = {}) {
+  const light = def?.light;
+  if (!light) return null;
+  const aimed = isAimedFixture(def);
+  return {
+    id,
+    offsetY: _emitterOffsetY(def),
+    color: light.color,
+    intensity: light.intensity ?? 1,
+    radius: light.radius ?? 0,
+    shape: light.shape ?? 'point',
+    coneDeg: light.coneDeg ?? 0,
+    tiltDeg: light.tiltDeg ?? 0,
+    aimed,
+    aimYaw: aimed ? aimYaw(dir) : 0,
+  };
+}
+
 function _dims(def) {
   return {
     footW: (def.subW ?? 1) * SUB,
@@ -664,6 +725,14 @@ export function disposeLightGlowTexture() {
  * (falls back to a `point`-shaped footprint) rather than stretching its pool
  * in an arbitrary direction.
  *
+ * The color attribute is RGBA (itemSize 4), not RGB: the alpha lane carries
+ * per-quad SUPPRESSION (see applyPoolSuppression) so a fixture that has been
+ * handed a real shadow spot can hide its own painted pool without splitting
+ * the merged mesh back into per-fixture draw calls. Final on-screen alpha is
+ * `material.opacity * vertexAlpha` — the darkness ramp stays entirely on
+ * material.opacity (one write per frame for the whole facility) and the alpha
+ * lane stays a pure (1 - weight), so neither has to know about the other.
+ *
  * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures - ThreeRenderer.lightingGroup.
  * @returns {THREE.Mesh|null} null when there is nothing to draw.
  */
@@ -676,6 +745,12 @@ export function buildLightPools(fixtures) {
   const indices = [];
   let vertCount = 0;
   const tmpColor = new THREE.Color();
+  // fixture id -> quad index. Built HERE, inline with the loop, rather than
+  // derived afterwards by index-of-fixture: the two `continue`s below (no
+  // light block; degenerate radius) mean quad index and fixture index are not
+  // the same number, and an off-by-one here silently suppresses some OTHER
+  // fixture's pool — a bug that looks like a rendering glitch, not a bug.
+  const poolQuadByFixtureId = new Map();
 
   for (const fx of fixtures) {
     const def = fx.def;
@@ -705,9 +780,10 @@ export function buildLightPools(fixtures) {
     for (const [x, z, u, v] of corners) {
       positions.push(x, floorY, z);
       uvs.push(u, v);
-      colors.push(r, g, b);
+      colors.push(r, g, b, 1); // alpha = 1: unsuppressed until the rig says otherwise
     }
     indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
+    if (fx.id != null) poolQuadByFixtureId.set(fx.id, vertCount / 4);
     vertCount += 4;
   }
 
@@ -716,7 +792,7 @@ export function buildLightPools(fixtures) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
   geometry.setIndex(indices);
 
   const material = new THREE.MeshBasicMaterial({
@@ -736,7 +812,58 @@ export function buildLightPools(fixtures) {
   // One mesh spans the whole facility — per-quad frustum culling isn't worth
   // computing a bounding volume for; just always draw it.
   mesh.frustumCulled = false;
+  mesh.userData.poolQuadByFixtureId = poolQuadByFixtureId;
+  // Change-detection cache for applyPoolSuppression, deliberately Float64.
+  // Comparing the requested alpha against the geometry's own Float32 lane
+  // would report a change EVERY frame for any weight not exactly
+  // representable in single precision (0.2, 0.6, ...), so the cache would
+  // never suppress a single upload — it would just add work. Keep the
+  // requested double here and compare double-to-double.
+  mesh.userData.poolQuadAlpha = new Float64Array(vertCount / 4).fill(1);
   return mesh;
+}
+
+/**
+ * Hide the painted pools of fixtures that currently hold a REAL light.
+ *
+ * OWNERSHIP RULE: the light rig is authoritative about who holds a spot, and
+ * this function is a pure consumer of that decision — it never decides
+ * anything itself. The correctness condition for the whole two-system LOD is
+ * that a fixture is lit by exactly one of them: painted pool OR real spot,
+ * never both (that reads as a double-bright blob) and never neither (the
+ * fixture goes dark mid-crossfade). So `suppression` is the rig's live map,
+ * fixture id -> weight in [0,1] matching the spot's own crossfade weight, and
+ * a quad's alpha is exactly `1 - weight`. Any fixture absent from the map is
+ * unsuppressed.
+ *
+ * Writes are gated on the cache above: a static night with four steady spots
+ * costs zero buffer uploads, not one per frame.
+ *
+ * @param {THREE.Mesh} poolMesh - a mesh from buildLightPools (anything else
+ *   is ignored, so callers can hand it every child of the pool group).
+ * @param {Map<*, number>|null} suppression - LightRig.getFixtureSuppression().
+ */
+export function applyPoolSuppression(poolMesh, suppression) {
+  const attr = poolMesh?.geometry?.attributes?.color;
+  const quadById = poolMesh?.userData?.poolQuadByFixtureId;
+  const cache = poolMesh?.userData?.poolQuadAlpha;
+  if (!attr || attr.itemSize !== 4 || !quadById || !cache) return;
+
+  let dirty = false;
+  // Iterate the full quad map, not just the suppression map's keys — that's
+  // what restores a pool the frame after its spot is handed to someone else.
+  for (const [id, quad] of quadById) {
+    if (!(quad >= 0) || quad >= cache.length) continue;
+    let w = suppression ? (suppression.get(id) ?? 0) : 0;
+    if (!Number.isFinite(w)) w = 0;
+    const alpha = 1 - Math.max(0, Math.min(1, w));
+    if (cache[quad] === alpha) continue;
+    cache[quad] = alpha;
+    const base = quad * 4;
+    for (let v = 0; v < 4; v++) attr.array[(base + v) * 4 + 3] = alpha;
+    dirty = true;
+  }
+  if (dirty) attr.needsUpdate = true;
 }
 
 /**

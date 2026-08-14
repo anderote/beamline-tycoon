@@ -37,7 +37,7 @@ import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
 import {
-  buildLightPools, buildLightHalos,
+  buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
   glassGlowForDarkness,
 } from './lighting-builder.js';
@@ -3791,6 +3791,20 @@ export class ThreeRenderer {
    * _updateSunCycle from dayNightGrade()) so they move in lockstep — no
    * geometry work here, only scalar material properties, safe to run every
    * frame even at sixty lamps and a glazed facade.
+   *
+   * Also applies the light rig's pool SUPPRESSION: a fixture currently holding
+   * one of the 4 real shadow spots must hide its own painted pool, or it reads
+   * double-bright. The rig owns that decision (light-rig.js's
+   * getFixtureSuppression); this is the only place it's consumed.
+   *
+   * FRAME ORDERING — deliberate, do not "fix": _animate() calls this BEFORE
+   * _lightRig.update(), so the suppression weights applied here are one frame
+   * stale. The rig's update needs the frame's `dt`, which is computed much
+   * further down next to tickFlow/staffPawns; hoisting it would reshuffle
+   * unrelated timing for a 16 ms lag against a 250 ms crossfade (~6%, invisible
+   * on a fade that is itself an anti-strobe damper). If SPOT_CROSSFADE_MS is
+   * ever shortened to the point where one frame is a meaningful fraction of
+   * it, move the rig update above this call rather than compensating here.
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
@@ -3799,8 +3813,10 @@ export class ThreeRenderer {
       if (mat) mat.emissiveIntensity = emitterIntensityForDarkness(darkness);
     }
     if (this.lightPoolGroup) {
+      const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
       for (const child of this.lightPoolGroup.children) {
         if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
+        applyPoolSuppression(child, suppression);
       }
     }
     if (this.lightHaloGroup) {
