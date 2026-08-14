@@ -2030,8 +2030,19 @@ export class BeamlineDesigner {
    * comparison come out of the same code path — a baseline built by a parallel
    * copy of this would drift from the draft on the next physics change and the
    * comparison would quietly start reading differences that are not there.
+   *
+   * Callers wanting more than the envelope (dispersion warnings, summary stats)
+   * call _computePhysics and read the field they need. Returning only the
+   * envelope here keeps every existing caller honest about what it uses.
    */
   _computeEnvelope(nodes) {
+    const result = this._computePhysics(nodes);
+    return result ? result.envelope : null;
+  }
+
+  /** The full physics result for a node list, or null when the engine
+   *  declined (empty draft, or Pyodide still booting). */
+  _computePhysics(nodes) {
     if (!nodes || nodes.length === 0) return null;
 
     // Build physics beamline from nodes (same format as Game.recalcBeamline)
@@ -2094,7 +2105,7 @@ export class BeamlineDesigner {
       } catch (_) { /* never let diagnostics break the designer */ }
     }
 
-    return result ? result.envelope : null;
+    return result || null;
   }
 
   /**
@@ -2122,7 +2133,12 @@ export class BeamlineDesigner {
     // every keystroke would double the cost of a slider drag for no new answer.
     if (this._baselinePending && BeamPhysics.isReady()) this._recalcBaseline();
 
-    this.draftEnvelope = this._computeEnvelope(this.draftNodes);
+    // The full result, not just the envelope: the advisor reads
+    // dispersionWarnings off it, and re-running physics to fetch them would
+    // double the cost of every keystroke in a slider drag.
+    const draftResult = this._computePhysics(this.draftNodes);
+    this.draftEnvelope = draftResult ? draftResult.envelope : null;
+    this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
     if (!this.draftEnvelope) {
       this.ghostQuads = [];
       this._advisorCursor = -1;
@@ -2151,6 +2167,9 @@ export class BeamlineDesigner {
     // an unrelated position. Start the walk over.
     this._advisorCursor = -1;
     this._updateAdvisorReadout();
+    // Optics advice is only meaningful against the current draft, and the
+    // draft changes far faster than the tick Stubby normally runs on.
+    this.game?._runAdvisor?.();
   }
 
   /**

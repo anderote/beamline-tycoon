@@ -4886,3 +4886,101 @@ body {
   color: #bbaa77;
   font-size: 7px;
 }
+
+/* === STUBBY — the facility advisor (src/ui/Stubby.js) ===================== */
+/* The container never takes pointer events; the sprite and bubble take them
+   back individually. Anywhere Stubby overlaps the facility, clicks meant for
+   the facility pass straight through him. */
+.stubby {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.stubby.hidden { display: none; }
+
+.stubby-sprite {
+  width: 80px;   /* 2x the 40px native sprite — integer scale keeps it crisp */
+  height: 80px;
+  image-rendering: pixelated;
+  pointer-events: auto;
+  cursor: pointer;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
+.stubby-bubble {
+  pointer-events: auto;
+  max-width: 300px;
+  background: rgba(12, 16, 26, 0.96);
+  border: 1px solid rgba(120, 140, 180, 0.5);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font: 10px monospace;
+  color: #c8d4e4;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+}
+.stubby-bubble.hidden { display: none; }
+
+/* Severity reads as a left edge rather than a full re-skin, so a blocker and a
+   tip are the same object in two states. */
+.stubby[data-severity="blocker"] .stubby-bubble { border-left: 3px solid #ff5544; }
+.stubby[data-severity="warning"] .stubby-bubble { border-left: 3px solid #ffaa22; }
+.stubby[data-severity="tip"]     .stubby-bubble { border-left: 3px solid #44aaff; }
+
+.stubby-bubble-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #ffd48a;
+  margin-bottom: 4px;
+}
+.stubby-bubble-body { line-height: 1.5; color: #a8b6c8; }
+
+.stubby-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.stubby-btn {
+  font: 9px monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #c8d4e4;
+  background: rgba(80, 100, 140, 0.25);
+  border: 1px solid rgba(120, 140, 180, 0.45);
+  border-radius: 2px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.stubby-btn:hover { background: rgba(100, 130, 180, 0.4); color: #fff; }
+.stubby-btn.hidden { display: none; }
+.stubby-btn-action {
+  color: #ffd48a;
+  border-color: rgba(255, 170, 34, 0.5);
+  background: rgba(255, 170, 34, 0.14);
+}
+.stubby-btn-action:hover { background: rgba(255, 170, 34, 0.28); }
+.stubby-btn-quiet {
+  color: rgba(150, 160, 180, 0.7);
+  background: none;
+  border-color: rgba(110, 120, 145, 0.3);
+}
+
+/* One-shot attention grab when new advice arrives. */
+.stubby.stubby-perk .stubby-sprite { animation: stubby-perk 0.9s ease-out; }
+@keyframes stubby-perk {
+  0%   { transform: translateY(0) rotate(0deg); }
+  15%  { transform: translateY(-7px) rotate(-4deg); }
+  35%  { transform: translateY(0) rotate(3deg); }
+  55%  { transform: translateY(-3px) rotate(-2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stubby.stubby-perk .stubby-sprite { animation: none; }
+}
