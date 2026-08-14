@@ -33,6 +33,7 @@ import { hardwareNodeCount } from '../src/game/aggregates.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { getStationIndex } from '../src/game/staff/stations.js';
+import { MAX_MAP_HALF_EXTENT } from '../src/data/land.js';
 
 export const PLAYTHROUGH_TARGET_TICKS = 28800;
 
@@ -621,7 +622,37 @@ const STAFF_STEP_BUDGET = 250_000;
 // against a facility that nets four figures a tick. Set `detectors: N` on
 // runPlaythrough (or pass --detectors=N) to put one back every Nth line and see
 // what it does; the recipe is maintained either way.
-const MAX_LINES = 24;
+//
+// Beamline row layout — named here (not just inlined at the one call site
+// that used to hardcode `10 + i * 6`) so MAX_LINES below can be derived from
+// it instead of guessed.
+const FIRST_LINE_ROW = 10;
+// "Six rows apart so each gets its own service and distribution rows" — see
+// buildBeamline's own header comment. Not just a margin: a line's real
+// footprint (buildBeamline's own placements) spans row-3 (the mcc panel) to
+// about row+2 (the tallest on-pipe/distribution element), a ~5-row height,
+// so 6 rows is close to the minimum spacing that keeps consecutive lines
+// from colliding with EACH OTHER — tightening it is not free room to spend
+// on more lines, unlike the margin below.
+const BEAMLINE_ROW_SPACING = 6;
+// Clearance past a line's own `row` for ensureMapHalfExtent (balance fix
+// round 4/5) — covers the same row-3..row+2 footprint above plus a little
+// slack for column width/subtile rounding, not a padded guess.
+const BEAMLINE_ROW_MARGIN = 4;
+// Balance fix round 5: MAX_LINES used to be a flat 24 with no relationship
+// to the map this ladder actually has to fit on. Round 4's free map-grow
+// masked that entirely (it grew the map to whatever a 24-line ladder
+// needed, 160, well past what a player could ever buy); round 5 caps that
+// grow at the real MAX_MAP_HALF_EXTENT (120, src/data/land.js — the
+// import above), so the ladder now has to fit lines within the site a
+// player could actually own. Derived from the layout constants above
+// rather than hand-picked, so it stays correct if the row spacing, the
+// margin, or the map cap ever move. At the current numbers this floors to
+// 18 lines (19 beamlines total with the starter) — down from 24 (25
+// total). The tree still completes in full within that (see this task's
+// balance report for the measured tick count); this is a genuine finding
+// about the ladder's own geometry, not a workaround.
+const MAX_LINES = Math.floor((MAX_MAP_HALF_EXTENT - FIRST_LINE_ROW - BEAMLINE_ROW_MARGIN) / BEAMLINE_ROW_SPACING) + 1;
 const DETECTOR_EVERY = 0;
 
 // Operating cushion held back from every capacity buy. Roughly a thousand ticks
@@ -660,10 +691,22 @@ const GATE_CHECK_GRACE_TICKS = 20;
 // widening a single number does. `_markNavDirty` is already reached into
 // directly elsewhere in this file (hireStaff calls `_syncStaffCounts`) —
 // same convention, not a new one.
+//
+// Balance fix round 5: capped at MAX_MAP_HALF_EXTENT (imported, not
+// hardcoded) — round 4's free grow had no ceiling and reached 160 for a
+// 25-line ladder, a footprint bigger than the largest map a player can
+// ever actually buy (120, the last real land parcel — src/data/land.js).
+// That wasn't just skipping a cost, it was measuring pacing on a facility
+// shape that cannot exist in the real game. The free-grow DECISION (bypass
+// buyLand's price) still stands; only the ceiling is new. See MAX_LINES
+// below for the real consequence: this ladder's own 6-rows-apart beamline
+// spacing cannot fit 25 lines under this cap, so the line count is reduced
+// instead of the cap being raised.
 function ensureMapHalfExtent(game, requiredHalfExtent) {
   const state = game.state;
-  if ((state.mapHalfExtent || 0) >= requiredHalfExtent) return;
-  state.mapHalfExtent = requiredHalfExtent;
+  const capped = Math.min(requiredHalfExtent, MAX_MAP_HALF_EXTENT);
+  if ((state.mapHalfExtent || 0) >= capped) return;
+  state.mapHalfExtent = capped;
   game._markNavDirty();
 }
 
@@ -709,12 +752,16 @@ function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
     steps.push({
       kind: 'beamline', label: `line${i + 2}:${grade}`, budget: cost,
       apply: (game) => {
-        const row = 10 + i * 6;
-        // +12: buildBeamline's own service/distribution rows (see its own
-        // header comment) extend a few rows past `row` itself — a flat
-        // margin keeps every one of a line's placements inside bounds, not
-        // just its source/end junctions.
-        ensureMapHalfExtent(game, row + 12);
+        const row = FIRST_LINE_ROW + i * BEAMLINE_ROW_SPACING;
+        // BEAMLINE_ROW_MARGIN: buildBeamline's own service/distribution rows
+        // (see its own header comment, and MAX_LINES' comment above for the
+        // real row-3..row+2 span this covers) extend past `row` itself — a
+        // flat margin keeps every one of a line's placements inside bounds,
+        // not just its source/end junctions. ensureMapHalfExtent itself caps
+        // at MAX_MAP_HALF_EXTENT regardless of what's requested here — this
+        // is sized to stay under that cap for every line MAX_LINES allows,
+        // not to rely on the cap to bail it out.
+        ensureMapHalfExtent(game, row + BEAMLINE_ROW_MARGIN);
         const built = buildBeamline(game, row, grade);
         if (!built) return false;
         // Charged on the wiring this row actually committed rather than the
@@ -830,11 +877,25 @@ export function runPlaythrough({
   // it stayed true for the entire ~24,000-tick stall this round's headline
   // bug caused, because line 1 kept running while lines 2-4 sat built,
   // staffed, and off. Tracked separately here as the FRACTION of registered
-  // beamlines actually running each tick, which is the number that would
-  // have caught it (test-progression.js's own assertion now reads this, not
-  // beamOnTicks).
+  // beamlines actually running each tick.
+  //
+  // Balance fix round 5: the WHOLE-RUN average of that fraction ALSO missed
+  // the stall — round 4's own fix landed at runningLineFraction 91.2% on a
+  // reconstructed pre-fix run (comfortably over the 0.8 bar the assertion
+  // used), because a ~24,000-tick deficit dilutes across a ~470,000
+  // line-tick run. True instantaneously ("4 registered, 1 running reads as
+  // 25%"), false once averaged over the whole run. Tracked here as a
+  // WINDOWED minimum instead — the worst LINE_UPTIME_WINDOW_TICKS-tick
+  // stretch of the run, not the overall mean — which reads 33.3% on the
+  // same reconstructed pre-fix run and is what test-progression.js's
+  // assertion now reads.
   let runningLineTicks = 0;
   let registeredLineTicks = 0;
+  const LINE_UPTIME_WINDOW_TICKS = 2000;
+  let windowRunningLineTicks = 0;
+  let windowRegisteredLineTicks = 0;
+  let windowStartTick = 0;
+  let minWindowLineFraction = 1; // vacuously "fine" until a real window is scored
   let lastCompletedCount = 0;
   let lastCompletionTick = state.tick;
   let longestGap = null;
@@ -859,8 +920,19 @@ export function runPlaythrough({
     {
       const entries = game.registry.getAll();
       if (entries.length) {
+        const running = entries.filter(e => e.status === 'running').length;
         registeredLineTicks += entries.length;
-        runningLineTicks += entries.filter(e => e.status === 'running').length;
+        runningLineTicks += running;
+        windowRegisteredLineTicks += entries.length;
+        windowRunningLineTicks += running;
+      }
+      if (t - windowStartTick + 1 >= LINE_UPTIME_WINDOW_TICKS) {
+        if (windowRegisteredLineTicks > 0) {
+          minWindowLineFraction = Math.min(minWindowLineFraction, windowRunningLineTicks / windowRegisteredLineTicks);
+        }
+        windowRunningLineTicks = 0;
+        windowRegisteredLineTicks = 0;
+        windowStartTick = t + 1;
       }
     }
 
@@ -1025,6 +1097,13 @@ export function runPlaythrough({
       windowStartFunds = state.resources.funding;
     }
   }
+  // Score the trailing partial window too (the loop can end mid-window,
+  // either hitting maxTicks or finishing research early) — a stall in the
+  // last few hundred ticks of a run must not go unscored just because it
+  // never reached a full LINE_UPTIME_WINDOW_TICKS.
+  if (windowRegisteredLineTicks > 0) {
+    minWindowLineFraction = Math.min(minWindowLineFraction, windowRunningLineTicks / windowRegisteredLineTicks);
+  }
 
   return {
     seed, maxTicks, expand, detectors, maxLines,
@@ -1045,8 +1124,16 @@ export function runPlaythrough({
     // The fraction of registered beamlines actually running, averaged over
     // every tick that had at least one registered — see runningLineTicks'
     // own comment above for why this is a different (and stricter) number
-    // than beamOnTicks/totalTicks.
+    // than beamOnTicks/totalTicks. Kept for diagnostics/reporting, but NOT
+    // what test-progression.js asserts on — see minWindowLineFraction,
+    // which is (balance fix round 5's own finding: this whole-run average
+    // is still too forgiving to catch a real multi-thousand-tick stall).
     runningLineFraction: registeredLineTicks > 0 ? runningLineTicks / registeredLineTicks : 0,
+    // The worst LINE_UPTIME_WINDOW_TICKS-tick window's own running-line
+    // fraction, not the whole-run average — see this record's own
+    // "Balance fix round 5" comment above for why the average isn't
+    // sensitive enough. This is what test-progression.js actually asserts.
+    minWindowLineFraction,
     refillSpent, upkeepSpent, researchSpent, expansionSpent,
     remainingNodes: RESEARCH_IDS.filter(id => !state.completedResearch.includes(id)),
     // Net income per tick over the whole run: after upkeep and refills, BEFORE
