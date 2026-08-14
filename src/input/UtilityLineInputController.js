@@ -432,6 +432,15 @@ export class UtilityLineInputController {
       },
       runPath: trace,
       preferVerticalFirst: this._preferVerticalFirst,
+      // Bulk wiring must use the same endpoint geometry as an ordinary drag.
+      // Otherwise Shift-drawing reintroduces the footprint-sized U-turns the
+      // single-line path avoids.
+      portPosition: (endpoint, def, portName) => {
+        const anchor = portAnchor3D(endpoint, def, portName);
+        return anchor
+          ? { x: anchor.x, z: anchor.z }
+          : portWorldPosition(endpoint, def, portName);
+      },
     });
     plan.cost = this._wiringCost(plan.totalSubL);
     return plan;
@@ -583,32 +592,38 @@ export class UtilityLineInputController {
       if (!def || !def.ports) continue;
       const availableNames = availablePorts(placeable, def, this._utilityType, lines);
       for (const name of availableNames) {
-        // The sim's point stays the committed endpoint either way — only the
-        // hit test moves. A line still starts and ends where the solver says.
+        // The endpoint REFERENCE is what the solver reads; the path geometry
+        // should start where the connector is actually drawn. On-pipe hardware
+        // can reserve a footprint several metres wider than its model, so
+        // routing from portWorldPosition made a large U-turn to the footprint
+        // edge and then folded back into the visible fitting. Headless callers
+        // have no measured anchor and retain the stable sim position.
         const pos = portWorldPosition(placeable, def, name);
         if (!pos) continue;
 
         let d;
+        let routePos = pos;
         if (canProject) {
           const anchor = portAnchor3D(placeable, def, name);
           if (!anchor) continue;
           const px = this.renderer.worldToScreen(anchor.x, anchor.y, anchor.z);
           if (!px) continue;
           d = Math.hypot(px.x - screen.x, px.y - screen.y);
+          routePos = { x: anchor.x, z: anchor.z };
         } else {
           d = Math.hypot(pos.x - cursorWorld.x, pos.z - cursorWorld.z);
         }
 
         if (d < bestDist) {
           bestDist = d;
-          best = { placeableId: placeable.id, portName: name, worldPos: pos };
+          best = { placeableId: placeable.id, portName: name, worldPos: routePos };
         }
       }
     }
     return best;
   }
 
-  // 3D-world {x, z} from the placeable's portWorldPosition → tile coord.
+  // 3D-world {x, z} from a logical or measured port position → tile coord.
   // 1 tile = 2 world meters, and path coords use (col = worldX/2, row = worldZ/2)
   // which matches the buildUtilityRouting convention (`col * TILE_W = col * 2`).
   _worldToTile(pos) {

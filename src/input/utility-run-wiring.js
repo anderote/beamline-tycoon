@@ -120,6 +120,9 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
  * @param {Array<{col,row}>} opts.runPath  the dragged Manhattan path
  * @param {number} [opts.corridor]         half-width in tiles
  * @param {boolean} [opts.preferVerticalFirst]
+ * @param {Function} [opts.portPosition]   optional (endpoint, def, portName)
+ *        position resolver; interactive routing supplies measured connector
+ *        X/Z while headless/scenario callers retain portWorldPosition
  * @returns {{stubs: Array, totalSubL: number, skipped: number}}
  *          `stubs` are ready-to-commit addLine arguments in drag order;
  *          `skipped` counts candidates in the corridor that no route reached.
@@ -130,10 +133,14 @@ export function planUtilityRun(state, {
   runPath,
   corridor = RUN_CORRIDOR_TILES,
   preferVerticalFirst = false,
+  portPosition = portWorldPosition,
 } = {}) {
   const empty = { stubs: [], totalSubL: 0, skipped: 0 };
   if (!state || !utilityType || !source || !source.placeableId || !source.portName) return empty;
   if (!Array.isArray(runPath) || runPath.length < 2) return empty;
+  const resolvePortPosition = typeof portPosition === 'function'
+    ? portPosition
+    : portWorldPosition;
 
   const srcEndpoint = findUtilityEndpoint(state, source.placeableId);
   if (!srcEndpoint) return empty;
@@ -158,7 +165,7 @@ export function planUtilityRun(state, {
   const outlets = [];
   for (const name of outletNames) {
     const vec = portApproachVec(srcEndpoint, srcDef, name);
-    const pos = portWorldPosition(srcEndpoint, srcDef, name);
+    const pos = resolvePortPosition(srcEndpoint, srcDef, name);
     if (!vec || !pos) continue;
     outlets.push({ portName: name, vec, tile: portTile(pos) });
   }
@@ -175,7 +182,7 @@ export function planUtilityRun(state, {
     for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (!spec || spec.role !== 'sink') continue;
-      const pos = portWorldPosition(endpoint, def, portName);
+      const pos = resolvePortPosition(endpoint, def, portName);
       const vec = portApproachVec(endpoint, def, portName);
       if (!pos || !vec) continue;
       const tile = portTile(pos);

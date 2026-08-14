@@ -26,6 +26,7 @@ import { UtilityLineTool } from '../src/input/utility-line-tool.js';
 import { planUtilityRun, runPreviewPath } from '../src/input/utility-run-wiring.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
+import { portWorldPosition } from '../src/utility/ports.js';
 import { gridToIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -137,6 +138,37 @@ console.log('\n--- 1. Planner: corridor, compatibility, routability ---');
     || Math.abs(p.col - preview[i - 1].col) < 1e-9
     || Math.abs(p.row - preview[i - 1].row) < 1e-9),
     'the preview stays axis-aligned (no spurious diagonal between stubs)');
+}
+
+{
+  // Interactive run-wiring injects the visible connector positions. The pure
+  // planner must use them at BOTH ends instead of quietly falling back to the
+  // larger logical footprint, which would restore the terminal loops only for
+  // Shift-drags.
+  const game = makeGame();
+  const supplied = new Map();
+  const plan = planUtilityRun(game.state, {
+    utilityType: 'powerCable', source: SOURCE_PORT, runPath: DRAG,
+    portPosition(endpoint, def, portName) {
+      const base = portWorldPosition(endpoint, def, portName);
+      const pos = { x: base.x + 0.5, z: base.z };
+      supplied.set(`${endpoint.id}:${portName}`, pos);
+      return pos;
+    },
+  });
+  const snapTile = p => ({
+    col: Math.round((p.x / 2) * 4) / 4,
+    row: Math.round((p.z / 2) * 4) / 4,
+  });
+  const usedInjectedEnds = plan.stubs.length > 0 && plan.stubs.every(stub => {
+    const a = snapTile(supplied.get(`${stub.start.placeableId}:${stub.start.portName}`));
+    const b = snapTile(supplied.get(`${stub.end.placeableId}:${stub.end.portName}`));
+    const first = stub.path[0], last = stub.path[stub.path.length - 1];
+    return first.col === a.col && first.row === a.row
+      && last.col === b.col && last.row === b.row;
+  });
+  assert(usedInjectedEnds,
+    'bulk routes use the injected visible-connector positions at source and sink');
 }
 
 {

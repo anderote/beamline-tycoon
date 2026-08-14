@@ -19,9 +19,10 @@
 //      one whose ground shadow is, which is the exact inversion of the bug.
 //   2. The radius is a pixel budget, so it does not shrink as the camera
 //      zooms out. A world-space radius silently got stricter as you zoomed.
-//   3. With no screen position (headless, synthetic gestures) it falls back to
-//      the original ground-plane test, byte-identical. The rest of the suite
-//      drives the controller without a mouse and must not change behaviour.
+//   3. A projected pick routes from the visible connector's X/Z, preventing a
+//      footprint-sized loop before the cable reaches the model. With no screen
+//      position (headless, synthetic gestures), it falls back to the original
+//      ground-plane position so deterministic callers remain unchanged.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -214,11 +215,11 @@ console.log('\n--- 3. No screen position: the original ground-plane test, unchan
     'a renderer without worldToScreen falls back rather than failing to pick');
 }
 
-console.log('\n--- 4. The committed endpoint is still the sim position, not the anchor ---');
+console.log('\n--- 4. Screen-picked routes start at the connector, not its footprint shadow ---');
 {
-  // The anchor moves the HIT TEST only. What gets stored on the line has to
-  // stay the sim's point, or the solver and the renderer disagree about where
-  // the cable actually terminates.
+  // Topology is carried by {placeableId, portName}; the path is presentation,
+  // overlap and cost. Starting that path at the visible fitting avoids a large
+  // loop out to an on-pipe component's reserved footprint edge.
   const game = makeGame();
   const ctrl = new UtilityLineInputController({
     game,
@@ -234,9 +235,14 @@ console.log('\n--- 4. The committed endpoint is still the sim position, not the 
   const onPort = { x: anchor.x * 10, y: anchor.z * 10 - anchor.y * 100 };
 
   const got = ctrl._snapToNearestPort(iso.x, iso.y, onPort);
-  assert(got && Math.abs(got.worldPos.x - simPos.x) < 1e-9
-             && Math.abs(got.worldPos.z - simPos.z) < 1e-9,
-    'worldPos on the snap is portWorldPosition, untouched by the projected pick');
+  assert(got && Math.abs(got.worldPos.x - anchor.x) < 1e-9
+             && Math.abs(got.worldPos.z - anchor.z) < 1e-9,
+    'a screen-picked snap routes from the visible connector X/Z');
+
+  const fallback = ctrl._snapToNearestPort(iso.x, iso.y, undefined);
+  assert(fallback && Math.abs(fallback.worldPos.x - simPos.x) < 1e-9
+                  && Math.abs(fallback.worldPos.z - simPos.z) < 1e-9,
+    'headless picking keeps the stable portWorldPosition fallback');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

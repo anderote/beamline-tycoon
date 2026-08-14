@@ -1,0 +1,147 @@
+// Compact, shared summaries for world hover tooltips and beamline RF readouts.
+// Every hover result is exactly two logical lines: a title and one detail.
+
+import { RF_BANDS, bandForFrequencyHz } from '../utility/types/rfWaveguide.js';
+
+const RF_LABELS = Object.fromEntries(RF_BANDS.map(b => [b.id, b.label]));
+
+function sumPorts(ports, utilityTypes, role, param) {
+  const wanted = new Set(utilityTypes);
+  return ports
+    .filter(p => p && wanted.has(p.utility) && p.role === role)
+    .reduce((sum, p) => sum + (Number(p.params?.[param]) || 0), 0);
+}
+
+function fmtNumber(value) {
+  if (!Number.isFinite(value)) return '--';
+  if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(1).replace(/\.0$/, '');
+}
+
+function humanize(value) {
+  return String(value || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^./, c => c.toUpperCase());
+}
+
+export function formatRfFrequencyHz(hz) {
+  const mhz = hz / 1e6;
+  const rounded = Math.round(mhz * 10) / 10;
+  return `${Number.isInteger(rounded) ? Math.round(rounded) : rounded.toFixed(1)} MHz`;
+}
+
+function rfSink(ports) {
+  return ports.find(p => p?.utility === 'rfWaveguide' && p.role === 'sink'
+    && (p.params?.frequency > 0 || p.params?.band));
+}
+
+/** The first accelerating RF element fixes the beam's bunch frequency. */
+export function beamlineRfOperatingInfo(nodes, components) {
+  for (const node of nodes || []) {
+    const comp = components?.[node.type];
+    if (!comp || (comp.physicsType !== 'rfCavity' && comp.physicsType !== 'cryomodule')) continue;
+    const sink = rfSink(Object.values(comp.ports || {}));
+    const frequencyHz = sink?.params?.frequency > 0
+      ? sink.params.frequency
+      : (comp.rfFrequency > 0 ? comp.rfFrequency * 1e6 : 0);
+    const bandId = sink?.params?.band || comp.rfBand || bandForFrequencyHz(frequencyHz);
+    if (!bandId && !(frequencyHz > 0)) continue;
+    const bandLabel = RF_LABELS[bandId] || humanize(bandId) || 'RF';
+    return {
+      bandId: bandId || null,
+      bandLabel,
+      frequencyHz,
+      display: frequencyHz > 0
+        ? `${bandLabel} · ${formatRfFrequencyHz(frequencyHz)}`
+        : bandLabel,
+    };
+  }
+  return null;
+}
+
+/** Summarize a component definition into one title line and one detail line. */
+export function componentHoverInfo(comp) {
+  if (!comp) return null;
+  const ports = Object.values(comp.ports || {});
+  const title = comp.name || humanize(comp.id) || 'Object';
+
+  const powerOut = sumPorts(ports, ['powerCable', 'hvCable'], 'source', 'capacity');
+  const powerIn = sumPorts(ports, ['powerCable', 'hvCable'], 'sink', 'demand');
+  if (powerOut > 0) {
+    const consumed = powerIn > 0 ? powerIn : (Number(comp.energyCost) || 0);
+    return {
+      title,
+      detail: `Power: ${fmtNumber(consumed)} kW consumed · ${fmtNumber(powerOut)} kW produced`,
+    };
+  }
+
+  const sink = rfSink(ports);
+  if (sink) {
+    const hz = Number(sink.params?.frequency) || 0;
+    const band = sink.params?.band || comp.rfBand || bandForFrequencyHz(hz);
+    const parts = [RF_LABELS[band] || humanize(band) || 'RF'];
+    if (hz > 0) parts.push(formatRfFrequencyHz(hz));
+    const demand = Number(sink.params?.demand) || Number(comp.rfPowerRequired) || 0;
+    if (demand > 0) parts.push(`${fmtNumber(demand)} kW demand`);
+    return { title, detail: `RF: ${parts.join(' · ')}` };
+  }
+
+  const rfOut = sumPorts(ports, ['rfWaveguide'], 'source', 'capacity');
+  if (rfOut > 0) {
+    const bands = (comp.rfBands || (comp.rfBand ? [comp.rfBand] : []))
+      .map(b => RF_LABELS[b] || humanize(b)).join(', ');
+    return { title, detail: `RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}` };
+  }
+
+  const sourceSpecs = [
+    ['coolingWater', 'coldCapacityW', 'Cooling output', 'W'],
+    ['coolingWater', 'capacity', 'Cooling output', 'kW'],
+    ['cryoTransfer', 'coldCapacityW', 'Cryo output', 'W'],
+    ['vacuumPipe', 'pumpSpeed', 'Pumping speed', 'L/s'],
+    ['dataFiber', 'capacity', 'Data output', 'Gbps'],
+  ];
+  for (const [utility, param, label, unit] of sourceSpecs) {
+    const value = sumPorts(ports, [utility], 'source', param);
+    if (value > 0) return { title, detail: `${label}: ${fmtNumber(value)} ${unit}` };
+  }
+
+  if (Number(comp.energyCost) > 0) {
+    return { title, detail: `Power use: ${fmtNumber(comp.energyCost)} kW` };
+  }
+  if (Number(comp.stats?.beamCurrent) > 0) {
+    return { title, detail: `Beam current: ${fmtNumber(comp.stats.beamCurrent)} mA` };
+  }
+  return { title, detail: humanize(comp.category || comp.kind || 'Placed object') };
+}
+
+export function furnishingHoverInfo(def) {
+  if (!def) return null;
+  const effects = Object.entries(def.effects || {})
+    .filter(([, value]) => value !== 0)
+    .slice(0, 2)
+    .map(([key, value]) => {
+      const shown = typeof value === 'number' && Math.abs(value) < 1
+        ? `${value > 0 ? '+' : ''}${Math.round(value * 100)}%`
+        : `${value > 0 ? '+' : ''}${value}`;
+      return `${humanize(key)} ${shown}`;
+    });
+  return {
+    title: def.name || humanize(def.id) || 'Furnishing',
+    detail: effects.length ? effects.join(' · ') : humanize(def.category || 'Furnishing'),
+  };
+}
+
+export function utilityNetworkHoverInfo(descriptor, flow) {
+  const title = `${descriptor?.displayName || 'Utility'} Network`;
+  if (!flow) return { title, detail: 'Awaiting network data' };
+  const pct = Math.round(Math.max(0, Math.min(1, Number(flow.utilization) || 0)) * 100);
+  const capacity = Number(flow.totalCapacity) || 0;
+  const demand = Number(flow.totalDemand) || 0;
+  const unit = descriptor?.capacityUnit || '';
+  const load = capacity > 0 || demand > 0
+    ? ` · ${fmtNumber(demand)} / ${fmtNumber(capacity)}${unit ? ` ${unit}` : ''}`
+    : '';
+  return { title, detail: `Utilization: ${pct}%${load}` };
+}

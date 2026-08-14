@@ -12,6 +12,7 @@ import { endpointsById } from '../utility/endpoint-lookup.js';
 // contract, and a hand-copied local one drifts from the table the gate wrote.
 import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
 import { getCavitySpec } from '../beamline/cavity-specs.js';
+import { beamlineRfOperatingInfo } from './hover-info.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -209,6 +210,7 @@ export class BeamlineWindow {
     const e = bs.beamEnergy ? formatEnergy(bs.beamEnergy) : { val: '0.0', unit: 'MeV' };
     const uptime = bs.uptimeFraction != null ? (bs.uptimeFraction * 100).toFixed(1) + '%' : '--';
     const machineType = bs.machineType || '--';
+    const rf = beamlineRfOperatingInfo(ordered, COMPONENTS);
     const quality = bs.beamQuality ? bs.beamQuality.toFixed(2) : '--';
     const qualityClass = bs.beamQuality > 0.7 ? '' : bs.beamQuality > 0.4 ? ' warn' : ' bad';
 
@@ -218,12 +220,13 @@ export class BeamlineWindow {
         <div class="ctx-stat"><div class="ctx-stat-label">Energy</div><div class="ctx-stat-val">${e.val} ${e.unit}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Current</div><div class="ctx-stat-val">${bs.beamCurrent ? bs.beamCurrent.toFixed(2) : '--'} mA</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Quality</div><div class="ctx-stat-val${qualityClass}">${quality}</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">Data Rate</div><div class="ctx-stat-val">${bs.dataRate ? bs.dataRate.toFixed(1) : '0'} /s</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">RF Band</div><div class="ctx-stat-val neutral">${rf ? rf.display : '--'}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Uptime</div><div class="ctx-stat-val">${uptime}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Type</div><div class="ctx-stat-val neutral">${machineType}</div></div>
       </div>
       <div class="ctx-section-label">Components: ${ordered.length}</div>
-      <div class="ctx-stats-grid">
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Data Rate</div><div class="ctx-stat-val">${bs.dataRate ? bs.dataRate.toFixed(1) : '0'} /s</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Photon Rate</div><div class="ctx-stat-val">${bs.photonRate ? bs.photonRate.toExponential(1) : '0'}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Discovery</div><div class="ctx-stat-val">${bs.discoveryChance ? (bs.discoveryChance * 100).toFixed(1) + '%' : '--'}</div></div>
       </div>

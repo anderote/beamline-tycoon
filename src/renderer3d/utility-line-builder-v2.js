@@ -105,9 +105,43 @@ function tileToWorld(pt) {
   return { x: pt.col * 2, z: pt.row * 2 };
 }
 
-// Build 3D points for a line's polyline, with endpoints pinned to port world
-// positions. Returns an array of THREE.Vector3.
-function buildWorldPoints(line, placeablesById) {
+// Move one routed terminal onto its measured connector without changing the
+// Manhattan shape of the rest of the run. The neighboring corner slides on
+// the perpendicular axis, exactly as a drafting tool moves an orthogonal
+// connector: endpoint and corner move together, the next leg stays put.
+//
+// This matters for lines saved before drawing began routing from model anchors.
+// Their endpoint can be metres away on an on-pipe component's reserved
+// footprint. Appending a bridge to that old point removes the diagonal but
+// leaves a conspicuous rectangular loop; sliding the terminal collapses it.
+function alignTerminalToAnchor(points, which, anchor) {
+  if (!anchor || points.length < 3) return false;
+  const t = which === 'start' ? 0 : points.length - 1;
+  const nb = which === 'start' ? 1 : points.length - 2;
+  const endpoint = points[t];
+  const neighbor = points[nb];
+  const dx = Math.abs(neighbor.x - endpoint.x);
+  const dz = Math.abs(neighbor.z - endpoint.z);
+  if (dx < 1e-6 && dz < 1e-6) return false;
+  if (dx > 1e-6 && dz > 1e-6) return false;
+
+  endpoint.x = anchor.x;
+  endpoint.z = anchor.z;
+  if (dx > 1e-6) neighbor.z = anchor.z;
+  else neighbor.x = anchor.x;
+  return true;
+}
+
+function anchorFor(ref, placeablesById) {
+  if (!ref || !placeablesById) return null;
+  const rec = placeablesById.get(ref.placeableId);
+  if (!rec) return null;
+  return portAnchor3D(rec, COMPONENTS[rec.type], ref.portName);
+}
+
+// Build 3D points for a line's polyline, with orthogonal tails into anchored
+// ports. Returns an array of THREE.Vector3.
+export function buildWorldPoints(line, placeablesById) {
   const points = [];
   const path = line.path || [];
   if (path.length === 0) return points;
@@ -116,37 +150,74 @@ function buildWorldPoints(line, placeablesById) {
     const w = tileToWorld(pt);
     points.push(new THREE.Vector3(w.x, runY, w.z));
   }
-  // Pin each anchored end to its port and give it a riser: the run stays at its
-  // own height until it is under the port, then climbs the device and steps out
-  // into the connector. Without this the cable stopped short beside the
-  // equipment, which is what made wiring look like annotation rather than
-  // plumbing — and with a floor-level cable the riser IS the drop from the
-  // machine down to the deck.
-  const startRiser = portRiser(line.start, placeablesById, runY);
+  // New lines already route from the measured connector. Legacy lines route
+  // from the logical footprint edge; collapse that old terminal detour before
+  // adding the vertical riser. Three-point L routes are safe too: the shared
+  // corner absorbs the start's row and the end's column (or vice versa).
+  const startAnchor = anchorFor(line.start, placeablesById);
+  const endAnchor = anchorFor(line.end, placeablesById);
+  alignTerminalToAnchor(points, 'start', startAnchor);
+  alignTerminalToAnchor(points, 'end', endAnchor);
+
+  // At each end the floor run reaches the connector's X/Z, climbs the device,
+  // and steps out into its fitting. Two-point legacy lines cannot slide a
+  // corner without moving their opposite endpoint, so portRiser retains its
+  // orthogonal boundary bridge as a narrow fallback for that one shape.
+  const startRunPoint = points[0];
+  const endRunPoint = points[points.length - 1];
+  const startRiser = portRiser(line.start, placeablesById, runY, startRunPoint, startAnchor);
   if (startRiser) points.splice(0, 1, ...startRiser.slice().reverse());
-  const endRiser = portRiser(line.end, placeablesById, runY);
+  const endRiser = portRiser(line.end, placeablesById, runY, endRunPoint, endAnchor);
   if (endRiser && points.length > 0) points.splice(points.length - 1, 1, ...endRiser);
   return points;
 }
 
-// The 3-point tail that takes a cable from its run height into a port's
-// connector: under the port at runY → up to the anchor → out along the port's
-// normal. Ordered run-first; the start end reverses it.
-function portRiser(ref, placeablesById, runY) {
+// The orthogonal tail that takes a cable from its floor-route endpoint into
+// the visible connector on the model shell:
+//
+//   route endpoint → along footprint edge → inward to shell
+//                  → up to anchor → out into fitting
+//
+// New paths start at the anchor already. The edge step remains as a fallback
+// for a two-point legacy path, whose only other vertex cannot be moved without
+// shifting its opposite endpoint. It reconciles that mismatch without a
+// diagonal or a U-turn through the old endpoint.
+// Ordered run-first; the start end reverses it.
+function portRiser(ref, placeablesById, runY, runPoint, resolvedAnchor) {
   if (!ref || !placeablesById) return null;
   const rec = placeablesById.get(ref.placeableId);
   if (!rec) return null;
   const def = COMPONENTS[rec.type];
-  const anchor = portAnchor3D(rec, def, ref.portName);
+  const anchor = resolvedAnchor || portAnchor3D(rec, def, ref.portName);
   if (!anchor) return null;
   const out = anchor.out || { x: 0, z: 0 };
   const d = anchor.standoff || 0;
-  const tail = [new THREE.Vector3(anchor.x, runY, anchor.z)];
+  const logical = runPoint || new THREE.Vector3(anchor.x, runY, anchor.z);
+  const tail = [];
+  const pushDistinct = (x, y, z) => {
+    const prev = tail[tail.length - 1];
+    if (prev && Math.abs(prev.x - x) < 1e-6
+      && Math.abs(prev.y - y) < 1e-6
+      && Math.abs(prev.z - z) < 1e-6) return;
+    tail.push(new THREE.Vector3(x, y, z));
+  };
+
+  pushDistinct(logical.x, runY, logical.z);
+  // Move tangentially while still on the footprint boundary, then radially
+  // inward to the shell. `out` is cardinal, so every emitted leg changes one
+  // coordinate only. The boundary route also keeps the bridge out from under
+  // the equipment until it is lined up with the physical connector.
+  if (Math.abs(out.x) > Math.abs(out.z)) {
+    pushDistinct(logical.x, runY, anchor.z);
+  } else if (Math.abs(out.z) > 0) {
+    pushDistinct(anchor.x, runY, logical.z);
+  }
+  pushDistinct(anchor.x, runY, anchor.z);
   if (Math.abs(anchor.y - runY) > 1e-6) {
-    tail.push(new THREE.Vector3(anchor.x, anchor.y, anchor.z));
+    pushDistinct(anchor.x, anchor.y, anchor.z);
   }
   if (d > 0) {
-    tail.push(new THREE.Vector3(anchor.x + out.x * d, anchor.y, anchor.z + out.z * d));
+    pushDistinct(anchor.x + out.x * d, anchor.y, anchor.z + out.z * d);
   }
   return tail;
 }

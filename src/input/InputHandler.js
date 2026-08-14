@@ -34,6 +34,11 @@ import {
   DEMOLISH_BUTTONS,
   demolishRefund,
 } from './demolishScopes.js';
+import {
+  componentHoverInfo,
+  furnishingHoverInfo,
+  utilityNetworkHoverInfo,
+} from '../ui/hover-info.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -57,15 +62,6 @@ function _categoryColor(category) {
     endpoint:      0xcc6688, // pink
   };
   return colors[category] || 0x88aaff;
-}
-
-function _effectLabel(key) {
-  const labels = {
-    zoneOutput: 'Zone Output', morale: 'Morale', research: 'Research',
-    rfPower: 'RF Power', vacuumCapacity: 'Vacuum', coolingCapacity: 'Cooling',
-    cryoCapacity: 'Cryo', powerCapacity: 'Power', dataCapacity: 'Data',
-  };
-  return labels[key] || key;
 }
 
 export class InputHandler {
@@ -104,8 +100,7 @@ export class InputHandler {
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     // Hover tooltip state
-    this._hoverTooltipTimer = null;
-    this._hoverTooltipTarget = null; // 'furn:id' or 'equip:id'
+    this._hoverTooltipTarget = null;
     this._tooltipEl = null;
     // Beamline-specific input (junction ghosts, pipe drawing,
     // placement-on-pipe). BeamlineTool routes events here; the controller
@@ -151,15 +146,20 @@ export class InputHandler {
 
   // --- Hover tooltip ---
 
-  _showTooltip(text, screenX, screenY) {
+  _showTooltip(info, screenX, screenY) {
     this._hideTooltip();
     const el = document.createElement('div');
     el.className = 'hover-tooltip';
-    el.innerHTML = text;
-    el.style.left = (screenX + 12) + 'px';
-    el.style.top = (screenY - 8) + 'px';
+    const title = document.createElement('div');
+    title.className = 'hover-tooltip-title';
+    title.textContent = info.title;
+    const detail = document.createElement('div');
+    detail.className = 'hover-tooltip-detail';
+    detail.textContent = info.detail;
+    el.append(title, detail);
     document.body.appendChild(el);
     this._tooltipEl = el;
+    this._positionTooltip(screenX, screenY);
   }
 
   _hideTooltip() {
@@ -167,16 +167,83 @@ export class InputHandler {
       this._tooltipEl.remove();
       this._tooltipEl = null;
     }
-    if (this._hoverTooltipTimer) {
-      clearTimeout(this._hoverTooltipTimer);
-      this._hoverTooltipTimer = null;
-    }
     this._hoverTooltipTarget = null;
+  }
+
+  _setHoverTooltip(targetId, info, screenX, screenY) {
+    if (!info) { this._hideTooltip(); return; }
+    if (this._hoverTooltipTarget !== targetId || !this._tooltipEl) {
+      this._showTooltip(info, screenX, screenY);
+      this._hoverTooltipTarget = targetId;
+      return;
+    }
+    // Keep the compact card beside the cursor without rebuilding its DOM.
+    this._positionTooltip(screenX, screenY);
+  }
+
+  _positionTooltip(screenX, screenY) {
+    if (!this._tooltipEl) return;
+    const margin = 8;
+    const left = Math.min(screenX + 12, window.innerWidth - this._tooltipEl.offsetWidth - margin);
+    const top = Math.min(screenY - 8, window.innerHeight - this._tooltipEl.offsetHeight - margin);
+    this._tooltipEl.style.left = Math.max(margin, left) + 'px';
+    this._tooltipEl.style.top = Math.max(margin, top) + 'px';
   }
 
   _checkHoverTooltip(world, grid, screenX, screenY) {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
+
+    // Visible 3D objects win over lines or tile fallbacks.
+    const hit = this.renderer.raycastScreen?.(screenX, screenY);
+    const hitInfo = hit ? this.renderer.identifyHit?.(hit) : null;
+    if (hitInfo) {
+      const rootId = hitInfo.nodeId ?? hitInfo.attachmentId ?? hitInfo.rootObj?.userData?.nodeId;
+      let entry = rootId ? this.game.getPlaceable?.(rootId) : null;
+      if (!entry && hitInfo.group === 'attachment' && rootId) {
+        for (const pipe of (this.game.state.beamPipes || [])) {
+          entry = (pipe.placements || []).find(p => p.id === rootId);
+          if (entry) break;
+        }
+      }
+      if (!entry && hitInfo.rootObj
+          && (hitInfo.group === 'equipment' || hitInfo.group === 'decoration')) {
+        const p = hitInfo.rootObj.position;
+        entry = this._placeableAtWorldPos?.(p.x, p.z);
+      }
+      const def = entry && (COMPONENTS[entry.type] || PLACEABLES[entry.type]);
+      if (def) {
+        this._setHoverTooltip(`placeable:${entry.id}`, componentHoverInfo(def), screenX, screenY);
+        return;
+      }
+      if (hitInfo.group === 'beampipe' && hitInfo.pipeId) {
+        const pipe = (this.game.state.beamPipes || []).find(p => p.id === hitInfo.pipeId);
+        const nodeId = pipe?.start?.junctionId || pipe?.end?.junctionId;
+        const node = nodeId ? this.game.getPlaceable?.(nodeId) : null;
+        const beamline = node?.beamlineId ? this.game.registry?.get(node.beamlineId) : null;
+        this._setHoverTooltip(`beampipe:${hitInfo.pipeId}`, {
+          title: 'Beam Pipe',
+          detail: beamline ? beamline.name : 'Beamline transport',
+        }, screenX, screenY);
+        return;
+      }
+    }
+
+    // Utility lines report their solved network load immediately.
+    const utilityHit = this.renderer.raycastUtilityLine?.(screenX, screenY);
+    if (utilityHit?.lineId) {
+      const type = utilityHit.utilityType
+        || this.game.state.utilityLines?.get?.(utilityHit.lineId)?.utilityType;
+      if (!type) { this._hideTooltip(); return; }
+      const networks = this.game.state.utilityNetworks?.get?.(type) || [];
+      const network = networks.find(n => (n.lineIds || []).includes(utilityHit.lineId));
+      const flow = network
+        ? this.game.state.utilityNetworkData?.get?.(type)?.get?.(network.id)
+        : null;
+      this._setHoverTooltip(`utility:${utilityHit.lineId}`,
+        utilityNetworkHoverInfo(UTILITY_TYPES[type], flow), screenX, screenY);
+      return;
+    }
 
     // Check furnishings (sub-tile)
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
@@ -191,27 +258,8 @@ export class InputHandler {
           const entry = this.game.state.zoneFurnishings[furnIdx - 1];
           if (entry) {
             const targetId = 'furn:' + entry.id;
-            if (this._hoverTooltipTarget !== targetId) {
-              this._hideTooltip();
-              this._hoverTooltipTarget = targetId;
-              this._hoverTooltipTimer = setTimeout(() => {
-                const def = ZONE_FURNISHINGS[entry.type];
-                if (!def) return;
-                let html = `<b>${def.name}</b>`;
-                if (def.effects) {
-                  for (const [ek, ev] of Object.entries(def.effects)) {
-                    if (ev === 0) continue;
-                    const sign = ev > 0 ? '+' : '';
-                    const label = _effectLabel(ek);
-                    const val = typeof ev === 'number' && Math.abs(ev) < 1
-                      ? (ev * 100).toFixed(0) + '%'
-                      : String(ev);
-                    html += `<br><span style="color:#8f8">${label}: ${sign}${val}</span>`;
-                  }
-                }
-                this._showTooltip(html, screenX, screenY);
-              }, 500);
-            }
+            const def = ZONE_FURNISHINGS[entry.type];
+            this._setHoverTooltip(targetId, furnishingHoverInfo(def), screenX, screenY);
             return;
           }
         }
@@ -222,20 +270,9 @@ export class InputHandler {
     const equipId = this.game.state.facilityGrid[key];
     if (equipId) {
       const targetId = 'equip:' + equipId;
-      if (this._hoverTooltipTarget !== targetId) {
-        this._hideTooltip();
-        this._hoverTooltipTarget = targetId;
-        this._hoverTooltipTimer = setTimeout(() => {
-          const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
-          if (!equip) return;
-          const comp = COMPONENTS[equip.type];
-          if (!comp) return;
-          let html = `<b>${comp.name}</b>`;
-          if (comp.category) html += `<br><span style="color:#888">${comp.category}</span>`;
-          if (comp.energyCost) html += `<br><span style="color:#cc8">${comp.energyCost} kW</span>`;
-          this._showTooltip(html, screenX, screenY);
-        }, 500);
-      }
+      const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
+      const comp = equip && COMPONENTS[equip.type];
+      this._setHoverTooltip(targetId, componentHoverInfo(comp), screenX, screenY);
       return;
     }
 
@@ -1665,6 +1702,8 @@ export class InputHandler {
       // Hover tooltip for furnishings/equipment.
       this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
     });
+
+    canvas.addEventListener('mouseleave', () => this._hideTooltip());
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();

@@ -1021,10 +1021,10 @@ export class ThreeRenderer {
         };
       }
       if (obj.parent === this.equipmentGroup) {
-        return { group: 'equipment', rootObj: obj };
+        return { group: 'equipment', rootObj: obj, nodeId: obj.userData.nodeId ?? null };
       }
       if (obj.parent === this.decorationGroup) {
-        return { group: 'decoration', rootObj: obj };
+        return { group: 'decoration', rootObj: obj, nodeId: obj.userData.nodeId ?? null };
       }
       if (obj.parent === this.wallGroup) {
         return { group: 'wall', rootObj: obj };
