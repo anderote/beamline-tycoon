@@ -16,7 +16,7 @@ the game plays exactly as it did, with six hireable professions instead of four
 and richer hiring cards. Plans 2–4 supply the behaviour.
 
 **Tech Stack:** Vanilla ES modules, node test runner (`npm test` →
-`scripts/run-tests.mjs` over `test/*.js`), Vite, Three.js (CDN global).
+`scripts/run-tests.mjs` over `test/*.js`), Vite, Three.js (runtime `THREE` global).
 
 **Spec:** `docs/superpowers/specs/2026-08-13-staff-professions-and-work-design.md`
 

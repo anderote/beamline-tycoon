@@ -14,7 +14,7 @@ along the way records a human-readable reason, because with four hard gates a
 silent facility is unshippable.
 
 **Tech Stack:** Vanilla ES modules, node test runner (`npm test` →
-`scripts/run-tests.mjs` over `test/*.js`), Three.js (CDN global), Playwright.
+`scripts/run-tests.mjs` over `test/*.js`), Three.js (runtime `THREE` global), Playwright.
 
 **Spec:** `docs/superpowers/specs/2026-08-13-staff-professions-and-work-design.md`
 

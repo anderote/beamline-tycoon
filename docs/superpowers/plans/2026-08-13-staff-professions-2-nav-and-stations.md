@@ -15,7 +15,7 @@ and gains a pose state machine; the figure builder gains a knee so a seated pawn
 does not fold flat.
 
 **Tech Stack:** Vanilla ES modules, node test runner (`npm test` →
-`scripts/run-tests.mjs` over `test/*.js`), Three.js (CDN global — never import
+`scripts/run-tests.mjs` over `test/*.js`), Three.js (runtime `THREE` global — never import
 it), Playwright for browser tests.
 
 **Spec:** `docs/superpowers/specs/2026-08-13-staff-professions-and-work-design.md`
@@ -43,7 +43,7 @@ throughout.
   Export and reuse the one in `src/networks/rooms.js`.
 - **No behaviour change to the sim.** No gate moves in this plan. Pawns move
   differently and can sit; nothing they do affects beam, repair, data, or money.
-- Three.js is a CDN global in renderer files. Do **not** add an import.
+- `THREE` is a runtime global in renderer files. Do **not** add an import — `src/three-global.js` on master promotes the npm package to `globalThis.THREE`, and node tests inject their own stub.
 - New tests are `test/*.js`, run by `node test/<file>.js`; failure is signalled
   by a non-zero exit code.
 
@@ -442,7 +442,7 @@ something to do when it gets there.
   Assert joint rotations and part hierarchy there. Do **not** reach for
   Playwright: these are geometry facts, and the stub asserts them faster and
   more precisely than a browser screenshot can.
-- Test: `test/browser/staff-poses.spec.js` (create, Playwright) — smoke only:
+- Test: `test/browser/staff-poses.spec.mjs` (create, Playwright) — smoke only:
   the foundry page renders the pose row and logs no console errors.
 
 **Interfaces:**
@@ -485,7 +485,7 @@ Extend `test/test-staff-builder.js` (headless, via its existing THREE stub):
 - `POSES` has all seven keys, and every pose's joint targets are finite numbers.
 - `staffStyleHipHeight(style)` is between 0 and `style.height`.
 
-Then a Playwright smoke spec `test/browser/staff-poses.spec.js`: the foundry's
+Then a Playwright smoke spec `test/browser/staff-poses.spec.mjs`: the foundry's
 pose row renders seven labelled figures with no console errors.
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -502,7 +502,7 @@ keep only detaching; it must not dispose the shared shin geometry.
 - [ ] **Step 4: Run the test, then check the walk still reads**
 
 Run: `node test/test-staff-builder.js`, then `npm test`, then
-`npx playwright test test/browser/staff-poses.spec.js`
+`npx playwright test test/browser/staff-poses.spec.mjs`
 Expected: PASS, **including every assertion that already existed in
 `test-staff-builder.js`** — those guard figure origin and shadow flags, and a
 knee that breaks them is a regression, not a new feature.
@@ -510,7 +510,7 @@ knee that breaks them is a regression, not a new feature.
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "feat(staff): knee joint and pose state targets" -- src/renderer3d/builders/staff-builder.js staff-foundry.html test/test-staff-builder.js test/browser/staff-poses.spec.js
+git commit -m "feat(staff): knee joint and pose state targets" -- src/renderer3d/builders/staff-builder.js staff-foundry.html test/test-staff-builder.js test/browser/staff-poses.spec.mjs
 ```
 
 ---
