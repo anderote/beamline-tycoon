@@ -104,7 +104,15 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, tick = 0,
       // and a chronically stressed staffer can break down many times in a
       // long game — exactly the unbounded-growth shape logCareerEvent's own
       // header exists to close off.
-      logCareerEvent(m, tick, 'breakdown', 'Stressed breakdown — resting 30 ticks.');
+      //
+      // Fix round 2: the note text itself used to read "...resting 30
+      // ticks" — a raw sim unit, out of register with every OTHER note this
+      // module writes (repair.js/commission.js/fabricate.js/analyze.js all
+      // read as prose, no internal unit ever named). This entry lands in
+      // the same permanent, capped diary the bio card renders verbatim, so
+      // it is held to that same bar now — reworded to describe what
+      // happened, not how the sim implements the recovery.
+      logCareerEvent(m, tick, 'breakdown', 'Suffered a stress breakdown and stepped away to recover.');
       m._restTimer = 30;
       statusChanged = true;
     }

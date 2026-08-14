@@ -2,6 +2,26 @@ import { ContextWindow } from './ContextWindow.js';
 import { staffHireCost } from '../game/staff/staffSystem.js';
 import { renderBioCard } from './StaffBioCard.js';
 
+// Task 7 (staff-professions-3, jobs-and-gates) follow-up, fix round 2: an
+// admin's paperwork discount (state.staffHireDiscount — jobEffects/
+// paperwork.js), applied the exact same way Game.js's hireStaffMember
+// actually charges it. Exported and used for BOTH the displayed price AND
+// the affordability check below, from this one function, on purpose: a
+// reviewer traced a real bug in an earlier draft of this file where the
+// price label read the discounted cost but the affordability check (and so
+// hireBtn.disabled) still read the undiscounted one — a player holding a
+// 40% discount could see "Insufficient funding" and a disabled Hire button
+// for a candidate they could actually afford, making the discount this
+// task exists to grant invisible and unusable at exactly the funding
+// boundary where it matters. Routing both consumers through this single
+// function is what makes that specific class of bug structurally
+// impossible going forward, not just fixed once — see
+// test/test-hiring-dialog.js's own boundary-case test.
+export function hiringCandidateCost(candidate, game) {
+  const discount = game.state.staffHireDiscount || 0;
+  return Math.round(staffHireCost(candidate, game.state.staffCosts || {}) * (1 - discount));
+}
+
 export function openHiringDialog(game) {
   const winId = 'hiring-dialog';
   const existing = ContextWindow.getWindow(winId);
@@ -32,17 +52,10 @@ export function openHiringDialog(game) {
     const grid = document.createElement('div');
     grid.className = 'hiring-grid';
     for (const c of candidates) {
-      // Task 7 (staff-professions-3, jobs-and-gates) follow-up, fix round 1:
-      // an admin's paperwork discount (state.staffHireDiscount) is applied
-      // right here, the same way Game.js's hireStaffMember actually charges
-      // it — this used to quote staffHireCost's bare number, which the real
-      // hire would then undercut, the same "displayed number does not match
-      // what happens" shape as the placement-ghost bug this plan already
-      // fixed once (there: showed affordable, then refused; here: quotes
-      // high, charges low — the benign direction, but still a wrong number
-      // on screen).
-      const discount = game.state.staffHireDiscount || 0;
-      const cost = Math.round(staffHireCost(c, game.state.staffCosts || {}) * (1 - discount));
+      // Both the price label below and the afford/disabled gate derive from
+      // this ONE call — see hiringCandidateCost's own header for the bug
+      // that shape closes.
+      const cost = hiringCandidateCost(c, game);
       const afford = funding >= cost;
 
       const card = document.createElement('div');
