@@ -2451,6 +2451,12 @@ export class Game {
       const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
       this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
     }
+    // The one place subgridOccupied moves for an already-placed entry —
+    // called both by movePlaceable and by InputHandler._placeMovedObject's
+    // 'component' branch, which mutates col/row/dir directly and bypasses
+    // movePlaceable entirely. Bumping here instead of in each caller means
+    // neither path can forget it.
+    this._markNavDirty();
   }
 
   /**
@@ -2526,9 +2532,9 @@ export class Game {
     entry.subRow = subRow;
     entry.dir = dir;
     this._rebuildPlaceableCells(entry);
-    // subgridOccupied moved with the entry even though state.placeables
-    // itself was not spliced — the nav grid must still rebuild.
-    this._markNavDirty();
+    // (_markNavDirty is called inside _rebuildPlaceableCells itself, so
+    // every caller of it — including InputHandler's direct-mutate move
+    // path, which bypasses this method entirely — is covered.)
 
     // Flatten the DESTINATION tiles, and deliberately leave the origin flat.
     // Placement flattens because everything is drawn at y = 0; a module that

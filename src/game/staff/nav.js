@@ -21,6 +21,7 @@
 
 import { isBlocked } from '../../networks/rooms.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
+import { FLOORS } from '../../data/structure.js';
 
 // Tiles of margin added around infraOccupied's bounding box, in every
 // direction. Staff need to path across bare ground to reach a detached
@@ -52,6 +53,11 @@ function normalizeNode(n) {
   return { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow };
 }
 
+function parseSubtileKey(key) {
+  const p = key.split(',');
+  return { col: +p[0], row: +p[1], subCol: +p[2], subRow: +p[3] };
+}
+
 // --- Coordinate bridge -----------------------------------------------------
 
 /**
@@ -81,11 +87,27 @@ export function subtileToWorld(node) {
 }
 
 // --- Grid construction -------------------------------------------------
+//
+// Storing one passable/cost entry per SUBTILE across the whole bounded area
+// was the original approach here, but the starter map scatters meadow
+// (wildgrass/tallgrass) floor tiles across the entire site (see
+// placeMeadowGrass in src/game/map-generator.js), so infraOccupied's bbox —
+// and therefore `bounds` — IS the map from turn 1. Materializing every
+// subtile in it is ~99% redundant: bare/grass ground is uniformly passable
+// at one cost, so only the EXCEPTIONS need storing. `flooredTiles` (below)
+// holds just the tiles with a true (non-outdoor) floor, at TILE
+// granularity; `blockedSubtiles` holds just the subtiles an occupant
+// actually blocks. Everything else is derived on the fly by the closures
+// `passable`/`cost` return — same public shape (`.has()`/`.get()` by
+// subtile key) as a real Set/Map, an order of magnitude less memory, and a
+// build cost proportional to what's actually placed rather than to the
+// bounded area.
 
 /**
- * Build a fresh NavGrid from the current state. Enumerates every subtile in
- * bounds (infraOccupied's bounding box, inflated by BOUNDS_INFLATE_TILES)
- * and records whether it is passable, and at what movement cost.
+ * Build a fresh NavGrid from the current state. `bounds` is infraOccupied's
+ * bounding box inflated by BOUNDS_INFLATE_TILES; `passable`/`cost` answer
+ * per-subtile queries by consulting the sparse exception sets above rather
+ * than a precomputed entry for every subtile.
  */
 export function buildNavGrid(state) {
   const infraOccupied = state.infraOccupied || {};
@@ -94,12 +116,20 @@ export function buildNavGrid(state) {
   const placeables = state.placeables || [];
 
   let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  // Tiles with a true floor (not an outdoor grounds surface like grass/
+  // dirt/pavement — those are walkable ground, not flooring, and must cost
+  // the same as unpaved bare ground or a pawn will detour onto a meadow to
+  // avoid grass it is already standing on).
+  const flooredTiles = new Set();
   for (const key of Object.keys(infraOccupied)) {
     const [c, r] = key.split(',').map(Number);
     if (c < minCol) minCol = c;
     if (c > maxCol) maxCol = c;
     if (r < minRow) minRow = r;
     if (r > maxRow) maxRow = r;
+    const type = infraOccupied[key];
+    const def = FLOORS[type];
+    if (!def || def.groundsSurface !== true) flooredTiles.add(key);
   }
   if (!Number.isFinite(minCol)) {
     // No floor anywhere yet — bound a small area around the origin rather
@@ -110,45 +140,50 @@ export function buildNavGrid(state) {
   maxCol += BOUNDS_INFLATE_TILES;
   minRow -= BOUNDS_INFLATE_TILES;
   maxRow += BOUNDS_INFLATE_TILES;
+  const bounds = { minCol, maxCol, minRow, maxRow };
 
-  const passable = new Set();
-  const cost = new Map();
-
-  for (let col = minCol; col <= maxCol; col++) {
-    for (let row = minRow; row <= maxRow; row++) {
-      const tileCost = infraOccupied[col + ',' + row] ? FLOOR_COST : GRASS_COST;
-      for (let subCol = 0; subCol < 4; subCol++) {
-        for (let subRow = 0; subRow < 4; subRow++) {
-          const key = subtileKey(col, row, subCol, subRow);
-          const occ = subgridOccupied[key];
-          if (occ) {
-            const idx = placeableIndex[occ.id];
-            const entry = idx !== undefined ? placeables[idx] : undefined;
-            const def = entry ? PLACEABLES[entry.type] : undefined;
-            // Passable only when we can positively identify the occupant as
-            // something a pawn walks past/into rather than around: a small
-            // stackable desktop item, anything short enough to step over, or
-            // — load-bearing, not a detail — anything carrying a `seat`
-            // block. Every chair in the repo is subH: 2, so the subH check
-            // alone would make chairs solid, and a seated pawn's path
-            // destination IS the chair's tile. An unresolvable occupant
-            // (missing index/def entry) is treated as blocking, not passable.
-            const passableThrough = !!def
-              && (def.stackable || (def.subH ?? 1) <= 1 || !!def.seat);
-            if (!passableThrough) continue;
-          }
-          passable.add(key);
-          cost.set(key, tileCost);
-        }
-      }
-    }
+  // Subtiles an occupant actually blocks (see the passability rule below).
+  // Proportional to placed-item footprints, not to the bounded area.
+  const blockedSubtiles = new Set();
+  for (const key of Object.keys(subgridOccupied)) {
+    const occ = subgridOccupied[key];
+    const idx = placeableIndex[occ.id];
+    const entry = idx !== undefined ? placeables[idx] : undefined;
+    const def = entry ? PLACEABLES[entry.type] : undefined;
+    // Passable only when we can positively identify the occupant as
+    // something a pawn walks past/into rather than around: a small
+    // stackable desktop item, anything short enough to step over, or —
+    // load-bearing, not a detail — anything carrying a `seat` block. Every
+    // chair in the repo is subH: 2, so the subH check alone would make
+    // chairs solid, and a seated pawn's path destination IS the chair's
+    // tile. An unresolvable occupant (missing index/def entry) is treated
+    // as blocking, not passable.
+    const passableThrough = !!def
+      && (def.stackable || (def.subH ?? 1) <= 1 || !!def.seat);
+    if (!passableThrough) blockedSubtiles.add(key);
   }
+
+  const passable = {
+    has(key) {
+      const { col, row } = parseSubtileKey(key);
+      if (col < bounds.minCol || col > bounds.maxCol) return false;
+      if (row < bounds.minRow || row > bounds.maxRow) return false;
+      return !blockedSubtiles.has(key);
+    },
+  };
+  const cost = {
+    get(key) {
+      const comma = key.indexOf(',', key.indexOf(',') + 1);
+      const tileKey = key.slice(0, comma);
+      return flooredTiles.has(tileKey) ? FLOOR_COST : GRASS_COST;
+    },
+  };
 
   return {
     revision: state.navRevision || 0,
     passable,
     cost,
-    bounds: { minCol, maxCol, minRow, maxRow },
+    bounds,
     // Not part of the documented shape — carried along so findPath/
     // isReachable can run isBlocked() against the same state the grid was
     // built from without every caller having to pass state back in.
@@ -222,13 +257,30 @@ function inBounds(bounds, n) {
       && n.row >= bounds.minRow && n.row <= bounds.maxRow;
 }
 
-// Admissible/consistent heuristic: Manhattan distance in subtiles, scaled by
-// the cheapest possible per-step cost (a floored subtile). Real per-step
-// costs are always >= FLOOR_COST, so this never overestimates.
+// Weighted (deliberately INADMISSIBLE) heuristic: Manhattan distance in
+// subtiles, scaled by GRASS_COST rather than the cheapest possible per-step
+// cost (FLOOR_COST). A true admissible heuristic (scaled by FLOOR_COST) can
+// overestimate nothing, but it can underestimate a grass-heavy route by up
+// to GRASS_COST/FLOOR_COST — and on this game's default map (mostly bare/
+// meadow ground; DEFAULT_MAP_HALF_EXTENT = 30, so routine crossings run
+// 30-60 tiles), that underestimate is severe enough that A* degrades
+// towards Dijkstra's uniform-cost search (effective weight
+// FLOOR_COST/GRASS_COST = 0.4) and expands O(d^2) nodes. That blew through
+// MAX_EXPANDED_NODES on perfectly reachable goals — a 30-tile diagonal
+// grass crossing returned null — which presents downstream as "no staffer
+// will take this job", not as a pathfinding bug.
+//
+// Scaling by GRASS_COST instead trades bounded suboptimality for actually
+// terminating: a path this returns is not guaranteed to be the cheapest
+// possible (a floor detour that only marginally beats a grass-heavier
+// route could be missed), but it always returns SOME reachable path
+// quickly rather than hitting the node cap and returning null. For a game
+// where "pawn takes a slightly less than optimal route" is invisible and
+// "pawn refuses the job" is a visible bug, that's the right trade.
 function heuristic(a, b) {
   const dCol = (a.col * 4 + a.subCol) - (b.col * 4 + b.subCol);
   const dRow = (a.row * 4 + a.subRow) - (b.row * 4 + b.subRow);
-  return (Math.abs(dCol) + Math.abs(dRow)) * FLOOR_COST;
+  return (Math.abs(dCol) + Math.abs(dRow)) * GRASS_COST;
 }
 
 // The four cardinal neighbours of a subtile node. Steps that stay inside the
@@ -302,9 +354,11 @@ function search(nav, from, to, wantPath) {
     const current = open.pop();
     if (closed.has(current.key)) continue;
     closed.add(current.key);
-    expanded++;
-    if (expanded > MAX_EXPANDED_NODES) return { reached: false, path: null };
 
+    // Test the goal BEFORE charging this expansion against the cap: a goal
+    // popped as the (MAX_EXPANDED_NODES + 1)th node is still a real answer,
+    // and discarding it there would convert an actually-cheap search into a
+    // spurious null right at the threshold.
     if (current.key === toKey) {
       return {
         reached: true,
@@ -312,13 +366,16 @@ function search(nav, from, to, wantPath) {
       };
     }
 
+    expanded++;
+    if (expanded > MAX_EXPANDED_NODES) return { reached: false, path: null };
+
     for (const step of neighborsOf(current.node)) {
       const nbKey = nodeKey(step.node);
       if (closed.has(nbKey)) continue;
       if (!nav.passable.has(nbKey)) continue;
       if (step.edge && isBlocked(current.node.col, current.node.row, step.edge, nav._state)) continue;
 
-      const stepCost = nav.cost.get(nbKey) ?? GRASS_COST;
+      const stepCost = nav.cost.get(nbKey);
       const tentativeG = gScore.get(current.key) + stepCost;
       const prevG = gScore.get(nbKey);
       if (prevG === undefined || tentativeG < prevG) {
