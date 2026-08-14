@@ -35,11 +35,14 @@
 //   * finding/centering on a clear build area — the map is randomly
 //                                generated per new game, so the spec has to
 //                                ask the world where there is room.
-//   * the remaining utility wiring before Start Beam — the utility gate needs
-//                                power+vacuum on both junctions; one line is
-//                                drawn by hand to prove the gesture, the rest
-//                                go through scenario-wiring.js (the same
-//                                helper shipped content uses).
+//   * the remaining utility wiring before Start Beam — the utility gate
+//                                hard-requires hv behind the panel plus
+//                                power/vacuum/cooling on every endpoint this
+//                                walk built (both junctions AND the on-pipe
+//                                quadrupole); one line is drawn by hand to
+//                                prove the gesture, the rest go through
+//                                scenario-wiring.js (the same helper shipped
+//                                content uses).
 //   * one extra decoration placed for the undo/redo step, because undo
 //                                history does not survive the reload above.
 //
@@ -69,6 +72,15 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
   const errors = createErrorCollector(page);
   autoAcceptDialogs(page);
   await blockRemoteDrive(page);
+  // TEMP-STUBBY-HACK
+  await page.addInitScript(() => {
+    const add = () => {
+      const s = document.createElement('style');
+      s.textContent = '#stubby{display:none!important;}';
+      (document.head || document.documentElement).appendChild(s);
+    };
+    if (document.head) add(); else document.addEventListener('DOMContentLoaded', add);
+  });
 
   // ── boot -> title screen ────────────────────────────────────────────────
   await test.step('boot to the title screen', async () => {
@@ -205,26 +217,33 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     errors.check('on-pipe placement');
   });
 
-  // ── infra: a power source, then a hand-drawn utility line ───────────────
-  await test.step('place a transformer and draw a power line to the source', async () => {
+  // ── infra: a distribution panel, then a hand-drawn utility line ─────────
+  await test.step('place a power panel and draw a power line to the source', async () => {
+    // Power is a two-stage chain (see utility-ports-v2.js): a SUPPLY — the
+    // padMountTransformer — carries the capacity and hands out hvCable feeders,
+    // and only a DISTRIBUTION device turns one feeder into powerCable branch
+    // circuits. So the thing a machine plugs into is a panel; the transformer
+    // has no pwr_out at all. The transformer is still needed, and goes in with
+    // the rest of the wiring below.
+    //
     // Utility lines are validated against port *direction*: the first path
     // segment must leave along the source port's outward normal and the last
-    // must arrive against the sink port's. padMountTransformer.pwr_out faces
-    // east and source.pwr_in faces west, so the transformer goes due west of
-    // the source on the same world Z — which means aiming the placement click
-    // at a world point, not a tile centre.
+    // must arrive against the sink port's. powerPanel.pwr_out_1 faces east and
+    // source.pwr_in faces west, so the panel goes due west of the source on
+    // the same world Z — which means aiming the placement click at a world
+    // point, not a tile centre.
     const sink = await portWorld(page, 'source', 'pwr_in');
-    await armPaletteTool(page, 'infra', 'power', 'facility', 'padMountTransformer');
+    await armPaletteTool(page, 'infra', 'power', 'facility', 'powerPanel');
     await clickWorld(page, sink.x - 6, sink.z);
     await frames(page);
-    const feed = await portWorld(page, 'padMountTransformer', 'pwr_out');
-    expect(feed, 'transformer placed').not.toBeNull();
-    expect(feed.z, 'transformer feed port lines up with the source inlet').toBeCloseTo(sink.z, 3);
+    const feed = await portWorld(page, 'powerPanel', 'pwr_out_1');
+    expect(feed, 'panel placed').not.toBeNull();
+    expect(feed.z, 'panel outlet lines up with the source inlet').toBeCloseTo(sink.z, 3);
 
     await armPaletteTool(page, 'infra', 'power', 'utility', 'powerCable');
     const b = await before();
     await dragPortToPort(page,
-      { type: 'padMountTransformer', port: 'pwr_out' },
+      { type: 'powerPanel', port: 'pwr_out_1' },
       { type: 'source', port: 'pwr_in' });
     await frames(page);
     const a = await before();
@@ -240,11 +259,46 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
       const { wireUtility } = await import('/src/data/scenarios/scenario-wiring.js');
       const g = window.game;
       const find = t => g.state.placeables.find(p => p.type === t)?.id;
-      const src = find('source'), cup = find('faradayCup'), xfmr = find('padMountTransformer');
-      const pump = g.placePlaceable({ type: 'roughingPump', col: g.getPlaceable(src).col + 3, row: g.getPlaceable(src).row + 2 });
-      wireUtility(g, 'powerCable', { id: xfmr, port: 'pwr_out' }, { id: cup, port: 'pwr_in' });
-      wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: src, port: 'vac_in' });
-      wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: cup, port: 'vac_in' });
+      const src = find('source'), cup = find('faradayCup'), panel = find('powerPanel');
+      const s = g.getPlaceable(src), p = g.getPlaceable(panel);
+      // The quadrupole lives inside the pipe, not in state.placeables (role
+      // 'placement'), and the gate reads utility ENDPOINTS — which include
+      // placements — so its pwr_in / cool_in / vac_in hard-block exactly like
+      // a junction's would.
+      const quad = g.state.beamPipes.flatMap(bp => bp.placements || [])
+        .find(a => a.type === 'quadrupole')?.id;
+
+      // The panel's own feeder. hvCable is hard-required (utility-gate.js
+      // HARD_REQUIRED_UTILS): a distribution panel with nothing behind it
+      // powers nothing, so an unwired hv_in trips the beam just as hard as an
+      // unwired machine. Two tiles west of the panel keeps it inside the
+      // cleared area, and the panel's hv_in faces that way.
+      const xfmr = g.placePlaceable({ type: 'padMountTransformer', col: p.col - 2, row: p.row });
+      const pump = g.placePlaceable({ type: 'roughingPump', col: s.col + 3, row: s.row + 2 });
+      // coolingWater is hard-required too, and the source (30 kW) plus the
+      // quadrupole (8 kW) want 38 — packageChiller is the 50 kW rung.
+      //
+      // It is bolted onto the pump's south face rather than given an outlet of
+      // its own: powerCable declares bridgesAdjacent, so two touching
+      // footprints share a circuit with no line between them. That matters
+      // here because a powerPanel has exactly four outlets and a cable is
+      // point-to-point (fansOut false) — source, cup, pump and quadrupole
+      // already use all four. The pump is 1x2 subtiles at subRow 0, so subRow
+      // 2 puts the chiller flush against it (network-discovery.boxesAdjacent).
+      const chiller = g.placePlaceable(
+        { type: 'packageChiller', col: s.col + 3, row: s.row + 2, subRow: 2 });
+
+      wireUtility(g, 'hvCable',    { id: xfmr,  port: 'hv_out_1' },  { id: panel, port: 'hv_in' });
+      // One branch circuit per machine; pwr_out_1 is the hand-drawn line above.
+      wireUtility(g, 'powerCable', { id: panel, port: 'pwr_out_2' }, { id: cup,  port: 'pwr_in' });
+      wireUtility(g, 'powerCable', { id: panel, port: 'pwr_out_3' }, { id: pump, port: 'pwr_in' });
+      wireUtility(g, 'powerCable', { id: panel, port: 'pwr_out_4' }, { id: quad, port: 'pwr_in' });
+      // vacuum and cooling both fan out, so one outlet serves every sink.
+      wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: src,  port: 'vac_in' });
+      wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: cup,  port: 'vac_in' });
+      wireUtility(g, 'vacuumPipe', { id: pump, port: 'vac_out' }, { id: quad, port: 'vac_in' });
+      wireUtility(g, 'coolingWater', { id: chiller, port: 'cool_out' }, { id: src,  port: 'cool_in' });
+      wireUtility(g, 'coolingWater', { id: chiller, port: 'cool_out' }, { id: quad, port: 'cool_in' });
       // The utility gate also demands a *working* operator, and one goes
       // onBreak after ~40 ticks of fatigue — which this walk reaches before it
       // gets here, making "Start Beam" trip on beam_unstaffed at a time that
@@ -256,6 +310,12 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
         m._restTimer = null;
         Object.assign(m.needs, { fatigue: 0, hunger: 0, morale: 1 });
       }
+      // Twice, not once. powerCable.solve scales each outlet's capacity by the
+      // hvQuality its panel last solved to, and it reads that off
+      // worldState.nodeQualities — which the gate only writes at the END of a
+      // run. So the first tick after the hv line appears still sees the panel
+      // unfed and reports power_starved; the second tick has the HV result.
+      g.tick();
       g.tick();
     });
     await frames(page);
@@ -271,11 +331,18 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await expect(startBtn).toBeVisible();
     await startBtn.click();
     await frames(page);
-    const status = await page.evaluate(() => {
+    const beam = await page.evaluate(() => {
       const e = window.game.registry.getAll().find(x => !!x.sourceId);
-      return e?.status ?? null;
+      // Report the gate's own blockers alongside the status: every way this
+      // assertion fails is "something in the build is still unwired", and the
+      // blocker list names it instead of leaving the next reader to guess.
+      return {
+        status: e?.status ?? null,
+        blockers: (window.game.state.infraBlockers || []).map(b => b.message || b.code),
+      };
     });
-    expect(status, 'the beamline is running').toBe('running');
+    expect(beam.status, `the beamline is running; blockers: ${beam.blockers.join(' | ')}`)
+      .toBe('running');
 
     await page.keyboard.press('Escape');   // close the beamline window
     await page.click('#btn-pause');        // back to running
@@ -452,11 +519,21 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
       'known gap: the welcome guide has no Escape handler').toBeVisible();
     await dismissWelcome(page);
 
-    // 8. a world-anchored context window (removed from the DOM on close)
+    // 8. world-anchored context windows (removed from the DOM on close).
+    // Two of them, not one, and deliberately so: a double-click delivers a
+    // plain click first, and InputHandler's click-to-inspect raycasts the
+    // utility lines before anything else — the source tile now carries the
+    // power, vacuum and cooling lines landing on its own sinks, so that click
+    // opens a UtilityInspector for one of those networks. The dblclick that
+    // follows opens the beamline window on top. Escape pops the esc-stack one
+    // window at a time, which is the property worth pinning here.
+    const ctxWindows = page.locator('#context-windows-container .ctx-window');
     await dblClickTile(page, srcTile.col, srcTile.row);
-    await expect(page.locator('#context-windows-container .ctx-window')).toHaveCount(1);
+    await expect(ctxWindows).toHaveCount(2);
     await page.keyboard.press('Escape');
-    await expect(page.locator('#context-windows-container .ctx-window')).toHaveCount(0);
+    await expect(ctxWindows).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(ctxWindows).toHaveCount(0);
 
     errors.check('escape ladder');
   });
@@ -491,12 +568,18 @@ async function dblClickTile(page, col, row) {
  * Drag a utility line between two named ports, exactly as a player would:
  * press on the source port, drag, release on the sink port.
  *
- * Port pixels come from the app's own portWorldPosition() projected through
- * the live camera at ground level (y=0), because that is the plane the
- * controller's cursor raycast lands on. Each end asserts that the armed
- * UtilityLineInputController actually snapped to the intended port before
- * the button goes down/up — otherwise a near-miss would silently draw an
- * open-ended line and the count assertion would still pass.
+ * Port pixels come from the app's own portAnchor3D() — the fitting bolted to
+ * the side of the machine, typically a metre up — projected through the live
+ * camera, because that is exactly what UtilityLineInputController hit-tests
+ * the cursor against (_snapToNearestPort's `canProject` branch). Aiming at the
+ * sim's ground-level portWorldPosition instead used to work only because the
+ * old power model gave a transformer a single power port: on a device with an
+ * outlet on every face, the ground projection sits nearer a *neighbouring*
+ * port's anchor and the drag grabs the wrong one.
+ *
+ * Each end asserts that the armed controller actually snapped to the intended
+ * port before the button goes down/up — otherwise a near-miss would silently
+ * draw an open-ended line and the count assertion would still pass.
  */
 /** {x, z} of a named port on the (single) placeable of the given type. */
 function portWorld(page, type, port) {
@@ -508,11 +591,21 @@ function portWorld(page, type, port) {
   }, [type, port]);
 }
 
+/** {x, y, z} of the drawn fitting for that port — what the cursor hit-tests. */
+function portAnchor(page, type, port) {
+  return page.evaluate(async ([t, p]) => {
+    const { portAnchor3D } = await import('/src/utility/port-anchors.js');
+    const { COMPONENTS } = await import('/src/data/components.js');
+    const pl = window.game.state.placeables.find(x => x.type === t);
+    return pl ? portAnchor3D(pl, COMPONENTS[t], p) : null;
+  }, [type, port]);
+}
+
 async function dragPortToPort(page, from, to) {
   const locate = async ({ type, port }) => {
-    const pos = await portWorld(page, type, port);
-    expect(pos, `${type}.${port} has a world position`).not.toBeNull();
-    return page.evaluate(w => window.__bt.worldToScreen(w.x, 0, w.z), pos);
+    const pos = await portAnchor(page, type, port);
+    expect(pos, `${type}.${port} has a drawn anchor`).not.toBeNull();
+    return page.evaluate(w => window.__bt.worldToScreen(w.x, w.y, w.z), pos);
   };
   const snapped = () => page.evaluate(() => {
     const h = window._renderer._inputHandler.utilityLineController.hoverPort;

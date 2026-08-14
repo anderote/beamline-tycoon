@@ -738,9 +738,9 @@ const INFRA_UTILITY_PORTS = {
   hvTransformer:       supplyPorts(1200, 4),
   switchgear:          supplyPorts(400, 2),
   padMountTransformer: supplyPorts(150, 1),
-  // Its artwork is on local +X (`faces['+X']`), so all four green branch
-  // sockets belong on that same visible front face.
-  powerPanel:          distributionPorts(40, 4, { outletSide: 'right' }),
+  // All four green branch sockets are mounted together on the cabinet's
+  // player-facing front panel, rather than wrapped around its footprint.
+  powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
   mcc:                 distributionPorts(250, 8),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.

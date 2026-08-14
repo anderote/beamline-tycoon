@@ -344,7 +344,11 @@ export class LightRig {
     const glows = [];
     this.scene.traverse((obj) => {
       if (obj.userData && obj.userData.lightFixture) taggedFixtures.push(obj);
-      if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
+      // floor-glow.js's utility-run proxies: an object with no pixels of its
+      // own whose whole purpose is to be a point-light candidate, so unlike
+      // the glow meshes below it is deliberately NOT required to be a Mesh.
+      if (obj.userData && obj.userData.utilityLightEmitter) glows.push(obj);
+      else if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
     });
     const registryFixtures = this._fixtureRegistry.filter(
       (fx) => fx && fx.group && fx.def && fx.def.light,

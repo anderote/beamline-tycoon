@@ -38,36 +38,22 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 // vacuumPipe is explicitly `null`: inert grey, no flow, nothing to tune.
 export const FLOW_PARAMS = {
   hvCable: {
-    speed: 6.0, period: 3.0, width: 0.35, strength: 3.5, baseGlow: 0,
+    speed: 0.65, period: 5.0, width: 3.5, strength: 1.15, baseGlow: 0.12,
     color: '#8f94c8',
   },
   powerCable: {
-    speed: 6.0, period: 3.0, width: 0.35, strength: 3.5, baseGlow: 0,
+    speed: 0.65, period: 5.0, width: 3.5, strength: 1.15, baseGlow: 0.12,
   },
   vacuumPipe: null,
   rfWaveguide: {
-    // Literally coolingWater's shape (same speed, same width:period ratio,
-    // same peak strength — the approved intensity, not a re-tuned one), at a
-    // shorter period: "the same kind of thing as the cooling band — a
-    // travelling wave in pipework — just at a higher spatial frequency," not
-    // a different species of effect. period 1.0 vs coolingWater's 4.0 (4x
-    // tighter — several bands visible along a run at once instead of one
-    // wide one) with width scaled to keep the identical 0.35 width:period
-    // ratio (1.4/4.0 = 0.35 = 0.35/1.0), so the band itself looks like the
-    // same object, just repeating faster. speed and strength are untouched:
-    // at 4x the spatial frequency and unchanged speed the band already reads
-    // markedly quicker (temporal repetition rate = speed/period also
-    // quadruples), so nothing else needed to move to read as "RF, not water."
-    // Colour is NOT overridden — falls through to UTILITY_TYPES.rfWaveguide's
-    // own descriptor colour (#cc4444, red), same as every non-hvCable entry.
-    speed: 0.8, period: 1.0, width: 0.35, strength: 1.8, baseGlow: 0,
+    // Broad enough to grade smoothly like cooling water, with a slightly
+    // shorter repeat so RF retains some character without visibly flashing.
+    speed: 0.65, period: 3.0, width: 2.1, strength: 1.15, baseGlow: 0.12,
   },
   coolingWater: {
-    // The reference for "right" (do not touch): wide relative to its period,
-    // so adjacent pulses nearly merge into one broad steady band instead of a
-    // sharp travelling dot. Every other utility's character is judged against
-    // this one's restraint — rfWaveguide above is now literally built from it.
-    speed: 0.8, period: 4.0, width: 1.4, strength: 1.8, baseGlow: 0,
+    // The reference treatment: a broad, slow band whose neighbours nearly
+    // merge into a steady flowing gradient.
+    speed: 0.55, period: 5.0, width: 3.5, strength: 1.1, baseGlow: 0.12,
   },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
@@ -76,11 +62,11 @@ export const FLOW_PARAMS = {
     // frost forms on the OUTER jacket of a real cryo line, so the jacket
     // carrying its own baseGlow instead of just occluding the core's is the
     // physically-motivated fix, not just the convenient one.
-    speed: 0.25, period: 5.0, width: 2.0, strength: 1.2, baseGlow: 0.35,
+    speed: 0.2, period: 6.0, width: 4.2, strength: 0.9, baseGlow: 0.28,
   },
   dataFiber: {
-    // Tiny width, long period: sparse, quick blips rather than a filled band.
-    speed: 14.0, period: 8.0, width: 0.15, strength: 2.5, baseGlow: 0,
+    // Still the quickest utility, but a soft travelling wash rather than blips.
+    speed: 0.9, period: 4.0, width: 2.4, strength: 1.0, baseGlow: 0.08,
   },
 };
 
