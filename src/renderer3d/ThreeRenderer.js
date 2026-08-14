@@ -43,6 +43,7 @@ import {
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
+import { LightRig } from './light-rig.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -565,6 +566,19 @@ export class ThreeRenderer {
       enabled: glowStored !== '0',
     });
 
+    // Real lights: lamppost/wall-light shadows and explosion flashes. Shares
+    // the same persisted glow toggle as GlowPipeline (see setGlowEnabled) —
+    // "everything the glow feature added" is one on/off switch to the player,
+    // not two. Pool sizes/shadow resolution are constructor options (see
+    // light-rig.js) so a frame-budget complaint is a one-line dial, not a
+    // rewrite.
+    this._lightRig = new LightRig(this.scene, {
+      enabled: glowStored !== '0',
+      shadowSpotCount: 4,
+      pointCount: 8,
+      shadowMapSize: 1024,
+    });
+
     // Scene groups
     this.terrainGroup = new THREE.Group();
     this.terrainGroup.name = 'terrain';
@@ -676,6 +690,11 @@ export class ThreeRenderer {
       // Any world event may have moved a port or claimed a utility line —
       // let _animate rebuild the armed-tool port markers on its next frame.
       this._portMarkersDirty = true;
+      // Same idea for the light rig's candidate lists (placed fixtures,
+      // glow-role meshes) — invalidate on every event rather than trying to
+      // enumerate exactly which events could add/remove one; the actual
+      // scene traversal is deferred to the rig's next update() call.
+      if (this._lightRig) this._lightRig.markDirty();
       switch (event) {
         case 'beamlineChanged':
           this.refresh(); // full 3D rebuild
@@ -1425,16 +1444,46 @@ export class ThreeRenderer {
   }
 
   /**
-   * Live on/off switch for the bloom/glow post-processing pipeline. Forwards
-   * to GlowPipeline and takes effect on the very next frame; persistence is
-   * the caller's job (see OptionsDialog, which owns 'beamlineTycoon.glow').
+   * Live on/off switch for the bloom/glow post-processing pipeline — and,
+   * since the player sees this as one "dynamic lighting" feature rather than
+   * three separate ones, everything Task 5 added too: the light rig (fixture
+   * shadows, ambient glow points, flashes) and the floor-glow strips painted
+   * under utility runs. Forwards to GlowPipeline/LightRig and takes effect on
+   * the very next frame; persistence is the caller's job (see OptionsDialog,
+   * which owns 'beamlineTycoon.glow').
    */
   setGlowEnabled(enabled) {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
+    if (this._lightRig) this._lightRig.setEnabled(enabled);
+    this._applyGlowToggleToFloorStrips();
   }
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
+  }
+
+  /**
+   * Hide/show floor-glow strips (floor-glow.js's buildFloorGlowStrip output,
+   * tagged userData.isFloorGlowStrip) to match the current glow toggle.
+   * Called from setGlowEnabled (toggle flips) and from
+   * _refreshUtilityLinesV2 (a rebuilt line's fresh strip otherwise defaults
+   * to visible regardless of the toggle already in effect).
+   */
+  _applyGlowToggleToFloorStrips() {
+    if (!this.utilityLineGroup) return;
+    const visible = this.glowEnabled;
+    this.utilityLineGroup.traverse((obj) => {
+      if (obj.userData && obj.userData.isFloorGlowStrip) obj.visible = visible;
+    });
+  }
+
+  /**
+   * Fire an impulse flash (explosion, fault spark, ...) without the caller
+   * reaching into the light rig directly. Forwards to LightRig.flash, which
+   * reuses a parked point-light slot — never allocates.
+   */
+  flashLight(position, colorHex, intensity, durationMs) {
+    if (this._lightRig) this._lightRig.flash(position, colorHex, intensity, durationMs);
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -3134,6 +3183,19 @@ export class ThreeRenderer {
     // cost. See utility-flow.js.
     tickFlow(_dt);
     if (this.staffPawns) this.staffPawns.update(_dt);
+    // Real lights: fixture spots/shadows, ambient glow points, flash decay.
+    // See light-rig.js — nightFactor was computed this same frame by
+    // _updateSunCycle() above.
+    // `_darkness` is dayNightGrade's own scalar (0 = full day, 1 = deep
+    // night), published by _updateSunCycle for exactly this kind of consumer.
+    // The rig used to derive a second one from a raw cosine; two ramps for one
+    // quantity drift apart the moment either is retuned, and the sky's is the
+    // one with the smoothstepped twilight band.
+    //
+    // Note this is deliberately NOT the glow-role factor: real fixture lights
+    // fade to zero at midday (a lit lamppost at noon reads as a bug), where
+    // glow materials floor at 0.35 so a console screen stays legible.
+    if (this._lightRig) this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3783,6 +3845,10 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
+    // A rebuilt line's floor-glow strip (if any) starts visible regardless
+    // of the current glow toggle — reapply it here rather than only on the
+    // toggle's own flip.
+    this._applyGlowToggleToFloorStrips();
   }
 
   /**
@@ -4423,6 +4489,10 @@ export class ThreeRenderer {
     if (this._glowPipeline) {
       this._glowPipeline.dispose();
       this._glowPipeline = null;
+    }
+    if (this._lightRig) {
+      this._lightRig.dispose();
+      this._lightRig = null;
     }
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;

@@ -193,9 +193,16 @@ function cylinderMeshes(group) {
   return out;
 }
 
+// Excludes floor-glow.js's painted strip (Task 5, added alongside the pipe
+// itself): it ALSO builds BoxGeometry segments (via the same
+// bakeRunDistanceFromPositionZ this suite is testing) for the pool of light
+// under the run, nested in its own userData.isFloorGlowStrip-tagged group —
+// this helper is about the PIPE's own rectWaveguide segments, not that
+// separate strip, so it doesn't descend into it.
 function boxMeshes(group) {
   const out = [];
   const walk = (o) => {
+    if (o.userData && o.userData.isFloorGlowStrip) return;
     if (o.isMesh && o.geometry instanceof BoxGeometry) out.push(o);
     for (const c of o.children || []) walk(c);
   };
