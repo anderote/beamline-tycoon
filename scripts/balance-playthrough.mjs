@@ -113,12 +113,31 @@ function newFacility(seed) {
 // walks are short relative to a 400k-tick playthrough; this just keeps the
 // walk itself out of what the sim is measuring, the same way the operator
 // seeded at game start is assumed to already be at their post.
+//
+// Also sets member.fromNode = job.destNode on that same flip — staff-
+// professions-3 balance fix round 3 discovered this shim never did, so
+// member.fromNode stayed undefined for every staff member for the entire
+// run. jobRunner.js's findStation (stations.js) hard-bails the instant
+// fromNode is falsy (`if (!fromNode) return null;`), so tryTakeNeedJob's
+// deadlock branch fired unconditionally forever, for everyone, regardless
+// of how many cafeteria/rest stations existed — this was invisible before
+// round 3 (the deadlock guard kept every operator productively seated
+// either way, and unservicedPenalty had no mechanical consequence yet), but
+// round 3's operatorCoverage capacity cap made it fatal: every operator's
+// capacity permanently pinned at 1 within ~160 ticks of hire, wiping out
+// the skill-based coverage surplus this ladder's 1-operator-per-beamline
+// hiring ratio relies on, cascading into permanent beam_unstaffed and (once
+// income stopped) cooling_dry. A real renderer updates BOTH phase and
+// position when a pawn arrives; this shim only ever did the first half.
 function withInstantArrival(game) {
   const rawTick = game.tick.bind(game);
   game.tick = (...args) => {
     const result = rawTick(...args);
     for (const m of (game.state.staffMembers || [])) {
-      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
+      if (m.job && m.job.phase === 'travel') {
+        m.job.phase = 'work';
+        if (m.job.destNode) m.fromNode = m.job.destNode;
+      }
     }
     return result;
   };
@@ -369,7 +388,60 @@ function hireStaff(game, roles) {
     state.staffMembers.push(m);
   }
   game._syncStaffCounts();
+  // staff-professions-3 balance fix round 3: an unserviced operator
+  // (jobRunner.js's unservicedPenalty) now caps beam-coverage capacity at 1
+  // regardless of skill (utility-gate.js's operatorCoverage) — deliberately,
+  // to make amenities load-bearing on the one job that earns money. That
+  // exposed a SEPARATE, pre-existing bug this call works around rather than
+  // fixes (out of this task's file scope — flagged in the balance report):
+  // smallBeamlineFacility's own scenario "cafeteria"
+  // (src/data/scenarios/smallBeamlineFacility.js) never resolves as a real
+  // station at all. Its chairs are placed a whole TILE away from the
+  // diningTable at a flat subCol:1/subRow:1 (every scenario furnishing uses
+  // that same generic offset), not at any of diningTable's real per-anchor
+  // seat offsets (stations.js) — so getStationIndex(state).byJob.eat is
+  // EMPTY for this scenario, and always has been; nothing before this round
+  // ever depended on it being real. Ditto rest — the scenario places no
+  // toolChest/workCart at all. Before round 3 this was invisible (the
+  // deadlock guard kept every staffer productively seated regardless); now
+  // it silently caps every operator's capacity at 1 forever, the instant
+  // their fatigue first crosses threshold (~tick 160, deterministic) with
+  // nowhere to go, wiping out the skill-based coverage surplus this ladder
+  // was tuned to accumulate. Building REAL, functional amenities here —
+  // scaled to staff count — is this script's version of "the balance report
+  // Beam telling the player to build a cafeteria" actually building one.
+  ensureAmenities(game, state.staffMembers.length);
 }
+
+// Balance fix round 3 discovered (and fixes here) a second, independent bug:
+// the nav grid is bounded to state.mapHalfExtent (30 for this scenario, i.e.
+// col/row in [-30, 30] — see src/game/staff/nav.js) but placePlaceable
+// itself enforces no such bound, so a single unbroken strip that grows one
+// row (or column) per item — as the original ensureOperatorConsole did,
+// `row: existing * 4` — silently walks OFF THE NAVIGABLE MAP after about 8
+// items (8 * 4 = 32 > 30) and everything placed past that point is
+// permanently unreachable from anywhere, forever, for a reason that has
+// nothing to do with staffing or amenities: it simply isn't on the map
+// stations.js's reachability graph knows about. Before round 3 this was
+// ALSO invisible (member.fromNode was never populated at all — see
+// withInstantArrival's own comment above — so eligibleFor/findStation
+// skipped every reachability check unconditionally, out-of-bounds or not).
+// Fixed by wrapping every dedicated strip into a bounded grid that never
+// leaves roughly [-29, 29] regardless of count, instead of one strip that
+// grows without limit.
+function wrappedGridPosition(origin, index, colSpacing, rowSpacing, perRow) {
+  return {
+    col: origin.col + (index % perRow) * colSpacing,
+    row: origin.row + Math.floor(index / perRow) * rowSpacing,
+  };
+}
+
+// Consoles: origin near the map's own corner, wrapping every 12 columns (12
+// * 4 = 48 wide, comfortably inside the +/-29 safe margin) — up to 12 rows
+// of 12 (144 consoles) before this would ever wrap into the cafeteria band
+// below, far more than a 24-line run hires.
+const CONSOLE_ORIGIN = { col: -29, row: -29 };
+const CONSOLE_PER_ROW = 12;
 
 // Placed in its own dedicated strip, well clear of the beamline rows and lab
 // blocks the rest of the ladder uses, so it never collides with them. Free —
@@ -378,16 +450,79 @@ function hireStaff(game, roles) {
 function ensureOperatorConsole(game) {
   const state = game.state;
   const existing = state.placeables.filter(p => p.type === 'operatorConsole').length;
+  const { col, row } = wrappedGridPosition(CONSOLE_ORIGIN, existing, 4, 3, CONSOLE_PER_ROW);
   // Charged like every other capital item in this ladder (labs, beamline
   // hardware, wiring) — a console is real equipment ($25k, facility-room-
   // furnishings.raw.js), not a free side effect of hiring. free:true here
   // used to leave every console after the starter's own unbilled, up to
   // 24 * $25k = $600k invisible to the run's economy over a full playthrough.
-  const ok = game.placePlaceable({
-    type: 'operatorConsole', col: -30, row: existing * 4, subCol: 0, subRow: 0, dir: 0,
-    silent: true,
-  });
-  if (!ok) console.error('[ensureOperatorConsole] placement failed', { existing });
+  const ok = game.placePlaceable({ type: 'operatorConsole', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+  if (!ok) console.error('[ensureOperatorConsole] placement failed', { existing, col, row });
+}
+
+// Own dedicated bands, well clear of the console grid above (rows -29..-20
+// or so for up to 144 consoles) and the beamline/lab blocks elsewhere in the
+// ladder. Both are charged real funding (diningTable $400 + 4x
+// cafeteriaChair $50, toolChest $3,000) — cheap against STAFF_STEP_BUDGET,
+// same "real equipment, not a free side effect" reasoning as
+// ensureOperatorConsole above.
+//
+// Roughly one seat and one rest slot per TWO staff — modest, not maximal:
+// the failure this round actually hit was REACHABILITY (stations placed off
+// the navigable map, or in the starter scenario's own sealed building — see
+// hireStaff's comment), not contention, once that was fixed. Still generous
+// enough that contention (every seat reserved by someone else, not merely
+// absent — jobRunner.js's allReservedByOthers) stays rare, since it too
+// engages unservicedPenalty and this script's goal is isolating the
+// coverage-cap measurement, not exercising contention on top of it.
+const CAFETERIA_ORIGIN = { col: -29, row: 0 };
+const CAFETERIA_PER_ROW = 9;
+const REST_ORIGIN = { col: -29, row: 20 };
+const REST_PER_ROW = 12;
+const SEATS_PER_STAFF = 0.5;
+const REST_SLOTS_PER_STAFF = 0.5;
+
+function ensureAmenities(game, staffCount) {
+  ensureCafeteriaSeats(game, Math.max(4, Math.ceil(staffCount * SEATS_PER_STAFF)));
+  ensureRestStations(game, Math.max(1, Math.ceil(staffCount * REST_SLOTS_PER_STAFF)));
+}
+
+// One diningTable seats 4 (station.slots, facility-room-furnishings.raw.js)
+// — but ONLY when a chair resolves each of its four anchors at the exact
+// subtile offset diningTable declares (stations.js's seat-matching), so this
+// places the same four-chair recipe test-staff-economy.js's own
+// placeDiningTable helper verified against the real station index, not the
+// scenario's own broken flat-offset convention (see hireStaff's comment).
+function ensureCafeteriaSeats(game, seatsNeeded) {
+  const state = game.state;
+  const existingTables = state.placeables.filter(p => p.type === 'diningTable').length;
+  const tablesNeeded = Math.ceil(seatsNeeded / 4);
+  for (let i = existingTables; i < tablesNeeded; i++) {
+    const { col, row } = wrappedGridPosition(CAFETERIA_ORIGIN, i, 5, 4, CAFETERIA_PER_ROW);
+    const okTable = game.placePlaceable({ type: 'diningTable', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    const okChairs = [
+      game.placePlaceable({ type: 'cafeteriaChair', col, row, subCol: 0, subRow: 3, dir: 0, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col, row: row - 1, subCol: 1, subRow: 2, dir: 2, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col: col - 1, row, subCol: 2, subRow: 0, dir: 1, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col, row, subCol: 3, subRow: 1, dir: 3, silent: true }),
+    ];
+    if (!okTable || okChairs.some(ok => !ok)) {
+      console.error('[ensureCafeteriaSeats] placement failed', { i, col, row, okTable, okChairs });
+    }
+  }
+}
+
+// toolChest (station.jobs: ['rest'], seated: 'never' — facility-lab-
+// furnishings.raw.js): a single free-standing anchor, no seat-matching
+// needed, so one placePlaceable call per slot is enough.
+function ensureRestStations(game, stationsNeeded) {
+  const state = game.state;
+  const existing = state.placeables.filter(p => p.type === 'toolChest').length;
+  for (let i = existing; i < stationsNeeded; i++) {
+    const { col, row } = wrappedGridPosition(REST_ORIGIN, i, 4, 3, REST_PER_ROW);
+    const ok = game.placePlaceable({ type: 'toolChest', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    if (!ok) console.error('[ensureRestStations] placement failed', { i, col, row });
+  }
 }
 
 // Labs are painted through the real (charging) brush; their price is small and

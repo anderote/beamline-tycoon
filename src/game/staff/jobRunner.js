@@ -66,6 +66,25 @@ export const NEEDS_THRESHOLD = 0.8;
 // StaffMember.efficiency()'s own unservicedPenalty for the actual cost.
 const NO_STATION_RECOVERY_RATE = { hunger: 0.002, fatigue: 0.002 };
 
+// Whether every station offering `jobType` (a cafeteria seat, a rest slot)
+// is currently held by someone else — as opposed to none existing at all.
+// Balance fix round 3: tryTakeNeedJob's deadlock branch used to say "No
+// reachable X" for BOTH cases alike, but they call for different player
+// action — "build one" vs "build MORE, this one's just busy" — and the
+// first message is flatly false in the second case. findStation (below)
+// already filters out anyone-else's-reservation candidates before it ever
+// ranks by distance, so it can't make this distinction on its own; this
+// reads the raw station index instead, deliberately ignoring reachability
+// (a station that's merely unreachable, not reserved, still isn't
+// "contention" — the existing "No reachable X" wording is already accurate
+// for that case).
+function allReservedByOthers(state, jobType) {
+  const refs = getStationIndex(state).byJob[jobType] || [];
+  if (!refs.length) return false;
+  const reservations = state.stationReservations || {};
+  return refs.every(ref => !!reservations[ref.key]);
+}
+
 /**
  * One member's slice of assignJobs' needs pass: if `needKey` (hunger or
  * fatigue) is over threshold and the member isn't already on the matching
@@ -79,8 +98,15 @@ const NO_STATION_RECOVERY_RATE = { hunger: 0.002, fatigue: 0.002 };
  *   - no reachable station: THE DEADLOCK GUARD. Do not touch member.job —
  *     they keep whatever they were doing (or stay jobless, if they had
  *     nothing). Recover the need a little anyway, at the same flat rate the
- *     old cafeteria-less onBreak branch used, and say why in idleReason.
- *     False, so the caller still gets a chance to try the OTHER need.
+ *     old cafeteria-less onBreak branch used, and say why in idleReason —
+ *     naming CONTENTION ("every seat is taken — build more") when every
+ *     existing station of this type is someone else's reservation, rather
+ *     than the misleading "no reachable X" that used to fire even when a
+ *     station genuinely exists, just busy (measured: 1.4% of productive
+ *     staff-ticks in the round-2 throughput test's 10-staff facility ran
+ *     penalised under a false "build one" message with every seat merely
+ *     reserved). False, so the caller still gets a chance to try the OTHER
+ *     need.
  */
 function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
   if (member.job?.jobType === jobType) return true;
@@ -113,7 +139,9 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
     return true;
   }
 
-  member.idleReason = `No reachable ${missingLabel} — recovering slowly while working.`;
+  member.idleReason = allReservedByOthers(state, jobType)
+    ? `Every ${missingLabel} is taken — build more.`
+    : `No reachable ${missingLabel} — recovering slowly while working.`;
   member.needs[needKey] = Math.max(0, member.needs[needKey] - NO_STATION_RECOVERY_RATE[needKey]);
   // Balance fix round 2: the deadlock guard engaging AT ALL — not the raw
   // need value, which pegs at 1.0 either way now (see NO_STATION_RECOVERY_

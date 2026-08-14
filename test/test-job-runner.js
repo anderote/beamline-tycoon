@@ -1065,5 +1065,55 @@ console.log('\n=== 13. Fix (a): work progress survives a need pre-emption and re
   assertOk(admin.job.progress > 40, `progress continues accruing past the resumed value (got ${admin.job.progress})`);
 }
 
+// ---------------------------------------------------------------------------
+console.log("\n=== 14. fix-round-2 headline guard: tickJobs is gated on status === 'working' — a 'resting' (stress-breakdown) member's job is frozen, not ticked for free ===\n");
+{
+  // Before this gate, tickJobs had no status check at all: a member
+  // 'resting' off a stress breakdown kept accruing job progress at full
+  // efficiency for the whole breakdown, WHILE tickStaffMember's own
+  // 'resting' branch (a separate, still-live mechanism, untouched by this
+  // gate) simultaneously recovered hunger/fatigue/morale for free. That made
+  // a breakdown strictly better than a cafeteria — this is the test that was
+  // missing: reverting `if (member.status !== 'working') continue;` in
+  // tickJobs leaves every other test in this file green, because none of
+  // them ever puts a 'resting' member's job in front of tickJobs and checks
+  // progress. This one does exactly that, directly.
+  const state = makeState();
+  floorRect(state, 0, 12, 0, 12);
+  placeItem(state, 'desk', 5, 5, 0, 0, 0); // paperwork
+  bump(state);
+  const game = makeGame(state, []);
+
+  const admin = makeMember('admin', 'a1');
+  admin.fromNode = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  state.staffMembers = [admin];
+
+  assignJobs(game);
+  assertOk(admin.job?.jobType === 'paperwork', `setup: admin assigned paperwork (got ${admin.job?.jobType})`);
+  arrive(admin);
+  tickJobs(game);
+  const progressBeforeBreakdown = admin.job.progress;
+  assertOk(progressBeforeBreakdown > 0, `setup: some progress accrued before the breakdown (got ${progressBeforeBreakdown})`);
+  const keyBeforeBreakdown = admin.job.stationKey;
+
+  // Simulate a stress breakdown directly (staffSystem.js's own trigger is
+  // random-gated; this test only needs the STATUS transition tickJobs is
+  // supposed to react to, not the roll that produces it).
+  admin.status = 'resting';
+
+  for (let t = 0; t < 30; t++) tickJobs(game);
+
+  assertOk(admin.job !== null, 'the job is not abandoned by going resting — it is frozen, not cleared');
+  assertOk(admin.job.progress === progressBeforeBreakdown,
+    `progress did not advance a single tick across 30 ticks of 'resting' (was ${progressBeforeBreakdown}, now ${admin.job.progress})`);
+  assertOk(state.stationReservations[keyBeforeBreakdown] === admin.id,
+    'the desk reservation is still held throughout — nothing released it either');
+
+  admin.status = 'working';
+  tickJobs(game);
+  assertOk(admin.job.progress > progressBeforeBreakdown,
+    `progress resumes accruing the instant status flips back to 'working' (got ${admin.job.progress})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

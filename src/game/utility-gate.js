@@ -216,6 +216,32 @@ const CONSOLE_TIER_BONUS_THRESHOLD = 3;
  * (skill 0) operator covers exactly one beamline, a maxed one (skill 10, +2)
  * covers three — plus the console-tier bonus above.
  *
+ * Balance fix round 3: an operator carrying `unservicedPenalty` (jobRunner.js
+ * — the deadlock-guard flag set the moment a need has gone unserviced this
+ * pass, cleared only by a completed eat/rest) contributes capacity 1 flat,
+ * skipping BOTH the skill term and the console-tier bonus, instead of the
+ * usual `1 + floor(skill/4) + tierBonus`. This closes the one path the
+ * balance fix's own efficiency penalty (StaffMember.efficiency(),
+ * UNSERVICED_PENALTY_MULT) never reaches: `runBeam` has `workTicks: null`
+ * (jobs.js) — its output is PRESENCE, not progress — and efficiency() is
+ * only ever read by progress accrual (tickJobs). An unserviced operator was
+ * therefore paying nothing at all on the one job type that earns the
+ * facility money, while a serviced operator gave up real ticks walking to
+ * lunch: measured, one operator, amenities 3 tiles away, beam coverage
+ * 0.58-0.62 WITH amenities vs 0.82-0.85 WITHOUT — the defect this balance
+ * fix exists to kill, surviving intact on the one path that pays.
+ *
+ * Capped at 1, deliberately NEVER zeroed: a cafeteria-less facility with no
+ * beam at all would be the hunger deadlock returning through this exact
+ * gate — precisely the failure jobRunner.js's own deadlock guard (see that
+ * module's header comment on the scar this codebase carries) exists to
+ * prevent, and gate.js sits downstream of it, not exempt from it. Capping
+ * at 1 instead keeps every operator able to run one beamline solo while a
+ * serviced, skilled one runs up to three (skill 10, tier bonus) — so
+ * amenities pay off exactly where the money is, and the benefit scales with
+ * facility size (more beamlines needing more than 1x coverage each)
+ * instead of landing as a flat tax on every facility regardless of size.
+ *
  * Deterministic: no rng anywhere in this function or its callers. Compare
  * the deleted `_hasActiveOperator`, whose `mood === 'stressed' && rng() <
  * 0.3` random rejection made the same state produce different blockers from
@@ -227,6 +253,7 @@ export function operatorCoverage(state) {
     m.profession === 'operator' && m.status === 'working'
     && m.job?.jobType === 'runBeam' && m.job?.phase === 'work');
   const capacity = operators.reduce((sum, m) => {
+    if (m.unservicedPenalty) return sum + 1;
     const skill = m.skills?.operating ?? 0;
     return sum + 1 + Math.floor(skill / 4) + tierBonus;
   }, 0);

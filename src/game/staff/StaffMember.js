@@ -139,10 +139,28 @@ export class StaffMember {
     const primary = this.primarySkill || 'operating';
     const skill = this.skills[primary] ?? 3;
     let moodMult = 1;
-    if (this.mood === 'stressed') moodMult = 0.75;
+    // Balance fix round 3: mood's own need-driven buckets are skipped while
+    // unservicedPenalty is active, rather than stacking with it. Pegged
+    // fatigue (jobRunner.js's NO_STATION_RECOVERY_RATE, round 2) makes
+    // updateMood() return 'tired' (x0.85) for as long as the guard is
+    // engaged, and chronic morale decay can independently land 'stressed'
+    // (x0.75) too — either one compounding with UNSERVICED_PENALTY_MULT
+    // (0.6) produces an effective multiplier (0.51, or worse) nobody chose:
+    // both penalties are reactions to the SAME underlying "this need isn't
+    // being met" fact, so taxing it twice through two unrelated mechanisms
+    // double-counts one problem. 'inspired' can never legitimately combine
+    // with an active penalty either way — it requires fatigue < 0.3, which
+    // contradicts a fatigue-pegged unserviced state — so skipping the mood
+    // bucket here never accidentally suppresses a bonus that would otherwise
+    // have applied on its own merits.
+    if (this.unservicedPenalty) {
+      // moodMult stays 1 — the flat penalty below is the only need-driven
+      // tax applied.
+    } else if (this.mood === 'stressed') moodMult = 0.75;
     else if (this.mood === 'tired') moodMult = 0.85;
     else if (this.mood === 'inspired') moodMult = 1.15;
-    // careful trait slows a bit
+    // careful trait slows a bit — a personal work-style trait, independent
+    // of needs, so it still applies even while unservicedPenalty is active.
     if (this.traits.includes('careful')) moodMult *= 0.9;
     // zone tier: 0→0.5, 4→1.0
     const tierMult = 0.5 + 0.5 * Math.min(4, zoneTier) / 4;
