@@ -16,12 +16,6 @@ import { UTILITY_TYPES } from './registry.js';
 
 const SIDE_TO_COMPASS = { back: 'N', front: 'S', left: 'W', right: 'E' };
 const COMPASS_CW = ['N', 'E', 'S', 'W'];
-const COMPASS_VEC = {
-  N: { x: 0, z: -1 },
-  E: { x: 1, z: 0 },
-  S: { x: 0, z: 1 },
-  W: { x: -1, z: 0 },
-};
 const SIDE_VEC = {
   N: { dCol: 0, dRow: -1 },
   E: { dCol: 1, dRow: 0 },
@@ -113,22 +107,39 @@ export function portMatchesApproach(placeable, def, portName, approachDir, isEnd
   return vec.dCol === tgt.dCol && vec.dRow === tgt.dRow;
 }
 
-/**
- * Return {x, z} in world coordinates at the center of the specified port on
- * the placeable's rotated edge. Ported verbatim from
- * src/beamline/junctions.js portWorldPosition (formulas unchanged) but looks
- * up the port spec via the passed-in `def` rather than COMPONENTS.
- */
-export function portWorldPosition(placeable, def, portName) {
-  if (!placeable || !portName) return null;
-  const spec = getPortSpec(def, portName);
-  if (!spec) return null;
-  const baseSide = SIDE_TO_COMPASS[spec.side];
-  if (!baseSide) return null;
+// ---------------------------------------------------------------------------
+// The component's local frame.
+//
+// A placed component is a footprint centred somewhere in the world, rotated in
+// 90° steps, with the model drawn in an unrotated local frame: +X across the
+// width (subW), +Z along the length (subL), origin at the footprint centre.
+// `portWorldPosition` below has always worked in that frame implicitly — it
+// picked a side, took the footprint half-extent, and rotated. The three helpers
+// here name those steps so the renderer can do the same arithmetic with a
+// *measured* offset instead of the footprint one (see utility/port-anchors.js)
+// without re-deriving — or worse, re-guessing — the frame.
+// ---------------------------------------------------------------------------
 
+const SIDE_TO_LOCAL = {
+  left:  { axis: 'x', sign: -1 },
+  right: { axis: 'x', sign:  1 },
+  back:  { axis: 'z', sign: -1 },
+  front: { axis: 'z', sign:  1 },
+};
+
+/**
+ * World {x, z} of the footprint's centre, or null. This is the point every
+ * port on the placeable is measured from.
+ *
+ * The footprint's own extent swaps with a quarter turn (a 1×4 part occupies
+ * 4×1 sub-cells at dir 1), which is why `dir` is read here and nowhere in the
+ * local-frame helpers below.
+ */
+export function placeableCenterWorld(placeable, def) {
+  if (!placeable) return null;
   const dir = normalizeDir(placeable.dir || 0);
-  const subL = def.subL || 2;
-  const subW = def.subW || 2;
+  const subL = (def && def.subL) || 2;
+  const subW = (def && def.subW) || 2;
   const swap = (dir === 1 || dir === 3);
   const footColSub = swap ? subL : subW;
   const footRowSub = swap ? subW : subL;
@@ -138,19 +149,78 @@ export function portWorldPosition(placeable, def, portName) {
   const subCol = placeable.subCol || 0;
   const subRow = placeable.subRow || 0;
 
-  const cx = col * 2 + (subCol + footColSub / 2) * 0.5;
-  const cz = row * 2 + (subRow + footRowSub / 2) * 0.5;
-
-  const worldSide = rotateCompass(baseSide, dir);
-  const vec = COMPASS_VEC[worldSide];
-  if (!vec) return null;
-
-  const halfAlongX = footColSub * 0.25;
-  const halfAlongZ = footRowSub * 0.25;
-
-  const x = cx + vec.x * halfAlongX;
-  const z = cz + vec.z * halfAlongZ;
+  const x = col * 2 + (subCol + footColSub / 2) * 0.5;
+  const z = row * 2 + (subRow + footRowSub / 2) * 0.5;
   return { x, z };
+}
+
+/**
+ * The axis and direction a port faces in the component's UNROTATED frame, or
+ * null when the port has no resolvable side. Matches SIDE_TO_COMPASS + SIDE_VEC
+ * evaluated at dir 0, reading dCol as x and dRow as z.
+ *
+ * @returns {{axis: 'x'|'z', sign: 1|-1}|null}
+ */
+export function portLocalAxis(def, portName) {
+  const spec = getPortSpec(def, portName);
+  if (!spec) return null;
+  return SIDE_TO_LOCAL[spec.side] || null;
+}
+
+/**
+ * Half the footprint's size in metres, in the LOCAL frame — so no dir swap:
+ * x is always half the width, z always half the length. The swap belongs to
+ * the rotation into world space, which `rotateLocalOffset` does.
+ */
+export function footprintHalfExtents(def) {
+  const subW = (def && def.subW) || 2;
+  const subL = (def && def.subL) || 2;
+  return { x: subW * 0.25, z: subL * 0.25 };
+}
+
+/**
+ * Rotate a local {x, z} offset into world space by the placeable's `dir`.
+ *
+ * Done as a table of exact 90° steps rather than with sin/cos: the fallback
+ * path in port-anchors.js has to reproduce `portWorldPosition` to the bit, and
+ * Math.sin(Math.PI) is not zero. The steps match `rotateCompass` — dir 1 is a
+ * quarter turn that sends +X to +Z, the same sense as the renderer's
+ * `rotY = -dir * PI/2`.
+ */
+export function rotateLocalOffset(off, dir) {
+  const x = off.x, z = off.z;
+  switch (normalizeDir(dir || 0)) {
+    case 1:  return { x: -z, z: x };
+    case 2:  return { x: -x, z: -z };
+    case 3:  return { x: z, z: -x };
+    default: return { x, z };
+  }
+}
+
+/**
+ * Return {x, z} in world coordinates at the center of the specified port on
+ * the placeable's rotated edge.
+ *
+ * This is the sim's answer: snapping, pathing, overlap and pricing all read it,
+ * so the numbers it returns must not move. It is expressed through the local
+ * frame helpers above — footprint half-extent outward along the port's local
+ * axis, rotated by `dir` — which is arithmetically identical to the original
+ * "rotate the compass side, then step half the rotated footprint" form.
+ */
+export function portWorldPosition(placeable, def, portName) {
+  if (!placeable || !portName) return null;
+  const local = portLocalAxis(def, portName);
+  if (!local) return null;
+  const centre = placeableCenterWorld(placeable, def);
+  if (!centre) return null;
+
+  const half = footprintHalfExtents(def);
+  const lat = local.sign * (local.axis === 'x' ? half.x : half.z);
+  const off = rotateLocalOffset(
+    local.axis === 'x' ? { x: lat, z: 0 } : { x: 0, z: lat },
+    placeable.dir || 0,
+  );
+  return { x: centre.x + off.x, z: centre.z + off.z };
 }
 
 // ---------------------------------------------------------------------------

@@ -4,18 +4,30 @@
 // connector sits, as opposed to where on its FOOTPRINT the sim thinks the port
 // is (that stays `portWorldPosition` and is not affected by anything here).
 //
-// Only the height and the outward stand-off are authored. The x/z stay the
-// footprint-edge midpoint, so a port's identity, snapping, pathing and pricing
-// are untouched — this table moves the picture, never the model.
+// Nothing in this table can move a port. It moves the picture of one: the
+// drawn connector, its dot and the cable end. Identity, snapping, pathing and
+// pricing keep reading the sim's footprint point.
 //
-// Absent entries are NOT an error: src/utility/port-anchors.js derives a height
-// from the component's own model bounds. Author an entry when the derived
-// mid-shell height lands somewhere silly — a port that should be at the base of
-// a tall cryostat, or on the lid of a squat pump.
+// Absent entries are NOT an error, and are the normal case: src/utility/
+// port-anchors.js measures the component's own model — bounds for the height,
+// a raycast against the shell for how far out the connector bolts on. Author an
+// entry only when the measurement lands somewhere silly, which is usually a
+// model whose silhouette does not describe where its hardware really is: a port
+// that belongs at the base of a tall cryostat, or on the lid of a squat pump.
 //
 // Fields, all optional per port:
-//   y    height in metres above ground for the connector centre
-//   out  extra stand-off along the port's outward normal, in metres
+//   y      height in metres above ground for the connector centre
+//   out    extra stand-off along the port's outward normal, in metres
+//   lat    distance from the component's centreline out to the connector, in
+//          LOCAL metres (the unrotated frame: the axis the port's side faces).
+//          Overrides the raycast, so author it when the ray misses — a port
+//          over an open gap in the shell, say. Clamped to the footprint.
+//   along  position on the perpendicular local axis, in metres from the
+//          footprint centre, signed. Overrides the port's own `offsetAlong`
+//          fraction. Also clamped to the footprint.
+//
+// `lat`/`along` are in the component's local frame, NOT world space: they mean
+// the same thing at every rotation, and port-anchors.js turns them by `dir`.
 //
 // A `_default` entry applies to every utility port on that type.
 

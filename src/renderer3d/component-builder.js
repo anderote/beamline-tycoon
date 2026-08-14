@@ -378,7 +378,7 @@ function _addShadow(mesh) {
  * @param {THREE.BufferGeometry[]} geometries
  * @returns {THREE.BufferGeometry}
  */
-function _mergeGeometries(geometries) {
+export function _mergeGeometries(geometries) {
   if (geometries.length === 0) {
     return new THREE.BufferGeometry();
   }
@@ -3668,7 +3668,7 @@ export function createBeamlineGhost(compType) {
       const radius = Math.min(w, h) / 2;
       geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
       applyTiledCylinderUVs(geometry, radius, l, 8);
-      geometry.rotateZ(Math.PI / 2);
+      geometry.rotateX(Math.PI / 2);   // along the footprint's length, as above
     } else {
       geometry = new THREE.BoxGeometry(w, h, l);
       applyTiledBoxUVs(geometry, w, h, l);
@@ -3767,7 +3767,12 @@ function _buildPartsOrFallback(compDef) {
     const radius = Math.min(w, h) / 2;
     geometry = new THREE.CylinderGeometry(radius, radius, l, 8);
     applyTiledCylinderUVs(geometry, radius, l, 8);
-    geometry.rotateZ(Math.PI / 2);
+    // The cylinder's length IS the footprint's length (`l` is visualSubL), and
+    // the footprint runs subL along local Z — so the tube has to lie along Z.
+    // rotateZ put it on X instead, which drew every fallback cylinder across
+    // its own footprint: the 16-sub cryomodule became an 8 m barrel lying
+    // sideways over a 1 m-wide reservation. rotateX takes +Y to +Z.
+    geometry.rotateX(Math.PI / 2);
 
     if (baseName && MATERIALS[baseName]) {
       const cacheKey = `${compDef.id}|cyl|${baseName}`;
@@ -3862,9 +3867,59 @@ function _getThumbRenderer(size) {
   return { renderer: _thumbRenderer, scene: _thumbScene, camera: _thumbCamera };
 }
 
-// type → {minY, maxY, maxX, maxZ} in metres, or null when the type has no
-// model at all. Measured once per type from a throwaway instance.
+// type → {minX, maxX, minY, maxY, minZ, maxZ} in metres, or null when the type
+// has no model at all. Measured once per type from a throwaway instance.
 const _boundsCache = new Map();
+
+/**
+ * Instantiate a type's model the way getModelBounds and the thumbnail path do,
+ * or null when THREE is absent, the type is unknown, or its builder throws.
+ * The caller owns the result and must dispose it.
+ *
+ * The model is posed the way the renderer poses it, minus the world placement:
+ * `componentPose` lifts a non-detailed model by half its height to un-bury it
+ * (its origin is the box centre, not the floor), and a measurement taken in the
+ * unlifted frame is measuring something nobody draws. That mattered as soon as
+ * port anchors started raycasting: rays fired at an authored height would pass
+ * over a model still sitting half underground and report no surface at all.
+ */
+function _instantiateForMeasurement(compType) {
+  if (typeof THREE === 'undefined') return null;
+  const compDef = COMPONENTS[compType] || PLACEABLES[compType];
+  if (!compDef) return null;
+  const defId = compDef.id || compType;
+  const accent = compDef.accentColor || 0xc62828;
+  let model = null;
+  try {
+    if (ROLE_BUILDERS[defId]) model = _instantiateRoleTemplate(defId, accent);
+    else if (DETAIL_BUILDERS[defId]) model = DETAIL_BUILDERS[defId]();
+    else model = _buildPartsOrFallback(compDef);
+  } catch (_e) {
+    return null;
+  }
+  if (!model) return null;
+  // Same lift componentPose applies, and only the lift: rotation is the
+  // placement's business and measurement works in the unrotated local frame.
+  const lift = componentPose(compDef, { col: 0, row: 0 },
+    isDetailedComponent(defId, compDef)).y;
+  if (lift) model.position.y += lift;
+  return model;
+}
+
+/**
+ * Drop a throwaway model's GPU resources rather than waiting for the next GC of
+ * something nothing will draw. Shared role-template geometry is left alone —
+ * every placed instance of the type is still drawing it.
+ */
+function _disposeMeasurementModel(model) {
+  model.traverse?.((o) => {
+    if (o.geometry && !o.userData?.sharedGeometry && typeof o.geometry.dispose === 'function') {
+      o.geometry.dispose();
+    }
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) if (!m.userData?.__shared && typeof m.dispose === 'function') m.dispose();
+  });
+}
 
 /**
  * The world-space extent of a component type's model, in metres.
@@ -3878,42 +3933,108 @@ const _boundsCache = new Map();
  * Instantiate → measure → dispose, cached by type. Returns null when THREE is
  * absent (headless tests) or the type has no model, and callers must have a
  * fallback for that.
+ *
+ * The full box is reported (both ends of every axis): a port anchor needs to
+ * know where the lateral surface is and how far the model runs along its own
+ * length, not just how tall it is.
  */
 export function getModelBounds(compType) {
   if (_boundsCache.has(compType)) return _boundsCache.get(compType);
   let out = null;
-  if (typeof THREE !== 'undefined') {
-    const compDef = COMPONENTS[compType] || PLACEABLES[compType];
-    if (compDef) {
-      const defId = compDef.id || compType;
-      const accent = compDef.accentColor || 0xc62828;
-      let model = null;
-      try {
-        if (ROLE_BUILDERS[defId]) model = _instantiateRoleTemplate(defId, accent);
-        else if (DETAIL_BUILDERS[defId]) model = DETAIL_BUILDERS[defId]();
-        else model = _buildPartsOrFallback(compDef);
-      } catch (_e) {
-        model = null;
-      }
-      if (model) {
-        const box = new THREE.Box3().setFromObject(model);
-        if (Number.isFinite(box.max.y)) {
-          out = {
-            minY: box.min.y, maxY: box.max.y,
-            maxX: box.max.x, maxZ: box.max.z,
-          };
-        }
-        // Never added to a scene; drop its GPU resources rather than waiting
-        // for the next GC of a model nothing will draw.
-        model.traverse?.((o) => {
-          if (o.geometry && typeof o.geometry.dispose === 'function') o.geometry.dispose();
-          const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
-          for (const m of mats) if (!m.userData?.__shared && typeof m.dispose === 'function') m.dispose();
-        });
-      }
+  const model = _instantiateForMeasurement(compType);
+  if (model) {
+    model.updateMatrixWorld?.(true);
+    const box = new THREE.Box3().setFromObject(model);
+    if (Number.isFinite(box.max.y)) {
+      out = {
+        minX: box.min.x, maxX: box.max.x,
+        minY: box.min.y, maxY: box.max.y,
+        minZ: box.min.z, maxZ: box.max.z,
+      };
     }
+    // Never added to a scene; drop what it owns rather than waiting for the
+    // next GC of a model nothing will draw.
+    _disposeMeasurementModel(model);
   }
   _boundsCache.set(compType, out);
+  return out;
+}
+
+// `${compType}|${request hash}` → Map<key, number|null>. A type is instantiated
+// at most once per distinct request list, which in practice means once: the
+// anchor layer asks for all of a type's ports in a single call and caches the
+// answer itself.
+const _shellMeasureCache = new Map();
+
+// Rays start this far outside the model's bounding box, so a surface sitting
+// exactly on the box face is still in front of the origin.
+const _RAY_MARGIN = 1.0;
+
+/**
+ * Where a component type's shell actually is, measured by raycast.
+ *
+ * A bounding box cannot answer this: a magnet with a wide floor skirt and a
+ * narrow yoke has one box, but a port at yoke height belongs on the yoke, not
+ * out past the skirt at the box's edge. So each request names a height and a
+ * point along the machine, and gets back the distance from the model's local
+ * origin to the first surface a ray hits coming inward from outside.
+ *
+ * Requests are batched because the cost here is instantiating the model, not
+ * casting the rays — one call measures every port on a type at once.
+ *
+ * @param {string} compType
+ * @param {Array<{key: string, axis: 'x'|'z', sign: 1|-1, y: number, along: number}>} requests
+ *   `along` is the offset on the axis perpendicular to `axis`, in local metres.
+ * @returns {Map<string, number|null>} distance in metres per request key; null
+ *   where the ray hit nothing (the height is above or below the model). Empty
+ *   when THREE is absent or the type has no model at all.
+ */
+export function measureShellSurfaces(compType, requests) {
+  const list = Array.isArray(requests) ? requests : [];
+  const cacheKey = `${compType}|${list.map(
+    (r) => `${r.key}:${r.axis}${r.sign}:${r.y}:${r.along}`,
+  ).join(';')}`;
+  const cached = _shellMeasureCache.get(cacheKey);
+  if (cached) return cached;
+
+  const out = new Map();
+  if (list.length > 0 && typeof THREE !== 'undefined') {
+    const model = _instantiateForMeasurement(compType);
+    if (model) {
+      model.updateMatrixWorld?.(true);
+      const box = new THREE.Box3().setFromObject(model);
+      if (Number.isFinite(box.max.y)) {
+        const raycaster = new THREE.Raycaster();
+        const origin = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const span = box.max.distanceTo(box.min) + _RAY_MARGIN * 2;
+        for (const req of list) {
+          if (!req || (req.axis !== 'x' && req.axis !== 'z')) continue;
+          if (!Number.isFinite(req.y) || !Number.isFinite(req.along)) {
+            out.set(req && req.key, null);
+            continue;
+          }
+          const sign = req.sign < 0 ? -1 : 1;
+          const perp = req.axis === 'x' ? 'z' : 'x';
+          const face = sign > 0 ? box.max[req.axis] : box.min[req.axis];
+          origin.set(0, req.y, 0);
+          origin[req.axis] = face + sign * _RAY_MARGIN;
+          origin[perp] = req.along;
+          direction.set(0, 0, 0);
+          direction[req.axis] = -sign;
+          raycaster.set(origin, direction);
+          raycaster.far = span;
+          const hits = raycaster.intersectObject(model, true);
+          // Nearest hit first — that is the outer skin, which is what a bolted-on
+          // connector sits against.
+          out.set(req.key, hits.length > 0 ? Math.abs(hits[0].point[req.axis]) : null);
+        }
+      }
+      _disposeMeasurementModel(model);
+    }
+  }
+
+  _shellMeasureCache.set(cacheKey, out);
   return out;
 }
 

@@ -16,17 +16,39 @@
 //   portAnchor3D(placeable, def, portName)
 //     → { x, y, z, out: {x, z}, standoff } | null
 //
-// x/z are byte-identical to portWorldPosition — the sim does not move. y is
-// authored (src/data/utility-port-anchors.js) or derived from the component's
-// model bounds. `out` is the port's outward normal, and `standoff` how far a
-// connector should stand proud of the shell along it.
+// The anchor is presentation, and only presentation. The sim keeps reading
+// `portWorldPosition`, which is unchanged — topology, snapping, pathing and
+// pricing cannot notice anything here.
 //
-// Model bounds come from the renderer (only the mesh knows how tall a thing
-// is), injected rather than imported so this module stays usable headless — in
-// tests and in any code path that runs without THREE, every port falls back to
-// the neutral height below.
+// What the anchor adds is that it is measured against the MODEL rather than
+// the footprint. The footprint of an on-pipe part is the reserved beam
+// corridor, which is far wider than the machine: a cryomodule reserves ±1.0 m
+// but draws a cryostat of about ±0.45 m, so a footprint-edge connector floated
+// half a metre out on bare floor. So the anchor is resolved in the component's
+// unrotated local frame — lateral distance from the axis, offset along the
+// machine, height — and rotated by `dir` at the end:
+//
+//   lat    authored → raycast surface at the port's height → model bounds →
+//          footprint half-extent (the old number, and the headless answer)
+//   along  authored → the port's own `offsetAlong` lerped across the model's
+//          measured length → 0 (centred, the headless answer)
+//   y      authored → mid-shell from the model bounds → DEFAULT_ANCHOR_Y
+//
+// Both measurements come from the renderer, injected rather than imported so
+// this module stays usable headless — in tests and in any code path without
+// THREE. With neither provider registered every step falls through to its last
+// option, and x/z come back byte-identical to `portWorldPosition`. That
+// fallback is a contract, not an accident: it is what keeps the node suite and
+// every headless path seeing exactly the sim's numbers.
 
-import { portWorldPosition, portApproachVec } from './ports.js';
+import {
+  portApproachVec,
+  portLocalAxis,
+  placeableCenterWorld,
+  footprintHalfExtents,
+  rotateLocalOffset,
+  getPortSpec,
+} from './ports.js';
 import { portAnchorOverride } from '../data/utility-port-anchors.js';
 
 // Used when nothing knows better: roughly waist height on a person-sized
@@ -46,25 +68,166 @@ const MAX_ANCHOR_Y = 2.0;
 // override table may add.
 const BASE_STANDOFF = 0.06;
 
+// A measured surface closer to the axis than this is a bad measurement, not a
+// tiny machine — a ray that slipped through a gap and hit the beam pipe, say.
+// Keep the connector out where a hand could reach it.
+const MIN_LATERAL = 0.05;
+
 let _boundsProvider = null;
+let _measureProvider = null;
+
+// `${type}:${portName}` → { lat, along, y }, all in local metres. Resolving a
+// mount instantiates the model, so it happens once per type and is remembered;
+// re-registering either provider throws the lot away, because the answers were
+// computed from what the old providers said.
+const _mountCache = new Map();
 
 /**
  * Register the model-bounds source. The renderer calls this at startup with
  * component-builder's `getModelBounds`; without it, derivation is skipped and
- * every unauthored port takes DEFAULT_ANCHOR_Y.
+ * every unauthored port takes DEFAULT_ANCHOR_Y at the footprint edge.
  *
- * @param {(type: string) => {minY, maxY}|null} fn
+ * @param {(type: string) => {minX, maxX, minY, maxY, minZ, maxZ}|null} fn
  */
 export function setModelBoundsProvider(fn) {
   _boundsProvider = typeof fn === 'function' ? fn : null;
+  _mountCache.clear();
 }
 
-function derivedY(type) {
-  if (!_boundsProvider) return null;
-  const bounds = _boundsProvider(type);
+/**
+ * Register the shell-measurement source: component-builder's
+ * `measureShellSurfaces`. Without it the lateral offset falls back to the
+ * model's bounding box and then to the footprint.
+ *
+ * @param {(type: string, requests: Array<object>) => Map<string, number|null>} fn
+ */
+export function setShellMeasureProvider(fn) {
+  _measureProvider = typeof fn === 'function' ? fn : null;
+  _mountCache.clear();
+}
+
+function modelBounds(type) {
+  if (!_boundsProvider || !type) return null;
+  return _boundsProvider(type) || null;
+}
+
+function derivedY(bounds) {
   if (!bounds || !Number.isFinite(bounds.maxY) || bounds.maxY <= 0) return null;
   const y = bounds.maxY * DERIVED_HEIGHT_FRACTION;
   return Math.min(MAX_ANCHOR_Y, Math.max(MIN_ANCHOR_Y, y));
+}
+
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Where along the machine this port sits, in local metres on the axis
+ * perpendicular to the one it faces.
+ *
+ * `offsetAlong` is declared on nearly every port in utility-ports-v2.js and has
+ * never been read: 0.5 and 0.8 on the same side of a 8 m cryomodule resolved to
+ * the same point. It is a fraction of the machine's own length, so it needs the
+ * measured extent to become metres; headless, everything lands at 0 — the face
+ * midpoint, exactly where the sim puts it.
+ */
+function resolveAlong(spec, override, bounds, perpAxis, halfPerp) {
+  let along = 0;
+  if (override && Number.isFinite(override.along)) {
+    along = override.along;
+  } else if (spec && Number.isFinite(spec.offsetAlong) && bounds) {
+    const lo = bounds[perpAxis === 'x' ? 'minX' : 'minZ'];
+    const hi = bounds[perpAxis === 'x' ? 'maxX' : 'maxZ'];
+    if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
+      along = lo + (hi - lo) * spec.offsetAlong;
+    }
+  }
+  // Never past the footprint: a connector that pokes into the neighbouring
+  // tile reads as belonging to whatever is placed there.
+  return clamp(along, -halfPerp, halfPerp);
+}
+
+/**
+ * How far out from the axis the connector bolts on, in local metres.
+ * `measured` is the raycast answer for this port, or null.
+ */
+function resolveLat(override, bounds, measured, axis, sign, halfLat) {
+  let lat = null;
+  if (override && Number.isFinite(override.lat)) {
+    lat = override.lat;
+  } else if (Number.isFinite(measured)) {
+    lat = measured;
+  } else if (bounds) {
+    // The box on the port's OWN side: models are centred on the footprint but
+    // not always symmetric, and a klystron's gallery on one flank should not
+    // push the connector out on the other.
+    const edge = sign > 0
+      ? bounds[axis === 'x' ? 'maxX' : 'maxZ']
+      : bounds[axis === 'x' ? 'minX' : 'minZ'];
+    if (Number.isFinite(edge)) lat = Math.abs(edge);
+  }
+  // The footprint edge is the last resort and the headless answer, and it must
+  // survive the clamp untouched — hence min/max rather than any rescaling.
+  if (lat == null) lat = halfLat;
+  return clamp(lat, MIN_LATERAL, halfLat);
+}
+
+/**
+ * Resolve and cache the mount for every port on a type at once.
+ *
+ * One call, one model instantiation: measuring a port one at a time would walk
+ * a cryomodule's builder four times over.
+ */
+function resolveTypeMounts(type, def) {
+  const bounds = modelBounds(type);
+  const half = footprintHalfExtents(def);
+  const ports = [];
+  for (const portName of Object.keys((def && def.ports) || {})) {
+    const local = portLocalAxis(def, portName);
+    if (!local) continue;
+    const spec = getPortSpec(def, portName);
+    const override = type ? portAnchorOverride(type, portName) : null;
+    const y = (override && Number.isFinite(override.y))
+      ? override.y
+      : (derivedY(bounds) ?? DEFAULT_ANCHOR_Y);
+    const perpAxis = local.axis === 'x' ? 'z' : 'x';
+    const halfPerp = perpAxis === 'x' ? half.x : half.z;
+    const along = resolveAlong(spec, override, bounds, perpAxis, halfPerp);
+    ports.push({ portName, local, override, y, along });
+  }
+
+  let measured = null;
+  if (_measureProvider && type && ports.length > 0) {
+    const requests = ports.map((p) => ({
+      key: p.portName,
+      axis: p.local.axis,
+      sign: p.local.sign,
+      y: p.y,
+      along: p.along,
+    }));
+    measured = _measureProvider(type, requests) || null;
+  }
+
+  const mounts = new Map();
+  for (const p of ports) {
+    const halfLat = p.local.axis === 'x' ? half.x : half.z;
+    const hit = measured && typeof measured.get === 'function'
+      ? measured.get(p.portName)
+      : null;
+    const lat = resolveLat(p.override, bounds, hit, p.local.axis, p.local.sign, halfLat);
+    const mount = { lat, along: p.along, y: p.y };
+    mounts.set(p.portName, mount);
+    if (type) _mountCache.set(`${type}:${p.portName}`, mount);
+  }
+  return mounts;
+}
+
+function mountFor(type, def, portName) {
+  if (type) {
+    const hit = _mountCache.get(`${type}:${portName}`);
+    if (hit) return hit;
+  }
+  return resolveTypeMounts(type, def).get(portName) || null;
 }
 
 /**
@@ -72,24 +235,39 @@ function derivedY(type) {
  * (unknown port name, no side, missing def).
  */
 export function portAnchor3D(placeable, def, portName) {
-  const pos = portWorldPosition(placeable, def, portName);
-  if (!pos) return null;
+  if (!placeable || !portName) return null;
+  const local = portLocalAxis(def, portName);
+  if (!local) return null;
+  const centre = placeableCenterWorld(placeable, def);
+  if (!centre) return null;
+
+  const type = placeable.type;
+  const mount = mountFor(type, def, portName);
+  if (!mount) return null;
+
   const vec = portApproachVec(placeable, def, portName);
   // Path coords are (col, row) = (x/2, z/2), so an outward normal of one tile
   // step is one unit in each — direction only, magnitude comes from standoff.
   const out = vec ? { x: vec.dCol, z: vec.dRow } : { x: 0, z: 0 };
 
-  const type = placeable && placeable.type;
   const override = type ? portAnchorOverride(type, portName) : null;
-  const y = (override && Number.isFinite(override.y))
-    ? override.y
-    : (derivedY(type) ?? DEFAULT_ANCHOR_Y);
   const standoff = BASE_STANDOFF + ((override && override.out) || 0);
 
-  // x/z are the sim's port point exactly — a consumer that wants to stand
-  // proud of the shell adds `out * standoff` itself, so nothing here can drift
-  // away from what snapping and pathing believe.
-  return { x: pos.x, y, z: pos.z, out, standoff };
+  // Local offset → world: lateral outward along the port's own axis, `along`
+  // on the perpendicular one, then the placeable's quarter turns.
+  const lat = local.sign * mount.lat;
+  const offset = rotateLocalOffset(
+    local.axis === 'x' ? { x: lat, z: mount.along } : { x: mount.along, z: lat },
+    placeable.dir || 0,
+  );
+
+  return {
+    x: centre.x + offset.x,
+    y: mount.y,
+    z: centre.z + offset.z,
+    out,
+    standoff,
+  };
 }
 
 export default portAnchor3D;

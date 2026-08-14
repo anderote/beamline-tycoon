@@ -18,8 +18,8 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds } from './component-builder.js';
-import { setModelBoundsProvider } from '../utility/port-anchors.js';
+import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds, measureShellSurfaces } from './component-builder.js';
+import { setModelBoundsProvider, setShellMeasureProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -328,9 +328,11 @@ export class ThreeRenderer {
     this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
-    // Port anchors need model heights, which only the meshes know. Injected
-    // rather than imported so utility/port-anchors.js stays headless-safe.
+    // Port anchors need model heights and where the shell's surface actually
+    // is, which only the meshes know. Injected rather than imported so
+    // utility/port-anchors.js stays headless-safe.
     setModelBoundsProvider(getModelBounds);
+    setShellMeasureProvider(measureShellSurfaces);
     this.pipeAttachmentBuilder = new ComponentBuilder();
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
@@ -3660,7 +3662,11 @@ export class ThreeRenderer {
       const child = this.portFittingGroup.children[0];
       this.portFittingGroup.remove(child);
       child.traverse?.(o => {
-        if (o.geometry) o.geometry.dispose();
+        // Fittings share one cached geometry per connector style across every
+        // port in the facility, so disposing here would drop the buffers every
+        // other fitting is still drawing and force a re-upload on the next
+        // frame. Same contract as the `__shared` flag on the materials.
+        if (o.geometry && !o.userData?.sharedGeometry) o.geometry.dispose();
         const m = o.material;
         if (m && !m.userData?.__shared && typeof m.dispose === 'function') m.dispose();
       });
