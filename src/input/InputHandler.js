@@ -15,6 +15,7 @@ import {
   snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
+import { mirrorEdge, findWallKey } from '../game/edge-keys.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
@@ -548,10 +549,7 @@ export class InputHandler {
    * demolish lookups must check both.
    */
   _edgeAlias(pt) {
-    if (pt.edge === 'n') return { col: pt.col, row: pt.row - 1, edge: 's' };
-    if (pt.edge === 's') return { col: pt.col, row: pt.row + 1, edge: 'n' };
-    if (pt.edge === 'e') return { col: pt.col + 1, row: pt.row, edge: 'w' };
-    return { col: pt.col - 1, row: pt.row, edge: 'e' };
+    return mirrorEdge(pt.col, pt.row, pt.edge);
   }
 
   /**
@@ -1037,6 +1035,12 @@ export class InputHandler {
   /**
    * Return the nearest edge that has a wall on it. Falls back to the
    * nearest floor-boundary edge if no walls are within reach.
+   *
+   * The returned edge also carries `frac`: where along that edge the cursor
+   * sits, 0 at the edge's FIRST-listed corner and 1 at the second, in
+   * buildWalls' corner order (n: NW->NE, e: NE->SE, s: SE->SW, w: SW->NW).
+   * Quantizing that into a door's subtile offset needs the door's width, so
+   * it's left to the caller — DoorTool runs it through doorOffFromFrac().
    */
   _getNearestWallEdge(screenX, screenY) {
     const world = this.renderer.screenToWorld(screenX, screenY);
@@ -1047,14 +1051,18 @@ export class InputHandler {
     const fy = gf.row - row;
 
     const candidates = [
-      { col, row, edge: 'n', dist: fy },
-      { col, row, edge: 's', dist: 1 - fy },
-      { col, row, edge: 'e', dist: 1 - fx },
-      { col, row, edge: 'w', dist: fx },
+      { col, row, edge: 'n', dist: fy, frac: fx },
+      { col, row, edge: 's', dist: 1 - fy, frac: 1 - fx },
+      { col, row, edge: 'e', dist: 1 - fx, frac: fy },
+      { col, row, edge: 'w', dist: fx, frac: 1 - fy },
     ];
 
+    // A wall lives under either spelling of its edge, so the preference bias
+    // has to resolve both — checking only the hovered tile's key made the
+    // bias miss on every wall drawn from the neighbouring tile, which is what
+    // made doors feel like they refused to land on walls.
     const wo = this.game.state.wallOccupied;
-    const hasWall = (e) => !!wo[`${e.col},${e.row},${e.edge}`];
+    const hasWall = (e) => !!findWallKey(wo, e.col, e.row, e.edge);
 
     candidates.sort((a, b) => {
       const aScore = a.dist - (hasWall(a) ? 0.35 : 0);

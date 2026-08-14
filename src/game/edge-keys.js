@@ -1,0 +1,127 @@
+// src/game/edge-keys.js — one definition of tile-edge identity.
+//
+// A wall or door lives on the edge BETWEEN two tiles, but the occupancy maps
+// (state.wallOccupied / state.doorOccupied) key it by one tile plus a
+// direction: "col,row,edge". Every physical edge therefore has two equally
+// valid keys — "5,5,n" and "5,4,s" name the same wall — and which one a
+// segment is actually stored under depends on which tile the player happened
+// to be hovering when they drew it. Code that checks only the key it was
+// handed sees "no wall here" half the time; that was the long-standing cause
+// of doors refusing to place from one side of a wall.
+//
+// Rule: never test an edge key directly. Resolve it through findWallKey /
+// findEdgeKey first, and store at the key that came back so the renderer's
+// exact-key lookups (wall-builder matches doors to walls by key) line up.
+
+/** Neighbour tile and the mirrored edge name, per edge. */
+export const EDGE_DELTAS = {
+  n: { dc: 0, dr: -1, opposite: 's' },
+  e: { dc: 1, dr: 0, opposite: 'w' },
+  s: { dc: 0, dr: 1, opposite: 'n' },
+  w: { dc: -1, dr: 0, opposite: 'e' },
+};
+
+export const EDGES = ['n', 'e', 's', 'w'];
+
+/** Canonical occupancy-map key for a tile edge. */
+export function edgeKey(col, row, edge) {
+  return `${col},${row},${edge}`;
+}
+
+/** Inverse of edgeKey. Returns null for anything that isn't an edge key. */
+export function parseEdgeKey(key) {
+  const parts = String(key).split(',');
+  if (parts.length !== 3) return null;
+  const col = Number(parts[0]);
+  const row = Number(parts[1]);
+  const edge = parts[2];
+  if (!Number.isFinite(col) || !Number.isFinite(row) || !EDGE_DELTAS[edge]) return null;
+  return { col, row, edge };
+}
+
+/**
+ * The same physical edge expressed from the neighbouring tile.
+ * (5,5,'n') -> (5,4,'s'). Returns null for an unknown edge name.
+ */
+export function mirrorEdge(col, row, edge) {
+  const d = EDGE_DELTAS[edge];
+  if (!d) return null;
+  return { col: col + d.dc, row: row + d.dr, edge: d.opposite };
+}
+
+/**
+ * Which of the two keys for this edge actually holds an entry in `occupied`
+ * (a plain "key -> type" map), preferring the direct one. Returns the key
+ * string, or null when neither side is occupied.
+ */
+export function findEdgeKey(occupied, col, row, edge) {
+  if (!occupied) return null;
+  const direct = edgeKey(col, row, edge);
+  if (occupied[direct]) return direct;
+  const m = mirrorEdge(col, row, edge);
+  if (!m) return null;
+  const mirror = edgeKey(m.col, m.row, m.edge);
+  return occupied[mirror] ? mirror : null;
+}
+
+/** findEdgeKey under the name the wall/door call sites use. */
+export function findWallKey(wallOccupied, col, row, edge) {
+  return findEdgeKey(wallOccupied, col, row, edge);
+}
+
+/** True when `key` is the mirrored (neighbour-tile) spelling of this edge. */
+export function isMirroredKey(key, col, row, edge) {
+  return !!key && key !== edgeKey(col, row, edge);
+}
+
+// --- Door openings along an edge ---
+//
+// An edge is divided into SUBTILES_PER_EDGE slots. A door record carries
+// `off`: the integer index of the first slot its opening covers, measured
+// from the edge's FIRST-listed corner in buildWalls' corner order:
+//   'n' = NW -> NE   'e' = NE -> SE   's' = SE -> SW   'w' = SW -> NW
+// A single door is 2 slots wide (off in 0..2), a double fills all 4 (off 0).
+
+export const SUBTILES_PER_EDGE = 4;
+
+/** Opening width in subtiles for a DOOR_TYPES def. Unknown defs read single. */
+export function doorSubWidth(doorDef) {
+  return doorDef && doorDef.doorWidth === 'double' ? SUBTILES_PER_EDGE : 2;
+}
+
+/**
+ * Offset used when a door record carries none. 1 for singles (centered — the
+ * geometry every pre-`off` door was drawn with), 0 for doubles.
+ */
+export function defaultDoorOff(doorDef) {
+  return doorSubWidth(doorDef) >= SUBTILES_PER_EDGE ? 0 : 1;
+}
+
+/** Round + clamp an offset into the legal range for this door width. */
+export function clampDoorOff(doorDef, off) {
+  if (!Number.isFinite(off)) return defaultDoorOff(doorDef);
+  const max = SUBTILES_PER_EDGE - doorSubWidth(doorDef);
+  return Math.max(0, Math.min(max, Math.round(off)));
+}
+
+/**
+ * Quantize a fractional position along an edge (0 at the first-listed corner,
+ * 1 at the second) into a door offset, centering the opening on the cursor
+ * and clamping it inside the tile.
+ */
+export function doorOffFromFrac(frac, doorDef) {
+  const w = doorSubWidth(doorDef);
+  const f = Number.isFinite(frac) ? frac : 0.5;
+  const raw = Math.floor(f * SUBTILES_PER_EDGE - w / 2 + 0.5);
+  return Math.max(0, Math.min(SUBTILES_PER_EDGE - w, raw));
+}
+
+/**
+ * Re-express an offset in the mirrored edge's corner order. The two spellings
+ * of an edge run in opposite directions, so an opening 1 slot from the NW end
+ * of "5,5,n" is (4 - width - 1) slots from the far end of "5,4,s".
+ */
+export function mirrorDoorOff(off, doorDef) {
+  const max = SUBTILES_PER_EDGE - doorSubWidth(doorDef);
+  return max - clampDoorOff(doorDef, off);
+}

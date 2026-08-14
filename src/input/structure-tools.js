@@ -21,7 +21,8 @@
 // because the demolish family shares them.
 
 import { Tool } from './Tool.js';
-import { FLOORS, WALL_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { doorOffFromFrac } from '../game/edge-keys.js';
 import { isoToGrid } from '../renderer/grid.js';
 
 export class FloorTool extends Tool {
@@ -398,12 +399,16 @@ export class DoorTool extends Tool {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    // Subtile offset of the opening along the edge, quantized from the
+    // cursor's along-edge fraction. See _offFor.
+    this._off = null;
   }
 
   onExit(ctx) {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    this._off = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
   }
@@ -411,12 +416,25 @@ export class DoorTool extends Tool {
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
 
+  /**
+   * Subtile offset of the opening for the edge under the cursor.
+   * _getNearestWallEdge hands back a raw along-edge fraction (it can't know
+   * how wide this door is); doorOffFromFrac centers the opening on the cursor
+   * and clamps it inside the tile. Quantizing here rather than in
+   * _getNearestWallEdge keeps the door-width knowledge on the tool, which is
+   * the only place that knows which door is armed.
+   */
+  _offFor(edge) {
+    return doorOffFromFrac(edge?.frac, DOOR_TYPES[this.doorType]);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    this._off = this._offFor(edge);
     this._drawing = true;
     this._start = edge;
-    this._path = [edge];
+    this._path = [{ ...edge, off: this._off }];
     ctx.renderer.renderDoorPreview(this._path, this.doorType);
     return true;
   }
@@ -426,7 +444,14 @@ export class DoorTool extends Tool {
     const renderer = ctx.renderer;
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
-      this._path = input._buildWallLine(this._start, edge);
+      // _buildWallLine steps in whole tiles and locks every segment to the
+      // START edge's side, so a multi-tile drag shares one opening offset.
+      // The offset keeps tracking the cursor only while the hovered edge is
+      // the same side as the start (n/s vs e/w): `frac` runs along whichever
+      // edge produced it, so a perpendicular edge's frac is meaningless here.
+      if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
+      this._path = input._buildWallLine(this._start, edge)
+        .map(pt => ({ ...pt, off: this._off }));
       renderer.renderDoorPreview(this._path, this.doorType);
       return true;
     }
@@ -452,7 +477,10 @@ export class DoorTool extends Tool {
     // right-click-to-deselect never ran.
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
-      ctx.game._withUndo(() => ctx.game.placeDoorPath(this._path, this.doorType, this.variant));
+      // Each path point carries its own `off`; this._off is the fallback.
+      ctx.game._withUndo(
+        () => ctx.game.placeDoorPath(this._path, this.doorType, this.variant, this._off)
+      );
       this._drawing = false;
       this._start = null;
       this._path = [];

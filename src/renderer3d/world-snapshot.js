@@ -2,7 +2,8 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
-import { FLOORS } from '../data/structure.js';
+import { FLOORS, DOOR_TYPES } from '../data/structure.js';
+import { defaultDoorOff } from '../game/edge-keys.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
@@ -214,6 +215,14 @@ function buildWalls(game) {
   });
 }
 
+/**
+ * `off` is the subtile offset of the door opening along its edge, counted in
+ * quarter-tile slots from the edge's FIRST-listed corner in buildWalls' corner
+ * order ('n' = NW->NE, 'e' = NE->SE, 's' = SE->SW, 'w' = SW->NW). A single
+ * door is 2 slots wide (off 0..2), a double fills all 4 (off 0). Records
+ * written before `off` existed default to the centered geometry they were
+ * drawn with — 1 for singles, 0 for doubles.
+ */
 function buildDoors(game) {
   return (game.state.doors || []).map(d => ({
     col: d.col,
@@ -221,6 +230,7 @@ function buildDoors(game) {
     edge: d.edge,
     type: d.type,
     variant: d.variant || 0,
+    off: d.off ?? defaultDoorOff(DOOR_TYPES[d.type]),
   }));
 }
 
