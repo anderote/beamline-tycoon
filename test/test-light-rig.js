@@ -177,6 +177,7 @@ globalThis.THREE = {
 const { LightRig } = await import('../src/renderer3d/light-rig.js');
 const { fixtureLightTag } = await import('../src/renderer3d/lighting-builder.js');
 const { fixtureLightProjection, aimYaw } = await import('../src/renderer3d/fixture-light-math.js');
+const { fixtureDynamicFactor } = await import('../src/renderer3d/light-dynamics.js');
 const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
 const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
 const { buildFloorGlowStrip } = await import('../src/renderer3d/floor-glow.js');
@@ -527,8 +528,9 @@ test('a spot is aimed, angled, throttled and tinted by the fixture def itself, n
   assert.ok(Math.abs(light.angle - expectedFlood.halfAngle) < 1e-9,
     `SpotLight.angle comes from the shared projection packet (got ${light.angle})`);
   assert.equal(light.color.getHex(), DEF.floodLight.light.color, 'the light is tinted with the def\'s own colour string');
-  assert.ok(Math.abs(light.intensity - 6 * DEF.floodLight.light.intensity) < 1e-9,
-    `intensity is the rig's base scaled by the def's intensity, nightFactor and weight (got ${light.intensity})`);
+  const dynamic = fixtureDynamicFactor('arcStable', 'F1', 1000, 1);
+  assert.ok(Math.abs(light.intensity - 6 * DEF.floodLight.light.intensity * dynamic) < 1e-9,
+    `intensity includes the fixture's deterministic dynamic profile (got ${light.intensity})`);
   assert.ok(Math.abs(light.position.y - DEF.floodLight.light.emitterY) < 1e-9,
     'the light sits at the emitter height above the fixture group\'s origin');
 

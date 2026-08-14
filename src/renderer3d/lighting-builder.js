@@ -135,6 +135,7 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     bloomProfile: light.bloomProfile ?? 'soft',
     volumeProfile: light.volumeProfile ?? 'none',
     dynamicProfile: light.dynamicProfile ?? 'steady',
+    cookieProfile: light.cookieProfile ?? 'soft',
     aimed,
     aimYaw: aimed ? aimYaw(dir) : 0,
   };

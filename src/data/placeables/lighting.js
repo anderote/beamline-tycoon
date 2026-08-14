@@ -42,15 +42,15 @@ const CATEGORY_BY_MOUNT = {
 };
 
 const LIGHT_PROFILES = {
-  lamppost:       { sourceRadius: 0.11, shadowSoftness: 0.55, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady' },
-  doubleLamppost: { sourceRadius: 0.14, shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady' },
-  bollardLight:   { sourceRadius: 0.07, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady' },
-  highMastLight:  { sourceRadius: 0.2,  shadowSoftness: 0.4,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable' },
-  floodLight:     { sourceRadius: 0.12, shadowSoftness: 0.3,  bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable' },
-  wallSconce:     { sourceRadius: 0.09, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'warmSteady' },
-  bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent' },
-  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent' },
-  highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable' },
+  lamppost:       { sourceRadius: 0.11, shadowSoftness: 0.55, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
+  doubleLamppost: { sourceRadius: 0.14, shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
+  bollardLight:   { sourceRadius: 0.07, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
+  highMastLight:  { sourceRadius: 0.2,  shadowSoftness: 0.4,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
+  floodLight:     { sourceRadius: 0.12, shadowSoftness: 0.3,  bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
+  wallSconce:     { sourceRadius: 0.09, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
+  bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'cage' },
+  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
 };
 
 const RAW_LIGHTING_DEFS = [

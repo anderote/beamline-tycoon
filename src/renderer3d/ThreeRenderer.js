@@ -49,6 +49,9 @@ import {
   MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
+import { VolumetricLightPool } from './volumetric-light-pool.js';
+import { fixtureDynamicFactor } from './light-dynamics.js';
+import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -601,6 +604,14 @@ export class ThreeRenderer {
       pointCount: 8,
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
       shadowHz: this._lightingQuality.fixtureShadowHz,
+    });
+    let volumeStored;
+    try { volumeStored = localStorage.getItem('beamlineTycoon.volumetricLighting'); } catch (_) { volumeStored = null; }
+    this._volumetricEnabled = volumeStored !== '0' && glowStored !== '0';
+    this._volumePool = new VolumetricLightPool(this.scene, {
+      maxCount: MAX_FIXTURE_SHADOWS,
+      activeCount: this._lightingQuality.volumetricCount,
+      enabled: this._volumetricEnabled,
     });
     this._lightFocus = new THREE.Vector3();
 
@@ -1481,11 +1492,21 @@ export class ThreeRenderer {
   setGlowEnabled(enabled) {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
     if (this._lightRig) this._lightRig.setEnabled(enabled);
+    if (this._volumePool) this._volumePool.setEnabled(enabled && this._volumetricEnabled);
     this._applyGlowToggleToFloorStrips();
   }
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
+  }
+
+  setVolumetricEnabled(enabled) {
+    this._volumetricEnabled = !!enabled;
+    if (this._volumePool) this._volumePool.setEnabled(this._volumetricEnabled && this.glowEnabled);
+  }
+
+  get volumetricEnabled() {
+    return this._volumetricEnabled !== false;
   }
 
   setLightingQuality(value) {
@@ -1496,6 +1517,7 @@ export class ThreeRenderer {
       maxTextureSize: this.renderer?.capabilities?.maxTextureSize,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
+    if (this._volumePool) this._volumePool.setQuality(this._lightingQuality);
     if (this._sunShadowScheduler) {
       this._sunShadowScheduler.configure({ hz: this._lightingQuality.sunShadowHz, maxUpdatesPerFrame: 1 });
       this._sunShadowScheduler.markAllDirty();
@@ -1517,6 +1539,7 @@ export class ThreeRenderer {
       requestedQuality: this.lightingQuality,
       sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
       ...(this._lightRig?.getStats() || {}),
+      ...(this._volumePool?.getStats() || {}),
     };
   }
 
@@ -3268,7 +3291,11 @@ export class ThreeRenderer {
     // glow materials floor at 0.35 so a console screen stays legible.
     if (this._lightRig) {
       this._lightFocus.set(this._panX || 0, 0, this._panY || 0);
-      this._lightRig.update(this.camera, this._darkness ?? 0, _dt, this._lightFocus);
+      this._lightRig.update(
+        this.camera, this._darkness ?? 0, _dt, this._lightFocus,
+        this._lightingEffectTimeMs ?? 0,
+      );
+      this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
@@ -3374,6 +3401,7 @@ export class ThreeRenderer {
     // ramp in lockstep with the sky.
     const grade = dayNightGrade(this._localTimeOfDay);
     this._darkness = grade.darkness;
+    this._lightingEffectTimeMs = this._localTimeOfDay * DAY_LENGTH_TICKS * 1000;
 
     this._sunLight.intensity = grade.sunIntensity;
     this._sunLight.color.setRGB(...grade.sunColor);
@@ -3901,7 +3929,15 @@ export class ThreeRenderer {
     const darkness = this._darkness ?? 0;
     for (const fx of this.lightingGroup) {
       const mat = fx.group.userData.emitterMaterial;
-      if (mat) mat.emissiveIntensity = emitterIntensityForDarkness(darkness);
+      if (mat) {
+        mat.emissiveIntensity = emitterIntensityForDarkness(darkness)
+          * fixtureDynamicFactor(
+            fx.def?.light?.dynamicProfile,
+            fx.id,
+            this._lightingEffectTimeMs ?? 0,
+            darkness,
+          );
+      }
     }
     if (this.lightPoolGroup) {
       const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
@@ -4601,6 +4637,11 @@ export class ThreeRenderer {
       this._lightRig.dispose();
       this._lightRig = null;
     }
+    if (this._volumePool) {
+      this._volumePool.dispose();
+      this._volumePool = null;
+    }
+    disposeLightCookies();
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);

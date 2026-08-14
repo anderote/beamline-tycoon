@@ -6,6 +6,7 @@ import {
 } from '../src/renderer3d/lighting-quality.js';
 import { ShadowScheduler } from '../src/renderer3d/shadow-scheduler.js';
 import { LIGHTING_DEFS, validateLightingDef } from '../src/data/placeables/lighting.js';
+import { fixtureDynamicFactor } from '../src/renderer3d/light-dynamics.js';
 
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
   assert.equal(MAX_FIXTURE_SHADOWS, 6);
@@ -49,4 +50,17 @@ test('every fixture exposes a complete finite lighting profile', () => {
     assert.ok(def.light.sourceRadius > 0, `${def.id} has an apparent source size`);
     assert.ok(def.light.bloomProfile && def.light.volumeProfile && def.light.dynamicProfile);
   }
+});
+
+test('fixture dynamics are deterministic, bounded, and identity-phased', () => {
+  const a = fixtureDynamicFactor('fluorescent', 'fixture-a', 12345, 0.2);
+  assert.equal(a, fixtureDynamicFactor('fluorescent', 'fixture-a', 12345, 0.2));
+  assert.notEqual(a, fixtureDynamicFactor('fluorescent', 'fixture-b', 12345, 0.2));
+  for (const profile of ['warmSteady', 'arcStable', 'fluorescent']) {
+    for (let t = 0; t < 10000; t += 137) {
+      const factor = fixtureDynamicFactor(profile, 'stable-id', t, 0.5);
+      assert.ok(factor >= 0.75 && factor <= 1.05, `${profile} stays subtle and non-negative`);
+    }
+  }
+  assert.equal(fixtureDynamicFactor('steady', 'x', 99, 1), 1);
 });

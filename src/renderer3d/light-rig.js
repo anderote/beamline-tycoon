@@ -43,6 +43,8 @@
 import { fixtureLightTag } from './lighting-builder.js';
 import { fixtureLightProjection } from './fixture-light-math.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
+import { fixtureDynamicFactor } from './light-dynamics.js';
+import { getLightCookie } from './light-cookie.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -145,6 +147,7 @@ export class LightRig {
         FIXTURE_SPOT_ANGLE, FIXTURE_SPOT_PENUMBRA, FIXTURE_SPOT_DECAY,
       );
       light.castShadow = true;
+      light.map = getLightCookie('soft');
       light.shadow.autoUpdate = false;
       light.shadow.needsUpdate = false;
       light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
@@ -177,6 +180,7 @@ export class LightRig {
       //             the min-hold test.
       this._spotSlots.push({
         light, target, assignedRef: null, weight: 0, releasing: false, heldSinceMs: 0,
+        projection: null, volumePacket: {},
       });
     }
 
@@ -227,6 +231,8 @@ export class LightRig {
     });
     this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
     this._shadowUpdatesLastFrame = 0;
+    this._volumeCandidates = [];
+    this._effectTimeMs = 0;
   }
 
   get enabled() {
@@ -275,6 +281,16 @@ export class LightRig {
       fixtureShadowMapSize: this._shadowMapSize,
       fixtureShadowHz: this._shadowHz,
     };
+  }
+
+  getVolumeCandidates(limit = this._activeShadowSpotCount) {
+    this._volumeCandidates.length = 0;
+    for (let i = 0; i < this._activeShadowSpotCount && this._volumeCandidates.length < limit; i++) {
+      const slot = this._spotSlots[i];
+      if (!slot.assignedRef || !slot.projection || slot.volumePacket.volumeProfile === 'none') continue;
+      this._volumeCandidates.push(slot.volumePacket);
+    }
+    return this._volumeCandidates;
   }
 
   /** Supply the canonical [{id, def, group}] fixture registry. */
@@ -327,9 +343,10 @@ export class LightRig {
    *        the center of the view. Passing the camera position here biases an
    *        isometric camera toward fixtures tens of metres behind the screen.
    */
-  update(camera, nightFactor, dt, focusPoint = null) {
+  update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null) {
     const dtMs = Number.isFinite(dt) && dt > 0 ? dt * 1000 : 0;
     this._clockMs += dtMs;
+    this._effectTimeMs = Number.isFinite(effectTimeMs) ? effectTimeMs : this._clockMs;
     this._advanceFlashes(dtMs);
 
     if (!this._enabled) {
@@ -585,6 +602,8 @@ export class LightRig {
     slot.assignedRef = null;
     slot.weight = 0;
     slot.releasing = false;
+    slot.projection = null;
+    slot.volumePacket.volumeProfile = 'none';
     this._shadowAssignmentKeys[index] = null;
   }
 
@@ -628,6 +647,11 @@ export class LightRig {
         targetDistance: tag.targetDistance || undefined,
         maxGroundRange: tag.maxGroundRange || undefined,
         penumbra: tag.penumbra,
+        sourceRadius: tag.sourceRadius,
+        shadowSoftness: tag.shadowSoftness,
+        volumeProfile: tag.volumeProfile,
+        dynamicProfile: tag.dynamicProfile,
+        cookieProfile: tag.cookieProfile,
       },
     };
     const projection = fixtureLightProjection(def, {
@@ -646,7 +670,22 @@ export class LightRig {
     slot.target.updateMatrixWorld();
 
     light.color.set(tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR);
-    light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1) * nightFactor * slot.weight;
+    const dynamicFactor = fixtureDynamicFactor(
+      tag.dynamicProfile, tag.id, this._effectTimeMs, nightFactor,
+    );
+    const cookie = getLightCookie(tag.cookieProfile || 'soft');
+    if (cookie) light.map = cookie;
+    light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1)
+      * nightFactor * slot.weight * dynamicFactor;
+    slot.projection = projection;
+    Object.assign(slot.volumePacket, {
+      id: tag.id,
+      projection,
+      color: tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR,
+      weight: slot.weight * dynamicFactor,
+      volumeProfile: tag.volumeProfile || 'none',
+      cookieProfile: tag.cookieProfile || 'soft',
+    });
   }
 
   _assignPoints(camPos, nightFactor) {
