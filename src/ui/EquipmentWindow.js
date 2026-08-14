@@ -2,6 +2,7 @@
 
 import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
+import { utilityStatRows } from './utility-supply.js';
 
 export class EquipmentWindow {
   /**
@@ -50,8 +51,8 @@ export class EquipmentWindow {
       const cost = typeof comp.cost === 'object' ? comp.cost.funding || 0 : comp.cost;
       html += `<div style="color:#888;">Cost: $${cost.toLocaleString()}</div>`;
     }
-    if (comp.energyCost) {
-      html += `<div style="color:#cc8;">Energy: ${comp.energyCost} kW</div>`;
+    for (const r of utilityStatRows(comp)) {
+      html += `<div style="color:#cc8;">${r.label}: ${r.value}</div>`;
     }
 
     // Stats / effects
