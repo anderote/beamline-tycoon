@@ -38,6 +38,13 @@ function assertOk(cond, msg) {
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e9;
+  // Fix round 3 (staff-professions-3, task 5): on-pipe attachment ghosts now
+  // also quote/check spares (componentCostFor, closing the "green ghost, red
+  // click" gap InputHandler.js/BeamlineInputController.js had even after
+  // BeamlineSystem.placeOnPipe itself started charging spares) — fund this
+  // the same generous way funding above is, so this file's "with funds"
+  // scenarios are gated only by what they're actually testing.
+  g.state.resources.spares = 1e9;
   return g;
 }
 
@@ -232,9 +239,19 @@ function makeBeamlineRenderer() {
   const state = { beamPipes: [pipe], placementMode: 'snap' };
   const renderer = makeBeamlineRenderer();
   let funding = def.cost.funding;
+  // Fix round 3: the on-pipe ghost now also quotes/checks spares
+  // (componentCostFor) — fund it generously here too (1e9, same as
+  // makeGame's own funding line does for the real-Game scenarios above),
+  // so `funding` stays the only knob this fake canAfford's two scenarios
+  // actually turn.
+  let spares = 1e9;
   const game = {
     state,
-    canAfford: (cost) => Object.entries(cost).every(([r, a]) => (r === 'funding' ? funding : 0) >= a),
+    canAfford: (cost) => Object.entries(cost).every(([r, a]) => {
+      if (r === 'funding') return funding >= a;
+      if (r === 'spares') return spares >= a;
+      return 0 >= a;
+    }),
   };
   const c = new BeamlineInputController({
     game, renderer, inputHandler: { placementDir: 0, selectedParamOverrides: null },

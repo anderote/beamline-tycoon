@@ -114,21 +114,34 @@ export function canAffordCost(game, cost) {
 }
 
 /**
- * The cost `previewPlacement` should quote/check for `placeable` — its bare
- * `.cost` for anything that isn't a beamline component, or that cost widened
- * with a spares line for one that is (fix round 1). Mirrors
- * Game._placePlaceableInner's own `kind === 'beamline'` branch exactly,
- * using the SAME shared sparesCostForFunding — this is the fix for the
- * preview and the real placement check having drifted apart: before this,
- * previewPlacement quoted/checked funding only (via placeable.cost
- * directly), so a junction whose funding the player could afford but whose
- * spares they couldn't showed a green "affordable" ghost and then refused
- * at the real _placePlaceableInner affordability check — a repeatable
+ * The cost a preview should quote/check for `def` — its bare `.cost` for
+ * anything that isn't a beamline component, or that cost widened with a
+ * spares line for one that is (fix round 1). Mirrors
+ * Game._placePlaceableInner's own `kind === 'beamline'` branch AND
+ * BeamlineSystem.placeOnPipe's own (unconditional — everything reaching it
+ * is a beamline attachment by construction) spares line, using the SAME
+ * shared sparesCostForFunding — this is the fix for a preview and its real
+ * placement check having drifted apart: before this, a preview quoted/
+ * checked funding only (via `.cost` directly), so something whose funding
+ * the player could afford but whose spares they couldn't showed a green
+ * "affordable" ghost and then refused at the real check — a repeatable
  * "green ghost, red click" with no visible reason why.
+ *
+ * Two def shapes reach here (fix round 3 widened this from junction-only):
+ * a PLACEABLES entry with `.kind === 'beamline'` (a junction, previewed via
+ * previewPlacement below) or a bare COMPONENTS entry with `.role` but no
+ * `.kind` at all (an on-pipe attachment — quadrupole, BPM, RF cavity, ...;
+ * see components.js's own "legacy shim" header for why those two shapes
+ * differ) — used directly by the on-pipe attachment ghost previews in
+ * InputHandler.js/BeamlineInputController.js, which used to call
+ * canAffordCost with the bare def.cost and so still showed green ghosts for
+ * spares-short on-pipe parts even after placeOnPipe itself started charging
+ * spares (fix round 1).
  */
-function componentCostFor(placeable) {
-  if (placeable?.kind !== 'beamline' || !placeable.cost) return placeable?.cost;
-  return { ...placeable.cost, spares: sparesCostForFunding(placeable.cost.funding || 0) };
+export function componentCostFor(def) {
+  if (!def?.cost) return def?.cost;
+  if (def.kind !== 'beamline' && !def.role) return def.cost;
+  return { ...def.cost, spares: sparesCostForFunding(def.cost.funding || 0) };
 }
 
 /**

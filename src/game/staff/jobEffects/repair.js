@@ -7,13 +7,14 @@
 // effect, and later tasks get to add their own modules here alongside this
 // one without ever touching jobRunner.js itself.
 //
-// This module is a leaf: it imports registerJobEffect FROM jobRunner.js, so
-// jobRunner.js itself must never import this file (or fabricate.js) —
-// that would be a cycle, and jobRunner.js's own `jobEffects` Map (a `const`)
-// would still be in its temporal-dead-zone the moment this module's
-// top-level registerJobEffect() call ran. Game.js imports both this module
-// and jobRunner.js itself as siblings for exactly that reason — see its own
-// comment at the import site.
+// This module is a leaf: it imports registerJobEffect FROM
+// jobEffects/registry.js (fix round 3), not from jobRunner.js — see that
+// module's own header for why jobRunner.js importing an effect module that
+// pulled registerJobEffect from jobRunner.js ITSELF used to be a real
+// module-graph cycle (a TDZ ReferenceError, not a working registration).
+// Routing through the dependency-free registry module instead means
+// jobRunner.js can now import this file directly, which is exactly what it
+// does.
 //
 // A repair job only ever completes with target = { beamlineId, nodeId }
 // (see jobs.js's repairOffers) pointing at a still-live beamline/component:
@@ -42,7 +43,7 @@
 // completion) and the target is still damaged, so jobs.js's repairOffers
 // re-offers it the moment a spare exists again — "re-offered", not lost.
 
-import { registerJobEffect } from '../jobRunner.js';
+import { registerJobEffect } from './registry.js';
 import { COMPONENTS } from '../../../data/components.js';
 
 const HEAL_PER_COMPLETION = 25;

@@ -1094,22 +1094,26 @@ export function abandonJob(member, game, reason = null) {
 // plan's cross-task ruling 24. eat/rest are this task's own concern (the
 // deadlock guard above is only half the story; completing the job is what
 // actually satisfies the need) and are registered right here.
-const jobEffects = new Map();
+//
+// Fix round 3: registerJobEffect/onJobComplete themselves now live in
+// jobEffects/registry.js, imported here (and re-exported, so this file's
+// own public API is unchanged for existing importers like
+// test-job-runner.js) rather than defined locally. That's what makes the
+// import of repair.js/fabricate.js below safe: this file used to own the
+// `jobEffects` Map directly, which meant an effect module importing
+// registerJobEffect FROM jobRunner.js and jobRunner.js importing that
+// module back was a real cycle (registry.js's own header has the full
+// story, including the TDZ crash reproduced during fix round 1). Before
+// this, registration only happened as a side effect of Game.js specifically
+// being imported — so any test importing jobRunner.js without also
+// importing Game.js got a runner whose repair/fabricate completions
+// silently no-op. Confirmed live in test-target-job-destination.js and
+// test-pawn-job-integration.js, neither of which imports Game.js.
+import { registerJobEffect, onJobComplete } from './jobEffects/registry.js';
+import './jobEffects/repair.js';
+import './jobEffects/fabricate.js';
 
-/** Register `handler(game, member, job)` to run once when a job of
- * `jobType` completes (see tickJobs). Last registration for a given
- * jobType wins — there is exactly one effect per job type by design. */
-export function registerJobEffect(jobType, handler) {
-  jobEffects.set(jobType, handler);
-}
-
-/** Dispatch `job`'s completion effect, if one is registered. Called by
- * tickJobs exactly once per completed job, before abandonJob clears it —
- * effects still see the live target/stationKey. */
-export function onJobComplete(game, member, job) {
-  const handler = jobEffects.get(job.jobType);
-  if (handler) handler(game, member, job);
-}
+export { registerJobEffect, onJobComplete };
 
 // Either completion clears unservicedPenalty (see tryTakeNeedJob's own
 // comment): a completed meal or a completed rest is what "serviced" means,

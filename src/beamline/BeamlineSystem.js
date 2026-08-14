@@ -109,6 +109,24 @@ export function sparesCostForFunding(funding) {
   return Math.max(1, Math.ceil((funding || 0) / 5000));
 }
 
+// Fix round 3: which resource(s) in `cost` are short against `resources`,
+// as player-facing text ("need 30 more spares") — extracted from
+// Game._missingResourceLabel (fix round 1) into a pure function so
+// BeamlineSystem.placeOnPipe can give the SAME "name the blocker" treatment
+// its refusal log gets that Game._placePlaceableInner's already has, without
+// reaching into a private method on a class it only ever talks to through
+// injected callbacks. Game.js's own _missingResourceLabel is now a thin
+// wrapper over this. Only meaningful to call after affordability has
+// already failed for this same `cost` against `resources`.
+export function missingResourceLabel(resources, cost) {
+  const short = [];
+  for (const [r, a] of Object.entries(cost || {})) {
+    const have = (resources && resources[r]) || 0;
+    if (have < a) short.push(`need ${a - have} more ${r}`);
+  }
+  return short.length ? short.join(', ') : 'insufficient funds';
+}
+
 // Per-tile drift cost is the baseline for beam-pipe pricing; fall back to the
 // legacy 10000 if the component registry is somehow missing drift.
 function driftCostPerTile() {
@@ -705,7 +723,12 @@ export class BeamlineSystem {
         return null;
       }
       if (!this.canAfford(cost)) {
-        this.log(`Can't afford ${(def && def.name) || opts.type}!`, 'bad');
+        // Fix round 3: names the missing resource(s), same as Game.js's own
+        // "Can't afford X!" already does for a hand-placed junction — this
+        // path never had it, so a spares-short on-pipe placement (fix round
+        // 1's own gap) refused with no hint that spares, not funding, was
+        // the actual blocker.
+        this.log(`Can't afford ${(def && def.name) || opts.type}! (${missingResourceLabel(this.state?.resources, cost)})`, 'bad');
         return null;
       }
     }
@@ -772,7 +795,18 @@ export class BeamlineSystem {
     this.onPlacementRemoved(placementId);
     const def = COMPONENTS[removed.type];
     if (def && def.cost && state.resources) {
-      for (const [r, a] of Object.entries(def.cost)) {
+      // Fix round 3: mirror placeOnPipe's own cost — a spares line alongside
+      // funding — for the refund, not the bare def.cost. Before this,
+      // removing ONE attachment (this method) refunded funding only while
+      // removeBeamPipe's own per-placement refund (Game.js's
+      // _refundCostFor, fix round 1) already refunded both — so tearing out
+      // a single $200k/40-spare quadrupole returned $100k and 0 spares,
+      // while demolishing the whole pipe underneath the identical
+      // attachment returned $100k AND 20 spares. Two refund paths for the
+      // same removed part must agree, or the cheaper move is always to
+      // destroy more.
+      const refundCost = { ...def.cost, spares: sparesCostForFunding(def.cost.funding || 0) };
+      for (const [r, a] of Object.entries(refundCost)) {
         state.resources[r] = (state.resources[r] || 0) + Math.floor(a * 0.5);
       }
     }

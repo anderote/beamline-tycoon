@@ -10,7 +10,7 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem, pipeRefund, sparesCostForFunding } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund, sparesCostForFunding, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
@@ -25,13 +25,10 @@ import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
 import { assignJobs, tickJobs } from './staff/jobRunner.js';
-// Task 5 (staff-professions-3, jobs-and-gates) completion effects. Imported
-// here for their side effect only — each module calls jobRunner.js's own
-// registerJobEffect at its top level — rather than added to jobRunner.js
-// itself, which the plan reserves for the dispatch hook, not every job
-// type's effect (see jobRunner.js's own "Completion effects" comment).
-import './staff/jobEffects/repair.js';
-import './staff/jobEffects/fabricate.js';
+// Fix round 3: jobRunner.js now imports the jobEffects/*.js completion
+// modules directly (jobEffects/registry.js's own header has the full
+// story) — this file no longer needs to import them itself as a sibling
+// side effect the way it briefly did in task 5/fix round 1.
 import { PROFESSIONS } from '../data/professions.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
@@ -994,14 +991,15 @@ export class Game {
    * funding vs. get a machinist fabricating) and the player couldn't tell
    * which one they'd hit. Only meaningful to call after canAfford has
    * already failed for this same `cost`.
+   *
+   * Fix round 3: a thin wrapper over BeamlineSystem.js's own
+   * missingResourceLabel (extracted there so BeamlineSystem.placeOnPipe's
+   * refusal log can give an on-pipe placement the identical treatment
+   * without reaching into a private method on this class) — one
+   * implementation, not two independent copies of the same formula.
    */
   _missingResourceLabel(cost) {
-    const short = [];
-    for (const [r, a] of Object.entries(cost || {})) {
-      const have = this.state.resources[r] || 0;
-      if (have < a) short.push(`need ${a - have} more ${r}`);
-    }
-    return short.length ? short.join(', ') : 'insufficient funds';
+    return missingResourceLabel(this.state.resources, cost);
   }
 
   /**
