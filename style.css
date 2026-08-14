@@ -1999,13 +1999,74 @@ body {
   border-color: rgba(80, 140, 220, 0.6);
 }
 
-/* === CONNECTION TOOLS === */
-#connection-tools {
+/* === BUILD MENU SEARCH === */
+#palette-search {
   display: flex;
-  gap: 3px;
   align-items: flex-start;
 }
 
+#palette-search-input {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  width: 220px;
+  padding: 7px 10px;
+  background: rgba(30, 30, 50, 0.8);
+  color: #ccddff;
+  border: 1px solid rgba(80, 80, 120, 0.4);
+  border-radius: 3px;
+  outline: none;
+}
+
+#palette-search-input::placeholder {
+  color: #6666aa;
+}
+
+#palette-search-input:focus {
+  background: rgba(40, 40, 70, 0.9);
+  border-color: rgba(100, 140, 220, 0.6);
+}
+
+/* Home-category subtitle shown on search-result palette items so the
+   player learns where an item actually lives before they click it. */
+.palette-item .palette-search-category {
+  font-size: 8px;
+  color: #7788aa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.palette-search-empty {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: #7788aa;
+  padding: 12px 6px;
+}
+
+/* Seam between name/id matches and description-only matches in a search
+   result list (#component-palette is a horizontal flex row, so this reads
+   as an in-line divider card rather than a header line). */
+.palette-search-divider {
+  flex-shrink: 0;
+  width: 90px;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  line-height: 1.6;
+  color: #7788aa;
+  border-left: 1px dashed rgba(120, 120, 170, 0.4);
+  padding: 0 8px;
+}
+
+/* === CONNECTION TOOLS (legacy id, retained for the unused .conn-btn rule
+   below — no live markup references it) === */
 .conn-btn {
   font-family: 'Press Start 2P', monospace;
   font-size: 7px;
