@@ -173,7 +173,15 @@ function nodeSubtile(placeable) {
 // The footprint to walk the perimeter of: a placed entry's real `.cells`
 // when present (every real placeable has this), falling back to its own
 // single origin subtile for anything hand-built without one.
-function footprintCellsOf(placeable) {
+//
+// Exported (staff-professions-3 Task 3, fix round) for jobRunner.js, which
+// resolves a walkable destination for a target-addressed offer (repair/
+// commission — no StationRef) at ASSIGNMENT time now, rather than leaving
+// StaffPawns.js with nowhere to walk for those job types. This is the exact
+// perimeter-walk this module's own repairOffers/eligibleFor already use for
+// reachability — reused as-is, not reimplemented, so "can a technician
+// reach this component" and "where should they stand" never drift apart.
+export function footprintCellsOf(placeable) {
   if (Array.isArray(placeable?.cells) && placeable.cells.length) return placeable.cells;
   const single = nodeSubtile(placeable);
   return single ? [single] : [];
@@ -185,8 +193,10 @@ function footprintCellsOf(placeable) {
  * header comment for why this has to walk the whole perimeter with a real
  * wall test, not probe one corner. Order is not meaningful; callers reduce
  * this with `.some()`.
+ *
+ * Exported alongside footprintCellsOf — see that function's comment.
  */
-function approachCandidates(nav, state, cells) {
+export function approachCandidates(nav, state, cells) {
   const footprint = new Set(cells.map(subtileKey));
   const seen = new Set();
   const out = [];

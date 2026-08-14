@@ -5,12 +5,18 @@
 // Task 3 deleted the throwaway "no job system yet" driver
 // (test-pawn-pathing.js used to cover its stand-down behavior in a scenario
 // 9, now gone) and replaced it with _syncJob: a member with `job === null`
-// ambles exactly as before; `phase: 'travel'` walks the pawn to the job's
-// station via the existing sendToStation seam, with no external call
-// needed — assignJobs/jobRunner just writes the field and the renderer
-// picks it up on its own; `phase: 'work'` holds the station's pose. Arrival
-// is reported back to the ONE sim field this file is allowed to touch:
-// flipping `job.phase` from 'travel' to 'work' once the pawn's feet land.
+// ambles exactly as before; `phase: 'travel'` walks the pawn to
+// `job.destNode` with no branching on jobType and no external call needed —
+// assignJobs/jobRunner resolves the destination once at assignment time
+// (a StationRef's own node for a station job, or — this fix round — the
+// nearest reachable approach node outside a target job's real footprint,
+// via jobs.js's approachCandidates) and the renderer just walks there;
+// `phase: 'work'` holds the station's pose (or a plain working pose, for a
+// target job with no StationRef to snap onto). Arrival is reported back to
+// the ONE sim field this file is allowed to touch: flipping `job.phase`
+// from 'travel' to 'work' once the pawn's feet land — identically for a
+// station- or target-addressed job; see test-target-job-destination.js for
+// the real end-to-end version driven by jobRunner.assignJobs itself.
 //
 // Also exercised here: `member.fromNode` — nothing set this before Task 3,
 // which is why jobRunner's own findStation/eligibleFor/tie-break reachability
@@ -209,7 +215,7 @@ console.log('\n=== 1. A travel job with a resolvable station walks the pawn ther
   assertOk(!!ref, 'sanity: the console yields a runBeam station');
   assertOk(reserveStation(state, ref.key, 's1'), 'sanity: reservation succeeds (jobRunner would have done this at assignment time)');
 
-  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, phase: 'travel', progress: 0 };
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, destNode: ref.node, phase: 'travel', progress: 0 };
 
   const pawns = makePawns(state);
   pawns.sync();
@@ -279,7 +285,7 @@ console.log('\n=== 5. Reassigning to a different station mid-walk reroutes the p
   const [refA, refB] = refs;
   reserveStation(state, refA.key, 's1');
 
-  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refA.key, phase: 'travel', progress: 0 };
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refA.key, destNode: refA.node, phase: 'travel', progress: 0 };
 
   const pawns = makePawns(state);
   pawns.sync();
@@ -295,7 +301,7 @@ console.log('\n=== 5. Reassigning to a different station mid-walk reroutes the p
   // the renderer ever sees an intermediate null.
   delete state.stationReservations[refA.key];
   reserveStation(state, refB.key, 's1');
-  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refB.key, phase: 'travel', progress: 0 };
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refB.key, destNode: refB.node, phase: 'travel', progress: 0 };
 
   pawns.update(0.02);
   assertOk(pawn.stationKey === refB.key, 'the pawn switches to station B on the very next frame, with no sendToStation call from the test');
@@ -306,19 +312,53 @@ console.log('\n=== 5. Reassigning to a different station mid-walk reroutes the p
   assertOk(pawn.pendingStation?.key === refB.key, 'the pawn is holding station B, not the one it was first sent toward');
 }
 
-console.log('\n=== 6. A target-addressed job (repair/commission — no StationRef) holds the pawn in place instead of wandering off ===\n');
+console.log('\n=== 6. A target-addressed job (repair/commission — no StationRef, just a bare destNode) walks and arrives exactly like a station job ===\n');
 {
   // repair/commission jobs carry `target: {beamlineId, nodeId}` and no
-  // `stationKey` (see jobs.js's header) — there is no StationRef anchor for
-  // _syncJob to walk toward. The pawn must not treat "nothing to walk to"
-  // as "no job" and wander off on its own; it holds position, and
-  // jobRunner's own travel-budget backstop is what eventually abandons a
-  // job that can never report arrival through this file.
+  // `stationKey` (see jobs.js's header) — jobRunner.js (this round's fix)
+  // now resolves a plain destNode for these too, via jobs.js's
+  // approachCandidates, and hands it to this file the exact same way a
+  // station job's StationRef.node always was. This file must not care:
+  // no pendingStation to snap onto, no facing to adopt, just walk to
+  // destNode and report arrival — see test-target-job-destination.js for
+  // the real end-to-end version driven by jobRunner.assignJobs itself
+  // rather than a hand-built job object.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const destNode = { col: 6, row: 6, subCol: 0, subRow: 0 };
+  const member = {
+    id: 's1', profession: 'technician',
+    job: { jobType: 'repair', target: { beamlineId: 'bl1', nodeId: 'mod1' }, specialty: null, stationKey: null, destNode, phase: 'travel', progress: 0 },
+  };
+  state.staffMembers = [member];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  pawns.update(0.02);
+  assertOk(pawn.mode === 'pathWalk', 'the pawn starts walking toward the target job\'s destNode on its own');
+  assertOk(pawn.pendingStation === null, 'no StationRef exists for a target job — pendingStation stays null throughout');
+
+  let steps = 0;
+  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'work', `job.phase flipped to 'work' on arrival at the bare destNode (after ${steps} steps)`);
+  assertOk(pawn.mode === 'working', 'the pawn is working');
+  const worldAtDest = subtileToWorld(destNode);
+  const dist = Math.hypot(pawn.x - worldAtDest.x, pawn.z - worldAtDest.z);
+  assertOk(dist < 1e-6, 'the pawn is standing exactly at the resolved destNode');
+}
+
+console.log('\n=== 7. A job with no destNode at all (defensive floor — jobRunner should never hand one out) holds the pawn in place ===\n');
+{
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
   const member = {
     id: 's1', profession: 'technician',
-    job: { jobType: 'repair', target: { beamlineId: 'bl1', nodeId: 'mod1' }, specialty: null, stationKey: null, phase: 'travel', progress: 0 },
+    job: { jobType: 'repair', target: { beamlineId: 'bl1', nodeId: 'mod1' }, specialty: null, stationKey: null, destNode: null, phase: 'travel', progress: 0 },
   };
   state.staffMembers = [member];
   bump(state);
@@ -332,10 +372,42 @@ console.log('\n=== 6. A target-addressed job (repair/commission — no StationRe
 
   for (let i = 0; i < 500; i++) pawns.update(0.02);
 
-  assertOk(pawn.mode === 'idle', 'the pawn never starts an ambient wander while it still holds an (unwalkable) job');
+  assertOk(pawn.mode === 'idle', 'the pawn never starts an ambient wander while it still holds a job, even one with no destNode');
   assertOk(pawn.x === startX && pawn.z === startZ, 'the pawn never moves from where it started');
   assertOk(member.job != null && member.job.phase === 'travel',
-    'member.job is left completely untouched — this file only ever writes job.phase on a real station arrival');
+    'member.job is left completely untouched — this file only ever writes job.phase on a real arrival');
+}
+
+console.log('\n=== 8. A station-addressed job whose declared station no longer resolves does not trust the cached destNode ===\n');
+{
+  // Regression guard: naively walking to job.destNode with no liveness
+  // check at all would send the pawn onto a demolished station's now-empty
+  // (ordinarily passable) subtile — the exact "work thin air" failure
+  // _stationStillLive exists to prevent for the raw sendToStation seam.
+  // job.destNode is a cache from assignment time; when job.stationKey no
+  // longer resolves in the LIVE index, that cache must not be trusted,
+  // station job or not.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const staleDestNode = { col: 4, row: 4, subCol: 0, subRow: 0 }; // wherever the (now-gone) station used to be
+  const member = {
+    id: 's1', profession: 'operator',
+    job: { jobType: 'runBeam', target: null, specialty: null, stationKey: 'demolished_console:0', destNode: staleDestNode, phase: 'travel', progress: 0 },
+  };
+  state.staffMembers = [member];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+  const startX = pawn.x, startZ = pawn.z;
+
+  for (let i = 0; i < 500; i++) pawns.update(0.02);
+
+  assertOk(pawn.mode === 'idle', 'the pawn never walks toward a destNode whose station key does not resolve in the live index');
+  assertOk(pawn.x === startX && pawn.z === startZ, 'the pawn never moves toward the stale destNode');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

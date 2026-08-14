@@ -24,7 +24,9 @@
 // "Never walks anywhere" is not the same guarantee as "never needs to
 // notice the walk became impossible."
 
-import { JOB_TYPES, buildJobOffers, eligibleFor } from './jobs.js';
+import {
+  JOB_TYPES, buildJobOffers, eligibleFor, footprintCellsOf, approachCandidates,
+} from './jobs.js';
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
 import { getNavGrid, findPath, isReachable } from './nav.js';
 
@@ -73,7 +75,7 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
   if (ref && reserveStation(state, ref.key, member.id)) {
     if (member.job) abandonJob(member, game, null);
     member.job = {
-      jobType, target: null, specialty: null, stationKey: ref.key,
+      jobType, target: null, specialty: null, stationKey: ref.key, destNode: ref.node,
       phase: 'travel', progress: 0,
     };
     member.idleReason = null;
@@ -231,9 +233,12 @@ function subtileDist2(a, b) {
 
 // Offers with no resolvable station (repair/commission targets — no
 // StationRef, see jobs.js's header comment) fall back to board order within
-// their tier: jobs.js exposes no exported way to resolve their approach
-// node from here, and duplicating its perimeter-walk is out of scope for a
-// same-tier tie-break.
+// their tier. jobs.js now exports approachCandidates (see resolveDestNode,
+// below) so a real distance tie-break across a target-addressed tier is no
+// longer structurally blocked the way it was when this comment was
+// written — but extending THIS tie-break to use it is a separate change
+// from resolving a walkable destination at all (this round's actual fix)
+// and is left for whoever next touches offer ranking.
 function pickNearestInTier(member, tier, state) {
   if (tier.length <= 1 || !member.fromNode) return tier[0];
   const index = getStationIndex(state);
@@ -354,13 +359,114 @@ function suppressionReasonFor(member, suppressions) {
   return null;
 }
 
-function assignOffer(member, game, offer) {
+// --- Destination resolution -------------------------------------------------
+//
+// StaffPawns.js (Task 3, this fix round) no longer branches on jobType at
+// all: every job, station- or target-addressed, is walked to via
+// member.job.destNode alone — the same unification StationRef.node already
+// gave the seated-vs-standing case (one field, no special-casing at the
+// call site). This resolves destNode ONCE, here, at assignment time, and
+// caches it on the job:
+//   - station-addressed (offer.stationKey set — runBeam/labWork/eat/rest/
+//     etc): the StationRef's own node. Exactly what the renderer used to
+//     re-resolve itself on every render frame via getStationIndex; hoisting
+//     it here means one lookup at assignment instead of one per frame for
+//     the whole walk.
+//   - target-addressed (offer.target set — repair/commission, no
+//     StationRef; see jobs.js's header comment): the nearest REACHABLE
+//     subtile immediately outside the target placeable's real footprint,
+//     via jobs.js's own (now-exported) approachCandidates — the same
+//     wall-aware perimeter walk repairOffers/eligibleFor already use to
+//     decide reachability, reused rather than reimplemented so "can this
+//     technician reach it" and "where do they stand" can never drift apart.
+//     Before this, a repair/commission job had NO resolvable destination at
+//     all: StaffPawns had nothing to walk to, the pawn held position
+//     forever, and jobRunner's own travel-budget backstop eventually
+//     abandoned the job with "Gave up trying to get there." — only for
+//     assignJobs to immediately re-offer the identical job next pass. Real
+//     repairs could not complete.
+
+// Mirrors jobs.js's own (unexported) resolveTarget — a target-addressed
+// job's `{beamlineId, nodeId}` back to the live placeable it addresses.
+// Duplicated rather than imported: this round's jobs.js diff is scoped to
+// exporting the perimeter-walk helper, not restructuring its internals, and
+// jobStillValid (below) already duplicates the same lookup for the same
+// reason.
+function resolveTargetPlaceable(game, target) {
+  const state = game.state;
+  const idx = state.placeableIndex?.[target.nodeId];
+  return idx !== undefined ? state.placeables?.[idx]
+    : (state.placeables || []).find(p => p.id === target.nodeId);
+}
+
+/**
+ * The best approach node for `member` to work `candidates` from, or null.
+ * Mirrors pickNearestInTier's own truncated distance-then-path approach
+ * (see that function's header for the accepted trade-off) rather than
+ * inventing a second tie-break shape — sort by cheap subtile distance, pay
+ * for a real findPath only on the closest PATH_TIEBREAK_CANDIDATES.
+ *
+ * Falls back to a full isReachable scan (O(1) per candidate — the
+ * connected-component check, not a search) when that truncated window
+ * misses: eligibleFor already confirmed, via the identical
+ * approachCandidates + isReachable pair over the identical footprint, that
+ * SOME candidate is reachable before this offer could ever reach
+ * pickBestOffer as eligible — so this only returns null when member.fromNode
+ * is unknown and there are zero candidates at all (never for an offer
+ * eligibleFor actually approved).
+ */
+function nearestApproachNode(member, nav, candidates) {
+  if (!candidates.length) return null;
+  const from = member.fromNode;
+  if (!from) return candidates[0];
+
+  const sorted = candidates.slice().sort((a, b) => subtileDist2(from, a) - subtileDist2(from, b));
+  const top = sorted.slice(0, PATH_TIEBREAK_CANDIDATES);
+
+  let best = null;
+  let bestLen = Infinity;
+  for (const node of top) {
+    const path = findPath(nav, from, node);
+    if (path && path.length < bestLen) { bestLen = path.length; best = node; }
+  }
+  if (best) return best;
+  return sorted.find(n => isReachable(nav, from, n)) || null;
+}
+
+/**
+ * `offer`'s destination node — see this section's header. null only when a
+ * target's placeable/footprint can't be resolved at all (should not happen
+ * for a live offer buildJobOffers just produced this same tick) or, for a
+ * target job specifically, when member.fromNode is known but genuinely
+ * nothing is reachable (should not happen for an offer eligibleFor already
+ * approved — see nearestApproachNode). assignJobs treats null defensively
+ * rather than ever half-assigning a job with nowhere to walk.
+ */
+function resolveDestNode(game, member, offer) {
+  const state = game.state;
+  if (offer.stationKey) {
+    return getStationIndex(state).byKey[offer.stationKey]?.node || null;
+  }
+  if (offer.target) {
+    const placeable = resolveTargetPlaceable(game, offer.target);
+    if (!placeable) return null;
+    const cells = footprintCellsOf(placeable);
+    if (!cells.length) return null;
+    const nav = getNavGrid(state);
+    const candidates = approachCandidates(nav, state, cells);
+    return nearestApproachNode(member, nav, candidates);
+  }
+  return null;
+}
+
+function assignOffer(member, game, offer, destNode) {
   if (offer.stationKey) reserveStation(game.state, offer.stationKey, member.id);
   member.job = {
     jobType: offer.jobType,
     target: offer.target,
     specialty: offer.specialty,
     stationKey: offer.stationKey,
+    destNode,
     phase: 'travel',
     progress: 0,
   };
@@ -423,8 +529,18 @@ export function assignJobs(game) {
 
     const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders);
     if (offer) {
-      assignOffer(member, game, offer);
-      if (holders[offer.jobType] != null) holders[offer.jobType]++;
+      // resolveDestNode should not come back null here — eligibleFor
+      // already confirmed a reachable destination exists for this exact
+      // offer (see resolveDestNode's own doc comment) — but a job is never
+      // handed out with nowhere to walk, so this is a defensive floor, not
+      // the expected path.
+      const destNode = resolveDestNode(game, member, offer);
+      if (destNode) {
+        assignOffer(member, game, offer, destNode);
+        if (holders[offer.jobType] != null) holders[offer.jobType]++;
+      } else {
+        member.idleReason = member.idleReason || 'Could not find anywhere to stand for that job.';
+      }
     } else {
       member.idleReason = reason
         || suppressionReasonFor(member, suppressions)
