@@ -1,33 +1,22 @@
 #!/usr/bin/env node
-// scripts/free-test-port.mjs — reclaim the browser-test vite port.
+// scripts/free-test-port.mjs — reclaim a *pinned* browser-test vite port.
 //
 // Playwright's `webServer` teardown does not fire when the run is SIGKILLed
 // or the outer process times out, so the detached vite it spawned survives
-// and the next run dies on `strictPort` with "Port 8123 is already in use".
-// Every entry point into the browser suite calls this first:
-//   * `npm run test:browser` via its `pretest:browser` hook
-//   * `npx playwright test` via playwright.config.mjs at load time
-// so a leaked server is a self-healing condition rather than a manual step.
+// and the next run dies on `strictPort` with "Port N is already in use".
 //
-// Only the configured BT_TEST_PORT (8123 by default) is ever touched; the
-// game's own dev server lives on 8000 and is never a target.
+// Killing the holder is only ever safe when the port was pinned by hand
+// (BT_TEST_PORT): that says "this port is mine", so anything squatting on it
+// is my own leak. On the default path the port is auto-selected from a free
+// one (see scripts/test-port.mjs), a leak cannot block anybody, and killing
+// the listener would mean killing a *live* run belonging to another session.
+// That is precisely the bug this file used to cause, so the unconditional
+// reclaim is gone.
+//
+// Only the resolved test port is ever touched; the game's own dev server lives
+// on 8000 and is never a target.
 
-import { execFileSync } from 'node:child_process';
-
-const PORT = Number(process.env.BT_TEST_PORT || 8123);
-
-/** PIDs listening on `port`, or [] when nothing holds it. */
-function holders(port) {
-  try {
-    // -sTCP:LISTEN so a browser's *client* socket to the port is not a target.
-    const out = execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return [...new Set(out.split('\n').map(s => s.trim()).filter(Boolean).map(Number))];
-  } catch {
-    return []; // lsof exits 1 when it matches nothing
-  }
-}
+import { holders, resolveTestPort } from './test-port.mjs';
 
 function sleep(ms) {
   // Synchronous: this runs from playwright.config.mjs's module body, which is
@@ -35,7 +24,7 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export function freeTestPort(port = PORT, { quiet = false } = {}) {
+export function freeTestPort(port, { quiet = false } = {}) {
   let pids = holders(port);
   if (!pids.length) return [];
 
@@ -61,6 +50,8 @@ export function freeTestPort(port = PORT, { quiet = false } = {}) {
 }
 
 // Direct invocation (`node scripts/free-test-port.mjs`, the pretest hook).
+// A no-op unless BT_TEST_PORT is pinned — see the header.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  freeTestPort();
+  const { port, explicit } = resolveTestPort();
+  if (explicit) freeTestPort(port);
 }

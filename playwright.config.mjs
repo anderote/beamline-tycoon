@@ -1,31 +1,51 @@
 // playwright.config.mjs — browser-level test run (`npm run test:browser`).
 //
-// Boots a throwaway vite dev server on BT_TEST_PORT (8123 by default, chosen
-// to stay clear of the 8000 the game's own `npm run dev` uses) and drives the
-// real app in headless Chromium with a software WebGL backend. Playwright owns
-// the server's lifetime on pass, fail and Ctrl-C; a SIGKILLed or timed-out run
-// leaks it, which the freeTestPort call below cleans up on the next start.
+// Boots a throwaway vite dev server on a free port in 8123..8199 (clear of the
+// 8000 the game's own `npm run dev` uses) and drives the real app in headless
+// Chromium with a software WebGL backend. Playwright owns the server's
+// lifetime on pass, fail and Ctrl-C; a SIGKILLed or timed-out run leaks it,
+// but a leak on an auto-selected port blocks nothing — the next run simply
+// picks a different one. See scripts/test-port.mjs for why the port is no
+// longer fixed and no longer reclaimed by force.
 //
 // Deliberately NOT part of `npm test`: see test/browser/README-coverage.md.
 
 import { defineConfig } from '@playwright/test';
 import { SWIFTSHADER_ARGS } from './test/browser/helpers.mjs';
 import { freeTestPort } from './scripts/free-test-port.mjs';
+import { resolveTestPort, RESOLVED_ENV_VAR } from './scripts/test-port.mjs';
 
-const PORT = Number(process.env.BT_TEST_PORT || 8123);
+const { port: PORT, explicit } = resolveTestPort();
 const BASE = `http://localhost:${PORT}`;
 
-// Reclaim the port before webServer tries to bind it. A run that was SIGKILLed
-// or timed out leaves its vite behind — Playwright's teardown never ran — and
-// `strictPort` would then fail the whole next run.
+// The port has to survive into two kinds of child process: the vite that
+// `webServer` spawns (it reads the same module to decide what to bind) and the
+// test workers (they re-load this very config). Both inherit the env as it
+// stands when they are forked, and both are forked after this module body
+// runs, so stamping it here is enough. It goes in RESOLVED_ENV_VAR rather than
+// BT_TEST_PORT precisely so that a child cannot mistake an auto-selected port
+// for a human-pinned one and start killing on the strength of it.
+process.env[RESOLVED_ENV_VAR] = String(PORT);
+
+// Reclaim only a *pinned* port (BT_TEST_PORT). A run that was SIGKILLed or
+// timed out leaves its vite behind — Playwright's teardown never ran — and
+// `strictPort` would then fail the whole next run on that same pinned port.
+// An auto-selected port is never reclaimed: the listener there is far more
+// likely to be another session's live run than our own corpse.
 //
 // Playwright re-loads this config in every worker process, and killing the
 // server from a worker would take down the run it belongs to. Two independent
 // guards keep this to the runner's first load: workers get TEST_WORKER_INDEX,
-// and they inherit the env we stamp here.
-if (process.env.TEST_WORKER_INDEX === undefined && !process.env.BT_TEST_PORT_FREED) {
+// and they inherit the BT_TEST_PORT_FREED we stamp here. (A worker on the
+// default path never gets this far anyway — `explicit` is false for it,
+// because RESOLVED_ENV_VAR, not BT_TEST_PORT, is what it inherited.)
+if (explicit && process.env.TEST_WORKER_INDEX === undefined && !process.env.BT_TEST_PORT_FREED) {
   process.env.BT_TEST_PORT_FREED = '1';
   freeTestPort(PORT);
+}
+
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  console.log(`[test-port] using :${PORT}${explicit ? ' (pinned via BT_TEST_PORT)' : ''}`);
 }
 
 export default defineConfig({

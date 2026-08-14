@@ -11,9 +11,7 @@
     "preview": "vite preview",
     "test": "node scripts/run-tests.mjs",
     "assets": "node tools/asset-gen/server.cjs",
-    "pretest:browser": "node scripts/free-test-port.mjs",
     "test:browser": "playwright test",
-    "pretest:browser:headed": "node scripts/free-test-port.mjs",
     "test:browser:headed": "playwright test --headed"
   },
   "devDependencies": {

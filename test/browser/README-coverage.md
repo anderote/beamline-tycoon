@@ -10,44 +10,69 @@ npm run test:browser -- smoke   # one spec
 npm run test:browser:headed     # watch it happen
 ```
 
-Playwright starts a throwaway vite server on **port 8123** (`BT_TEST_PORT` to
-change). It never touches port 8000, so a dev server you already have running is
-left alone.
+Playwright starts a throwaway vite server on **the first free port in
+8123..8199**, printing `[test-port] using :8147` at startup so you can find it.
+It never touches port 8000, so a dev server you already have running is left
+alone.
 
 The test server runs `test/browser/vite.test.config.mjs`, which is the normal
 dev config **with HMR disabled**. That matters in a shared checkout: with HMR
 on, any edit anywhere in the repo makes vite push a `full-reload` to the page,
 which kills the running spec with the unhelpful "Execution context was
 destroyed, most likely because of a navigation". `reuseExistingServer` is off
-for the same reason — a stray plain `vite` on 8123 would have HMR live.
+for the same reason — a stray plain `vite` on the port would have HMR live.
 
 The specs also intercept `demo-commands.json`. In dev, `main.js` polls that
 file every 800ms and `eval`s any command whose `seq` is higher than the last
 one it ran, so without the intercept every test tab would execute whatever the
 last hands-on dev session left behind in `public/demo-commands.json`.
 
-## The leaked-server problem, and how it is handled
+## The port policy, and the leaked-server problem
 
 Playwright's `webServer` teardown runs on pass, fail and Ctrl-C — but **not**
 when the run is SIGKILLed or the process that launched it times out. The
-detached vite survives, and the next run dies on `strictPort` with
-"Port 8123 is already in use". This bit twice during development.
+detached vite survives. On a fixed port the next run then dies on `strictPort`
+with "Port 8123 is already in use", which bit twice during development.
 
-`scripts/free-test-port.mjs` reclaims the port (SIGTERM, then SIGKILL, waiting
-for the listener to actually close) and runs from **both** entry points:
+The original fix was to kill whatever held 8123 at every entry point. That is
+right for one developer and wrong for a shared machine: with several sessions
+in this checkout, starting a run SIGKILLed another session's **live, mid-run**
+vite, and the victim failed every remaining spec on `ERR_CONNECTION_REFUSED`.
+The `[free-test-port] reclaimed :8123 from pid N` line those sessions saw was
+the killer logging its own kill, not evidence of a leak.
 
-* `npm run test:browser` — via its `pretest:browser` hook;
-* `npx playwright test` — from `playwright.config.mjs`'s module body, before
-  `webServer` binds.
+`scripts/test-port.mjs` is now the single source of truth, and the policy is:
 
-Playwright re-loads the config inside every worker process, where killing the
-port would take down the run it belongs to, so the config path is guarded twice:
-it skips when `TEST_WORKER_INDEX` is set, and again on the `BT_TEST_PORT_FREED`
-env var it stamps for the workers to inherit.
+* **`BT_TEST_PORT` unset (the default).** Scan **8123..8199** for a port with no
+  LISTEN holder and take the first free one; **nothing is ever killed**. The
+  scan starts at a pid-derived offset (`pid % span`) so two sessions probing in
+  the same millisecond don't both pick the same "first" candidate. A leaked
+  server no longer blocks anyone — the next run just picks another port.
+* **`BT_TEST_PORT` set.** That port is used verbatim, and the old
+  reclaim-by-killing behaviour applies to it (SIGTERM, then SIGKILL, waiting for
+  the listener to actually close). Pinning a port is a claim of ownership, so a
+  leftover on it is yours to take back. This is the only path on which anything
+  is killed.
 
-Verified: SIGKILL a run mid-flight, confirm `lsof -ti tcp:8123` still shows the
-orphan, start the next run — it prints `[free-test-port] reclaimed :8123 from
-pid N` and goes green.
+Probing is synchronous (`lsof -ti tcp:N -sTCP:LISTEN` via `execFileSync`)
+because the first caller is `playwright.config.mjs`'s module body, evaluated
+before the runner can await anything.
+
+The chosen port has to reach two kinds of child: the vite that `webServer`
+spawns, and the test workers, which re-load `playwright.config.mjs` themselves.
+Both inherit the runner's env, so the config stamps the resolved port into
+`BT_TEST_PORT_RESOLVED` — deliberately *not* into `BT_TEST_PORT`, because a
+worker that inherited a stamped `BT_TEST_PORT` would read it as "a human pinned
+this" and feel entitled to kill the holder, i.e. the server of its own run. On
+the pinned path the reclaim is still guarded twice against exactly that: it
+skips when `TEST_WORKER_INDEX` is set, and again on the `BT_TEST_PORT_FREED`
+env var the runner stamps.
+
+There is no `pretest:browser` hook any more. It existed only to reclaim the
+fixed port, which on the default path is now a no-op, and `playwright test`
+resolves the port through the same module regardless of how it was launched.
+`node scripts/free-test-port.mjs` still exists for a manual reclaim, and is
+itself a no-op unless `BT_TEST_PORT` is set.
 
 ## The WebGL prerequisite
 

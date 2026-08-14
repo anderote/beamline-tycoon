@@ -16,9 +16,14 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import base from '../../vite.config.js';
+import { resolveTestPort } from '../../scripts/test-port.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const port = Number(process.env.BT_TEST_PORT || 8123);
+// Normally this process was spawned by playwright.config.mjs, which has
+// already picked the port and stamped it into the env we inherited — so this
+// agrees with the URL Playwright is about to poll. Run standalone, it picks
+// its own free port instead of colliding with someone else's server.
+const { port } = resolveTestPort();
 
 export default {
   ...base,
