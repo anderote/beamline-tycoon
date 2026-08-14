@@ -19,7 +19,9 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
 import { utilityLineHeight } from '../src/utility/registry.js';
-import { portWorldPosition, portSide } from '../src/utility/ports.js';
+import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
+import { validateDrawLine } from '../src/utility/line-drawing.js';
+import { portWorldPosition, portSide, portApproachVec } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso } from '../src/renderer/grid.js';
 
@@ -72,6 +74,13 @@ function portTile(game, placeableId, portName) {
   const def = COMPONENTS[ep.type];
   const p = portWorldPosition(ep, def, portName);
   return { col: p.x / 2, row: p.z / 2 };
+}
+
+// Outward normal of a port — what the router routes off, the same lookup the
+// controller's own _anchorVec does.
+function anchorVec(game, placeableId, portName) {
+  const ep = findUtilityEndpoint(game.state, placeableId);
+  return portApproachVec(ep, COMPONENTS[ep.type], portName);
 }
 
 function facing(game, placeableId, portName) {
@@ -187,13 +196,21 @@ console.log('\n--- 3. Open-ended drags are unchanged ---');
 
 console.log('\n--- 4. R flips which way the bend turns ---');
 {
-  // Both bend orders are legal here (the source faces the sink's side), so the
-  // player's choice is the only thing selecting between them. Without this the
-  // corner was whatever _preferVerticalFirst happened to be initialised to,
-  // and nothing could change it.
+  // dir:1 puts the source's pwr_out on its south side, facing the north-facing
+  // pwr_in it is being dragged to. Both bend orders then cost the same — same
+  // number of corners, same length — so the player's choice is the only thing
+  // separating them. Without this the corner was whatever _preferVerticalFirst
+  // happened to be initialised to, and nothing could change it.
+  //
+  // The source used to face EAST here, back when the controller kept whichever
+  // of the two orders the validator accepted and the validator accepted both.
+  // Now that the router scores routes, an east-facing source reaching a
+  // north-facing sink has one clearly better answer (a single corner against
+  // three), and R correctly refuses to make the route worse. R selects between
+  // equals; this case is the equals.
   const corners = [];
   for (const vertFirst of [false, true]) {
-    const game = makeGame();
+    const game = makeGame({ dir: 1 });
     const ctrl = new UtilityLineInputController({ game, renderer: {} });
     ctrl.setUtilityType('powerCable');
     ctrl.setPreferVerticalFirst(vertFirst);
@@ -447,6 +464,77 @@ console.log('\n--- 8. Genuinely invalid gestures are still refused ---');
   drag(game, src, src);
   assert(powerLines(game).length === 0, 'a drag that never left the port commits nothing');
   assert(game.state.resources.funding === fundsBefore, 'and charges nothing');
+}
+
+console.log('\n--- 9. A drag routes AROUND cable that is already down ---');
+{
+  // The board is half of what makes a route usable, and the router cannot see
+  // it. So when the best-scoring shape lands on top of an existing run of the
+  // same utility, the drag has to fall to the next shape down rather than
+  // refuse — otherwise wiring a hall gets harder with every cable laid, which
+  // is exactly backwards.
+  //
+  // Two transformers. The first is wired to pl_3, which sends its cable east
+  // along row 2.25 and then south down column 10.25 into the quad. The second
+  // sits at col 9 and is dragged to pl_1, whose best route would come south
+  // down that same column 10.25 — collinear with the trunk for three tiles,
+  // which is "laying cable down an existing run" and is refused. A route one
+  // rank down goes south early and crosses the trunk perpendicularly instead,
+  // which is an ordinary legal crossing.
+  const game = makeGame({ col: 1, row: 2, dir: 0 });
+  game.state.placeables.push({
+    id: 'src_2', type: 'mcc', kind: 'infrastructure',
+    category: 'infrastructure', col: 9, row: 1, subCol: 0, subRow: 0, dir: 0,
+  });
+
+  drag(game, portTile(game, 'src_1', 'pwr_out_1'), portTile(game, 'pl_3', 'pwr_in'));
+  const trunk = powerLines(game)[0];
+  assert(powerLines(game).length === 1, 'a trunk is already down');
+
+  // The route the router likes best, with no board in the way. This is the one
+  // that has to be refused for the case to be testing anything.
+  const src2 = portTile(game, 'src_2', 'pwr_out_1');
+  const sink = portTile(game, 'pl_1', 'pwr_in');
+  const preferred = buildPortRoutedPath(
+    { col: src2.col, row: src2.row }, anchorVec(game, 'src_2', 'pwr_out_1'),
+    { col: sink.col, row: sink.row }, anchorVec(game, 'pl_1', 'pwr_in'),
+    { preferVerticalFirst: false });
+  const preferredRes = validateDrawLine(game.state, {
+    utilityType: 'powerCable',
+    start: { placeableId: 'src_2', portName: 'pwr_out_1' },
+    end: { placeableId: 'pl_1', portName: 'pwr_in' },
+    path: preferred,
+  });
+  assert(!preferredRes.ok && preferredRes.reason === 'overlap_same_type',
+    `the best-scoring route really does overlap the trunk (got ${preferredRes.ok ? 'ok' : preferredRes.reason})`);
+
+  // Driven by hand rather than through drag() so dragReject can be read while
+  // the gesture is still live — that flag is the drag tooltip, and it is only
+  // meaningful before the release.
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('powerCable');
+  const a = gridToIso(src2.col, src2.row);
+  const b = gridToIso(sink.col, sink.row);
+  ctrl.onMouseDown(a.x, a.y, 0, {});
+  ctrl.onMouseMove(b.x, b.y, {});
+  assert(ctrl.dragReject === null,
+    `mid-drag the gesture reports no refusal (got ${ctrl.dragReject})`);
+  const previewPath = ctrl.preview && ctrl.preview.path.map(p => ({ ...p }));
+  ctrl.onMouseUp(b.x, b.y, 0, {});
+
+  const lines = powerLines(game);
+  const branch = lines.find(l => l.id !== trunk.id);
+  assert(lines.length === 2,
+    `the drag still commits by taking a lower-ranked route (got ${lines.length - 1}`
+    + `${game._logs.length ? ' — ' + game._logs.join(' | ') : ''})`);
+  assert(!!branch && JSON.stringify(branch.path) !== JSON.stringify(preferred),
+    'and the committed route is NOT the overlapping one');
+  assert(!!branch && branch.start.placeableId === 'src_2' && branch.end.placeableId === 'pl_1',
+    'joining the two ports the player actually dragged between');
+  // The preview has to be the route that lands, not the one the router would
+  // have picked with an empty board.
+  assert(!!branch && previewPath && JSON.stringify(previewPath) === JSON.stringify(branch.path),
+    'and the route previewed is the route that landed');
 }
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);

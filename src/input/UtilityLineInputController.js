@@ -24,7 +24,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
-import { buildPortRoutedPath, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
+import { buildPortRoutedPaths, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
@@ -56,6 +56,11 @@ const TAP_SNAP_RADIUS_TILES = 0.4;
 // ceiling on point count (an unbounded drag re-plans against it every move).
 const RUN_TRACE_MIN_STEP = 0.5;      // tiles
 const RUN_TRACE_MAX_POINTS = 256;
+
+// How far down the router's ranking a drag will look for a route the board
+// accepts. See _dragGeometry: each step costs a full validateDrawLine, which
+// expands every same-type line on the board, and this runs per mousemove.
+const MAX_ROUTE_CANDIDATES = 6;
 
 function snapQ(v) { return Math.round(v * 4) / 4; }
 function snapPath(path) {
@@ -309,16 +314,36 @@ export class UtilityLineInputController {
    * between them (null when the drag has not left the anchor).
    *
    * Routing is port-aware and validator-checked, exactly as a run-wiring stub
-   * is: each port end gets a lead-out along its own outward normal, and of the
-   * two bend orders we keep whichever validateDrawLine accepts. A plain
-   * start→end Manhattan L only satisfied the ports' approach constraints by
-   * luck, so most drags — anything back toward a source, or between ports whose
-   * sides didn't match the L's shape — died at commit with
-   * "doesn't align with port direction".
+   * is: each port end gets a lead-out along its own outward normal, and the
+   * route between them comes from buildPortRoutedPaths. A plain start→end
+   * Manhattan L only satisfied the ports' approach constraints by luck, so most
+   * drags — anything back toward a source, or between ports whose sides didn't
+   * match the L's shape — died at commit with "doesn't align with port
+   * direction".
    *
-   * When neither order validates the first is returned anyway: the preview then
-   * shows the route the commit will attempt, and addLine reports the real
-   * reason rather than the gesture silently doing nothing.
+   * Two jobs are being done here and they belong to different owners. Is this
+   * route a SENSIBLE shape — does it double back, how many corners does it turn
+   * — is geometry, and the router ranks candidates on it. Is this route LEGAL —
+   * does it lie on top of cable that is already down — needs the board, which
+   * the router cannot see. So the router hands over its whole ranking and this
+   * walks it, taking the best shape the validator accepts.
+   *
+   * That walk is why this cannot collapse to one call. It used to try the two
+   * bend orders and keep whichever validated, and half of that was theatre: the
+   * mandatory lead-outs make the first and last segment directions correct in
+   * EVERY candidate, so the port-approach checks always passed for both and the
+   * hairpinning order won whenever preferVerticalFirst pointed at it. But the
+   * other half was real — overlap_same_type genuinely differs between shapes,
+   * and the alternate order was often the one clear of existing runs. Dropping
+   * to a single candidate would have made a hall get harder to wire with every
+   * cable laid. Walking the ranking is strictly better than the old pair: same
+   * recovery, more shapes to recover into, and the shapes are ordered by
+   * quality instead of by which bend the player last pressed R for.
+   *
+   * When nothing validates the FIRST candidate is returned anyway, along with
+   * the first rejection reason: the preview then shows the route the commit
+   * will attempt, and addLine reports the real reason rather than the gesture
+   * silently doing nothing.
    */
   _dragGeometry(worldX, worldY, snap) {
     const startTileRaw = this._worldToTile(this._drawStart.worldPos);
@@ -337,22 +362,31 @@ export class UtilityLineInputController {
       end: endAnchor && endAnchor.tap ? endAnchor.lineId : null,
     };
 
+    const candidates = buildPortRoutedPaths(
+      startTile, this._anchorVec(this._drawStart),
+      endTile, this._anchorVec(endAnchor),
+      { preferVerticalFirst: this._preferVerticalFirst });
+
     let chosen = null;
-    let fallback = null;
     let reason = null;
-    for (const vf of [this._preferVerticalFirst, !this._preferVerticalFirst]) {
-      const raw = buildPortRoutedPath(
-        startTile, this._anchorVec(this._drawStart),
-        endTile, this._anchorVec(endAnchor),
-        { preferVerticalFirst: vf });
-      if (!raw) continue;
-      const path = snapPath(raw);
-      if (!fallback) fallback = path;
+    const fallback = candidates.length > 0 ? snapPath(candidates[0]) : null;
+    // This runs on every mousemove, and validateDrawLine walks the whole board
+    // expanding every same-type line to sub-tile resolution. The ranking can be
+    // a dozen routes long; validating all of them on a drag across a wired hall
+    // is a per-frame cost the player feels. The first few are the ones worth
+    // having anyway — past that the shapes are getting long and ugly enough
+    // that refusing and saying why beats committing one of them.
+    const limit = Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
+    for (let i = 0; i < limit; i++) {
+      const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
       });
       if (res.ok) { chosen = path; break; }
-      if (!reason) reason = res.reason;
+      // The reason shown is the FIRST failure: it is the one that explains why
+      // the route the player is looking at — the preview, which is candidate
+      // zero — would be refused.
+      if (reason === null) reason = res.reason;
     }
     // Why the gesture would be refused, for the drag tooltip. The commit path
     // logs this too, but the log has no on-screen surface — leaving "release

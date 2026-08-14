@@ -199,6 +199,66 @@ function buildRectSegment(p0, p1, width, height, material, runDist) {
   return mesh;
 }
 
+// --- Elbows -------------------------------------------------------------
+//
+// Straight segments butt-joined at a waypoint leave a notch on the OUTSIDE of
+// every bend and a self-overlap on the inside, which is what made the runs read
+// as a chain of separate rods rather than as one pipe. Rather than mitre the
+// segment ends (which would need per-corner geometry and still fails where
+// three-way taps meet), we drop a joint body on the waypoint: it fills the
+// notch and swallows the overlap, and at these radii that is as much elbow as
+// a pipe needs to read as plumbing.
+
+// A bend is only a bend if the direction actually changes. Paths carry
+// redundant collinear waypoints — a straight run is stored tile by tile, and a
+// riser whose port happens to sit at exactly the run height degenerates to a
+// straight tail — and a joint on each of those would string beads along the run
+// every two metres.
+const COLLINEAR_DOT = 0.9999;
+
+// Joints are sized a hair over the pipe they join. A joint at exactly the pipe
+// radius is tangent to the segment walls, so the two surfaces are coplanar
+// along the seam and z-fight; 5% is well under a millimetre on a 4 cm cable —
+// invisible as a bulge, but enough to keep the joint strictly outside.
+const JOINT_SWELL = 1.05;
+
+// The elbow at ONE interior waypoint. `radius` is the radius of the body being
+// jointed, so a jacketed line calls this twice (core, then jacket) exactly as
+// the segment builder emits two cylinders.
+function buildCornerJoint(prev, at, next, style, radius, material) {
+  // Done in scalars rather than through Vector3: this runs for every waypoint
+  // of every line in the hall on each rebuild, and most of them turn out to be
+  // collinear and bail here, so it would be three throwaway vectors per miss.
+  const ix = at.x - prev.x, iy = at.y - prev.y, iz = at.z - prev.z;
+  const ox = next.x - at.x, oy = next.y - at.y, oz = next.z - at.z;
+  const inLen = Math.hypot(ix, iy, iz), outLen = Math.hypot(ox, oy, oz);
+  if (inLen < 1e-4 || outLen < 1e-4) return null;
+  const cosTurn = (ix * ox + iy * oy + iz * oz) / (inLen * outLen);
+  if (cosTurn > COLLINEAR_DOT) return null;
+
+  let geo;
+  if (style === 'rectWaveguide') {
+    // A sphere on a waveguide would read as a ball joint welded onto a duct.
+    // The cube is the duct's own cross-section swept through the corner: its
+    // width across BOTH horizontal axes and its height vertically, which is
+    // exactly the bounding box of the two butt-jointed segments on a
+    // grid-aligned bend — including the riser's horizontal→vertical one, where
+    // the vertical segment lies with its height axis horizontal.
+    geo = new THREE.BoxGeometry(
+      radius * 2 * JOINT_SWELL, radius * 1.4 * JOINT_SWELL, radius * 2 * JOINT_SWELL);
+  } else {
+    // Deliberately coarser than the end caps: there is one of these per bend on
+    // every run in the hall, and a sphere this small is three or four pixels of
+    // silhouette at working zoom.
+    geo = new THREE.SphereGeometry(radius * JOINT_SWELL, 10, 8);
+  }
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.copy(at);
+  mesh.matrixAutoUpdate = false;
+  mesh.updateMatrix();
+  return mesh;
+}
+
 // Open-end cap materials, one per utility type (shared across lines).
 const _openCapMatCache = new Map();
 function getOpenCapMaterial(utilityType) {
@@ -361,6 +421,25 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
     if (mesh) {
       if (flowing) mesh.layers.enable(BLOOM_LAYER);
       group.add(mesh);
+    }
+  }
+
+  // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
+  // purpose: they either disappear into a port fitting or carry an open-end
+  // cap, and a joint there would be a bead hanging off the tip of the run. The
+  // riser corners — under the port, and again where the tail steps out along
+  // the port normal — are interior waypoints of this same polyline, so they get
+  // their elbows from this loop with no special case.
+  const jointJacketMat = style === 'jacketedCylinder'
+    ? getJacketMaterial(line.utilityType, errorStatus) : null;
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1], at = points[i], next = points[i + 1];
+    const joint = buildCornerJoint(prev, at, next, style, radius, mat);
+    if (joint) group.add(joint);
+    if (jointJacketMat) {
+      const jacketJoint = buildCornerJoint(
+        prev, at, next, style, radius * 1.6, jointJacketMat);
+      if (jacketJoint) group.add(jacketJoint);
     }
   }
 

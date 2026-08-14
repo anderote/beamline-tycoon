@@ -95,13 +95,37 @@ function withTrunk() {
   return { game, trunk };
 }
 
+// The longest segment of a run, and its midpoint. Every case here wants "a
+// point on the trunk well away from either of its ports", and the middle
+// WAYPOINT is not that: a route's waypoint list is corners only, and its
+// corners cluster wherever the ports made it turn. Taking the middle of its
+// longest leg says what the tests actually mean, whatever shape the router
+// picked.
+function longestSegment(path) {
+  let best = null;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const len = Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
+    if (best && len <= best.len) continue;
+    best = {
+      len,
+      mid: { col: (a.col + b.col) / 2, row: (a.row + b.row) / 2 },
+      axis: Math.abs(b.col - a.col) > Math.abs(b.row - a.row)
+        ? { col: 1, row: 0 } : { col: 0, row: 1 },
+    };
+  }
+  return best;
+}
+
+const trunkMid = (trunk) => longestSegment(trunk.path).mid;
+
 console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
 {
   const { game, trunk } = withTrunk();
   assert(!!trunk, 'a trunk to branch off');
   const ctrl = ctrlFor(game);
   // A point on the trunk, well away from either of its ports.
-  const mid = trunk.path[Math.floor(trunk.path.length / 2)];
+  const mid = trunkMid(trunk);
   const iso = gridToIso(mid.col, mid.row);
   ctrl.onHover(iso.x, iso.y);
   const hov = ctrl.hoverPort;
@@ -119,7 +143,7 @@ console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');
 {
   const { game, trunk } = withTrunk();
-  const mid = trunk.path[Math.floor(trunk.path.length / 2)];
+  const mid = trunkMid(trunk);
   const before = powerLines(game).length;
 
   drag(game, portTile(game, 'pl_2', 'pwr_in'), { col: mid.col, row: mid.row });
@@ -150,19 +174,7 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
   const { game, trunk } = withTrunk();
   // Work off the trunk's longest segment, so "along it" and "away from it" are
   // both a full tile of cable rather than one sub-unit.
-  let seg = null;
-  for (let i = 0; i < trunk.path.length - 1; i++) {
-    const a = trunk.path[i], b = trunk.path[i + 1];
-    const len = Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
-    if (!seg || len > seg.len) {
-      seg = {
-        len,
-        mid: { col: (a.col + b.col) / 2, row: (a.row + b.row) / 2 },
-        axis: Math.abs(b.col - a.col) > Math.abs(b.row - a.row)
-          ? { col: 1, row: 0 } : { col: 0, row: 1 },
-      };
-    }
-  }
+  const seg = longestSegment(trunk.path);
   assert(seg && seg.len >= 1, `the trunk has a segment to run along (${seg && seg.len})`);
   const mid = seg.mid;
   const perp = { col: seg.axis.row, row: seg.axis.col };
@@ -210,7 +222,7 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
 console.log('\n--- 4. A line of another utility is not tappable ---');
 {
   const { game, trunk } = withTrunk();
-  const mid = trunk.path[Math.floor(trunk.path.length / 2)];
+  const mid = trunkMid(trunk);
   const iso = gridToIso(mid.col, mid.row);
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('coolingWater');
