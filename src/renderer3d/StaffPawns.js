@@ -23,13 +23,19 @@
 // (src/game/staff/stations.js) supplies reservable work slots; a pawn walks
 // to a slot's node, faces its facing, and adopts the slot's pose.
 //
-// There is no job system yet (that's the next plan) — see _chooseNextAction
-// for the deliberately dumb, throwaway driver this plan uses in its place:
-// pick a random reachable station, reserve it, walk there, hold the pose for
-// 20-60s, release, repeat; wander to a random reachable subtile when nothing
-// is reachable. Plan 3 deletes this driver wholesale and replaces it with a
-// real job board — nothing here should grow more sophisticated in the
-// meantime.
+// Pawn motion is a pure function of `member.job` (src/game/staff/jobRunner.js)
+// — see _syncJob, the one place this file reads it. The SIM decides what to
+// do and for how long (assignJobs picks and reserves a station, tickJobs
+// times the work and completes/abandons it); the renderer only walks the
+// pawn there and reports arrival. Arrival reporting — flipping
+// `job.phase` from 'travel' to 'work' once the pawn's feet actually land on
+// the station — is the one place this file writes back to sim state (see
+// _arriveAtPathEnd); everything else here only reads. A member with no job
+// ambles: _chooseAmbientTarget picks a random reachable subtile and walks
+// there, exactly like a job-driven walk mechanically, but never touches
+// member.job at all. (An earlier version of this file drove pawns itself —
+// grab any reachable station, hold it 20-60s, release, repeat — before the
+// job board existed; that throwaway driver is gone.)
 //
 // Animation is fully procedural — no frames:
 //   - Facing: the figure's front is +Z, so heading = atan2(dx, dz) points it
@@ -54,7 +60,7 @@ import {
   getNavGrid, findPath, isReachable, worldToSubtile, subtileToWorld,
 } from '../game/staff/nav.js';
 import {
-  getStationIndex, findStation, reserveStation, releaseStation, releaseAllFor,
+  getStationIndex, releaseStation, releaseAllFor,
 } from '../game/staff/stations.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
@@ -74,8 +80,7 @@ const DEFAULT_ROLE = PALETTE.roles.operator;
 
 const WALK_SPEED_MIN = 0.9;   // world units / sec
 const WALK_SPEED_VAR = 0.5;
-const IDLE_MIN = 2, IDLE_MAX = 6; // seconds between actions
-const WORK_MIN = 20, WORK_MAX = 60; // seconds held at a station before releasing it
+const IDLE_MIN = 2, IDLE_MAX = 6; // seconds between ambient-wander actions
 const WANDER_RADIUS = 6;      // tiles, for a random ambient-wander target
 const WANDER_TRIES = 12;      // sampled candidates before giving up on wandering
 const SPAWN_TRIES = 10;       // sampled candidates before giving up on a nice spawn tile
@@ -220,7 +225,6 @@ export class StaffPawns {
       z: spawn.z,
       mode: 'idle',
       idleT: IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN),
-      workT: 0,
       speed: WALK_SPEED_MIN + rng() * WALK_SPEED_VAR,
       heading: rng() * Math.PI * 2,
       phase: rng() * Math.PI * 2,   // desynchronise the crowd's stride
@@ -235,9 +239,26 @@ export class StaffPawns {
       // which only applies while actually walking.
       workNavRevision: 0,
       // Set while walking to or occupying a work station; null while
-      // ambling with no job (see _chooseNextAction).
+      // ambling with no job (see _syncJob/_chooseAmbientTarget). Also set
+      // by a raw sendToStation caller outside the job system (see
+      // jobTracking's own comment below and test-pawn-pathing.js).
       pendingStation: null,
       stationKey: null,
+      // True while this pawn's stationKey/pendingStation/mode are being
+      // driven by _syncJob off member.job, so the "job just went away"
+      // branch there knows it owns that state and must clear it. False for
+      // a pawn whose current station walk was started by a direct
+      // sendToStation/setDestination call from outside the job system (a
+      // seam Plan 2 built and test-pawn-pathing.js still exercises
+      // directly) — _syncJob must never clobber tracking it didn't set up.
+      jobTracking: false,
+      // The (stationKey, navRevision) pair _syncJob last attempted to walk
+      // toward for the CURRENT travel job, so a station that resolves but
+      // is unreachable doesn't get a fresh findPath call every single
+      // render frame — only when something in the world could plausibly
+      // have changed. See _syncJob.
+      jobAttemptKey: null,
+      jobAttemptRevision: -1,
     };
     figure.group.rotation.y = pawn.heading;
     this._placeFigure(pawn);
@@ -245,12 +266,12 @@ export class StaffPawns {
     this._pawns.set(member.id, pawn);
   }
 
-  // --- Spawn / wander target picking (throwaway, nav-based) ---------------
+  // --- Spawn / wander target picking (nav-based) ---------------------------
   //
-  // No job system yet — see _chooseNextAction's doc comment. These pick
-  // WHERE a pawn without a job goes; both route candidates through the
-  // navigator (nav.passable / isReachable) rather than assuming every floor
-  // tile is walkable in a straight line, the way the pre-nav version did.
+  // These pick WHERE a pawn without a job goes (see _chooseAmbientTarget);
+  // both route candidates through the navigator (nav.passable / isReachable)
+  // rather than assuming every floor tile is walkable in a straight line,
+  // the way the pre-nav version did.
 
   /**
    * A tile to spawn a new pawn on, biased toward its assigned zone when one
@@ -330,78 +351,153 @@ export class StaffPawns {
     }
   }
 
-  // --- Throwaway "no job system yet" driver --------------------------------
+  // --- Job-driven movement (staff-professions-3, Task 3) -------------------
   //
-  // Plan 3 (the job board) replaces this whole method wholesale — it is
-  // deliberately dumb: grab any reachable station regardless of what job it
-  // offers, reserve it, walk there, hold its pose a while, release, repeat.
-  // Falls back to ambient wandering when nothing is reachable at all.
-  //
-  // staff-professions-3's Task 2 (src/game/staff/jobRunner.js) landed on
-  // master before this driver was deleted (that's Task 3's job), so TWO
-  // systems can now both write state.stationReservations under the same
-  // staff id: this throwaway driver's own reserve/release cycle, and
-  // jobRunner's `member.job.stationKey`. Because re-reserving your own
-  // already-held slot is a no-op success (stations.js's reserveStation),
-  // this driver could silently RELEASE the very station a member's real job
-  // holds — its own _finishWork always releases pawn.stationKey on a timer
-  // with no knowledge that member.job might be depending on that same key —
-  // after which the next assignJobs offers that "freed" station to someone
-  // else while the original member's job object still points at it. Standing
-  // down entirely whenever member.job is non-null (the pawn just idles,
-  // holding no reservation of its own) closes that until Task 3 replaces
-  // this method with the real thing.
-  _chooseNextAction(pawn, member) {
-    const state = this.game?.state;
-    if (!state) { pawn.idleT = IDLE_MIN; return; }
-    if (member?.job != null) { pawn.idleT = IDLE_MIN; return; }
+  // The sim (jobRunner.js) decides what a member does and reserves whatever
+  // station it needs; this file only ever WALKS the pawn and reports when it
+  // gets there. _syncJob is the one method that reads member.job at all,
+  // called first every update() frame, before anything mode-based runs —
+  // see that method's own doc comment for the state machine it drives.
 
-    const index = getStationIndex(state);
-    const jobs = Object.keys(index.byJob);
-    const fromNode = worldToSubtile(pawn.x, pawn.z);
-    const ref = jobs.length ? findStation(state, { jobs, fromNode, staffId: pawn.id }) : null;
-    if (ref) {
-      if (reserveStation(state, ref.key, pawn.id) && this._beginStationWalk(pawn, ref)) return;
-      releaseStation(state, ref.key, pawn.id);
+  /**
+   * Reconcile this pawn's walk/pose state with `member.job`. Three cases:
+   *
+   *   - `job == null`: nothing to walk toward. If THIS method was the one
+   *     driving the pawn's current station tracking (`pawn.jobTracking`),
+   *     drop it and go idle — the job ended (completed, abandoned, needs
+   *     preemption) sometime since the last frame, on the sim side, which
+   *     already released any reservation via jobRunner.abandonJob; this
+   *     never calls releaseStation itself; it only stops LOOKING like it's
+   *     still en route to (or working) a slot nobody holds for it anymore.
+   *     `jobTracking` is the guard against clobbering a pawn whose current
+   *     station walk was started by a direct sendToStation/setDestination
+   *     call from OUTSIDE the job system (a seam Plan 2 built and
+   *     test-pawn-pathing.js still exercises directly with no `.job` on the
+   *     member at all) — this method must never touch tracking it didn't
+   *     set up itself.
+   *   - `phase: 'travel'`: walk toward the job's station via the existing
+   *     sendToStation seam (which does the actual reserving-caller-already-
+   *     holds-it path-following) once per (stationKey, navRevision) pair —
+   *     re-attempted only when the target or the world changes, not every
+   *     frame, so an unreachable station doesn't cost a fresh findPath on
+   *     every single render frame while jobRunner's own travel-budget
+   *     backstop is what eventually gives up on it. A job with no
+   *     `stationKey` (repair/commission — target-addressed, no StationRef;
+   *     see jobs.js's header) has nothing resolvable to walk to here, so
+   *     the pawn just holds position; jobRunner's travel budget (computed
+   *     from the worst-case map distance for exactly this reason) is what
+   *     eventually abandons a job that can never report arrival this way.
+   *   - `phase: 'work'`: the pawn should be AT the station holding its
+   *     pose. Ordinarily this is already true (this method's own travel
+   *     handling walked it there and _arriveAtPathEnd flipped the phase on
+   *     arrival), so the common case is a no-op; the explicit resolve+snap
+   *     only fires on a mismatch (a freshly-synced pawn for a member whose
+   *     job was already mid-work, or any other desync) rather than trusting
+   *     the phase blindly.
+   *
+   * Never calls reserveStation/releaseStation — see this file's header for
+   * why the sim, not the renderer, owns every reservation write.
+   */
+  _syncJob(pawn, member) {
+    const state = this.game?.state;
+    const job = member?.job || null;
+
+    if (!job) {
+      if (pawn.jobTracking) {
+        pawn.jobTracking = false;
+        pawn.stationKey = null;
+        pawn.pendingStation = null;
+        pawn.path = null;
+        pawn.pathIndex = 0;
+        pawn.mode = 'idle';
+        pawn.idleT = IDLE_MIN;
+      }
+      return;
+    }
+    pawn.jobTracking = true;
+
+    if (job.phase === 'work') {
+      if (pawn.mode !== 'working' || pawn.stationKey !== job.stationKey) {
+        const ref = (job.stationKey && state) ? getStationIndex(state).byKey[job.stationKey] : null;
+        if (ref) this._snapToStation(pawn, ref);
+        else { pawn.stationKey = null; pawn.pendingStation = null; pawn.mode = 'idle'; }
+      }
+      return;
     }
 
+    // job.phase === 'travel'
+    if (job.stationKey && pawn.mode === 'pathWalk' && pawn.stationKey === job.stationKey) return;
+
+    const revision = state?.navRevision || 0;
+    const attemptKey = job.stationKey || null;
+    if (pawn.jobAttemptKey === attemptKey && pawn.jobAttemptRevision === revision) return;
+    pawn.jobAttemptKey = attemptKey;
+    pawn.jobAttemptRevision = revision;
+
+    const ref = (job.stationKey && state) ? getStationIndex(state).byKey[job.stationKey] : null;
+    if (ref) {
+      this.sendToStation(pawn.id, ref);
+    } else {
+      pawn.stationKey = null;
+      pawn.pendingStation = null;
+      pawn.mode = 'idle';
+    }
+  }
+
+  /** Teleport the pawn straight onto `ref`'s anchor/pose — used only by
+   * _syncJob to resync a pawn whose job is already (or becomes) phase:
+   * 'work' without this pawn having walked there itself. Ordinary arrival
+   * goes through _arriveAtPathEnd instead, which is the one place that also
+   * reports arrival back to the job (see that method). */
+  _snapToStation(pawn, ref) {
+    const world = subtileToWorld(ref.node);
+    pawn.x = world.x;
+    pawn.z = world.z;
+    pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
+    pawn.stationKey = ref.key;
+    pawn.pendingStation = ref;
+    pawn.mode = 'working';
+    pawn.path = null;
+    pawn.pathIndex = 0;
+  }
+
+  /**
+   * No-job ambient wander: pick a random reachable subtile and walk there,
+   * exactly like the old throwaway driver's fallback did. Only ever called
+   * while member.job is null (see update()) — a member holding a job, even
+   * one with nothing to walk toward yet (see _syncJob's target-addressed
+   * case), stays put rather than wandering off from its assignment.
+   */
+  _chooseAmbientTarget(pawn, member) {
+    if (!this.game?.state) { pawn.idleT = IDLE_MIN; return; }
     const target = this._pickTarget(pawn, member);
     if (target && this._beginPathWalk(pawn, target)) return;
     pawn.idleT = IDLE_MIN;
   }
 
   /**
-   * Advance one frame of 'working'. Counts down workT toward _finishWork
-   * exactly as before, but first re-checks the station is still live —
-   * a station demolished AFTER a pawn already arrived and sat down leaves
-   * mode 'working' with nothing to catch it otherwise, since neither
-   * _advancePathWalk's re-path check nor _arriveAtPathEnd's arrival check
-   * runs again once the pawn is done walking. Gated on navRevision having
-   * moved since the last check (workNavRevision), not every frame — a
-   * station cannot vanish without the revision moving, so this stays an
-   * infrequent O(1) lookup rather than a per-frame getStationIndex() call
-   * for every seated/working pawn in the facility.
+   * Advance one frame of 'working'. No timer here — the sim (jobRunner's
+   * tickJobs) owns work duration/progress/completion entirely; this only
+   * re-checks the station is still live, so a station demolished AFTER a
+   * pawn already arrived and sat down doesn't leave it frozen there forever
+   * (jobRunner catches the same demolition on its own next tick and clears
+   * member.job, but that can be up to one sim tick — not one render frame —
+   * behind). Gated on navRevision having moved since the last check
+   * (workNavRevision), not every frame — a station cannot vanish without
+   * the revision moving, so this stays an infrequent O(1) lookup rather
+   * than a per-frame getStationIndex() call for every seated/working pawn
+   * in the facility.
    */
-  _advanceWorking(pawn, dt) {
+  _advanceWorking(pawn) {
     const state = this.game?.state;
     const revision = state?.navRevision || 0;
-    if (revision !== pawn.workNavRevision) {
-      pawn.workNavRevision = revision;
-      if (!this._stationStillLive(state, pawn)) {
-        this._releaseStationFor(pawn);
-        pawn.mode = 'idle';
-        pawn.idleT = IDLE_MIN;
-        return;
-      }
+    if (revision === pawn.workNavRevision) return;
+    pawn.workNavRevision = revision;
+    if (!this._stationStillLive(state, pawn)) {
+      this._releaseStationFor(pawn);
+      pawn.mode = 'idle';
+      pawn.idleT = IDLE_MIN;
     }
-    pawn.workT -= dt;
-    if (pawn.workT <= 0) this._finishWork(pawn);
-  }
-
-  _finishWork(pawn) {
-    this._releaseStationFor(pawn);
-    pawn.mode = 'idle';
-    pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
   }
 
   _releaseStationFor(pawn) {
@@ -460,9 +556,11 @@ export class StaffPawns {
    * moved since the path was computed (the building changed under the
    * pawn's feet); if the re-path comes back null, the destination is no
    * longer reachable at all, so the reservation is released and the pawn
-   * goes idle rather than freezing mid-stride.
+   * goes idle rather than freezing mid-stride. `member` is threaded through
+   * to _arriveAtPathEnd purely to report job arrival (see that method) —
+   * null for an ambient wander with no member.job at all.
    */
-  _advancePathWalk(pawn, dt) {
+  _advancePathWalk(pawn, member, dt) {
     const state = this.game.state;
     const revision = state.navRevision || 0;
     if (revision !== pawn.pathNavRevision) {
@@ -510,7 +608,7 @@ export class StaffPawns {
       if (pawn.pathIndex < pawn.path.length - 1) {
         pawn.pathIndex++;
       } else {
-        this._arriveAtPathEnd(pawn);
+        this._arriveAtPathEnd(pawn, member);
       }
     } else {
       moved = step;
@@ -531,7 +629,7 @@ export class StaffPawns {
    * walk without ever severing the ROUTE to its (now empty) subtile, which
    * is exactly the case _advancePathWalk's re-path check can't catch on its
    * own (see _stationStillLive). */
-  _arriveAtPathEnd(pawn) {
+  _arriveAtPathEnd(pawn, member) {
     const state = this.game?.state;
     if (pawn.pendingStation) {
       if (!this._stationStillLive(state, pawn)) {
@@ -546,8 +644,22 @@ export class StaffPawns {
       pawn.z = world.z;
       pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
       pawn.mode = 'working';
-      pawn.workT = WORK_MIN + Math.random() * (WORK_MAX - WORK_MIN);
       pawn.workNavRevision = state?.navRevision || 0;
+
+      // Arrival reporting: the ONE place this file writes to sim state
+      // (see this file's header). The sim owns everything about a job —
+      // what it is, how long it takes, when it's done — but only the
+      // renderer knows WHEN a pawn's feet have actually landed on the
+      // station, so this is the sole signal that can flip travel -> work
+      // and let jobRunner.tickJobs start accruing progress. Guarded on the
+      // member still actually holding a 'travel' job at exactly this
+      // station: a job can be abandoned (needs preemption, demolition,
+      // travel timeout) on a sim tick that lands between this pawn's last
+      // synced position and this arrival, so member.job may already be
+      // null, or point somewhere else entirely, by the time the walk ends.
+      if (member?.job?.phase === 'travel' && member.job.stationKey === ref.key) {
+        member.job.phase = 'work';
+      }
     } else {
       pawn.mode = 'idle';
       pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
@@ -567,18 +679,42 @@ export class StaffPawns {
       const member = byId.get(pawn.id);
       let moved = 0;
 
+      // Reconcile walk/pose state with member.job FIRST, before anything
+      // mode-based below runs this frame — see _syncJob's own doc comment
+      // for the three-way split (no job / travel / work) this drives.
+      this._syncJob(pawn, member);
+
       if (pawn.mode === 'idle') {
-        pawn.idleT -= dt;
-        if (pawn.idleT <= 0) this._chooseNextAction(pawn, member);
+        // Only a JOBLESS pawn ambles on its own timer — a member holding a
+        // job, even one _syncJob couldn't find anything to walk toward for
+        // (see its target-addressed-job case), stays put rather than
+        // wandering off from its own assignment.
+        if (!member?.job) {
+          pawn.idleT -= dt;
+          if (pawn.idleT <= 0) this._chooseAmbientTarget(pawn, member);
+        }
       } else if (pawn.mode === 'pathWalk') {
-        moved = this._advancePathWalk(pawn, dt);
+        moved = this._advancePathWalk(pawn, member, dt);
       } else if (pawn.mode === 'working') {
-        this._advanceWorking(pawn, dt);
+        this._advanceWorking(pawn);
       }
 
       pawn.pose = this._poseFor(pawn);
       this._animate(pawn, dt, moved);
       this._placeFigure(pawn);
+
+      // Report the pawn's own position back onto its member. This is the
+      // ONLY other write this file makes to sim state (see the header and
+      // _arriveAtPathEnd): jobRunner's findStation/eligibleFor/tie-break
+      // all key off member.fromNode for reachability and distance, and
+      // nothing else in the sim ever sets it — before this, it was simply
+      // never populated, which is why every fromNode-gated runner path
+      // (eat/rest job assignment, the travel-budget path-length estimate,
+      // the nearest-station tie-break) sat dormant. Written every frame,
+      // unconditionally, for every live pawn — cheap (a couple of divides)
+      // and unconditionally correct, unlike job.phase which only ever
+      // moves forward on a specific event.
+      if (member) member.fromNode = worldToSubtile(pawn.x, pawn.z);
     }
   }
 

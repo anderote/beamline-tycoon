@@ -1,0 +1,342 @@
+// test/test-pawn-job-integration.js — pawn motion is a pure function of
+// member.job (src/renderer3d/StaffPawns.js's _syncJob, staff-professions-3
+// Task 3).
+//
+// Task 3 deleted the throwaway "no job system yet" driver
+// (test-pawn-pathing.js used to cover its stand-down behavior in a scenario
+// 9, now gone) and replaced it with _syncJob: a member with `job === null`
+// ambles exactly as before; `phase: 'travel'` walks the pawn to the job's
+// station via the existing sendToStation seam, with no external call
+// needed — assignJobs/jobRunner just writes the field and the renderer
+// picks it up on its own; `phase: 'work'` holds the station's pose. Arrival
+// is reported back to the ONE sim field this file is allowed to touch:
+// flipping `job.phase` from 'travel' to 'work' once the pawn's feet land.
+//
+// Also exercised here: `member.fromNode` — nothing set this before Task 3,
+// which is why jobRunner's own findStation/eligibleFor/tie-break reachability
+// checks were dormant (see this plan's progress.md, Task 2's C1 finding).
+// StaffPawns.update() is now the one place that populates it, every frame,
+// from the pawn's own live position.
+//
+// Same idiom as test-pawn-pathing.js: a minimal THREE stub (records
+// geometry/hierarchy, tracks position/rotation as plain numbers, does NOT
+// apply rotations) and hand-built states shaped like Game.state. Every
+// assertion here is against the pawn record's own plain x/z/mode/
+// stationKey/path fields or the member's own job/fromNode fields — never
+// against mesh world transforms the stub can't compute.
+
+import { StaffPawns } from '../src/renderer3d/StaffPawns.js';
+import { worldToSubtile, subtileToWorld } from '../src/game/staff/nav.js';
+import { getStationIndex, reserveStation } from '../src/game/staff/stations.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
+
+let passed = 0, failed = 0;
+function assertOk(cond, msg) {
+  if (cond) { passed++; console.log('  PASS:', msg); }
+  else { failed++; console.log('  FAIL:', msg); }
+}
+
+// --- Minimal THREE stub (same as test-pawn-pathing.js) ---------------------
+
+class Vec3 {
+  constructor() { this.x = 0; this.y = 0; this.z = 0; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  setScalar(s) { return this.set(s, s, s); }
+}
+
+class Obj3D {
+  constructor() {
+    this.position = new Vec3();
+    this.rotation = new Vec3();
+    this.scale = new Vec3().setScalar(1);
+    this.children = [];
+    this.parent = null;
+    this.userData = {};
+  }
+  add(child) { child.parent = this; this.children.push(child); return this; }
+  remove(child) {
+    this.children = this.children.filter(c => c !== child);
+    if (child.parent === this) child.parent = null;
+    return this;
+  }
+}
+
+class Group extends Obj3D {}
+
+class Mesh extends Obj3D {
+  constructor(geometry, material) {
+    super();
+    this.geometry = geometry;
+    this.material = material;
+    this.isMesh = true;
+    this.castShadow = false;
+    this.receiveShadow = false;
+  }
+}
+
+class BoxGeometry {
+  constructor(w, h, d) { this.kind = 'box'; this.w = w; this.h = h; this.d = d; this.oy = 0; }
+  translate(x, y) { this.oy += y; return this; }
+  dispose() {}
+}
+
+class CylinderGeometry {
+  constructor(rTop, rBot, h, segs) {
+    this.kind = 'cyl';
+    this.rTop = rTop; this.rBot = rBot; this.h = h; this.segs = segs;
+    this.w = Math.max(rTop, rBot) * 2; this.d = this.w; this.oy = 0;
+  }
+  translate(x, y) { this.oy += y; return this; }
+  dispose() {}
+}
+
+class MeshStandardMaterial {
+  constructor(opts) { Object.assign(this, opts); }
+  dispose() {}
+}
+
+class Color {
+  constructor(css) {
+    const hex = String(css).replace('#', '');
+    this.r = parseInt(hex.slice(0, 2), 16) / 255;
+    this.g = parseInt(hex.slice(2, 4), 16) / 255;
+    this.b = parseInt(hex.slice(4, 6), 16) / 255;
+  }
+  getHSL(out) {
+    const max = Math.max(this.r, this.g, this.b), min = Math.min(this.r, this.g, this.b);
+    const l = (max + min) / 2;
+    let h = 0, s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === this.r) h = (this.g - this.b) / d + (this.g < this.b ? 6 : 0);
+      else if (max === this.g) h = (this.b - this.r) / d + 2;
+      else h = (this.r - this.g) / d + 4;
+      h /= 6;
+    }
+    out.h = h; out.s = s; out.l = l;
+    return out;
+  }
+  setHSL(h, s, l) {
+    const hue = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    if (s === 0) { this.r = this.g = this.b = l; return this; }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    this.r = hue(p, q, h + 1 / 3);
+    this.g = hue(p, q, h);
+    this.b = hue(p, q, h - 1 / 3);
+    return this;
+  }
+  getHexString() {
+    const c = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
+    return c(this.r) + c(this.g) + c(this.b);
+  }
+}
+
+global.THREE = { Group, Mesh, BoxGeometry, CylinderGeometry, MeshStandardMaterial, Color };
+
+// --- State / world helpers (same idiom as test-pawn-pathing.js) ------------
+
+function makeState(extra = {}) {
+  return {
+    infraOccupied: {},
+    wallOccupied: {},
+    doorOccupied: {},
+    subgridOccupied: {},
+    placeableIndex: {},
+    placeables: [],
+    zoneOccupied: {},
+    stationReservations: {},
+    staffMembers: [],
+    cornerHeights: new Map(),
+    navRevision: 0,
+    ...extra,
+  };
+}
+
+function floorRect(state, minCol, maxCol, minRow, maxRow, type = 'concrete') {
+  for (let c = minCol; c <= maxCol; c++) {
+    for (let r = minRow; r <= maxRow; r++) {
+      state.infraOccupied[`${c},${r}`] = type;
+    }
+  }
+}
+
+let _nextId = 1;
+function placeItem(state, type, col, row, subCol = 0, subRow = 0, dir = 0) {
+  const def = PLACEABLES[type];
+  const id = `${type}_${_nextId++}`;
+  const cells = def.footprintCells(col, row, subCol, subRow, dir);
+  const entry = { id, type, kind: def.kind, col, row, subCol, subRow, dir, cells };
+  state.placeableIndex[id] = state.placeables.length;
+  state.placeables.push(entry);
+  for (const c of cells) {
+    state.subgridOccupied[`${c.col},${c.row},${c.subCol},${c.subRow}`] = { id, kind: def.kind };
+  }
+  return entry;
+}
+
+function bump(state) { state.navRevision = (state.navRevision | 0) + 1; }
+
+function makePawns(state) {
+  const scene = { add() {} };
+  const game = { state };
+  return new StaffPawns(game, scene);
+}
+
+function sameNode(a, b) {
+  return a.col === b.col && a.row === b.row && a.subCol === b.subCol && a.subRow === b.subRow;
+}
+
+console.log('\n=== 1. A travel job with a resolvable station walks the pawn there on its own, ending the path on the station anchor ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const consoleEntry = placeItem(state, 'operatorConsole', 8, 8, 0, 0, 0);
+  const member = { id: 's1', profession: 'operator', job: null };
+  state.staffMembers = [member];
+  bump(state);
+
+  const index = getStationIndex(state);
+  const ref = (index.byJob.runBeam || [])[0];
+  assertOk(!!ref, 'sanity: the console yields a runBeam station');
+  assertOk(reserveStation(state, ref.key, 's1'), 'sanity: reservation succeeds (jobRunner would have done this at assignment time)');
+
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, phase: 'travel', progress: 0 };
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  // No sendToStation call from the test — the job alone must start the walk.
+  pawns.update(0.02);
+  assertOk(pawn.mode === 'pathWalk', 'the pawn starts walking on its own, driven purely by member.job');
+  assertOk(pawn.stationKey === ref.key, 'the pawn tracks the job\'s own station key');
+  assertOk(!!pawn.path && pawn.path.length > 0, 'a path was computed');
+  const lastNode = pawn.path[pawn.path.length - 1];
+  assertOk(sameNode(lastNode, ref.node), "the path ends exactly on the station's anchor node");
+
+  console.log('\n=== 2. member.fromNode tracks the pawn\'s live position every frame ===\n');
+  pawns.update(0.02);
+  const expectedFromNode = worldToSubtile(pawn.x, pawn.z);
+  assertOk(!!member.fromNode, 'member.fromNode is populated after the pawn has moved');
+  assertOk(sameNode(member.fromNode, expectedFromNode),
+    'member.fromNode matches the pawn\'s own current position, not a stale or fabricated value');
+
+  console.log('\n=== 3. Stepping to arrival flips job.phase to \'work\' and the pawn holds the station\'s pose ===\n');
+  let steps = 0;
+  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'work', `job.phase flipped to 'work' on arrival (after ${steps} steps)`);
+  assertOk(pawn.mode === 'working', 'the pawn itself is in working mode');
+  assertOk(pawn.pendingStation?.key === ref.key, 'the pawn is holding the job\'s own station');
+  assertOk(state.stationReservations[ref.key] === 's1', 'the reservation made at assignment time is still held — this file never released it');
+
+  const worldAtAnchor = subtileToWorld(ref.node);
+  const dist = Math.hypot(pawn.x - worldAtAnchor.x, pawn.z - worldAtAnchor.z);
+  assertOk(dist < 1e-6, 'the pawn is standing exactly at the station anchor');
+
+  console.log('\n=== 4. Clearing the job (as jobRunner.abandonJob would on completion) returns the pawn to ambling ===\n');
+  // jobRunner.abandonJob releases the reservation itself before nulling
+  // member.job — mirror that here rather than leaving a stale reservation
+  // this file has no business touching.
+  delete state.stationReservations[ref.key];
+  member.job = null;
+
+  steps = 0;
+  while (pawn.mode === 'working' && steps < 10) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode !== 'working', 'the pawn leaves working mode as soon as member.job clears');
+  assertOk(pawn.stationKey === null, 'pawn.stationKey is cleared');
+  assertOk(pawn.pendingStation === null, 'pawn.pendingStation is cleared');
+
+  steps = 0;
+  while (pawn.mode === 'idle' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode === 'pathWalk', `with no job, the pawn resumes ambient wandering on its own (after ${steps} idle steps)`);
+  void consoleEntry;
+}
+
+console.log('\n=== 5. Reassigning to a different station mid-walk reroutes the pawn without any external call ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 12, 0, 12);
+  placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  placeItem(state, 'operatorConsole', 10, 10, 0, 0, 0);
+  const member = { id: 's1', profession: 'operator', job: null };
+  state.staffMembers = [member];
+  bump(state);
+
+  const index = getStationIndex(state);
+  const refs = index.byJob.runBeam || [];
+  assertOk(refs.length === 2, 'sanity: two runBeam stations exist');
+  const [refA, refB] = refs;
+  reserveStation(state, refA.key, 's1');
+
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refA.key, phase: 'travel', progress: 0 };
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 6, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  pawns.update(0.02);
+  assertOk(pawn.stationKey === refA.key, 'sanity: the pawn is walking toward station A');
+
+  // A needs-preemption style reassignment: the runner releases A and
+  // reserves B, handing the member an entirely new job object, all before
+  // the renderer ever sees an intermediate null.
+  delete state.stationReservations[refA.key];
+  reserveStation(state, refB.key, 's1');
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: refB.key, phase: 'travel', progress: 0 };
+
+  pawns.update(0.02);
+  assertOk(pawn.stationKey === refB.key, 'the pawn switches to station B on the very next frame, with no sendToStation call from the test');
+
+  let steps = 0;
+  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'work', 'the pawn reaches and reports arrival at the NEW station');
+  assertOk(pawn.pendingStation?.key === refB.key, 'the pawn is holding station B, not the one it was first sent toward');
+}
+
+console.log('\n=== 6. A target-addressed job (repair/commission — no StationRef) holds the pawn in place instead of wandering off ===\n');
+{
+  // repair/commission jobs carry `target: {beamlineId, nodeId}` and no
+  // `stationKey` (see jobs.js's header) — there is no StationRef anchor for
+  // _syncJob to walk toward. The pawn must not treat "nothing to walk to"
+  // as "no job" and wander off on its own; it holds position, and
+  // jobRunner's own travel-budget backstop is what eventually abandons a
+  // job that can never report arrival through this file.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const member = {
+    id: 's1', profession: 'technician',
+    job: { jobType: 'repair', target: { beamlineId: 'bl1', nodeId: 'mod1' }, specialty: null, stationKey: null, phase: 'travel', progress: 0 },
+  };
+  state.staffMembers = [member];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 3, row: 3, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+  const startX = pawn.x, startZ = pawn.z;
+
+  for (let i = 0; i < 500; i++) pawns.update(0.02);
+
+  assertOk(pawn.mode === 'idle', 'the pawn never starts an ambient wander while it still holds an (unwalkable) job');
+  assertOk(pawn.x === startX && pawn.z === startZ, 'the pawn never moves from where it started');
+  assertOk(member.job != null && member.job.phase === 'travel',
+    'member.job is left completely untouched — this file only ever writes job.phase on a real station arrival');
+}
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed > 0 ? 1 : 0);
