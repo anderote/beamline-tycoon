@@ -272,6 +272,25 @@ test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does
     `a flash barely into its decay should still be near its starting intensity regardless of nightFactor=0 (got ${flashingSlot.light.intensity})`);
 });
 
+test('production fixture registry drives real spots without a legacy scene tag', () => {
+  const scene = new SceneStub();
+  const group = new Group();
+  group.position.set(6, 0, 2);
+  group.rotation.y = -Math.PI / 2;
+  scene.add(group);
+
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.setFixtureRegistry([{ id: 'registry-flood', def: DEF.floodLight, group }]);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 1);
+
+  const slot = rig._spotSlots[0];
+  assert.equal(slot.assignedRef.id, 'registry-flood', 'the untagged registry fixture receives the real spot');
+  assert.equal(rig.getFixtureSuppression().get('registry-flood'), 1,
+    'the same fixture id suppresses its painted pool');
+  assert.ok(slot.target.position.z > slot.light.position.z,
+    'the spot follows the rendered group rotation instead of assuming dir=0');
+});
+
 // --- Spot handover: hysteresis, crossfade, and pool suppression ------------
 //
 // There are far more fixtures than shadow spots, so the spots are an LOD over

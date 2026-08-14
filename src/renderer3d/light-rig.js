@@ -16,11 +16,10 @@
 // flashes affordable: verify by watching renderer.info.programs.length while
 // panning/flashing — it must not climb.
 //
-// Two emitter sources feed the rig, both found by tag rather than a separate
-// registry (mirrors Task 3's userData.role === 'glow' ruling):
-//   - "fixtures": placed lighting decorations tagged userData.lightFixture at
-//     build time by decoration-builder.js, from lighting-builder.js's
-//     fixtureLightTag(). These get the 4 shadow-casting SpotLights. There are
+// Two emitter sources feed the rig:
+//   - "fixtures": entries from ThreeRenderer.lightingGroup, the same registry
+//     used to build painted pools and halos. These get the 4 shadow-casting
+//     SpotLights. There are
 //     far more fixtures than spots, so the spots are an LOD over the painted
 //     pools every fixture already has — see "Spot handover" below, which is
 //     where the interesting logic lives.
@@ -39,6 +38,7 @@
 // brief warns about.
 //
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
+import { fixtureLightTag } from './lighting-builder.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -192,6 +192,7 @@ export class LightRig {
     // costs one traversal total, not one per frame. Ranking + slot
     // assignment still runs every update() call (cheap: these arrays are a
     // handful to a few dozen entries, not the whole scene).
+    this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
     this._candidatesDirty = true;
@@ -220,6 +221,12 @@ export class LightRig {
    * deferred to the next update() call, not run here. */
   markDirty() {
     this._candidatesDirty = true;
+  }
+
+  /** Supply the canonical [{id, def, group}] fixture registry. */
+  setFixtureRegistry(fixtures) {
+    this._fixtureRegistry = Array.isArray(fixtures) ? fixtures : [];
+    this.markDirty();
   }
 
   setEnabled(v) {
@@ -325,6 +332,7 @@ export class LightRig {
     }
     this._spotSlots = [];
     this._pointSlots = [];
+    this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
   }
@@ -332,13 +340,18 @@ export class LightRig {
   // ---- internals ------------------------------------------------------
 
   _refreshCandidates() {
-    const fixtures = [];
+    const taggedFixtures = [];
     const glows = [];
     this.scene.traverse((obj) => {
-      if (obj.userData && obj.userData.lightFixture) fixtures.push(obj);
-      else if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
+      if (obj.userData && obj.userData.lightFixture) taggedFixtures.push(obj);
+      if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
     });
-    this._fixtureCandidates = fixtures;
+    const registryFixtures = this._fixtureRegistry.filter(
+      (fx) => fx && fx.group && fx.def && fx.def.light,
+    );
+    // Registry entries are canonical in the renderer. Tagged objects remain
+    // supported for isolated consumers and existing headless tests.
+    this._fixtureCandidates = registryFixtures.length ? registryFixtures : taggedFixtures;
     this._glowCandidates = glows;
   }
 
@@ -350,7 +363,7 @@ export class LightRig {
   // units) barely perturbs relative ordering among candidates spread across
   // one facility, and update()'s signature only carries `camera` anyway.
   _worldPos(obj) {
-    return obj.getWorldPosition(this._tmpWorld);
+    return (obj.group || obj).getWorldPosition(this._tmpWorld);
   }
 
   /**
@@ -449,7 +462,15 @@ export class LightRig {
       } else {
         slot.weight = Math.min(1, slot.weight + step);
       }
-      const tag = slot.assignedRef.userData.lightFixture || {};
+      const fx = slot.assignedRef;
+      const tag = fx.def
+        ? fixtureLightTag(fx.def, { id: fx.id, dir: 0 })
+        : (fx.userData.lightFixture || {});
+      if (fx.def) {
+        // The registry carries the rendered group's actual rotation. Use it
+        // directly so a rotated flood's real cone and painted ellipse agree.
+        tag.aimYaw = fx.group.rotation?.y || 0;
+      }
       this._applyFixtureSpot(slot, tag, nightFactor);
       if (tag.id != null) {
         const prev = this._fixtureSuppression.get(tag.id) ?? 0;

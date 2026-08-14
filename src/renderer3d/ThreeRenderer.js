@@ -3195,7 +3195,9 @@ export class ThreeRenderer {
     // Note this is deliberately NOT the glow-role factor: real fixture lights
     // fade to zero at midday (a lit lamppost at noon reads as a bug), where
     // glow materials floor at 0.35 so a console screen stays legible.
-    if (this._lightRig) this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+    if (this._lightRig) {
+      this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+    }
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3369,6 +3371,10 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
+    // Feed the same registry to the real-light rig's fixture discovery — see
+    // light-rig.js's setFixtureRegistry(); this is what replaced the dead
+    // userData.lightFixture scene-traversal lookup.
+    if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
     this._refreshUtilityLinesV2();
     this._refreshUnwiredSinkMarkers(true);
     this._refreshPortFittings();
@@ -3740,6 +3746,10 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
+    // Feed the same registry to the real-light rig's fixture discovery — see
+    // light-rig.js's setFixtureRegistry(); this is what replaced the dead
+    // userData.lightFixture scene-traversal lookup.
+    if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
   }
 
   /**
