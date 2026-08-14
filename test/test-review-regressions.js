@@ -51,17 +51,33 @@ console.log('\n=== 1. Staff needs no longer deadlock without a cafeteria ===\n')
 // throughout — see its own updated comment), and recovery is now a real job
 // (eat/rest) assigned and ticked by src/game/staff/jobRunner.js, which
 // carries its OWN deadlock guard for the exact no-cafeteria case this
-// regression pins — see test-job-runner.js's 500-tick "no cafeteria anywhere"
-// scenario for the live equivalent of this test. This block just pins that
-// the OLD mechanism is gone, not reintroduced by accident.
+// regression pins — see test-job-runner.js's scenario 6 (the 500-tick
+// "no cafeteria anywhere" case, itself rebuilt in fix-round-1 to actually
+// discriminate a naive/broken guard implementation, and scenario 6b for the
+// "a cafeteria has real mechanical value" property this file used to pin
+// via a fastBack < slowBack comparison against the now-deleted onBreak
+// mechanism). This block just pins that the OLD status-driven mechanism
+// itself is gone, not reintroduced by accident.
+//
+// fix-round-1: checking only the FINAL tick's status (as an earlier version
+// of this assertion did) is a weaker pin than it looks — a PARTIAL
+// reintroduction (e.g. restoring just the trigger without also restoring
+// 'onBreak' to the recovery branch's condition) can legitimately cycle
+// status back to 'working' by the time t=200 is sampled, purely by where
+// t=200 happens to land in the oscillation, which would let that mutant
+// slip through a final-tick-only check. Recording whether 'onBreak' was
+// EVER observed across all 200 ticks has no such blind spot.
 {
   const m = new StaffMember({ id: 's1', profession: 'operator', name: 'T', traits: [], rng: () => 0.5 });
   m.status = 'working';
+  let sawOnBreak = false;
   for (let t = 0; t < 200; t++) {
     tickStaffMember(m, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
+    if (m.status === 'onBreak') sawOnBreak = true;
   }
-  assert(m.status === 'working',
-    "tickStaffMember no longer flips status on high fatigue/hunger — that's jobRunner's job now");
+  assert(!sawOnBreak,
+    "tickStaffMember never sets status to 'onBreak' at any point across 200 ticks — that's jobRunner's job now");
+  assert(m.status === 'working', "status is still 'working' at the end (sanity check alongside the per-tick pin above)");
   assert(m.needs.fatigue > 0.8 || m.needs.hunger > 0.8,
     'needs climb unchecked here absent a job driving recovery — the deadlock guard lives in jobRunner, not this function');
 }

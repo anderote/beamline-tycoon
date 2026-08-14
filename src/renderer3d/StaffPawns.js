@@ -336,9 +336,25 @@ export class StaffPawns {
   // deliberately dumb: grab any reachable station regardless of what job it
   // offers, reserve it, walk there, hold its pose a while, release, repeat.
   // Falls back to ambient wandering when nothing is reachable at all.
+  //
+  // staff-professions-3's Task 2 (src/game/staff/jobRunner.js) landed on
+  // master before this driver was deleted (that's Task 3's job), so TWO
+  // systems can now both write state.stationReservations under the same
+  // staff id: this throwaway driver's own reserve/release cycle, and
+  // jobRunner's `member.job.stationKey`. Because re-reserving your own
+  // already-held slot is a no-op success (stations.js's reserveStation),
+  // this driver could silently RELEASE the very station a member's real job
+  // holds — its own _finishWork always releases pawn.stationKey on a timer
+  // with no knowledge that member.job might be depending on that same key —
+  // after which the next assignJobs offers that "freed" station to someone
+  // else while the original member's job object still points at it. Standing
+  // down entirely whenever member.job is non-null (the pawn just idles,
+  // holding no reservation of its own) closes that until Task 3 replaces
+  // this method with the real thing.
   _chooseNextAction(pawn, member) {
     const state = this.game?.state;
     if (!state) { pawn.idleT = IDLE_MIN; return; }
+    if (member?.job != null) { pawn.idleT = IDLE_MIN; return; }
 
     const index = getStationIndex(state);
     const jobs = Object.keys(index.byJob);

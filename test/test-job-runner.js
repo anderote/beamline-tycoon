@@ -93,6 +93,8 @@ function demolish(state, id) {
 
 function bump(state) { state.navRevision = (state.navRevision | 0) + 1; }
 
+function wall(state, col, row, edge) { state.wallOccupied[`${col},${row},${edge}`] = 'officeWall'; }
+
 function makeGame(state, beamlines = []) {
   return { state, registry: { getAll: () => beamlines } };
 }
@@ -133,9 +135,9 @@ console.log('\n=== 1. Idle operator -> assigned runBeam, holds the reservation, 
 {
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
-  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');
@@ -159,7 +161,6 @@ console.log('\n=== 1. Idle operator -> assigned runBeam, holds the reservation, 
   assertOk(operator.job.jobType === 'runBeam', 'runBeam is open-ended (workTicks: null) — still assigned after ticking');
   assertOk(state.stationReservations[operator.job.stationKey] === operator.id,
     'the reservation is still held while the job continues');
-  void console_;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +209,7 @@ console.log('\n=== 3. Demolishing the station mid-job abandons it and releases t
   floorRect(state, 0, 8, 0, 8);
   const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');
@@ -227,13 +228,90 @@ console.log('\n=== 3. Demolishing the station mid-job abandons it and releases t
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n=== 3b. C1: an ordinary build action (closing a door) that seals off a station mid-travel abandons the job and releases the reservation — "path lost", the fourth abandon trigger ===\n');
+{
+  // Sealed-chamber geometry, same technique test-job-board.js's own
+  // sealChamber uses: two columns (0-1) walled on every side except a door
+  // at (1,1,'e'); cols 2-4 are open floor OUTSIDE the chamber. The dining
+  // table lives INSIDE the chamber; the operator starts outside it, able to
+  // reach the table only through the door — until the player deletes the
+  // door (an ordinary build action, not a demolition of the table itself).
+  const state = makeState();
+  floorRect(state, 0, 4, 0, 2);
+  wall(state, 0, 0, 'n'); wall(state, 1, 0, 'n');
+  wall(state, 0, 2, 's'); wall(state, 1, 2, 's');
+  wall(state, 0, 0, 'w'); wall(state, 0, 1, 'w'); wall(state, 0, 2, 'w');
+  wall(state, 1, 0, 'e'); wall(state, 1, 1, 'e'); wall(state, 1, 2, 'e'); // the bisecting wall
+  state.doorOccupied['1,1,e'] = 'officeDoor'; // starts OPEN
+
+  const table = placeItem(state, 'diningTable', 0, 1, 0, 0, 0);
+  placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+  bump(state);
+  const game = makeGame(state, []);
+
+  const operator = makeMember('operator', 'op1');
+  operator.fromNode = { col: 4, row: 1, subCol: 3, subRow: 3 };
+  operator.needs.hunger = 0.85;
+  state.staffMembers = [operator];
+
+  assignJobs(game); // door open: the eat job should land
+  assertOk(operator.job?.jobType === 'eat', `setup: hungry operator was assigned eat at the only dining seat (got ${operator.job?.jobType})`);
+  assertOk(operator.job?.phase === 'travel', 'setup: still travelling, has not arrived yet');
+  const key = operator.job.stationKey;
+  assertOk(state.stationReservations[key] === operator.id, 'setup: the dining seat is reserved');
+
+  // The player walls the cafeteria in (deletes the door). The station
+  // placeable itself is untouched — jobStillValid (existence) would say
+  // this job is perfectly fine.
+  delete state.doorOccupied['1,1,e'];
+  bump(state);
+
+  tickJobs(game);
+
+  assertOk(operator.job === null, 'the job is abandoned once the route disappears, even though the station itself still exists');
+  assertOk(!state.stationReservations[key],
+    'the reservation is released — otherwise every OTHER hungry staffer would be silently downgraded to the slow fallback forever, exactly the leak this exists to prevent');
+  assertOk(/path/i.test(operator.idleReason || ''), `idleReason names the lost path (got "${operator.idleReason}")`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 3c. Travel-tick budget backstop: a job stuck in phase travel is eventually abandoned even when nothing else catches it ===\n');
+{
+  // repair is target-addressed (no stationKey), so the live isReachable
+  // re-check (3b, above) never applies to it — currentStationNode returns
+  // null for any job without a stationKey. No member.fromNode is set
+  // either. This exercises the tick-budget backstop specifically: the
+  // catch-all for "a reason nobody anticipated", not the reachability path.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const beamline = placeDamagedBeamline(state, 'bl-1', 5, 5, 40);
+  const game = makeGame(state, [beamline]);
+
+  const technician = makeMember('technician', 't1');
+  state.staffMembers = [technician];
+
+  assignJobs(game);
+  assertOk(technician.job?.jobType === 'repair', 'setup: technician assigned repair');
+  assertOk(technician.job?.phase === 'travel', 'setup: never arrives in this test (no arrive() call)');
+
+  let abandonedAtTick = -1;
+  for (let t = 0; t < 320 && abandonedAtTick < 0; t++) {
+    tickJobs(game);
+    if (technician.job === null) abandonedAtTick = t;
+  }
+  assertOk(abandonedAtTick >= 0, `the stuck travel job was eventually abandoned (at tick ${abandonedAtTick})`);
+  assertOk(abandonedAtTick > 250, `the backstop is generous, not hair-triggered (fired at tick ${abandonedAtTick})`);
+  assertOk(!!technician.idleReason, 'idleReason explains why (non-empty)');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n=== 4. Firing a staffer mid-job releases the reservation (via releaseAllFor, same as Game.js) ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');
@@ -284,37 +362,161 @@ console.log('\n=== 5. A member crossing the hunger threshold abandons work and t
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n=== 6. Deadlock guard: no cafeteria anywhere -> a hungry operator keeps working, recovers slowly, never goes permanently jobless (500 ticks) ===\n");
+console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddressed for the whole meal ===\n');
 {
+  // handleNeeds returns early once hunger lands the 'eat' job — a member
+  // can hold only one job — but an EARLIER version of this file skipped the
+  // fatigue branch ENTIRELY in that case, so fatigue (also over threshold
+  // here) got zero attention for the whole ~80-tick meal: tickStaffMember's
+  // own 'working' branch (status stays 'working' throughout an eat job)
+  // kept incrementing it, unchecked, straight to 1.0. utility-gate.js
+  // rejects any operator above fatigue 0.85 for beam staffing purposes, so
+  // an operator eating tripped the beam on a near-50% duty cycle.
+  const state = makeState();
+  floorRect(state, 0, 12, 0, 12);
+  const table = placeItem(state, 'diningTable', 4, 4, 0, 0, 0);
+  placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+  bump(state);
+  const game = makeGame(state, []);
+
+  const operator = makeMember('operator', 'op1');
+  operator.fromNode = { col: 8, row: 8, subCol: 0, subRow: 0 };
+  operator.needs.hunger = 0.85;
+  operator.needs.fatigue = 0.85; // ALSO over threshold — no rest station exists anywhere in this world
+  state.staffMembers = [operator];
+  // Captured BEFORE the first assignJobs call: that call's own handleNeeds
+  // pass already applies one round of the fatigue trickle, so capturing
+  // afterward risks comparing against a value the oscillating trickle can
+  // legitimately land back on by coincidence (0.85 -0.05 = 0.80 exactly).
+  const fatigueAtStart = operator.needs.fatigue;
+
+  assignJobs(game);
+  assertOk(operator.job?.jobType === 'eat', `setup: hunger wins the one job slot (got ${operator.job?.jobType})`);
+  arrive(operator);
+
+  for (let t = 0; t < 60; t++) {
+    tickStaffMember(operator, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
+    assignJobs(game);
+    tickJobs(game);
+  }
+
+  assertOk(operator.job?.jobType === 'eat', "still mid-meal after 60 ticks (eat's own workTicks/efficiency is 80)");
+  assertOk(operator.needs.fatigue < fatigueAtStart,
+    `fatigue actually decreased during the meal instead of climbing (started ${fatigueAtStart.toFixed(3)}, now ${operator.needs.fatigue.toFixed(3)})`);
+  assertOk(operator.needs.fatigue < 0.85,
+    `fatigue never reached utility-gate's 0.85 operator-rejection threshold during the meal (got ${operator.needs.fatigue.toFixed(3)})`);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n=== 6. Deadlock guard: no cafeteria anywhere -> a hungry operator keeps working THE SAME JOB, recovers slowly, never goes permanently jobless (500 ticks) ===\n");
+{
+  // member.fromNode is populated (unlike an earlier version of this test) so
+  // tryTakeNeedJob's findStation call runs the REAL board search and comes
+  // back null because there is genuinely no 'eat' station in the index —
+  // not because fromNode was missing and findStation short-circuited before
+  // ever searching. Those are different code paths; only the first one is
+  // "no cafeteria anywhere" the way this scenario is named.
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
   // Deliberately no diningTable/toolChest/workCart anywhere in this facility.
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');
+  operator.fromNode = { col: 0, row: 0, subCol: 0, subRow: 0 }; // open floor, well clear of the console footprint
   state.staffMembers = [operator];
 
   assignJobs(game);
   assertOk(operator.job?.jobType === 'runBeam', 'setup: operator starts on runBeam');
-  arrive(operator);
+  arrive(operator); // simulate arrival exactly ONCE — a correct implementation
+  // never needs to re-report it, since the SAME job object persists; see the
+  // job-identity assertion below for why this matters.
+  const jobAtStart = operator.job;
+  const stationKeyAtStart = operator.job.stationKey;
 
   let sawMissingCafeteriaReason = false;
   let everJobless = false;
+  let everLeftWorkPhase = false;
   for (let t = 0; t < 500; t++) {
     simTick(game, operator);
     if (operator.job === null) everJobless = true;
+    if (operator.job && operator.job.phase !== 'work') everLeftWorkPhase = true;
     if (/cafeteria/i.test(operator.idleReason || '')) sawMissingCafeteriaReason = true;
-    if (operator.job) arrive(operator); // stay in 'work' phase in this headless sim
   }
 
   assertOk(!everJobless, 'the operator was never left with job === null at any point in 500 ticks');
+  assertOk(!everLeftWorkPhase, "the operator never dropped out of phase 'work' (a re-abandon-and-reassign loop would reset it to 'travel' and nothing here re-reports arrival)");
+  assertOk(operator.job === jobAtStart,
+    'the SAME job object instance persisted the whole run — a naive "abandon whenever the eat/rest station search fails" implementation would replace it every tick instead of leaving it alone');
   assertOk(operator.job?.jobType === 'runBeam', `still doing runBeam after 500 ticks (got ${operator.job?.jobType})`);
   assertOk(operator.job?.phase === 'work', 'still in phase work after 500 ticks');
+  assertOk(operator.job?.stationKey === stationKeyAtStart, 'still holding the SAME console the whole run');
+  assertOk(operator.job?.progress > 100,
+    `job.progress accumulated substantially (${operator.job?.progress?.toFixed(1)}) — would stay near 0 if the job kept getting reset`);
   assertOk(sawMissingCafeteriaReason, 'idleReason named the missing cafeteria at some point');
   assertOk(operator.needs.hunger < 0.95, `hunger recovers instead of pegging at 1 (got ${operator.needs.hunger.toFixed(3)})`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 6b. A cafeteria has real mechanical value: an operator who CAN reach one recovers from hunger far faster than one who cannot ===\n');
+{
+  // Restores the property the old status='onBreak' regression test used to
+  // pin (test-review-regressions.js's deleted fastBack < slowBack
+  // assertion) against the NEW job-based mechanism: with a real 'eat' job,
+  // hunger resets to 0 on completion (a bounded ~80-tick round trip at this
+  // test's efficiency); without one, it only ever gets the deadlock guard's
+  // flat trickle and never gets anywhere near 0.
+  function buildWorld(withCafeteria) {
+    const state = makeState();
+    floorRect(state, 0, 12, 0, 12);
+    placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+    if (withCafeteria) {
+      const table = placeItem(state, 'diningTable', 8, 8, 0, 0, 0);
+      placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+    }
+    bump(state);
+    const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
+    const game = makeGame(state, [beamline]);
+    const operator = makeMember('operator', withCafeteria ? 'opWith' : 'opWithout');
+    operator.fromNode = { col: 0, row: 0, subCol: 0, subRow: 0 };
+    operator.needs.hunger = 0.85;
+    state.staffMembers = [operator];
+    assignJobs(game);
+    arrive(operator);
+    return { game, operator };
+  }
+
+  // A dedicated tick helper for THIS scenario only: it auto-reports arrival
+  // for whatever job is currently assigned. That's deliberately NOT shared
+  // with scenario 6/6a above — always-arriving would mask a re-abandon-and-
+  // reassign loop there (arrival would paper over the phase reset every
+  // tick). Here the point is purely "does a completed eat job beat the
+  // trickle", so instant arrival is a fair stand-in for the renderer.
+  function simTickWithArrival(game, member) {
+    simTick(game, member);
+    if (member.job && member.job.phase === 'travel') arrive(member);
+  }
+
+  const withCafeteria = buildWorld(true);
+  const withoutCafeteria = buildWorld(false);
+
+  let ticksToRecoverWith = -1;
+  for (let t = 0; t < 300 && ticksToRecoverWith < 0; t++) {
+    simTickWithArrival(withCafeteria.game, withCafeteria.operator);
+    if (withCafeteria.operator.needs.hunger < 0.3) ticksToRecoverWith = t;
+  }
+  let ticksToRecoverWithout = -1;
+  for (let t = 0; t < 300 && ticksToRecoverWithout < 0; t++) {
+    simTickWithArrival(withoutCafeteria.game, withoutCafeteria.operator);
+    if (withoutCafeteria.operator.needs.hunger < 0.3) ticksToRecoverWithout = t;
+  }
+
+  assertOk(ticksToRecoverWith >= 0, `with a cafeteria, hunger drops below 0.3 within 300 ticks (at tick ${ticksToRecoverWith})`);
+  assertOk(ticksToRecoverWithout < 0, 'without a cafeteria, hunger NEVER drops below 0.3 within 300 ticks — the deadlock guard trickle only keeps it bounded, it does not substitute for an actual meal');
+  assertOk(withoutCafeteria.operator.needs.hunger > 0.5,
+    `without a cafeteria, hunger stays stuck oscillating well above the with-cafeteria member's low (got ${withoutCafeteria.operator.needs.hunger.toFixed(3)})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +548,7 @@ console.log('\n=== 8. serialize() -> deserialize() round-trips job; a reservatio
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');
@@ -376,15 +578,23 @@ console.log('\n=== 8. serialize() -> deserialize() round-trips job; a reservatio
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n=== 9. runBeam cap: at most beamlineCount operators hold runBeam at once, even with more free consoles ===\n");
+console.log("\n=== 9. runBeam cap: at most (running) beamlineCount operators hold runBeam at once, even with more free consoles AND a higher-priority repair offer present ===\n");
 {
+  // Deliberately NOT fixture-lucky: a damaged component (repair, priority
+  // ~90-140) sorts ABOVE runBeam's (80) in the offer list. An operator is
+  // never eligible for repair (wrong profession) — if the surplus
+  // operator's "best rejection" naively took the first non-null reason in
+  // priority order, it would report repair's "needs a Technician" message
+  // instead of the actually-relevant beamline shortage. See pickBestOffer's
+  // professionOk-relevance split.
   const state = makeState();
-  floorRect(state, 0, 10, 0, 4);
+  floorRect(state, 0, 20, 0, 10);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   placeItem(state, 'monitorBank', 6, 2, 0, 0, 0);
+  const damaged = placeDamagedBeamline(state, 'bl-2', 12, 4, 40);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
-  const game = makeGame(state, [beamline]); // ONE beamline, two free consoles
+  const running = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
+  const game = makeGame(state, [running, damaged]); // ONE running beamline, two free consoles, one damaged part
 
   const opA = makeMember('operator', 'opA');
   const opB = makeMember('operator', 'opB');
@@ -392,23 +602,34 @@ console.log("\n=== 9. runBeam cap: at most beamlineCount operators hold runBeam 
 
   assignJobs(game);
   const runBeamHolders = state.staffMembers.filter(m => m.job?.jobType === 'runBeam');
-  assertOk(runBeamHolders.length === 1, `exactly 1 operator holds runBeam with 1 beamline (got ${runBeamHolders.length})`);
+  assertOk(runBeamHolders.length === 1, `exactly 1 operator holds runBeam with 1 running beamline (got ${runBeamHolders.length})`);
   const surplus = state.staffMembers.find(m => m.job?.jobType !== 'runBeam');
   assertOk(!!surplus, 'sanity: one operator was left without runBeam');
-  assertOk(surplus.job === null, 'the surplus operator was not assigned anything else instead');
-  assertOk(/beamline/i.test(surplus.idleReason || ''), `the surplus operator's idleReason names the beamline shortage, not consoles (got "${surplus.idleReason}")`);
+  assertOk(surplus.job === null, 'the surplus operator was not assigned anything else instead (certainly not repair)');
+  assertOk(/beamline/i.test(surplus.idleReason || ''),
+    `the surplus operator's idleReason names the beamline shortage, not repair/consoles (got "${surplus.idleReason}")`);
+  assertOk(!/technician/i.test(surplus.idleReason || ''),
+    `the surplus operator's idleReason is not a misdirected repair-profession rejection (got "${surplus.idleReason}")`);
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 10. repair cap: at most state.resources.spares technicians hold repair at once, even with more damaged components ===\n');
+console.log('\n=== 10. repair cap: at most state.resources.spares technicians hold repair at once, even with more damaged components AND a free console/running beamline present ===\n');
 {
+  // Also not fixture-lucky: a free console + running beamline (runBeam,
+  // priority 80, below repair's own ~90-140) sits in the same world. A
+  // technician is never eligible for runBeam (wrong profession), so this
+  // proves the spares-cap message isn't an artifact of repair being the
+  // only job type around.
   const state = makeState();
   floorRect(state, 0, 30, 0, 10);
+  placeItem(state, 'operatorConsole', 26, 2, 0, 0, 0);
   const bl1 = placeDamagedBeamline(state, 'bl-1', 4, 4, 40);
   const bl2 = placeDamagedBeamline(state, 'bl-2', 12, 4, 40);
   const bl3 = placeDamagedBeamline(state, 'bl-3', 20, 4, 40);
+  bump(state);
   state.resources.spares = 1;
-  const game = makeGame(state, [bl1, bl2, bl3]);
+  const running = { id: 'bl-4', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
+  const game = makeGame(state, [bl1, bl2, bl3, running]);
 
   const t1 = makeMember('technician', 't1');
   const t2 = makeMember('technician', 't2');
@@ -422,6 +643,7 @@ console.log('\n=== 10. repair cap: at most state.resources.spares technicians ho
   assertOk(idleTechs.length === 2, `the other 2 technicians are left without a job (got ${idleTechs.length})`);
   for (const m of idleTechs) {
     assertOk(/spares/i.test(m.idleReason || ''), `${m.id}'s idleReason names the spares shortage (got "${m.idleReason}")`);
+    assertOk(!/operator/i.test(m.idleReason || ''), `${m.id}'s idleReason is not a misdirected runBeam-profession rejection (got "${m.idleReason}")`);
   }
 }
 
@@ -432,7 +654,7 @@ console.log('\n=== 11. abandonJob is the single choke point: releases the statio
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
   bump(state);
-  const beamline = { id: 'bl-1', sourceId: null, beamState: { componentHealth: {} } };
+  const beamline = { id: 'bl-1', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [beamline]);
 
   const operator = makeMember('operator', 'op1');

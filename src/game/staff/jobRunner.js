@@ -5,11 +5,11 @@
 // and Plan 2's station reservations (src/game/staff/stations.js) to actually
 // put staff to work: assignJobs() hands out offers, tickJobs() advances
 // whoever is already working, and abandonJob() is the one place every exit
-// path — completion, interruption, demolition, firing, load — releases a
-// held station. See abandonJob's own doc comment for why that matters more
-// than it looks.
+// path — completion, interruption, demolition/destruction, path loss, firing,
+// load — releases a held station. See abandonJob's own doc comment for why
+// that matters more than it looks.
 //
-// Travel is NOT this module's problem. `member.job.phase` starts 'travel'
+// Walking is NOT this module's problem. `member.job.phase` starts 'travel'
 // on assignment and stays there until something reports arrival by writing
 // `job.phase = 'work'` directly — in the running game that writer is the
 // renderer (src/renderer3d/StaffPawns.js, Task 3 of this plan), which owns
@@ -17,12 +17,16 @@
 // touch `job.phase`. tickJobs() only ever READS phase to decide whether to
 // accrue work progress; it never advances travel itself. Headless callers
 // (tests, or the game before Task 3 lands) that never flip phase simply
-// leave a job parked in 'travel' forever — that's correct, not a bug, and
-// mirrors "the sim only checks arrival" from this task's own brief.
+// leave a job parked in 'travel' — but tickJobs still re-checks a
+// station-addressed travel job's route every tick and abandons it if the
+// route disappears (a wall built after assignment, say) or if it's been
+// travelling for too long regardless of why — see tickJobs' own doc comment.
+// "Never walks anywhere" is not the same guarantee as "never needs to
+// notice the walk became impossible."
 
 import { JOB_TYPES, buildJobOffers, eligibleFor } from './jobs.js';
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
-import { getNavGrid, findPath } from './nav.js';
+import { getNavGrid, findPath, isReachable } from './nav.js';
 
 // --- Needs vs. work — the deadlock guard ----------------------------------
 //
@@ -83,27 +87,51 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
 
 /**
  * Needs pass for one member, run unconditionally before normal assignment
- * (see assignJobs) — unconditionally meaning regardless of current status
- * or what job (if any) they hold, including a repair or runBeam job whose
- * own JOB_TYPES entry says `interruptible: false`. That flag governs one
- * WORK job bumping another; it says nothing about needs, which this task's
- * brief is explicit outrank work numerically and without exception.
+ * (see assignJobs) — unconditionally meaning regardless of what job (if
+ * any) they hold, including a repair or runBeam job whose own JOB_TYPES
+ * entry says `interruptible: false`. That flag governs one WORK job
+ * bumping another; it says nothing about needs, which this task's brief is
+ * explicit outrank work numerically and without exception. (assignJobs
+ * itself still gates WHICH members reach this function on
+ * `status === 'working'` — a member mid stress-breakdown ['resting']
+ * already recovers both needs for free via staffSystem.js's own resting
+ * branch and must not also queue ahead of a working member for the one
+ * cafeteria seat.)
  *
- * Hunger is checked before fatigue (eat's 1000 > rest's 950), and once one
- * need successfully lands a job this tick, the other is skipped — a member
- * can hold exactly one job, so there is nothing left to assign. But a need
- * that hits the DEADLOCK GUARD (no station reachable) does not consume the
- * member's "job slot": tryTakeNeedJob returns false, and the fatigue check
- * still runs, so a facility with a rest station but no cafeteria doesn't
- * also starve fatigue recovery just because hunger happened to be checked
- * first.
+ * Any leftover idleReason from a PAST tick's deadlock-guard fallback (see
+ * below) is cleared first whenever the member currently holds a job — the
+ * only way idleReason can be non-null while job != null is this function's
+ * own fallback branch, so once neither need is over threshold anymore
+ * there is nothing left to explain and a stale "No reachable cafeteria…"
+ * must not sit there forever just because nothing else ever clears it.
+ *
+ * Hunger is checked before fatigue (eat's 1000 > rest's 950). Once hunger
+ * lands (or already holds) the 'eat' job, fatigue does NOT get skipped
+ * outright — a member can hold only one job, so fatigue can't ALSO get a
+ * real job this pass, but it still gets the same flat cafeteria-less-
+ * equivalent trickle the deadlock guard uses. Skipping it entirely was a
+ * real bug: a routine ~90-tick meal left fatigue climbing/pegged at 1.0 the
+ * whole time, and utility-gate.js rejects any operator above fatigue 0.85 —
+ * so an operator eating tripped the beam on a near-50% duty cycle. A need
+ * that hits the DEADLOCK GUARD proper (no station reachable at all) still
+ * gets its own full idleReason/recovery via tryTakeNeedJob, same as before.
  */
 function handleNeeds(member, game) {
-  if ((member.needs?.hunger ?? 0) > NEEDS_THRESHOLD) {
-    if (tryTakeNeedJob(member, game, 'eat', 'hunger', 'cafeteria')) return;
-  }
-  if ((member.needs?.fatigue ?? 0) > NEEDS_THRESHOLD) {
-    tryTakeNeedJob(member, game, 'rest', 'fatigue', 'rest station');
+  if (member.job != null) member.idleReason = null;
+
+  const hungry = (member.needs?.hunger ?? 0) > NEEDS_THRESHOLD;
+  const tired = (member.needs?.fatigue ?? 0) > NEEDS_THRESHOLD;
+  if (!hungry && !tired) return;
+
+  let jobLanded = false;
+  if (hungry) jobLanded = tryTakeNeedJob(member, game, 'eat', 'hunger', 'cafeteria');
+
+  if (tired) {
+    if (jobLanded) {
+      member.needs.fatigue = Math.max(0, member.needs.fatigue - NO_STATION_RECOVERY_RATE.fatigue);
+    } else {
+      tryTakeNeedJob(member, game, 'rest', 'fatigue', 'rest station');
+    }
   }
 }
 
@@ -113,9 +141,10 @@ function handleNeeds(member, game) {
 // because the board has no notion of "who's asking" and capping in its own
 // (arbitrary) offer order would throw away the nearest option before the
 // assigner ever saw it:
-//   - runBeam: at most one operator per beamline that actually exists. The
-//     board offers one slot per free CONSOLE, which can outnumber beamlines
-//     (or vice versa).
+//   - runBeam: at most one operator per beamline that is currently RUNNING
+//     (see beamlineCount) — a registered-but-stopped beamline doesn't need
+//     continuous operator attention. The board offers one slot per free
+//     CONSOLE, which can outnumber running beamlines (or vice versa).
 //   - repair: at most one technician per SPARE currently in inventory.
 //     repairOffers (jobs.js) reads state.resources.spares once per board
 //     scan and suppresses ALL repair offers only when spares is exactly
@@ -128,7 +157,7 @@ function handleNeeds(member, game) {
 //     StationRef, no reservation — see jobs.js's header comment) so there
 //     is no reservation table to count holders from.
 function beamlineCount(game) {
-  return (game.registry?.getAll?.() || []).length;
+  return (game.registry?.getAll?.() || []).filter(e => e.status === 'running').length;
 }
 
 function capsFor(game) {
@@ -165,23 +194,51 @@ function capShortageReason(jobType, cap) {
 // distance — a technician across the map from a reachable node is still
 // `ok: true` — so picking the first eligible offer in board order would
 // happily send an operator across the whole facility past a console right
-// next to them. Ties are broken by real path length (findPath, not raw
-// subtile distance — a Euclidean-nearest console behind a long wall detour
-// is not actually nearest) whenever the member's position is known;
-// offers with no resolvable station (repair/commission targets) fall back
-// to board order within their tier, since jobs.js exposes no exported way
-// to resolve their approach node from here and duplicating its
-// perimeter-walk is out of scope for a same-tier tie-break.
+// next to them. Ties are broken by real path length whenever the member's
+// position is known.
+//
+// A full findPath per candidate is NOT affordable here: this runs inside
+// Game.tick(), once per idle member, and a tier can be dozens of slots wide
+// (measured: 803 ms/tick with 12 idle engineers against 40 free labWork
+// benches on a 60x40 facility, ~86 ms just for ONE member's own scan).
+// stations.js's own findStation solves the identical problem — nearest
+// reachable slot out of many — by sorting on cheap SUBTILE distance first
+// and only paying for real reachability on the front of that list; this
+// mirrors it: sort the tier by subtile distance, then run findPath on only
+// the closest PATH_TIEBREAK_CANDIDATES of them. A subtile-nearest console
+// behind a long wall detour can therefore still lose to the 2nd/3rd-nearest
+// one once real path length is checked, without ever pathing all 40.
+const PATH_TIEBREAK_CANDIDATES = 3;
+
+function subtileDist2(a, b) {
+  const dCol = (a.col * 4 + a.subCol) - (b.col * 4 + b.subCol);
+  const dRow = (a.row * 4 + a.subRow) - (b.row * 4 + b.subRow);
+  return dCol * dCol + dRow * dRow;
+}
+
+// Offers with no resolvable station (repair/commission targets — no
+// StationRef, see jobs.js's header comment) fall back to board order within
+// their tier: jobs.js exposes no exported way to resolve their approach
+// node from here, and duplicating its perimeter-walk is out of scope for a
+// same-tier tie-break.
 function pickNearestInTier(member, tier, state) {
   if (tier.length <= 1 || !member.fromNode) return tier[0];
   const index = getStationIndex(state);
-  const nav = getNavGrid(state);
-  let best = tier[0];
-  let bestLen = Infinity;
+  const withNode = [];
   for (const offer of tier) {
     const ref = offer.stationKey ? index.byKey[offer.stationKey] : null;
-    if (!ref) continue;
-    const path = findPath(nav, member.fromNode, ref.node);
+    if (ref) withNode.push({ offer, node: ref.node });
+  }
+  if (!withNode.length) return tier[0];
+
+  withNode.sort((a, b) => subtileDist2(member.fromNode, a.node) - subtileDist2(member.fromNode, b.node));
+  const candidates = withNode.slice(0, PATH_TIEBREAK_CANDIDATES);
+
+  const nav = getNavGrid(state);
+  let best = candidates[0].offer;
+  let bestLen = Infinity;
+  for (const { offer, node } of candidates) {
+    const path = findPath(nav, member.fromNode, node);
     const len = path ? path.length : Infinity;
     if (len < bestLen) { bestLen = len; best = offer; }
   }
@@ -189,16 +246,49 @@ function pickNearestInTier(member, tier, state) {
 }
 
 /**
- * The best offer `member` may take right now, honoring the runBeam/repair
- * caps and eligibleFor's rejections, or `{ offer: null, reason }` when
- * nothing qualifies. `reason` is the rejection from the HIGHEST-priority
- * offer that was actually considered (offers are pre-sorted descending, so
- * that's simply the first non-null reason seen) — "the best rejection they
- * collected", per this task's brief.
+ * The best offer `member` may take right now, honoring eligibleFor's
+ * rejections and the runBeam/repair caps, or `{ offer: null, reason }` when
+ * nothing qualifies.
+ *
+ * Three checks run per offer, cheapest/most-fundamental first:
+ *
+ * 1. Profession: is `member.profession` even in this job type's list at
+ *    all? A member who fails this was never a real candidate for that job
+ *    type regardless of anything else — this is `fallbackReason` territory
+ *    (see below), and eligibleFor is only called for the message text, not
+ *    to gate anything.
+ * 2. The assignment-time cap (runBeam/repair — see capsFor): a job-TYPE-
+ *    level constraint, checked before any individual offer's own
+ *    eligibleFor call. This has to run before step 3, not after: with two
+ *    free consoles and a 1-beamline cap, the FIRST operator processed this
+ *    pass reserves one console; when the SECOND operator's scan reaches
+ *    that now-reserved console, eligibleFor correctly reports "someone
+ *    else is already working that station" — true, but a misleading
+ *    ARTIFACT of processing order within this one pass, not the real
+ *    reason (the real reason is the cap, which the SECOND free console
+ *    would also hit). Checking the cap first means every offer of a capped
+ *    job type reports the SAME, actually-informative reason once the cap
+ *    is reached, regardless of which specific station a sibling member
+ *    happened to grab first.
+ * 3. eligibleFor itself: profession/skill already covered by step 1, so in
+ *    practice this is the station-specific reservation/reachability check.
+ *
+ * `reason` is not simply "the first rejection seen in priority order"
+ * either. Offers are sorted by priority across ALL job types, so a
+ * technician-only repair offer can sort above an operator's own runBeam
+ * offer; reporting repair's "needs a Technician" rejection to a capped-out
+ * OPERATOR is true but useless — that offer was never relevant to their
+ * profession at all (measured: an admin and a scientist were both once
+ * told "No spares left to repair with", a job neither can ever hold). Two
+ * reasons are tracked: `bestReason`, from an offer whose job type
+ * `member`'s profession can actually do — preferred whenever one exists;
+ * `fallbackReason`, a hard profession mismatch on a job this member could
+ * never take, used only when nothing profession-relevant was found at all.
  */
 function pickBestOffer(member, offers, game, caps, holders) {
   const state = game.state;
   let bestReason = null;
+  let fallbackReason = null;
   let i = 0;
   while (i < offers.length) {
     const priority = offers[i].priority;
@@ -206,18 +296,26 @@ function pickBestOffer(member, offers, game, caps, holders) {
     while (i < offers.length && offers[i].priority === priority) {
       const offer = offers[i];
       i++;
+      const professionOk = !!JOB_TYPES[offer.jobType]?.professions?.includes(member.profession);
+      if (!professionOk) {
+        if (fallbackReason == null) fallbackReason = eligibleFor(member, offer, game).reason;
+        continue;
+      }
+
       const cap = caps[offer.jobType];
       if (cap != null && holders[offer.jobType] >= cap) {
         if (bestReason == null) bestReason = capShortageReason(offer.jobType, cap);
         continue;
       }
+
       const res = eligibleFor(member, offer, game);
-      if (res.ok) tier.push(offer);
-      else if (bestReason == null) bestReason = res.reason;
+      if (!res.ok) { if (bestReason == null) bestReason = res.reason; continue; }
+
+      tier.push(offer);
     }
     if (tier.length) return { offer: pickNearestInTier(member, tier, state), reason: null };
   }
-  return { offer: null, reason: bestReason };
+  return { offer: null, reason: bestReason || fallbackReason };
 }
 
 function assignOffer(member, game, offer) {
@@ -244,6 +342,12 @@ function statusIdleReason(status) {
  * that make this more than "take the first thing" — need-driven
  * preemption, and the runBeam/repair caps.
  *
+ * handleNeeds only runs for members with `status === 'working'` — a
+ * member `'resting'` off a stress breakdown already recovers both needs
+ * for free via staffSystem.js's own resting branch and must not ALSO queue
+ * ahead of a genuinely working, genuinely hungry member for the one
+ * cafeteria seat in the building.
+ *
  * Every member ends this call with EITHER a non-null `job` OR a non-empty
  * `idleReason` — the brief's own explicit test — including staffers this
  * pass never even looks at (status !== 'working': resting from a
@@ -255,7 +359,9 @@ export function assignJobs(game) {
   const members = state.staffMembers || [];
   if (!members.length) return;
 
-  for (const member of members) handleNeeds(member, game);
+  for (const member of members) {
+    if (member.status === 'working') handleNeeds(member, game);
+  }
 
   const { offers } = buildJobOffers(game);
   const caps = capsFor(game);
@@ -273,7 +379,11 @@ export function assignJobs(game) {
       assignOffer(member, game, offer);
       if (holders[offer.jobType] != null) holders[offer.jobType]++;
     } else {
-      member.idleReason = reason || 'Nothing to do right now.';
+      // Prefer a freshly-found reason; otherwise keep whatever handleNeeds
+      // already set (e.g. "No reachable cafeteria…") rather than downgrade
+      // it to a generic "nothing to do" just because this pass's own board
+      // scan happened to turn up nothing MORE specific to say.
+      member.idleReason = reason || member.idleReason || 'Nothing to do right now.';
     }
   }
 }
@@ -315,6 +425,21 @@ function invalidJobReason(job) {
   return job.stationKey ? 'The station was removed.' : 'That job no longer exists.';
 }
 
+// The live subtile node a station-addressed job's member is walking toward,
+// or null for a target-addressed job (repair/commission — see this file's
+// header on why those have no resolvable outside-footprint node here). Used
+// only for the live "did the route disappear" re-check below, never for
+// eligibility (that's eligibleFor's job at assignment time).
+function currentStationNode(state, job) {
+  if (!job.stationKey) return null;
+  return getStationIndex(state).byKey[job.stationKey]?.node || null;
+}
+
+// Generous upper bound on ticks a job may sit in 'travel' before this file
+// gives up on it even without a specific reason — see MAX_TRAVEL_TICKS'
+// use in tickJobs for what this backstops.
+const MAX_TRAVEL_TICKS = 300;
+
 /**
  * Advance every member's job by one tick.
  *
@@ -326,9 +451,31 @@ function invalidJobReason(job) {
  * (direct demolish, undo, load, a beamline getting deleted out from under
  * a repair target) and it's exactly one O(1) index lookup per active job.
  *
- * Travel is not simulated here — see this file's header comment. A job
- * stuck in `phase: 'travel'` (nothing has reported arrival) is simply
- * skipped this tick, every tick, until something else flips the phase.
+ * A `phase: 'travel'` job is not walked here — see this file's header
+ * comment, that's the renderer's job — but it IS re-checked for whether
+ * the route there still exists, which is a DIFFERENT failure from
+ * demolition: an ordinary build action (a wall, a new placeable) can seal
+ * off a reachable station without ever touching the station itself, and
+ * neither jobStillValid (existence) nor anything else was catching that.
+ * Left unchecked, a job stuck mid-travel to a now-unreachable station was
+ * never abandoned by ANY of this module's three guards — not tickJobs (only
+ * checked phase === 'work'), not assignJobs (`member.job != null` skips
+ * it), not handleNeeds (short-circuits once `member.job?.jobType` already
+ * matches the need) — so the member sat there forever with the need at 1.0
+ * and, worse, the station reservation held forever, silently downgrading
+ * every OTHER hungry/tired staffer in the building to the slow fallback
+ * too. That is the exact scar-comment deadlock this task exists to prevent,
+ * reopened by a route the brief's own abandon list names explicitly
+ * ("need threshold crossed, target demolished, station destroyed, or path
+ * lost" — this is the fourth one).
+ *
+ * The live isReachable() re-check only applies to station-addressed jobs
+ * (currentStationNode returns null for repair/commission, which have no
+ * resolvable node here at all — see this file's header). Every job still
+ * gets MAX_TRAVEL_TICKS as a hard backstop regardless: a generous ceiling
+ * so a job can never park in 'travel' indefinitely for a reason nobody
+ * anticipated, station-addressed or not.
+ *
  * Once `phase === 'work'`, progress accrues by the member's own efficiency
  * (skill/mood/zone-tier/specialty-match, all in StaffMember.efficiency) —
  * runBeam's workTicks is null (open-ended, held until something else
@@ -348,7 +495,22 @@ export function tickJobs(game) {
       continue;
     }
 
-    if (job.phase !== 'work') continue;
+    if (job.phase === 'travel') {
+      const node = currentStationNode(state, job);
+      if (node && member.fromNode) {
+        const nav = getNavGrid(state);
+        if (!isReachable(nav, member.fromNode, node)) {
+          abandonJob(member, game, 'The path there was lost.');
+          continue;
+        }
+      }
+      job.travelTicks = (job.travelTicks || 0) + 1;
+      if (job.travelTicks > MAX_TRAVEL_TICKS) {
+        abandonJob(member, game, 'Gave up trying to get there.');
+        continue;
+      }
+      continue;
+    }
 
     const jobType = JOB_TYPES[job.jobType];
     if (!jobType) { abandonJob(member, game, 'That job no longer exists.'); continue; }

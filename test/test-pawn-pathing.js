@@ -528,5 +528,47 @@ console.log('\n=== 8. Demolishing a station AFTER the pawn already arrived and s
   assertOk(state.stationReservations[ref.key] === undefined, 'the reservation is released, not held for the rest of the work timer');
 }
 
+console.log('\n=== 9. staff-professions-3 fix-round-1 (I6): the throwaway driver stands down for a member whose job the real job runner already owns ===\n');
+{
+  // src/game/staff/jobRunner.js (staff-professions-3 Task 2) landed on
+  // master before this whole file's throwaway driver was deleted (Task 3's
+  // job) — so today TWO systems can write state.stationReservations under
+  // the same staff id: this driver's own reserve/release cycle, and
+  // member.job.stationKey. Re-reserving your own held slot is a no-op
+  // success, so without the stand-down check this driver could silently
+  // release the very station a member's real job depends on the moment its
+  // own idle timer expires and _chooseNextAction runs — this pins that it
+  // does not: a member carrying a non-null `.job` (jobRunner's own field,
+  // reserved for a DIFFERENT station than anything this driver would ever
+  // pick) must never be grabbed, walked, or reserved for by this driver.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  placeItem(state, 'operatorConsole', 4, 4, 0, 0, 0);
+  const member = { id: 's1', profession: 'operator', job: { jobType: 'runBeam', stationKey: 'some_other_key:0', phase: 'travel', progress: 0 } };
+  state.staffMembers = [member];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+  pawn.mode = 'idle';
+  pawn.idleT = 0; // fire _chooseNextAction on the very next update()
+
+  for (let i = 0; i < 50; i++) pawns.update(0.02);
+
+  assertOk(pawn.mode === 'idle', 'the pawn never leaves idle (no walk toward the console was started)');
+  assertOk(pawn.stationKey === null, 'the pawn never claims a stationKey of its own');
+  assertOk(Object.keys(state.stationReservations).length === 0,
+    `this driver reserved nothing on the member's behalf (got ${JSON.stringify(state.stationReservations)})`);
+
+  // Once the job clears, the driver resumes its normal (throwaway) behavior.
+  member.job = null;
+  pawn.idleT = 0;
+  for (let i = 0; i < 4000 && pawn.mode === 'idle'; i++) pawns.update(0.02);
+  assertOk(pawn.mode !== 'idle', 'with no job, the throwaway driver picks something up again as before');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
