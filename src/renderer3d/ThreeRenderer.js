@@ -37,7 +37,7 @@ import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
 import {
-  buildLightPools, buildLightHalos,
+  buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
   glassGlowForDarkness,
 } from './lighting-builder.js';
@@ -3791,6 +3791,22 @@ export class ThreeRenderer {
    * _updateSunCycle from dayNightGrade()) so they move in lockstep — no
    * geometry work here, only scalar material properties, safe to run every
    * frame even at sixty lamps and a glazed facade.
+   *
+   * Also applies the real-light LOD suppression: a fixture holding one of the
+   * rig's shadow-casting spots has its painted pool faded out by the same
+   * weight, so the two lighting systems never paint the same floor twice.
+   * The rig owns that weight (light-rig.js is the authority); this method
+   * only consumes it.
+   *
+   * FRAME ORDERING, deliberate: this runs at the top of _animate(), while
+   * _lightRig.update() runs near the bottom — so the weights read here are
+   * one frame (~16 ms) stale. That is ACCEPTED rather than fixed by
+   * reordering, because the rig's update needs the frame's `dt`, which
+   * _animate only computes further down next to tickFlow/staffPawns, and
+   * hoisting that would reshuffle unrelated timing. A 16 ms lag on a 250 ms
+   * crossfade is ~6% of the ramp — invisible precisely because the handover
+   * is a fade and not a switch. If the crossfade is ever shortened toward
+   * one-frame territory, move the rig update above this call instead.
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
@@ -3799,8 +3815,12 @@ export class ThreeRenderer {
       if (mat) mat.emissiveIntensity = emitterIntensityForDarkness(darkness);
     }
     if (this.lightPoolGroup) {
+      const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
       for (const child of this.lightPoolGroup.children) {
         if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
+        // Per-quad vertex alpha; multiplies with the opacity above, and only
+        // touches the GPU buffer on frames where a weight actually moved.
+        applyPoolSuppression(child, suppression);
       }
     }
     if (this.lightHaloGroup) {

@@ -54,6 +54,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   hvTransformer: { _default: { y: 0.7 } },
   switchgear: { _default: { y: 0.7 } },
   powerBus: { _default: { y: 0.5 } },
+  // Distribution cabinets put branch fittings on the operator-facing
+  // terminal face, low enough to read as cable exits rather than lamps.
+  powerPanel: { _default: { y: 0.65 }, hv_in: { y: 0.45 } },
+  mcc: { _default: { y: 0.7 }, hv_in: { y: 0.45 } },
+  ups: { _default: { y: 0.7 }, hv_in: { y: 0.45 } },
 
   // Pumps are squat and top-connected.
   turboPump: { _default: { y: 0.85 } },

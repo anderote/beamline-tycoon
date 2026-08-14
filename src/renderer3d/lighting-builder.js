@@ -63,6 +63,69 @@ export function aimYaw(dir = 0) {
   return -((dir || 0) * (Math.PI / 2));
 }
 
+/**
+ * Height of the emitter above the fixture GROUP'S ORIGIN — which is not the
+ * same thing as `emitterY`, because emitterY is measured from the mount
+ * surface and each mount puts its origin somewhere different (see this file's
+ * header):
+ *   - ground:   origin is on the floor, so the emitter really is emitterY up.
+ *   - wall:     Task 7 places the origin ON the wall AT emitterY, so the
+ *               emitter is level with the origin (_buildWallSconce's glow sits
+ *               at local y=0).
+ *   - overhead: Task 8 places the origin at the ceiling, which for both
+ *               overhead defs is exactly emitterY (=OVERHEAD_MOUNT_HEIGHT)
+ *               above the floor — again level with the origin.
+ * This is the same convention _mountFloorY encodes for the pools, inverted;
+ * the two must agree or a fixture's real spot and its painted pool would sit
+ * at different heights.
+ */
+function _emitterOffsetY(def) {
+  if (def.mount === 'ground') return def.light?.emitterY ?? 0;
+  return 0;
+}
+
+/**
+ * The `userData.lightFixture` tag light-rig.js discovers by scene traversal:
+ * everything the real-light rig needs about a placed fixture, flattened out
+ * of the def + placement so the rig never has to know the def schema or the
+ * mount conventions above. Pure — no THREE, no side effects — so the whole
+ * "what does the rig see" contract is testable in Node.
+ *
+ * Stamped at the ONE site that has id, def and dir in scope at once:
+ * decoration-builder.js's DecorationBuilder.build(). Nothing else may set it;
+ * the rig treats the tag as authoritative.
+ *
+ * @param {object} def - a LIGHTING_DEFS entry.
+ * @param {{id?:*, dir?:number}} [placement] - the decoration record's own id
+ *        and `dir` (0-3 quarter turns).
+ * @returns {object|null} null for a def with no `light` block — there is
+ *          nothing for a real light to be.
+ */
+export function fixtureLightTag(def, { id = null, dir = 0 } = {}) {
+  const light = def?.light;
+  if (!light) return null;
+  return {
+    id,
+    offsetY: _emitterOffsetY(def),
+    color: light.color,
+    intensity: light.intensity ?? 1,
+    radius: light.radius ?? 0,
+    shape: light.shape ?? 'point',
+    // coneDeg/tiltDeg are the FULL cone angle and the tilt off straight-down,
+    // both in degrees; only meaningful when shape === 'cone' (lighting.js
+    // documents them as required in that case). Carried through as null/0 for
+    // point fixtures so the rig can branch on `shape` alone.
+    coneDeg: light.shape === 'cone' ? (light.coneDeg ?? null) : null,
+    tiltDeg: light.shape === 'cone' ? (light.tiltDeg ?? 0) : 0,
+    // `aimed` is the same predicate the geometry and the pool footprint use:
+    // an overhead cone (highBay) is a cone but has no aim, and must not be
+    // swung around by dir. `aimYaw` is precomputed here rather than stored as
+    // a raw dir so the rig never re-derives the -dir*90° convention.
+    aimed: isAimedFixture(def),
+    aimYaw: aimYaw(dir),
+  };
+}
+
 // --- Pool footprint math (Task 6) — pure, no THREE ---------------------------
 // Ground-pool sizing/shape knobs. `radius` is documented on the light block
 // itself as "the light pool radius in world units (meters)" (lighting.js),
@@ -664,6 +727,21 @@ export function disposeLightGlowTexture() {
  * (falls back to a `point`-shaped footprint) rather than stretching its pool
  * in an arbitrary direction.
  *
+ * PER-QUAD ADDRESSABILITY (the LOD handshake, see applyPoolSuppression): the
+ * color attribute is itemSize 4, not 3. three.js turns a 4-component color
+ * attribute on a `vertexColors` material into USE_COLOR_ALPHA (verified in
+ * three@0.160.0: WebGLPrograms sets `vertexAlphas` from
+ * `material.vertexColors === true && geometry.attributes.color.itemSize === 4`,
+ * and color_fragment then does `diffuseColor *= vColor` — alpha included).
+ * That gives every fixture's four verts an independent fade WITHOUT splitting
+ * the merged mesh back into one draw call per lamp, which is the entire
+ * reason this mesh is merged. Final pool alpha is therefore
+ * `material.opacity * vertexAlpha` = (darkness ramp) * (1 - suppression).
+ * `userData.poolQuadByFixtureId` maps a fixture id to its quad index — built
+ * HERE, alongside the two `continue`s below, because a quad index counted
+ * anywhere else would be off by one for every fixture that follows a skipped
+ * one, and would then silently fade the WRONG lamp's pool.
+ *
  * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures - ThreeRenderer.lightingGroup.
  * @returns {THREE.Mesh|null} null when there is nothing to draw.
  */
@@ -676,6 +754,8 @@ export function buildLightPools(fixtures) {
   const indices = [];
   let vertCount = 0;
   const tmpColor = new THREE.Color();
+  /** @type {Map<*, number>} fixture id -> quad index in this merged mesh */
+  const quadByFixtureId = new Map();
 
   for (const fx of fixtures) {
     const def = fx.def;
@@ -705,9 +785,10 @@ export function buildLightPools(fixtures) {
     for (const [x, z, u, v] of corners) {
       positions.push(x, floorY, z);
       uvs.push(u, v);
-      colors.push(r, g, b);
+      colors.push(r, g, b, 1); // alpha 1 = unsuppressed; applyPoolSuppression owns it from here
     }
     indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
+    if (fx.id != null) quadByFixtureId.set(fx.id, vertCount / 4);
     vertCount += 4;
   }
 
@@ -716,7 +797,7 @@ export function buildLightPools(fixtures) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
   geometry.setIndex(indices);
 
   const material = new THREE.MeshBasicMaterial({
@@ -736,7 +817,62 @@ export function buildLightPools(fixtures) {
   // One mesh spans the whole facility — per-quad frustum culling isn't worth
   // computing a bounding volume for; just always draw it.
   mesh.frustumCulled = false;
+  mesh.userData.poolQuadByFixtureId = quadByFixtureId;
+  // Last alpha REQUESTED per quad, so the per-frame ramp can skip the buffer
+  // upload entirely on the overwhelmingly common frame where no fixture's
+  // suppression moved. Float64, deliberately: the vertex buffer itself is
+  // Float32 and rounds what it stores, so comparing against the buffer would
+  // report a change every single frame for any alpha that isn't exactly
+  // representable — the exact opposite of what this cache is for. Seeded to 1
+  // to match the vertex data above.
+  mesh.userData.poolQuadAlpha = new Float64Array(vertCount / 4).fill(1);
   return mesh;
+}
+
+/**
+ * SUPPRESSION: the pool side of the two-lighting-system handshake.
+ *
+ * OWNERSHIP RULE — the rig is authoritative, the pool obeys. light-rig.js
+ * decides which handful of fixtures get a real shadow-casting SpotLight and
+ * publishes a 0..1 weight per fixture id (LightRig.getFixtureSuppression()).
+ * A fixture at weight 1 has a real light standing in for it, so its PAINTED
+ * pool must be off — otherwise the fake floor quad and the real cone both
+ * light the same pixels and the fixture reads as twice as bright as its
+ * neighbours. Nothing on this side ever decides to suppress itself, and
+ * nothing on this side may write a weight back; a future reader adding "just
+ * one more" pool-side condition here will reintroduce exactly the
+ * double-lighting bug this rule exists to prevent.
+ *
+ * Halos are deliberately NOT suppressed: a halo is the bulb itself glowing,
+ * which is true whether or not a spot happens to be assigned. Only the floor
+ * pool is the fake that a real spot replaces.
+ *
+ * @param {THREE.Mesh} poolMesh - a mesh from buildLightPools.
+ * @param {Map<*, number>|null} suppression - fixture id -> weight; absent ids
+ *        mean "not suppressed" (weight 0).
+ * @returns {boolean} true when the vertex buffer actually changed this call.
+ */
+export function applyPoolSuppression(poolMesh, suppression) {
+  const map = poolMesh?.userData?.poolQuadByFixtureId;
+  const attr = poolMesh?.geometry?.attributes?.color;
+  const state = poolMesh?.userData?.poolQuadAlpha;
+  if (!map || !attr || !state || attr.itemSize !== 4) return false;
+
+  let changed = false;
+  for (const [id, quad] of map) {
+    const w = suppression ? (suppression.get(id) || 0) : 0;
+    const alpha = 1 - (w < 0 ? 0 : w > 1 ? 1 : w);
+    if (state[quad] === alpha) continue;
+    state[quad] = alpha;
+    const base = quad * 4 * 4; // 4 verts per quad * 4 components per vert
+    for (let v = 0; v < 4; v++) attr.array[base + v * 4 + 3] = alpha;
+    changed = true;
+  }
+  // Only flag the upload when something actually moved — this runs every
+  // frame, and re-uploading a static buffer sixty times a second for nothing
+  // is the whole reason poolQuadAlpha exists.
+  if (changed) attr.needsUpdate = true;
+  return changed;
 }
 
 /**

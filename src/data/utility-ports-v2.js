@@ -639,11 +639,12 @@ function busPorts(utility, serviceRadius) {
   return out;
 }
 
-// Sides to spread N ports across, in order. A panel is approached from
-// whichever direction the machine happens to sit, so outlets are distributed
-// around the footprint rather than stacked on one face — with the port anchors
-// from the connection overhaul, that is also where the connectors are drawn.
-const OUTLET_SIDES = ['right', 'front', 'left', 'back'];
+// Outdoor supply equipment exposes feeders around its enclosure. Distribution
+// cabinets are different: branch terminals belong together on the modeled
+// +X front, with the incoming feeder on the opposite rear.
+const SUPPLY_OUTLET_SIDES = ['right', 'front', 'left', 'back'];
+const DISTRIBUTION_FRONT_SIDE = 'right';
+const DISTRIBUTION_REAR_SIDE = 'left';
 
 /** A supply: `count` HV outlets sharing `capacity` kW. */
 function supplyPorts(capacity, count) {
@@ -651,8 +652,8 @@ function supplyPorts(capacity, count) {
   for (let i = 0; i < count; i++) {
     out[`hv_out_${i + 1}`] = {
       utility: 'hvCable',
-      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
-      offsetAlong: 0.5 + 0.25 * Math.floor(i / OUTLET_SIDES.length),
+      side: SUPPLY_OUTLET_SIDES[i % SUPPLY_OUTLET_SIDES.length],
+      offsetAlong: 0.5 + 0.25 * Math.floor(i / SUPPLY_OUTLET_SIDES.length),
       role: 'source',
       // capacity/N per outlet, for the same reason distribution splits its
       // rating: discovery unites a device's source ports into one busbar, so
@@ -673,15 +674,16 @@ function supplyPorts(capacity, count) {
 function distributionPorts(rating, count) {
   const out = {
     hv_in: {
-      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      utility: 'hvCable', side: DISTRIBUTION_REAR_SIDE, offsetAlong: 0.5,
       role: 'sink', params: { demand: rating },
     },
   };
   for (let i = 0; i < count; i++) {
     out[`pwr_out_${i + 1}`] = {
       utility: 'powerCable',
-      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
-      offsetAlong: 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
+      side: DISTRIBUTION_FRONT_SIDE,
+      // Each real branch circuit gets its own visible fitting across the face.
+      offsetAlong: (i + 1) / (count + 1),
       role: 'source',
       // rating/N per outlet: discovery unites a device's outlets into one
       // busbar, so these add back up to exactly the panel's rating no matter

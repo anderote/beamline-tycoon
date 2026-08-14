@@ -35,7 +35,6 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 // register as every other utility's pulse, rather than an arbitrary neon
 // accent standing in for an unglowable black.
 //
-// vacuumPipe is explicitly `null`: inert grey, no flow, nothing to tune.
 export const FLOW_PARAMS = {
   hvCable: {
     speed: 6.0, period: 3.0, width: 0.35, strength: 3.5, baseGlow: 0,
@@ -44,7 +43,13 @@ export const FLOW_PARAMS = {
   powerCable: {
     speed: 6.0, period: 3.0, width: 0.35, strength: 3.5, baseGlow: 0,
   },
-  vacuumPipe: null,
+  vacuumPipe: {
+    // Gas load drifts from beam chambers toward the pump. Kept restrained so
+    // a vacuum header reads as molecular flow in pipework, not another power
+    // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
+    speed: 0.45, period: 3.6, width: 0.55, strength: 0.8, baseGlow: 0,
+    color: '#aebbc2',
+  },
   rfWaveguide: {
     // Literally coolingWater's shape (same speed, same width:period ratio,
     // same peak strength — the approved intensity, not a re-tuned one), at a

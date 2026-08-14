@@ -361,9 +361,9 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const style = descriptor.geometryStyle || 'cylinder';
-  // Only meshes carrying a flow-patched material need to bloom — an untagged
-  // (vacuumPipe) run stays off BLOOM_LAYER and the darken pass leaves it
-  // exactly as inert as it looks.
+  // Only meshes carrying a flow-patched material need to bloom. Every current
+  // utility has one; retaining the guard keeps a future intentionally inert
+  // descriptor from entering the bloom pass.
   const flowing = !!FLOW_PARAMS[line.utilityType];
 
   // Segment lengths up front so a reversed run can be baked in one pass too
@@ -483,7 +483,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   // sink in lockstep with the pulses on the pipe it sits under rather than
   // drifting out of orientation. Lives in this line's own group, so it is
   // disposed with the line exactly like the fault mark above; returns null
-  // (no-op) for vacuumPipe and for a hard-faulted run.
+  // for a hard-faulted run or any future intentionally non-flowing utility.
   const floorPoints = reversed ? points.slice().reverse() : points;
   const floorGlow = buildFloorGlowStrip(floorPoints, line.utilityType, errorStatus);
   if (floorGlow) group.add(floorGlow);
@@ -830,9 +830,10 @@ export class UtilityLineBuilderV2 {
    * (forward / draw order) by every caller here, same as _buildErrorMap's
    * "no entry = ok" convention.
    *
-   * Utility types with no flow at all (FLOW_PARAMS[type] == null, i.e.
-   * vacuumPipe) are skipped — nothing ever reads their orientation, and
-   * skipping avoids paying the BFS for a utility that will never animate.
+   * Vacuum is the deliberate inverse: its solver source is the pump, while
+   * the visible gas load moves from chambers toward the pump. Rooting the walk
+   * at the pump and flipping its answer keeps every branch converging even in
+   * a many-chamber manifold.
    */
   _buildOrientationMap(state, utilityLinesMap) {
     const out = new Map();
@@ -843,7 +844,9 @@ export class UtilityLineBuilderV2 {
       if (!FLOW_PARAMS[utilityType]) continue;
       const nets = state.utilityNetworks.get(utilityType) || [];
       for (const net of nets) {
-        const perNet = computeLineOrientations(net, utilityLinesMap);
+        const perNet = computeLineOrientations(net, utilityLinesMap, {
+          invertDirection: utilityType === 'vacuumPipe',
+        });
         for (const [lineId, reversed] of perNet) out.set(lineId, reversed);
       }
     }

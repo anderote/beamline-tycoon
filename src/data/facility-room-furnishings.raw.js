@@ -102,7 +102,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     id: 'pottedPlant', name: 'Potted Plant', zoneType: 'officeSpace',
     cost: { funding: 80 }, energyCost: 0, spriteColor: 0x338844,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'pottedPlant',
-    effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    // Parts are deliberately color-authored. A shared dark-metal texture
+    // multiplies those colors nearly to black under indoor lighting.
+    effects: { morale: 1 }, baseMaterial: null,
     // 1×1 footprint. Tall potted office plant — ceramic pot with leafy plant.
     parts: [
       // Pot
@@ -124,7 +126,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     id: 'floorPlant', name: 'Floor Plant', zoneType: 'officeSpace',
     cost: { funding: 150 }, energyCost: 0, spriteColor: 0x2a7a3a,
     gridW: 1, gridH: 1, subH: 3, spriteKey: 'floorPlant',
-    effects: { morale: 2 }, baseMaterial: 'metal_dark',
+    effects: { morale: 2 }, baseMaterial: null,
     // 1×1 footprint, tall. Large floor planter with a ficus-style tree.
     parts: [
       // Square planter box

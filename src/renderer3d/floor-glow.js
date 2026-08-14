@@ -33,7 +33,7 @@ const FLOOR_GLOW_THICKNESS = 0.002;
 /**
  * Build the floor-glow strip for one utility run, reusing the run's own
  * polyline. Returns null when there's nothing to paint: `utilityType` has no
- * flow at all (FLOW_PARAMS[utilityType] == null — vacuumPipe, by design), or
+ * flow at all (FLOW_PARAMS[utilityType] == null), or
  * `flowState` is 'hard' (network dead: the pipe above goes dark, so does the
  * pool under it — see utility-flow.js's FLOW_STATE_MODS.hard, which already
  * zeroes the pipe's own strength/baseGlow the same way).
@@ -54,7 +54,7 @@ const FLOOR_GLOW_THICKNESS = 0.002;
  */
 export function buildFloorGlowStrip(points, utilityType, flowState) {
   if (!points || points.length < 2) return null;
-  if (!FLOW_PARAMS[utilityType]) return null; // vacuumPipe (or any future no-flow utility)
+  if (!FLOW_PARAMS[utilityType]) return null;
   if (flowState === 'hard') return null;
 
   // Deliberately NOT cached/shared across lines (contrast getLineMaterial /

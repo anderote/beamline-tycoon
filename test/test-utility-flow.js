@@ -14,7 +14,7 @@
 //      with no run-distance bake at all, which meant no real travelling
 //      direction, just a synchronized blink. This test exists specifically
 //      so that regresses loudly rather than silently.
-//   3. FLOW_PARAMS covers every UTILITY_TYPE_LIST member, vacuumPipe is null.
+//   3. FLOW_PARAMS covers every utility, including vacuum gas-to-pump motion.
 //   4. getLineMaterial returns distinct cached materials per
 //      (utilityType, flowState), the same instance on repeat calls, and every
 //      one tagged __shared.
@@ -271,27 +271,28 @@ console.log('\n--- 2b. rfWaveguide (BoxGeometry) segments also travel source -> 
     `second segment ends at the sink, total run length 14 (got ${seg1[1]})`);
 }
 
-console.log('\n--- 3. A vacuum run gets no flow baking at all ---');
+console.log('\n--- 3. A vacuum run carries restrained gas-flow lighting ---');
 {
   const { group } = buildFlowLine('vacuumPipe');
   const meshes = cylinderMeshes(group);
   assert(meshes.length === 2, 'vacuum run still builds its geometry');
   for (const m of meshes) {
-    assert(m.layers.mask === 1, 'inert: never enabled onto BLOOM_LAYER');
+    assert(m.layers.mask !== 1, 'vacuum flow is enabled on the bloom layer');
   }
 }
 
-console.log('\n--- 4. FLOW_PARAMS covers every utility, vacuumPipe is null ---');
+console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
 {
   const missing = UTILITY_TYPE_LIST.filter(t => !(t in FLOW_PARAMS));
   assert(missing.length === 0,
     `every UTILITY_TYPE_LIST member has a FLOW_PARAMS entry (missing: ${missing.join(',') || 'none'})`);
-  assert(FLOW_PARAMS.vacuumPipe === null, 'vacuumPipe is explicitly null (no flow)');
+  assert(FLOW_PARAMS.vacuumPipe && FLOW_PARAMS.vacuumPipe.strength < FLOW_PARAMS.coolingWater.strength,
+    'vacuumPipe has a subtler flow than cooling water');
   assert(!FLOW_PARAMS.rfWaveguide.color,
     'rfWaveguide has no colour override — falls through to its own (red) descriptor colour');
   assert(FLOW_PARAMS.hvCable.color && FLOW_PARAMS.hvCable.color !== '#141418',
     'hvCable IS overridden (its own descriptor colour is near-black and cannot visibly glow)');
-  const flowing = UTILITY_TYPE_LIST.filter(t => t !== 'vacuumPipe');
+  const flowing = UTILITY_TYPE_LIST;
   for (const t of flowing) {
     const p = FLOW_PARAMS[t];
     assert(p && Number.isFinite(p.speed) && Number.isFinite(p.period)
@@ -328,8 +329,31 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
     'soft-faulted material pulses dimmer than a healthy one, not off');
 
   const vac = getLineMaterial('vacuumPipe', 'ok');
-  assert(vac.userData.flowUniforms === undefined, 'vacuumPipe never gets a flow patch');
+  assert(vac.userData.flowUniforms, 'vacuumPipe gets a gas-flow patch');
   assert(vac.userData.__shared, 'but is still cached/shared like any other line material');
+}
+
+console.log('\n--- 6b. Vacuum visually flows from chamber to pump ---');
+{
+  const pump = { placeableId: 'pump', portName: 'vac_out' };
+  const chamber = { placeableId: 'chamber', portName: 'vac_in' };
+  const network = {
+    id: 'vac', utilityType: 'vacuumPipe', lineIds: ['V1'],
+    ports: [
+      { ...pump, role: 'source' },
+      { ...chamber, role: 'sink' },
+    ],
+    sources: [{ portKey: 'pump:vac_out', ...pump }],
+    sinks: [{ portKey: 'chamber:vac_in', ...chamber }],
+  };
+  const lines = new Map([['V1', {
+    id: 'V1', utilityType: 'vacuumPipe', start: pump, end: chamber,
+    path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+  }]]);
+  const normal = computeLineOrientations(network, lines);
+  const vacuum = computeLineOrientations(network, lines, { invertDirection: true });
+  assert(normal.get('V1') === false, 'solver capacity direction is pump to chamber');
+  assert(vacuum.get('V1') === true, 'visual vacuum direction reverses chamber to pump');
 }
 
 // computeLineOrientations is pure topology (src/utility/line-orientation.js)

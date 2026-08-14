@@ -4,7 +4,7 @@
 
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
-import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
+import { buildLightFixture, isAimedFixture, fixtureLightTag } from './lighting-builder.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -1495,6 +1495,12 @@ export class DecorationBuilder {
       group.rotation.y = lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY;
       if (lightDef) {
         this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
+        // The real-light rig (light-rig.js) finds fixtures by traversing the
+        // scene for this tag — it deliberately keeps no registry of its own,
+        // so a fixture that isn't tagged here is invisible to it and silently
+        // never gets a shadow-casting spot. This is the ONLY site that stamps
+        // it, because it is the only place id, def and dir are all in scope.
+        group.userData.lightFixture = fixtureLightTag(lightDef, { id: dec.id, dir: dec.dir ?? 0 });
       }
 
       parentGroup.add(group);

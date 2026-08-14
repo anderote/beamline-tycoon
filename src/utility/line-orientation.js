@@ -51,12 +51,16 @@ function subtileKey(pt) {
  *        one entry from state.utilityNetworks.get(utilityType) (see
  *        network-discovery.js's discoverNetworks/discoverAll).
  * @param {Map<string, UtilityLine>} linesById  state.utilityLines.
+ * @param {{invertDirection?: boolean}} [options]
+ *        Reverse the final physical direction while retaining the same robust
+ *        source-rooted topology walk. Vacuum uses this: pumping capacity is a
+ *        solver source, but visible gas travels back toward that pump.
  * @returns {Map<string, boolean>} lineId -> true if reversed. A line with NO
  *          entry (including every line when the network has no source at
  *          all, or a line this BFS never reached) should be treated as NOT
  *          reversed — i.e. draw order — by the caller.
  */
-export function computeLineOrientations(network, linesById) {
+export function computeLineOrientations(network, linesById, options = {}) {
   const result = new Map();
   if (!network || !linesById) return result;
   const lineIds = network.lineIds || [];
@@ -192,8 +196,9 @@ export function computeLineOrientations(network, linesById) {
   // source -> reversed, so baked distance-from-source still increases from
   // whichever end bakeRunDistanceUVs/bakeRunDistanceFromPositionZ treats as
   // runDist.start.
+  const invert = options.invertDirection === true;
   for (const [lineId, nearestEnd] of visited) {
-    result.set(lineId, nearestEnd === 'end');
+    result.set(lineId, (nearestEnd === 'end') !== invert);
   }
   return result;
 }

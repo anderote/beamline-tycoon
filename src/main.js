@@ -26,6 +26,7 @@ import { TitleScreen } from './ui/TitleScreen.js';
 import { WelcomeDialog } from './ui/WelcomeDialog.js';
 import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
 import { CloudSaves } from './game/CloudSaves.js';
+import { SaveSlots } from './game/SaveSlots.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
@@ -102,10 +103,12 @@ function showScenarioPicker(game) {
     const scenario = resolveScenario(id);
     if (!scenario) return;
 
-    if (!confirm(`Start "${scenario.name}"? Current progress will be lost.`)) return;
+    if (!confirm(`Start "${scenario.name}"? Your current game will be kept in recovery saves.`)) return;
 
     // Clear current save, set pending scenario, reload.
     // skipTitle makes the post-selection reload go straight into the game.
+    game.save();
+    SaveSlots.preserveActive('Before ' + scenario.name);
     localStorage.removeItem('beamlineTycoon');
     if (scenario.generator) {
       localStorage.setItem('beamlineTycoon.pendingScenario', id);
@@ -483,11 +486,13 @@ function showScenarioPicker(game) {
     menuDropdown.classList.add('hidden');
     switch (action) {
       case 'new-game':
-        if (confirm('Start a new game? All progress will be lost.')) {
+        if (confirm('Start a new game? Your current game will be kept in recovery saves.')) {
           // skipTitle so the reload lands in a fresh game rather than on the
           // title screen — which, with the save just deleted, would show no
           // Continue button and force a second New Game click.
           sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+          game.save();
+          SaveSlots.preserveActive('Before new game');
           localStorage.removeItem('beamlineTycoon');
           location.reload();
         }
@@ -619,8 +624,10 @@ function showScenarioPicker(game) {
       onNewGame: () => {
         // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
         // with skipTitle set so the reload goes straight into the game.
-        if (hadSave && !confirm('Start a new game? All progress will be lost.')) return;
+        if (hadSave && !confirm('Start a new game? Your current game will be kept in recovery saves.')) return;
         sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+        game.save();
+        SaveSlots.preserveActive('Before new game');
         localStorage.removeItem('beamlineTycoon');
         location.reload();
       },
