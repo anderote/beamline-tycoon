@@ -19,7 +19,15 @@
 // Supply is read off the component's own SOURCE ports — the same ports
 // COMPONENTS[id].ports exposes after the merge in src/data/components.js,
 // sourced from src/data/utility-ports-v2.js. This generalises across all
-// five utilities rather than special-casing power.
+// utilities rather than special-casing power.
+//
+// Capacity is SUMMED PER UTILITY, not reported per port. A multi-outlet device
+// declares rating/N on each outlet, because discovery unites its outlets into
+// one busbar (network-discovery: "a multi-outlet device is ONE busbar") and
+// they have to add back up to the device's real rating. Reading one port would
+// tell the player an 8-way MCC supplies 31 kW; reading each port would print
+// eight identical rows. One row per utility, carrying the total, is the only
+// reading that matches what the solver will actually give them.
 
 const DRAW_LABEL = 'Energy Cost';
 const SUPPLY_LABEL = 'Supplies';
@@ -29,6 +37,7 @@ const SUPPLY_LABEL = 'Supplies';
 // kW, not electrical kW, hence the qualifier; cryoTransfer's cold capacity is
 // watts, not kilowatts (see utility-ports-v2.js param names).
 const SUPPLY_SPEC = {
+  hvCable:      { param: 'capacity',      unit: 'kW' },
   powerCable:   { param: 'capacity',      unit: 'kW' },
   rfWaveguide:  { param: 'capacity',      unit: 'kW' },
   coolingWater: { param: 'capacity',      unit: 'kW thermal' },
@@ -60,6 +69,8 @@ export function utilityStatRows(comp) {
 
   const ports = comp && comp.ports;
   if (ports) {
+    // utility -> { total, dutyFactor }, in first-seen port order.
+    const byUtility = new Map();
     for (const port of Object.values(ports)) {
       if (!port || port.role !== 'source') continue;
       const spec = SUPPLY_SPEC[port.utility];
@@ -69,11 +80,23 @@ export function utilityStatRows(comp) {
       // which exists only so the vacuum solver can detect the component, not
       // because it supplies any real pumping.
       if (!amount) continue;
-
-      let value = `${amount} ${spec.unit}`;
+      let entry = byUtility.get(port.utility);
+      if (!entry) {
+        entry = { spec, total: 0, dutyFactor: undefined };
+        byUtility.set(port.utility, entry);
+      }
+      entry.total += amount;
       const dutyFactor = port.params && port.params.dutyFactor;
-      if (port.utility === 'rfWaveguide' && typeof dutyFactor === 'number') {
-        value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
+      if (typeof dutyFactor === 'number') entry.dutyFactor = dutyFactor;
+    }
+
+    for (const [utility, entry] of byUtility) {
+      // Trim float dust from the rating/N split (250/8 = 31.25 sums back to
+      // 250, but 100/3 would not print cleanly).
+      const total = Math.round(entry.total * 100) / 100;
+      let value = `${total} ${entry.spec.unit}`;
+      if (utility === 'rfWaveguide' && typeof entry.dutyFactor === 'number') {
+        value += ` peak (${fmtDutyPercent(entry.dutyFactor)} duty)`;
       }
       rows.push({ label: SUPPLY_LABEL, value });
     }
