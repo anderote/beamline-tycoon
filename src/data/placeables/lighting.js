@@ -4,9 +4,12 @@
 // are authored directly here rather than derived from a *.raw.js registry —
 // there is no separate "lighting.raw.js"; this file IS the source of truth.
 //
-// Fixtures stay kind: 'decoration', category: 'lighting' (see design doc
-// §5) — lighting is not a new Placeable kind. Two extra fields discriminate
-// behavior for later tasks:
+// Fixtures stay kind: 'decoration' (see design doc §5) — lighting is not a
+// new Placeable kind. `category` is derived below from `mount`, not
+// authored per-fixture: ground-mounted fixtures are landscaping (Grounds ->
+// Lighting), while wall- and overhead-mounted fixtures are building fabric
+// (Structure -> Lights, alongside Flooring/Walls/Doors). Two extra fields
+// discriminate behavior for later tasks:
 //   - mount: 'ground' | 'wall' | 'overhead' — placement path + render height.
 //   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY }
 //     — read uniformly by the renderer regardless of mount. `radius` is the
@@ -27,12 +30,23 @@
 // carry the real cost (roughly half a kW to 1.5 kW) — see task-3-report.md
 // for the full reasoning.
 
-export const LIGHTING_DEFS = [
+// mount -> palette category. Ground-mounted fixtures are landscaping
+// (Grounds mode's `lighting` tab); wall- and overhead-mounted fixtures are
+// building fabric (Structure mode's `structureLights` tab, see modes.js).
+// Keyed off `mount`, not per-fixture id, so new fixtures fall into the
+// right tab automatically as long as they declare a mount.
+const CATEGORY_BY_MOUNT = {
+  ground: 'lighting',
+  wall: 'structureLights',
+  overhead: 'structureLights',
+};
+
+const RAW_LIGHTING_DEFS = [
   // === Ground — lamp family ===
   {
     id: 'lamppost', name: 'Lamppost', cost: { funding: 8 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'lamppost',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'ground',
+    blocksBuild: false, kind: 'decoration', mount: 'ground',
     subW: 1, subL: 1, subH: 6,
     desc: 'Classic path lighting for safe walks home after night shift.',
     energyCost: 0.15,
@@ -41,7 +55,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'doubleLamppost', name: 'Double Lamppost', cost: { funding: 16 }, removeCost: 0,
     morale: 0.75, placement: 'outdoor', spriteKey: 'double_lamppost',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'ground',
+    blocksBuild: false, kind: 'decoration', mount: 'ground',
     subW: 1, subL: 1, subH: 6,
     desc: 'Twin-headed lamppost that throws a wider pool of light down the path.',
     energyCost: 0.28,
@@ -50,7 +64,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'bollardLight', name: 'Bollard Light', cost: { funding: 6 }, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'bollard_light',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'ground',
+    blocksBuild: false, kind: 'decoration', mount: 'ground',
     subW: 1, subL: 1, subH: 2,
     desc: 'Low bollard marker for ankle-height path illumination.',
     energyCost: 0.08,
@@ -59,7 +73,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'highMastLight', name: 'High Mast Light', cost: { funding: 65 }, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'high_mast_light',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'ground',
+    blocksBuild: false, kind: 'decoration', mount: 'ground',
     subW: 3, subL: 3, subH: 16,
     desc: 'Tall parking-lot mast that floods a wide area in cool white light.',
     energyCost: 1.5,
@@ -68,7 +82,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'floodLight', name: 'Flood Light', cost: { funding: 12 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'spot_light',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'ground',
+    blocksBuild: false, kind: 'decoration', mount: 'ground',
     subW: 1, subL: 1, subH: 1,
     desc: 'Directional flood for facades and dramatic beamline reveals.',
     energyCost: 0.75,
@@ -82,7 +96,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'wallSconce', name: 'Wall Sconce', cost: { funding: 5 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'wall_sconce',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'wall',
+    blocksBuild: false, kind: 'decoration', mount: 'wall',
     subW: 1, subL: 1, subH: 2,
     desc: 'Warm wall-mounted fixture for corridors and building facades.',
     energyCost: 0.03,
@@ -91,7 +105,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'bulkheadLight', name: 'Bulkhead Light', cost: { funding: 9 }, removeCost: 0,
     morale: 0.1, placement: 'outdoor', spriteKey: 'bulkhead_light',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'wall',
+    blocksBuild: false, kind: 'decoration', mount: 'wall',
     subW: 1, subL: 1, subH: 2,
     desc: 'Caged industrial fixture built for corridors and exterior walls.',
     energyCost: 0.12,
@@ -102,7 +116,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'ceilingPanel', name: 'Ceiling Panel', cost: { funding: 7 }, removeCost: 0,
     morale: 0.1, placement: 'outdoor', spriteKey: 'ceiling_panel',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'overhead',
+    blocksBuild: false, kind: 'decoration', mount: 'overhead',
     subW: 1, subL: 1, subH: 2,
     desc: 'Cool white office panel hung from a short chain.',
     energyCost: 0.05,
@@ -111,7 +125,7 @@ export const LIGHTING_DEFS = [
   {
     id: 'highBay', name: 'High Bay Light', cost: { funding: 22 }, removeCost: 0,
     morale: 0.1, placement: 'outdoor', spriteKey: 'high_bay',
-    blocksBuild: false, kind: 'decoration', category: 'lighting', mount: 'overhead',
+    blocksBuild: false, kind: 'decoration', mount: 'overhead',
     subW: 1, subL: 1, subH: 3,
     desc: 'Industrial high-bay fixture throwing a wide cone over the experimental hall.',
     energyCost: 0.9,
@@ -121,3 +135,8 @@ export const LIGHTING_DEFS = [
     },
   },
 ];
+
+export const LIGHTING_DEFS = RAW_LIGHTING_DEFS.map((def) => ({
+  ...def,
+  category: CATEGORY_BY_MOUNT[def.mount],
+}));

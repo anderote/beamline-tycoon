@@ -1326,8 +1326,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     return;
   }
 
-  // Decoration tabs (Grounds mode): show decoration items for this category
-  const decCatDef = MODES.grounds?.categories?.[compCategory];
+  // Decoration tabs: show decoration items for this category. Resolved from
+  // the currently active mode (not hardcoded to grounds) — Structure's
+  // "Lights" tab is a decoration tab too, just living under a different mode.
+  const decCatDef = MODES[this.activeMode]?.categories?.[compCategory];
   if (decCatDef?.isDecorationTab) {
     const decItems = Object.entries(DECORATIONS).filter(([, d]) => d.category === compCategory);
     if (decItems.length === 0) return;
