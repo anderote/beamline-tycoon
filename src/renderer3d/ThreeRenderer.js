@@ -33,6 +33,7 @@ import { buildPortFittings, portFittingSignature } from './builders/port-fitting
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
+import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { OverlayShim } from './overlay-shim.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
@@ -490,10 +491,15 @@ export class ThreeRenderer {
     this._sunLight.shadow.camera.bottom = -60;
     this.scene.add(this._sunLight);
 
-    // Sun orbit: full cycle in ~10 minutes of real time
-    this._sunAngle = 0;
-    this._sunCycleSpeed = (2 * Math.PI) / (60 * 60); // radians per second — full cycle in 1 hour
-    this._lastSunTime = performance.now();
+    // Sun orbit is driven by game.state.timeOfDay (the sim clock — see
+    // DAY_LENGTH_TICKS/isNightAt in game/Game.js), not a wall clock. These
+    // two fields let the sun glide at frame rate between the sim's 1 Hz
+    // ticks instead of jumping once per tick: _localTimeOfDay is a copy
+    // advanced every frame and resynced from game.state.timeOfDay whenever
+    // that authoritative value changes; see _updateSunCycle.
+    this._localTimeOfDay = null;
+    this._lastSyncedTimeOfDay = null;
+    this._lastSunFrameTime = performance.now();
     this._lastAnimTime = performance.now();
     this._lastLodDetail = undefined; // force first LOD update
 
@@ -2962,17 +2968,41 @@ export class ThreeRenderer {
 
   _updateSunCycle() {
     const now = performance.now();
-    const dt = (now - this._lastSunTime) / 1000; // seconds
-    this._lastSunTime = now;
-    this._sunAngle += this._sunCycleSpeed * dt;
+    const dt = (now - this._lastSunFrameTime) / 1000; // seconds
+    this._lastSunFrameTime = now;
+
+    const game = this.game;
+    const authoritative = game?.state?.timeOfDay;
+    if (typeof authoritative !== 'number') return; // no game/state yet
+
+    if (this._localTimeOfDay === null || authoritative !== this._lastSyncedTimeOfDay) {
+      // First frame, or the sim just ticked (or was loaded/undone/redone) —
+      // snap to the authoritative value rather than drift toward it, so a
+      // save load or undo can never leave the sun stuck mid-glide.
+      this._localTimeOfDay = authoritative;
+      this._lastSyncedTimeOfDay = authoritative;
+    } else if (!game.state.paused) {
+      // Glide between ticks at the sim's own rate (scaled by game speed,
+      // since a faster tick interval means timeOfDay advances faster in
+      // real time too), so the sun moves smoothly at frame rate instead of
+      // stepping once per 1 Hz sim tick.
+      const speed = game.state.speed || 1;
+      const perSecond = (speed * 1000) / (game.TICK_MS * DAY_LENGTH_TICKS);
+      this._localTimeOfDay = (this._localTimeOfDay + dt * perSecond) % 1;
+    }
+
+    // timeOfDay: 0 = midnight, 0.5 = noon. Map to the sun's old angle
+    // convention (angle=0 was noon, angle=π was midnight) so orbit radius,
+    // elevation range and shadow-texel snapping below are unchanged.
+    const sunAngle = (this._localTimeOfDay - 0.5) * 2 * Math.PI;
 
     // Sun orbits in a circle: radius 50, height varies with angle
     const R = 50;
-    const x = Math.cos(this._sunAngle) * R;
-    const z = Math.sin(this._sunAngle) * R;
+    const x = Math.cos(sunAngle) * R;
+    const z = Math.sin(sunAngle) * R;
     // Sun height: peaks at noon (angle=0), lowest at midnight (angle=π)
     // Range from 10 (low sun / long shadows) to 50 (high noon)
-    const elevation = 30 + 20 * Math.cos(this._sunAngle);
+    const elevation = 30 + 20 * Math.cos(sunAngle);
     // Offset sun position and shadow target to follow the camera center
     // Snap target in light-space to texel grid to prevent shadow swimming
     const cx = this._panX || 0;
@@ -2998,7 +3028,7 @@ export class ThreeRenderer {
 
     // Intensity: bright at noon, dim at night
     // cos goes from 1 (noon) to -1 (midnight)
-    const sunFactor = Math.cos(this._sunAngle);
+    const sunFactor = Math.cos(sunAngle);
     const dayness = Math.max(0, sunFactor); // 0 at night, 1 at noon
 
     // Directional light: strong sunlight, gentle fade at night

@@ -46,7 +46,7 @@ import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from
 const SERIALIZED_FIELDS = [
   // resources / progression
   'resources', 'completedResearch', 'activeResearch', 'researchProgress',
-  'completedObjectives', 'discoveries', 'tick', 'paused', 'speed', 'log',
+  'completedObjectives', 'discoveries', 'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'tutorialDismissed', 'welcomeSeen',
   // staff
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
@@ -76,7 +76,7 @@ const SERIALIZED_FIELDS = [
 // restoring it would silently destroy a design saved after the last snapshot
 // (and resurrect one deleted after it).
 const UNDO_PRESERVED_FIELDS = [
-  'tick', 'paused', 'speed', 'log',
+  'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'activeResearch', 'researchProgress', 'completedResearch',
   'completedObjectives', 'discoveries',
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
@@ -124,6 +124,38 @@ const ECONOMY_HISTORY_MAX = 300;
 // state.beamline, so an element at the very start of machine B can never tie
 // with the last envelope sample of machine A during nearest-s lookups.
 const BEAM_GRAPH_SOURCE_GAP_M = 1;
+
+// The single day/night clock. state.timeOfDay advances by 1/DAY_LENGTH_TICKS
+// every tick (see tick(), near TICK_MS in the constructor), so at
+// TICK_MS = 1000 this is a 4-minute day at 1x speed, scaling for free with
+// game.state.speed since the tick interval itself is what speed scales.
+// 240 is deliberately the period the sim already ran isNight on
+// (`tick % 240`) before this refactor, so staff-needs pacing is unchanged.
+// The renderer (ThreeRenderer._updateSunCycle) reads timeOfDay instead of
+// keeping its own wall-clock sun — this is the one clock now.
+export const DAY_LENGTH_TICKS = 240;
+
+// tick() derives timeOfDay from state.tick as
+// `((tick + TIME_OF_DAY_PHASE_OFFSET_TICKS) % DAY_LENGTH_TICKS) / DAY_LENGTH_TICKS`
+// rather than accumulating `+= 1/DAY_LENGTH_TICKS` on every tick. The two
+// are mathematically the same clock, but repeated float addition of
+// 1/240 (not exactly representable in binary) drifts by the time it
+// reaches the isNightAt boundaries — verified to land one tick early/late
+// at ticks 120/240/360/... — which is exactly the phase shift this
+// refactor promises not to introduce. Recomputing from the exact integer
+// tick every time is immune to that: it lands on exactly 0.25/0.5/0.75 at
+// the ticks that matter, because those quotients (60/240, 120/240,
+// 180/240) are themselves exactly representable in binary. The offset is
+// 1/4 of a day so a fresh game (tick 0) starts at timeOfDay 0.25 — the
+// value that reproduces the pre-refactor `(tick % 240) >= 120` phase
+// exactly (see the state.timeOfDay initializer and isNightAt below).
+const TIME_OF_DAY_PHASE_OFFSET_TICKS = DAY_LENGTH_TICKS / 4;
+
+// Pure: true for the half of the day centred on midnight. timeOfDay is a
+// float in [0, 1) where 0 = midnight and 0.5 = noon.
+export function isNightAt(timeOfDay) {
+  return timeOfDay < 0.25 || timeOfDay >= 0.75;
+}
 
 // mulberry32 — small fast seeded PRNG. All sim randomness flows through
 // game.rng so two Games built with the same seed evolve identically.
@@ -186,6 +218,11 @@ export class Game {
       completedObjectives: [],
       discoveries: 0,
       tick: 0,
+      // The single day/night clock — see DAY_LENGTH_TICKS/isNightAt above.
+      // Matches what tick() computes for tick 0, i.e. 0.25 (dawn): the
+      // value that reproduces the pre-refactor `(tick % 240) >= 120` phase
+      // exactly (tick 0..119 day, 120..239 night, repeat).
+      timeOfDay: TIME_OF_DAY_PHASE_OFFSET_TICKS / DAY_LENGTH_TICKS,
       // Tick-loop control. speed only changes real-time tick rate;
       // 1 tick = 1 sim-second at any speed, so tick-modulo logic is untouched.
       paused: false,
@@ -3597,6 +3634,10 @@ export class Game {
 
   tick() {
     this.state.tick++;
+    // Derived from the exact integer tick, not accumulated — see
+    // TIME_OF_DAY_PHASE_OFFSET_TICKS above for why.
+    this.state.timeOfDay =
+      ((this.state.tick + TIME_OF_DAY_PHASE_OFFSET_TICKS) % DAY_LENGTH_TICKS) / DAY_LENGTH_TICKS;
 
     // Dev mode: keep funding pinned at a huge value. Placed at the top so
     // every cost check inside this tick sees the refilled balance.
@@ -3647,7 +3688,7 @@ export class Game {
     // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
     // Uses facility tier for cafeteria etc.
     {
-      const isNight = (this.state.tick % 240) >= 120; // 2 min day/night cycle for flavor
+      const isNight = isNightAt(this.state.timeOfDay); // driven by the sim clock — see DAY_LENGTH_TICKS
       const cafTier = (this.state.zoneConnectivity?.cafeteria?.tier) || 0;
       let anyChange = false;
       for (const m of (this.state.staffMembers || [])) {
