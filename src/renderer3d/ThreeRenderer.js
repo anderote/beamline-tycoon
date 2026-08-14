@@ -17,7 +17,7 @@ import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
-import { WallBuilder } from './wall-builder.js';
+import { WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout } from './wall-builder.js';
 import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds } from './component-builder.js';
 import { setModelBoundsProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
@@ -46,7 +46,7 @@ import { UIHost } from '../ui/UIHost.js';
 import '../ui/hud.js';
 import '../ui/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
-import { WALL_TYPES } from '../data/structure.js';
+import { WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
@@ -2234,19 +2234,54 @@ export class ThreeRenderer {
     this._clearPreview();
     if (!path || path.length === 0) return;
     const mat = this._previewMat(0x88ff88, 0.4);
-    const doorH = 0.6;
+    const doorDef = doorType ? DOOR_TYPES[doorType] : null;
+    const isDouble = doorDef ? doorDef.doorWidth === 'double' : false;
+    const nominalH = doorDef?.doorHeight
+      ? doorDef.doorHeight * HEIGHT_SCALE
+      : 0.6;
     for (const seg of path) {
       const isNS = seg.edge === 'n' || seg.edge === 's';
+      // Same opening the wall builder will cut: real height, real width,
+      // real subtile offset — and the same clamp against the host wall so a
+      // tall door previewed on a short wall doesn't promise a taller opening.
+      const layout = doorOpeningLayout(seg.edge, seg.off, isDouble);
+      const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, doorDef);
+      const doorH = Math.max(0.1, Math.min(nominalH, wallH - LINTEL_HEIGHT));
       const geo = isNS
-        ? new THREE.BoxGeometry(1.0, doorH, 0.06)
-        : new THREE.BoxGeometry(0.06, doorH, 1.0);
+        ? new THREE.BoxGeometry(layout.openingWidth, doorH, 0.06)
+        : new THREE.BoxGeometry(0.06, doorH, layout.openingWidth);
       const mesh = new THREE.Mesh(geo, mat);
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      const x = pos.x + (isNS ? layout.center : 0);
+      const z = pos.z + (isNS ? 0 : layout.center);
       const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
-      const midY = (ends.p0.y + ends.p1.y) / 2;
-      mesh.position.set(pos.x, midY + doorH / 2, pos.z);
+      // Terrain Y under the opening centre (not the edge midpoint).
+      const a = isNS ? ends.p0.x : ends.p0.z;
+      const b = isNS ? ends.p1.x : ends.p1.z;
+      const cur = isNS ? x : z;
+      const t = Math.abs(b - a) > 1e-6 ? (cur - a) / (b - a) : 0.5;
+      const baseY = ends.p0.y + (ends.p1.y - ends.p0.y) * t;
+      mesh.position.set(x, baseY + doorH / 2, z);
       this._addPreviewMesh(mesh);
     }
+  }
+
+  /**
+   * Height (world units) of the wall a previewed door would hang on. Falls
+   * back to the door type's own declared wallHeight when no wall is there
+   * yet — matching wall-builder's fallback.
+   */
+  _previewWallHeight(col, row, edge, doorDef) {
+    const occupied = this._liveState()?.wallOccupied || {};
+    const opposite = { n: 's', e: 'w', s: 'n', w: 'e' }[edge];
+    const delta = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] }[edge];
+    let wallType = occupied[`${col},${row},${edge}`];
+    if (!wallType && delta) {
+      wallType = occupied[`${col + delta[0]},${row + delta[1]},${opposite}`];
+    }
+    const def = wallType ? WALL_TYPES[wallType] : null;
+    const data = def?.wallHeight ?? doorDef?.wallHeight ?? 14;
+    return data * HEIGHT_SCALE;
   }
 
   /**
