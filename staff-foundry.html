@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Staff Foundry — figurine variant review</title>
+  <style>
+    body {
+      font-family: monospace; background: #14141f; color: #dcdce8;
+      padding: 20px; margin: 0;
+    }
+    h2 { margin: 0 0 4px; }
+    .sub { color: #8f8fa8; font-size: 12px; margin: 0 0 16px; max-width: 980px; line-height: 1.5; }
+    #controls {
+      background: #20202f; border: 1px solid #34344a; border-radius: 4px;
+      padding: 12px 14px; margin-bottom: 18px; display: flex;
+      flex-wrap: wrap; gap: 18px; align-items: center; font-size: 12px;
+    }
+    #controls label { display: flex; gap: 6px; align-items: center; }
+    #controls input[type=range] { width: 160px; }
+    button {
+      font-family: monospace; font-size: 12px; padding: 6px 12px; cursor: pointer;
+      background: #2e2e44; color: #dcdce8; border: 1px solid #45455f; border-radius: 3px;
+    }
+    button:hover { background: #3a3a56; }
+    #grid { display: flex; flex-wrap: wrap; gap: 14px; }
+    .card {
+      background: #20202f; border: 1px solid #34344a; border-radius: 4px;
+      padding: 10px; width: 480px;
+    }
+    .card.approved { border-color: #3aa864; }
+    .card.rejected { border-color: #a8443a; opacity: 0.62; }
+    .card canvas {
+      display: block; width: 480px; image-rendering: pixelated;
+      border-radius: 2px; background: #1a1a2e;
+    }
+    .viewhead {
+      display: flex; align-items: baseline; gap: 8px;
+      font-size: 10px; color: #7d7d99; letter-spacing: 0.04em;
+      text-transform: uppercase; margin: 0 0 4px;
+    }
+    .viewhead .hint { text-transform: none; letter-spacing: 0; color: #63637d; }
+    .labelstrip { position: relative; height: 16px; margin: 3px 0 12px; }
+    .labelstrip span {
+      position: absolute; top: 0; transform: translateX(-50%);
+      font-size: 10px; color: #9a9ab4; white-space: nowrap;
+    }
+    .card h3 { margin: 10px 0 2px; font-size: 14px; }
+    .card .note { color: #9a9ab4; font-size: 11px; line-height: 1.45; min-height: 32px; margin: 0 0 8px; }
+    .verdict { display: flex; gap: 8px; align-items: center; }
+    .verdict .tag { font-size: 11px; color: #8f8fa8; margin-left: auto; }
+    .tag.yes { color: #6fd39a; }
+    .tag.no { color: #d3806f; }
+    #warn { color: #d3a56f; font-size: 12px; margin-bottom: 12px; white-space: pre-wrap; }
+    #out { width: 100%; height: 90px; background: #14141f; color: #9a9ab4;
+           border: 1px solid #34344a; font-family: monospace; font-size: 11px;
+           margin-top: 14px; display: none; }
+  </style>
+</head>
+<body>
+  <h2>Staff Foundry</h2>
+  <p class="sub">
+    Six figurine designs for facility staff. Each card shows a <b>close-up</b> of all four
+    roles for judging silhouette, proportion, shading, palette and face, plus a smaller
+    <b>in-context</b> panel beside a real rfCavity at true game scale for the
+    does-it-clash-with-the-machinery check. Both views use the game's exact lighting rig
+    (ambient 0xfff5e6 @1.3, directional 0xffffff, PCFSoft shadows), the same 2:1 dimetric
+    orthographic camera angle, and the same half-resolution pixelated render path — the
+    close-up is only a <i>closer camera</i>, the way zooming in inside the game would be.
+    Approve or reject each, then hit "copy verdicts".
+  </p>
+
+  <div id="controls">
+    <label><input type="checkbox" id="turntable" checked> turntable</label>
+    <label><input type="checkbox" id="walk" checked> walk animation</label>
+    <label><input type="checkbox" id="pixelate" checked> pixelate (game-accurate)</label>
+    <label>sun <input type="range" id="sun" min="-180" max="180" value="0"> <span id="sunLabel">0°</span></label>
+    <button id="copy">copy verdicts</button>
+    <button id="reset">clear verdicts</button>
+  </div>
+
+  <div id="warn"></div>
+  <div id="grid"></div>
+  <textarea id="out" readonly></textarea>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script type="module">
+    import { buildStaffFigure, staffPalette, STAFF_STYLE_LIST } from './src/renderer3d/builders/staff-builder.js';
+    import { ComponentBuilder } from './src/renderer3d/component-builder.js';
+    import { COMPONENTS } from './src/data/components.js';
+    import { MATERIALS } from './src/renderer3d/materials/index.js';
+    import { applyTiledBoxUVs } from './src/renderer3d/uv-utils.js';
+
+    // ── Constants copied from the game ────────────────────────────────
+    // ThreeRenderer.init / _updateSunCycle. If these drift from the game the
+    // approval is worthless, so they are transcribed rather than approximated.
+    const CLEAR_COLOR = 0x1a1a2e;
+    const AMBIENT_COLOR = 0xfff5e6, AMBIENT_INTENSITY = 1.3;
+    const SUN_COLOR = 0xffffff, SUN_BASE_INTENSITY = 0.8;
+    const PIXEL_SCALE = 2;               // ThreeRenderer._pixelScale
+    const SUN_ORBIT_R = 50;
+    const CAM_D = 50, CAM_H = CAM_D * Math.sqrt(6) / 3;  // 2:1 dimetric
+
+    // ── View framing ──────────────────────────────────────────────────
+    // Both views share the camera ANGLE; only the frustum height differs.
+    //
+    // CLOSE_UP: frustum 2.1 units tall in a 270px-tall card => a 1.35-unit
+    // figure lands ~174px on screen (87px in the half-res buffer). This is
+    // the view the design decision is actually made in.
+    //
+    // CONTEXT: frustum 4.4 units tall in a 200px-tall card => ~31px per figure
+    // in the half-res buffer, which is the game's own on-screen read.
+    const CARD_W = 480;
+    const CLOSE_H = 270, CLOSE_FRUSTUM = 2.1, CLOSE_LOOK_Y = 0.72;
+    const CTX_H = 200, CTX_FRUSTUM = 4.4, CTX_LOOK_Y = 0.55;
+
+    // Figures are laid out along world (1, 0, -1), NOT along world X. Under
+    // this camera, screen-x = (X - Z)/√2 and screen-y = (X + 2Y + Z)/√6, so
+    // stepping along (1,0,-1) moves a figure purely sideways on screen: a
+    // clean, evenly spaced, non-overlapping horizontal row that can never
+    // self-occlude. Stepping along X instead would march them up-screen on a
+    // diagonal and pile them up — which is what the first cut of this page did.
+    const CLOSE_STEP = 0.60;    // world units along (1,0,-1) => 0.85 screen units
+    const CTX_STEP = 0.65;
+    const CTX_ROW_ORIGIN = { x: -2.4, z: 0.3 };
+    const FIGURE_HEADING = Math.PI / 4;   // face the camera at spin 0
+
+    // Roles are drawn from each style's own palette, so the RCT2 card shows its
+    // sampled uniform colors while the earlier variants keep the title-screen
+    // set they were designed against.
+    const ROLE_ORDER = ['operator', 'technician', 'scientist', 'engineer'];
+    const LABELS = ['operator', 'technician (hard hat)', 'scientist', 'engineer (hard hat)'];
+
+    const PHASE_PER_UNIT = 2 * Math.PI / 1.1;   // StaffPawns stride constant
+    const WALK_SPEED = 1.1;                      // world units/sec, mid-range
+    const BOB_AMP = 0.022;
+
+    const warnEl = document.getElementById('warn');
+    const warnings = [];
+    function warn(msg) { warnings.push(msg); warnEl.textContent = warnings.join('\n'); }
+
+    // ── Shared renderer ───────────────────────────────────────────────
+    // One WebGL context drives all 12 viewports. The drawing buffer is sized
+    // once per frame-batch to the CLOSE-UP size; the shorter in-context view
+    // renders into a top-aligned viewport inside that same buffer and is
+    // blitted out with a source rect. That keeps it to zero buffer resizes per
+    // frame — resizing a drawing buffer 12x per frame is the expensive path.
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setClearColor(CLEAR_COLOR);
+
+    // ── The machine: a genuine game component, built by the game's builder ──
+    let machineProto = null;
+    try {
+      machineProto = new ComponentBuilder()._createObject(COMPONENTS.rfCavity, 0xc62828);
+    } catch (err) {
+      warn('Could not build the rfCavity scale reference: ' + err.message
+        + '\nThe in-context panels fall back to a plain grey box, so judge scale with care.');
+    }
+
+    function makeMachine() {
+      const g = new THREE.Group();
+      let visual;
+      if (machineProto) {
+        visual = machineProto.clone(true);
+      } else {
+        const geo = new THREE.BoxGeometry(2, 2, 3);
+        applyTiledBoxUVs(geo, 2, 2, 3);
+        visual = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x8a8a94 }));
+        visual.position.y = 1;
+      }
+      visual.traverse((c) => {
+        // ComponentBuilder wraps every component in an invisible raycast
+        // hitbox — skip it, or the machine casts a shadow the size of its
+        // bounding box.
+        if (!c.isMesh || c.material?.visible === false) return;
+        c.castShadow = true;
+        c.receiveShadow = true;
+      });
+      g.add(visual);
+      return g;
+    }
+
+    function makeSlab(w, d) {
+      const h = 0.1;
+      const geo = new THREE.BoxGeometry(w, h, d);
+      applyTiledBoxUVs(geo, w, h, d);
+      const mat = MATERIALS.concrete_floor
+        || new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9, metalness: 0 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      mesh.position.y = -h / 2;   // slab top at y = 0, like a concrete pad
+      return mesh;
+    }
+
+    function makeLights(scene) {
+      const ambient = new THREE.AmbientLight(AMBIENT_COLOR, AMBIENT_INTENSITY);
+      scene.add(ambient);
+      const sun = new THREE.DirectionalLight(SUN_COLOR, SUN_BASE_INTENSITY);
+      sun.castShadow = true;
+      // The game runs 4096 texels across a 120-unit shadow camera (~34
+      // texels/unit). A panel only needs ~12 units, so 512 over ±6 keeps
+      // comparable shadow density without twelve 64MB maps on one page.
+      sun.shadow.mapSize.width = 512;
+      sun.shadow.mapSize.height = 512;
+      sun.shadow.bias = -0.0005;
+      sun.shadow.normalBias = 0.01;
+      sun.shadow.camera.near = 0.5;
+      sun.shadow.camera.far = 500;
+      sun.shadow.camera.left = -6;
+      sun.shadow.camera.right = 6;
+      sun.shadow.camera.top = 6;
+      sun.shadow.camera.bottom = -6;
+      scene.add(sun);
+      scene.add(sun.target);
+      return { sun, ambient };
+    }
+
+    function makeCamera(h, lookY) {
+      const aspect = CARD_W / (h === CLOSE_FRUSTUM ? CLOSE_H : CTX_H);
+      const cam = new THREE.OrthographicCamera(
+        -h * aspect / 2, h * aspect / 2, h / 2, -h / 2, 0.1, 1000);
+      cam.position.set(CAM_D, CAM_H, CAM_D);
+      cam.lookAt(0, lookY, 0);
+      cam.updateMatrixWorld();
+      cam.updateProjectionMatrix();
+      return cam;
+    }
+
+    function makeFigure(style, i) {
+      const pal = staffPalette(style);
+      const r = pal.roles[ROLE_ORDER[i]];
+      const fig = buildStaffFigure({
+        skin: pal.skins[i % pal.skins.length],
+        hair: pal.hairs[i % pal.hairs.length],
+        longHair: i === 2,
+        coat: pal.coats[i % pal.coats.length],
+        collar: r.collar, trouser: r.trouser, hardHat: r.hardHat,
+        heightScale: 1 + (i - 1.5) * 0.02,   // a taste of the crowd jitter
+      }, style);
+      fig.group.rotation.y = FIGURE_HEADING;
+      fig.phase = i * 1.3;                   // desynchronised stride
+      return fig;
+    }
+
+    // ── One card = two views ──────────────────────────────────────────
+    const cards = [];
+
+    /** Close-up: four roles in a clean row, no machine, camera pulled in. */
+    function buildCloseUpView(style) {
+      const scene = new THREE.Scene();
+      const { sun, ambient } = makeLights(scene);
+      const content = new THREE.Group();
+      scene.add(content);
+      content.add(makeSlab(3.4, 3.4));
+
+      const figures = [];
+      const anchors = [];
+      for (let i = 0; i < 4; i++) {
+        const t = (i - 1.5) * CLOSE_STEP;
+        const fig = makeFigure(style, i);
+        fig.group.position.set(t, 0, -t);
+        content.add(fig.group);
+        figures.push(fig);
+        anchors.push(new THREE.Vector3(t, 0, -t));
+      }
+      return {
+        scene, sun, ambient, content, figures, anchors,
+        camera: makeCamera(CLOSE_FRUSTUM, CLOSE_LOOK_Y),
+        h: CLOSE_H,
+      };
+    }
+
+    /** In-context: same four roles, plus the rfCavity, at true game scale. */
+    function buildContextView(style) {
+      const scene = new THREE.Scene();
+      const { sun, ambient } = makeLights(scene);
+      const content = new THREE.Group();
+      scene.add(content);
+      content.add(makeSlab(9, 3.6));
+
+      // Machine long-axis along Z, well to the right in screen space. Figures
+      // occupy screen-x roughly -3.3..-0.5, the machine +0.0..+3.5: no overlap,
+      // so nobody hides behind it.
+      const machine = makeMachine();
+      machine.position.set(2.4, 0, 0);
+      content.add(machine);
+
+      const figures = [];
+      for (let i = 0; i < 4; i++) {
+        const t = (i - 1.5) * CTX_STEP;
+        const fig = makeFigure(style, i);
+        fig.group.position.set(CTX_ROW_ORIGIN.x + t, 0, CTX_ROW_ORIGIN.z - t);
+        content.add(fig.group);
+        figures.push(fig);
+      }
+      return {
+        scene, sun, ambient, content, figures, anchors: null,
+        camera: makeCamera(CTX_FRUSTUM, CTX_LOOK_Y),
+        h: CTX_H,
+      };
+    }
+
+    function viewHead(title, hint) {
+      const el = document.createElement('div');
+      el.className = 'viewhead';
+      const t = document.createElement('span');
+      t.textContent = title;
+      const h = document.createElement('span');
+      h.className = 'hint';
+      h.textContent = hint;
+      el.append(t, h);
+      return el;
+    }
+
+    function makeCard(style) {
+      const closeUp = buildCloseUpView(style);
+      const context = buildContextView(style);
+
+      const el = document.createElement('div');
+      el.className = 'card';
+
+      el.appendChild(viewHead('close-up', '— judge the design here'));
+      const closeCanvas = document.createElement('canvas');
+      closeCanvas.style.height = CLOSE_H + 'px';
+      el.appendChild(closeCanvas);
+      closeUp.canvas = closeCanvas;
+      closeUp.ctx = closeCanvas.getContext('2d');
+
+      // Role labels, pinned to each figure's projected screen position.
+      const strip = document.createElement('div');
+      strip.className = 'labelstrip';
+      closeUp.anchors.forEach((a, i) => {
+        const v = a.clone().setY(0.2).project(closeUp.camera);
+        const span = document.createElement('span');
+        span.textContent = LABELS[i].replace('\n', ' ');
+        span.style.left = ((v.x * 0.5 + 0.5) * CARD_W).toFixed(1) + 'px';
+        strip.appendChild(span);
+      });
+      el.appendChild(strip);
+
+      el.appendChild(viewHead('in context', '— true game scale, beside an rfCavity'));
+      const ctxCanvas = document.createElement('canvas');
+      ctxCanvas.style.height = CTX_H + 'px';
+      el.appendChild(ctxCanvas);
+      context.canvas = ctxCanvas;
+      context.ctx = ctxCanvas.getContext('2d');
+
+      const h3 = document.createElement('h3');
+      h3.textContent = style.name;
+      el.appendChild(h3);
+      const note = document.createElement('p');
+      note.className = 'note';
+      note.textContent = style.note;
+      el.appendChild(note);
+
+      const verdictRow = document.createElement('div');
+      verdictRow.className = 'verdict';
+      const yes = document.createElement('button');
+      yes.textContent = 'approve';
+      const no = document.createElement('button');
+      no.textContent = 'reject';
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      verdictRow.append(yes, no, tag);
+      el.appendChild(verdictRow);
+      document.getElementById('grid').appendChild(el);
+
+      const card = { style, views: [closeUp, context], el, tag };
+      yes.onclick = () => setVerdict(card, card.verdict === 'approved' ? null : 'approved');
+      no.onclick = () => setVerdict(card, card.verdict === 'rejected' ? null : 'rejected');
+      cards.push(card);
+      return card;
+    }
+
+    // ── Verdicts (localStorage) ───────────────────────────────────────
+    const STORE_KEY = 'staffFoundryVerdicts';
+
+    function loadVerdicts() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+      catch { return {}; }
+    }
+    function saveVerdicts() {
+      const out = {};
+      for (const c of cards) if (c.verdict) out[c.style.id] = c.verdict;
+      localStorage.setItem(STORE_KEY, JSON.stringify(out));
+    }
+    function setVerdict(card, verdict) {
+      card.verdict = verdict;
+      card.el.classList.toggle('approved', verdict === 'approved');
+      card.el.classList.toggle('rejected', verdict === 'rejected');
+      card.tag.className = 'tag ' + (verdict === 'approved' ? 'yes' : verdict === 'rejected' ? 'no' : '');
+      card.tag.textContent = verdict || 'undecided';
+      saveVerdicts();
+    }
+
+    // ── Build ─────────────────────────────────────────────────────────
+    STAFF_STYLE_LIST.forEach(makeCard);
+    const stored = loadVerdicts();
+    for (const c of cards) setVerdict(c, stored[c.style.id] || null);
+
+    // ── Controls ──────────────────────────────────────────────────────
+    const cbTurn = document.getElementById('turntable');
+    const cbWalk = document.getElementById('walk');
+    const cbPixel = document.getElementById('pixelate');
+    const sunSlider = document.getElementById('sun');
+    const sunLabel = document.getElementById('sunLabel');
+    const out = document.getElementById('out');
+
+    document.getElementById('copy').onclick = async () => {
+      const json = JSON.stringify({
+        page: 'staff-foundry',
+        when: new Date().toISOString(),
+        verdicts: cards.map(c => ({ id: c.style.id, name: c.style.name, verdict: c.verdict || 'undecided' })),
+      }, null, 2);
+      out.style.display = 'block';
+      out.value = json;
+      out.select();
+      try { await navigator.clipboard.writeText(json); } catch { /* select-and-copy fallback */ }
+    };
+    document.getElementById('reset').onclick = () => {
+      localStorage.removeItem(STORE_KEY);
+      for (const c of cards) setVerdict(c, null);
+    };
+
+    // Buffer sizing. The drawing buffer is the close-up size; the in-context
+    // view uses a top-aligned sub-viewport of it.
+    let bufW = 0, bufH = 0;
+    function resizeCanvases() {
+      const scale = cbPixel.checked ? PIXEL_SCALE : 1;
+      bufW = Math.round(CARD_W / scale);
+      bufH = Math.round(CLOSE_H / scale);
+      renderer.setSize(bufW, bufH, false);
+      for (const c of cards) {
+        for (const v of c.views) {
+          v.bufH = Math.round(v.h / scale);
+          v.canvas.width = bufW;
+          v.canvas.height = v.bufH;
+          v.ctx.imageSmoothingEnabled = false;
+        }
+      }
+    }
+    cbPixel.onchange = resizeCanvases;
+    resizeCanvases();
+
+    // ── Sun placement, transcribed from ThreeRenderer._updateSunCycle ──
+    function placeSun(sun, ambient, angle) {
+      const x = Math.cos(angle) * SUN_ORBIT_R;
+      const z = Math.sin(angle) * SUN_ORBIT_R;
+      const elevation = 30 + 20 * Math.cos(angle);
+      sun.position.set(x, elevation, z);
+      sun.target.position.set(0, 0, 0);
+      sun.target.updateMatrixWorld();
+
+      const dayness = Math.max(0, Math.cos(angle));
+      sun.intensity = SUN_BASE_INTENSITY + 1.0 * dayness;
+      ambient.intensity = AMBIENT_INTENSITY;
+      if (dayness > 0.01) {
+        sun.color.setRGB(1, 0.9 + 0.1 * dayness, 0.75 + 0.25 * dayness);
+        ambient.color.setRGB(0.95 + 0.05 * dayness, 0.9 + 0.1 * dayness, 0.8 + 0.2 * dayness);
+      } else {
+        sun.color.setRGB(0.5, 0.6, 0.8);
+        ambient.color.setRGB(0.4, 0.45, 0.6);
+      }
+    }
+
+    // ── Walk, transcribed from StaffPawns._animate ────────────────────
+    // Phase advances by distance travelled (here: a fixed walking speed), not
+    // by elapsed time, so the stride reads exactly as it will in game.
+    function animateFigure(fig, dt, walking) {
+      if (walking) fig.phase += WALK_SPEED * dt * PHASE_PER_UNIT;
+      const amp = fig.style.swingAmp;
+      fig.swing = (fig.swing ?? 0) + ((walking ? amp : 0) - (fig.swing ?? 0))
+        * (1 - Math.exp(-dt / 0.10));
+      const angle = fig.swing * Math.sin(fig.phase);
+      fig.leftLeg.rotation.x = angle;
+      fig.rightLeg.rotation.x = -angle;
+      fig.leftArm.rotation.x = -angle;
+      fig.rightArm.rotation.x = angle;
+      fig.body.position.y = BOB_AMP * (fig.swing / amp) * 0.5 * (1 - Math.cos(2 * fig.phase));
+    }
+
+    let last = performance.now();
+    let spin = 0;
+    function frame(now) {
+      let dt = (now - last) / 1000;
+      last = now;
+      if (!(dt > 0) || dt > 0.5) dt = 0.016;
+
+      if (cbTurn.checked) spin += dt * 0.35;
+      const sunAngle = (+sunSlider.value) * Math.PI / 180;
+      sunLabel.textContent = sunSlider.value + '°';
+
+      for (const c of cards) {
+        for (const v of c.views) {
+          // The turntable spins each figure on its own axis, never the scene.
+          // Rotating the whole group swings the carefully spread row off the
+          // screen-horizontal axis and piles the four of them into an
+          // overlapping diagonal — the exact failure this layout exists to
+          // avoid.
+          for (const f of v.figures) f.group.rotation.y = FIGURE_HEADING + spin;
+          placeSun(v.sun, v.ambient, sunAngle);
+          for (const f of v.figures) animateFigure(f, dt, cbWalk.checked);
+
+          // Top-aligned sub-viewport: GL's origin is bottom-left, so a viewport
+          // of height v.bufH placed at y = bufH - v.bufH lands in image rows
+          // 0..v.bufH-1, which is exactly the source rect blitted below.
+          renderer.setViewport(0, bufH - v.bufH, bufW, v.bufH);
+          renderer.render(v.scene, v.camera);
+          v.ctx.drawImage(renderer.domElement, 0, 0, bufW, v.bufH,
+                                               0, 0, bufW, v.bufH);
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

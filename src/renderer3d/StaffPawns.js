@@ -1,21 +1,34 @@
-// src/renderer3d/StaffPawns.js — little walking pixel-people for hired staff.
+// src/renderer3d/StaffPawns.js — little walking 3D people for hired staff.
 //
-// Each hired StaffMember gets a billboard THREE.Sprite with a canvas-drawn
-// pixel-art person (7x13 px figure on a 9x15 canvas, NearestFilter so it
-// stays crisp and chunky). The figure is a front-facing adaptation of the
-// title-screen scientists (see TitleScreen._drawPerson): same proportions
-// (3-wide head under a 1px hair cap, 5-wide x 6-tall off-white lab coat with
-// a darker front-opening line, 3-tall trousers), same skin/hair/coat palette,
-// and the same yellow hard hat (cap + brim) — worn here by technicians and
-// engineers. Appearance is seeded from the staff id so pawns look the same
-// across frames and reloads; roles stay distinguishable via tinted trousers
-// plus a matching collar sliver at the top of the coat opening.
+// Each hired StaffMember gets a low-poly figurine built by
+// builders/staff-builder.js: a lit, shadow-casting THREE.Group of boxes and
+// faceted prisms, in the same 3D scene as the machines. (These used to be flat
+// camera-facing sprites with a hard black outline, which read as a completely
+// different art style; that whole path — canvas frames, texture swapping,
+// SpriteMaterial — is gone.)
+//
+// Appearance is seeded from the staff id so pawns look the same across frames
+// and reloads. Skin, hair, coat and the per-role accents all come from the
+// builder's palette for the active style — currently the RCT2 set, sampled from
+// the real sprite sheets, where the role color is worn as a full uniform rather
+// than as a collar sliver. Technicians and engineers wear hard hats. A ±4%
+// per-staff height jitter keeps a crowd from looking cloned. The figure's design
+// lives entirely in the builder's style config; this file renders whatever
+// DEFAULT_STAFF_STYLE currently points at and never hardcodes a color.
 //
 // Wandering is deliberately dumb (no pathfinding): pawns amble in straight
 // lines between nearby walkable tiles (tiles with floors placed —
-// game.state.infraOccupied), pausing 2-6s between legs, with a 2-frame walk
-// animation while moving. Staff with a zone assignment bias their targets
-// toward tiles of that zone type.
+// game.state.infraOccupied), pausing 2-6s between legs. Staff with a zone
+// assignment bias their targets toward tiles of that zone type.
+//
+// Animation is fully procedural — no frames:
+//   - Facing: the figure's front is +Z, so heading = atan2(dx, dz) points it
+//     down its travel direction; group.rotation.y eases toward that with
+//     shortest-angle wrapping so it never spins the long way round the ±π seam.
+//   - Walk: the stride phase advances by DISTANCE TRAVELLED, not elapsed time,
+//     so stride locks to speed and the feet never skate. Legs swing
+//     amp*sin(phase), arms counter-phase, plus a body bob at twice the phase
+//     frequency. Idle damps the swing smoothly to zero instead of snapping.
 //
 // Owned by ThreeRenderer: it forwards sync() on staffChanged / full refresh,
 // update(dt) from the animation loop, and dispose() on teardown.
@@ -23,45 +36,35 @@
 // THREE is a CDN global — do NOT import it.
 
 import { sampleSurfaceYAt } from '../game/terrain.js';
+import {
+  buildStaffFigure,
+  disposeStaffFigure,
+  staffPalette,
+  DEFAULT_STAFF_STYLE,
+} from './builders/staff-builder.js';
 
-// Role → outfit accents (trousers + collar sliver at the coat opening).
-// Trousers stay in the title screen's dark-trouser family but tinted per
-// role; the collar repeats the brighter accent so roles read at a glance.
-const ROLE_STYLE = {
-  operator:   { collar: '#3d7dd8', trouser: '#2c4470', hardHat: false },
-  technician: { collar: '#e08a2e', trouser: '#6e4522', hardHat: true },
-  scientist:  { collar: '#8a5fd0', trouser: '#463462', hardHat: false },
-  engineer:   { collar: '#3aa864', trouser: '#25503a', hardHat: true },
-};
-const DEFAULT_STYLE = ROLE_STYLE.operator;
-
-// Exact title-screen palette (TitleScreen._spawnPerson / _drawPerson).
-const SKIN_TONES = ['#d8a878', '#b0784f', '#e8c9a2'];
-const HAIR_COLORS = ['#3a2e28', '#6e6e78', '#8a5a2e', '#1e1e28'];
-const COAT_COLORS = ['#c6c8d4', '#b7bcca', '#c9c5b4'];
-const COAT_DARK = '#8f93a4';    // coat front-opening line
-const HARD_HAT = '#d9b53a';
-const EYE = '#1a1a22';
-
-const OUTLINE = 'rgba(20,18,26,0.9)';
-
-// Canvas: 9x15 with a 1px transparent margin around the 7x13 figure
-// (margin stops NearestFilter edge bleed).
-const TEX_W = 9;
-const TEX_H = 15;
-
-// Sprite world size — a bit less than one tile (tile = 2 world units).
-// Chosen so the 13px figure covers the same world height as the previous
-// 16px figure did (~1.2 units): pawns don't grow/shrink, pixels get chunkier.
-const PAWN_H = 1.38;
-const PAWN_W = PAWN_H * (TEX_W / TEX_H);
+// Skin/hair/coat choices and the per-role accents both live in the builder,
+// keyed by the style's palette, so a style change (e.g. RCT2's sampled palette
+// and full-uniform role colors) lands here with no edits.
+const PALETTE = staffPalette(DEFAULT_STAFF_STYLE);
+const DEFAULT_ROLE = PALETTE.roles.operator;
 
 const WALK_SPEED_MIN = 0.9;   // world units / sec
 const WALK_SPEED_VAR = 0.5;
 const IDLE_MIN = 2, IDLE_MAX = 6; // seconds
-const WALK_FPS = 5;           // 2-frame swap rate
 const WANDER_RADIUS = 6;      // tiles (Chebyshev) for "nearby" targets
 const ZONE_BIAS = 0.6;        // chance to head for the assigned zone
+
+const HEIGHT_JITTER = 0.04;   // ±4% per-staff scale
+
+// Stride: radians of walk phase per world unit travelled. One full cycle
+// (2π) every ~1.1 units => a ~0.55-unit stride, about a quarter tile.
+const PHASE_PER_UNIT = 2 * Math.PI / 1.1;
+const SWING_AMP = DEFAULT_STAFF_STYLE.swingAmp;
+const BOB_AMP = 0.022;        // world units of vertical body bob at full swing
+// Exponential easing time constants (seconds to ~63% of the way there).
+const TURN_TAU = 0.06;        // ~0.15s to settle a turn
+const SWING_TAU = 0.10;       // idle damping of the limb swing
 
 // --- Seeded appearance -----------------------------------------------------
 
@@ -84,116 +87,12 @@ function mulberry32(seed) {
   };
 }
 
-// --- Pixel person drawing --------------------------------------------------
-
-/** Fill one figure-space pixel (figure origin is at canvas (1,1)). */
-function px(ctx, x, y, w = 1, h = 1) {
-  ctx.fillRect(x + 1, y + 1, w, h);
-}
-
-/**
- * Draw one animation frame of the figure onto a fresh canvas.
- * Mirrors the title screen's 2-frame walk: frame 0 = legs apart (also the
- * standing pose), frame 1 = legs together mid-stride.
- *
- * Figure layout (7w x 13h):
- *   y0        hair cap (or hard-hat cap)
- *   y1..y3    3x3 head (hard-hat brim overwrites y1)
- *   y4..y9    5-wide coat, COAT_DARK opening line down the centre
- *   y10..y12  trousers
- *   cols 0/6  coat-sleeve arms with skin hands, slight swing on frame 1
- */
-function drawFrame(look, frame) {
-  const canvas = document.createElement('canvas');
-  canvas.width = TEX_W;
-  canvas.height = TEX_H;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
-
-  const paint = (c) => { ctx.fillStyle = c; };
-
-  // Head (3x3 skin), then eyes, then hair/hat over the top — same layering
-  // as the title screen so the hat brim replaces the top skin row.
-  paint(look.skin);
-  px(ctx, 2, 1, 3, 3);
-  paint(EYE);
-  px(ctx, 2, 2, 1, 1); px(ctx, 4, 2, 1, 1);   // eyes
-  if (look.hardHat) {
-    paint(HARD_HAT);
-    px(ctx, 2, 0, 3, 1);                       // cap
-    px(ctx, 1, 1, 5, 1);                       // brim
-  } else {
-    paint(look.hair);
-    if (look.longHair) {
-      px(ctx, 1, 0, 5, 1);                     // wider cap connecting the sides
-      px(ctx, 1, 1, 1, 2); px(ctx, 5, 1, 1, 2);
-    } else {
-      px(ctx, 2, 0, 3, 1);                     // hair cap
-    }
-  }
-
-  // Lab coat (5w x 6t) with the darker front-opening line down the centre.
-  paint(look.coat);
-  px(ctx, 1, 4, 5, 6);
-  paint(COAT_DARK);
-  px(ctx, 3, 4, 1, 6);                         // coat opening
-  paint(look.collar);
-  px(ctx, 2, 4, 1, 1); px(ctx, 4, 4, 1, 1);   // role-tinted collar sliver
-
-  // Arms (coat sleeves) + skin hands. Frame 1 swings them slightly.
-  paint(look.coat);
-  if (frame === 0) {
-    px(ctx, 0, 4, 1, 5); px(ctx, 6, 4, 1, 5);
-    paint(look.skin);
-    px(ctx, 0, 9, 1, 1); px(ctx, 6, 9, 1, 1);
-  } else {
-    px(ctx, 0, 5, 1, 5); px(ctx, 6, 3, 1, 5);
-    paint(look.skin);
-    px(ctx, 0, 10, 1, 1); px(ctx, 6, 8, 1, 1);
-  }
-
-  // Trousers: apart (frame 0) / together (frame 1), like the title walk.
-  paint(look.trouser);
-  if (frame === 0) {
-    px(ctx, 1, 10, 2, 3); px(ctx, 4, 10, 2, 3);
-  } else {
-    px(ctx, 2, 10, 3, 3);
-  }
-
-  return canvas;
-}
-
-/** Wrap a drawn frame with a 1px dark outline so pawns pop on light floors. */
-function outlineFrame(figure) {
-  const canvas = document.createElement('canvas');
-  canvas.width = TEX_W;
-  canvas.height = TEX_H;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
-
-  // Silhouette, stamped at 4 offsets.
-  const sil = document.createElement('canvas');
-  sil.width = TEX_W; sil.height = TEX_H;
-  const sctx = sil.getContext('2d');
-  sctx.drawImage(figure, 0, 0);
-  sctx.globalCompositeOperation = 'source-in';
-  sctx.fillStyle = OUTLINE;
-  sctx.fillRect(0, 0, TEX_W, TEX_H);
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    ctx.drawImage(sil, dx, dy);
-  }
-  ctx.drawImage(figure, 0, 0);
-  return canvas;
-}
-
-function makeTexture(canvas) {
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  if (THREE.SRGBColorSpace !== undefined) tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
+/** Shortest signed angular difference from `from` to `to`, in (-π, π]. */
+function angleDelta(from, to) {
+  let d = (to - from) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 // --- StaffPawns ------------------------------------------------------------
@@ -244,57 +143,51 @@ export class StaffPawns {
     if (this.group.parent) this.group.parent.remove(this.group);
   }
 
+  /**
+   * Remove one pawn. Every geometry and material a figurine uses lives in the
+   * builder's module-level cache and is shared with every other pawn on
+   * screen, so disposeStaffFigure only detaches — nothing GPU-side is freed
+   * here, and nothing should be.
+   */
   _destroyPawn(pawn) {
-    this.group.remove(pawn.sprite);
-    pawn.sprite.material.dispose();
-    pawn.texA.dispose();
-    pawn.texB.dispose();
+    this.group.remove(pawn.figure.group);
+    disposeStaffFigure(pawn.figure);
   }
 
   _addPawn(member) {
     const rng = mulberry32(hashString(member.id));
-    const style = ROLE_STYLE[member.role] || DEFAULT_STYLE;
+    const role = PALETTE.roles[member.role] || DEFAULT_ROLE;
     const look = {
-      skin: SKIN_TONES[Math.floor(rng() * SKIN_TONES.length)],
-      hair: HAIR_COLORS[Math.floor(rng() * HAIR_COLORS.length)],
+      skin: PALETTE.skins[Math.floor(rng() * PALETTE.skins.length)],
+      hair: PALETTE.hairs[Math.floor(rng() * PALETTE.hairs.length)],
       longHair: rng() < 0.4,
-      coat: COAT_COLORS[Math.floor(rng() * COAT_COLORS.length)],
-      collar: style.collar,
-      trouser: style.trouser,
-      hardHat: style.hardHat,
+      coat: PALETTE.coats[Math.floor(rng() * PALETTE.coats.length)],
+      collar: role.collar,
+      trouser: role.trouser,
+      hardHat: role.hardHat,
+      heightScale: 1 + (rng() * 2 - 1) * HEIGHT_JITTER,
     };
 
-    const texA = makeTexture(outlineFrame(drawFrame(look, 0)));
-    const texB = makeTexture(outlineFrame(drawFrame(look, 1)));
-    const mat = new THREE.SpriteMaterial({
-      map: texA,
-      transparent: true,
-      alphaTest: 0.1,
-      depthTest: true,
-      depthWrite: false,
-    });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(PAWN_W, PAWN_H, 1);
-    sprite.renderOrder = 6; // above floors/zone tints, below UI label sprites
-    sprite.userData.staffId = member.id;
+    const figure = buildStaffFigure(look, DEFAULT_STAFF_STYLE);
+    figure.group.userData.staffId = member.id;
 
     const spawn = this._pickSpawn(member, rng);
     const pawn = {
       id: member.id,
-      sprite,
-      texA,
-      texB,
+      figure,
       x: spawn.x,
       z: spawn.z,
       target: null,
       mode: 'idle',
       idleT: IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN),
       speed: WALK_SPEED_MIN + rng() * WALK_SPEED_VAR,
-      animT: 0,
-      frame: 0,
+      heading: rng() * Math.PI * 2,
+      phase: rng() * Math.PI * 2,   // desynchronise the crowd's stride
+      swing: 0,
     };
-    this._placeSprite(pawn);
-    this.group.add(sprite);
+    figure.group.rotation.y = pawn.heading;
+    this._placeFigure(pawn);
+    this.group.add(figure.group);
     this._pawns.set(member.id, pawn);
   }
 
@@ -373,13 +266,14 @@ export class StaffPawns {
 
     for (const pawn of this._pawns.values()) {
       const member = byId.get(pawn.id);
+      let moved = 0;
+
       if (pawn.mode === 'idle') {
         pawn.idleT -= dt;
         if (pawn.idleT <= 0) {
           pawn.target = this._pickTarget(pawn, member);
           if (pawn.target) {
             pawn.mode = 'walk';
-            pawn.animT = 0;
           } else {
             pawn.idleT = IDLE_MIN;
           }
@@ -390,28 +284,57 @@ export class StaffPawns {
         const dist = Math.hypot(dx, dz);
         const step = pawn.speed * dt;
         if (dist <= step || dist < 0.05) {
+          moved = dist;
           pawn.x = pawn.target.x;
           pawn.z = pawn.target.z;
           pawn.mode = 'idle';
           pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
-          pawn.frame = 0;
-          pawn.sprite.material.map = pawn.texA;
         } else {
+          moved = step;
           pawn.x += (dx / dist) * step;
           pawn.z += (dz / dist) * step;
-          pawn.animT += dt;
-          const frame = Math.floor(pawn.animT * WALK_FPS) % 2;
-          if (frame !== pawn.frame) {
-            pawn.frame = frame;
-            pawn.sprite.material.map = frame === 0 ? pawn.texA : pawn.texB;
-          }
+          // Front face is +Z: rotating +Z by θ about Y gives (sinθ, 0, cosθ),
+          // so θ = atan2(dx, dz) aims the figure ALONG travel, not away from it.
+          pawn.heading += angleDelta(pawn.heading, Math.atan2(dx, dz))
+            * (1 - Math.exp(-dt / TURN_TAU));
         }
       }
-      this._placeSprite(pawn);
+
+      this._animate(pawn, dt, moved);
+      this._placeFigure(pawn);
     }
   }
 
-  _placeSprite(pawn) {
+  /**
+   * Procedural walk. `moved` is the distance covered this frame — driving the
+   * phase from it (rather than from dt) locks stride length to speed, so slow
+   * pawns take slow steps instead of moonwalking.
+   */
+  _animate(pawn, dt, moved) {
+    const walking = pawn.mode === 'walk';
+    if (walking) pawn.phase += moved * PHASE_PER_UNIT;
+
+    // Ease the swing amplitude in and out so stopping settles rather than snaps.
+    const targetSwing = walking ? SWING_AMP : 0;
+    pawn.swing += (targetSwing - pawn.swing) * (1 - Math.exp(-dt / SWING_TAU));
+
+    const angle = pawn.swing * Math.sin(pawn.phase);
+    const fig = pawn.figure;
+    fig.leftLeg.rotation.x = angle;
+    fig.rightLeg.rotation.x = -angle;
+    fig.leftArm.rotation.x = -angle;   // arms counter-phase their same-side leg
+    fig.rightArm.rotation.x = angle;
+
+    // Bob at twice the stride frequency, phased so it never dips below 0 —
+    // the figure rises off its planted foot rather than sinking into the slab.
+    const bobScale = pawn.swing / (SWING_AMP || 1);
+    fig.body.position.y = BOB_AMP * bobScale * 0.5 * (1 - Math.cos(2 * pawn.phase));
+
+    fig.group.rotation.y = pawn.heading;
+  }
+
+  /** Stand the figurine on the ground. Its origin is at the feet. */
+  _placeFigure(pawn) {
     const state = this.game?.state;
     const col = Math.floor(pawn.x / 2);
     const row = Math.floor(pawn.z / 2);
@@ -419,6 +342,6 @@ export class StaffPawns {
     // (see world-snapshot.buildFloors) — match that so feet stay on the slab.
     const isConcrete = state?.infraOccupied?.[col + ',' + row] === 'concrete';
     const groundY = isConcrete ? 0 : sampleSurfaceYAt(state, pawn.x, pawn.z);
-    pawn.sprite.position.set(pawn.x, groundY + PAWN_H * 0.5 + 0.02, pawn.z);
+    pawn.figure.group.position.set(pawn.x, groundY + 0.01, pawn.z);
   }
 }
