@@ -30,6 +30,7 @@ const SUPPLY_LABEL = 'Supplies';
 // watts, not kilowatts (see utility-ports-v2.js param names).
 const SUPPLY_SPEC = {
   powerCable:   { param: 'capacity',      unit: 'kW' },
+  hvCable:      { param: 'capacity',      unit: 'kW' },
   rfWaveguide:  { param: 'capacity',      unit: 'kW' },
   coolingWater: { param: 'capacity',      unit: 'kW thermal' },
   cryoTransfer: { param: 'coldCapacityW', unit: 'W' },
@@ -49,7 +50,8 @@ function fmtDutyPercent(dutyFactor) {
  *   entry (or anything with the same shape: an `energyCost` number and a
  *   `ports` map of { utility, role, params }).
  * @returns {Array<{ label: string, value: string }>} in display order: the
- *   draw row (if the draw is real), then one row per real source port.
+ *   draw row (if the draw is real), then one row per utility the component
+ *   sources — its outlets' capacities summed, the way discovery unites them.
  */
 export function utilityStatRows(comp) {
   const rows = [];
@@ -58,25 +60,42 @@ export function utilityStatRows(comp) {
     rows.push({ label: DRAW_LABEL, value: `${comp.energyCost} kW` });
   }
 
-  const ports = comp && comp.ports;
-  if (ports) {
-    for (const port of Object.values(ports)) {
-      if (!port || port.role !== 'source') continue;
-      const spec = SUPPLY_SPEC[port.utility];
-      if (!spec) continue;
-      const amount = port.params ? port.params[spec.param] : undefined;
-      // Skip zero/missing — e.g. bakeoutSystem's pumpSpeed:0 marker port,
-      // which exists only so the vacuum solver can detect the component, not
-      // because it supplies any real pumping.
-      if (!amount) continue;
+  // One row per utility, not per port. A device's outlets each declare
+  // capacity/N — discovery unites them into one busbar, so they add back up to
+  // the device's actual rating (see supplyPorts / distributionPorts in
+  // utility-ports-v2.js). Printing them individually turned an 8-way MCC into
+  // eight identical "31.25 kW" rows instead of one "250 kW".
+  const totals = new Map();
+  for (const port of Object.values((comp && comp.ports) || {})) {
+    if (!port || port.role !== 'source') continue;
+    const spec = SUPPLY_SPEC[port.utility];
+    if (!spec) continue;
+    const amount = port.params ? port.params[spec.param] : undefined;
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
 
-      let value = `${amount} ${spec.unit}`;
-      const dutyFactor = port.params && port.params.dutyFactor;
-      if (port.utility === 'rfWaveguide' && typeof dutyFactor === 'number') {
-        value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
-      }
-      rows.push({ label: SUPPLY_LABEL, value });
+    const entry = totals.get(port.utility)
+      ?? { utility: port.utility, spec, amount: 0, dutyFactor: undefined };
+    entry.amount += amount;
+    // Every source port of one device shares its duty cycle; take the first
+    // that declares one.
+    if (entry.dutyFactor === undefined && typeof port.params?.dutyFactor === 'number') {
+      entry.dutyFactor = port.params.dutyFactor;
     }
+    totals.set(port.utility, entry);
+  }
+
+  for (const { utility, spec, amount, dutyFactor } of totals.values()) {
+    // Skip zero — e.g. bakeoutSystem's pumpSpeed:0 marker port, which exists
+    // only so the vacuum solver can detect the component, not because it
+    // supplies any real pumping.
+    if (!amount) continue;
+    // capacity/N can land on a repeating fraction; the sum is the round number.
+    const shown = Math.round(amount * 1e6) / 1e6;
+    let value = `${shown} ${spec.unit}`;
+    if (utility === 'rfWaveguide' && typeof dutyFactor === 'number') {
+      value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
+    }
+    rows.push({ label: SUPPLY_LABEL, value });
   }
 
   return rows;
