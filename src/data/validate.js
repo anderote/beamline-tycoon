@@ -44,6 +44,8 @@ const PORT_SIDES = new Set(['front', 'back', 'left', 'right']);
 const PORT_ROLES = new Set(['source', 'sink', 'pass']);
 const BEAMLINE_ROLES = new Set(['junction', 'placement']);
 const PLACEMENTS = new Set(['module', 'attachment']);
+const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead']);
+const LIGHT_SHAPES = new Set(['point', 'cone']);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));
 const INFRA_CATEGORIES = new Set(Object.keys(MODES.infra.categories));
@@ -185,6 +187,34 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // Any def carrying a `light` block (facility lighting fixtures) must
+  // declare a valid mount, a positive energyCost, and a positive pool
+  // radius — the renderer, power aggregate and placement routing all read
+  // these uniformly and never special-case individual fixture ids.
+  function checkLight(id, def) {
+    if (def.light == null) return;
+    if (!LIGHT_MOUNTS.has(def.mount)) {
+      problem(id, 'mount', `light-bearing def must declare mount (known: ${[...LIGHT_MOUNTS].join(', ')}), got ${JSON.stringify(def.mount)}`);
+    }
+    if (typeof def.energyCost !== 'number' || !Number.isFinite(def.energyCost) || def.energyCost <= 0) {
+      problem(id, 'energyCost', `energyCost must be a positive number (kW), got ${JSON.stringify(def.energyCost)}`);
+    }
+    const { shape, radius, coneDeg, tiltDeg } = def.light;
+    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) {
+      problem(id, 'light.radius', `light.radius must be a positive number, got ${JSON.stringify(radius)}`);
+    }
+    if (!LIGHT_SHAPES.has(shape)) {
+      problem(id, 'light.shape', `light.shape must be 'point' or 'cone', got ${JSON.stringify(shape)}`);
+    } else if (shape === 'cone') {
+      if (typeof coneDeg !== 'number' || !Number.isFinite(coneDeg) || coneDeg <= 0) {
+        problem(id, 'light.coneDeg', `cone lights require a positive coneDeg, got ${JSON.stringify(coneDeg)}`);
+      }
+      if (typeof tiltDeg !== 'number' || !Number.isFinite(tiltDeg)) {
+        problem(id, 'light.tiltDeg', `cone lights require a numeric tiltDeg, got ${JSON.stringify(tiltDeg)}`);
+      }
+    }
+  }
+
   function checkBeamPorts(id, def) {
     if (def.ports == null) return;
     for (const [portName, spec] of Object.entries(def.ports)) {
@@ -286,6 +316,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'kind', `unknown kind '${p.kind}' (known: ${[...KNOWN_KINDS].join(', ')})`);
     }
     checkDims(id, p);
+    checkLight(id, p);
   }
 
   // ── Utility ports table integrity ─────────────────────────────────

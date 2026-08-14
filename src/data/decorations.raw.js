@@ -135,24 +135,9 @@ export const DECORATIONS_RAW = {
   },
 
   // === Lighting ===
-  lamppost: {
-    id: 'lamppost', name: 'Lamppost', cost: { funding: 8 }, removeCost: 0,
-    morale: 0.5, placement: 'outdoor', spriteKey: 'lamppost',
-    blocksBuild: false, category: 'lighting',
-    subW: 1, subL: 1, subH: 6,
-  },
-  bollardLight: {
-    id: 'bollardLight', name: 'Bollard Light', cost: { funding: 6 }, removeCost: 0,
-    morale: 0.25, placement: 'outdoor', spriteKey: 'bollard_light',
-    blocksBuild: false, category: 'lighting',
-    subW: 1, subL: 1, subH: 2,
-  },
-  spotLight: {
-    id: 'spotLight', name: 'Spot Light', cost: { funding: 12 }, removeCost: 0,
-    morale: 0.5, placement: 'outdoor', spriteKey: 'spot_light',
-    blocksBuild: false, category: 'lighting',
-    subW: 1, subL: 1, subH: 1,
-  },
+  // Lighting fixtures (lamppost, bollardLight, floodLight/ex-spotLight, and
+  // six new ones) now live in src/data/placeables/lighting.js, which feeds
+  // ALL_DEFS directly — see that file for the single source of truth.
 
   // === Bins & Signs ===
   trashCan: {
@@ -207,9 +192,6 @@ const DECORATION_DESCS = {
   picnicTable: 'Outdoor table for group lunches and journal club in the sun.',
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
-  lamppost: 'Classic path lighting for safe walks home after night shift.',
-  bollardLight: 'Low bollard marker for ankle-height path illumination.',
-  spotLight: 'Directional flood for facades and dramatic beamline reveals.',
   trashCan: 'Keeps the campus tidy. Contents: mostly coffee cups.',
   recyclingBin: 'For paper drafts v1 through v47.',
   infoSign: 'Campus map board so visitors can get lost with confidence.',

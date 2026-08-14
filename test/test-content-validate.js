@@ -114,6 +114,13 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
   };
   const badPlaceables = {
     ghost: { id: 'ghost', kind: 'poltergeist', subW: 1, subL: 1, subH: 1 },
+    // Light-bearing def with no mount, and a non-positive energyCost.
+    darkFixture: {
+      id: 'darkFixture', kind: 'decoration', category: 'lighting',
+      subW: 1, subL: 1, subH: 1, cost: { funding: 1 },
+      energyCost: 0,
+      light: { color: '#fff', intensity: 1, radius: 3, shape: 'point', emitterY: 1 },
+    },
   };
   const badPorts = {
     // Dangling ref: no such component in any registry.
@@ -154,6 +161,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown decoration category reported');
   assert(hasProblem(problems, 'ghost', 'kind', "'poltergeist'"),
     'unknown kind reported');
+  assert(hasProblem(problems, 'darkFixture', 'mount'),
+    'light-bearing def with no mount reported');
+  assert(hasProblem(problems, 'darkFixture', 'energyCost'),
+    'light-bearing def with energyCost 0 reported');
   assert(hasProblem(problems, 'phantomComponent', 'utilityPorts'),
     'dangling utility-port ref reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', "'steamPipe'"),
