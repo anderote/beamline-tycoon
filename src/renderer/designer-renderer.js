@@ -219,34 +219,23 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   // --- Ghost quad arrow markers (FODO advisor) ---
   if (this.ghostQuads && this.ghostQuads.length > 0 && this.totalLength > 0) {
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
-
     const compTop = beamY - schematicH / 2;
     const compBot = beamY + schematicH / 2;
     const arrowH = Math.max(6, 8 * effectiveZoom);
     const arrowHW = Math.max(4, 6 * effectiveZoom); // half-width
+    // Base zoom fits about five components to the full canvas, so on any real
+    // beamline most suggestions land outside the visible span. Count the ones
+    // that fall off each edge and point at them.
+    let offLeft = 0;
+    let offRight = 0;
 
     for (const ghost of this.ghostQuads) {
-      // Map ghost.s to pixel position
-      let ghostXPos = 20 + panOffsetPx;
-      let cumS = 0;
-      for (let i = 0; i < this.draftNodes.length; i++) {
-        const comp = COMPONENTS[this.draftNodes[i].type];
-        const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
-        const compLen = (tileLen / tileLenSum) * this.totalLength;
-        const cW = compWidths[i] * effectiveZoom;
+      // Same s -> pixel map as the marker, so the arrow (and the click region
+      // built from it below) sits at the s the advisor actually proposed.
+      const ghostXPos = 20 + panOffsetPx + this._sToPixelOffset(ghost.s, effectiveZoom);
 
-        if (ghost.s <= cumS + compLen) {
-          const frac = (ghost.s - cumS) / compLen;
-          ghostXPos += frac * cW;
-          break;
-        }
-        cumS += compLen;
-        ghostXPos += cW;
-      }
+      if (ghostXPos < 0) { offLeft++; continue; }
+      if (ghostXPos > W) { offRight++; continue; }
 
       // Focus X (polarity 1) = red, Focus Y (polarity -1) = blue
       const isX = ghost.polarity === 1;
@@ -297,34 +286,16 @@ BeamlineDesigner.prototype._renderSchematic = function() {
         ghost,
       });
     }
+
+    if (offLeft > 0) _drawOffscreenGhostChevron(ctx, 10, beamY, -1, offLeft);
+    if (offRight > 0) _drawOffscreenGhostChevron(ctx, W - 10, beamY, 1, offRight);
   }
 
-  // Draw marker line at markerS position (in physical meters)
-  // Use totalLength (from envelope) to derive per-component s-lengths so the
-  // schematic marker stays in sync with the plot cursor.
+  // Draw marker line at markerS position (in physical meters).
+  // _sToPixelOffset is the exact inverse of the click mapping in
+  // _placeMarkerAtClickX, so the marker lands under the cursor that set it.
   if (this.markerS >= 0 && this.totalLength > 0) {
-    const tileLenSum = this.draftNodes.reduce((s, n) => {
-      const c = COMPONENTS[n.type];
-      return s + (c ? (c.subL || 4) * 0.5 : 1);
-    }, 0) || 1;
-
-    let markerXPos = 20 + panOffsetPx;
-    let cumS = 0;
-    for (let i = 0; i < this.draftNodes.length; i++) {
-      const comp = COMPONENTS[this.draftNodes[i].type];
-      const tileLen = comp ? (comp.subL || 4) * 0.5 : 1;
-      // Scale so per-component lengths sum to this.totalLength
-      const compLen = (tileLen / tileLenSum) * this.totalLength;
-      const compW = compWidths[i] * effectiveZoom;
-
-      if (this.markerS <= cumS + compLen) {
-        const frac = (this.markerS - cumS) / compLen;
-        markerXPos += frac * compW;
-        break;
-      }
-      cumS += compLen;
-      markerXPos += compW;
-    }
+    const markerXPos = 20 + panOffsetPx + this._sToPixelOffset(this.markerS, effectiveZoom);
 
     // Marker line from top to floor
     ctx.strokeStyle = 'rgba(68, 136, 255, 0.5)';
@@ -363,6 +334,26 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   ctx.restore();
 };
+
+/** Edge marker for advisor suggestions that lie outside the visible span:
+ *  a chevron pointing the way to scroll, with how many are that way. */
+function _drawOffscreenGhostChevron(ctx, x, y, dir, count) {
+  const h = 7;
+  const w = 6;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 170, 34, 0.85)';
+  ctx.beginPath();
+  ctx.moveTo(x + dir * w, y - h);
+  ctx.lineTo(x + dir * w, y + h);
+  ctx.lineTo(x - dir * w, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = dir < 0 ? 'left' : 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(count), x + dir * (w + 4), y);
+  ctx.restore();
+}
 
 // --- Lab background rendering (simple procedural walls + concrete) ---
 

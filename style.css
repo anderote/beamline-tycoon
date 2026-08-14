@@ -2604,6 +2604,28 @@ body {
   letter-spacing: 1px;
   padding: 3px 10px 1px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* Focus-advisor readout: the suggestions the advisor found are usually off the
+   visible span of the stackup, so the count has to be legible without
+   scrolling. Clicking it jumps the marker to the first one. */
+.dsgn-advisor-readout {
+  font: 9px monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 190, 90, 0.9);
+  background: rgba(255, 170, 34, 0.10);
+  border: 1px solid rgba(255, 170, 34, 0.35);
+  border-radius: 2px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.dsgn-advisor-readout:hover {
+  background: rgba(255, 170, 34, 0.22);
+  color: rgba(255, 214, 140, 1);
 }
 .dsgn-schematic-row {
   flex: 0.5;

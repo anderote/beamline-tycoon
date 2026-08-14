@@ -358,12 +358,13 @@ export class BeamlineDesigner {
         const clickX = e.clientX - rect.left;
         const clickY = e.clientY - rect.top;
 
-        // Check ghost quad click first
+        // Check ghost quad click first. Ghost regions are recorded in the same
+        // CSS-pixel space as _compRegions — the renderer applies its own
+        // ctx.scale(dpr, dpr) — so they compare against clickX directly.
         if (this._ghostRegions) {
-          const dpr = window.devicePixelRatio || 1;
           for (const gr of this._ghostRegions) {
-            if (clickX >= gr.x / dpr && clickX <= (gr.x + gr.w) / dpr &&
-                clickY >= gr.y / dpr && clickY <= (gr.y + gr.h) / dpr) {
+            if (clickX >= gr.x && clickX <= gr.x + gr.w &&
+                clickY >= gr.y && clickY <= gr.y + gr.h) {
               this._insertGhostQuad(gr.ghost);
               return;
             }
@@ -384,6 +385,15 @@ export class BeamlineDesigner {
         const fraction = (e.clientX - rect.left) / rect.width;
         this.zoomAt(e.deltaY, fraction);
       }, { passive: false });
+    }
+
+    // Focus advisor readout — step the marker through the suggestions
+    const advisorReadout = document.getElementById('dsgn-advisor-readout');
+    if (advisorReadout) {
+      advisorReadout.addEventListener('click', () => {
+        if (!this.isOpen) return;
+        this._jumpToNextGhost();
+      });
     }
 
     // Plot selector dropdowns — re-render on change
@@ -1544,23 +1554,7 @@ export class BeamlineDesigner {
     const effZoom = this.viewZoom * baseZoom;
     const panPx = -this.viewX * effZoom;
 
-    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
-    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
-
-    let markerPx = 20 + panPx;
-    let cumS = 0;
-    for (let i = 0; i < this.draftNodes.length; i++) {
-      const tileLen = _nodeSubL(this.draftNodes[i]) * 0.5;
-      const compLen = (tileLen / tileLenSum) * this.totalLength;
-      const compW = compWidths[i] * effZoom;
-      if (this.markerS <= cumS + compLen) {
-        const frac = compLen > 0 ? (this.markerS - cumS) / compLen : 0;
-        markerPx += frac * compW;
-        break;
-      }
-      cumS += compLen;
-      markerPx += compW;
-    }
+    const markerPx = 20 + panPx + this._sToPixelOffset(this.markerS, effZoom);
 
     const centerX = W / 2;
     const deadZone = W * 0.4;
@@ -1632,6 +1626,30 @@ export class BeamlineDesigner {
   _compPhysLengths() {
     const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
     return this.draftNodes.map(n => (_nodeSubL(n) * 0.5 / tileLenSum) * this.totalLength);
+  }
+
+  /** Pixel offset from the left edge of the beamline (x = 20 + panPx) to
+   *  physical position s. Inverse of the click mapping in
+   *  _placeMarkerAtClickX, so the marker draws under the cursor that set it. */
+  _sToPixelOffset(s, effectiveZoom) {
+    // _compPhysLengths is the one length model in this file — it reads a
+    // trimmed drift's real length off the node, the same way the click
+    // mapping and totalLength do. Recomputing it from COMPONENTS[type].subL
+    // here would put the marker somewhere other than where it was clicked.
+    const lengths = this._compPhysLengths();
+    let px = 0;
+    let cumS = 0;
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      const compW = this._compPixelWidth(this.draftNodes[i].type,
+        _nodeSubL(this.draftNodes[i])) * effectiveZoom;
+      if (s <= cumS + lengths[i]) {
+        const frac = lengths[i] > 0 ? (s - cumS) / lengths[i] : 0;
+        return px + frac * compW;
+      }
+      cumS += lengths[i];
+      px += compW;
+    }
+    return px;
   }
 
   /** Set markerS to the center of the currently selected component (instant, for clicks). */
@@ -1894,6 +1912,59 @@ export class BeamlineDesigner {
     this._renderAll();
   }
 
+  // --- Focus advisor surfacing ---
+
+  /** Effective pixels-per-unit-width for the schematic at the current zoom,
+   *  or null when the canvas is not laid out yet. */
+  _schematicZoom() {
+    const canvas = document.getElementById('dsgn-schematic-canvas');
+    if (!canvas || !canvas.parentElement) return null;
+    const W = canvas.parentElement.getBoundingClientRect().width;
+    if (!W) return null;
+    const SCHEM_PW = 70;
+    return { W, effZoom: this.viewZoom * (W / (5 * SCHEM_PW + 40)) };
+  }
+
+  /** Show how many quads the advisor is proposing. The schematic shows roughly
+   *  five components at base zoom, so on any real beamline the suggestions sit
+   *  off the visible span — without a readout the advisor is silent work. */
+  _updateAdvisorReadout() {
+    const el = document.getElementById('dsgn-advisor-readout');
+    if (!el) return;
+    const n = this.ghostQuads ? this.ghostQuads.length : 0;
+    if (n === 0) {
+      el.classList.add('hidden');
+      return;
+    }
+    el.classList.remove('hidden');
+    el.textContent = `▲ focus advisor: ${n} suggested quad${n === 1 ? '' : 's'}`;
+  }
+
+  /** Walk the marker through the advisor's suggestions, one per click, and
+   *  centre the view on each so the arrow is actually on screen when you
+   *  arrive. Wraps around at the end. */
+  _jumpToNextGhost() {
+    if (!this.ghostQuads || this.ghostQuads.length === 0) return;
+    const i = (this._advisorCursor ?? -1) + 1;
+    this._advisorCursor = i >= this.ghostQuads.length ? 0 : i;
+    this.markerS = this.ghostQuads[this._advisorCursor].s;
+    this._updateSelectionFromMarker();
+    this._centerViewOnMarker();
+    this._renderAll();
+  }
+
+  /** Centre the schematic viewport on the marker (unlike _panToFollowMarker,
+   *  which only nudges once the marker leaves a dead zone). */
+  _centerViewOnMarker() {
+    const z = this._schematicZoom();
+    if (!z || this.draftNodes.length === 0) return;
+    const offset = this._sToPixelOffset(this.markerS, z.effZoom);
+    // markerPx = 20 + panPx + offset, panPx = -viewX * effZoom; solve for the
+    // viewX that puts markerPx at the canvas centre.
+    this.viewX = -(z.W / 2 - 20 - offset) / z.effZoom;
+    this._clampViewX();
+  }
+
   // --- Internal helpers ---
 
   _cloneNode(node) {
@@ -2054,6 +2125,8 @@ export class BeamlineDesigner {
     this.draftEnvelope = this._computeEnvelope(this.draftNodes);
     if (!this.draftEnvelope) {
       this.ghostQuads = [];
+      this._advisorCursor = -1;
+      this._updateAdvisorReadout();
       return;
     }
 
@@ -2074,6 +2147,10 @@ export class BeamlineDesigner {
 
     // Compute ghost quad suggestions from focus urgency
     this._computeGhostQuads();
+    // The suggestion list just changed, so a cursor into the old list points at
+    // an unrelated position. Start the walk over.
+    this._advisorCursor = -1;
+    this._updateAdvisorReadout();
   }
 
   /**
@@ -2086,6 +2163,10 @@ export class BeamlineDesigner {
     if (!env || env.length < 2) return;
 
     const URGENCY_THRESHOLD = 0.7;
+    // A long machine would otherwise wallpaper the schematic with arrows. The
+    // first dozen are the ones worth acting on; placing them drops urgency
+    // downstream and the advisor re-proposes from there.
+    const MAX_GHOSTS = 12;
 
     // Find s-positions of existing quads
     const quadTypes = new Set([
@@ -2105,44 +2186,63 @@ export class BeamlineDesigner {
       cumS += compLen;
     }
 
-    // Estimate one cell length for "nearby" check
-    // Use ref_focal from the beam energy at midpoint
+    // Estimate one cell length for spacing and the "nearby" check.
+    // Use ref_focal from the beam energy at midpoint.
     const midEnv = env[Math.floor(env.length / 2)];
     const pGev = midEnv ? midEnv.energy : 0.01;
     const refFocal = pGev / (0.2998 * 20.0 * 2.0);
     const cellLength = Math.max(refFocal * 2, 3.0);
+    // Spacing comes from the same model the advisor is reading, not from the
+    // half-cell estimate: lattice.py saturates drift_urgency at 20 m of
+    // unfocused drift, so urgency crosses URGENCY_THRESHOLD after ~14 m
+    // without focusing. Space the string a little tighter than that and a
+    // player who builds every arrow ends up with a line that stays under the
+    // threshold. The half-cell estimate collapses to its 3 m floor at low
+    // energy — focusStrength is calibrated at 1 GeV, so focal lengths on a
+    // 10 MeV beam are centimetres — and spacing on it proposed a quad every
+    // 2 m, seven times more hardware than the beam actually needs.
+    const URGENCY_DRIFT_SCALE = 20.0;   // lattice.py drift_urgency denominator
+    const spacing = Math.max(3.0, URGENCY_THRESHOLD * URGENCY_DRIFT_SCALE * 0.85);
 
-    let inUrgentRegion = false;
-    for (let i = 0; i < env.length; i++) {
+    // Walk the envelope once. `nextS` is the earliest s at which another quad
+    // may be proposed — it advances by one half-cell after each suggestion, so
+    // suggestions come out evenly spaced instead of one per rising edge.
+    // Deliberately NOT a rising-edge latch: urgency on an unfocused line ramps
+    // to 1.0 and stays pinned, so a latch fires once and never re-arms.
+    let nextS = -Infinity;
+    for (let i = 0; i < env.length && this.ghostQuads.length < MAX_GHOSTS; i++) {
       const d = env[i];
       const urgency = d.focus_urgency || 0;
+      if (urgency < URGENCY_THRESHOLD) continue;
 
-      if (urgency >= URGENCY_THRESHOLD && !inUrgentRegion) {
-        inUrgentRegion = true;
-        const ghostS = d.s || 0;
+      const ghostS = d.s || 0;
+      if (ghostS < nextS) continue;
 
-        // Check if an existing quad is nearby (within one cell length ahead)
-        const hasNearbyQuad = existingQuadS.some(qs =>
-          qs >= ghostS && qs <= ghostS + cellLength
-        );
-        if (hasNearbyQuad) continue;
-
-        // Map s-position to node index
-        let nodeIdx = 0;
-        let accS = 0;
-        for (let j = 0; j < this.draftNodes.length; j++) {
-          accS += _nodeSubL(this.draftNodes[j]) * 0.5;
-          if (accS >= ghostS) { nodeIdx = j; break; }
-        }
-
-        // Alternate polarity from last real or ghost quad
-        const polarity = lastQuadPolarity;
-        lastQuadPolarity = polarity === 1 ? -1 : 1;
-
-        this.ghostQuads.push({ s: ghostS, nodeIndex: nodeIdx, polarity });
-      } else if (urgency < URGENCY_THRESHOLD * 0.8) {
-        inUrgentRegion = false;
+      // Existing focusing within a cell ahead already covers this stretch.
+      // Step past that quad rather than giving up on the rest of the line —
+      // the beam still diverges downstream of it and still needs advice.
+      const nearbyQuad = existingQuadS.find(qs =>
+        qs >= ghostS - spacing && qs <= ghostS + cellLength
+      );
+      if (nearbyQuad !== undefined) {
+        nextS = nearbyQuad + spacing;
+        continue;
       }
+
+      // Map s-position to node index
+      let nodeIdx = this.draftNodes.length - 1;
+      let accS = 0;
+      for (let j = 0; j < this.draftNodes.length; j++) {
+        accS += _nodeSubL(this.draftNodes[j]) * 0.5;
+        if (accS >= ghostS) { nodeIdx = j; break; }
+      }
+
+      // Alternate polarity from last real or ghost quad
+      const polarity = lastQuadPolarity;
+      lastQuadPolarity = polarity === 1 ? -1 : 1;
+
+      this.ghostQuads.push({ s: ghostS, nodeIndex: nodeIdx, polarity });
+      nextS = ghostS + spacing;
     }
   }
 
