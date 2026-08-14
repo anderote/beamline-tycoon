@@ -5,9 +5,10 @@
 // placeable kinds it may delete; DEMOLISH_BUTTONS drives the palette).
 //
 //   - demolishBeamline / demolishUtility: click-on-object (raycast) delete.
-//   - demolishBuilding: edge-first. Press on a wall/door edge starts an
-//     edge-path drag (Shift+click deletes the whole connected run);
-//     otherwise a tile-rect drag sweeps zones, floors, and wall/door edges.
+//   - demolishBuilding: edge-first. Press on a wall/door/window edge starts
+//     an edge-path drag (Shift+click deletes the whole connected run);
+//     otherwise a tile-rect drag sweeps zones, floors, and wall/door/window
+//     edges.
 //   - demolishAll: catch-all — click or rect-drag levels everything.
 //
 // Replaced the legacy demolish-mode flag fields and
@@ -88,7 +89,9 @@ export class DemolishTool extends Tool {
           // Shift-click: delete the whole connected run at once.
           const segment = found.wallType
             ? input._buildWallSegmentPath(found.edge)
-            : input._buildDoorSegmentPath(found.edge);
+            : found.doorType
+              ? input._buildDoorSegmentPath(found.edge)
+              : input._buildWindowSegmentPath(found.edge);
           if (segment.length > 0) {
             // _batchEvents: every removeWall/removeDoor emits its own
             // 'wallsChanged', and each one costs a full WallBuilder teardown
@@ -361,9 +364,17 @@ export class DemolishTool extends Tool {
         const found = input._findWallOrDoorAtEdge(input._getNearestEdge(screenX, screenY));
         if (found) {
           if (found.wallType) {
-            game.removeWall(found.edge.col, found.edge.row, found.edge.edge);
-          } else {
+            // Route through the shared helper (matches the shift-click and
+            // drag-commit siblings below) rather than calling
+            // game.removeWall directly: removeWall's own window cascade is
+            // alias-aware now, but _removeWallAndDoorAtEdge additionally
+            // sweeps both edge representations for door/window leftovers,
+            // so this path can't drift from its siblings again.
+            input._removeWallAndDoorAtEdge(found.edge);
+          } else if (found.doorType) {
             game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
+          } else {
+            game.removeWindow(found.edge.col, found.edge.row, found.edge.edge);
           }
           return true;
         }
@@ -408,11 +419,13 @@ export class DemolishTool extends Tool {
       input._getNearestEdge(input._lastScreenX, input._lastScreenY),
     );
     if (!found) return;
-    const { edge, wallType } = found;
+    const { edge, wallType, doorType } = found;
     if (down) {
       const path = wallType
         ? input._buildWallSegmentPath(edge)
-        : input._buildDoorSegmentPath(edge);
+        : doorType
+          ? input._buildDoorSegmentPath(edge)
+          : input._buildWindowSegmentPath(edge);
       if (path.length > 0) {
         ctx.renderer.renderDemolishPathPreview(path);
         return;

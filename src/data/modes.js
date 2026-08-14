@@ -60,6 +60,7 @@ export const MODES = {
       flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' } } },
       walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, shielding: { name: 'Shielding' } } },
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
+      windows:     { name: 'Windows',       color: '#8cf', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielded: { name: 'Shielded' } } },
       // Wall- and ceiling-mounted fixtures (mount !== 'ground') — building
       // fabric, unlike Grounds' `lighting` tab which is free-standing
       // fixtures planted outdoors. Key deliberately distinct from grounds'

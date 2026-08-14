@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
@@ -58,7 +58,7 @@ const SERIALIZED_FIELDS = [
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
-  'zones', 'walls', 'doors',
+  'zones', 'walls', 'doors', 'windows',
   // facility + placement
   'facilityEquipment', 'facilityGrid', 'facilityNextId',
   'zoneFurnishings', 'zoneFurnishingSubgrids', 'zoneFurnishingNextId',
@@ -140,6 +140,19 @@ const BEAM_GRAPH_SOURCE_GAP_M = 1;
 // The renderer (ThreeRenderer._updateSunCycle) reads timeOfDay instead of
 // keeping its own wall-clock sun — this is the one clock now.
 export const DAY_LENGTH_TICKS = 240;
+
+// _detectRoom's flood-fill cap: a fill that hits this many tiles is treated
+// as having escaped into the outdoors rather than having found a genuinely
+// room-sized room. computeRoomMorale's daylight walk relies on the same
+// cap to decide a window's side is outdoors, so it is hoisted here rather
+// than duplicated as a second literal.
+const ROOM_DETECT_MAX_TILES = 500;
+
+// Per-room cap on the daylight subtotal windows contribute to
+// computeRoomMorale, applied after summing every window touching a room and
+// before that subtotal joins the (uncapped) furnishing morale total. See
+// the "Daylight" section of docs/superpowers/specs/2026-08-13-windows-design.md.
+export const DAYLIGHT_ROOM_CAP = 3.0;
 
 // tick() derives timeOfDay from state.tick as
 // `((tick + TIME_OF_DAY_PHASE_OFFSET_TICKS) % DAY_LENGTH_TICKS) / DAY_LENGTH_TICKS`
@@ -288,6 +301,13 @@ export class Game {
       // Doors (edge-based, like walls)
       doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
       doorOccupied: {},       // "col,row,edge" -> doorType
+      // Windows (edge-based, like doors — but never occupy doorOccupied. A
+      // window is a hole in a wall, not a passable opening, so nothing that
+      // answers "can something pass through this edge" may consult this map.
+      // See WINDOW_TYPES in data/structure.js and
+      // docs/superpowers/specs/2026-08-13-windows-design.md.
+      windows: [],             // [{ type, col, row, edge, variant }]
+      windowOccupied: {},      // "col,row,edge" -> windowType
       // Utility network lines (per-utility independent drawable pipes)
       utilityLines: new Map(),
       utilityNextId: 1,
@@ -1335,6 +1355,11 @@ export class Game {
         w => edgeKey(w.col, w.row, w.edge) !== key
       );
     }
+    // The replacement wall may be too short for a window already on this
+    // edge — placeWindow's fit rule has to survive a wall swap, or the
+    // renderer clamps the opening into a slit while daylight morale keeps
+    // paying the full amount.
+    this._evictUnfittableWindows(col, row, edge, wt);
     this.chargeConstruction(segCost);
     const site = this._wallSite(key, col, row, edge);
     const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
@@ -1366,6 +1391,9 @@ export class Game {
           w => edgeKey(w.col, w.row, w.edge) !== key
         );
       }
+      // See placeWall: a shorter replacement wall evicts a window it can no
+      // longer hold.
+      this._evictUnfittableWindows(pt.col, pt.row, pt.edge, wt);
       this.chargeConstruction(segCost);
       const site = this._wallSite(key, pt.col, pt.row, pt.edge);
       const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
@@ -1387,11 +1415,14 @@ export class Game {
     const wallType = this.state.wallOccupied[key];
     const wt = WALL_TYPES[wallType];
     if (wt) {
-      // Refund half of what the segment actually cost — variant claddings
-      // (brick, shingle) are priced above the base type.
+      // Refund half of what was actually paid: placeWall charges
+      // variantCosts[variant], so a flat wt.cost refund short-changes a
+      // Reinforced structuralWall (35 paid, 12 back instead of 17) and would
+      // contradict the demolish tooltip, which now prices the placed variant.
+      // Same rule removeWindow uses. _wallAt resolves either spelling of the
+      // edge (see edge-keys.js), so a mirrored record still prices correctly.
       const existing = this._wallAt(key);
-      const paid = wt.variantCosts?.[existing?.variant ?? 0] ?? wt.cost;
-      this.state.resources.funding += Math.floor(paid * 0.5);
+      this.state.resources.funding += Math.floor(variantCost(wt, existing?.variant ?? 0) * 0.5);
     }
     this.state.walls = this.state.walls.filter(
       w => edgeKey(w.col, w.row, w.edge) !== key
@@ -1408,6 +1439,20 @@ export class Game {
       this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== doorKey);
       delete this.state.doorOccupied[doorKey];
       this.emit('doorsChanged');
+    }
+    // Remove any orphaned window on this edge — a window is a hole in a
+    // wall, not a free-standing pane, so it cannot survive the wall going.
+    // Checked under both edge representations: placeWindow deliberately
+    // accepts a wall found under either the exact key or its alias (unlike
+    // placeDoor, which requires an exact match), so a window's own storage
+    // key can differ from the wall's. Cascading only the exact key here
+    // would silently orphan a window stored under the alias — no refund,
+    // and a dangling state.windows entry with no backing wall.
+    // Routed through removeWindow rather than inlining the refund, so the
+    // variant-aware refund lives in exactly one place.
+    const winAlias = this._edgeAlias(col, row, edge);
+    for (const cell of [{ col, row, edge }, winAlias]) {
+      this.removeWindow(cell.col, cell.row, cell.edge);
     }
     this.emit('wallsChanged');
     return true;
@@ -1466,17 +1511,25 @@ export class Game {
       if (this._updateDoorRecord(site.key, variant, site.off)) this.emit('doorsChanged');
       return true;
     }
+    // Funding gates every state mutation below: check it before touching
+    // state.doors, or an insufficient-funds replacement leaves the old
+    // entry filtered out of the array while doorOccupied still names it.
     if (this.state.resources.funding < dt.cost) {
       this.log(`Not enough funding for a ${dt.name} ($${dt.cost})`, 'bad');
       return false;
     }
-    // Swapping door types: drop the old record only once the new one is
-    // affordable. The pre-existing order removed it first, so a failed
-    // affordability check left doorOccupied pointing at a door that no
-    // longer had a record in state.doors.
     if (this.state.doorOccupied[site.key]) {
       this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
     }
+    // Exactly one opening per edge, always: a window here is demolished (with
+    // its usual refund) the same way removeWall() clears an orphaned door.
+    // A window may be stored under either edge representation (see
+    // placeWindow), so check both.
+    const winKey = edgeKey(col, row, edge);
+    const alias = this._edgeAlias(col, row, edge);
+    const aliasKey = edgeKey(alias.col, alias.row, alias.edge);
+    if (this.state.windowOccupied[winKey]) this.removeWindow(col, row, edge);
+    else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge);
     this.chargeConstruction(dt.cost);
     this.state.doors.push({
       type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
@@ -1509,6 +1562,13 @@ export class Game {
       if (this.state.doorOccupied[site.key]) {
         this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
       }
+      // Exactly one opening per edge, always — see placeDoor. Check both
+      // edge representations; a window may be stored under either.
+      const winKey = edgeKey(pt.col, pt.row, pt.edge);
+      const alias = this._edgeAlias(pt.col, pt.row, pt.edge);
+      const aliasKey = edgeKey(alias.col, alias.row, alias.edge);
+      if (this.state.windowOccupied[winKey]) this.removeWindow(pt.col, pt.row, pt.edge);
+      else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge);
       this.chargeConstruction(dt.cost);
       this.state.doors.push({
         type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
@@ -1538,6 +1598,190 @@ export class Game {
     this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== key);
     delete this.state.doorOccupied[key];
     this.emit('doorsChanged');
+    return true;
+  }
+
+  // === WINDOWS (EDGE-BASED, LIKE DOORS — BUT NEVER PASSABLE) ===
+  //
+  // A window occupies the same col,row,edge slot a door does, but lives in
+  // its own state.windowOccupied map rather than state.doorOccupied: nothing
+  // that answers "can something pass through this edge" (_detectRoom, pawn
+  // movement) may read windowOccupied. See
+  // docs/superpowers/specs/2026-08-13-windows-design.md.
+
+  /**
+   * The same physical tile edge has two key representations (e.g. the 's'
+   * edge of (c,r) is the 'n' edge of (c,r+1) — mirrors
+   * InputHandler._edgeAlias). Game.js keeps its own copy: placeWindow's
+   * wall-existence check must accept a wall stored under either
+   * representation, and sim state must not depend on the input layer.
+   */
+  _edgeAlias(col, row, edge) {
+    if (edge === 'n') return { col, row: row - 1, edge: 's' };
+    if (edge === 's') return { col, row: row + 1, edge: 'n' };
+    if (edge === 'e') return { col: col + 1, row, edge: 'w' };
+    return { col: col - 1, row, edge: 'e' };
+  }
+
+  /**
+   * Remove any window on this physical edge (checked under BOTH edge
+   * representations, since a window's storage key can differ from its
+   * wall's — see placeWindow) that the given wall def is too short to hold
+   * under placeWindow's fit rule. Refunded like a manual demolish.
+   *
+   * Called by placeWall/placeWallPath: the fit rule is enforced when a
+   * window is placed, so replacing the wall under it with a shorter type
+   * has to re-check it. Otherwise the renderer clamps openingTop down to
+   * the new wall height (a squashed slit) while computeRoomMorale keeps
+   * paying the window's full daylight.
+   */
+  _evictUnfittableWindows(col, row, edge, wallDef) {
+    const alias = this._edgeAlias(col, row, edge);
+    for (const cell of [{ col, row, edge }, alias]) {
+      const wKey = `${cell.col},${cell.row},${cell.edge}`;
+      const winType = this.state.windowOccupied[wKey];
+      if (!winType) continue;
+      const winDef = WINDOW_TYPES[winType];
+      if (winDef && wallDef &&
+          wallDef.wallHeight >= winDef.sillHeight + winDef.openingHeight + 1) continue;
+      this.removeWindow(cell.col, cell.row, cell.edge);
+      this.log(
+        `${winDef?.name || 'Window'} removed — ${wallDef?.name || 'the new wall'} is too short to hold it`,
+        'bad'
+      );
+    }
+  }
+
+  placeWindow(col, row, edge, windowType, variant = 0) {
+    const wt = WINDOW_TYPES[windowType];
+    if (!wt) return false;
+    const segCost = wt.variantCosts?.[variant] ?? wt.cost;
+    const key = `${col},${row},${edge}`;
+    const alias = this._edgeAlias(col, row, edge);
+    const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+    // A window is a hole in an existing wall — accept the wall under either
+    // edge representation, the same way InputHandler._findWallOrDoorAtEdge does.
+    const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
+    if (!wallTypeId) return false;
+    const wallDef = WALL_TYPES[wallTypeId];
+    // Fit rule: the wall must be tall enough to hold the sill, the opening,
+    // and at least a token header above it.
+    if (!wallDef || wallDef.wallHeight < wt.sillHeight + wt.openingHeight + 1) return false;
+
+    // A window already on this edge may be recorded under EITHER
+    // representation: InputHandler._getNearestWallEdge hands back the hovered
+    // tile's own edge with no canonicalization, so glazing a run from inside
+    // a room stores 's' while glazing the same run from outside stores 'n'.
+    // Matching only the exact key would sell a second full window on one
+    // physical edge — double charge, doubled frame/glass/surround geometry,
+    // double-counted daylight, and a demolish that removes only one of them.
+    const held = this.state.windowOccupied[key]
+      ? { col, row, edge }
+      : (this.state.windowOccupied[aliasKey] ? alias : null);
+    const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
+
+    if (held && this.state.windowOccupied[heldKey] === windowType) {
+      const existing = this.state.windows.find(
+        w => w.col === held.col && w.row === held.row && w.edge === held.edge
+      );
+      if (existing && existing.variant !== variant) {
+        existing.variant = variant;
+        this.emit('windowsChanged');
+      }
+      return true;
+    }
+    // Funding gates every state mutation below: check it before touching
+    // state.windows, or an insufficient-funds replacement leaves the old
+    // entry filtered out of the array while windowOccupied[key] still names it.
+    if (this.state.resources.funding < segCost) return false;
+    if (held) {
+      // Same-kind replacement: drop the old window without a refund, exactly
+      // as an exact-key replacement always has, so the outcome cannot depend
+      // on which side of the wall the player was standing on. (placeWall and
+      // placeDoor replace their own kind the same way.)
+      this.state.windows = this.state.windows.filter(
+        w => `${w.col},${w.row},${w.edge}` !== heldKey
+      );
+      delete this.state.windowOccupied[heldKey];
+    }
+    // Exactly one opening per edge, always. A door may be stored under
+    // either edge representation, so check both.
+    if (this.state.doorOccupied[key]) this.removeDoor(col, row, edge);
+    else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge);
+    this.chargeConstruction(segCost);
+    // Stored under the representation the caller passed (col,row,edge), not
+    // normalized to whichever alias the wall-existence check above matched
+    // against — only lookups (here, and in placeDoor's mirror-image check)
+    // are alias-aware. Mirrors placeDoor/placeWall, which don't normalize
+    // either.
+    this.state.windows.push({ type: windowType, col, row, edge, variant });
+    this.state.windowOccupied[key] = windowType;
+    this.emit('windowsChanged');
+    return true;
+  }
+
+  placeWindowPath(path, windowType, variant = 0) {
+    const wt = WINDOW_TYPES[windowType];
+    if (!wt) return false;
+    const segCost = wt.variantCosts?.[variant] ?? wt.cost;
+    let placed = 0;
+    for (const pt of path) {
+      const key = `${pt.col},${pt.row},${pt.edge}`;
+      const alias = this._edgeAlias(pt.col, pt.row, pt.edge);
+      const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+      const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
+      if (!wallTypeId) continue;
+      const wallDef = WALL_TYPES[wallTypeId];
+      if (!wallDef || wallDef.wallHeight < wt.sillHeight + wt.openingHeight + 1) continue;
+      // A window already on this edge may be recorded under either
+      // representation — see placeWindow. Dragging a run a second time (or
+      // dragging the same run back from the other side of the wall) must be
+      // a no-op, not a second purchase stacked on the same edge.
+      const held = this.state.windowOccupied[key]
+        ? { col: pt.col, row: pt.row, edge: pt.edge }
+        : (this.state.windowOccupied[aliasKey] ? alias : null);
+      const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
+      if (held && this.state.windowOccupied[heldKey] === windowType) continue;
+      if (this.state.resources.funding < segCost) break;
+      if (held) {
+        this.state.windows = this.state.windows.filter(
+          w => `${w.col},${w.row},${w.edge}` !== heldKey
+        );
+        delete this.state.windowOccupied[heldKey];
+      }
+      // A door may be stored under either edge representation, so check both.
+      if (this.state.doorOccupied[key]) this.removeDoor(pt.col, pt.row, pt.edge);
+      else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge);
+      this.chargeConstruction(segCost);
+      this.state.windows.push({ type: windowType, col: pt.col, row: pt.row, edge: pt.edge, variant });
+      this.state.windowOccupied[key] = windowType;
+      placed++;
+    }
+    if (placed > 0) {
+      this.log(`Placed ${placed} ${wt.name} segment${placed > 1 ? 's' : ''} ($${placed * segCost})`, 'good');
+      this.emit('windowsChanged');
+    }
+    return placed > 0;
+  }
+
+  removeWindow(col, row, edge) {
+    const key = `${col},${row},${edge}`;
+    const windowType = this.state.windowOccupied[key];
+    if (!windowType) return false;
+    const wt = WINDOW_TYPES[windowType];
+    const entry = this.state.windows.find(w => w.col === col && w.row === row && w.edge === edge);
+    if (wt) {
+      // Refund half of what was actually paid — placeWindow charges
+      // variantCosts[variant] when the type declares them, so a flat
+      // wt.cost refund would pay back the wrong amount on every non-default
+      // variant (short on a Mirrored picture window, over on a Grimy sash).
+      this.state.resources.funding += Math.floor(variantCost(wt, entry?.variant ?? 0) * 0.5);
+    }
+    this.state.windows = this.state.windows.filter(
+      w => !(w.col === col && w.row === row && w.edge === edge)
+    );
+    delete this.state.windowOccupied[key];
+    this.emit('windowsChanged');
     return true;
   }
 
@@ -3633,8 +3877,12 @@ export class Game {
     const room = new Set();
     const queue = [`${startCol},${startRow}`];
     room.add(queue[0]);
-    const MAX_TILES = 500;
+    const MAX_TILES = ROOM_DETECT_MAX_TILES;
 
+    // windowOccupied is deliberately absent here: a window is a hole in a
+    // wall, not a passable opening, so it must never make an edge "not
+    // blocked" the way a door does. See
+    // docs/superpowers/specs/2026-08-13-windows-design.md.
     const edgeBlocked = (wallKey1, wallKey2, doorKey1, doorKey2) =>
       (wallOcc[wallKey1] || wallOcc[wallKey2]) && !doorOcc[doorKey1] && !doorOcc[doorKey2];
 
@@ -3666,6 +3914,19 @@ export class Game {
     const roomMorale = new Map();
     const tileToRoom = {};
     const processed = new Set();
+    // A room's key is its lexicographically-first tile, which costs a sort of
+    // the whole tile set to derive. Memoized per room Set (identity is stable
+    // for the life of this call) so a 200-tile hall with eight windows sorts
+    // once instead of nine times.
+    const roomKeyCache = new Map();
+    const roomKeyOf = (room) => {
+      let k = roomKeyCache.get(room);
+      if (k === undefined) {
+        k = [...room].sort()[0];
+        roomKeyCache.set(room, k);
+      }
+      return k;
+    };
 
     for (const furn of (this.state.zoneItems || this.state.zoneFurnishings)) {
       const furnDef = ZONE_FURNISHINGS[furn.type];
@@ -3682,9 +3943,56 @@ export class Game {
       }
       if (!room) continue;
 
-      const roomKey = [...room].sort()[0];
+      const roomKey = roomKeyOf(room);
       const current = roomMorale.get(roomKey) || 0;
       roomMorale.set(roomKey, current + furnDef.effects.morale);
+    }
+
+    // Daylight: each placed window contributes to the room(s) on both sides
+    // of its edge — an interior glass partition lights both rooms it
+    // divides. Room resolution reuses the tileToRoom/processed memoisation
+    // built above rather than a second _detectRoom pass over the same
+    // tiles. A side whose flood fill hit the ROOM_DETECT_MAX_TILES cap is
+    // outdoors and contributes nothing. The per-room daylight subtotal is
+    // capped at DAYLIGHT_ROOM_CAP before joining the (uncapped) furnishing
+    // total. See the "Daylight" section of
+    // docs/superpowers/specs/2026-08-13-windows-design.md.
+    const resolveRoom = (col, row) => {
+      const key = `${col},${row}`;
+      let room = tileToRoom[key];
+      if (!room && !processed.has(key)) {
+        room = this._detectRoom(col, row);
+        for (const tileKey of room) {
+          tileToRoom[tileKey] = room;
+          processed.add(tileKey);
+        }
+      }
+      return room;
+    };
+
+    const daylightByRoom = new Map();
+    for (const win of this.state.windows) {
+      const winDef = WINDOW_TYPES[win.type];
+      if (!winDef || !winDef.daylight) continue;
+
+      const alias = this._edgeAlias(win.col, win.row, win.edge);
+      const sides = [[win.col, win.row], [alias.col, alias.row]];
+
+      for (const [col, row] of sides) {
+        const room = resolveRoom(col, row);
+        // room.size can exceed ROOM_DETECT_MAX_TILES by a few tiles (the
+        // cap is only rechecked once per dequeued tile, not per neighbor
+        // added), so ">=" rather than "===" is the correct outdoors test.
+        if (!room || room.size >= ROOM_DETECT_MAX_TILES) continue;
+
+        const roomKey = roomKeyOf(room);
+        daylightByRoom.set(roomKey, (daylightByRoom.get(roomKey) || 0) + winDef.daylight);
+      }
+    }
+
+    for (const [roomKey, subtotal] of daylightByRoom) {
+      const current = roomMorale.get(roomKey) || 0;
+      roomMorale.set(roomKey, current + Math.min(subtotal, DAYLIGHT_ROOM_CAP));
     }
 
     return roomMorale;
@@ -4333,6 +4641,7 @@ export class Game {
     this.state.zones = scenarioData.zones;
     this.state.walls = scenarioData.walls;
     this.state.doors = scenarioData.doors;
+    this.state.windows = scenarioData.windows || [];
     this.state.placeables = scenarioData.placeables;
     this.state.placeableNextId = scenarioData.placeableNextId;
     if (scenarioData.staff) this.state.staff = scenarioData.staff;
@@ -4373,6 +4682,9 @@ export class Game {
     this.state.doorOccupied = {};
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    this.state.windowOccupied = {};
+    for (const w of this.state.windows)
+      this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
     this._rebuildPlaceableIndex();
     // Placeables were replaced wholesale, so the derived views
     // (facilityEquipment / facilityGrid / zoneFurnishings / zoneItems) have to
@@ -4417,6 +4729,7 @@ export class Game {
     this.emit('zonesChanged');
     this.emit('wallsChanged');
     this.emit('doorsChanged');
+    this.emit('windowsChanged');
     this.emit('beamlineChanged');
     if (this.state.utilityLines.size > 0) this.emit('utilityLinesChanged', {});
   }
@@ -4895,6 +5208,16 @@ export class Game {
     this.state.doorOccupied = {};
     for (const d of this.state.doors) {
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    }
+
+    // Rebuild window edge state. Derived like doorOccupied, but this map
+    // must stay out of anything that answers "can I get through here" —
+    // _detectRoom deliberately never reads it. See WINDOW_TYPES in
+    // data/structure.js.
+    this.state.windows = this.state.windows || [];
+    this.state.windowOccupied = {};
+    for (const w of this.state.windows) {
+      this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
     }
 
     // Migrate: remove deprecated energy resource
