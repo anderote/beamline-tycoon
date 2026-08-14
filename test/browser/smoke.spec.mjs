@@ -249,7 +249,7 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
       // depends on how fast the machine ran the earlier steps. Reset the
       // roster so the assertion below is about the beam, not the clock.
       for (const m of g.state.staffMembers || []) {
-        if (m.role !== 'operator') continue;
+        if (m.profession !== 'operator') continue;
         m.status = 'working';
         m._restTimer = null;
         Object.assign(m.needs, { fatigue: 0, hunger: 0, morale: 1 });

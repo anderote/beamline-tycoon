@@ -71,7 +71,7 @@ function makeLine(id, utilityType, endRef) {
 
 function workingOperator(overrides = {}) {
   return {
-    role: 'operator', status: 'working', mood: 'content',
+    profession: 'operator', status: 'working', mood: 'content',
     assignment: { zoneId: 'controlRoom' },
     needs: { fatigue: 0.1 },
     ...overrides,

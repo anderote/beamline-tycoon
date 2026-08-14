@@ -148,7 +148,7 @@ export function getResearchSpeedMultiplier(id, state) {
 export function tickResearch(state, log, getResearchSpeedMult, recalcBeamline) {
   if (!state.activeResearch) return false;
   const r = RESEARCH[state.activeResearch];
-  const sciBonus = 1 + state.staff.scientists * 0.05;
+  const sciBonus = 1 + state.staff.scientist * 0.05;
   const bqFactor = state.beamOn ? (0.5 + 0.5 * state.beamQuality) : 0.5;
   const speedMult = getResearchSpeedMult(state.activeResearch) || 1;
   // Apply morale bonus to research speed

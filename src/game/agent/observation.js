@@ -53,7 +53,7 @@ export function buildObservation(game) {
     faults = [{ reason: 'tick_fault_check', tick: s.tick }];
   }
   const staff = (s.staffMembers ?? []).map(m => ({
-    id: m.id, role: m.role, mood: m.mood ?? null, status: m.status ?? null,
+    id: m.id, profession: m.profession, mood: m.mood ?? null, status: m.status ?? null,
     fatigue: m.needs?.fatigue ?? 0, morale: m.needs?.morale ?? 0
   }));
   return {

@@ -1,7 +1,7 @@
 import { ContextWindow } from './ContextWindow.js';
 import { ZONES } from '../data/facility.js';
-import { traitDesc } from '../game/staff/StaffMember.js';
-import { ROLE_COLORS, staffInitials, staffMoodColor } from './format.js';
+import { ROLE_COLORS } from './format.js';
+import { renderBioCard } from './StaffBioCard.js';
 
 export function openStaffInspector(game, staffId) {
   const m = (game.state.staffMembers || []).find(s => s.id === staffId);
@@ -12,9 +12,9 @@ export function openStaffInspector(game, staffId) {
 
   const ctx = new ContextWindow({
     id: winId,
-    title: `${m.name} — ${m.role}`,
+    title: `${m.name} — ${m.profession}`,
     icon: '👤',
-    accentColor: ROLE_COLORS[m.role] || '#4466aa',
+    accentColor: ROLE_COLORS[m.profession] || '#4466aa',
   });
 
   // store refs for refresh
@@ -24,49 +24,18 @@ export function openStaffInspector(game, staffId) {
   function renderInspector(container) {
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
     if (!staff) { container.innerHTML = '<div style="color:#888;font-size:8px;padding:12px;">Staff not found (released)</div>'; return; }
-    const name = staff.name || staff.id;
-    const role = staff.role || 'unknown';
     const mood = staff.mood || 'content';
     const status = staff.status || 'idle';
     const needs = staff.needs || { fatigue:0, hunger:0, morale:0.5 };
-    const skills = staff.skills || {};
-    const traits = staff.traits || [];
     const assignment = staff.assignment || { zoneId:null, beamlineId:null };
     const shift = staff.shift || 'flex';
 
+    container.innerHTML = '';
+    container.appendChild(renderBioCard(staff));
+
     let html = '';
-    // Header: name + mood + status
-    html += `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">`;
-    html += `<div style="width:32px;height:32px;border:2px solid ${staffMoodColor(mood)};background:#1a1a2e;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:8px;color:#fff;flex-shrink:0;">${staffInitials(name)}</div>`;
-    html += `<div>`;
-    html += `<div style="color:#ccddff;font-size:10px;">${name}</div>`;
-    html += `<div style="color:#888;font-size:7px;text-transform:capitalize;">${role} — ${mood} — ${status}</div>`;
-    html += `</div></div>`;
-
-    // Traits
-    html += `<div class="ctx-section-label">Traits</div>`;
-    if (traits.length === 0) html += `<div style="color:#666;font-size:7px;">None</div>`;
-    else {
-      html += `<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:6px;">`;
-      for (const t of traits) {
-        const d = traitDesc(t);
-        html += `<div style="background:rgba(20,20,40,0.8);border:1px solid rgba(80,80,120,0.25);border-radius:3px;padding:4px 6px;color:#aacc88;font-size:7px;">${d}</div>`;
-      }
-      html += `</div>`;
-    }
-
-    // Skills with bars 0-10
-    html += `<div class="ctx-section-label">Skills (0–10)</div>`;
-    const skillKeys = ['operating','technical','research','construction'];
-    for (const k of skillKeys) {
-      const v = typeof skills[k] === 'number' ? skills[k] : 0;
-      const pct = Math.max(0, Math.min(10, v)) / 10 * 100;
-      const col = v >= 7 ? '#44dd66' : v >= 4 ? '#ddaa22' : '#888';
-      html += `<div class="staff-skill-row"><span class="staff-skill-name">${k}</span><div class="staff-bar-track"><div class="staff-bar-fill" style="width:${pct}%;background:${col};"></div></div><span class="staff-skill-val">${v.toFixed(1)}</span></div>`;
-    }
-
     // Needs with pct bars
-    html += `<div class="ctx-section-label">Needs — Mood: ${mood}</div>`;
+    html += `<div class="ctx-section-label">Needs — Mood: ${mood} — ${status}</div>`;
     const needsList = [
       { key:'fatigue', label:'Fatigue', val: needs.fatigue ?? 0, invert:false },
       { key:'hunger', label:'Hunger', val: needs.hunger ?? 0, invert:false },
@@ -134,7 +103,9 @@ export function openStaffInspector(game, staffId) {
       html += `</div>`;
     }
 
-    container.innerHTML = html;
+    const rest = document.createElement('div');
+    rest.innerHTML = html;
+    container.appendChild(rest);
 
     // Wire assignment dropdowns
     const zoneSel = container.querySelector('[data-assign-zone]');
@@ -192,7 +163,7 @@ export function openStaffInspector(game, staffId) {
     if (ctx._body) renderInspector(ctx._body);
     // update title in case name changed
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
-    if (staff) ctx.setTitle(`${staff.name} — ${staff.role} (${staff.mood})`);
+    if (staff) ctx.setTitle(`${staff.name} — ${staff.profession} (${staff.mood})`);
   };
   // This window has no tabs, so ContextWindow.update() -> _renderBody() would
   // clear the body and find no tab renderer to refill it — every update()

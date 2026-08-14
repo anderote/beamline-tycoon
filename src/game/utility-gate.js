@@ -238,7 +238,7 @@ export class UtilityGate {
   // Control Room" is misleading when the roster is full and everyone is on a
   // break they can't finish (no cafeteria) or assigned somewhere else.
   _unstaffedMessage() {
-    const operators = (this.state.staffMembers || []).filter(m => m.role === 'operator');
+    const operators = (this.state.staffMembers || []).filter(m => m.profession === 'operator');
     if (operators.length === 0) return 'No operator hired — beam tripped';
     const inControlRoom = operators.filter(
       m => !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom');
@@ -256,7 +256,7 @@ export class UtilityGate {
 
   _hasActiveOperator() {
     return (this.state.staffMembers || []).some(m => {
-      if (m.role !== 'operator') return false;
+      if (m.profession !== 'operator') return false;
       if (m.status !== 'working') return false;
       // must be assigned to controlRoom (or no assignment counts as controlRoom for MVP)
       const zoneOk = !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom';

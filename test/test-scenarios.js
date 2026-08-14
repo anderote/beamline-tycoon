@@ -65,7 +65,7 @@ for (const scenario of SCENARIOS) {
   assert(hard.length === 0,
     `no hard infra blockers after 20 ticks (got ${JSON.stringify(hard.map(b => b.code))})`);
   assert(state.infraCanRun === true, 'infraCanRun true');
-  assert((state.staffMembers || []).some(m => m.role === 'operator'),
+  assert((state.staffMembers || []).some(m => m.profession === 'operator'),
     'operator pawn seeded');
 
   // Blocker-free is not the same as served. Unwired sinks fail CLOSED to

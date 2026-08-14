@@ -190,7 +190,7 @@ console.log('\n--- Test 4: gate unconnected-sink cache ---');
     placeables: [{ id: 'p1', type: 'dipole', category: 'beamline' }],
     utilityLines: new Map(),
     staffMembers: [{
-      role: 'operator', status: 'working', mood: 'content',
+      profession: 'operator', status: 'working', mood: 'content',
       assignment: { zoneId: 'controlRoom' }, needs: { fatigue: 0.1 },
     }],
     utilityNetworkState: new Map(),

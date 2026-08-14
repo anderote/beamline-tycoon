@@ -121,6 +121,7 @@ UIHost.prototype._updateHUD = function() {
   }
   setEl('val-reputation', Math.floor(res.reputation));
   setEl('val-data', Math.floor(res.data));
+  setEl('val-spares', Math.floor(res.spares));
 
   // Facility overview (top-left panel) — aggregated stats across the facility.
   //
@@ -2881,10 +2882,10 @@ UIHost.prototype._renderStaffBar = function() {
     const mood = m.mood || 'content';
     const fatigue = (m.needs && typeof m.needs.fatigue === 'number') ? m.needs.fatigue : 0;
     const pct = Math.max(0, Math.min(1, fatigue)) * 100;
-    const roleColor = ROLE_COLORS[m.role] || '#4466aa';
+    const roleColor = ROLE_COLORS[m.profession] || '#4466aa';
     const el = document.createElement('div');
     el.className = 'staff-portrait ' + staffMoodClass(mood);
-    el.title = `${m.name} (${m.role}) — mood: ${mood}, fatigue: ${Math.round(pct)}%, status: ${m.status || 'idle'}`;
+    el.title = `${m.name} (${m.profession}) — mood: ${mood}, fatigue: ${Math.round(pct)}%, status: ${m.status || 'idle'}`;
     el.dataset.staffId = m.id;
     el.style.background = roleColor;
     // initials
