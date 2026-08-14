@@ -1,7 +1,7 @@
 // src/renderer3d/builders/port-fitting-builder.js
 //
-// The physical connectors on equipment: a small flange on the shell wherever a
-// component declares a utility port.
+// The physical connectors on equipment: a piece of hardware bolted to the
+// shell wherever a component declares a utility port.
 //
 // These are NOT interactive feedback. The available-port dots
 // (utility-line-builder-v2.setAvailablePorts) appear only while a utility tool
@@ -10,22 +10,52 @@
 // machine and should be legible when no tool is armed at all. Without them a
 // cable arrives at a blank wall of geometry.
 //
-// Kept deliberately small and desaturated: a hall with a hundred wired
-// components has a hundred of these, and they must read as hardware detail
-// rather than as UI.
+// ── Why six shapes instead of one ────────────────────────────────────
+// Every port used to get the same collar-and-spigot, so a cryogenic transfer
+// line, an RF waveguide and a power feed were three identical grey lumps and
+// the only thing distinguishing them was a tint most players never decode. A
+// real hall does not look like that: the utility IS the connector. A CF flange
+// with its bolt ring, a rectangular waveguide, a vacuum-jacketed bayonet and a
+// conduit gland are all instantly separable at a glance, from any angle, with
+// no legend. Each style below is authored to depict the connector that utility
+// actually uses, in the same vocabulary the component builders use for their
+// own detail — flanges, bolt rings, stiffener lips, glands.
+//
+// ── Why one mesh per fitting ─────────────────────────────────────────
+// Fittings are always on, and a built-out hall has hundreds of them. Each style
+// is therefore authored ONCE, in the local +X-facing orientation, merged into a
+// single BufferGeometry and cached by style for the lifetime of the process. A
+// fitting is then one THREE.Mesh sharing that geometry and a per-utility shared
+// material, rotated onto the port's outward normal — one draw call each, where
+// the old collar+spigot cost two, and no per-fitting geometry allocation at all.
+//
+// Everything stays inside roughly the old envelope (~0.075 m radius, ~0.1 m of
+// projection along the normal) and stays desaturated. These are hardware
+// detail, not UI: a hundred of them on screen must still read as a machine
+// hall, not as a scatter of markers.
 //
 // THREE is loaded as a CDN global — do NOT import it.
 
 import { COMPONENTS } from '../../data/components.js';
 import { portAnchor3D } from '../../utility/port-anchors.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
+import { _mergeGeometries } from '../component-builder.js';
 
-const COLLAR_R = 0.075;   // flange plate radius, metres
-const COLLAR_T = 0.025;   // flange plate thickness
-const STUB_R = 0.035;     // spigot radius
-const STUB_L = 0.07;      // spigot length
+// Envelope. Nothing below may exceed these; they are the budget that keeps a
+// wall of fittings reading as texture on the machines rather than as clutter,
+// and `getFittingGeometry` checks every style against them once at build time
+// so a future connector can't quietly grow into a landmark. Measured per axis
+// (half-extent off the port axis on Y and Z), not as a radius, so a square
+// backplate is allowed its corners.
+const ENVELOPE_R = 0.075;    // max half-extent off the port axis, metres
+const ENVELOPE_L = 0.11;     // max projection along the outward normal, metres
+
+// Plates bite very slightly into the shell so no sliver of floor/wall shows
+// through the seam when the anchor lands a hair proud of the surface.
+const EMBED = 0.004;
 
 const _matCache = new Map();
+const _geoCache = new Map();
 
 function getFittingMaterial(color) {
   if (_matCache.has(color)) return _matCache.get(color);
@@ -38,40 +68,339 @@ function getFittingMaterial(color) {
     emissive: new THREE.Color(color),
     emissiveIntensity: 0.18,
   });
+  // The renderer's teardown path disposes any material it finds on a fitting
+  // unless this flag is set; these are cached and reused across every rebuild.
   mat.userData.__shared = true;
   _matCache.set(color, mat);
   return mat;
 }
 
+// ── Geometry primitives, all authored facing local +X ────────────────
+//
+// The shell surface is the YZ plane at x = 0 and the port's outward normal is
+// +X. +Y stays up after orientation (the quaternion between two horizontal
+// unit vectors is a pure spin about Y), so "up" in these builders really is up
+// on the finished machine — which is what lets a junction box have a lid and a
+// fibre gland have a service loop hanging below it.
+
 /**
- * One fitting: a collar flat against the shell with a spigot standing out of
- * it, both aligned with the port's outward normal.
+ * A cylinder or cone whose axis is +X. `rOut` is the radius of the end
+ * furthest from the shell, `rIn` the end nearest it, `x` the centre of its run.
+ * (CylinderGeometry is Y-aligned with radiusTop at +Y; a -90° spin about Z
+ * carries +Y onto +X.)
  */
-export function buildPortFitting(anchor, color) {
-  const mat = getFittingMaterial(color);
-  const g = new THREE.Group();
+function _axial(rOut, rIn, len, segs, x, y = 0, z = 0) {
+  const g = new THREE.CylinderGeometry(rOut, rIn, len, segs);
+  g.rotateZ(-Math.PI / 2);
+  g.translate(x, y, z);
+  return g;
+}
+
+/**
+ * A slab lying flat against the shell: `t` thick along the normal, `h` tall
+ * along Y, `w` wide along Z. `x` is the centre of its thickness.
+ */
+function _slab(t, h, w, x, y = 0, z = 0) {
+  const g = new THREE.BoxGeometry(t, h, w);
+  g.translate(x, y, z);
+  return g;
+}
+
+/**
+ * A ring whose axis is +X — seal rings, jacket terminations, fibre coils.
+ * (TorusGeometry's axis is +Z; a quarter turn about Y carries +Z onto +X.)
+ */
+function _ring(r, tube, x, y = 0, z = 0, radial = 6, tubular = 12) {
+  const g = new THREE.TorusGeometry(r, tube, radial, tubular);
+  g.rotateY(Math.PI / 2);
+  g.translate(x, y, z);
+  return g;
+}
+
+/**
+ * A circle of hex bolt heads standing proud of a face, in the plane of the
+ * mounting flange. The single most legible "this is bolted hardware" cue we
+ * have, and the same trick `component-builder._addBoltHoles` plays on the beam
+ * pipe flanges.
+ */
+function _boltRing(out, n, circleR, headR, headL, x, phase = 0) {
+  for (let i = 0; i < n; i++) {
+    const a = phase + (i / n) * Math.PI * 2;
+    out.push(_axial(headR, headR, headL, 6, x, Math.cos(a) * circleR, Math.sin(a) * circleR));
+  }
+}
+
+// ── The styles ───────────────────────────────────────────────────────
+
+/**
+ * powerCable / hvCable — a conduit gland screwed into a small junction box.
+ *
+ * What a power feed actually terminates in: a bolted box on the shell that the
+ * armoured conduit enters through a stepped cable gland (body nut, compression
+ * nut, then the cord itself). The box, not the cord, is what makes it read as
+ * electrical from across the hall. HV shares the style — it is the same class
+ * of hardware, just darker, and the utility's own colour carries the rest.
+ */
+function _stylePowerGland() {
+  const parts = [];
+  // Bolted backplate against the shell.
+  parts.push(_slab(0.016, 0.125, 0.115, 0.004 - EMBED));
+  for (const sy of [1, -1]) {
+    for (const sz of [1, -1]) {
+      parts.push(_axial(0.008, 0.008, 0.008, 6, 0.016, sy * 0.048, sz * 0.043));
+    }
+  }
+  // Box body, then a proud bolted lid — the lid seam is what makes it a box
+  // rather than a block.
+  parts.push(_slab(0.034, 0.098, 0.088, 0.029));
+  parts.push(_slab(0.010, 0.106, 0.096, 0.051));
+  for (const sy of [1, -1]) {
+    for (const sz of [1, -1]) {
+      parts.push(_axial(0.006, 0.006, 0.006, 6, 0.058, sy * 0.040, sz * 0.035));
+    }
+  }
+  // Gland stack out of the lid: hex body, compression nut, cord stub.
+  parts.push(_axial(0.024, 0.024, 0.020, 6, 0.066));
+  parts.push(_axial(0.019, 0.019, 0.012, 6, 0.082));
+  parts.push(_axial(0.012, 0.013, 0.016, 8, 0.096));
+  return parts;
+}
+
+/**
+ * coolingWater — a manifold plate carrying twin supply/return hose barbs.
+ *
+ * Cooling is never one line: it is a flow and a return, so the connector is a
+ * pair. Stacked vertically (supply over return) rather than side by side, which
+ * keeps the fitting narrow against the machine's flank and reads correctly from
+ * the isometric camera. Each spigot is a boss, a hex union nut and a ridged
+ * barb — the stepped cones are the barb ridges a hose clamp bites onto.
+ */
+function _styleHoseBarbs() {
+  const parts = [];
+  parts.push(_slab(0.014, 0.140, 0.080, 0.003 - EMBED));
+  for (const sy of [1, -1]) {
+    for (const sz of [1, -1]) {
+      parts.push(_axial(0.008, 0.008, 0.008, 6, 0.014, sy * 0.056, sz * 0.026));
+    }
+  }
+  for (const sy of [0.040, -0.040]) {
+    parts.push(_axial(0.026, 0.028, 0.014, 8, 0.017, sy));   // boss
+    parts.push(_axial(0.022, 0.022, 0.014, 6, 0.031, sy));   // union nut
+    parts.push(_axial(0.013, 0.019, 0.015, 8, 0.0455, sy));  // barb ridge 1
+    parts.push(_axial(0.013, 0.019, 0.015, 8, 0.0605, sy));  // barb ridge 2
+    parts.push(_axial(0.011, 0.013, 0.010, 8, 0.073, sy));   // tip
+  }
+  return parts;
+}
+
+/**
+ * cryoTransfer — a vacuum-jacketed bayonet.
+ *
+ * The one connector on this list whose whole point is that it is two pipes:
+ * a fat outer jacket holding insulating vacuum, and a thin inner line carrying
+ * the liquid, which runs the full length and pokes out past the jacket's
+ * tapered termination. A small capped pump-out stub on top of the jacket is the
+ * tell that the annulus is evacuated — the detail that separates this from a
+ * plain fat pipe at a glance.
+ */
+function _styleCryoBayonet() {
+  const parts = [];
+  parts.push(_axial(0.070, 0.072, 0.014, 12, 0.003 - EMBED));
+  _boltRing(parts, 6, 0.055, 0.009, 0.009, 0.0145);
+  parts.push(_axial(0.046, 0.048, 0.046, 10, 0.033));   // jacket
+  parts.push(_axial(0.034, 0.046, 0.014, 10, 0.063));   // jacket taper
+  parts.push(_ring(0.034, 0.006, 0.070));               // jacket termination
+  // Inner line — runs the whole way through and stands proud of the jacket.
+  parts.push(_axial(0.015, 0.015, 0.108, 8, 0.050 - EMBED));
+  parts.push(_ring(0.017, 0.005, 0.092));               // bayonet lip
+  // Pump-out stub on the jacket crown (Y-aligned, so no spin needed).
+  const stub = new THREE.CylinderGeometry(0.009, 0.009, 0.026, 6);
+  stub.translate(0.028, 0.053, 0);
+  parts.push(stub);
+  const stubCap = new THREE.CylinderGeometry(0.013, 0.013, 0.006, 6);
+  stubCap.translate(0.028, 0.069, 0);
+  parts.push(stubCap);
+  return parts;
+}
+
+/**
+ * rfWaveguide — a rectangular waveguide flange with a bolt ring.
+ *
+ * RF at these powers does not travel in a cable, it travels in a rectangular
+ * duct, and that 2:1 rectangle is the whole silhouette. Broad wall horizontal
+ * so the camera looks down onto the flat of the guide. Flange plate, a raised
+ * choke groove pad around the aperture, the guide run itself, and a lip at the
+ * far end where the next section bolts on.
+ */
+function _styleWaveguideFlange() {
+  const parts = [];
+  parts.push(_slab(0.014, 0.100, 0.140, 0.003 - EMBED));
+  // Four corner bolts plus two on the long edges — the standard flange pattern.
+  for (const sy of [1, -1]) {
+    for (const sz of [1, -1]) {
+      parts.push(_axial(0.009, 0.009, 0.008, 6, 0.014, sy * 0.038, sz * 0.056));
+    }
+    parts.push(_axial(0.009, 0.009, 0.008, 6, 0.014, sy * 0.038, 0));
+  }
+  parts.push(_slab(0.005, 0.058, 0.094, 0.0125));       // choke pad
+  parts.push(_slab(0.058, 0.036, 0.072, 0.044));        // guide run, 2:1
+  parts.push(_slab(0.008, 0.050, 0.086, 0.077));        // far-end lip
+  return parts;
+}
+
+/**
+ * vacuumPipe — a ConFlat flange.
+ *
+ * The most recognisable object in a beam hall: a thick disc with a ring of
+ * heavy bolt heads and a raised knife edge biting a gasket. Repeated on every
+ * beam pipe joint in `component-builder`, so a vacuum port that looks like one
+ * reads as continuous with the pipework it belongs to. Behind the flange, a
+ * short nipple ending in a blanked-off cap.
+ */
+function _styleCFFlange() {
+  const parts = [];
+  parts.push(_axial(0.074, 0.074, 0.016, 12, 0.004 - EMBED));
+  _boltRing(parts, 6, 0.056, 0.010, 0.010, 0.017);
+  parts.push(_ring(0.040, 0.005, 0.014, 0, 0, 6, 14));  // knife edge / gasket
+  parts.push(_axial(0.030, 0.032, 0.048, 10, 0.036));   // nipple
+  parts.push(_axial(0.040, 0.040, 0.010, 12, 0.065));   // blank flange
+  parts.push(_axial(0.020, 0.022, 0.012, 8, 0.076));    // cap boss
+  return parts;
+}
+
+/**
+ * dataFiber — a small gland with a service loop.
+ *
+ * Deliberately the smallest fitting of the six: signal hardware is tiny next to
+ * anything that carries power or coolant, and that size difference is itself
+ * information. A compact gland with a strain-relief boot, plus the giveaway —
+ * two turns of slack fibre coiled flat against the shell below it and held by a
+ * tie block, because every real fibre termination has a service loop so the
+ * cable can be re-terminated without re-pulling it.
+ */
+function _styleFiberGland() {
+  const parts = [];
+  parts.push(_slab(0.010, 0.072, 0.072, 0.001 - EMBED));
+  for (const sy of [1, -1]) {
+    parts.push(_axial(0.007, 0.007, 0.007, 6, 0.0095, sy * 0.026, 0));
+  }
+  parts.push(_axial(0.019, 0.020, 0.018, 6, 0.015));    // gland hex
+  parts.push(_axial(0.014, 0.016, 0.010, 8, 0.029));    // dome nut
+  parts.push(_axial(0.006, 0.013, 0.020, 8, 0.044));    // strain-relief boot
+  // The service loop: coils lie in the plane of the shell and run up behind the
+  // gland, so the fibre visibly disappears into it.
+  parts.push(_ring(0.038, 0.0045, 0.006, -0.028, 0.006, 6, 14));
+  parts.push(_ring(0.032, 0.0045, 0.014, -0.028, -0.004, 6, 14));
+  parts.push(_slab(0.010, 0.016, 0.010, 0.008, -0.066, 0));  // tie block
+  return parts;
+}
+
+/**
+ * Fallback — the original collar and spigot, to the millimetre.
+ *
+ * Used for any utility this module has no opinion about, including a future
+ * seventh type added before anyone gets round to drawing its connector. Better
+ * a generic fitting than no fitting: the port still has to be visible.
+ */
+function _styleGenericCollar() {
+  return [
+    _axial(ENVELOPE_R, ENVELOPE_R, 0.025, 8, 0.0125),
+    _axial(0.035, 0.035, 0.070, 8, 0.060),
+  ];
+}
+
+// Utility → style. Geometry is cached per STYLE, not per utility, so hvCable
+// and powerCable — the same box-and-gland hardware in different colours — cost
+// one cached geometry between them.
+const STYLE_OF = {
+  powerCable: 'gland',
+  hvCable: 'gland',
+  coolingWater: 'barbs',
+  cryoTransfer: 'bayonet',
+  rfWaveguide: 'waveguide',
+  vacuumPipe: 'cfFlange',
+  dataFiber: 'fiber',
+};
+
+const STYLE_BUILDERS = {
+  gland: _stylePowerGland,
+  barbs: _styleHoseBarbs,
+  bayonet: _styleCryoBayonet,
+  waveguide: _styleWaveguideFlange,
+  cfFlange: _styleCFFlange,
+  fiber: _styleFiberGland,
+  generic: _styleGenericCollar,
+};
+
+/**
+ * Once per style, at build time: shout if a connector has outgrown the budget.
+ * Cheap (one bounding box on a few hundred vertices, once per process) and it
+ * catches the failure mode these styles are most prone to — a detail added to
+ * make one fitting read better, at the cost of every fitting in the hall.
+ */
+function _checkEnvelope(style, geo) {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  if (!bb) return;
+  const lat = Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y), Math.abs(bb.min.z), Math.abs(bb.max.z));
+  if (lat > ENVELOPE_R + 1e-6 || bb.max.x > ENVELOPE_L + 1e-6) {
+    console.warn(
+      `[port-fitting] style "${style}" exceeds the fitting envelope: ` +
+      `lateral ${lat.toFixed(3)}m (max ${ENVELOPE_R}), projection ${bb.max.x.toFixed(3)}m (max ${ENVELOPE_L})`
+    );
+  }
+}
+
+/**
+ * The merged, cached geometry for a utility's connector style, facing +X.
+ * Built on first demand — a save with no cryo plant never pays for a bayonet.
+ */
+function getFittingGeometry(utilityType) {
+  const style = STYLE_OF[utilityType] || 'generic';
+  const cached = _geoCache.get(style);
+  if (cached) return cached;
+  const parts = (STYLE_BUILDERS[style] || _styleGenericCollar)();
+  const merged = _mergeGeometries(parts);
+  // The parts were never uploaded, but drop their buffers anyway rather than
+  // leaving two copies of every style alive for the process lifetime.
+  for (const p of parts) p.dispose?.();
+  _checkEnvelope(style, merged);
+  _geoCache.set(style, merged);
+  return merged;
+}
+
+/**
+ * One fitting: a single mesh, sharing this utility's cached style geometry and
+ * cached material, stood at the anchor and spun onto the port's outward normal.
+ *
+ * @param {{x:number,y:number,z:number,out?:{x:number,z:number}}} anchor
+ * @param {string} utilityType key into UTILITY_TYPES; unknown → generic collar
+ */
+export function buildPortFitting(anchor, utilityType) {
+  const color = UTILITY_TYPES[utilityType]?.color || '#999999';
+  const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
+
   const out = anchor.out || { x: 0, z: 0 };
   const horizontal = Math.abs(out.x) > 1e-6 || Math.abs(out.z) > 1e-6;
+  // Geometry is authored along +X. For a horizontal normal both vectors lie in
+  // the XZ plane, so the minimal rotation between them is a pure spin about Y
+  // and the fitting's local "up" survives — which is what lets a junction box
+  // keep its lid on top. A port with no usable normal (shouldn't happen, but
+  // the old builder guarded it and so do we) stands straight up instead.
+  const axis = horizontal
+    ? new THREE.Vector3(out.x, 0, out.z).normalize()
+    : new THREE.Vector3(0, 1, 0);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(COLLAR_R, COLLAR_R, COLLAR_T, 8), mat);
-  const stub = new THREE.Mesh(new THREE.CylinderGeometry(STUB_R, STUB_R, STUB_L, 8), mat);
-  if (horizontal) {
-    // Cylinders are Y-aligned; lay them along the outward normal.
-    const axis = new THREE.Vector3(out.x, 0, out.z).normalize();
-    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
-    collar.quaternion.copy(quat);
-    stub.quaternion.copy(quat);
-    collar.position.set(axis.x * (COLLAR_T / 2), 0, axis.z * (COLLAR_T / 2));
-    stub.position.set(axis.x * (COLLAR_T + STUB_L / 2), 0, axis.z * (COLLAR_T + STUB_L / 2));
-  } else {
-    collar.position.set(0, COLLAR_T / 2, 0);
-    stub.position.set(0, COLLAR_T + STUB_L / 2, 0);
-  }
-  g.add(collar);
-  g.add(stub);
-  g.position.set(anchor.x, anchor.y, anchor.z);
-  g.userData = { isUtilityPortFitting: true };
-  return g;
+  mesh.position.set(anchor.x, anchor.y, anchor.z);
+  mesh.userData = {
+    isUtilityPortFitting: true,
+    // Shared by reference with every other fitting of this utility; teardown
+    // paths must not dispose it. Same contract as component-builder's role
+    // meshes.
+    sharedGeometry: true,
+  };
+  return mesh;
 }
 
 /**
@@ -91,8 +420,7 @@ export function buildPortFittings(endpoints) {
       if (!spec || !spec.utility) continue;
       const anchor = portAnchor3D(ep, def, name);
       if (!anchor) continue;
-      const color = UTILITY_TYPES[spec.utility]?.color || '#999999';
-      group.add(buildPortFitting(anchor, color));
+      group.add(buildPortFitting(anchor, spec.utility));
       count++;
     }
   }

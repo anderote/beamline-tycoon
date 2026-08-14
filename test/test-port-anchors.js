@@ -1,16 +1,39 @@
 // test/test-port-anchors.js — where a utility port is in 3D.
 //
 // The anchor is presentation: it decides where the dot, the fitting and the
-// cable end go. The one thing it must never do is move the port itself — x/z
-// stay exactly portWorldPosition, because snapping, pathing, overlap and cost
-// all read that. Everything else here is about the height being sane with or
-// without a renderer present.
+// cable end go. It is deliberately NOT the sim's port position any more — the
+// sim's point is on the tile footprint, which for an on-pipe module is the
+// reserved beam corridor and is far wider than the machine, so a connector put
+// there floats half a metre out on bare floor. The anchor is measured against
+// the model instead: a raycast at the port's own height says how far out the
+// shell is, and the port's `offsetAlong` says where along the machine it sits.
+//
+// So there are two contracts here, and this file defends both:
+//
+//   * HEADLESS — with no bounds provider and no shell-measure provider (node,
+//     and any path without THREE), every step of the resolution falls through
+//     to its last option and x/z come back byte-identical to
+//     `portWorldPosition`, at every rotation. That is what keeps the rest of
+//     the node suite, and every headless caller, seeing exactly the sim's
+//     numbers. Section 1.
+//
+//   * MEASURED — with providers registered, the anchor is at the measured
+//     lateral distance and the mapped longitudinal offset, in the component's
+//     unrotated local frame, turned by `dir`. Sections 5-9 pin those to exact
+//     computed positions: an assertion that merely said "it moved" or "it got
+//     closer" would still pass if the shell measurement were plumbed in
+//     backwards, and the whole point of the change is the exact spot.
+//
+// Sections 2-4 are the older coverage — heights with and without a renderer,
+// the integrity of the hand-authored override table, and the outward normal
+// following rotation.
 
 import { COMPONENTS } from '../src/data/components.js';
-import { portWorldPosition } from '../src/utility/ports.js';
+import { portWorldPosition, placeableCenterWorld } from '../src/utility/ports.js';
 import {
   portAnchor3D,
   setModelBoundsProvider,
+  setShellMeasureProvider,
   DEFAULT_ANCHOR_Y,
 } from '../src/utility/port-anchors.js';
 import { portAnchorOverride, PORT_ANCHOR_OVERRIDES } from '../src/data/utility-port-anchors.js';
@@ -35,19 +58,39 @@ function place(type, extra = {}) {
   return { id: 'p1', type, col: 3, row: 4, subCol: 0, subRow: 0, dir: 0, ...extra };
 }
 
-console.log('\n--- 1. The sim does not move ---');
+console.log('\n--- 1. The headless fallback is the sim\'s own point ---');
 {
-  let mismatched = 0;
-  for (const { type, def, name } of utilityPorts) {
-    const p = place(type);
-    const anchor = portAnchor3D(p, def, name);
-    const pos = portWorldPosition(p, def, name);
-    if (!anchor || !pos) { if (pos) mismatched++; continue; }
-    if (anchor.x !== pos.x || anchor.z !== pos.z) mismatched++;
-  }
+  // Not "the anchor never moves" — with a renderer attached it moves onto the
+  // shell, which is the entire feature. This is the narrower promise: with
+  // NEITHER provider registered there is nothing to measure against, so the
+  // lateral distance falls through to the footprint half-extent and the
+  // longitudinal offset to zero, which reproduces `portWorldPosition` to the
+  // bit. Registered explicitly rather than trusting module-load state, because
+  // a provider left behind by an earlier import would silently turn this into
+  // a different test.
+  setModelBoundsProvider(null);
+  setShellMeasureProvider(null);
+
   assert(utilityPorts.length > 20, `there are utility ports to check (${utilityPorts.length})`);
-  assert(mismatched === 0,
-    `every anchor's x/z is exactly portWorldPosition (${mismatched} differ)`);
+
+  // Every dir, not just 0: the fallback has to survive the rotation step too,
+  // and dir 1/3 also swap the footprint, so an anchor that agreed at dir 0
+  // could still be a quarter turn out of phase.
+  const mismatched = [];
+  for (const { type, def, name } of utilityPorts) {
+    for (let dir = 0; dir < 4; dir++) {
+      const p = place(type, { dir });
+      const anchor = portAnchor3D(p, def, name);
+      const pos = portWorldPosition(p, def, name);
+      if (!pos) continue;
+      if (!anchor || anchor.x !== pos.x || anchor.z !== pos.z) {
+        mismatched.push(`${type}.${name}@${dir}`);
+      }
+    }
+  }
+  assert(mismatched.length === 0,
+    'headless, every anchor x/z is exactly portWorldPosition at every dir '
+    + `(${mismatched.slice(0, 5).join(',') || 'all match'})`);
 }
 
 console.log('\n--- 2. Every utility port resolves to a usable height ---');
@@ -160,6 +203,228 @@ console.log('\n--- 4. The outward normal follows rotation ---');
   const a = portAnchor3D(place(type), def, name);
   assert(a.standoff > 0, 'and a connector stands proud of the shell');
 }
+
+// ---------------------------------------------------------------------------
+// The measured contract.
+//
+// Everything below drives `cryomodule`, because it is the type the whole
+// change was written for and the one where every failure mode is visible at
+// once: subW 4 / subL 16 means a footprint of ±1.0 m laterally and ±4.0 m
+// along, while the drawn cryostat is under half a metre wide — so a lateral
+// number that came from the footprint is off by more than the machine's own
+// radius. It carries four utility ports at three different heights and four
+// different `offsetAlong` fractions (0.2 / 0.5 / 0.7 / 0.8), on both sides,
+// which used to resolve to two points and now must resolve to four.
+//
+// The providers are fakes returning fixed numbers, so every expected position
+// below is arithmetic anyone can check by hand rather than a golden value
+// recorded from a run.
+// ---------------------------------------------------------------------------
+
+const CM = 'cryomodule';
+const CM_DEF = COMPONENTS[CM];
+
+// A 1 m wide, 7.2 m long, 2 m tall model inside that 2 x 8 m footprint.
+const FAKE_BOUNDS = { minX: -0.5, maxX: 0.5, minY: 0, maxY: 2.0, minZ: -3.6, maxZ: 3.6 };
+// What the fake raycast reports: the shell is 0.45 m off the axis, which is
+// inside the model's own box (0.5) and less than half the footprint (1.0).
+const SHELL = 0.45;
+
+// bounds.minZ + 7.2 * offsetAlong, per port. Hand-computed, not derived.
+const ALONG = { pwr_in: -2.16, cryo_in: 0, rf_in: 2.16, vac_in: 1.44 };
+// Straight out of PORT_ANCHOR_OVERRIDES.cryomodule (_default 1.15).
+const Y = { pwr_in: 1.15, cryo_in: 0.7, rf_in: 1.45, vac_in: 1.15 };
+// spec.side: left is local -x, right is local +x.
+const SIGN = { pwr_in: -1, vac_in: -1, cryo_in: 1, rf_in: 1 };
+const CM_PORTS = Object.keys(ALONG);
+
+const TOL = 1e-9;
+function near(a, b) { return Number.isFinite(a) && Math.abs(a - b) < TOL; }
+function fmtA(a) { return a ? `(${a.x.toFixed(4)}, ${a.y.toFixed(4)}, ${a.z.toFixed(4)})` : 'null'; }
+
+// Fake providers. `lastRequests` captures what the anchor layer asked the
+// renderer to measure, which is as load-bearing as the answer: a request at
+// the wrong height or the wrong point along the machine would measure a real
+// surface and still put the connector in the wrong place.
+let lastRequests = null;
+function useProviders(bounds, surface) {
+  setModelBoundsProvider(bounds ? () => bounds : null);
+  setShellMeasureProvider(surface == null ? null : (type, requests) => {
+    lastRequests = requests;
+    const m = new Map();
+    for (const r of requests) m.set(r.key, surface);
+    return m;
+  });
+}
+
+console.log('\n--- 5. With a renderer, the anchor lands on the measured shell ---');
+{
+  useProviders(FAKE_BOUNDS, SHELL);
+
+  // Pin the frame first: everything below is centre + a local offset, so a
+  // wrong centre would make four "exact" assertions agree with each other and
+  // with nothing real.
+  const centre = placeableCenterWorld(place(CM), CM_DEF);
+  assert(near(centre.x, 7) && near(centre.z, 12),
+    `the test placement's footprint centre is (7, 12) (got ${centre.x}, ${centre.z})`);
+
+  const anchors = {};
+  for (const port of CM_PORTS) anchors[port] = portAnchor3D(place(CM), CM_DEF, port);
+
+  // What was asked of the renderer.
+  const byKey = new Map((lastRequests || []).map(r => [r.key, r]));
+  const badReq = CM_PORTS.filter((port) => {
+    const r = byKey.get(port);
+    return !r || r.axis !== 'x' || r.sign !== SIGN[port]
+      || !near(r.y, Y[port]) || !near(r.along, ALONG[port]);
+  });
+  assert(badReq.length === 0,
+    'the shell is measured on the port\'s own axis, at its authored height and '
+    + `its own point along the machine (${badReq.join(',') || 'all four correct'})`);
+
+  // And where the answer put the connector: 0.45 m out on the port's side,
+  // `offsetAlong` of the model's 7.2 m length from its back end.
+  for (const port of CM_PORTS) {
+    const a = anchors[port];
+    const wantX = 7 + SIGN[port] * SHELL;
+    const wantZ = 12 + ALONG[port];
+    assert(a && near(a.x, wantX) && near(a.y, Y[port]) && near(a.z, wantZ),
+      `cryomodule.${port} mounts at (${wantX}, ${Y[port]}, ${wantZ}) — got ${fmtA(a)}`);
+  }
+
+  // The sim, meanwhile, has not moved: it still says the footprint edge, and
+  // it is a whole 0.55 m away from where the connector is now drawn.
+  const sim = portWorldPosition(place(CM), CM_DEF, 'rf_in');
+  assert(near(sim.x, 8) && near(sim.z, 12),
+    `portWorldPosition still returns the footprint edge (${sim.x}, ${sim.z})`);
+  assert(near(anchors.rf_in.x - 7, SHELL) && (8 - 7) > SHELL,
+    'and the drawn anchor is inboard of it, on the same side');
+}
+
+console.log('\n--- 6. A connector never leaves the footprint, or enters the beam ---');
+{
+  // An absurd measurement — a ray that escaped through the model and hit
+  // something in the next county — must not put a connector on a neighbouring
+  // tile. The clamp lands it exactly back on the footprint edge, i.e. on the
+  // sim's own point, which is the worst case and is still legal.
+  useProviders(FAKE_BOUNDS, 99);
+  for (const port of ['pwr_in', 'rf_in']) {
+    const a = portAnchor3D(place(CM), CM_DEF, port);
+    const wantX = 7 + SIGN[port] * 1.0;   // footprint half-extent, subW 4 * 0.25
+    assert(near(a.x, wantX),
+      `a 99 m surface clamps ${port} back to the footprint edge ${wantX} (got ${a.x})`);
+  }
+
+  // The opposite failure: a ray that slipped through a gap and hit the beam
+  // pipe would bolt the connector to the machine's centreline. MIN_LATERAL
+  // holds it out where a hand could reach it.
+  useProviders(FAKE_BOUNDS, 0.001);
+  const tight = portAnchor3D(place(CM), CM_DEF, 'cryo_in');
+  assert(near(tight.x, 7.05),
+    `a 1 mm surface is held out to MIN_LATERAL, x = 7.05 (got ${tight.x})`);
+
+  // And the same for the longitudinal axis: a model reported longer than its
+  // own footprint cannot push a connector into the next tile. minZ -50 /
+  // maxZ 50 would put offsetAlong 0.2 at -30 m and 0.8 at +30 m; both clamp to
+  // the footprint's ±4.0. With no measure provider the lateral falls to the
+  // bounds edge (0.5) rather than the footprint, which is the middle rung of
+  // the resolution order and is otherwise never exercised.
+  useProviders({ ...FAKE_BOUNDS, minZ: -50, maxZ: 50 }, null);
+  const back = portAnchor3D(place(CM), CM_DEF, 'pwr_in');
+  const front = portAnchor3D(place(CM), CM_DEF, 'rf_in');
+  assert(near(back.z, 8) && near(front.z, 16),
+    `a 100 m model still clamps its ports to the footprint ends, z 8 and 16 `
+    + `(got ${back.z} and ${front.z})`);
+  assert(near(back.x, 6.5) && near(front.x, 7.5),
+    `with no raycast the lateral comes from the model box, x 6.5 and 7.5 `
+    + `(got ${back.x} and ${front.x})`);
+}
+
+console.log('\n--- 7. offsetAlong finally displaces along the machine ---');
+{
+  // The bug this half of the change fixes: `offsetAlong` is declared on nearly
+  // every port and was never read, so cryo_in (0.5) and rf_in (0.8) resolved to
+  // the same point on an 8 m machine — two connectors in the same place, four
+  // metres from the coupler either belongs to.
+  useProviders(null, null);
+  const flatZ = CM_PORTS.map(p => portAnchor3D(place(CM), CM_DEF, p).z);
+  assert(flatZ.every(z => z === 12),
+    `headless they all still collapse onto the face midpoint (${flatZ.join(',')})`);
+
+  useProviders(FAKE_BOUNDS, SHELL);
+  const z = {};
+  for (const port of CM_PORTS) z[port] = portAnchor3D(place(CM), CM_DEF, port).z;
+  assert(new Set(CM_PORTS.map(p => z[p])).size === 4,
+    `measured, the four ports take four distinct points along it (${CM_PORTS.map(p => z[p]).join(',')})`);
+  assert(near(z.cryo_in, 12), `offsetAlong 0.5 is the middle of the model, z 12 (got ${z.cryo_in})`);
+  assert(near(z.pwr_in, 9.84), `offsetAlong 0.2 is 2.16 m toward the back, z 9.84 (got ${z.pwr_in})`);
+  assert(near(z.rf_in, 14.16), `offsetAlong 0.8 is 2.16 m toward the front, z 14.16 (got ${z.rf_in})`);
+  assert(near(z.vac_in, 13.44), `offsetAlong 0.7 is 1.44 m toward the front, z 13.44 (got ${z.vac_in})`);
+  assert(near(z.rf_in - 12, 12 - z.pwr_in),
+    '0.2 and 0.8 are mirror images about the centre, as the model is');
+}
+
+console.log('\n--- 8. An authored mount beats the measurement ---');
+{
+  // The escape hatch for a model whose silhouette lies about where its hardware
+  // is — a port over an open gap in the shell, where the ray hits nothing
+  // useful. Authored here rather than in the shipped table (which deliberately
+  // carries no lat/along yet) so the test owns its own data.
+  const entry = PORT_ANCHOR_OVERRIDES[CM];
+  const saved = entry.cryo_in;
+  try {
+    entry.cryo_in = { y: 0.7, lat: 0.3, along: -1.25 };
+    useProviders(FAKE_BOUNDS, SHELL);   // re-registering also drops the cache
+    const a = portAnchor3D(place(CM), CM_DEF, 'cryo_in');
+    assert(a && near(a.x, 7.3) && near(a.y, 0.7) && near(a.z, 10.75),
+      `an authored lat/along wins over the 0.45 m raycast and the 0.5 fraction: `
+      + `(7.3, 0.7, 10.75) — got ${fmtA(a)}`);
+    // Its neighbour, unauthored, is untouched by the entry.
+    const rf = portAnchor3D(place(CM), CM_DEF, 'rf_in');
+    assert(near(rf.x, 7.45) && near(rf.z, 14.16),
+      `and the port next to it still takes the measurement (${fmtA(rf)})`);
+  } finally {
+    if (saved) entry.cryo_in = saved; else delete entry.cryo_in;
+    useProviders(null, null);
+  }
+}
+
+console.log('\n--- 9. The mount is local: it turns with the placeable ---');
+{
+  // The measured offset is resolved once, in the unrotated frame, and rotated
+  // at the end — so one cached mount serves all four rotations. rf_in is the
+  // useful probe because both of its components are non-zero (0.45 out, 2.16
+  // along), which is the only case where a wrong rotation is visible: a port
+  // sitting on the axis would land in the same place under a transposed or
+  // mirrored turn.
+  useProviders(FAKE_BOUNDS, SHELL);
+  const lat = SHELL, along = 2.16;
+  // Centres: dir 1/3 swap the footprint (4x16 sub-cells becomes 16x4), so the
+  // centre itself moves. Offsets are the quarter turns of (lat, along) that
+  // rotateCompass and the renderer's rotY = -dir * PI/2 both describe.
+  const expect = [
+    { c: [7, 12], o: [lat, along] },
+    { c: [10, 9], o: [-along, lat] },
+    { c: [7, 12], o: [-lat, -along] },
+    { c: [10, 9], o: [along, -lat] },
+  ];
+  const seen = new Set();
+  for (let dir = 0; dir < 4; dir++) {
+    const { c, o } = expect[dir];
+    const a = portAnchor3D(place(CM, { dir }), CM_DEF, 'rf_in');
+    const centre = placeableCenterWorld(place(CM, { dir }), CM_DEF);
+    assert(near(centre.x, c[0]) && near(centre.z, c[1]),
+      `dir ${dir}: the footprint centre is (${c[0]}, ${c[1]}) (got ${centre.x}, ${centre.z})`);
+    assert(a && near(a.x, c[0] + o[0]) && near(a.z, c[1] + o[1]) && near(a.y, Y.rf_in),
+      `dir ${dir}: rf_in mounts at (${c[0] + o[0]}, ${Y.rf_in}, ${c[1] + o[1]}) — got ${fmtA(a)}`);
+    seen.add(`${a.x},${a.z}`);
+  }
+  assert(seen.size === 4, `four rotations, four distinct anchors (${[...seen].join(' | ')})`);
+}
+
+// Leave the module as it was found: these providers are process-global, and a
+// future section (or a future import of this file) must not inherit fakes.
+useProviders(null, null);
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 if (failed > 0) process.exit(1);
