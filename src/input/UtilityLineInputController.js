@@ -23,6 +23,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
+import { portAnchor3D } from '../utility/port-anchors.js';
 import { buildPortRoutedPath, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
@@ -36,6 +37,13 @@ import { isoToGridFloat } from '../renderer/grid.js';
 // pixel-perfect aim. Tightened automatically (0.5) near ports on the same
 // placeable since those are packed tighter.
 const PORT_SNAP_RADIUS_WORLD = 1.0;
+
+// Grab radius around a port's PROJECTED anchor, in viewport pixels. Sized to
+// the fitting the renderer draws there plus a forgiving margin: big enough to
+// catch without pixel-hunting, small enough that two ports on opposite faces
+// of one machine stay separable at normal zoom. Pixels, not metres, because
+// this is a hand-eye budget — it must not shrink as the player zooms out.
+const PORT_SNAP_RADIUS_PX = 18;
 
 // How close the cursor has to be to an existing line of the same utility to
 // grab it, in tiles. Tighter than the port radius: ports are the primary
@@ -95,12 +103,12 @@ export class UtilityLineInputController {
 
   togglePreferVerticalFirst() { this._preferVerticalFirst = !this._preferVerticalFirst; }
 
-  onHover(worldX, worldY) {
+  onHover(worldX, worldY, screen) {
     if (!this._utilityType) return;
     // Expose hover port for the renderer (glowing-sphere highlight). Include
     // utilityType so the marker is colored per-descriptor even when not
     // mid-draw.
-    const snap = this._snapToNearest(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY, screen);
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
   }
@@ -141,12 +149,12 @@ export class UtilityLineInputController {
     return (c && c.funding) || 0;
   }
 
-  onMouseDown(worldX, worldY, button, modifiers = {}) {
+  onMouseDown(worldX, worldY, button, modifiers = {}, screen) {
     if (!this._utilityType || button !== 0) return false;
     // Prefer a port snap if the cursor is near one; otherwise start an
     // open-ended draw at the cursor's subtile. Either way, consume the click
     // since the utility-line tool is armed.
-    const snap = this._snapToNearest(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY, screen);
     this._drawing = true;
     if (snap) {
       this._drawStart = snap;
@@ -170,12 +178,12 @@ export class UtilityLineInputController {
     return true;
   }
 
-  onMouseMove(worldX, worldY, modifiers = {}) {
+  onMouseMove(worldX, worldY, modifiers = {}, screen) {
     if (!this._drawing) return;
     const wasRunMode = this._runMode;
     if (modifiers.run !== undefined) this._runMode = !!modifiers.run;
     // Update hover-port during drag so the candidate end port highlights.
-    const snap = this._snapToNearest(worldX, worldY);
+    const snap = this._snapToNearest(worldX, worldY, screen);
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
     const grew = this._traceCursor(worldX, worldY);
@@ -197,7 +205,7 @@ export class UtilityLineInputController {
     };
   }
 
-  onMouseUp(worldX, worldY, button, modifiers = {}) {
+  onMouseUp(worldX, worldY, button, modifiers = {}, screen) {
     if (!this._drawing || button !== 0) {
       this._cancelDraw();
       return !!this._drawing;
@@ -206,7 +214,7 @@ export class UtilityLineInputController {
     this._traceCursor(worldX, worldY);
     // End may be a port, an existing line's subtile (detected via overlap
     // during discovery), or just empty space.
-    const endSnap = this._snapToNearest(worldX, worldY);
+    const endSnap = this._snapToNearest(worldX, worldY, screen);
     const geom = this._dragGeometry(worldX, worldY, endSnap);
     // Run-wiring wins over the single-line commit whenever it found something
     // to wire; an empty plan falls through so a modifier-held miss still
@@ -455,8 +463,8 @@ export class UtilityLineInputController {
    * carries `lineId` only so the overlap check can be told which line it is
    * allowed to touch, at exactly that one point.
    */
-  _snapToNearest(worldX, worldY) {
-    const port = this._snapToNearestPort(worldX, worldY);
+  _snapToNearest(worldX, worldY, screen) {
+    const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
     const tap = this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
     if (!tap) return null;
@@ -498,12 +506,40 @@ export class UtilityLineInputController {
     return best;
   }
 
-  _snapToNearestPort(worldX, worldY) {
+  /**
+   * The port the cursor is pointing at, or null.
+   *
+   * Hit-tested in SCREEN space against each port's 3D anchor, not on the
+   * ground plane. The renderer draws every port fitting, dot and cable end at
+   * `portAnchor3D` — on the side of the machine, typically a metre up — while
+   * `portWorldPosition` is the sim's answer, flat on the tile footprint. For
+   * on-pipe hardware those are metres apart (measured: 3.7 m on a
+   * cwCryomodule, 4.9 m on a srfLinacSector), because the footprint is the
+   * reserved beam corridor and is far wider than the machine in it. Testing on
+   * the ground meant you had to aim at a port's shadow rather than the port,
+   * which is what made connectors feel detached from the hardware.
+   *
+   * Projecting handles perspective, zoom and view rotation for free: the pixel
+   * radius is what the player's hand actually experiences, and it stays
+   * constant as the camera moves, which a world-space radius does not.
+   *
+   * `screen` is absent for callers with no mouse event (tests, synthetic
+   * gestures); those fall back to the original ground-plane test, which is
+   * still correct for floor-standing equipment and is what the headless suites
+   * assert against.
+   */
+  _snapToNearestPort(worldX, worldY, screen) {
     const state = this.game.state;
     const lines = state.utilityLines;
     const cursorWorld = this._isoFloatToWorld(worldX, worldY);
+    const canProject = !!(screen && this.renderer
+      && typeof this.renderer.worldToScreen === 'function');
+
     let best = null;
-    let bestDist = PORT_SNAP_RADIUS_WORLD;
+    // Two different metrics, so two different budgets: pixels when projecting,
+    // world metres on the fallback path.
+    let bestDist = canProject ? PORT_SNAP_RADIUS_PX : PORT_SNAP_RADIUS_WORLD;
+
     // Endpoints, not state.placeables: components carried on beam pipes
     // (cavities, cryomodules, BPMs) declare utility ports too, and hit-testing
     // placeables alone made those ports impossible to grab.
@@ -512,11 +548,22 @@ export class UtilityLineInputController {
       if (!def || !def.ports) continue;
       const availableNames = availablePorts(placeable, def, this._utilityType, lines);
       for (const name of availableNames) {
+        // The sim's point stays the committed endpoint either way — only the
+        // hit test moves. A line still starts and ends where the solver says.
         const pos = portWorldPosition(placeable, def, name);
         if (!pos) continue;
-        const dx = pos.x - cursorWorld.x;
-        const dz = pos.z - cursorWorld.z;
-        const d = Math.hypot(dx, dz);
+
+        let d;
+        if (canProject) {
+          const anchor = portAnchor3D(placeable, def, name);
+          if (!anchor) continue;
+          const px = this.renderer.worldToScreen(anchor.x, anchor.y, anchor.z);
+          if (!px) continue;
+          d = Math.hypot(px.x - screen.x, px.y - screen.y);
+        } else {
+          d = Math.hypot(pos.x - cursorWorld.x, pos.z - cursorWorld.z);
+        }
+
         if (d < bestDist) {
           bestDist = d;
           best = { placeableId: placeable.id, portName: name, worldPos: pos };

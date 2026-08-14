@@ -1043,6 +1043,33 @@ export class ThreeRenderer {
   }
 
   /**
+   * A 3D world point (metres) -> viewport pixels, in the same client
+   * coordinate space as a MouseEvent's clientX/clientY.
+   *
+   * The inverse of `_raycastGround`, and the thing that lets input hit-test
+   * against geometry that is NOT on the ground plane. A utility port lives on
+   * the side of a machine a metre or two up (see port-anchors.js), so the only
+   * honest way to ask "is the cursor on that port" is to project the port and
+   * compare in pixels — the ground point under the cursor is a different place
+   * entirely, and how different depends on camera height and zoom.
+   *
+   * The scratch vector is reused: this runs once per available port per
+   * mousemove. Returns null before the camera exists.
+   *
+   * @returns {{x: number, y: number}|null} client pixels
+   */
+  worldToScreen(x, y, z) {
+    if (!this.camera || !this.renderer) return null;
+    const v = this._projScratch || (this._projScratch = new THREE.Vector3());
+    v.set(x, y, z).project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return {
+      x: rect.left + (v.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-v.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  /**
    * Aim the shared screen-ray scratch objects at a screen pixel and return
    * them. Raycaster/Vector2/Plane fire on every mousemove (placement
    * preview, hover picking, ground raycasts), so they are allocated once

@@ -65,7 +65,13 @@ export class UtilityLineTool extends Tool {
     const ctrl = ctx.input.utilityLineController;
     const { lastMouseWorldX: mx, lastMouseWorldY: my } = ctx.input;
     if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
-    ctrl.onMouseMove(mx, my, modifiers);
+    // The last real cursor pixel, so port picking re-runs against the same
+    // projected anchors a mouse move would have used. Without it a bend flip
+    // would silently drop back to the ground-plane hit test.
+    const sx = ctx.input._lastScreenX;
+    const sy = ctx.input._lastScreenY;
+    const screen = (Number.isFinite(sx) && Number.isFinite(sy)) ? { x: sx, y: sy } : undefined;
+    ctrl.onMouseMove(mx, my, modifiers, screen);
     this._updateDragTooltip(ctx, ctx.input._lastScreenX, ctx.input._lastScreenY);
   }
 
@@ -138,7 +144,7 @@ export class UtilityLineTool extends Tool {
     // either way the controller consumes the click while armed. Shift arms
     // run-wiring: the drag sweeps a corridor and wires every compatible sink.
     return !!ctx.input.utilityLineController.onMouseDown(
-      world.x, world.y, 0, { run: e.shiftKey });
+      world.x, world.y, 0, { run: e.shiftKey }, { x: e.clientX, y: e.clientY });
   }
 
   onMouseMove(e, ctx) {
@@ -148,7 +154,7 @@ export class UtilityLineTool extends Tool {
     const world = this._cableWorld(e, ctx);
     if (ctrl.isActive()) {
       // Mid-draw: update the Manhattan preview path.
-      ctrl.onMouseMove(world.x, world.y, { run: e.shiftKey });
+      ctrl.onMouseMove(world.x, world.y, { run: e.shiftKey }, { x: e.clientX, y: e.clientY });
       input.lastMouseWorldX = world.x;
       input.lastMouseWorldY = world.y;
       input._lastScreenX = e.clientX;
@@ -160,7 +166,7 @@ export class UtilityLineTool extends Tool {
     const grid = isoToGrid(ground.x, ground.y);
     renderer.updateHover(grid.col, grid.row);
     // Hover: highlight the nearest port that matches the utility type.
-    ctrl.onHover(world.x, world.y);
+    ctrl.onHover(world.x, world.y, { x: e.clientX, y: e.clientY });
     input.lastMouseWorldX = world.x;
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
@@ -178,7 +184,7 @@ export class UtilityLineTool extends Tool {
     // Draw end — commits through Game.commitGesture (one undo entry, whether
     // that is a single line or a whole run).
     const world = this._cableWorld(e, ctx);
-    ctrl.onMouseUp(world.x, world.y, e.button, { run: e.shiftKey });
+    ctrl.onMouseUp(world.x, world.y, e.button, { run: e.shiftKey }, { x: e.clientX, y: e.clientY });
     ctx.input._hideDragCostTooltip?.();
     return true;
   }
