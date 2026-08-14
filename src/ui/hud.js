@@ -21,6 +21,7 @@ import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
+import { facilityStaffingReport } from '../game/staff/staffDiagnostics.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
 import { utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
@@ -202,6 +203,9 @@ UIHost.prototype._updateHUD = function() {
 
   // Staff bar (top bar portraits)
   this._renderStaffBar();
+
+  // Facility staffing banner (Task 8) — the idle-legibility headline.
+  this._renderStaffingBanner();
 
   // Pause/speed buttons (also refreshed directly on 'speedChanged')
   this._updateSimControls();
@@ -464,6 +468,89 @@ UIHost.prototype._showInfraBlockerPanel = function() {
   this._infraBlockerDismissedSig = null;
   this._infraBlockerSig = null;
   this._renderInfraBlockerList();
+};
+
+// --- Facility staffing banner (Task 8, staff-professions-3 jobs-and-gates) -
+//
+// The idle-legibility layer: staffDiagnostics.facilityStaffingReport groups
+// every staffer currently without a job by (corrected) idleReason text and
+// ranks the groups beam-blocked > repairs-stalled > everything else. This
+// panel is that report's one-line surface — "N staff idle: <reason>",
+// naming the highest-impact group only (see the report's own doc comment on
+// `worst`), clickable to open the inspector for exactly those staff. It
+// exists independently of the infra-blocker panel above: a facility can be
+// fully wired (no infraBlockers at all) while staff sit idle for reasons
+// that never reach the gate (nothing to repair, no reachable cafeteria,
+// admin with no meeting to run) — this banner is the only place those
+// surface at all.
+const STAFFING_BANNER_ID = 'staffing-banner';
+// Cap on how many inspector windows one banner click opens — "filtered to
+// those staff" (task-8-brief.md) means only the affected roster, not
+// "however many happen to share this reason": a bad night could put a dozen
+// technicians in one group, and opening a dozen ContextWindows at once would
+// bury the one useful signal in window-stack noise instead of clarifying it.
+const STAFFING_BANNER_OPEN_CAP = 6;
+
+function ensureStaffingBanner() {
+  let panel = document.getElementById(STAFFING_BANNER_ID);
+  if (panel) return panel;
+  const host = document.getElementById('game') || document.body;
+  if (!host) return null;
+  panel = document.createElement('div');
+  panel.id = STAFFING_BANNER_ID;
+  // Directly under the top bar, spanning the same horizontal band the infra
+  // fault chip's popup opens into on the left — but THIS is a single line,
+  // centered, so it reads as one clear headline rather than a list to parse.
+  panel.style.cssText = [
+    'position:absolute', 'top:42px', 'left:50%', 'transform:translateX(-50%)',
+    'z-index:101', 'max-width:70vw',
+    'font-family:monospace', 'font-size:10px', 'letter-spacing:0.3px',
+    'background:rgba(40,30,8,0.94)', 'border:1px solid rgba(255,190,90,0.45)',
+    'border-radius:3px', 'padding:4px 10px', 'color:#ffd28c',
+    'box-shadow:0 4px 14px rgba(0,0,0,0.5)', 'cursor:pointer',
+    'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
+    'display:none',
+  ].join(';');
+  host.appendChild(panel);
+  return panel;
+}
+
+// Rebuilds only when the underlying report actually changed (signature =
+// idleCount + the worst reason's own text and count) — this runs every
+// frame via _updateHUD, and a steady idle roster must not thrash the DOM.
+UIHost.prototype._renderStaffingBanner = function() {
+  const panel = ensureStaffingBanner();
+  if (!panel) return;
+  const report = facilityStaffingReport(this.game);
+  const sig = report.idleCount === 0
+    ? '0'
+    : `${report.idleCount}|${report.worst.reason}|${report.worst.count}`;
+  if (sig === this._staffingBannerSig) return;
+  this._staffingBannerSig = sig;
+
+  if (report.idleCount === 0 || !report.worst) {
+    panel.style.display = 'none';
+    panel.onclick = null;
+    this._staffingBannerGroup = null;
+    return;
+  }
+
+  const { reason, count } = report.worst;
+  panel.textContent = `⚠ ${count} staff idle: ${reason}`;
+  panel.title = `${report.idleCount} staff idle facility-wide — click to inspect the affected staff`;
+  panel.style.display = '';
+  this._staffingBannerGroup = report.worst.members;
+  panel.onclick = () => this._openStaffingBannerGroup();
+};
+
+// Opens the inspector for exactly the staff behind the banner's current
+// headline reason (report.worst.members), capped — see
+// STAFFING_BANNER_OPEN_CAP's own comment.
+UIHost.prototype._openStaffingBannerGroup = function() {
+  const members = this._staffingBannerGroup || [];
+  for (const m of members.slice(0, STAFFING_BANNER_OPEN_CAP)) {
+    this._openStaffInspector(m.id);
+  }
 };
 
 // --- Palette rendering ---
