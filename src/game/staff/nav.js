@@ -213,6 +213,98 @@ export function buildNavGrid(state) {
     },
   };
 
+  // Connected-component labelling, built lazily on first use (see
+  // getComponentLabels() below the A* section) and cached on the returned
+  // nav object for its lifetime — i.e. once per navRevision, same as the
+  // grid itself. A closure over `blockedSubtiles`/`bounds` directly, rather
+  // than going through `passable.has()`, so the (single) full-grid sweep
+  // skips that closure's per-call bounds re-verification and string
+  // reparsing — this loop already iterates only within `bounds`, so both
+  // are redundant work here.
+  function buildLabels() {
+    const minColSub = bounds.minCol * 4, minRowSub = bounds.minRow * 4;
+    const maxColSub = bounds.maxCol * 4 + 3, maxRowSub = bounds.maxRow * 4 + 3;
+    const w = maxColSub - minColSub + 1;
+    const h = maxRowSub - minRowSub + 1;
+    const n = w * h;
+
+    // Union-find over a flat Int32Array of subtile indices — see the
+    // component-labelling comment above search() for why this replaces a
+    // per-query A* reachability check with one full-grid pass per world edit.
+    const parent = new Int32Array(n);
+    const rank = new Uint8Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    function find(x) {
+      let root = x;
+      while (parent[root] !== root) root = parent[root];
+      while (parent[x] !== root) { const next = parent[x]; parent[x] = root; x = next; }
+      return root;
+    }
+    function union(a, b) {
+      let ra = find(a), rb = find(b);
+      if (ra === rb) return;
+      if (rank[ra] < rank[rb]) { const t = ra; ra = rb; rb = t; }
+      parent[rb] = ra;
+      if (rank[ra] === rank[rb]) rank[ra]++;
+    }
+    const idxAt = (absCol, absRow) => (absRow - minRowSub) * w + (absCol - minColSub);
+
+    // Union every passable subtile with its west and north neighbor (when
+    // that neighbor is itself passable and, for a tile-crossing step, not
+    // wall-blocked) — every undirected adjacency edge exactly once, since
+    // "west of A" and "north of A" together cover the same edges "east of
+    // A's west neighbor" / "south of A's north neighbor" would from the
+    // other side (isBlocked is symmetric regardless of which side asks —
+    // see neighborsOf()'s comment).
+    for (let absRow = minRowSub; absRow <= maxRowSub; absRow++) {
+      const row = Math.floor(absRow / 4);
+      const subRow = absRow - row * 4;
+      for (let absCol = minColSub; absCol <= maxColSub; absCol++) {
+        const col = Math.floor(absCol / 4);
+        const subCol = absCol - col * 4;
+        if (blockedSubtiles.has(subtileKey(col, row, subCol, subRow))) continue;
+        const i = idxAt(absCol, absRow);
+
+        if (subCol > 0) {
+          if (!blockedSubtiles.has(subtileKey(col, row, subCol - 1, subRow))) {
+            union(i, idxAt(absCol - 1, absRow));
+          }
+        } else if (absCol > minColSub) {
+          if (!blockedSubtiles.has(subtileKey(col - 1, row, 3, subRow)) && !isBlocked(col, row, 'w', state)) {
+            union(i, idxAt(absCol - 1, absRow));
+          }
+        }
+
+        if (subRow > 0) {
+          if (!blockedSubtiles.has(subtileKey(col, row, subCol, subRow - 1))) {
+            union(i, idxAt(absCol, absRow - 1));
+          }
+        } else if (absRow > minRowSub) {
+          if (!blockedSubtiles.has(subtileKey(col, row - 1, subCol, 3)) && !isBlocked(col, row, 'n', state)) {
+            union(i, idxAt(absCol, absRow - 1));
+          }
+        }
+      }
+    }
+
+    // Flatten every entry to its final root once, so a query is a single
+    // array read (find() with path compression is already near-O(1), but a
+    // pre-flattened array needs no pointer-chasing at all at query time).
+    const componentId = new Int32Array(n);
+    for (let i = 0; i < n; i++) componentId[i] = find(i);
+
+    return {
+      get(node) {
+        const absCol = node.col * 4 + node.subCol;
+        const absRow = node.row * 4 + node.subRow;
+        if (absCol < minColSub || absCol > maxColSub || absRow < minRowSub || absRow > maxRowSub) {
+          return -1; // out of bounds — never equal to any real component id
+        }
+        return componentId[idxAt(absCol, absRow)];
+      },
+    };
+  }
+
   return {
     revision: state.navRevision || 0,
     passable,
@@ -222,6 +314,11 @@ export function buildNavGrid(state) {
     // isReachable can run isBlocked() against the same state the grid was
     // built from without every caller having to pass state back in.
     _state: state,
+    // Internal, lazy — see getComponentLabels() below. `_labels` starts
+    // unbuilt so a nav grid built and never reachability-queried (e.g. most
+    // hand-built test grids) never pays the full-grid labelling cost.
+    _buildLabels: buildLabels,
+    _labels: null,
   };
 }
 
@@ -289,6 +386,32 @@ class MinHeap {
 function inBounds(bounds, n) {
   return n.col >= bounds.minCol && n.col <= bounds.maxCol
       && n.row >= bounds.minRow && n.row <= bounds.maxRow;
+}
+
+// --- Connected components (O(1) reachability) ---------------------------
+//
+// isReachable used to share A*'s search() with findPath, differing only in
+// whether the path gets reconstructed — cheap to call once, ruinous to call
+// in a loop. That is exactly what findStation (stations.js) does: it
+// reachability-tests candidate stations in distance order until one passes,
+// so a pawn with no reachable station anywhere (a sealed-off wing, a
+// facility mid-construction with two disconnected floor islands) pays the
+// FULL two-pass search cost for every candidate, every scan, forever —
+// measured on a 61x61 map at ~27ms for a single doomed probe and ~1.4s for
+// 48 of them in one findStation call, long enough to block the main thread
+// for one idle pawn.
+//
+// buildLabels() (see buildNavGrid above) flood-fills the WHOLE bounded grid
+// into union-find components once per navRevision — grass is passable
+// everywhere in bounds, so this touches every subtile regardless of how few
+// are actually blocked, an O(bounds area) cost independent of how many
+// pawns or stations query it afterward (measured ~49ms on that same 61x61
+// map, once per world edit, versus ~27ms PER PROBE PER PAWN PER SCAN
+// before). Two subtiles are reachable from each other iff they land in the
+// same component — isReachable becomes a single array-read comparison.
+function getComponentLabels(nav) {
+  if (!nav._labels) nav._labels = nav._buildLabels();
+  return nav._labels;
 }
 
 // Manhattan distance in subtiles, scaled by `weight`. `weight` is what makes
@@ -399,12 +522,16 @@ function runAStar(nav, from, to, fromKey, toKey, wantPath, weight, maxExpanded) 
   return { reached: false, path: null, capped: false };
 }
 
-// Two-pass search. `wantPath` controls whether the goal's predecessor chain
-// is walked back into an array (findPath) or the caller only cares that the
-// goal was reached (isReachable) — either way the search itself is
-// identical, so isReachable is not meaningfully cheaper, just simpler to
-// call.
+// Two-pass search, used by findPath. `wantPath` controls whether the goal's
+// predecessor chain is walked back into an array — kept as a parameter
+// (rather than splitting into two functions) mostly for history; isReachable
+// no longer calls this at all (see the connected-components section above),
+// so `wantPath` is always true from findPath's one caller today. Kept as a
+// parameter rather than hard-coded so a future caller that wants "reached,
+// no path needed, but via full A* rather than the labelling" (there is no
+// such caller today) doesn't have to fork the function to get it.
 //
+
 // Why two passes instead of one fixed weight (this replaces an earlier,
 // single-weight version of this file — see the fix-round writeup in
 // .superpowers/sdd/.../task-1-2-report.md for the full history):
@@ -457,6 +584,18 @@ function search(nav, from, to, wantPath) {
     return { reached: true, path: wantPath ? [normalizeNode(from)] : null };
   }
 
+  // O(1) short-circuit before spending any A* budget: two subtiles in
+  // different connected components can never have a path between them, full
+  // stop — see the connected-components section above inBounds(). Lets a
+  // doomed findPath call (target in a sealed-off wing, a disconnected floor
+  // island) fail immediately instead of burning up to PASS1_MAX_EXPANDED +
+  // MAX_EXPANDED_NODES expansions to rediscover what the labelling already
+  // knows.
+  const labels = getComponentLabels(nav);
+  if (labels.get(from) !== labels.get(to)) {
+    return { reached: false, path: null };
+  }
+
   const pass1 = runAStar(nav, from, to, fromKey, toKey, wantPath, PASS1_WEIGHT, PASS1_MAX_EXPANDED);
   if (pass1.reached || !pass1.capped) return pass1;
 
@@ -477,9 +616,21 @@ export function findPath(nav, from, to) {
 }
 
 /**
- * Like findPath, but only reports reachability — may skip reconstructing the
- * path once the goal is popped.
+ * Whether `to` is reachable from `from` — an O(1) connected-component label
+ * comparison (see getComponentLabels() above), NOT a cut-down A* search.
+ * Unlike findPath, this has no node-expansion budget to exhaust and no
+ * suboptimality/termination trade-off to make: the labelling is an
+ * exhaustive flood-fill of the whole bounded grid, so the answer is always
+ * exact. Safe to call in a loop over many candidates (see stations.js's
+ * findStation) — the one expensive part (the flood-fill itself) happens at
+ * most once per navRevision, lazily, on whichever of findPath/isReachable
+ * asks for it first.
  */
 export function isReachable(nav, from, to) {
-  return search(nav, from, to, false).reached;
+  if (!inBounds(nav.bounds, from) || !inBounds(nav.bounds, to)) return false;
+  const fromKey = nodeKey(from);
+  const toKey = nodeKey(to);
+  if (!nav.passable.has(fromKey) || !nav.passable.has(toKey)) return false;
+  const labels = getComponentLabels(nav);
+  return labels.get(from) === labels.get(to);
 }
