@@ -4,7 +4,7 @@
 
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
-import { buildLightFixture, isAimedFixture, fixtureLightTag } from './lighting-builder.js';
+import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -1494,14 +1494,8 @@ export class DecorationBuilder {
       group.position.set(p.x, dec.y ?? 0, p.z);
       group.rotation.y = lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY;
       if (lightDef) {
-        // The ONLY thing that feeds light-rig.js its shadow-spot candidates:
-        // the rig discovers fixtures by scene traversal looking for exactly
-        // this tag (no second registry to keep in sync — same ruling as the
-        // userData.role === 'glow' meshes it also picks up). `dec.dir` is the
-        // authored quarter-turn — the same field decorationPlacement turns
-        // into rotY = -dir*90°, which is what aimYaw reproduces — so a
-        // flood's real cone lands where its painted pool already is.
-        group.userData.lightFixture = fixtureLightTag(lightDef, { id: dec.id, dir: dec.dir ?? 0 });
+        // This registry is handed directly to LightRig and is also the source
+        // for the painted pools/halos, keeping all lighting channels aligned.
         this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
       }
 
