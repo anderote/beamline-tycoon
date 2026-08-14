@@ -211,6 +211,19 @@ export function patchFlowMaterial(material, utilityType, flowState) {
     uStrength:  { value: params.strength * mods.strengthMul },
     uBaseGlow:  { value: (params.baseGlow || 0) * mods.baseGlowMul },
     uStutter:   { value: mods.stutter },
+    // `new THREE.Color(hexString)` already does the sRGB->linear conversion
+    // here — Color.set() routes a string through setStyle(), which defaults
+    // colorSpace to SRGBColorSpace and calls
+    // ColorManagement.toWorkingColorSpace (node_modules/three/src/math/
+    // Color.js:74-112): the SAME mechanism `material.emissive = colorHex`
+    // goes through (Material.js's setValues special-cases an existing Color
+    // property and calls `.set()` on it rather than replacing it). This is
+    // NOT the "raw uniform value uploaded as-is" footgun — that only bites
+    // when a colour is built WITHOUT going through Color.set/setHex/setStyle
+    // (e.g. a bare {r,g,b} literal or an array). Verified empirically, not
+    // just read from source: `new THREE.Color('#40e0ff').r/.g/.b` reproduces
+    // component-builder.js's documented linear luma (0.567) for that exact
+    // hex to 3 decimal places (see task-4-report.md's fix-round notes).
     uFlowColor: { value: new THREE.Color(colorHex) },
   };
 
