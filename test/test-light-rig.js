@@ -39,14 +39,74 @@ class V3 {
   distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
 }
 
-// Deliberately not real color math — tests only ever check "was this color
-// value applied", never an actual RGB conversion.
+// Not full color math, but enough of it: r/g/b (0..1) are needed by
+// lighting-builder.js's buildLightPools, which reads them directly off a
+// THREE.Color to bake vertex colors. getHex() keeps returning whatever was
+// last passed to set() (numeric or CSS-string) unconverted — existing tests
+// below assert against that raw value, never a real RGB conversion.
 class ColorStub {
-  constructor(c) { this._raw = undefined; if (c !== undefined) this.set(c); }
-  set(c) { this._raw = c; return this; }
-  copy(o) { this._raw = o._raw; return this; }
+  constructor(c) { this._raw = undefined; this.r = 0; this.g = 0; this.b = 0; if (c !== undefined) this.set(c); }
+  set(c) {
+    this._raw = c;
+    const hex = typeof c === 'string' ? parseInt(c.replace('#', ''), 16) : c;
+    this.r = ((hex >> 16) & 0xff) / 255;
+    this.g = ((hex >> 8) & 0xff) / 255;
+    this.b = (hex & 0xff) / 255;
+    return this;
+  }
+  copy(o) { this._raw = o._raw; this.r = o.r; this.g = o.g; this.b = o.b; return this; }
   getHex() { return this._raw; }
 }
+
+// lighting-builder.js's fixture builders (_buildLamppost etc.) only need
+// these to not crash — no vertex data is ever inspected for a lamppost's
+// geometry in this suite, just group.position/rotation.
+class SimpleGeometry {
+  constructor(...args) { this.args = args; }
+  dispose() {}
+}
+
+// buildLightPools' merged mesh — real enough to exercise applyPoolSuppression
+// against actual attribute arrays, not a hand-rolled stand-in.
+class BufferGeometryStub {
+  constructor() { this.attributes = {}; this.index = null; }
+  setAttribute(name, attr) { this.attributes[name] = attr; return this; }
+  setIndex(idx) { this.index = idx; return this; }
+  dispose() {}
+}
+class Float32BufferAttributeStub {
+  constructor(arr, itemSize) {
+    this.array = arr instanceof Float32Array ? arr : new Float32Array(arr);
+    this.itemSize = itemSize;
+    this.needsUpdate = false;
+  }
+}
+class MeshBasicMaterial {
+  constructor(opts = {}) { Object.assign(this, opts); this.userData = {}; }
+  dispose() {}
+}
+class CanvasTexture {
+  constructor(canvas) { this.canvas = canvas; }
+  dispose() {}
+}
+
+// _glowTexture() (lighting-builder.js) calls document.createElement('canvas')
+// once, module-lifetime-cached — a minimal fake 2D context is enough since
+// nothing here ever inspects the drawn gradient.
+globalThis.document = globalThis.document || {
+  createElement(tag) {
+    if (tag !== 'canvas') throw new Error(`unstubbed document.createElement(${tag})`);
+    return {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        createRadialGradient: () => ({ addColorStop() {} }),
+        fillRect() {},
+        fillStyle: null,
+      }),
+    };
+  },
+};
 
 // Reproduces three's actual generateTorso()/BoxGeometry uv/position layout
 // closely enough to exercise the real bake functions — see
@@ -157,13 +217,23 @@ globalThis.THREE = {
   Object3D: Obj3,
   Mesh,
   MeshStandardMaterial,
+  MeshBasicMaterial,
   BoxGeometry,
+  CylinderGeometry: SimpleGeometry,
+  ConeGeometry: SimpleGeometry,
+  TorusGeometry: SimpleGeometry,
+  BufferGeometry: BufferGeometryStub,
+  Float32BufferAttribute: Float32BufferAttributeStub,
+  CanvasTexture,
   SpotLight,
   PointLight,
   AdditiveBlending: 2,
 };
 
 const { LightRig } = await import('../src/renderer3d/light-rig.js');
+const { buildLightFixture, buildLightPools, applyPoolSuppression } =
+  await import('../src/renderer3d/lighting-builder.js');
+const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
 const { buildFloorGlowStrip } = await import('../src/renderer3d/floor-glow.js');
 const { FLOW_PARAMS } = await import('../src/renderer3d/utility-flow.js');
 
@@ -240,21 +310,108 @@ test('flash reuses idle point-light slots and steals the dimmest one when every 
   assert.equal(countLights(scene).points, 2, 'still exactly two point lights in the scene throughout');
 });
 
-// --- nightFactor: fixtures fade to zero, flashes ignore it -----------------
+// --- Real fixture discovery -------------------------------------------------
+//
+// This is the regression guard the bug report asked for: light-rig.js used
+// to discover fixtures by scanning the scene for `userData.lightFixture`, a
+// tag decoration-builder.js's old lamppost builder set and lighting-
+// builder.js's replacement never carried forward — so the lookup was a
+// silent no-op (132/132 green with the feature entirely dead). Discovery now
+// reads ThreeRenderer.lightingGroup — an [{id, def, group}, ...] array — via
+// setFixtureRegistry(), fed a REAL group built by lighting-builder.js's
+// buildLightFixture(), not a synthetic stub with hand-set userData. If the
+// tag contract regresses (or setFixtureRegistry stops being wired to
+// discovery), this fixture is invisible to the rig and every assertion below
+// fails.
 
-test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does not', () => {
+const lamppostDef = LIGHTING_DEFS.find((d) => d.id === 'lamppost');
+const floodLightDef = LIGHTING_DEFS.find((d) => d.id === 'floodLight');
+
+function makeFixtureEntry(def, id, x, z, dir = 0) {
+  const group = buildLightFixture(def, { dir });
+  group.position.set(x, 0, z); // ground mount: origin sits at floor height
+  return { id, def, group };
+}
+
+test('LightRig discovers a real lighting-builder.js fixture via setFixtureRegistry, not a userData tag', () => {
   const scene = new SceneStub();
-  const lampGroup = new Group();
-  lampGroup.position.set(4, 0, 4);
-  lampGroup.userData.lightFixture = { offsetY: 3, color: 0xffc864 };
-  scene.add(lampGroup);
+  const lamp = makeFixtureEntry(lamppostDef, 'lamp-1', 4, 4);
+  // Deliberately NOT scene.add(lamp.group) and NOT tagged userData.lightFixture
+  // — proves discovery no longer depends on either the old tag or even the
+  // fixture being part of the THREE scene graph, only on the registry.
+  assert.equal(lamp.group.userData.lightFixture, undefined, 'sanity: the dead tag is not set on a real fixture group');
 
   const rig = new LightRig(scene, { shadowSpotCount: 4, pointCount: 8 });
   const camera = { position: new V3(0, 0, 0) };
 
+  // Before registration: nothing to find.
+  rig.update(camera, 1, 0.016);
+  assert.equal(rig._spotSlots[0].assignedRef, null, 'no fixture is assigned before setFixtureRegistry() is called');
+
+  rig.setFixtureRegistry([lamp]);
+  rig.update(camera, 1, 0.016); // full night
+  const spot = rig._spotSlots[0];
+  assert.equal(spot.assignedRef, lamp, 'the real fixture is discovered and assigned to the nearest spot slot');
+  assert.ok(spot.light.intensity > 0, 'a discovered fixture actually lights up at night');
+});
+
+// --- Position/aim/radius derivation -----------------------------------------
+//
+// The brief: derive these from the fixture's own def.light block via
+// isAimedFixture/dirFromYaw/poolFootprint/mountFloorY — the exact math the
+// painted pool uses — so the real spotlight agrees with the pool it
+// replaces, not a second invented aiming model.
+
+test('an unaimed (point) fixture: spotlight sits at emitterY above its base, points straight down, throws to its own radius', () => {
+  const scene = new SceneStub();
+  const lamp = makeFixtureEntry(lamppostDef, 'lamp-1', 4, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.setFixtureRegistry([lamp]);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.016);
+
+  const slot = rig._spotSlots[0];
+  assert.equal(slot.assignedRef, lamp);
+  assert.equal(slot.light.position.x, 4, 'x carries straight from the fixture group position');
+  assert.equal(slot.light.position.z, 0);
+  assert.equal(slot.light.position.y, lamppostDef.light.emitterY,
+    `ground mount: emitter height = group.position.y (0) + def.light.emitterY (got ${slot.light.position.y})`);
+  assert.equal(slot.target.position.x, 4, 'an unaimed fixture points straight down: target.x === fixture x');
+  assert.equal(slot.target.position.z, 0, 'an unaimed fixture points straight down: target.z === fixture z');
+  assert.equal(slot.target.position.y, 0, 'target sits on the floor (ground mount floor height = 0)');
+  assert.equal(slot.light.distance, lamppostDef.light.radius,
+    `throw distance derives from the fixture's own pool radius, not the shared fallback constant (got ${slot.light.distance})`);
+  assert.equal(slot.light.color.getHex(), lamppostDef.light.color, 'color comes from def.light.color');
+});
+
+test('an aimed (cone) fixture: spotlight target leans toward the same forward offset the painted pool uses', () => {
+  const scene = new SceneStub();
+  // dir=0 aims along local +x, per lighting-builder.js's authoring convention
+  // (see test-flood-aim.js) — the pool ellipse (and now the spot target)
+  // should push out along +x, not sit straight below the fixture.
+  const flood = makeFixtureEntry(floodLightDef, 'flood-1', 2, 2, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.setFixtureRegistry([flood]);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.016);
+
+  const slot = rig._spotSlots[0];
+  assert.equal(slot.assignedRef, flood);
+  assert.ok(slot.target.position.x > 2, `an aimed fixture's target is pushed forward along its aim, not straight down (got x=${slot.target.position.x})`);
+  assert.equal(slot.target.position.z, 2, 'dir=0 aims purely along x, so z is untouched');
+});
+
+// --- nightFactor: fixtures fade to zero, flashes ignore it -----------------
+
+test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does not', () => {
+  const scene = new SceneStub();
+  const lamp = makeFixtureEntry(lamppostDef, 'lamp-1', 4, 4);
+
+  const rig = new LightRig(scene, { shadowSpotCount: 4, pointCount: 8 });
+  rig.setFixtureRegistry([lamp]);
+  const camera = { position: new V3(0, 0, 0) };
+
   rig.update(camera, 0, 0.016); // full daylight
   const spotAtNoon = rig._spotSlots[0];
-  assert.equal(spotAtNoon.assignedRef, lampGroup, 'the only fixture in the scene is assigned to the nearest spot slot');
+  assert.equal(spotAtNoon.assignedRef, lamp, 'the only fixture in the registry is assigned to the nearest spot slot');
   assert.equal(spotAtNoon.light.intensity, 0, 'a fixture at nightFactor=0 (full day) is fully off, not just dim');
 
   rig.update(camera, 1, 0.016); // full night
@@ -267,6 +424,65 @@ test('fixture intensity scales to zero at nightFactor=0; an in-flight flash does
   rig.update(camera, 0, 0.01); // 10ms of a 1000ms flash, at full daylight
   assert.ok(flashingSlot.light.intensity > 45,
     `a flash barely into its decay should still be near its starting intensity regardless of nightFactor=0 (got ${flashingSlot.light.intensity})`);
+});
+
+// --- Pool suppression: real spot slot <-> painted pool visibility ----------
+
+test('a fixture holding a real spot slot has its painted pool quad zeroed; releasing the slot restores it', () => {
+  const scene = new SceneStub();
+  const near = makeFixtureEntry(lamppostDef, 'near', 1, 0);
+  const far = makeFixtureEntry(lamppostDef, 'far', 500, 0);
+  const fixtures = [near, far];
+
+  const poolMesh = buildLightPools(fixtures);
+  assert.ok(poolMesh, 'a merged pool mesh is built for both fixtures');
+  const ranges = poolMesh.userData.fixtureRanges;
+  assert.ok(ranges.has('near') && ranges.has('far'), 'both fixtures got a quad in the merged mesh');
+  const colorArr = poolMesh.geometry.attributes.color.array;
+  const nearRange = ranges.get('near');
+  const originalNearColor = [
+    colorArr[nearRange.vertStart * 3], colorArr[nearRange.vertStart * 3 + 1], colorArr[nearRange.vertStart * 3 + 2],
+  ];
+  assert.ok(originalNearColor.some((c) => c > 0), 'sanity: the pool quad starts out with a real (non-zero) color');
+
+  // Only one shadow-spot slot: the rig can only light the nearest of the two
+  // — `far` never gets a real light and must keep its painted pool.
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.setFixtureRegistry(fixtures);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.016);
+
+  const activeIds = rig.getActiveFixtureIds();
+  assert.ok(activeIds.has('near') && !activeIds.has('far'), 'only the nearest fixture holds a real spot slot');
+
+  applyPoolSuppression(poolMesh, activeIds);
+  const nearAfterSuppress = [
+    colorArr[nearRange.vertStart * 3], colorArr[nearRange.vertStart * 3 + 1], colorArr[nearRange.vertStart * 3 + 2],
+  ];
+  assert.deepEqual(nearAfterSuppress, [0, 0, 0], 'the fixture holding a real spot slot has its pool quad zeroed');
+  const farRange = ranges.get('far');
+  const farAfterSuppress = [
+    colorArr[farRange.vertStart * 3], colorArr[farRange.vertStart * 3 + 1], colorArr[farRange.vertStart * 3 + 2],
+  ];
+  assert.notDeepEqual(farAfterSuppress, [0, 0, 0], 'the fixture with no real light keeps its painted pool');
+  assert.equal(poolMesh.geometry.attributes.color.needsUpdate, true, 'the color attribute is flagged for re-upload');
+
+  // Releasing the slot (e.g. the camera pans away and `far` ranks nearer
+  // instead) must restore the original pool color — reversible, not a
+  // one-way suppression.
+  poolMesh.geometry.attributes.color.needsUpdate = false;
+  applyPoolSuppression(poolMesh, new Set()); // nobody holds a slot any more
+  const nearAfterRelease = [
+    colorArr[nearRange.vertStart * 3], colorArr[nearRange.vertStart * 3 + 1], colorArr[nearRange.vertStart * 3 + 2],
+  ];
+  assert.deepEqual(nearAfterRelease, originalNearColor, 'releasing the slot restores the pool quad\'s original color');
+  assert.equal(poolMesh.geometry.attributes.color.needsUpdate, true, 'restoring also flags the attribute for re-upload');
+
+  // And calling again with the SAME active set must be a true no-op (no
+  // redundant attribute upload) — the cost guarantee the brief asks for.
+  poolMesh.geometry.attributes.color.needsUpdate = false;
+  applyPoolSuppression(poolMesh, new Set());
+  assert.equal(poolMesh.geometry.attributes.color.needsUpdate, false,
+    'calling applyPoolSuppression again with an unchanged active set does not re-touch the attribute');
 });
 
 // --- buildFloorGlowStrip -----------------------------------------------
@@ -297,4 +513,32 @@ test('buildFloorGlowStrip builds a strip for a healthy flowing run, and its mate
 
   const soft = buildFloorGlowStrip(makePoints(), 'coolingWater', 'soft');
   assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still paints a pool, just dimmer per FLOW_STATE_MODS.soft');
+});
+
+// A bollard marker and a floodlight must not cast the same light. lighting.js
+// gives each fixture its own `light.intensity` (0.5 for an ankle-height
+// bollard, 2.2 for a 7.5 m floodlight) and the rig already reads that def's
+// colour and radius — so a flat intensity constant would have made the two
+// agree on brightness while disagreeing on everything else. This pins the
+// ratio to the data rather than to a magic number, so retuning lighting.js
+// moves the lights with it.
+test('fixture spot intensity scales with the fixture def, not a flat constant', () => {
+  const lampI = lamppostDef.light.intensity;
+  const floodI = floodLightDef.light.intensity;
+  assert.ok(floodI > lampI, `sanity: the catalogue really does rate a floodlight above a lamppost (${floodI} vs ${lampI})`);
+
+  const read = (def, id) => {
+    const rig = new LightRig(new SceneStub(), { shadowSpotCount: 1, pointCount: 1 });
+    rig.setFixtureRegistry([makeFixtureEntry(def, id, 2, 2)]);
+    rig.update({ position: new V3(0, 0, 0) }, 1, 0.016);
+    return rig._spotSlots[0].light.intensity;
+  };
+
+  const lampLit = read(lamppostDef, 'lamp-i');
+  const floodLit = read(floodLightDef, 'flood-i');
+  assert.ok(lampLit > 0 && floodLit > 0, 'both fixtures are actually lit at full night');
+  assert.ok(
+    Math.abs(floodLit / lampLit - floodI / lampI) < 1e-6,
+    `spot intensity tracks the def ratio (expected ${floodI / lampI}x, got ${floodLit / lampLit}x)`,
+  );
 });

@@ -599,8 +599,12 @@ const HALO_RADIUS_FACTOR = 0.05;
  * world yaw. Safe because aimed fixtures' yaw is assigned (not summed with
  * jitter) from that exact formula — see decoration-builder.js's lightingYaw
  * opt-out for cone shapes.
+ *
+ * Exported (not just an internal of buildLightPools) so light-rig.js's real
+ * SpotLight can recover the same dir and feed it through the SAME
+ * poolFootprint call the painted pool uses — one aiming model, not two.
  */
-function _dirFromYaw(yaw) {
+export function dirFromYaw(yaw) {
   const d = Math.round(-yaw / (Math.PI / 2));
   return ((d % 4) + 4) % 4;
 }
@@ -612,8 +616,11 @@ function _dirFromYaw(yaw) {
  * per the header's mount conventions) — Tasks 7/8 haven't landed yet, so
  * today this only matters once they do; the subtraction is a no-op until a
  * wall/overhead fixture actually gets placed above floor level.
+ *
+ * Exported so light-rig.js's real SpotLight can aim its target at the same
+ * floor height the painted pool is drawn at.
  */
-function _mountFloorY(def, originY) {
+export function mountFloorY(def, originY) {
   if (def.mount === 'wall') return originY - (def.light?.emitterY ?? 0);
   if (def.mount === 'overhead') return originY - OVERHEAD_MOUNT_HEIGHT;
   return originY;
@@ -676,6 +683,10 @@ export function buildLightPools(fixtures) {
   const indices = [];
   let vertCount = 0;
   const tmpColor = new THREE.Color();
+  // id -> {vertStart, r, g, b} for every fixture that actually produced a
+  // quad — see applyPoolSuppression, which uses this to zero/restore one
+  // fixture's quad without touching the rest of the merged buffer.
+  const fixtureRanges = new Map();
 
   for (const fx of fixtures) {
     const def = fx.def;
@@ -683,18 +694,25 @@ export function buildLightPools(fixtures) {
     if (!light) continue;
 
     const aimed = isAimedFixture(def);
-    const dir = aimed ? _dirFromYaw(fx.group.rotation.y) : 0;
+    const dir = aimed ? dirFromYaw(fx.group.rotation.y) : 0;
     const footprintLight = (!aimed && light.shape === 'cone') ? { ...light, shape: 'point' } : light;
     const { rx, rz, offsetX, offsetZ } = poolFootprint(footprintLight, dir);
     if (rx <= 0 || rz <= 0) continue;
 
-    const floorY = _mountFloorY(def, fx.group.position.y) + POOL_Y_LIFT;
+    const floorY = mountFloorY(def, fx.group.position.y) + POOL_Y_LIFT;
     const cx = fx.group.position.x + offsetX;
     const cz = fx.group.position.z + offsetZ;
 
     tmpColor.set(light.color);
     const brightness = (light.intensity ?? 1) * POOL_COLOR_SCALE;
     const r = tmpColor.r * brightness, g = tmpColor.g * brightness, b = tmpColor.b * brightness;
+
+    // Recorded BEFORE this quad's 4 verts are pushed (vertCount is this
+    // quad's start index) so light-rig.js's real spotlights can zero/restore
+    // exactly this fixture's quad in the merged buffer — see
+    // applyPoolSuppression below. Skipped for fixtures with no id (shouldn't
+    // happen for real placed decorations, but stay defensive).
+    if (fx.id != null) fixtureRanges.set(fx.id, { vertStart: vertCount, r, g, b });
 
     const corners = [
       [cx - rx, cz - rz, 0, 0],
@@ -736,7 +754,61 @@ export function buildLightPools(fixtures) {
   // One mesh spans the whole facility — per-quad frustum culling isn't worth
   // computing a bounding volume for; just always draw it.
   mesh.frustumCulled = false;
+  // Task 9's suppression hook — see applyPoolSuppression. suppressedIds
+  // starts undefined; applyPoolSuppression lazily creates it on first call.
+  mesh.userData.fixtureRanges = fixtureRanges;
   return mesh;
+}
+
+/**
+ * Suppress (zero) or restore a merged pool mesh's per-fixture quad colors —
+ * the cheap per-frame LOD toggle for Task 9's real spotlights. When a
+ * fixture holds a real shadow-casting SpotLight slot (LightRig picks the
+ * handful of fixtures nearest the camera — see light-rig.js), its painted
+ * pool must go dark or the two visibly disagree (double-bright, and the
+ * static painted ellipse doesn't track the spot's actual cone). This never
+ * touches the geometry/index buffers — only the `color` attribute's floats
+ * for the affected fixtures' 4 vertices each — so it costs nothing when
+ * called every frame with an unchanged `activeIds` (no attribute upload at
+ * all in that case), and reverses for free the moment a fixture drops out of
+ * `activeIds` (its stored original color is restored from `fixtureRanges`).
+ *
+ * @param {THREE.Mesh|null} mesh - buildLightPools()'s merged mesh, or null
+ *   (no fixtures placed yet — a safe no-op).
+ * @param {Set<*>} activeIds - fixture ids currently holding a real spotlight
+ *   slot (LightRig.getActiveFixtureIds()).
+ */
+export function applyPoolSuppression(mesh, activeIds) {
+  if (!mesh || !mesh.userData || !mesh.userData.fixtureRanges) return;
+  const ranges = mesh.userData.fixtureRanges;
+  const prev = mesh.userData.suppressedIds || (mesh.userData.suppressedIds = new Set());
+
+  const next = new Set();
+  if (activeIds) {
+    for (const id of activeIds) if (ranges.has(id)) next.add(id);
+  }
+
+  let changed = next.size !== prev.size;
+  if (!changed) {
+    for (const id of next) { if (!prev.has(id)) { changed = true; break; } }
+  }
+  if (!changed) return; // identical suppression set as last call — no upload
+
+  const colorAttr = mesh.geometry.attributes.color;
+  const arr = colorAttr.array;
+  for (const [id, range] of ranges) {
+    const nowSuppressed = next.has(id);
+    if (nowSuppressed === prev.has(id)) continue; // state unchanged for this fixture
+    const r = nowSuppressed ? 0 : range.r;
+    const g = nowSuppressed ? 0 : range.g;
+    const b = nowSuppressed ? 0 : range.b;
+    for (let v = 0; v < 4; v++) {
+      const base = (range.vertStart + v) * 3;
+      arr[base] = r; arr[base + 1] = g; arr[base + 2] = b;
+    }
+  }
+  colorAttr.needsUpdate = true;
+  mesh.userData.suppressedIds = next;
 }
 
 /**

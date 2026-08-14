@@ -16,16 +16,31 @@
 // flashes affordable: verify by watching renderer.info.programs.length while
 // panning/flashing — it must not climb.
 //
-// Two emitter sources feed the rig, both found by tag rather than a separate
-// registry (mirrors Task 3's userData.role === 'glow' ruling):
-//   - "fixtures": placed decorations tagged userData.lightFixture = { offsetY,
-//     color } at build time (decoration-builder.js's _lamppost is the first —
-//     see its comment for why the tag lives on the group returned there).
-//     These get the 4 shadow-casting SpotLights, pointed straight down.
+// Two emitter sources feed the rig, discovered two different ways:
+//   - "fixtures": ThreeRenderer.lightingGroup, the SAME [{id, def, group}, ...]
+//     registry lighting-builder.js's buildLightPools/buildLightHalos already
+//     read (see decoration-builder.js's getLightingFixtures()) — handed in by
+//     setFixtureRegistry(), not discovered by a userData tag. Position, aim
+//     and throw distance are derived from each fixture's own `def.light`
+//     block via lighting-builder.js's isAimedFixture/dirFromYaw/poolFootprint/
+//     mountFloorY — the exact same math the painted pool uses — so a
+//     fixture's real spotlight and the pool it displaces never disagree about
+//     where the light lands. (An earlier version of this file looked for
+//     userData.lightFixture, a tag decoration-builder.js's old lamppost
+//     builder set and lighting-builder.js's replacement never carried
+//     forward — that lookup was a silent no-op; see
+//     test/test-light-rig.js's "discovers a real lighting-builder.js
+//     fixture" case for the regression guard.) These get the 4 shadow-
+//     casting SpotLights, and the fixture they steal a slot from has its
+//     painted pool quad suppressed for as long as it holds the slot — see
+//     lighting-builder.js's applyPoolSuppression, driven from
+//     getActiveFixtureIds() below.
 //   - "glow" meshes: userData.role === 'glow' (component-builder.js's screens
-//     / indicator lamps / hot cathodes). These get the 8 non-shadow
-//     PointLights, so equipment that's already emissive under bloom also
-//     throws a little real light on what's next to it.
+//     / indicator lamps / hot cathodes), still found by scene traversal —
+//     mirrors Task 3's userData.role === 'glow' ruling, unaffected by the
+//     fixture-discovery fix above. These get the 8 non-shadow PointLights, so
+//     equipment that's already emissive under bloom also throws a little
+//     real light on what's next to it.
 //
 // SpotLight over PointLight for fixtures: a shadow-casting PointLight needs a
 // CUBE shadow map — six render passes per light per frame. A SpotLight needs
@@ -37,6 +52,11 @@
 // brief warns about.
 //
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
+//
+// lighting-builder.js's aim/footprint math is a plain ES module (no THREE),
+// so importing it here is safe and is exactly the "reuse, don't reinvent"
+// rule this file's fixture discovery depends on.
+import { isAimedFixture, poolFootprint, dirFromYaw, mountFloorY } from './lighting-builder.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -49,7 +69,8 @@
 // these are a first pass, not a measured result (nobody watched this render;
 // see task-5-report.md).
 const FIXTURE_SPOT_INTENSITY = 6;
-const FIXTURE_SPOT_DISTANCE = 7;     // metres — a lamppost's real throw, not the whole yard
+const FIXTURE_SPOT_DISTANCE = 7;     // metres — fallback throw for a fixture def with no radius
+const FIXTURE_SPOT_MIN_DISTANCE = 1.5; // metres — floor so a tiny bollard's radius never collapses the cone
 const FIXTURE_SPOT_ANGLE = Math.PI / 5.5; // half-angle; a downward cast, not a wide floodlight
 const FIXTURE_SPOT_PENUMBRA = 0.55;  // soft cone edge — matches the pixel-scale render, not a hard theatrical spot
 const FIXTURE_SPOT_DECAY = 2;        // physically-based inverse-square falloff (three's default)
@@ -122,13 +143,20 @@ export class LightRig {
       this._pointSlots.push({ light, assignedRef: null, flash: null, lastUsedAt: -Infinity });
     }
 
-    // Candidate emitters (fixtures, glow-role meshes), refreshed from a scene
-    // traversal only when markDirty() has been called since the last
-    // refresh — every game event does this today (ThreeRenderer wires it in
-    // next to the existing _portMarkersDirty flag), so a static facility
-    // costs one traversal total, not one per frame. Ranking + slot
-    // assignment still runs every update() call (cheap: these arrays are a
-    // handful to a few dozen entries, not the whole scene).
+    // Candidate emitters (fixtures, glow-role meshes), refreshed only when
+    // markDirty() has been called since the last refresh — every game event
+    // does this today (ThreeRenderer wires it in next to the existing
+    // _portMarkersDirty flag), so a static facility costs one refresh total,
+    // not one per frame. Ranking + slot assignment still runs every update()
+    // call (cheap: these arrays are a handful to a few dozen entries, not the
+    // whole scene).
+    //
+    // _fixtureRegistry is handed in directly by setFixtureRegistry() —
+    // ThreeRenderer.lightingGroup, the same [{id, def, group}, ...] array
+    // buildLightPools/buildLightHalos already read — rather than discovered
+    // by a scene traversal + userData tag. _glowCandidates is still found by
+    // traversal (userData.role === 'glow'), unrelated to this fix.
+    this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
     this._candidatesDirty = true;
@@ -146,6 +174,36 @@ export class LightRig {
    * deferred to the next update() call, not run here. */
   markDirty() {
     this._candidatesDirty = true;
+  }
+
+  /**
+   * Replace the fixture discovery registry — ThreeRenderer.lightingGroup,
+   * an [{id, def, group}, ...] array (see decoration-builder.js's
+   * getLightingFixtures()). Call this wherever lightingGroup itself is
+   * reassigned (applySnapshot / _refreshDecorations, right next to
+   * _rebuildLightPools()), not per frame. Implies markDirty() — the next
+   * update() call rebuilds _fixtureCandidates from the new array.
+   * @param {Array<{id:*, def:object, group:THREE.Object3D}>} fixtures
+   */
+  setFixtureRegistry(fixtures) {
+    this._fixtureRegistry = Array.isArray(fixtures) ? fixtures : [];
+    this.markDirty();
+  }
+
+  /**
+   * Fixture ids currently holding a real shadow-casting spot slot — the
+   * signal ThreeRenderer's per-frame suppression pass needs to know which
+   * painted pool quads to hide (lighting-builder.js's applyPoolSuppression).
+   * Cheap to call every frame: just reads the already-assigned slots, no
+   * scene work.
+   * @returns {Set<*>}
+   */
+  getActiveFixtureIds() {
+    const ids = new Set();
+    for (const s of this._spotSlots) {
+      if (s.assignedRef && s.assignedRef.id != null) ids.add(s.assignedRef.id);
+    }
+    return ids;
   }
 
   setEnabled(v) {
@@ -233,6 +291,7 @@ export class LightRig {
     }
     this._spotSlots = [];
     this._pointSlots = [];
+    this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
   }
@@ -240,13 +299,18 @@ export class LightRig {
   // ---- internals ------------------------------------------------------
 
   _refreshCandidates() {
-    const fixtures = [];
+    // Fixtures come straight from the registry ThreeRenderer handed in via
+    // setFixtureRegistry() — no scene traversal, no userData tag. Defensive
+    // filter: only entries carrying a real `def.light` block are usable (a
+    // stale/malformed registry entry degrades to "not a candidate", never a
+    // crash).
+    this._fixtureCandidates = this._fixtureRegistry.filter(
+      (fx) => fx && fx.group && fx.def && fx.def.light,
+    );
     const glows = [];
     this.scene.traverse((obj) => {
-      if (obj.userData && obj.userData.lightFixture) fixtures.push(obj);
-      else if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
+      if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
     });
-    this._fixtureCandidates = fixtures;
     this._glowCandidates = glows;
   }
 
@@ -261,10 +325,24 @@ export class LightRig {
     return obj.getWorldPosition(this._tmpWorld);
   }
 
+  // Fixture position, read straight from fx.group.position (LOCAL, not
+  // world) rather than getWorldPosition — this is deliberate, not a
+  // shortcut: buildLightPools/buildLightHalos (lighting-builder.js) use this
+  // exact same fx.group.position value as the fixture's world position when
+  // painting the pool/halo, because decorationGroup sits at identity
+  // transform directly under the scene (see ThreeRenderer's constructor).
+  // Using getWorldPosition here would still be numerically correct today,
+  // but only by coincidence of that identity transform — reading the same
+  // field the painted pool reads is what actually guarantees the real
+  // spotlight and the pool it replaces never drift apart.
+  _fixturePos(fx) {
+    return this._tmpWorld.set(fx.group.position.x, fx.group.position.y, fx.group.position.z);
+  }
+
   _assignSpots(camPos, nightFactor) {
     const n = this._spotSlots.length;
     const ranked = this._fixtureCandidates
-      .map((obj) => ({ obj, dist: this._worldPos(obj).distanceTo(camPos) }))
+      .map((fx) => ({ fx, dist: this._fixturePos(fx).distanceTo(camPos) }))
       .sort((a, b) => a.dist - b.dist)
       .slice(0, n);
     for (let i = 0; i < n; i++) {
@@ -275,15 +353,61 @@ export class LightRig {
         slot.assignedRef = null;
         continue;
       }
-      const fx = cand.obj.userData.lightFixture || {};
-      const p = this._worldPos(cand.obj);
-      const lx = p.x, ly = p.y + (fx.offsetY || 0), lz = p.z;
-      slot.light.position.set(lx, ly, lz);
-      slot.target.position.set(lx, 0, lz); // straight down — fixtures point down, per the brief
+      const { fx } = cand;
+      const def = fx.def;
+      const lightDef = def.light;
+
+      // Same aim model the painted pool uses (lighting-builder.js): only
+      // ground-mounted cone fixtures (floodLight) are aimed by `dir`; any
+      // other cone (e.g. highBay, overhead) is treated as a point so its
+      // footprint doesn't stretch in an arbitrary direction.
+      const aimed = isAimedFixture(def);
+      const dir = aimed ? dirFromYaw(fx.group.rotation.y) : 0;
+      const footprintLight = (!aimed && lightDef.shape === 'cone')
+        ? { ...lightDef, shape: 'point' } : lightDef;
+      const { offsetX, offsetZ } = poolFootprint(footprintLight, dir);
+
+      const lx = fx.group.position.x;
+      const lz = fx.group.position.z;
+      const floorY = mountFloorY(def, fx.group.position.y);
+      // Ground mounts: fx.group.position.y IS floor height, and the emitter
+      // sits emitterY above it (see lighting-builder.js's mount-convention
+      // header). Wall/overhead mounts: fx.group.position.y already IS the
+      // emitter height (the mount origin is the attachment point, not the
+      // floor) — mountFloorY undoes that offset for `floorY` above.
+      const emitterY = def.mount === 'ground'
+        ? fx.group.position.y + (lightDef.emitterY || 0)
+        : fx.group.position.y;
+
+      slot.light.position.set(lx, emitterY, lz);
+      // Straight down for an unaimed fixture (offsetX/Z are 0 in that case);
+      // pushed toward the same forward offset the painted ellipse pool uses
+      // for an aimed one — one aiming model, not two.
+      slot.target.position.set(lx + offsetX, floorY, lz + offsetZ);
       slot.target.updateMatrixWorld();
-      slot.light.color.set(fx.color != null ? fx.color : DEFAULT_FIXTURE_COLOR);
-      slot.light.intensity = FIXTURE_SPOT_INTENSITY * nightFactor;
-      slot.assignedRef = cand.obj;
+      slot.light.color.set(lightDef.color != null ? lightDef.color : DEFAULT_FIXTURE_COLOR);
+      // Throw distance comes from the fixture's own declared pool radius
+      // (lighting.js: "the light pool radius in world units (meters)") so a
+      // bollard's spot doesn't reach as far as a high mast's — matching the
+      // painted pool it displaces, per the brief. Angle/penumbra/decay stay
+      // the shared tuned constants above (a look-and-feel dial, not
+      // something the pool data encodes).
+      slot.light.distance = Math.max(FIXTURE_SPOT_MIN_DISTANCE, lightDef.radius || FIXTURE_SPOT_DISTANCE);
+      if (slot.light.shadow && slot.light.shadow.camera) {
+        slot.light.shadow.camera.far = slot.light.distance;
+        if (typeof slot.light.shadow.camera.updateProjectionMatrix === 'function') {
+          slot.light.shadow.camera.updateProjectionMatrix();
+        }
+      }
+      // Scaled by the fixture's OWN declared intensity, not a flat constant.
+      // lighting.js spans 0.5 for an ankle-height bollard marker to 2.2 for a
+      // 7.5 m floodlight — a 4.4x range that exists precisely to distinguish
+      // them. Colour and throw distance above already read from `def.light`,
+      // so leaving intensity flat would make a bollard blaze as hard as a
+      // floodlight while agreeing with it on nothing else.
+      const defIntensity = Number.isFinite(lightDef.intensity) ? lightDef.intensity : 1;
+      slot.light.intensity = FIXTURE_SPOT_INTENSITY * defIntensity * nightFactor;
+      slot.assignedRef = fx;
     }
   }
 

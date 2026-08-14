@@ -37,7 +37,7 @@ import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
 import {
-  buildLightPools, buildLightHalos,
+  buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
   glassGlowForDarkness,
 } from './lighting-builder.js';
@@ -3195,7 +3195,17 @@ export class ThreeRenderer {
     // Note this is deliberately NOT the glow-role factor: real fixture lights
     // fade to zero at midday (a lit lamppost at noon reads as a bug), where
     // glow materials floor at 0.35 so a console screen stays legible.
-    if (this._lightRig) this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+    if (this._lightRig) {
+      this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+      // A fixture the rig just handed a real shadow-casting spot to must not
+      // ALSO paint its floor pool — double-bright, and the static ellipse
+      // disagrees with the spot's actual cone. Reversible per frame: a
+      // fixture that loses its slot next frame gets its pool restored here
+      // too. See lighting-builder.js's applyPoolSuppression — it only
+      // touches the merged pool mesh's vertex-color attribute, never
+      // rebuilds geometry.
+      this._applyLightPoolSuppression();
+    }
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3369,6 +3379,10 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
+    // Feed the same registry to the real-light rig's fixture discovery — see
+    // light-rig.js's setFixtureRegistry(); this is what replaced the dead
+    // userData.lightFixture scene-traversal lookup.
+    if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
     this._refreshUtilityLinesV2();
     this._refreshUnwiredSinkMarkers(true);
     this._refreshPortFittings();
@@ -3740,6 +3754,10 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
+    // Feed the same registry to the real-light rig's fixture discovery — see
+    // light-rig.js's setFixtureRegistry(); this is what replaced the dead
+    // userData.lightFixture scene-traversal lookup.
+    if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
   }
 
   /**
@@ -3760,6 +3778,23 @@ export class ThreeRenderer {
     if (poolMesh) this.lightPoolGroup.add(poolMesh);
     const halos = buildLightHalos(fixtures);
     if (halos) this.lightHaloGroup.add(halos);
+  }
+
+  /**
+   * Per-frame LOD pairing between the real-light rig and the painted pool
+   * layer: whichever fixtures LightRig has currently assigned a real
+   * shadow-casting spot to (light-rig.js's getActiveFixtureIds()) get their
+   * merged pool quad zeroed for as long as they hold the slot, and restored
+   * the moment they lose it — see lighting-builder.js's applyPoolSuppression
+   * for the no-rebuild vertex-color toggle. Called every frame from
+   * _animate() (right after _lightRig.update()), same cadence as
+   * _updateLightingRamp, but this one is a no-op (no attribute upload) on
+   * any frame where the active fixture set hasn't changed.
+   */
+  _applyLightPoolSuppression() {
+    if (!this._lightRig || !this.lightPoolGroup) return;
+    const poolMesh = this.lightPoolGroup.children[0] || null;
+    applyPoolSuppression(poolMesh, this._lightRig.getActiveFixtureIds());
   }
 
   /**
