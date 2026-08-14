@@ -413,6 +413,10 @@ function hireStaff(game, roles) {
   // scaled to staff count — is this script's version of "the balance report
   // Beam telling the player to build a cafeteria" actually building one.
   ensureAmenities(game, state.staffMembers.length);
+  // Balance fix round 6: see ensureDataStations' own comment — one daqRack
+  // per scientist on payroll, or headcount scaling is cosmetic.
+  const scientistCount = state.staffMembers.filter(m => m.profession === 'scientist').length;
+  ensureDataStations(game, Math.max(1, scientistCount));
 }
 
 // Balance fix round 3 discovered (and fixes here) a second, independent bug:
@@ -508,10 +512,59 @@ const REST_ORIGIN = { col: 20, row: 100 };
 const REST_PER_ROW = 2;
 const SEATS_PER_STAFF = 0.5;
 const REST_SLOTS_PER_STAFF = 0.5;
+// Own band, col 40+ — clear of every other dedicated grid in this file
+// (console -29..+15, cafeteria/rest col 20-29, labs/beam-hall col -8..9).
+// See ensureDataStations' own comment for why this exists at all.
+const DATA_ORIGIN = { col: 40, row: -29 };
+const DATA_PER_ROW = 3;
 
 function ensureAmenities(game, staffCount) {
   ensureCafeteriaSeats(game, Math.max(4, Math.ceil(staffCount * SEATS_PER_STAFF)));
   ensureRestStations(game, Math.max(1, Math.ceil(staffCount * REST_SLOTS_PER_STAFF)));
+}
+
+// Balance fix round 6: LAB_KIT's diagnosticsLab kit places exactly one
+// daqRack (facility-lab-furnishings.raw.js, jobs: ['takeData'], slots: 1)
+// and NO other kit item in any lab carries 'takeData' in its jobs list
+// (opticsLab's own takeData-capable item, opticalTable, isn't in its kit at
+// all). That means the entire facility, at any scientist headcount, has
+// exactly ONE concurrent takeData work slot — measured live, scaling
+// scientist headcount 1:1 with beamlines (i%2 flat cadence -> one per line)
+// did not move the data-blocked figure at all, because only one of however
+// many scientists were on payroll could ever actually be working takeData
+// at once; the rest were fully idle, paid, and pointless. This is the exact
+// same "hired without anywhere to work" shape as the cafeteria/rest bug
+// fixed in balance round 3/4 (see hireStaff's own comment) — headcount
+// alone was never going to fix it.
+//
+// takeData does NOT care what zone (if any) its station sits in — unlike
+// labWork, which credits stationZoneType toward that zone's staffedOutput
+// (jobRunner.js's tickJobs), takeData only sums workEfficiency into a
+// facility-wide total (state.staffDataEfficiency) regardless of where the
+// station is. So these ride their own dedicated grid, same as consoles/
+// cafeteria/rest, rather than needing to sit inside diagnosticsLab's fixed
+// 16-tile footprint.
+//
+// One daqRack per scientist: takeData is a scientist's entire job, not an
+// occasional need like eating or resting, so under-provisioning here directly
+// caps throughput 1:1 rather than merely causing occasional contention.
+function ensureDataStations(game, stationsNeeded) {
+  const state = game.state;
+  let index = state.placeables.filter(p => p.type === 'daqRack').length;
+  let attempts = 0;
+  while ((getStationIndex(state).byJob.takeData || []).length < stationsNeeded) {
+    if (attempts++ >= MAX_AMENITY_PLACEMENT_ATTEMPTS) {
+      console.error('[ensureDataStations] gave up after too many failed placements', {
+        stationsNeeded, realStations: (getStationIndex(state).byJob.takeData || []).length,
+      });
+      return;
+    }
+    const { col, row } = wrappedGridPosition(DATA_ORIGIN, index, 3, 4, DATA_PER_ROW);
+    index++;
+    ensureMapHalfExtent(game, Math.max(Math.abs(col), Math.abs(row)) + 5);
+    const ok = game.placePlaceable({ type: 'daqRack', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    if (!ok) console.error('[ensureDataStations] placement failed (will retry at the next grid cell)', { col, row });
+  }
 }
 
 // Safety bound on ensureCafeteriaSeats/ensureRestStations' own retry loops
@@ -718,8 +771,15 @@ function ensureMapHalfExtent(game, requiredHalfExtent) {
  */
 function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
   const steps = [];
-  // Labs first, always: they cost a rounding error and they are the only thing
-  // that lifts the research speed table off its blocked rows.
+  // Labs first, always: they cost a rounding error and lab TILES/BENCHES are
+  // a hard ceiling on the research speed table (getLabResearchTier's own
+  // Math.min(tier, furnTier), research.js) — necessary, but no longer
+  // sufficient on their own. Balance fix round 6: since Task 6, `tier` (and
+  // the `peakTier` research gating actually reads) is also ratcheted by
+  // engineers accruing labWork output in the zone — a fully-tiled, fully-
+  // benched lab with nobody ever staffing it still sits at tier 0 forever.
+  // The staff step below (which now hires an engineer every line, not zero)
+  // is what actually keeps this ceiling from being the permanent floor.
   const labs = ['opticsLab', 'diagnosticsLab', 'machineShop', 'coolingLab', 'rfLab', 'vacuumLab'];
   labs.forEach((zoneType, i) => {
     steps.push({
@@ -743,9 +803,34 @@ function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
     steps.push({
       kind: 'staff', label: `staff:line${i + 2}`, budget: STAFF_STEP_BUDGET,
       apply: (game) => {
-        hireStaff(game, i % 2 === 0
-          ? ['operator', 'technician', 'scientist']
-          : ['operator', 'technician']);
+        // Balance fix round 6: engineer and scientist both hired every line
+        // now, not the old i%2-alternating scientist-only-every-other-line
+        // cadence. Two independent findings forced this, neither tunable
+        // away by adjusting the ratio downward:
+        //
+        // - Zero engineers were ever hired before this round (only
+        //   operator/technician/scientist were in this list) — Task 6 made
+        //   lab zone tier (and therefore getLabResearchTier's peakTier,
+        //   research.js) depend on engineers actually accruing labWork
+        //   output. With none hired, staffedOutput sat at 0 for every lab
+        //   forever, live tier 0, peakTier 0, no matter how many lab tiles
+        //   or benches existed. See buildLadder's own lab-step comment
+        //   above, corrected this round for the same reason.
+        // - 54b124ad divided takeData's facility-wide total by running-
+        //   beamline count, closing a quadratic free-scaling bug (total
+        //   data used to multiply with beamline count from a FIXED
+        //   scientist headcount). That fix makes total data output
+        //   independent of beamline count by design — a scientist can only
+        //   take data in one place — so a hiring cadence tuned against the
+        //   old free multiplier (one scientist per two lines) now falls
+        //   further behind the tree's data cost with every line built
+        //   instead of keeping pace with it.
+        //
+        // One of each per line is the same cadence operator/technician
+        // already use, not a guessed multiplier — see the 30,000-tick
+        // measurement in this round's report for what it actually costs in
+        // upkeep and whether the ladder still affords it.
+        hireStaff(game, ['operator', 'technician', 'engineer', 'scientist']);
         return true;
       },
     });
