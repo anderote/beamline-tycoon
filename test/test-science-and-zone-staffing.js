@@ -32,14 +32,15 @@
 //   4. analyze converts data into research progress and reputation,
 //      incrementing member.stats.analyses — scaled by the analyst's own
 //      efficiency, capped by the data actually on hand.
-//   5. A freshly painted lab (rfLab, below its max tier so the ratchet has
-//      real headroom to prove the "harmless break" property — see that
-//      block's own comment for why 20 tiles specifically would NOT be a
-//      fair test of it) with no engineer has tier === 0 and peakTier === 0.
+//   5. A freshly painted 20-tile rfLab (the brief's own literal example —
+//      real headroom at tier 4 since fix round 1's STAFFED_OUTPUT_HEADROOM
+//      fix, see that constant's own comment in facility.js) with no
+//      engineer has tier === 0 and peakTier === 0.
 //   6. An engineer working labWork there raises tier to the tile-count
 //      tier.
 //   7. The engineer then stops; 100 ticks of decay leave tier unchanged
-//      and peakTier no lower than it was.
+//      and peakTier no lower than it was — including AT tier 4 itself,
+//      the one tier that had zero headroom before fix round 1.
 //   8. A newly placed component (both a junction/module, via
 //      beamline.placeJunction, and an on-pipe placement, via
 //      beamline.placeOnPipe) carries needsCommissioning: true and a
@@ -53,8 +54,34 @@
 //   11. The real job board (buildJobOffers) actually offers commission for
 //      a real, connected on-pipe component — not just that placeOnPipe
 //      stamps the flag (test 8b).
+//   12. Two engineers are never double-assigned to the same commission
+//      target (the repair-only claimed-targets guard, generalized).
+//   13. GATE vs RATE (coordinator review, fix round 1): getLabResearchTier
+//      reads peakTier, not the live tier, so a research node in a
+//      staffed-up lab's category stays startable through a staffing lull
+//      that collapses the live tier to 0 — asserted on both the numeric
+//      tier value (13a) AND a real research node's actual startability via
+//      getResearchSpeedMultiplier (13b), the exact check startResearch
+//      itself makes.
+//   14. machineShop/maintenance are excluded from the staffing ratchet —
+//      neither has an engineering specialty, so staffing them never
+//      reliably clears even tier 1; their own tier tracks tiles alone,
+//      immediately, same as before this task.
+//   15. staffedOutput resets to 0 whenever a zone's tileCount changes — the
+//      "stage a cheap small lab, then paint/rebuild it bigger" exploit.
+//      peakTier (durable) is unaffected.
+//   16. peakTier/staffedOutput persistence across undo and save/load is
+//      covered in test-game-undo.js and test-game-serialize.js, not here.
+//   17. Completing commission actually re-solves the beamline — the derate
+//      is not a no-op in play.
+//   18. Photon data is gated by the same "no scientist -> no data" check
+//      as detector data.
+//   19. takeData's facility-wide total no longer scales with beamline
+//      count (dividing state.staffDataEfficiency by the running-beamline
+//      count in Game._tickBeamline).
 //
-// Mutation-verified guards (see task-6-report.md for both outputs):
+// Mutation-verified guards (see task-6-report.md and
+// task-6-fix-round-1-report.md for all outputs):
 //   - jobs.js's commissionOffers reading node.placeable directly (the pre-
 //     fix bug: silently never offers commissioning for any on-pipe
 //     component) — reverting the fix fails test 11.
@@ -63,6 +90,23 @@
 //   - The zone-tier ratchet's min(tileTier, staffTier) — dropping the
 //     staffTier term fails test 5 (a freshly painted zone would read its
 //     tile tier immediately, with no engineer at all).
+//   - jobRunner.js's claimedTargetsByType, narrowed back to 'repair' only —
+//     fails test 12 (two engineers claim the same commission target).
+//   - research.js's getLabResearchTier reading peakTier — reverted to the
+//     live tier — fails test 13.
+//   - facility.js's LABWORK_CAPABLE_ZONES, re-including machineShop — fails
+//     test 14.
+//   - Game.recomputeZoneConnectivity's resize-reset guard, disabled — fails
+//     all of test 15.
+//   - Game.js's _applyState no longer wiping zoneConnectivity — reverted —
+//     fails test-game-undo.js/test-game-serialize.js.
+//   - jobEffects/commission.js's recalcBeamline call, disabled — fails
+//     test 17.
+//   - Game._tickBeamline's photon-data sciMult gate, dropped — fails test 18.
+//   - Game._tickBeamline's runningBeamlineCount division, dropped — fails
+//     test 19 at exactly the pre-fix quadratic value.
+//   - facility.js's STAFFED_OUTPUT_HEADROOM, set back to 1.0 — fails test 7
+//     (tier 4 drops after a single 100-tick break).
 
 import { StaffMember } from '../src/game/staff/StaffMember.js';
 import { assignJobs, tickJobs, abandonJob } from '../src/game/staff/jobRunner.js';
@@ -269,41 +313,58 @@ const { BeamlineRegistry } = await import('../src/beamline/BeamlineRegistry.js')
 // =============================================================================
 // 5, 6, 7. The zone-tier ratchet.
 //
-// Deliberately NOT a 20-tile zone (the brief's own illustrative example):
-// 20 tiles is ZONE_TIER_THRESHOLDS' own maximum (the top tier, 4), whose
-// required staffedOutput is exactly 1.0 — the same value staffedOutput is
-// clamped to. Reaching the top tier at all necessarily means staffedOutput
-// is sitting AT that clamp with zero headroom above it, so ANY decay tick
-// immediately after crosses back below 1.0 and drops the tier — that is a
-// real, inherent property of "normalise the same four thresholds into
-// [0, 1]" (there is no thresholds[4] to leave headroom against), not a bug
-// in the ratchet. 16 tiles (tier 3, threshold 0.8) has real headroom
-// (staffedOutput keeps climbing toward 1.0 as long as work continues,
-// giving up to 0.2 of margin against the 100-tick/-0.1 decay this test
-// exercises), which is what actually demonstrates "a lunch break is
-// harmless" rather than accidentally proving the opposite at the one tier
-// where it structurally can't hold.
+// The brief's own literal example: 20 tiles, ZONE_TIER_THRESHOLDS' own
+// maximum (tier 4). Fix round 1 (coordinator review) gave tier 4 real
+// headroom — zoneTierFromStaffedOutput now normalises against
+// ZONE_TIER_THRESHOLDS[3] * 1.25, not the bare threshold, so tier 4 needs
+// staffedOutput >= 0.8 rather than >= 1.0 (staffedOutput's own clamp
+// ceiling). Before that fix this file tested 16 tiles instead, specifically
+// to dodge the zero-headroom bug at the literal top tier — the coordinator
+// correctly called that out as papering over the bug rather than fixing it.
 // =============================================================================
 console.log('\n=== 5/6/7. Zone-tier ratchet: rfLab tier tracks staffing, not just tiles ===\n');
 {
   const g = new Game(new BeamlineRegistry(), { seed: 606 });
   g.state.resources.funding = 1e9;
 
-  const c0 = -25, r0 = -25, c1 = -22, r1 = -22; // 4x4 = 16 tiles
+  const c0 = -25, r0 = -29, c1 = -22, r1 = -25; // 4x5 = 20 tiles
   const foundationOk = g.placeInfraRect(c0, r0, c1, r1, 'concrete'); // labFloor requiresFoundation: 'concrete'
   assertOk(foundationOk, 'setup: concrete foundation placed');
   const floorOk = g.placeInfraRect(c0, r0, c1, r1, 'labFloor');
   assertOk(floorOk, 'setup: lab flooring placed');
   const zoneOk = g.placeZoneRect(c0, r0, c1, r1, 'rfLab');
-  assertOk(zoneOk, 'setup: 16 rfLab tiles painted');
+  assertOk(zoneOk, 'setup: 20 rfLab tiles painted');
 
   const conn = () => g.state.zoneConnectivity.rfLab;
-  assertOk(conn().tileTier === 3, `setup: 16 tiles -> tile tier 3 (got ${conn().tileTier})`);
+  assertOk(conn().tileTier === 4, `setup: 20 tiles -> tile tier 4 (got ${conn().tileTier})`);
   assertOk(conn().tier === 0, `5. freshly painted, no engineer -> tier 0 (got ${conn().tier})`);
   assertOk(conn().peakTier === 0, `5. freshly painted, no engineer -> peakTier 0 (got ${conn().peakTier})`);
 
+  // Set up test 13's research node NOW, while tier is genuinely 0 — the
+  // "classify every reader as a rate or a gate" assertion the coordinator's
+  // review asked for needs a node that is ACTUALLY gated at tier 0 to mean
+  // anything (RESEARCH_SPEED_TABLE.early/mid have no null row at all, so a
+  // shallow node would trivially "pass" this check for the wrong reason —
+  // see getResearchSpeedMultiplier's own row selection).
+  const { getLabResearchTier, getResearchSpeedMultiplier, _computeNodeDepth } = await import('../src/game/research.js');
+  const { RESEARCH } = await import('../src/data/research.js');
+  const rfNodes = Object.values(RESEARCH).filter(r => r.category === 'rf' && !r.hidden);
+  const deepestRf = rfNodes.reduce((a, b) => (_computeNodeDepth(b.id) > _computeNodeDepth(a.id) ? b : a));
+  assertOk(_computeNodeDepth(deepestRf.id) >= 5, `setup: found a real depth->=5 'rf' node (${deepestRf.id}, depth ${_computeNodeDepth(deepestRf.id)}) — RESEARCH_SPEED_TABLE.late/final block tier 0`);
+  assertOk(getResearchSpeedMultiplier(deepestRf.id, g.state) === null, `setup: that node is genuinely gated at tier 0 (got ${getResearchSpeedMultiplier(deepestRf.id, g.state)})`);
+
   const benchOk = g.placePlaceable({ type: 'labBench', col: c0 + 1, row: r0 + 1, subCol: 0, subRow: 0, dir: 0, free: true });
   assertOk(benchOk, 'setup: labBench placed inside the rfLab zone');
+  // Two more, well clear of the zone and never staffed — _getFurnishingTier
+  // (research.js) counts by the ITEM's own declared zoneTypes, not by
+  // where it's physically standing, so these only need to exist somewhere
+  // on the map. Purely to clear FURNISHING_TIER_THRESHOLDS' own tier-2 bar
+  // (3 items): getLabResearchTier is min(peakTier, furnTier), and test 13
+  // below needs furnTier >= 2 to prove the peak-tier property on a FINAL
+  // research node too (isFinal ? 2 : 1 — startResearch's own minTier), not
+  // just an ordinary deep one.
+  assertOk(g.placePlaceable({ type: 'labBench', col: c0 + 10, row: r0 + 1, subCol: 0, subRow: 0, dir: 0, free: true }), 'setup: 2nd labBench placed (furnTier only)');
+  assertOk(g.placePlaceable({ type: 'labBench', col: c0 + 16, row: r0 + 1, subCol: 0, subRow: 0, dir: 0, free: true }), 'setup: 3rd labBench placed (furnTier only)');
 
   const engineer = new StaffMember({
     id: 'eng1', profession: 'engineer', specialty: 'rf', traits: [],
@@ -325,16 +386,16 @@ console.log('\n=== 5/6/7. Zone-tier ratchet: rfLab tier tracks staffing, not jus
     if (!engineer.job) { assignJobs(g); if (engineer.job) arrive(engineer); }
     // 0.98, not merely "past the 0.8 crossing threshold" — the 100-tick
     // break below only costs 0.1 of staffedOutput, so stopping the moment
-    // tier first reads 3 would leave next to no margin against that decay
-    // (measured: staffedOutput 0.81 after the break when this broke at
-    // 0.9, only 0.01 above the 0.8 threshold — real, but not the kind of
-    // margin a test should rely on tick-for-tick). Waiting for near-total
-    // saturation leaves ~0.9 after the break, comfortably above 0.8.
-    if (conn().tier === 3 && conn().staffedOutput > 0.98) break;
+    // tier first reads 4 would leave next to no margin against that decay.
+    // Waiting for near-total saturation leaves ~0.9 after the break,
+    // comfortably above the 0.8 threshold fix round 1's headroom fix gives
+    // tier 4 (see this block's own header — before that fix there was NO
+    // way to get margin at tier 4 at all, by construction).
+    if (conn().tier === 4 && conn().staffedOutput > 0.98) break;
   }
   assertOk(tick < maxTicks, `setup: staffedOutput reached a comfortable margin within ${maxTicks} ticks (stopped at ${tick})`);
-  assertOk(conn().tier === 3, `6. engineer works labWork long enough -> tier rises to the tile-count tier (got ${conn().tier})`);
-  assertOk(conn().peakTier === 3, `6. peakTier tracks the newly reached tier (got ${conn().peakTier})`);
+  assertOk(conn().tier === 4, `6. engineer works labWork long enough -> tier rises to the tile-count tier (got ${conn().tier})`);
+  assertOk(conn().peakTier === 4, `6. peakTier tracks the newly reached tier (got ${conn().peakTier})`);
 
   const tierBeforeBreak = conn().tier;
   const peakBeforeBreak = conn().peakTier;
@@ -344,24 +405,32 @@ console.log('\n=== 5/6/7. Zone-tier ratchet: rfLab tier tracks staffing, not jus
 
   assertOk(conn().staffedOutput < staffedOutputBeforeBreak, 'setup: staffedOutput actually decayed over the 100-tick break');
   assertOk(conn().tier === tierBeforeBreak,
-    `7. a 100-tick break does not drop the tier (before ${tierBeforeBreak}, after ${conn().tier}, staffedOutput now ${conn().staffedOutput})`);
+    `7. a 100-tick break does not drop the tier — at TIER 4 itself, the one the pre-fix normalisation gave zero headroom (before ${tierBeforeBreak}, after ${conn().tier}, staffedOutput now ${conn().staffedOutput})`);
   assertOk(conn().peakTier >= peakBeforeBreak, `7. peakTier never falls (before ${peakBeforeBreak}, after ${conn().peakTier})`);
 
   // 13. research.js's getLabResearchTier reads peakTier, not the live
   // (decaying) tier — see that function's own comment for the real bug
   // this closes: reading the live tier there let an engineer being pulled
   // onto commission work for a stretch retroactively wall off research
-  // nodes in a lab a player had already staffed up. Decay the break WAY
-  // past 100 ticks this time — enough that the live tier actually drops —
-  // and confirm getLabResearchTier does not follow it down.
-  const { getLabResearchTier } = await import('../src/game/research.js');
+  // nodes in a lab a player had already staffed up, or block a node from
+  // ever starting at all. This is the "classify every reader as a rate or
+  // a gate" assertion the coordinator's review asked for: not just that
+  // the numeric tier value survives a lull (already covered above), but
+  // that deepestRf (set up above, while tier was still genuinely 0 and
+  // confirmed actually gated then) is STILL STARTABLE
+  // (getResearchSpeedMultiplier !== null, the exact value startResearch
+  // itself checks) after one.
   const researchTierAtPeak = getLabResearchTier('rfLab', g.state);
+  const speedAtPeak = getResearchSpeedMultiplier(deepestRf.id, g.state);
   assertOk(researchTierAtPeak > 0, `setup: getLabResearchTier('rfLab') is nonzero right after reaching peak (got ${researchTierAtPeak})`);
+  assertOk(speedAtPeak !== null, `setup: the deep rf node is startable right after reaching peak tier (got ${speedAtPeak})`);
   for (let t = 0; t < 1000; t++) tickJobs(g);
   assertOk(conn().tier === 0, `setup: 1000 ticks of decay actually drops the LIVE tier to 0 (got ${conn().tier})`);
   assertOk(conn().peakTier === peakBeforeBreak, `setup: peakTier is still untouched by the long decay (got ${conn().peakTier})`);
   assertOk(getLabResearchTier('rfLab', g.state) === researchTierAtPeak,
-    `13. getLabResearchTier stays at the peak-tier value even though the live zone tier dropped to 0 (want ${researchTierAtPeak}, got ${getLabResearchTier('rfLab', g.state)})`);
+    `13a. getLabResearchTier stays at the peak-tier value even though the live zone tier dropped to 0 (want ${researchTierAtPeak}, got ${getLabResearchTier('rfLab', g.state)})`);
+  assertOk(getResearchSpeedMultiplier(deepestRf.id, g.state) === speedAtPeak,
+    `13b. GATE property: the deep rf node is still startable after the live tier collapsed to 0 (want ${speedAtPeak}, got ${getResearchSpeedMultiplier(deepestRf.id, g.state)})`);
 }
 
 // =============================================================================
@@ -564,6 +633,223 @@ console.log('\n=== 12. Two engineers are never double-assigned to the same commi
   assertOk(other.job === null, `the other engineer got no job at all — nothing else to commission here (got ${other.job?.jobType})`);
   assertOk(other.idleReason === 'Someone else is already commissioning that component.',
     `its idle reason names the conflict (got "${other.idleReason}")`);
+}
+
+// =============================================================================
+// 14. machineShop/maintenance are excluded from the staffing ratchet — see
+//     LABWORK_CAPABLE_ZONES' own comment (facility.js) for the real bug
+//     this closes: deriving the set from "can a labWork bench be placed
+//     here" swept both in even though neither has an engineering specialty,
+//     which pinned machineShop's staffedOutput at ~0.18 forever and
+//     permanently blocked 12 machineTypes-category research nodes (81% of
+//     an 80,000-tick playthrough blocked on lab tier).
+// =============================================================================
+console.log('\n=== 14. machineShop/maintenance are excluded from the staffing ratchet ===\n');
+{
+  const { LABWORK_CAPABLE_ZONES } = await import('../src/data/facility.js');
+  assertOk(!LABWORK_CAPABLE_ZONES.has('machineShop'), 'machineShop excluded (no engineering specialty)');
+  assertOk(!LABWORK_CAPABLE_ZONES.has('maintenance'), 'maintenance excluded (no engineering specialty)');
+  assertOk(['rfLab', 'vacuumLab', 'coolingLab', 'diagnosticsLab'].every(z => LABWORK_CAPABLE_ZONES.has(z)),
+    'the four labs with a real engineering specialty are still included');
+
+  // Live: a machineShop zone's tier tracks TILES ALONE, immediately, with
+  // zero staff ever assigned — the same "not staffing-gated at all"
+  // behaviour cafeteria/officeSpace/meetingRoom already had.
+  const g = new Game(new BeamlineRegistry(), { seed: 808 });
+  g.state.resources.funding = 1e9;
+  const c0 = -25, r0 = -29, c1 = -22, r1 = -25; // 4x5 = 20 tiles
+  assertOk(g.placeInfraRect(c0, r0, c1, r1, 'concrete'), 'setup: concrete foundation placed');
+  assertOk(g.placeInfraRect(c0, r0, c1, r1, 'labFloor'), 'setup: lab flooring placed');
+  assertOk(g.placeZoneRect(c0, r0, c1, r1, 'machineShop'), 'setup: 20 machineShop tiles painted');
+  const conn = g.state.zoneConnectivity.machineShop;
+  assertOk(conn.tileTier === 4, `setup: 20 tiles -> tile tier 4 (got ${conn.tileTier})`);
+  assertOk(conn.tier === 4, `14. machineShop tier matches tile tier immediately, no staffing needed (got ${conn.tier})`);
+}
+
+// =============================================================================
+// 15. staffedOutput resets on zone resize — "stage a cheap 4-tile lab to
+//     saturation, then paint it out to 20 tiles" used to read as an instant
+//     tier 4 at the new, much larger footprint, and demolishing + repainting
+//     elsewhere carried the same value forward too. See
+//     Game.recomputeZoneConnectivity's own comment on the fix.
+// =============================================================================
+console.log('\n=== 15. staffedOutput resets on zone resize (labour gate no longer payable once) ===\n');
+{
+  const g = new Game(new BeamlineRegistry(), { seed: 909 });
+  g.state.resources.funding = 1e9;
+
+  const smallC0 = -25, smallR0 = -29, smallC1 = -24, smallR1 = -28; // 2x2 = 4 tiles
+  assertOk(g.placeInfraRect(smallC0, smallR0, smallC1, smallR1, 'concrete'), 'setup: foundation placed');
+  assertOk(g.placeInfraRect(smallC0, smallR0, smallC1, smallR1, 'labFloor'), 'setup: lab flooring placed');
+  assertOk(g.placeZoneRect(smallC0, smallR0, smallC1, smallR1, 'vacuumLab'), 'setup: 4 vacuumLab tiles painted');
+  assertOk(g.state.zoneConnectivity.vacuumLab.tileTier === 1, 'setup: 4 tiles -> tile tier 1');
+
+  // Stage it to full saturation directly — this test is about the RESIZE
+  // guard specifically; tests 5-7 already cover the real per-tick ramp.
+  g.state.zoneConnectivity.vacuumLab.staffedOutput = 1.0;
+  g.state.zoneConnectivity.vacuumLab.peakTier = 1;
+  g.recomputeZoneConnectivity();
+  assertOk(g.state.zoneConnectivity.vacuumLab.tier === 1, `setup: tier === tile tier at the small size (got ${g.state.zoneConnectivity.vacuumLab.tier})`);
+
+  // Paint the SAME zone type out to 20 tiles (tile tier 4), covering the
+  // original 4-tile footprint. Measured exploit before this fix: staffedOutput
+  // carried straight over unchanged, reading tier 4 the instant tileTier
+  // caught up.
+  const bigC0 = -25, bigR0 = -29, bigC1 = -22, bigR1 = -25; // 4x5 = 20 tiles
+  assertOk(g.placeInfraRect(bigC0, bigR0, bigC1, bigR1, 'concrete'), 'setup: foundation extended');
+  assertOk(g.placeInfraRect(bigC0, bigR0, bigC1, bigR1, 'labFloor'), 'setup: lab flooring extended');
+  assertOk(g.placeZoneRect(bigC0, bigR0, bigC1, bigR1, 'vacuumLab'), 'setup: painted out to 20 tiles');
+  const conn = g.state.zoneConnectivity.vacuumLab;
+  assertOk(conn.tileTier === 4, `setup: now 20 tiles -> tile tier 4 (got ${conn.tileTier})`);
+  assertOk(conn.staffedOutput === 0, `15a. staffedOutput reset to 0 on resize, not carried over (got ${conn.staffedOutput})`);
+  assertOk(conn.tier === 0, `15a. tier reads 0 at the new size — not an instant tier 4 from the old small zone's staffing (got ${conn.tier})`);
+  assertOk(conn.peakTier === 1, "setup: peakTier (durable) still reflects the small zone's own achievement — not reset");
+
+  // Demolish entirely, then repaint the same size elsewhere.
+  g.state.zoneConnectivity.vacuumLab.staffedOutput = 1.0; // simulate having fully re-staffed the big zone for real
+  g.recomputeZoneConnectivity();
+  assertOk(g.state.zoneConnectivity.vacuumLab.tier === 4, 'setup: re-staffed the big zone to tier 4');
+  assertOk(g.removeZoneRect(bigC0, bigR0, bigC1, bigR1), 'setup: zone demolished entirely');
+  assertOk(g.state.zoneConnectivity.vacuumLab.staffedOutput === 0, `15b. demolition (tileCount -> 0) also resets staffedOutput (got ${g.state.zoneConnectivity.vacuumLab.staffedOutput})`);
+
+  const elC0 = 10, elR0 = 10, elC1 = 13, elR1 = 14; // 4x5 = 20 tiles, a different location
+  assertOk(g.placeInfraRect(elC0, elR0, elC1, elR1, 'concrete'), 'setup: foundation placed elsewhere');
+  assertOk(g.placeInfraRect(elC0, elR0, elC1, elR1, 'labFloor'), 'setup: lab flooring placed elsewhere');
+  assertOk(g.placeZoneRect(elC0, elR0, elC1, elR1, 'vacuumLab'), 'setup: repainted 20 tiles elsewhere');
+  assertOk(g.state.zoneConnectivity.vacuumLab.staffedOutput === 0,
+    `15c. repainting elsewhere still reads staffedOutput 0 — the "demolish and relocate" exploit is closed (got ${g.state.zoneConnectivity.vacuumLab.staffedOutput})`);
+  assertOk(g.state.zoneConnectivity.vacuumLab.peakTier === 4, 'setup: peakTier (durable) survives the demolition/relocation too');
+}
+
+// =============================================================================
+// 16. peakTier/staffedOutput persistence across undo and save/load is
+//     covered end to end in test-game-undo.js ("zoneConnectivity's
+//     staffedOutput/peakTier...") and test-game-serialize.js
+//     ("zoneConnectivity persistence"), not duplicated here — that is the
+//     more natural home for it (those files already own the undo/save
+//     round-trip contract this task's own fix now has to honour) and the
+//     coordinator's review asked for both to be run directly.
+// =============================================================================
+
+// =============================================================================
+// 17. Completing commission actually re-solves the beamline — the derate
+//     was previously a no-op in play: physics-payload.js's
+//     COMMISSIONING_DERATE only applies inside buildPhysicsElements, which
+//     only ever runs from Game.recalcBeamline/recalcAllBeamlines, and
+//     nothing on the commission completion path called either. Measured
+//     live: zero recalcs from the effect, zero across 20 plain ticks
+//     afterward — entry.beamState (what income/data/objectives bill from)
+//     kept the derated numbers until the player happened to edit the
+//     beamline for an unrelated reason.
+// =============================================================================
+console.log('\n=== 17. Completing commission re-solves the beamline (not a no-op in play) ===\n');
+{
+  const { onJobComplete } = await import('../src/game/staff/jobRunner.js');
+
+  const g = new Game(new BeamlineRegistry(), { seed: 1212 });
+  g.state.resources.funding = 1e9;
+  g.state.resources.spares = 1e9;
+
+  const src = g.beamline.placeJunction({ type: 'source', col: -6, row: 28, dir: 3, free: true, silent: true });
+  // detector's own stats.dataRate (module/junction role, so it's the
+  // commission target directly — no on-pipe placement needed) is read by
+  // _fallbackStatsForBeamline's `dRate += s.dataRate` UNSCALED by
+  // infraQuality's gainScale, unlike energyGain — this beamline has no
+  // power/rf/cooling/vacuum wiring at all (not this test's concern), which
+  // would otherwise floor a gainScale-gated stat to 0 regardless of
+  // commissioning and make the derate invisible for the wrong reason.
+  const det = g.beamline.placeJunction({ type: 'detector', col: 6, row: 28, dir: 3, free: true, silent: true });
+  assertOk(!!src && !!det, 'setup: source and detector placed');
+  const pipeId = g.beamline.drawPipe(
+    { junctionId: src, portName: 'exit' },
+    { junctionId: det, portName: 'entry' },
+    [{ col: -6, row: 28 }, { col: 6, row: 28 }],
+  );
+  assertOk(!!pipeId, 'setup: pipe drawn');
+
+  const entry = g.registry.getAll().find(e => e.sourceId === src);
+  assertOk(!!entry, 'setup: placing a source registered a beamline entry');
+
+  g.recalcAllBeamlines(); // baseline recalc, matching what a real build already triggers
+  const dataRateDerated = entry.beamState.dataRate;
+  assertOk(dataRateDerated > 0, `setup: dataRate is nonzero while derated (got ${dataRateDerated})`);
+
+  const engineer = new StaffMember({ id: 'crecalc1', profession: 'engineer', specialty: null, traits: [], skills: FLAT_SKILLS, rng: () => 0.5 });
+  const job = { jobType: 'commission', target: { beamlineId: entry.id, nodeId: det }, specialty: null };
+  onJobComplete(g, engineer, job);
+
+  const detPlaceable = g.state.placeables[g.state.placeableIndex[det]];
+  assertOk(detPlaceable.needsCommissioning === false, 'setup: needsCommissioning cleared');
+
+  // No manual recalc call here — if the effect itself didn't trigger one,
+  // dataRate would still read the derated value from before commission.
+  const dataRateAfter = entry.beamState.dataRate;
+  assertOk(dataRateAfter > dataRateDerated,
+    `17a. commission completion re-solved the beamline on its own — dataRate rose from the derated value with no manual recalc call (derated ${dataRateDerated}, after ${dataRateAfter})`);
+  assertOk(Math.abs(dataRateAfter - dataRateDerated / 0.7) < 1e-6,
+    `17b. and by exactly the 1/0.7 factor the derate removed (want ${dataRateDerated / 0.7}, got ${dataRateAfter})`);
+}
+
+// =============================================================================
+// 18. Photon data is gated by the same "no scientist -> no data" check as
+//     detector data. Before this fix: bs.photonRate * 0.1 * bs.beamQuality
+//     was added to resources.data with no scientist check at all — measured
+//     live with zero working scientists, the detector half correctly paid
+//     0 but this half still paid 4.50/tick.
+// =============================================================================
+console.log('\n=== 18. Photon data is gated by the same scientist check as detector data ===\n');
+{
+  const { makeDefaultBeamState } = await import('../src/beamline/BeamlineRegistry.js');
+  const g = new Game(new BeamlineRegistry(), { seed: 1313 });
+  g.state.infraCanRun = true;
+
+  const bs = makeDefaultBeamState('lightSource');
+  bs.dataRate = 0; // isolate the photon route from the detector route
+  bs.photonRate = 45;
+  bs.beamQuality = 1;
+  const entry = { id: 'bl-photon', sourceId: null, beamState: bs };
+
+  g.state.staffDataEfficiency = 0;
+  const dataBefore = g.state.resources.data;
+  g._tickBeamline(entry);
+  assertOk(g.state.resources.data === dataBefore,
+    `18a. no working scientist -> photon data gain is 0 too (before ${dataBefore}, after ${g.state.resources.data})`);
+
+  g.state.staffDataEfficiency = 1;
+  const dataBefore2 = g.state.resources.data;
+  g._tickBeamline(entry);
+  const gained = g.state.resources.data - dataBefore2;
+  assertOk(gained > 0, `18b. a working scientist DOES unlock photon data (gained ${gained})`);
+}
+
+// =============================================================================
+// 19. takeData's facility-wide total no longer scales with beamline count.
+//     Before this fix: state.staffDataEfficiency (a facility-wide total) was
+//     applied UNDIVIDED to every running beamline — measured live, two
+//     beamlines each independently credited the full 10.00/tick a single
+//     scientist's efficiency implied (20 total from one scientist), scaling
+//     linearly with line count (1/2/4/8 lines -> 10/20/40/80 from the same
+//     one scientist).
+// =============================================================================
+console.log('\n=== 19. takeData total is independent of beamline count (fix round 1) ===\n');
+{
+  const { makeDefaultBeamState } = await import('../src/beamline/BeamlineRegistry.js');
+  const g = new Game(new BeamlineRegistry(), { seed: 1414 });
+  g.state.infraCanRun = true;
+
+  const bs1 = makeDefaultBeamState('testStand'); bs1.dataRate = 10;
+  const bs2 = makeDefaultBeamState('testStand'); bs2.dataRate = 10;
+  const entry1 = { id: 'bl-q1', sourceId: null, beamState: bs1, status: 'running' };
+  const entry2 = { id: 'bl-q2', sourceId: null, beamState: bs2, status: 'running' };
+  g.registry.getAll = () => [entry1, entry2]; // both registered AND running
+
+  g.state.staffDataEfficiency = 1.0; // one scientist, efficiency 1.0
+  const before = g.state.resources.data;
+  g._tickBeamline(entry1);
+  g._tickBeamline(entry2);
+  const totalGain = g.state.resources.data - before;
+  assertOk(Math.abs(totalGain - 10) < 1e-9,
+    `19. total facility data gain from ONE scientist stays 10 regardless of beamline count — the pre-fix formula would have summed to 20 (want 10, got ${totalGain})`);
 }
 
 // =============================================================================

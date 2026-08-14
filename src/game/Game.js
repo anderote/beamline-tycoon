@@ -66,6 +66,17 @@ const SERIALIZED_FIELDS = [
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
   'zones', 'walls', 'doors', 'windows',
+  // zoneConnectivity is mostly derived (active/tileCount/tileTier/tier are
+  // rebuilt from `zones` on every recomputeZoneConnectivity() call — see
+  // that method's own header), but staffedOutput/peakTier are accumulated
+  // sim progress with no other record anywhere (task 6, staff-professions-3,
+  // jobs-and-gates): a player's staffing history for a lab isn't
+  // re-derivable from anything else in the save. Serializing the whole
+  // object (not just those two fields) is simpler and harmless — _applyState
+  // no longer wipes it before recomputeZoneConnectivity() runs, so the
+  // derived fields get overwritten fresh from the loaded `zones` regardless
+  // of what a stale save happened to have on disk for them.
+  'zoneConnectivity',
   // facility + placement
   'facilityEquipment', 'facilityGrid', 'facilityNextId',
   'zoneFurnishings', 'zoneFurnishingSubgrids', 'zoneFurnishingNextId',
@@ -94,6 +105,14 @@ const UNDO_PRESERVED_FIELDS = [
   'completedObjectives', 'discoveries',
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'savedDesigns', 'savedDesignNextId',
+  // zoneConnectivity's staffedOutput/peakTier are sim-accumulated staffing
+  // progress (task 6, staff-professions-3, jobs-and-gates) — the same
+  // category as componentHealth (BEAMSTATE_PRESERVED_FIELDS, one level
+  // down) or staffMembers itself, not gesture state. Rewinding them would
+  // let one Ctrl+Z re-lock a lab (and any research gated on it — see
+  // research.js's getLabResearchTier) a player spent real staffing time
+  // unlocking, for a build action that never touched staffing at all.
+  'zoneConnectivity',
   // stationReservations names staffMembers by id (a slot claim is exactly
   // as much "the sim's" as the roster it references) — rewinding the
   // reservation map while staffMembers comes from the live session would
@@ -2260,6 +2279,22 @@ export class Game {
     // Compute tier from tile count, then ratchet it against staffedOutput
     // for the zone types staffing can gate at all.
     for (const [zoneType, info] of Object.entries(connectivity)) {
+      // Fix round 1 (coordinator review): staffedOutput used to survive ANY
+      // resize or rebuild of the zone, keyed purely by zone TYPE with no
+      // notion of "how much of the CURRENT footprint is actually staffed".
+      // Measured exploit: stage a cheap 4-tile lab, staff it to
+      // staffedOutput 1.0, then paint it out to 22 tiles — instant tier 4
+      // at the new, much larger size; demolishing the zone entirely and
+      // repainting 20 tiles somewhere else carried the same value forward
+      // unchanged too. Reset to 0 whenever tileCount actually changes: the
+      // ratchet has to be re-earned at whatever footprint the zone is NOW,
+      // not whatever it happened to be the last time an engineer worked
+      // it. peakTier is a durable, "ever reached" record BY DESIGN (see
+      // this method's own header) and is deliberately NOT reset here —
+      // only the live, re-earnable staffedOutput input is.
+      const prev = prevConnectivity[zoneType];
+      if (prev && prev.tileCount !== info.tileCount) info.staffedOutput = 0;
+
       let tileTier = 0;
       for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
         if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { tileTier = t + 1; break; }
@@ -4654,16 +4689,39 @@ export class Game {
     // own comment there). No working scientist -> 0 -> no data gain at all,
     // full stop; a working one scales this directly by their efficiency,
     // same as every other work job in the game.
+    //
+    // Fix round 1 (coordinator review): divided by the number of currently
+    // RUNNING beamlines (floored at 1, so a call against an unregistered
+    // beamline — this method's own unit tests — divides by 1, i.e. no
+    // change). state.staffDataEfficiency is a facility-wide total (see that
+    // field's own comment on why it isn't bound to one specific beamline),
+    // and this method runs once per running beamline — multiplying the SAME
+    // undivided total onto every one of them made total facility data scale
+    // with beamline count for free: measured live, two beamlines each
+    // independently credited the full 10.00/tick a single scientist's
+    // efficiency implied, and 1/2/4/8 lines gave 10/20/40/80 from that same
+    // one scientist. Dividing here means the total the facility earns from
+    // a given roster of scientists no longer depends on how many lines
+    // their output happens to be spread across.
+    const runningBeamlineCount = Math.max(1, (this.registry.getAll() || []).filter(e => e.status === 'running').length);
+    const sciMult = (this.state.staffDataEfficiency || 0) / runningBeamlineCount;
     if (connectedDataRate > 0) {
-      const sciMult = this.state.staffDataEfficiency || 0;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
       bs.totalDataCollected += dataGain;
     }
 
-    // Photon data from undulators (bonus data, scaled down)
+    // Photon data from undulators (bonus data, scaled down). Fix round 1
+    // (coordinator review): this used to add data with NO scientist check
+    // at all — measured live with zero working scientists, the detector
+    // half correctly paid 0 but this half still paid 4.50/tick, a real
+    // route around the "no scientist -> no data" gate the brief calls for.
+    // Gated by the same sciMult as the detector half above, for the same
+    // reason: it is data collection, same as the detector's own, and there
+    // is no version of "no scientist -> no data" that carves out an
+    // exception for undulators specifically.
     if (bs.photonRate > 0) {
-      const photonData = bs.photonRate * 0.1 * bs.beamQuality;
+      const photonData = bs.photonRate * 0.1 * bs.beamQuality * sciMult;
       this.state.resources.data += photonData;
       bs.totalDataCollected += photonData;
     }
@@ -5344,7 +5402,22 @@ export class Game {
     for (const z of this.state.zones) {
       this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
     }
-    this.state.zoneConnectivity = {};
+    // Task 6 (staff-professions-3, jobs-and-gates): this used to
+    // unconditionally reset state.zoneConnectivity to {} right here, before
+    // recomputing — harmless when every field was purely derived from
+    // `zones`, but staffedOutput/peakTier are accumulated sim progress
+    // (see SERIALIZED_FIELDS/UNDO_PRESERVED_FIELDS' own comments on this
+    // same field) with no other record anywhere, so wiping the object first
+    // discarded them right before recomputeZoneConnectivity's own carry-
+    // forward logic ever got a chance to read them — on EVERY load and
+    // EVERY undo/redo, not just a rare edge case. By this point
+    // this.state.zoneConnectivity already holds the correct source to carry
+    // forward from: the just-loaded save's value (Object.assign(this.state,
+    // data.state) above) on a fresh load, or the live, not-yet-overwritten
+    // value (Object.assign(this.state, preserved) above) on undo/redo.
+    // recomputeZoneConnectivity() still rebuilds every DERIVED field
+    // (active/tileCount/tileTier/tier) from `zones`/`zoneOccupied` fresh
+    // regardless, so a stale save's derived numbers can never leak through.
     this.recomputeZoneConnectivity();
     // Discard legacy connections data from old saves
     delete this.state.connections;

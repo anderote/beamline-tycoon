@@ -55,6 +55,25 @@ registerJobEffect('commission', (game, member, job) => {
   if (!record?.needsCommissioning) return;
 
   record.needsCommissioning = false;
+
+  // Fix round 1 (coordinator review): clearing the flag alone is a no-op in
+  // play. physics-payload.js's COMMISSIONING_DERATE only ever applies
+  // inside buildPhysicsElements, which only ever runs from
+  // Game.recalcBeamline/recalcAllBeamlines — nothing on THIS call path
+  // triggers either, so entry.beamState (what income, data, and objectives
+  // actually bill from) kept the 0.7x-derated numbers until the player
+  // happened to edit the beamline for an unrelated reason. Measured live:
+  // zero recalcs from this effect, zero across 20 plain ticks afterward.
+  // repair.js never hit this because it writes componentHealth directly,
+  // with no derived-physics step in between. Guarded (not a bare call)
+  // because the lightweight `game` fixture Section A tests use (state +
+  // registry.getAll() only — see test-science-and-zone-staffing.js's own
+  // header) carries no recalcBeamline at all, the same defensive shape
+  // BeamlineSystem's own constructor uses for its injected callbacks.
+  if (target.beamlineId && typeof game.recalcBeamline === 'function') {
+    game.recalcBeamline(target.beamlineId);
+  }
+
   member.stats.commissions = (member.stats.commissions || 0) + 1;
   const label = COMPONENTS[record.type]?.name || record.type || 'component';
   // Task 7 (staff-professions-3, jobs-and-gates): only the FIRST commission
