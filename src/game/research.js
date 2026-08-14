@@ -115,16 +115,31 @@ export function _getFurnishingTier(zoneType, zoneItems) {
   return tier;
 }
 
+// Task 6 (staff-professions-3, jobs-and-gates): reads peakTier, not the
+// live (staffing-ratcheted) `.tier` zoneConnectivity now carries. Research
+// gating is a durable "has this lab ever reached the level this node
+// needs" question — the same shape as the brief's own peakTier/palette-
+// unlock rule ("losing access to components you already bought is
+// punishing in a way that losing throughput is not"), not a live
+// efficiency read (that's StaffMember.efficiency's own zoneTier argument,
+// which still reads the live `.tier` — an understaffed lab genuinely
+// SLOWS work happening in it right now, unaffected by this).
+//
+// Reading the live tier here instead — the first version of this fix —
+// let a temporary staffing lull (an engineer pulled onto a commission
+// backlog, say) retroactively un-start research a player was already
+// mid-node on, or wall an entire research subtree behind a lab that's
+// rarely fully staffed at the exact instant startResearch happens to
+// check. Measured live in a 24-beamline playthrough
+// (scripts/balance-playthrough.mjs): 81% of an 80,000-tick run blocked on
+// lab tier, 31 research nodes never reachable, once commission work (also
+// new this task, and a higher board priority than labWork — 70 vs 40)
+// started competing with labWork for the same finite engineer pool.
 export function getLabResearchTier(labType, state) {
   const conn = state.zoneConnectivity?.[labType];
-  if (!conn || !conn.active) {
-    const tileTier = conn ? conn.tier : 0;
-    const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
-    return Math.min(tileTier, furnTier);
-  }
-  const tileTier = conn.tier;
+  const tier = conn ? (conn.peakTier ?? conn.tier ?? 0) : 0;
   const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
-  return Math.min(tileTier, furnTier);
+  return Math.min(tier, furnTier);
 }
 
 export function getResearchSpeedMultiplier(id, state) {

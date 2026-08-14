@@ -346,6 +346,22 @@ console.log('\n=== 5/6/7. Zone-tier ratchet: rfLab tier tracks staffing, not jus
   assertOk(conn().tier === tierBeforeBreak,
     `7. a 100-tick break does not drop the tier (before ${tierBeforeBreak}, after ${conn().tier}, staffedOutput now ${conn().staffedOutput})`);
   assertOk(conn().peakTier >= peakBeforeBreak, `7. peakTier never falls (before ${peakBeforeBreak}, after ${conn().peakTier})`);
+
+  // 13. research.js's getLabResearchTier reads peakTier, not the live
+  // (decaying) tier — see that function's own comment for the real bug
+  // this closes: reading the live tier there let an engineer being pulled
+  // onto commission work for a stretch retroactively wall off research
+  // nodes in a lab a player had already staffed up. Decay the break WAY
+  // past 100 ticks this time — enough that the live tier actually drops —
+  // and confirm getLabResearchTier does not follow it down.
+  const { getLabResearchTier } = await import('../src/game/research.js');
+  const researchTierAtPeak = getLabResearchTier('rfLab', g.state);
+  assertOk(researchTierAtPeak > 0, `setup: getLabResearchTier('rfLab') is nonzero right after reaching peak (got ${researchTierAtPeak})`);
+  for (let t = 0; t < 1000; t++) tickJobs(g);
+  assertOk(conn().tier === 0, `setup: 1000 ticks of decay actually drops the LIVE tier to 0 (got ${conn().tier})`);
+  assertOk(conn().peakTier === peakBeforeBreak, `setup: peakTier is still untouched by the long decay (got ${conn().peakTier})`);
+  assertOk(getLabResearchTier('rfLab', g.state) === researchTierAtPeak,
+    `13. getLabResearchTier stays at the peak-tier value even though the live zone tier dropped to 0 (want ${researchTierAtPeak}, got ${getLabResearchTier('rfLab', g.state)})`);
 }
 
 // =============================================================================
