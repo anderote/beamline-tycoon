@@ -51,11 +51,20 @@ import { countBeamlines } from '../utility-gate.js';
 // the same numbers this module actually runs on rather than a copy that can
 // drift.
 export const NEEDS_THRESHOLD = 0.8;
-// Same magic numbers the deleted onBreak branch used for its cafeteria-less
-// case (staffSystem.js history: hunger -0.02/tick, fatigue -0.05/tick) —
-// reused verbatim rather than re-derived, so "the current cafeteria-less
-// rate" in this task's brief means exactly what it says.
-const NO_STATION_RECOVERY_RATE = { hunger: 0.02, fatigue: 0.05 };
+// Balance fix round 2: slower than HUNGER_PER_TICK/FATIGUE_PER_TICK
+// (staffSystem.js), not faster — the round-1 rates (0.02/0.05, the old
+// cafeteria-less onBreak branch's own numbers) recovered FASTER than the
+// need accrued, so an unserviced need settled into a slow oscillation just
+// under NEEDS_THRESHOLD (measured: hovering around 0.795) — invisible to
+// the player and, worse, no different from a serviced need for any purpose
+// that reads the raw number. Net accrual while trickling is now POSITIVE
+// (hunger +0.0033-0.002=+0.0013/tick, fatigue +0.005-0.002=+0.003/tick), so
+// an unserviced need pegs at 1.0 and stays there — a visible, legible
+// signal — instead of hiding just under the line. Nothing in the codebase
+// blocks work on the raw need level (only STATUS gates assignment/ticking —
+// see assignJobs/tickJobs), so this costs no employability by itself; see
+// StaffMember.efficiency()'s own unservicedPenalty for the actual cost.
+const NO_STATION_RECOVERY_RATE = { hunger: 0.002, fatigue: 0.002 };
 
 /**
  * One member's slice of assignJobs' needs pass: if `needKey` (hunger or
@@ -106,6 +115,18 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
 
   member.idleReason = `No reachable ${missingLabel} — recovering slowly while working.`;
   member.needs[needKey] = Math.max(0, member.needs[needKey] - NO_STATION_RECOVERY_RATE[needKey]);
+  // Balance fix round 2: the deadlock guard engaging AT ALL — not the raw
+  // need value, which pegs at 1.0 either way now (see NO_STATION_RECOVERY_
+  // RATE above) and so can't itself carry any graduated signal — flags this
+  // member as running an unserviced need. StaffMember.efficiency() reads
+  // this flag for a flat ×0.6 work-rate penalty (see its own comment for
+  // why a STATE flag rather than a function of the need's magnitude: a
+  // magnitude-based penalty only has ~2.5:1 leverage over a full cycle,
+  // because a serviced staffer passes through the same low-need band every
+  // time too). Cleared only by a completed eat/rest job (registered at the
+  // bottom of this file) — not by the need dropping back under threshold on
+  // its own, which the trickle above no longer does anyway.
+  member.unservicedPenalty = true;
   return false;
 }
 
@@ -143,6 +164,19 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
  * bug regardless of which downstream consumer would have cared. A need
  * that hits the DEADLOCK GUARD proper (no station reachable at all) still
  * gets its own full idleReason/recovery via tryTakeNeedJob, same as before.
+ *
+ * When BOTH needs hit the deadlock guard the same pass, hunger's message
+ * wins (see the hungerDeadlockReason capture below) — matching this
+ * function's own "hunger checked before fatigue" precedence rather than
+ * leaving it to an accident of call order. Without that, rest's
+ * tryTakeNeedJob call always runs last and unconditionally overwrites
+ * idleReason with its own message, permanently hiding "no cafeteria" the
+ * moment both needs are simultaneously unserviced — which balance fix
+ * round 2 made routine: an unserviced need now pegs at 1.0 and stays there
+ * (NO_STATION_RECOVERY_RATE's own comment) instead of oscillating just
+ * under NEEDS_THRESHOLD, so two needs that cross their own thresholds at
+ * different ticks stay BOTH true together for the rest of the run, not
+ * just in the rare tick they happen to line up.
  */
 function handleNeeds(member, game) {
   if (member.job != null) member.idleReason = null;
@@ -152,13 +186,24 @@ function handleNeeds(member, game) {
   if (!hungry && !tired) return;
 
   let jobLanded = false;
-  if (hungry) jobLanded = tryTakeNeedJob(member, game, 'eat', 'hunger', 'cafeteria');
+  let hungerDeadlockReason = null;
+  if (hungry) {
+    jobLanded = tryTakeNeedJob(member, game, 'eat', 'hunger', 'cafeteria');
+    if (!jobLanded) hungerDeadlockReason = member.idleReason;
+  }
 
   if (tired) {
     if (jobLanded) {
+      // fatigue is still genuinely unserviced here (only the trickle, not a
+      // real rest job — a member can hold only one job and hunger already
+      // took it) — same unservicedPenalty this pass would get from
+      // tryTakeNeedJob's own deadlock branch, even though this particular
+      // trickle is applied inline rather than by calling that function.
+      member.unservicedPenalty = true;
       member.needs.fatigue = Math.max(0, member.needs.fatigue - NO_STATION_RECOVERY_RATE.fatigue);
     } else {
-      tryTakeNeedJob(member, game, 'rest', 'fatigue', 'rest station');
+      const fatigueLanded = tryTakeNeedJob(member, game, 'rest', 'fatigue', 'rest station');
+      if (!fatigueLanded && hungerDeadlockReason) member.idleReason = hungerDeadlockReason;
     }
   }
 }
@@ -829,12 +874,29 @@ function needsBudgetRecompute(job, speedNow) {
  * job type completes at workTicks and fires onJobComplete exactly once,
  * then routes through abandonJob like every other exit — see abandonJob's
  * doc comment for why completion belongs on that same single path.
+ *
+ * Gated on `status === 'working'` (balance fix round 2): a member
+ * `'resting'` off a stress breakdown keeps whatever job they were holding
+ * (assignJobs already never reassigns them — see this file's own comment on
+ * that loop) but this function used to keep TICKING it too, with no status
+ * check at all. That made a breakdown strictly better than a cafeteria: 30
+ * ticks of free needs recovery (tickStaffMember's own 'resting' branch —
+ * unaffected by this gate, and deliberately left as the one morale-recovery
+ * path available while working) PLUS 30 ticks of job progress at full
+ * efficiency, for free, with no station, no travel, no eat/rest job ever
+ * taken. Measured: 30 resting ticks advanced a paperwork job from progress 0
+ * to 14.6 while hunger/fatigue/morale all recovered. A member who isn't
+ * `'working'` now gets their job frozen exactly as assignJobs already
+ * leaves it — no staleness check, no travel-budget consumption, no
+ * progress — until status flips back (which happens in tickStaffMember,
+ * before this runs, so ticking resumes the same tick it should).
  */
 export function tickJobs(game) {
   const state = game.state;
   for (const member of (state.staffMembers || [])) {
     const job = member.job;
     if (!job) continue;
+    if (member.status !== 'working') continue;
 
     if (!jobStillValid(game, job)) {
       abandonJob(member, game, invalidJobReason(job));
@@ -956,5 +1018,8 @@ export function onJobComplete(game, member, job) {
   if (handler) handler(game, member, job);
 }
 
-registerJobEffect('eat', (game, member) => { member.needs.hunger = 0; });
-registerJobEffect('rest', (game, member) => { member.needs.fatigue = 0; });
+// Either completion clears unservicedPenalty (see tryTakeNeedJob's own
+// comment): a completed meal or a completed rest is what "serviced" means,
+// regardless of which need the guard originally tripped on.
+registerJobEffect('eat', (game, member) => { member.needs.hunger = 0; member.unservicedPenalty = false; });
+registerJobEffect('rest', (game, member) => { member.needs.fatigue = 0; member.unservicedPenalty = false; });

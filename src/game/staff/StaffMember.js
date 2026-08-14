@@ -2,6 +2,11 @@
 
 import { SKILLS, professionDef, CROSS_SPECIALTY_EFFICIENCY } from '../../data/professions.js';
 
+// Balance fix round 2 — see efficiency()'s own comment for why this is a
+// flat multiplier on a state flag (unservicedPenalty) rather than a
+// function of the need's magnitude.
+const UNSERVICED_PENALTY_MULT = 0.6;
+
 const FIRST = [
   'Alice', 'James', 'Maria', 'Kwame', 'Ravi', 'Sofia', 'Liam', 'Tara', 'Erik', 'Chen',
   'Amara', 'Diego', 'Yuki', 'Noor', 'Oleg', 'Fatima', 'Hiro', 'Elena', 'Sanjay', 'Priya',
@@ -101,6 +106,16 @@ export class StaffMember {
     // though every other field here is, so a hand-built save can't
     // accidentally thread a stale one back in either.
     this.parkedJob = null;
+    // Balance fix round 2: true once jobRunner.js's tryTakeNeedJob deadlock
+    // guard has engaged for this member (a need over threshold with no
+    // reachable eat/rest station) and stays true — regardless of the raw
+    // need value, which now pegs at 1.0 either way (see jobRunner.js's own
+    // NO_STATION_RECOVERY_RATE comment) — until an eat OR rest job actually
+    // completes. Read by efficiency() below. Unlike parkedJob, this DOES
+    // round-trip through opts/toJSON: it describes an ongoing state (same
+    // as needs.hunger/fatigue), not a one-shot resume buffer, so a reload
+    // must not silently erase it.
+    this.unservicedPenalty = opts.unservicedPenalty ?? false;
     this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.profession}` }];
     this.stats = makeStats(opts.stats);
   }
@@ -137,6 +152,19 @@ export class StaffMember {
     if (jobSpecialty != null && this.specialty != null && jobSpecialty !== this.specialty) {
       result *= CROSS_SPECIALTY_EFFICIENCY;
     }
+    // Balance fix round 2: a flat penalty on the STATE (unservicedPenalty —
+    // see this class's own constructor comment and jobRunner.js's
+    // tryTakeNeedJob), not on the need's raw magnitude. A magnitude-based
+    // penalty (e.g. scaling down as hunger approaches 1) was measured to
+    // have only ~2.5:1 leverage even at its harshest, because a SERVICED
+    // staffer passes through that same low-need band once every cycle too —
+    // there's no way to punish "chronically unserviced" without also
+    // punishing "about to eat". A flat multiplier on a binary state has no
+    // such ceiling. This never touches eat/rest's own progress rate —
+    // jobRunner.js's tickJobs accrues those at a flat 1/tick, bypassing
+    // efficiency() entirely — so the penalty can never slow down the very
+    // meal that clears it.
+    if (this.unservicedPenalty) result *= UNSERVICED_PENALTY_MULT;
     return result;
   }
 
@@ -150,6 +178,7 @@ export class StaffMember {
       status: this.status, mood: this.mood, history: [...this.history],
       stats: { ...this.stats },
       job: this.job ? { ...this.job } : null, idleReason: this.idleReason,
+      unservicedPenalty: this.unservicedPenalty,
     };
   }
 

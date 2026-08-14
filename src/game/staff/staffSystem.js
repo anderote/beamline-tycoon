@@ -18,6 +18,20 @@ import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstori
 // in-game day, i.e. roughly one sleep per day rather than six.
 export const FATIGUE_PER_TICK = 0.005;
 
+// Base hunger accrual per tick while 'working' (before the gourmand trait's
+// 1.2x). Balance fix round 2: was 0.01 (crossing NEEDS_THRESHOLD at tick
+// 80, i.e. one meal roughly every third of a waking window) — measured
+// (independently, then reproduced) as the single largest driver of an
+// amenities-equipped facility's throughput deficit relative to the
+// deadlock-guard control, and the term real walking distance to a cafeteria
+// makes materially worse (a facility with any real travel distance to feed
+// pays this cost far more often than the zero-travel headless tests here
+// can see). 0.0033 crosses threshold at tick ~242 — about one meal per
+// in-game day (DAY_LENGTH_TICKS, Game.js: 240), matching what fix round 1
+// already did for sleep via FATIGUE_PER_TICK above.
+export const HUNGER_PER_TICK = 0.0033;
+const GOURMAND_HUNGER_MULT = 1.2; // unchanged ratio from the old 0.01 -> 0.012
+
 function pickSpecialty(profession, rng) {
   const specs = specialtiesFor(profession);
   if (specs.length === 0) return null;
@@ -49,7 +63,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     if (isNightOwl) fatigueInc *= isNight ? 0.7 : 1.3;
     if (m.traits.includes('perfectionist')) fatigueInc *= 1.1;
     m.needs.fatigue = Math.min(1, m.needs.fatigue + fatigueInc);
-    m.needs.hunger = Math.min(1, m.needs.hunger + (isGourmand ? 0.012 : 0.01));
+    m.needs.hunger = Math.min(1, m.needs.hunger + (isGourmand ? HUNGER_PER_TICK * GOURMAND_HUNGER_MULT : HUNGER_PER_TICK));
     // morale decay
     let decay = 0.002;
     if (isStoic) decay *= 0.5;

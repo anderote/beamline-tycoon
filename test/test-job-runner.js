@@ -560,7 +560,7 @@ console.log('\n=== 5. A member crossing the hunger threshold abandons work and t
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddressed for the whole meal ===\n');
+console.log('\n=== 5b. I2: eating does not leave fatigue completely UNADDRESSED for the whole meal (the trickle still applies, even though round 2 makes it lose the race) ===\n');
 {
   // handleNeeds returns early once hunger lands the 'eat' job — a member
   // can hold only one job — but an EARLIER version of this file skipped the
@@ -569,6 +569,17 @@ console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddre
   // 'working' branch (status stays 'working' throughout an eat job) kept
   // incrementing it, unchecked, straight to 1.0. That was a real bug on its
   // own terms regardless of any downstream consumer of fatigue.
+  //
+  // Balance fix round 2 changed what "addressed" looks like: NO_STATION_
+  // RECOVERY_RATE.fatigue (jobRunner.js) is now deliberately SLOWER than
+  // FATIGUE_PER_TICK, so the trickle no longer wins — an unserviced need is
+  // meant to peg at 1.0, visibly, rather than hover invisibly just under
+  // NEEDS_THRESHOLD. This test's OWN property (the trickle still fires
+  // every tick, even mid-meal) is unchanged and still verifiable: compare
+  // against the ticks-with-NO-trickle-at-all reference (raw
+  // FATIGUE_PER_TICK accrual only) — the trickle should still be pulling
+  // the actual value below that, just no longer far enough to reverse the
+  // climb.
   //
   // Ticks mid-meal rather than a hardcoded count, since eat's own workTicks
   // (jobs.js) and its flat 1/tick accrual (jobRunner.js's tickJobs) are
@@ -606,8 +617,12 @@ console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddre
   }
 
   assertOk(operator.job?.jobType === 'eat', `still mid-meal after ${midMealTicks} ticks (eat's own workTicks is ${JOB_TYPES.eat.workTicks})`);
-  assertOk(operator.needs.fatigue < fatigueAtStart,
-    `fatigue actually decreased during the meal instead of climbing (started ${fatigueAtStart.toFixed(3)}, now ${operator.needs.fatigue.toFixed(3)})`);
+  const noTrickleReference = Math.min(1, fatigueAtStart + FATIGUE_PER_TICK * midMealTicks);
+  assertOk(operator.needs.fatigue < noTrickleReference,
+    `the trickle is still pulling fatigue below what raw unaddressed accrual alone would give (got ${operator.needs.fatigue.toFixed(3)}, no-trickle reference ${noTrickleReference.toFixed(3)})`);
+  assertOk(operator.needs.fatigue > fatigueAtStart,
+    `round 2: fatigue still climbs overall (the trickle is now deliberately slower than accrual, not zero) — started ${fatigueAtStart.toFixed(3)}, now ${operator.needs.fatigue.toFixed(3)}`);
+  assertOk(operator.unservicedPenalty === true, 'the deadlock guard engaging for fatigue set unservicedPenalty');
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +675,16 @@ console.log("\n=== 6. Deadlock guard: no cafeteria anywhere -> a hungry operator
   assertOk(operator.job?.progress > 100,
     `job.progress accumulated substantially (${operator.job?.progress?.toFixed(1)}) — would stay near 0 if the job kept getting reset`);
   assertOk(sawMissingCafeteriaReason, 'idleReason named the missing cafeteria at some point');
-  assertOk(operator.needs.hunger < 0.95, `hunger recovers instead of pegging at 1 (got ${operator.needs.hunger.toFixed(3)})`);
+  // Balance fix round 2: NO_STATION_RECOVERY_RATE is now deliberately
+  // SLOWER than HUNGER_PER_TICK (staffSystem.js), so an unserviced need
+  // pegs at 1.0 and stays there — a visible, legible signal, no longer the
+  // old ~0.795 invisible hover — see jobRunner.js's own comment on that
+  // constant. This does NOT reopen the deadlock: the job above is still
+  // proven untouched (same instance, still phase 'work', still progressing)
+  // for the whole 500 ticks regardless of the need's own value; only
+  // efficiency (via unservicedPenalty, StaffMember.efficiency()) pays for it.
+  assertOk(operator.needs.hunger > 0.95, `hunger pegs near 1 instead of recovering (got ${operator.needs.hunger.toFixed(3)})`);
+  assertOk(operator.unservicedPenalty === true, 'the deadlock guard engaging set unservicedPenalty (a real efficiency cost, even though the job itself is untouched)');
 }
 
 // ---------------------------------------------------------------------------
@@ -940,11 +964,13 @@ console.log('\n=== 12. Arithmetic guard: eat/rest must fit in one waking window;
   // (5/5) * (0.5 + 0.5*0/4) * 1 = 0.5. Named rather than inlined so the
   // arithmetic below reads as "median efficiency", not a bare 0.5.
   const MEDIAN_EFFICIENCY = 0.5;
+  // Deliberately NOT pinned to a specific tick count (e.g. "== 160") — that
+  // would fail on any benign retune of NEEDS_THRESHOLD/FATIGUE_PER_TICK
+  // that doesn't actually break anything. The ceiling assertions below are
+  // the ones that carry real meaning: whatever WAKING_WINDOW_TICKS comes
+  // out to, eat/rest must still fit inside it.
   const WAKING_WINDOW_TICKS = NEEDS_THRESHOLD / FATIGUE_PER_TICK;
   const MAX_SINGLE_WINDOW_WORK_TICKS = WAKING_WINDOW_TICKS * MEDIAN_EFFICIENCY;
-
-  assertOk(WAKING_WINDOW_TICKS === 160,
-    `sanity: NEEDS_THRESHOLD (${NEEDS_THRESHOLD}) / FATIGUE_PER_TICK (${FATIGUE_PER_TICK}) is 160 ticks (got ${WAKING_WINDOW_TICKS})`);
 
   // eat/rest are NEVER preempted (nothing outranks priority 1000/950) and
   // fix (a)'s parking mechanism deliberately does not cover them (see
