@@ -5,6 +5,11 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 500 }, energyCost: 0.2, spriteColor: 0x7a6a4a,
     gridW: 3, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'desk',
     effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    // Worked from the -Z side (drawerFront parts face -Z, toward the
+    // sitter); anchor sits one subtile north of the footprint, looking
+    // south back into the desk.
+    station: { jobs: ['analyze', 'paperwork'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: -1, facing: 's' }] },
     // 3×2 footprint. Desk height ~75cm = 1.5 subtiles. Four-leg design
     // with modesty panel and a drawer pedestal on one side.
     parts: [
@@ -62,6 +67,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 2500 }, energyCost: 0.5, spriteColor: 0x44aa66,
     gridW: 3, gridH: 2, subH: 3, surfaceY: 1.5, spriteKey: 'workstation',
     effects: { morale: 2, research: 0.02 }, baseMaterial: 'tile_hardwood',
+    // Worked from the -Z side (keyboard/mouse parts sit at -Z, in front of
+    // the sitter); anchor one subtile north of the footprint, facing south.
+    station: { jobs: ['analyze', 'paperwork'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: -1, facing: 's' }] },
     // 3×2 footprint. Desk with monitor, keyboard, mouse, and desktop tower.
     parts: [
       // Desk legs
@@ -159,6 +168,11 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 3000 }, energyCost: 0.3, spriteColor: 0x6a5a3a,
     gridW: 4, gridH: 2, subH: 3, surfaceY: 1.5, spriteKey: 'receptionDesk',
     effects: { morale: 3 }, baseMaterial: 'tile_hardwood',
+    // Worked from the +Z side (workTop/monitor/keyboard sit at +Z, opposite
+    // the visitor-facing frontPanel at -Z); anchor one subtile south of the
+    // footprint, looking north back into the desk.
+    station: { jobs: ['paperwork'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: 2, facing: 'n' }] },
     // 4×2 footprint. L-shaped reception counter with a tall front panel,
     // lower work surface behind, and a small monitor.
     parts: [
@@ -298,6 +312,11 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 8000 }, energyCost: 0.8, spriteColor: 0x44bb66,
     gridW: 4, gridH: 2, subH: 3, spriteKey: 'monitorBank',
     effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_painted_white',
+    // Wall-mounted with the bracket flush against +Z; screens project
+    // toward -Z, so the viewer stands one subtile north of the footprint,
+    // facing south at the bank.
+    station: { jobs: ['runBeam'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: -1, facing: 's' }] },
     // 4×2 footprint. Wall-mount frame holding a 3×2 grid of flat-panel monitors
     // with colorful live displays (beam orbits, status, trending).
     parts: [
@@ -406,6 +425,11 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 25000 }, energyCost: 0.5, spriteColor: 0x44aa66,
     gridW: 3, gridH: 2, subH: 3, surfaceY: 1.48, spriteKey: 'operatorConsole',
     effects: { zoneOutput: 0.07 }, baseMaterial: 'metal_painted_white',
+    // Worked from the -Z side (keyboard tray sits at -Z, monitor bank rises
+    // behind it at +Z); anchor one subtile north of the footprint, facing
+    // south into the console.
+    station: { jobs: ['runBeam'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: -1, facing: 's' }] },
     // 3×2 footprint. Console desk + angled monitor bank behind it.
     parts: [
       // Base cabinet (white)
@@ -506,6 +530,15 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 400 }, energyCost: 0, spriteColor: 0xaa7744,
     gridW: 2, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'diningTable',
     effects: { morale: 2 }, baseMaterial: 'tile_hardwood',
+    // Symmetric table seating four, one on each side, each anchor facing
+    // back into the table.
+    station: { jobs: ['eat'], slots: 4, seated: 'required',
+      anchors: [
+        { subCol: 0, subRow: 2, facing: 'n' },
+        { subCol: 1, subRow: -1, facing: 's' },
+        { subCol: -1, subRow: 0, facing: 'e' },
+        { subCol: 2, subRow: 1, facing: 'w' },
+      ] },
     // 2×2 footprint. Pedestal-style cafeteria table, ~75cm tall.
     parts: [
       // Pedestal base (wide disc-ish)
@@ -663,6 +696,17 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 2000 }, energyCost: 0, spriteColor: 0x775533,
     gridW: 4, gridH: 2, subH: 2, surfaceY: 1.52, spriteKey: 'conferenceTable',
     effects: { morale: 1, research: 0.02 }, baseMaterial: 'tile_hardwood',
+    // Symmetric table seating six around it: four along the long +Z side,
+    // two along the long -Z side, each anchor facing back into the table.
+    station: { jobs: ['meet'], slots: 6, seated: 'required',
+      anchors: [
+        { subCol: 0, subRow: 2, facing: 'n' },
+        { subCol: 1, subRow: 2, facing: 'n' },
+        { subCol: 2, subRow: 2, facing: 'n' },
+        { subCol: 3, subRow: 2, facing: 'n' },
+        { subCol: 1, subRow: -1, facing: 's' },
+        { subCol: 2, subRow: -1, facing: 's' },
+      ] },
     // 4×2 footprint. Twin-pedestal boardroom table, ~75cm tall.
     parts: [
       // Two pedestal bases
@@ -691,6 +735,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 150 }, energyCost: 0, spriteColor: 0x3a3a3a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'officeChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // Basic swivel chair: 5-star base, gas cylinder, fabric seat + low back
     parts: [
       // 5-star base (simplified as cross)
@@ -715,6 +761,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 600 }, energyCost: 0, spriteColor: 0x2a5a8a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'ergonomicChair',
     effects: { morale: 2 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // Mid-range mesh-back chair with lumbar support, adjustable arms, headrest
     parts: [
       // 5-star base
@@ -748,6 +796,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 2000 }, energyCost: 0, spriteColor: 0x1a1412,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'executiveChair',
     effects: { morale: 3 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // High-back leather executive chair with padded arms and tilt
     parts: [
       // 5-star base (chrome)
@@ -781,6 +831,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 1200 }, energyCost: 0, spriteColor: 0x446688,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'operatorChair',
     effects: { morale: 2, zoneOutput: 0.02 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // Heavy-duty 24/7 operator chair — chrome base, navy/teal upholstery,
     // contrasting arm pads
     parts: [
@@ -816,6 +868,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 100 }, energyCost: 0, spriteColor: 0x555555,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'meetingChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // Cantilever-base meeting chair — chrome sled frame, upholstered seat+back
     parts: [
       // Sled base (U-shape from side, two parallel rails)
@@ -840,6 +894,8 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 50 }, energyCost: 0, spriteColor: 0xcc6622,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'cafeteriaChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    // Backrest sits at local +Z, so the sitter faces -Z.
+    seat: { facing: 'n' },
     // Simple 4-leg cafeteria chair — tubular steel frame, molded seat+back
     parts: [
       // Four tubular legs
