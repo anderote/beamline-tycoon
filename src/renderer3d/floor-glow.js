@@ -27,7 +27,11 @@ function midpoint(points) {
 }
 
 export function buildFloorGlowStrip(points, utilityType, flowState) {
-  if (!points || points.length < 2 || !FLOW_PARAMS[utilityType] || flowState === 'hard') return null;
+  // RF's travelling emissive wave blooms directly around the waveguide. A
+  // separate PointLight reads as a lamp/hotspot and fights that continuous
+  // effect, so RF deliberately stays out of the real-light proxy system.
+  if (!points || points.length < 2 || !FLOW_PARAMS[utilityType]
+      || utilityType === 'rfWaveguide' || flowState === 'hard') return null;
   const flow = FLOW_PARAMS[utilityType];
   const group = new THREE.Group();
   group.position.copy(midpoint(points));
