@@ -405,5 +405,130 @@ console.log('\n=== 8. A tall door on a short wall is clamped, not poked through 
     'the lintel top never rises above the wall top');
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n=== 9. Door parts sit on the terrain, not at y=0 ===\n');
+{
+  // A gate in a fence on ground raised to y=2. Walls bake their base Y into
+  // the geometry; door parts are placed boxes, so they carry theirs in the
+  // mesh position. Without it the gate was drawn at the bottom of the hill
+  // while the fence around it climbed it.
+  const wb = new WallBuilder(null);
+  const group = new Group();
+  const seg = { col: 1, row: 1, edge: 'n' };
+  const baseY = { a: 2, b: 2 };
+  wb.build(
+    [{ ...seg, type: 'cinderblockWall', variant: 0, baseY }],
+    [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY }],
+    group, 'up', null
+  );
+  assert(wb._meshes.every(m => m.position.y >= 2 - 1e-9),
+    'every door part is lifted onto the raised ground');
+  const posts = wb._meshes.filter(m => {
+    const p = m.geometry.parameters;
+    return p && near(p.width, POST_WIDTH) && near(p.depth, POST_WIDTH);
+  });
+  assert(near(posts[0].position.y, 2 + posts[0].geometry.parameters.height / 2),
+    'a post stands on the ground, not buried to its terrain height');
+
+  // A sloped edge: 'n' runs NW -> NE, so a=0 at low X and b=2 at high X. The
+  // two posts flank the opening and must follow that ramp.
+  const wb2 = new WallBuilder(null);
+  const slope = { a: 0, b: 2 };
+  wb2.build(
+    [{ ...seg, type: 'cinderblockWall', variant: 0, baseY: slope }],
+    [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY: slope }],
+    new Group(), 'up', null
+  );
+  const p2 = wb2._meshes.filter(m => {
+    const p = m.geometry.parameters;
+    return p && near(p.width, POST_WIDTH) && near(p.depth, POST_WIDTH);
+  }).sort((a, b) => a.position.x - b.position.x);
+  assert(p2[0].position.y < p2[1].position.y,
+    'on a sloped edge the downhill post sits lower than the uphill one');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 10. Cutaway ghosts exactly the walls that border the room ===\n');
+{
+  // Six colinear walls; only cols 0-2 border the opened room. Merging used to
+  // ignore that and paint the whole run by whichever tile sorted first —
+  // either ghosting the neighbouring building or leaving the room sealed.
+  const walls = [];
+  for (let c = 0; c < 6; c++) {
+    walls.push({ col: c, row: 3, edge: 'n', type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } });
+  }
+  const wb = new WallBuilder(null);
+  wb.build(walls, [], new Group(), 'cutaway', new Set(['0,3', '1,3', '2,3']));
+  const spans = wb._meshes.slice().sort((a, b) => a.position.x - b.position.x);
+  assert(spans.length === 2, 'the run splits at the room boundary instead of merging through it');
+  assert(spans[0].material.opacity === 0.3 && spans[1].material.opacity === 1.0,
+    'only the room-bordering span is ghosted');
+  assert(near(spans[0].geometry.parameters.width, 6) && near(spans[1].geometry.parameters.width, 6),
+    'each span covers exactly its three tiles');
+
+  // The same run with the room at the FAR end — the previous code read the
+  // origin tile and left the room's own walls solid.
+  const wb2 = new WallBuilder(null);
+  wb2.build(walls, [], new Group(), 'cutaway', new Set(['3,3', '4,3', '5,3']));
+  const far = wb2._meshes.slice().sort((a, b) => a.position.x - b.position.x);
+  assert(far[0].material.opacity === 1.0 && far[1].material.opacity === 0.3,
+    'the ghosted span follows the room, not the first tile in the run');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 11. Cutaway ghosts the wall around a door too ===\n');
+{
+  // The door loop keyed its wall material without the cutaway suffix, so the
+  // side fills and the band above the opening stayed opaque — a solid plug in
+  // an otherwise transparent wall.
+  const wb = new WallBuilder(null);
+  const seg = { col: 5, row: 5, edge: 'n' };
+  wb.build(
+    [{ ...seg, type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } }],
+    [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
+    new Group(), 'cutaway', new Set(['5,5'])
+  );
+  assert(wb._meshes.length > 0, 'the door builds meshes');
+  assert(wb._meshes.every(m => m.material.opacity === 0.3),
+    'every part of the doorway — posts, lintel, side fills, above-door band, panel — is ghosted');
+  assert(wb._meshes.every(m => m.castShadow === false),
+    'and nothing ghosted still casts a shadow');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 12. A wall stored under the mirrored key never seals the door ===\n');
+{
+  // "5,5,s" and "5,6,n" are the same edge. Game.placeWall now resolves that,
+  // but a snapshot carrying both spellings (older save, hand-built fixture)
+  // must still render an opening rather than a slab across it.
+  const wb = new WallBuilder(null);
+  wb.build(
+    [
+      { col: 5, row: 5, edge: 's', type: 'officeWall', variant: 0, baseY: { a: 0, b: 0 } },
+      { col: 5, row: 6, edge: 'n', type: 'officeWall', variant: 0, baseY: { a: 0, b: 0 } },
+    ],
+    [{ col: 5, row: 5, edge: 's', type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
+    new Group(), 'up', null
+  );
+  const fullTile = wb._meshes.filter(m => {
+    const p = m.geometry.parameters;
+    return p && (near(p.width, TILE_SIZE) || near(p.depth, TILE_SIZE));
+  });
+  assert(fullTile.length === 0, 'no full-tile wall slab is drawn across the opening');
+
+  // The mirrored spelling also has to resolve the wall type for the fills, so
+  // a door whose wall is only recorded on the far tile is still clad.
+  const wb2 = new WallBuilder(null);
+  wb2.build(
+    [{ col: 5, row: 6, edge: 'n', type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } }],
+    [{ col: 5, row: 5, edge: 's', type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
+    new Group(), 'up', null
+  );
+  const wallH = WALL_TYPES.structuralWall.wallHeight * HEIGHT_SCALE;
+  const fills = wb2._meshes.filter(m => near(m.geometry.parameters?.height ?? -1, wallH));
+  assert(fills.length === 2,
+    "the door's side fills take their height from the wall recorded on the far tile");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

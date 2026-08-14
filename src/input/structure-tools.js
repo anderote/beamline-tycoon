@@ -22,7 +22,7 @@
 
 import { Tool } from './Tool.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
-import { doorOffFromFrac } from '../game/edge-keys.js';
+import { doorOffFromFrac, findWallKey } from '../game/edge-keys.js';
 import { isoToGrid } from '../renderer/grid.js';
 
 export class FloorTool extends Tool {
@@ -257,15 +257,21 @@ export class WallTool extends Tool {
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
 
-  /** Cost of placing this wall along a path, skipping same-type edges. */
+  /**
+   * Cost of placing this wall along a path, skipping same-type edges. The
+   * edge may hold its wall under either spelling (see edge-keys.js), so
+   * resolve before comparing — quoting the direct key only made a run
+   * redrawn from the far side of the line look like it cost full price.
+   */
   _pathCost(ctx, path) {
     const wt = WALL_TYPES[this.wallType];
     if (!wt) return 0;
     const segCost = wt.variantCosts?.[this.variant] ?? wt.cost;
+    const occupied = ctx.game.state.wallOccupied;
     let count = 0;
     for (const pt of path) {
-      const key = `${pt.col},${pt.row},${pt.edge}`;
-      if (ctx.game.state.wallOccupied[key] === this.wallType) continue;
+      const key = findWallKey(occupied, pt.col, pt.row, pt.edge);
+      if (key && occupied[key] === this.wallType) continue;
       count++;
     }
     return count * segCost;

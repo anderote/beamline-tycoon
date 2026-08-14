@@ -11,7 +11,7 @@ import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
-import { DOOR_TYPES } from '../src/data/structure.js';
+import { DOOR_TYPES, WALL_TYPES } from '../src/data/structure.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { DoorTool } from '../src/input/structure-tools.js';
 import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
@@ -408,14 +408,95 @@ console.log('\n=== removeDoor / removeWall are mirror-aware ===\n');
 {
   const g = makeGame();
   // Wall drawn from one tile, door hung from the other, wall demolished from
-  // the door's tile: all three spellings must agree.
+  // the door's tile: all three spellings must agree. removeWall resolves the
+  // edge like every other wall mutator, so the far-side spelling demolishes
+  // the wall that is actually there instead of reporting "nothing here".
   g.placeWall(5, 5, 'n', 'officeWall');
   g.placeDoor(5, 4, 's', DOUBLE);
-  g.removeWall(5, 4, 's');  // no wall under this key -> early return
-  assertOk(g.state.doorOccupied['5,5,n'] === DOUBLE,
-           'removeWall on the unoccupied spelling leaves the wall and door alone');
+  assertOk(g.removeWall(5, 4, 's') === true, 'a wall is removable from the far side');
+  assertOk(!g.state.wallOccupied['5,5,n'] && g.state.walls.length === 0,
+           'the wall record and its occupancy entry are gone');
+  assertOk(g.state.doors.length === 0 && !g.state.doorOccupied['5,5,n'],
+           'removing the wall from the far side clears the far-hung door');
+  assertOk(g.removeWall(5, 4, 's') === false, 'removing a wall twice reports failure');
+}
+
+console.log('\n=== placeWall / placeWallPath are mirror-aware ===\n');
+
+{
+  // The same physical edge drawn from both sides is ONE wall. Keying off the
+  // raw "col,row,edge" stacked a second, separately-charged wall on the same
+  // line — and since wall-builder matches doors to walls by exact key, the
+  // twin rendered a solid slab straight across any doorway on that edge.
+  const g = makeGame();
+  const funding0 = g.state.resources.funding;
+  assertOk(g.placeWall(5, 5, 's', 'officeWall') === true, 'the first wall is placed');
+  assertOk(g.placeWall(5, 6, 'n', 'officeWall') === true, 'the mirrored spelling reports success');
+  assertOk(g.state.walls.length === 1, 'the mirrored re-place does not stack a second wall');
+  assertOk(Object.keys(g.state.wallOccupied).length === 1,
+           'only one occupancy key names the edge');
+  const cost = WALL_TYPES.officeWall.cost;
+  assertOk(funding0 - g.state.resources.funding === cost,
+           `the edge is charged once ($${cost}), not twice`);
+}
+
+{
+  // A run redrawn from the far side updates the walls that are there.
+  const g = makeGame();
+  g.placeWallPath([0, 1, 2].map(col => ({ col, row: 5, edge: 's' })), 'officeWall');
+  const funding0 = g.state.resources.funding;
+  g.placeWallPath([0, 1, 2].map(col => ({ col, row: 6, edge: 'n' })), 'officeWall');
+  assertOk(g.state.walls.length === 3, 'the mirrored run does not duplicate the walls');
+  assertOk(g.state.resources.funding === funding0, 'and it is not charged again');
+}
+
+{
+  // A different type on the mirrored spelling REPLACES the wall in place.
+  const g = makeGame();
+  g.placeWall(5, 5, 's', 'officeWall');
+  g.placeWall(5, 6, 'n', 'structuralWall');
+  assertOk(g.state.walls.length === 1, 'the replacement stays a single wall');
+  assertOk(g.state.wallOccupied['5,5,s'] === 'structuralWall',
+           'the new type is stored at the key the wall already used');
+  assertOk(g.state.walls[0].col === 5 && g.state.walls[0].row === 5 && g.state.walls[0].edge === 's',
+           'the record keeps the original spelling so door lookups still match');
+}
+
+{
+  // A door hung on the edge survives its wall being re-clad from either side.
+  const g = makeGame();
+  g.placeWall(5, 5, 's', 'officeWall');
+  g.placeDoor(5, 5, 's', SINGLE);
+  g.placeWall(5, 6, 'n', 'structuralWall');
+  assertOk(g.state.walls.length === 1 && g.state.doors.length === 1,
+           're-cladding from the far side leaves one wall and keeps the door');
+  const snap = buildWorldSnapshot(g, { only: ['walls', 'doors'] });
+  assertOk(snap.walls.length === 1,
+           'the snapshot has no twin wall to render across the opening');
+}
+
+{
+  // An unaffordable replacement must leave the existing wall intact — the old
+  // order deleted the record first and returned false with wallOccupied still
+  // pointing at it.
+  const g = makeGame();
+  g.placeWall(5, 5, 'n', 'officeWall');
+  g.state.resources.funding = 1;
+  assertOk(g.placeWall(5, 5, 'n', 'structuralWall') === false, 'the swap is refused');
+  assertOk(g.state.wallOccupied['5,5,n'] === 'officeWall' && g.state.walls.length === 1,
+           'the original wall is still recorded');
+}
+
+console.log('\n=== removeWall refunds what the segment actually cost ===\n');
+
+{
+  const g = makeGame();
+  const brick = WALL_TYPES.structuralWall.variantCosts[3];   // Red Brick
+  g.placeWall(5, 5, 'n', 'structuralWall', 3);
+  const before = g.state.resources.funding;
   g.removeWall(5, 5, 'n');
-  assertOk(g.state.doors.length === 0, 'removing the real wall clears the far-hung door');
+  assertOk(g.state.resources.funding - before === Math.floor(brick * 0.5),
+           `a $${brick} brick wall refunds half of $${brick}, not half of the base type`);
 }
 
 console.log('\n=== off survives serialization ===\n');

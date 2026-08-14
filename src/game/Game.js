@@ -1275,34 +1275,68 @@ export class Game {
   }
 
   // === WALLS (PER-TILE EDGE) ===
+  //
+  // Like doors, a wall lives on an edge that has two equally valid keys
+  // ("5,5,s" and "5,6,n" name the same edge — see edge-keys.js). Every
+  // mutator resolves through findWallKey first and writes at the key that
+  // came back, so drawing the same run from the other side of the line
+  // updates the wall that is already there instead of stacking a second,
+  // separately-charged copy on top of it (which also rendered straight
+  // across any doorway on that edge, since wall-builder matches doors to
+  // walls by exact key).
+
+  /**
+   * The key this edge's wall is stored under, or the direct key when the
+   * edge is empty. Placement writes here; the returned key is always one of
+   * the edge's two spellings.
+   */
+  _wallSiteKey(col, row, edge) {
+    return findWallKey(this.state.wallOccupied, col, row, edge)
+      ?? edgeKey(col, row, edge);
+  }
+
+  /**
+   * Where a wall record placed at `key` belongs. Falls back to the requested
+   * tile when the key names no recognized edge, so a malformed edge still
+   * round-trips through state instead of throwing.
+   */
+  _wallSite(key, col, row, edge) {
+    return parseEdgeKey(key) ?? { col, row, edge };
+  }
+
+  /** The wall record stored at `key`, or undefined. */
+  _wallAt(key) {
+    return this.state.walls.find(w => edgeKey(w.col, w.row, w.edge) === key);
+  }
 
   placeWall(col, row, edge, wallType, variant = 0) {
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
-    const key = `${col},${row},${edge}`;
+    const key = this._wallSiteKey(col, row, edge);
     if (this.state.wallOccupied[key] === wallType) {
       // Same type — just update the variant for free.
-      const existing = this.state.walls.find(
-        w => w.col === col && w.row === row && w.edge === edge
-      );
+      const existing = this._wallAt(key);
       if (existing && (existing.variant ?? 0) !== variant) {
         existing.variant = variant;
+        this.emit('wallsChanged');
       }
       return true;
     }
+    if (this.state.resources.funding < segCost) return false;
     if (this.state.wallOccupied[key]) {
       // Replace existing wall on this edge
       this.state.walls = this.state.walls.filter(
-        w => !(w.col === col && w.row === row && w.edge === edge)
+        w => edgeKey(w.col, w.row, w.edge) !== key
       );
     }
-    if (this.state.resources.funding < segCost) return false;
     this.chargeConstruction(segCost);
-    const wallEntry = { type: wallType, col, row, edge };
+    const site = this._wallSite(key, col, row, edge);
+    const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
     if (variant) wallEntry.variant = variant;
     this.state.walls.push(wallEntry);
     this.state.wallOccupied[key] = wallType;
+    this.emit('wallsChanged');
     return true;
   }
 
@@ -1312,11 +1346,9 @@ export class Game {
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     for (const pt of path) {
-      const key = `${pt.col},${pt.row},${pt.edge}`;
+      const key = this._wallSiteKey(pt.col, pt.row, pt.edge);
       if (this.state.wallOccupied[key] === wallType) {
-        const existing = this.state.walls.find(
-          w => w.col === pt.col && w.row === pt.row && w.edge === pt.edge
-        );
+        const existing = this._wallAt(key);
         if (existing && (existing.variant ?? 0) !== variant) {
           existing.variant = variant;
           placed++;
@@ -1326,11 +1358,12 @@ export class Game {
       if (this.state.resources.funding < segCost) break;
       if (this.state.wallOccupied[key]) {
         this.state.walls = this.state.walls.filter(
-          w => !(w.col === pt.col && w.row === pt.row && w.edge === pt.edge)
+          w => edgeKey(w.col, w.row, w.edge) !== key
         );
       }
       this.chargeConstruction(segCost);
-      const wallEntry = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
+      const site = this._wallSite(key, pt.col, pt.row, pt.edge);
+      const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
       if (variant) wallEntry.variant = variant;
       this.state.walls.push(wallEntry);
       this.state.wallOccupied[key] = wallType;
@@ -1344,13 +1377,19 @@ export class Game {
   }
 
   removeWall(col, row, edge) {
-    const key = `${col},${row},${edge}`;
+    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+    if (!key) return false;
     const wallType = this.state.wallOccupied[key];
-    if (!wallType) return false;
     const wt = WALL_TYPES[wallType];
-    if (wt) this.state.resources.funding += Math.floor(wt.cost * 0.5);
+    if (wt) {
+      // Refund half of what the segment actually cost — variant claddings
+      // (brick, shingle) are priced above the base type.
+      const existing = this._wallAt(key);
+      const paid = wt.variantCosts?.[existing?.variant ?? 0] ?? wt.cost;
+      this.state.resources.funding += Math.floor(paid * 0.5);
+    }
     this.state.walls = this.state.walls.filter(
-      w => !(w.col === col && w.row === row && w.edge === edge)
+      w => edgeKey(w.col, w.row, w.edge) !== key
     );
     delete this.state.wallOccupied[key];
     // Remove any orphaned door on this edge. The door may be recorded under
