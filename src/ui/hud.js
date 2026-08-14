@@ -1725,7 +1725,13 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         previewEl.className = 'palette-preview';
         const hex = descriptor.color || '#ffffff';
         const swatch = document.createElement('div');
-        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;margin:9px auto;box-shadow:0 0 6px ${hex};`;
+        // Outlined, not just glowing: HV cable is black so it reads as trunk in
+        // the world, and a black swatch with a black glow is invisible against
+        // the palette's dark chrome. The rule stays 1px on every utility so the
+        // swatches remain a set rather than one special case.
+        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;`
+          + `margin:9px auto;border:1px solid rgba(255,255,255,0.4);box-sizing:border-box;`
+          + `box-shadow:0 0 6px ${hex};`;
         previewEl.appendChild(swatch);
         item.appendChild(previewEl);
 

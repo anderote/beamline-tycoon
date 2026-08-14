@@ -75,7 +75,7 @@ export class UtilityStatsPanel {
       const cursor = hasNetworks ? 'pointer' : 'default';
 
       html += `<div id="${rowId}" style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:${cursor};border-bottom:1px solid rgba(255,255,255,0.06);opacity:${rowOpacity}">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${escapeHtml(desc.color)};flex:0 0 auto"></span>
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${escapeHtml(desc.color)};border:1px solid rgba(255,255,255,0.35);box-sizing:border-box;flex:0 0 auto"></span>
         <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(desc.displayName)}</span>
         <span style="opacity:0.6;font-size:11px;flex:0 0 auto">${flows.length} net</span>
         <span style="opacity:0.8;font-size:11px;flex:0 0 auto">${totalCap.toFixed(0)}/${totalDem.toFixed(0)}</span>

@@ -21,6 +21,11 @@ export default {
   // Black, and thicker than a branch cable. The trunk has to look like trunk
   // at a glance or the split reads as two interchangeable tools.
   color: '#141418',
+  // What the INTERACTIVE bits are drawn in — the available-port dots, the hover
+  // highlight, the tap ring. Those are UI, and a black dot on a dark machine is
+  // no dot at all. The cable itself stays black; only the things you are meant
+  // to aim at get lifted to something visible.
+  markerColor: '#8fa0b8',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',

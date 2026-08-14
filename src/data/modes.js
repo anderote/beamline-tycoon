@@ -97,5 +97,7 @@ export const INFRA_DISTRIBUTION = {
   rfPower:      ['rfWaveguide'],
   cooling:      ['coolingWater', 'cryoTransfer'],
   dataControls: ['dataFiber'],
-  power:        ['powerCable'],
+  // HV first: it is the upstream half of the chain (supply -> distribution),
+  // and it is the run the player draws before any branch circuit exists.
+  power:        ['hvCable', 'powerCable'],
 };

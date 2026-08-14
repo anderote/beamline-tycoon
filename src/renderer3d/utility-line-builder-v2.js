@@ -401,6 +401,14 @@ function getPortMarkerMaterial(color, brightened) {
   return mat;
 }
 
+// What to draw a utility's INTERACTIVE markers in. Normally the utility's own
+// colour — identity matters — but a descriptor may override it when its cable
+// colour is unusable as UI. HV feeders are black so they read as trunk on the
+// hall floor; black port dots on dark equipment would be invisible.
+function markerColorFor(descriptor) {
+  return (descriptor && (descriptor.markerColor || descriptor.color)) || '#ffff88';
+}
+
 // Dot radii in world metres (1 tile = 2 m). Deliberately small: a marker sits
 // on every available port of the armed utility, so at facility scale dozens are
 // on screen at once — they have to read as a hint about where the cursor can
@@ -435,7 +443,7 @@ function buildPortMarker(anchor, color, brightened) {
 function buildHoverMarker(hoverPort) {
   if (!hoverPort || !hoverPort.worldPos) return null;
   const descriptor = hoverPort.utilityType ? UTILITY_TYPES[hoverPort.utilityType] : null;
-  const color = descriptor?.color || '#ffff88';
+  const color = markerColorFor(descriptor);
   // Tapping a trunk and grabbing a port are different commitments — one makes
   // a T-join on an existing run, the other claims a connector — so they must
   // not look alike. A ring around the line reads as "join here".
@@ -697,7 +705,7 @@ export class UtilityLineBuilderV2 {
     const group = new THREE.Group();
     group.userData = { isUtilityPortMarkers: true };
     const desc = UTILITY_TYPES[utilityType];
-    const color = desc?.color || '#ffff88';
+    const color = markerColorFor(desc);
     const hoverKey = hoverPort
       ? `${hoverPort.placeableId}:${hoverPort.portName}`
       : null;
