@@ -72,29 +72,49 @@ export const LHE_COST_PER_L = 50;
 // plant, not five plants. The reward is for completing the chain, which is the
 // real engineering, rather than for stamping out the cheapest rung.
 //
-// The cap is 0.90 because no recovery plant is closed. Cool-down and warm-up
-// transients, relief lifts, purge losses and the purifier's own vent all leave
-// through the roof, and a real facility that recovers 90% of its helium is
-// doing very well.
+// No recovery plant is closed. Cool-down and warm-up transients, relief lifts,
+// purge losses and the purifier's own vent all leave through the roof, and a
+// real facility that recovers 90% of its helium is doing very well. 0.90 is
+// therefore the ceiling — but it is not the ceiling you get by default.
+//
+// heRecovery IS A CEILING-RAISER, NOT A CONTRIBUTOR. The four chain parts sum
+// to exactly 0.90 on their own, so while heRecovery was a fifth contributor it
+// was worth nothing at any price the moment the chain was complete: capped
+// before it was counted. That is the same "spend $4M, nothing happens" defect
+// the recovery work existed to remove, reintroduced by arithmetic.
+//
+// So it moved to the other side of the min(). heRecovery is bulk storage, and
+// storage is a ceiling by nature — you cannot keep more helium than you have
+// somewhere to put. Without it the chain saturates at 0.70 no matter how
+// complete it is; the storage plant is what converts a finished chain into
+// 0.90. It is never redundant, it is always the last piece, and its value is
+// largest exactly when everything else is already built, which is the right
+// shape for the most expensive unit in the group.
 export const HE_RECOVERY_CONTRIBUTION = {
   heRecoveryHeader: 0.25,  // the manifold that makes recovery possible at all
   heGasBag: 0.15,          // buffers surge so a ramp-down does not blow relief
   hePurifier: 0.20,        // gas you cannot clean is gas you cannot re-use
-  heRecovery: 0.20,        // the original recovery/storage block
   heLiquefier: 0.30,       // gas back to liquid — the end of the chain
 };
+/** Ceiling with bulk storage installed. */
 export const HE_RECOVERY_CAP = 0.90;
+/** Ceiling without it: recovered gas you cannot store is gas you vent. */
+export const HE_RECOVERY_CAP_NO_STORAGE = 0.70;
+/** The component that raises the ceiling instead of contributing to the sum. */
+export const HE_STORAGE_TYPE = 'heRecovery';
 
 /**
  * Recovery fraction from an iterable of installed component type ids.
  * Duplicates are ignored by construction — the set is of TYPES, not units.
  */
 export function heRecoveryFraction(types) {
+  const set = new Set(types || []);
   let total = 0;
-  for (const type of new Set(types || [])) {
+  for (const type of set) {
     total += HE_RECOVERY_CONTRIBUTION[type] || 0;
   }
-  return Math.min(HE_RECOVERY_CAP, total);
+  const cap = set.has(HE_STORAGE_TYPE) ? HE_RECOVERY_CAP : HE_RECOVERY_CAP_NO_STORAGE;
+  return Math.min(cap, total);
 }
 
 /**

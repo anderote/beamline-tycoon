@@ -15,6 +15,66 @@
 // source is the answer to everything. The `twt` covers all six bands at 20 kW —
 // it unblocks any frequency and powers nothing serious, which is exactly what a
 // driver amplifier is for.
+//
+// ══ HOW RF SOURCES ARE PRICED ═════════════════════════════════════════════
+//
+// Every `subsection: 'supply'` cost below comes off one curve, not off a feel:
+//
+//     cost = capacity x base$/kW(capacity) x sqrt(f_top / f_L-band)
+//                     x dutyMult x breadthMult
+//
+//     base$/kW(cap) = $8,577 x cap^-0.12
+//     f_band        = geometric mean of the band's range (L-band = 1.41 GHz)
+//     dutyMult      = 1.0 pulsed, 1.5 CW
+//     breadthMult   = 1 + 0.08 x (bands covered - 1)
+//
+// The 0.12 scale exponent is anchored so the Magnetron lands on exactly $50k,
+// which keeps the first tube the player ever buys where it has always been.
+// Four things move a price, and they do not all pull the same way:
+//
+// FREQUENCY raises it, as sqrt(f). Structures shrink with wavelength, and
+// power handling shrinks with them — smaller gaps, smaller apertures, less
+// surface to spread heat over, tighter tolerances on every part. A kilowatt at
+// X-band is simply harder to make than a kilowatt at L-band, and the ladder
+// should charge for that rather than pretend the spectrum is flat.
+//
+// DUTY raises it. A tube that runs continuously has to get rid of its
+// dissipation continuously; a pulsed tube at the same peak kW hides behind its
+// own thermal mass between shots. CW is the harder engineering problem at
+// equal peak power, hence the flat 1.5x.
+//
+// BAND BREADTH raises it, 8% per extra band. This is why the TWT is the
+// worst-value unit on the board at $23,750/kW: it is the only source covering
+// all six bands, and it pays both the X-band frequency premium and the full
+// breadth surcharge. That is the point of the tube, not a mistake in the
+// table — you are buying universal coverage at 20 kW, and universal coverage
+// is expensive.
+//
+// SIZE lowers it — but only AT CONSTANT FREQUENCY. This is the one that has to
+// be read carefully. The old ladder assumed $/kW must fall monotonically all
+// the way down the list, which is the check `scripts/infra-balance-audit.mjs`
+// used to run. It cannot, now: a bigger unit one band up can legitimately cost
+// more per kW than a smaller unit one band down, because frequency is a real
+// axis and it breaks the ordering. Monotonicity holds WITHIN a band group,
+// which is what the audit script now checks.
+//
+// THE GYROTRON IS DELIBERATELY EXEMPT FROM THE FREQUENCY PREMIUM. Its bands
+// are C and X, so the formula would hand it a ~2.8x multiplier — but a
+// gyrotron is not a scaled-down cavity tube fighting the wavelength. It works
+// by electron cyclotron resonance in a heavily oversized cavity, an approach
+// chosen precisely so that output power does NOT collapse as frequency rises.
+// Charging it the X-band penalty would double-count the exact problem the
+// device exists to solve. Exempting it lands the Gyrotron at $6,090/kW, the
+// best value per kW in the catalogue, which is also the right shape for a
+// gated endgame unlock: the reward for reaching the top of the tree is that
+// megawatts finally get cheap.
+//
+// Net effect of this pass: RF supply spend falls about 47% across the ladder,
+// almost all of it in the klystrons. The Pulsed and CW klystrons in particular
+// were priced at $30,000 and $60,000/kW against a magnetron's $10,000, which
+// no consistent rule produces — they were the outliers, and they are the bulk
+// of the reduction.
+// ══════════════════════════════════════════════════════════════════════════
 export const INFRASTRUCTURE_RAW = {
   magnetron: {
     id: 'magnetron',
@@ -45,7 +105,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'Solid-State Amplifier',
     desc: 'Modern modular RF amplifier delivering 35 kW from semiconductor transistors. Reliable, compact, and easy to maintain — if one module fails the rest keep running. Lower peak power than tube sources but excellent for low-energy cavities and bunchers.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 150000 },
+    // 35 kW, VHF+UHF, CW. Below L-band, so the frequency term is a discount
+    // (sqrt(0.5)); CW and two bands pull it back up. → $6,429/kW.
+    cost: { funding: 225000 },
     stats: {},
     energyCost: 70,
     subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2, geometryType: 'box',
@@ -70,7 +132,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'SLAC 5045 Klystron',
     desc: 'The production tube that filled the two-mile linac — SLAC built over 240 of them and hung them end to end. Solenoid-focused, sitting in its own oil tank, 25 kW average in 3.5-microsecond pulses at 120 Hz for about 45% efficiency. Cheap per kilowatt and the easiest way into klystron-class peak power, but it is cut for S-band and nothing else with no tuning to give, and 0.1% duty buys enormous peak power on almost no average power.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 250000 },
+    // 25 kW, S-band only, pulsed. One band and no CW surcharge is what makes
+    // it the cheap way into klystron-class peak power. → $8,200/kW.
+    cost: { funding: 205000 },
     stats: {},
     energyCost: 50,
     subL: 3, subW: 2, subH: 4, gridW: 2, gridH: 3, geometryType: 'box',
@@ -96,7 +160,10 @@ export const INFRASTRUCTURE_RAW = {
     name: 'Traveling Wave Tube',
     desc: 'Broadband vacuum tube amplifier delivering 20 kW by coupling an electron beam to a slow-wave structure. Used as driver amplifiers and in test stands. Good bandwidth makes it versatile for tuning different cavity frequencies.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 400000 },
+    // 20 kW across all six bands. Pays the X-band premium (sqrt(8)) AND the
+    // full 1.40x breadth surcharge, which is why it is the worst $/kW on the
+    // board at $23,750. Deliberate: you are buying coverage, not power.
+    cost: { funding: 475000 },
     stats: {},
     energyCost: 55,
     subL: 2, subW: 1, subH: 4, gridW: 1, gridH: 2, geometryType: 'box',
@@ -121,7 +188,10 @@ export const INFRASTRUCTURE_RAW = {
     name: 'Pulsed Klystron',
     desc: 'The workhorse of particle accelerators since the 1950s. High-power vacuum tube delivering 50 kW average power in short pulses. Drives normal-conducting cavities (C-band, X-band). Needs a Modulator to provide its high-voltage pulses.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 1500000 },
+    // 50 kW, S+C band, pulsed. C-band top means a 2.0x frequency multiplier —
+    // it is dearer per kW than the bigger CW tubes for that reason alone,
+    // which is legitimate and not a scale inversion. → $11,600/kW.
+    cost: { funding: 580000 },
     stats: {},
     energyCost: 110,
     subL: 4, subW: 2, subH: 4, gridW: 2, gridH: 4, geometryType: 'box',
@@ -146,7 +216,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'CW Klystron',
     desc: 'Klystron that operates continuously (not pulsed) to drive SRF cavities at 50 kW CW power. Required for superconducting linac operation — SRF cavities need constant RF drive. Connect via RF Waveguide. Requires CW RF Systems research.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 3000000 },
+    // 50 kW, UHF+L, CW. Sits exactly on the L-band reference frequency, so the
+    // whole premium here is the 1.5x for running continuously. → $8,700/kW.
+    cost: { funding: 435000 },
     stats: {},
     energyCost: 90,
     subL: 4, subW: 2, subH: 4, gridW: 2, gridH: 4, geometryType: 'box',
@@ -190,7 +262,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'IOT',
     desc: 'Inductive Output Tube — a highly efficient (70%) CW RF source at 80 kW. Better efficiency than CW klystrons, making it the preferred choice for large SRF installations where power costs dominate. Connect via RF Waveguide. Requires CW RF Systems research.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 2000000 },
+    // 80 kW, same bands and duty as the CW klystron, 1.6x the capacity — so it
+    // undercuts it per kW purely on the scale term. → $8,250/kW.
+    cost: { funding: 660000 },
     stats: {},
     energyCost: 115,
     subL: 4, subW: 2, subH: 4, gridW: 2, gridH: 4, geometryType: 'box',
@@ -297,7 +371,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'Multi-beam Klystron',
     desc: 'High-performance RF source using multiple electron beams in parallel for 65% efficiency at 200 kW. Powers demanding accelerating structures. Expensive but very high power output. Requires Advanced RF research.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 5000000 },
+    // 200 kW, S+C band, pulsed. Same 2.0x C-band multiplier as the Pulsed
+    // Klystron it replaces, four times the capacity. → $9,850/kW.
+    cost: { funding: 1970000 },
     stats: {},
     energyCost: 310,
     subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
@@ -322,7 +398,9 @@ export const INFRASTRUCTURE_RAW = {
     name: 'High-Power SS Transmitter',
     desc: 'Modular solid-state transmitter delivering 300 kW CW with 60% efficiency. Unlike klystrons, it is built from many small amplifier modules — if one fails, the rest keep running. High reliability alternative to tube-based sources. Requires Advanced RF research.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 4000000 },
+    // 300 kW, VHF+UHF+L, CW. Three bands (1.16x) and CW (1.5x) at L-band
+    // reference frequency, discounted hard by the scale term. → $7,567/kW.
+    cost: { funding: 2270000 },
     stats: {},
     energyCost: 500,
     subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
@@ -347,7 +425,13 @@ export const INFRASTRUCTURE_RAW = {
     name: 'Gyrotron',
     desc: 'Megawatt-class microwave source that generates RF power via cyclotron resonance of electrons spiraling in a strong magnetic field. Delivers 1 MW CW at millimeter wavelengths. The most powerful single RF source available — used for the highest-gradient accelerating structures. Requires a superconducting magnet. Requires Advanced RF research.',
     category: 'rfPower', subsection: 'supply',
-    cost: { funding: 8000000 },
+    // 1000 kW, C+X band, CW — and EXEMPT from the sqrt(f) frequency premium.
+    // Cyclotron resonance in an oversized cavity is the one RF architecture
+    // whose output does not collapse as the wavelength shrinks; charging it
+    // the X-band penalty would bill it for the problem it was built to solve.
+    // Pays CW (1.5x) and two-band breadth (1.08x) only. → $6,090/kW, the best
+    // value in the catalogue, which is the right shape for an endgame unlock.
+    cost: { funding: 6090000 },
     stats: {},
     energyCost: 2000,
     subL: 4, subW: 3, subH: 6, gridW: 3, gridH: 4, geometryType: 'box',
@@ -522,7 +606,7 @@ export const INFRASTRUCTURE_RAW = {
   heRecovery: {
     id: 'heRecovery',
     name: 'Helium Recovery/Storage',
-    desc: 'Captures helium gas that boils off from your cryogenic systems and stores it for recycling. Helium is expensive and non-renewable — without recovery, you lose it to the atmosphere. Reduces long-term operating costs. Requires Cryo Optimization research.',
+    desc: 'The high-pressure tube trailers and medium-pressure vessels that hold recovered helium until the liquefier can take it. Bulk storage does not capture anything by itself — it raises the ceiling on how much the rest of the plant can keep. Without it the recovery chain saturates at 70% no matter how complete it is, because gas you have nowhere to put is gas you vent; with it the chain reaches 90%. The last piece you buy and the one that finishes the plant. Requires Cryo Optimization research.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 4000000 },
@@ -541,7 +625,9 @@ export const INFRASTRUCTURE_RAW = {
   // ── Helium recovery chain ─────────────────────────────────────────
   // Four rungs that make the recovery fraction in
   // src/utility/types/cryoTransfer.js worth building out. Each TYPE counts
-  // once, facility-wide, and the chain caps at 90% — see
+  // once, facility-wide, and together they sum to 0.90 — but the ceiling is
+  // 0.70 until the Helium Recovery/Storage block above is also built, because
+  // storage is what makes the recovered gas keepable. See
   // HE_RECOVERY_CONTRIBUTION there for the table and the reasoning. Recovery
   // does not change boil-off, which is physics; it changes how much of the
   // boiled-off gas you buy back.

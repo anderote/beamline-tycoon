@@ -11,18 +11,22 @@ RF (radio frequency) power is what actually accelerates the beam. Oscillating el
 
 Different source types serve different purposes. **Duty factor** is now a first-class stat: a pulsed source delivers its average power in short bursts, so its peak power is much higher.
 
-| Source | Bands covered | Avg Power | Duty | Peak Power | Cost |
-|--------|---------------|-----------|------|-----------|------|
-| Magnetron | S | 5 kW | 0.01 | 500 kW | $50k |
-| TWT | VHF, UHF, L, S, C, X | 20 kW | 0.05 | 400 kW | $400k |
-| SSA | VHF, UHF | 35 kW | 1.0 (CW) | 35 kW | $150k |
-| SLAC 5045 Klystron | S | 25 kW | 0.001 | **25 MW** | $250k |
-| Pulsed Klystron | S, C | 50 kW | 0.001 | **50 MW** | $1.5M |
-| CW Klystron | UHF, L | 50 kW | 1.0 (CW) | 50 kW | $3M |
-| IOT | UHF, L | 80 kW | 1.0 (CW) | 80 kW | $2M |
-| Multi-beam Klystron | S, C | 200 kW | 0.005 | 40 MW | $5M |
-| High-power SSA | VHF, UHF, L | 300 kW | 1.0 (CW) | 300 kW | $4M |
-| Gyrotron | C, X | 1000 kW | 1.0 (CW) | 1000 kW | $8M |
+| Source | Bands covered | Avg Power | Duty | Peak Power | Cost | $/kW |
+|--------|---------------|-----------|------|-----------|------|------|
+| Magnetron | S | 5 kW | 0.01 | 500 kW | $50k | $10,000 |
+| TWT | VHF, UHF, L, S, C, X | 20 kW | 0.05 | 400 kW | $475k | $23,750 |
+| SSA | VHF, UHF | 35 kW | 1.0 (CW) | 35 kW | $225k | $6,429 |
+| SLAC 5045 Klystron | S | 25 kW | 0.001 | **25 MW** | $205k | $8,200 |
+| Pulsed Klystron | S, C | 50 kW | 0.001 | **50 MW** | $580k | $11,600 |
+| CW Klystron | UHF, L | 50 kW | 1.0 (CW) | 50 kW | $435k | $8,700 |
+| IOT | UHF, L | 80 kW | 1.0 (CW) | 80 kW | $660k | $8,250 |
+| Multi-beam Klystron | S, C | 200 kW | 0.005 | 40 MW | $1.97M | $9,850 |
+| High-power SSA | VHF, UHF, L | 300 kW | 1.0 (CW) | 300 kW | $2.27M | $7,567 |
+| Gyrotron | C, X | 1000 kW | 1.0 (CW) | 1000 kW | $6.09M | $6,090 |
+
+**Why $/kW is not sorted.** Four things set an RF price, and only one of them is size. Frequency raises it as `sqrt(f)` — power handling falls as structures shrink with the wavelength, so a kilowatt at X-band is genuinely harder to build than a kilowatt at L-band. Continuous-wave operation raises it by half again over pulsed at the same peak power, because a tube that never rests has to shed its heat continuously. Covering extra bands raises it 8% a band. Size lowers it — but only against units at the same frequency. Compare within a band, not down the column.
+
+The Gyrotron is the exception that proves the rule: it sits at C and X band and is still the best value on the board at $6,090/kW, because cyclotron resonance in an oversized cavity is specifically the architecture whose output does *not* collapse with frequency. It pays no frequency premium, which is both physically right and the correct reward for an endgame unlock.
 
 This is what reconciles the game's kilowatt-scale RF ladder with the **megawatt** peak power a normal-conducting structure actually needs. It also makes pulsed vs CW a real strategic axis rather than flavour text:
 
@@ -33,9 +37,9 @@ A network mixing pulsed and CW sources gets a capacity-weighted mean duty factor
 
 The bands themselves: **VHF** 50–500 MHz, **UHF** 500–1000, **L** 1000–2000, **S** 2000–4000, **C** 4000–8000, **X** 8000–16000. They are contiguous, so every cavity frequency lands in exactly one.
 
-The TWT is the only source covering all six, and at 20 kW it is deliberately the weakest thing on the ladder. It exists to unblock a frequency you have no real source for, never to power a machine.
+The TWT is the only source covering all six, and at 20 kW it is deliberately the weakest thing on the ladder. It exists to unblock a frequency you have no real source for, never to power a machine. It is also the worst value on the board at $23,750/kW — it pays the X-band frequency premium *and* the full breadth surcharge for those six bands. You are buying coverage, and coverage is expensive.
 
-The SLAC 5045 is the cheap way into megawatt peak power. At $10,000/kW it costs what a magnetron costs and a third of what the Pulsed Klystron costs, but it buys one band instead of two and packs less power into the floor it occupies — 4.2 kW per tile against the Pulsed Klystron's 6.25. It is the right first klystron for an S-band machine and never the last one.
+The SLAC 5045 is the cheap way into megawatt peak power. At $8,200/kW it undercuts the magnetron and costs about 70% of what the Pulsed Klystron does per kilowatt, but it buys one band instead of two and packs less power into the floor it occupies — 4.2 kW per tile against the Pulsed Klystron's 6.25. It is the right first klystron for an S-band machine and never the last one.
 
 ### Band Matching
 

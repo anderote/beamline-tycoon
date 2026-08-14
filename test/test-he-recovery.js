@@ -4,16 +4,26 @@
 // printed as "Yes/No" by the HUD, and the solver that owns LHe inventory never
 // looked at it. A player could spend $4M and their helium bill did not move.
 //
+// The fix after that: heRecovery, the pre-existing $4M block, used to be a
+// fifth CONTRIBUTOR at +0.20. The four chain parts sum to exactly the 0.90
+// cap on their own, so once the chain was complete heRecovery bought nothing
+// at any price — the same "spend money, nothing happens" defect one level up.
+// It is now a CEILING-RAISER: the chain saturates at 0.70 without it and 0.90
+// with it, so it is never redundant and always the last piece.
+//
 // What is pinned here:
 //   1. the fraction accumulates one contribution per installed TYPE,
-//   2. it caps at 0.90,
-//   3. duplicates of a type do NOT stack — five gas bags are one gas bag,
-//   4. boil-off itself is unchanged (it is physics; recovery is logistics),
-//   5. net inventory loss, and therefore refill spend, actually drops,
-//   6. the table's keys are real components with the costs the chain assumes.
+//   2. it caps at 0.70 without bulk storage and 0.90 with it,
+//   3. storage ALWAYS changes the outcome for a completed chain — the
+//      property whose absence was the bug,
+//   4. duplicates of a type do NOT stack — five gas bags are one gas bag,
+//   5. boil-off itself is unchanged (it is physics; recovery is logistics),
+//   6. net inventory loss, and therefore refill spend, actually drops,
+//   7. the table's keys are real components with the costs the chain assumes.
 
 import desc, {
-  HE_RECOVERY_CONTRIBUTION, HE_RECOVERY_CAP,
+  HE_RECOVERY_CONTRIBUTION, HE_RECOVERY_CAP, HE_RECOVERY_CAP_NO_STORAGE,
+  HE_STORAGE_TYPE,
   heRecoveryFraction, facilityHeRecoveryFraction,
   BOILOFF_PER_W_PER_TICK, RESERVOIR_MAX_L, LHE_COST_PER_L,
 } from '../src/utility/types/cryoTransfer.js';
@@ -27,7 +37,10 @@ function assert(cond, msg) {
 }
 function approx(a, b, eps = 1e-9) { return Math.abs(a - b) < eps; }
 
-const CHAIN = ['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heRecovery', 'heLiquefier'];
+/** The four capture/clean/re-liquefy rungs. Sums to 0.90 uncapped. */
+const CHAIN = ['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heLiquefier'];
+/** The chain plus the bulk-storage block that raises the ceiling to 0.90. */
+const CHAIN_PLUS_STORAGE = [...CHAIN, HE_STORAGE_TYPE];
 
 function mkNetwork(overrides) {
   return {
@@ -58,8 +71,15 @@ console.log('\n--- Test 1: accumulation ---');
     'header + bag → 0.40');
   assert(approx(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'hePurifier']), 0.60),
     'header + bag + purifier → 0.60');
-  assert(approx(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heRecovery']), 0.80),
-    '+ the original heRecovery block → 0.80');
+  // The fourth rung takes the raw sum to 0.90, but the no-storage ceiling
+  // clips it to 0.70. Test 2 pins that; here it is just the accumulation.
+  assert(approx(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heLiquefier']), 0.70),
+    'all four chain rungs → 0.70, clipped from a raw 0.90');
+  // The storage block is NOT a contributor: on its own it collects nothing.
+  assert(heRecoveryFraction([HE_STORAGE_TYPE]) === 0,
+    'bulk storage alone → 0 (a tank with no header collects nothing)');
+  assert(approx(heRecoveryFraction(['heRecoveryHeader', HE_STORAGE_TYPE]), 0.25),
+    'storage adds no points of its own — header + storage is still 0.25');
   // Order is irrelevant — it is a set, not a sequence.
   assert(approx(heRecoveryFraction(['hePurifier', 'heGasBag']),
                 heRecoveryFraction(['heGasBag', 'hePurifier'])), 'order does not matter');
@@ -69,17 +89,59 @@ console.log('\n--- Test 1: accumulation ---');
 }
 
 // ==========================================================================
-// Test 2: the cap. The five contributions sum to 1.10; you never get it all.
+// Test 2: two ceilings. Bulk storage is what moves 0.70 to 0.90.
 // ==========================================================================
-console.log('\n--- Test 2: cap at 0.90 ---');
+console.log('\n--- Test 2: ceiling is 0.70, or 0.90 with bulk storage ---');
 {
   const raw = CHAIN.reduce((s, t) => s + HE_RECOVERY_CONTRIBUTION[t], 0);
-  assert(approx(raw, 1.10), `table sums to 1.10 uncapped (got ${raw})`);
-  assert(approx(heRecoveryFraction(CHAIN), HE_RECOVERY_CAP), 'everything installed → 0.90, not 1.10');
-  assert(heRecoveryFraction(CHAIN) < 1, 'you never recover everything');
-  // The four-part chain reaches the cap on its own.
-  assert(approx(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heLiquefier']), 0.90),
-    'header + bag + purifier + liquefier → 0.90 without the $4M block');
+  assert(approx(raw, 0.90), `the four chain rungs sum to 0.90 uncapped (got ${raw})`);
+  assert(approx(HE_RECOVERY_CAP_NO_STORAGE, 0.70), 'ceiling without storage is 0.70');
+  assert(approx(HE_RECOVERY_CAP, 0.90), 'ceiling with storage is 0.90');
+  assert(HE_RECOVERY_CAP > HE_RECOVERY_CAP_NO_STORAGE, 'storage raises the ceiling');
+  assert(HE_RECOVERY_CONTRIBUTION[HE_STORAGE_TYPE] === undefined,
+    'heRecovery is not in the contribution table at all');
+
+  assert(approx(heRecoveryFraction(CHAIN), 0.70),
+    'a COMPLETE chain without storage saturates at 0.70, not 0.90');
+  assert(approx(heRecoveryFraction(CHAIN_PLUS_STORAGE), HE_RECOVERY_CAP),
+    'chain + storage → 0.90');
+  assert(heRecoveryFraction(CHAIN_PLUS_STORAGE) < 1, 'you never recover everything');
+}
+
+// ==========================================================================
+// Test 2b: THE BUG. Storage must change the outcome for a completed chain.
+//
+// The old table made heRecovery a +0.20 contributor, and the four rungs
+// already summed to the 0.90 cap — so min() ate it and $4M bought exactly
+// nothing. This is the property whose absence was the defect: adding storage
+// to a finished chain has to move the number, and by a lot.
+// ==========================================================================
+console.log('\n--- Test 2b: storage is never redundant ---');
+{
+  const without = heRecoveryFraction(CHAIN);
+  const with_ = heRecoveryFraction(CHAIN_PLUS_STORAGE);
+  assert(with_ > without,
+    `storage strictly improves a COMPLETE chain (${without} → ${with_})`);
+  assert(approx(with_ - without, 0.20), 'and by 0.20, the full ceiling gap');
+
+  // It is never redundant for ANY subset that is already at its ceiling, and
+  // never harmful for one that is not.
+  let monotone = true;
+  for (let mask = 1; mask < (1 << CHAIN.length); mask++) {
+    const subset = CHAIN.filter((_, i) => mask & (1 << i));
+    if (heRecoveryFraction([...subset, HE_STORAGE_TYPE]) < heRecoveryFraction(subset)) {
+      monotone = false;
+    }
+  }
+  assert(monotone, 'storage never lowers the fraction for any subset of the chain');
+  // Saturated subsets are exactly the ones storage pays off on.
+  assert(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'heLiquefier']) === 0.70,
+    'header + bag + liquefier is already at the no-storage ceiling');
+  assert(approx(heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'heLiquefier',
+    HE_STORAGE_TYPE]), 0.70), 'storage releases it to its uncapped 0.70 — no change here');
+  assert(heRecoveryFraction([...CHAIN, HE_STORAGE_TYPE])
+       > heRecoveryFraction(['heRecoveryHeader', 'heGasBag', 'heLiquefier', HE_STORAGE_TYPE]),
+    'the full chain plus storage still beats a partial chain plus storage');
 }
 
 // ==========================================================================
@@ -107,7 +169,9 @@ console.log('\n--- Test 3: duplicates do not stack ---');
 console.log('\n--- Test 4: boil-off unchanged, net loss reduced ---');
 {
   const bare = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld([]));
-  const full = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld(CHAIN));
+  const full = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld(CHAIN_PLUS_STORAGE));
+  // Same machine, chain complete but no bulk storage: capped at 0.70.
+  const noStore = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld(CHAIN));
 
   assert(approx(bare.flowState.boiloffL, full.flowState.boiloffL),
     `boil-off identical with and without recovery (${bare.flowState.boiloffL})`);
@@ -117,9 +181,18 @@ console.log('\n--- Test 4: boil-off unchanged, net loss reduced ---');
     'bath temperature identical');
 
   assert(bare.flowState.heRecoveryFraction === 0, 'bare facility reports 0');
-  assert(approx(full.flowState.heRecoveryFraction, 0.90), 'full chain reports 0.90');
+  assert(approx(full.flowState.heRecoveryFraction, 0.90),
+    'full chain + storage reports 0.90');
+  assert(approx(noStore.flowState.heRecoveryFraction, 0.70),
+    'full chain without storage reports 0.70');
   assert(approx(full.flowState.netLheLossL, bare.flowState.netLheLossL * 0.10),
     'net loss is one tenth of the unrecovered case');
+  // The storage block reaches the solver, not just the fraction helper: it is
+  // a third less helium lost per tick, which is the whole point of the fix.
+  assert(full.flowState.netLheLossL < noStore.flowState.netLheLossL,
+    `storage cuts net loss further (${full.flowState.netLheLossL} < ${noStore.flowState.netLheLossL})`);
+  assert(approx(noStore.flowState.netLheLossL, bare.flowState.netLheLossL * 0.30),
+    'chain-only net loss is 30% of the unrecovered case');
 
   const bareDrop = 400 - bare.nextPersistentState.lheVolumeL;
   const fullDrop = 400 - full.nextPersistentState.lheVolumeL;
@@ -147,13 +220,18 @@ console.log('\n--- Test 5: refill spend ---');
 
   const bare = spendAfter(400, []);
   const entry = spendAfter(400, ['heRecoveryHeader']);
-  const full = spendAfter(400, CHAIN);
+  const chainOnly = spendAfter(400, CHAIN);
+  const full = spendAfter(400, CHAIN_PLUS_STORAGE);
 
   assert(bare.funding > 0, `bare facility owes a refill (${bare.funding})`);
   assert(entry.funding < bare.funding,
     `one header already cuts the bill (${entry.funding} < ${bare.funding})`);
-  assert(full.funding < entry.funding,
-    `the full chain cuts it further (${full.funding} < ${entry.funding})`);
+  assert(chainOnly.funding < entry.funding,
+    `the full chain cuts it further (${chainOnly.funding} < ${entry.funding})`);
+  // The bug, priced: buying the $4M storage block after a finished chain used
+  // to leave this bill untouched. It must now fall.
+  assert(full.funding < chainOnly.funding,
+    `bulk storage cuts a COMPLETED chain's bill (${full.funding} < ${chainOnly.funding})`);
   // 0.90 recovery means a tenth of the helium, so a tenth of the money.
   assert(Math.abs(full.funding - bare.funding * 0.10) <= 2,
     `full chain pays ~10% of the bare bill (${full.funding} vs ${bare.funding})`);
@@ -185,9 +263,14 @@ console.log('\n--- Test 7: the chain exists as components ---');
     hePurifier:       { cost: 1200000, energyCost: 3, gridW: 2, gridH: 3, requires: 'cryoOptimization' },
     heLiquefier:      { cost: 3500000, energyCost: 12, gridW: 4, gridH: 5, requires: 'cryoOptimization' },
   };
-  for (const key of Object.keys(HE_RECOVERY_CONTRIBUTION)) {
+  for (const key of [...Object.keys(HE_RECOVERY_CONTRIBUTION), HE_STORAGE_TYPE]) {
     assert(!!COMPONENTS[key], `${key} is a real component`);
   }
+  // The ceiling-raiser is the priciest thing in the group, which is what makes
+  // "it does nothing once the chain is done" the expensive kind of bug.
+  const store = COMPONENTS[HE_STORAGE_TYPE] || {};
+  assert(store.cost && store.cost.funding === 4000000, 'heRecovery still costs $4M');
+  assert(store.requires === 'cryoOptimization', 'heRecovery is gated on cryoOptimization');
   for (const [id, want] of Object.entries(EXPECT)) {
     const c = COMPONENTS[id] || {};
     assert(c.cost && c.cost.funding === want.cost, `${id} costs $${want.cost}`);
