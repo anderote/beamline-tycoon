@@ -16,8 +16,10 @@ export const MODES = {
       // Each infra category leads with a `transport` subsection containing
       // the utility-line tools for that category's utility type(s). Physical
       // equipment (supply, distribution, etc.) follows.
+      // HV first: it is the upstream half of the chain (supply -> distribution),
+      // and it is the run the player draws before any branch circuit exists.
       power:        { name: 'Power',           color: '#4c4',
-                      utilityLineTools: ['powerCable'],
+                      utilityLineTools: ['hvCable', 'powerCable'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'Supply' }, distribution: { name: 'Distribution' }, specialty: { name: 'Specialty' } } },
       vacuum:       { name: 'Vacuum',          color: '#999',
                       utilityLineTools: ['vacuumPipe'],
@@ -86,18 +88,19 @@ for (const mode of Object.values(MODES)) {
   Object.assign(CATEGORIES, mode.categories);
 }
 
-// Map each infra category to its relevant pipe types. Used by the palette
-// (hud.js) as the fallback when a category declares no `utilityLineTools`,
-// so every key MUST be an infra category above — an entry keyed on anything
-// else is unreachable. There used to be a `distribution:` catch-all here
-// listing all six utilities; `distribution` is a *subsection* name, never a
-// category, so it was never looked up.
-export const INFRA_DISTRIBUTION = {
-  vacuum:       ['vacuumPipe'],
-  rfPower:      ['rfWaveguide'],
-  cooling:      ['coolingWater', 'cryoTransfer'],
-  dataControls: ['dataFiber'],
-  // HV first: it is the upstream half of the chain (supply -> distribution),
-  // and it is the run the player draws before any branch circuit exists.
-  power:        ['hvCable', 'powerCable'],
-};
+// Infra category -> its utility-line tools, DERIVED from the category
+// definitions above. hud.js reads a category's own `utilityLineTools` first
+// and falls back to this, so the two were the same list written twice — and
+// since every category declares its own, this copy was dead. Adding hvCable to
+// it changed nothing at all, and the HV feeder had no tool in the palette
+// while existing in the data, the solver and the port tables.
+//
+// Deriving it means the fallback cannot disagree with what it falls back to.
+// There used to be a `distribution:` catch-all here listing all six utilities;
+// `distribution` is a *subsection* name, never a category, so it was never
+// looked up either.
+export const INFRA_DISTRIBUTION = Object.fromEntries(
+  Object.entries(MODES.infra.categories)
+    .filter(([, def]) => Array.isArray(def.utilityLineTools))
+    .map(([key, def]) => [key, def.utilityLineTools]),
+);

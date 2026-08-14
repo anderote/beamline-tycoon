@@ -22,6 +22,8 @@ import { FACILITY_ROOM_FURNISHINGS_RAW } from '../src/data/facility-room-furnish
 import { FACILITY_LAB_FURNISHINGS_RAW } from '../src/data/facility-lab-furnishings.raw.js';
 import { DECORATIONS_RAW } from '../src/data/decorations.raw.js';
 import { UTILITY_PORTS_V2_BY_ID } from '../src/data/utility-ports-v2.js';
+import { MODES, INFRA_DISTRIBUTION } from '../src/data/modes.js';
+import { UTILITY_TYPE_LIST } from '../src/utility/registry.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -209,6 +211,38 @@ console.log('\n--- Test 5: roleBuilderFallbacks coverage helper ---');
   const out = roleBuilderFallbacks(raw, ['b']);
   assert(out.length === 2 && out.includes('a') && out.includes('c') && !out.includes('b'),
     'uncovered ids listed, covered ids excluded');
+}
+
+// ==========================================================================
+// Test 6: every utility the player can draw has a tool in the palette.
+// ==========================================================================
+//
+// Defect this pins: hvCable shipped complete — descriptor, solver, port tables
+// on every transformer and panel, network panel row — and no way to draw it,
+// because the palette reads MODES.infra.categories[cat].utilityLineTools and
+// nothing had added it there. A utility that exists everywhere except the one
+// list that puts a tool in the player's hand is invisible in exactly the way
+// that is hardest to notice from the code.
+console.log('\n--- Test 6: every utility type is reachable from the palette ---');
+{
+  const armable = new Set();
+  for (const def of Object.values(MODES.infra.categories)) {
+    for (const t of (def.utilityLineTools || [])) armable.add(t);
+  }
+  const missing = UTILITY_TYPE_LIST.filter(t => !armable.has(t));
+  assert(missing.length === 0,
+    `every utility has a palette tool (unreachable: ${missing.join(',') || 'none'})`);
+
+  const unknown = [...armable].filter(t => !UTILITY_TYPE_LIST.includes(t));
+  assert(unknown.length === 0,
+    `and every palette tool is a real utility (unknown: ${unknown.join(',') || 'none'})`);
+
+  // The fallback map is derived from the same source, so it cannot drift.
+  for (const [cat, def] of Object.entries(MODES.infra.categories)) {
+    if (!def.utilityLineTools) continue;
+    assert(JSON.stringify(INFRA_DISTRIBUTION[cat]) === JSON.stringify(def.utilityLineTools),
+      `${cat}: INFRA_DISTRIBUTION matches the category's own tool list`);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
