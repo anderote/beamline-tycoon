@@ -26,6 +26,7 @@
 
 import {
   JOB_TYPES, buildJobOffers, eligibleFor, footprintCellsOf, approachCandidates,
+  footprintCellsForPlacement, findPipePlacement,
 } from './jobs.js';
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
 import { getNavGrid, findPath, isReachable } from './nav.js';
@@ -554,17 +555,41 @@ function suppressionReasonFor(member, suppressions) {
 //     assignJobs to immediately re-offer the identical job next pass. Real
 //     repairs could not complete.
 
-// Mirrors jobs.js's own (unexported) resolveTarget — a target-addressed
-// job's `{beamlineId, nodeId}` back to the live placeable it addresses.
-// Duplicated rather than imported: this round's jobs.js diff is scoped to
-// exporting the perimeter-walk helper, not restructuring its internals, and
-// jobStillValid (below) already duplicates the same lookup for the same
-// reason.
-function resolveTargetPlaceable(game, target) {
+// Fix round 2: a target-addressed job's `{beamlineId, nodeId}` resolved all
+// the way to real footprint cells — a module's own `.cells` (via jobs.js's
+// footprintCellsOf) or, since fix round 1 widened repair to on-pipe
+// components (COMPONENTS role: 'placement' — quadrupole, BPM, RF cavity,
+// ...), an on-pipe placement's single-subtile approximation (jobs.js's
+// footprintCellsForPlacement, over the pipe jobs.js's own findPipePlacement
+// finds). This IS jobs.js's own resolveTarget + footprint resolution,
+// imported directly rather than re-derived: this function used to be a
+// SEPARATE, `state.placeables`-only lookup (this file's own prior comment
+// called it "duplicated rather than imported... jobs.js is off-limits to
+// this task"), and jobStillValid below duplicated it a second time — two
+// copies that only ever agreed by convention, and neither one knew about
+// on-pipe targets at all. That's exactly how an on-pipe repair offer could
+// be generated (jobs.js's repairOffers, fix round 1) and pass eligibleFor
+// (also fix round 1) and STILL never get assigned: resolveDestNode's old
+// placeable-only lookup returned null for it, so assignJobs logged "Could
+// not find anywhere to stand for that job." and moved on — a worse outcome
+// than never offering it, since the player sees a technician apparently
+// trying and failing forever.
+//
+// Returns [] (never null) when nothing resolves, so both callers below can
+// test `.length` for "still exists" and "has somewhere to stand" in one
+// check — a target whose placeable/on-pipe record is gone resolves to no
+// cells the same way a resolvable one with a pathological empty footprint
+// would, and both are equally "nothing to walk to" from a caller's
+// perspective.
+function targetFootprintCells(game, target) {
   const state = game.state;
   const idx = state.placeableIndex?.[target.nodeId];
-  return idx !== undefined ? state.placeables?.[idx]
+  const placeable = idx !== undefined ? state.placeables?.[idx]
     : (state.placeables || []).find(p => p.id === target.nodeId);
+  if (placeable) return footprintCellsOf(placeable);
+  const onPipe = findPipePlacement(state, target.nodeId);
+  if (!onPipe) return [];
+  return footprintCellsForPlacement(onPipe.pipe, onPipe.placement);
 }
 
 /**
@@ -616,9 +641,7 @@ function resolveDestNode(game, member, offer) {
     return getStationIndex(state).byKey[offer.stationKey]?.node || null;
   }
   if (offer.target) {
-    const placeable = resolveTargetPlaceable(game, offer.target);
-    if (!placeable) return null;
-    const cells = footprintCellsOf(placeable);
+    const cells = targetFootprintCells(game, offer.target);
     if (!cells.length) return null;
     const nav = getNavGrid(state);
     const candidates = approachCandidates(nav, state, cells);
@@ -769,20 +792,16 @@ function zoneTierFor(state, member) {
 // key nobody indexes anymore once the station's placeable is demolished.
 // Target-addressed jobs (repair/commission) have no reservation at all, so
 // their own staleness has to be checked directly: the beamline still
-// registered, and the specific placeable id still present. This mirrors
-// jobs.js's own (unexported) resolveTarget — duplicated rather than
-// imported, since jobs.js is off-limits to this task (see task-2-brief.md)
-// and the check is small.
+// registered, and the target itself (module OR on-pipe placement — fix
+// round 2 widened this the same way targetFootprintCells above was, via the
+// SAME function rather than a third copy of the lookup).
 function jobStillValid(game, job) {
   const state = game.state;
   if (job.stationKey) return !!getStationIndex(state).byKey[job.stationKey];
   if (job.target) {
     const beamlineLive = (game.registry?.getAll?.() || []).some(e => e.id === job.target.beamlineId);
     if (!beamlineLive) return false;
-    const idx = state.placeableIndex?.[job.target.nodeId];
-    const placeable = idx !== undefined ? state.placeables?.[idx]
-      : (state.placeables || []).find(p => p.id === job.target.nodeId);
-    return !!placeable;
+    return targetFootprintCells(game, job.target).length > 0;
   }
   return true;
 }

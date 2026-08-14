@@ -226,7 +226,18 @@ export function footprintCellsOf(placeable) {
 // generated for it, at any spares level, forever. _autoRepair used to mask
 // this (it healed anything with a health entry, module or not); deleting it
 // (this same task) made the gap live.
-function footprintCellsForPlacement(pipe, att) {
+//
+// Fix round 2: exported (alongside findPipePlacement, below) so
+// jobRunner.js's own targetFootprintCells (feeding resolveDestNode/
+// jobStillValid) can resolve an on-pipe target's standing position the SAME
+// way this file's own repairOffers/eligibleFor already do — jobRunner.js
+// used to have its own, unwidened, `state.placeables`-only copy of the
+// target lookup, so an on-pipe repair offer could be generated and pass
+// eligibleFor and still never actually get assigned (resolveDestNode
+// returning null). One implementation shared by both files closes that gap
+// at the root instead of a second copy that could drift from this one
+// again.
+export function footprintCellsForPlacement(pipe, att) {
   const pose = pipe && placementPose(pipe, att);
   if (!pose) return [];
   return [{ col: Math.round(pose.col), row: Math.round(pose.row), subCol: 0, subRow: 0 }];
@@ -523,7 +534,10 @@ export function buildJobOffers(game) {
 // placements live inside pipe.placements[] (see BeamlineSystem.placeOnPipe),
 // not state.placeables, so there is no index to check — this is a linear
 // scan over pipes (typically small) and their placements.
-function findPipePlacement(state, nodeId) {
+//
+// Exported (fix round 2) alongside footprintCellsForPlacement — see that
+// function's own comment on why jobRunner.js needs this one too.
+export function findPipePlacement(state, nodeId) {
   for (const pipe of state?.beamPipes || []) {
     const placement = (pipe.placements || []).find(p => p.id === nodeId);
     if (placement) return { pipe, placement };

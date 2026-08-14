@@ -54,6 +54,16 @@
 //      component purchase or a sibling repair can create between
 //      assignment and completion) does not heal for free, does not drive
 //      spares negative, and logs loudly instead of silently no-op-ing.
+//
+// Fix round 2 (coordinator review) finishes CRITICAL 1 and proves it:
+//  10. The full on-pipe repair path end to end on a real Game: assigned,
+//      resolveDestNode lands on a real approach node OUTSIDE the
+//      component's footprint (not inside it), phase reaches 'work',
+//      completes, consumes exactly one spare, heals a quadrupole (not a
+//      module).
+//  11. The negative: a fully walled-off on-pipe component gets NO
+//      assignment at all, with a reason — not an assignment that then
+//      stalls trying to reach somewhere unreachable.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -508,6 +518,149 @@ console.log('\n=== 9. Zero-spares race at completion: no negative inventory, no 
   assertOk(technician.stats.repairs === 0, 'no repair credit for a completion that healed nothing');
   assertOk(game.logs.some(l => l.type === 'bad' && /no spares/i.test(l.msg)),
     `a loud log line fired for the silent-no-op guard (got ${JSON.stringify(game.logs)})`);
+}
+
+// =============================================================================
+// 10. Fix round 2, CRITICAL 1 (finished): the whole on-pipe repair path,
+//     end to end, on a real Game — the test the brief says was missing, and
+//     whose absence is why deleting _autoRepair silently made most of the
+//     catalogue unrepairable. Test 8 above proved an offer exists and
+//     eligibleFor approves it; this proves assignJobs actually assigns it,
+//     resolveDestNode resolves a real approach node OUTSIDE the component's
+//     footprint (not the footprint cell itself — jobRunner.js's own
+//     resolveTargetPlaceable used to only ever look in state.placeables,
+//     where an on-pipe placement never lives, so resolveDestNode silently
+//     returned null for exactly this target), the job reaches phase:
+//     'work', completes, consumes exactly one spare, and heals the
+//     component — a quadrupole, not a module.
+// =============================================================================
+console.log('\n=== 10. On-pipe repair, end to end: assign, walk, work, complete, heal ===\n');
+{
+  const { Game } = await import('../src/game/Game.js');
+  const { BeamlineRegistry } = await import('../src/beamline/BeamlineRegistry.js');
+  const { getNavGrid } = await import('../src/game/staff/nav.js');
+  const { footprintCellsForPlacement, approachCandidates } = await import('../src/game/staff/jobs.js');
+
+  // seed 105, cols -6/6 at row 20: the same combination
+  // test-review-regressions.js's own "beam income counts hardware" section
+  // already proves clear on the starter map.
+  const g = new Game(new BeamlineRegistry(), { seed: 105 });
+  const src = g.beamline.placeJunction({ type: 'source', col: -6, row: 20, dir: 3, free: true, silent: true });
+  const det = g.beamline.placeJunction({ type: 'detector', col: 6, row: 20, dir: 3, free: true, silent: true });
+  assertOk(!!src && !!det, 'setup: source and detector placed');
+  const pipeId = g.beamline.drawPipe(
+    { junctionId: src, portName: 'exit' },
+    { junctionId: det, portName: 'entry' },
+    [{ col: -6, row: 20 }, { col: 6, row: 20 }],
+  );
+  assertOk(!!pipeId, 'setup: pipe drawn between them');
+  const quadId = g.beamline.placeOnPipe(pipeId, { type: 'quadrupole', position: 0.5, mode: 'snap', free: true });
+  assertOk(!!quadId, 'setup: quadrupole mounted on the pipe');
+
+  const entry = (g.registry.getAll() || [])[0];
+  assertOk(!!entry?.beamState?.componentHealth, 'setup: registry entry exists with a componentHealth dict');
+  entry.beamState.componentHealth[quadId] = 50;
+
+  // Independently compute the real footprint/approach set the SAME way
+  // jobRunner.js's targetFootprintCells now does, to cross-check the
+  // assignment against it rather than a hardcoded coordinate.
+  const pipe = g.state.beamPipes.find(p => p.id === pipeId);
+  const placement = (pipe.placements || []).find(p => p.id === quadId);
+  const footprint = footprintCellsForPlacement(pipe, placement);
+  assertOk(footprint.length === 1, `setup: the on-pipe footprint is a single subtile (got ${footprint.length})`);
+  const nav = getNavGrid(g.state);
+  const candidates = approachCandidates(nav, g.state, footprint);
+  assertOk(candidates.length > 0, 'setup: at least one real approach node exists outside the footprint');
+
+  const technician = new StaffMember({
+    id: 't-onpipe', profession: 'technician', traits: [],
+    skills: { operating: 5, technical: 5, research: 5, construction: 5, admin: 5 },
+    rng: () => 0.5,
+  });
+  g.state.staffMembers.push(technician);
+
+  assignJobs(g);
+  assertOk(technician.job?.jobType === 'repair', `technician assigned repair (got ${technician.job?.jobType})`);
+  assertOk(technician.job?.target?.nodeId === quadId, 'the assigned target is the quadrupole, not a module');
+  assertOk(!!technician.job?.destNode, 'a destination node was resolved (not stuck at null)');
+
+  const dest = technician.job.destNode;
+  const onFootprint = footprint.some(c => c.col === dest.col && c.row === dest.row
+    && c.subCol === dest.subCol && c.subRow === dest.subRow);
+  assertOk(!onFootprint, 'the technician walks to a node OUTSIDE the footprint, not the component itself');
+  const isRealCandidate = candidates.some(c => c.col === dest.col && c.row === dest.row
+    && c.subCol === dest.subCol && c.subRow === dest.subRow);
+  assertOk(isRealCandidate, 'destNode is one of the real, independently-computed approach candidates');
+
+  assertOk(technician.job.phase === 'travel', 'setup: job starts in phase travel');
+  arrive(technician);
+  assertOk(technician.job.phase === 'work', 'arrival flips phase to work');
+
+  const beforeSpares = g.state.resources.spares;
+  const completedAt = runUntilComplete(g, technician);
+  assertOk(completedAt >= 0, `the repair completed (at tick ${completedAt})`);
+  assertOk(g.state.resources.spares === beforeSpares - 1,
+    `exactly one spare was consumed (got ${beforeSpares - g.state.resources.spares})`);
+  assertOk(entry.beamState.componentHealth[quadId] > 50, 'the quadrupole was healed');
+  assertOk(technician.stats.repairs === 1, 'stats.repairs credited');
+}
+
+// =============================================================================
+// 11. The negative half of the same fix: a fully walled-off on-pipe
+//     component must produce NO assignment at all, with a reason — not an
+//     assignment that then stalls trying to walk somewhere unreachable.
+// =============================================================================
+console.log('\n=== 11. A walled-off on-pipe component is never assigned (with a reason) ===\n');
+{
+  const { Game } = await import('../src/game/Game.js');
+  const { BeamlineRegistry } = await import('../src/beamline/BeamlineRegistry.js');
+  const { footprintCellsForPlacement } = await import('../src/game/staff/jobs.js');
+
+  const g = new Game(new BeamlineRegistry(), { seed: 105 });
+  const src = g.beamline.placeJunction({ type: 'source', col: -6, row: 20, dir: 3, free: true, silent: true });
+  const det = g.beamline.placeJunction({ type: 'detector', col: 6, row: 20, dir: 3, free: true, silent: true });
+  const pipeId = g.beamline.drawPipe(
+    { junctionId: src, portName: 'exit' },
+    { junctionId: det, portName: 'entry' },
+    [{ col: -6, row: 20 }, { col: 6, row: 20 }],
+  );
+  const quadId = g.beamline.placeOnPipe(pipeId, { type: 'quadrupole', position: 0.5, mode: 'snap', free: true });
+  assertOk(!!quadId, 'setup: quadrupole mounted on the pipe');
+
+  const entry = (g.registry.getAll() || [])[0];
+  entry.beamState.componentHealth[quadId] = 50;
+
+  // Seal the whole TILE the component's footprint subtile sits in — walling
+  // only the subtile itself is not enough (2-3 of its 4 neighbors are
+  // same-tile subtiles with no wall boundary to block at all, per
+  // jobs.js's own approachCandidates comment); a fully boxed tile with no
+  // door is the "sealed room" case reachableFromOutdoors exists to catch.
+  const pipe = g.state.beamPipes.find(p => p.id === pipeId);
+  const placement = (pipe.placements || []).find(p => p.id === quadId);
+  const [{ col, row }] = footprintCellsForPlacement(pipe, placement);
+  for (const edge of ['n', 's', 'e', 'w']) {
+    g.state.wallOccupied[`${col},${row},${edge}`] = 'officeWall';
+  }
+  g.state.navRevision = (g.state.navRevision | 0) + 1;
+
+  const technician = new StaffMember({
+    id: 't-walled', profession: 'technician', traits: [],
+    skills: { operating: 5, technical: 5, research: 5, construction: 5, admin: 5 },
+    rng: () => 0.5,
+  });
+  g.state.staffMembers.push(technician);
+
+  assignJobs(g);
+  assertOk(technician.job === null, 'the technician was NOT assigned to the walled-off component');
+  assertOk(typeof technician.idleReason === 'string' && technician.idleReason.length > 0,
+    `a reason was given instead of a silent non-assignment (got "${technician.idleReason}")`);
+
+  // The failure mode this guards against: an assignment that stalls forever
+  // rather than never happening. Tick a while and confirm no job ever
+  // appears and nothing heals.
+  for (let t = 0; t < 30; t++) tickJobs(g);
+  assertOk(technician.job === null, 'still no job after ticking — no assignment that then stalls');
+  assertOk(entry.beamState.componentHealth[quadId] === 50, 'the walled-off component is still damaged');
 }
 
 // =============================================================================
