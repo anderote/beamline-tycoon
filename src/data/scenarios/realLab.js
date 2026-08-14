@@ -69,10 +69,30 @@ export function generateRealLab() {
   addFurn('monitorBank', ctrlRect.x0 + 2, ctrlRect.y0 + 1, 0, 0, 0);
   addFurn('operatorChair', ctrlRect.x0 + 1, ctrlRect.y0 + 2, 0, 0, 0);
   addFurn('serverRack', ctrlRect.x1, ctrlRect.y0 + 1, 0, 0, 2);
-  addFurn('diningTable', cafeRect.x0 + 1, cafeRect.y0 + 1, 1, 1, 0);
-  addFurn('cafeteriaChair', cafeRect.x0, cafeRect.y0 + 1, 0, 0, 0);
-  addFurn('cafeteriaChair', cafeRect.x0 + 2, cafeRect.y0 + 1, 0, 0, 0);
+  // Balance fix round 4: a diningTable is `seated: 'required'` (facility-
+  // room-furnishings.raw.js) and only resolves a working `eat` StationRef
+  // when a chair sits at the EXACT subtile each of its four anchors
+  // declares (stations.js's seat-matching) — a chair a whole TILE away from
+  // its table (the previous two lines here) never matches any anchor at
+  // all, so getStationIndex(state).byJob.eat was EMPTY for this scenario;
+  // every player's staff has been permanently unserviced from ~tick 160
+  // since staff-professions-3's stations system shipped. Same anchor-offset
+  // recipe test-staff-economy.js's own placeDiningTable helper uses,
+  // verified against the real station index — all four seats, not two.
+  const cafeTableCol = cafeRect.x0 + 1, cafeTableRow = cafeRect.y0 + 1;
+  addFurn('diningTable', cafeTableCol, cafeTableRow, 0, 0, 0);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow, 0, 3, 0);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow - 1, 1, 2, 2);
+  addFurn('cafeteriaChair', cafeTableCol - 1, cafeTableRow, 2, 0, 1);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow, 3, 1, 3);
   addFurn('vendingMachine', cafeRect.x1, cafeRect.y0 + 1, 0, 0, 3);
+  // toolChest (station.jobs: ['rest'], seated: 'never' — facility-lab-
+  // furnishings.raw.js): a single free-standing anchor, no seat-matching
+  // needed, so the file's own default subCol:1/subRow:1 works here same as
+  // every other single-anchor item. This scenario shipped with NO rest
+  // station of any kind before this fix — fatigue was permanently
+  // unserviceable for every staffer, same bug class as the missing seats.
+  addFurn('toolChest', cafeRect.x1 - 1, cafeRect.y1 - 1, 1, 1, 0);
   addFurn('labBench', rfLabRect.x0 + 1, rfLabRect.y0 + 1, 1, 0, 1);
   addFurn('labBench', vacuumRect.x0 + 1, vacuumRect.y0 + 1, 1, 0, 1);
   return { floors, zones, walls, doors, placeables, placeableNextId: nextId, cornerHeights, infraBlockers: [] };

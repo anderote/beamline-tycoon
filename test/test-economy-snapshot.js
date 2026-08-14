@@ -57,8 +57,26 @@ const near = (a, b) => Math.abs(a - b) < 1e-6;
 
 // One-off milestone grants would land in the funding delta without being tick
 // flow, so mark every objective already complete.
+// Headless tests have no renderer to report pawn arrival (that's
+// StaffPawns.js's job — see jobRunner.js's own header comment on
+// job.phase), so every game.tick() call here also instantly completes any
+// in-flight walk. Same shim test-job-runner.js's own arrive() helper covers
+// for a single member, applied automatically so every tick() call in this
+// file benefits without having to remember it at each call site.
+function withInstantArrival(game) {
+  const rawTick = game.tick.bind(game);
+  game.tick = (...args) => {
+    const result = rawTick(...args);
+    for (const m of (game.state.staffMembers || [])) {
+      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
+    }
+    return result;
+  };
+  return game;
+}
+
 function mkGame(seed) {
-  const g = new Game(new BeamlineRegistry(), { seed });
+  const g = withInstantArrival(new Game(new BeamlineRegistry(), { seed }));
   g.state.completedObjectives = OBJECTIVES.map(o => o.id);
   return g;
 }
@@ -192,7 +210,15 @@ console.log('\n=== Economy snapshot ===\n');
 {
   const g = bootSmallFacility(7);
   g.state.resources.funding = 1e9;
-  g.tick();
+  // A few settling ticks: the FIRST tick after the beamline is toggled on
+  // is the first one where jobRunner's runBeam cap (the RUNNING beamline
+  // count) allows the seeded operator to be offered its console at all —
+  // that tick's own gate check still runs against phase:'travel'
+  // (withInstantArrival only flips phase:'work' once the tick already
+  // returns), so it bills no beam/data income; nodeQualities/physics then
+  // take one more tick to catch up once the gate itself clears. Settle
+  // fully rather than pin the exact tick count.
+  for (let i = 0; i < 5; i++) g.tick();
   const rawRate = [...g.registry.getAll()]
     .filter(e => e.status === 'running')
     .reduce((s, e) => s + (e.beamState.dataRate || 0), 0);

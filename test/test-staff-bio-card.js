@@ -51,5 +51,41 @@ console.log('\n=== bioCardHTML — specialty row ===\n');
   assertOk(!html.includes('bio-card-specialty'), 'operator card renders no specialty row');
 }
 
+console.log('\n=== bioCardHTML — career Highlights (careerMilestones), fix round 1 ===\n');
+
+{
+  // A brand-new hire: every stat is 0, careerMilestones() returns [] — the
+  // Highlights heading itself must not appear, the same "omit the whole
+  // section, not just its contents" rule the Career stat block above
+  // already follows for an all-zero StaffMember.
+  const m = new StaffMember({ id: 's5', profession: 'technician' });
+  const html = bioCardHTML(m);
+  assertOk(!html.includes('bio-card-milestones') && !html.includes('>Highlights<'),
+    'a brand-new hire renders no Highlights section at all (heading included)');
+}
+
+{
+  // A veteran technician: past the repairs(10) milestone threshold. Full
+  // mode must render the actual prose line, not just a stat count — this is
+  // the whole point of Task 7 (the data existed before this fix round;
+  // nothing rendered it).
+  const m = new StaffMember({ id: 's6', profession: 'technician' });
+  m.stats.repairs = 47;
+  const html = bioCardHTML(m);
+  assertOk(html.includes('bio-card-milestones'), 'a veteran renders the Highlights section');
+  assertOk(html.includes('Recovered the beam 47 times.'),
+    `the exact careerMilestones() prose line appears verbatim in the card (got: ${html.match(/bio-card-milestone">[^<]*/g)})`);
+}
+
+{
+  // Compact mode (the hiring-list card) never renders Highlights, same as
+  // it never renders the Career stat block — milestones belong to the full
+  // inspector card only, per this fix round's own design note.
+  const m = new StaffMember({ id: 's7', profession: 'technician' });
+  m.stats.repairs = 47;
+  const html = bioCardHTML(m, { compact: true });
+  assertOk(!html.includes('bio-card-milestones'), 'compact mode never renders Highlights, even for a veteran');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

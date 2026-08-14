@@ -10,8 +10,13 @@
 //      hard error with fromUnconnectedCheck, infraCanRun false.
 //   2. Connected sinks (power + vacuum lines present) → no unconnected
 //      errors, infraCanRun true (with a healthy operator).
-//   3. Staffing gate: stressed operator trips deterministically under a
-//      seeded rng (mulberry32) — same seed, same beam_unstaffed sequence.
+//   3. Staffing gate: no operator trips beam_unstaffed; a seated, working
+//      operator does not. The exhaustive message-ladder / coverage-formula
+//      coverage (no console, unreachable console, travelling, eating/
+//      resting, capacity short of beamline count, rng-determinism) lives in
+//      test-beam-staffing-gate.js (staff-professions-3 Task 4) — this block
+//      is just the light regression that the gate still wires into this
+//      file's own fixtures correctly.
 //   4. nodeQualities aggregation: perSinkQuality → min per placeable.
 //   5. Production cryoTransfer flow shape drives the quench flag.
 //   6. On-pipe placements (Phase 11a): a component living in pipe.placements
@@ -27,17 +32,6 @@ let passed = 0, failed = 0;
 function assert(cond, msg) {
   if (cond) { passed++; console.log('  PASS:', msg); }
   else { failed++; console.log('  FAIL:', msg); }
-}
-
-// Same PRNG as Game.js — only the seed is shared between runs.
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -69,11 +63,20 @@ function makeLine(id, utilityType, endRef) {
   };
 }
 
+// Seated and actually running the beam (job.jobType==='runBeam',
+// phase:'work') — the new gate's own definition of "active" (see
+// operatorCoverage in src/game/utility-gate.js). A green (skill 0) operator
+// covers exactly the one beamline `makeState`'s default fixture ships.
 function workingOperator(overrides = {}) {
   return {
     profession: 'operator', status: 'working', mood: 'content',
-    assignment: { zoneId: 'controlRoom' },
+    skills: { operating: 0 },
     needs: { fatigue: 0.1 },
+    job: {
+      jobType: 'runBeam', target: null, specialty: null,
+      stationKey: 'console1:0', destNode: { col: 0, row: 0, subCol: 0, subRow: 0 },
+      phase: 'work', progress: 0,
+    },
     ...overrides,
   };
 }
@@ -94,7 +97,18 @@ function makeState({ lines = [], staff = [workingOperator()], pipes = [] } = {})
   for (const l of lines) utilityLines.set(l.id, l);
   return {
     tick: 0,
-    placeables: [{ id: 'p1', type: 'dipole', category: 'beamline' }],
+    // 'p1' (a bare 'dipole' — not a real catalogue type; PORT_TABLES fakes
+    // its sinks) is what the unconnected-sink tests below wire against.
+    // 'beamsrc1' is a real component id (beamline-components.raw.js's
+    // isSource:true 'source') carrying no fake ports of its own — it exists
+    // solely so operatorCoverage's countBeamlines (one count per isSource
+    // placeable, NOT per category:'beamline' endpoint — see that function's
+    // own doc comment) sees exactly one beamline to staff, matching
+    // workingOperator()'s default green-operator coverage of 1.
+    placeables: [
+      { id: 'p1', type: 'dipole', category: 'beamline' },
+      { id: 'beamsrc1', type: 'source', category: 'beamline' },
+    ],
     beamPipes: pipes,
     utilityLines,
     staffMembers: staff,
@@ -155,9 +169,11 @@ console.log('\n--- Test 2: connected sinks → no error ---');
 }
 
 // ==========================================================================
-// Test 3: staffing gate fires deterministically with a seeded rng.
+// Test 3: staffing gate — light regression against this file's own
+// fixtures. See test-beam-staffing-gate.js for the full message-ladder /
+// coverage-formula / determinism coverage (staff-professions-3 Task 4).
 // ==========================================================================
-console.log('\n--- Test 3: unstaffed beam gating, seeded rng ---');
+console.log('\n--- Test 3: unstaffed beam gating ---');
 {
   // No operator at all → always trips.
   const state = makeState({ lines: CONNECT_BOTH, staff: [] });
@@ -168,24 +184,23 @@ console.log('\n--- Test 3: unstaffed beam gating, seeded rng ---');
   assert(state.infraCanRun === false, 'infraCanRun false when unstaffed');
 }
 {
-  // Stressed operator: predicate rolls rng() < 0.3 → trip. Two gates with the
-  // same seed must produce the identical trip sequence over many ticks.
-  const runSequence = seed => {
+  // A seated, working operator covers the fixture's one beamline (see
+  // makeState's own comment) — no blocker, deterministically, across
+  // repeated runs. The old _hasActiveOperator's mood==='stressed' &&
+  // rng() < 0.3 random rejection is gone entirely: mood no longer factors
+  // into coverage at all.
+  const runOnce = () => {
     const state = makeState({ lines: CONNECT_BOTH, staff: [workingOperator({ mood: 'stressed' })] });
-    const gate = makeGate(state, { rng: mulberry32(seed) });
-    const seq = [];
-    for (let t = 0; t < 50; t++) { gate.run(); seq.push(state.infraCanRun ? 1 : 0); }
-    return seq.join('');
+    makeGate(state).run();
+    return state.infraCanRun;
   };
-  const a = runSequence(1234);
-  const b2 = runSequence(1234);
-  const c = runSequence(99);
-  assert(a === b2, 'same seed → identical trip sequence');
-  assert(a.includes('0') && a.includes('1'), `stressed operator both trips and runs over 50 ticks (${a})`);
-  assert(a !== c, 'different seed → different sequence (probabilistic sanity)');
+  const results = Array.from({ length: 10 }, runOnce);
+  assert(results.every(r => r === true),
+    `a seated stressed-mood operator still covers, every run (got ${results.join(',')})`);
 }
 {
-  // Healthy operator never rolls the rng — rng that would always trip must not fire.
+  // Healthy operator, rng that would always have tripped the old check —
+  // must not fire regardless, since the gate no longer reads rng at all.
   const state = makeState({ lines: CONNECT_BOTH });
   makeGate(state, { rng: () => 0.0 }).run();
   assert(!state.infraBlockers.some(x => x.code === 'beam_unstaffed'),

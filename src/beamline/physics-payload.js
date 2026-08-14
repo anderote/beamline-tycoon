@@ -47,6 +47,18 @@ import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from './component-physics.js';
 import { declaredSinkQualityFloor } from '../game/utility-gate.js';
 
+// Task 6 (staff-professions-3, jobs-and-gates): an uncommissioned component
+// (placed after this task, not yet signed off by a matching-specialty
+// engineer's 'commission' job — see src/game/staff/jobEffects/commission.js)
+// contributes at this fraction of its rated stats. Applied here, not in the
+// flattener or the job system, because this is the ONE place every numeric
+// stat a component can carry — energyGain, dataRate, beamQuality, whatever a
+// future component adds — funnels through on the way to BOTH the real
+// physics engine and the Node fallback (_fallbackStatsForBeamline), so
+// there is exactly one implementation to keep in sync with COMPONENTS'
+// growing stat vocabulary, not one per physics path.
+const COMMISSIONING_DERATE = 0.7;
+
 /**
  * Build the physics element array for one beamline.
  *
@@ -79,6 +91,11 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
     }
     if (computed) {
       Object.assign(effectiveStats, computed);
+    }
+    if (el.needsCommissioning) {
+      for (const k of Object.keys(effectiveStats)) {
+        if (typeof effectiveStats[k] === 'number') effectiveStats[k] *= COMMISSIONING_DERATE;
+      }
     }
     const physEl = {
       // `id` round-trips so per-cavity physics results (achieved gradient,

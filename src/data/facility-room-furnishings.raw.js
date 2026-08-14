@@ -735,8 +735,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 150 }, energyCost: 0, spriteColor: 0x3a3a3a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'officeChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles, same coordinate space as
+    // `parts` below) — read off the 'seat' part's own y, not guessed.
+    seat: { facing: 'n', seatY: 0.8 },
     // Basic swivel chair: 5-star base, gas cylinder, fabric seat + low back
     parts: [
       // 5-star base (simplified as cross)
@@ -761,8 +763,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 600 }, energyCost: 0, spriteColor: 0x2a5a8a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'ergonomicChair',
     effects: { morale: 2 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
+    seat: { facing: 'n', seatY: 0.8 },
     // Mid-range mesh-back chair with lumbar support, adjustable arms, headrest
     parts: [
       // 5-star base
@@ -796,8 +799,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 2000 }, energyCost: 0, spriteColor: 0x1a1412,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'executiveChair',
     effects: { morale: 3 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
+    seat: { facing: 'n', seatY: 0.8 },
     // High-back leather executive chair with padded arms and tilt
     parts: [
       // 5-star base (chrome)
@@ -831,8 +835,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 1200 }, energyCost: 0, spriteColor: 0x446688,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'operatorChair',
     effects: { morale: 2, zoneOutput: 0.02 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
+    seat: { facing: 'n', seatY: 0.82 },
     // Heavy-duty 24/7 operator chair — chrome base, navy/teal upholstery,
     // contrasting arm pads
     parts: [
@@ -868,8 +873,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 100 }, energyCost: 0, spriteColor: 0x555555,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'meetingChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
+    seat: { facing: 'n', seatY: 0.82 },
     // Cantilever-base meeting chair — chrome sled frame, upholstered seat+back
     parts: [
       // Sled base (U-shape from side, two parallel rails)
@@ -894,8 +900,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 50 }, energyCost: 0, spriteColor: 0xcc6622,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'cafeteriaChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
-    // Backrest sits at local +Z, so the sitter faces -Z.
-    seat: { facing: 'n' },
+    // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
+    // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
+    seat: { facing: 'n', seatY: 0.82 },
     // Simple 4-leg cafeteria chair — tubular steel frame, molded seat+back
     parts: [
       // Four tubular legs

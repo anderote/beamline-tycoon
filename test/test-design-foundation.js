@@ -85,6 +85,11 @@ const DESIGN = (Array.isArray(STOCK_DESIGNS) ? STOCK_DESIGNS : Object.values(STO
 function placeDesign(seed) {
   const game = new Game(new BeamlineRegistry(), { seed });
   game.state.resources.funding = 1e12;
+  // Fix round 1 (staff-professions-3, task 5): DesignPlacer now also quotes
+  // and charges spares for every component in the design — fund this the
+  // same generous way funding above is, so placement here is gated only by
+  // what this file is actually testing.
+  game.state.resources.spares = 1e12;
 
   const placer = new DesignPlacer(game, stubRenderer);
   placer.start(DESIGN);

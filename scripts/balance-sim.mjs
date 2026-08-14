@@ -327,7 +327,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   }
 
   // Staff roster on top of the seeded operator: +1 operator (covers fatigue
-  // breaks), 2 technicians, 1 scientist, 1 engineer.
+  // breaks and this second beamline), 2 technicians, 1 scientist, 1 engineer.
   const roles = ['operator', 'technician', 'technician', 'scientist', 'engineer'];
   for (const role of roles) {
     const m = createStaffMember(role, `staff_${state.staffNextId++}`, state.tick, game.rng);
@@ -336,6 +336,14 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       // Stagger the shift against the seeded operator so their fatigue
       // breaks alternate instead of tripping the beam in sync.
       m.needs.fatigue = 0.5;
+      // One operator needs one console to sit at — the beam gate only
+      // counts an operator toward coverage while phase:'work' on a runBeam
+      // job, and jobRunner offers at most one runBeam job per free console
+      // SLOT (see task-4-brief.md). The starter scenario ships exactly one
+      // console for the seeded operator; this second line needs its own.
+      // Placed off in its own strip, well clear of everything else this
+      // function builds.
+      place('operatorConsole', -30, 8);
     }
     state.staffMembers.push(m);
   }

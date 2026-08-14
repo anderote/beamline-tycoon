@@ -32,6 +32,8 @@ import { computeTickUpkeep } from '../src/game/economy.js';
 import { hardwareNodeCount } from '../src/game/aggregates.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
+import { getStationIndex } from '../src/game/staff/stations.js';
+import { MAX_MAP_HALF_EXTENT } from '../src/data/land.js';
 
 export const PLAYTHROUGH_TARGET_TICKS = 28800;
 
@@ -104,6 +106,43 @@ function newFacility(seed) {
   game.applyScenario(scenario.generator());
   scenario.setup(game);
   game.recalcAllBeamlines();
+  return withInstantArrival(game);
+}
+
+// Headless sim, no renderer to report pawn arrival (that's StaffPawns.js's
+// job — see jobRunner.js's own header comment on job.phase), so every
+// game.tick() call here also instantly completes any in-flight walk. Real
+// walks are short relative to a 400k-tick playthrough; this just keeps the
+// walk itself out of what the sim is measuring, the same way the operator
+// seeded at game start is assumed to already be at their post.
+//
+// Also sets member.fromNode = job.destNode on that same flip — staff-
+// professions-3 balance fix round 3 discovered this shim never did, so
+// member.fromNode stayed undefined for every staff member for the entire
+// run. jobRunner.js's findStation (stations.js) hard-bails the instant
+// fromNode is falsy (`if (!fromNode) return null;`), so tryTakeNeedJob's
+// deadlock branch fired unconditionally forever, for everyone, regardless
+// of how many cafeteria/rest stations existed — this was invisible before
+// round 3 (the deadlock guard kept every operator productively seated
+// either way, and unservicedPenalty had no mechanical consequence yet), but
+// round 3's operatorCoverage capacity cap made it fatal: every operator's
+// capacity permanently pinned at 1 within ~160 ticks of hire, wiping out
+// the skill-based coverage surplus this ladder's 1-operator-per-beamline
+// hiring ratio relies on, cascading into permanent beam_unstaffed and (once
+// income stopped) cooling_dry. A real renderer updates BOTH phase and
+// position when a pawn arrives; this shim only ever did the first half.
+function withInstantArrival(game) {
+  const rawTick = game.tick.bind(game);
+  game.tick = (...args) => {
+    const result = rawTick(...args);
+    for (const m of (game.state.staffMembers || [])) {
+      if (m.job && m.job.phase === 'travel') {
+        m.job.phase = 'work';
+        if (m.job.destNode) m.fromNode = m.job.destNode;
+      }
+    }
+    return result;
+  };
   return game;
 }
 
@@ -337,10 +376,287 @@ function hireStaff(game, roles) {
       // Stagger shifts so fatigue breaks alternate instead of tripping the beam
       // in sync.
       m.needs.fatigue = 0.5 * (state.staffMembers.length % 2);
+      // One operator needs one console to actually sit at: the new beam gate
+      // (task-4-brief.md) only counts an operator toward coverage while
+      // phase:'work' on a runBeam job, and jobRunner offers at most one
+      // runBeam job per free console SLOT — so hiring operators without also
+      // building them somewhere to sit caps this facility's coverage at
+      // whatever the starter scenario's one console can hold, no matter how
+      // many more beamlines get added. The starter scenario already ships
+      // one console for the seeded starting operator; this covers every
+      // operator hired after that.
+      ensureOperatorConsole(game);
     }
     state.staffMembers.push(m);
   }
   game._syncStaffCounts();
+  // staff-professions-3 balance fix round 3: an unserviced operator
+  // (jobRunner.js's unservicedPenalty) now caps beam-coverage capacity at 1
+  // regardless of skill (utility-gate.js's operatorCoverage) — deliberately,
+  // to make amenities load-bearing on the one job that earns money. That
+  // exposed a SEPARATE, pre-existing bug this call works around rather than
+  // fixes (out of this task's file scope — flagged in the balance report):
+  // smallBeamlineFacility's own scenario "cafeteria"
+  // (src/data/scenarios/smallBeamlineFacility.js) never resolves as a real
+  // station at all. Its chairs are placed a whole TILE away from the
+  // diningTable at a flat subCol:1/subRow:1 (every scenario furnishing uses
+  // that same generic offset), not at any of diningTable's real per-anchor
+  // seat offsets (stations.js) — so getStationIndex(state).byJob.eat is
+  // EMPTY for this scenario, and always has been; nothing before this round
+  // ever depended on it being real. Ditto rest — the scenario places no
+  // toolChest/workCart at all. Before round 3 this was invisible (the
+  // deadlock guard kept every staffer productively seated regardless); now
+  // it silently caps every operator's capacity at 1 forever, the instant
+  // their fatigue first crosses threshold (~tick 160, deterministic) with
+  // nowhere to go, wiping out the skill-based coverage surplus this ladder
+  // was tuned to accumulate. Building REAL, functional amenities here —
+  // scaled to staff count — is this script's version of "the balance report
+  // Beam telling the player to build a cafeteria" actually building one.
+  ensureAmenities(game, state.staffMembers.length);
+  // Balance fix round 6: see ensureDataStations' own comment — one daqRack
+  // per scientist on payroll, or headcount scaling is cosmetic.
+  const scientistCount = state.staffMembers.filter(m => m.profession === 'scientist').length;
+  ensureDataStations(game, Math.max(1, scientistCount));
+}
+
+// Balance fix round 3 discovered (and fixes here) a second, independent bug:
+// the nav grid is bounded to state.mapHalfExtent (30 for this scenario, i.e.
+// col/row in [-30, 30] — see src/game/staff/nav.js) but placePlaceable
+// itself enforces no such bound, so a single unbroken strip that grows one
+// row (or column) per item — as the original ensureOperatorConsole did,
+// `row: existing * 4` — silently walks OFF THE NAVIGABLE MAP after about 8
+// items (8 * 4 = 32 > 30) and everything placed past that point is
+// permanently unreachable from anywhere, forever, for a reason that has
+// nothing to do with staffing or amenities: it simply isn't on the map
+// stations.js's reachability graph knows about. Before round 3 this was
+// ALSO invisible (member.fromNode was never populated at all — see
+// withInstantArrival's own comment above — so eligibleFor/findStation
+// skipped every reachability check unconditionally, out-of-bounds or not).
+// Fixed by wrapping every dedicated strip into a bounded grid that never
+// leaves roughly [-29, 29] regardless of count, instead of one strip that
+// grows without limit.
+function wrappedGridPosition(origin, index, colSpacing, rowSpacing, perRow) {
+  return {
+    col: origin.col + (index % perRow) * colSpacing,
+    row: origin.row + Math.floor(index / perRow) * rowSpacing,
+  };
+}
+
+// Consoles: origin near the map's own corner, wrapping every 12 columns (12
+// * 4 = 48 wide, comfortably inside the +/-29 safe margin) — up to 12 rows
+// of 12 (144 consoles) before this would ever wrap into the cafeteria band
+// below, far more than a 24-line run hires.
+const CONSOLE_ORIGIN = { col: -29, row: -29 };
+const CONSOLE_PER_ROW = 12;
+
+// Placed in its own dedicated strip, well clear of the beamline rows and lab
+// blocks the rest of the ladder uses, so it never collides with them. Free —
+// this rides the STAFF_STEP_BUDGET readiness gate the hire itself already
+// passed, rather than adding a second itemized budget step for a $25k item.
+function ensureOperatorConsole(game) {
+  const state = game.state;
+  const existing = state.placeables.filter(p => p.type === 'operatorConsole').length;
+  const { col, row } = wrappedGridPosition(CONSOLE_ORIGIN, existing, 4, 3, CONSOLE_PER_ROW);
+  // Charged like every other capital item in this ladder (labs, beamline
+  // hardware, wiring) — a console is real equipment ($25k, facility-room-
+  // furnishings.raw.js), not a free side effect of hiring. free:true here
+  // used to leave every console after the starter's own unbilled, up to
+  // 24 * $25k = $600k invisible to the run's economy over a full playthrough.
+  const ok = game.placePlaceable({ type: 'operatorConsole', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+  if (!ok) console.error('[ensureOperatorConsole] placement failed', { existing, col, row });
+}
+
+// Own dedicated, NARROW column bands starting at col 20 — structurally
+// clear of everything else this ladder ever builds: the beam hall and its
+// service/distribution rows never leave roughly col -8..8 regardless of how
+// far south a given line's ROW marches (buildBeamline's row parameter only
+// ever moves the line, never its own column band), labs stay within col
+// -8..8 too (LAB_ORIGIN_ROW's own layout), and the console grid — despite
+// starting at the same col -29 origin — never exceeds col +15 even at 144
+// consoles (12/row * 4 spacing). Growing almost entirely in ROWS instead
+// (only 2 items per row here, cols 20/25) sidesteps all of that, rather
+// than trying to out-guess exactly how wide any of those footprints are.
+//
+// Round 3 originally placed these at positive rows (CAFETERIA row 0, REST
+// row 20, both starting at col -29 like the console grid) — which walked
+// straight into the beam hall's service rows as the ladder built more
+// lines (a beamline's service row sits at line row - 2, a col range wide
+// enough to collide with a col -29-origin grid), and
+// ensureCafeteriaSeats/ensureRestStations' own retry loop (below) papered
+// over it by trying the next cell, silently burning most of
+// MAX_AMENITY_PLACEMENT_ATTEMPTS on every single call instead of ever
+// finding clear ground. REST_ORIGIN's row (100) is deliberately far above
+// CAFETERIA_ORIGIN's own row range so the two grids can never collide with
+// EACH OTHER either, without having to reason about exactly how many rows
+// either one will end up needing. Both loops call ensureMapHalfExtent
+// (below) before every placement attempt now, so growing into these large
+// row values is never itself an out-of-bounds problem — see that
+// function's own comment.
+//
+// Both are charged real funding (diningTable $400 + 4x cafeteriaChair $50,
+// toolChest $3,000) — cheap against STAFF_STEP_BUDGET, same "real
+// equipment, not a free side effect" reasoning as ensureOperatorConsole
+// above.
+//
+// Roughly one seat and one rest slot per TWO staff — modest, not maximal:
+// the failure this round actually hit was REACHABILITY (stations placed off
+// the navigable map, or in the starter scenario's own sealed building — see
+// hireStaff's comment), not contention, once that was fixed. Still generous
+// enough that contention (every seat reserved by someone else, not merely
+// absent — jobRunner.js's allReservedByOthers) stays rare, since it too
+// engages unservicedPenalty and this script's goal is isolating the
+// coverage-cap measurement, not exercising contention on top of it.
+const CAFETERIA_ORIGIN = { col: 20, row: -29 };
+const CAFETERIA_PER_ROW = 2;
+const REST_ORIGIN = { col: 20, row: 100 };
+const REST_PER_ROW = 2;
+const SEATS_PER_STAFF = 0.5;
+const REST_SLOTS_PER_STAFF = 0.5;
+// Own band, col 40+ — clear of every other dedicated grid in this file
+// (console -29..+15, cafeteria/rest col 20-29, labs/beam-hall col -8..9).
+// See ensureDataStations' own comment for why this exists at all.
+const DATA_ORIGIN = { col: 40, row: -29 };
+const DATA_PER_ROW = 3;
+
+function ensureAmenities(game, staffCount) {
+  ensureCafeteriaSeats(game, Math.max(4, Math.ceil(staffCount * SEATS_PER_STAFF)));
+  ensureRestStations(game, Math.max(1, Math.ceil(staffCount * REST_SLOTS_PER_STAFF)));
+}
+
+// Balance fix round 6: LAB_KIT's diagnosticsLab kit places exactly one
+// daqRack (facility-lab-furnishings.raw.js, jobs: ['takeData'], slots: 1)
+// and NO other kit item in any lab carries 'takeData' in its jobs list
+// (opticsLab's own takeData-capable item, opticalTable, isn't in its kit at
+// all). That means the entire facility, at any scientist headcount, has
+// exactly ONE concurrent takeData work slot — measured live, scaling
+// scientist headcount 1:1 with beamlines (i%2 flat cadence -> one per line)
+// did not move the data-blocked figure at all, because only one of however
+// many scientists were on payroll could ever actually be working takeData
+// at once; the rest were fully idle, paid, and pointless. This is the exact
+// same "hired without anywhere to work" shape as the cafeteria/rest bug
+// fixed in balance round 3/4 (see hireStaff's own comment) — headcount
+// alone was never going to fix it.
+//
+// takeData does NOT care what zone (if any) its station sits in — unlike
+// labWork, which credits stationZoneType toward that zone's staffedOutput
+// (jobRunner.js's tickJobs), takeData only sums workEfficiency into a
+// facility-wide total (state.staffDataEfficiency) regardless of where the
+// station is. So these ride their own dedicated grid, same as consoles/
+// cafeteria/rest, rather than needing to sit inside diagnosticsLab's fixed
+// 16-tile footprint.
+//
+// One daqRack per scientist: takeData is a scientist's entire job, not an
+// occasional need like eating or resting, so under-provisioning here directly
+// caps throughput 1:1 rather than merely causing occasional contention.
+function ensureDataStations(game, stationsNeeded) {
+  const state = game.state;
+  let index = state.placeables.filter(p => p.type === 'daqRack').length;
+  let attempts = 0;
+  while ((getStationIndex(state).byJob.takeData || []).length < stationsNeeded) {
+    if (attempts++ >= MAX_AMENITY_PLACEMENT_ATTEMPTS) {
+      console.error('[ensureDataStations] gave up after too many failed placements', {
+        stationsNeeded, realStations: (getStationIndex(state).byJob.takeData || []).length,
+      });
+      return;
+    }
+    const { col, row } = wrappedGridPosition(DATA_ORIGIN, index, 3, 4, DATA_PER_ROW);
+    index++;
+    ensureMapHalfExtent(game, Math.max(Math.abs(col), Math.abs(row)) + 5);
+    const ok = game.placePlaceable({ type: 'daqRack', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    if (!ok) console.error('[ensureDataStations] placement failed (will retry at the next grid cell)', { col, row });
+  }
+}
+
+// Safety bound on ensureCafeteriaSeats/ensureRestStations' own retry loops
+// (below) — a grid cell can collide with something else already placed
+// (the beam hall, a lab block, an earlier table's own chairs) and
+// placePlaceable just fails silently; without a cap a run of bad luck could
+// spin forever instead of giving up with a loud, diagnosable error.
+const MAX_AMENITY_PLACEMENT_ATTEMPTS = 500;
+
+// One diningTable seats 4 (station.slots, facility-room-furnishings.raw.js)
+// — but ONLY when a chair resolves each of its four anchors at the exact
+// subtile offset diningTable declares (stations.js's seat-matching), so this
+// places the same four-chair recipe test-staff-economy.js's own
+// placeDiningTable helper verified against the real station index, not the
+// scenario's own broken flat-offset convention (see hireStaff's comment).
+//
+// Balance fix round 4 fixed two bugs here, both found by an independent
+// review of the round-3 diff:
+//   - "how many seats already exist" used to count `diningTable` PLACEABLES,
+//     not real, resolved `eat` STATION REFS (getStationIndex(state).byJob.
+//     eat). smallBeamlineFacility ships exactly one diningTable — the one
+//     that resolves to ZERO working seats (its own chairs are placed at the
+//     wrong subtile offset — see hireStaff's own comment) — so
+//     `existingTables` read 1 on a facility with ZERO real seats, and this
+//     function built NOTHING AT ALL until staff count made
+//     `Math.ceil(staffCount * SEATS_PER_STAFF)` exceed 4, i.e. staff >= 9.
+//     Every hire before that point was permanently unserviced from ~tick
+//     160 with no seat ever built for them.
+//   - A table whose chairs PARTLY failed to place (a collision on one of
+//     the four, not the table itself) used to still count as "one more
+//     table" toward the seat total forever, silently under-provisioning by
+//     up to 3 seats per such table with no way to ever notice or correct
+//     for it.
+// Fixed by driving the loop off the real station-ref count directly,
+// re-read after every placement attempt (placePlaceable bumps navRevision
+// on success, which getStationIndex's own cache keys off, so this sees a
+// freshly-placed table's real seats immediately) — a partially-failed table
+// simply doesn't move the count, and the loop just tries the next grid
+// cell instead of trusting the attempt.
+function ensureCafeteriaSeats(game, seatsNeeded) {
+  const state = game.state;
+  let tableIndex = state.placeables.filter(p => p.type === 'diningTable').length;
+  let attempts = 0;
+  while ((getStationIndex(state).byJob.eat || []).length < seatsNeeded) {
+    if (attempts++ >= MAX_AMENITY_PLACEMENT_ATTEMPTS) {
+      console.error('[ensureCafeteriaSeats] gave up after too many failed placements', {
+        seatsNeeded, realSeats: (getStationIndex(state).byJob.eat || []).length,
+      });
+      return;
+    }
+    const { col, row } = wrappedGridPosition(CAFETERIA_ORIGIN, tableIndex, 5, 4, CAFETERIA_PER_ROW);
+    tableIndex++;
+    // +5: clearance past the table's own footprint plus its chairs, which
+    // extend a couple of subtiles beyond (col, row) itself.
+    ensureMapHalfExtent(game, Math.max(Math.abs(col), Math.abs(row)) + 5);
+    const okTable = game.placePlaceable({ type: 'diningTable', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    const okChairs = [
+      game.placePlaceable({ type: 'cafeteriaChair', col, row, subCol: 0, subRow: 3, dir: 0, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col, row: row - 1, subCol: 1, subRow: 2, dir: 2, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col: col - 1, row, subCol: 2, subRow: 0, dir: 1, silent: true }),
+      game.placePlaceable({ type: 'cafeteriaChair', col, row, subCol: 3, subRow: 1, dir: 3, silent: true }),
+    ];
+    if (!okTable || okChairs.some(ok => !ok)) {
+      console.error('[ensureCafeteriaSeats] placement failed (will retry at the next grid cell)', { col, row, okTable, okChairs });
+    }
+  }
+}
+
+// toolChest (station.jobs: ['rest'], seated: 'never' — facility-lab-
+// furnishings.raw.js): a single free-standing anchor, no seat-matching
+// needed, so counting placeables IS counting real stations here — unlike
+// diningTable there's no seat-matching step that can silently fail. Still
+// driven off the real station-ref count (not placeable count) for the same
+// reason as ensureCafeteriaSeats: consistency, and so a failed placement
+// (grid-cell collision) doesn't get miscounted as a success either.
+function ensureRestStations(game, stationsNeeded) {
+  const state = game.state;
+  let index = state.placeables.filter(p => p.type === 'toolChest').length;
+  let attempts = 0;
+  while ((getStationIndex(state).byJob.rest || []).length < stationsNeeded) {
+    if (attempts++ >= MAX_AMENITY_PLACEMENT_ATTEMPTS) {
+      console.error('[ensureRestStations] gave up after too many failed placements', {
+        stationsNeeded, realStations: (getStationIndex(state).byJob.rest || []).length,
+      });
+      return;
+    }
+    const { col, row } = wrappedGridPosition(REST_ORIGIN, index, 4, 3, REST_PER_ROW);
+    index++;
+    ensureMapHalfExtent(game, Math.max(Math.abs(col), Math.abs(row)) + 5);
+    const ok = game.placePlaceable({ type: 'toolChest', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
+    if (!ok) console.error('[ensureRestStations] placement failed (will retry at the next grid cell)', { col, row });
+  }
 }
 
 // Labs are painted through the real (charging) brush; their price is small and
@@ -359,7 +675,37 @@ const STAFF_STEP_BUDGET = 250_000;
 // against a facility that nets four figures a tick. Set `detectors: N` on
 // runPlaythrough (or pass --detectors=N) to put one back every Nth line and see
 // what it does; the recipe is maintained either way.
-const MAX_LINES = 24;
+//
+// Beamline row layout — named here (not just inlined at the one call site
+// that used to hardcode `10 + i * 6`) so MAX_LINES below can be derived from
+// it instead of guessed.
+const FIRST_LINE_ROW = 10;
+// "Six rows apart so each gets its own service and distribution rows" — see
+// buildBeamline's own header comment. Not just a margin: a line's real
+// footprint (buildBeamline's own placements) spans row-3 (the mcc panel) to
+// about row+2 (the tallest on-pipe/distribution element), a ~5-row height,
+// so 6 rows is close to the minimum spacing that keeps consecutive lines
+// from colliding with EACH OTHER — tightening it is not free room to spend
+// on more lines, unlike the margin below.
+const BEAMLINE_ROW_SPACING = 6;
+// Clearance past a line's own `row` for ensureMapHalfExtent (balance fix
+// round 4/5) — covers the same row-3..row+2 footprint above plus a little
+// slack for column width/subtile rounding, not a padded guess.
+const BEAMLINE_ROW_MARGIN = 4;
+// Balance fix round 5: MAX_LINES used to be a flat 24 with no relationship
+// to the map this ladder actually has to fit on. Round 4's free map-grow
+// masked that entirely (it grew the map to whatever a 24-line ladder
+// needed, 160, well past what a player could ever buy); round 5 caps that
+// grow at the real MAX_MAP_HALF_EXTENT (120, src/data/land.js — the
+// import above), so the ladder now has to fit lines within the site a
+// player could actually own. Derived from the layout constants above
+// rather than hand-picked, so it stays correct if the row spacing, the
+// margin, or the map cap ever move. At the current numbers this floors to
+// 18 lines (19 beamlines total with the starter) — down from 24 (25
+// total). The tree still completes in full within that (see this task's
+// balance report for the measured tick count); this is a genuine finding
+// about the ladder's own geometry, not a workaround.
+const MAX_LINES = Math.floor((MAX_MAP_HALF_EXTENT - FIRST_LINE_ROW - BEAMLINE_ROW_MARGIN) / BEAMLINE_ROW_SPACING) + 1;
 const DETECTOR_EVERY = 0;
 
 // Operating cushion held back from every capacity buy. Roughly a thousand ticks
@@ -371,6 +717,51 @@ const CASH_FLOOR = 500_000;
 const SAVE_HORIZON = 3000;
 // Window over which net income is measured for that decision.
 const RATE_WINDOW = 500;
+// Grace ticks a fresh beamline gets before an unstaffed gate counts as a
+// real stall — see the pendingGateCheck handling in the run loop below.
+const GATE_CHECK_GRACE_TICKS = 20;
+
+// Balance fix round 4 (addendum): buildBeamline's own row (10 + i*6, "march
+// south") already exceeds the default map bound (mapHalfExtent 30, i.e. rows
+// in [-30, 30]) by the 4th line and reaches row 148 by the 24th —
+// Game.placePlaceable enforces no such bound itself (unlike the real UI
+// path, DesignPlacer.js, which refuses off-site placement), so every line
+// past the map's edge was silently placing components no technician could
+// ever reach — cosmetic while nothing targeted them, but target-addressed
+// repair jobs land on these same components now (995856b8/380a8583).
+//
+// Grown here directly rather than through the real Game.buyLand() land
+// economy: that ladder is priced for the LATE, collider-tier game
+// ($500M-$15B, src/data/land.js) and would swallow this playthrough's
+// entire ~$582M research budget the first time a line needed more room —
+// never what that ladder was for. This is a free, harness-only grow (the
+// same "free: true" convention every placement in this file already uses),
+// not a simulation of the real purchase. Chosen over wrapping the beamline
+// layout into a 2D grid (the same approach ensureCafeteriaSeats/
+// ensureRestStations use) because buildBeamline places many things at
+// column offsets relative to one fixed row; giving it a second, column
+// dimension would touch far more of this file's own least-tested code than
+// widening a single number does. `_markNavDirty` is already reached into
+// directly elsewhere in this file (hireStaff calls `_syncStaffCounts`) —
+// same convention, not a new one.
+//
+// Balance fix round 5: capped at MAX_MAP_HALF_EXTENT (imported, not
+// hardcoded) — round 4's free grow had no ceiling and reached 160 for a
+// 25-line ladder, a footprint bigger than the largest map a player can
+// ever actually buy (120, the last real land parcel — src/data/land.js).
+// That wasn't just skipping a cost, it was measuring pacing on a facility
+// shape that cannot exist in the real game. The free-grow DECISION (bypass
+// buyLand's price) still stands; only the ceiling is new. See MAX_LINES
+// below for the real consequence: this ladder's own 6-rows-apart beamline
+// spacing cannot fit 25 lines under this cap, so the line count is reduced
+// instead of the cap being raised.
+function ensureMapHalfExtent(game, requiredHalfExtent) {
+  const state = game.state;
+  const capped = Math.min(requiredHalfExtent, MAX_MAP_HALF_EXTENT);
+  if ((state.mapHalfExtent || 0) >= capped) return;
+  state.mapHalfExtent = capped;
+  game._markNavDirty();
+}
 
 /**
  * The expansion ladder, in the order a player climbs it. Each step declares a
@@ -380,8 +771,15 @@ const RATE_WINDOW = 500;
  */
 function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
   const steps = [];
-  // Labs first, always: they cost a rounding error and they are the only thing
-  // that lifts the research speed table off its blocked rows.
+  // Labs first, always: they cost a rounding error and lab TILES/BENCHES are
+  // a hard ceiling on the research speed table (getLabResearchTier's own
+  // Math.min(tier, furnTier), research.js) — necessary, but no longer
+  // sufficient on their own. Balance fix round 6: since Task 6, `tier` (and
+  // the `peakTier` research gating actually reads) is also ratcheted by
+  // engineers accruing labWork output in the zone — a fully-tiled, fully-
+  // benched lab with nobody ever staffing it still sits at tier 0 forever.
+  // The staff step below (which now hires an engineer every line, not zero)
+  // is what actually keeps this ceiling from being the permanent floor.
   const labs = ['opticsLab', 'diagnosticsLab', 'machineShop', 'coolingLab', 'rfLab', 'vacuumLab'];
   labs.forEach((zoneType, i) => {
     steps.push({
@@ -394,24 +792,67 @@ function buildLadder(detectorEvery = DETECTOR_EVERY, maxLines = MAX_LINES) {
   for (let i = 0; i < maxLines; i++) {
     const grade = detectorEvery > 0 && (i + 1) % detectorEvery === 0 ? 'detector' : 'cup';
     const cost = beamlineRecipeCost(grade);
+    // Staff BEFORE beamline: the operator's coverage has to already exist
+    // the instant a new beamline comes online, or the facility trips
+    // beam_unstaffed the moment it's built (operatorCoverage.capacity
+    // couldn't possibly cover a beamline count it hasn't caught up to yet —
+    // see task-4-brief.md's new gate). The staff step is cheap
+    // (STAFF_STEP_BUDGET) and gets bought well before the much larger
+    // beamline recipe cost, so by the time a run affords line N+1, its
+    // operator has been on payroll for a while — no gap.
+    steps.push({
+      kind: 'staff', label: `staff:line${i + 2}`, budget: STAFF_STEP_BUDGET,
+      apply: (game) => {
+        // Balance fix round 6: engineer and scientist both hired every line
+        // now, not the old i%2-alternating scientist-only-every-other-line
+        // cadence. Two independent findings forced this, neither tunable
+        // away by adjusting the ratio downward:
+        //
+        // - Zero engineers were ever hired before this round (only
+        //   operator/technician/scientist were in this list) — Task 6 made
+        //   lab zone tier (and therefore getLabResearchTier's peakTier,
+        //   research.js) depend on engineers actually accruing labWork
+        //   output. With none hired, staffedOutput sat at 0 for every lab
+        //   forever, live tier 0, peakTier 0, no matter how many lab tiles
+        //   or benches existed. See buildLadder's own lab-step comment
+        //   above, corrected this round for the same reason.
+        // - 54b124ad divided takeData's facility-wide total by running-
+        //   beamline count, closing a quadratic free-scaling bug (total
+        //   data used to multiply with beamline count from a FIXED
+        //   scientist headcount). That fix makes total data output
+        //   independent of beamline count by design — a scientist can only
+        //   take data in one place — so a hiring cadence tuned against the
+        //   old free multiplier (one scientist per two lines) now falls
+        //   further behind the tree's data cost with every line built
+        //   instead of keeping pace with it.
+        //
+        // One of each per line is the same cadence operator/technician
+        // already use, not a guessed multiplier — see the 30,000-tick
+        // measurement in this round's report for what it actually costs in
+        // upkeep and whether the ladder still affords it.
+        hireStaff(game, ['operator', 'technician', 'engineer', 'scientist']);
+        return true;
+      },
+    });
     steps.push({
       kind: 'beamline', label: `line${i + 2}:${grade}`, budget: cost,
       apply: (game) => {
-        const built = buildBeamline(game, 10 + i * 6, grade);
+        const row = FIRST_LINE_ROW + i * BEAMLINE_ROW_SPACING;
+        // BEAMLINE_ROW_MARGIN: buildBeamline's own service/distribution rows
+        // (see its own header comment, and MAX_LINES' comment above for the
+        // real row-3..row+2 span this covers) extend past `row` itself — a
+        // flat margin keeps every one of a line's placements inside bounds,
+        // not just its source/end junctions. ensureMapHalfExtent itself caps
+        // at MAX_MAP_HALF_EXTENT regardless of what's requested here — this
+        // is sized to stay under that cap for every line MAX_LINES allows,
+        // not to rely on the cap to bail it out.
+        ensureMapHalfExtent(game, row + BEAMLINE_ROW_MARGIN);
+        const built = buildBeamline(game, row, grade);
         if (!built) return false;
         // Charged on the wiring this row actually committed rather than the
         // measurement the budget gated on, so a row that ever routes
         // differently pays the difference instead of quietly diverging.
         game.state.resources.funding -= beamlineHardwareCost(grade) + built.wiringCost;
-        return true;
-      },
-    });
-    steps.push({
-      kind: 'staff', label: `staff:line${i + 2}`, budget: STAFF_STEP_BUDGET,
-      apply: (game) => {
-        hireStaff(game, i % 2 === 0
-          ? ['operator', 'technician', 'scientist']
-          : ['operator', 'technician']);
         return true;
       },
     });
@@ -517,6 +958,29 @@ export function runPlaythrough({
   let researchSpent = 0;
   let expansionSpent = 0;
   let beamOnTicks = 0;
+  // Balance fix round 4: state.beamOn only ever asks "is ANY line running" —
+  // it stayed true for the entire ~24,000-tick stall this round's headline
+  // bug caused, because line 1 kept running while lines 2-4 sat built,
+  // staffed, and off. Tracked separately here as the FRACTION of registered
+  // beamlines actually running each tick.
+  //
+  // Balance fix round 5: the WHOLE-RUN average of that fraction ALSO missed
+  // the stall — round 4's own fix landed at runningLineFraction 91.2% on a
+  // reconstructed pre-fix run (comfortably over the 0.8 bar the assertion
+  // used), because a ~24,000-tick deficit dilutes across a ~470,000
+  // line-tick run. True instantaneously ("4 registered, 1 running reads as
+  // 25%"), false once averaged over the whole run. Tracked here as a
+  // WINDOWED minimum instead — the worst LINE_UPTIME_WINDOW_TICKS-tick
+  // stretch of the run, not the overall mean — which reads 33.3% on the
+  // same reconstructed pre-fix run and is what test-progression.js's
+  // assertion now reads.
+  let runningLineTicks = 0;
+  let registeredLineTicks = 0;
+  const LINE_UPTIME_WINDOW_TICKS = 2000;
+  let windowRunningLineTicks = 0;
+  let windowRegisteredLineTicks = 0;
+  let windowStartTick = 0;
+  let minWindowLineFraction = 1; // vacuously "fine" until a real window is scored
   let lastCompletedCount = 0;
   let lastCompletionTick = state.tick;
   let longestGap = null;
@@ -538,14 +1002,60 @@ export function runPlaythrough({
     upkeepSpent += computeTickUpkeep(state).total;
     refillSpent += autoRefill(game);
     if (state.beamOn) beamOnTicks++;
+    {
+      const entries = game.registry.getAll();
+      if (entries.length) {
+        const running = entries.filter(e => e.status === 'running').length;
+        registeredLineTicks += entries.length;
+        runningLineTicks += running;
+        windowRegisteredLineTicks += entries.length;
+        windowRunningLineTicks += running;
+      }
+      if (t - windowStartTick + 1 >= LINE_UPTIME_WINDOW_TICKS) {
+        if (windowRegisteredLineTicks > 0) {
+          minWindowLineFraction = Math.min(minWindowLineFraction, windowRunningLineTicks / windowRegisteredLineTicks);
+        }
+        windowRunningLineTicks = 0;
+        windowRegisteredLineTicks = 0;
+        windowStartTick = t + 1;
+      }
+    }
 
     if (pendingGateCheck) {
-      if (!state.infraCanRun) {
+      if (state.infraCanRun) {
+        // The gate cleared (the new beamline's staffing/utility race
+        // resolved), but that only means the FACILITY can run — it says
+        // nothing about whether this specific new line is actually running.
+        // toggleBeam correctly refuses on a one-tick registration race
+        // ("Press Start again once they are at the console"), and nothing
+        // upstream of this loop ever presses Start again. Without this call
+        // a newly-built line sits registered, staffed, gate-clear, and OFF
+        // — invisible to state.infraCanRun (which only asks "could a beam
+        // run here", not "is one") — paying full payroll against the
+        // income of however many OTHER lines are actually lit. Balance fix
+        // round 4: this was the real cause of a run reading as a
+        // ~24,000-tick "stall" that wasn't a stall at all (infraCanRun was
+        // true 99.3% of the time) — the ladder kept buying and staffing
+        // lines 2-4 while never turning any of them on.
+        startAllBeams(game);
+        pendingGateCheck = null;
+      } else if (state.tick >= pendingGateCheck.deadline) {
+        // Grace period (GATE_CHECK_GRACE_TICKS) expired and the facility is
+        // STILL down — that is a real stall, not just staffing latency. A
+        // freshly hired operator needs jobRunner to assign them (their
+        // runBeam job is capped at the currently-RUNNING beamline count —
+        // see jobRunner.js's capsFor — so they cannot even be offered the
+        // job until THIS beamline is already live) and then "arrive"
+        // (withInstantArrival flips phase on the tick AFTER assignment) —
+        // one tick of unavoidable lag a real player's operator would also
+        // need to physically walk over. Checking on the very next tick (the
+        // old behavior) flagged that ordinary lag as a stall on every single
+        // beamline rung once operators had to be individually seated.
         const codes = [...new Set((state.infraBlockers || []).map(b => b.code))];
         pendingGateCheck.gate = codes.join(',') || 'unknown';
         ladderStalled = `${pendingGateCheck.label} (gate: ${pendingGateCheck.gate})`;
+        pendingGateCheck = null;
       }
-      pendingGateCheck = null;
     }
 
     if (state.tick - rateWindowTick >= RATE_WINDOW) {
@@ -638,10 +1148,13 @@ export function runPlaythrough({
           game.refreshInfrastructureGate();
           startAllBeams(game);
           // infraCanRun is FACILITY-wide, not per line: one badly fed component
-          // on a new build stops every beam in the place. Read it on the next
-          // tick (the gate needs a solve with the beams actually on) rather
-          // than three thousand ticks later when the funds curve inverts.
-          pendingGateCheck = record;
+          // on a new build stops every beam in the place. Read it within a
+          // short grace window (the gate needs a solve with the beams
+          // actually on, and — since staff-professions-3 — a newly hired
+          // operator needs a tick to be assigned plus a tick to "arrive",
+          // see the pendingGateCheck handling above) rather than three
+          // thousand ticks later when the funds curve inverts.
+          pendingGateCheck = { ...record, deadline: state.tick + GATE_CHECK_GRACE_TICKS };
         }
         // A failed build leaves half-wired hardware that the gate will hold the
         // whole facility down on. Stop climbing rather than compound it — and
@@ -669,6 +1182,13 @@ export function runPlaythrough({
       windowStartFunds = state.resources.funding;
     }
   }
+  // Score the trailing partial window too (the loop can end mid-window,
+  // either hitting maxTicks or finishing research early) — a stall in the
+  // last few hundred ticks of a run must not go unscored just because it
+  // never reached a full LINE_UPTIME_WINDOW_TICKS.
+  if (windowRegisteredLineTicks > 0) {
+    minWindowLineFraction = Math.min(minWindowLineFraction, windowRunningLineTicks / windowRegisteredLineTicks);
+  }
 
   return {
     seed, maxTicks, expand, detectors, maxLines,
@@ -685,6 +1205,20 @@ export function runPlaythrough({
     completedAt, tierCompletedAt, expansionsAt, samples, blockedTicks, ladderStalled,
     longestGap,
     idleTicks, beamOnTicks,
+    runningLineTicks, registeredLineTicks,
+    // The fraction of registered beamlines actually running, averaged over
+    // every tick that had at least one registered — see runningLineTicks'
+    // own comment above for why this is a different (and stricter) number
+    // than beamOnTicks/totalTicks. Kept for diagnostics/reporting, but NOT
+    // what test-progression.js asserts on — see minWindowLineFraction,
+    // which is (balance fix round 5's own finding: this whole-run average
+    // is still too forgiving to catch a real multi-thousand-tick stall).
+    runningLineFraction: registeredLineTicks > 0 ? runningLineTicks / registeredLineTicks : 0,
+    // The worst LINE_UPTIME_WINDOW_TICKS-tick window's own running-line
+    // fraction, not the whole-run average — see this record's own
+    // "Balance fix round 5" comment above for why the average isn't
+    // sensitive enough. This is what test-progression.js actually asserts.
+    minWindowLineFraction,
     refillSpent, upkeepSpent, researchSpent, expansionSpent,
     remainingNodes: RESEARCH_IDS.filter(id => !state.completedResearch.includes(id)),
     // Net income per tick over the whole run: after upkeep and refills, BEFORE

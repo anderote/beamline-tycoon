@@ -3,6 +3,35 @@
 import { StaffMember } from './StaffMember.js';
 import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professions.js';
 import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstories.js';
+import { logCareerEvent } from './careerLog.js';
+
+// Base fatigue accrual per tick while 'working' (before trait multipliers).
+// Exported so jobRunner.js's own test (test-job-runner.js) can assert, as a
+// cheap arithmetic guard, that every work job's workTicks fits inside one
+// NEEDS_THRESHOLD-wide waking window at a representative staffer's
+// efficiency — see that test's own header for the full "workTicks: 150 met
+// fatigue += 0.02" history this constant exists to keep from repeating.
+//
+// Was 0.02 (threshold crossed at tick 41 — see this task's balance report),
+// which is roughly a quarter of DAY_LENGTH_TICKS (Game.js: 240) and left no
+// job of any real duration completable in one window even before travel.
+// 0.005 crosses NEEDS_THRESHOLD (0.8) at tick 160 — about two-thirds of one
+// in-game day, i.e. roughly one sleep per day rather than six.
+export const FATIGUE_PER_TICK = 0.005;
+
+// Base hunger accrual per tick while 'working' (before the gourmand trait's
+// 1.2x). Balance fix round 2: was 0.01 (crossing NEEDS_THRESHOLD at tick
+// 80, i.e. one meal roughly every third of a waking window) — measured
+// (independently, then reproduced) as the single largest driver of an
+// amenities-equipped facility's throughput deficit relative to the
+// deadlock-guard control, and the term real walking distance to a cafeteria
+// makes materially worse (a facility with any real travel distance to feed
+// pays this cost far more often than the zero-travel headless tests here
+// can see). 0.0033 crosses threshold at tick ~242 — about one meal per
+// in-game day (DAY_LENGTH_TICKS, Game.js: 240), matching what fix round 1
+// already did for sleep via FATIGUE_PER_TICK above.
+export const HUNGER_PER_TICK = 0.0033;
+const GOURMAND_HUNGER_MULT = 1.2; // unchanged ratio from the old 0.01 -> 0.012
 
 function pickSpecialty(profession, rng) {
   const specs = specialtiesFor(profession);
@@ -23,19 +52,22 @@ export function createStaffMember(profession, id, tick = 0, rng = Math.random, s
   return m;
 }
 
-// Tick needs for one member. Returns true if status changed.
-export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Math.random }) {
+// Tick needs for one member. Returns true if status changed. `tick` (the
+// sim tick this call is running at — Game.js's own state.tick) is used only
+// for the breakdown diary entry below; every other caller-supplied field
+// was already required.
+export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, tick = 0, rng = Math.random }) {
   const isGourmand = m.traits.includes('gourmand');
   const isStoic = m.traits.includes('stoic');
   const isNightOwl = m.traits.includes('nightOwl');
   let statusChanged = false;
 
   if (m.status === 'working') {
-    let fatigueInc = 0.02;
+    let fatigueInc = FATIGUE_PER_TICK;
     if (isNightOwl) fatigueInc *= isNight ? 0.7 : 1.3;
     if (m.traits.includes('perfectionist')) fatigueInc *= 1.1;
     m.needs.fatigue = Math.min(1, m.needs.fatigue + fatigueInc);
-    m.needs.hunger = Math.min(1, m.needs.hunger + (isGourmand ? 0.012 : 0.01));
+    m.needs.hunger = Math.min(1, m.needs.hunger + (isGourmand ? HUNGER_PER_TICK * GOURMAND_HUNGER_MULT : HUNGER_PER_TICK));
     // morale decay
     let decay = 0.002;
     if (isStoic) decay *= 0.5;
@@ -46,19 +78,45 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
     const primary = m.primarySkill || 'operating';
     m.skills[primary] = Math.min(10, m.skills[primary] + gain);
-    if (m.needs.fatigue > 0.8 || m.needs.hunger > 0.8) {
-      m.status = 'onBreak';
-      statusChanged = true;
-    }
+    // Hunger/fatigue crossing 0.8 used to flip status to 'onBreak' here —
+    // deleted (staff-professions-3 Task 2). That transition is the scar this
+    // comment used to explain: hunger *rose* on break with no cafeteria,
+    // making its own recovery condition unsatisfiable, so a staffer who ever
+    // went on break in a cafeteria-less facility could never return to
+    // 'working' and permanently tripped the beam. Recovery is now a real job
+    // (JOB_TYPES.eat/rest, assigned and ticked by
+    // src/game/staff/jobRunner.js, which needs-preempts whatever the member
+    // was doing) rather than a status this function drives — and jobRunner
+    // carries its OWN deadlock guard for the exact same no-cafeteria case
+    // (see its handleNeeds/tryTakeNeedJob), so this function no longer needs
+    // to reason about it at all. status stays 'working' the entire time,
+    // including while the member is travelling to or working an eat/rest
+    // job — only a stress breakdown (below) still changes status here.
     // breakdown risk when morale very low
     if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
       m.stats.breakdowns++;
-      m.history.push({ tick: 0, event: 'breakdown', note: 'Stressed breakdown — resting 30 ticks' });
+      // Task 7 (staff-professions-3, jobs-and-gates): routed through
+      // careerLog.js's logCareerEvent, same as every job-completion effect —
+      // this used to push unconditionally with a hardcoded `tick: 0`
+      // (a pre-existing bug this same call site's own rewrite fixes:
+      // `tick` is now the sim tick actually passed in, not a placeholder),
+      // and a chronically stressed staffer can break down many times in a
+      // long game — exactly the unbounded-growth shape logCareerEvent's own
+      // header exists to close off.
+      //
+      // Fix round 2: the note text itself used to read "...resting 30
+      // ticks" — a raw sim unit, out of register with every OTHER note this
+      // module writes (repair.js/commission.js/fabricate.js/analyze.js all
+      // read as prose, no internal unit ever named). This entry lands in
+      // the same permanent, capped diary the bio card renders verbatim, so
+      // it is held to that same bar now — reworded to describe what
+      // happened, not how the sim implements the recovery.
+      logCareerEvent(m, tick, 'breakdown', 'Suffered a stress breakdown and stepped away to recover.');
       m._restTimer = 30;
       statusChanged = true;
     }
-  } else if (m.status === 'onBreak' || m.status === 'resting') {
+  } else if (m.status === 'resting') {
     if (m._restTimer != null) {
       m._restTimer--;
       if (m._restTimer <= 0) {
@@ -68,12 +126,6 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
       }
     }
     m.needs.fatigue = Math.max(0, m.needs.fatigue - 0.05);
-    // Hunger always recovers on break — a cafeteria just makes it 4x faster.
-    // (It used to *rise* without a cafeteria, which made the recovery
-    // condition below unsatisfiable: a staffer who went on break in a
-    // cafeteria-less facility could never return to 'working', permanently
-    // tripping the beam via the beam_unstaffed gate. Slower recovery keeps the
-    // cafeteria valuable as an uptime multiplier without deadlocking.)
     m.needs.hunger = Math.max(0, m.needs.hunger - (cafeteriaTier > 0 ? 0.08 : 0.02));
     m.needs.morale = Math.min(1, m.needs.morale + 0.015);
     if (m._restTimer == null && m.needs.fatigue < 0.25 && m.needs.hunger < 0.35) {

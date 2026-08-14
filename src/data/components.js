@@ -85,3 +85,20 @@ for (const id of Object.keys(COMPONENTS)) {
     console.error(msg);
   }
 }
+
+// --- Commissioning (staff-professions-3, jobs-and-gates, task 6) ----------
+//
+// Which engineering specialty signs off on a newly-placed beamline
+// component's commissioning job (src/game/staff/jobEffects/commission.js).
+// Not a 1:1 assumption: the beamline category axis above (source/optics/rf/
+// diagnostic/endpoint) and the engineering specialty axis (professions.js —
+// rf/vacuum/cooling/diagnostics/controls) don't actually line up. Only 'rf'
+// and 'diagnostic' have an obvious specialty counterpart; every other
+// category commissions with `specialty: null` — any engineer may sign off,
+// at full rate (StaffMember.efficiency only halves for an ACTUAL mismatch;
+// null vs. anything never mismatches).
+const COMMISSIONING_SPECIALTY_BY_CATEGORY = { rf: 'rf', diagnostic: 'diagnostics' };
+export function commissioningSpecialtyFor(type) {
+  const category = COMPONENTS[type]?.category;
+  return COMMISSIONING_SPECIALTY_BY_CATEGORY[category] ?? null;
+}

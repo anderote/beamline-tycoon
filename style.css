@@ -3441,6 +3441,24 @@ body {
 .bio-card-career-row { display: flex; justify-content: space-between; gap: 8px; }
 .bio-card-career-label { font-size: 7px; color: #8888aa; text-transform: uppercase; }
 .bio-card-career-value { font-size: 7px; color: #ccc; }
+/* Highlights — careerMilestones() prose ("recovered the beam 47 times"),
+   the narrative payoff of the Career stat rows above. Same pill idiom as
+   .bio-card-trait rather than a new visual language, tinted to read as a
+   distinct, earned note rather than a repeat of the trait list. */
+.bio-card-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+.bio-card-milestone {
+  background: rgba(20,20,40,0.8);
+  border: 1px solid rgba(120,100,60,0.3);
+  border-radius: 3px;
+  padding: 4px 6px;
+  color: #ddc088;
+  font-size: 7px;
+}
 
 /* === TITLE SCREEN (RCT-style opening menu) === */
 #title-screen {

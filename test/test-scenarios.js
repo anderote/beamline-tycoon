@@ -41,12 +41,38 @@ function assert(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
+// Headless tests have no renderer to report pawn arrival (that's
+// StaffPawns.js's job — see jobRunner.js's own header comment on
+// job.phase), so every game.tick() call here also instantly completes any
+// in-flight walk. Same shim test-job-runner.js's own arrive() helper covers
+// for a single member.
+function withInstantArrival(game) {
+  const rawTick = game.tick.bind(game);
+  game.tick = (...args) => {
+    const result = rawTick(...args);
+    for (const m of (game.state.staffMembers || [])) {
+      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
+    }
+    return result;
+  };
+  return game;
+}
+
 function bootScenario(scenario) {
-  const game = new Game(new BeamlineRegistry(), { seed: 1234 });
+  const game = withInstantArrival(new Game(new BeamlineRegistry(), { seed: 1234 }));
   const mapData = scenario.generator();
   game.applyScenario(mapData);
   if (scenario.setup) scenario.setup(game);
   game.recalcAllBeamlines();
+  // Deliberately does NOT toggle any beamline on: jobRunner's runBeam cap
+  // counts REGISTERED beamlines (src/game/staff/jobRunner.js's
+  // beamlineCount), not only running ones, so the seeded operator gets
+  // offered — and, over these 20 ticks, seated at — the scenario's console
+  // regardless of whether the beamline itself has ever been started. That's
+  // what makes `infraCanRun` true below without this helper having to press
+  // Start on the player's behalf; the dedicated "beamline is startable"
+  // block further down does that itself, from a genuinely cold 'stopped'
+  // registry entry.
   for (let i = 0; i < 20; i++) game.tick();
   return game;
 }
@@ -103,7 +129,11 @@ for (const scenario of SCENARIOS) {
 
   const junctions = state.placeables.filter(p => p.category === 'beamline');
   if (junctions.length > 0) {
-    // Scenario ships a beamline — it must be startable.
+    // Scenario ships a beamline — it must be startable. bootScenario never
+    // toggles it on (see its own comment), so this starts genuinely cold: a
+    // 'stopped' registry entry whose operator is nonetheless already seated
+    // (the registered-beamline cap fix means staffing doesn't wait on the
+    // toggle at all), so the toggle itself should succeed cleanly.
     const sourceJ = junctions.find(p => COMPONENTS[p.type]?.isSource);
     assert(!!sourceJ, 'beamline has a source junction');
     const entry = game.registry.getAll().find(e => e.sourceId === sourceJ?.id);

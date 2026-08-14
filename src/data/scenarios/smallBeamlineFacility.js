@@ -12,7 +12,7 @@ export function generateSmallBeamlineFacility() {
   const addZone = (type, col, row) => zones.push({ type, col, row });
   const addWall = (col, row, edge, type) => walls.push({ col, row, edge, type });
   const addDoor = (col, row, edge, type) => doors.push({ col, row, edge, type });
-  const addFurn = (type, col, row, dir = 0) => placeables.push({ id: `fn_${nextId++}`, type, col, row, subCol: 1, subRow: 1, dir, kind: 'furnishing' });
+  const addFurn = (type, col, row, dir = 0, subCol = 1, subRow = 1) => placeables.push({ id: `fn_${nextId++}`, type, col, row, subCol, subRow, dir, kind: 'furnishing' });
 
   const B0col = -8, B0row = -3, BW = 18, BH = 10;
   for (let c = B0col; c < B0col + BW; c++) for (let r = B0row; r < B0row + BH; r++) addFloor('concrete', c, r);
@@ -68,10 +68,35 @@ export function generateSmallBeamlineFacility() {
   addFurn('monitorBank', ctrlRect.x0 + 3, ctrlRect.y0, 0);
   addFurn('operatorChair', ctrlRect.x0 + 1, ctrlRect.y0 + 2, 0);
   addFurn('serverRack', ctrlRect.x1 - 1, ctrlRect.y0 + 1, 2);
-  addFurn('diningTable', cafeRect.x0 + 1, cafeRect.y0 + 1, 0);
-  addFurn('cafeteriaChair', cafeRect.x0, cafeRect.y0 + 1, 0);
-  addFurn('cafeteriaChair', cafeRect.x0 + 2, cafeRect.y0 + 1, 0);
+  // Balance fix round 4: a diningTable is `seated: 'required'` (facility-
+  // room-furnishings.raw.js) and only resolves a working `eat` StationRef
+  // when a chair sits at the EXACT subtile each of its four anchors
+  // declares (stations.js's seat-matching) — every OTHER piece of furniture
+  // in this file is a single-anchor placeable where addFurn's flat
+  // subCol:1/subRow:1 is a perfectly fine, arbitrary-but-valid position, but
+  // a chair a whole TILE away from its table (the previous two lines here)
+  // never matches any anchor at all. getStationIndex(state).byJob.eat was
+  // EMPTY for this scenario — every player's staff has been permanently
+  // unserviced from ~tick 160 since staff-professions-3's stations system
+  // shipped; invisible until the balance fix's round-3 coverage-cap ruling
+  // made an unserviced operator's beam coverage pay for it. Same anchor-
+  // offset recipe test-staff-economy.js's own placeDiningTable helper uses,
+  // verified against the real station index — all four seats, not two, so
+  // this is a complete, working cafeteria table rather than a half one.
+  const cafeTableCol = cafeRect.x0 + 1, cafeTableRow = cafeRect.y0 + 1;
+  addFurn('diningTable', cafeTableCol, cafeTableRow, 0, 0, 0);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow, 0, 0, 3);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow - 1, 2, 1, 2);
+  addFurn('cafeteriaChair', cafeTableCol - 1, cafeTableRow, 1, 2, 0);
+  addFurn('cafeteriaChair', cafeTableCol, cafeTableRow, 3, 3, 1);
   addFurn('vendingMachine', cafeRect.x1, cafeRect.y0, 3);
+  // toolChest (station.jobs: ['rest'], seated: 'never' — facility-lab-
+  // furnishings.raw.js): a single free-standing anchor, no seat-matching
+  // needed, so addFurn's own flat subCol:1/subRow:1 works here same as
+  // every other single-anchor item in this file. The scenario shipped with
+  // NO rest station of any kind before this fix — fatigue was permanently
+  // unserviceable for every staffer, same bug class as the missing seats.
+  addFurn('toolChest', cafeRect.x0 + 4, cafeRect.y0, 0);
   addFurn('labBench', rfRect.x0 + 1, rfRect.y0, 1);
   addFurn('labBench', vacRect.x0 + 1, vacRect.y0, 1);
 

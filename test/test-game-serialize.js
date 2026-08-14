@@ -55,18 +55,39 @@ console.log('\n=== Save-payload whitelist ===\n');
 const gA = makeGame(42);
 const placed = buildSomething(gA);
 assertOk(placed, 'placed a concrete pad + magnetron on the starter map');
+// A fresh Game never proactively runs recomputeZoneConnectivity() at
+// construction — it only populates state.zoneConnectivity the first time a
+// zone-tile mutation calls it. load()'s own _applyState always DOES call it
+// (unconditionally, at the end — see Game.js's own comment there), so
+// without this, gA (never recomputed) and gB below (always recomputed via
+// load) would disagree on zoneConnectivity for a reason that has nothing to
+// do with the round-trip itself. Same call load() makes; this just makes
+// both sides of the comparison start from the same place.
+gA.recomputeZoneConnectivity();
 
 const payloadA = gA.serialize();
 const parsedA = JSON.parse(payloadA);
 
 // Derived fields must not ride along in the payload.
+//
+// zoneConnectivity is deliberately NOT in this list (coordinator review,
+// staff-professions-3 task 6 fix round 1): most of it IS purely derived
+// (active/tileCount/tileTier/tier — rebuilt from `zones` on every
+// recomputeZoneConnectivity() call), but staffedOutput/peakTier are
+// accumulated staffing progress with no other record anywhere in the save.
+// Treating the whole object as derived-and-excluded, the way this test used
+// to, meant _applyState's own zoneConnectivity={} reset (removed — see
+// Game.js's own comment on that) silently wiped a player's staffing history
+// on EVERY load, not just undo. See the "zoneConnectivity persistence"
+// section below for the dedicated round-trip check.
 for (const key of ['systemStats', 'nodeQualities', 'infraBlockers', 'infraCanRun',
                    'infraOccupied', 'zoneOccupied', 'subgridOccupied', 'placeableIndex',
-                   'wallOccupied', 'doorOccupied', 'zoneConnectivity', 'beamline',
+                   'wallOccupied', 'doorOccupied', 'beamline',
                    'mainBeamState', 'physicsEnvelope', 'utilityNetworkData', 'utilityNetworks',
                    'zoneFurnishingBonuses', 'moraleMultiplier', 'cornerHeightsRevision']) {
   assertOk(!(key in parsedA.state), `derived key "${key}" absent from payload`);
 }
+assertOk('zoneConnectivity' in parsedA.state, 'zoneConnectivity IS present in the payload (it carries accumulated staffing progress, not just derived state)');
 assertOk(parsedA.version === 9, 'payload is save version 9');
 assertOk(Array.isArray(parsedA.state.placeables) &&
          parsedA.state.placeables.some(p => p.type === 'magnetron'),
@@ -123,6 +144,38 @@ console.log('\n=== Staff round-trip ===\n');
   const loaded = gT.state.staffMembers.find(s => s.id === seeded.id);
   assertOk(loaded && loaded.stats.ticksWorked === 17 && loaded.stats.breakdowns === 1,
            `staff work history survives save->load (got ${loaded && loaded.stats.ticksWorked}/${loaded && loaded.stats.breakdowns})`);
+}
+
+console.log('\n=== zoneConnectivity persistence (staffedOutput/peakTier) ===\n');
+
+// Coordinator review, staff-professions-3 task 6 fix round 1: peakTier and
+// staffedOutput are accumulated staffing progress (the same category as
+// staff work history above, or componentHealth), not re-derivable from
+// `zones` alone the way tileCount/tileTier/tier are — a save that dropped
+// them would silently re-lock any research gated on that lab (see
+// research.js's getLabResearchTier) the moment the player reloaded.
+{
+  const gZ = makeGame(42);
+  // Hand-set rather than staffed up through the real job system — this
+  // file's own concern is the serialize/load round-trip, not the ratchet
+  // mechanics (see test-science-and-zone-staffing.js for those). tileCount/
+  // tileTier/tier/active are deliberately left inconsistent with a real
+  // zone (no rfLab tiles exist on this map at all) to prove the point
+  // sharply: recomputeZoneConnectivity() overwrites those derived fields
+  // fresh from `zones` on load regardless, but staffedOutput/peakTier have
+  // no other source to be overwritten FROM, so they must come through
+  // exactly as saved.
+  gZ.state.zoneConnectivity.rfLab = {
+    active: false, tileCount: 0, tileTier: 0, tier: 0,
+    staffedOutput: 0.55, peakTier: 3,
+  };
+  localStorage.setItem('beamlineTycoon', gZ.serialize());
+
+  const gZLoaded = makeGame(7);
+  gZLoaded.load();
+  const conn = gZLoaded.state.zoneConnectivity.rfLab;
+  assertOk(conn?.staffedOutput === 0.55, `staffedOutput survives save->load (got ${conn?.staffedOutput})`);
+  assertOk(conn?.peakTier === 3, `peakTier survives save->load (got ${conn?.peakTier})`);
 }
 
 console.log('\n=== save() survives broken localStorage ===\n');

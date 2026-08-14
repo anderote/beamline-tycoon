@@ -18,7 +18,7 @@
 //   - isUnlocked(componentDef) → boolean: research gate (Game.isComponentUnlocked).
 //   - nextPipeId() → string, nextPlacementId() → string.
 
-import { COMPONENTS } from '../data/components.js';
+import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
 import {
   validateSplitPipe, validateMergePipes, validateTrimPipe, validateRemovePipeSection,
@@ -94,6 +94,37 @@ const REASON_MESSAGES = {
 
 function reasonMessage(reason) {
   return REASON_MESSAGES[reason] || reason;
+}
+
+// Fix round 1 (staff-professions-3, jobs-and-gates, task 5): a beamline
+// component's spares cost, shared by every path that can ever mint one —
+// Game._placePlaceableInner (junctions), placeOnPipe below (on-pipe
+// placements), DesignPlacer (whole designs, junctions AND placements alike),
+// and src/game/placement.js's preview (so the ghost agrees with what the
+// real placement will actually charge). One implementation, imported
+// everywhere, rather than four copies of `Math.ceil(funding / 5000)` that
+// only agreed with each other by convention — which is exactly how the
+// preview and the real check drifted apart before this fix round.
+export function sparesCostForFunding(funding) {
+  return Math.max(1, Math.ceil((funding || 0) / 5000));
+}
+
+// Fix round 3: which resource(s) in `cost` are short against `resources`,
+// as player-facing text ("need 30 more spares") — extracted from
+// Game._missingResourceLabel (fix round 1) into a pure function so
+// BeamlineSystem.placeOnPipe can give the SAME "name the blocker" treatment
+// its refusal log gets that Game._placePlaceableInner's already has, without
+// reaching into a private method on a class it only ever talks to through
+// injected callbacks. Game.js's own _missingResourceLabel is now a thin
+// wrapper over this. Only meaningful to call after affordability has
+// already failed for this same `cost` against `resources`.
+export function missingResourceLabel(resources, cost) {
+  const short = [];
+  for (const [r, a] of Object.entries(cost || {})) {
+    const have = (resources && resources[r]) || 0;
+    if (have < a) short.push(`need ${a - have} more ${r}`);
+  }
+  return short.length ? short.join(', ') : 'insufficient funds';
 }
 
 // Per-tile drift cost is the baseline for beam-pipe pricing; fall back to the
@@ -674,14 +705,30 @@ export class BeamlineSystem {
     // Research gate + affordability. placeJunction gets both for free by
     // routing through Game.placePlaceable; this path owns the mutation
     // directly, so it has to charge itself.
-    const cost = (def && def.cost) || {};
+    //
+    // Fix round 1: every on-pipe component (quadrupole, BPM, RF cavity,
+    // etc — the majority of the catalogue by count and by funding, see
+    // sparesCostForFunding's own header) now costs spares alongside
+    // funding, the same as a junction does at Game._placePlaceableInner.
+    // Before this, placeOnPipe charged funding only — with the shared spares
+    // pool at zero, this path still happily mounted parts for money, which
+    // meant a player who only ever built through the designer (see
+    // DesignPlacer, also on-pipe-and-junction free:true through here) never
+    // met the spares gate at all.
+    const baseCost = (def && def.cost) || {};
+    const cost = { ...baseCost, spares: sparesCostForFunding(baseCost.funding || 0) };
     if (!opts.free) {
       if (def && !this.isUnlocked(def)) {
         this.log(`${def.name || opts.type} is not researched yet!`, 'bad');
         return null;
       }
       if (!this.canAfford(cost)) {
-        this.log(`Can't afford ${(def && def.name) || opts.type}!`, 'bad');
+        // Fix round 3: names the missing resource(s), same as Game.js's own
+        // "Can't afford X!" already does for a hand-placed junction — this
+        // path never had it, so a spares-short on-pipe placement (fix round
+        // 1's own gap) refused with no hint that spares, not funding, was
+        // the actual blocker.
+        this.log(`Can't afford ${(def && def.name) || opts.type}! (${missingResourceLabel(this.state?.resources, cost)})`, 'bad');
         return null;
       }
     }
@@ -728,6 +775,13 @@ export class BeamlineSystem {
     this.emit('beamlineChanged');
     // The new placement is the one whose id is not in priorIds.
     const newPl = pipe.placements.find(pl => !priorIds.has(pl.id));
+    if (newPl) {
+      // Task 6 (staff-professions-3, jobs-and-gates): the other of the two
+      // choke points that can ever mint a new beamline component — see
+      // Game._placePlaceableInner's identical stamp for junctions/modules.
+      newPl.needsCommissioning = true;
+      newPl.specialty = commissioningSpecialtyFor(opts.type);
+    }
     return newPl ? newPl.id : null;
   }
 
@@ -748,7 +802,18 @@ export class BeamlineSystem {
     this.onPlacementRemoved(placementId);
     const def = COMPONENTS[removed.type];
     if (def && def.cost && state.resources) {
-      for (const [r, a] of Object.entries(def.cost)) {
+      // Fix round 3: mirror placeOnPipe's own cost — a spares line alongside
+      // funding — for the refund, not the bare def.cost. Before this,
+      // removing ONE attachment (this method) refunded funding only while
+      // removeBeamPipe's own per-placement refund (Game.js's
+      // _refundCostFor, fix round 1) already refunded both — so tearing out
+      // a single $200k/40-spare quadrupole returned $100k and 0 spares,
+      // while demolishing the whole pipe underneath the identical
+      // attachment returned $100k AND 20 spares. Two refund paths for the
+      // same removed part must agree, or the cheaper move is always to
+      // destroy more.
+      const refundCost = { ...def.cost, spares: sparesCostForFunding(def.cost.funding || 0) };
+      for (const [r, a] of Object.entries(refundCost)) {
         state.resources[r] = (state.resources[r] || 0) + Math.floor(a * 0.5);
       }
     }

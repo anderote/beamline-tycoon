@@ -15,7 +15,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
+  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { DIR_DELTA } from '../data/directions.js';
 import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
@@ -347,11 +347,15 @@ export class BeamlineInputController {
       });
       valid = !!dryRun.ok;
     }
-    // placeOnPipe charges def.cost itself, so the slot fitting isn't enough
-    // for a green ghost. Kept separate from `valid` so _placementHover still
-    // records the geometrically-good slot and the tint can say "too
-    // expensive" rather than "won't fit".
-    const affordable = canAffordCost(this.game, def.cost);
+    // placeOnPipe charges def.cost (plus spares, fix round 1) itself, so the
+    // slot fitting isn't enough for a green ghost. Kept separate from
+    // `valid` so _placementHover still records the geometrically-good slot
+    // and the tint can say "too expensive" rather than "won't fit".
+    // Fix round 3: componentCostFor(def), not the bare def.cost — this ghost
+    // used to check funding only, so a spares-short on-pipe part (placeOnPipe
+    // has charged spares since fix round 1) still previewed green and then
+    // refused on click.
+    const affordable = canAffordCost(this.game, componentCostFor(def));
     this._placementHover = valid
       ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId }
       : null;

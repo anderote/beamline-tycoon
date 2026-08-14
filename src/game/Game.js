@@ -1,6 +1,6 @@
-import { COMPONENTS } from '../data/components.js';
+import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
-import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone } from '../data/facility.js';
+import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { seedComponentParams } from '../beamline/component-params.js';
@@ -10,7 +10,7 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund, sparesCostForFunding, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
@@ -24,6 +24,11 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
+import { assignJobs, tickJobs } from './staff/jobRunner.js';
+// Fix round 3: jobRunner.js now imports the jobEffects/*.js completion
+// modules directly (jobEffects/registry.js's own header has the full
+// story) — this file no longer needs to import them itself as a sibling
+// side effect the way it briefly did in task 5/fix round 1.
 import { PROFESSIONS } from '../data/professions.js';
 
 import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data/decorations.js';
@@ -56,11 +61,22 @@ const SERIALIZED_FIELDS = [
   'completedObjectives', 'discoveries', 'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'tutorialDismissed', 'welcomeSeen',
   // staff
-  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'stationReservations',
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
   'zones', 'walls', 'doors', 'windows',
+  // zoneConnectivity is mostly derived (active/tileCount/tileTier/tier are
+  // rebuilt from `zones` on every recomputeZoneConnectivity() call — see
+  // that method's own header), but staffedOutput/peakTier are accumulated
+  // sim progress with no other record anywhere (task 6, staff-professions-3,
+  // jobs-and-gates): a player's staffing history for a lab isn't
+  // re-derivable from anything else in the save. Serializing the whole
+  // object (not just those two fields) is simpler and harmless — _applyState
+  // no longer wipes it before recomputeZoneConnectivity() runs, so the
+  // derived fields get overwritten fresh from the loaded `zones` regardless
+  // of what a stale save happened to have on disk for them.
+  'zoneConnectivity',
   // facility + placement
   'facilityEquipment', 'facilityGrid', 'facilityNextId',
   'zoneFurnishings', 'zoneFurnishingSubgrids', 'zoneFurnishingNextId',
@@ -87,8 +103,16 @@ const UNDO_PRESERVED_FIELDS = [
   'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'activeResearch', 'researchProgress', 'completedResearch',
   'completedObjectives', 'discoveries',
-  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
+  'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'savedDesigns', 'savedDesignNextId',
+  // zoneConnectivity's staffedOutput/peakTier are sim-accumulated staffing
+  // progress (task 6, staff-professions-3, jobs-and-gates) — the same
+  // category as componentHealth (BEAMSTATE_PRESERVED_FIELDS, one level
+  // down) or staffMembers itself, not gesture state. Rewinding them would
+  // let one Ctrl+Z re-lock a lab (and any research gated on it — see
+  // research.js's getLabResearchTier) a player spent real staffing time
+  // unlocking, for a build action that never touched staffing at all.
+  'zoneConnectivity',
   // stationReservations names staffMembers by id (a slot claim is exactly
   // as much "the sim's" as the roster it references) — rewinding the
   // reservation map while staffMembers comes from the live session would
@@ -267,6 +291,13 @@ export class Game {
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
       staffCandidates: [], // hiring pool (3 offered)
+      // Task 7 (staff-professions-3, jobs-and-gates): built up by an admin's
+      // paperwork completions (src/game/staff/jobEffects/paperwork.js), 0..
+      // 0.4, and spent in full (reset to 0) the moment the NEXT hire lands —
+      // see hireStaffMember/hireStaff below, the only two readers. A
+      // one-shot discount against whichever hire comes next, not a standing
+      // markdown on every future hire.
+      staffHireDiscount: 0,
       // Work-station slot claims (src/game/staff/stations.js): key
       // ("placeableId:slotIndex") -> staffId. Sanitized in _applyState —
       // any entry naming a demolished/reconfigured station or a staffer no
@@ -288,7 +319,12 @@ export class Game {
       // Zone overlays
       zones: [],                // [{ type, col, row }]
       zoneOccupied: {},         // "col,row" -> zoneType
-      zoneConnectivity: {},     // zoneType -> { active: bool, tileCount: int, tier: int }
+      zoneConnectivity: {},     // zoneType -> { active, tileCount, tileTier, tier, staffedOutput, peakTier }
+      // Published each tick by jobRunner.js's tickJobs — see that field's
+      // own comment there and _tickBeamline's sciMult line. Not serialized
+      // (derived, like economySnapshot): a fresh tick republishes it before
+      // anything downstream reads it.
+      staffDataEfficiency: 0,
       // Facility equipment (off-beamline support systems)
       facilityEquipment: [],      // [{ id, type, col, row }]
       facilityGrid: {},           // "col,row" -> equipment id
@@ -978,21 +1014,93 @@ export class Game {
     return true;
   }
 
-  spend(costs) {
-    if (this.sandboxMode) return;
-    for (const [r, a] of Object.entries(costs)) this.state.resources[r] -= a;
+  /**
+   * Fix round 1: which resource(s) in `cost` are short, for a log message
+   * that names the actual blocker instead of a bare "Can't afford X!" — with
+   * a beamline component costing both funding and spares now, those are two
+   * different, differently-fixed problems (sell something / wait for
+   * funding vs. get a machinist fabricating) and the player couldn't tell
+   * which one they'd hit. Only meaningful to call after canAfford has
+   * already failed for this same `cost`.
+   *
+   * Fix round 3: a thin wrapper over BeamlineSystem.js's own
+   * missingResourceLabel (extracted there so BeamlineSystem.placeOnPipe's
+   * refusal log can give an on-pipe placement the identical treatment
+   * without reaching into a private method on this class) — one
+   * implementation, not two independent copies of the same formula.
+   */
+  _missingResourceLabel(cost) {
+    return missingResourceLabel(this.state.resources, cost);
   }
 
   /**
-   * Charge a construction cost in funding. Every build-time funding debit goes
-   * through here rather than writing `resources.funding -=` directly, so
-   * sandbox mode has ONE place to suppress and cannot be leaked by a code path
-   * that decrements the balance itself. Recurring upkeep deliberately does NOT
-   * use this — see setSandboxMode.
+   * Fix round 1: the refund basis for a demolished placeable must mirror
+   * what it actually cost to place, not just its static PLACEABLES/
+   * COMPONENTS `.cost` entry. A beamline component's spares cost
+   * (sparesCostForFunding) is computed from funding at PURCHASE time and was
+   * never stored on the definition the way funding is — so every demolish
+   * refund loop that iterated `placeable.cost` directly (removePlaceable,
+   * _removePlaceableRaw, removeBeamPipe's on-pipe placements, and
+   * demolishTarget's 'beamlineWhole' lump sum) refunded funding only and
+   * silently destroyed the spares half of the cost. That bit hardest on a
+   * routine reposition (demolish + rebuild), which is supposed to be a
+   * funding-neutral shuffle and instead quietly drained the spares pool on
+   * every use.
    */
-  chargeConstruction(amount) {
+  _refundCostFor(placeable) {
+    if (!placeable?.cost) return null;
+    // `.kind === 'beamline'` catches a junction resolved via PLACEABLES
+    // (source, dipole, ...); a `role: 'placement'` on-pipe component
+    // (quadrupole, BPM, RF cavity, ...) resolved directly off COMPONENTS —
+    // as removeBeamPipe/demolishTarget's 'beamlineWhole' both do — carries
+    // no `.kind` at all (see components.js's own "legacy shim" header: it's
+    // a flat merge of every category, junction-only PLACEABLES aside), only
+    // `.role`. Checking either is what makes this one function work for
+    // both call shapes without the caller having to know which one it has.
+    if (placeable.kind !== 'beamline' && !placeable.role) return placeable.cost;
+    return { ...placeable.cost, spares: sparesCostForFunding(placeable.cost.funding || 0) };
+  }
+
+  spend(costs) {
     if (this.sandboxMode) return;
-    this.state.resources.funding -= amount;
+    // Fix round 1: floor every resource at 0. Funding is allowed to run
+    // negative today (an existing, separate design choice — upkeep can
+    // outrun income) and this floor deliberately does not touch that; it
+    // exists because a genuine two-technicians-race on the last spare (see
+    // jobEffects/repair.js's own comment) could otherwise push `spares`
+    // negative, which then means repair stays suppressed until a machinist
+    // fabricates off a debt that was never really borrowed. `spares` is the
+    // one resource this codebase currently spends outside of a player-
+    // initiated purchase (a completed job, not a click), so it's the one
+    // that needs the floor; funding's every debit is still a deliberate,
+    // player-visible spend.
+    for (const [r, a] of Object.entries(costs)) {
+      if (r === 'spares') this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - a);
+      else this.state.resources[r] -= a;
+    }
+  }
+
+  /**
+   * Charge a construction cost — funding, and (task 5, staff-professions-3)
+   * optionally spares — in one debit. Every build-time debit of either
+   * resource goes through here rather than writing `resources.funding -=` /
+   * `resources.spares -=` directly, so sandbox mode has ONE place to suppress
+   * and cannot be leaked by a code path that decrements a balance itself.
+   * Recurring upkeep deliberately does NOT use this — see setSandboxMode.
+   *
+   * Accepts either a bare number (funding only — every call site this method
+   * had before task 5, kept as-is rather than rewritten) or a cost object
+   * `{ funding, spares }`. A beamline junction's spares cost (see
+   * _placePlaceableInner) is the one caller that needs the object form today;
+   * a plain funding debit is free to keep passing a number.
+   */
+  chargeConstruction(cost) {
+    if (this.sandboxMode) return;
+    const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
+    if (c.funding) this.state.resources.funding -= c.funding;
+    // Floored at 0 — see spend()'s own comment on why spares specifically
+    // needs this and funding deliberately doesn't.
+    if (c.spares) this.state.resources.spares = Math.max(0, (this.state.resources.spares || 0) - c.spares);
   }
 
   /**
@@ -2135,10 +2243,30 @@ export class Game {
   }
 
   // Flood-fill from Control Room through hallways to determine zone connectivity
+  //
+  // Task 6 (staff-professions-3, jobs-and-gates) added the zone-tier
+  // ratchet: `tier` is now min(tileTier, tierFromStaffedOutput), not tile
+  // count alone, for the zone types a labWork bench can ever be staffed in
+  // (LABWORK_CAPABLE_ZONES — cafeteria/controlRoom/officeSpace/meetingRoom
+  // sit outside it and keep the old tile-count-only behaviour, since
+  // nothing can ever raise their staffedOutput off 0). `staffedOutput`
+  // itself is NOT recomputed here — jobRunner.js's tickJobs/
+  // updateZoneStaffedOutput owns its per-tick rise/decay — so it and
+  // `peakTier` (the highest `tier` this zone has ever reached, read by
+  // palette-unlock checks so a lapsed staffing level can never re-lock a
+  // component the player already paid for) are carried forward from
+  // whatever this.state.zoneConnectivity already held, not reset to 0 on
+  // every zone-tile edit the way tileCount/tileTier/active are.
   recomputeZoneConnectivity() {
+    const prevConnectivity = this.state.zoneConnectivity || {};
     const connectivity = {};
     for (const zoneType of Object.keys(ZONES)) {
-      connectivity[zoneType] = { active: false, tileCount: 0, tier: 0 };
+      const prev = prevConnectivity[zoneType];
+      connectivity[zoneType] = {
+        active: false, tileCount: 0, tileTier: 0, tier: 0,
+        staffedOutput: prev?.staffedOutput || 0,
+        peakTier: prev?.peakTier || 0,
+      };
     }
 
     // Count tiles per zone type
@@ -2148,12 +2276,35 @@ export class Game {
       }
     }
 
-    // Compute tier from tile count
-    for (const info of Object.values(connectivity)) {
-      info.tier = 0;
+    // Compute tier from tile count, then ratchet it against staffedOutput
+    // for the zone types staffing can gate at all.
+    for (const [zoneType, info] of Object.entries(connectivity)) {
+      // Fix round 1 (coordinator review): staffedOutput used to survive ANY
+      // resize or rebuild of the zone, keyed purely by zone TYPE with no
+      // notion of "how much of the CURRENT footprint is actually staffed".
+      // Measured exploit: stage a cheap 4-tile lab, staff it to
+      // staffedOutput 1.0, then paint it out to 22 tiles — instant tier 4
+      // at the new, much larger size; demolishing the zone entirely and
+      // repainting 20 tiles somewhere else carried the same value forward
+      // unchanged too. Reset to 0 whenever tileCount actually changes: the
+      // ratchet has to be re-earned at whatever footprint the zone is NOW,
+      // not whatever it happened to be the last time an engineer worked
+      // it. peakTier is a durable, "ever reached" record BY DESIGN (see
+      // this method's own header) and is deliberately NOT reset here —
+      // only the live, re-earnable staffedOutput input is.
+      const prev = prevConnectivity[zoneType];
+      if (prev && prev.tileCount !== info.tileCount) info.staffedOutput = 0;
+
+      let tileTier = 0;
       for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
-        if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { info.tier = t + 1; break; }
+        if (info.tileCount >= ZONE_TIER_THRESHOLDS[t]) { tileTier = t + 1; break; }
       }
+      info.tileTier = tileTier;
+      const staffTier = LABWORK_CAPABLE_ZONES.has(zoneType)
+        ? zoneTierFromStaffedOutput(info.staffedOutput)
+        : tileTier; // not staffing-gated — "absent" reads as unconstrained, same as tileTier alone
+      info.tier = Math.min(tileTier, staffTier);
+      if (info.tier > info.peakTier) info.peakTier = info.tier;
     }
 
     // Find all Control Room tiles
@@ -2296,8 +2447,20 @@ export class Game {
       // (defensive; shouldn't happen after A1).
     }
 
-    if (!free && !this.canAfford(placeable.cost)) {
-      this.log(`Can't afford ${placeable.name}!`, 'bad');
+    // Beamline junctions are the only 'beamline'-kind placeable that reaches
+    // this point (a 'placement'-role component is turned away above, and
+    // must go through BeamlineSystem.placeOnPipe instead) — so this is the
+    // one place a junction's purchase is charged, and the natural place to
+    // add its spares cost: parts a machinist has to fabricate, drawn down at
+    // build time alongside the funding. See chargeConstruction's own doc
+    // comment for why this goes through it rather than a bare
+    // `resources.spares -=` here, which sandbox mode could not suppress.
+    const cost = (kind === 'beamline')
+      ? { ...placeable.cost, spares: sparesCostForFunding(placeable.cost?.funding || 0) }
+      : placeable.cost;
+
+    if (!free && !this.canAfford(cost)) {
+      this.log(`Can't afford ${placeable.name}! (${this._missingResourceLabel(cost)})`, 'bad');
       return false;
     }
 
@@ -2376,7 +2539,10 @@ export class Game {
       : 'eq_';
     const id = prefix + this.state.placeableNextId++;
 
-    if (!free) this.spend(placeable.cost);
+    if (!free) {
+      if (kind === 'beamline') this.chargeConstruction(cost);
+      else this.spend(placeable.cost);
+    }
 
     const entry = {
       id,
@@ -2407,6 +2573,16 @@ export class Game {
     // helper is the identical object this used to read via `placeable`.)
     if (kind === 'beamline') {
       entry.params = seedComponentParams(type, params);
+      // Task 6 (staff-professions-3, jobs-and-gates): every beamline
+      // component placed from here forward starts uncommissioned — see
+      // jobEffects/commission.js (the engineer job that clears this) and
+      // physics-payload.js's COMMISSIONING_DERATE (the 0.7x rated-output
+      // penalty while it's set). This is one of exactly two choke points
+      // that can ever mint a new beamline component; the other is
+      // BeamlineSystem.placeOnPipe, for on-pipe placements, which stamps
+      // the identical two fields itself.
+      entry.needsCommissioning = true;
+      entry.specialty = commissioningSpecialtyFor(type);
     }
 
     this.state.placeables.push(entry);
@@ -2606,9 +2782,12 @@ export class Game {
     const updates = collapsePlan(placeableId, getEntry, getDef);
 
     // 50% refund — skipped when the caller is destroying the placeable
-    // (e.g. paving over a tree with concrete).
+    // (e.g. paving over a tree with concrete). Refund basis is
+    // _refundCostFor(placeable), not the bare placeable.cost — see that
+    // method's own header for why a beamline component's spares cost has to
+    // be folded back in here rather than read off the static definition.
     if (!opts.skipRefund && placeable.cost) {
-      for (const [r, a] of Object.entries(placeable.cost)) {
+      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
     }
@@ -2744,7 +2923,7 @@ export class Game {
     const updates = collapsePlan(placeableId, getEntry, getDef);
 
     if (placeable.cost) {
-      for (const [r, a] of Object.entries(placeable.cost)) {
+      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
         this.state.resources[r] += Math.floor(a * 0.5);
       }
     }
@@ -2895,12 +3074,19 @@ export class Game {
         const entry = this.registry.get(target.beamlineId);
         if (!entry) return false;
         let refund = 0;
+        // Fix round 1: same funding-only bug the other three refund sites
+        // had (see _refundCostFor's own header) — every module and on-pipe
+        // placement in a whole-beamline demolish also cost spares, and this
+        // lump-sum payout was silently dropping that half.
+        let sparesRefund = 0;
         const flat = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
         const placeableIdsToRemove = [];
         for (const el of flat) {
           if (el.kind === 'module') {
             const def = COMPONENTS[el.type];
-            refund += Math.floor((def?.cost?.funding || 0) * 0.5);
+            const funding = def?.cost?.funding || 0;
+            refund += Math.floor(funding * 0.5);
+            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
             placeableIdsToRemove.push(el.id);
           }
         }
@@ -2914,7 +3100,9 @@ export class Game {
               && !placeableIdsToRemove.includes(pipe.end?.junctionId)) continue;
           refund += pipeRefund(pipe);
           for (const att of (pipe.placements || [])) {
-            refund += Math.floor((COMPONENTS[att.type]?.cost?.funding || 0) * 0.5);
+            const funding = COMPONENTS[att.type]?.cost?.funding || 0;
+            refund += Math.floor(funding * 0.5);
+            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
           }
         }
         for (const pid of placeableIdsToRemove) {
@@ -2923,10 +3111,11 @@ export class Game {
           this.removePlaceable(pid, { skipRefund: true });
         }
         this.state.resources.funding += refund;
+        this.state.resources.spares = (this.state.resources.spares || 0) + sparesRefund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
         if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
         this.registry.removeBeamline(target.beamlineId);
-        this.log(`Demolished beamline (+$${refund.toLocaleString()})`, 'good');
+        this.log(`Demolished beamline (+$${refund.toLocaleString()}, +${sparesRefund} spares)`, 'good');
         this.recalcAllBeamlines();
         this.computeSystemStats();
         this.emit('beamlineChanged');
@@ -3105,7 +3294,7 @@ export class Game {
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
       if (!opts.skipRefund && attDef && attDef.cost) {
-        for (const [r, a] of Object.entries(attDef.cost)) {
+        for (const [r, a] of Object.entries(this._refundCostFor(attDef) || {})) {
           this.state.resources[r] += Math.floor(a * 0.5);
         }
       }
@@ -3868,12 +4057,38 @@ export class Game {
       // player already fixed, or starting one with the utilities cut).
       this.refreshInfrastructureGate();
       if (!this.state.infraCanRun) {
-        const count = this.state.infraBlockers.length;
-        this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
-        for (const b of this.state.infraBlockers.slice(0, 3)) {
-          this.log(`  - ${b.reason}`, 'bad');
+        // toggleBeam refuses the same way for every hard blocker, staffing
+        // included — fixing the cold-start deadlock belongs in the CAP
+        // (src/game/staff/jobRunner.js's beamlineCount, now counting
+        // registered beamlines rather than only running ones — see that
+        // function's own comment), not by having this method quietly start
+        // a beam it knows is unstaffed. With the cap fixed, an operator can
+        // be seated against a beamline the moment it's BUILT, so ordinary
+        // play never needs this toggle to succeed ahead of staffing.
+        const blockers = this.state.infraBlockers || [];
+        const nonStaffing = blockers.filter(b => b.code !== 'beam_unstaffed');
+        if (nonStaffing.length > 0) {
+          const count = nonStaffing.length;
+          this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
+          for (const b of nonStaffing.slice(0, 3)) {
+            this.log(`  - ${b.reason}`, 'bad');
+          }
+          if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
+          return;
         }
-        if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
+        // Every OTHER hard blocker is clear — beam_unstaffed is the only
+        // thing holding this line dark, and it's normally transient (an
+        // operator assigned moments ago is one or two ticks from phase:
+        // 'work' — see utility-gate.js's _unstaffedMessage). This must read
+        // as neither a real fault NOR a false "Beam ON!": the beam genuinely
+        // is not running, so the toggle still refuses (no status change, no
+        // pending-start state of any kind — this method sets nothing up to
+        // retry automatically), and the log must not promise otherwise. The
+        // player has to press Start again once staffed; "armed" previously
+        // implied they wouldn't.
+        const staffBlocker = blockers.find(b => b.code === 'beam_unstaffed');
+        this.log(`Beam not started — waiting on an operator: ${staffBlocker?.reason || ''}. `
+          + 'Press Start again once they are at the console.', 'info');
         return;
       }
       entry.status = 'running';
@@ -4217,10 +4432,44 @@ export class Game {
         // ensure StaffMember instance (load from JSON may be plain object)
         if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
         const zoneTier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, rng: this.rng })) anyChange = true;
+        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, tick: this.state.tick, rng: this.rng })) anyChange = true;
       }
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
+
+      // The job runner (src/game/staff/jobRunner.js): hands idle staff their
+      // next job (needs — hunger/fatigue over threshold — outrank any work
+      // offer, see jobRunner's own doc comment on the deadlock guard this
+      // replaces), then advances everyone already on one. Order matters:
+      // tickStaffMember just ran above, so a member who crossed the hunger/
+      // fatigue threshold THIS tick gets picked up by assignJobs immediately
+      // rather than sitting one tick behind.
+      assignJobs(this);
+      tickJobs(this);
+
+      // Fix round 1: task 5's own brief promised a spares-starved repair
+      // surfaces two ways — the idle reason (jobRunner.js's own idleReason
+      // string, already set above) and a log line the FIRST time it
+      // happens. Read here, in Game.js's own tick loop, rather than added
+      // as a side effect inside jobs.js's buildJobOffers/repairOffers: that
+      // module is documented as read-only (see its own header — a
+      // deep-freeze regression test enforces it), so a `this.log(...)` call
+      // in there would both violate that contract and mutate state.log
+      // against a frozen state. Rate-limited on an instance flag (not
+      // `state`, since this is an ephemeral log-dedupe concern, not
+      // something a save needs to remember) so a facility that stays out of
+      // spares for hours doesn't spam the log every tick, and cleared the
+      // moment no technician is reporting the shortage anymore so the next
+      // genuine one logs again.
+      const spareShortage = (this.state.staffMembers || []).some(
+        m => m.profession === 'technician' && m.idleReason === 'No spares available to make the repair.',
+      );
+      if (spareShortage && !this._spareShortageLogged) {
+        this.log('No spares available to make repairs — a machinist can fabricate more.', 'bad');
+        this._spareShortageLogged = true;
+      } else if (!spareShortage) {
+        this._spareShortageLogged = false;
+      }
     }
 
     // Tick all running beamlines
@@ -4247,10 +4496,13 @@ export class Game {
     // Update aggregate state for objectives/economy/renderers
     this._updateAggregateBeamline();
 
-    // Technician auto-repair (across all beamlines)
-    if (this.state.staff.technician > 0 && this.state.tick % 5 === 0) {
-      this._autoRepair();
-    }
+    // Repair is now exclusively the completion effect of a technician's own
+    // 'repair' job (see src/game/staff/jobEffects/repair.js, wired via
+    // assignJobs/tickJobs above) — there is no separate facility-wide
+    // auto-heal pass here anymore. The old flat-rate version of this ran on
+    // a bare technician-count timer regardless of whether anyone was
+    // actually dispatched to the broken component, or whether there were
+    // any spares on hand to fix it with.
 
     // Research progress (delegates to research module)
     const researchCompleted = research.tickResearch(
@@ -4428,17 +4680,48 @@ export class Game {
       econ.beamlines++;
     }
 
-    // Data from detectors (physics-driven)
+    // Data from detectors (physics-driven). Task 6 (staff-professions-3,
+    // jobs-and-gates): sciMult used to be `1 + state.staff.scientist * 0.1`
+    // — a bonus for merely HAVING scientists on the roster, whether or not
+    // any of them were doing anything. It now reads the summed efficiency
+    // of scientists actually in phase 'work' on a takeData job this tick,
+    // published by jobRunner.js's tickJobs (see state.staffDataEfficiency's
+    // own comment there). No working scientist -> 0 -> no data gain at all,
+    // full stop; a working one scales this directly by their efficiency,
+    // same as every other work job in the game.
+    //
+    // Fix round 1 (coordinator review): divided by the number of currently
+    // RUNNING beamlines (floored at 1, so a call against an unregistered
+    // beamline — this method's own unit tests — divides by 1, i.e. no
+    // change). state.staffDataEfficiency is a facility-wide total (see that
+    // field's own comment on why it isn't bound to one specific beamline),
+    // and this method runs once per running beamline — multiplying the SAME
+    // undivided total onto every one of them made total facility data scale
+    // with beamline count for free: measured live, two beamlines each
+    // independently credited the full 10.00/tick a single scientist's
+    // efficiency implied, and 1/2/4/8 lines gave 10/20/40/80 from that same
+    // one scientist. Dividing here means the total the facility earns from
+    // a given roster of scientists no longer depends on how many lines
+    // their output happens to be spread across.
+    const runningBeamlineCount = Math.max(1, (this.registry.getAll() || []).filter(e => e.status === 'running').length);
+    const sciMult = (this.state.staffDataEfficiency || 0) / runningBeamlineCount;
     if (connectedDataRate > 0) {
-      const sciMult = 1 + this.state.staff.scientist * 0.1;
       const dataGain = connectedDataRate * sciMult;
       this.state.resources.data += dataGain;
       bs.totalDataCollected += dataGain;
     }
 
-    // Photon data from undulators (bonus data, scaled down)
+    // Photon data from undulators (bonus data, scaled down). Fix round 1
+    // (coordinator review): this used to add data with NO scientist check
+    // at all — measured live with zero working scientists, the detector
+    // half correctly paid 0 but this half still paid 4.50/tick, a real
+    // route around the "no scientist -> no data" gate the brief calls for.
+    // Gated by the same sciMult as the detector half above, for the same
+    // reason: it is data collection, same as the detector's own, and there
+    // is no version of "no scientist -> no data" that carves out an
+    // exception for undulators specifically.
     if (bs.photonRate > 0) {
-      const photonData = bs.photonRate * 0.1 * bs.beamQuality;
+      const photonData = bs.photonRate * 0.1 * bs.beamQuality * sciMult;
       this.state.resources.data += photonData;
       bs.totalDataCollected += photonData;
     }
@@ -4539,33 +4822,6 @@ export class Game {
     }
   }
 
-  _autoRepair() {
-    // RimWorld-like: technicians assigned to maintenance, efficiency matters
-    let repairRate = 0;
-    for (const m of (this.state.staffMembers || []).filter(s => s.profession === 'technician' && s.status === 'working')) {
-      const tier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-      // ensure instance
-      if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
-      repairRate += 2 * m.efficiency(tier);
-    }
-    // fallback to legacy count if no individual pawns (old saves)
-    if (repairRate === 0) repairRate = (this.state.staff?.technician || 0) * 2;
-    let remaining = repairRate;
-    // Iterate all beamlines' elements
-    for (const entry of this.registry.getAll()) {
-      const elements = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
-      for (const node of elements) {
-        if (remaining <= 0) return;
-        const health = entry.beamState.componentHealth[node.id];
-        if (health !== undefined && health < 100) {
-          const repair = Math.min(remaining, 100 - health);
-          entry.beamState.componentHealth[node.id] += repair;
-          remaining -= repair;
-        }
-      }
-    }
-  }
-
   getComponentHealth(id) {
     // Search all beamlines for this component's health
     for (const entry of this.registry.getAll()) {
@@ -4587,9 +4843,18 @@ export class Game {
     const idx = (this.state.staffCandidates || []).findIndex(c => c.id === candidateId);
     if (idx === -1) { this.log('Candidate not found', 'bad'); return false; }
     const cand = this.state.staffCandidates[idx];
-    const cost = staffHireCost(cand, this.state.staffCosts);
+    // Task 7 (staff-professions-3, jobs-and-gates): an admin's accumulated
+    // paperwork discount (jobEffects/paperwork.js), applied to whichever
+    // hire happens next and spent in full regardless of outcome — see
+    // state.staffHireDiscount's own comment at its declaration. Spent even
+    // in sandbox mode: the discount describes "a hire happened", not a
+    // charge, and sandbox mode's own contract only ever waives charges (see
+    // repair.js's identical sandbox reasoning for its own one spend).
+    const discount = this.state.staffHireDiscount || 0;
+    const cost = Math.round(staffHireCost(cand, this.state.staffCosts) * (1 - discount));
     if (!this.sandboxMode && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
     this.chargeConstruction(cost);
+    this.state.staffHireDiscount = 0;
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
     m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.profession}` }];
     this.state.staffMembers.push(m);
@@ -4631,12 +4896,20 @@ export class Game {
   hireStaff(profession) {
     // compat: generate a random member of that profession
     if (!this.state.staff[profession] && this.state.staff[profession] !== 0) return false;
-    const hireCost = this.state.staffCosts[profession] * 10; // 10 ticks upfront
+    // Same discount hireStaffMember applies (see that method's own comment)
+    // — this is a SECOND hiring route (used by the RL agent's action space,
+    // src/game/agent/actions.js), and a discount that only ever discounted
+    // one of the two would be exactly the kind of unguarded route this
+    // plan's own hazard review keeps finding: a real way to hire that never
+    // sees the benefit an admin's paperwork is supposed to buy every hire.
+    const discount = this.state.staffHireDiscount || 0;
+    const hireCost = Math.round(this.state.staffCosts[profession] * 10 * (1 - discount)); // 10 ticks upfront
     if (!this.sandboxMode && this.state.resources.funding < hireCost) {
       this.log(`Can't afford to hire (need $${hireCost})`, 'bad');
       return false;
     }
     this.chargeConstruction(hireCost);
+    this.state.staffHireDiscount = 0;
     const m = createStaffMember(profession, `staff_${this.state.staffNextId++}`, this.state.tick, this.rng);
     this.state.staffMembers.push(m);
     this._syncStaffCounts();
@@ -5129,7 +5402,22 @@ export class Game {
     for (const z of this.state.zones) {
       this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
     }
-    this.state.zoneConnectivity = {};
+    // Task 6 (staff-professions-3, jobs-and-gates): this used to
+    // unconditionally reset state.zoneConnectivity to {} right here, before
+    // recomputing — harmless when every field was purely derived from
+    // `zones`, but staffedOutput/peakTier are accumulated sim progress
+    // (see SERIALIZED_FIELDS/UNDO_PRESERVED_FIELDS' own comments on this
+    // same field) with no other record anywhere, so wiping the object first
+    // discarded them right before recomputeZoneConnectivity's own carry-
+    // forward logic ever got a chance to read them — on EVERY load and
+    // EVERY undo/redo, not just a rare edge case. By this point
+    // this.state.zoneConnectivity already holds the correct source to carry
+    // forward from: the just-loaded save's value (Object.assign(this.state,
+    // data.state) above) on a fresh load, or the live, not-yet-overwritten
+    // value (Object.assign(this.state, preserved) above) on undo/redo.
+    // recomputeZoneConnectivity() still rebuilds every DERIVED field
+    // (active/tileCount/tileTier/tier) from `zones`/`zoneOccupied` fresh
+    // regardless, so a stale save's derived numbers can never leak through.
     this.recomputeZoneConnectivity();
     // Discard legacy connections data from old saves
     delete this.state.connections;

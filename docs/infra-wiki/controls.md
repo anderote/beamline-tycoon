@@ -31,7 +31,7 @@ MPS is not a hard gate — you can run without it. But **without an MPS anywhere
 
 > **Known limitation:** the PPS interlock, area monitor and shielding have **no gating effect**. There is no PPS presence check and no shielding-vs-beam-power requirement anywhere in the tick loop. You can run beam with none of them. They are placeable, billable, and currently inert. Only the MPS wear multiplier is live.
 >
-> The one live "human" gate is staffing: a beamline with no active operator in the Control Room trips (`beam_unstaffed`). Operators who are on break, off-shift, assigned elsewhere or too fatigued don't count — build a cafeteria.
+> The one live "human" gate is staffing: a beamline with no active operator in the Control Room trips (`beam_unstaffed`). Operators who are off-shift, assigned elsewhere, mid stress-breakdown, or currently eating/resting instead of seated at their console don't count — a cafeteria and rest area near the control room keep operators cycling back to their console faster, so build one.
 
 ### Data Flow
 
@@ -68,6 +68,6 @@ health   -= base_wear x wear_mult
 ```
 Below 20% health, each wear tick has a 5% chance of outright failure.
 
-**Staffing gate:** at least one operator with status `working`, assigned to the Control Room (or unassigned), fatigue below 0.85. Otherwise the beam trips.
+**Staffing gate:** at least one operator with status `working`, actively seated and running the beam at a console. Fatigue and hunger level are not checked directly — an operator only drops out of coverage once a need is bad enough to pull them off the console onto an eat/rest job (or a stress breakdown). Otherwise the beam trips.
 
 **Not implemented:** PPS presence check, shielding-per-kilowatt requirement, timing-system requirement for pulsed devices, circulator and modulator requirements.
