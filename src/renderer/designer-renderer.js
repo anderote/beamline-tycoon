@@ -4,6 +4,7 @@
 import { BeamlineDesigner } from '../ui/BeamlineDesigner.js';
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
+import { BeamPhysics } from '../beamline/physics.js';
 import { formatEnergy } from '../data/units.js';
 import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
@@ -810,6 +811,47 @@ function _plottable(env) {
   return env && env.length >= 2 ? env : null;
 }
 
+/**
+ * The empty-panel state, which used to be a flat "No beam data" for three very
+ * different situations: a draft with nothing in it, a physics engine that
+ * raised, and a beamline the engine genuinely found no beam on. The first two
+ * are faults and the third is a result, and reading them as one another sent a
+ * real debugging session chasing the beamline instead of the exception.
+ */
+function _drawNoDataPlaceholder(ctx, w, h, designer) {
+  ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = 'center';
+
+  const err = BeamPhysics.getLastError ? BeamPhysics.getLastError() : null;
+  const empty = !designer.draftNodes || designer.draftNodes.length === 0;
+
+  let head = 'No beam data';
+  let detail = null;
+  if (empty) {
+    head = 'No components yet';
+  } else if (err) {
+    head = 'Physics engine error';
+    detail = err;
+  }
+
+  ctx.fillStyle = err ? 'rgba(220, 110, 110, 0.85)' : 'rgba(100, 100, 150, 0.5)';
+  ctx.font = '10px monospace';
+  ctx.fillText(head, w / 2, detail ? h / 2 - 16 : h / 2);
+
+  if (!detail) return;
+  // Wrap the exception text at whatever the panel can hold; the tail of a
+  // traceback is the useful part, so keep the last lines if it overflows.
+  ctx.font = '8px monospace';
+  ctx.fillStyle = 'rgba(190, 160, 160, 0.8)';
+  const perLine = Math.max(8, Math.floor(w / 5) - 2);
+  const lines = [];
+  for (let i = 0; i < detail.length && lines.length < 8; i += perLine) {
+    lines.push(detail.slice(i, i + perLine));
+  }
+  lines.forEach((ln, i) => ctx.fillText(ln, w / 2, h / 2 - 2 + i * 10));
+}
+
 BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
@@ -861,13 +903,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
     off.height = plotH;
 
     if (!solid) {
-      const ctx = off.getContext('2d');
-      ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
-      ctx.fillRect(0, 0, plotW, plotH);
-      ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('No beam data', plotW / 2, plotH / 2);
+      _drawNoDataPlaceholder(off.getContext('2d'), plotW, plotH, this);
     } else {
       // Both passes get the union of the two autoscales. Without it each pass
       // would autoscale to its own envelope and the two curves would be drawn

@@ -37,6 +37,32 @@ function musicManifestPlugin() {
   };
 }
 
+// TEMPORARY (debugging the designer's "No beam data"): a dev-only sink that
+// appends whatever the app POSTs to node_modules/.cache/bt-diag.log, so a
+// failure that only reproduces in a live save can be read off disk instead of
+// copied out of the console. Remove once that bug is closed.
+function diagSinkPlugin() {
+  const logPath = path.resolve('node_modules/.cache/bt-diag.log');
+  return {
+    name: 'bt-diag-sink',
+    configureServer(server) {
+      server.middlewares.use('/__diag', (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          try {
+            fs.mkdirSync(path.dirname(logPath), { recursive: true });
+            fs.appendFileSync(logPath, body + '\n');
+          } catch (_) { /* diagnostics must never break the page */ }
+          res.setHeader('Content-Type', 'application/json');
+          res.end('{"ok":true}');
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: '.',
   publicDir: 'public',
@@ -47,7 +73,7 @@ export default defineConfig({
       '/api': 'http://localhost:8001',
     },
   },
-  plugins: [musicManifestPlugin()],
+  plugins: [musicManifestPlugin(), diagSinkPlugin()],
   build: {
     outDir: 'dist',
   },

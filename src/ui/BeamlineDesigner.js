@@ -1998,6 +1998,31 @@ export class BeamlineDesigner {
     researchEffects.machineType = this._machineTypeForDraft();
 
     const result = BeamPhysics.compute(physicsBeamline, researchEffects);
+
+    // TEMPORARY (debugging "No beam data"): report every unplottable outcome to
+    // the dev sink in vite.config.js, including the branches BeamPhysics itself
+    // never sees — a payload that emptied out, or a result whose envelope came
+    // back too short to draw. Remove with the sink.
+    if (import.meta.env.DEV && (!result || !result.envelope || result.envelope.length < 2)) {
+      try {
+        fetch('/__diag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind: 'designer-envelope-null',
+            ready: BeamPhysics.isReady(),
+            lastError: BeamPhysics.getLastError ? BeamPhysics.getLastError() : null,
+            nodeCount: nodes.length,
+            nodeTypes: nodes.map(n => n.type),
+            payloadCount: physicsBeamline.length,
+            envelopeLength: result && result.envelope ? result.envelope.length : null,
+            beamline: physicsBeamline,
+            effects: researchEffects,
+          }),
+        }).catch(() => {});
+      } catch (_) { /* never let diagnostics break the designer */ }
+    }
+
     return result ? result.envelope : null;
   }
 

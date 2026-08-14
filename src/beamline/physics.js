@@ -8,6 +8,12 @@ export const BeamPhysics = (() => {
   let pyodide = null;
   let ready = false;
   let loading = false;
+  // Why the last compute() returned null, or null if the last one succeeded.
+  // compute() swallows every failure into a bare null, and the only trace was
+  // a console.error that a busy console buries — a beamline whose physics
+  // raised looked exactly like a beamline with no beam. Callers that render
+  // the absence (the designer's plot panels) read this to say WHICH it was.
+  let lastError = null;
 
   // Python source files to load
   const PY_MODULES = [
@@ -82,6 +88,7 @@ from beam_physics.gameplay import compute_beam_for_game
 
   function compute(gameBeamline, researchEffects) {
     if (!ready) {
+      lastError = 'Physics engine still loading';
       console.warn('BeamPhysics not ready');
       return null;
     }
@@ -100,9 +107,32 @@ from beam_physics.gameplay import compute_beam_for_game
       const resultJson = pyodide.runPython(
         'compute_beam_for_game(beamline_json, effects_json)'
       );
+      lastError = null;
       return JSON.parse(resultJson);
     } catch (err) {
-      console.error('BeamPhysics compute error:', err);
+      // A PythonError's message IS the traceback; its last non-empty line is
+      // the exception itself, which is the part worth showing in a UI.
+      const full = String((err && err.message) || err);
+      lastError = full.trim().split('\n').filter(Boolean).pop() || full;
+      console.error('BeamPhysics compute error:', lastError, '\n', full,
+        '\nbeamline:', gameBeamline, '\neffects:', researchEffects);
+      // TEMPORARY: mirror the traceback and the exact payload to the dev
+      // server's /__diag sink (vite.config.js), so a failure that only happens
+      // on a live save can be reproduced offline. Remove with the sink.
+      if (import.meta.env.DEV) {
+        try {
+          fetch('/__diag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              kind: 'physics-compute-error',
+              error: full,
+              beamline: gameBeamline,
+              effects: researchEffects,
+            }),
+          }).catch(() => {});
+        } catch (_) { /* never let diagnostics break the caller */ }
+      }
       return null;
     }
   }
@@ -111,5 +141,10 @@ from beam_physics.gameplay import compute_beam_for_game
     return ready;
   }
 
-  return { init, compute, isReady };
+  /** Why the last compute() returned null; null after a successful one. */
+  function getLastError() {
+    return lastError;
+  }
+
+  return { init, compute, isReady, getLastError };
 })();
