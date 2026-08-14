@@ -25,6 +25,7 @@ import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
 import { buildPortRoutedPath, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
+import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
@@ -64,6 +65,7 @@ export class UtilityLineInputController {
     this._drawPath = [];     // tile-coord path for preview
     this._preferVerticalFirst = false;
     this._preview = null;    // { utilityType, path, color } while dragging
+    this._dragReject = null; // validator reason the current drag would fail on
     this._hoverPort = null;  // { placeableId, portName, worldPos, utilityType }
 
     // Run-wiring (modifier held): the drag sweeps a corridor and every
@@ -115,6 +117,12 @@ export class UtilityLineInputController {
 
   // Public: the port the cursor is snapped to (null if none).
   get hoverPort() { return this._hoverPort; }
+
+  // Public: player-facing reason the drag as it stands would be REFUSED, or
+  // null when it would commit. Read by the tool for the drag tooltip.
+  get dragReject() {
+    return this._dragReject ? reasonMessage(this._dragReject) : null;
+  }
 
   // Public: the run-wiring plan the current drag would commit, or null when
   // the drag is an ordinary single line. The tool layer reads `stubs.length`
@@ -246,6 +254,7 @@ export class UtilityLineInputController {
 
   _cancelDraw() {
     this._drawing = false;
+    this._dragReject = null;
     this._drawStart = null;
     this._drawPath = [];
     this._preview = null;
@@ -322,6 +331,7 @@ export class UtilityLineInputController {
 
     let chosen = null;
     let fallback = null;
+    let reason = null;
     for (const vf of [this._preferVerticalFirst, !this._preferVerticalFirst]) {
       const raw = buildPortRoutedPath(
         startTile, this._anchorVec(this._drawStart),
@@ -334,7 +344,12 @@ export class UtilityLineInputController {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
       });
       if (res.ok) { chosen = path; break; }
+      if (!reason) reason = res.reason;
     }
+    // Why the gesture would be refused, for the drag tooltip. The commit path
+    // logs this too, but the log has no on-screen surface — leaving "release
+    // and nothing happens" as the only feedback the player ever got.
+    this._dragReject = chosen ? null : reason;
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds,
       path: chosen || fallback,

@@ -409,6 +409,7 @@ export class Game {
       solveRunner: this.solveRunner,
       getPorts: getUtilityPortsV2,
       rng: () => this.rng(),
+      log: (msg, kind) => this.log(msg, kind),
     });
     // Signature of the nodeQualities the last full physics pass was built
     // against (see _syncPhysicsToNodeQualities). '' is the signature of "no

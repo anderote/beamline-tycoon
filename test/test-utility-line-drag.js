@@ -18,7 +18,7 @@ import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
-import { UTILITY_LINE_Y } from '../src/utility/line-geometry.js';
+import { utilityLineHeight } from '../src/utility/registry.js';
 import { portWorldPosition, portSide } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso } from '../src/renderer/grid.js';
@@ -272,8 +272,43 @@ console.log('\n--- 5. The tool picks on the cable plane, not the floor ---');
   const planePicks = seen.filter(s => s[0] === 'plane');
   assert(planePicks.length === 3,
     `down/move/up all pick on the cable plane (got ${planePicks.length})`);
-  assert(planePicks.every(p => p[3] === UTILITY_LINE_Y),
-    `at exactly UTILITY_LINE_Y (${UTILITY_LINE_Y})`);
+  assert(planePicks.every(p => p[3] === utilityLineHeight('powerCable')),
+    `at exactly the armed utility's run height (${utilityLineHeight('powerCable')})`);
+}
+
+{
+  // Run heights are per utility now — a power cord lies on the floor while a
+  // vacuum pipe rides at working height — so the pick plane has to follow the
+  // ARMED tool, not one global constant. A shared plane would put one of the
+  // two back to landing off-cursor.
+  const heights = {};
+  for (const type of ['powerCable', 'vacuumPipe']) {
+    const game = makeGame();
+    const tool = new UtilityLineTool(type);
+    const ctrl = new UtilityLineInputController({ game, renderer: {} });
+    ctrl.setUtilityType(type);
+    const renderer = {
+      screenToWorld: (x, y) => ({ x, y }),
+      screenToWorldAtHeight: (x, y, h) => { heights[type] = h; return { x, y }; },
+      updateHover() {}, _renderCursors() {}, _clearGridOverlay() {},
+    };
+    const ctx = {
+      game, renderer,
+      input: {
+        utilityLineController: ctrl,
+        lastMouseWorldX: 0, lastMouseWorldY: 0, _lastScreenX: 0, _lastScreenY: 0,
+        _checkHoverTooltip() {}, _showDragCostTooltip() {}, _hideDragCostTooltip() {},
+      },
+    };
+    tool.onMouseDown({ clientX: 10, clientY: 20, button: 0, shiftKey: false }, ctx);
+  }
+  assert(heights.powerCable === utilityLineHeight('powerCable')
+    && heights.vacuumPipe === utilityLineHeight('vacuumPipe'),
+    `each tool picks at its own utility's height (${JSON.stringify(heights)})`);
+  assert(heights.powerCable !== heights.vacuumPipe,
+    'and those are genuinely different planes');
+  assert(heights.powerCable < 0.1,
+    `the power cord runs on the floor (${heights.powerCable} m)`);
 }
 
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');
@@ -356,7 +391,54 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   assert(powerLines(game).length === 0, 'committing nothing');
 }
 
-console.log('\n--- 7. Genuinely invalid gestures are still refused ---');
+console.log('\n--- 7. A drag that will be refused says so before the release ---');
+{
+  // Overlap is the refusal the player hits constantly once a facility has a
+  // few runs in it, and the only feedback was the gesture doing nothing: the
+  // commit logs a reason, but nothing in the game renders the log.
+  const game = makeGame();
+  const src = portTile(game, 'src_1', 'pwr_out');
+  drag(game, src, portTile(game, 'pl_2', 'pwr_in'));
+  assert(powerLines(game).length === 1, 'a first line, claiming pl_2\'s inlet');
+
+  // Aim a second line at the inlet that is already taken. The cursor cannot
+  // normally snap to it (a claimed sink is not offered), so the anchor is set
+  // directly — this is about the controller CAPTURING the validator's reason
+  // and exposing it, which is the part the tooltip depends on.
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('powerCable');
+  ctrl._drawing = true;
+  ctrl._drawStart = {
+    placeableId: 'pl_2', portName: 'pwr_in',
+    worldPos: { x: portTile(game, 'pl_2', 'pwr_in').col * 2, z: portTile(game, 'pl_2', 'pwr_in').row * 2 },
+  };
+  ctrl._runTrace = [];
+  const away = gridToIso(12, 12);
+  ctrl._dragGeometry(away.x, away.y, null);
+  const reject = ctrl.dragReject;
+  assert(typeof reject === 'string' && reject.length > 0,
+    `the controller captures why it would be refused (${reject})`);
+  assert(/already connected/.test(reject), `in the player's words (${reject})`);
+
+  ctrl.onEscape();
+  assert(ctrl.dragReject === null, 'and the reason clears with the gesture');
+}
+
+{
+  // A drag that WILL commit must not cry wolf.
+  const game = makeGame();
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('powerCable');
+  const src = portTile(game, 'src_1', 'pwr_out');
+  const sink = portTile(game, 'pl_3', 'pwr_in');
+  const a = gridToIso(src.col, src.row);
+  const b = gridToIso(sink.col, sink.row);
+  ctrl.onMouseDown(a.x, a.y, 0, {});
+  ctrl.onMouseMove(b.x, b.y, {});
+  assert(ctrl.dragReject === null, 'a valid drag reports no refusal');
+}
+
+console.log('\n--- 8. Genuinely invalid gestures are still refused ---');
 {
   // Port onto itself: no line, no charge.
   const game = makeGame();

@@ -97,7 +97,7 @@ function pickPortPos(newPortPos, portName) {
 
 // Map validator reason codes → player-facing messages. Same pattern as
 // BeamlineSystem.REASON_MESSAGES.
-const REASON_MESSAGES = {
+export const REASON_MESSAGES = {
   invalid_path:         'path has fewer than 2 points',
   not_manhattan:        'path must use 90° bends only',
   overlap_same_type:    'another line of this type already runs here',
@@ -109,7 +109,7 @@ const REASON_MESSAGES = {
   port_mismatch_end:    "line doesn't align with end port direction",
 };
 
-function reasonMessage(r) { return REASON_MESSAGES[r] || r; }
+export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }
 
 export class UtilityLineSystem {
   constructor(opts = {}) {

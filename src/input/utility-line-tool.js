@@ -13,8 +13,7 @@
 
 import { Tool } from './Tool.js';
 import { isoToGrid } from '../renderer/grid.js';
-import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
-import { UTILITY_TYPES } from '../utility/registry.js';
+import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 
 export class UtilityLineTool extends Tool {
   constructor(utilityType) {
@@ -118,15 +117,17 @@ export class UtilityLineTool extends Tool {
     ctx.input._hideDragCostTooltip?.();
   }
 
-  // Where the cursor lands ON THE CABLE PLANE. Lines are drawn at
-  // UTILITY_LINE_Y, so picking against the ground would offset every cable a
-  // fixed distance up-screen from the mouse. The floor-level pick is still the
-  // right one for tile hover and hover tooltips, which are about what is under
-  // the cursor on the ground — hence two conversions, not one.
+  // Where the cursor lands ON THE PLANE THIS UTILITY RUNS AT. Picking against
+  // the ground while drawing at height offsets every line a fixed distance
+  // up-screen from the mouse, and the offset differs per utility now that a
+  // power cord lies on the floor and a vacuum pipe rides at working height.
+  // The floor-level pick is still the right one for tile hover and hover
+  // tooltips, which are about what is under the cursor on the ground — hence
+  // two conversions, not one.
   _cableWorld(e, ctx) {
     const r = ctx.renderer;
     return r.screenToWorldAtHeight
-      ? r.screenToWorldAtHeight(e.clientX, e.clientY, UTILITY_LINE_Y)
+      ? r.screenToWorldAtHeight(e.clientX, e.clientY, utilityLineHeight(this.utilityType))
       : r.screenToWorld(e.clientX, e.clientY);
   }
 
@@ -190,6 +191,17 @@ export class UtilityLineTool extends Tool {
     const ctrl = ctx.input.utilityLineController;
     const plan = ctrl.runPlan;
     const cost = ctrl.dragCost;
+    // A refusal outranks the price: a drag that will be thrown away has to say
+    // so BEFORE the release, or the gesture just silently does nothing. (The
+    // commit logs the same reason, but nothing in the game renders the log.)
+    const reject = ctrl.dragReject;
+    if (screenX != null && reject && (!plan || plan.stubs.length === 0)) {
+      ctx.input._showDragCostTooltip?.(0, screenX, screenY, {
+        note: `can't place: ${reject}`,
+        insufficientFunding: true,
+      });
+      return;
+    }
     if (screenX == null || ((!plan || plan.stubs.length === 0) && cost <= 0)) {
       ctx.input._hideDragCostTooltip?.();
       return;

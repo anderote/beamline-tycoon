@@ -132,7 +132,12 @@ export class UtilityGate {
     this.solveRunner = opts.solveRunner;
     this.getPorts = opts.getPorts;
     this.rng = opts.rng || Math.random;
+    // Player-facing message sink. Soft errors used to reach console.warn and
+    // nowhere else, so an overloaded network announced itself ONLY by
+    // recolouring its cables — a signal with no legend and no explanation.
+    this.log = opts.log || (() => {});
     this._lastErrHash = '';
+    this._loggedSoft = new Set();
     // Topology cache — the unconnected-sink report AND the declared-sink
     // floor are pure topology (endpoints x port tables x lines), so both ride
     // the SolveRunner's topologyRevision: recomputed only when the revision
@@ -361,6 +366,22 @@ export class UtilityGate {
   // Console-warn only when the error-count signature changes, so a persistent
   // fault doesn't spam every tick.
   _dedupLog(hardErrs, softErrs) {
+    // Soft errors are the ones the player never hears about: they do not block
+    // the beam, so nothing in the HUD claims them, and the only trace was the
+    // amber pulse on the affected run. Announce each distinct one once, and
+    // forget it when it clears so a re-overload speaks again.
+    const seen = new Set();
+    for (const e of softErrs) {
+      const key = `${e.code}|${e.location?.networkId || ''}`;
+      seen.add(key);
+      if (this._loggedSoft.has(key)) continue;
+      this._loggedSoft.add(key);
+      this.log(e.message || e.code, 'warn');
+    }
+    for (const key of [...this._loggedSoft]) {
+      if (!seen.has(key)) this._loggedSoft.delete(key);
+    }
+
     const hash = `${hardErrs.length}|${softErrs.length}`;
     if (hash !== this._lastErrHash && (hardErrs.length || softErrs.length)) {
       this._lastErrHash = hash;

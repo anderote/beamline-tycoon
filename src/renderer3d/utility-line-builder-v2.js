@@ -15,13 +15,16 @@
 import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
-import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../utility/registry.js';
 import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 
-// Line centerline height above ground. Owned by line-geometry because it is
-// also the plane the utility TOOL has to pick against: the cursor is projected
-// onto the ground at y=0, so a tool that draws at 0.5 m and picks at 0 m puts
-// its geometry a fixed 15-25 px up-screen of the mouse under the iso camera.
+// DEFAULT line centerline height. Per-utility heights come from
+// utilityLineHeight (registry): a power cord lies on the floor while a vacuum
+// pipe rides at working height. Owned by line-geometry because the height is
+// also the plane the utility TOOL has to pick against — the cursor is
+// projected onto the ground at y=0, so a tool that draws at 0.5 m and picks at
+// 0 m puts its geometry a fixed 15-25 px up-screen of the mouse under the iso
+// camera. Kept here for the marker fallbacks, which are not per-line.
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 
@@ -43,8 +46,16 @@ function shared(mat) {
   return mat;
 }
 
-function getLineMaterial(utilityType, errorStatus) {
-  const key = matKey(utilityType, errorStatus);
+// A line's colour is its UTILITY, always and only.
+//
+// Faults used to recolour the pipe — an amber emissive over green renders as
+// solid yellow, which reads as "this is a different kind of pipe" rather than
+// "this run is faulted", and the blend lands on a different hue for each of
+// the six utilities so there is nothing to learn. The fault is a SYMBOL now
+// (buildFaultMark, below): a red X struck over the run, one shape that means
+// the same thing on every colour of pipe.
+export function getLineMaterial(utilityType, _errorStatus) {
+  const key = matKey(utilityType, 'ok');
   if (_matCache.has(key)) return _matCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
@@ -53,19 +64,12 @@ function getLineMaterial(utilityType, errorStatus) {
     roughness: 0.4,
     metalness: 0.3,
   });
-  if (errorStatus === 'hard') {
-    mat.emissive = new THREE.Color(0xff2222);
-    mat.emissiveIntensity = 0.7;
-  } else if (errorStatus === 'soft') {
-    mat.emissive = new THREE.Color(0xffaa22);
-    mat.emissiveIntensity = 0.5;
-  }
   _matCache.set(key, shared(mat));
   return mat;
 }
 
-function getJacketMaterial(utilityType, errorStatus) {
-  const key = matKey(utilityType, errorStatus);
+function getJacketMaterial(utilityType, _errorStatus) {
+  const key = matKey(utilityType, 'ok');
   if (_jacketMatCache.has(key)) return _jacketMatCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
@@ -74,13 +78,6 @@ function getJacketMaterial(utilityType, errorStatus) {
     roughness: 0.5, metalness: 0.1,
     transparent: true, opacity: 0.35,
   });
-  if (errorStatus === 'hard') {
-    mat.emissive = new THREE.Color(0xff2222);
-    mat.emissiveIntensity = 0.6;
-  } else if (errorStatus === 'soft') {
-    mat.emissive = new THREE.Color(0xffaa22);
-    mat.emissiveIntensity = 0.4;
-  }
   _jacketMatCache.set(key, shared(mat));
   return mat;
 }
@@ -97,26 +94,28 @@ function buildWorldPoints(line, placeablesById) {
   const points = [];
   const path = line.path || [];
   if (path.length === 0) return points;
+  const runY = utilityLineHeight(line.utilityType);
   for (const pt of path) {
     const w = tileToWorld(pt);
-    points.push(new THREE.Vector3(w.x, PIPE_Y, w.z));
+    points.push(new THREE.Vector3(w.x, runY, w.z));
   }
-  // Pin each anchored end to its port and give it a riser: the run stays at
-  // PIPE_Y until it is under the port, then climbs the device and steps out
-  // into the connector. Without this the cable stopped half a metre off the
-  // floor beside the equipment, which is what made wiring look like annotation
-  // rather than plumbing.
-  const startRiser = portRiser(line.start, placeablesById);
+  // Pin each anchored end to its port and give it a riser: the run stays at its
+  // own height until it is under the port, then climbs the device and steps out
+  // into the connector. Without this the cable stopped short beside the
+  // equipment, which is what made wiring look like annotation rather than
+  // plumbing — and with a floor-level cable the riser IS the drop from the
+  // machine down to the deck.
+  const startRiser = portRiser(line.start, placeablesById, runY);
   if (startRiser) points.splice(0, 1, ...startRiser.slice().reverse());
-  const endRiser = portRiser(line.end, placeablesById);
+  const endRiser = portRiser(line.end, placeablesById, runY);
   if (endRiser && points.length > 0) points.splice(points.length - 1, 1, ...endRiser);
   return points;
 }
 
-// The 3-point tail that takes a cable from the run height into a port's
-// connector: under the port at PIPE_Y → up to the anchor → out along the port's
+// The 3-point tail that takes a cable from its run height into a port's
+// connector: under the port at runY → up to the anchor → out along the port's
 // normal. Ordered run-first; the start end reverses it.
-function portRiser(ref, placeablesById) {
+function portRiser(ref, placeablesById, runY) {
   if (!ref || !placeablesById) return null;
   const rec = placeablesById.get(ref.placeableId);
   if (!rec) return null;
@@ -125,8 +124,8 @@ function portRiser(ref, placeablesById) {
   if (!anchor) return null;
   const out = anchor.out || { x: 0, z: 0 };
   const d = anchor.standoff || 0;
-  const tail = [new THREE.Vector3(anchor.x, PIPE_Y, anchor.z)];
-  if (Math.abs(anchor.y - PIPE_Y) > 1e-6) {
+  const tail = [new THREE.Vector3(anchor.x, runY, anchor.z)];
+  if (Math.abs(anchor.y - runY) > 1e-6) {
     tail.push(new THREE.Vector3(anchor.x, anchor.y, anchor.z));
   }
   if (d > 0) {
@@ -187,6 +186,78 @@ function getOpenCapMaterial(utilityType) {
   return mat;
 }
 
+// --- Fault marks --------------------------------------------------------
+//
+// A faulted run is struck through with an X. One symbol, drawn the same way
+// over all six utility colours, which is the whole point: recolouring the pipe
+// made a fault look like a different KIND of pipe, and made it look different
+// on every utility. Red for a hard fault (this run is dead — unwired, cut off,
+// starved), amber for a soft one (it works, but it is over capacity).
+//
+// Drawn flat in the ground plane, depth-test off at a high renderOrder, so it
+// reads from any view rotation and nothing on the floor can hide it.
+
+const FAULT_MARK_COLORS = { hard: '#ff3322', soft: '#ffaa22' };
+const FAULT_MARK_ARM = 0.32;    // half-diagonal of the X, metres
+const FAULT_MARK_BAR = 0.075;   // bar thickness
+
+const _faultMarkMatCache = new Map();
+function getFaultMarkMaterial(severity) {
+  if (_faultMarkMatCache.has(severity)) return _faultMarkMatCache.get(severity);
+  const color = FAULT_MARK_COLORS[severity] || FAULT_MARK_COLORS.hard;
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.85,
+    roughness: 0.3, metalness: 0.0,
+    transparent: true, opacity: 0.95,
+    depthTest: false,
+  });
+  _faultMarkMatCache.set(severity, shared(mat));
+  return mat;
+}
+
+/** The X itself, centred on `pos` and lying flat. */
+function buildFaultMark(pos, severity) {
+  const mat = getFaultMarkMaterial(severity);
+  const g = new THREE.Group();
+  for (const sign of [1, -1]) {
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(FAULT_MARK_ARM * 2, FAULT_MARK_BAR * 0.6, FAULT_MARK_BAR),
+      mat,
+    );
+    bar.rotation.y = sign * Math.PI / 4;
+    bar.renderOrder = 1002;
+    g.add(bar);
+  }
+  // Clear of the run it marks rather than buried in it — the pipes now lie on
+  // the deck, so an X at run height would be half-swallowed by the cable.
+  g.position.set(pos.x, pos.y + 0.28, pos.z);
+  g.userData = { isUtilityFaultMark: true, severity };
+  return g;
+}
+
+/**
+ * Where to strike the X: the midpoint of the polyline BY LENGTH, so it lands
+ * on the run rather than on whichever waypoint happens to be central (a path
+ * with a long leg and a short one would otherwise mark the short end).
+ */
+function polylineMidpoint(points) {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) total += points[i].distanceTo(points[i + 1]);
+  if (total === 0) return points[0];
+  let walked = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const seg = points[i].distanceTo(points[i + 1]);
+    if (walked + seg >= total / 2) {
+      const t = seg === 0 ? 0 : (total / 2 - walked) / seg;
+      return points[i].clone().lerp(points[i + 1], t);
+    }
+    walked += seg;
+  }
+  return points[points.length - 1];
+}
+
 function buildLineGroup(line, placeablesById, errorStatus) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
@@ -237,6 +308,14 @@ function buildLineGroup(line, placeablesById, errorStatus) {
     group.add(cap);
   }
 
+  // Struck through when its network is faulted. Lives in the line's own group,
+  // so it is created, rebuilt and disposed with the line — the hash already
+  // carries errorStatus, so a status change rebuilds and the X appears or
+  // clears with no separate refresh path.
+  if (errorStatus && errorStatus !== 'ok') {
+    group.add(buildFaultMark(polylineMidpoint(points), errorStatus));
+  }
+
   return group;
 }
 
@@ -263,9 +342,10 @@ function buildPreviewLine(preview) {
   if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
+  const previewY = utilityLineHeight(preview.utilityType);
   const points = preview.path.map(p => {
     const w = tileToWorld(p);
-    return new THREE.Vector3(w.x, PIPE_Y, w.z);
+    return new THREE.Vector3(w.x, previewY, w.z);
   });
   const group = new THREE.Group();
   group.userData = { isUtilityLinePreview: true };
@@ -359,15 +439,17 @@ function buildHoverMarker(hoverPort) {
   // Tapping a trunk and grabbing a port are different commitments — one makes
   // a T-join on an existing run, the other claims a connector — so they must
   // not look alike. A ring around the line reads as "join here".
-  if (hoverPort.tap) return buildTapMarker(hoverPort.worldPos, color);
+  if (hoverPort.tap) {
+    return buildTapMarker(hoverPort.worldPos, color, utilityLineHeight(hoverPort.utilityType));
+  }
   const anchor = hoverPort.anchor || { ...hoverPort.worldPos, y: PIPE_Y + 0.3 };
   return buildPortMarker(anchor, color, true);
 }
 
-function buildTapMarker(worldPos, color) {
+function buildTapMarker(worldPos, color, runY) {
   const geo = new THREE.TorusGeometry(PORT_DOT_R_HOVER, PORT_DOT_R_HOVER * 0.28, 6, 14);
   const mesh = new THREE.Mesh(geo, getPortMarkerMaterial(color, true));
-  mesh.position.set(worldPos.x, PIPE_Y, worldPos.z);
+  mesh.position.set(worldPos.x, runY, worldPos.z);
   mesh.rotation.x = Math.PI / 2;           // lie flat around the run
   mesh.renderOrder = 999;
   mesh.userData = { isUtilityTapMarker: true };
@@ -683,6 +765,7 @@ export class UtilityLineBuilderV2 {
     const k = 0.6 + 0.6 * (0.5 + 0.5 * Math.sin(timeMs * 0.005));
     for (const mat of _unwiredMatCache.values()) mat.emissiveIntensity = k;
   }
+
 
   dispose(parentGroup) {
     for (const g of this._lineGroups.values()) {
