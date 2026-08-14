@@ -29,6 +29,7 @@ import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { portWorldPosition } from '../src/utility/ports.js';
+import { portAnchor3D } from '../src/utility/port-anchors.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso } from '../src/renderer/grid.js';
 
@@ -78,6 +79,24 @@ function portTile(game, placeableId, portName) {
   return { col: p.x / 2, row: p.z / 2 };
 }
 
+// Where the renderer actually draws the fitting, and where its shadow falls.
+//
+// Both are ASKED FOR rather than assumed. An earlier version of this file
+// hardcoded "the anchor sits directly above the sim point, one metre up", which
+// was only ever true by coincidence: anchors are measured against real model
+// geometry, and on-pipe placements additionally carry the renderer's tile-centre
+// offset, so the anchor is displaced horizontally too. When that offset was
+// fixed the hardcoded pixels went stale and three assertions failed — reporting
+// a regression in picking that did not exist. Deriving both points keeps this
+// file about the PICKING RULE, which is the thing it is here to defend.
+function anchorAndShadow(game, placeableId, portName) {
+  const ep = findUtilityEndpoint(game.state, placeableId);
+  const def = COMPONENTS[ep.type];
+  const anchor = portAnchor3D(ep, def, portName);
+  const sim = portWorldPosition(ep, def, portName);
+  return { anchor, shadow: { x: sim.x, y: 0, z: sim.z } };
+}
+
 // A stub renderer whose projection we control exactly, so the assertions are
 // about the PICKING rule and not about camera maths. `place` maps a 3D world
 // point to a screen pixel; every test installs one that encodes the situation
@@ -99,12 +118,13 @@ console.log('\n--- 1. The cursor grabs the port it is over, not the one whose sh
   ctrl.setUtilityType('powerCable');
 
   const src = portTile(game, 'pl_2', 'pwr_in');
-  const world = { x: src.col * 2, z: src.row * 2 };
+  const project = (p) => ({ x: p.x * 10, y: p.z * 10 - p.y * 100 });
+  const { anchor, shadow } = anchorAndShadow(game, 'pl_2', 'pwr_in');
 
-  // Where the fitting actually appears, if the anchor is 1 m up.
-  const onPort = { x: world.x * 10, y: world.z * 10 - 1 * 100 };
+  // Where the fitting actually appears.
+  const onPort = project(anchor);
   // Where the ground-plane test used to demand you aim.
-  const onShadow = { x: world.x * 10, y: world.z * 10 };
+  const onShadow = project(shadow);
 
   const iso = gridToIso(src.col, src.row);
   const gotPort = ctrl._snapToNearestPort(iso.x, iso.y, onPort);
@@ -131,8 +151,8 @@ console.log('\n--- 2. The grab radius is a pixel budget, so zoom does not change
       renderer: stubRenderer((x, y, z) => ({ x: x * scale, y: z * scale - y * scale })),
     });
     ctrl.setUtilityType('powerCable');
-    const w = { x: src.col * 2, z: src.row * 2 };
-    const anchorPx = { x: w.x * scale, y: w.z * scale - 1 * scale };
+    const { anchor } = anchorAndShadow(game, 'pl_2', 'pwr_in');
+    const anchorPx = { x: anchor.x * scale, y: anchor.z * scale - anchor.y * scale };
 
     const near = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 10, y: anchorPx.y });
     const far = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 60, y: anchorPx.y });
@@ -188,7 +208,8 @@ console.log('\n--- 4. The committed endpoint is still the sim position, not the 
   const ep = findUtilityEndpoint(game.state, 'pl_2');
   const simPos = portWorldPosition(ep, COMPONENTS[ep.type], 'pwr_in');
   const iso = gridToIso(src.col, src.row);
-  const onPort = { x: src.col * 2 * 10, y: src.row * 2 * 10 - 100 };
+  const { anchor } = anchorAndShadow(game, 'pl_2', 'pwr_in');
+  const onPort = { x: anchor.x * 10, y: anchor.z * 10 - anchor.y * 100 };
 
   const got = ctrl._snapToNearestPort(iso.x, iso.y, onPort);
   assert(got && Math.abs(got.worldPos.x - simPos.x) < 1e-9
