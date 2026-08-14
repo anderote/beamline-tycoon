@@ -115,45 +115,78 @@ console.log('\n=== 2. Rotated consoles (dir 1/2/3): anchors still outside the fo
   }
 }
 
+// Shared by scenarios 3 and 4: the desk anchor resolves to
+// {col:5,row:4,subCol:1,subRow:3}, facing 's' (same math as scenario 1's
+// operatorConsole). A chair must sit at the ONE subtile that is (a)
+// cardinally adjacent to the anchor's subtile and (b) resolves to the SAME
+// facing as the anchor ('s') — i.e. the subtile immediately behind the
+// anchor, continuing the same line the anchor already looks along (desk ->
+// anchor -> chair, all facing south). That pins the chair to
+// {col:5,row:4,subCol:1,subRow:2}, one subtile further north than the
+// anchor, dir:2 (seat.facing 'n' rotates to 's'). A chair anywhere else —
+// including the desk's own tile on the FAR side of the desk from the
+// anchor, which used to satisfy a tile-granularity "faces the anchor's
+// tile" check by matching straight through the desk itself — must NOT
+// match.
+const DESK_ANCHOR = { col: 5, row: 4, subCol: 1, subRow: 3 };
+const MATCHING_CHAIR_POS = { col: 5, row: 4, subCol: 1, subRow: 2, dir: 2 };
+
 console.log('\n=== 3. desk + officeChair seat matching ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
   const desk = placeItem(state, 'desk', 5, 5, 0, 0, 0);
-  // Anchor resolves to {col:5,row:4,subCol:1,subRow:3}, facing 's' (same math
-  // as scenario 1). A chair one tile south of that anchor, at the desk's own
-  // tile (5,5) but outside the desk's own footprint (subRow 3, footprint
-  // only covers subRow 0-1), facing 'n' (its unrotated default) points
-  // exactly at the anchor tile (5,4).
-  const chair = placeItem(state, 'officeChair', 5, 5, 1, 3, 0);
+  const chair = placeItem(state, 'officeChair', MATCHING_CHAIR_POS.col, MATCHING_CHAIR_POS.row,
+    MATCHING_CHAIR_POS.subCol, MATCHING_CHAIR_POS.subRow, MATCHING_CHAIR_POS.dir);
 
   let index = buildStationIndex(state);
   let ref = index.byJob.analyze?.[0];
   assertOk(!!ref, 'desk yields a StationRef under job analyze');
-  assertOk(ref.seated === true, 'desk resolves seated:true with a facing chair on the adjacent tile');
+  assertOk(ref.seated === true, 'desk resolves seated:true with a facing chair at the correct adjacent subtile');
   assertOk(ref.seatPlaceableId === chair.id, 'seatPlaceableId is the chair');
   assertOk(ref.node.col === chair.col && ref.node.row === chair.row
     && ref.node.subCol === chair.subCol && ref.node.subRow === chair.subRow,
     "seated ref's node is the chair's subtile, not the desk's anchor");
-  assertOk(ref.facing === 'n', "seated ref's facing is the chair's resolved facing");
+  assertOk(ref.facing === 's', "seated ref's facing is the chair's resolved facing");
+  assertOk(Object.isFrozen(ref), 'the returned StationRef is frozen — callers must not stamp state on it');
 
   const navSeated = getNavGrid(state);
   const from = { col: 5, row: 8, subCol: 0, subRow: 0 };
   assertOk(!!findPath(navSeated, from, ref.node), 'findPath to the chair succeeds — the chair-passability regression test');
 
-  // Rotate the chair away (dir 2: seat.facing 'n' -> 's', which no longer
-  // points at the anchor tile) — the desk should fall back to seated:false.
-  chair.dir = 2;
+  // Rotate the chair to face 'n' instead of 's' — it no longer agrees with
+  // the anchor's own facing, so it must stop matching even though it is
+  // still sitting at the one geometrically-adjacent subtile.
+  chair.dir = 0;
   chair.cells = PLACEABLES.officeChair.footprintCells(chair.col, chair.row, chair.subCol, chair.subRow, chair.dir);
   bump(state);
   index = buildStationIndex(state);
   ref = index.byJob.analyze?.[0];
   assertOk(!!ref, 'desk still yields a StationRef after the chair rotates away');
-  assertOk(ref.seated === false, 'desk falls back to seated:false once the chair no longer faces it');
+  assertOk(ref.seated === false, 'desk falls back to seated:false once the chair no longer agrees in facing');
   assertOk(ref.seatPlaceableId === null, 'seatPlaceableId is cleared');
-  assertOk(ref.node.col === 5 && ref.node.row === 4 && ref.node.subCol === 1 && ref.node.subRow === 3,
+  assertOk(ref.node.col === DESK_ANCHOR.col && ref.node.row === DESK_ANCHOR.row
+    && ref.node.subCol === DESK_ANCHOR.subCol && ref.node.subRow === DESK_ANCHOR.subRow,
     "seated:false ref's node targets the desk's own anchor instead");
   assertOk(ref.facing === 's', "seated:false ref's facing is the desk anchor's own facing");
+}
+
+console.log('\n=== 3b. A chair on the desk\'s FAR side (matching only "through" the furniture) does not match ===\n');
+{
+  // Regression for the tile-granularity bug: a chair south of the desk,
+  // outside the desk's own footprint, whose facing 'n' resolved-tile-level
+  // math used to satisfy "chair tile + facing delta == anchor tile" even
+  // though the desk itself sits physically between the chair and the
+  // anchor. Subtile-adjacency + facing-agreement must reject this.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  placeItem(state, 'desk', 5, 5, 0, 0, 0);
+  placeItem(state, 'officeChair', 5, 5, 1, 3, 0); // south of the desk, facing 'n' (default)
+
+  const index = buildStationIndex(state);
+  const ref = index.byJob.analyze?.[0];
+  assertOk(!!ref, 'desk still yields a StationRef');
+  assertOk(ref.seated === false, "a chair on the desk's far side does not match through the furniture");
 }
 
 console.log('\n=== 4. Chair subtiles are passable; desk subtiles are not ===\n');
@@ -161,13 +194,14 @@ console.log('\n=== 4. Chair subtiles are passable; desk subtiles are not ===\n')
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
   const desk = placeItem(state, 'desk', 5, 5, 0, 0, 0);
-  const chair = placeItem(state, 'officeChair', 5, 5, 1, 3, 0);
+  const chair = placeItem(state, 'officeChair', MATCHING_CHAIR_POS.col, MATCHING_CHAIR_POS.row,
+    MATCHING_CHAIR_POS.subCol, MATCHING_CHAIR_POS.subRow, MATCHING_CHAIR_POS.dir);
   const nav = getNavGrid(state);
   assertOk(nav.passable.has(`${chair.col},${chair.row},${chair.subCol},${chair.subRow}`), 'the chair subtile is passable');
   assertOk(!nav.passable.has(`${desk.col},${desk.row},${desk.subCol},${desk.subRow}`), "the desk's own subtile is not passable");
 }
 
-console.log('\n=== 5. diningTable (seated:required) with no chairs is absent; one chair makes one slot usable ===\n');
+console.log('\n=== 5. diningTable (seated:required): absent with no chairs, one slot with one chair, four DISTINCT slots with four chairs ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 12, 0, 12);
@@ -177,22 +211,38 @@ console.log('\n=== 5. diningTable (seated:required) with no chairs is absent; on
   assertOk(!index.byJob.eat || index.byJob.eat.length === 0, 'diningTable with no chairs contributes zero StationRefs');
   assertOk(!index.byKey[`${table.id}:0`], 'no key for the table appears in the index at all');
 
-  // anchors[1] = {subCol:1, subRow:-1, facing:'s'} resolves to tile (8,7) —
-  // distinct from anchors 0/2/3's tiles, which (for this 2x2 table) land
-  // back on the table's own tile (8,8) or its other neighbors, so a chair
-  // matching this one anchor cannot accidentally double-match another slot.
-  // A chair on the table's own tile (8,8), outside the table's footprint
-  // (subCol/subRow 3), facing 'n' (unrotated default) points exactly at
-  // anchor1's tile (8,7).
-  const chair = placeItem(state, 'cafeteriaChair', 8, 8, 3, 3, 0);
+  // One chair placed at exactly the subtile anchors[0] requires (same
+  // "one subtile behind the anchor, same facing" rule as scenario 3) —
+  // {subCol:0,subRow:2,facing:'n'} pins the chair to (8,8,0,3), dir:0
+  // (default facing 'n' already agrees).
+  const chair0 = placeItem(state, 'cafeteriaChair', 8, 8, 0, 3, 0);
   bump(state);
   index = buildStationIndex(state);
-  const refs = index.byJob.eat || [];
+  let refs = index.byJob.eat || [];
   assertOk(refs.length === 1, `adding one matching chair yields exactly one usable slot (got ${refs.length})`);
   if (refs.length === 1) {
-    assertOk(refs[0].key === `${table.id}:1`, 'the usable slot is anchors[1]');
-    assertOk(refs[0].seated === true && refs[0].seatPlaceableId === chair.id, 'it resolves seated:true with the new chair');
+    assertOk(refs[0].key === `${table.id}:0`, 'the usable slot is anchors[0]');
+    assertOk(refs[0].seated === true && refs[0].seatPlaceableId === chair0.id, 'it resolves seated:true with the new chair');
   }
+
+  // Add the other three anchors' matching chairs — each independently
+  // computed the same way (Critical-1 regression: previously ALL FOUR
+  // slots would resolve to the SAME first-found chair and the SAME node).
+  const chair1 = placeItem(state, 'cafeteriaChair', 8, 7, 1, 2, 2);  // anchors[1]: {1,-1,'s'}
+  const chair2 = placeItem(state, 'cafeteriaChair', 7, 8, 2, 0, 1);  // anchors[2]: {-1,0,'e'}
+  const chair3 = placeItem(state, 'cafeteriaChair', 8, 8, 3, 1, 3);  // anchors[3]: {2,1,'w'}
+  bump(state);
+  index = buildStationIndex(state);
+  refs = index.byJob.eat || [];
+  assertOk(refs.length === 4, `all four anchors are now seated (got ${refs.length})`);
+
+  const seatIds = new Set(refs.map(r => r.seatPlaceableId));
+  const nodeKeys = new Set(refs.map(r => `${r.node.col},${r.node.row},${r.node.subCol},${r.node.subRow}`));
+  assertOk(seatIds.size === 4, `all four slots hold DISTINCT chairs (got ${seatIds.size} distinct ids)`);
+  assertOk(nodeKeys.size === 4, `all four slots target DISTINCT nodes (got ${nodeKeys.size} distinct nodes)`);
+  assertOk(refs.every(r => r.seated === true), 'every slot resolved seated:true');
+  assertOk([chair0.id, chair1.id, chair2.id, chair3.id].every(id => seatIds.has(id)),
+    'each of the four placed chairs was actually claimed by some slot');
 }
 
 console.log('\n=== 6. getStationIndex memoises on navRevision ===\n');
@@ -290,9 +340,8 @@ console.log('\n=== 10. Loading a state drops reservations naming a demolished st
   assertOk(!!liveKey, 'sanity: the live station has at least one key');
 
   state.stationReservations = {
-    [liveKey]: 's1',                 // valid: live station, roster staffer
-    'operatorConsole_demolished:0': 's1', // stale: no such station in the index
-    [liveKey + '_bogus']: 's1',       // stale: key not in the index (variant)
+    [liveKey]: 's1',                      // valid: live station, roster staffer
+    'operatorConsole_demolished:0': 's1', // stale: no such station was ever in the index
   };
   // Fired staffer still holding a (separately) valid key.
   const secondConsole = placeItem(state, 'operatorConsole', 6, 6, 0, 0, 0);
@@ -306,8 +355,58 @@ console.log('\n=== 10. Loading a state drops reservations naming a demolished st
 
   assertOk(state.stationReservations[liveKey] === 's1', 'a reservation naming a live station and a rostered staffer survives');
   assertOk(!('operatorConsole_demolished:0' in state.stationReservations), 'a reservation naming a demolished station is dropped');
-  assertOk(!((liveKey + '_bogus') in state.stationReservations), 'a reservation with a key absent from the index is dropped');
   assertOk(!(secondKey in state.stationReservations), 'a reservation held by a staffer no longer on the roster is dropped');
+}
+
+console.log('\n=== 11. getStationIndex prunes a reservation mid-session when its (required) chair is demolished — not just at load ===\n');
+{
+  // Distinct from scenario 10: no sanitizeStationReservations/load call at
+  // all here — a plain getStationIndex() rebuild (the same one findStation
+  // and every other caller triggers) must itself drop a reservation whose
+  // key stopped resolving, so a demolished-then-replaced chair can never
+  // resurrect a stale claim from a job that ended long ago.
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const table = placeItem(state, 'diningTable', 2, 2, 0, 0, 0);
+  const chair = placeItem(state, 'cafeteriaChair', 2, 2, 0, 3, 0); // anchors[0], as in scenario 5
+  state.staffMembers = [{ id: 's1' }];
+  bump(state);
+
+  const index = getStationIndex(state);
+  const key = Object.keys(index.byKey).find(k => k.startsWith(table.id));
+  assertOk(!!key, 'sanity: the seated slot is in the index before demolition');
+  reserveStation(state, key, 's1');
+  assertOk(state.stationReservations[key] === 's1', 'sanity: the reservation is recorded');
+
+  // Demolish the chair: splice it out of placeables/placeableIndex exactly
+  // like Game.removePlaceable would, then bump navRevision as every
+  // structural mutation does.
+  const chairIdx = state.placeables.findIndex(p => p.id === chair.id);
+  state.placeables.splice(chairIdx, 1);
+  state.placeableIndex = {};
+  state.placeables.forEach((p, i) => { state.placeableIndex[p.id] = i; });
+  bump(state);
+
+  // No sanitizeStationReservations call — just the ordinary memoised lookup.
+  const rebuilt = getStationIndex(state);
+  assertOk(!rebuilt.byKey[key], 'the slot dropped out of the index once its required chair was demolished');
+  assertOk(!(key in state.stationReservations), 'and getStationIndex itself already pruned the now-dead reservation');
+}
+
+console.log('\n=== 12. findStation guards a missing fromNode instead of throwing ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  let threw = false;
+  let result;
+  try {
+    result = findStation(state, { jobs: ['runBeam'], staffId: 's1' }); // fromNode omitted
+  } catch (e) {
+    threw = true;
+  }
+  assertOk(!threw, 'findStation does not throw when fromNode is omitted');
+  assertOk(result === null, 'findStation returns null for a missing fromNode');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

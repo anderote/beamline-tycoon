@@ -10,9 +10,19 @@
 // (StaffPawns) drives pawns with this; nothing here touches rendering.
 //
 // StationRef shape: { key, placeableId, defId, slotIndex, jobs, node, facing,
-// seated, seatPlaceableId, zoneId }. `key` is `${placeableId}:${slotIndex}`.
+// seated, seatPlaceableId, zoneType }. `key` is `${placeableId}:${slotIndex}`.
 // `node` is a subtile node ({col,row,subCol,subRow}) — see the seated/
-// unseated split below for what it means in each case.
+// unseated split below for what it means in each case. Callers must treat a
+// StationRef as read-only: it is the same object instance held in the
+// (memoised) index's byKey/byJob tables, shared across every caller and
+// every job offered at that slot — see findStation's doc comment.
+//
+// zoneType rides state.navRevision like everything else here (see
+// getStationIndex), but is itself read from state.zoneOccupied, which does
+// NOT bump navRevision on a repaint (Game.addZoneTile et al.). Repainting
+// the zone under a station between nav-dirtying edits leaves a stale
+// zoneType until something else bumps the revision. Harmless today (nothing
+// reads it yet); flagged for whoever wires the job board to filter on it.
 
 import { getNavGrid, isReachable } from './nav.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
@@ -36,6 +46,14 @@ const FACING_DELTA = {
 function rotateFacing(facing, dir) {
   const idx = (FACING_INDEX[facing] + (((dir % 4) + 4) % 4)) % 4;
   return FACING_ORDER[idx];
+}
+
+// Absolute subtile coordinate as a single (col, row) pair of integers —
+// col*4+subCol, row*4+subRow — so adjacency and distance between two
+// subtiles (which may belong to different tiles) is plain integer math
+// instead of tile+subtile carrying.
+function absSub(n) {
+  return { c: n.col * 4 + (n.subCol || 0), r: n.row * 4 + (n.subRow || 0) };
 }
 
 /**
@@ -91,23 +109,53 @@ function resolveAnchor(entry, def, anchor) {
 }
 
 /**
- * Find a chair placeable whose own tile is cardinally adjacent to
- * `anchorNode`'s tile and whose resolved seat.facing points at it — i.e.
- * chairTile + FACING_DELTA[chairFacing] === anchorTile. First match in
- * placement order wins; multiple chairs satisfying one anchor is a content
- * authoring smell, not something the index needs to arbitrate cleverly.
+ * Find a chair placeable whose own SUBTILE is cardinally adjacent to
+ * `anchorNode`'s subtile, whose resolved seat.facing agrees with the
+ * station's own `anchorFacing`, and whose facing points back at the anchor —
+ * i.e. chairSub + FACING_DELTA[chairFacing] === anchorSub, in absolute
+ * subtile coordinates. `usedChairs` excludes chairs already claimed by an
+ * earlier anchor in this same buildStationIndex pass, so one physical chair
+ * can never be handed to two slots.
+ *
+ * Every chair def is subW:1/subL:1 (a chair occupies exactly one subtile),
+ * so this must be a subtile-to-subtile test, not a tile-to-tile one: tile
+ * granularity conflates all 16 subtiles of a tile into one adjacency
+ * question, which both (a) lets a chair match "through" the furniture it's
+ * supposed to face (matching a station whose anchor sits on the tile's FAR
+ * side, on the opposite side of the object from the chair) and (b) can never
+ * expose more than a couple of seats on a station whose whole footprint fits
+ * inside one tile (diningTable, 2x2 subtiles) no matter how its four chairs
+ * are actually arranged.
+ *
+ * Requiring chairFacing === anchorFacing (in addition to "points at the
+ * anchor") pins the only valid chair position to the single subtile directly
+ * behind the anchor, continuing the same line the anchor already looks
+ * along (object -> anchor -> chair, all facing the same way) — which is
+ * also what rules out the "through the furniture" case, since a chair on
+ * the object's far side would need the opposite facing to point at the
+ * anchor. Ties (should never occur given the position is pinned to one
+ * subtile, since two placeables cannot occupy the same subtile — kept for
+ * defensiveness) are broken by nearest subtile distance.
  */
-function findMatchingChair(chairs, anchorNode) {
+function findMatchingChair(chairs, usedChairs, anchorNode, anchorFacing) {
+  const anchorAbs = absSub(anchorNode);
+  let best = null;
+  let bestDist = Infinity;
   for (const chair of chairs) {
+    if (usedChairs.has(chair.id)) continue;
     const def = PLACEABLES[chair.type];
     if (!def?.seat) continue;
     const facing = rotateFacing(def.seat.facing, chair.dir || 0);
+    if (facing !== anchorFacing) continue;
     const delta = FACING_DELTA[facing];
-    if (chair.col + delta.dc === anchorNode.col && chair.row + delta.dr === anchorNode.row) {
-      return chair;
-    }
+    const chairAbs = absSub(chair);
+    if (chairAbs.c + delta.dc !== anchorAbs.c || chairAbs.r + delta.dr !== anchorAbs.r) continue;
+    const dCol = chairAbs.c - anchorAbs.c;
+    const dRow = chairAbs.r - anchorAbs.r;
+    const dist = dCol * dCol + dRow * dRow;
+    if (dist < bestDist) { bestDist = dist; best = chair; }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -121,12 +169,16 @@ export function buildStationIndex(state) {
   const zoneOccupied = state.zoneOccupied || {};
 
   const chairs = placeables.filter(p => PLACEABLES[p.type]?.seat);
+  // Global across the whole index build (not per-station/per-entry): once a
+  // chair is handed to one slot it is off the table for every other anchor
+  // processed afterward, on this station or any other.
+  const usedChairs = new Set();
 
   for (const entry of placeables) {
     const def = PLACEABLES[entry.type];
     if (!def || !def.station) continue;
     const { jobs, seated: seatedPref, anchors } = def.station;
-    const zoneId = zoneOccupied[entry.col + ',' + entry.row] ?? null;
+    const zoneType = zoneOccupied[entry.col + ',' + entry.row] ?? null;
 
     anchors.forEach((anchorDef, slotIndex) => {
       const { node: anchorNode, facing: anchorFacing } = resolveAnchor(entry, def, anchorDef);
@@ -137,8 +189,9 @@ export function buildStationIndex(state) {
       let seatPlaceableId = null;
 
       if (seatedPref !== 'never') {
-        const chair = findMatchingChair(chairs, anchorNode);
+        const chair = findMatchingChair(chairs, usedChairs, anchorNode, anchorFacing);
         if (chair) {
+          usedChairs.add(chair.id);
           seated = true;
           seatPlaceableId = chair.id;
           node = { col: chair.col, row: chair.row, subCol: chair.subCol || 0, subRow: chair.subRow || 0 };
@@ -151,10 +204,10 @@ export function buildStationIndex(state) {
       if (!seated && seatedPref === 'required') return;
 
       const key = `${entry.id}:${slotIndex}`;
-      const ref = {
+      const ref = Object.freeze({
         key, placeableId: entry.id, defId: entry.type, slotIndex,
-        jobs: jobs.slice(), node, facing, seated, seatPlaceableId, zoneId,
-      };
+        jobs: jobs.slice(), node, facing, seated, seatPlaceableId, zoneType,
+      });
       byKey[key] = ref;
       for (const job of jobs) {
         (byJob[job] || (byJob[job] = [])).push(ref);
@@ -172,6 +225,16 @@ const stationCache = new WeakMap();
  * past the cached index's revision. The station index depends on exactly the
  * same inputs (placeables/dir/position) that invalidate the nav grid, so it
  * rides the same counter rather than owning a second one.
+ *
+ * Every rebuild also prunes state.stationReservations against the fresh
+ * byKey: a key that no longer resolves (its station was demolished, or a
+ * 'required' seat's chair was removed/rotated away and the slot dropped out
+ * of the index) is deleted on the spot, mid-session — not just at load. A
+ * demolished chair coming back later would otherwise resurrect a stale
+ * reservation from a job that ended long ago, and nothing else would ever
+ * notice: the *station* was never demolished, so the "abandon on target
+ * demolished" job-lifecycle hook can't catch it either. This is O(number of
+ * reservations), once per navRevision, not per lookup.
  */
 export function getStationIndex(state) {
   const cached = stationCache.get(state);
@@ -179,6 +242,12 @@ export function getStationIndex(state) {
   if (cached && cached.revision === revision) return cached;
   const index = buildStationIndex(state);
   stationCache.set(state, index);
+  const reservations = state.stationReservations;
+  if (reservations) {
+    for (const key of Object.keys(reservations)) {
+      if (!index.byKey[key]) delete reservations[key];
+    }
+  }
   return index;
 }
 
@@ -221,12 +290,14 @@ export function releaseAllFor(state, staffId) {
 }
 
 /**
- * Drop reservations that no longer point at anything real: a key absent
- * from the current station index (its station was demolished, rotated away
- * from its chair, or otherwise stopped resolving) or a staff id absent from
- * the roster (fired/died). Call after load/undo restores placeables and
- * staffMembers wholesale — a reservation surviving its station or its holder
- * is the leak the spec calls out as the highest-risk invariant here.
+ * Drop reservations that no longer point at anything real: a staff id absent
+ * from the roster (fired/died), or a key absent from the current station
+ * index. The key check normally has nothing left to do here — getStationIndex
+ * already prunes dead keys on every rebuild — but load/undo replace
+ * staffMembers and navRevision-bumping state in the same pass, and calling
+ * getStationIndex first guarantees the index (and its key-pruning side
+ * effect) reflects the just-restored placeables before the roster check
+ * below runs, rather than racing a stale cached index.
  */
 export function sanitizeStationReservations(state) {
   if (!state.stationReservations) { state.stationReservations = {}; return; }
@@ -247,12 +318,18 @@ export function sanitizeStationReservations(state) {
  * use it to rank candidates a specialist is more effective at; the station
  * index itself has no notion of specialty.
  *
- * isReachable is NOT cheaper than findPath (see nav.js) — it shares the same
- * search, skipping only path reconstruction — so candidates are ordered by
- * cheap subtile distance first, and reachability is tested in that order,
- * returning the first pass rather than reachability-testing the whole set.
+ * The returned StationRef is the same frozen object instance held in the
+ * index — callers must not mutate it or expect a private copy.
+ *
+ * isReachable is now an O(1) connected-component lookup (see nav.js), so
+ * unlike an earlier version of this function, reachability-testing every
+ * candidate is no longer a real cost concern. Candidates are still ordered
+ * by cheap subtile distance first and tested in that order, returning the
+ * first pass — nearest-first is the behavior that matters, the ordering
+ * just happens to also be free.
  */
 export function findStation(state, { jobs, fromNode, staffId } = {}) {
+  if (!fromNode) return null;
   const index = getStationIndex(state);
   const reservations = state.stationReservations || {};
 

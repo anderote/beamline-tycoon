@@ -17,7 +17,7 @@ import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
-import { sanitizeStationReservations } from './staff/stations.js';
+import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
 import { PROFESSIONS } from '../data/professions.js';
 
@@ -84,6 +84,15 @@ const UNDO_PRESERVED_FIELDS = [
   'completedObjectives', 'discoveries',
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates',
   'savedDesigns', 'savedDesignNextId',
+  // stationReservations names staffMembers by id (a slot claim is exactly
+  // as much "the sim's" as the roster it references) — rewinding the
+  // reservation map while staffMembers comes from the live session would
+  // let the two halves of one fact disagree: a working pawn's claim could
+  // vanish out from under them (a second pawn then double-books the same
+  // console), or a released claim could be reinstated from the snapshot
+  // with the key still live and the staffer still rostered, which
+  // sanitizeStationReservations has no way to detect or clean.
+  'stationReservations',
 ];
 
 // Per-beamline sim accumulators on registry entries. Same rule as
@@ -4141,6 +4150,9 @@ export class Game {
     const target = this.state.staffMembers[idx];
     if (target.profession === 'operator' && operators.length <= 1) { this.log('Need at least 1 operator!', 'bad'); return false; }
     const removed = this.state.staffMembers.splice(idx, 1)[0];
+    // Safety net: a fired staffer must never keep holding a station slot —
+    // see stations.js's releaseAllFor doc comment.
+    releaseAllFor(this.state, staffId);
     this._syncStaffCounts();
     this.log(`Released ${removed.name}`, 'info');
     this.emit('staffChanged');
