@@ -96,6 +96,8 @@ export class ContextWindow {
 
     const el = document.createElement('div');
     el.className = 'ctx-window';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', this._title);
     el.style.left = '200px';
     el.style.top = '100px';
     el.style.zIndex = ++zCounter;
@@ -116,9 +118,12 @@ export class ContextWindow {
     const statusSpan = document.createElement('span');
     statusSpan.className = 'ctx-status';
 
-    const closeBtn = document.createElement('span');
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
     closeBtn.className = 'ctx-close';
     closeBtn.textContent = '✕';
+    closeBtn.title = 'Close';
+    closeBtn.setAttribute('aria-label', 'Close');
     closeBtn.addEventListener('click', () => this.close());
 
     titleRight.appendChild(statusSpan);
@@ -129,12 +134,16 @@ export class ContextWindow {
     // Tab bar
     const tabBar = document.createElement('div');
     tabBar.className = 'ctx-tabs';
+    tabBar.setAttribute('role', 'tablist');
     if (this._tabs.length === 0) tabBar.style.display = 'none';
     this._tabs.forEach(({ key, label }) => {
-      const tab = document.createElement('div');
+      const tab = document.createElement('button');
+      tab.type = 'button';
       tab.className = 'ctx-tab' + (key === this._activeTab ? ' active' : '');
       tab.dataset.tab = key;
       tab.textContent = label;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', key === this._activeTab ? 'true' : 'false');
       tab.addEventListener('click', () => this.switchTab(key));
       tabBar.appendChild(tab);
     });
@@ -142,6 +151,7 @@ export class ContextWindow {
     // Body
     const body = document.createElement('div');
     body.className = 'ctx-body';
+    body.setAttribute('role', 'tabpanel');
 
     // Actions
     const actions = document.createElement('div');
@@ -219,9 +229,10 @@ export class ContextWindow {
   _renderActions() {
     if (!this._actionsEl) return;
     this._actionsEl.innerHTML = '';
-    this._actions.forEach(({ label, style, onClick }) => {
+    this._actions.forEach(({ label, style, variant, onClick }) => {
       const btn = document.createElement('button');
       btn.className = 'ctx-action-btn';
+      if (variant) btn.classList.add(`ctx-action-btn-${variant}`);
       btn.textContent = label;
       if (style) btn.setAttribute('style', style);
       btn.addEventListener('click', onClick);
@@ -244,6 +255,7 @@ export class ContextWindow {
   /** Update the window title. */
   setTitle(title) {
     this._title = title;
+    if (this._el) this._el.setAttribute('aria-label', title);
     if (this._titleSpan) {
       this._titleSpan.textContent = (this._icon ? this._icon + ' ' : '') + title;
     }
@@ -256,7 +268,9 @@ export class ContextWindow {
 
     // Update tab classes
     this._tabBar.querySelectorAll('.ctx-tab').forEach(el => {
-      el.classList.toggle('active', el.dataset.tab === key);
+      const selected = el.dataset.tab === key;
+      el.classList.toggle('active', selected);
+      el.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
 
     this._renderBody();
@@ -275,7 +289,7 @@ export class ContextWindow {
 
   /**
    * Set action buttons.
-   * @param {Array} actions - Array of { label, style, onClick }
+   * @param {Array} actions - Array of { label, style, variant, onClick }
    */
   setActions(actions) {
     this._actions = actions || [];

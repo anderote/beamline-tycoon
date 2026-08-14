@@ -46,6 +46,9 @@ export class WelcomeDialog {
   _build() {
     const el = document.createElement('div');
     el.id = 'welcome-dialog';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', 'welcome-dialog-title');
 
     const modeRows = MODE_ROWS.map(([key, name, color, desc]) =>
       `<div class="welcome-kbd welcome-mode-key">${key}</div>` +
@@ -60,8 +63,8 @@ export class WelcomeDialog {
 
     el.innerHTML = `
       <div class="welcome-header">
-        <span class="welcome-title">Welcome to Beamline Tycoon</span>
-        <button class="welcome-close" title="Close">×</button>
+        <span class="welcome-title" id="welcome-dialog-title">Welcome to Beamline Tycoon</span>
+        <button type="button" class="welcome-close" title="Close" aria-label="Close">×</button>
       </div>
       <div class="welcome-body">
         <div class="welcome-tagline">Your particle accelerator empire starts as an empty field. Here's the plan, Director:</div>
@@ -79,7 +82,7 @@ export class WelcomeDialog {
         <div class="welcome-tip">Press <span class="welcome-kbd welcome-kbd-inline">\`</span> anytime for the full hotkey bar &nbsp;·&nbsp; reopen this guide via <b>Menu &gt; Guide</b></div>
       </div>
       <div class="welcome-footer">
-        <button class="welcome-go">LET'S GO</button>
+        <button type="button" class="welcome-go">LET'S GO</button>
       </div>
     `;
     document.body.appendChild(el);

@@ -21,17 +21,6 @@ export class UtilityStatsPanel {
 
     this.el = document.createElement('div');
     this.el.className = 'utility-stats-panel';
-    this.el.style.cssText = [
-      'padding:10px',
-      'background:rgba(20,20,30,0.82)',
-      'color:#eee',
-      'font-size:12px',
-      'border-radius:6px',
-      'margin-top:8px',
-      'min-width:240px',
-      'pointer-events:auto',
-      'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
-    ].join(';');
     container.appendChild(this.el);
 
     // Listener uses the game.on single-channel pattern (event, data) callbacks.
@@ -48,7 +37,7 @@ export class UtilityStatsPanel {
     const state = this.game.state;
     const data = state.utilityNetworkData;
 
-    let html = `<div style="font-weight:600;margin-bottom:6px;font-size:12px;letter-spacing:0.5px">UTILITY NETWORKS</div>`;
+    let html = `<div class="utility-stats-title">UTILITY NETWORKS</div>`;
 
     for (const type of UTILITY_TYPE_LIST) {
       const desc = UTILITY_TYPES[type];
@@ -71,17 +60,14 @@ export class UtilityStatsPanel {
 
       const rowId = `util-stats-row-${type}`;
       const hasNetworks = flows.length > 0;
-      const rowOpacity = hasNetworks ? '1' : '0.5';
-      const cursor = hasNetworks ? 'pointer' : 'default';
-
-      html += `<div id="${rowId}" style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:${cursor};border-bottom:1px solid rgba(255,255,255,0.06);opacity:${rowOpacity}">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${escapeHtml(desc.color)};border:1px solid rgba(255,255,255,0.35);box-sizing:border-box;flex:0 0 auto"></span>
-        <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(desc.displayName)}</span>
-        <span style="opacity:0.6;font-size:11px;flex:0 0 auto">${flows.length} net</span>
-        <span style="opacity:0.8;font-size:11px;flex:0 0 auto">${totalCap.toFixed(0)}/${totalDem.toFixed(0)}</span>
-        ${hardErr > 0 ? `<span style="background:#ff4444;color:#000;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600">${hardErr}</span>` : ''}
-        ${softErr > 0 ? `<span style="background:#ddaa22;color:#000;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600">${softErr}</span>` : ''}
-      </div>`;
+      html += `<button type="button" id="${rowId}" class="utility-stats-row"${hasNetworks ? '' : ' disabled'}>
+        <span class="utility-stats-swatch" style="--utility-color:${escapeHtml(desc.color)}"></span>
+        <span class="utility-stats-name">${escapeHtml(desc.displayName)}</span>
+        <span class="utility-stats-count">${flows.length} net</span>
+        <span class="utility-stats-flow">${totalCap.toFixed(0)}/${totalDem.toFixed(0)}</span>
+        ${hardErr > 0 ? `<span class="utility-stats-badge utility-stats-badge-hard">${hardErr}</span>` : ''}
+        ${softErr > 0 ? `<span class="utility-stats-badge utility-stats-badge-soft">${softErr}</span>` : ''}
+      </button>`;
     }
 
     this.el.innerHTML = html;

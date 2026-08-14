@@ -45,12 +45,12 @@ function qualityColor(q) {
 
 function bar(label, pct, color, width) {
   const p = Math.max(0, Math.min(100, pct));
-  return `<div style="display:flex;align-items:center;gap:6px">
-    <span style="font-size:10px;opacity:0.7;min-width:56px">${label}</span>
-    <div style="flex:1;max-width:${width || 140}px;height:8px;background:#222;border-radius:4px;overflow:hidden">
-      <div style="width:${p}%;height:100%;background:${color};border-radius:4px"></div>
+  return `<div class="utility-meter" style="--utility-meter-color:${color}">
+    <span class="utility-meter-label">${label}</span>
+    <div class="utility-meter-track" style="--utility-meter-max:${width || 140}px">
+      <div class="utility-meter-fill" style="width:${p}%"></div>
     </div>
-    <span style="color:${color};font-size:11px;min-width:36px;text-align:right">${p.toFixed(0)}%</span>
+    <span class="utility-meter-value">${p.toFixed(0)}%</span>
   </div>`;
 }
 
@@ -137,7 +137,7 @@ export class UtilityInspector {
     const state = game.state;
     const desc = UTILITY_TYPES[this.utilityType];
     if (!desc) {
-      el.innerHTML = `<div style="padding:12px;color:#888;font-size:11px">Unknown utility type.</div>`;
+      el.innerHTML = `<div class="ui-empty-state">Unknown utility type.</div>`;
       return;
     }
 
@@ -147,16 +147,16 @@ export class UtilityInspector {
     const flow = perType && perType.get ? perType.get(this.networkId) : null;
 
     if (!flow) {
-      el.innerHTML = `<div style="padding:12px;color:#888;font-size:11px">
+      el.innerHTML = `<div class="ui-empty-state">
         Network not solved yet or no longer exists.<br/>
-        <span style="opacity:0.7">${escapeHtml(this.networkId)}</span>
+        <span class="ui-text-faint">${escapeHtml(this.networkId)}</span>
       </div>`;
       return;
     }
 
     const network = this._reconstructNetwork(state, this.utilityType, this.networkId);
     if (!network) {
-      el.innerHTML = `<div style="padding:12px;color:#888;font-size:11px">Network not found.</div>`;
+      el.innerHTML = `<div class="ui-empty-state">Network not found.</div>`;
       return;
     }
 
@@ -181,16 +181,16 @@ export class UtilityInspector {
       worstQuality = worstQuality === null ? q : Math.min(worstQuality, q);
     }
 
-    let html = `<div style="padding:4px 2px;font-size:12px;line-height:1.5">`;
-    html += `<div style="font-size:10px;opacity:0.6;word-break:break-all"><strong>Network ID:</strong> ${escapeHtml(this.networkId)}</div>`;
+    let html = `<div class="utility-inspector">`;
+    html += `<div class="utility-network-id"><strong>Network ID:</strong> ${escapeHtml(this.networkId)}</div>`;
     html += `<div><strong>Capacity:</strong> ${fmtQty(totalCapacity)} ${escapeHtml(desc.capacityUnit || '')}</div>`;
     html += `<div><strong>Demand:</strong> ${fmtQty(totalDemand)} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</div>`;
-    if (comparable) html += `<div style="margin-top:6px">${loadBar(util, 160)}</div>`;
-    if (worstQuality !== null) html += `<div style="margin-top:4px">${qualityBar(worstQuality, 160)}</div>`;
+    if (comparable) html += `<div class="utility-meter-wrap">${loadBar(util, 160)}</div>`;
+    if (worstQuality !== null) html += `<div class="utility-meter-wrap">${qualityBar(worstQuality, 160)}</div>`;
 
     // Sources
     if (network.sources && network.sources.length) {
-      html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
+      html += `<hr class="ui-divider"/>`;
       html += `<div><strong>Sources (${network.sources.length}):</strong></div>`;
       // Descriptors name their own per-port params (cryo carries capacity as
       // coldCapacityW, vacuum as pumpSpeed, ...); network-discovery only
@@ -199,17 +199,17 @@ export class UtilityInspector {
       const capParam = desc.capacityParam || 'capacity';
       for (const s of network.sources) {
         const cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
-        html += `<div style="font-size:11px;opacity:0.85;padding:1px 0">
+        html += `<div class="utility-list-row">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
-          <span style="opacity:0.6">· ${escapeHtml(s.portName)}</span>
-          <span style="opacity:0.7">· ${cap != null ? cap : 0} ${escapeHtml(desc.capacityUnit || '')}</span>
+          <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>
+          <span class="ui-text-muted">· ${cap != null ? cap : 0} ${escapeHtml(desc.capacityUnit || '')}</span>
         </div>`;
       }
     }
 
     // Sinks
     if (network.sinks && network.sinks.length) {
-      html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
+      html += `<hr class="ui-divider"/>`;
       html += `<div><strong>Sinks (${network.sinks.length}):</strong></div>`;
       const demParam = desc.demandParam || 'demand';
       for (const s of network.sinks) {
@@ -218,21 +218,21 @@ export class UtilityInspector {
         const qStr = (q !== undefined)
           ? ` <span style="color:${qualityColor(q)}">(${(q * 100).toFixed(0)}%)</span>`
           : '';
-        html += `<div style="font-size:11px;opacity:0.85;padding:1px 0">
+        html += `<div class="utility-list-row">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
-          <span style="opacity:0.6">· ${escapeHtml(s.portName)}</span>
-          <span style="opacity:0.7">· ${dem} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</span>${qStr}
+          <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>
+          <span class="ui-text-muted">· ${dem} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</span>${qStr}
         </div>`;
       }
     }
 
     // Errors
     if (flow.errors && flow.errors.length) {
-      html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
+      html += `<hr class="ui-divider"/>`;
       html += `<div><strong>Issues:</strong></div>`;
       for (const e of flow.errors) {
         const color = e.severity === 'hard' ? '#ff4444' : '#ddaa22';
-        html += `<div style="color:${color};font-size:11px;padding:1px 0">
+        html += `<div class="utility-issue" style="color:${color}">
           ${escapeHtml((e.severity || 'info').toUpperCase())}: ${escapeHtml(e.message || e.code || '')}
         </div>`;
       }
@@ -243,11 +243,11 @@ export class UtilityInspector {
       try {
         const inner = desc.renderInspector(network, flow, persistent);
         if (inner) {
-          html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
+          html += `<hr class="ui-divider"/>`;
           html += inner;
         }
       } catch (err) {
-        html += `<div style="color:#ff4444;font-size:11px">renderInspector threw: ${escapeHtml((err && err.message) || String(err))}</div>`;
+        html += `<div class="utility-issue utility-issue-error">renderInspector threw: ${escapeHtml((err && err.message) || String(err))}</div>`;
       }
     }
 
@@ -259,10 +259,9 @@ export class UtilityInspector {
       if (cost && cost.funding) {
         hasRefill = true;
         const afford = (typeof game.canAfford === 'function') ? game.canAfford(cost) : true;
-        html += `<hr style="margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,0.1)"/>`;
-        html += `<div style="margin-top:2px">
-          <button data-refill-btn="1"
-            style="padding:6px 12px;background:${afford ? '#2a4a7f' : '#444'};color:#fff;border:0;border-radius:4px;cursor:${afford ? 'pointer' : 'not-allowed'};font-size:12px">
+        html += `<hr class="ui-divider"/>`;
+        html += `<div class="utility-refill-wrap">
+          <button type="button" class="ui-button ui-button-primary utility-refill" data-refill-btn="1"${afford ? '' : ' disabled'}>
             Refill for $${Number(cost.funding).toLocaleString()}
           </button>
         </div>`;

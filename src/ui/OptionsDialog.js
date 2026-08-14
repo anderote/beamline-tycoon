@@ -98,10 +98,13 @@ export class OptionsDialog {
     const el = document.createElement('div');
     el.id = 'options-dialog';
     el.classList.add('hidden');
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', 'options-dialog-title');
     el.innerHTML = `
       <div class="opt-header">
-        <span class="opt-title">Options</span>
-        <button class="opt-close" title="Close">×</button>
+        <span class="opt-title" id="options-dialog-title">Options</span>
+        <button type="button" class="opt-close" title="Close" aria-label="Close">×</button>
       </div>
       <div class="opt-body">
         <div class="opt-section-title">Music</div>

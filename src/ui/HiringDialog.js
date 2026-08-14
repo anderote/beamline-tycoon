@@ -38,14 +38,14 @@ export function openHiringDialog(game) {
     const candidates = game.state.staffCandidates || [];
     const funding = game.state.resources?.funding ?? 0;
     if (candidates.length === 0) {
-      container.innerHTML = '<div style="color:#888;font-size:8px;padding:12px;">No candidates available. (Pool refreshes soon)</div>';
+      container.innerHTML = '<div class="ui-empty-state">No candidates available. (Pool refreshes soon)</div>';
       return;
     }
     // Footer markup (reroll hint) is a plain string; candidate cards are
     // built as real elements so renderBioCard's HTMLElement can drop in.
-    const footerHtml = `<div style="margin-top:10px;display:flex;gap:8px;justify-content:space-between;align-items:center;">` +
-      `<span style="font-size:7px;color:#666;">3 candidates • rerolls when pool < 2</span>` +
-      `<button data-reroll style="font-family:monospace;font-size:9px;padding:4px 8px;background:rgba(30,30,60,0.8);color:#aaa;border:1px solid rgba(80,80,120,0.3);border-radius:3px;cursor:pointer;">Reroll</button>` +
+    const footerHtml = `<div class="hiring-footer">` +
+      `<span class="hiring-note">3 candidates • rerolls when pool &lt; 2</span>` +
+      `<button type="button" class="ui-button ui-button-compact" data-reroll>Reroll</button>` +
       `</div>`;
 
     container.innerHTML = '';

@@ -52,13 +52,17 @@ function showScenarioPicker(game) {
 
   const overlay = document.createElement('div');
   overlay.id = 'scenario-dialog';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+  overlay.className = 'ui-modal-backdrop';
 
   const panel = document.createElement('div');
-  panel.style.cssText = 'background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:24px;max-width:520px;width:90%;color:#ddd;font-family:monospace;';
+  panel.className = 'scenario-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-labelledby', 'scenario-dialog-title');
 
-  let html = '<h2 style="margin:0 0 16px;color:#fff;font-size:18px;">Scenarios</h2>';
-  html += '<p style="margin:0 0 16px;color:#999;font-size:12px;">Start a new game with a pre-built scenario. Current progress will be lost.</p>';
+  let html = '<div class="scenario-header"><h2 class="scenario-title" id="scenario-dialog-title">Scenarios</h2></div>';
+  html += '<div class="scenario-body">';
+  html += '<p class="scenario-intro">Start a new game with a pre-built scenario. Current progress will be lost.</p>';
 
   // Editor-exported custom scenario (localStorage slot), if present.
   const customScenario = loadCustomScenario();
@@ -72,26 +76,21 @@ function showScenarioPicker(game) {
     : SCENARIOS;
 
   for (const sc of pickerScenarios) {
-    html += `<div class="scenario-card" data-id="${sc.id}" style="border:1px solid #555;border-radius:6px;padding:12px;margin-bottom:10px;cursor:pointer;transition:border-color 0.15s;">`;
-    html += `<div style="display:flex;justify-content:space-between;align-items:center;">`;
-    html += `<strong style="color:#fff;font-size:14px;">${sc.name}</strong>`;
-    html += `<span style="color:#888;font-size:11px;border:1px solid #555;padding:2px 6px;border-radius:3px;">${sc.difficulty}</span>`;
-    html += `</div>`;
-    html += `<p style="margin:6px 0 0;color:#aaa;font-size:12px;line-height:1.4;">${sc.desc}</p>`;
-    html += `</div>`;
+    html += `<button type="button" class="scenario-card" data-id="${sc.id}">`;
+    html += `<span class="scenario-card-header">`;
+    html += `<strong class="scenario-card-name">${sc.name}</strong>`;
+    html += `<span class="scenario-difficulty">${sc.difficulty}</span>`;
+    html += `</span>`;
+    html += `<span class="scenario-description">${sc.desc}</span>`;
+    html += `</button>`;
   }
 
-  html += '<div style="text-align:right;margin-top:12px;"><button id="scenario-cancel" style="background:#333;color:#ddd;border:1px solid #555;padding:6px 16px;border-radius:4px;cursor:pointer;font-family:monospace;">Cancel</button></div>';
+  html += '</div>';
+  html += '<div class="scenario-footer"><button type="button" id="scenario-cancel" class="ui-button">Cancel</button></div>';
 
   panel.innerHTML = html;
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
-
-  // Hover effect
-  panel.querySelectorAll('.scenario-card').forEach(card => {
-    card.addEventListener('mouseenter', () => card.style.borderColor = '#88f');
-    card.addEventListener('mouseleave', () => card.style.borderColor = '#555');
-  });
 
   // Card click
   panel.addEventListener('click', (e) => {

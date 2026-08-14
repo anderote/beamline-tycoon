@@ -166,7 +166,7 @@ export class BeamlineWindow {
       },
       {
         label: 'Demolish (50% refund)',
-        style: 'color:#f88',
+        variant: 'danger',
         onClick: () => {
           this.game.demolishTarget({ kind: 'beamlineWhole', beamlineId: this.beamlineId });
           this.ctx.close();

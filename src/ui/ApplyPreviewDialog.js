@@ -86,6 +86,16 @@ export class ApplyPreviewDialog {
         </div>`;
       document.body.appendChild(el);
     }
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', 'apply-preview-dialog-title');
+    const title = el.querySelector('.apv-title');
+    if (title) title.id = 'apply-preview-dialog-title';
+    const close = el.querySelector('.apv-close');
+    if (close) {
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Back to editing');
+    }
     this.el = el;
 
     el.querySelector('.apv-close')?.addEventListener('click', () => this._close('back'));

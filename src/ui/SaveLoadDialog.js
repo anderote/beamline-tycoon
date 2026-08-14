@@ -416,10 +416,13 @@ export class SaveLoadDialog {
     const el = document.createElement('div');
     el.id = 'saveload-dialog';
     el.classList.add('hidden');
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', 'saveload-dialog-title');
     el.innerHTML = `
       <div class="sl-header">
-        <span class="sl-title">Save Game</span>
-        <button class="sl-close" title="Close">×</button>
+        <span class="sl-title" id="saveload-dialog-title">Save Game</span>
+        <button type="button" class="sl-close" title="Close" aria-label="Close">×</button>
       </div>
       <div class="sl-body"></div>
       <div class="sl-footer"></div>

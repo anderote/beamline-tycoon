@@ -24,7 +24,7 @@ export function openStaffInspector(game, staffId) {
 
   function renderInspector(container) {
     const staff = (game.state.staffMembers || []).find(s => s.id === staffId);
-    if (!staff) { container.innerHTML = '<div style="color:#888;font-size:8px;padding:12px;">Staff not found (released)</div>'; return; }
+    if (!staff) { container.innerHTML = '<div class="ui-empty-state">Staff not found (released)</div>'; return; }
     const mood = staff.mood || 'content';
     const status = staff.status || 'idle';
     const needs = staff.needs || { fatigue:0, hunger:0, morale:0.5 };
@@ -52,7 +52,7 @@ export function openStaffInspector(game, staffId) {
         col = v > 0.8 ? '#ff4444' : v > 0.5 ? '#ddaa22' : '#44dd66';
       }
       // for morale show filled as morale, for fatigue/hunger higher is bad but still show bar length = value
-      html += `<div class="staff-need-row"><span class="staff-bar-label">${n.label}</span><div class="staff-bar-track"><div class="staff-bar-fill" style="width:${pct}%;background:${col};"></div></div><span style="font-size:7px;color:#888;width:32px;text-align:right;">${Math.round(pct)}%</span></div>`;
+      html += `<div class="staff-need-row"><span class="staff-bar-label">${n.label}</span><div class="staff-bar-track"><div class="staff-bar-fill" style="width:${pct}%;background:${col};"></div></div><span class="staff-need-value">${Math.round(pct)}%</span></div>`;
     }
 
     // Work — Task 8 (staff-professions-3, jobs-and-gates) idle legibility:
@@ -62,17 +62,17 @@ export function openStaffInspector(game, staffId) {
     // banner already summarized, not a differently-worded re-derivation.
     const work = describeJob(staff, game);
     html += `<div class="ctx-section-label">Work</div>`;
-    html += `<div style="font-size:9px;color:#ccc;line-height:1.5;">${escapeHtml(work.status)}</div>`;
+    html += `<div class="staff-work-status">${escapeHtml(work.status)}</div>`;
     if (work.station) {
-      html += `<div style="font-size:8px;color:#888;">${escapeHtml(work.station)}</div>`;
+      html += `<div class="staff-work-station">${escapeHtml(work.station)}</div>`;
     }
 
     // Assignment
     html += `<div class="ctx-section-label">Assignment</div>`;
-    html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
-    html += `<div style="display:flex;gap:6px;align-items:center;">`;
-    html += `<label style="font-size:7px;color:#888;width:40px;">Zone</label>`;
-    html += `<select data-assign-zone style="flex:1;background:rgba(20,20,40,0.9);color:#aaa;border:1px solid rgba(80,80,120,0.3);border-radius:3px;font-family:monospace;font-size:10px;padding:3px;">`;
+    html += `<div class="staff-assignment-list">`;
+    html += `<div class="staff-assignment-row">`;
+    html += `<label class="staff-assignment-label">Zone</label>`;
+    html += `<select class="ui-select staff-assignment-select" data-assign-zone>`;
     html += `<option value="">Unassigned</option>`;
     for (const zid of Object.keys(ZONES)) {
       const sel = assignment.zoneId === zid ? ' selected' : '';
@@ -84,9 +84,9 @@ export function openStaffInspector(game, staffId) {
     const beamlines = (() => {
       try { return game.registry ? game.registry.getAll() : []; } catch(_) { return []; }
     })();
-    html += `<div style="display:flex;gap:6px;align-items:center;">`;
-    html += `<label style="font-size:7px;color:#888;width:40px;">Beam</label>`;
-    html += `<select data-assign-beam style="flex:1;background:rgba(20,20,40,0.9);color:#aaa;border:1px solid rgba(80,80,120,0.3);border-radius:3px;font-family:monospace;font-size:10px;padding:3px;">`;
+    html += `<div class="staff-assignment-row">`;
+    html += `<label class="staff-assignment-label">Beam</label>`;
+    html += `<select class="ui-select staff-assignment-select" data-assign-beam>`;
     html += `<option value="">None</option>`;
     for (const bl of beamlines) {
       const id = bl.id || bl.beamlineId || 'unknown';
@@ -96,9 +96,9 @@ export function openStaffInspector(game, staffId) {
     html += `</select></div>`;
 
     // Shift toggle
-    html += `<div style="display:flex;gap:6px;align-items:center;">`;
-    html += `<label style="font-size:7px;color:#888;width:40px;">Shift</label>`;
-    html += `<select data-assign-shift style="flex:1;background:rgba(20,20,40,0.9);color:#aaa;border:1px solid rgba(80,80,120,0.3);border-radius:3px;font-family:monospace;font-size:10px;padding:3px;">`;
+    html += `<div class="staff-assignment-row">`;
+    html += `<label class="staff-assignment-label">Shift</label>`;
+    html += `<select class="ui-select staff-assignment-select" data-assign-shift>`;
     for (const s of ['day','night','flex']) {
       const sel = shift === s ? ' selected' : '';
       html += `<option value="${s}"${sel}>${s}</option>`;
@@ -109,9 +109,9 @@ export function openStaffInspector(game, staffId) {
     // History
     if (staff.history && staff.history.length) {
       html += `<div class="ctx-section-label">History</div>`;
-      html += `<div style="display:flex;flex-direction:column;gap:2px;">`;
+      html += `<div class="staff-history">`;
       for (const h of staff.history.slice(-5)) {
-        html += `<div style="font-size:7px;color:#666;">tick ${h.tick}: ${h.event} ${h.note ? '— ' + h.note : ''}</div>`;
+        html += `<div class="staff-history-entry">tick ${h.tick}: ${h.event} ${h.note ? '— ' + h.note : ''}</div>`;
       }
       html += `</div>`;
     }
@@ -158,7 +158,7 @@ export function openStaffInspector(game, staffId) {
   const offStaff = game.on(_staffHandler);
 
   ctx.setActions([
-    { label: 'Fire', style: 'color:#ff8888;border-color:rgba(180,80,80,0.4)', onClick: () => {
+    { label: 'Fire', variant: 'danger', onClick: () => {
       if (confirm(`Fire ${m.name}?`)) {
         const ok = game.fireStaffMember(staffId);
         if (ok) ctx.close();

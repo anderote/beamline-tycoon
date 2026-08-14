@@ -32,7 +32,7 @@ export class EquipmentWindow {
     this.ctx.onTabRender('info', (container) => this._renderInfo(container));
 
     this.ctx.setActions([
-      { label: 'Demolish (50% refund)', style: 'color:#f88', onClick: () => {
+      { label: 'Demolish (50% refund)', variant: 'danger', onClick: () => {
         this.game.demolishTarget({ kind: 'equipment', id: equip.id });
         this.ctx.close();
       }},
@@ -43,37 +43,37 @@ export class EquipmentWindow {
     const comp = this.comp;
     const equip = this.equip;
 
-    let html = '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;">';
-    html += `<div style="color:#8af;">${comp.name}</div>`;
-    html += `<div style="color:#888;">Category: ${comp.category || 'general'}</div>`;
+    let html = '<div class="equipment-details">';
+    html += `<div class="equipment-name">${comp.name}</div>`;
+    html += `<div class="equipment-meta">Category: ${comp.category || 'general'}</div>`;
 
     if (comp.cost) {
       const cost = typeof comp.cost === 'object' ? comp.cost.funding || 0 : comp.cost;
-      html += `<div style="color:#888;">Cost: $${cost.toLocaleString()}</div>`;
+      html += `<div class="equipment-meta">Cost: $${cost.toLocaleString()}</div>`;
     }
     for (const r of utilityStatRows(comp)) {
-      html += `<div style="color:#cc8;">${r.label}: ${r.value}</div>`;
+      html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
     }
 
     // Stats / effects
     if (comp.effects) {
-      html += '<div style="margin-top:4px;border-top:1px solid #333;padding-top:4px;">';
+      html += '<div class="equipment-section">';
       for (const [key, val] of Object.entries(comp.effects)) {
         const sign = val > 0 ? '+' : '';
-        html += `<div style="color:#8f8;">${_effectLabel(key)}: ${sign}${_fmtEffect(key, val)}</div>`;
+        html += `<div class="equipment-effect">${_effectLabel(key)}: ${sign}${_fmtEffect(key, val)}</div>`;
       }
       html += '</div>';
     }
 
     // System stats contribution
     if (comp.systemStats) {
-      html += '<div style="margin-top:4px;border-top:1px solid #333;padding-top:4px;color:#aaa;">System contribution:</div>';
+      html += '<div class="equipment-section equipment-section-label">System contribution:</div>';
       for (const [key, val] of Object.entries(comp.systemStats)) {
-        html += `<div style="color:#aaf;">${_effectLabel(key)}: ${val}</div>`;
+        html += `<div class="equipment-system-stat">${_effectLabel(key)}: ${val}</div>`;
       }
     }
 
-    html += `<div style="margin-top:4px;color:#666;">Position: (${equip.col}, ${equip.row})</div>`;
+    html += `<div class="equipment-position">Position: (${equip.col}, ${equip.row})</div>`;
     html += '</div>';
     container.innerHTML = html;
   }
