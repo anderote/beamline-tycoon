@@ -4,25 +4,17 @@
 // remain as generic geometry helpers (used by a few tests and the room
 // classification logic below).
 
-const EDGE_DELTAS = {
-  n: { dc: 0, dr: -1, opposite: 's' },
-  e: { dc: 1, dr: 0, opposite: 'w' },
-  s: { dc: 0, dr: 1, opposite: 'n' },
-  w: { dc: -1, dr: 0, opposite: 'e' },
-};
+import { EDGE_DELTAS, edgeKey, mirrorEdge } from '../game/edge-keys.js';
 
 /**
  * Check if movement from (col, row) in direction `edge` is blocked by a wall
  * (and not opened by a door).
  */
 function isBlocked(col, row, edge, state) {
-  const { dc, dr, opposite } = EDGE_DELTAS[edge];
-  const nc = col + dc;
-  const nr = row + dr;
-
-  // Check wall on this side
-  const wallKey1 = col + ',' + row + ',' + edge;
-  const wallKey2 = nc + ',' + nr + ',' + opposite;
+  // Either spelling of the edge can hold the segment — see edge-keys.js.
+  const m = mirrorEdge(col, row, edge);
+  const wallKey1 = edgeKey(col, row, edge);
+  const wallKey2 = edgeKey(m.col, m.row, m.edge);
 
   const hasWall = !!(state.wallOccupied[wallKey1] || state.wallOccupied[wallKey2]);
   if (!hasWall) return false;
@@ -87,9 +79,9 @@ export function detectRooms(state) {
     // Boundary tiles: tiles that have a wall on any edge
     const boundaryTiles = tiles.filter(t => {
       for (const edge of ['n', 'e', 's', 'w']) {
-        const wk1 = t.col + ',' + t.row + ',' + edge;
-        const { dc, dr, opposite } = EDGE_DELTAS[edge];
-        const wk2 = (t.col + dc) + ',' + (t.row + dr) + ',' + opposite;
+        const wk1 = edgeKey(t.col, t.row, edge);
+        const m = mirrorEdge(t.col, t.row, edge);
+        const wk2 = edgeKey(m.col, m.row, m.edge);
         if (wallOccupied[wk1] || wallOccupied[wk2]) return true;
       }
       return false;

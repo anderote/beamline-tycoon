@@ -411,12 +411,23 @@ export class DoorTool extends Tool {
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
 
+  /**
+   * Subtile offset of the opening for the edge under the cursor.
+   * _getNearestWallEdge hands back a raw along-edge fraction (it can't know
+   * how wide this door is); doorOffFromFrac centers the opening on the cursor
+   * and clamps it inside the tile.
+   */
+  _offFor(edge) {
+    return doorOffFromFrac(edge.frac, DOOR_TYPES[this.doorType]);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    this._off = this._offFor(edge);
     this._drawing = true;
     this._start = edge;
-    this._path = [edge];
+    this._path = [{ ...edge, off: this._off }];
     ctx.renderer.renderDoorPreview(this._path, this.doorType);
     return true;
   }
@@ -426,10 +437,15 @@ export class DoorTool extends Tool {
     const renderer = ctx.renderer;
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
-      this._path = input._buildWallLine(this._start, edge);
+      // _buildWallLine steps in whole tiles, so a multi-tile drag shares one
+      // opening offset — taken from the cursor's current position.
+      this._off = this._offFor(edge);
+      this._path = input._buildWallLine(this._start, edge)
+        .map(pt => ({ ...pt, off: this._off }));
       renderer.renderDoorPreview(this._path, this.doorType);
       return true;
     }
+    this._off = this._offFor(edge);
     // Every other tool keeps renderer.hoverCol/hoverRow and the last cursor
     // world position current; without it the next tool armed by hotkey
     // repaints its ghost at a stale position.
