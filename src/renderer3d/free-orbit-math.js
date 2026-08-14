@@ -43,15 +43,13 @@ export function snapYaw(yaw, step = Math.PI / 2) {
   return Math.round(yaw / step) * step;
 }
 
-// Yaw step for each view mode: iso uses 4 cardinal facings (90°), top-down
-// uses 8 cardinal+intercardinal facings (45°) for finer in-plan rotation.
-export function yawStepForMode(mode) {
-  return mode === 'top' ? Math.PI / 4 : Math.PI / 2;
-}
-
-export function yawDivisionsForMode(mode) {
-  return mode === 'top' ? 8 : 4;
-}
+// Yaw step/division count for rest facings. Both view modes (iso and
+// top-down) snap to 8 cardinal+intercardinal facings (45° apart) — iso used
+// to be limited to 4 cardinal-only facings, but the geometry supports the
+// same 8-way snapping the top-down view already had, so there is no longer a
+// per-mode distinction here.
+export const YAW_STEP = Math.PI / 4;
+export const YAW_DIVISIONS = 8;
 
 // Camera position relative to lookAt, on a sphere of radius ORBIT_RADIUS.
 // The +π/4 phase is chosen so (yaw=0, pitch=PITCH_REST) produces the

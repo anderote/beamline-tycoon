@@ -30,13 +30,17 @@ function svgEl(tag, attrs = {}) {
 // yaw index that produces an iso view facing that face.
 //
 // Derivation: at yaw=0, the camera sits at +X+Z looking toward -X-Z, so the
-// +X cube face is visible (labelled "E"). Rotating yaw by +π/2 moves the
-// camera to +X-Z (visible faces +X and -Z; -Z labelled "S"). And so on.
-const FACE_TO_YAW = {
+// +X cube face is visible (labelled "E"). Iso now snaps in 8 divisions of
+// π/4 (matching top-down), so a full +π/2 turn is 2 steps: rotating yaw by
+// +π/2 moves the camera to +X-Z (visible faces +X and -Z; -Z labelled "S").
+// The cube has only 4 side faces, so it only ever addresses the 4 cardinal
+// (even) yaw indices — the 4 odd, diagonal indices are reachable via the
+// Q/E rotate keys but have no corresponding cube face.
+export const FACE_TO_YAW = {
   posX: 0,  // East
-  negZ: 1,  // South
-  negX: 2,  // West
-  posZ: 3,  // North
+  negZ: 2,  // South
+  negX: 4,  // West
+  posZ: 6,  // North
 };
 
 // Top face renders a cross icon instead of a text label; encoded as a

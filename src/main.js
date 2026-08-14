@@ -10,6 +10,7 @@ import './renderer/designer-renderer.js';
 // ThreeRenderer transitively loads UIHost + hud.js + overlays.js, which
 // attach DOM-side UI methods to UIHost.prototype.
 import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
+import { YAW_STEP } from './renderer3d/free-orbit-math.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { DesignLibrary } from './ui/DesignLibrary.js';
@@ -301,7 +302,7 @@ function showScenarioPicker(game) {
       renderer._panX = restoredView.panX;
       renderer._panY = restoredView.panY;
       renderer._isoYawIdx = restoredView.viewRotationIndex || 0;
-      renderer._viewRotationAngle = renderer._isoYawIdx * Math.PI / 2;
+      renderer._viewRotationAngle = renderer._isoYawIdx * YAW_STEP;
     } else {
       // Legacy save: derive pan from the old world.x/y offset (rotation=0 math).
       const screenW = renderer.app.screen.width;
