@@ -1,4 +1,4 @@
-// test/browser/staff-poses.spec.js — smoke test for the pose row added to
+// test/browser/staff-poses.spec.mjs — smoke test for the pose row added to
 // staff-foundry.html (task 5: the knee joint and pose state targets).
 //
 // This is NOT part of the model-level guarantee: test/test-staff-builder.js
@@ -14,7 +14,7 @@
 // believed correct, but has not been verified to actually pass.
 
 import { test, expect } from '@playwright/test';
-import { createErrorCollector } from './helpers.mjs';
+import { createErrorCollector, frames } from './helpers.mjs';
 
 test('staff-foundry pose row renders one labelled figure per POSES entry, no console errors', async ({ page }) => {
   const errors = createErrorCollector(page);
@@ -37,7 +37,7 @@ test('staff-foundry pose row renders one labelled figure per POSES entry, no con
 
   // Let a few animation frames run (turntable spin, sun placement) so any
   // per-frame throw in the render loop has a chance to surface.
-  await page.waitForTimeout(250);
+  await frames(page, 5);
 
   errors.checkAll('staff-foundry pose row');
 });
