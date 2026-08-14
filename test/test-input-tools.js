@@ -16,6 +16,10 @@
 //      must show its ghost before the mouse moves, the variant must not
 //      survive an arm into another family, and a commit must re-preview so
 //      the ghost stops claiming a tile it just filled.
+//   6. Beam pipes demolish by the SECTION, not all-or-nothing: a press
+//      anchors a sweep at the 0.5 m sub-unit under the cursor, the release
+//      removes exactly what was swept (splitting the run on an interior cut),
+//      Shift still takes the whole pipe, and demolishAll opts out entirely.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -398,6 +402,129 @@ console.log('\n=== 5. Demolishing an object does not tear up the ground under it
   tool.onMouseUp({ button: 0, clientX: 10, clientY: 10 }, ctx);
 
   assertOk(swept.length === 4, `the 2x2 drag swept every tile (got ${swept.length})`);
+}
+
+console.log('\n=== 6. Demolish beam pipes by the section, not the whole run ===\n');
+
+// The gesture: press anchors a sweep on the 0.5 m sub-unit under the cursor,
+// the release removes everything swept. Shift takes the whole run instead.
+// _demolishPipeSection is borrowed from the real InputHandler prototype rather
+// than stubbed — the section maths is the thing under test, and a stub would
+// only prove the tool calls something.
+function pipeCtx(g, pipe, shift = false) {
+  const input = {
+    _shiftDown: shift,
+    _suppressNextClick: false,
+    _findDeletablePlaceable: () => ({ kind: 'beampipe', pipeId: pipe.id, rootObj: null }),
+    _demolishPipeSection: InputHandler.prototype._demolishPipeSection,
+  };
+  return {
+    game: g, input,
+    // clientX/clientY carry iso coords directly, so a "screen" position in
+    // these tests is just the iso point the cursor is over.
+    renderer: { screenToWorld: (x, y) => ({ x, y }), clearDragPreview() {} },
+  };
+}
+// A horizontal run along row 10, tiles 4 → 12: 8 tiles, subL 32.
+function sectionPipe(g) {
+  const pipe = {
+    id: 'bp_sec', start: null, end: null,
+    path: [{ col: 4, row: 10 }, { col: 12, row: 10 }],
+    subL: 32, placements: [],
+  };
+  g.state.beamPipes.push(pipe);
+  return pipe;
+}
+// Drive one press → release gesture over two tile centres.
+function sweep(tool, ctx, from, to) {
+  const a = tileCenterIso(from, 10);
+  const b = tileCenterIso(to, 10);
+  tool.onMouseDown({ button: 0, clientX: a.x, clientY: a.y }, ctx);
+  tool.onMouseUp({ button: 0, clientX: b.x, clientY: b.y }, ctx);
+}
+
+{
+  const g = makeGame(80);
+  const pipe = sectionPipe(g);
+  const ctx = pipeCtx(g, pipe);
+  const tool = new DemolishTool('demolishBeamline');
+
+  // Press and release on the same tile centre: one 0.5 m sub-unit, mid-run,
+  // so the run splits rather than shortening.
+  sweep(tool, ctx, 6, 6);
+
+  assertOk(g.state.beamPipes.length === 2,
+    `a click mid-run cuts one sub-unit and splits the pipe (got ${g.state.beamPipes.length} pipes)`);
+  const total = g.state.beamPipes.reduce((n, p) => n + p.subL, 0);
+  assertOk(total === 31, `31 of 32 sub-units survive (got ${total})`);
+  assertOk(ctx.input._suppressNextClick === true,
+    'the release consumed the gesture so onClick cannot also delete the pipe');
+}
+
+{
+  const g = makeGame(81);
+  const pipe = sectionPipe(g);
+  const ctx = pipeCtx(g, pipe);
+  const tool = new DemolishTool('demolishBeamline');
+
+  // Drag from tile 6 to tile 8 — sub-units 8..16 inclusive, i.e. [8, 17).
+  sweep(tool, ctx, 6, 8);
+
+  assertOk(g.state.beamPipes.length === 2,
+    `an interior sweep still splits the run (got ${g.state.beamPipes.length} pipes)`);
+  const total = g.state.beamPipes.reduce((n, p) => n + p.subL, 0);
+  assertOk(total === 23, `the whole swept stretch went, not just one sub-unit (got ${total}/32)`);
+}
+
+{
+  const g = makeGame(82);
+  const pipe = sectionPipe(g);
+  const ctx = pipeCtx(g, pipe, true);  // Shift held
+  const tool = new DemolishTool('demolishBeamline');
+
+  sweep(tool, ctx, 6, 6);
+
+  assertOk(g.state.beamPipes.length === 0,
+    `Shift takes the whole run (got ${g.state.beamPipes.length} pipes)`);
+}
+
+{
+  // The hover must not quote a refund the click can't pay: a section overlapping
+  // mounted hardware is refused by pipe-splice.js, so it reports blocked and $0.
+  const g = makeGame(84);
+  const pipe = sectionPipe(g);
+  // Occupies sub-units 8..10, i.e. the sub-unit under tile 6's centre.
+  pipe.placements = [{ id: 'pl_h', type: 'bpm', position: 8 / 32, subL: 2, params: {} }];
+  const input = { _shiftDown: false };
+  const at = (col) => InputHandler.prototype._demolishPipeSection.call(
+    input, pipe, tileCenterIso(col, 10),
+  );
+
+  const over = at(6);
+  assertOk(over && over.blocked === true, 'a section under mounted hardware reports blocked');
+  assertOk(over.refund === 0, `and quotes no refund (got ${over.refund})`);
+
+  const clear = at(10);
+  assertOk(clear && clear.blocked === false, 'bare pipe is not blocked');
+  assertOk(clear.refund > 0, `and does quote a refund (got ${clear.refund})`);
+
+  input._shiftDown = true;
+  const whole = at(6);
+  assertOk(whole.wholePipe && whole.blocked === false,
+    'Shift takes the whole run, which is never blocked — it removes its hardware too');
+}
+
+{
+  // demolishAll is the "level everything here" tool and stays all-or-nothing
+  // on pipes: no sweep is anchored, so the ordinary click path handles it.
+  const g = makeGame(83);
+  const pipe = sectionPipe(g);
+  const ctx = pipeCtx(g, pipe);
+  const tool = new DemolishTool('demolishAll');
+
+  tool.onMouseDown({ button: 0, clientX: tileCenterIso(6, 10).x, clientY: tileCenterIso(6, 10).y }, ctx);
+  assertOk(tool._pipeSweep == null, 'demolishAll anchors no pipe sweep');
+  assertOk(g.state.beamPipes.length === 1, 'and the press alone changed nothing');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

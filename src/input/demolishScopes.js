@@ -49,7 +49,7 @@ export const DEMOLISH_BUTTONS = [
   { key: 'demolishAll',      name: 'Demolish',          cardName: 'Demolish', sub: 'Everything on the tile',
     desc: 'Clear everything under the cursor — components, equipment, walls, floors, zones. Drag to sweep an area.', color: '#c22' },
   { key: 'demolishBeamline', name: 'Demolish Beamline', cardName: 'Beamline', sub: 'Components, pipes & equipment',
-    desc: 'Beamline components, beam pipes and placed equipment. Click an object to remove it (50% refund).', color: '#c44' },
+    desc: 'Beamline components, beam pipes and placed equipment. Click an object to remove it. Beam pipes cut section by section — drag along one to take out a longer stretch, or Shift-click for the whole run (50% refund).', color: '#c44' },
   { key: 'demolishBuilding', name: 'Demolish Building', cardName: 'Building', sub: 'Walls, doors, floors & zones',
     desc: 'Walls, doors, flooring and zone overlays. Drag along a wall to clear a run, or drag a rectangle over floors.', color: '#a86' },
   { key: 'demolishUtility',  name: 'Demolish Utility',  cardName: 'Utility', sub: 'Pipes & cables',

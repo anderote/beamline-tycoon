@@ -11,10 +11,15 @@ import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem, pipeRefund } from '../beamline/BeamlineSystem.js';
+import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
+import {
+  edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
+  clampDoorOff, defaultDoorOff, mirrorDoorOff,
+} from './edge-keys.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
@@ -1349,14 +1354,16 @@ export class Game {
       w => !(w.col === col && w.row === row && w.edge === edge)
     );
     delete this.state.wallOccupied[key];
-    // Remove any orphaned door on this edge
-    if (this.state.doorOccupied[key]) {
-      const dt = DOOR_TYPES[this.state.doorOccupied[key]];
+    // Remove any orphaned door on this edge. The door may be recorded under
+    // either spelling of the edge (see edge-keys.js), so resolve before
+    // deleting — an unresolved lookup used to strand the door on a wall that
+    // no longer exists.
+    const doorKey = findEdgeKey(this.state.doorOccupied, col, row, edge);
+    if (doorKey) {
+      const dt = DOOR_TYPES[this.state.doorOccupied[doorKey]];
       if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
-      this.state.doors = this.state.doors.filter(
-        d => !(d.col === col && d.row === row && d.edge === edge)
-      );
-      delete this.state.doorOccupied[key];
+      this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== doorKey);
+      delete this.state.doorOccupied[doorKey];
       this.emit('doorsChanged');
     }
     this.emit('wallsChanged');
@@ -1364,67 +1371,124 @@ export class Game {
   }
 
   // === DOORS (EDGE-BASED) ===
+  //
+  // A door hangs on a wall, and the wall is stored under ONE of the two keys
+  // that name its edge ("5,5,n" and "5,4,s" are the same edge — see
+  // edge-keys.js). Doors are always stored at the key the WALL uses, because
+  // the renderer's wall-builder matches a door to its wall by exact key.
+  // A door placed from the far side therefore gets its col/row/edge — and its
+  // `off` — rewritten into the wall's frame before it is recorded.
 
-  placeDoor(col, row, edge, doorType, variant = 0) {
+  /**
+   * Resolve a door placement request against the wall it needs. Returns
+   * { key, col, row, edge, off } in the WALL's frame, or null if no wall.
+   * `off` is the subtile offset of the opening from the edge's first-listed
+   * corner (n: NW->NE, e: NE->SE, s: SE->SW, w: SW->NW).
+   */
+  _resolveDoorSite(col, row, edge, dt, off) {
+    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+    if (!key) return null;
+    const site = parseEdgeKey(key);
+    const wanted = clampDoorOff(dt, off ?? defaultDoorOff(dt));
+    return {
+      key,
+      col: site.col,
+      row: site.row,
+      edge: site.edge,
+      // The two spellings run in opposite directions along the edge.
+      off: isMirroredKey(key, col, row, edge) ? mirrorDoorOff(wanted, dt) : wanted,
+    };
+  }
+
+  /** Apply variant/off to an already-placed door. Returns true if it changed. */
+  _updateDoorRecord(key, variant, off) {
+    const existing = this.state.doors.find(d => edgeKey(d.col, d.row, d.edge) === key);
+    if (!existing) return false;
+    let changed = false;
+    if (existing.variant !== variant) { existing.variant = variant; changed = true; }
+    if (existing.off !== off) { existing.off = off; changed = true; }
+    return changed;
+  }
+
+  placeDoor(col, row, edge, doorType, variant = 0, off = null) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
-    const key = `${col},${row},${edge}`;
-    if (!this.state.wallOccupied[key]) return false;
-    if (this.state.doorOccupied[key] === doorType) {
-      const existing = this.state.doors.find(d => d.col === col && d.row === row && d.edge === edge);
-      if (existing && existing.variant !== variant) {
-        existing.variant = variant;
-        this.emit('doorsChanged');
-      }
+    const site = this._resolveDoorSite(col, row, edge, dt, off);
+    if (!site) {
+      this.log(`No wall on that edge — a ${dt.name} has to hang on a wall`, 'bad');
+      return false;
+    }
+    if (this.state.doorOccupied[site.key] === doorType) {
+      // Same door, same edge: re-placing nudges variant / opening position.
+      if (this._updateDoorRecord(site.key, variant, site.off)) this.emit('doorsChanged');
       return true;
     }
-    if (this.state.doorOccupied[key]) {
-      this.state.doors = this.state.doors.filter(
-        d => !(d.col === col && d.row === row && d.edge === edge)
-      );
+    if (this.state.doorOccupied[site.key]) {
+      this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
     }
-    if (this.state.resources.funding < dt.cost) return false;
+    if (this.state.resources.funding < dt.cost) {
+      this.log(`Not enough funding for a ${dt.name} ($${dt.cost})`, 'bad');
+      return false;
+    }
     this.chargeConstruction(dt.cost);
-    this.state.doors.push({ type: doorType, col, row, edge, variant });
-    this.state.doorOccupied[key] = doorType;
+    this.state.doors.push({
+      type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
+    });
+    this.state.doorOccupied[site.key] = doorType;
+    this.emit('doorsChanged');
     return true;
   }
 
-  placeDoorPath(path, doorType, variant = 0) {
+  /**
+   * Place a door on every edge in `path`. Each point may carry its own `off`
+   * (subtile offset of the opening); the `off` argument is the fallback for
+   * points that don't. Skips are summarized in one log line, never silent.
+   */
+  placeDoorPath(path, doorType, variant = 0, off = null) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
     let placed = 0;
+    let updated = 0;
+    let noWall = 0;
+    let brokeOnFunding = false;
     for (const pt of path) {
-      const key = `${pt.col},${pt.row},${pt.edge}`;
-      if (!this.state.wallOccupied[key]) continue;
-      if (this.state.doorOccupied[key] === doorType) continue;
-      if (this.state.resources.funding < dt.cost) break;
-      if (this.state.doorOccupied[key]) {
-        this.state.doors = this.state.doors.filter(
-          d => !(d.col === pt.col && d.row === pt.row && d.edge === pt.edge)
-        );
+      const site = this._resolveDoorSite(pt.col, pt.row, pt.edge, dt, pt.off ?? off);
+      if (!site) { noWall++; continue; }
+      if (this.state.doorOccupied[site.key] === doorType) {
+        if (this._updateDoorRecord(site.key, variant, site.off)) updated++;
+        continue;
+      }
+      if (this.state.resources.funding < dt.cost) { brokeOnFunding = true; break; }
+      if (this.state.doorOccupied[site.key]) {
+        this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
       }
       this.chargeConstruction(dt.cost);
-      this.state.doors.push({ type: doorType, col: pt.col, row: pt.row, edge: pt.edge, variant });
-      this.state.doorOccupied[key] = doorType;
+      this.state.doors.push({
+        type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
+      });
+      this.state.doorOccupied[site.key] = doorType;
       placed++;
     }
     if (placed > 0) {
       this.log(`Placed ${placed} ${dt.name} segment${placed > 1 ? 's' : ''} ($${placed * dt.cost})`, 'good');
-      this.emit('doorsChanged');
     }
-    return placed > 0;
+    if (noWall > 0) {
+      this.log(`Skipped ${noWall} ${dt.name} segment${noWall > 1 ? 's' : ''} — no wall on that edge`, 'bad');
+    }
+    if (brokeOnFunding) {
+      this.log(`Ran out of funding for the rest of the ${dt.name} run ($${dt.cost} each)`, 'bad');
+    }
+    if (placed > 0 || updated > 0) this.emit('doorsChanged');
+    return placed > 0 || updated > 0;
   }
 
   removeDoor(col, row, edge) {
-    const key = `${col},${row},${edge}`;
+    const key = findEdgeKey(this.state.doorOccupied, col, row, edge);
+    if (!key) return false;
     const doorType = this.state.doorOccupied[key];
-    if (!doorType) return false;
     const dt = DOOR_TYPES[doorType];
     if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
-    this.state.doors = this.state.doors.filter(
-      d => !(d.col === col && d.row === row && d.edge === edge)
-    );
+    this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== key);
     delete this.state.doorOccupied[key];
     this.emit('doorsChanged');
     return true;
@@ -2513,6 +2577,9 @@ export class Game {
       }
       case 'beampipe':
         return this.removeBeamPipe(target.pipeId || target.id);
+      case 'beampipeSection':
+        return this.removeBeamPipeSection(
+          target.pipeId || target.id, target.fromSub, target.toSub);
       case 'placement':
         return this.removeAttachment(target.pipeId, target.attachmentId);
       case 'infrastructure':
@@ -2692,6 +2759,38 @@ export class Game {
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
+    return true;
+  }
+
+  /**
+   * Delete sub-units `[fromSub, toSub)` of one pipe — the demolish tool's
+   * section cut, at the pipe model's own 0.5 m quantum. A cut that reaches a
+   * terminal shortens the run (detaching it from its junction if it was
+   * bound); an interior cut leaves two independent pipes with open ends
+   * facing the hole.
+   *
+   * A cut spanning the whole pipe delegates to removeBeamPipe rather than
+   * being handled here: that is the only path that also refunds the hardware
+   * mounted on the pipe and releases those placements' utility endpoints.
+   *
+   * @returns {boolean} true if anything was removed
+   */
+  removeBeamPipeSection(pipeId, fromSub, toSub) {
+    const res = this.beamline.removePipeSection(pipeId, fromSub, toSub);
+    if (!res) return false;
+    if (res.action === 'removeAll') return this.removeBeamPipe(pipeId);
+
+    const metres = (toSub - fromSub) * METRES_PER_SUB;
+    this.log(
+      `Removed ${metres} m of beam pipe (+$${res.refund.toLocaleString()})`,
+      'info',
+    );
+    // BeamlineSystem emitted 'beamlineChanged' already, but the beam graph is
+    // Game's to rebuild: an interior cut turns one run into two, and a
+    // terminal cut can orphan a junction port. Skipping this leaves physics
+    // solving a lattice that no longer exists.
+    this._deriveBeamGraph();
+    this.schedulePhysicsRecalc();
     return true;
   }
 

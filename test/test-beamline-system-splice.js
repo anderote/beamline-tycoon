@@ -1,5 +1,5 @@
 // test/test-beamline-system-splice.js — BeamlineSystem.splitPipe / mergePipes /
-// trimPipe, the mutation half of src/beamline/pipe-splice.js.
+// trimPipe / removePipeSection, the mutation half of src/beamline/pipe-splice.js.
 //
 // The validators are covered by test/test-pipe-splice.js; what is under test
 // here is everything the facade owns and the validators cannot:
@@ -376,6 +376,159 @@ console.log('\n--- Trim 3: rejection leaves state and the ledger untouched ---')
     assert(snap(state) === before, `${label} → state and funding unchanged`);
     assert(events.length === 0, `${label} → no event emitted`);
     assert(logs.length === 1 && logs[0].type === 'bad' && !/_/.test(logs[0].msg.split(': ')[1] || ''),
+      `${label} → one English 'bad' log (got "${logs.length ? logs[0].msg : 'none'}")`);
+  }
+}
+
+// ==========================================================================
+// REMOVE SECTION
+// ==========================================================================
+//
+// The demolish tool's primitive. What the facade owns beyond the validator:
+// nulling the endpoint ref on a terminal the pipe no longer reaches (or the
+// junction port stays occupied by geometry that isn't there), minting stub ids
+// on an interior cut, refunding the offcut off pipeRefund(), and refusing to
+// tear down a whole pipe itself — that path belongs to Game.removeBeamPipe,
+// which is the only one that refunds on-pipe hardware and releases its
+// utility endpoints.
+
+console.log('\n--- Section 1: a whole-pipe cut mutates nothing and defers ---');
+{
+  const { system, state, events } = mockSystem([longPipe(), bystanderPipe()]);
+  const before = snap(state);
+  events.length = 0;
+
+  const res = system.removePipeSection('bp_1', 0, 32);
+  assert(res && res.action === 'removeAll',
+    `action removeAll (got ${res ? res.action : res})`);
+  assert(snap(state) === before, 'state untouched — the caller owns whole-pipe teardown');
+  assert(events.length === 0, 'no event emitted');
+}
+
+console.log('\n--- Section 2: head cut trims and detaches the bound start ---');
+{
+  const { system, state, events } =
+    mockSystem([longPipe({ placements: [pl('pl_a', 'bpm', 0.5, 4)] })], 500000);
+  const fundingBefore = state.resources.funding;
+  events.length = 0;
+
+  const res = system.removePipeSection('bp_1', 0, 1);
+  assert(res && res.action === 'trim', `action trim (got ${res ? res.action : res})`);
+  assert(state.beamPipes.length === 1, 'still one pipe');
+
+  const pipe = state.beamPipes[0];
+  assert(pipe.id === 'bp_1', `keeps its id (got ${pipe.id})`);
+  assert(pipe.start === null, 'start ref nulled — the junction port is freed');
+  assert(pipe.end && pipe.end.junctionId === 'end_1', 'far end still attached');
+  assert(pipe.subL === 31, `subL === 31 (got ${pipe.subL})`);
+  assertPoint(pipe.path[0], 2, 4.25, 'path[0] pushed forward one sub-unit');
+  assert(pipe.placements[0].id === 'pl_a', 'placement keeps its own id');
+  assertApprox(pipe.placements[0].position * pipe.subL + 1, 16,
+    'placement still 16 sub-units from the ORIGINAL head');
+
+  const expected = pipeRefund({ path: [{ col: 2, row: 4 }, { col: 2, row: 4.25 }] });
+  assert(res.refund === expected, `reports the refund it paid (got ${res.refund})`);
+  assert(state.resources.funding - fundingBefore === expected,
+    'offcut refunded off pipeRefund(), same basis the tooltip quotes');
+  assert(events.some(e => e.ev === 'beamlineChanged'), 'emits beamlineChanged');
+}
+
+console.log('\n--- Section 3: tail cut trims and detaches the bound end ---');
+{
+  const { system, state } = mockSystem([longPipe()], 500000);
+  const res = system.removePipeSection('bp_1', 24, 32);
+
+  assert(res && res.action === 'trim', `action trim (got ${res ? res.action : res})`);
+  const pipe = state.beamPipes[0];
+  assert(pipe.end === null, 'end ref nulled');
+  assert(pipe.start && pipe.start.junctionId === 'src_1', 'start still attached');
+  assertPoint(pipe.path[1], 2, 10, 'tail pulled back 2 tiles');
+  assert(res.pipeIds.length === 1 && res.pipeIds[0] === 'bp_1',
+    `reports the surviving pipe (got ${JSON.stringify(res.pipeIds)})`);
+}
+
+console.log('\n--- Section 4: cutting an already-open end leaves the far ref alone ---');
+{
+  const { system, state } = mockSystem([longPipe({ end: null })], 500000);
+  system.removePipeSection('bp_1', 28, 32);
+  const pipe = state.beamPipes[0];
+  assert(pipe.start && pipe.start.junctionId === 'src_1',
+    'the bound start is not collateral of a tail cut');
+  assert(pipe.end === null, 'the open end stays open');
+}
+
+console.log('\n--- Section 5: interior cut splits into two open-ended stubs ---');
+{
+  const original = longPipe({
+    placements: [pl('pl_head', 'quadrupole', 4 / 32, 4), pl('pl_tail', 'bpm', 24 / 32, 4)],
+  });
+  const { system, state, events, releasedPlacements } =
+    mockSystem([original, bystanderPipe()], 500000);
+  const fundingBefore = state.resources.funding;
+  events.length = 0;
+
+  const res = system.removePipeSection('bp_1', 16, 17);
+  assert(res && res.action === 'split', `action split (got ${res ? res.action : res})`);
+  assert(state.beamPipes.length === 3,
+    `one pipe became two, bystander intact (got ${state.beamPipes.length})`);
+  assert(!state.beamPipes.some(p => p.id === 'bp_1'), 'original pipe id is gone');
+
+  const [headId, tailId] = res.pipeIds;
+  assert(headId !== 'bp_1' && tailId !== 'bp_1' && headId !== tailId,
+    `both stub ids are fresh and distinct (got ${headId} / ${tailId})`);
+  assert(state.beamPipes[0].id === headId && state.beamPipes[1].id === tailId
+      && state.beamPipes[2].id === 'bp_other',
+    'stubs spliced into the original pipe\'s slot in state.beamPipes');
+
+  const head = state.beamPipes[0];
+  const tail = state.beamPipes[1];
+  assert(head.start && head.start.junctionId === 'src_1', 'head keeps the outer start ref');
+  assert(head.end === null, 'head\'s inner end is open');
+  assert(tail.start === null, 'tail\'s inner end is open');
+  assert(tail.end && tail.end.junctionId === 'end_1', 'tail keeps the outer end ref');
+  assertPoint(head.path[1], 2, 8, 'head ends where the cut begins');
+  assertPoint(tail.path[0], 2, 8.25, 'tail starts where the cut ends');
+
+  // Placements are utility endpoints: reissuing an id orphans every line
+  // wired to that hardware, in state and in every save.
+  assert(head.placements.length === 1 && head.placements[0].id === 'pl_head',
+    'upstream placement kept its own id on the head stub');
+  assert(tail.placements.length === 1 && tail.placements[0].id === 'pl_tail',
+    'downstream placement kept its own id on the tail stub');
+  assertApprox(tail.placements[0].position * tail.subL + 17, 24,
+    'downstream placement still 24 sub-units from the ORIGINAL head');
+  assert(releasedPlacements.length === 0, 'nothing was released — no placement was destroyed');
+
+  const expected = pipeRefund({ path: [{ col: 2, row: 8 }, { col: 2, row: 8.25 }] });
+  assert(state.resources.funding - fundingBefore === expected,
+    'the offcut is refunded even though the pipe survives as two');
+  assert(events.some(e => e.ev === 'beamlineChanged'), 'emits beamlineChanged');
+}
+
+console.log('\n--- Section 6: rejection leaves state and the ledger untouched ---');
+{
+  const { system, state, logs, events } = mockSystem([
+    longPipe({ placements: [pl('pl_x', 'bpm', 0.5, 4)] }),
+    bystanderPipe(),
+  ], 500000);
+  const before = snap(state);
+
+  for (const [label, args] of [
+    ['unknown pipe', ['nope', 0, 4]],
+    ['from below zero', ['bp_1', -4, 4]],
+    ['to past the end', ['bp_1', 28, 36]],
+    ['empty range', ['bp_1', 8, 8]],
+    ['inverted range', ['bp_1', 12, 8]],
+    ['fractional bound', ['bp_1', 0, 3.5]],
+    ['cut through mounted hardware', ['bp_1', 18, 19]],
+  ]) {
+    logs.length = 0; events.length = 0;
+    const res = system.removePipeSection(...args);
+    assert(res === null, `${label} → null (got ${JSON.stringify(res)})`);
+    assert(snap(state) === before, `${label} → state and funding unchanged`);
+    assert(events.length === 0, `${label} → no event emitted`);
+    assert(logs.length === 1 && logs[0].type === 'bad'
+        && !/_/.test(logs[0].msg.split(': ')[1] || ''),
       `${label} → one English 'bad' log (got "${logs.length ? logs[0].msg : 'none'}")`);
   }
 }

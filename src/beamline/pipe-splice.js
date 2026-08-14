@@ -1,8 +1,9 @@
 // src/beamline/pipe-splice.js
 //
 // Pure validators for RESHAPING pipes that already exist: splitting one in two
-// around a hole, merging two collinear neighbours back into a single run, and
-// trimming one back from its open end. Same contract as pipe-drawing.js —
+// around a hole, merging two collinear neighbours back into a single run,
+// trimming one back from its open end, and removing an arbitrary interior
+// section of one. Same contract as pipe-drawing.js —
 // every entry point answers "is this legal, and what would the result be?" and
 // mutates nothing. BeamlineSystem owns the writes.
 //
@@ -41,6 +42,8 @@
 //   no_open_end              — trim: both ends are attached to junctions
 //   invalid_length           — trim: newSubL is not a whole number in 1..subL-1
 //   placement_beyond_new_end — trim: a placement sits in the removed section
+//   invalid_section          — removeSection: [from, to) is not a non-empty
+//                              whole-sub-unit range inside 0..subL
 
 // Geometry tolerance (tile coordinates land on 0.25 boundaries).
 const EPS = 1e-6;
@@ -222,6 +225,139 @@ export function validateSplitPipe(state, pipeId, atPosition, gapSubL) {
     gapStart,
     gapEnd,
     gapCenter: pointAt(d, (headSubL + gap / 2) / total),
+  };
+}
+
+// -----------------------------------------------------------------------
+// Public: validateRemovePipeSection
+// -----------------------------------------------------------------------
+
+/**
+ * Can sub-units `[fromSub, toSub)` be cut out of this pipe, and what is left
+ * over? This is the demolish tool's primitive — "delete the 0.5 m of pipe
+ * under the cursor" — so unlike its siblings it has to cope with a cut that
+ * lands anywhere, including flush against a terminal that is bound to a
+ * junction.
+ *
+ * `action` says which shape the survivor takes:
+ *
+ *   'removeAll'  the cut is the whole pipe. Nothing survives; the caller
+ *                deletes the pipe outright (which is also the only path that
+ *                refunds on-pipe hardware and releases its utility endpoints).
+ *   'trim'       the cut reaches exactly one terminal. `path` / `subL` /
+ *                `placements` describe the single survivor, `trimmedEnd` says
+ *                which terminal was eaten, and `detach` is true when that
+ *                terminal was BOUND — the caller must null the pipe's
+ *                start/end ref, or the junction port stays occupied by
+ *                geometry that no longer reaches it. (This is the case
+ *                validateTrimPipe refuses outright with `no_open_end`: trim
+ *                shortens a free end and leaves refs alone by contract.)
+ *   'split'      the cut is interior. Two stubs, same shape validateSplitPipe
+ *                emits, both facing inner ends open.
+ *
+ * `removedPath` / `removedSubL` describe the offcut so the caller can price
+ * the refund off real geometry rather than re-deriving one.
+ *
+ * Placements are never destroyed here: a cut that overlaps mounted hardware is
+ * rejected with `placement_in_gap` rather than swallowing it. Survivors keep
+ * their own ids (they are utility endpoints) with `position` re-expressed in
+ * whichever survivor now carries them.
+ *
+ * No `stub_too_short` case exists. Both bounds are whole sub-units, so an
+ * interior cut leaves at least MIN_STUB_SUBL (1) on each side by construction,
+ * and a cut reaching one terminal leaves at least that much on the other.
+ */
+export function validateRemovePipeSection(state, pipeId, fromSub, toSub) {
+  const pipe = findPipe(state, pipeId);
+  if (!pipe) return reject('pipe_not_found');
+  const d = describePipe(pipe);
+  if (!d) return reject('invalid_pipe');
+
+  const total = d.subL;
+  const from = toSubUnits(fromSub);
+  const to = toSubUnits(toSub);
+  if (from == null || to == null) return reject('invalid_section');
+  if (from < 0 || to > total || to <= from) return reject('invalid_section');
+
+  const cutStart = from / total;
+  const cutEnd = to / total;
+  const cut = { start: cutStart, end: cutEnd };
+  for (const pl of (pipe.placements || [])) {
+    if (intervalsOverlap(placementInterval(total, pl), cut)) {
+      return reject('placement_in_gap');
+    }
+  }
+
+  const removedSubL = to - from;
+  const common = {
+    ok: true,
+    removedPath: [pointAt(d, cutStart), pointAt(d, cutEnd)],
+    removedSubL,
+    removedTiles: subUnitsToTiles(removedSubL),
+  };
+
+  if (from === 0 && to === total) {
+    return { ...common, action: 'removeAll' };
+  }
+
+  if (from === 0) {
+    // Head eaten: path[0] moves forward by `to` sub-units, so surviving
+    // placements shift as well as rescale (same maths as a start-side trim).
+    const n = total - to;
+    return {
+      ...common,
+      action: 'trim',
+      trimmedEnd: 'start',
+      detach: pipe.start != null,
+      path: [pointAt(d, cutEnd), pointAt(d, 1)],
+      subL: n,
+      placements: sortByPosition((pipe.placements || []).map(pl => ({
+        ...pl,
+        position: Math.max(0, (pl.position * total - to) / n),
+      }))),
+    };
+  }
+
+  if (to === total) {
+    // Tail eaten: path[0] is unchanged, so placements only rescale.
+    const n = from;
+    return {
+      ...common,
+      action: 'trim',
+      trimmedEnd: 'end',
+      detach: pipe.end != null,
+      path: [pointAt(d, 0), pointAt(d, cutStart)],
+      subL: n,
+      placements: sortByPosition((pipe.placements || []).map(pl => ({
+        ...pl,
+        position: Math.max(0, (pl.position * total) / n),
+      }))),
+    };
+  }
+
+  // Interior cut: two stubs. Each placement lands on exactly one of them —
+  // the overlap check above already ruled out anything straddling the cut.
+  const headPlacements = [];
+  const tailPlacements = [];
+  for (const pl of (pipe.placements || [])) {
+    if (placementInterval(total, pl).end <= cutStart + IEPS) {
+      headPlacements.push({ ...pl, position: Math.max(0, (pl.position * total) / from) });
+    } else {
+      tailPlacements.push({
+        ...pl,
+        position: Math.max(0, (pl.position * total - to) / (total - to)),
+      });
+    }
+  }
+  return {
+    ...common,
+    action: 'split',
+    headPath: [pointAt(d, 0), pointAt(d, cutStart)],
+    tailPath: [pointAt(d, cutEnd), pointAt(d, 1)],
+    headSubL: from,
+    tailSubL: total - to,
+    headPlacements: sortByPosition(headPlacements),
+    tailPlacements: sortByPosition(tailPlacements),
   };
 }
 

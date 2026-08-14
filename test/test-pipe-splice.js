@@ -15,11 +15,16 @@
 //                       (forward and reversed second pipe)
 //   validateTrimPipe:   pipe_not_found, no_open_end, invalid_length,
 //                       placement_beyond_new_end, happy (both ends)
+//   validateRemovePipeSection:
+//                       pipe_not_found, invalid_pipe, invalid_section,
+//                       placement_in_gap, and one happy path per action —
+//                       removeAll / trim (each end, detach and not) / split
 
 import {
   validateSplitPipe,
   validateMergePipes,
   validateTrimPipe,
+  validateRemovePipeSection,
   MIN_STUB_SUBL,
 } from '../src/beamline/pipe-splice.js';
 
@@ -423,6 +428,158 @@ console.log('\n--- Trim 7: open at both ends trims from the end ---');
   assert(res.ok === true && res.trimmedEnd === 'end',
     `both ends open → trims the tail (got ${res.ok ? res.trimmedEnd : res.reason})`);
   if (res.ok) assertPoint(res.path[1], 2, 9, 'tail pulled back to row 9');
+}
+
+// ==========================================================================
+// REMOVE SECTION
+// ==========================================================================
+//
+// Section removal is the demolish tool's primitive: "delete sub-units
+// [from, to) of this pipe". It is the only splice op that can eat into a
+// terminal that is BOUND to a junction, so the `detach` flags are as
+// load-bearing here as position remapping is everywhere else — leaving a ref
+// on a terminal the pipe no longer reaches would keep a junction port
+// occupied by geometry that isn't there.
+
+console.log('\n--- Section 1: pipe_not_found / invalid_pipe ---');
+{
+  const res = validateRemovePipeSection(stateWith(longPipe()), 'nope', 0, 4);
+  assert(res && res.ok === false && res.reason === 'pipe_not_found',
+    `reason=pipe_not_found (got ${res.reason})`);
+
+  const bent = makePipe('bp_b', null, null,
+    [{ col: 2, row: 4 }, { col: 2, row: 8 }, { col: 5, row: 8 }], 28);
+  const res2 = validateRemovePipeSection(stateWith(bent), 'bp_b', 0, 4);
+  assert(res2.ok === false && res2.reason === 'invalid_pipe',
+    `bent pipe → invalid_pipe (got ${res2.reason})`);
+}
+
+console.log('\n--- Section 2: invalid_section ---');
+{
+  const state = stateWith(longPipe());
+  const cases = [
+    ['from below zero', -1, 4],
+    ['to past the end', 28, 33],
+    ['empty range', 8, 8],
+    ['inverted range', 12, 8],
+    ['fractional from', 1.5, 4],
+    ['fractional to', 0, 3.5],
+  ];
+  for (const [label, from, to] of cases) {
+    const res = validateRemovePipeSection(state, 'bp_1', from, to);
+    assert(res.ok === false && res.reason === 'invalid_section',
+      `${label} → invalid_section (got ${res.ok ? 'ok' : res.reason})`);
+  }
+}
+
+console.log('\n--- Section 3: placement_in_gap ---');
+{
+  // Placement occupies sub-units 16..20; the cut asks for 18..19.
+  const state = stateWith(longPipe({ placements: [pl('pl_a', 'bpm', 0.5, 4)] }));
+  const res = validateRemovePipeSection(state, 'bp_1', 18, 19);
+  assert(res.ok === false && res.reason === 'placement_in_gap',
+    `cut through mounted hardware → placement_in_gap (got ${res.ok ? 'ok' : res.reason})`);
+
+  // Butting up against a placement without overlapping it is legal.
+  const ok = validateRemovePipeSection(state, 'bp_1', 12, 16);
+  assert(ok.ok === true, `cut ending exactly where hardware starts is legal (got ${ok.reason})`);
+}
+
+console.log('\n--- Section 4: whole pipe → removeAll ---');
+{
+  const res = validateRemovePipeSection(stateWith(longPipe()), 'bp_1', 0, 32);
+  assert(res.ok === true && res.action === 'removeAll',
+    `[0,subL) → action removeAll (got ${res.ok ? res.action : res.reason})`);
+  if (res.ok) {
+    assert(res.removedSubL === 32, `removedSubL === 32 (got ${res.removedSubL})`);
+    assertPoint(res.removedPath[0], 2, 4, 'removedPath spans the whole run (head)');
+    assertPoint(res.removedPath[1], 2, 12, 'removedPath spans the whole run (tail)');
+  }
+}
+
+console.log('\n--- Section 5: head trim detaches a bound start ---');
+{
+  // One sub-unit off the head — the finest cut the demolish tool makes.
+  const original = longPipe({ placements: [pl('pl_a', 'bpm', 0.5, 4)] });
+  const res = validateRemovePipeSection(stateWith(original), 'bp_1', 0, 1);
+  assert(res.ok === true && res.action === 'trim',
+    `action trim (got ${res.ok ? res.action : res.reason})`);
+  if (res.ok) {
+    assert(res.trimmedEnd === 'start', `trimmedEnd === 'start' (got ${res.trimmedEnd})`);
+    assert(res.detach === true, 'detach === true — start was bound to a junction');
+    assert(res.subL === 31, `subL === 31 (got ${res.subL})`);
+    assertPoint(res.path[0], 2, 4.25, 'path[0] pushed forward one sub-unit');
+    assertPoint(res.path[1], 2, 12, 'path[1] unchanged');
+    assertApprox(res.placements[0].position, 15 / 31, 'placement shifted AND rescaled');
+    assertApprox(res.placements[0].position * res.subL + res.removedSubL, 16,
+      'placement still 16 sub-units from the original head (absolute preserved)');
+    assertApprox(original.placements[0].position, 0.5, 'source placement untouched');
+  }
+}
+
+console.log('\n--- Section 6: tail trim detaches a bound end ---');
+{
+  const res = validateRemovePipeSection(
+    stateWith(longPipe({ placements: [pl('pl_a', 'bpm', 0.5, 4)] })), 'bp_1', 24, 32);
+  assert(res.ok === true && res.action === 'trim',
+    `action trim (got ${res.ok ? res.action : res.reason})`);
+  if (res.ok) {
+    assert(res.trimmedEnd === 'end', `trimmedEnd === 'end' (got ${res.trimmedEnd})`);
+    assert(res.detach === true, 'detach === true — end was bound to a junction');
+    assert(res.subL === 24, `subL === 24 (got ${res.subL})`);
+    assertPoint(res.path[1], 2, 10, 'tail pulled back 2 tiles');
+    assertApprox(res.placements[0].position, 16 / 24, 'placement rescaled against the shorter pipe');
+    assertPoint(res.removedPath[0], 2, 10, 'removedPath starts at the new tail');
+    assertPoint(res.removedPath[1], 2, 12, 'removedPath ends at the old tail');
+  }
+}
+
+console.log('\n--- Section 7: trimming an already-open end does not claim a detach ---');
+{
+  const res = validateRemovePipeSection(stateWith(longPipe({ end: null })), 'bp_1', 28, 32);
+  assert(res.ok === true && res.detach === false,
+    `open end → detach false (got ${res.ok ? res.detach : res.reason})`);
+}
+
+console.log('\n--- Section 8: mid-run cut splits into two stubs ---');
+{
+  const original = longPipe({
+    placements: [pl('pl_head', 'bpm', 4 / 32, 4), pl('pl_tail', 'bpm', 24 / 32, 4)],
+  });
+  const res = validateRemovePipeSection(stateWith(original), 'bp_1', 16, 17);
+  assert(res.ok === true && res.action === 'split',
+    `action split (got ${res.ok ? res.action : res.reason})`);
+  if (res.ok) {
+    assert(res.headSubL === 16, `headSubL === 16 (got ${res.headSubL})`);
+    assert(res.tailSubL === 15, `tailSubL === 15 (got ${res.tailSubL})`);
+    assert(res.removedSubL === 1, `removedSubL === 1 (got ${res.removedSubL})`);
+    assertPoint(res.headPath[0], 2, 4, 'head starts at the original head');
+    assertPoint(res.headPath[1], 2, 8, 'head ends where the cut begins');
+    assertPoint(res.tailPath[0], 2, 8.25, 'tail starts where the cut ends');
+    assertPoint(res.tailPath[1], 2, 12, 'tail ends at the original tail');
+
+    assert(res.headPlacements.length === 1 && res.headPlacements[0].id === 'pl_head',
+      'head keeps the upstream placement, by its own id');
+    assert(res.tailPlacements.length === 1 && res.tailPlacements[0].id === 'pl_tail',
+      'tail keeps the downstream placement, by its own id');
+    assertApprox(res.headPlacements[0].position, 4 / 16, 'head placement rescaled');
+    assertApprox(res.tailPlacements[0].position, 7 / 15,
+      'tail placement shifted past the cut AND rescaled');
+    assertApprox(res.tailPlacements[0].position * res.tailSubL + 17, 24,
+      'tail placement still 24 sub-units from the original head');
+  }
+}
+
+console.log('\n--- Section 9: minimum stubs on both sides of a mid-run cut ---');
+{
+  // The tightest legal mid-run cut: 1 sub-unit off each end of the removal.
+  const res = validateRemovePipeSection(stateWith(longPipe()), 'bp_1', 1, 31);
+  assert(res.ok === true && res.action === 'split',
+    `1-sub-unit stubs are legal (got ${res.ok ? res.action : res.reason})`);
+  if (res.ok) {
+    assert(res.headSubL === MIN_STUB_SUBL && res.tailSubL === MIN_STUB_SUBL,
+      `both stubs === MIN_STUB_SUBL (got ${res.headSubL}/${res.tailSubL})`);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

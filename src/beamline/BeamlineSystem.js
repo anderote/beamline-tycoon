@@ -20,7 +20,9 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
-import { validateSplitPipe, validateMergePipes, validateTrimPipe } from './pipe-splice.js';
+import {
+  validateSplitPipe, validateMergePipes, validateTrimPipe, validateRemovePipeSection,
+} from './pipe-splice.js';
 import { findSlot } from './pipe-placements.js';
 import { seedComponentParams } from './component-params.js';
 import { portSide, availablePorts } from './junctions.js';
@@ -82,6 +84,7 @@ const REASON_MESSAGES = {
   placement_beyond_new_end: 'something is mounted on the section being removed',
   not_adjacent: 'pipes must meet end to end',
   invalid_length: 'new length must be shorter than the pipe and at least 1 sub-unit',
+  invalid_section: 'that section is not part of this pipe',
   // attachPipeEnd.
   invalid_end_side: "pipe end must be 'start' or 'end'",
   end_taken: 'that pipe end is already attached to a module',
@@ -549,6 +552,98 @@ export class BeamlineSystem {
     }
     this.emit('beamlineChanged');
     return pipeId;
+  }
+
+  /**
+   * Cut sub-units `[fromSub, toSub)` out of a pipe — the demolish tool's
+   * section primitive. Returns null on failure, otherwise
+   * `{action, refund, pipeIds}`:
+   *
+   *   'removeAll'  the cut is the whole pipe. NOTHING is mutated here and the
+   *                refund is 0: tearing a pipe down also has to refund its
+   *                on-pipe hardware and release those placements' utility
+   *                endpoints, and Game.removeBeamPipe is the only path that
+   *                does. The caller delegates to it rather than this facade
+   *                growing a second, subtly different teardown.
+   *   'trim'       one terminal was eaten. `pipeIds` is the surviving pipe,
+   *                which keeps its id. If that terminal was BOUND, its
+   *                start/end ref is nulled — the pipe no longer reaches the
+   *                junction, and port occupancy is derived from these refs
+   *                (see junctions.availablePorts), so leaving it would keep a
+   *                port booked by geometry that isn't there.
+   *   'split'      an interior cut. `pipeIds` is [head, tail], two fresh ids
+   *                whose facing inner ends are open, spliced into the
+   *                original's slot. Placements keep their OWN ids for the same
+   *                reason splitPipe does: they are utility endpoints.
+   *
+   * Unlike splitPipe/mergePipes, this DOES move money. Those two are free
+   * because they conserve length across an insert/delete round-trip; a section
+   * cut destroys length that nothing replaces, so it refunds the offcut
+   * through pipeRefund() — the one function the demolish hover tooltip and
+   * Game.removeBeamPipe also price from, so the quote can't drift from the
+   * payout.
+   */
+  removePipeSection(pipeId, fromSub, toSub) {
+    const result = validateRemovePipeSection(this.state, pipeId, fromSub, toSub);
+    if (!result.ok) {
+      this.log("Can't remove pipe section: " + reasonMessage(result.reason), 'bad');
+      return null;
+    }
+    if (result.action === 'removeAll') {
+      return { action: 'removeAll', refund: 0, pipeIds: [] };
+    }
+
+    const state = this.state;
+    const pipes = (state && state.beamPipes) || [];
+    const idx = pipes.findIndex(p => p && p.id === pipeId);
+    if (idx < 0) {
+      this.log("Can't remove pipe section: " + reasonMessage('pipe_not_found'), 'bad');
+      return null;
+    }
+    const original = pipes[idx];
+    const refund = pipeRefund({ path: result.removedPath });
+
+    let pipeIds;
+    if (result.action === 'trim') {
+      pipes[idx] = {
+        ...original,
+        start: result.trimmedEnd === 'start' ? null : original.start,
+        end: result.trimmedEnd === 'end' ? null : original.end,
+        path: result.path,
+        subL: result.subL,
+        placements: result.placements,
+      };
+      pipeIds = [pipeId];
+    } else {
+      const head = {
+        ...original,
+        id: this.nextPipeId(),
+        start: original.start || null,
+        end: null,
+        path: result.headPath,
+        subL: result.headSubL,
+        placements: result.headPlacements,
+      };
+      const tail = {
+        ...original,
+        id: this.nextPipeId(),
+        start: null,
+        end: original.end || null,
+        path: result.tailPath,
+        subL: result.tailSubL,
+        placements: result.tailPlacements,
+      };
+      // Splice in place: pipe order is part of the save and of the
+      // flattener's deterministic walk.
+      pipes.splice(idx, 1, head, tail);
+      pipeIds = [head.id, tail.id];
+    }
+
+    if (state.resources) {
+      state.resources.funding = (state.resources.funding || 0) + refund;
+    }
+    this.emit('beamlineChanged');
+    return { action: result.action, refund, pipeIds };
   }
 
   // -------------------------------------------------------------------------

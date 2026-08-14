@@ -22,6 +22,14 @@ import { isoToGrid } from '../renderer/grid.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { DEMOLISH_PLACEABLE_SCOPE } from './demolishScopes.js';
 
+// Beam pipes are the one demolish target that is cut by the SECTION rather
+// than all-or-nothing: a press anchors a sweep at the 0.5 m sub-unit under the
+// cursor, the drag widens it, and the release removes exactly that stretch —
+// splitting the run in two when the cut lands in the middle. Shift-click still
+// takes the whole pipe, matching the Shift-click whole-wall-run gesture below.
+// The section maths lives on InputHandler (_demolishPipeSection) so the hover
+// highlight and this commit path resolve the same stretch.
+
 export class DemolishTool extends Tool {
   constructor(demolishType) {
     super(`demolish:${demolishType}`, 'demolish');
@@ -33,6 +41,7 @@ export class DemolishTool extends Tool {
     this._drawingEdges = false;
     this._edgeStart = null; // origin edge of the edge-path drag
     this._edgePath = [];    // [{ col, row, edge }]
+    this._pipeSweep = null; // { pipeId, index } anchor of a pipe-section drag
   }
 
   onExit(ctx) {
@@ -42,6 +51,7 @@ export class DemolishTool extends Tool {
     this._drawingEdges = false;
     this._edgeStart = null;
     this._edgePath = [];
+    this._pipeSweep = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDemolishTooltip();
   }
@@ -103,7 +113,11 @@ export class DemolishTool extends Tool {
     // Beamline/equipment demolish is click-on-object; utility demolish is
     // click-on-line. Neither uses the tile-rect drag.
     if (this.demolishType === 'demolishBeamline' || this.demolishType === 'demolishUtility') {
-      return true; // commit runs on click (mouseup → onClick)
+      // ...except beam pipes, which are cut by the 0.5 m sub-unit. At that
+      // granularity a click-per-section would be unusable for clearing a run,
+      // so a press on a pipe anchors a sweep that onMouseUp commits in one go.
+      this._pipeSweep = this._pipeSweepAnchor(e, ctx);
+      return true; // commit runs on mouseup (or, with no sweep, on click)
     }
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
@@ -140,8 +154,65 @@ export class DemolishTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    input._updateDemolishHover(world, grid, e.clientX, e.clientY, this.demolishType);
+    input._updateDemolishHover(
+      world, grid, e.clientX, e.clientY, this.demolishType, this._pipeSweep,
+    );
     if (input._hoverTooltipTarget) input._hideTooltip();
+    return true;
+  }
+
+  /**
+   * If this press landed on a beam pipe, the `{ pipeId, index }` anchor for a
+   * section sweep; otherwise null. Reuses the demolish scope's own lookup so
+   * the press can only anchor on a pipe the tool is actually allowed to cut,
+   * and so a press that lands on a module or an on-pipe component (both of
+   * which win the raycast) falls through to the ordinary click-delete.
+   */
+  _pipeSweepAnchor(e, ctx) {
+    const input = ctx.input;
+    // demolishAll is the "level everything here" tool and stays all-or-nothing
+    // on pipes; only the beamline tool cuts by the section.
+    if (this.demolishType !== 'demolishBeamline') return null;
+    const scope = DEMOLISH_PLACEABLE_SCOPE[this.demolishType];
+    if (!scope) return null;
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    const found = input._findDeletablePlaceable(
+      { x: world.x, y: world.y }, grid, e.clientX, e.clientY, scope,
+    );
+    if (!found || found.kind !== 'beampipe') return null;
+    const pipe = (ctx.game.state.beamPipes || []).find(p => p.id === found.pipeId);
+    const section = pipe && input._demolishPipeSection(pipe, world);
+    if (!section) return null;
+    return { pipeId: pipe.id, index: section.fromSub };
+  }
+
+  /**
+   * Commit the pipe section under (or swept to) the cursor. Returns true if a
+   * sweep was in flight, whether or not the cut succeeded — the gesture is
+   * consumed either way, so the follow-up click must not also fire.
+   */
+  _commitPipeSweep(e, ctx) {
+    const sweep = this._pipeSweep;
+    if (!sweep) return false;
+    this._pipeSweep = null;
+
+    const input = ctx.input;
+    const game = ctx.game;
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const pipe = (game.state.beamPipes || []).find(p => p.id === sweep.pipeId);
+    const section = pipe && input._demolishPipeSection(pipe, world, sweep);
+    if (section) {
+      // _withUndo so one gesture is one undo step, however many sub-units it
+      // swept over.
+      game._withUndo(() => game.demolishTarget({
+        kind: section.wholePipe ? 'beampipe' : 'beampipeSection',
+        pipeId: section.pipeId,
+        fromSub: section.fromSub,
+        toSub: section.toSub,
+      }));
+      ctx.renderer.clearDragPreview();
+    }
     return true;
   }
 
@@ -156,6 +227,14 @@ export class DemolishTool extends Tool {
     if (e.button !== 0) return false;
     const input = ctx.input;
     const game = ctx.game;
+    // Pipe-section sweep end. Runs before the branches below because it is the
+    // only gesture demolishBeamline starts, and it must consume the release so
+    // onClick's whole-object delete path never also fires.
+    if (this._pipeSweep) {
+      this._commitPipeSweep(e, ctx);
+      input._suppressNextClick = true;
+      return true;
+    }
     // Edge-path end — clears walls AND doors along the path.
     if (this._drawingEdges) {
       if (this._edgePath.length > 0) {
@@ -313,8 +392,18 @@ export class DemolishTool extends Tool {
     // whole-segment preview without waiting for a mousemove.
     const input = ctx.input;
     if (this._dragging || this._drawingEdges) return;
-    if (this.demolishType !== 'demolishBuilding') return;
     if (input._lastScreenX == null) return;
+    if (this.demolishType === 'demolishBeamline') {
+      // Shift widens a pipe-section highlight to the whole run. Refresh now
+      // rather than leaving the old section outlined until the next mousemove.
+      const world = ctx.renderer.screenToWorld(input._lastScreenX, input._lastScreenY);
+      input._updateDemolishHover(
+        world, isoToGrid(world.x, world.y),
+        input._lastScreenX, input._lastScreenY, this.demolishType, this._pipeSweep,
+      );
+      return;
+    }
+    if (this.demolishType !== 'demolishBuilding') return;
     const found = input._findWallOrDoorAtEdge(
       input._getNearestEdge(input._lastScreenX, input._lastScreenY),
     );

@@ -16,6 +16,10 @@
 //   4. Game._batchEvents: removeInfraRect must coalesce per-tile emits into
 //      one 'infrastructureChanged'. (Regression: an N-tile rect triggered N
 //      full terrain rebuilds inside one mouseup.)
+//   6. demolishTarget('beampipeSection'): Game's half of the section cut —
+//      dispatch, delegation of a whole-pipe cut to removeBeamPipe (the only
+//      path that refunds on-pipe hardware and releases its utility
+//      endpoints), and all-or-nothing refusal when a placement is in the way.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -254,6 +258,64 @@ console.log('\n=== 5. Move pick-up detaches utility lines ===\n');
     'the attached line endpoint was detached, not left pointing at the dead id');
   assertOk(!g.serialize().includes(placed.id),
     'no dangling reference to the lifted id survives into the save');
+}
+
+console.log('\n=== 6. demolishTarget beampipeSection cuts by the sub-unit ===\n');
+
+{
+  // Section cutting is BeamlineSystem's job (covered in
+  // test-beamline-system-splice.js); what is under test here is Game's half:
+  // dispatch through demolishTarget, delegation of a whole-pipe cut to
+  // removeBeamPipe, and rebuilding the beam graph so physics stops solving a
+  // lattice that no longer exists.
+  const g = makeGame(42);
+  const placed = placeSomewhere(g, 'source');
+  const pipe = {
+    id: 'pipe_sec_1',
+    start: { junctionId: placed.id, portName: 'exit' },
+    end: null,
+    path: [{ col: placed.col, row: placed.row }, { col: placed.col + 4, row: placed.row }],
+    subL: 16,
+    placements: [],
+  };
+  g.state.beamPipes.push(pipe);
+
+  // Interior cut → two pipes, both open at the hole.
+  const fundingBefore = g.state.resources.funding;
+  const ok = g.demolishTarget({
+    kind: 'beampipeSection', pipeId: 'pipe_sec_1', fromSub: 8, toSub: 9,
+  });
+  assertOk(ok, 'demolishTarget beampipeSection succeeded');
+  assertOk(!g.state.beamPipes.some(p => p.id === 'pipe_sec_1'),
+    'the original pipe id is gone — an interior cut mints two stubs');
+  assertOk(g.state.beamPipes.length === 2,
+    `one pipe became two (got ${g.state.beamPipes.length})`);
+  const [head, tail] = g.state.beamPipes;
+  assertOk(head.start && head.start.junctionId === placed.id,
+    'the head stub keeps the source attachment');
+  assertOk(head.end === null && tail.start === null,
+    'both faces of the hole are open ends');
+  assertOk(g.state.resources.funding > fundingBefore,
+    'the offcut was refunded');
+
+  // Cutting a stub end to end delegates to removeBeamPipe rather than
+  // leaving a zero-length pipe behind.
+  const gone = g.demolishTarget({
+    kind: 'beampipeSection', pipeId: tail.id, fromSub: 0, toSub: tail.subL,
+  });
+  assertOk(gone, 'a whole-pipe section cut succeeded');
+  assertOk(!g.state.beamPipes.some(p => p.id === tail.id),
+    'the whole-pipe cut removed the pipe outright');
+
+  // A cut through mounted hardware is refused outright — nothing partial.
+  head.placements = [{ id: 'pl_test', type: 'bpm', position: 0.5, subL: 2, params: {} }];
+  const before = JSON.stringify(g.state.beamPipes);
+  const refused = g.demolishTarget({
+    kind: 'beampipeSection', pipeId: head.id, fromSub: 4, toSub: 5,
+  });
+  assertOk(refused === false, `cutting through a placement returns false (got ${refused})`);
+  assertOk(JSON.stringify(g.state.beamPipes) === before,
+    'a refused cut leaves every pipe untouched');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

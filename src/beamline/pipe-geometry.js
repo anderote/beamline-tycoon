@@ -279,6 +279,61 @@ export function positionToPoint(pipe, position) {
   return { col: last.col, row: last.row, worldX: last.col * 2 + 1, worldZ: last.row * 2 + 1, dir };
 }
 
+/**
+ * Sub-units per tile. A sub-unit is the pipe model's quantum — 0.25 tile,
+ * 0.5 m — and the granularity the demolish tool cuts at.
+ */
+export const SUB_PER_TILE = 4;
+
+/** Metres per sub-unit, for labelling a section in the player's units. */
+export const METRES_PER_SUB = 0.5;
+
+/**
+ * A pipe's length in sub-units. Prefers the stored `subL`; a pipe built by
+ * hand (tests, fixtures, older saves) may not carry one, so fall back to the
+ * path's Manhattan tile length.
+ */
+export function pipeSubL(pipe) {
+  if (pipe && typeof pipe.subL === 'number' && pipe.subL > 0) return Math.round(pipe.subL);
+  const path = (pipe && pipe.path) || [];
+  let tiles = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    tiles += Math.abs(path[i + 1].col - path[i].col) + Math.abs(path[i + 1].row - path[i].row);
+  }
+  return Math.max(1, Math.round(tiles * SUB_PER_TILE));
+}
+
+/**
+ * Which sub-unit of `pipe` does the world point (worldX, worldZ) fall in?
+ * Returns `{index, subL, position, distance}` — `index` in 0..subL-1 — or
+ * null for a pipe with no geometry.
+ *
+ * Shared by the demolish hover highlight and the click that commits the cut,
+ * so the section the player is shown is exactly the section they get.
+ */
+export function pipeSubUnitAt(pipe, worldX, worldZ) {
+  const proj = projectOntoPipe(pipe, worldX, worldZ);
+  if (!proj) return null;
+  const subL = pipeSubL(pipe);
+  // EPS nudge so a cursor sitting exactly on a boundary lands in the sub-unit
+  // ahead of it rather than flickering between the two.
+  const index = Math.max(0, Math.min(subL - 1, Math.floor(proj.position * subL + EPS)));
+  return { index, subL, position: proj.position, distance: proj.distance };
+}
+
+/**
+ * The two-point path spanning sub-units `[fromSub, toSub)` of a pipe — the
+ * geometry the demolish highlight draws and the refund is priced from.
+ * Returns null if the pipe has no geometry.
+ */
+export function pipeSubUnitPath(pipe, fromSub, toSub) {
+  const subL = pipeSubL(pipe);
+  const a = positionToPoint(pipe, fromSub / subL);
+  const b = positionToPoint(pipe, toSub / subL);
+  if (!a || !b) return null;
+  return [{ col: a.col, row: a.row }, { col: b.col, row: b.row }];
+}
+
 export function pipeDirectionAtTile(pipe, tileIndex) {
   const tiles = expandPipePath(pipe.path);
   if (tileIndex <= 0 || tileIndex >= tiles.length - 1) return null;

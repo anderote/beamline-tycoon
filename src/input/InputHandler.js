@@ -15,6 +15,7 @@ import {
   snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
+import { mirrorEdge, findWallKey } from '../game/edge-keys.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
@@ -23,7 +24,9 @@ import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
-import { projectOntoPipe } from '../beamline/pipe-geometry.js';
+import {
+  projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
+} from '../beamline/pipe-geometry.js';
 import { pipeRefund } from '../beamline/BeamlineSystem.js';
 import { pushEscHandler } from '../ui/esc-stack.js';
 import {
@@ -246,9 +249,110 @@ export class InputHandler {
 
   /** Hover UX for DemolishTool: outline + refund tooltip. `dt` is the
    *  tool's demolishType (the field died with the demolish conversion). */
-  _updateDemolishHover(world, grid, screenX, screenY, dt) {
+  /**
+   * The stretch of pipe the demolish tool would remove right now, as
+   * `{ pipeId, fromSub, toSub, path, refund, metres, wholePipe }`, or null if
+   * the cursor isn't on `pipe`.
+   *
+   * ONE resolver for both the hover highlight and the click that commits, so
+   * the red section the player is shown is exactly the section they get, and
+   * the quoted refund is exactly what gets paid (`pipeRefund` over the same
+   * geometry Game/BeamlineSystem price from).
+   *
+   * Three modes, in priority order:
+   *   - Shift held      → the whole run, mirroring demolishBuilding's
+   *                       Shift-click "take the whole connected wall" gesture.
+   *   - `sweep` present → every sub-unit between the press and the cursor.
+   *                       Sub-units are 0.5 m, so a drag is what makes the
+   *                       fine granularity usable for clearing a long run.
+   *   - otherwise       → the single sub-unit under the cursor.
+   *
+   * @param {object} pipe  - the beam pipe entry from state
+   * @param {object} world - iso screen-space cursor position ({x, y})
+   * @param {object|null} sweep - `{ pipeId, index }` anchor of an active drag
+   */
+  _demolishPipeSection(pipe, world, sweep = null) {
+    if (!pipe) return null;
+    const subL = pipeSubL(pipe);
+    const whole = () => ({ fromSub: 0, toSub: subL });
+
+    let range;
+    if (this._shiftDown) {
+      range = whole();
+    } else {
+      const gf = isoToGridFloat(world.x, world.y);
+      const at = pipeSubUnitAt(pipe, gf.col * 2, gf.row * 2);
+      if (!at) return null;
+      if (sweep && sweep.pipeId === pipe.id) {
+        // Inclusive of both ends: the anchor sub-unit and the one under the
+        // cursor are both part of what the player swept over.
+        range = {
+          fromSub: Math.min(sweep.index, at.index),
+          toSub: Math.max(sweep.index, at.index) + 1,
+        };
+      } else {
+        range = { fromSub: at.index, toSub: at.index + 1 };
+      }
+    }
+
+    const path = pipeSubUnitPath(pipe, range.fromSub, range.toSub);
+    if (!path) return null;
+    const wholePipe = range.fromSub === 0 && range.toSub === subL;
+    // A section cut refuses to swallow mounted hardware (pipe-splice.js
+    // rejects with `placement_in_gap`), so say so in the hover rather than
+    // quoting a refund the click can't pay. A WHOLE-pipe delete is a different
+    // gesture that does take its hardware with it, and is never blocked.
+    const from = range.fromSub / subL, to = range.toSub / subL;
+    const blocked = !wholePipe && (pipe.placements || []).some(pl => {
+      const s = pl.position;
+      const e = pl.position + pl.subL / subL;
+      return s < to - 1e-9 && from < e - 1e-9;
+    });
+    return {
+      pipeId: pipe.id,
+      fromSub: range.fromSub,
+      toSub: range.toSub,
+      path,
+      blocked,
+      refund: blocked ? 0 : pipeRefund({ path }),
+      metres: (range.toSub - range.fromSub) * METRES_PER_SUB,
+      wholePipe,
+    };
+  }
+
+  /** Tooltip title for a pipe section: what it is, how long, or why not. */
+  _pipeSectionLabel(section) {
+    if (section.wholePipe) return 'Beam Pipe';
+    if (section.blocked) return 'Beam Pipe · remove the hardware first';
+    return `Beam Pipe · ${section.metres} m`;
+  }
+
+  /**
+   * @param {object|null} pipeSweep - `{ pipeId, index }` when a section drag is
+   *   in flight, so the hover highlights the whole swept range rather than the
+   *   single sub-unit under the cursor.
+   */
+  _updateDemolishHover(world, grid, screenX, screenY, dt, pipeSweep = null) {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
+
+    // --- Live pipe-section sweep ---
+    // A drag in flight owns the hover outright: it resolves against the pipe
+    // the press anchored on, not whatever the cursor is over now. Going
+    // through the pick below instead would highlight a neighbouring pipe when
+    // the drag strays across one, and would blank the highlight entirely
+    // whenever the cursor wandered off the pipe — while the release still
+    // committed the swept range.
+    if (pipeSweep) {
+      const swept = (this.game.state.beamPipes || []).find(p => p.id === pipeSweep.pipeId);
+      const section = swept && this._demolishPipeSection(swept, world, pipeSweep);
+      if (section) {
+        this.renderer._clearPreview();
+        if (!section.blocked) this.renderer.renderBeamPipePreview(section.path, 'remove');
+        this._showDemolishTooltip(this._pipeSectionLabel(section), section.refund, screenX, screenY);
+        return;
+      }
+    }
 
     // --- Unified placeable detection ---
     // Any demolish mode with a placeable scope uses the same hover UX:
@@ -258,7 +362,11 @@ export class InputHandler {
       const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope);
       if (found) {
         this.renderer._clearPreview();
-        if (found.rootObj) this.renderer._outlineObject(found.rootObj);
+        // Beam pipes draw a section highlight below instead: outlining the
+        // whole mesh would advertise a whole-run delete this click won't do.
+        if (found.rootObj && found.kind !== 'beampipe') {
+          this.renderer._outlineObject(found.rootObj);
+        }
 
         // Placements: refund is 50% of the placement component's cost.
         if (found.kind === 'placement') {
@@ -269,15 +377,30 @@ export class InputHandler {
           this._showDemolishTooltip(name, refund, screenX, screenY);
           return;
         }
-        // Beam pipes have their own name/refund computation.
+        // Beam pipes. Under demolishBeamline they are cut by the SECTION, so
+        // highlight just the stretch this gesture would take (Shift widens it
+        // to the whole run). demolishAll stays all-or-nothing — it is the
+        // "level everything here" tool — and keeps the whole-pipe quote.
         if (found.kind === 'beampipe') {
           const pipe = (this.game.state.beamPipes || []).find(p => p.id === found.pipeId);
-          if (pipe) {
+          if (!pipe) {
+            this._showDemolishTooltip('Beam Pipe', 0, screenX, screenY);
+            return;
+          }
+          // No sweep argument: a live drag already returned above.
+          const section = dt === 'demolishBeamline'
+            ? this._demolishPipeSection(pipe, world)
+            : null;
+          if (section) {
+            if (!section.blocked) this.renderer.renderBeamPipePreview(section.path, 'remove');
+            this._showDemolishTooltip(
+              this._pipeSectionLabel(section), section.refund, screenX, screenY,
+            );
+          } else {
             // Shared with Game.removeBeamPipe so the tooltip can't promise a
             // different number than the demolish actually credits.
+            if (found.rootObj) this.renderer._outlineObject(found.rootObj);
             this._showDemolishTooltip('Beam Pipe', pipeRefund(pipe), screenX, screenY);
-          } else {
-            this._showDemolishTooltip('Beam Pipe', 0, screenX, screenY);
           }
           return;
         }
@@ -548,10 +671,7 @@ export class InputHandler {
    * demolish lookups must check both.
    */
   _edgeAlias(pt) {
-    if (pt.edge === 'n') return { col: pt.col, row: pt.row - 1, edge: 's' };
-    if (pt.edge === 's') return { col: pt.col, row: pt.row + 1, edge: 'n' };
-    if (pt.edge === 'e') return { col: pt.col + 1, row: pt.row, edge: 'w' };
-    return { col: pt.col - 1, row: pt.row, edge: 'e' };
+    return mirrorEdge(pt.col, pt.row, pt.edge);
   }
 
   /**
@@ -1037,6 +1157,12 @@ export class InputHandler {
   /**
    * Return the nearest edge that has a wall on it. Falls back to the
    * nearest floor-boundary edge if no walls are within reach.
+   *
+   * The returned edge also carries `frac`: where along that edge the cursor
+   * sits, 0 at the edge's FIRST-listed corner and 1 at the second, in
+   * buildWalls' corner order (n: NW->NE, e: NE->SE, s: SE->SW, w: SW->NW).
+   * Quantizing that into a door's subtile offset needs the door's width, so
+   * it's left to the caller — DoorTool runs it through doorOffFromFrac().
    */
   _getNearestWallEdge(screenX, screenY) {
     const world = this.renderer.screenToWorld(screenX, screenY);
@@ -1047,14 +1173,18 @@ export class InputHandler {
     const fy = gf.row - row;
 
     const candidates = [
-      { col, row, edge: 'n', dist: fy },
-      { col, row, edge: 's', dist: 1 - fy },
-      { col, row, edge: 'e', dist: 1 - fx },
-      { col, row, edge: 'w', dist: fx },
+      { col, row, edge: 'n', dist: fy, frac: fx },
+      { col, row, edge: 's', dist: 1 - fy, frac: 1 - fx },
+      { col, row, edge: 'e', dist: 1 - fx, frac: fy },
+      { col, row, edge: 'w', dist: fx, frac: 1 - fy },
     ];
 
+    // A wall lives under either spelling of its edge, so the preference bias
+    // has to resolve both — checking only the hovered tile's key made the
+    // bias miss on every wall drawn from the neighbouring tile, which is what
+    // made doors feel like they refused to land on walls.
     const wo = this.game.state.wallOccupied;
-    const hasWall = (e) => !!wo[`${e.col},${e.row},${e.edge}`];
+    const hasWall = (e) => !!findWallKey(wo, e.col, e.row, e.edge);
 
     candidates.sort((a, b) => {
       const aScore = a.dist - (hasWall(a) ? 0.35 : 0);
