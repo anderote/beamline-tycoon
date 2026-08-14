@@ -641,6 +641,7 @@ export class LightRig {
     light.distance = projection.distance || FIXTURE_SPOT_DISTANCE;
     light.angle = projection.halfAngle || FIXTURE_SPOT_ANGLE;
     light.penumbra = projection.penumbra;
+    light.shadow.radius = 1 + 3 * Math.max(0, Math.min(1, tag.shadowSoftness ?? 0.5));
     slot.target.position.set(projection.target.x, projection.target.y, projection.target.z);
     slot.target.updateMatrixWorld();
 

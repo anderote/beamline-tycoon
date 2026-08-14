@@ -5,6 +5,7 @@ import {
   normalizeLightingQuality, resolveLightingQuality,
 } from '../src/renderer3d/lighting-quality.js';
 import { ShadowScheduler } from '../src/renderer3d/shadow-scheduler.js';
+import { LIGHTING_DEFS, validateLightingDef } from '../src/data/placeables/lighting.js';
 
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
   assert.equal(MAX_FIXTURE_SHADOWS, 6);
@@ -39,4 +40,13 @@ test('shadow scheduler parks disabled, daylight, and inactive slots', () => {
   assert.deepEqual(s.step({ activeCount: 0, enabled: true, dtMs: 1000, assignmentKeys: [] }), []);
   const first = s.step({ activeCount: 1, enabled: true, dtMs: 1, assignmentKeys: ['a'] });
   assert.deepEqual(first, [0]);
+});
+
+test('every fixture exposes a complete finite lighting profile', () => {
+  assert.equal(LIGHTING_DEFS.length, 9);
+  for (const def of LIGHTING_DEFS) {
+    assert.deepEqual(validateLightingDef(def), [], `${def.id} profile is valid`);
+    assert.ok(def.light.sourceRadius > 0, `${def.id} has an apparent source size`);
+    assert.ok(def.light.bloomProfile && def.light.volumeProfile && def.light.dynamicProfile);
+  }
 });

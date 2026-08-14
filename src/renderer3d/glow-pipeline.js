@@ -24,6 +24,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // treated as non-bloom automatically. Task 3 tags glow materials with this;
 // Task 5 reads it back off scene objects.
 export const BLOOM_LAYER = 1;
+export const SOFT_GLOW_LAYER = 2;
 
 // Conservative starting point (grounded industrial look, tuned at low-res
 // pixel scale) — Task 3 tunes these by eye once real glow materials exist.
@@ -60,6 +61,10 @@ const DEFAULT_THRESHOLD = 0.85;
 // If a future grading change makes `darkness` linear again, this needs to go
 // wider to compensate, and vice versa.
 const DEFAULT_SMOOTH_WIDTH = 0.3;
+const SOFT_STRENGTH = 0.42;
+const SOFT_RADIUS = 0.82;
+const SOFT_THRESHOLD = 0.55;
+const SOFT_SMOOTH_WIDTH = 0.45;
 
 const MIX_VERTEX_SHADER = `
   varying vec2 vUv;
@@ -73,9 +78,13 @@ const MIX_VERTEX_SHADER = `
 const MIX_FRAGMENT_SHADER = `
   uniform sampler2D baseTexture;
   uniform sampler2D bloomTexture;
+  uniform sampler2D softGlowTexture;
+  uniform float softGlowEnabled;
   varying vec2 vUv;
   void main() {
-    gl_FragColor = texture2D( baseTexture, vUv ) + vec4( 1.0 ) * texture2D( bloomTexture, vUv );
+    gl_FragColor = texture2D( baseTexture, vUv )
+      + texture2D( bloomTexture, vUv )
+      + softGlowEnabled * texture2D( softGlowTexture, vUv );
   }
 `;
 
@@ -89,6 +98,9 @@ export class GlowPipeline {
 
     this._bloomLayerMask = new THREE.Layers();
     this._bloomLayerMask.set(BLOOM_LAYER);
+    this._softGlowLayerMask = new THREE.Layers();
+    this._softGlowLayerMask.set(SOFT_GLOW_LAYER);
+    this._quality = opts.quality || { glowScale: 0.5, softGlow: true };
 
     // Shared instance — every darkened object points at the same material,
     // never allocated per-object or per-frame.
@@ -114,6 +126,20 @@ export class GlowPipeline {
     this._bloomPass.highPassUniforms['smoothWidth'].value = opts.smoothWidth ?? DEFAULT_SMOOTH_WIDTH;
     this._bloomComposer.addPass(this._bloomPass);
 
+    // Broad low-frequency haze is separate from the tight indicator bloom.
+    // The composer exists at every preset; low quality simply skips it.
+    this._softGlowComposer = new EffectComposer(renderer);
+    this._softGlowComposer.renderToScreen = false;
+    this._softGlowComposer.addPass(new RenderPass(scene, camera));
+    this._softGlowPass = new UnrealBloomPass(
+      new THREE.Vector2(size.x, size.y),
+      opts.softStrength ?? SOFT_STRENGTH,
+      opts.softRadius ?? SOFT_RADIUS,
+      opts.softThreshold ?? SOFT_THRESHOLD,
+    );
+    this._softGlowPass.highPassUniforms.smoothWidth.value = opts.softSmoothWidth ?? SOFT_SMOOTH_WIDTH;
+    this._softGlowComposer.addPass(this._softGlowPass);
+
     // Final composer: renders the real scene, then additively blends the
     // bloom-only buffer on top and draws to the canvas.
     this._mixPass = new ShaderPass(
@@ -121,6 +147,8 @@ export class GlowPipeline {
         uniforms: {
           baseTexture: { value: null },
           bloomTexture: { value: this._bloomComposer.readBuffer.texture },
+          softGlowTexture: { value: this._softGlowComposer.readBuffer.texture },
+          softGlowEnabled: { value: this._quality.softGlow ? 1 : 0 },
         },
         vertexShader: MIX_VERTEX_SHADER,
         fragmentShader: MIX_FRAGMENT_SHADER,
@@ -143,6 +171,7 @@ export class GlowPipeline {
     // renderer's outputColorSpace/toneMapping conversion and must be the
     // last pass so it — not the mix pass — is what renders to the canvas.
     this._finalComposer.addPass(new OutputPass());
+    this.setSize(size.x, size.y);
   }
 
   get enabled() {
@@ -153,8 +182,25 @@ export class GlowPipeline {
     this._enabled = !!v;
   }
 
+  setQuality(quality = {}) {
+    this._quality = { ...this._quality, ...quality };
+    this._mixPass.uniforms.softGlowEnabled.value = this._quality.softGlow ? 1 : 0;
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.setSize(size.x, size.y);
+  }
+
   setSize(w, h) {
-    this._bloomComposer.setSize(w, h);
+    this._width = Math.max(1, Math.floor(w));
+    this._height = Math.max(1, Math.floor(h));
+    const scale = Math.max(0.2, Math.min(1, this._quality.glowScale ?? 0.5));
+    this._bloomComposer.setSize(
+      Math.max(1, Math.floor(this._width * scale)),
+      Math.max(1, Math.floor(this._height * scale)),
+    );
+    this._softGlowComposer.setSize(
+      Math.max(1, Math.floor(this._width * scale * 0.5)),
+      Math.max(1, Math.floor(this._height * scale * 0.5)),
+    );
     this._finalComposer.setSize(w, h);
   }
 
@@ -165,8 +211,8 @@ export class GlowPipeline {
   // line previews, grid overlays, HUD sprites) that are not meshes but do
   // have a material that could otherwise render at full brightness into the
   // bloom target and leak a false glow.
-  _darkenNonBloomed(obj) {
-    if (obj.material && this._bloomLayerMask.test(obj.layers) === false) {
+  _darkenNonBloomed(obj, mask) {
+    if (obj.material && mask.test(obj.layers) === false) {
       this._materialCache.set(obj, obj.material);
       obj.material = this._darkMaterial;
     }
@@ -175,6 +221,17 @@ export class GlowPipeline {
   _restoreMaterial(obj) {
     const cached = this._materialCache.get(obj);
     if (cached) obj.material = cached;
+  }
+
+  _renderSelective(composer, mask) {
+    this._materialCache.clear();
+    try {
+      this.scene.traverse((obj) => this._darkenNonBloomed(obj, mask));
+      composer.render();
+    } finally {
+      this.scene.traverse((obj) => this._restoreMaterial(obj));
+      this._materialCache.clear();
+    }
   }
 
   render() {
@@ -186,24 +243,27 @@ export class GlowPipeline {
     // Shadow maps only need to be current for the normal render below; skip
     // recomputing them for the throwaway darkened pass.
     const prevShadowAutoUpdate = this.renderer.shadowMap.autoUpdate;
-    this.renderer.shadowMap.autoUpdate = false;
-
-    this._materialCache.clear();
-    this.scene.traverse((obj) => this._darkenNonBloomed(obj));
-    this._bloomComposer.render();
-    this.scene.traverse((obj) => this._restoreMaterial(obj));
-
-    this.renderer.shadowMap.autoUpdate = prevShadowAutoUpdate;
+    try {
+      this.renderer.shadowMap.autoUpdate = false;
+      this._renderSelective(this._bloomComposer, this._bloomLayerMask);
+      if (this._quality.softGlow) {
+        this._renderSelective(this._softGlowComposer, this._softGlowLayerMask);
+      }
+    } finally {
+      this.renderer.shadowMap.autoUpdate = prevShadowAutoUpdate;
+    }
 
     // Buffer identity flips each frame inside EffectComposer (RenderPass
     // swaps, UnrealBloomPass doesn't) — read readBuffer fresh rather than
     // caching a fixed renderTarget1/2 reference.
     this._mixPass.uniforms.bloomTexture.value = this._bloomComposer.readBuffer.texture;
+    this._mixPass.uniforms.softGlowTexture.value = this._softGlowComposer.readBuffer.texture;
     this._finalComposer.render();
   }
 
   dispose() {
     this._bloomComposer.dispose();
+    this._softGlowComposer.dispose();
     this._finalComposer.dispose();
     this._darkMaterial.dispose();
     this._materialCache.clear();

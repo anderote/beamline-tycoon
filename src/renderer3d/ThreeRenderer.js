@@ -482,6 +482,9 @@ export class ThreeRenderer {
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.AgXToneMapping ?? THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x1a1a2e);
 
     const threeCanvas = this.renderer.domElement;
@@ -582,6 +585,7 @@ export class ThreeRenderer {
     // so no separate setSize() call is needed here.
     this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
       enabled: glowStored !== '0',
+      quality: this._lightingQuality,
     });
 
     // Real lights: lamppost/wall-light shadows and explosion flashes. Shares

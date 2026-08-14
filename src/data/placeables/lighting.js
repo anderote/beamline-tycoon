@@ -41,6 +41,18 @@ const CATEGORY_BY_MOUNT = {
   overhead: 'structureLights',
 };
 
+const LIGHT_PROFILES = {
+  lamppost:       { sourceRadius: 0.11, shadowSoftness: 0.55, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady' },
+  doubleLamppost: { sourceRadius: 0.14, shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'warmSteady' },
+  bollardLight:   { sourceRadius: 0.07, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady' },
+  highMastLight:  { sourceRadius: 0.2,  shadowSoftness: 0.4,  bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable' },
+  floodLight:     { sourceRadius: 0.12, shadowSoftness: 0.3,  bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable' },
+  wallSconce:     { sourceRadius: 0.09, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'warmSteady' },
+  bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent' },
+  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent' },
+  highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable' },
+};
+
 const RAW_LIGHTING_DEFS = [
   // === Ground — lamp family ===
   {
@@ -137,7 +149,32 @@ const RAW_LIGHTING_DEFS = [
   },
 ];
 
-export const LIGHTING_DEFS = RAW_LIGHTING_DEFS.map((def) => ({
-  ...def,
-  category: CATEGORY_BY_MOUNT[def.mount],
-}));
+export const LIGHTING_DEFS = RAW_LIGHTING_DEFS.map((def) => {
+  const profile = LIGHT_PROFILES[def.id];
+  return {
+    ...def,
+    category: CATEGORY_BY_MOUNT[def.mount],
+    light: {
+      ...def.light,
+      poolRadius: def.light.poolRadius ?? def.light.radius,
+      penumbra: def.light.penumbra ?? profile.shadowSoftness,
+      ...profile,
+    },
+  };
+});
+
+export function validateLightingDef(def) {
+  const errors = [];
+  if (!def || !['ground', 'wall', 'overhead'].includes(def.mount)) errors.push('invalid mount');
+  const light = def?.light;
+  if (!light) return [...errors, 'missing light'];
+  for (const field of ['intensity', 'poolRadius', 'emitterY', 'sourceRadius', 'shadowSoftness']) {
+    if (!Number.isFinite(light[field]) || light[field] < 0) errors.push(`invalid ${field}`);
+  }
+  if (light.shape === 'cone') {
+    const angle = light.beamAngleDeg ?? light.coneDeg;
+    if (!Number.isFinite(angle) || angle <= 0 || angle >= 180) errors.push('invalid beam angle');
+    if (!Number.isFinite(light.tiltDeg) || light.tiltDeg < 0 || light.tiltDeg >= 90) errors.push('invalid tilt');
+  }
+  return errors;
+}

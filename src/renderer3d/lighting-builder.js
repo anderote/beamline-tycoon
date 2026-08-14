@@ -44,6 +44,7 @@ import {
   isAimedFixture,
   lightPoolRadius,
 } from './fixture-light-math.js';
+import { SOFT_GLOW_LAYER } from './glow-pipeline.js';
 
 export { aimYaw, isAimedFixture } from './fixture-light-math.js';
 
@@ -129,6 +130,11 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     emitterY: light.emitterY ?? 0,
     mount: def.mount ?? 'ground',
     penumbra: light.penumbra,
+    sourceRadius: light.sourceRadius ?? 0.1,
+    shadowSoftness: light.shadowSoftness ?? light.penumbra ?? 0.5,
+    bloomProfile: light.bloomProfile ?? 'soft',
+    volumeProfile: light.volumeProfile ?? 'none',
+    dynamicProfile: light.dynamicProfile ?? 'steady',
     aimed,
     aimYaw: aimed ? aimYaw(dir) : 0,
   };
@@ -557,6 +563,14 @@ const BUILDERS = {
 export function buildLightFixture(def, placement = {}) {
   const builder = BUILDERS[def.id];
   const group = builder ? builder(def) : _buildFallback(def);
+  const emitterMaterial = group.userData.emitterMaterial;
+  group.traverse((child) => {
+    if (child.isMesh && child.material === emitterMaterial) {
+      child.layers?.enable(SOFT_GLOW_LAYER);
+      child.userData ||= {};
+      child.userData.glowProfile = 'soft';
+    }
+  });
   if (isAimedFixture(def)) {
     group.rotation.y = aimYaw(placement.dir);
   }
@@ -606,8 +620,8 @@ export const REAL_LIGHT_POOL_REMAINDER = 0.22;
 
 // Halo sprite size: a small fixed core plus a modest fraction of the
 // fixture's pool radius, so a bollard's halo doesn't dwarf a high-mast's.
-const HALO_BASE_SIZE = 0.3;
-const HALO_RADIUS_FACTOR = 0.05;
+const HALO_BASE_SIZE = 0.28;
+const HALO_SOURCE_FACTOR = 2.2;
 
 // One small procedural radial-gradient texture, generated once and cached
 // for the module's lifetime. Both the merged pool mesh and every halo
@@ -821,7 +835,7 @@ export function buildLightHalos(fixtures) {
     const emitterMat = fx.group.userData.emitterMaterial;
     if (!light || !emitterMat) continue;
 
-    const size = HALO_BASE_SIZE + lightPoolRadius(light) * HALO_RADIUS_FACTOR;
+    const size = HALO_BASE_SIZE + (light.sourceRadius ?? 0.1) * HALO_SOURCE_FACTOR;
     fx.group.updateMatrixWorld(true);
     fx.group.traverse((child) => {
       if (!child.isMesh || child.material !== emitterMat) return;
@@ -835,6 +849,7 @@ export function buildLightHalos(fixtures) {
         opacity: 0, // Task 6 ramp — ThreeRenderer sets this per frame from darkness.
       });
       const sprite = new THREE.Sprite(spriteMat);
+      sprite.layers?.enable(SOFT_GLOW_LAYER);
       sprite.position.copy(worldPos);
       sprite.scale.set(size, size, 1);
       sprite.renderOrder = 6;
