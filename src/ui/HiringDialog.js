@@ -32,7 +32,17 @@ export function openHiringDialog(game) {
     const grid = document.createElement('div');
     grid.className = 'hiring-grid';
     for (const c of candidates) {
-      const cost = staffHireCost(c, game.state.staffCosts || {});
+      // Task 7 (staff-professions-3, jobs-and-gates) follow-up, fix round 1:
+      // an admin's paperwork discount (state.staffHireDiscount) is applied
+      // right here, the same way Game.js's hireStaffMember actually charges
+      // it — this used to quote staffHireCost's bare number, which the real
+      // hire would then undercut, the same "displayed number does not match
+      // what happens" shape as the placement-ghost bug this plan already
+      // fixed once (there: showed affordable, then refused; here: quotes
+      // high, charges low — the benign direction, but still a wrong number
+      // on screen).
+      const discount = game.state.staffHireDiscount || 0;
+      const cost = Math.round(staffHireCost(c, game.state.staffCosts || {}) * (1 - discount));
       const afford = funding >= cost;
 
       const card = document.createElement('div');

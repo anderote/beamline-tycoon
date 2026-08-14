@@ -13,6 +13,7 @@ import { PROFESSIONS, SPECIALTY_AXES, SKILLS } from '../data/professions.js';
 import { BACKSTORIES } from '../data/backstories.js';
 import { ZONES } from '../data/facility.js';
 import { traitDesc } from '../game/staff/StaffMember.js';
+import { careerMilestones } from '../game/staff/careerLog.js';
 import { ROLE_COLORS, staffMoodColor, escapeHtml } from './format.js';
 
 // Career-row copy for StaffMember.stats keys, in display order. A key absent
@@ -118,6 +119,23 @@ export function bioCardHTML(member, opts = {}) {
       for (const row of career) {
         html += `<div class="bio-card-career-row"><span class="bio-card-career-label">${escapeHtml(row.label)}</span><span class="bio-card-career-value">${row.value}</span></div>`;
       }
+      html += `</div>`;
+    }
+
+    // Task 7 (staff-professions-3, jobs-and-gates) follow-up, fix round 1:
+    // careerMilestones() turns the same stats formatCareer just tabulated
+    // into player-facing prose ("recovered the beam 47 times") — the actual
+    // payoff of this task, and the one piece that was computed but never
+    // reached the screen. A brand-new hire's stats are all below every
+    // milestone threshold, so this returns [] and the section (heading
+    // included) is omitted entirely, same as Career above does for a hire
+    // with no stats yet — never an empty "Highlights" heading with nothing
+    // under it.
+    const milestones = careerMilestones(member);
+    if (milestones.length) {
+      html += `<div class="ctx-section-label">Highlights</div>`;
+      html += `<div class="bio-card-milestones">`;
+      html += milestones.map(m => `<div class="bio-card-milestone">${escapeHtml(m)}</div>`).join('');
       html += `</div>`;
     }
   }
