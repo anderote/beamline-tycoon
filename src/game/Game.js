@@ -178,7 +178,7 @@ export class Game {
     })();
 
     this.state = {
-      resources: { funding: 2500000, reputation: 0, data: 0 },
+      resources: { funding: 5000000, reputation: 0, data: 0 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
       activeResearch: null,
@@ -409,6 +409,7 @@ export class Game {
       solveRunner: this.solveRunner,
       getPorts: getUtilityPortsV2,
       rng: () => this.rng(),
+      log: (msg, kind) => this.log(msg, kind),
     });
     // Signature of the nodeQualities the last full physics pass was built
     // against (see _syncPhysicsToNodeQualities). '' is the signature of "no

@@ -50,12 +50,12 @@ function assert(cond, msg) {
 // transformer's pwr_out faces east (tile 1.75, 1.5); each quad's pwr_in faces
 // north, at tiles (2.25 | 4.25 | 6.25 | 8.25, 4.75). A fifth quad sits far
 // down the pipe, outside any corridor the test drags.
-const SOURCE_PORT = { placeableId: 'src_1', portName: 'pwr_out' };
+const SOURCE_PORT = { placeableId: 'src_1', portName: 'pwr_out_1' };
 const RUN_QUADS = ['pl_1', 'pl_2', 'pl_3', 'pl_4'];
 
 function makeWorld(game) {
   game.state.placeables.push({
-    id: 'src_1', type: 'hvTransformer', kind: 'infrastructure',
+    id: 'src_1', type: 'mcc', kind: 'infrastructure',
     category: 'infrastructure', col: 1, row: 1, subCol: 0, subRow: 0, dir: 0,
   });
   game.state.beamPipes.push({
@@ -118,7 +118,7 @@ console.log('\n--- 1. Planner: corridor, compatibility, routability ---');
   assert(plan.stubs.every(s => s.end.portName === 'pwr_in'),
     'only the powerCable sink port of each quad is targeted');
   assert(plan.stubs.every(s => s.start.placeableId === 'src_1'),
-    'every stub fans out from the one source port');
+    'every stub leaves the one distribution panel');
   assert(plan.stubs.every(s => validateDrawLine(game.state, {
     utilityType: 'powerCable', start: s.start, end: s.end, path: s.path,
   }).ok), 'every planned stub is a route validateDrawLine accepts');
@@ -145,7 +145,7 @@ console.log('\n--- 1. Planner: corridor, compatibility, routability ---');
   const game = makeGame();
   game.state.utilityLines.set('ul_pre', {
     id: 'ul_pre', utilityType: 'powerCable',
-    start: { placeableId: 'src_1', portName: 'pwr_out' },
+    start: { placeableId: 'src_1', portName: 'pwr_out_1' },
     end: { placeableId: 'pl_2', portName: 'pwr_in' },
     path: [{ col: 4.25, row: 3 }, { col: 4.25, row: 4.75 }],
   });
@@ -186,8 +186,13 @@ console.log('\n--- 2. One drag, N lines, ONE undo entry ---');
   assert(lines.length === 4, `four lines committed by one drag (got ${lines.length})`);
   assert(new Set(lines.map(l => l.end.placeableId)).size === 4,
     'each line lands on a different quad');
-  assert(lines.every(l => l.start.placeableId === 'src_1' && l.start.portName === 'pwr_out'),
-    'all four fan out from the transformer');
+  // Power is point to point, so the four lines leave from four DIFFERENT
+  // outlets on the one panel — that is what makes outlet count a resource, and
+  // what the gesture is spending when it wires a row of magnets.
+  assert(lines.every(l => l.start.placeableId === 'src_1'),
+    'all four leave the same distribution panel');
+  assert(new Set(lines.map(l => l.start.portName)).size === 4,
+    `each takes its own outlet (got ${JSON.stringify(lines.map(l => l.start.portName).sort())})`);
   assert(game._undoStack.length === undoBefore + 1,
     `exactly one undo entry for the whole gesture (got ${game._undoStack.length - undoBefore})`);
 

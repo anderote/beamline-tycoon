@@ -264,6 +264,13 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // but so each chiller gets its own drop; both manifolds cover the same
   // middle cavities, which unions them into a single 600 kW loop.
   const pwrBus2  = place('powerBus', 0, 9);
+  // Two distribution panels: eight sockets each, ten loads to feed.
+  const mcc1     = place('mcc', -6, 11);
+  // The second panel sits with the plant it feeds. Circuits are point to point
+  // now, so a panel on the far side of the hall means ten long runs sharing one
+  // aisle — put distribution where its loads are, which is the decision the
+  // chain exists to create.
+  const mcc2     = place('mcc', 2, 12);
   const wgBus2   = place('waveguideManifold', -2, 9);
   const coolW2   = place('coolingManifold', 1, 9);
   const coolE2   = place('coolingManifold', 5, 11);
@@ -274,12 +281,18 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     const id = wireUtility(game, util, from, to);
     if (!id) log('C: wire failed', util, from.id, '->', to.id);
   };
-  if (hv) {
-    for (const [id, port] of [[src2, 'pwr_in'], [det, 'pwr_in'], [mbk, 'pwr_in'],
-      [ssa2, 'pwr_in'], [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'],
-      [ch1, 'pwr_in'], [ch2, 'pwr_in'], [pwrBus2, 'bus_left']]) {
-      if (id) wire('powerCable', { id: hv, port: 'pwr_out' }, { id, port });
-    }
+  // Power runs supply -> HV -> distribution -> branch circuits. Ten loads here,
+  // and a cable is point to point, so they need ten sockets: two MCCs off two
+  // of the transformer's four HV feeders.
+  if (hv && mcc1) wire('hvCable', { id: hv, port: 'hv_out_1' }, { id: mcc1, port: 'hv_in' });
+  if (hv && mcc2) wire('hvCable', { id: hv, port: 'hv_out_2' }, { id: mcc2, port: 'hv_in' });
+  const westLoads = [[src2, 'pwr_in'], [mbk, 'pwr_in'], [ssa2, 'pwr_in'],
+    [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'bus_left']];
+  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in']];
+  for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
+    loads.forEach(([id, port], i) => {
+      if (id && panel) wire('powerCable', { id: panel, port: `pwr_out_${i + 1}` }, { id, port });
+    });
   }
   if (tp) {
     for (const [id, port] of [[src2, 'vac_in'], [det, 'vac_in'],

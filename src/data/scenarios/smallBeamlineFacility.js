@@ -144,6 +144,9 @@ export function setupSmallBeamlineFacility(game) {
   // Distribution row (south). One power bus (reach 10) spans the whole run;
   // vacuum manifolds only reach 5, so the run needs two.
   const pwrBus  = game.placePlaceable({ type: 'powerBus', col: 0, row: 1, free: true, silent: true });
+  // The distribution panel for the support row. 250 kW of the switchgear's 400
+  // and eight sockets; the bus takes the second HV feeder for the on-pipe kit.
+  const mccPanel = game.placePlaceable({ type: 'mcc', col: -5, row: 1, free: true, silent: true });
   const vacW    = game.placePlaceable({ type: 'vacuumManifold', col: -3, row: 1, free: true, silent: true });
   const vacE    = game.placePlaceable({ type: 'vacuumManifold', col: 3, row: 1, free: true, silent: true });
   const wgBus   = game.placePlaceable({ type: 'waveguideManifold', col: -2, row: 1, free: true, silent: true });
@@ -154,14 +157,25 @@ export function setupSmallBeamlineFacility(game) {
 
   const wire = (util, from, to) => wireUtility(game, util, from, to);
 
-  // Power: junctions and the support gear take their own feeds; every on-pipe
-  // sink comes in through the bus (one line instead of six).
-  if (gear) {
-    for (const [id, port] of [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
+  // Power runs supply → HV → distribution → branch circuits.
+  //
+  // The switchgear holds all 400 kW and hands out two HV feeders: one to the
+  // MCC that serves the support row, one to the power bus that covers the
+  // on-pipe sinks. Distribution adds no capacity — it hands out SOCKETS, and a
+  // cable is point to point, so the seven support loads take seven of the
+  // MCC's eight outlets and the eighth is the room this facility has to grow
+  // into before it needs a second panel.
+  if (gear && mccPanel) wire('hvCable', { id: gear, port: 'hv_out_1' }, { id: mccPanel, port: 'hv_in' });
+  if (mccPanel) {
+    // Seven support loads and the power bus: eight circuits, eight sockets, and
+    // the panel is full. Growing this facility means a second panel — and the
+    // switchgear's second HV feeder is sitting there for it.
+    const loads = [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
       [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
-      [pwrBus, 'bus_left']]) {
-      if (id) wire('powerCable', { id: gear, port: 'pwr_out' }, { id, port });
-    }
+      [pwrBus, 'bus_left']];
+    loads.forEach(([id, port], i) => {
+      if (id) wire('powerCable', { id: mccPanel, port: `pwr_out_${i + 1}` }, { id, port });
+    });
   }
 
   // Both pumps land on the one vacuum network — pump speed sums across a

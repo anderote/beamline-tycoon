@@ -18,7 +18,8 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose } from './component-builder.js';
+import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds } from './component-builder.js';
+import { setModelBoundsProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -27,6 +28,8 @@ import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
+import { portAnchor3D } from '../utility/port-anchors.js';
+import { buildPortFittings, portFittingSignature } from './builders/port-fitting-builder.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
@@ -296,6 +299,9 @@ export class ThreeRenderer {
     this.floorBuilder = new FloorBuilder(this.textureManager);
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
+    // Port anchors need model heights, which only the meshes know. Injected
+    // rather than imported so utility/port-anchors.js stays headless-safe.
+    setModelBoundsProvider(getModelBounds);
     this.pipeAttachmentBuilder = new ComponentBuilder();
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
@@ -306,6 +312,7 @@ export class ThreeRenderer {
     this.utilityLineGroup = null;
     this.utilityLinePreviewGroup = null;
     this.unwiredSinkGroup = null;
+    this.portFittingGroup = null;
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
@@ -530,6 +537,11 @@ export class ThreeRenderer {
     this.unwiredSinkGroup.name = 'unwiredSinkMarkers';
     this.unwiredSinkGroup.renderOrder = 1000;
     this.scene.add(this.unwiredSinkGroup);
+    // Connector hardware on equipment. Ordinary scene geometry (depth-tested,
+    // no renderOrder games) — these are part of the machines, not an overlay.
+    this.portFittingGroup = new THREE.Group();
+    this.portFittingGroup.name = 'utilityPortFittings';
+    this.scene.add(this.portFittingGroup);
 
     this.equipmentGroup = new THREE.Group();
     this.equipmentGroup.name = 'equipment';
@@ -624,6 +636,7 @@ export class ThreeRenderer {
           this._refreshUtilityLinesV2();
           // Geometry moved; the blocker set may be identical, so force.
           this._refreshUnwiredSinkMarkers(true);
+          this._refreshPortFittings();
           break;
         case 'facilityChanged':
           this._refreshEquipment();
@@ -746,6 +759,30 @@ export class ThreeRenderer {
     const fCol = hit.x / 2;
     const fRow = hit.z / 2;
     return gridToIso(fCol, fRow);
+  }
+
+  /**
+   * screenToWorld against a horizontal plane at `height` metres instead of the
+   * ground. A tool that draws its geometry above the floor has to PICK at the
+   * same height it draws at: under the iso camera, projecting the cursor onto
+   * y=0 and then rendering the result at y=0.5 displaces the drawing 15-25 px
+   * up-screen from the mouse at normal zoom, which reads as the tool refusing
+   * to place where you clicked (utility lines, which live at PIPE_Y).
+   *
+   * Deliberately ignores `_terrainMesh` — the whole point is the flat plane the
+   * tool works on, not the surface under it.
+   */
+  screenToWorldAtHeight(screenX, screenY, height) {
+    if (!height) return this.screenToWorld(screenX, screenY);
+    if (!this.camera || !this.renderer) return this.screenToWorld(screenX, screenY);
+    const { raycaster } = this._screenRay(screenX, screenY);
+    let plane = this._heightPlaneScratch;
+    if (!plane) plane = this._heightPlaneScratch = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    // Plane equation is normal·p + constant = 0, so y = height is constant = -height.
+    plane.constant = -height;
+    const hit = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(plane, hit)) return this.screenToWorld(screenX, screenY);
+    return gridToIso(hit.x / 2, hit.z / 2);
   }
 
   /**
@@ -3038,6 +3075,7 @@ export class ThreeRenderer {
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this._refreshUtilityLinesV2();
     this._refreshUnwiredSinkMarkers(true);
+    this._refreshPortFittings();
     this._refreshBeamPipes();
     this._refreshZones();
     this._invalidateGridOverlay();
@@ -3403,11 +3441,46 @@ export class ThreeRenderer {
    * per-tick path pass no `force`; callers that moved geometry without
    * changing the blocker set (a placeable drag) pass force=true.
    */
+  /**
+   * Rebuild the connector fittings on equipment.
+   *
+   * Always on, unlike the port dots — a device's connectors are part of what it
+   * IS, and a player deciding where to put a pump should be able to see which
+   * face its vacuum port is on without arming a tool first.
+   *
+   * Signature-guarded on endpoint identity + pose, which is the only thing the
+   * geometry depends on: wiring one up does not move its connector.
+   */
+  _refreshPortFittings() {
+    if (!this.portFittingGroup) return;
+    const state = this._liveState();
+    // Endpoints, not placeables: most utility ports live on pipe placements.
+    const endpoints = state ? listUtilityEndpoints(state) : [];
+    const sig = portFittingSignature(endpoints);
+    if (sig === this._portFittingSig) return;
+    this._portFittingSig = sig;
+    while (this.portFittingGroup.children.length > 0) {
+      const child = this.portFittingGroup.children[0];
+      this.portFittingGroup.remove(child);
+      child.traverse?.(o => {
+        if (o.geometry) o.geometry.dispose();
+        const m = o.material;
+        if (m && !m.userData?.__shared && typeof m.dispose === 'function') m.dispose();
+      });
+    }
+    if (!sig) return;
+    const { group } = buildPortFittings(endpoints);
+    while (group.children.length > 0) this.portFittingGroup.add(group.children[0]);
+  }
+
   _refreshUnwiredSinkMarkers(force = false) {
     if (!this.unwiredSinkGroup || !this.utilityLineBuilderV2) return;
     const state = this._liveState();
     const blockers = (state && state.infraBlockers) || [];
     const unwired = blockers.filter(b => b && b.fromUnconnectedCheck && b.location?.placeableId);
+    // The pin now hangs off the port's 3D anchor, so a device that moved (or
+    // whose anchor resolved once the model bounds were measured) has to
+    // rebuild — the blocker set alone no longer determines the geometry.
     const sig = unwired.map(b => `${b.location.placeableId}:${b.location.portName}`).join(';');
     if (!force && sig === this._unwiredBlockerSig) return;
     this._unwiredBlockerSig = sig;
@@ -3423,11 +3496,14 @@ export class ThreeRenderer {
       const ep = byId.get(b.location.placeableId);
       if (!ep) continue;
       const def = COMPONENTS[ep.type];
-      const wp = portWorldPosition(ep, def, b.location.portName);
-      if (!wp) continue;
+      const anchor = portAnchor3D(ep, def, b.location.portName);
+      if (!anchor) continue;
       const utilityType = def?.ports?.[b.location.portName]?.utility;
       if (!utilityType) continue;
-      marks.push({ id: ep.id, portName: b.location.portName, utilityType, x: wp.x, z: wp.z });
+      marks.push({
+        id: ep.id, portName: b.location.portName, utilityType,
+        x: anchor.x, y: anchor.y, z: anchor.z,
+      });
     }
     this.utilityLineBuilderV2.setUnwiredSinkMarkers(marks, this.unwiredSinkGroup);
   }

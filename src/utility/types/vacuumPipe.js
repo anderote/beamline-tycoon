@@ -74,6 +74,13 @@ export default {
   // Capacity is aggregate pump speed (L/s); demand is total outgassing
   // (mbar\u00b7L/s) \u2014 different physical quantities, hence the two units.
   capacityUnit: 'L/s',
+  // Pipework: you tee into a run with a fitting, and a manifold feeds several
+  // branches off one outlet.
+  allowsTap: true,
+  fansOut: true,
+  // Adjacency bridging: touching components share the vacuum — a turbo mounted
+  // on a roughing pump is one pumping stack, not two separate runs.
+  bridgesAdjacent: true,
   demandUnit: 'mbar\u00b7L/s',
   capacityParam: 'pumpSpeed',
   demandParam: 'outgassing',

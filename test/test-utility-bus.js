@@ -70,7 +70,7 @@ function makeState() {
 function wireBus(state) {
   state.utilityLines.set('ul_1', {
     id: 'ul_1', utilityType: 'powerCable',
-    start: { placeableId: 'src_1', portName: 'pwr_out' },
+    start: { placeableId: 'src_1', portName: 'pwr_out_1' },
     end: { placeableId: 'bus_1', portName: 'bus_front' },
     path: [{ col: 3, row: 6 }, { col: 3, row: 1 }],
   });
@@ -89,7 +89,15 @@ console.log('\n--- 1. One line to a bus feeds every covered placement ---');
   const nets = discoverNetworks('powerCable', state.utilityLines, makeDefaultPortLookup(state));
   assert(nets.length === 1, `one powerCable network (got ${nets.length})`);
   const net = nets[0];
-  assert(net.sources.length === 1, `the panel is the only source (got ${net.sources.length})`);
+  // The panel's four outlets are one busbar behind the faceplate: discovery
+  // unites them, and each declares rating/4, so they add back up to the panel's
+  // rating no matter how many are in use.
+  const panelOutlets = net.sources.filter(s => s.placeableId === 'src_1');
+  assert(panelOutlets.length === net.sources.length && panelOutlets.length === 4,
+    `the panel is the only supply, across its four outlets (got ${net.sources.length})`);
+  const panelCapacity = panelOutlets.reduce((a, s) => a + s.capacity, 0);
+  assert(panelCapacity === 40,
+    `and they sum to the panel's rating, not four times it (got ${panelCapacity} kW)`);
   const sinkIds = net.sinks.map(s => s.placeableId).sort();
   assert(JSON.stringify(sinkIds) === JSON.stringify(['q1', 'q2', 'q3']),
     `all three quads on the bus's segment are sinks (got ${JSON.stringify(sinkIds)})`);

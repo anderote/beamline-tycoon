@@ -10,6 +10,7 @@ import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { openBeamlineTypePicker, beamlineTypeHidesComponent } from './BeamlineTypePicker.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
+import { RF_BANDS } from '../utility/types/rfWaveguide.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
@@ -1821,6 +1822,28 @@ UIHost.prototype._beamlineTypeHidesComponent = function(key, comp) {
   return beamlineTypeHidesComponent(this.game.getActiveBeamlineTypeId?.(), key, comp);
 };
 
+// The RF sink port of a component, as {band, frequency} in Hz — the band an
+// accelerating structure NEEDS, as opposed to the bands a tube can serve.
+// Null for anything that doesn't take RF.
+function rfSinkPort(comp) {
+  const ports = comp && comp.ports;
+  if (!ports) return null;
+  for (const spec of Object.values(ports)) {
+    if (!spec || spec.utility !== 'rfWaveguide' || spec.role !== 'sink') continue;
+    const p = spec.params || {};
+    if (!p.band && !(p.frequency > 0)) continue;
+    return { band: p.band || null, frequency: p.frequency || 0 };
+  }
+  return null;
+}
+
+// Hz → the shortest reading that keeps the number recognisable: 1300 MHz, not
+// 1.3 GHz (the catalogue and the literature both quote these in MHz).
+function formatRfFrequency(hz) {
+  const mhz = hz / 1e6;
+  return `${mhz >= 100 ? Math.round(mhz) : Math.round(mhz * 10) / 10} MHz`;
+}
+
 UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const unlocked = this.game.isComponentUnlocked(comp);
   if (!unlocked) return null;
@@ -1890,12 +1913,20 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   }
   item.appendChild(previewEl);
 
-  // RF band badge (top-right corner)
-  const bandLabels = {
-    vhf: 'VHF', uhf: 'UHF', lband: 'L-band',
-    sband: 'S-band', cband: 'C-band', xband: 'X-band',
-  };
-  const bands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
+  // RF band badge (top-right corner).
+  //
+  // Sources declare `rfBands` — what the tube can cover. Accelerating
+  // structures declare a FREQUENCY, and their band is derived onto the rf_in
+  // port (utility-ports-v2). Reading only the raw field left every cavity in
+  // the beamline palette unlabelled, which is the half that actually needs
+  // it: a source powers any frequency in a band it covers, but one network
+  // carries one frequency, so "which band, and what frequency inside it" is
+  // the decision being made at the moment of placing the cavity.
+  const bandLabels = Object.fromEntries(RF_BANDS.map(b => [b.id, b.label]));
+  const rfSink = rfSinkPort(comp);
+  const bands = comp.rfBands
+    || (comp.rfBand ? [comp.rfBand] : null)
+    || (rfSink && rfSink.band ? [rfSink.band] : null);
   if (bands) {
     const bandEl = document.createElement('div');
     bandEl.className = 'palette-rf-band';
@@ -1903,6 +1934,13 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
       const line = document.createElement('div');
       line.textContent = bandLabels[b] || b;
       bandEl.appendChild(line);
+    }
+    // The exact frequency, for the components that need one specific network.
+    if (rfSink && rfSink.frequency > 0) {
+      const freqLine = document.createElement('div');
+      freqLine.className = 'palette-rf-freq';
+      freqLine.textContent = formatRfFrequency(rfSink.frequency);
+      bandEl.appendChild(freqLine);
     }
     // RF output power (green) for infra RF sources
     if (comp.category === 'rfPower' && comp.params?.power) {
@@ -2457,11 +2495,34 @@ UIHost.prototype._bindManualEntryPoints = function() {
 
 // --- System Stats Panel ---
 
+// The stats panel sits directly under the top bar. Its CSS `top` is a fallback
+// for a single-row bar only: the bar WRAPS to a second and third row on a
+// narrow window (see #top-bar's flex-wrap), and the panel stacks below it
+// (z-index 99 vs 100), so a fixed offset slides the panel underneath the bar
+// and leaves half a row of it peeking out. Measure the bar, as the blocker
+// panel and the music player already do.
+function positionSystemStatsPanel(panel) {
+  if (!panel) return;
+  const bar = document.getElementById('top-bar');
+  if (!bar) return;
+  panel.style.top = `${bar.offsetTop + bar.offsetHeight}px`;
+}
+
 UIHost.prototype._updateSystemStatsVisibility = function() {
   const panel = document.getElementById('system-stats-panel');
   if (!panel) return;
   if (this.activeMode === 'facility' || this.activeMode === 'infra') {
     panel.classList.remove('hidden');
+    positionSystemStatsPanel(panel);
+    // The bar re-wraps on resize, which changes its height without touching
+    // anything this panel would otherwise hear about.
+    if (!this._systemStatsResizeBound) {
+      this._systemStatsResizeBound = true;
+      window.addEventListener('resize', () => {
+        const p = document.getElementById('system-stats-panel');
+        if (p && !p.classList.contains('hidden')) positionSystemStatsPanel(p);
+      });
+    }
   } else {
     panel.classList.add('hidden');
   }

@@ -15,6 +15,7 @@
 //   port_mismatch_start, port_mismatch_end.
 
 import { COMPONENTS } from '../data/components.js';
+import { UTILITY_TYPES } from './registry.js';
 import {
   getPortSpec,
   availablePorts,
@@ -69,9 +70,85 @@ function pointsOverlap(a, b) {
       && Math.abs(a.row - b.row) < 0.25 - EPS;
 }
 
+// ---------------------------------------------------------------------------
+// What a shared subtile MEANS.
+//
+// It used to mean exactly one thing — "these two runs are the same network" —
+// which forced this check to reject every shared subtile, so two power cables
+// could not cross. In a hall with a few runs in it that makes whole regions
+// unroutable, for the same reason and with the same message as genuinely
+// laying cable down an existing trunk.
+//
+// Three readings, told apart by geometry:
+//
+//   endpoint of one run, interior of the other   a tee: the runs are JOINED.
+//                                                Legal only for a utility that
+//                                                declares allowsTap (pipes get
+//                                                a fitting; cables, waveguides
+//                                                and fibres are terminated at
+//                                                both ends), and then only via
+//                                                the tapLineIds exemption.
+//   interior of both, perpendicular              a crossing: one passes over
+//                                                the other, never joined.
+//                                                Always legal.
+//   interior of both, collinear                  laying down an existing run.
+//                                                Never legal.
+//
+// discoverNetworks' spatial union is narrowed to match (endpoint contact only),
+// so a crossing cannot silently merge two networks.
+// ---------------------------------------------------------------------------
+
+/** 'h' | 'v' | null for the segment a→b. */
+function segmentAxis(a, b) {
+  if (Math.abs(b.col - a.col) > EPS) return 'h';
+  if (Math.abs(b.row - a.row) > EPS) return 'v';
+  return null;
+}
+
+/**
+ * The axes a polyline occupies at expanded index `i` — one for a point mid-run,
+ * two at a corner. Two runs are perpendicular at a shared point iff their axis
+ * sets are disjoint.
+ */
+export function axesAtIndex(expanded, i) {
+  const out = new Set();
+  if (i > 0) {
+    const ax = segmentAxis(expanded[i - 1], expanded[i]);
+    if (ax) out.add(ax);
+  }
+  if (i < expanded.length - 1) {
+    const ax = segmentAxis(expanded[i], expanded[i + 1]);
+    if (ax) out.add(ax);
+  }
+  return out;
+}
+
+function isPerpendicular(axesA, axesB) {
+  if (axesA.size === 0 || axesB.size === 0) return false;
+  for (const ax of axesA) if (axesB.has(ax)) return false;
+  return true;
+}
+
 function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
   const newExpanded = expandPath(newPath);
   const ignoreSharedSource = opts.ignoreSharedSource || null; // { start, end }
+  // Tap: this end of the new line deliberately lands ON an existing line, to
+  // branch off it. Exempt exactly ONE point — the terminal subtile at that end
+  // — against exactly that line. A path that then runs ALONG the trunk still
+  // overlaps at its second point and still rejects, which is what keeps the
+  // overlap rule meaning something.
+  const tapLineIds = opts.tapLineIds || null;
+  const tapExempt = new Map();   // lineId -> Set of exempt indices in newExpanded
+  if (tapLineIds && newExpanded.length > 0) {
+    const add = (id, idx) => {
+      if (!id) return;
+      let set = tapExempt.get(id);
+      if (!set) { set = new Set(); tapExempt.set(id, set); }
+      set.add(idx);
+    };
+    add(tapLineIds.start, 0);
+    add(tapLineIds.end, newExpanded.length - 1);
+  }
   const iter = lines && typeof lines.values === 'function'
     ? lines.values()
     : (lines || []);
@@ -81,12 +158,20 @@ function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
     // ignore overlap at that shared endpoint's subtiles (the start/end point).
     // This allows one hvTransformer pwr_out to fan out to multiple sinks via
     // capacity, while still blocking interior overlaps between unrelated lines.
+    // Runs leaving the same supply DEVICE share a tray.
+    //
+    // The exemption used to be per-PORT, which was enough when one source port
+    // fanned out to everything. A distribution panel hands out one cable per
+    // socket, so its eight circuits leave from eight different ports and head
+    // down the same aisle — matching per-port would make the second one
+    // illegal and force every panel's circuits to leave on separate rows. Real
+    // ones are bundled in a tray out of the panel; matching per-device says so.
     let skipEndpoint = false;
     if (ignoreSharedSource) {
-      if (ignoreSharedSource.start && line.start && line.start.placeableId === ignoreSharedSource.start.placeableId && line.start.portName === ignoreSharedSource.start.portName) skipEndpoint = true;
-      if (ignoreSharedSource.start && line.end && line.end.placeableId === ignoreSharedSource.start.placeableId && line.end.portName === ignoreSharedSource.start.portName) skipEndpoint = true;
-      if (ignoreSharedSource.end && line.start && line.start.placeableId === ignoreSharedSource.end.placeableId && line.start.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
-      if (ignoreSharedSource.end && line.end && line.end.placeableId === ignoreSharedSource.end.placeableId && line.end.portName === ignoreSharedSource.end.portName) skipEndpoint = true;
+      const shares = (ref, ignore) => !!(ignore && ref && ref.placeableId === ignore.placeableId);
+      for (const ignore of [ignoreSharedSource.start, ignoreSharedSource.end]) {
+        if (shares(line.start, ignore) || shares(line.end, ignore)) skipEndpoint = true;
+      }
     }
     // Fanout: lines that share a source endpoint are allowed to overlap / share
     // trunk subtiles — they will be merged into one network via spatial union
@@ -94,9 +179,21 @@ function pathOverlapsSameType(newPath, lines, utilityType, opts = {}) {
     // for that existing line.
     if (skipEndpoint) continue;
     const existing = expandPath(line.path || []);
-    for (const np of newExpanded) {
-      for (const ep of existing) {
-        if (pointsOverlap(np, ep)) return true;
+    const exempt = tapExempt.get(line.id) || null;
+    for (let i = 0; i < newExpanded.length; i++) {
+      if (exempt && exempt.has(i)) continue;
+      const np = newExpanded[i];
+      const newTerminal = i === 0 || i === newExpanded.length - 1;
+      for (let j = 0; j < existing.length; j++) {
+        if (!pointsOverlap(np, existing[j])) continue;
+        // Endpoint contact is a JOIN, and a join has to be asked for: an
+        // unexempted one (this end named no tap, or the utility allows none)
+        // is refused rather than quietly wiring two networks together.
+        if (newTerminal || j === 0 || j === existing.length - 1) return true;
+        // Interior/interior: legal exactly when the runs cross.
+        if (!isPerpendicular(axesAtIndex(newExpanded, i), axesAtIndex(existing, j))) {
+          return true;
+        }
       }
     }
   }
@@ -122,6 +219,32 @@ function lookupDef(state, type) {
   return (type && COMPONENTS[type]) || null;
 }
 
+/**
+ * May a port that already has a line take another?
+ *
+ * Only a source, and only for a utility whose runs fan out — a manifold outlet
+ * feeds several branches, a power socket takes one plug. Mirrors
+ * ports.availablePorts, which decides whether the marker is even offered; both
+ * have to agree or the player can grab a port the commit then refuses.
+ */
+function portReusable(spec, utilityType) {
+  if (!spec || spec.role !== 'source') return false;
+  const d = UTILITY_TYPES[utilityType];
+  return !d || d.fansOut !== false;
+}
+
+/** Does any line of this utility already touch this device? */
+function deviceHasLine(state, placeableId, utilityType) {
+  const lines = state && state.utilityLines;
+  const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+  for (const line of iter) {
+    if (!line || line.utilityType !== utilityType) continue;
+    if (line.start && line.start.placeableId === placeableId) return true;
+    if (line.end && line.end.placeableId === placeableId) return true;
+  }
+  return false;
+}
+
 function isPortTaken(state, placeableId, portName) {
   const lines = state && state.utilityLines;
   const iter = lines && typeof lines.values === 'function'
@@ -143,7 +266,7 @@ function isPortTaken(state, placeableId, portName) {
 // Public: validateDrawLine
 // ---------------------------------------------------------------------------
 
-export function validateDrawLine(state, { utilityType, start, end, path } = {}) {
+export function validateDrawLine(state, { utilityType, start, end, path, tapLineIds } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
   if (!isManhattanPath(path)) return reject('not_manhattan');
@@ -166,7 +289,8 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
     const spec = getPortSpec(def, start.portName);
     if (!spec) return reject('invalid_start');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
-    if (spec.role !== 'source' && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
+    if (!portReusable(spec, utilityType)
+        && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
 
     const firstDir = segmentDirection(path[0], path[1]);
     if (!firstDir) return reject('not_manhattan');
@@ -185,7 +309,8 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
     const spec = getPortSpec(def, end.portName);
     if (!spec) return reject('invalid_end');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
-    if (spec.role !== 'source' && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
+    if (!portReusable(spec, utilityType)
+        && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
 
     const n = path.length;
     const lastDir = segmentDirection(path[n - 2], path[n - 1]);
@@ -201,25 +326,22 @@ export function validateDrawLine(state, { utilityType, start, end, path } = {}) 
   // Build ignore set for branching: if start/end is a source that is already taken,
   // that endpoint is a fanout point and its exact endpoint overlap is permitted.
   let ignoreSharedSource = null;
-  if (start) {
-    const sp = findPlaceable(state, start.placeableId);
-    const sdef = sp ? lookupDef(state, sp.type) : null;
-    const sspec = sdef ? getPortSpec(sdef, start.portName) : null;
-    if (sspec && sspec.role === 'source' && isPortTaken(state, start.placeableId, start.portName)) {
-      ignoreSharedSource = ignoreSharedSource || {};
-      ignoreSharedSource.start = start;
-    }
+  for (const [ref, side] of [[start, 'start'], [end, 'end']]) {
+    if (!ref) continue;
+    const rec = findPlaceable(state, ref.placeableId);
+    const def = rec ? lookupDef(state, rec.type) : null;
+    const spec = def ? getPortSpec(def, ref.portName) : null;
+    // A source end, on a device that already has a line of this utility on it.
+    // Whether THIS port is the taken one no longer matters: the bundle leaves
+    // the device, not the socket.
+    if (!spec || spec.role !== 'source') continue;
+    if (!deviceHasLine(state, ref.placeableId, utilityType)) continue;
+    ignoreSharedSource = ignoreSharedSource || {};
+    ignoreSharedSource[side] = ref;
   }
-  if (end) {
-    const ep = findPlaceable(state, end.placeableId);
-    const edef = ep ? lookupDef(state, ep.type) : null;
-    const espec = edef ? getPortSpec(edef, end.portName) : null;
-    if (espec && espec.role === 'source' && isPortTaken(state, end.placeableId, end.portName)) {
-      ignoreSharedSource = ignoreSharedSource || {};
-      ignoreSharedSource.end = end;
-    }
+  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource, tapLineIds })) {
+    return reject('overlap_same_type');
   }
-  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource })) return reject('overlap_same_type');
 
   return {
     ok: true,

@@ -141,12 +141,20 @@ for (const scenario of SCENARIOS) {
   assert(placements.filter(t => t === 'pillboxCavity').length === 3,
     'three pillbox cavities on the pipe');
 
-  // Wiring: 8 power (2 junctions + 5 support units + the bus), 5 vacuum
+  // Wiring: 1 HV feeder (switchgear → MCC), 8 branch circuits off the MCC's
+  // eight sockets (2 junctions + 5 support units + the power bus), 5 vacuum
   // (2 junctions + 2 manifolds + the turbo's tap), 1 RF into the waveguide
-  // manifold, 2 cooling, 2 data = 18 lines. Four of them are bus feeds
-  // standing in for what would otherwise be 16 per-component stubs.
-  assert((state.utilityLines?.size || 0) === 18,
-    `eighteen utility lines wired (got ${state.utilityLines?.size})`);
+  // manifold, 2 cooling, 2 data = 19 lines. Four of them are bus feeds standing
+  // in for what would otherwise be 16 per-component stubs.
+  assert((state.utilityLines?.size || 0) === 19,
+    `nineteen utility lines wired (got ${state.utilityLines?.size})`);
+  const hvLines = [...(state.utilityLines?.values() || [])]
+    .filter(l => l.utilityType === 'hvCable');
+  assert(hvLines.length === 1, `exactly one HV feeder (got ${hvLines.length})`);
+  const branch = [...(state.utilityLines?.values() || [])]
+    .filter(l => l.utilityType === 'powerCable');
+  assert(new Set(branch.map(l => l.start.portName)).size === branch.length,
+    'every branch circuit takes its own socket on the panel');
 
   // The buses must be what serves the on-pipe components — that is the whole
   // point of shipping them in the starter layout. Cut the bus feeds and the
@@ -163,10 +171,21 @@ for (const scenario of SCENARIOS) {
     }
     for (let i = 0; i < 3; i++) cutGame.tick();
     const cutHard = (cutGame.state.infraBlockers || []).filter(b => b.severity === 'hard');
-    // 6 power + 6 vacuum + 4 RF on-pipe sinks; the quad's stub-fed cooling
-    // and the junctions' own feeds are untouched.
-    assert(cutHard.length === 16,
-      `cutting the 4 bus feeds re-blocks 16 on-pipe sinks (got ${cutHard.length})`);
+    // 3 power + 5 vacuum + 4 RF. Of the 16 on-pipe sinks the buses were
+    // serving, four now ride adjacency bridging instead: the placements that
+    // physically touch the wired end junctions pick power and vacuum up from
+    // them, and pass it down the string. RF is the control here — it does not
+    // bridge (rfWaveguide.bridgesAdjacent = false), so all four RF sinks come
+    // back exactly as they did before. The quad's stub-fed cooling and the
+    // junctions' own feeds are untouched either way.
+    const byUtil = cutHard.reduce((a, b) => {
+      a[b.code] = (a[b.code] || 0) + 1; return a;
+    }, {});
+    assert(cutHard.length === 12,
+      `cutting the 4 bus feeds re-blocks 12 on-pipe sinks (got ${cutHard.length}: `
+      + `${JSON.stringify(byUtil)})`);
+    assert(byUtil.rf_unconnected === 4,
+      `every RF sink comes back — RF does not bridge (got ${byUtil.rf_unconnected})`);
   }
 
   // Prebuilt facility must not eat the starting budget (checked before any
@@ -182,10 +201,22 @@ for (const scenario of SCENARIOS) {
   // old flat 50-per-sink placeholder. Demand covers the on-pipe sinks the bus
   // pulls in — a bus distributes, it does not generate, so the switchgear
   // still has to carry them.
+  // Power is a two-stage chain: the switchgear's 400 kW sits on the HV network
+  // and the MCC's 250 kW is what the branch circuits actually see. Distribution
+  // adds no capacity — it converts one HV feeder into eight sockets — so the
+  // facility's ceiling is still the supply, and the panel is the narrower of
+  // the two here.
+  const hvFlows = state.utilityNetworkData?.get?.('hvCable');
+  const hvFlow = hvFlows && [...hvFlows.values()][0];
+  assert(!!hvFlow && hvFlow.totalCapacity === 400,
+    `switchgear supplies 400 kW on the HV side (got ${hvFlow?.totalCapacity})`);
+  assert(!!hvFlow && hvFlow.totalDemand === 250,
+    `and the MCC draws its 250 kW rating from it (got ${hvFlow?.totalDemand})`);
+
   const powerFlows = state.utilityNetworkData?.get?.('powerCable');
   const flow = powerFlows && [...powerFlows.values()][0];
-  assert(!!flow && flow.totalCapacity === 400,
-    `switchgear capacity 400 kW seen by solver (got ${flow?.totalCapacity})`);
+  assert(!!flow && flow.totalCapacity === 250,
+    `the branch circuits see the panel's 250 kW (got ${flow?.totalCapacity})`);
   // gun 50 + cup 1 + buncher 5 + 3x cavity 10 + quad 10 + bpm 1
   //   + skid 3 + amp 70 + ioc 0.5 + roughing 0.5 + turbo 1
   assert(!!flow && flow.totalDemand === 172,

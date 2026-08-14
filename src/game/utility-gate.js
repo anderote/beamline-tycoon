@@ -27,9 +27,15 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 // data income via Game._dataConnectivityFactor), so an unwired BPM costs
 // money rather than tripping the machine.
 const HARD_REQUIRED_UTILS = [
+  // hvCable is hard-required too: a distribution panel with no feeder behind
+  // it powers nothing, so an unwired hv_in is every bit as fatal as an unwired
+  // machine — and reporting it AT THE PANEL is the only way the player finds
+  // out why a whole bank of machines went dark.
+  'hvCable',
   'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
 ];
 const UNCONNECTED_CODES = {
+  hvCable:      'hv_unconnected',
   powerCable:   'power_unconnected',
   vacuumPipe:   'vacuum_unconnected',
   rfWaveguide:  'rf_unconnected',
@@ -56,6 +62,7 @@ const ALL_GATED_UTILS = [...HARD_REQUIRED_UTILS, 'dataFiber'];
 // connected?", the physics bridge) has to key off the same table the gate
 // wrote with, not a hand-copied one.
 export const UTILITY_TO_QUALITY_FIELD = {
+  hvCable:      'hvQuality',
   powerCable:   'powerQuality',
   rfWaveguide:  'rfQuality',
   coolingWater: 'coolingQuality',
@@ -132,7 +139,12 @@ export class UtilityGate {
     this.solveRunner = opts.solveRunner;
     this.getPorts = opts.getPorts;
     this.rng = opts.rng || Math.random;
+    // Player-facing message sink. Soft errors used to reach console.warn and
+    // nowhere else, so an overloaded network announced itself ONLY by
+    // recolouring its cables — a signal with no legend and no explanation.
+    this.log = opts.log || (() => {});
     this._lastErrHash = '';
+    this._loggedSoft = new Set();
     // Topology cache — the unconnected-sink report AND the declared-sink
     // floor are pure topology (endpoints x port tables x lines), so both ride
     // the SolveRunner's topologyRevision: recomputed only when the revision
@@ -152,7 +164,16 @@ export class UtilityGate {
     const state = this.state;
     if (!state || !this.solveRunner) return;
     try {
-      const result = this.solveRunner.runSolve({ tick: state.tick });
+      // The whole state, not a {tick} stub: descriptors reach the world through
+      // this argument (endpointsById reads worldState.placeables /
+      // .beamPipes). With only a tick on it, vacuumPipe.solve saw no endpoints
+      // at all — isBaked was permanently false and beam-pipe outgassing
+      // permanently zero, so bakeout was a purchasable upgrade that did nothing
+      // and every vacuum network pumped down more easily than the model says.
+      // The solver unit tests pass a real state, which is why it never showed.
+      // `state` already carries `tick`, so worldState.tick readers are
+      // unaffected.
+      const result = this.solveRunner.runSolve(state);
       const errs = Array.isArray(result && result.errors) ? result.errors : [];
       const hardErrs = errs.filter(e => e && e.severity === 'hard');
       const softErrs = errs.filter(e => e && e.severity === 'soft');
@@ -361,6 +382,22 @@ export class UtilityGate {
   // Console-warn only when the error-count signature changes, so a persistent
   // fault doesn't spam every tick.
   _dedupLog(hardErrs, softErrs) {
+    // Soft errors are the ones the player never hears about: they do not block
+    // the beam, so nothing in the HUD claims them, and the only trace was the
+    // amber pulse on the affected run. Announce each distinct one once, and
+    // forget it when it clears so a re-overload speaks again.
+    const seen = new Set();
+    for (const e of softErrs) {
+      const key = `${e.code}|${e.location?.networkId || ''}`;
+      seen.add(key);
+      if (this._loggedSoft.has(key)) continue;
+      this._loggedSoft.add(key);
+      this.log(e.message || e.code, 'warn');
+    }
+    for (const key of [...this._loggedSoft]) {
+      if (!seen.has(key)) this._loggedSoft.delete(key);
+    }
+
     const hash = `${hardErrs.length}|${softErrs.length}`;
     if (hash !== this._lastErrHash && (hardErrs.length || softErrs.length)) {
       this._lastErrHash = hash;

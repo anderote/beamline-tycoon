@@ -639,21 +639,97 @@ function busPorts(utility, serviceRadius) {
   return out;
 }
 
+// Sides to spread N ports across, in order. A panel is approached from
+// whichever direction the machine happens to sit, so outlets are distributed
+// around the footprint rather than stacked on one face — with the port anchors
+// from the connection overhaul, that is also where the connectors are drawn.
+const OUTLET_SIDES = ['right', 'front', 'left', 'back'];
+
+/** A supply: `count` HV outlets sharing `capacity` kW. */
+function supplyPorts(capacity, count) {
+  const out = {};
+  for (let i = 0; i < count; i++) {
+    out[`hv_out_${i + 1}`] = {
+      utility: 'hvCable',
+      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
+      offsetAlong: 0.5 + 0.25 * Math.floor(i / OUTLET_SIDES.length),
+      role: 'source',
+      // capacity/N per outlet, for the same reason distribution splits its
+      // rating: discovery unites a device's source ports into one busbar, so
+      // the outlets add back up to the supply's actual rating rather than
+      // multiplying it by the number of feeders it can run.
+      params: { capacity: capacity / count },
+    };
+  }
+  return out;
+}
+
+/**
+ * A distribution device: one HV inlet drawing `rating` kW, and `count` branch
+ * outlets. The outlets declare the rating as their capacity, but the panel is
+ * transparent to the facility's power budget — the SUPPLY still has to cover
+ * every panel it feeds, because each panel's hv_in demands its full rating.
+ */
+function distributionPorts(rating, count) {
+  const out = {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'sink', params: { demand: rating },
+    },
+  };
+  for (let i = 0; i < count; i++) {
+    out[`pwr_out_${i + 1}`] = {
+      utility: 'powerCable',
+      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
+      offsetAlong: 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
+      role: 'source',
+      // rating/N per outlet: discovery unites a device's outlets into one
+      // busbar, so these add back up to exactly the panel's rating no matter
+      // how many of them are in use. Declaring the full rating on each would
+      // make a 4-way panel four full-rating supplies.
+      params: { capacity: rating / count },
+    };
+  }
+  return out;
+}
+
 const INFRA_UTILITY_PORTS = {
   // distribution buses (see busPorts above)
+  // The on-pipe distributor stays on the BRANCH side: it takes one power
+  // circuit from a panel and stands in for the stub to every on-pipe sink it
+  // covers. It is not a distribution device in the HV sense — it hands out no
+  // sockets and holds no rating, it just saves the player a dozen identical
+  // stubs, which is exactly what it did before the chain existed.
   powerBus:            busPorts('powerCable',   10),
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      busPorts('vacuumPipe',    5),
   waveguideManifold:   busPorts('rfWaveguide',   6),
   cryoValveBox:        busPorts('cryoTransfer',  6),
   fiberBus:            busPorts('dataFiber',    12),
-  // power
-  hvTransformer:       { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1200 } } },
-  padMountTransformer: { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 150 } } },
-  switchgear:          { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 400 } } },
-  powerPanel:          { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
-  mcc:                 { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 250 } } },
-  ups:                 { pwr_out:  { utility: 'powerCable', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
+  // --- power: supply -> HV feeder -> distribution -> branch circuits --------
+  //
+  // SUPPLY holds all the capacity and exposes HV outlets. Outlet count is how
+  // many distribution points one supply can serve; capacity is how much they
+  // can draw between them.
+  //
+  // DISTRIBUTION takes one HV feeder and hands out branch circuits. It adds NO
+  // capacity — the same rule the distribution buses already follow — so no
+  // arrangement of panels increases what the facility can draw. What a panel
+  // buys is OUTLETS and REACH: a cable is point to point (powerCable.fansOut =
+  // false), so a 4-way panel feeds four machines and the fifth needs another
+  // panel, somewhere near what it serves.
+  //
+  // A distribution device's hv_in demand is its own rating, not its live draw:
+  // you size the feeder for the panel. That keeps the HV solve local and makes
+  // an oversized panel cost something instead of being a free upgrade.
+  hvTransformer:       supplyPorts(1200, 4),
+  switchgear:          supplyPorts(400, 2),
+  padMountTransformer: supplyPorts(150, 1),
+  powerPanel:          distributionPorts(40, 4),
+  mcc:                 distributionPorts(250, 8),
+  // Two outlets: the UPS's identity is that only the critical circuits go on
+  // it. Make it wide and it becomes a strictly better panel.
+  ups:                 distributionPorts(100, 2),
   // rf (capacity kW = raw params.power)
   magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
   solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35, dutyFactor: 1.0 } } },
