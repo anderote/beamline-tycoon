@@ -154,11 +154,33 @@ console.log('\n--- 2. The grab radius is a pixel budget, so zoom does not change
     const { anchor } = anchorAndShadow(game, 'pl_2', 'pwr_in');
     const anchorPx = { x: anchor.x * scale, y: anchor.z * scale - anchor.y * scale };
 
-    const near = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 10, y: anchorPx.y });
-    const far = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 60, y: anchorPx.y });
-    assert(!!near, `10 px away still grabs at zoom scale ${scale}`);
-    assert(!far, `60 px away does not grab at zoom scale ${scale}`);
+    const near = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 26, y: anchorPx.y });
+    const far = ctrl._snapToNearestPort(iso.x, iso.y, { x: anchorPx.x + 1000, y: anchorPx.y });
+    assert(!!near, `26 px away still grabs at zoom scale ${scale}`);
+    assert(!far, `a cursor far from every port does not grab at zoom scale ${scale}`);
   }
+}
+
+console.log('\n--- 2b. Crowded open ports still select the nearest connector ---');
+{
+  const game = makeGame();
+  const endpoint = findUtilityEndpoint(game.state, 'src_1');
+  const def = COMPONENTS[endpoint.type];
+  const inAnchor = portAnchor3D(endpoint, def, 'pwr_out_1');
+  const outAnchor = portAnchor3D(endpoint, def, 'pwr_out_2');
+  const positions = new Map([
+    [`${inAnchor.x}:${inAnchor.y}:${inAnchor.z}`, { x: 100, y: 100 }],
+    [`${outAnchor.x}:${outAnchor.y}:${outAnchor.z}`, { x: 120, y: 100 }],
+  ]);
+  const ctrl = new UtilityLineInputController({
+    game,
+    renderer: stubRenderer((x, y, z) => positions.get(`${x}:${y}:${z}`) || { x: 1000, y: 1000 }),
+  });
+  ctrl.setUtilityType('powerCable');
+  const iso = gridToIso(1, 1);
+  const nearerOut = ctrl._snapToNearestPort(iso.x, iso.y, { x: 116, y: 100 });
+  assert(nearerOut && nearerOut.portName === 'pwr_out_2',
+    'overlapping magnetic targets choose the nearest open port');
 }
 
 console.log('\n--- 3. No screen position: the original ground-plane test, unchanged ---');

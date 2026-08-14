@@ -39,11 +39,12 @@ import { isoToGridFloat } from '../renderer/grid.js';
 const PORT_SNAP_RADIUS_WORLD = 1.0;
 
 // Grab radius around a port's PROJECTED anchor, in viewport pixels. Sized to
-// the fitting the renderer draws there plus a forgiving margin: big enough to
-// catch without pixel-hunting, small enough that two ports on opposite faces
-// of one machine stay separable at normal zoom. Pixels, not metres, because
-// this is a hand-eye budget — it must not shrink as the player zooms out.
-const PORT_SNAP_RADIUS_PX = 18;
+// the fitting the renderer draws there plus a forgiving margin. Thirty pixels
+// gives open ports a genuinely magnetic target during both pickup and drop;
+// crowded connectors remain separable because _snapToNearestPort always picks
+// the nearest candidate. Pixels, not metres, because this is a hand-eye budget
+// — it must not shrink as the player zooms out.
+const PORT_SNAP_RADIUS_PX = 30;
 
 // How close the cursor has to be to an existing line of the same utility to
 // grab it, in tiles. Tighter than the port radius: ports are the primary
