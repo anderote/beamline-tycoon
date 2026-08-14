@@ -269,6 +269,8 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'station.anchors', `station.anchors.length (${anchors.length}) must match station.slots (${slots})`);
     }
     const subW = def.subW, subL = def.subL;
+    const dimsKnown = typeof subW === 'number' && typeof subL === 'number';
+    const seenAt = new Map();
     anchors.forEach((a, i) => {
       if (!a || typeof a.subCol !== 'number' || typeof a.subRow !== 'number') {
         problem(id, `station.anchors[${i}]`, `anchor must have numeric subCol/subRow, got ${JSON.stringify(a)}`);
@@ -277,11 +279,34 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       if (!FACINGS.has(a.facing)) {
         problem(id, `station.anchors[${i}].facing`, `anchor.facing must be one of ${[...FACINGS].join(', ')}, got ${JSON.stringify(a.facing)}`);
       }
-      if (typeof subW === 'number' && typeof subL === 'number') {
-        const inside = a.subCol >= 0 && a.subCol < subW && a.subRow >= 0 && a.subRow < subL;
-        if (inside) {
-          problem(id, `station.anchors[${i}]`, `anchor (${a.subCol},${a.subRow}) lies inside the def's own ${subW}x${subL} footprint — unreachable, dead station`);
-        }
+      // Two anchors on the same subtile would be two pawns standing/sitting
+      // in the same spot.
+      const key = a.subCol + ',' + a.subRow;
+      if (seenAt.has(key)) {
+        problem(id, `station.anchors[${i}]`, `anchor (${a.subCol},${a.subRow}) duplicates anchors[${seenAt.get(key)}] — two pawns cannot occupy the same subtile`);
+      } else {
+        seenAt.set(key, i);
+      }
+      if (!dimsKnown) return;
+      const inside = a.subCol >= 0 && a.subCol < subW && a.subRow >= 0 && a.subRow < subL;
+      if (inside) {
+        problem(id, `station.anchors[${i}]`, `anchor (${a.subCol},${a.subRow}) lies inside the def's own ${subW}x${subL} footprint — unreachable, dead station`);
+        return;
+      }
+      // An anchor must sit exactly one subtile beyond a single edge — the
+      // other axis's coordinate must stay within the footprint's own range
+      // on that edge, and `facing` must point back across that edge (into
+      // the footprint), or a pawn ends up looking away from the object it's
+      // supposedly working. See task-3-brief.md's dir/edge/facing table.
+      const onZPlus = a.subRow === subL && a.subCol >= 0 && a.subCol < subW;
+      const onZMinus = a.subRow === -1 && a.subCol >= 0 && a.subCol < subW;
+      const onXPlus = a.subCol === subW && a.subRow >= 0 && a.subRow < subL;
+      const onXMinus = a.subCol === -1 && a.subRow >= 0 && a.subRow < subL;
+      const expectedFacing = onZPlus ? 'n' : onZMinus ? 's' : onXPlus ? 'w' : onXMinus ? 'e' : null;
+      if (expectedFacing == null) {
+        problem(id, `station.anchors[${i}]`, `anchor (${a.subCol},${a.subRow}) is not immediately outside the def's own ${subW}x${subL} footprint — must sit exactly one subtile beyond a single edge`);
+      } else if (FACINGS.has(a.facing) && a.facing !== expectedFacing) {
+        problem(id, `station.anchors[${i}].facing`, `anchor (${a.subCol},${a.subRow}) sits just outside the footprint but faces '${a.facing}' instead of '${expectedFacing}' — the pawn would look away from the object`);
       }
     });
   }
