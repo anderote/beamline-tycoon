@@ -4,7 +4,15 @@
 // src/data/placeables/lighting.js and wired into PLACEABLES via
 // src/data/placeables/index.js.
 //
-//   1. All nine catalogue ids exist in PLACEABLES with the spec's mount.
+//   1. All nine catalogue ids exist in PLACEABLES with the spec's mount, and
+//      each def's `category` follows the documented mount -> category rule
+//      (ground -> 'lighting', wall/overhead -> 'structureLights') rather
+//      than a hardcoded per-id value, so this keeps working if a fixture's
+//      mount is reassigned or new fixtures are added. Which palette tab
+//      each category actually renders under, that all nine are covered with
+//      none orphaned, and that every category key exists in MODES is
+//      test/test-lighting-palette-split.js's job, not this file's — this
+//      test only pins the catalogue's own mount/category consistency.
 //   2. Every def with a `light` block has a valid mount, positive
 //      energyCost, positive light.radius, and — for cone shapes — a
 //      coneDeg and tiltDeg.
@@ -52,13 +60,26 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
     highBay: 'overhead',
   };
 
+  // Mirrors lighting.js's own CATEGORY_BY_MOUNT (not imported — it's a
+  // private module const) so this asserts the *rule* — category is derived
+  // from mount — rather than hardcoding each fixture's category, the same
+  // way Test 5 mirrors buildDecorations' derivation instead of re-deriving
+  // it ad hoc. Which tab a category actually renders under is
+  // test-lighting-palette-split.js's job.
+  const EXPECTED_CATEGORY_BY_MOUNT = {
+    ground: 'lighting',
+    wall: 'structureLights',
+    overhead: 'structureLights',
+  };
+
   for (const [id, mount] of Object.entries(EXPECTED_MOUNTS)) {
     const def = PLACEABLES[id];
     assert(!!def, `PLACEABLES has '${id}'`);
     if (def) {
       assert(def.mount === mount, `'${id}' has mount '${mount}' (got '${def.mount}')`);
       assert(def.kind === 'decoration', `'${id}' has kind 'decoration' (got '${def.kind}')`);
-      assert(def.category === 'lighting', `'${id}' has category 'lighting' (got '${def.category}')`);
+      assert(def.category === EXPECTED_CATEGORY_BY_MOUNT[mount],
+        `'${id}' (mount '${mount}') has category '${EXPECTED_CATEGORY_BY_MOUNT[mount]}' per the mount->category rule (got '${def.category}')`);
     }
   }
 }
