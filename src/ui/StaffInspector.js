@@ -1,7 +1,8 @@
 import { ContextWindow } from './ContextWindow.js';
 import { ZONES } from '../data/facility.js';
-import { ROLE_COLORS } from './format.js';
+import { ROLE_COLORS, escapeHtml } from './format.js';
 import { renderBioCard } from './StaffBioCard.js';
+import { describeJob } from '../game/staff/staffDiagnostics.js';
 
 export function openStaffInspector(game, staffId) {
   const m = (game.state.staffMembers || []).find(s => s.id === staffId);
@@ -52,6 +53,18 @@ export function openStaffInspector(game, staffId) {
       }
       // for morale show filled as morale, for fatigue/hunger higher is bad but still show bar length = value
       html += `<div class="staff-need-row"><span class="staff-bar-label">${n.label}</span><div class="staff-bar-track"><div class="staff-bar-fill" style="width:${pct}%;background:${col};"></div></div><span style="font-size:7px;color:#888;width:32px;text-align:right;">${Math.round(pct)}%</span></div>`;
+    }
+
+    // Work — Task 8 (staff-professions-3, jobs-and-gates) idle legibility:
+    // the same per-staffer status/station text the facility staffing banner
+    // groups across the whole roster (staffDiagnostics.js's describeJob),
+    // so a player who clicked in from the banner reads the exact fact the
+    // banner already summarized, not a differently-worded re-derivation.
+    const work = describeJob(staff, game);
+    html += `<div class="ctx-section-label">Work</div>`;
+    html += `<div style="font-size:9px;color:#ccc;line-height:1.5;">${escapeHtml(work.status)}</div>`;
+    if (work.station) {
+      html += `<div style="font-size:8px;color:#888;">${escapeHtml(work.station)}</div>`;
     }
 
     // Assignment

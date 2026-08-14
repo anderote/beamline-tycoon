@@ -12,6 +12,7 @@ import { computeSystemStats, computeBeamIncome } from '../src/game/economy.js';
 import { BeamlineInputController } from '../src/input/BeamlineInputController.js';
 import { ZonePaintTool } from '../src/input/placement-tools.js';
 import { UtilityGate } from '../src/game/utility-gate.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { portSide } from '../src/beamline/junctions.js';
 import { ProbeWindow } from '../src/ui/probe.js';
@@ -35,65 +36,99 @@ function assert(cond, msg) {
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e9;
+  // Fix round 1 (staff-professions-3, task 5): on-pipe placements now also
+  // cost spares (ceil(fundingCost/5000)) alongside funding — fund this the
+  // same generous way funding above is, so a non-free:true placement here
+  // (section 5's quadrupole builds, in particular) never runs out partway
+  // through and silently places fewer components than intended.
+  g.state.resources.spares = 1e9;
   return g;
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 1. Staff on break recover without a cafeteria ===\n');
-// Regression: the onBreak branch INCREASED hunger at cafeteriaTier 0 while the
-// return-to-work condition required hunger < 0.35, so a staffer who ever went
-// on break in a cafeteria-less facility was stuck forever — and the sole
-// starting operator locking out permanently tripped the beam.
+console.log('\n=== 1. Staff needs no longer deadlock without a cafeteria ===\n');
+// Regression (superseded — see staff-professions-3 Task 2): the OLD onBreak
+// branch INCREASED hunger at cafeteriaTier 0 while the return-to-work
+// condition required hunger < 0.35, so a staffer who ever went on break in a
+// cafeteria-less facility was stuck forever — and the sole starting operator
+// locking out permanently tripped the beam.
+//
+// Task 2 deleted the onBreak transition entirely: tickStaffMember no longer
+// manages status on high hunger/fatigue at all (status stays 'working'
+// throughout — see its own updated comment), and recovery is now a real job
+// (eat/rest) assigned and ticked by src/game/staff/jobRunner.js, which
+// carries its OWN deadlock guard for the exact no-cafeteria case this
+// regression pins — see test-job-runner.js's scenario 6 (the 500-tick
+// "no cafeteria anywhere" case, itself rebuilt in fix-round-1 to actually
+// discriminate a naive/broken guard implementation, and scenario 6b for the
+// "a cafeteria has real mechanical value" property this file used to pin
+// via a fastBack < slowBack comparison against the now-deleted onBreak
+// mechanism). This block just pins that the OLD status-driven mechanism
+// itself is gone, not reintroduced by accident.
+//
+// fix-round-1: checking only the FINAL tick's status (as an earlier version
+// of this assertion did) is a weaker pin than it looks — a PARTIAL
+// reintroduction (e.g. restoring just the trigger without also restoring
+// 'onBreak' to the recovery branch's condition) can legitimately cycle
+// status back to 'working' by the time t=200 is sampled, purely by where
+// t=200 happens to land in the oscillation, which would let that mutant
+// slip through a final-tick-only check. Recording whether 'onBreak' was
+// EVER observed across all 200 ticks has no such blind spot.
 {
   const m = new StaffMember({ id: 's1', profession: 'operator', name: 'T', traits: [], rng: () => 0.5 });
   m.status = 'working';
-  let flippedAt = -1;
-  for (let t = 0; t < 200 && flippedAt < 0; t++) {
+  let sawOnBreak = false;
+  for (let t = 0; t < 200; t++) {
     tickStaffMember(m, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m.status === 'onBreak') flippedAt = t;
+    if (m.status === 'onBreak') sawOnBreak = true;
   }
-  assert(flippedAt >= 0, `worker goes on break from fatigue (tick ${flippedAt})`);
-
-  let backAt = -1;
-  for (let t = 0; t < 400 && backAt < 0; t++) {
-    tickStaffMember(m, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m.status === 'working') backAt = t;
-  }
-  assert(backAt >= 0, `worker returns to 'working' with NO cafeteria (tick ${backAt})`);
-
-  // A cafeteria must still be worth building: it shortens the break.
-  const m2 = new StaffMember({ id: 's2', profession: 'operator', name: 'U', traits: [], rng: () => 0.5 });
-  m2.status = 'onBreak';
-  m2.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
-  let fastBack = -1;
-  for (let t = 0; t < 400 && fastBack < 0; t++) {
-    tickStaffMember(m2, { isNight: false, cafeteriaTier: 1, zoneTier: 0, rng: () => 0.5 });
-    if (m2.status === 'working') fastBack = t;
-  }
-  const m3 = new StaffMember({ id: 's3', profession: 'operator', name: 'V', traits: [], rng: () => 0.5 });
-  m3.status = 'onBreak';
-  m3.needs = { fatigue: 0.9, hunger: 0.9, morale: 0.6 };
-  let slowBack = -1;
-  for (let t = 0; t < 400 && slowBack < 0; t++) {
-    tickStaffMember(m3, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
-    if (m3.status === 'working') slowBack = t;
-  }
-  assert(fastBack >= 0 && slowBack >= 0 && fastBack < slowBack,
-    `a cafeteria still shortens the break (${fastBack} vs ${slowBack} ticks)`);
+  assert(!sawOnBreak,
+    "tickStaffMember never sets status to 'onBreak' at any point across 200 ticks — that's jobRunner's job now");
+  assert(m.status === 'working', "status is still 'working' at the end (sanity check alongside the per-tick pin above)");
+  assert(m.needs.fatigue > 0.8 || m.needs.hunger > 0.8,
+    'needs climb unchecked here absent a job driving recovery — the deadlock guard lives in jobRunner, not this function');
 }
 
 // The beam_unstaffed blocker must name the real cause, not the Control Room.
+//
+// Carry-forward from staff-professions-3 Task 4 (task-4-brief.md): the OLD
+// status==='onBreak' this block used to pin (see block 1 above — that
+// status can no longer be produced at all) is gone. Its modern equivalent
+// is an operator whose job is eat/rest — and, unlike the deleted onBreak
+// check, an eating/resting operator does NOT count as active coverage
+// (operatorCoverage only counts phase:'work' on a runBeam job), so the
+// blocker fires and has to name the break rather than the Control Room.
 {
-  const gate = new UtilityGate({
-    state: {
-      staffMembers: [{
-        id: 'a', profession: 'operator', status: 'onBreak',
-        needs: { fatigue: 0.1, hunger: 0.9, morale: 0.5 },
-      }],
-    },
+  const state = {
+    tick: 0,
+    infraOccupied: {}, wallOccupied: {}, doorOccupied: {}, subgridOccupied: {},
+    placeableIndex: {}, placeables: [], zoneOccupied: {},
+    stationReservations: {}, navRevision: 0,
+    staffMembers: [{
+      id: 'a', profession: 'operator', status: 'working',
+      needs: { fatigue: 0.1, hunger: 0.9, morale: 0.5 },
+      job: {
+        jobType: 'eat', target: null, specialty: null, stationKey: 'cafeteria1:0',
+        destNode: { col: 0, row: 0, subCol: 0, subRow: 0 }, phase: 'work', progress: 10,
+      },
+    }],
+  };
+  for (let c = 0; c <= 8; c++) for (let r = 0; r <= 8; r++) state.infraOccupied[`${c},${r}`] = 'concrete';
+  // A real console so the blocker reaches the eat/rest branch of the ladder
+  // rather than stopping earlier at "no console built".
+  const consoleDef = PLACEABLES.operatorConsole;
+  const cells = consoleDef.footprintCells(2, 2, 0, 0, 0);
+  state.placeables.push({
+    id: 'console1', type: 'operatorConsole', kind: consoleDef.kind,
+    col: 2, row: 2, subCol: 0, subRow: 0, dir: 0, cells,
   });
+  for (const c of cells) {
+    state.subgridOccupied[`${c.col},${c.row},${c.subCol},${c.subRow}`] = { id: 'console1', kind: consoleDef.kind };
+  }
+
+  const gate = new UtilityGate({ state });
   const msg = gate._unstaffedMessage();
-  assert(/cafeteria/i.test(msg), `hungry-on-break blocker mentions the cafeteria ("${msg}")`);
+  assert(/eat|rest|break/i.test(msg), `hungry operator on an eat job names the break ("${msg}")`);
   const empty = new UtilityGate({ state: { staffMembers: [] } });
   assert(/hired/i.test(empty._unstaffedMessage()), 'empty roster blocker says no operator hired');
 }

@@ -115,16 +115,31 @@ export function _getFurnishingTier(zoneType, zoneItems) {
   return tier;
 }
 
+// Task 6 (staff-professions-3, jobs-and-gates): reads peakTier, not the
+// live (staffing-ratcheted) `.tier` zoneConnectivity now carries. Research
+// gating is a durable "has this lab ever reached the level this node
+// needs" question — the same shape as the brief's own peakTier/palette-
+// unlock rule ("losing access to components you already bought is
+// punishing in a way that losing throughput is not"), not a live
+// efficiency read (that's StaffMember.efficiency's own zoneTier argument,
+// which still reads the live `.tier` — an understaffed lab genuinely
+// SLOWS work happening in it right now, unaffected by this).
+//
+// Reading the live tier here instead — the first version of this fix —
+// let a temporary staffing lull (an engineer pulled onto a commission
+// backlog, say) retroactively un-start research a player was already
+// mid-node on, or wall an entire research subtree behind a lab that's
+// rarely fully staffed at the exact instant startResearch happens to
+// check. Measured live in a 24-beamline playthrough
+// (scripts/balance-playthrough.mjs): 81% of an 80,000-tick run blocked on
+// lab tier, 31 research nodes never reachable, once commission work (also
+// new this task, and a higher board priority than labWork — 70 vs 40)
+// started competing with labWork for the same finite engineer pool.
 export function getLabResearchTier(labType, state) {
   const conn = state.zoneConnectivity?.[labType];
-  if (!conn || !conn.active) {
-    const tileTier = conn ? conn.tier : 0;
-    const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
-    return Math.min(tileTier, furnTier);
-  }
-  const tileTier = conn.tier;
+  const tier = conn ? (conn.peakTier ?? conn.tier ?? 0) : 0;
   const furnTier = _getFurnishingTier(labType, state.zoneItems || state.zoneFurnishings);
-  return Math.min(tileTier, furnTier);
+  return Math.min(tier, furnTier);
 }
 
 export function getResearchSpeedMultiplier(id, state) {
@@ -148,11 +163,19 @@ export function getResearchSpeedMultiplier(id, state) {
 export function tickResearch(state, log, getResearchSpeedMult, recalcBeamline) {
   if (!state.activeResearch) return false;
   const r = RESEARCH[state.activeResearch];
-  const sciBonus = 1 + state.staff.scientist * 0.05;
+  // Task 6 (staff-professions-3, jobs-and-gates) removed the old
+  // `sciBonus = 1 + state.staff.scientist * 0.05` term: it rewarded merely
+  // HAVING scientists on the roster, not any of them actually doing
+  // anything — the same presence-vs-work gap Game._tickBeamline's own
+  // sciMult had (see that call site's own comment). The passive trickle
+  // below (lab tier via speedMult, beam quality, morale) is now the whole
+  // story for research progress that isn't work-gated; the WORK-gated half
+  // is jobEffects/analyze.js's completion effect, which adds directly to
+  // state.researchProgress when a scientist finishes converting data.
   const bqFactor = state.beamOn ? (0.5 + 0.5 * state.beamQuality) : 0.5;
   const speedMult = getResearchSpeedMult(state.activeResearch) || 1;
   // Apply morale bonus to research speed
-  state.researchProgress += (1 / speedMult) * sciBonus * bqFactor * (state.moraleMultiplier || 1.0);
+  state.researchProgress += (1 / speedMult) * bqFactor * (state.moraleMultiplier || 1.0);
   if (state.researchProgress >= r.duration) {
     state.completedResearch.push(state.activeResearch);
     log(`Research done: ${r.name}!`, 'reward');

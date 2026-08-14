@@ -4,7 +4,7 @@ import { COMPONENTS } from '../data/components.js';
 import { FLOORS } from '../data/structure.js';
 import { DIR, DIR_DELTA, turnLeft, reverseDir } from '../data/directions.js';
 import { portSide } from '../beamline/junctions.js';
-import { pipeCost } from '../beamline/BeamlineSystem.js';
+import { pipeCost, sparesCostForFunding } from '../beamline/BeamlineSystem.js';
 import { layoutDesign } from '../beamline/design-layout.js';
 import { placementPose } from '../beamline/pipe-placements.js';
 
@@ -118,6 +118,11 @@ export class DesignPlacer {
     this.totalCost = 0;
     // The share of totalCost that BeamlineSystem.drawPipe charges itself.
     this.pipeQuote = 0;
+    // Fix round 1: the design's total spares cost — every component in it,
+    // module and on-pipe alike. Not part of totalCost (which is funding
+    // only, by name and by every existing caller's expectation); charged
+    // and gated on separately alongside it. See _recompute's own comment.
+    this.sparesCost = 0;
     this.valid = true;
   }
 
@@ -171,6 +176,17 @@ export class DesignPlacer {
     this.previewPipes = [];
     this.totalCost = 0;
     this.pipeQuote = 0;
+    // Fix round 1 (staff-professions-3, task 5): every beamline component in
+    // the design — module AND on-pipe placement alike — also costs spares,
+    // the same as placing one by hand does (Game._placePlaceableInner,
+    // BeamlineSystem.placeOnPipe). Before this, every placement in a design
+    // went through with `free: true` and confirm() settled ONLY funding in
+    // one lump sum at the end (see that method's own comment) — so a whole
+    // beamline built through the designer paid nothing at all toward the
+    // spares economy, the majority (by count and by funding) of the
+    // catalogue being on-pipe components a hand-placed junction's own gate
+    // never touches.
+    this.sparesCost = 0;
     this.valid = true;
 
     let col = this.startCol;
@@ -179,6 +195,7 @@ export class DesignPlacer {
 
     const concreteCost = FLOORS.concrete?.cost || 10;
     let componentCost = 0;
+    let sparesCost = 0;
     let foundationCost = 0;
     let pipeQuote = 0;
 
@@ -191,7 +208,9 @@ export class DesignPlacer {
     // than an oversight: confirm() charges the same total, so exempting them
     // here would show a price the player does not pay.
     for (const att of [...layout.discardedLeading, ...layout.discardedTrailing]) {
-      componentCost += COMPONENTS[att.type]?.cost?.funding || 0;
+      const funding = COMPONENTS[att.type]?.cost?.funding || 0;
+      componentCost += funding;
+      sparesCost += sparesCostForFunding(funding);
     }
 
     for (let i = 0; i < layout.sequence.length; i++) {
@@ -204,9 +223,11 @@ export class DesignPlacer {
         // face, so the connecting run is exactly item.tiles (_buildPipePath).
         pipeQuote += pipeCost(item.tiles).funding;
         // Attachments don't occupy grid tiles — they live on pipes.
-        // Still add their cost to the total.
+        // Still add their cost (funding AND spares) to the total.
         for (const att of item.attachments) {
-          componentCost += COMPONENTS[att.type]?.cost?.funding || 0;
+          const funding = COMPONENTS[att.type]?.cost?.funding || 0;
+          componentCost += funding;
+          sparesCost += sparesCostForFunding(funding);
         }
         continue;
       }
@@ -274,7 +295,11 @@ export class DesignPlacer {
         }
       }
 
-      componentCost += comp?.cost?.funding || 0;
+      {
+        const funding = comp?.cost?.funding || 0;
+        componentCost += funding;
+        sparesCost += sparesCostForFunding(funding);
+      }
 
       // The rotation this module will actually be built at. Hoisted out of the
       // exitTravelDir() call below rather than recomputed, so the ghost preview
@@ -334,8 +359,21 @@ export class DesignPlacer {
 
     this.pipeQuote = pipeQuote;
     this.totalCost = componentCost + foundationCost + pipeQuote;
+    this.sparesCost = sparesCost;
 
-    if (this.totalCost > this.game.state.resources.funding) {
+    // Fix round 1: routed through Game.canAfford rather than a raw
+    // `totalCost > funding` comparison (the pre-existing shape here) so
+    // sandbox mode is respected for BOTH resources the same way every other
+    // placement path already is — the raw comparison never called canAfford
+    // at all, so a sandbox facility with funding/spares deliberately at 0
+    // (see Game.setSandboxMode's own "nothing is charged" promise) would
+    // have been refused a design it should be free to place.
+    if (typeof this.game.canAfford === 'function') {
+      if (!this.game.canAfford({ funding: this.totalCost, spares: this.sparesCost })) {
+        this.valid = false;
+      }
+    } else if (this.totalCost > this.game.state.resources.funding
+        || this.sparesCost > (this.game.state.resources.spares || 0)) {
       this.valid = false;
     }
   }
@@ -499,8 +537,12 @@ export class DesignPlacer {
 
     // Everything above was placed free:true EXCEPT the pipes — drawPipe owns
     // its own spend — so settle the quote minus the part already paid.
-    this.game.chargeConstruction(this.totalCost - this.pipeQuote);
-    this.game.log(`Placed design "${this.design.name}" ($${this.totalCost.toLocaleString()})`, 'good');
+    // Spares (fix round 1) were never charged anywhere else in this
+    // gesture (every placeJunction/placeOnPipe call above passed
+    // `free: true`), so the FULL sparesCost — not reduced by anything —
+    // settles here in the same call, same as funding already did.
+    this.game.chargeConstruction({ funding: this.totalCost - this.pipeQuote, spares: this.sparesCost });
+    this.game.log(`Placed design "${this.design.name}" ($${this.totalCost.toLocaleString()}, ${this.sparesCost} spares)`, 'good');
 
     this.game.recalcBeamline();
     this.game.emit('beamlineChanged');

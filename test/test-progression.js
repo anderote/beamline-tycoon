@@ -206,9 +206,12 @@ log('\n--- D: objective rewards ---');
 // ---------------------------------------------------------------------------
 // E: one full playthrough. Shape first, length loosely.
 // ---------------------------------------------------------------------------
-log('\n--- E: full playthrough (seed 909, 24 extra lines) ---');
 {
   const rec = runPlaythrough({ seed: 909, maxTicks: 80_000, sampleEvery: 100_000 });
+  // Balance fix round 5: MAX_LINES is now derived from MAX_MAP_HALF_EXTENT
+  // (balance-playthrough.mjs), not a hardcoded 24 — log the line count the
+  // run actually used instead of a stale literal.
+  log(`\n--- E: full playthrough (seed 909, ${rec.maxLines} extra lines) ---`);
   const T = rec.totalTicks;
   log(`  (ran ${T.toLocaleString()} ticks = ` +
     `${(T / PLAYTHROUGH_TARGET_TICKS).toFixed(2)}x target)`);
@@ -265,8 +268,24 @@ log('\n--- E: full playthrough (seed 909, 24 extra lines) ---');
     `data paces rather than walls (${(100 * b.data / T).toFixed(1)}% of ticks)`);
   assert(b.labTier === 0,
     `the lab ladder never blocks a run that builds labs (${b.labTier} ticks)`);
-  assert(rec.beamOnTicks > 0.8 * T,
-    `the beam is actually on for the run (${(100 * rec.beamOnTicks / T).toFixed(0)}%)`);
+  // Balance fix round 4: this used to read `rec.beamOnTicks > 0.8 * T`,
+  // which passed at 99% straight through a ~24,000-tick stall — beamOnTicks
+  // only asks "is ANY line running", and line 1 kept running the whole
+  // time while lines 2-4 sat built, staffed, and off (a one-line bug in
+  // balance-playthrough.mjs's own gate-check handling: it never pressed
+  // Start again after a new line's staffing race cleared).
+  //
+  // Round 4's own fix (asserting the WHOLE-RUN AVERAGE of running/registered
+  // lines) still missed it: reconstructed on a pre-fix checkout,
+  // runningLineFraction reads 91.2% — a ~24,000-tick deficit dilutes across
+  // a ~470,000 line-tick run and clears the 0.8 bar anyway. Asserting the
+  // WORST 2,000-tick WINDOW instead (minWindowLineFraction) is what
+  // actually catches it: 33.3% on that same pre-fix reconstruction, 100.0%
+  // on the fixed run. "4 registered lines and only 1 running" is true
+  // instantaneously; only a windowed metric, not a whole-run mean, holds
+  // that true for long enough to fail on it.
+  assert(rec.minWindowLineFraction > 0.8,
+    `the worst 2,000-tick window still has >80% of registered lines running (${(100 * rec.minWindowLineFraction).toFixed(1)}%; whole-run average was ${(100 * rec.runningLineFraction).toFixed(1)}%, ${rec.runningLineTicks}/${rec.registeredLineTicks} line-ticks)`);
 }
 
 log(`\n${passed} passed, ${failed} failed`);

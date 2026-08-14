@@ -12,7 +12,7 @@ import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-disc
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  snapForPlaceable, canPlace, previewPlacement, canAffordCost, PLACE_UNAFFORDABLE,
+  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
@@ -1149,9 +1149,12 @@ export class InputHandler {
       }
       return;
     }
-    // Game.addAttachmentToPipe charges the component's cost, so an
-    // unaffordable attachment must not preview green.
-    const affordable = canAffordCost(this.game, COMPONENTS[compKey]?.cost);
+    // Game.addAttachmentToPipe charges the component's cost (plus spares,
+    // fix round 1 — routes through BeamlineSystem.placeOnPipe), so an
+    // unaffordable attachment must not preview green. Fix round 3:
+    // componentCostFor(def), not the bare def.cost, or a spares-short
+    // on-pipe part still previewed green here and then refused on click.
+    const affordable = canAffordCost(this.game, componentCostFor(COMPONENTS[compKey]));
     const valid = !hit.collidesWithModule && affordable;
     this.renderer.renderAttachmentGhost(
       hit.proj.col, hit.proj.row,
@@ -2313,8 +2316,12 @@ export class InputHandler {
         placeY = st.placeY;
         stackTargetId = st.targetEntry.id;
         // Stacking bypasses the footprint check, not the ledger — Game still
-        // charges for the stacked item.
-        ok = canAffordCost(this.game, placeable.cost);
+        // charges for the stacked item. componentCostFor (fix round 3),
+        // not the bare placeable.cost: harmless today (beamline junctions
+        // don't stack, so this never actually hits the spares branch), but
+        // the same "green ghost, red click" shape as every other call site
+        // this round fixed, and free to close now.
+        ok = canAffordCost(this.game, componentCostFor(placeable));
         reason = ok ? null : PLACE_UNAFFORDABLE;
       } else {
         const result = previewPlacement(

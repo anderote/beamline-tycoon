@@ -66,6 +66,11 @@ const JUNCTION = 'dipole'; // 2x2 sub-units: small enough to park two of them
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e9;
+  // Task 5 (staff-professions-3): a beamline junction now also costs spares
+  // (ceil(fundingCost/5000), see Game._placePlaceableInner) — fund this the
+  // same way funding above is, so this file's placements are gated only by
+  // the things it's actually testing, not incidentally by the spares economy.
+  g.state.resources.spares = 1e9;
   return g;
 }
 

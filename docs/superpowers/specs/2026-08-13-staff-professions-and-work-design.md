@@ -181,6 +181,44 @@ gets direct test coverage.
 **Needs outrank all work.** A break is itself a job targeting a cafeteria seat station,
 which means hunger and fatigue recovery become physical too.
 
+**What an unserviced staffer costs — the invariant this spec originally omitted, and
+which cost the labour economy its entire output.**
+
+A staffer with no reachable cafeteria or rest station must stay employable. That is
+non-negotiable: it is the only thing standing between this design and the hunger
+deadlock, which has already tried to return three times by three different routes —
+through the needs loop, through the priority table, and through job availability.
+
+But *employable* must not mean *unaffected*. The first implementation made
+in-place recovery free, so a facility with no amenities at all outperformed a
+well-equipped one by 69× — and once walking was modelled, by up to 15×. Building a
+cafeteria took the beam from 83% coverage to 26%. The safety valve had become the
+dominant strategy, and the game's own advice string told the player to do the thing
+that reduced their output.
+
+The invariant, stated so it cannot be lost again:
+
+- An unserviced need **pegs** rather than hovering below its threshold, so the
+  player can see it.
+- An unserviced staffer works at a **materially reduced rate** — enough that
+  servicing needs pays for itself, far from enough to make them useless. A
+  multiplier around 0.6 is the measured balance point.
+- The penalty attaches to the **unserviced state**, not to the need's value. A
+  penalty keyed to the value taxes serviced staff almost equally, because their
+  sawtooth passes through the same band every cycle — measured leverage is only
+  2.5:1, which is not enough to matter.
+- Recovery in place is **slower than accrual**, so the guard prevents stranding
+  without substituting for a cafeteria.
+- No path may offer free recovery *while working*. A stress breakdown originally
+  did exactly that — full work progress plus complete need and morale recovery —
+  making a nervous breakdown a strictly better cafeteria.
+
+A job must also fit inside one waking window, or it can never complete at all:
+`workTicks <= (needsThreshold / fatiguePerTick) * medianEfficiency`. Work progress
+survives need pre-emption, so a staffer resumes where they left off rather than
+restarting — without that, six of eight job types were mathematically impossible at
+any skill level.
+
 ### 6. Legibility
 
 Every idle staffer carries a reason string, surfaced in `StaffInspector` and aggregated into

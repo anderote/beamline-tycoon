@@ -41,6 +41,16 @@ function assertOk(cond, msg) {
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e9;
+  // A fresh Game never proactively runs recomputeZoneConnectivity() at
+  // construction — it only populates state.zoneConnectivity the first time
+  // a zone-tile mutation calls it. undo()/redo()'s own _applyState always
+  // DOES call it (unconditionally, at the end), so the very FIRST gesture
+  // round-tripped against a game that had never recomputed it once would
+  // fail byte-equality for a reason that has nothing to do with the
+  // mutation under test: the "before" snapshot has zoneConnectivity: {},
+  // the "after undo" state has it fully populated. Matches
+  // test-game-serialize.js's own fix for the identical asymmetry on load().
+  g.recomputeZoneConnectivity();
   return g;
 }
 
@@ -324,6 +334,47 @@ console.log('\n=== Undo rewinds the build, not the simulation ===\n');
   const bs2 = gb.registry.get(entry.id).beamState;
   assertOk(bs2.componentHealth.x1 === 12 && bs2.beamOnTicks === 400,
     'redo does not rewind them either');
+}
+
+// zoneConnectivity's staffedOutput/peakTier are the same category of sim
+// accumulator as componentHealth above (coordinator review,
+// staff-professions-3 task 6 fix round 1): _applyState (shared by undo/redo
+// and load()) used to reset state.zoneConnectivity to {} unconditionally
+// before recomputing, discarding a lab's entire staffing history on every
+// single Ctrl+Z, not just a rare edge case — one undo re-locked any
+// research gated on that lab (see research.js's getLabResearchTier).
+{
+  const gz = makeGame(13);
+  // A REAL 20-tile rfLab, not hand-set fields — recomputeZoneConnectivity's
+  // own resize-reset guard (fix round 1's OTHER fix, for the "staff a small
+  // lab then paint it bigger" exploit) compares tileCount against what's
+  // actually in state.zones, so a hand-set tileCount with no matching real
+  // tiles reads as a resize and zeroes staffedOutput right back out —
+  // exactly the kind of internally-inconsistent fixture task-6's own hazard
+  // review warns against.
+  assertOk(gz.placeInfraRect(-25, -29, -22, -25, 'concrete'), 'setup: concrete foundation placed');
+  assertOk(gz.placeInfraRect(-25, -29, -22, -25, 'labFloor'), 'setup: lab flooring placed');
+  assertOk(gz.placeZoneRect(-25, -29, -22, -25, 'rfLab'), 'setup: 20 rfLab tiles painted');
+  assertOk(gz.state.zoneConnectivity.rfLab.tileTier === 4, 'setup: tile tier 4');
+  gz.state.zoneConnectivity.rfLab.staffedOutput = 0.9;
+  gz.state.zoneConnectivity.rfLab.peakTier = 4;
+  gz.state.zoneConnectivity.rfLab.tier = 4;
+
+  gz._withUndo(() => gz.placeInfraRect(24, 24, 25, 25, 'concrete'));
+
+  // Simulate more staffing progress after the snapshot (a lunch-break decay,
+  // say — the exact scenario the ratchet exists to make harmless).
+  gz.state.zoneConnectivity.rfLab.staffedOutput = 0.82;
+
+  gz.undo();
+  const conn = gz.state.zoneConnectivity.rfLab;
+  assertOk(conn.peakTier === 4, `undo does not rewind peakTier (got ${conn.peakTier})`);
+  assertOk(conn.staffedOutput === 0.82, `undo does not rewind staffedOutput (got ${conn.staffedOutput})`);
+  assertOk(!gz.state.infraOccupied['24,24'], 'the build itself was still undone');
+
+  gz.redo();
+  const conn2 = gz.state.zoneConnectivity.rfLab;
+  assertOk(conn2.peakTier === 4 && conn2.staffedOutput === 0.82, 'redo does not rewind them either');
 }
 
 // Beamline entries created/deleted by a gesture are still gesture state —

@@ -246,6 +246,12 @@ console.log('\n=== Measured performance ===\n');
 function makeGame(seed) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = 1e12;
+  // Fix round 1 (staff-professions-3, task 5): DesignPlacer now also quotes
+  // and charges spares for every component in a design — fund this the same
+  // generous way funding above is, so every stock design here places on
+  // whether it fits the map, not on the shared spares economy this file
+  // isn't testing.
+  g.state.resources.spares = 1e12;
   return g;
 }
 

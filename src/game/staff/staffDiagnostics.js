@@ -1,0 +1,590 @@
+// src/game/staff/staffDiagnostics.js — idle legibility.
+//
+// Task 8 of the staff-professions-3 (jobs-and-gates) plan, and the one that
+// makes the other seven debuggable. Every other task in this plan left a
+// player-readable trail on member.idleReason (jobRunner.js), on
+// buildJobOffers' suppressions channel (jobs.js), and on the beam gate's
+// nine-branch message ladder (utility-gate.js) — but none of those reach the
+// screen as anything more than a per-staffer tooltip or a console.warn. This
+// module is the layer that turns those sources into two things: one clear
+// banner line plus a per-staffer breakdown for IDLE staff
+// (facilityStaffingReport), and a second signal for the failure mode that is
+// invisible to the first by construction — a facility where everyone is
+// BUSY and nothing is progressing (facilityProgressReport). Fix round 1
+// added the second signal after a review found the first alone silent on
+// exactly the two most expensive bugs this plan produced in development: a
+// fully-staffed beam nobody ever pressed Start on, and research that can't
+// advance because the staff working it are, correctly, "busy."
+//
+// facilityStaffingReport(game) groups every idle staffer (member.job ==
+// null) by their idleReason text, ranks the groups by how much they're
+// costing the facility RIGHT NOW (an idle operator blocks the beam only if
+// the beam gate itself says so — see rankFor's own comment, fix round 1's
+// F2 — an idle technician stalls repairs; everything else is lower stakes),
+// and hands back the highest-impact group as `worst` for the HUD banner to
+// lead with.
+//
+// Corrections applied to idleReason before grouping, none of them in
+// jobRunner.js — see reasonFor's own doc comment for the full case-by-case
+// reasoning:
+//
+// 1. A weaker, fix-nameless phrasing of a fact another code path already
+//    states better ("No spares available to make the repair." vs. "No
+//    spares left to repair with; a machinist can make more.") is normalized
+//    to the fuller version.
+// 2. A needs-deadlock message that claims a jobless member is "recovering
+//    ... while working" (self-contradictory once job really is null) has
+//    that trailing clause stripped.
+// 3. An idle operator, ONLY when their own reason is either the generic
+//    catch-all or the cross-profession-mismatch shape (item 4) — NEVER over
+//    a station-specific rejection, which is already correct and often more
+//    actionable than the gate's coarser account (fix round 1's F1: "can't
+//    reach that particular console" is not interchangeable with "hire
+//    another operator") — reads the beam gate's own ladder message instead,
+//    whenever the gate has independently found coverage short.
+// 4. Anyone else, when their idleReason is eligibleFor's cross-profession
+//    rejection text ("Repair needs a Technician, not an Operator.") — this
+//    plan's hazard 1 in the flesh, a second unguarded route to the player
+//    screen (see the header this replaced for the full story) — gets a
+//    flat, honest "no work available" instead, with the discarded half
+//    (which job type/role WAS waiting) preserved rather than dropped (fix
+//    round 1's F12).
+
+import { JOB_TYPES, buildJobOffers } from './jobs.js';
+import { getStationIndex } from './stations.js';
+import { countBeamlines, operatorCoverage } from '../utility-gate.js';
+import { PLACEABLES } from '../../data/placeables/index.js';
+import { professionDef } from '../../data/professions.js';
+import { COMPONENTS } from '../../data/components.js';
+import { findUtilityEndpoint } from '../../utility/utility-endpoints.js';
+
+// Matches eligibleFor's two cross-profession rejection templates (jobs.js) —
+// the only two idleReason strings that ever name a job/profession OTHER
+// than the member's own. Captures the job type's own name and the role it
+// actually needs, so the corrected message (see reasonFor) can keep both
+// halves instead of discarding the actionable one (fix round 1's F12).
+const CROSS_PROFESSION_MISMATCH_RE =
+  /^(.+?) needs (.+?), (?:not .+\.|and this staffer isn't one\.)$/;
+
+// The fully-generic catch-alls jobRunner.js's own idleReason precedence
+// chain falls back to when NOTHING else — not even a cross-profession
+// offer — was available to explain a member's idleness (assignJobs' final
+// `|| 'Nothing to do right now.'`, and resolveDestNode's defensive floor).
+// Like the mismatch shape above, these carry no real information of their
+// own and are safe to replace with the beam gate's ladder for an idle
+// operator when the gate applies.
+const GENERIC_FALLBACK_REASONS = new Set([
+  'Nothing to do right now.',
+  'Could not find anywhere to stand for that job.',
+]);
+
+// A weaker phrasing of a fact a sibling code path already states with the
+// fix named — fix round 1's "F5's sibling": jobs.js's repair-suppression
+// channel says "No spares available to make the repair." (true, but names
+// no fix); jobRunner.js's capShortageReason says "No spares left to repair
+// with; a machinist can make more." for the identical underlying fact.
+// Normalized to the latter wherever it's seen, regardless of which code
+// path produced it.
+const REASON_NORMALIZATION = new Map([
+  ['No spares available to make the repair.', 'No spares left to repair with; a machinist can make more.'],
+]);
+
+// Strips a needs-deadlock message's trailing "— recovering slowly while
+// working" clause (jobRunner.js's tryTakeNeedJob) when it reaches a member
+// who, in fact, has no job at all — every call site in this file only ever
+// invokes reasonFor for an idle (job == null) member (facilityStaffingReport
+// filters to `idle` before calling it; describeJob only calls it from its
+// `!job` branch), so the phrase is ALWAYS self-contradictory here: it was
+// written for the OTHER branch of tryTakeNeedJob's deadlock guard, where
+// the member keeps holding a real job while one need goes unserviced (see
+// describeJob's own unservicedPenalty handling below for THAT case, fix
+// round 1's F7). "No reachable cafeteria — recovering slowly while
+// working." becomes "No reachable cafeteria." — still true, no longer
+// claiming a busy state this member isn't in (fix round 1's F11).
+const RECOVERING_WHILE_WORKING_RE = / — recovering slowly while working\.$/;
+
+// Impact ranking for `worst`. An idle TECHNICIAN is always a component
+// wearing further toward failure — technician's only job type is repair, so
+// idle unconditionally means repairs are stalled. An idle OPERATOR, by
+// contrast, is only actually costing the beam money when the beam gate
+// itself has independently concluded coverage is short (`beamMsg` non-null)
+// — fix round 1's F2: an operator idle merely because the facility has zero
+// beamlines yet ("No beamlines to operate yet.") is not blocking anything,
+// and ranking them above six technicians stalled on a genuine spares
+// shortage got the "what's costing money" framing exactly backwards.
+// Everyone else ranks lowest.
+const DEFAULT_RANK = 2;
+
+function rankFor(member, beamMsg) {
+  if (member?.profession === 'technician') return 1;
+  if (member?.profession === 'operator' && beamMsg) return 0;
+  return DEFAULT_RANK;
+}
+
+// The beam gate's own player-facing explanation for why it can't run right
+// now (utility-gate.js's _unstaffedMessage, published each tick on
+// state.infraBlockers as the 'beam_unstaffed' hard error) — or null when the
+// beam isn't staffing-blocked at all. Reused rather than re-derived: it is
+// already the authoritative, tested account of "no console / console
+// unreachable / nobody hired / everyone's on break / short on coverage",
+// and re-implementing any slice of that ladder here would just be a second
+// copy to keep in sync.
+function beamBlockedMessage(state) {
+  const blocker = (state.infraBlockers || []).find(b => b.code === 'beam_unstaffed');
+  return blocker ? blocker.message : null;
+}
+
+// The reason text an idle member should show the player — see this file's
+// header for the four corrections applied, in the order they're checked.
+function reasonFor(member, beamMsg) {
+  let raw = member.idleReason || 'Nothing to do right now.';
+  raw = REASON_NORMALIZATION.get(raw) || raw;
+  if (RECOVERING_WHILE_WORKING_RE.test(raw)) raw = raw.replace(RECOVERING_WHILE_WORKING_RE, '.');
+
+  const mismatch = raw.match(CROSS_PROFESSION_MISMATCH_RE);
+  const correctable = !!mismatch || GENERIC_FALLBACK_REASONS.has(raw);
+
+  // Fix round 1's F1: the gate's coarse "can ANY operator reach ANY
+  // console" ladder must never outrank a station-specific rejection about
+  // THIS operator (e.g. "can't reach that station from here" — a sealed
+  // console a second console elsewhere doesn't fix) — only ever substituted
+  // when this member's own reason was already uninformative.
+  if (member.profession === 'operator' && beamMsg && correctable) return beamMsg;
+
+  if (!mismatch) return raw;
+  // mismatch[1] = the job type name that needed someone else (e.g.
+  // "Fabrication"); mismatch[2] = the role it needed (e.g. "a Machinist").
+  // Fix round 1's F12: keep both halves — WHO can't work right now, and
+  // WHAT is sitting there waiting for a profession this roster doesn't
+  // have on shift — rather than collapsing to a flat, un-actionable "no
+  // work available".
+  const profName = professionDef(member.profession)?.name || 'staff';
+  return `No ${profName} work available right now — ${mismatch[1]} needs ${mismatch[2]}.`;
+}
+
+/**
+ * `{ idleCount, byReason, worst }` for every staffer currently without a
+ * job. `byReason` is `[{ reason, count, members }]`, one entry per DISTINCT
+ * reason text (post correction — see this file's header), sorted by impact:
+ * beam-blocking reasons first, then repair-stalling ones, then everything
+ * else, ties broken by how many staff share the reason (the bigger problem
+ * leads) and finally by the reason text itself (deterministic output for
+ * identical input, no reliance on Map iteration order).
+ *
+ * `worst` is `byReason[0]`, or `null` when nobody is idle — the HUD banner's
+ * entire input: `idleCount === 0` hides it, otherwise it leads with
+ * `worst.reason` and `worst.count`, self-correcting the moment the
+ * underlying cause (the count for that specific reason) changes, same as
+ * every other tick-derived HUD panel in this codebase.
+ *
+ * Idle means `member.job == null` — NOT "member.idleReason is set", since
+ * the hunger/fatigue deadlock guard (jobRunner.js's tryTakeNeedJob) can
+ * leave idleReason non-empty on a member who is still actively holding and
+ * working a real job (a technician mid-repair with no reachable cafeteria).
+ * That member is unservicedPenalty-tagged and running at reduced efficiency
+ * — a real cost, but a different one from "not working at all," and THIS
+ * report's job is specifically the latter (see describeJob for the other —
+ * fix round 1's F7 put it on the inspector instead, per the review: "the
+ * inspector's whole job is why is this person not producing").
+ */
+export function facilityStaffingReport(game) {
+  const state = game?.state || {};
+  const members = state.staffMembers || [];
+  const idle = members.filter(m => m.job == null);
+  const beamMsg = beamBlockedMessage(state);
+
+  const groups = new Map(); // reason -> { reason, count, members, rank }
+  for (const m of idle) {
+    const reason = reasonFor(m, beamMsg);
+    let g = groups.get(reason);
+    if (!g) {
+      g = { reason, count: 0, members: [], rank: DEFAULT_RANK };
+      groups.set(reason, g);
+    }
+    g.count++;
+    g.members.push(m);
+    // A group's rank is the BEST (lowest-number) rank among the staff who
+    // share its reason text — a generic reason ("Not currently working.")
+    // shared by an idle operator (with the beam genuinely short) and an
+    // idle admin still counts as beam-impact for ordering purposes, because
+    // it genuinely is for that operator. MUST be a running minimum, not a
+    // last-write-wins assignment — see test-staff-diagnostics.js's own
+    // mutation-guard test for why this line specifically is load-bearing.
+    const r = rankFor(m, beamMsg);
+    if (r < g.rank) g.rank = r;
+  }
+
+  const byReason = [...groups.values()]
+    .sort((a, b) => a.rank - b.rank || b.count - a.count || a.reason.localeCompare(b.reason))
+    .map(({ reason, count, members: ms }) => ({ reason, count, members: ms }));
+
+  return {
+    idleCount: idle.length,
+    byReason,
+    worst: byReason[0] || null,
+  };
+}
+
+const PHASE_WORD = { travel: 'travelling', work: 'working' };
+
+// Friendly name for the station a member's job is anchored to, or null for
+// a target-addressed job (repair/commission — no station, no seat) or a
+// stale stationKey the index no longer resolves (station demolished out
+// from under a travelling member — jobRunner.js's own tickJobs abandons
+// those the next tick, but this can be read in the one-tick window before
+// that happens — fix round 1's F10 is exactly that window: the label must
+// degrade gracefully, not print a dangling preposition).
+function stationLabel(member, game) {
+  const job = member.job;
+  if (!job) return null;
+  if (job.stationKey) {
+    const ref = getStationIndex(game.state).byKey[job.stationKey];
+    const def = ref ? PLACEABLES[ref.defId] : null;
+    return def?.name || null;
+  }
+  if (job.target) return 'the beamline';
+  return null;
+}
+
+// Fix round 1's F4 (BLOCKING): a facility can be fully staffed — an
+// operator seated, phase:'work', operatorCoverage(state).covered true — and
+// STILL earn nothing, because nobody ever pressed Start. The old gate never
+// caught this: it only asks "is staffing the reason the beam can't run",
+// and staffing is fine here. Checked directly against the beamline
+// registry's own `status`/`beamState.beamOnTicks` fields (Game.js's source
+// of truth), which is the one place that fact actually lives —
+// countBeamlines/operatorCoverage both read placeables/staff, never
+// registry status, so neither would ever see this on their own.
+//
+// Fix round 2's own two false positives, both found live:
+//   - `status === 'running'` alone answers "is it running RIGHT NOW", not
+//     "has it EVER run" — a player who started the beam and later pressed
+//     Stop deliberately (parking it overnight, say) has a `status:
+//     'stopped'` entry that has still very much been started. Checked
+//     instead against `beamState.beamOnTicks > 0` — Game._tickBeamline
+//     increments this every tick the beam actually ran and NEVER resets it,
+//     so it's a durable "has this line ever produced" flag, not a
+//     momentary status read. `status === 'running'` is kept as an
+//     additional true-case for entries whose beamState hasn't been read
+//     into this call's registry snapshot for some reason — belt, not
+//     suspenders.
+//   - This function never consulted `state.infraCanRun` at all, so a beam
+//     genuinely blocked by real hard faults (six unconnected utilities, the
+//     exact fixture toggleBeam itself refuses with "Cannot start beam: 6
+//     infrastructure issues") still got told to "press Start" — false
+//     advice for a problem Start cannot fix. `infraCanRun` is checked
+//     first now; a real fault reaching THIS check at all means it isn't a
+//     staffing/never-started problem, and facilityProgressReport's own
+//     "prefer a live hard blocker" fallback (below) is what should speak
+//     to it instead, once the stall window actually elapses.
+//
+// Returns the player-facing sentence, or null when: an unrelated hard fault
+// is already blocking the beam; staffing itself is the (already
+// differently-surfaced) problem; there are no beamlines to run at all; or
+// EVERY registered line has, in fact, been started at least once.
+//
+// Fix round 3's issue E: this used to be `entries.some(hasEverRun)` — true,
+// and so silent, the moment ANY ONE line had ever run, even while a SECOND
+// line sat never-started right next to it. That's exactly the shape the
+// game scales into (multiple beamlines, one console each): a facility with
+// line 1 running fine and line 2 never started even once produced no
+// signal at all for line 2. The correct question is whether EVERY line has
+// run — `entries.every(hasEverRun)` — so a lone never-started line still
+// gets caught regardless of how many others are already up.
+function beamNotStartedMessage(game) {
+  const state = game.state;
+  if (state.infraCanRun === false) return null;
+  if (countBeamlines(state) === 0) return null;
+  if (!operatorCoverage(state).covered) return null;
+  const entries = game.registry?.getAll?.() || [];
+  if (entries.length === 0) return null; // no registry wired up (e.g. a bare fixture) — nothing to confirm against
+  const hasEverRun = e => e.status === 'running' || (e.beamState?.beamOnTicks || 0) > 0;
+  if (entries.every(hasEverRun)) return null;
+  return 'The beam is fully staffed but has never been started — press Start to begin operation.';
+}
+
+/**
+ * `{ status, station }` for one staffer, the inspector's per-staffer
+ * summary: `status` is either "<Job name> — <travelling/working>[ <prep>
+ * <station>]" (job held) or the same corrected idle-reason text
+ * facilityStaffingReport groups by (no job); `station` is the friendly
+ * placeable name the job is anchored to, or null when there isn't one
+ * (idle, or a target-addressed repair/commission with no station of its
+ * own).
+ *
+ * Two things a held job can ALSO be true of, both folded into `status`
+ * rather than requiring a second read — fix round 1's F4 and F7, the
+ * review's own framing that "the inspector's whole job is why is this
+ * person not producing" applies even to staff who technically hold a job:
+ *   - an operator seated and working (`job.jobType === 'runBeam'`,
+ *     `phase === 'work'`) whose facility is otherwise fully staffed but has
+ *     never been started reads as still "working" today with nothing after
+ *     it to say otherwise — corrected to name the real fact and the fix.
+ *   - `member.unservicedPenalty` (set by jobRunner.js's tryTakeNeedJob
+ *     deadlock guard — StaffMember.efficiency()'s own ×0.6 flat penalty)
+ *     was invisible on every surface: a staffer working at reduced output
+ *     with `member.idleReason` already carrying WHY (a needs-deadlock
+ *     message — see this file's header, correction 2) showed nothing at
+ *     all. Appended verbatim; these messages are never the cross-profession
+ *     mismatch shape (only eligibleFor's rejections are), so no further
+ *     correction is needed here.
+ */
+export function describeJob(member, game) {
+  const job = member.job;
+  if (!job) {
+    const state = game?.state || {};
+    return { status: reasonFor(member, beamBlockedMessage(state)), station: null };
+  }
+
+  const jobDef = JOB_TYPES[job.jobType];
+  const name = jobDef?.name || job.jobType;
+  const station = stationLabel(member, game);
+  const phaseWord = PHASE_WORD[job.phase] || null;
+  let status = name;
+  if (phaseWord) {
+    status += ` — ${phaseWord}`;
+    if (station) status += job.phase === 'travel' ? ` to ${station}` : ` at ${station}`;
+  }
+
+  if (job.jobType === 'runBeam' && job.phase === 'work') {
+    const notStarted = beamNotStartedMessage(game);
+    if (notStarted) status += ` — but the beam has never been started (press Start)`;
+  }
+  if (member.unservicedPenalty && member.idleReason) {
+    status += ` — reduced output: ${member.idleReason}`;
+  }
+
+  return { status, station };
+}
+
+// --- Facility progress stall (fix round 1's F5) -----------------------
+//
+// facilityStaffingReport can only ever speak about IDLE staff — by
+// construction, it has nothing to say about a facility where everyone is
+// BUSY and nothing is progressing (an engineer endlessly running labWork
+// while the zone tier it feeds never climbs high enough to matter, say).
+// That is the shape of the two most expensive bugs this plan produced in
+// development. This is the second, independent signal: not keyed on
+// idleness at all, keyed on whether anything has actually COMPLETED
+// recently, with the facility's own best guess at why once it hasn't.
+//
+// Two kinds of check, run in order:
+//   1. Immediate, structural facts that are already fully known the
+//      instant they're true and need no waiting at all — currently just
+//      beamNotStartedMessage (fix round 1's F4). Cheap, checked every call.
+//   2. A generic productivity fingerprint against a WINDOW sized to
+//      whatever is actually in flight (fix round 2 — see
+//      longestInFlightWindow's own header for why a constant window cried
+//      wolf on real, still-progressing work) — the general "nothing has
+//      completed in a while" signal fix round 1 asked for, covering every
+//      OTHER shape of stall this file doesn't have a named check for (a
+//      labWork-only facility included: labWork's own completion never
+//      touches a StaffMember stats key — see STATS_KEYS — but its
+//      per-tick `job.progress` accrual does feed the fingerprint below, so
+//      that case is covered without a special case for it).
+//
+// The fingerprint/since-tick pair is cached per `state` object identity in
+// a module-level WeakMap — the same pattern stations.js's stationCache and
+// utility-gate.js's own _topoCache already use for per-tick state. Fix
+// round 2: that identity SURVIVES a save load (Game._applyState mutates
+// the same state object via Object.assign — src/game/Game.js), so a naive
+// cache read the PREVIOUS session's clock straight through a load, either
+// silencing a genuinely stalled facility for a full window or falsely
+// asserting one instantly, depending which direction the loaded tick
+// jumped. `cacheFor` below treats any implausibly large single-call tick
+// jump (loading a save is the only way `state.tick` can move by more than
+// a few ticks between two consecutive calls — normal play never does)
+// as exactly that, and starts the clock over — the behavior the module
+// comment always claimed but, before this fix, never actually implemented.
+const STALL_WINDOW_FLOOR_TICKS = 240; // one in-game day (Game.js's DAY_LENGTH_TICKS) — the window even when nobody's actively working ANYTHING in flight.
+// Exported (fix round 3's issue E) so test/test-staff-diagnostics.js's own
+// advanceProgress helper can assert its stepSize stays under this cliff by
+// construction, rather than by a comment a future edit could silently
+// invalidate — see that helper's own assertion.
+export const CACHE_DISCONTINUITY_TICKS = 100; // larger than any plausible multi-tick catch-up between two _updateHUD-driven calls in one render frame; anything bigger means the world's clock moved out from under this cache — a save load, not normal play.
+const progressCache = new WeakMap(); // state -> { fingerprint, sinceTick, lastSeenTick }
+
+function cacheFor(state, tick) {
+  let cache = progressCache.get(state);
+  if (!cache || Math.abs(tick - cache.lastSeenTick) > CACHE_DISCONTINUITY_TICKS) {
+    cache = { fingerprint: null, sinceTick: tick, lastSeenTick: tick };
+    progressCache.set(state, cache);
+  }
+  cache.lastSeenTick = tick;
+  return cache;
+}
+
+// Sum of every roster member's completion-bearing stats — repairs,
+// commissions, spares, analyses, beam-hours (STATS_KEYS minus
+// ticksWorked/breakdowns, neither of which signals PROGRESS: ticksWorked
+// increments for merely being status:'working', breakdowns is a bad thing
+// happening, not a good one) — plus completedResearch's own length, plus
+// `state.researchProgress` (the fractional per-tick trickle research.js's
+// tickResearch adds while a node is active — omitting it meant research
+// legitimately advancing, e.g. 14.4/120 at tick 240, read as flat).
+//
+// Fix round 3 (BLOCKING — this is the detector's OWN false-negative, the
+// mirror image of round 2's false positives): fix round 2 also summed the
+// RAW, UNCAPPED `job.progress` of every held job, reasoning that any job
+// genuinely being worked changes it every tick. True, but that conflates
+// "is anyone MOVING" with "is anyone COMPLETING anything" — and for an
+// OPEN-ENDED job (`workTicks === null` — runBeam is the only one) progress
+// grows WITHOUT BOUND and WITHOUT EVER COMPLETING, so a seated operator
+// alone kept this fingerprint changing every tick forever: measured on a
+// real Game, 28 hard blockers, a beam that had never run once, zero
+// income — the detector never fired once in 1200 ticks. Round 1 built this
+// signal for "everyone is busy and nothing progresses"; round 2's own fix
+// made "busy" the exact condition that silenced it.
+//
+// The ruling: fingerprint on progress TOWARD COMPLETION, not on raw motion.
+//   - `workTicks === null` jobs (runBeam) are excluded entirely — bare
+//     presence/duration at a console is not evidence of progress; only
+//     `operatorCoverage`/`beamNotStartedMessage` (elsewhere in this file)
+//     get to say anything about a seated operator.
+//   - Every other job's contribution is `min(job.progress, workTicks)` — a
+//     job that is genuinely, currently advancing still changes this every
+//     tick (so a real fabricate/analyze/labWork job in progress still
+//     suppresses the stall, same as before); a job whose progress is
+//     frozen (stuck, or — the case this plan's own round-1 motivating
+//     example turned out to be — travelling for a very long stretch with
+//     nothing accruing; see longestInFlightWindow's own fix-round-3 note)
+//     stops moving THIS number the moment it stops moving for real.
+function progressFingerprint(state) {
+  let total = (state.completedResearch || []).length * 1000;
+  total += state.researchProgress || 0;
+  for (const m of state.staffMembers || []) {
+    const s = m.stats || {};
+    total += (s.repairs || 0) + (s.commissions || 0) + (s.sparesMade || 0) + (s.analyses || 0) + (s.beamHours || 0);
+    const job = m.job;
+    if (!job) continue;
+    const jobDef = JOB_TYPES[job.jobType];
+    if (!jobDef || jobDef.workTicks == null) continue; // open-ended (runBeam) — never evidence of progress on its own
+    total += Math.min(job.progress || 0, jobDef.workTicks);
+  }
+  return total;
+}
+
+// Worst-case per-tick work accrual a genuinely productive staffer could
+// have — StaffMember.efficiency()'s floor in practice (low skill, tier-0
+// zone, a stress penalty, the unservicedPenalty ×0.6 stacked on top) — not
+// an attempt to predict any one job's REAL remaining duration (mood/tier/
+// skill can all still change), only a conservative floor so a slow job
+// that is nonetheless still advancing is never mistaken for a stall.
+// Matches the realistic worst case measured elsewhere in this plan's own
+// balance passes (jobRunner.js's own comments cite the same ballpark).
+const MIN_REALISTIC_EFFICIENCY = 0.04;
+
+// Fix round 2's F3 (the stall window itself was a constant, and a real
+// fabricate job — workTicks 150, but `progress += efficiency` per tick, so
+// REAL duration is `workTicks / efficiency` — finishes anywhere from ~150
+// ticks (efficiency 1) to ~3,700 (efficiency ~0.04) depending on who's
+// running it and how well-supported they are): sizes the window to
+// whatever job is actually longest in flight right now, worst-cased by
+// MIN_REALISTIC_EFFICIENCY, rather than a single number tuned to one
+// specific job type. `jobType.workTicks == null` (runBeam — open-ended,
+// held until reassigned) never bounds the window.
+//
+// Fix round 3's issue B: a job in phase:'travel' used to count its FULL
+// workTicks as "remaining" (no progress accrued yet), worst-cased the same
+// way as a real in-progress job — one member merely walking to a lathe
+// inflated the WHOLE FACILITY'S window to ~3,750 ticks (150/0.04), even
+// though that member isn't producing anything yet and travel is already
+// bounded on its own terms: jobRunner.js's tickJobs abandons a travelling
+// job once `travelTicks > travelBudgetTicks` (a real, computed, much
+// tighter bound — see that module's own "Travel budget" section), so this
+// window has no business re-deriving a second, far looser bound for the
+// same fact. Travelling jobs are simply excluded here; once a member
+// arrives (phase flips to 'work') their job is sized normally.
+function longestInFlightWindow(state) {
+  let longest = STALL_WINDOW_FLOOR_TICKS;
+  for (const m of state.staffMembers || []) {
+    const job = m.job;
+    if (!job || job.phase !== 'work') continue;
+    const jobDef = JOB_TYPES[job.jobType];
+    if (!jobDef || jobDef.workTicks == null) continue;
+    const remaining = Math.max(0, jobDef.workTicks - (job.progress || 0));
+    longest = Math.max(longest, remaining / MIN_REALISTIC_EFFICIENCY);
+  }
+  return longest;
+}
+
+// Fix round 2's F4 (a new identifier leak): the raw message on an
+// unconnected-sink blocker (utility-gate.js's `run()` — `${placeableType}
+// ${portName} not connected to ${utility}`) is built from ids — a
+// snake_case port key, a camelCase utility key — never meant to reach a
+// player directly; hud.js's own infra-blocker panel never shows it either,
+// resolving the SAME blocker class to the offending component's friendly
+// name instead (`_renderInfraBlockerList`). Mirrored here, the only other
+// surface that can reach this blocker shape, so it can never show the raw
+// string either. Anything else (staffing's own beam_unstaffed, which
+// already carries a hand-authored sentence and no placeableId) passes
+// through untouched; `blocker.code` — an identifier itself
+// ('power_unconnected') — is never used as display text.
+// Fix round 3's issue D: 'solve_threw' (src/utility/solve-runner.js) is a
+// trapped exception, not a fault descriptor — its `message` is
+// `String(e.message || e)` off whatever the solver actually threw (a real
+// one seen live: "Cannot read properties of undefined (reading
+// 'portKey')"), a raw JS error never meant for a player screen. It carries
+// no `placeableId` either, so nothing else here would catch it before
+// falling through to `blocker.message`. Checked by code, explicitly, ahead
+// of everything else.
+function playerFacingBlockerMessage(state, blocker) {
+  if (!blocker) return null;
+  if (blocker.code === 'solve_threw') {
+    return 'A utility network fault is blocking the facility — check its wiring for a broken loop.';
+  }
+  const placeableId = blocker.location?.placeableId;
+  if (placeableId) {
+    const ep = findUtilityEndpoint(state, placeableId);
+    const name = ep ? (COMPONENTS[ep.type]?.name || null) : null;
+    if (name) return `${name} isn't fully wired — check its utility connections.`;
+  }
+  return blocker.message || 'An infrastructure fault is blocking the facility.';
+}
+
+/**
+ * `{ stalled, reason }` — the facility's second, non-idleness-keyed
+ * legibility signal (fix round 1's F5). `reason` is null whenever `stalled`
+ * is false. See this section's own header for the two check kinds and why
+ * the fingerprint is safe to cache per state identity (fix round 2 closed
+ * the one way that cache could go stale — see cacheFor's own comment).
+ */
+export function facilityProgressReport(game) {
+  const state = game?.state || {};
+  if (!(state.staffMembers || []).length) return { stalled: false, reason: null, generic: false };
+
+  const notStarted = beamNotStartedMessage(game);
+  if (notStarted) return { stalled: true, reason: notStarted, generic: false };
+
+  const tick = state.tick || 0;
+  const fp = progressFingerprint(state);
+  const cache = cacheFor(state, tick);
+  if (cache.fingerprint == null || cache.fingerprint !== fp) {
+    cache.fingerprint = fp;
+    cache.sinceTick = tick;
+  }
+
+  const window = longestInFlightWindow(state);
+  if (tick - cache.sinceTick < window) return { stalled: false, reason: null, generic: false };
+
+  // Best guess, most-specific first: the job board's own suppression
+  // channel (a damaged component nobody can fix because there's nothing to
+  // fix it with, true regardless of whether any technician happens to be
+  // idle right now); any live hard infra blocker (resolved to player-facing
+  // text — see playerFacingBlockerMessage); a generic fallback that still
+  // names the fact rather than staying silent.
+  //
+  // `generic` (fix round 3's issue A) marks ONLY that last fallback — the
+  // one case with nothing specific to say. hud.js reads this to decide
+  // whether this report may outrank a nonempty idle-staff banner: an idle
+  // roster is COUNTED, GROUPED, and CLICKABLE (facilityStaffingReport);
+  // replacing it with an uncounted, unclickable "nothing has completed"
+  // loses information the player already had. F4's "press Start", a
+  // suppression, and a resolved infra fault are all still MORE specific
+  // than any idle-staff line and always outrank it.
+  const { suppressions } = buildJobOffers(game);
+  if (suppressions.length) return { stalled: true, reason: suppressions[0].reason, generic: false };
+  const blocker = (state.infraBlockers || [])[0];
+  if (blocker) return { stalled: true, reason: playerFacingBlockerMessage(state, blocker), generic: false };
+  return { stalled: true, reason: 'Nothing has completed in a while — check staffing, stations, and construction.', generic: true };
+}

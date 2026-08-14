@@ -34,6 +34,13 @@ function assert(cond, msg) {
 function makeGame(seed, funding = 1e9) {
   const g = new Game(new BeamlineRegistry(), { seed });
   g.state.resources.funding = funding;
+  // Fix round 1 (staff-professions-3, task 5): on-pipe placements now also
+  // cost spares (ceil(fundingCost/5000)) alongside funding — fund this file's
+  // fixture generously too, so its placements are gated by what it's
+  // actually testing (affordability at $0, research gating, ...), not
+  // incidentally by the shared spares pool a prior placement in the same
+  // test already drew down.
+  g.state.resources.spares = 1e9;
   return g;
 }
 

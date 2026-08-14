@@ -70,3 +70,63 @@ export function itemMatchesZone(def, zoneType) {
   if (Array.isArray(def.zoneTypes) && def.zoneTypes.includes(zoneType)) return true;
   return false;
 }
+
+// --- Zone-tier ratchet (staff-professions-3, jobs-and-gates, task 6) ------
+//
+// Zone tier used to be a pure function of tile count. It is now
+// `min(tierFromTiles, tierFromStaffedOutput)` — see Game.recomputeZoneConnectivity
+// and jobRunner.js's own per-tick zone update — so a lab a player painted
+// big can still sit at tier 0 until an engineer actually staffs it.
+//
+// zoneTierFromStaffedOutput maps a zone's `staffedOutput` (a float in
+// [0, 1], accumulated by worked labWork ticks — see jobRunner.js) through
+// the SAME four tile-count thresholds, normalised into [0, 1].
+//
+// Fix round 1 (coordinator review): normalising by dividing straight by the
+// largest threshold (20) made the TOP tier's own required value (20/20 =
+// 1.0) exactly equal staffedOutput's own clamp ceiling — reaching tier 4 at
+// all necessarily meant sitting AT that clamp with zero headroom above it,
+// so a single idle tick (not a lunch break — one tick walking to the door)
+// immediately decayed back below 1.0 and dropped the tier. Normalising
+// against a value ABOVE the top threshold instead (25 = 20 x 1.25) gives
+// tier 4 the same real headroom every other tier already had: it now needs
+// staffedOutput >= 0.8, with the clamp still at 1.0, i.e. up to 0.2 of
+// margin against the 0.001/tick decay — 200 idle ticks, not 1, before it's
+// actually at risk.
+const STAFFED_OUTPUT_HEADROOM = 1.25;
+
+export function zoneTierFromStaffedOutput(staffedOutput) {
+  const max = ZONE_TIER_THRESHOLDS[ZONE_TIER_THRESHOLDS.length - 1] * STAFFED_OUTPUT_HEADROOM;
+  let tier = 0;
+  for (let t = ZONE_TIER_THRESHOLDS.length - 1; t >= 0; t--) {
+    if (staffedOutput >= ZONE_TIER_THRESHOLDS[t] / max) { tier = t + 1; break; }
+  }
+  return tier;
+}
+
+// Which zone types the staffing ratchet applies to at all.
+//
+// Fix round 1 (coordinator review): this USED to be derived from
+// ZONE_FURNISHINGS — "any zone type a labWork-capable furnishing can be
+// placed in" — on the theory that deriving it from the catalogue beats a
+// hand-maintained list that could drift. That reasoning was backwards: a
+// bench being PLACEABLE somewhere says nothing about whether an ENGINEER
+// can make real progress there, and `labBench`'s own `zoneTypes` array
+// includes machineShop and maintenance, which the derivation duly swept
+// in. Neither has an engineering specialty (professions.js's
+// SPECIALTY_AXES.engineering covers only rf/vacuum/cooling/diagnostics/
+// controls -> rfLab/vacuumLab/coolingLab/diagnosticsLab/controlRoom), so
+// engineer attention sent there by ordinary assignment (nearest eligible
+// station, no specialty-aware routing) is thin and inconsistent enough
+// that staffedOutput never reliably clears even tier 1. Measured live in a
+// 24-beamline playthrough (scripts/balance-playthrough.mjs): machineShop's
+// own staffedOutput peaked at 0.18, just under the 0.2 tier-1 threshold,
+// permanently pinning 12 research nodes (RESEARCH_LAB_MAP's machineShop
+// category) at "not yet startable" — 81% of an 80,000-tick run blocked on
+// lab tier. Excluding machineShop/maintenance drops that to ~2%.
+//
+// Hand-listed (not imported from professions.js's SPECIALTY_AXES.engineering
+// directly) because professions.js imports ZONES FROM this file — importing
+// SPECIALTY_AXES back would be a real module cycle. Keep this in sync with
+// that table's own engineering zoneIds by hand.
+export const LABWORK_CAPABLE_ZONES = new Set(['rfLab', 'vacuumLab', 'coolingLab', 'diagnosticsLab', 'controlRoom']);

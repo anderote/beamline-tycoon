@@ -12,13 +12,19 @@
 // wirable but never checked — and, absent from nodeQualities, ran at the
 // consumer's 1.0 default. Never wiring outscored wiring badly.
 //
-// DI mirrors SolveRunner: constructor takes {state, solveRunner, getPorts,
-// rng}. `rng` must be a delegating closure (Game reassigns this.rng on load,
-// so capturing the function directly would freeze the pre-load stream).
+// DI mirrors SolveRunner: constructor takes {state, solveRunner, getPorts}.
+// Deliberately no rng: the gate (staffing included, since staff-professions-3
+// Task 4) must be a pure function of state, never a dice roll — see
+// operatorCoverage's own doc comment. Callers may still pass an `rng` option
+// (several tests do); it is accepted and ignored rather than stored, so
+// nothing inside this class can ever be tempted to read it.
 
 import { findUnconnectedSinks } from '../utility/network-discovery.js';
 import { listUtilityEndpoints } from '../utility/utility-endpoints.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
+import { COMPONENTS } from '../data/components.js';
+import { getStationIndex } from './staff/stations.js';
+import { getNavGrid, isReachable } from './staff/nav.js';
 
 // Utilities whose unwired sinks hard-block the beam. Everything a component
 // physically cannot run without: no wall power, no beam vacuum, no RF drive,
@@ -136,18 +142,148 @@ function sinkQualityFloorFrom(portTable) {
   return floor;
 }
 
+// --- Beam staffing: coverage, not "does anyone happen to be working" -------
+//
+// Task 4 of staff-professions-3 (jobs-and-gates). The gate used to ask "does
+// ANY operator have status 'working', assigned (or unassigned-and-so-
+// defaulted) to the Control Room" — true the instant an operator was hired,
+// whether or not they had ever set foot near a console. Now it asks "is
+// someone actually SEATED, running the beam" — member.job.jobType ===
+// 'runBeam' && member.job.phase === 'work', the job runner's own signal for
+// "arrived and working" (see jobRunner.js's header comment on phase).
+
+// Distinct physical beamlines the coverage formula has to staff: one per
+// source junction (beamline-components.raw.js's `isSource` flag — the same
+// "how many beamlines does this facility have" signal the New Beamline
+// tooling and test-scenarios.js already key off). Deliberately NOT
+// _computeTopology's broader `beamlineCount` (every category==='beamline'
+// endpoint — every cavity/quad/BPM/cryomodule on every pipe, easily dozens
+// for a single real beamline): that count answers "is there a beamline in
+// this facility at all" (see run()'s own `beamlineCount > 0` guard, which
+// keeps using it), not "how many lines need an operator's attention" — using
+// it here would turn "hire one more operator" into "hire fifteen more".
+//
+// Exported so jobRunner.js's runBeam assignment cap can call this SAME
+// function instead of deriving its own count off the beamline registry
+// (`game.registry.getAll().length`). The two used to agree only by
+// convention — one counting isSource placeables, the other counting
+// registry entries, correct only because `_ensureBeamlineForSourcePlaceable`
+// keeps them 1:1 today. That's two implementations of one rule, which is
+// exactly the shape of bug the seated-operator gate itself exists to close:
+// if anything ever lets an isSource placeable and its registry entry drift
+// apart (Game.js:3355's `_removeBeamlineForSourcePlaceable` is dead code
+// with no caller — removing a source junction currently leaves a phantom
+// registry entry; not this task's to fix, see task-4-report.md), the cap
+// and the gate now degrade IDENTICALLY instead of asymmetrically, because
+// they're the same call.
+export function countBeamlines(state) {
+  let n = 0;
+  for (const p of (state.placeables || [])) {
+    if (COMPONENTS[p.type]?.isSource) n++;
+  }
+  return n;
+}
+
+// Add 1 to every operator's coverage when the Control Room is Tier 3+ —
+// better consoles, more screens, one operator watching more of the machine
+// at once (see zoneConnectivity's own tier semantics, Game.js).
+const CONSOLE_TIER_BONUS_THRESHOLD = 3;
+
+/**
+ * `{ covered, capacity, operators }` — whether the facility's operators, as
+ * currently seated and working, can cover every beamline it has.
+ *
+ * `operators` is exactly the set contributing to `capacity`: staff whose
+ * profession is 'operator', whose `status` is 'working' (NOT e.g. 'resting'
+ * off a stress breakdown — see below), AND whose job is `{ jobType:
+ * 'runBeam', phase: 'work' }` right now. Travelling to a console, eating,
+ * idle, or simply not an operator at all — none of those count, on purpose:
+ * an operator mid-meal is not at the console, so the beam is not covered no
+ * matter how content their morale bar looks (see task-4-brief.md's
+ * carry-forward item 2 — this is a deliberate behavior change from the old
+ * gate, which only checked `status === 'working'` and nothing else).
+ *
+ * The `status === 'working'` half of that guard matters on its own: a
+ * stress-breakdown operator (`status: 'resting'`, staffSystem.js's own
+ * mechanism — a different thing from the `rest` JOB TYPE, which leaves
+ * `status` at 'working' throughout) can still be holding a stale `job:
+ * {jobType:'runBeam', phase:'work'}` from before the breakdown, since
+ * nothing on that path abandons it. Without this check they'd count as full
+ * coverage while an eating/resting-on-a-JOB operator counts zero — the same
+ * "not actually at the console" fact, scored two different ways.
+ *
+ * Per-operator coverage is `1 + floor(skills.operating / 4)` — a green
+ * (skill 0) operator covers exactly one beamline, a maxed one (skill 10, +2)
+ * covers three — plus the console-tier bonus above.
+ *
+ * Balance fix round 3: an operator carrying `unservicedPenalty` (jobRunner.js
+ * — the deadlock-guard flag set the moment a need has gone unserviced this
+ * pass, cleared only by a completed eat/rest) contributes capacity 1 flat,
+ * skipping BOTH the skill term and the console-tier bonus, instead of the
+ * usual `1 + floor(skill/4) + tierBonus`. This closes the one path the
+ * balance fix's own efficiency penalty (StaffMember.efficiency(),
+ * UNSERVICED_PENALTY_MULT) never reaches: `runBeam` has `workTicks: null`
+ * (jobs.js) — its output is PRESENCE, not progress — and efficiency() is
+ * only ever read by progress accrual (tickJobs). An unserviced operator was
+ * therefore paying nothing at all on the one job type that earns the
+ * facility money, while a serviced operator gave up real ticks walking to
+ * lunch: measured, one operator, amenities 3 tiles away, beam coverage
+ * 0.58-0.62 WITH amenities vs 0.82-0.85 WITHOUT — the defect this balance
+ * fix exists to kill, surviving intact on the one path that pays.
+ *
+ * Capped at 1, deliberately NEVER zeroed: a cafeteria-less facility with no
+ * beam at all would be the hunger deadlock returning through this exact
+ * gate — precisely the failure jobRunner.js's own deadlock guard (see that
+ * module's header comment on the scar this codebase carries) exists to
+ * prevent, and gate.js sits downstream of it, not exempt from it. Capping
+ * at 1 instead keeps every operator able to run one beamline solo while a
+ * serviced, skilled one runs up to three (skill 10, tier bonus) — so
+ * amenities pay off exactly where the money is, and the benefit scales with
+ * facility size (more beamlines needing more than 1x coverage each)
+ * instead of landing as a flat tax on every facility regardless of size.
+ *
+ * Deterministic: no rng anywhere in this function or its callers. Compare
+ * the deleted `_hasActiveOperator`, whose `mood === 'stressed' && rng() <
+ * 0.3` random rejection made the same state produce different blockers from
+ * one tick to the next — not legible, and not what the gate exists for.
+ */
+export function operatorCoverage(state) {
+  const tierBonus = (state.zoneConnectivity?.controlRoom?.tier || 0) >= CONSOLE_TIER_BONUS_THRESHOLD ? 1 : 0;
+  const operators = (state.staffMembers || []).filter(m =>
+    m.profession === 'operator' && m.status === 'working'
+    && m.job?.jobType === 'runBeam' && m.job?.phase === 'work');
+  const capacity = operators.reduce((sum, m) => {
+    if (m.unservicedPenalty) return sum + 1;
+    const skill = m.skills?.operating ?? 0;
+    return sum + 1 + Math.floor(skill / 4) + tierBonus;
+  }, 0);
+  const beamlineCount = countBeamlines(state);
+  return { covered: capacity >= beamlineCount, capacity, operators };
+}
+
+// Must match Game.js's DAY_LENGTH_TICKS (240) — duplicated rather than
+// imported to avoid a circular import (Game.js imports this module). Keep
+// this in sync if DAY_LENGTH_TICKS ever changes; jobRunner.js's own
+// SUBTILE_UNIT/SLOWEST_PAWN_SPEED duplication (from StaffPawns.js) is the
+// same trade for the same reason.
+const DAY_LENGTH_TICKS = 240;
+const BEAM_HOURS_TICK_INTERVAL = DAY_LENGTH_TICKS / 24; // ticks per in-game hour
+
 export class UtilityGate {
   constructor(opts = {}) {
     this.state = opts.state;
     this.solveRunner = opts.solveRunner;
     this.getPorts = opts.getPorts;
-    this.rng = opts.rng || Math.random;
     // Player-facing message sink. Soft errors used to reach console.warn and
     // nowhere else, so an overloaded network announced itself ONLY by
     // recolouring its cables — a signal with no legend and no explanation.
     this.log = opts.log || (() => {});
     this._lastErrHash = '';
     this._loggedSoft = new Set();
+    // The sim tick this.tick last accrued beamHours for — see
+    // _accrueBeamHours's own doc comment. null (not 0) so tick 0 itself
+    // still accrues once.
+    this._lastBeamHourTick = null;
     // Topology cache — the unconnected-sink report AND the declared-sink
     // floor are pure topology (endpoints x port tables x lines), so both ride
     // the SolveRunner's topologyRevision: recomputed only when the revision
@@ -204,8 +340,15 @@ export class UtilityGate {
         });
       }
 
-      // RimWorld-like staffing: beamlines need an active operator in controlRoom
-      if (beamlineCount > 0 && !this._hasActiveOperator()) {
+      // RimWorld-like staffing: beamlines need enough operators actually
+      // SEATED and running the beam, not merely on the roster (see
+      // operatorCoverage's own doc comment). `beamlineCount` here is the
+      // topology sweep's broad "is there a beamline in this facility at
+      // all" count (unchanged) — operatorCoverage computes its own, narrower
+      // "how many DISTINCT beamlines need staffing" count for the capacity
+      // comparison itself.
+      const coverage = operatorCoverage(state);
+      if (beamlineCount > 0 && !coverage.covered) {
         hardErrs.push({
           severity: 'hard',
           code: 'beam_unstaffed',
@@ -225,6 +368,29 @@ export class UtilityGate {
       }));
       state.infraCanRun = hardErrs.length === 0;
 
+      // Accrue AFTER infraCanRun is final, and only when it's true AND some
+      // beamline is actually RUNNING: beamHours is meant to record time the
+      // beam actually ran, not time a seated operator happened to be at
+      // their console while an UNRELATED fault (unwired power, a quenched
+      // cavity, the staffing gate itself) held the facility down — or,
+      // fix-round-2's own bug, while every registered beamline sat
+      // `'stopped'` and nobody had ever pressed Start at all. Before the
+      // runBeam cap counted registered (not running) beamlines this branch
+      // was unreachable: an operator could not even be SEATED against a
+      // beamline that wasn't running. Widening the cap made it reachable,
+      // so the guard has to widen too. `state.beamOn` (Game.js's
+      // _updateAggregateBeamline, `entry.status==='running' &&
+      // infraCanRun`) is one tick stale here — it's computed earlier in
+      // Game.tick(), before this gate re-derives infraCanRun for the
+      // CURRENT tick — the same pre-existing, symmetric one-tick lag
+      // _tickBeamline's own income read already has; not worth a second
+      // registry-status plumbing path through this gate just to shave off
+      // one tick. `beamlineCount > 0` mirrors the same guard the blocker
+      // above uses — no beamline, nothing to accrue.
+      if (beamlineCount > 0 && state.infraCanRun && state.beamOn) {
+        this._accrueBeamHours(coverage.operators);
+      }
+
       state.nodeQualities = this._aggregateNodeQualities(declaredFloors);
       // Wiring topology, published alongside the qualities it can't be
       // recovered from: a declared sink always carries a quality field, so
@@ -237,37 +403,117 @@ export class UtilityGate {
     }
   }
 
-  // The blocker text has to name the *actual* cause: "no operator in the
-  // Control Room" is misleading when the roster is full and everyone is on a
-  // break they can't finish (no cafeteria) or assigned somewhere else.
+  // The blocker text has to name the *actual* cause. Checked
+  // most-fundamental-first: no operator hired at all; operators hired but no
+  // Operator Console anywhere in the world; a console exists but nothing can
+  // currently reach it (walled off, no door); then, with nobody yet seated
+  // (active.length === 0) — travelling (transient, "any moment now", not an
+  // error), eating/resting (the modern equivalent of the deleted onBreak
+  // status — task-4-brief.md's carry-forward item 1), recovering from a
+  // stress breakdown, or simply not assigned yet (the instant after pressing
+  // Start, before that tick's assignJobs has run); then, with SOMEONE seated
+  // but not enough of them — console-starved (every console already has an
+  // operator, so hiring more would sit idle; the fix is another console) vs.
+  // genuinely short-staffed (a free console exists; hire another operator or
+  // promote one already on shift).
   _unstaffedMessage() {
-    const operators = (this.state.staffMembers || []).filter(m => m.profession === 'operator');
-    if (operators.length === 0) return 'No operator hired — beam tripped';
-    const inControlRoom = operators.filter(
-      m => !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom');
-    if (inControlRoom.length === 0) {
-      return 'No operator assigned to the Control Room — beam tripped';
+    const state = this.state;
+    const operators = (state.staffMembers || []).filter(m => m.profession === 'operator');
+    if (operators.length === 0) {
+      return 'No operator hired — beam tripped. Hire an operator to staff the Control Room.';
     }
-    if (inControlRoom.every(m => m.status === 'onBreak' || m.status === 'resting')) {
-      const hungry = inControlRoom.some(m => (m.needs?.hunger || 0) > 0.35);
-      return hungry
-        ? 'Operators on break and hungry — build a cafeteria; beam tripped'
-        : 'Operators on break — beam tripped';
+
+    const stations = getStationIndex(state).byJob.runBeam || [];
+    if (stations.length === 0) {
+      return 'No Operator Console built — place one in the Control Room; beam tripped.';
     }
-    return 'No active operator in Control Room — beam tripped';
+
+    // Reachability: can any hired operator, from wherever they currently
+    // stand, actually get to a console? Only meaningful once at least one
+    // operator has reported a live position (member.fromNode, written by
+    // the renderer as pawns walk) — with none known yet (e.g. the instant
+    // after hiring, before a pawn has rendered a frame), skip straight to
+    // the travel/break/capacity checks below rather than reporting a false
+    // "unreachable".
+    const nav = getNavGrid(state);
+    let positionKnown = false;
+    let reachable = false;
+    for (const m of operators) {
+      if (!m.fromNode) continue;
+      positionKnown = true;
+      if (stations.some(ref => isReachable(nav, m.fromNode, ref.node))) { reachable = true; break; }
+    }
+    if (positionKnown && !reachable) {
+      return 'Operator Console unreachable — check for a door or blocked path into the Control Room; beam tripped.';
+    }
+
+    // Not destructured as `{ operators: active }` — that literal spelling
+    // trips test-staff-rename-sweep.js's grep guard for the old plural
+    // staff-count keys (`operators:`), even though this is an unrelated
+    // rename-on-destructure. Read the field off the result object instead.
+    const coverage = operatorCoverage(state);
+    const capacity = coverage.capacity;
+    const active = coverage.operators;
+
+    if (active.length === 0) {
+      if (operators.some(m => m.job?.phase === 'travel')) {
+        return 'Operator on the way to the console — beam will resume once they arrive.';
+      }
+      if (operators.some(m => m.job?.jobType === 'eat' || m.job?.jobType === 'rest')) {
+        return 'Operator eating or resting — beam paused until they return to the console; hire another operator to cover the gap.';
+      }
+      // operatorCoverage also excludes status !== 'working' (a stress
+      // breakdown, staffSystem.js's 'resting' — distinct from the 'rest' JOB
+      // TYPE above, which leaves status at 'working'). Give it its own line
+      // rather than letting it fall into the generic case below.
+      if (operators.some(m => m.status && m.status !== 'working')) {
+        return 'Operator recovering from a stress breakdown — beam paused until they return to work.';
+      }
+      // Hired, a console exists and is reachable, but nobody has been
+      // assigned to it yet — most commonly the instant after pressing
+      // Start, before that tick's assignJobs has had a chance to run.
+      return 'Operator is not at a console yet — beam tripped.';
+    }
+
+    // Someone IS seated — the shortfall is either too few CONSOLES (hiring
+    // more operators would just leave them with nowhere to sit) or too few
+    // OPERATORS (a free console is sitting empty). operatorConsole/
+    // monitorBank each declare slots: 1, so stations.length is also the
+    // hard ceiling on how many operators can ever be seated at once.
+    const beamlineCount = countBeamlines(state);
+    if (active.length >= stations.length) {
+      return `Every console is staffed (${active.length}) but only ${capacity} of `
+        + `${beamlineCount} beamlines are covered — build another Operator Console; `
+        + 'hiring more operators won\'t help until they have somewhere to sit.';
+    }
+    return `${active.length} operator${active.length === 1 ? '' : 's'} `
+      + `cover${active.length === 1 ? 's' : ''} ${capacity} of ${beamlineCount} beamlines; `
+      + 'hire another or promote one.';
   }
 
-  _hasActiveOperator() {
-    return (this.state.staffMembers || []).some(m => {
-      if (m.profession !== 'operator') return false;
-      if (m.status !== 'working') return false;
-      // must be assigned to controlRoom (or no assignment counts as controlRoom for MVP)
-      const zoneOk = !m.assignment?.zoneId || m.assignment.zoneId === 'controlRoom';
-      if (!zoneOk) return false;
-      if (m.needs?.fatigue > 0.85) return false;
-      if (m.mood === 'stressed' && this.rng() < 0.3) return false;
-      return true;
-    });
+  // Every operator currently seated and running the beam accrues
+  // member.stats.beamHours once per in-game hour (DAY_LENGTH_TICKS/24 ticks)
+  // — the counter Plan 1 declared and the "recovered the beam 47 times"
+  // milestone (Task 7) reads from. Ticks, not wall-clock, so this scales
+  // correctly with game speed exactly like the rest of the sim clock.
+  //
+  // Deduped per tick via _lastBeamHourTick: run() is not the only caller of
+  // the gate — toggleBeam() calls refreshInfrastructureGate() (== run())
+  // synchronously on every click, including while paused (tick frozen). Two
+  // calls landing on the same on-the-hour tick used to both accrue, so
+  // toggling a beam off/on repeatedly while paused banked beamHours with
+  // zero sim time elapsed. This makes the accrual idempotent per tick,
+  // matching "once per in-game hour" literally rather than "once per call
+  // that happens to land on an hour boundary."
+  _accrueBeamHours(operators) {
+    const tick = this.state.tick || 0;
+    if (tick % BEAM_HOURS_TICK_INTERVAL !== 0) return;
+    if (this._lastBeamHourTick === tick) return;
+    this._lastBeamHourTick = tick;
+    for (const m of operators) {
+      if (!m.stats) m.stats = {};
+      m.stats.beamHours = (m.stats.beamHours || 0) + 1;
+    }
   }
 
   /**

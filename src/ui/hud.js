@@ -21,7 +21,9 @@ import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
 import { openHiringDialog } from './HiringDialog.js';
-import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass } from './format.js';
+import { facilityStaffingReport, facilityProgressReport } from '../game/staff/staffDiagnostics.js';
+import { professionDef } from '../data/professions.js';
+import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from './format.js';
 import { utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
@@ -202,6 +204,13 @@ UIHost.prototype._updateHUD = function() {
 
   // Staff bar (top bar portraits)
   this._renderStaffBar();
+
+  // Facility staffing banner (Task 8) — the idle-legibility headline.
+  this._renderStaffingBanner();
+
+  // Fix round 1's F3: keep any open staff/roster windows live every tick,
+  // not just on 'staffChanged' — see _refreshStaffWindows' own comment.
+  this._refreshStaffWindows();
 
   // Pause/speed buttons (also refreshed directly on 'speedChanged')
   this._updateSimControls();
@@ -464,6 +473,197 @@ UIHost.prototype._showInfraBlockerPanel = function() {
   this._infraBlockerDismissedSig = null;
   this._infraBlockerSig = null;
   this._renderInfraBlockerList();
+};
+
+// --- Facility staffing banner (Task 8, staff-professions-3 jobs-and-gates) -
+//
+// The idle-legibility layer, two signals sharing one banner slot:
+//   - staffDiagnostics.facilityStaffingReport groups every staffer currently
+//     without a job by (corrected) idleReason text and ranks the groups
+//     beam-blocked > repairs-stalled > everything else — "N staff idle:
+//     <reason>", naming the highest-impact group only (see the report's own
+//     doc comment on `worst`), clickable to open a roster of exactly those
+//     staff.
+//   - staffDiagnostics.facilityProgressReport (fix round 1's F5) covers what
+//     the first signal can't see by construction: a facility where everyone
+//     is BUSY and nothing is progressing (an idle-only report has nothing
+//     to say when nobody is idle). Shown only when nobody IS idle — an idle
+//     roster is already the more specific, more actionable fact.
+// Both exist independently of the infra-blocker panel above: a facility can
+// be fully wired (no infraBlockers at all) while staff sit idle, or fully
+// staffed and wired while nobody's ever pressed Start — neither reaches the
+// gate at all.
+const STAFFING_BANNER_ID = 'staffing-banner';
+const STAFFING_ROSTER_WINDOW_ID = 'staffing-roster';
+
+function ensureStaffingBanner() {
+  let panel = document.getElementById(STAFFING_BANNER_ID);
+  if (panel) return panel;
+  const host = document.getElementById('game') || document.body;
+  if (!host) return null;
+  panel = document.createElement('div');
+  panel.id = STAFFING_BANNER_ID;
+  // `top` is set every render by positionStaffingBanner (fix round 1's F9)
+  // — the top bar wraps to extra rows on a narrow window, same as the infra
+  // blocker panel's own positionBlockerPanel() already accounts for, so a
+  // fixed pixel guess here would sit under a wrapped bar exactly the way
+  // that panel's own comment warns about. Centered horizontally only.
+  panel.style.cssText = [
+    'position:absolute', 'left:50%', 'transform:translateX(-50%)',
+    'z-index:101', 'max-width:70vw',
+    'font-family:monospace', 'font-size:10px', 'letter-spacing:0.3px',
+    'border-radius:3px', 'padding:4px 10px',
+    'box-shadow:0 4px 14px rgba(0,0,0,0.5)',
+    'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
+    'display:none',
+  ].join(';');
+  host.appendChild(panel);
+  return panel;
+}
+
+// Mirrors positionBlockerPanel's own measurement exactly (fix round 1's
+// F9) — see that function's comment for why a fixed pixel guess is wrong.
+function positionStaffingBanner(panel) {
+  const bar = document.getElementById('top-bar');
+  const top = bar ? bar.offsetTop + bar.offsetHeight + 6 : 42;
+  panel.style.top = `${top}px`;
+}
+
+// Rebuilds only when the underlying signal actually changed (signature =
+// which report is showing, plus its own identifying text/counts) — this
+// runs every frame via _updateHUD, and a steady idle roster (or a steady
+// stall) must not thrash the DOM. Repositioned every call regardless (fix
+// round 1's F9, mirroring _renderInfraBlockerList's own "reposition
+// regardless" comment) since the top bar's height can change independently
+// of either report.
+//
+// Fix round 2's F2 (BLOCKING): facilityProgressReport used to be asked ONLY
+// when `staffing.idleCount === 0` — so a facility earning nothing (an
+// operator seated, beam never started — facilityProgressReport.stalled
+// true) lost its own headline the instant ONE ordinary admin happened to be
+// idle too (a near-default state for an early facility), replaced by a
+// lower-stakes "1 staff idle: no admin work available". `progress` is now
+// computed unconditionally, every call, and a real stall ALWAYS outranks
+// the idle-staff banner when both are true — a hard stall is a bigger
+// problem than one admin with nothing to do, and must never be hidden by
+// it.
+UIHost.prototype._renderStaffingBanner = function() {
+  const panel = ensureStaffingBanner();
+  if (!panel) return;
+  positionStaffingBanner(panel);
+
+  const progress = facilityProgressReport(this.game);
+  const staffing = facilityStaffingReport(this.game);
+
+  // Fix round 3's issue A: a stall outranks the idle-staff banner ONLY when
+  // it says something the idle banner doesn't. `progress.generic` marks
+  // exactly the one reason with nothing specific to say (the flat "nothing
+  // has completed" fallback — see facilityProgressReport's own doc
+  // comment); everything else (F4's "press Start", a suppression, a
+  // resolved infra fault) is still strictly more informative than "N staff
+  // idle" and keeps outranking it (round 2's own F2). A generic stall with
+  // a NONEMPTY idle report defers to it instead — the idle banner is
+  // COUNTED, GROUPED, and CLICKABLE; the generic fallback is none of those,
+  // and replacing the one with the other is a net loss of information, not
+  // a gain.
+  const preferProgress = progress.stalled && !(progress.generic && staffing.idleCount > 0);
+
+  const sig = preferProgress
+    ? `stall|${progress.reason}`
+    : (staffing.idleCount > 0 ? `idle|${staffing.idleCount}|${staffing.worst.reason}|${staffing.worst.count}` : '0');
+  if (sig === this._staffingBannerSig) return;
+  this._staffingBannerSig = sig;
+
+  if (preferProgress) {
+    panel.textContent = `⏸ Facility stalled: ${progress.reason}`;
+    panel.title = 'Nothing has completed in a while — this outranks idle-staff notices until it clears.';
+    panel.style.background = 'rgba(40,20,20,0.94)';
+    panel.style.border = '1px solid rgba(255,120,90,0.5)';
+    panel.style.color = '#ffb08c';
+    panel.style.cursor = 'default';
+    panel.style.display = '';
+    panel.onclick = null;
+    return;
+  }
+
+  if (staffing.idleCount > 0) {
+    const { reason, count } = staffing.worst;
+    panel.textContent = `⚠ ${count} staff idle: ${reason}`;
+    panel.title = `${staffing.idleCount} staff idle facility-wide — click to see who`;
+    panel.style.background = 'rgba(40,30,8,0.94)';
+    panel.style.border = '1px solid rgba(255,190,90,0.45)';
+    panel.style.color = '#ffd28c';
+    panel.style.cursor = 'pointer';
+    panel.style.display = '';
+    panel.onclick = () => this._openStaffingBannerGroup();
+    return;
+  }
+
+  panel.style.display = 'none';
+  panel.onclick = null;
+};
+
+// Opens a roster of exactly the staff behind the banner's CURRENT headline
+// reason — recomputed fresh at click time (fix round 1's F8), not read off
+// a value cached at the last render: the render tick that drew the banner
+// and the click that follows it are never the same instant, and a stale
+// cached member list opens whoever used to share that reason, not whoever
+// does now (one technician goes idle, another gets reassigned — a real
+// roster, not a snapshot).
+UIHost.prototype._openStaffingBannerGroup = function() {
+  const report = facilityStaffingReport(this.game);
+  if (!report.worst) return;
+  this._openStaffingRoster(report.worst.reason);
+};
+
+// One window, not N (fix round 1's F6 — ContextWindow has no cascade, so N
+// inspectors opened at once land on identical pixels, which is exactly the
+// "noise instead of clarity" this layer exists to avoid). Lists every
+// staffer currently sharing `reason`, each row opening that ONE person's
+// own StaffInspector on click. Re-resolves its member list against the
+// LIVE report on every refresh — reusing the roster window across
+// different reasons rather than opening a new one each time — so it never
+// goes stale the way a captured member array would (same fix as F8 above,
+// applied to the window's own lifetime instead of just its opening).
+UIHost.prototype._openStaffingRoster = function(reason) {
+  let ctx = ContextWindow.getWindow(STAFFING_ROSTER_WINDOW_ID);
+  if (!ctx) {
+    ctx = new ContextWindow({
+      id: STAFFING_ROSTER_WINDOW_ID, title: 'Idle Staff', icon: '⚠', accentColor: '#e0a030',
+    });
+    ctx.setActions([{ label: 'Close', style: '', onClick: () => ctx.close() }]);
+  }
+  ctx._staffingRosterReason = reason;
+
+  const render = () => {
+    const body = ctx._body;
+    if (!body) return;
+    const report = facilityStaffingReport(this.game);
+    const group = report.byReason.find(g => g.reason === ctx._staffingRosterReason);
+    ctx.setTitle(group ? `Idle Staff — ${group.count}` : 'Idle Staff');
+    if (!group) {
+      body.innerHTML = '<div style="padding:10px;font-size:9px;color:#888;">Resolved — nobody idle for this reason anymore.</div>';
+      return;
+    }
+    let html = `<div style="font-size:9px;color:#ccc;padding:2px 2px 8px;line-height:1.4;">${escapeHtml(group.reason)}</div>`;
+    html += '<div style="display:flex;flex-direction:column;">';
+    for (const m of group.members) {
+      const roleColor = ROLE_COLORS[m.profession] || '#4466aa';
+      html += `<div class="staffing-roster-row" data-staff-id="${escapeHtml(m.id)}" style="cursor:pointer;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:9px;display:flex;justify-content:space-between;">`
+        + `<span>${escapeHtml(m.name || m.id)}</span>`
+        + `<span style="color:${roleColor};">${escapeHtml(professionDef(m.profession)?.name || m.profession)}</span>`
+        + `</div>`;
+    }
+    html += '</div>';
+    body.innerHTML = html;
+    body.querySelectorAll('[data-staff-id]').forEach(row => {
+      row.addEventListener('click', () => this._openStaffInspector(row.dataset.staffId));
+    });
+  };
+  ctx.refresh = render;
+  ctx.update = render;
+  render();
+  ctx.focus();
 };
 
 // --- Palette rendering ---
@@ -3135,18 +3335,122 @@ UIHost.prototype._openHiringDialog = function() {
   openHiringDialog(this.game);
 };
 
+// A cheap fingerprint of everything a staff inspector window's "Work"/
+// Needs/Assignment sections actually SHOW — fix round 2's F6's own guard,
+// the same shape _renderStaffingBanner already uses for its DOM. Needs
+// values are rounded to the nearest 5% (the same precision the needs bars
+// display — Math.round(pct) in StaffInspector.js) rather than compared
+// exactly: raw fatigue/hunger/morale drift by a small fraction EVERY tick,
+// and comparing them at full precision would defeat the guard entirely —
+// every call would look "different" even though nothing visibly changed.
+// Facility-level facts no single member's own fields can see, but that
+// StaffInspector.js's renderInspector reads anyway (fix round 3's issue C):
+// the Beam <select>'s own option list (game.registry.getAll()'s ids) and,
+// via describeJob's F4 addition, whether the beam has ever actually run at
+// all. Computed once per _refreshStaffWindows call and folded into EVERY
+// member's own signature below — without it, an operator's inspector kept
+// reading "— but the beam has never been started (press Start)" for up to
+// 6 ticks after the player pressed Start, because nothing about that fact
+// lives on any per-member field this signature otherwise reads.
+function facilitySig(game) {
+  const state = game?.state || {};
+  const entries = game?.registry?.getAll?.() || [];
+  return `${state.infraCanRun}|${entries.map(e => `${e.id}:${e.status}`).join(',')}`;
+}
+
+// A cheap fingerprint of everything a staff inspector window's "Work"/
+// Needs/Assignment/Skills sections actually SHOW — fix round 1's F6's own
+// guard, the same shape _renderStaffingBanner already uses for its DOM.
+//
+// Fix round 3's issue C found this guard ALSO suppressing genuine updates,
+// including the one round 1's own F3 fix existed to fix: `describeJob`'s
+// beam-status suffix depends on `facilitySig` (added here), and
+// `stats.ticksWorked`/`stats.breakdowns`/the full `skills` object were
+// missing outright (frozen up to 49 ticks, never reflected at all).
+// Needs are rounded to the nearest 1% — StaffInspector.js's own needs bars
+// render `Math.round(pct)`, i.e. 1% precision; this signature used to round
+// to the nearest 5%, coarser than what's actually on screen, so a real,
+// visible 1-4% change could go un-rendered for several ticks. Still
+// rounded, not exact — raw fatigue/hunger/morale drift by a small fraction
+// EVERY tick, and comparing at full float precision would defeat the guard
+// entirely (measured otherwise fine: 340 real changes over 2000 ticks, a
+// dropdown surviving ~6 real seconds untouched).
+function staffWindowSig(m, facSig) {
+  const job = m.job;
+  const s = m.stats || {};
+  const skills = m.skills || {};
+  const skillsStr = Object.keys(skills).sort().map(k => `${k}:${skills[k]}`).join(',');
+  return [
+    m.mood, m.status, m.shift,
+    m.assignment?.zoneId || '', m.assignment?.beamlineId || '',
+    job?.jobType || '', job?.phase || '', job?.stationKey || '', job?.target?.nodeId || '',
+    m.idleReason || '', m.unservicedPenalty ? 1 : 0,
+    Math.round((m.needs?.fatigue ?? 0) * 100), Math.round((m.needs?.hunger ?? 0) * 100), Math.round((m.needs?.morale ?? 0) * 100),
+    (m.history || []).length,
+    s.repairs || 0, s.commissions || 0, s.sparesMade || 0, s.analyses || 0, s.beamHours || 0, s.ticksWorked || 0, s.breakdowns || 0,
+    skillsStr,
+    facSig,
+  ].join('|');
+}
+
+// Refreshes every open staff-related window against LIVE state — called
+// every tick from _updateHUD (fix round 1's F3), not just on 'staffChanged'.
+// That event fires on hire/fire/assignment, never on a job or idleReason
+// changing mid-tick, which left every one of these windows able to go
+// stale and stay that way indefinitely: the staffing banner names "no
+// console", the player opens the roster, builds one, the banner clears —
+// and the open roster (and any inspector opened from it) kept reading the
+// old text forever, directly contradicting this whole layer's reason for
+// existing.
+//
+// Fix round 2's F6: calling every tick with NO guard meant every open
+// inspector's whole body — including its three live <select> elements
+// (Zone/Beam/Shift, each freshly built and re-listened on every render —
+// see StaffInspector.js's renderInspector) — was destroyed and rebuilt
+// about once a second regardless of whether anything shown had actually
+// changed. An open <select>'s dropdown closes the instant its underlying
+// element is replaced, so a player mid-click on the Zone dropdown lost
+// their own in-progress selection before they could make it; scroll
+// position and text selection reset the same way on every refresh, on
+// both the inspector and the roster. `staffWindowSig`/the roster's own
+// membership+reason signature (mirroring `_renderStaffingBanner`'s own
+// guard) now skip the rebuild — and so skip destroying any of that —
+// whenever nothing visible actually changed since the last refresh.
 UIHost.prototype._refreshStaffWindows = function() {
-  // Try to refresh any open staff inspector windows via ContextWindow registry
   const members = (this.game && this.game.state && this.game.state.staffMembers) || [];
+  if (!this._staffWindowSigs) this._staffWindowSigs = new Map();
+  const facSig = facilitySig(this.game);
+  const liveIds = new Set();
   for (const m of members) {
     const win = ContextWindow.getWindow('staff-' + m.id);
-    if (win && typeof win.refresh === 'function') {
-      try { win.refresh(); } catch (_) {}
-    }
+    if (!win || typeof win.refresh !== 'function') continue;
+    liveIds.add(m.id);
+    const sig = staffWindowSig(m, facSig);
+    if (this._staffWindowSigs.get(m.id) === sig) continue;
+    this._staffWindowSigs.set(m.id, sig);
+    try { win.refresh(); } catch (_) {}
   }
+  // Drop signatures for staff no longer on the roster (fired, e.g.) so a
+  // later same-id member (shouldn't happen, but ids are otherwise unbounded
+  // over a long save) never inherits a stale comparison baseline.
+  for (const id of [...this._staffWindowSigs.keys()]) {
+    if (!liveIds.has(id)) this._staffWindowSigs.delete(id);
+  }
+
   const hiring = ContextWindow.getWindow('hiring-dialog');
   if (hiring && typeof hiring.refresh === 'function') {
     try { hiring.refresh(); } catch (_) {}
+  }
+
+  const roster = ContextWindow.getWindow(STAFFING_ROSTER_WINDOW_ID);
+  if (roster && typeof roster.refresh === 'function') {
+    const report = facilityStaffingReport(this.game);
+    const group = report.byReason.find(g => g.reason === roster._staffingRosterReason);
+    const rosterSig = group ? `${group.reason}|${group.members.map(m => m.id).join(',')}` : 'gone';
+    if (this._staffingRosterSig !== rosterSig) {
+      this._staffingRosterSig = rosterSig;
+      try { roster.refresh(); } catch (_) {}
+    }
   }
 };
 
