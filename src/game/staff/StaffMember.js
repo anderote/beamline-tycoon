@@ -1,7 +1,21 @@
 // src/game/staff/StaffMember.js — individual pawn, RimWorld-lite
 
-const FIRST = ['A.', 'J.', 'M.', 'K.', 'R.', 'S.', 'L.', 'T.', 'E.', 'C.'];
-const LAST = ['Kowalski', 'Chen', 'Garcia', 'Okoro', 'Singh', 'Anders', 'Yamada', 'Petrov', 'Mills', 'Haddad', 'Kim', 'Rossi', 'Okafor', 'Berg', 'Silva'];
+import { SKILLS, professionDef, CROSS_SPECIALTY_EFFICIENCY } from '../../data/professions.js';
+
+const FIRST = [
+  'Alice', 'James', 'Maria', 'Kwame', 'Ravi', 'Sofia', 'Liam', 'Tara', 'Erik', 'Chen',
+  'Amara', 'Diego', 'Yuki', 'Noor', 'Oleg', 'Fatima', 'Hiro', 'Elena', 'Sanjay', 'Priya',
+  'Malik', 'Ingrid', 'Tomas', 'Aisha', 'Leon', 'Mei', 'Dmitri', 'Nadia', 'Kofi', 'Ines',
+  'Arjun', 'Freya', 'Bashir', 'Camila', 'Dara', 'Emeka', 'Greta', 'Hana', 'Ivan', 'Jun',
+  'Layla', 'Marcus', 'Nia', 'Oscar', 'Petra', 'Quinn', 'Rosa', 'Said', 'Tove', 'Umar',
+];
+const LAST = [
+  'Kowalski', 'Chen', 'Garcia', 'Okoro', 'Singh', 'Anders', 'Yamada', 'Petrov', 'Mills', 'Haddad',
+  'Kim', 'Rossi', 'Okafor', 'Berg', 'Silva', 'Nakamura', 'Osei', 'Reyes', 'Ivanov', 'Novak',
+  'Hassan', 'Larsen', 'Costa', 'Patel', 'Fischer', 'Diallo', 'Moreau', 'Sato', 'Kovacs', 'Abara',
+  'Lindqvist', 'Nguyen', 'Delgado', 'Weber', 'Adeyemi', 'Volkov', 'Bianchi', 'Suzuki', 'Ferreira', 'Marsh',
+  'Olawale', 'Duarte', 'Krause', 'Tanaka', 'Botha', 'Meier', 'Sundqvist', 'Vidal', 'Amadi', 'Horvath',
+];
 const TRAITS = ['careful', 'fastLearner', 'nightOwl', 'gourmand', 'stoic', 'perfectionist'];
 
 const TRAIT_DESC = {
@@ -15,8 +29,11 @@ const TRAIT_DESC = {
 
 function pick(arr, rng = Math.random) { return arr[Math.floor(rng() * arr.length)]; }
 
+export function randomFirstName(rng = Math.random) { return pick(FIRST, rng); }
+export function randomLastName(rng = Math.random) { return pick(LAST, rng); }
+
 export function randomName(rng = Math.random) {
-  return `${pick(FIRST, rng)} ${pick(LAST, rng)}`;
+  return `${randomFirstName(rng)} ${randomLastName(rng)}`;
 }
 
 export function randomTraits(rng = Math.random) {
@@ -29,22 +46,30 @@ export function traitDesc(t) { return TRAIT_DESC[t] || t; }
 
 let _anonId = 0; // fallback id source only — sim callers always pass opts.id
 
+const STATS_KEYS = ['ticksWorked', 'breakdowns', 'repairs', 'beamHours', 'sparesMade', 'analyses', 'commissions'];
+
+function makeStats(src) {
+  const stats = {};
+  for (const k of STATS_KEYS) stats[k] = src?.[k] ?? 0;
+  return stats;
+}
+
 export class StaffMember {
   constructor(opts = {}) {
     // opts.rng: seeded generator threaded from Game for deterministic rolls
     const rng = opts.rng || Math.random;
     this.id = opts.id || `staff_anon_${++_anonId}`;
-    this.name = opts.name || randomName(rng);
-    this.role = opts.role || 'operator'; // operator|technician|scientist|engineer
+    this.firstName = opts.firstName || randomFirstName(rng);
+    this.lastName = opts.lastName || randomLastName(rng);
+    this.profession = opts.profession || 'operator'; // operator|technician|engineer|scientist|machinist|admin
+    this.specialty = opts.specialty ?? null;
+    this.backstoryId = opts.backstoryId ?? null;
     this.traits = opts.traits || randomTraits(rng);
-    // skills 0-10, primary for role starts higher
-    const primary = { operator: 'operating', technician: 'technical', scientist: 'research', engineer: 'construction' }[this.role] || 'operating';
-    this.skills = opts.skills || {
-      operating: Math.floor(2 + rng() * 4 + (primary === 'operating' ? 1 : 0)),
-      technical: Math.floor(2 + rng() * 4 + (primary === 'technical' ? 1 : 0)),
-      research: Math.floor(2 + rng() * 4 + (primary === 'research' ? 1 : 0)),
-      construction: Math.floor(2 + rng() * 4 + (primary === 'construction' ? 1 : 0)),
-    };
+    // skills 0-10, primary for profession starts higher
+    const primary = professionDef(this.profession)?.primarySkill || 'operating';
+    this.skills = opts.skills || Object.fromEntries(SKILLS.map(skill => [
+      skill, Math.floor(2 + rng() * 4 + (skill === primary ? 1 : 0)),
+    ]));
     // clamp
     for (const k of Object.keys(this.skills)) this.skills[k] = Math.max(0, Math.min(10, this.skills[k]));
     this.needs = opts.needs || { fatigue: 0, hunger: 0, morale: 0.6 };
@@ -52,10 +77,13 @@ export class StaffMember {
     this.shift = opts.shift || (rng() < 0.3 ? 'night' : rng() < 0.5 ? 'day' : 'flex');
     this.status = opts.status || 'working';
     this.mood = opts.mood || 'content';
-    this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.role}` }];
-    this.ticksWorked = opts.ticksWorked ?? 0;
-    this.breakdowns = opts.breakdowns ?? 0;
+    this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.profession}` }];
+    this.stats = makeStats(opts.stats);
   }
+
+  get name() { return `${this.firstName} ${this.lastName}`; }
+
+  get primarySkill() { return professionDef(this.profession)?.primarySkill; }
 
   // Derive mood from needs
   updateMood() {
@@ -66,9 +94,10 @@ export class StaffMember {
     else this.mood = 'content';
   }
 
-  // Work efficiency 0..1.5, uses skill/zone/mood
-  efficiency(zoneTier = 0) {
-    const primary = { operator: 'operating', technician: 'technical', scientist: 'research', engineer: 'construction' }[this.role] || 'operating';
+  // Work efficiency 0..1.5, uses skill/zone/mood. jobSpecialty, when given,
+  // halves efficiency for a specialist working outside their specialty.
+  efficiency(zoneTier = 0, jobSpecialty = null) {
+    const primary = this.primarySkill || 'operating';
     const skill = this.skills[primary] ?? 3;
     let moodMult = 1;
     if (this.mood === 'stressed') moodMult = 0.75;
@@ -80,16 +109,22 @@ export class StaffMember {
     const tierMult = 0.5 + 0.5 * Math.min(4, zoneTier) / 4;
     // nightOwl shift modifier (assume day tick: tick%240 <120 is day)
     // caller can pass isNight
-    return (skill / 5) * tierMult * moodMult;
+    let result = (skill / 5) * tierMult * moodMult;
+    if (jobSpecialty != null && this.specialty != null && jobSpecialty !== this.specialty) {
+      result *= CROSS_SPECIALTY_EFFICIENCY;
+    }
+    return result;
   }
 
   toJSON() {
     return {
-      id: this.id, name: this.name, role: this.role, traits: [...this.traits],
+      id: this.id, firstName: this.firstName, lastName: this.lastName,
+      profession: this.profession, specialty: this.specialty, backstoryId: this.backstoryId,
+      traits: [...this.traits],
       skills: { ...this.skills }, needs: { ...this.needs },
       assignment: { ...this.assignment }, shift: this.shift,
       status: this.status, mood: this.mood, history: [...this.history],
-      ticksWorked: this.ticksWorked, breakdowns: this.breakdowns,
+      stats: { ...this.stats },
     };
   }
 

@@ -1,10 +1,25 @@
 // src/game/staff/staffSystem.js — needs loop, hiring, assignments
 
-import { StaffMember, randomName, randomTraits } from './StaffMember.js';
+import { StaffMember } from './StaffMember.js';
+import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professions.js';
+import { rollBackstory, applyBackstory } from '../../data/backstories.js';
 
-export function createStaffMember(role, id, tick = 0, rng = Math.random) {
-  const m = new StaffMember({ id, role, name: randomName(rng), traits: randomTraits(rng), rng });
-  m.history = [{ tick, event: 'hired', note: `Joined as ${role}` }];
+function pickSpecialty(profession, rng) {
+  const specs = specialtiesFor(profession);
+  if (specs.length === 0) return null;
+  const idx = Math.floor(rng() * specs.length) % specs.length;
+  return specs[idx].id;
+}
+
+export function createStaffMember(profession, id, tick = 0, rng = Math.random, specialty = null) {
+  const chosenSpecialty = specialty ?? pickSpecialty(profession, rng);
+  const m = new StaffMember({ id, profession, specialty: chosenSpecialty, rng });
+  const backstory = rollBackstory(profession, rng);
+  if (backstory) {
+    m.backstoryId = backstory.id;
+    applyBackstory(m, backstory);
+  }
+  m.history = [{ tick, event: 'hired', note: `Joined as ${profession}` }];
   return m;
 }
 
@@ -26,10 +41,10 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     if (isStoic) decay *= 0.5;
     if (cafeteriaTier === 0) decay += 0.005;
     m.needs.morale = Math.max(0, m.needs.morale - decay);
-    m.ticksWorked++;
+    m.stats.ticksWorked++;
     // skill gain
     const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
-    const primary = { operator: 'operating', technician: 'technical', scientist: 'research', engineer: 'construction' }[m.role] || 'operating';
+    const primary = m.primarySkill || 'operating';
     m.skills[primary] = Math.min(10, m.skills[primary] + gain);
     if (m.needs.fatigue > 0.8 || m.needs.hunger > 0.8) {
       m.status = 'onBreak';
@@ -38,7 +53,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
     // breakdown risk when morale very low
     if (m.needs.morale < 0.12 && rng() < 0.01) {
       m.status = 'resting';
-      m.breakdowns++;
+      m.stats.breakdowns++;
       m.history.push({ tick: 0, event: 'breakdown', note: 'Stressed breakdown — resting 30 ticks' });
       m._restTimer = 30;
       statusChanged = true;
@@ -74,18 +89,19 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
   return statusChanged;
 }
 
+// Keyed by profession id (singular), with a zero entry for every profession.
 export function deriveStaffCounts(members) {
-  const c = { operators: 0, technicians: 0, scientists: 0, engineers: 0 };
-  const map = { operator: 'operators', technician: 'technicians', scientist: 'scientists', engineer: 'engineers' };
+  const c = {};
+  for (const id of Object.keys(PROFESSIONS)) c[id] = 0;
   for (const m of members) {
-    const key = map[m.role] || m.role;
-    if (c[key] != null) c[key]++;
+    if (c[m.profession] != null) c[m.profession]++;
+    else c[m.profession] = (c[m.profession] || 0) + 1;
   }
   return c;
 }
 
-export function staffHireCost(role, costs) {
-  const map = { operator: 'operators', technician: 'technicians', scientist: 'scientists', engineer: 'engineers' };
-  const key = map[role] || role;
-  return (costs[key] || costs[role] || 100) * 12;
+export function staffHireCost(profession, costs) {
+  const def = professionDef(profession);
+  const base = (costs && costs[profession] != null) ? costs[profession] : (def?.baseSalary ?? 100);
+  return base * (def?.hireMultiplier ?? 12);
 }
