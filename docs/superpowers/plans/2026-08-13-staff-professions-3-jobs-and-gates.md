@@ -69,7 +69,7 @@ silent facility is unshippable.
   - `target` is `null` for station-only jobs. For `repair` and `commission` it
     is `{ beamlineId, nodeId }` — **both fields, always.** Component health is
     stored per beamline at `entry.beamState.componentHealth[node.id]`
-    (`src/game/Game.js:3999-4015`), not in a flat global map, so a bare node id
+    (`src/game/Game.js:4520-4532`), not in a flat global map, so a bare node id
     cannot address a repair target. Resolve a target through
     `game.registry.getAll()` to find the entry, then index its `beamState`. A
     target whose beamline no longer exists is a stale job: abandon it.
@@ -144,7 +144,7 @@ git commit -m "feat(staff): job board and offer generation" -- src/game/staff/jo
 **Files:**
 - Create: `src/game/staff/jobRunner.js`
 - Modify: `src/game/staff/StaffMember.js` — add the `job` and `idleReason` fields
-- Modify: `src/game/Game.js:3689-3702` — the needs loop calls the runner
+- Modify: `src/game/Game.js` — the needs loop at `:4210-4225` calls the runner
 - Test: `test/test-job-runner.js` (create)
 
 **Interfaces:**
@@ -271,7 +271,7 @@ git commit -m "feat(staff): pawns follow assigned jobs" -- src/renderer3d/StaffP
 ### Task 4: The beam gate moves to seated operators
 
 **Files:**
-- Modify: `src/game/utility-gate.js:204-212` (the gate), `:240-266`
+- Modify: `src/game/utility-gate.js:208-212` (the gate), `:243-270`
   (`_unstaffedMessage`, `_hasActiveOperator`)
 - Test: `test/test-beam-staffing-gate.js` (create)
 
@@ -342,7 +342,7 @@ git commit -m "feat(staff): beam requires an operator seated at a console" -- sr
 ### Task 5: Repair, spares, and fabrication
 
 **Files:**
-- Modify: `src/game/Game.js:4024-4058` — `_autoRepair` becomes job-driven
+- Modify: `src/game/Game.js:4542` — `_autoRepair` becomes job-driven
 - Modify: `src/game/staff/jobRunner.js` — register the `repair` and `fabricate`
   completion effects
 - Test: `test/test-repair-and-fabrication.js` (create)
@@ -361,7 +361,7 @@ git commit -m "feat(staff): beam requires an operator seated at a console" -- sr
 
 **Route the spares debit through `Game.chargeConstruction`, extending it rather
 than writing `resources.spares -=` at the call site.** That method
-(`src/game/Game.js:929`) carries a comment explaining that *every* build-time
+(`src/game/Game.js:993`) carries a comment explaining that *every* build-time
 funding debit goes through it precisely so **sandbox mode has one place to
 suppress and cannot be leaked by a code path that decrements the balance
 itself**. A spares debit written inline would charge sandbox players for parts
@@ -417,8 +417,8 @@ git commit -m "feat(staff): job-driven repair, machinist fabrication, spares eco
 The engineer and scientist half of the economy.
 
 **Files:**
-- Modify: `src/game/Game.js:3912` — the science multiplier
-- Modify: `src/game/Game.js:1729-1748` — `recomputeZoneConnectivity`
+- Modify: `src/game/Game.js:4433` — the science multiplier
+- Modify: `src/game/Game.js:2138` — `recomputeZoneConnectivity`
 - Modify: `src/game/research.js` — research progress from `analyze`
 - Modify: `src/game/staff/jobRunner.js` — `takeData`, `analyze`, `labWork`,
   `commission` effects
