@@ -642,12 +642,20 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
 
 /**
  * @typedef {object} StaffPose
- * @property {number} hip        thigh pivot, radians (+ leans the thigh forward)
- * @property {number} knee       shin pivot, radians, relative to the thigh
- * @property {number} torsoLean  torso pivot, radians
- * @property {number} armL       left shoulder pivot, radians
+ * @property {number} hip        thigh pivot, radians (- leans the thigh forward, since
+ *                                the thigh hangs from the hip: rotation.x = θ sends the
+ *                                joint-to-knee offset to z = -sin(θ), and front is +Z)
+ * @property {number} knee       shin pivot, radians, relative to the thigh (same sign
+ *                                convention as hip — negative also swings the shin
+ *                                forward relative to the thigh's own rotated frame)
+ * @property {number} torsoLean  torso pivot, radians (+ leans the torso forward — the
+ *                                torso rotates about its own center, not a hanging
+ *                                joint, so this is the OPPOSITE sign from hip/knee)
+ * @property {number} armL       left shoulder pivot, radians (- swings the arm forward,
+ *                                same hanging-limb convention as hip)
  * @property {number} armR       right shoulder pivot, radians
- * @property {number} headTilt   head pivot, radians
+ * @property {number} headTilt   head pivot, radians (+ nods the head down, same
+ *                                center-pivot convention as torsoLean)
  */
 
 /** @type {Record<string, StaffPose>} */
@@ -655,20 +663,24 @@ export const POSES = {
   stand: { hip: 0, knee: 0, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
   // Swing composes on top of this in the walk driver — see note above.
   walk: { hip: 0, knee: 0, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
-  // Thigh horizontal, shin vertical: hip forward ~90°, knee back ~90°
-  // relative to the thigh so the two rotations cancel and the shin hangs
-  // straight down again, same as standing.
-  sit: { hip: Math.PI / 2, knee: -Math.PI / 2, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
+  // Thigh horizontal (forward, +Z), shin vertical: hip -90° swings the thigh
+  // forward from the hip; knee +90°, applied in the thigh's now-rotated local
+  // frame, exactly cancels that rotation (-90 + 90 = 0) so the shin's net
+  // absolute rotation is 0 and it hangs straight down again, same as standing.
+  sit: { hip: -Math.PI / 2, knee: Math.PI / 2, torsoLean: 0, armL: 0, armR: 0, headTilt: 0 },
   // Seated at a console: same leg fold as sit, leaning in toward the desk
   // with both hands forward on a keyboard/panel.
   deskWork: {
-    hip: Math.PI / 2, knee: -Math.PI / 2,
+    hip: -Math.PI / 2, knee: Math.PI / 2,
     torsoLean: 0.25, armL: -0.9, armR: -0.9, headTilt: 0.2,
   },
-  // Standing at a bench, bent over close work: legs planted, torso and head
-  // pitched down, arms in front working with both hands.
+  // Standing at a bench, bent over close work: legs planted (hip 0), knees
+  // flexed a touch (+ swings the shin back under a bent knee — correct
+  // human flexion, and already the intended sign since hip is 0 here), torso
+  // and head pitched down, arms in front working with both hands.
   benchWork: { hip: 0, knee: 0.12, torsoLean: 0.5, armL: -1.05, armR: -1.05, headTilt: 0.35 },
-  // Carrying a load in both arms, held out and slightly up in front.
+  // Carrying a load in both arms: a slight forward crouch (- hip = forward,
+  // knee flexed to match), held out and slightly up in front.
   carry: { hip: -0.08, knee: 0.18, torsoLean: 0.12, armL: -1.3, armR: -1.3, headTilt: 0 },
   // Leaning into a cart or panel with both hands, weight forward.
   push: { hip: 0, knee: 0, torsoLean: 0.45, armL: -0.6, armR: -0.6, headTilt: 0 },

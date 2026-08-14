@@ -458,12 +458,15 @@ test('applyPose eases hip and knee toward sit, then back toward stand', () => {
   const fig = buildStaffFigure(look(), STAFF_STYLES.osrsClassic);
 
   applyPose(fig, 'sit', 1);
-  assert.ok(Math.abs(fig.leftLeg.rotation.x - Math.PI / 2) < 0.01,
-    `hip should ease to ~+pi/2 sitting, got ${fig.leftLeg.rotation.x}`);
-  assert.ok(Math.abs(fig.rightLeg.rotation.x - Math.PI / 2) < 0.01);
-  assert.ok(Math.abs(fig.leftShin.rotation.x - (-Math.PI / 2)) < 0.01,
-    `knee should ease to ~-pi/2 sitting, got ${fig.leftShin.rotation.x}`);
-  assert.ok(Math.abs(fig.rightShin.rotation.x - (-Math.PI / 2)) < 0.01);
+  // hip -pi/2, knee +pi/2: rotation.x = -pi/2 sends the hip-to-knee offset to
+  // z = +sin(pi/2) (forward, since front is +Z — see the forward-kinematics
+  // test below for the worked-out math and why the signs are this way round).
+  assert.ok(Math.abs(fig.leftLeg.rotation.x - (-Math.PI / 2)) < 0.01,
+    `hip should ease to ~-pi/2 sitting, got ${fig.leftLeg.rotation.x}`);
+  assert.ok(Math.abs(fig.rightLeg.rotation.x - (-Math.PI / 2)) < 0.01);
+  assert.ok(Math.abs(fig.leftShin.rotation.x - (Math.PI / 2)) < 0.01,
+    `knee should ease to ~+pi/2 sitting, got ${fig.leftShin.rotation.x}`);
+  assert.ok(Math.abs(fig.rightShin.rotation.x - (Math.PI / 2)) < 0.01);
 
   applyPose(fig, 'stand', 1);
   assert.ok(Math.abs(fig.leftLeg.rotation.x) < 0.01,
@@ -474,6 +477,45 @@ test('applyPose eases hip and knee toward sit, then back toward stand', () => {
 
 test('walk and stand share identical (zero) targets, so a swing overlay never fights sit', () => {
   assert.deepEqual(POSES.walk, POSES.stand);
+});
+
+// Forward kinematics, worked out by hand — no THREE involved. This is the
+// only way the headless suite can catch a joint-direction sign error: the
+// THREE stub at the top of this file records geometry dimensions, not
+// transforms, so a rotation.x with the wrong sign is invisible to every test
+// above. This test caught a real bug: an earlier version of POSES.sit used
+// hip: +PI/2, knee: -PI/2, which (verified against real three@0.160, not
+// this stub) folds the legs to z = -0.5 — BEHIND the pawn, since front is
+// +Z — instead of in front of it.
+function rotateAboutX(v, theta) {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return { x: v.x, y: v.y * c - v.z * s, z: v.y * s + v.z * c };
+}
+
+/**
+ * Hip-relative knee/foot offsets for a pose, replicating exactly what the
+ * THREE scene graph computes: the thigh is a rest vector straight down
+ * (0,-len,0) rotated by the hip; the shin is a child of the thigh, so its
+ * rotation is the hip's PLUS its own (rotations about the same axis
+ * compose additively for a chain of parent/child Object3Ds).
+ */
+function legForwardKinematics(pose, thighLen = 1, shinLen = 1) {
+  const knee = rotateAboutX({ x: 0, y: -thighLen, z: 0 }, pose.hip);
+  const shin = rotateAboutX({ x: 0, y: -shinLen, z: 0 }, pose.hip + pose.knee);
+  const foot = { x: knee.x + shin.x, y: knee.y + shin.y, z: knee.z + shin.z };
+  return { knee, foot };
+}
+
+test('sit and deskWork fold the legs forward (+Z), not backward; stand stays put', () => {
+  for (const id of ['sit', 'deskWork']) {
+    const { knee, foot } = legForwardKinematics(POSES[id]);
+    assert.ok(knee.z > 0.1, `${id}: knee should project in front of the hip (+Z), got z=${knee.z}`);
+    assert.ok(foot.z > 0.1, `${id}: foot should project in front of the hip (+Z), got z=${foot.z}`);
+  }
+
+  const stand = legForwardKinematics(POSES.stand);
+  assert.ok(Math.abs(stand.knee.z) < 1e-9, `stand should keep the knee at z~0, got ${stand.knee.z}`);
+  assert.ok(Math.abs(stand.foot.z) < 1e-9, `stand should keep the foot at z~0, got ${stand.foot.z}`);
 });
 
 test('staffStyleHipHeight sits between the floor and the top of the figure', () => {
