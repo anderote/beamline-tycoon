@@ -45,6 +45,10 @@ import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { LightRig } from './light-rig.js';
 import { fixtureMountY } from './fixture-light-math.js';
+import {
+  MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
+} from './lighting-quality.js';
+import { ShadowScheduler } from './shadow-scheduler.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -521,8 +525,8 @@ export class ThreeRenderer {
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
     this._sunLight.position.set(-30, 40, -30);
     this._sunLight.castShadow = true;
-    this._sunLight.shadow.mapSize.width = 4096;
-    this._sunLight.shadow.mapSize.height = 4096;
+    this._sunLight.shadow.autoUpdate = false;
+    this._sunLight.shadow.needsUpdate = false;
     this._sunLight.shadow.bias = -0.0005;
     this._sunLight.shadow.normalBias = 0.01;
     this._sunLight.shadow.camera.near = 0.5;
@@ -560,6 +564,19 @@ export class ThreeRenderer {
     // :463 ran *before* this and guards its pipeline call for that reason.
     let glowStored;
     try { glowStored = localStorage.getItem('beamlineTycoon.glow'); } catch (_) { glowStored = null; }
+    let qualityStored;
+    try { qualityStored = localStorage.getItem('beamlineTycoon.lightingQuality'); } catch (_) { qualityStored = null; }
+    this._lightingQualityRequested = normalizeLightingQuality(qualityStored);
+    this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
+      hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
+      deviceMemory: globalThis.navigator?.deviceMemory,
+      maxTextureSize: this.renderer.capabilities.maxTextureSize,
+    });
+    this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
+    this._sunShadowScheduler = new ShadowScheduler(1, {
+      hz: this._lightingQuality.sunShadowHz,
+      maxUpdatesPerFrame: 1,
+    });
     // GlowPipeline reads the renderer's current size in its own constructor
     // (already correct — _setSize() ran above at :463, before this point),
     // so no separate setSize() call is needed here.
@@ -575,9 +592,11 @@ export class ThreeRenderer {
     // rewrite.
     this._lightRig = new LightRig(this.scene, {
       enabled: glowStored !== '0',
-      shadowSpotCount: 4,
+      shadowSpotCount: MAX_FIXTURE_SHADOWS,
+      activeShadowSpotCount: this._lightingQuality.fixtureShadowCount,
       pointCount: 8,
-      shadowMapSize: 1024,
+      shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
+      shadowHz: this._lightingQuality.fixtureShadowHz,
     });
     this._lightFocus = new THREE.Vector3();
 
@@ -697,6 +716,7 @@ export class ThreeRenderer {
       // enumerate exactly which events could add/remove one; the actual
       // scene traversal is deferred to the rig's next update() call.
       if (this._lightRig) this._lightRig.markDirty();
+      if (this._sunShadowScheduler) this._sunShadowScheduler.markAllDirty();
       switch (event) {
         case 'beamlineChanged':
           this.refresh(); // full 3D rebuild
@@ -1462,6 +1482,50 @@ export class ThreeRenderer {
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
+  }
+
+  setLightingQuality(value) {
+    this._lightingQualityRequested = normalizeLightingQuality(value);
+    this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
+      hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
+      deviceMemory: globalThis.navigator?.deviceMemory,
+      maxTextureSize: this.renderer?.capabilities?.maxTextureSize,
+    });
+    if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
+    if (this._sunShadowScheduler) {
+      this._sunShadowScheduler.configure({ hz: this._lightingQuality.sunShadowHz, maxUpdatesPerFrame: 1 });
+      this._sunShadowScheduler.markAllDirty();
+    }
+    if (this._sunLight) {
+      this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
+    }
+    if (this._glowPipeline?.setQuality) this._glowPipeline.setQuality(this._lightingQuality);
+    return this._lightingQuality.name;
+  }
+
+  get lightingQuality() {
+    return this._lightingQualityRequested || 'auto';
+  }
+
+  getLightingStats() {
+    return {
+      quality: this._lightingQuality?.name || 'unknown',
+      requestedQuality: this.lightingQuality,
+      sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
+      ...(this._lightRig?.getStats() || {}),
+    };
+  }
+
+  _setShadowMapSize(shadow, mapSize) {
+    if (!shadow) return;
+    const size = Math.max(128, Math.floor(mapSize || 1024));
+    if (shadow.mapSize.width === size && shadow.mapSize.height === size) return;
+    shadow.mapSize.set ? shadow.mapSize.set(size, size) : Object.assign(shadow.mapSize, { width: size, height: size });
+    if (shadow.map) {
+      shadow.map.dispose();
+      shadow.map = null;
+    }
+    shadow.needsUpdate = true;
   }
 
   /**
@@ -3275,7 +3339,7 @@ export class ThreeRenderer {
     this._sunLight.updateMatrixWorld();
     const shadowCam = this._sunLight.shadow.camera;
     shadowCam.updateMatrixWorld();
-    const texelsPerUnit = 4096 / (shadowCam.right - shadowCam.left);
+    const texelsPerUnit = this._sunLight.shadow.mapSize.width / (shadowCam.right - shadowCam.left);
     const shadowMatrix = shadowCam.matrixWorldInverse;
     // Project target into light space, snap, project back
     const targetPos = this._sunLight.target.position.clone().applyMatrix4(shadowMatrix);
@@ -3309,6 +3373,15 @@ export class ThreeRenderer {
 
     this._sunLight.intensity = grade.sunIntensity;
     this._sunLight.color.setRGB(...grade.sunColor);
+
+    this._sunLight.shadow.needsUpdate = false;
+    const sunUpdates = this._sunShadowScheduler?.step({
+      activeCount: 1,
+      enabled: this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
+      dtMs: dt * 1000,
+      assignmentKeys: ['sun'],
+    }) || [];
+    if (sunUpdates.length) this._sunLight.shadow.needsUpdate = true;
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);

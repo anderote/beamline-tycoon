@@ -42,6 +42,7 @@
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
 import { fixtureLightTag } from './lighting-builder.js';
 import { fixtureLightProjection } from './fixture-light-math.js';
+import { ShadowScheduler } from './shadow-scheduler.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -121,8 +122,13 @@ export class LightRig {
     this.scene = scene;
     this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
     this._shadowSpotCount = opts.shadowSpotCount ?? 4;
+    this._activeShadowSpotCount = Math.min(
+      this._shadowSpotCount,
+      Math.max(0, opts.activeShadowSpotCount ?? this._shadowSpotCount),
+    );
     this._pointCount = opts.pointCount ?? 8;
     this._shadowMapSize = opts.shadowMapSize ?? 1024;
+    this._shadowHz = Math.max(0, opts.shadowHz ?? 15);
     this._flashReserve = Math.max(0, Math.min(opts.flashReserve ?? 2, this._pointCount));
 
     // Internal clock, advanced by the dt passed to update() — not
@@ -139,6 +145,8 @@ export class LightRig {
         FIXTURE_SPOT_ANGLE, FIXTURE_SPOT_PENUMBRA, FIXTURE_SPOT_DECAY,
       );
       light.castShadow = true;
+      light.shadow.autoUpdate = false;
+      light.shadow.needsUpdate = false;
       light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
       light.shadow.camera.near = 0.2;
       // shadow.camera.far is DELIBERATELY not set here (and must not be set in
@@ -213,6 +221,12 @@ export class LightRig {
     this._viewSphere = typeof THREE.Sphere === 'function'
       ? new THREE.Sphere(new THREE.Vector3(), 1)
       : null;
+    this._shadowScheduler = new ShadowScheduler(this._shadowSpotCount, {
+      hz: this._shadowHz,
+      maxUpdatesPerFrame: 1,
+    });
+    this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
+    this._shadowUpdatesLastFrame = 0;
   }
 
   get enabled() {
@@ -224,6 +238,43 @@ export class LightRig {
    * deferred to the next update() call, not run here. */
   markDirty() {
     this._candidatesDirty = true;
+    this._shadowScheduler.markAllDirty();
+  }
+
+  /** Apply a quality budget without adding/removing lights. */
+  setQuality(quality = {}) {
+    const active = Math.max(0, Math.min(
+      this._shadowSpotCount,
+      Math.floor(quality.fixtureShadowCount ?? this._activeShadowSpotCount),
+    ));
+    const mapSize = Math.max(128, Math.floor(quality.fixtureShadowMapSize ?? this._shadowMapSize));
+    this._activeShadowSpotCount = active;
+    this._shadowHz = Math.max(0, Number(quality.fixtureShadowHz ?? this._shadowHz));
+    this._shadowScheduler.configure({ hz: this._shadowHz, maxUpdatesPerFrame: 1 });
+    if (mapSize !== this._shadowMapSize) {
+      this._shadowMapSize = mapSize;
+      for (const slot of this._spotSlots) {
+        slot.light.shadow.mapSize.set(mapSize, mapSize);
+        if (slot.light.shadow.map) {
+          slot.light.shadow.map.dispose();
+          slot.light.shadow.map = null;
+        }
+      }
+    }
+    for (let i = active; i < this._spotSlots.length; i++) this._parkSpot(i);
+    this._shadowScheduler.markAllDirty();
+  }
+
+  getStats() {
+    return {
+      allocatedFixtureShadows: this._shadowSpotCount,
+      activeFixtureShadows: this._activeShadowSpotCount,
+      assignedFixtureShadows: this._spotSlots.slice(0, this._activeShadowSpotCount)
+        .filter((slot) => slot.assignedRef && slot.light.intensity > 0).length,
+      shadowUpdatesLastFrame: this._shadowUpdatesLastFrame,
+      fixtureShadowMapSize: this._shadowMapSize,
+      fixtureShadowHz: this._shadowHz,
+    };
   }
 
   /** Supply the canonical [{id, def, group}] fixture registry. */
@@ -239,7 +290,8 @@ export class LightRig {
       // Options toggle should kill every light (and any flash in flight) on
       // the frame it's clicked, not fade out over the next tick.
       for (const s of this._spotSlots) {
-        s.light.intensity = 0; s.assignedRef = null; s.weight = 0; s.releasing = false;
+        s.light.intensity = 0; s.light.shadow.needsUpdate = false;
+        s.assignedRef = null; s.weight = 0; s.releasing = false;
       }
       for (const p of this._pointSlots) {
         p.light.intensity = 0; p.assignedRef = null; p.flash = null;
@@ -284,7 +336,10 @@ export class LightRig {
       // Flashes were already cleared by setEnabled(false); nothing to do
       // here except keep the ambient pool at zero every frame the toggle is
       // off (a newly-placed lamppost mustn't light itself up mid-toggle).
-      for (const s of this._spotSlots) s.light.intensity = 0;
+      for (const s of this._spotSlots) {
+        s.light.intensity = 0;
+        s.light.shadow.needsUpdate = false;
+      }
       for (const p of this._pointSlots) if (!p.flash) p.light.intensity = 0;
       this._fixtureSuppression.clear();
       return;
@@ -301,6 +356,7 @@ export class LightRig {
     this._prepareViewFrustum(camera);
     const nf = Number.isFinite(nightFactor) ? Math.max(0, Math.min(1, nightFactor)) : 0;
     this._assignSpots(focus, nf, dtMs);
+    this._scheduleShadows(nf, dtMs);
     this._assignPoints(focus, nf);
   }
 
@@ -421,7 +477,8 @@ export class LightRig {
    *      the SAME weight, so the two systems stay complementary.
    */
   _assignSpots(camPos, nightFactor, dtMs) {
-    const n = this._spotSlots.length;
+    const n = this._activeShadowSpotCount;
+    for (let i = n; i < this._spotSlots.length; i++) this._parkSpot(i);
 
     // --- 1. rank ---------------------------------------------------------
     const ranked = this._rankCandidates(
@@ -447,7 +504,8 @@ export class LightRig {
     // `present` is exactly "gone".
     const present = new Set(this._fixtureCandidates);
     const held = new Set();
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (!slot.assignedRef) continue;
       if (slot.releasing && slot.weight <= 0) {
         // The fade finished on a previous frame; only now is the slot free.
@@ -471,7 +529,8 @@ export class LightRig {
 
     // --- 3. fill free slots ----------------------------------------------
     let next = 0;
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (slot.assignedRef) continue;
       while (next < ranked.length && held.has(ranked[next].obj)) next++;
       if (next >= ranked.length || !pool.has(ranked[next].obj)) break;
@@ -485,7 +544,8 @@ export class LightRig {
     // --- 4. crossfade + publish ------------------------------------------
     this._fixtureSuppression.clear();
     const step = SPOT_CROSSFADE_MS > 0 ? dtMs / SPOT_CROSSFADE_MS : 1;
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (!slot.assignedRef) {
         slot.weight = 0;
         slot.light.intensity = 0;
@@ -515,6 +575,36 @@ export class LightRig {
         this._fixtureSuppression.set(tag.id, Math.max(prev, slot.weight));
       }
     }
+  }
+
+  _parkSpot(index) {
+    const slot = this._spotSlots[index];
+    if (!slot) return;
+    slot.light.intensity = 0;
+    slot.light.shadow.needsUpdate = false;
+    slot.assignedRef = null;
+    slot.weight = 0;
+    slot.releasing = false;
+    this._shadowAssignmentKeys[index] = null;
+  }
+
+  _scheduleShadows(nightFactor, dtMs) {
+    for (let i = 0; i < this._spotSlots.length; i++) {
+      const slot = this._spotSlots[i];
+      slot.light.shadow.needsUpdate = false;
+      this._shadowAssignmentKeys[i] = i < this._activeShadowSpotCount
+        && slot.assignedRef && slot.light.intensity > 0
+        ? (slot.assignedRef.id ?? slot.assignedRef.userData?.lightFixture?.id ?? slot.assignedRef.uuid ?? i)
+        : null;
+    }
+    const updates = this._shadowScheduler.step({
+      activeCount: this._activeShadowSpotCount,
+      enabled: this._enabled && nightFactor > 0.01,
+      dtMs,
+      assignmentKeys: this._shadowAssignmentKeys,
+    });
+    for (const index of updates) this._spotSlots[index].light.shadow.needsUpdate = true;
+    this._shadowUpdatesLastFrame = updates.length;
   }
 
   /**

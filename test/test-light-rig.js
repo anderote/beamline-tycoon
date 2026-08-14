@@ -224,6 +224,36 @@ test('LightRig allocates its full pool at construction; light count never change
   assert.equal(scene.removeCalls, 16, 'dispose() is the ONLY place that removes lights, and it removes exactly what construction added');
 });
 
+test('quality changes park fixed slots and shadow refreshes obey the one-map frame budget', () => {
+  const scene = new SceneStub();
+  for (let i = 0; i < 6; i++) placeFixture(scene, `Q${i}`, DEF.lamppost, i, 0);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 6, activeShadowSpotCount: 4, pointCount: 1, shadowHz: 30,
+  });
+  const additions = scene.addCalls;
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 1);
+  assert.equal(rig._spotSlots.filter((s) => s.light.shadow.needsUpdate).length, 1,
+    'new assignments refresh at most one fixture shadow map per frame');
+  assert.equal(rig.getStats().activeFixtureShadows, 4);
+
+  rig.setQuality({ fixtureShadowCount: 2, fixtureShadowMapSize: 512, fixtureShadowHz: 10 });
+  rig.update(camera, 1, 0.016);
+  assert.equal(scene.addCalls, additions, 'changing quality never changes scene light topology');
+  assert.equal(rig._spotSlots.slice(2).every((s) => s.light.intensity === 0 && s.assignedRef === null), true,
+    'slots above the preset budget are fully parked');
+  assert.equal(rig._spotSlots.every((s) => s.light.shadow.mapSize.width === 512), true,
+    'the preset shadow-map resolution is applied to every pooled slot');
+
+  rig.setQuality({ fixtureShadowCount: 0, fixtureShadowHz: 0 });
+  rig.update(camera, 1, 1);
+  assert.equal(rig._spotSlots.some((s) => s.light.shadow.needsUpdate), false,
+    'low quality performs no local shadow refreshes');
+  assert.equal(rig.getFixtureSuppression().size, 0,
+    'painted pools return when all real fixture slots are parked');
+});
+
 // --- flash(): reuse, never allocate; steal the dimmest when saturated -----
 
 test('flash reuses idle point-light slots and steals the dimmest one when every slot is busy', () => {
