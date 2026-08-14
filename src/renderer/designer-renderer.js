@@ -223,11 +223,19 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     const compBot = beamY + schematicH / 2;
     const arrowH = Math.max(6, 8 * effectiveZoom);
     const arrowHW = Math.max(4, 6 * effectiveZoom); // half-width
+    // Base zoom fits about five components to the full canvas, so on any real
+    // beamline most suggestions land outside the visible span. Count the ones
+    // that fall off each edge and point at them.
+    let offLeft = 0;
+    let offRight = 0;
 
     for (const ghost of this.ghostQuads) {
       // Same s -> pixel map as the marker, so the arrow (and the click region
       // built from it below) sits at the s the advisor actually proposed.
       const ghostXPos = 20 + panOffsetPx + this._sToPixelOffset(ghost.s, effectiveZoom);
+
+      if (ghostXPos < 0) { offLeft++; continue; }
+      if (ghostXPos > W) { offRight++; continue; }
 
       // Focus X (polarity 1) = red, Focus Y (polarity -1) = blue
       const isX = ghost.polarity === 1;
@@ -278,6 +286,9 @@ BeamlineDesigner.prototype._renderSchematic = function() {
         ghost,
       });
     }
+
+    if (offLeft > 0) _drawOffscreenGhostChevron(ctx, 10, beamY, -1, offLeft);
+    if (offRight > 0) _drawOffscreenGhostChevron(ctx, W - 10, beamY, 1, offRight);
   }
 
   // Draw marker line at markerS position (in physical meters).
@@ -323,6 +334,26 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   ctx.restore();
 };
+
+/** Edge marker for advisor suggestions that lie outside the visible span:
+ *  a chevron pointing the way to scroll, with how many are that way. */
+function _drawOffscreenGhostChevron(ctx, x, y, dir, count) {
+  const h = 7;
+  const w = 6;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 170, 34, 0.85)';
+  ctx.beginPath();
+  ctx.moveTo(x + dir * w, y - h);
+  ctx.lineTo(x + dir * w, y + h);
+  ctx.lineTo(x - dir * w, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = dir < 0 ? 'left' : 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(count), x + dir * (w + 4), y);
+  ctx.restore();
+}
 
 // --- Lab background rendering (simple procedural walls + concrete) ---
 
