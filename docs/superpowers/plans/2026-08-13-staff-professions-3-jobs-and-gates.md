@@ -63,7 +63,7 @@ silent facility is unshippable.
     `professions` is the array of profession ids eligible. `workTicks` is `null`
     for open-ended jobs (`runBeam` is held indefinitely) or an integer for
     finite ones (`repair`, `commission`, `analyze`).
-  - `buildJobOffers(game)` → array of
+  - `buildJobOffers(game)` → `{ offers, suppressions }`. `offers` is an array of
     `{ jobType, target, specialty, priority, stationKey }`, sorted by
     descending priority.
   - `target` is `null` for station-only jobs. For `repair` and `commission` it
@@ -73,17 +73,28 @@ silent facility is unshippable.
     cannot address a repair target. Resolve a target through
     `game.registry.getAll()` to find the entry, then index its `beamState`. A
     target whose beamline no longer exists is a stale job: abandon it.
-  - `eligibleFor(member, offer)` → `{ ok, reason }` — never a bare boolean, so
+  - `eligibleFor(member, offer, game)` → `{ ok, reason }` — never a bare boolean, so
     the rejection reason survives to the UI.
 
 Priority ordering, highest first: `eat` and `rest` (need-driven, injected by
 Task 2 rather than the board), then `repair`, `runBeam`, `commission`,
 `fabricate`, `takeData`, `labWork`, `analyze`, `paperwork`, `meet`.
 
+**`eat` is 1000 and `rest` is 950.** The spec's "needs outrank all work" must
+hold *numerically and unconditionally*, not because no work term happens to grow
+large enough. `repair`'s urgency scales with how damaged a component is, and
+component health decays continuously, so a sub-80% component is the steady state
+— with a smaller gap, repair overtakes `eat` and, being `interruptible: false`,
+strands a hungry technician. That is the hunger-deadlock scar arriving through
+the priority table instead of the needs loop.
+
 Offer generation, per job type:
-- `runBeam` — one offer per free `runBeam` station slot, but no more than the
-  number of beamlines that currently exist. A console with no beamline to run is
-  not work.
+- `runBeam` — one offer per free `runBeam` station slot. Do NOT cap by the
+  number of beamlines that currently exist: capping in station-index order
+  discards the console nearest the operator, and the spec's "tie-broken by path
+  length" cannot recover what the board already threw away. **Task 2 enforces
+  the global "no more operators on beam than there are beamlines" cap at
+  assignment time**, where it knows which operator is choosing.
 - `repair` — one offer per beamline node whose `componentHealth < 100`, priority
   scaled by how low the health is. Rejected before offering when the node is
   unreachable or `resources.spares <= 0`, each with its own reason.
@@ -161,6 +172,27 @@ git commit -m "feat(staff): job board and offer generation" -- src/game/staff/jo
     `phase: 'travel'`. Members left without a job get an `idleReason` from the
     best rejection they collected, or a generic "nothing to do" when the board
     was empty.
+
+    **Enforce the `runBeam` cap here, not on the board.** At most
+    `beamlineCount` staff may hold a `runBeam` job at once; count existing
+    holders before assigning another. The board deliberately offers every free
+    console so the assigner can pick the one nearest each operator — capping in
+    the board's index order would discard the near console before anyone could
+    choose it. Surplus operators get an `idleReason` naming the shortage of
+    beamlines, not of consoles.
+
+    **Enforce a `repair` cap the same way.** The board gates repair on spares
+    *globally, once per scan* — if `spares > 0` it emits an offer for every
+    damaged component. With 1 spare and 10 damaged components that is 10 offers,
+    and without a cap you assign 10 technicians to work only 1 spare can pay
+    for. At most `state.resources.spares` staff may hold a `repair` job at once.
+    Surplus technicians get an `idleReason` naming the shortage of **spares**
+    ("a machinist can make more") — the distinction from "no work" is what tells
+    the player to build a machine shop.
+
+    Note the reservation-count trick does not work for `repair` or `commission`:
+    both are target-addressed and hold no station reservation, so count them from
+    `member.job.jobType`.
   - `tickJobs(game)` — advance every member's job by one tick: travel progress is
     driven by the renderer, so the sim only checks arrival; work progress
     increments `job.progress` by `member.efficiency(zoneTier, job.specialty)`,
