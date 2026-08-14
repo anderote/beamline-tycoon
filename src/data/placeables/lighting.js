@@ -83,12 +83,13 @@ const RAW_LIGHTING_DEFS = [
     id: 'floodLight', name: 'Flood Light', cost: { funding: 12 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'spot_light',
     blocksBuild: false, kind: 'decoration', mount: 'ground',
-    subW: 1, subL: 1, subH: 1,
+    subW: 1, subL: 1, subH: 3,
     desc: 'Directional flood for facades and dramatic beamline reveals.',
     energyCost: 0.75,
     light: {
       color: '#f5f8ff', intensity: 1.8, radius: 9, shape: 'cone',
-      coneDeg: 45, tiltDeg: 35, emitterY: 0.4,
+      coneDeg: 30, beamAngleDeg: 30, tiltDeg: 73, emitterY: 1.2,
+      targetDistance: 4, maxGroundRange: 18, penumbra: 0.4,
     },
   },
 

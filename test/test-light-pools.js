@@ -14,9 +14,6 @@ import {
   poolFootprint,
   fixtureLightTag,
   aimYaw,
-  POOL_RADIUS_SCALE,
-  CONE_ELONGATION,
-  CONE_OFFSET_FRAC,
   EMITTER_BASE_INTENSITY,
   EMITTER_MAX_INTENSITY,
   POOL_MAX_OPACITY,
@@ -25,6 +22,7 @@ import {
   poolOpacityForDarkness,
   haloOpacityForDarkness,
 } from '../src/renderer3d/lighting-builder.js';
+import { fixtureLightProjection, fixtureFloorY, fixtureMountY } from '../src/renderer3d/fixture-light-math.js';
 import { LIGHTING_DEFS } from '../src/data/placeables/lighting.js';
 
 const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
@@ -44,7 +42,7 @@ console.log('\n=== point fixture: a circle, centred on the fixture ===\n');
   const f = poolFootprint(POINT_LIGHT, 0);
   assert(f.rx === f.rz, `rx === rz for a point light (got rx=${f.rx}, rz=${f.rz})`);
   assert(f.offsetX === 0 && f.offsetZ === 0, `zero offset for a point light (got ${f.offsetX}, ${f.offsetZ})`);
-  assert(f.rx === POINT_LIGHT.radius * POOL_RADIUS_SCALE, `rx derives from radius * POOL_RADIUS_SCALE (got ${f.rx})`);
+  assert(f.rx === POINT_LIGHT.radius, `rx derives from the authored pool radius (got ${f.rx})`);
 
   // dir must not matter at all for a point light — it has no aim.
   const dirs = [0, 1, 2, 3].map((d) => poolFootprint(POINT_LIGHT, d));
@@ -59,17 +57,15 @@ console.log('\n=== cone fixture: an ellipse elongated along its aim, pushed forw
   assert(f.rx !== f.rz, `rx !== rz for a cone light (got rx=${f.rx}, rz=${f.rz})`);
   assert(f.offsetX !== 0 || f.offsetZ !== 0, `non-zero offset for a cone light (got ${f.offsetX}, ${f.offsetZ})`);
 
-  const along = CONE_LIGHT.radius * POOL_RADIUS_SCALE * CONE_ELONGATION;
-  const across = CONE_LIGHT.radius * POOL_RADIUS_SCALE;
-  assert(Math.max(f.rx, f.rz) === along, `the long axis equals radius * POOL_RADIUS_SCALE * CONE_ELONGATION (got ${Math.max(f.rx, f.rz)}, want ${along})`);
-  assert(Math.min(f.rx, f.rz) === across, `the short axis equals plain radius * POOL_RADIUS_SCALE (got ${Math.min(f.rx, f.rz)}, want ${across})`);
+  assert(Number.isFinite(f.rx) && Number.isFinite(f.rz), 'the projected footprint is finite');
+  assert(Math.max(f.rx, f.rz) <= CONE_LIGHT.radius * 2.2 + 1e-9,
+    'a near-horizontal cone is bounded by its authored maximum ground range');
 
   // dir=0 aims along local +x per lighting-builder.js's authoring convention
   // — the ellipse should be pushed out along +x, not +z.
   assert(f.offsetX > 0 && f.offsetZ === 0, `dir=0 pushes the centre along +x, not z (got offsetX=${f.offsetX}, offsetZ=${f.offsetZ})`);
   assert(f.rx > f.rz, 'dir=0: the long axis is rx (aim is along x)');
-  const expectedOffset = CONE_LIGHT.radius * POOL_RADIUS_SCALE * CONE_OFFSET_FRAC;
-  assert(f.offsetX === expectedOffset, `offset magnitude is radius * POOL_RADIUS_SCALE * CONE_OFFSET_FRAC (got ${f.offsetX}, want ${expectedOffset})`);
+  assert(f.offsetX > 0, 'the footprint center is derived from the cone/ground intersection in front of the emitter');
 }
 
 // ---------------------------------------------------------------------------
@@ -119,14 +115,38 @@ console.log('\n=== radius scales the footprint linearly ===\n');
 
   const baseCone = poolFootprint(CONE_LIGHT, 1);
   const doubledCone = poolFootprint({ ...CONE_LIGHT, radius: CONE_LIGHT.radius * 3 }, 1);
-  assert(Math.abs(doubledCone.rx - baseCone.rx * 3) < 1e-9, 'tripling radius triples rx for a cone light');
-  assert(Math.abs(doubledCone.rz - baseCone.rz * 3) < 1e-9, 'tripling radius triples rz for a cone light');
-  assert(Math.abs(doubledCone.offsetZ - baseCone.offsetZ * 3) < 1e-9, 'tripling radius triples the offset for a cone light');
+  assert(doubledCone.rx > baseCone.rx, 'a larger aimed light produces a wider projected footprint');
+  assert(doubledCone.rz > baseCone.rz, 'a larger aimed light produces a longer projected footprint');
+  assert(Math.abs(doubledCone.offsetZ) > Math.abs(baseCone.offsetZ), 'a larger aimed light reaches farther forward');
 
   // A zero radius must not produce a degenerate-but-nonzero footprint.
   const zero = poolFootprint({ ...CONE_LIGHT, radius: 0 }, 0);
   assert(zero.rx === 0 && zero.rz === 0 && zero.offsetX === 0 && zero.offsetZ === 0,
     'radius=0 collapses the footprint to nothing');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== one projection drives mount, pool, cone, and attenuation ===\n');
+{
+  for (const def of LIGHTING_DEFS) {
+    const floorY = 2.25;
+    const originY = fixtureMountY(def, floorY);
+    assert(Math.abs(fixtureFloorY(def, originY) - floorY) < 1e-9,
+      `${def.id}: mount and floor transforms are exact inverses`);
+    for (let dir = 0; dir < 4; dir++) {
+      const p = fixtureLightProjection(def, {
+        origin: { x: 10, y: originY, z: 20 },
+        yaw: aimYaw(dir),
+      });
+      assert(Number.isFinite(p.distance) && p.distance > 0, `${def.id}/dir${dir}: finite positive throw`);
+      assert(Number.isFinite(p.halfAngle) && p.halfAngle > 0 && p.halfAngle < Math.PI / 2,
+        `${def.id}/dir${dir}: valid spotlight half-angle`);
+      assert(Math.abs(p.emitter.y - (floorY + def.light.emitterY)) < 1e-9,
+        `${def.id}/dir${dir}: emitter height is measured from the floor for every mount`);
+      assert(p.groundFootprint.rx > 0 && p.groundFootprint.rz > 0,
+        `${def.id}/dir${dir}: painted footprint comes from the same projection packet`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

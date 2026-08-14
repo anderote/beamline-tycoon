@@ -99,7 +99,7 @@ globalThis.document = {
   },
 };
 
-const { buildLightPools, applyPoolSuppression } =
+const { buildLightPools, applyPoolSuppression, REAL_LIGHT_POOL_REMAINDER } =
   await import('../src/renderer3d/lighting-builder.js');
 
 // --- fixture helpers --------------------------------------------------------
@@ -122,6 +122,10 @@ function alphaOf(mesh, q) { return mesh.geometry.attributes.color.array[q * 16 +
 function quadAlphas(mesh, q) {
   const a = mesh.geometry.attributes.color.array;
   return [0, 1, 2, 3].map((v) => a[(q * 4 + v) * 4 + 3]);
+}
+function expectedAlpha(weight) {
+  const w = Number.isFinite(weight) ? Math.max(0, Math.min(1, weight)) : 0;
+  return Math.fround(1 - w * (1 - REAL_LIGHT_POOL_REMAINDER));
 }
 
 // ---------------------------------------------------------------------------
@@ -175,8 +179,8 @@ console.log('\n=== suppressing one fixture touches only that fixture\'s quad ===
   const rgbBefore = [...mesh.geometry.attributes.color.array].filter((_, i) => i % 4 !== 3);
 
   applyPoolSuppression(mesh, new Map([['C', 0.25]]));
-  assert(alphaOf(mesh, 1) === 0.75, `the addressed quad's alpha is 1 - weight (got ${alphaOf(mesh, 1)})`);
-  assert(quadAlphas(mesh, 1).every((a) => a === 0.75), 'all FOUR of the quad\'s vertices move together, not just the first');
+  assert(alphaOf(mesh, 1) === expectedAlpha(0.25), `the addressed quad keeps calibrated indirect spill (got ${alphaOf(mesh, 1)})`);
+  assert(quadAlphas(mesh, 1).every((a) => a === expectedAlpha(0.25)), 'all FOUR of the quad\'s vertices move together, not just the first');
   assert(alphaOf(mesh, 0) === 1 && alphaOf(mesh, 2) === 1,
     'neighbouring quads are untouched — this is the whole point of the id-keyed map');
 
@@ -207,19 +211,19 @@ console.log('\n=== change detection: a no-op re-apply uploads nothing ===\n');
   applyPoolSuppression(mesh, new Map([['A', 0.6]]));
   assert(attr.needsUpdate === false,
     'the identical weight re-applied does NOT re-flag the buffer — a static night with four steady spots costs zero uploads per frame');
-  assert(alphaOf(mesh, 0) === Math.fround(1 - 0.6), 'and the value is still correct after the skipped write');
+  assert(alphaOf(mesh, 0) === expectedAlpha(0.6), 'and the value is still correct after the skipped write');
 
   // 0.4 is deliberately not exactly representable in float32. If the cache
   // compared against the Float32 buffer instead of its own Float64 copy, the
   // assertion above would fail every single frame.
-  assert(Math.fround(1 - 0.6) !== 1 - 0.6,
+  assert(expectedAlpha(0.6) !== 1 - 0.6 * (1 - REAL_LIGHT_POOL_REMAINDER),
     'sanity: the written alpha really does change under float32 rounding, which is what makes the Float64 cache load-bearing');
 
   attr.needsUpdate = false;
   applyPoolSuppression(mesh, new Map([['A', 0.6], ['B', 0.1]]));
   assert(attr.needsUpdate === true, 'a change to any single quad re-flags the whole attribute');
-  assert(alphaOf(mesh, 1) === Math.fround(0.9), `and B moves while A stays put (got B alpha ${alphaOf(mesh, 1)})`);
-  assert(alphaOf(mesh, 0) === Math.fround(1 - 0.6), 'A is unchanged');
+  assert(alphaOf(mesh, 1) === expectedAlpha(0.1), `and B moves while A stays put (got B alpha ${alphaOf(mesh, 1)})`);
+  assert(alphaOf(mesh, 0) === expectedAlpha(0.6), 'A is unchanged');
 }
 
 // ---------------------------------------------------------------------------
@@ -228,10 +232,10 @@ console.log('\n=== clamping and degenerate inputs ===\n');
   const mesh = buildLightPools([fixture('A', RED)]);
 
   applyPoolSuppression(mesh, new Map([['A', 1]]));
-  assert(alphaOf(mesh, 0) === 0, 'weight 1 fully hides the painted pool (the real spot has taken over completely)');
+  assert(alphaOf(mesh, 0) === expectedAlpha(1), 'weight 1 retains the calibrated low-frequency spill');
 
   applyPoolSuppression(mesh, new Map([['A', 4]]));
-  assert(alphaOf(mesh, 0) === 0, 'an out-of-range weight clamps at 0 alpha rather than going negative');
+  assert(alphaOf(mesh, 0) === expectedAlpha(1), 'an out-of-range weight clamps at the configured spill remainder');
 
   applyPoolSuppression(mesh, new Map([['A', -3]]));
   assert(alphaOf(mesh, 0) === 1, 'a negative weight clamps to no suppression, not alpha > 1');

@@ -44,6 +44,7 @@ import {
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { LightRig } from './light-rig.js';
+import { fixtureMountY } from './fixture-light-math.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -578,6 +579,7 @@ export class ThreeRenderer {
       pointCount: 8,
       shadowMapSize: 1024,
     });
+    this._lightFocus = new THREE.Vector3();
 
     // Scene groups
     this.terrainGroup = new THREE.Group();
@@ -2595,7 +2597,8 @@ export class ThreeRenderer {
     // made the ghost drop on click; showing the result is the WYSIWYG choice.
     // Stacked items ride placeY above that same zero.
     const surfaceY = 0;
-    const y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
+    let y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
+    if (placeable.light) y = fixtureMountY(placeable, placeYOffset + surfaceY);
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -3196,7 +3199,8 @@ export class ThreeRenderer {
     // fade to zero at midday (a lit lamppost at noon reads as a bug), where
     // glow materials floor at 0.35 so a console screen stays legible.
     if (this._lightRig) {
-      this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+      this._lightFocus.set(this._panX || 0, 0, this._panY || 0);
+      this._lightRig.update(this.camera, this._darkness ?? 0, _dt, this._lightFocus);
     }
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();

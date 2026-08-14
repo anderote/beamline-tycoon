@@ -176,6 +176,7 @@ globalThis.THREE = {
 
 const { LightRig } = await import('../src/renderer3d/light-rig.js');
 const { fixtureLightTag } = await import('../src/renderer3d/lighting-builder.js');
+const { fixtureLightProjection, aimYaw } = await import('../src/renderer3d/fixture-light-math.js');
 const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
 const DEF = Object.fromEntries(LIGHTING_DEFS.map((d) => [d.id, d]));
 const { buildFloorGlowStrip } = await import('../src/renderer3d/floor-glow.js');
@@ -359,6 +360,18 @@ test('a fixture at the rank boundary never strobes: no slot swap across 120 osci
   assert.equal(supp.get(otherId), undefined, 'the fixture WITHOUT a spot keeps its painted pool at full strength');
 });
 
+test('fixture allocation ranks around the viewed focus, not the offset isometric camera', () => {
+  const scene = new SceneStub();
+  const centered = placeFixture(scene, 'CENTER', DEF.lamppost, 0, 0);
+  placeFixture(scene, 'BEHIND_CAMERA', DEF.lamppost, 50, 50);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  const camera = { position: new V3(50, 40, 50) };
+
+  rig.update(camera, 1, 1, new V3(0, 0, 0));
+  assert.equal(rig._spotSlots[0].assignedRef, centered,
+    'the fixture at screen center wins even though another fixture is much closer to camera.position');
+});
+
 test('a decisive demotion does hand the spot over, once the minimum hold and the crossfade have both elapsed', () => {
   const scene = new SceneStub();
   const near = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
@@ -475,11 +488,14 @@ test('a spot is aimed, angled, throttled and tinted by the fixture def itself, n
 
   const spot = rig._spotSlots[0];
   const light = spot.light;
+  const expectedFlood = fixtureLightProjection(DEF.floodLight, {
+    origin: { x: 2, y: 0, z: 3 }, yaw: aimYaw(0),
+  });
   assert.equal(spot.weight, 1, 'a long frame clamps the crossfade at 1 rather than overshooting');
-  assert.equal(light.distance, DEF.floodLight.light.radius,
-    'throw comes from the def\'s pool radius, so the real cone reaches exactly as far as the painted pool it replaces');
-  assert.ok(Math.abs(light.angle - (DEF.floodLight.light.coneDeg / 2) * Math.PI / 180) < 1e-9,
-    `SpotLight.angle is HALF of coneDeg (got ${light.angle})`);
+  assert.equal(light.distance, expectedFlood.distance,
+    'throw reaches the farthest point in the shared cone/ground projection');
+  assert.ok(Math.abs(light.angle - expectedFlood.halfAngle) < 1e-9,
+    `SpotLight.angle comes from the shared projection packet (got ${light.angle})`);
   assert.equal(light.color.getHex(), DEF.floodLight.light.color, 'the light is tinted with the def\'s own colour string');
   assert.ok(Math.abs(light.intensity - 6 * DEF.floodLight.light.intensity) < 1e-9,
     `intensity is the rig's base scaled by the def's intensity, nightFactor and weight (got ${light.intensity})`);
@@ -512,7 +528,11 @@ test('a spot is aimed, angled, throttled and tinted by the fixture def itself, n
   const rig3 = new LightRig(scene3, { shadowSpotCount: 1, pointCount: 1 });
   rig3.update({ position: new V3(0, 0, 0) }, 1, 1);
   const bay = rig3._spotSlots[0];
-  assert.ok(Math.abs(bay.light.angle - 45 * Math.PI / 180) < 1e-9, 'highBay\'s 90 degree cone becomes a 45 degree half-angle');
+  const expectedBay = fixtureLightProjection(DEF.highBay, {
+    origin: { x: 5, y: 0, z: 5 }, yaw: aimYaw(2),
+  });
+  assert.ok(Math.abs(bay.light.angle - expectedBay.halfAngle) < 1e-9,
+    'highBay angle is derived from emitter height and desired floor radius');
   assert.ok(Math.abs(bay.target.position.x - bay.light.position.x) < 1e-9
     && Math.abs(bay.target.position.z - bay.light.position.z) < 1e-9,
     'an overhead cone points STRAIGHT down regardless of dir — it has no aim to follow');
