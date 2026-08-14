@@ -22,8 +22,9 @@ import {
   assignJobs, tickJobs, abandonJob, registerJobEffect,
 } from '../src/game/staff/jobRunner.js';
 import {
-  reserveStation, releaseAllFor, sanitizeStationReservations,
+  reserveStation, releaseAllFor, sanitizeStationReservations, getStationIndex,
 } from '../src/game/staff/stations.js';
+import { getNavGrid, findPath } from '../src/game/staff/nav.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 
 let passed = 0, failed = 0;
@@ -280,8 +281,13 @@ console.log('\n=== 3c. Travel-tick budget backstop: a job stuck in phase travel 
   // repair is target-addressed (no stationKey), so the live isReachable
   // re-check (3b, above) never applies to it — currentStationNode returns
   // null for any job without a stationKey. No member.fromNode is set
-  // either. This exercises the tick-budget backstop specifically: the
-  // catch-all for "a reason nobody anticipated", not the reachability path.
+  // either, so computeTravelBudget also can't compute a real path length —
+  // both together exercise the worst-case-map-distance fallback budget
+  // (worstCaseMapSubtiles), at the default mapHalfExtent (30) and default
+  // speed (1), which fix-round-2 replaced the old flat MAX_TRAVEL_TICKS=300
+  // with: (61*8) subtiles * (0.5/0.9)*1 ticks/subtile * 2 safety = 543
+  // ticks. This is the catch-all for "a reason nobody anticipated", not the
+  // reachability path (3b) or the speed/map-scaling behavior (3d, below).
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
   const beamline = placeDamagedBeamline(state, 'bl-1', 5, 5, 40);
@@ -295,13 +301,106 @@ console.log('\n=== 3c. Travel-tick budget backstop: a job stuck in phase travel 
   assertOk(technician.job?.phase === 'travel', 'setup: never arrives in this test (no arrive() call)');
 
   let abandonedAtTick = -1;
-  for (let t = 0; t < 320 && abandonedAtTick < 0; t++) {
+  for (let t = 0; t < 600 && abandonedAtTick < 0; t++) {
     tickJobs(game);
     if (technician.job === null) abandonedAtTick = t;
   }
   assertOk(abandonedAtTick >= 0, `the stuck travel job was eventually abandoned (at tick ${abandonedAtTick})`);
-  assertOk(abandonedAtTick > 250, `the backstop is generous, not hair-triggered (fired at tick ${abandonedAtTick})`);
+  assertOk(abandonedAtTick === 543, `the backstop fires at exactly the computed worst-case-map budget (fired at tick ${abandonedAtTick}, expected 543)`);
   assertOk(!!technician.idleReason, 'idleReason explains why (non-empty)');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-invariant — a genuinely long walk completes at 1x/2x/4x instead of looping forever ===\n');
+{
+  // The bug this pins: MAX_TRAVEL_TICKS used to count raw sim ticks, which
+  // fire MORE often per real second at higher state.speed (Game.js:
+  // tickInterval = TICK_MS / speed), while a pawn's own walk speed is real
+  // wall-clock-driven and untouched by state.speed. A fixed tick budget
+  // therefore covered FEWER real seconds — and fewer walkable subtiles —
+  // the faster the game ran: generous at 1x, already firing at 2x, firing
+  // badly at 4x. Abandoning mid-walk released the reservation; the very
+  // next assignJobs reassigned the SAME job; the member never arrived —
+  // an infinite loop, not just a stuck pawn.
+  //
+  // Reproduces the reviewer's own numbers: a large map (mapHalfExtent 60,
+  // double the default) and a genuinely long corner-to-corner path (~974
+  // subtiles, computed for real via findPath since both endpoints are
+  // reachable open floor), run at each of the three valid speeds. No
+  // renderer exists in this headless test to actually walk the pawn over
+  // real wall-clock time, so "survives the walk" is verified analytically:
+  // tick exactly as many sim ticks as the real walk would take at this
+  // speed (requiredTravelTicks, below — the same conversion jobRunner.js's
+  // own ticksPerSubtile uses) and assert the job is neither abandoned nor
+  // reset partway through. Then simulate arrival and confirm it completes
+  // normally, so this isn't just "delays the same failure past this test's
+  // patience".
+  function buildLongWalk(speed) {
+    const state = makeState();
+    state.mapHalfExtent = 60;
+    floorRect(state, -60, 60, -60, 60);
+    placeItem(state, 'diningTable', 58, 58, 0, 0, 0);
+    const table = state.placeables[state.placeables.length - 1];
+    placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+    bump(state);
+    state.speed = speed;
+    const game = makeGame(state, []);
+
+    const operator = makeMember('operator', `op_${speed}x`);
+    operator.fromNode = { col: -60, row: -60, subCol: 0, subRow: 0 };
+    operator.needs.hunger = 0.85;
+    state.staffMembers = [operator];
+    return { game, operator };
+  }
+
+  // Same conversion jobRunner.js's own (unexported) ticksPerSubtile uses —
+  // duplicated here (not imported: it's not exported, on purpose, same as
+  // every other internal helper in that file) to compute, independently,
+  // how many sim ticks the ACTUAL real-world walk requires at each speed.
+  // This is what a correct budget must be AT LEAST as big as; it's also
+  // exactly the number the old flat MAX_TRAVEL_TICKS=300 fell short of at
+  // 2x/4x.
+  const SUB_UNIT_TEST = 0.5;
+  const SLOWEST_PAWN_SPEED_TEST = 0.9;
+  function requiredTravelTicks(pathSubtiles, speed) {
+    return Math.ceil(pathSubtiles * (SUB_UNIT_TEST / SLOWEST_PAWN_SPEED_TEST) * speed);
+  }
+
+  for (const speed of [1, 2, 4]) {
+    const { game, operator } = buildLongWalk(speed);
+    assignJobs(game);
+    assertOk(operator.job?.jobType === 'eat', `${speed}x: setup: assigned eat at the far dining seat (got ${operator.job?.jobType})`);
+    assertOk(operator.job.travelBudgetTicks == null, `${speed}x: setup: no budget computed yet (lazy, first tickJobs call)`);
+
+    const targetNode = getStationIndex(game.state).byKey[operator.job.stationKey].node;
+    const path = findPath(getNavGrid(game.state), operator.fromNode, targetNode);
+    assertOk(!!path, `${speed}x: setup: sanity — a real path exists between the corners`);
+    assertOk(path.length > 900, `${speed}x: setup: sanity — this really is a long walk (${path.length} subtiles)`);
+    const required = requiredTravelTicks(path.length, speed);
+
+    // Tick exactly the number of sim ticks the real walk requires at this
+    // speed. The job must not have been abandoned by then — that's the bug:
+    // at 2x/4x, the old flat 300-tick budget fired WELL before `required`,
+    // releasing the reservation and getting the identical job reassigned
+    // next pass, forever, without ever completing the walk.
+    for (let t = 0; t < required; t++) tickJobs(game);
+    assertOk(operator.job?.jobType === 'eat',
+      `${speed}x: the job survives the full ${required}-tick real-world walk duration without being abandoned (job is now ${JSON.stringify(operator.job)})`);
+    assertOk(operator.job.phase === 'travel', `${speed}x: still travelling (never reassigned/reset) through the whole required duration`);
+    assertOk(operator.job.travelBudgetTicks >= required,
+      `${speed}x: the computed budget (${operator.job.travelBudgetTicks}) comfortably covers the required duration (${required})`);
+
+    // Arrival (renderer-reported, same stand-in as every other scenario)
+    // now completes the job normally — proves the fix doesn't just delay
+    // the same failure, the job actually finishes.
+    arrive(operator);
+    let completedAtTick = -1;
+    for (let t = 0; t < 200 && completedAtTick < 0; t++) {
+      tickJobs(game);
+      if (operator.job === null) completedAtTick = t;
+    }
+    assertOk(completedAtTick >= 0, `${speed}x: after arrival, the eat job completes normally (at tick ${completedAtTick})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -645,6 +744,34 @@ console.log('\n=== 10. repair cap: at most state.resources.spares technicians ho
     assertOk(/spares/i.test(m.idleReason || ''), `${m.id}'s idleReason names the spares shortage (got "${m.idleReason}")`);
     assertOk(!/operator/i.test(m.idleReason || ''), `${m.id}'s idleReason is not a misdirected runBeam-profession rejection (got "${m.idleReason}")`);
   }
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 10b. fix-round-2: with spares === 0, the board suppresses repair entirely — the idle technician gets the SUPPRESSION reason, not a generic "nothing to do" ===\n');
+{
+  // spares === 0 makes jobs.js's repairOffers suppress EVERY repair offer
+  // (see its own reason: 'No spares available to make the repair.') —
+  // there is no offer left for pickBestOffer to even look at, let alone
+  // reject, so before this fix a technician here got "Nothing to do right
+  // now.", the same message an actually-idle-with-nothing-broken technician
+  // would see. That's the difference between the player knowing to build a
+  // machine shop and the player thinking the game (or the technician) is
+  // broken.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const beamline = placeDamagedBeamline(state, 'bl-1', 5, 5, 40);
+  state.resources.spares = 0;
+  const game = makeGame(state, [beamline]);
+
+  const technician = makeMember('technician', 't1');
+  state.staffMembers = [technician];
+
+  assignJobs(game);
+  assertOk(technician.job === null, 'setup: no spares — the technician gets no job');
+  assertOk(/spares/i.test(technician.idleReason || ''),
+    `idleReason surfaces the board's suppression reason, naming spares (got "${technician.idleReason}")`);
+  assertOk(technician.idleReason !== 'Nothing to do right now.',
+    `idleReason is NOT the generic fallback (got "${technician.idleReason}")`);
 }
 
 // ---------------------------------------------------------------------------

@@ -205,9 +205,22 @@ function capShortageReason(jobType, cap) {
 // reachable slot out of many — by sorting on cheap SUBTILE distance first
 // and only paying for real reachability on the front of that list; this
 // mirrors it: sort the tier by subtile distance, then run findPath on only
-// the closest PATH_TIEBREAK_CANDIDATES of them. A subtile-nearest console
-// behind a long wall detour can therefore still lose to the 2nd/3rd-nearest
-// one once real path length is checked, without ever pathing all 40.
+// the closest PATH_TIEBREAK_CANDIDATES of them.
+//
+// The optimality guarantee this buys back is real but narrow: it holds only
+// AMONG THOSE TOP-K raw-distance candidates, not against the whole tier. A
+// station whose real walking path is materially shorter — because its
+// detour around a wall is shorter, not because it's raw-distance-closer —
+// can sit outside the top-K window and never get pathed at all, so it can
+// never win the tie-break even though it's the actually-better choice.
+// Reviewer-built worst case: three stations sharing one enclosed pocket
+// whose only door is at the far end, where the true optimum (path length
+// 59) sat outside the K=3 window and the truncated search picked a path of
+// length 231 instead — 3.9x longer. Ruling: keep the truncation anyway —
+// 19 ms/tick against the untruncated 606 ms is decisive, and it's the same
+// shape stations.js's own findStation already accepts — but the next person
+// tuning PATH_TIEBREAK_CANDIDATES up or down should know that's the actual
+// trade being made, not "ties are broken correctly, just capped for cost."
 const PATH_TIEBREAK_CANDIDATES = 3;
 
 function subtileDist2(a, b) {
@@ -247,8 +260,12 @@ function pickNearestInTier(member, tier, state) {
 
 /**
  * The best offer `member` may take right now, honoring eligibleFor's
- * rejections and the runBeam/repair caps, or `{ offer: null, reason }` when
- * nothing qualifies.
+ * rejections and the runBeam/repair caps, or `{ offer: null, reason,
+ * fallbackReason }` when nothing qualifies — see the two-reason explanation
+ * below for why those are two separate fields rather than one. (assignJobs,
+ * the only caller, folds in a THIRD source — the board's suppressions
+ * channel — between them; this function knows nothing about suppressions
+ * at all, since a suppressed offer never reaches it in the first place.)
  *
  * Three checks run per offer, cheapest/most-fundamental first:
  *
@@ -280,10 +297,13 @@ function pickNearestInTier(member, tier, state) {
  * OPERATOR is true but useless — that offer was never relevant to their
  * profession at all (measured: an admin and a scientist were both once
  * told "No spares left to repair with", a job neither can ever hold). Two
- * reasons are tracked: `bestReason`, from an offer whose job type
- * `member`'s profession can actually do — preferred whenever one exists;
- * `fallbackReason`, a hard profession mismatch on a job this member could
- * never take, used only when nothing profession-relevant was found at all.
+ * reasons are tracked and returned separately (as `reason` /
+ * `fallbackReason`): `reason` (internally `bestReason`), from an offer
+ * whose job type `member`'s profession can actually do; `fallbackReason`, a
+ * hard profession mismatch on a job this member could never take. The
+ * caller decides how to weigh `fallbackReason` against other signals (see
+ * assignJobs) — this function only ever prefers `reason` over it, never the
+ * reverse.
  */
 function pickBestOffer(member, offers, game, caps, holders) {
   const state = game.state;
@@ -313,9 +333,25 @@ function pickBestOffer(member, offers, game, caps, holders) {
 
       tier.push(offer);
     }
-    if (tier.length) return { offer: pickNearestInTier(member, tier, state), reason: null };
+    if (tier.length) return { offer: pickNearestInTier(member, tier, state), reason: null, fallbackReason: null };
   }
-  return { offer: null, reason: bestReason || fallbackReason };
+  return { offer: null, reason: bestReason, fallbackReason };
+}
+
+// The suppressions channel (buildJobOffers' second return value) covers a
+// gap `pickBestOffer` structurally cannot: a job.js pre-filter (today, only
+// repair's "spares === 0") means the offer never enters `offers` at all, so
+// there is nothing for pickBestOffer to reject and nothing for it to report
+// — a technician facing a fully-suppressed repair board got "Nothing to do
+// right now.", a useless message when the real, actionable answer is "no
+// spares — build a machine shop". Reused for any member whose profession
+// can do the suppressed job type, same professionOk test pickBestOffer uses
+// for its own bestReason/fallbackReason split.
+function suppressionReasonFor(member, suppressions) {
+  for (const s of suppressions) {
+    if (JOB_TYPES[s.jobType]?.professions?.includes(member.profession)) return s.reason;
+  }
+  return null;
 }
 
 function assignOffer(member, game, offer) {
@@ -353,6 +389,17 @@ function statusIdleReason(status) {
  * pass never even looks at (status !== 'working': resting from a
  * breakdown, or any other non-working status), so nobody is silently left
  * with a stale/blank idleReason from before.
+ *
+ * idleReason precedence for a member left without a job (most to least
+ * specific): `pickBestOffer`'s own `bestReason` (a profession-relevant
+ * rejection — a cap, an unreachable/reserved station); the board's
+ * suppression reason for a profession-relevant job type the member never
+ * even got to reject, because jobs.js filtered it out before it became an
+ * offer at all (today, only repair with spares === 0 — see
+ * suppressionReasonFor); `pickBestOffer`'s `fallbackReason` (a hard
+ * profession mismatch on a job this member could never take, used only
+ * when nothing profession-relevant turned up anywhere); whatever handleNeeds
+ * already set this pass; and only then the generic fallback.
  */
 export function assignJobs(game) {
   const state = game.state;
@@ -363,7 +410,7 @@ export function assignJobs(game) {
     if (member.status === 'working') handleNeeds(member, game);
   }
 
-  const { offers } = buildJobOffers(game);
+  const { offers, suppressions } = buildJobOffers(game);
   const caps = capsFor(game);
   const holders = currentHolders(members);
 
@@ -374,16 +421,16 @@ export function assignJobs(game) {
       continue;
     }
 
-    const { offer, reason } = pickBestOffer(member, offers, game, caps, holders);
+    const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders);
     if (offer) {
       assignOffer(member, game, offer);
       if (holders[offer.jobType] != null) holders[offer.jobType]++;
     } else {
-      // Prefer a freshly-found reason; otherwise keep whatever handleNeeds
-      // already set (e.g. "No reachable cafeteria…") rather than downgrade
-      // it to a generic "nothing to do" just because this pass's own board
-      // scan happened to turn up nothing MORE specific to say.
-      member.idleReason = reason || member.idleReason || 'Nothing to do right now.';
+      member.idleReason = reason
+        || suppressionReasonFor(member, suppressions)
+        || fallbackReason
+        || member.idleReason
+        || 'Nothing to do right now.';
     }
   }
 }
@@ -435,10 +482,75 @@ function currentStationNode(state, job) {
   return getStationIndex(state).byKey[job.stationKey]?.node || null;
 }
 
-// Generous upper bound on ticks a job may sit in 'travel' before this file
-// gives up on it even without a specific reason — see MAX_TRAVEL_TICKS'
-// use in tickJobs for what this backstops.
-const MAX_TRAVEL_TICKS = 300;
+// --- Travel budget (fix-round-2) --------------------------------------------
+//
+// A flat tick-count backstop is wrong on two independent, compounding axes,
+// found live in review: sim ticks fire every TICK_MS/state.speed ms
+// (Game.js), so MORE ticks elapse per real second at higher game speed —
+// while pawn walking is driven by real wall-clock dt (ThreeRenderer.js),
+// entirely independent of state.speed. A fixed tick budget therefore covers
+// FEWER real seconds — and so fewer walkable subtiles — the faster the game
+// runs: 300 ticks was ~10% headroom over a measured 487-subtile
+// corner-to-corner walk on the default 61x61 map at 1x, already fired at
+// 2x, fired badly at 4x, and had no headroom left at all against a grown
+// map even at 1x. The failure mode is an infinite loop, not just a stuck
+// pawn: abandon mid-walk releases the reservation, the very next assignJobs
+// reassigns the identical job, and the member never arrives — dropping and
+// retaking the reservation every cycle forever.
+//
+// The fix budgets by DISTANCE, which is both speed- and map-size-invariant
+// (unlike a tick count, which is neither): convert the job's own real path
+// length (in subtiles, via findPath — not a universal guess) into however
+// many ticks the SLOWEST pawn needs to walk it AT THE CURRENT GAME SPEED,
+// times a generous safety factor, with a floor for trivially short hops.
+// Computed ONCE, lazily, the first tick a job is seen in 'travel' (cached on
+// job.travelBudgetTicks) — not every tick, which would mean a findPath call
+// per traveling member per tick, the exact cost problem pickNearestInTier
+// (above) already had to solve for a different call site.
+//
+// SUBTILE_UNIT/SLOWEST_PAWN_SPEED are duplicated from StaffPawns.js's own
+// SUB_UNIT/WALK_SPEED_MIN rather than imported — that file is a renderer
+// module referencing the THREE global, which this headless file must not
+// pull in. Keep these two numbers in sync if that file's walk speed ever
+// changes.
+const SUBTILE_UNIT = 0.5;          // world units per subtile (nav.js's convention)
+const SLOWEST_PAWN_SPEED = 0.9;    // world units/sec — StaffPawns.js's WALK_SPEED_MIN
+const TRAVEL_BUDGET_SAFETY = 2;    // generous multiplier over the bare "just enough" figure
+const MIN_TRAVEL_BUDGET_TICKS = 60; // floor: even a one-subtile hop gets a fair few ticks
+const VALID_SPEEDS = [1, 2, 4];    // Game.js's setSpeed()'s own allowed values
+
+// Worst-case cross-map subtile distance, used when a real path length can't
+// be computed yet (no member.fromNode — no pawn has reported a position,
+// true of every job before Task 3 wires the renderer, and of every
+// target-addressed job regardless, since those have no resolvable node at
+// all — see currentStationNode). A Manhattan corner-to-corner walk of the
+// whole nav grid on both axes; scales with state.mapHalfExtent so a grown
+// map gets a correspondingly larger (never tighter) budget.
+function worstCaseMapSubtiles(state) {
+  const half = Number.isFinite(state.mapHalfExtent) ? state.mapHalfExtent : 30;
+  return (half * 2 + 1) * 4 * 2;
+}
+
+// Real seconds to cover one subtile at the slowest pawn speed, converted to
+// SIM ticks at the game's current speed multiplier — the exact conversion
+// that makes the old flat constant wrong (see this section's header).
+function ticksPerSubtile(game) {
+  const speed = VALID_SPEEDS.includes(game.state.speed) ? game.state.speed : 1;
+  return (SUBTILE_UNIT / SLOWEST_PAWN_SPEED) * speed;
+}
+
+function computeTravelBudget(game, member, node) {
+  const state = game.state;
+  let subtiles;
+  if (node && member.fromNode) {
+    const nav = getNavGrid(state);
+    const path = findPath(nav, member.fromNode, node);
+    subtiles = path ? path.length : worstCaseMapSubtiles(state);
+  } else {
+    subtiles = worstCaseMapSubtiles(state);
+  }
+  return Math.max(MIN_TRAVEL_BUDGET_TICKS, Math.ceil(subtiles * ticksPerSubtile(game) * TRAVEL_BUDGET_SAFETY));
+}
 
 /**
  * Advance every member's job by one tick.
@@ -472,9 +584,9 @@ const MAX_TRAVEL_TICKS = 300;
  * The live isReachable() re-check only applies to station-addressed jobs
  * (currentStationNode returns null for repair/commission, which have no
  * resolvable node here at all — see this file's header). Every job still
- * gets MAX_TRAVEL_TICKS as a hard backstop regardless: a generous ceiling
- * so a job can never park in 'travel' indefinitely for a reason nobody
- * anticipated, station-addressed or not.
+ * gets a travel-tick budget as a hard backstop regardless — see this
+ * section's header comment for why that budget is computed from the job's
+ * own path length and the game's current speed, not a flat constant.
  *
  * Once `phase === 'work'`, progress accrues by the member's own efficiency
  * (skill/mood/zone-tier/specialty-match, all in StaffMember.efficiency) —
@@ -504,8 +616,9 @@ export function tickJobs(game) {
           continue;
         }
       }
+      if (job.travelBudgetTicks == null) job.travelBudgetTicks = computeTravelBudget(game, member, node);
       job.travelTicks = (job.travelTicks || 0) + 1;
-      if (job.travelTicks > MAX_TRAVEL_TICKS) {
+      if (job.travelTicks > job.travelBudgetTicks) {
         abandonJob(member, game, 'Gave up trying to get there.');
         continue;
       }
