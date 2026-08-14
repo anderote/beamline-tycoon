@@ -15,7 +15,7 @@ const EDGE_DELTAS = {
  * Check if movement from (col, row) in direction `edge` is blocked by a wall
  * (and not opened by a door).
  */
-function isBlocked(col, row, edge, state) {
+export function isBlocked(col, row, edge, state) {
   const { dc, dr, opposite } = EDGE_DELTAS[edge];
   const nc = col + dc;
   const nr = row + dr;

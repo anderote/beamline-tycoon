@@ -283,6 +283,12 @@ export class Game {
       // Doors (edge-based, like walls)
       doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
       doorOccupied: {},       // "col,row,edge" -> doorType
+      // Topology signature for the staff nav grid (src/game/staff/nav.js).
+      // Bumped by _markNavDirty() on every mutation of infraOccupied,
+      // wallOccupied, doorOccupied or placeables — never reset, never
+      // serialized (a cache-invalidation counter, not real state, same
+      // pattern as cornerHeightsRevision above).
+      navRevision: 0,
       // Utility network lines (per-utility independent drawable pipes)
       utilityLines: new Map(),
       utilityNextId: 1,
@@ -501,6 +507,16 @@ export class Game {
     }
   }
 
+  // Invalidate the staff nav grid (src/game/staff/nav.js): call from every
+  // seam that mutates infraOccupied, wallOccupied, doorOccupied or
+  // placeables (topology the nav grid indexes). A plain increment, not a
+  // count — demolishing one wall and placing another in the same tick must
+  // still register as two distinct topology changes even though every count
+  // is unchanged.
+  _markNavDirty() {
+    this.state.navRevision = (this.state.navRevision | 0) + 1;
+  }
+
   _generateTerrainBlobs(seed) {
     // Seeded PRNG (simple LCG)
     let s = seed | 0;
@@ -598,6 +614,9 @@ export class Game {
     // The new decorations have to reach subgridOccupied, or the player can
     // build straight through the trees that just appeared.
     this._rebuildPlaceableIndex();
+    // Map growth widens infraOccupied's bounding box, which the nav grid's
+    // `bounds` is derived from — and scatters new trees into subgridOccupied.
+    this._markNavDirty();
     this.log(`${parcel.name} — the site is now ${parcel.tilesPerSide}×${parcel.tilesPerSide} tiles.`, 'good');
     this.emit('mapExpanded');
     // Two events because two things changed and the renderer rebuilds them
@@ -1027,6 +1046,7 @@ export class Game {
     if (foundation) tileEntry.foundation = foundation;
     this.state.floors.push(tileEntry);
     this.state.infraOccupied[key] = infraType;
+    this._markNavDirty();
     // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
     if (infraType === 'concrete') {
       setTileCorners(this.state, col, row, { nw: 0, ne: 0, se: 0, sw: 0 });
@@ -1227,6 +1247,7 @@ export class Game {
       }
 
       if (placed > 0) {
+        this._markNavDirty();
         this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
         this.emit('infrastructureChanged');
         // Hallway changes affect zone connectivity
@@ -1263,6 +1284,7 @@ export class Game {
     } else {
       delete this.state.infraOccupied[key];
     }
+    this._markNavDirty();
 
     if (wasHallway) {
       this.recomputeZoneConnectivity();
@@ -1303,6 +1325,7 @@ export class Game {
     if (variant) wallEntry.variant = variant;
     this.state.walls.push(wallEntry);
     this.state.wallOccupied[key] = wallType;
+    this._markNavDirty();
     return true;
   }
 
@@ -1337,6 +1360,7 @@ export class Game {
       placed++;
     }
     if (placed > 0) {
+      this._markNavDirty();
       this.log(`Placed ${placed} ${wt.name} segments ($${placed * segCost})`, 'good');
       this.emit('wallsChanged');
     }
@@ -1353,6 +1377,7 @@ export class Game {
       w => !(w.col === col && w.row === row && w.edge === edge)
     );
     delete this.state.wallOccupied[key];
+    this._markNavDirty();
     // Remove any orphaned door on this edge
     if (this.state.doorOccupied[key]) {
       const dt = DOOR_TYPES[this.state.doorOccupied[key]];
@@ -1391,6 +1416,7 @@ export class Game {
     this.chargeConstruction(dt.cost);
     this.state.doors.push({ type: doorType, col, row, edge, variant });
     this.state.doorOccupied[key] = doorType;
+    this._markNavDirty();
     return true;
   }
 
@@ -1414,6 +1440,7 @@ export class Game {
       placed++;
     }
     if (placed > 0) {
+      this._markNavDirty();
       this.log(`Placed ${placed} ${dt.name} segment${placed > 1 ? 's' : ''} ($${placed * dt.cost})`, 'good');
       this.emit('doorsChanged');
     }
@@ -1430,6 +1457,7 @@ export class Game {
       d => !(d.col === col && d.row === row && d.edge === edge)
     );
     delete this.state.doorOccupied[key];
+    this._markNavDirty();
     this.emit('doorsChanged');
     return true;
   }
@@ -2023,6 +2051,7 @@ export class Game {
         this.state.subgridOccupied[k] = { id, kind };
       }
     }
+    this._markNavDirty();
 
     placeable.onPlaced(this, entry);
 
@@ -2146,6 +2175,9 @@ export class Game {
     entry.subRow = subRow;
     entry.dir = dir;
     this._rebuildPlaceableCells(entry);
+    // subgridOccupied moved with the entry even though state.placeables
+    // itself was not spliced — the nav grid must still rebuild.
+    this._markNavDirty();
 
     // Flatten the DESTINATION tiles, and deliberately leave the origin flat.
     // Placement flattens because everything is drawn at y = 0; a module that
@@ -2277,6 +2309,7 @@ export class Game {
 
     // Rebuild index
     this._rebuildPlaceableIndex();
+    this._markNavDirty();
 
     this.log(`Removed ${placeable.name} (50% refund)`, 'info');
 
@@ -2382,6 +2415,7 @@ export class Game {
 
     this.state.placeables.splice(idx, 1);
     this._rebuildPlaceableIndex();
+    this._markNavDirty();
 
     this.log(`Removed ${placeable.name} (50% refund)`, 'info');
 
@@ -2426,6 +2460,7 @@ export class Game {
 
     this.state.placeables.splice(idx, 1);
     this._rebuildPlaceableIndex();
+    this._markNavDirty();
 
     const snapshot = {
       type: entry.type,
@@ -4232,6 +4267,7 @@ export class Game {
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     this._rebuildPlaceableIndex();
+    this._markNavDirty();
     // Placeables were replaced wholesale, so the derived views
     // (facilityEquipment / facilityGrid / zoneFurnishings / zoneItems) have to
     // be rebuilt from them rather than trusted from the payload — zoneItems in
@@ -4458,6 +4494,9 @@ export class Game {
     // pre-apply state, which is the one thing Apply promises.
     this.state.subgridOccupied = JSON.parse(JSON.stringify(snapshot.subgridOccupied || {}));
     this.state.placeableIndex = { ...(snapshot.placeableIndex || {}) };
+    // placeables/subgridOccupied were just rolled back wholesale (BEAMLINE_TX_FIELDS
+    // includes 'placeables'), independent of any place/remove seam above.
+    this._markNavDirty();
 
     // Derived utility state, invalidated the same way and for the same reason
     // _applyState invalidates it after replacing the utilityLines Map
@@ -4754,6 +4793,10 @@ export class Game {
     for (const d of this.state.doors) {
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     }
+    // Load/undo/redo all replace infraOccupied, wallOccupied, doorOccupied
+    // and placeables wholesale above — the nav grid must rebuild against the
+    // restored topology rather than the pre-load session's.
+    this._markNavDirty();
 
     // Migrate: remove deprecated energy resource
     delete this.state.resources.energy;
