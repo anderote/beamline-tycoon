@@ -153,16 +153,17 @@ console.log('\n=== 5. A stackable desktop item does not block ===\n');
   assertOk(!!path, 'a path still exists across the tile the coffee machine sits on');
 }
 
-console.log('\n=== 6. Detached floor patch across grass; floor is preferred over grass ===\n');
+console.log('\n=== 6a. Detached floor patch is reachable across bare ground ===\n');
 {
+  // Two floor tiles with nothing but grass between them, and no floored
+  // alternative route at all — the only way across is 16 grass subtiles.
+  // Pinned to the exact optimal cost (48: 3 + 4 floor-leg subtiles at cost 1,
+  // 16 grass subtiles at cost 2.5, 1 more floor subtile landing on the
+  // patch) rather than a loose inequality, so a regression that silently
+  // changes the cost model gets caught here.
   const state = makeState();
-  // Two floor blocks separated by a 4-tile-wide grass gap (cols 2-5), plus a
-  // floored detour one row south (row 1, cols 1-6) connecting them. The
-  // direct route crosses 16 grass subtiles (cost 2.5 each); the floored
-  // detour is longer in step count but every step costs 1.
   floorRect(state, 0, 1, 0, 0);
   floorRect(state, 6, 6, 0, 0);
-  floorRect(state, 1, 6, 1, 1);
   const nav = buildNavGrid(state);
 
   const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
@@ -172,17 +173,37 @@ console.log('\n=== 6. Detached floor patch across grass; floor is preferred over
   const path = findPath(nav, from, to);
   assertOk(!!path, 'findPath finds a route to the detached patch');
   const actualCost = pathCost(nav, path);
+  assertOk(actualCost === 48, `the route costs exactly 48, all grass (got ${actualCost})`);
+}
 
-  // The forced-grass baseline: straight across row 0 (both endpoints share
-  // subRow 0), ignoring the floored detour entirely.
-  const forced = [];
-  for (let absCol = 0; absCol <= 6 * 4; absCol++) {
-    forced.push({ col: Math.floor(absCol / 4), row: 0, subCol: absCol % 4, subRow: 0 });
-  }
-  const forcedCost = pathCost(nav, forced);
+console.log('\n=== 6b. Floor is preferred over grass along a non-detouring route ===\n');
+{
+  // A floored L (rightward along row 0, then downward along col 6) is one
+  // of many equally-short MONOTONIC routes from (0,0) to (6,4) — every
+  // monotonic route covers the same 46 subtiles, so the (deliberately
+  // weighted, see nav.js's heuristic() comment) A* has no geometric reason
+  // to avoid it, and the true cost difference (floor vs grass) is what
+  // decides. A route requiring a geometric DETOUR to reach floor is a
+  // different, harder case the weighted heuristic deliberately does not
+  // guarantee — see nav.js's heuristic() comment for why bounded
+  // termination was chosen over that guarantee.
+  const state = makeState();
+  floorRect(state, 0, 6, 0, 0); // rightward run
+  floorRect(state, 6, 6, 0, 4); // downward run
+  const nav = buildNavGrid(state);
 
-  assertOk(actualCost < forcedCost,
-    `the chosen route (cost ${actualCost}) beats the forced-grass route (cost ${forcedCost})`);
+  const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const to = { col: 6, row: 4, subCol: 3, subRow: 3 };
+  const manhattanSubtiles = Math.abs((6 * 4 + 3) - (0 * 4 + 0)) + Math.abs((4 * 4 + 3) - (0 * 4 + 0));
+
+  const path = findPath(nav, from, to);
+  assertOk(!!path, 'a path along the floored L exists');
+  const actualCost = pathCost(nav, path);
+  // Equal to the Manhattan lower bound (every subtile at FLOOR_COST) only
+  // if the entire route stayed on the floored L — the strongest possible
+  // confirmation that floor was preferred over the surrounding grass.
+  assertOk(actualCost === manhattanSubtiles,
+    `the route costs exactly ${manhattanSubtiles} (Manhattan distance at floor cost), meaning it never left the floored L (got ${actualCost})`);
 }
 
 console.log('\n=== 7. worldToSubtile / subtileToWorld round-trip ===\n');
@@ -224,6 +245,26 @@ console.log('\n=== 9. A goal outside bounds returns null rather than hanging ===
   const farGoal = { col: 10000, row: 10000, subCol: 0, subRow: 0 };
   assertOk(findPath(nav, from, farGoal) === null, 'findPath returns null for a goal outside bounds');
   assertOk(isReachable(nav, from, farGoal) === false, 'isReachable agrees');
+}
+
+console.log('\n=== 10. A long cross-map path over bare ground is reachable, not null ===\n');
+{
+  // Regression for the heuristic scale bug: an admissible heuristic scaled
+  // by FLOOR_COST underestimates a grass-heavy route by up to
+  // GRASS_COST/FLOOR_COST, degrading A* towards Dijkstra's uniform-cost
+  // search on open ground — which blows through MAX_EXPANDED_NODES and
+  // returns null for a routine, very much reachable crossing. The default
+  // map is 61x61 tiles (DEFAULT_MAP_HALF_EXTENT = 30 in Game.js), so a
+  // corner-to-corner walk of this size is not a contrived edge case.
+  const state = makeState();
+  floorRect(state, 0, 0, 0, 0);
+  floorRect(state, 30, 30, 30, 30);
+  const nav = buildNavGrid(state);
+  const from = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const to = { col: 30, row: 30, subCol: 3, subRow: 3 };
+  const path = findPath(nav, from, to);
+  assertOk(!!path, 'a 30-tile diagonal crossing of open ground returns a path, not null');
+  assertOk(isReachable(nav, from, to), 'isReachable agrees');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

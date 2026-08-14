@@ -142,5 +142,27 @@ console.log('\n=== 6. Demolish-and-replace in the same tick bumps navRevision tw
     `not left unchanged by a count-based signature (${afterRemove} -> ${g.state.navRevision})`);
 }
 
+console.log('\n=== 7. _rebuildPlaceableCells bumps navRevision even when called directly ===\n');
+{
+  // Regression for a missed seam: InputHandler._placeMovedObject's
+  // 'component' branch mutates placeable.col/row/dir in place and calls
+  // game._rebuildPlaceableCells(placeable) directly — it never goes through
+  // movePlaceable(), which is where the bump used to live. The fix moved
+  // the call into _rebuildPlaceableCells itself so both callers are
+  // covered; this reproduces the InputHandler pattern exactly (direct
+  // field mutation + _rebuildPlaceableCells, no movePlaceable call at all).
+  const g = makeGame(6);
+  const placed = placeSomewhere(g, 'coffeeMachine');
+  assertOk(placed, 'setup: placed a coffee machine');
+
+  const entry = g.getPlaceable(placed.id);
+  const before = g.state.navRevision;
+  entry.col = placed.col + 3;
+  entry.row = placed.row;
+  g._rebuildPlaceableCells(entry);
+  assertOk(g.state.navRevision > before,
+    `direct _rebuildPlaceableCells call (bypassing movePlaceable) bumped navRevision (${before} -> ${g.state.navRevision})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
