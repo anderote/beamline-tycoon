@@ -181,6 +181,8 @@ export class DemolishTool extends Tool {
       const maxCol = Math.max(this._dragStart.col, this._dragEnd.col);
       const minRow = Math.min(this._dragStart.row, this._dragEnd.row);
       const maxRow = Math.max(this._dragStart.row, this._dragEnd.row);
+      // Release position, for the single-tile object pick below.
+      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
 
       game._withUndo(() => game._batchEvents(() => {
         if (this.demolishType === 'demolishBuilding') {
@@ -202,9 +204,27 @@ export class DemolishTool extends Tool {
             }
           }
         } else if (this.demolishType === 'demolishAll') {
-          for (let c = minCol; c <= maxCol; c++) {
-            for (let r = minRow; r <= maxRow; r++) {
-              input._demolishEverythingAt(c, r);
+          // A single-tile release is a CLICK, and a click means "delete the
+          // thing I am pointing at". Take the object under the cursor and stop
+          // — deleting a bench should not also tear up the floor it stands on,
+          // the zone it is in and the walls around it, which is what levelling
+          // the tile did. Only a click on bare ground levels the tile.
+          //
+          // A rect drag is unchanged: sweeping an area IS the "level it all"
+          // gesture, and the palette card says so.
+          const singleTile = minCol === maxCol && minRow === maxRow;
+          const found = singleTile
+            ? input._findDeletablePlaceable(
+              { x: world.x, y: world.y }, { col: minCol, row: minRow },
+              e.clientX, e.clientY, DEMOLISH_PLACEABLE_SCOPE.demolishAll)
+            : null;
+          if (found) {
+            game.demolishTarget(found);
+          } else {
+            for (let c = minCol; c <= maxCol; c++) {
+              for (let r = minRow; r <= maxRow; r++) {
+                input._demolishEverythingAt(c, r);
+              }
             }
           }
         }

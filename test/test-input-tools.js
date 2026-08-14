@@ -323,5 +323,82 @@ function hoverTile(input, renderer, col, row) {
     'the ghost re-previewed as blocked on the tile the click just filled');
 }
 
+console.log('\n=== 5. Demolishing an object does not tear up the ground under it ===\n');
+
+// The catch-all Demolish tool always started a tile-rect drag on mouse-down, so
+// a plain CLICK committed as a 1x1 sweep and levelled the tile: deleting a
+// bench also removed the floor it stood on, the zone it was in and any walls on
+// that tile's edges. The hover preview had been outlining the OBJECT the whole
+// time, so what the tool promised and what it did were different things.
+{
+  const g = makeGame(77);
+  g.placeInfraTile(6, 6, 'concrete');
+  assertOk(g.state.infraOccupied['6,6'] === 'concrete', 'setup: a floor tile to protect');
+  g.placePlaceable({ type: 'oscilloscope', col: 6, row: 6, subCol: 0, subRow: 0, free: true });
+  const item = g.state.placeables.find(p => p.type === 'oscilloscope');
+  assertOk(!!item, 'setup: an object standing on it');
+
+  // The tool asks InputHandler what is under the cursor; stub that, since the
+  // pick itself is a raycast and this is about what the tool DOES with it.
+  const input = {
+    _findDeletablePlaceable: () => ({ kind: 'equipment', id: item.id, entry: item }),
+    _demolishEverythingAt: () => { throw new Error('levelled the tile on an object click'); },
+  };
+  const ctx = {
+    game: g, input,
+    renderer: { screenToWorld: () => tileCenterIso(6, 6), clearDragPreview() {} },
+  };
+  const tool = new DemolishTool('demolishAll');
+  tool.onMouseDown({ button: 0, clientX: 10, clientY: 10 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 10, clientY: 10 }, ctx);
+
+  assertOk(!g.state.placeables.some(p => p.id === item.id), 'the object was demolished');
+  assertOk(g.state.infraOccupied['6,6'] === 'concrete', 'and the floor under it survived');
+}
+
+{
+  // Clicking bare ground still levels the tile — that is the tool's other half,
+  // and the only way to pull up flooring with it.
+  const g = makeGame(78);
+  g.placeInfraTile(6, 6, 'concrete');
+  let levelled = null;
+  const input = {
+    _findDeletablePlaceable: () => null,
+    _demolishEverythingAt: (c, r) => { levelled = `${c},${r}`; g.removeInfraTile(c, r); },
+  };
+  const ctx = {
+    game: g, input,
+    renderer: { screenToWorld: () => tileCenterIso(6, 6), clearDragPreview() {} },
+  };
+  const tool = new DemolishTool('demolishAll');
+  tool.onMouseDown({ button: 0, clientX: 10, clientY: 10 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 10, clientY: 10 }, ctx);
+
+  assertOk(levelled === '6,6', `a click on bare ground levels that tile (got ${levelled})`);
+  assertOk(!g.state.infraOccupied['6,6'], 'so the floor does come up');
+}
+
+{
+  // A rect DRAG is unchanged: sweeping an area is the "level it all" gesture,
+  // and it must not stop at the first object it finds.
+  const g = makeGame(79);
+  const swept = [];
+  const input = {
+    _findDeletablePlaceable: () => { throw new Error('object pick ran on a rect drag'); },
+    _demolishEverythingAt: (c, r) => swept.push(`${c},${r}`),
+  };
+  const ctx = {
+    game: g, input,
+    renderer: { screenToWorld: () => ({ x: 0, y: 0 }), clearDragPreview() {} },
+  };
+  const tool = new DemolishTool('demolishAll');
+  tool._dragging = true;
+  tool._dragStart = { col: 2, row: 2 };
+  tool._dragEnd = { col: 3, row: 3 };
+  tool.onMouseUp({ button: 0, clientX: 10, clientY: 10 }, ctx);
+
+  assertOk(swept.length === 4, `the 2x2 drag swept every tile (got ${swept.length})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
