@@ -250,6 +250,9 @@ function buildWindows(game) {
     edge: w.edge,
     type: w.type,
     variant: w.variant || 0,
+    // Same endpoint heights walls and doors carry, so a window in a wall on
+    // sloped ground sits on the terrain instead of at world zero.
+    baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
   }));
 }
 

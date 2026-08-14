@@ -189,7 +189,7 @@ console.log('\n=== 4. build(): side fills follow the offset ===\n');
     wb.build(
       [{ ...seg, type: wallType, variant: 0, baseY: { a: 0, b: 0 } }],
       [{ ...seg, type: doorType, variant, off }],
-      group, 'up', null
+      [], group, 'up', null
     );
     const wallHeight = WALL_TYPES[wallType].wallHeight * HEIGHT_SCALE;
     const info = { isNS: true, wallHeight };
@@ -233,7 +233,7 @@ console.log('\n=== 4. build(): side fills follow the offset ===\n');
     wb.build(
       [{ ...seg, type: 'structuralWall', variant: 3, baseY: { a: 0, b: 0 } }],
       [{ ...seg, type: 'securityDoor', variant: 0, off: 1 }],
-      group, 'up', null
+      [], group, 'up', null
     );
     return wb;
   })();
@@ -244,7 +244,7 @@ console.log('\n=== 4. build(): side fills follow the offset ===\n');
     wb.build(
       [{ ...seg, type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } }],
       [{ ...seg, type: 'securityDoor', variant: 0, off: 1 }],
-      group, 'up', null
+      [], group, 'up', null
     );
     return wb;
   })();
@@ -274,7 +274,7 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
     wb.build(
       [{ ...seg, type: wallType, variant: 0, baseY: { a: 0, b: 0 } }],
       [{ ...seg, type: doorType, variant, off: 1 }],
-      group, visibility, null
+      [], group, visibility, null
     );
     return wb._meshes.filter(m => near(m.geometry.parameters?.depth ?? -1, PANEL_THICKNESS));
   };
@@ -313,7 +313,7 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
   wb.build(
     [{ col: 0, row: 0, edge: 'n', type: 'officeWall', variant: 0, baseY: { a: 0, b: 0 } }],
     [{ col: 0, row: 0, edge: 'n', type: 'officeDoor', variant: 0, off: 2 }],
-    group, 'up', null
+    [], group, 'up', null
   );
   const offsetPanel = wb._meshes.filter(m => near(m.geometry.parameters?.depth ?? -1, PANEL_THICKNESS))[0];
   assert(near(offsetPanel.position.x, TILE_SIZE / 2 + 0.5),
@@ -389,7 +389,7 @@ console.log('\n=== 8. A tall door on a short wall is clamped, not poked through 
   wb.build(
     [{ ...seg, type: 'cinderblockWall', variant: 0, baseY: { a: 0, b: 0 } }],
     [{ ...seg, type: 'officeDoor', variant: 0, off: 1 }],
-    group, 'up', null
+    [], group, 'up', null
   );
   const wallHeight = WALL_TYPES.cinderblockWall.wallHeight * HEIGHT_SCALE;
   const posts = wb._meshes.filter(m => {
@@ -419,7 +419,7 @@ console.log('\n=== 9. Door parts sit on the terrain, not at y=0 ===\n');
   wb.build(
     [{ ...seg, type: 'cinderblockWall', variant: 0, baseY }],
     [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY }],
-    group, 'up', null
+    [], group, 'up', null
   );
   assert(wb._meshes.every(m => m.position.y >= 2 - 1e-9),
     'every door part is lifted onto the raised ground');
@@ -437,7 +437,7 @@ console.log('\n=== 9. Door parts sit on the terrain, not at y=0 ===\n');
   wb2.build(
     [{ ...seg, type: 'cinderblockWall', variant: 0, baseY: slope }],
     [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY: slope }],
-    new Group(), 'up', null
+    [], new Group(), 'up', null
   );
   const p2 = wb2._meshes.filter(m => {
     const p = m.geometry.parameters;
@@ -458,7 +458,7 @@ console.log('\n=== 10. Cutaway ghosts exactly the walls that border the room ===
     walls.push({ col: c, row: 3, edge: 'n', type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } });
   }
   const wb = new WallBuilder(null);
-  wb.build(walls, [], new Group(), 'cutaway', new Set(['0,3', '1,3', '2,3']));
+  wb.build(walls, [], [], new Group(), 'cutaway', new Set(['0,3', '1,3', '2,3']));
   const spans = wb._meshes.slice().sort((a, b) => a.position.x - b.position.x);
   assert(spans.length === 2, 'the run splits at the room boundary instead of merging through it');
   assert(spans[0].material.opacity === 0.3 && spans[1].material.opacity === 1.0,
@@ -469,7 +469,7 @@ console.log('\n=== 10. Cutaway ghosts exactly the walls that border the room ===
   // The same run with the room at the FAR end — the previous code read the
   // origin tile and left the room's own walls solid.
   const wb2 = new WallBuilder(null);
-  wb2.build(walls, [], new Group(), 'cutaway', new Set(['3,3', '4,3', '5,3']));
+  wb2.build(walls, [], [], new Group(), 'cutaway', new Set(['3,3', '4,3', '5,3']));
   const far = wb2._meshes.slice().sort((a, b) => a.position.x - b.position.x);
   assert(far[0].material.opacity === 1.0 && far[1].material.opacity === 0.3,
     'the ghosted span follows the room, not the first tile in the run');
@@ -486,7 +486,7 @@ console.log('\n=== 11. Cutaway ghosts the wall around a door too ===\n');
   wb.build(
     [{ ...seg, type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } }],
     [{ ...seg, type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
-    new Group(), 'cutaway', new Set(['5,5'])
+    [], new Group(), 'cutaway', new Set(['5,5'])
   );
   assert(wb._meshes.length > 0, 'the door builds meshes');
   assert(wb._meshes.every(m => m.material.opacity === 0.3),
@@ -508,7 +508,7 @@ console.log('\n=== 12. A wall stored under the mirrored key never seals the door
       { col: 5, row: 6, edge: 'n', type: 'officeWall', variant: 0, baseY: { a: 0, b: 0 } },
     ],
     [{ col: 5, row: 5, edge: 's', type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
-    new Group(), 'up', null
+    [], new Group(), 'up', null
   );
   const fullTile = wb._meshes.filter(m => {
     const p = m.geometry.parameters;
@@ -522,7 +522,7 @@ console.log('\n=== 12. A wall stored under the mirrored key never seals the door
   wb2.build(
     [{ col: 5, row: 6, edge: 'n', type: 'structuralWall', variant: 0, baseY: { a: 0, b: 0 } }],
     [{ col: 5, row: 5, edge: 's', type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
-    new Group(), 'up', null
+    [], new Group(), 'up', null
   );
   const wallH = WALL_TYPES.structuralWall.wallHeight * HEIGHT_SCALE;
   const fills = wb2._meshes.filter(m => near(m.geometry.parameters?.height ?? -1, wallH));
