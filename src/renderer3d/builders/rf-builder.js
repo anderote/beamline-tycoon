@@ -31,7 +31,7 @@ function rotZ(angle) {
 }
 
 function makeBuckets() {
-  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [], glow: [] };
 }
 
 // Box helper — the rack and waveguide builders below are almost entirely
@@ -522,7 +522,7 @@ export function _buildLLRFControllerRoles() {
     boxAt(b.detail, 0.02, 0.02, 0.16, 0.215, y + 0.025, 0.20);
   }
   // The top unit is the operator console: a screen and two tuning knobs.
-  boxAt(b.detail, 0.02, 0.07, 0.30, 0.215, 0.71, -0.06);
+  boxAt(b.glow, 0.02, 0.07, 0.30, 0.215, 0.71, -0.06);
   for (const sz of [-1, 1]) cylX(b.pipe, 0.022, 0.03, 0.225, 0.32, sz * 0.20, 8);
 
   // Patch panel of coax bulkheads across the top, then the lid.

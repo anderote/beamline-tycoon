@@ -32,7 +32,7 @@ function rotX(angle) {
 }
 
 function makeBuckets() {
-  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [], glow: [] };
 }
 
 // ── Attachment builders (gauges + gate valve) ───────────────────────
@@ -405,12 +405,12 @@ export function _buildNEGPumpRoles() {
     pushT(b.accent, g, trans(0, baseH + boxH / 2, 0));
   }
 
-  // Front panel detail strip (indicator/display area)
+  // Front panel indicator/display strip
   {
     const sW = boxW * 0.7, sH = 0.07, sD = 0.008;
     const g = new THREE.BoxGeometry(sW, sH, sD);
     applyTiledBoxUVs(g, sW, sH, sD);
-    pushT(b.detail, g, trans(0, baseH + boxH * 0.72, boxD / 2 + sD / 2));
+    pushT(b.glow, g, trans(0, baseH + boxH * 0.72, boxD / 2 + sD / 2));
   }
 
   // Cable connector on top

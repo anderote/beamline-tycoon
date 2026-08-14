@@ -15,7 +15,9 @@
 //   -> draw a utility line port-to-port   [UI: palette + canvas press-drag]
 //   -> pause the sim                      [UI: HUD pause button]
 //   -> start the beam                     [UI: dbl-click -> context window button]
+//   -> glow toggle off, live               [UI: Options dialog checkbox]
 //   -> save + reload via Menu > Main Menu [UI: menu; then title "Continue"]
+//   -> glow off survived reload, toggle back on, live [UI: Options dialog]
 //   -> undo / redo                        [UI: Ctrl+Z / Ctrl+Shift+Z]
 //   -> Escape out of every UI layer       [UI: keyboard]
 //
@@ -281,6 +283,32 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     errors.check('beam toggle');
   });
 
+  // ── glow toggle: off, live, before the reload below carries it forward ──
+  await test.step('glow toggle off via Options (live, no reload)', async () => {
+    await page.click('#btn-menu');
+    await page.click('.menu-item[data-action="options"]');
+    await expect(page.locator('#options-dialog')).toBeVisible();
+    const glowCheckbox = page.locator('#opt-glow');
+    // Default on — the composer path is what every earlier step above just
+    // ran through. Confirm it rendered clean before touching anything.
+    await expect(glowCheckbox).toBeChecked();
+    await expectRendererLive(page);
+    errors.check('glow on (composer path, default)');
+
+    // Flip off: renderer.setGlowEnabled(false) falls through to the direct
+    // renderer.render() path on the very next frame — no reload needed.
+    await glowCheckbox.uncheck();
+    await expect.poll(() => page.evaluate(() => window._renderer.glowEnabled)).toBe(false);
+    await frames(page, 3);
+    await expectRendererLive(page);
+    errors.check('glow off (direct path, live toggle)');
+
+    // Leave it off and close — the reload in the next step should carry
+    // 'beamlineTycoon.glow'=0 forward and boot straight into the direct path.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#options-dialog')).toBeHidden();
+  });
+
   // ── save + reload + Continue ────────────────────────────────────────────
   let saved;
   await test.step('save and reload via Menu > Main Menu, then Continue', async () => {
@@ -308,6 +336,31 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     expect(restored.infraTiles).toBe(saved.infraTiles);
     expect(restored.placeables).toBe(saved.placeables);
     errors.check('save / reload / continue');
+  });
+
+  // ── glow toggle: confirm the off state (direct path) survived the reload,
+  //    then flip back on so the rest of the walk exercises the composer path
+  //    it started in ──────────────────────────────────────────────────────
+  await test.step('glow stayed off across reload, then back on (direct + composer both boot clean)', async () => {
+    expect(await page.evaluate(() => window._renderer.glowEnabled),
+      'glow=0 persisted through the reload; booted straight into the direct path').toBe(false);
+    await expectRendererLive(page);
+    errors.check('booted with glow off (direct path)');
+
+    await page.click('#btn-menu');
+    await page.click('.menu-item[data-action="options"]');
+    await expect(page.locator('#options-dialog')).toBeVisible();
+    const glowCheckbox = page.locator('#opt-glow');
+    await expect(glowCheckbox, 'checkbox reflects the persisted off state').not.toBeChecked();
+
+    await glowCheckbox.check();
+    await expect.poll(() => page.evaluate(() => window._renderer.glowEnabled)).toBe(true);
+    await frames(page, 3);
+    await expectRendererLive(page);
+    errors.check('glow back on (composer path, live toggle)');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#options-dialog')).toBeHidden();
   });
 
   // ── undo / redo ─────────────────────────────────────────────────────────

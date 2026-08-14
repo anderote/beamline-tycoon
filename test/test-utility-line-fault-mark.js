@@ -29,6 +29,9 @@ class Obj3 {
     this.children = []; this.userData = {};
     this.position = new V3(); this.rotation = { x: 0, y: 0, z: 0 };
     this.quaternion = { copy() {} }; this.scale = new V3(1, 1, 1);
+    // Real Object3D always carries a Layers mask (buildLineGroup enables
+    // BLOOM_LAYER on flow-patched meshes — see utility-flow.js / Task 4).
+    this.layers = { mask: 1, enable(n) { this.mask |= (1 << n); }, test() { return true; } };
   }
   add(c) { this.children.push(c); }
   remove(c) {
