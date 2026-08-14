@@ -1,11 +1,18 @@
 // src/game/staff/jobs.js — the job board.
 //
 // Task 1 of the staff-professions-3 (jobs-and-gates) plan. Scans the world
-// and derives the offers a job system (Task 2+) will assign to staff. This
-// module is PURE DERIVATION: buildJobOffers() only reads `game`/`game.state`
-// — nav grid, station index, beamline registry, resources — and returns a
-// plain array. Nothing here reserves a station, nothing here writes to
-// state, nothing here picks who does the work. That's the next task.
+// and derives `{ offers, suppressions }` for a job system (Task 2+) to
+// assign from. buildJobOffers() itself never reserves a station, never
+// assigns anyone, and never writes anything of its own — it only READS
+// game/game.state (nav grid, station index, beamline registry, resources).
+// The one write that can happen on its call stack isn't this module's:
+// getStationIndex (stations.js) prunes dead keys out of
+// state.stationReservations whenever it rebuilds, which is that shared
+// cache's own documented bookkeeping, not something buildJobOffers does —
+// see test-job-board.js's deep-freeze regression test, which is exactly
+// why this distinction matters (a naive "nothing here writes to state"
+// claim doesn't survive contact with a frozen state that still has live
+// reservations to prune).
 //
 // The eleven job ids below are a closed vocabulary, already authored onto
 // placeable defs' `station.jobs` arrays (see facility-lab-furnishings.raw.js,
@@ -15,6 +22,7 @@
 
 import { getStationIndex } from './stations.js';
 import { getNavGrid, isReachable } from './nav.js';
+import { isBlocked } from '../../networks/rooms.js';
 import { PROFESSIONS, SPECIALTY_AXES, professionDef } from '../../data/professions.js';
 import { ZONES } from '../../data/facility.js';
 import { flattenPath } from '../../beamline/flattener.js';
@@ -26,10 +34,23 @@ import { flattenPath } from '../../beamline/flattener.js';
 // them, but they still need a place in this table since the vocabulary is
 // closed and Task 2 reads their basePriority/workTicks same as everything
 // else), then repair, runBeam, commission, fabricate, takeData, labWork,
-// analyze, paperwork, meet. Repair's actual per-offer priority is this base
-// PLUS an urgency term that grows as health falls (see repairOffersFor) —
-// the base alone is already above runBeam's, so a repair offer always
-// outranks a runBeam offer regardless of how mild the damage is.
+// analyze, paperwork, meet.
+//
+// eat/rest sit at 1000/950 — an order of magnitude above every work
+// priority, not just a little above repair's. Repair's own priority is
+// this base PLUS an urgency term that grows as health falls (see
+// repairOffers), topping out around 90 + 100*0.5 = 140 at zero health, so
+// "needs outrank all work" holds NUMERICALLY AND UNCONDITIONALLY — it does
+// not depend on repair's urgency term staying below some assumed ceiling.
+// An earlier version of this table put eat/rest at 100/95, just above
+// repair's 90 base; repair's own urgency term crosses that at 79% health
+// (a routine steady state under Game.js's continuous wear, not an edge
+// case), which would have let repair — itself `interruptible: false` —
+// starve a hungry technician exactly the way the hunger-recovery deadlock
+// this codebase already fixed once (see staffSystem.js's tickStaffMember
+// comment) started the first time. Clamping repair's urgency instead of
+// fixing the base gap would just be a magic number for the next person
+// tuning urgency to quietly defeat.
 //
 // `professions`: which profession ids may take the job (eligibleFor's
 // hard gate). `usesSpecialty`: whether this job type's offers can carry a
@@ -43,23 +64,23 @@ import { flattenPath } from '../../beamline/flattener.js';
 // aren't either, for the same "don't do this halfway" reason. Everything
 // else can be paused for something more urgent.
 export const JOB_TYPES = {
-  eat:        { id: 'eat',        name: 'Eat',           professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 100, workTicks: 40,  interruptible: false },
-  rest:       { id: 'rest',       name: 'Rest',          professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 95,  workTicks: 80,  interruptible: false },
-  repair:     { id: 'repair',     name: 'Repair',        professions: ['technician'],            usesSpecialty: false, basePriority: 90,  workTicks: 60,  interruptible: false },
-  runBeam:    { id: 'runBeam',    name: 'Run Beam',      professions: ['operator'],               usesSpecialty: false, basePriority: 80,  workTicks: null, interruptible: false },
-  commission: { id: 'commission', name: 'Commissioning', professions: ['engineer'],               usesSpecialty: true,  basePriority: 70,  workTicks: 90,  interruptible: true },
-  fabricate:  { id: 'fabricate',  name: 'Fabrication',   professions: ['machinist'],              usesSpecialty: false, basePriority: 60,  workTicks: 150, interruptible: true },
-  takeData:   { id: 'takeData',   name: 'Take Data',     professions: ['scientist'],              usesSpecialty: true,  basePriority: 50,  workTicks: 120, interruptible: true },
-  labWork:    { id: 'labWork',    name: 'Lab Work',      professions: ['engineer'],               usesSpecialty: true,  basePriority: 40,  workTicks: 120, interruptible: true },
-  analyze:    { id: 'analyze',    name: 'Analysis',      professions: ['scientist'],              usesSpecialty: false, basePriority: 30,  workTicks: 100, interruptible: true },
-  paperwork:  { id: 'paperwork',  name: 'Paperwork',     professions: ['admin'],                  usesSpecialty: false, basePriority: 20,  workTicks: 80,  interruptible: true },
-  meet:       { id: 'meet',       name: 'Meeting',       professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 10,  workTicks: 60,  interruptible: true },
+  eat:        { id: 'eat',        name: 'Eat',           professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 1000, workTicks: 40,  interruptible: false },
+  rest:       { id: 'rest',       name: 'Rest',          professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 950,  workTicks: 80,  interruptible: false },
+  repair:     { id: 'repair',     name: 'Repair',        professions: ['technician'],            usesSpecialty: false, basePriority: 90,   workTicks: 60,  interruptible: false },
+  runBeam:    { id: 'runBeam',    name: 'Run Beam',      professions: ['operator'],               usesSpecialty: false, basePriority: 80,   workTicks: null, interruptible: false },
+  commission: { id: 'commission', name: 'Commissioning', professions: ['engineer'],               usesSpecialty: true,  basePriority: 70,   workTicks: 90,  interruptible: true },
+  fabricate:  { id: 'fabricate',  name: 'Fabrication',   professions: ['machinist'],              usesSpecialty: false, basePriority: 60,   workTicks: 150, interruptible: true },
+  takeData:   { id: 'takeData',   name: 'Take Data',     professions: ['scientist'],              usesSpecialty: true,  basePriority: 50,   workTicks: 120, interruptible: true },
+  labWork:    { id: 'labWork',    name: 'Lab Work',      professions: ['engineer'],               usesSpecialty: true,  basePriority: 40,   workTicks: 120, interruptible: true },
+  analyze:    { id: 'analyze',    name: 'Analysis',      professions: ['scientist'],              usesSpecialty: false, basePriority: 30,   workTicks: 100, interruptible: true },
+  paperwork:  { id: 'paperwork',  name: 'Paperwork',     professions: ['admin'],                  usesSpecialty: false, basePriority: 20,   workTicks: 80,  interruptible: true },
+  meet:       { id: 'meet',       name: 'Meeting',       professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 10,   workTicks: 60,  interruptible: true },
 };
 
 // A repair/commission node's priority-per-health-point term (see JOB_TYPES'
-// comment above) — small enough that a barely-damaged node still sorts
-// below a badly-damaged one, but never large enough to threaten eat/rest's
-// injected priority.
+// comment above). At the extreme (health 0) this adds 50 to repair's base
+// of 90, for a ceiling of 140 — still two orders of magnitude below eat/
+// rest's 1000/950, by design, not by luck.
 const REPAIR_HEALTH_WEIGHT = 0.5;
 
 // Minimum idle staff (see idleStaffCount) required before a meeting is
@@ -90,22 +111,110 @@ function makeOffer(jobType, target, specialty, priority, stationKey) {
   return { jobType, target, specialty, priority, stationKey };
 }
 
-// --- Reachability helpers (board-level, no staff position available yet) --
+// --- Reachability helpers --------------------------------------------------
 //
-// eligibleFor's "unreachable" check (below) has an actual staff position to
-// test against. buildJobOffers does not — it runs once per world scan, not
-// once per staffer — so repair's own "don't even offer a sealed-off node"
-// pre-filter (task-1-brief.md) needs a position-INDEPENDENT notion of
-// reachability: is this node connected to the rest of the walkable facility
-// at all, by anyone, ever? nav.js's connected-component labelling already
-// treats everything outside the built area as one implicit OUTDOOR
-// component (see nav.js's header comment), and a real facility's built
-// area almost always touches it somewhere (a front door, an unwalled gap) —
-// a node that DOESN'T is exactly the "sealed room, no door" case this is
-// meant to catch. Probing all four corners of the nav grid's own bounds
-// (guaranteed outdoors — nothing is ever built at the literal edge of the
-// map) rather than a single corner is cheap insurance against one corner
-// happening to be blocked.
+// Beamline components (repair/commission targets) have no StationRef — no
+// pre-resolved anchor just outside their footprint the way stations.js
+// gives every furniture-based job. A technician can't stand ON a
+// component (it occupies blocked subtiles exactly like any other placed
+// equipment — see nav.js's blockedSubtiles), so "reachable" has to mean
+// "is there a passable subtile immediately outside the component's actual
+// footprint, reachable without a wall in the way" — not "is the
+// component's own origin corner passable", which is wrong in both
+// directions on a real multi-subtile module (every real beamline module is
+// >= 4x4 subtiles, subH >= 4):
+//   - false positive: a component against a sealed room's west wall has a
+//     passable subtile immediately west of it — OUTSIDE the wall. Probing
+//     only "is that neighbor subtile passable" (no isBlocked check) says
+//     yes, and the board offers a repair nobody can actually walk to; the
+//     pawn commits, findPath returns null, it stalls.
+//   - false negative: a multi-subtile component chained between two
+//     others has its OWN ORIGIN CORNER boxed in on all four sides even
+//     though the rest of its perimeter (the other ~12+ subtiles) opens
+//     onto clear floor. Probing only the origin corner's four neighbors
+//     reports permanently unreachable, and a damaged module in a dense
+//     chain decays to zero forever.
+// approachCandidates() below fixes both: it walks the component's REAL
+// footprint (placeable.cells — every placed entry has this; see
+// Game.js's addPlaceable/_rebuildPlaceableCells), collects every subtile
+// cardinally adjacent to ANY footprint cell (excluding neighbors that are
+// themselves part of the same footprint), and for each one that would
+// cross a tile boundary, actually asks isBlocked() — the same wall/door
+// test nav.js's own A* uses — rather than just checking "is this subtile
+// occupied by something".
+
+// Same 4-neighbor subtile step nav.js's own (unexported) neighborsOf uses:
+// `edge` is only set when the step crosses a TILE boundary — the one case
+// isBlocked (a wall/door test keyed by tile edge) can ever apply, since
+// walls only ever live on tile edges, never mid-tile.
+function neighborsOf(n) {
+  const out = [];
+  if (n.subCol > 0) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol - 1, subRow: n.subRow } });
+  else out.push({ node: { col: n.col - 1, row: n.row, subCol: 3, subRow: n.subRow }, edge: 'w' });
+  if (n.subCol < 3) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol + 1, subRow: n.subRow } });
+  else out.push({ node: { col: n.col + 1, row: n.row, subCol: 0, subRow: n.subRow }, edge: 'e' });
+  if (n.subRow > 0) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow - 1 } });
+  else out.push({ node: { col: n.col, row: n.row - 1, subCol: n.subCol, subRow: 3 }, edge: 'n' });
+  if (n.subRow < 3) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow + 1 } });
+  else out.push({ node: { col: n.col, row: n.row + 1, subCol: n.subCol, subRow: 0 }, edge: 's' });
+  return out;
+}
+
+function subtileKey(n) { return `${n.col},${n.row},${n.subCol},${n.subRow}`; }
+
+function nodeSubtile(placeable) {
+  if (!placeable || !Number.isFinite(placeable.col) || !Number.isFinite(placeable.row)) return null;
+  return {
+    col: placeable.col, row: placeable.row,
+    subCol: placeable.subCol || 0, subRow: placeable.subRow || 0,
+  };
+}
+
+// The footprint to walk the perimeter of: a placed entry's real `.cells`
+// when present (every real placeable has this), falling back to its own
+// single origin subtile for anything hand-built without one.
+function footprintCellsOf(placeable) {
+  if (Array.isArray(placeable?.cells) && placeable.cells.length) return placeable.cells;
+  const single = nodeSubtile(placeable);
+  return single ? [single] : [];
+}
+
+/**
+ * Every passable subtile immediately outside `cells`' footprint that a
+ * technician could actually stand on to work it — see this section's
+ * header comment for why this has to walk the whole perimeter with a real
+ * wall test, not probe one corner. Order is not meaningful; callers reduce
+ * this with `.some()`.
+ */
+function approachCandidates(nav, state, cells) {
+  const footprint = new Set(cells.map(subtileKey));
+  const seen = new Set();
+  const out = [];
+  for (const cell of cells) {
+    for (const { node, edge } of neighborsOf(cell)) {
+      const key = subtileKey(node);
+      if (footprint.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      if (edge && isBlocked(cell.col, cell.row, edge, state)) continue;
+      if (!nav.passable.has(key)) continue;
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+// Position-INDEPENDENT reachability: is this subtile connected to the rest
+// of the walkable facility at all, by anyone, ever? Used by the board's own
+// repair pre-filter (buildJobOffers has no specific staff member in scope —
+// it runs once per world scan, not once per staffer). nav.js's connected-
+// component labelling treats everything outside the built area as one
+// implicit OUTDOOR component (see nav.js's header comment), and a real
+// facility's built area almost always touches it somewhere (a front door,
+// an unwalled gap) — a node that doesn't is exactly the "sealed room, no
+// door" case this exists to catch. Probing all four corners of the nav
+// grid's own bounds (guaranteed outdoors — nothing is ever built at the
+// literal edge of the map) rather than a single corner is cheap insurance
+// against one corner happening to be blocked.
 function reachableFromOutdoors(nav, node) {
   const { minCol, maxCol, minRow, maxRow } = nav.bounds;
   const corners = [
@@ -117,69 +226,52 @@ function reachableFromOutdoors(nav, node) {
   return corners.some(c => isReachable(nav, c, node));
 }
 
-// Normalize a subtile offset the same way stations.js's absoluteSubtile
-// does (duplicated here rather than imported — it's a few lines of modular
-// arithmetic, not worth exporting a private helper across modules for).
-function offsetSubtile(node, dc, dr) {
-  const totalCol = (node.subCol || 0) + dc;
-  const totalRow = (node.subRow || 0) + dr;
-  return {
-    col: node.col + Math.floor(totalCol / 4),
-    row: node.row + Math.floor(totalRow / 4),
-    subCol: ((totalCol % 4) + 4) % 4,
-    subRow: ((totalRow % 4) + 4) % 4,
-  };
-}
-
-// A beamline component is solid (occupies a blocked subtile, same as any
-// other placed equipment — see nav.js's blockedSubtiles), so a technician
-// can never stand ON it; they stand next to it. Returns the component's own
-// subtile if that happens to be passable (small/attachment-style parts),
-// otherwise the first passable subtile immediately cardinal-adjacent to it,
-// or null if the component is boxed in on all four sides.
-function approachNode(nav, node) {
-  const passableAt = (n) => nav.passable.has(`${n.col},${n.row},${n.subCol},${n.subRow}`);
-  if (passableAt(node)) return node;
-  for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const n2 = offsetSubtile(node, dc, dr);
-    if (passableAt(n2)) return n2;
-  }
-  return null;
-}
-
-function nodeSubtile(placeable) {
-  if (!placeable || !Number.isFinite(placeable.col) || !Number.isFinite(placeable.row)) return null;
-  return {
-    col: placeable.col, row: placeable.row,
-    subCol: placeable.subCol || 0, subRow: placeable.subRow || 0,
-  };
-}
-
 // --- Offer generation, per job type ------------------------------------
 
 function freeStationsFor(index, reservations, jobId) {
   return (index.byJob[jobId] || []).filter(ref => !reservations[ref.key]);
 }
 
-// runBeam: one offer per free runBeam station slot, capped at the number of
-// beamlines that currently exist — a console with no beamline to run is not
-// work. Stations are interchangeable (a slot doesn't reference a specific
-// beamline), so the cap is just a count, not a per-beamline pairing.
-function runBeamOffers(index, reservations, beamlineCount) {
+// runBeam: one offer per free runBeam station slot. NOT capped at the
+// number of beamlines that currently exist — an earlier version of this
+// function did `.slice(0, beamlineCount)`, which silently discards offers
+// in INDEX order: with 3 free consoles and 1 beamline, an operator
+// standing right next to console #3 would only ever be offered console #1,
+// and no amount of "tie-broken by path length" logic downstream can
+// recover an offer the slice already threw away before anyone got to rank
+// it. The "no more operators than beamlines" cap is a real constraint, but
+// it belongs to Task 2's assignment step, which knows who's being assigned
+// and can apply it without discarding information the board itself has no
+// business throwing away.
+function runBeamOffers(index, reservations) {
   return freeStationsFor(index, reservations, 'runBeam')
-    .slice(0, beamlineCount)
     .map(ref => makeOffer('runBeam', null, null, JOB_TYPES.runBeam.basePriority, ref.key));
 }
 
-// repair + commission: both walk every currently-registered beamline's
+// repair + commission both walk every currently-registered beamline's
 // flattened path looking at each MODULE node (drift/placement synthetic
 // entries carry no placeable position to repair a technician toward, and
 // componentHealth is keyed by module placeable ids — see
-// Game.js:_applyWearForBeamline). Iterating only registry.getAll()'s
-// CURRENT entries is what makes the "stale target" rule (a beamline that no
-// longer exists must never appear as a target) automatic: a demolished
-// beamline simply never contributes nodes to this loop, with no separate
-// staleness check required.
+// Game.js:_applyWearForBeamline). Computed ONCE per buildJobOffers call and
+// shared by both — flattenPath rebuilds a full placeable-id map internally
+// every time it runs, so calling it once per beamline per job TYPE (an
+// earlier version of this file called it separately from repairOffers and
+// commissionOffers) is double the real work for no benefit.
+//
+// Iterating only registry.getAll()'s CURRENT entries is what makes the
+// "stale target" rule (a beamline that no longer exists must never appear
+// as a target) automatic: a demolished beamline simply never contributes
+// nodes to this loop, with no separate staleness check required.
+//
+// Not deduplicated by node id: if the SAME physical placeable were ever
+// reachable from two different registered beamlines' sourceIds (a shared
+// junction on an interconnected pipe network — unusual, but not prevented
+// by the data model), this produces one repair offer per beamline, each
+// targeting a different `beamlineId` against that beamline's OWN
+// `componentHealth` dict. That's not a bug to dedupe here: componentHealth
+// is namespaced per beamline entry, not globally per placeable, so the two
+// offers already address two independently-tracked health values — the
+// data model, not this scan, is what makes them two separate facts.
 function beamlineComponentNodes(game) {
   const entries = game.registry?.getAll?.() || [];
   const out = [];
@@ -194,35 +286,56 @@ function beamlineComponentNodes(game) {
   return out;
 }
 
-function repairOffers(game, nav) {
-  const spares = game.state.resources?.spares ?? 0;
+// Returns `{ offers, suppressions }`. A suppression is a damaged node the
+// board considered and explicitly declined to offer — `{ jobType, target,
+// reason }`, the same target shape a real offer would carry, plus WHY.
+// This is a second, distinct channel from the returned offers array: a
+// silent `continue` here would make "spares === 0 -> no offer" and
+// "unreachable -> no offer" indistinguishable from each other, or from a
+// node simply not existing, to anything downstream (a later task's UI, or
+// this file's own tests) that wants to explain to the player why a known,
+// damaged, otherwise-workable component isn't up for repair.
+function repairOffers(nodes, nav, state) {
+  const spares = state.resources?.spares ?? 0;
   const offers = [];
-  for (const { entry, node } of beamlineComponentNodes(game)) {
+  const suppressions = [];
+  for (const { entry, node } of nodes) {
     const health = entry.beamState?.componentHealth?.[node.id];
     if (health === undefined || health >= 100) continue;
-    // Rejected before offering — no offer is emitted at all — when the
-    // node can't be reached or there's nothing to fix it with. Both checks
-    // run every time (not short-circuited on the cheaper one) only because
-    // order doesn't matter here: neither has a side effect.
-    if (spares <= 0) continue;
-    const subtile = nodeSubtile(node.placeable);
-    const approach = subtile && approachNode(nav, subtile);
-    if (!approach || !reachableFromOutdoors(nav, approach)) continue;
+    const target = { beamlineId: entry.id, nodeId: node.id };
+
+    // Rejected before offering — no offer is emitted at all, a suppression
+    // is recorded instead — when there's nothing to fix it with, or the
+    // node can't be reached. Spares checked first only because it's the
+    // cheaper test; neither check has a side effect, so the order carries
+    // no other meaning.
+    if (spares <= 0) {
+      suppressions.push({ jobType: 'repair', target, reason: 'No spares available to make the repair.' });
+      continue;
+    }
+    const cells = footprintCellsOf(node.placeable);
+    const reachable = cells.length > 0 && approachCandidates(nav, state, cells).some(n => reachableFromOutdoors(nav, n));
+    if (!reachable) {
+      suppressions.push({ jobType: 'repair', target, reason: 'Unreachable — no clear path to the component.' });
+      continue;
+    }
 
     const priority = JOB_TYPES.repair.basePriority + (100 - health) * REPAIR_HEALTH_WEIGHT;
-    offers.push(makeOffer('repair', { beamlineId: entry.id, nodeId: node.id }, null, priority, null));
+    offers.push(makeOffer('repair', target, null, priority, null));
   }
-  return offers;
+  return { offers, suppressions };
 }
 
 // commission: one offer per placed component flagged `needsCommissioning`
 // (Task 6 sets this, alongside a `specialty` naming which engineering
 // specialty is qualified to sign off on it — neither field exists on any
 // placeable yet, so this is forward-compatible dead code today, not
-// reachable from any current game state).
-function commissionOffers(game) {
+// reachable from any current game state). No reachability pre-filter here
+// — the brief only specifies one for repair; eligibleFor still gates a
+// specific member's reachability to either job type (see below).
+function commissionOffers(nodes) {
   const offers = [];
-  for (const { entry, node } of beamlineComponentNodes(game)) {
+  for (const { entry, node } of nodes) {
     const placeable = node.placeable;
     if (!placeable?.needsCommissioning) continue;
     const priority = JOB_TYPES.commission.basePriority;
@@ -252,15 +365,29 @@ function plainStationOffers(index, reservations) {
 
 // meet: a morale release valve, not a default activity — only offered when
 // an admin is present to run it AND at least MEET_MIN_IDLE staff have
-// nothing else reserved. "Idle" is read off state.stationReservations
-// (nobody holding any slot) rather than StaffMember.status: status only
-// distinguishes working/onBreak/resting, none of which is "unassigned",
-// and a reservation is the one signal this board can already see without
-// a real job-assignment system (that's Task 2).
+// nothing else going on. "Idle" prefers Task 2's own `m.job` field once a
+// StaffMember actually carries one (undefined -> no assignment -> idle;
+// any other value -> not idle), falling back to the reservation-based
+// heuristic only when the field is absent entirely — so the board and
+// Task 2's real assignment runner read the exact same signal and can never
+// silently diverge once Task 2 lands. `!m.job ?? !reservedIds.has(m.id)`
+// (a literal nullish-coalescing read of this intent) doesn't actually work:
+// `!m.job` is always a real boolean, never null/undefined, so `??`'s right
+// side would never run — this checks the field's PRESENCE instead. Until
+// Task 2 lands, every StaffMember lacks `.job` and this always falls back
+// to the reservation heuristic, which — like the pre-fix version — still
+// can't see repair/commission's target-addressed work (no stationKey, no
+// reservation), so a technician mid-repair currently reads as idle. That's
+// a real, known gap in the fallback specifically, closed the moment Task 2
+// adds `.job`, not by this task.
+function isIdle(member, reservedIds) {
+  return 'job' in member ? member.job == null : !reservedIds.has(member.id);
+}
+
 function idleStaffCount(state) {
   const reservations = state.stationReservations || {};
   const reservedIds = new Set(Object.values(reservations));
-  return (state.staffMembers || []).filter(m => !reservedIds.has(m.id)).length;
+  return (state.staffMembers || []).filter(m => isIdle(m, reservedIds)).length;
 }
 
 function meetOffers(index, reservations, state) {
@@ -272,50 +399,83 @@ function meetOffers(index, reservations, state) {
 
 /**
  * Scan `game`'s world and derive every job offer currently available —
- * pure function of `game`/`game.state`, no mutation, no assignment. Sorted
- * by descending priority. eat/rest are never generated here (Task 2 injects
- * those directly from staff needs) even though they're in JOB_TYPES.
+ * reads `game`/`game.state` only (see this file's header comment for the
+ * one caveat: getStationIndex's own legitimate cache-pruning side effect).
+ * No mutation of its own, no assignment.
+ *
+ * Returns `{ offers, suppressions }`, not a bare array:
+ *   - `offers` — sorted by descending priority.
+ *   - `suppressions` — `{ jobType, target, reason }` for every damaged
+ *     beamline node the board explicitly declined to offer a repair for
+ *     (no spares, or unreachable — see repairOffers). Without this, "no
+ *     spares" and "unreachable" and "this node doesn't exist" are all
+ *     indistinguishable from the offers list alone; Task 5's player-facing
+ *     surfacing of "why isn't X being fixed" reads this channel directly.
+ *
+ * eat/rest are never generated here (Task 2 injects those directly from
+ * staff needs) even though they're in JOB_TYPES.
  */
 export function buildJobOffers(game) {
   const state = game.state;
   const index = getStationIndex(state);
   const reservations = state.stationReservations || {};
   const nav = getNavGrid(state);
-  const beamlineCount = (game.registry?.getAll?.() || []).length;
+  const nodes = beamlineComponentNodes(game);
+  const repair = repairOffers(nodes, nav, state);
 
   const offers = [
-    ...runBeamOffers(index, reservations, beamlineCount),
-    ...repairOffers(game, nav),
-    ...commissionOffers(game),
+    ...runBeamOffers(index, reservations),
+    ...repair.offers,
+    ...commissionOffers(nodes),
     ...plainStationOffers(index, reservations),
     ...meetOffers(index, reservations, state),
   ];
 
   offers.sort((a, b) => b.priority - a.priority);
-  return offers;
+  return { offers, suppressions: repair.suppressions };
 }
 
 // --- Eligibility ---------------------------------------------------------
+
+// Resolve a repair/commission `target` back to the live placeable it
+// addresses — null when either the beamline that owned it is no longer
+// registered, or the placeable itself is gone (both read as "stale job").
+function resolveTarget(game, target) {
+  if (!target) return null;
+  const beamlineLive = (game.registry?.getAll?.() || []).some(e => e.id === target.beamlineId);
+  if (!beamlineLive) return null;
+  const state = game?.state;
+  const idx = state?.placeableIndex?.[target.nodeId];
+  const placeable = idx !== undefined ? state.placeables?.[idx] : (state?.placeables || []).find(p => p.id === target.nodeId);
+  return placeable || null;
+}
 
 /**
  * Whether `member` may currently take `offer`. Always returns
  * `{ ok, reason }` — never a bare boolean — because `reason` survives to the
  * player-facing UI (a later task): it must read as English, never leak a
- * camelCase job/station id, and never be empty when `ok` is false.
+ * camelCase job/station id or a raw unrecognized profession id, and never
+ * be empty when `ok` is false.
  *
  * `member` needs `.profession`, `.specialty`, `.skills`, and — only when
- * `offer.stationKey` is set and reachability matters — `.fromNode` (a
- * subtile node, the member's current position; the same shape findStation's
- * `fromNode` takes). Task 2's assignment loop resolves this from the
- * staffer's live pawn position before calling in; omitting it simply skips
- * the reachability check rather than rejecting; StaffMember itself carries
- * no position field today (see StaffPawns.js), so this cannot be tightened
- * to "always required" without that task.
+ * reachability matters — `.fromNode` (a subtile node, the member's current
+ * position; the same shape findStation's `fromNode` takes). Task 2's
+ * assignment loop resolves this from the staffer's live pawn position
+ * before calling in; omitting it simply skips the reachability check
+ * rather than rejecting; StaffMember itself carries no position field
+ * today (see StaffPawns.js), so this cannot be tightened to "always
+ * required" without that task.
  *
- * `game` supplies the world context (station index, nav grid, reservations)
- * that reachability/reservation checks need — the brief's two-arg summary
- * of this function elides it, but neither check is answerable without
- * `game.state`.
+ * `game` supplies the world context (station index, nav grid, reservations,
+ * beamline registry) that reachability/reservation/staleness checks need —
+ * the brief's two-arg summary of this function elides it, but none of
+ * those checks are answerable without it. Reachability is checked for
+ * BOTH station-addressed offers (runBeam/labWork/etc, via the StationRef's
+ * resolved node) and target-addressed ones (repair/commission, via the
+ * same approachCandidates() perimeter walk buildJobOffers's own repair
+ * pre-filter uses) — a technician on the far side of the map is not
+ * eligible for a repair five tiles away just because there's no
+ * StationRef to hang the check off of.
  *
  * Never rejects on specialty mismatch alone: a specialist working outside
  * their specialty runs at CROSS_SPECIALTY_EFFICIENCY (half rate, applied by
@@ -328,9 +488,14 @@ export function eligibleFor(member, offer, game) {
   if (!jobType) return { ok: false, reason: 'That job no longer exists.' };
 
   if (!jobType.professions.includes(member.profession)) {
-    const roleNames = jobType.professions.map(id => professionDef(id)?.name || id).join(' or ');
-    const memberRole = professionDef(member.profession)?.name || member.profession;
-    return { ok: false, reason: `${jobType.name} needs ${article(roleNames)} ${roleNames}, not ${article(memberRole)} ${memberRole}.` };
+    const roleNames = jobType.professions.map(id => professionDef(id)?.name || 'that role').join(' or ');
+    const memberRole = professionDef(member.profession)?.name || null;
+    return {
+      ok: false,
+      reason: memberRole
+        ? `${jobType.name} needs ${article(roleNames)} ${roleNames}, not ${article(memberRole)} ${memberRole}.`
+        : `${jobType.name} needs ${article(roleNames)} ${roleNames}, and this staffer isn't one.`,
+    };
   }
 
   // Defensive floor, not exercised by any profession/skill combination the
@@ -344,7 +509,9 @@ export function eligibleFor(member, offer, game) {
   }
 
   const state = game?.state;
-  if (offer.stationKey && state) {
+  if (!state) return { ok: true, reason: null };
+
+  if (offer.stationKey) {
     const index = getStationIndex(state);
     const ref = index.byKey[offer.stationKey];
     if (!ref) return { ok: false, reason: 'That station is gone.' };
@@ -359,6 +526,19 @@ export function eligibleFor(member, offer, game) {
       const nav = getNavGrid(state);
       if (!isReachable(nav, member.fromNode, ref.node)) {
         return { ok: false, reason: `${memberLabel(member)} can't reach that station from here.` };
+      }
+    }
+  } else if (offer.target) {
+    const placeable = resolveTarget(game, offer.target);
+    if (!placeable) return { ok: false, reason: 'That job no longer exists.' };
+
+    if (member.fromNode) {
+      const nav = getNavGrid(state);
+      const cells = footprintCellsOf(placeable);
+      const reachable = cells.length > 0
+        && approachCandidates(nav, state, cells).some(n => isReachable(nav, member.fromNode, n));
+      if (!reachable) {
+        return { ok: false, reason: `${memberLabel(member)} can't reach that job from here.` };
       }
     }
   }
