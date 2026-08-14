@@ -17,6 +17,9 @@ import { portWorldPosition, availablePorts as availablePortsFor } from '../utili
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../utility/registry.js';
 import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
+import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
+import { BLOOM_LAYER } from './glow-pipeline.js';
+import { computeLineOrientations } from '../utility/line-orientation.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -53,9 +56,14 @@ function shared(mat) {
 // "this run is faulted", and the blend lands on a different hue for each of
 // the six utilities so there is nothing to learn. The fault is a SYMBOL now
 // (buildFaultMark, below): a red X struck over the run, one shape that means
-// the same thing on every colour of pipe.
-export function getLineMaterial(utilityType, _errorStatus) {
-  const key = matKey(utilityType, 'ok');
+// the same thing on every colour of pipe. Motion carries the fault instead
+// (patchFlowMaterial, utility-flow.js): errorStatus selects a flowState —
+// 'ok' | 'soft' | 'hard' — so a faulted run keeps its colour but stutters,
+// dims or stops, which is why the cache key below is per-status again: this
+// is a distinct material variant, just not a distinct colour.
+export function getLineMaterial(utilityType, errorStatus) {
+  const flowState = errorStatus || 'ok';
+  const key = matKey(utilityType, flowState);
   if (_matCache.has(key)) return _matCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
@@ -64,12 +72,19 @@ export function getLineMaterial(utilityType, _errorStatus) {
     roughness: 0.4,
     metalness: 0.3,
   });
+  if (FLOW_PARAMS[utilityType]) patchFlowMaterial(mat, utilityType, flowState);
   _matCache.set(key, shared(mat));
   return mat;
 }
 
-function getJacketMaterial(utilityType, _errorStatus) {
-  const key = matKey(utilityType, 'ok');
+// Same status-gated flow as getLineMaterial, applied to the jacket too — a
+// cryo line frosts on the OUTSIDE, so the jacket carrying its own baseGlow
+// (rather than just standing between the viewer and the core's) is the
+// physically-grounded read, and see buildLineGroup's BLOOM_LAYER handling for
+// why the jacket has to bloom too or it occludes the core it's wrapping.
+function getJacketMaterial(utilityType, errorStatus) {
+  const flowState = errorStatus || 'ok';
+  const key = matKey(utilityType, flowState);
   if (_jacketMatCache.has(key)) return _jacketMatCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
   const color = descriptor?.color || '#ffffff';
@@ -78,6 +93,7 @@ function getJacketMaterial(utilityType, _errorStatus) {
     roughness: 0.5, metalness: 0.1,
     transparent: true, opacity: 0.35,
   });
+  if (FLOW_PARAMS[utilityType]) patchFlowMaterial(mat, utilityType, flowState);
   _jacketMatCache.set(key, shared(mat));
   return mat;
 }
@@ -135,11 +151,16 @@ function portRiser(ref, placeablesById, runY) {
 }
 
 // One cylinder segment between two 3D points. Orients along the segment.
-function buildCylinderSegment(p0, p1, radius, material) {
+// `runDist`, when given, is `{ start, end }` absolute distance (metres) along
+// the whole polyline this segment belongs to — baked into the geometry's
+// uv.y so a flow-patched material's pulse reads continuous source→sink
+// across every segment of the run, not reset to 0..1 at each waypoint.
+function buildCylinderSegment(p0, p1, radius, material, runDist) {
   const dir = new THREE.Vector3().subVectors(p1, p0);
   const len = dir.length();
   if (len < 1e-4) return null;
   const geo = new THREE.CylinderGeometry(radius, radius, len, SEGS);
+  if (runDist) bakeRunDistanceUVs(geo, runDist.start, runDist.end);
   const mesh = new THREE.Mesh(geo, material);
   // CylinderGeometry is Y-aligned; rotate so Y→(p1-p0).
   const mid = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
@@ -154,12 +175,17 @@ function buildCylinderSegment(p0, p1, radius, material) {
 }
 
 // One box segment between two 3D points for rectangular waveguide geometry.
-function buildRectSegment(p0, p1, width, height, material) {
+// `runDist`, when given, is baked via bakeRunDistanceFromPositionZ — NOT
+// bakeRunDistanceUVs; see that function's doc comment in utility-flow.js for
+// why a BoxGeometry needs its own vertex-position-based bake rather than the
+// cylinder's uv-rescale.
+function buildRectSegment(p0, p1, width, height, material, runDist) {
   const dir = new THREE.Vector3().subVectors(p1, p0);
   const len = dir.length();
   if (len < 1e-4) return null;
   // Orient the long axis along +z of the box then rotate it to match dir.
   const geo = new THREE.BoxGeometry(width, height, len);
+  if (runDist) bakeRunDistanceFromPositionZ(geo, runDist.start, runDist.end);
   const mesh = new THREE.Mesh(geo, material);
   const mid = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
   mesh.position.copy(mid);
@@ -258,7 +284,7 @@ function polylineMidpoint(points) {
   return points[points.length - 1];
 }
 
-function buildLineGroup(line, placeablesById, errorStatus) {
+function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
   const points = buildWorldPoints(line, placeablesById);
@@ -269,23 +295,72 @@ function buildLineGroup(line, placeablesById, errorStatus) {
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const style = descriptor.geometryStyle || 'cylinder';
+  // Only meshes carrying a flow-patched material need to bloom — an untagged
+  // (vacuumPipe) run stays off BLOOM_LAYER and the darken pass leaves it
+  // exactly as inert as it looks.
+  const flowing = !!FLOW_PARAMS[line.utilityType];
 
+  // Segment lengths up front so a reversed run can be baked in one pass too
+  // (see below) rather than needing a second walk once the total is known.
+  const segLens = [];
+  let totalLen = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const d = points[i].distanceTo(points[i + 1]);
+    segLens.push(d);
+    totalLen += d;
+  }
+
+  // Accumulated distance along the polyline, in metres — each segment gets
+  // its own [start, end) window baked into its geometry (see
+  // buildCylinderSegment / bakeRunDistanceUVs) so the pulse is continuous
+  // across waypoints instead of restarting at 0..1 per segment.
+  //
+  // `reversed` (from computeLineOrientations — see build()/_buildOrientationMap)
+  // is about NETWORK TOPOLOGY, not draw order: line.start is where the
+  // player happened to click first, which is not necessarily the source
+  // side. points[] still walks start->end (buildWorldPoints), so a reversed
+  // line keeps that walk but flips which end reads as distance 0 — the
+  // physical direction energy travels is source->sink either way.
+  let runDistCum = 0;
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
+    const segLen = segLens[i];
+    const fwdStart = runDistCum;
+    const fwdEnd = runDistCum + segLen;
+    runDistCum = fwdEnd;
+    const runDist = reversed
+      ? { start: totalLen - fwdEnd, end: totalLen - fwdStart }
+      : { start: fwdStart, end: fwdEnd };
     let mesh = null;
     if (style === 'rectWaveguide') {
-      mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat);
+      // Baked too — via bakeRunDistanceFromPositionZ, not bakeRunDistanceUVs;
+      // see that function's doc comment in utility-flow.js for why a
+      // BoxGeometry needs a different source (vertex position, not uv).
+      mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat, runDist);
     } else if (style === 'jacketedCylinder') {
-      // Inner opaque cylinder + translucent outer jacket.
-      mesh = buildCylinderSegment(a, b, radius, mat);
+      // Inner opaque cylinder + translucent outer jacket — both baked off the
+      // same runDist so a flow-patched jacket stays in phase with its core.
+      mesh = buildCylinderSegment(a, b, radius, mat, runDist);
       const jacketMat = getJacketMaterial(line.utilityType, errorStatus);
-      const jacket = buildCylinderSegment(a, b, radius * 1.6, jacketMat);
-      if (jacket) group.add(jacket);
+      const jacket = buildCylinderSegment(a, b, radius * 1.6, jacketMat, runDist);
+      if (jacket) {
+        // The darken pass (glow-pipeline.js) swaps any non-bloom object's
+        // material for opaque black before the bloom-only render. A
+        // transparent jacket left off BLOOM_LAYER would go opaque black in
+        // that pass and hide the glowing core it wraps — putting the jacket
+        // on BLOOM_LAYER too keeps it rendering (and, per getJacketMaterial,
+        // glowing) normally in the bloom pass instead of occluding.
+        if (flowing) jacket.layers.enable(BLOOM_LAYER);
+        group.add(jacket);
+      }
     } else {
-      mesh = buildCylinderSegment(a, b, radius, mat);
+      mesh = buildCylinderSegment(a, b, radius, mat, runDist);
     }
-    if (mesh) group.add(mesh);
+    if (mesh) {
+      if (flowing) mesh.layers.enable(BLOOM_LAYER);
+      group.add(mesh);
+    }
   }
 
   // Open-end indicators: a small contrasting disc at any endpoint that
@@ -554,12 +629,19 @@ export class UtilityLineBuilderV2 {
     const seen = new Set();
     const lines = utilityLines || new Map();
     const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
+    const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || !line.id) continue;
       seen.add(line.id);
       const errorStatus = errorByLineId.get(line.id) || 'ok';
-      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus;
+      // Draw order (line.start -> line.end) isn't necessarily source -> sink
+      // — computeLineOrientations resolves that from network topology.
+      // Included in the hash: rewiring a network (a new source appearing, a
+      // tap moving) has to rebuild every line whose orientation flips, same
+      // as errorStatus already does for fault transitions.
+      const reversed = orientationByLineId.get(line.id) || false;
+      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|' + (reversed ? 'rev' : 'fwd');
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
       // Rebuild: remove old, add new.
@@ -568,7 +650,7 @@ export class UtilityLineBuilderV2 {
         parentGroup.remove(old);
         this._disposeGroup(old);
       }
-      const group = buildLineGroup(line, placeablesById, errorStatus);
+      const group = buildLineGroup(line, placeablesById, errorStatus, reversed);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
@@ -623,6 +705,41 @@ export class UtilityLineBuilderV2 {
           if (cur === 'hard') continue;
           out.set(lineId, status);
         }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Build a lineId → reversed(boolean) map from network topology, so the
+   * flow pulse travels source -> sink regardless of which end the player
+   * drew first. Joins the same state.utilityNetworks discovery output
+   * _buildErrorMap reads (one pass per utility type, same source), handing
+   * each network to computeLineOrientations (src/utility/line-orientation.js)
+   * — pure topology, no rendering concern, so the BFS logic lives and is
+   * tested there, not in this renderer-facing method.
+   *
+   * A line with no entry (network has no source, or the line simply wasn't
+   * reachable through the line-to-line graph — see line-orientation.js's
+   * doc comment on what it deliberately doesn't model) reads as `false`
+   * (forward / draw order) by every caller here, same as _buildErrorMap's
+   * "no entry = ok" convention.
+   *
+   * Utility types with no flow at all (FLOW_PARAMS[type] == null, i.e.
+   * vacuumPipe) are skipped — nothing ever reads their orientation, and
+   * skipping avoids paying the BFS for a utility that will never animate.
+   */
+  _buildOrientationMap(state, utilityLinesMap) {
+    const out = new Map();
+    if (!state || !state.utilityNetworks || typeof state.utilityNetworks.get !== 'function') {
+      return out;
+    }
+    for (const utilityType of UTILITY_TYPE_LIST) {
+      if (!FLOW_PARAMS[utilityType]) continue;
+      const nets = state.utilityNetworks.get(utilityType) || [];
+      for (const net of nets) {
+        const perNet = computeLineOrientations(net, utilityLinesMap);
+        for (const [lineId, reversed] of perNet) out.set(lineId, reversed);
       }
     }
     return out;

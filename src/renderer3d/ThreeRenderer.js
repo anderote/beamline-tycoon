@@ -18,12 +18,13 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder } from './wall-builder.js';
-import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds } from './component-builder.js';
+import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds, setGlowNightFactor } from './component-builder.js';
 import { setModelBoundsProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
+import { tickFlow } from './utility-flow.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
@@ -34,6 +35,7 @@ import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { OverlayShim } from './overlay-shim.js';
+import { GlowPipeline } from './glow-pipeline.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -510,6 +512,19 @@ export class ThreeRenderer {
     this._lastSunTime = performance.now();
     this._lastAnimTime = performance.now();
     this._lastLodDetail = undefined; // force first LOD update
+
+    // Selective bloom / glow post-processing. Reads the persisted toggle so
+    // the setting survives a reload; defaults on. Constructed here (renderer
+    // + scene + camera all exist by this point) — note _setSize() above at
+    // :463 ran *before* this and guards its pipeline call for that reason.
+    let glowStored;
+    try { glowStored = localStorage.getItem('beamlineTycoon.glow'); } catch (_) { glowStored = null; }
+    // GlowPipeline reads the renderer's current size in its own constructor
+    // (already correct — _setSize() ran above at :463, before this point),
+    // so no separate setSize() call is needed here.
+    this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
+      enabled: glowStored !== '0',
+    });
 
     // Scene groups
     this.terrainGroup = new THREE.Group();
@@ -1333,6 +1348,19 @@ export class ThreeRenderer {
     this.showZoneLabels = !this.showZoneLabels;
     for (const mesh of this._zoneLabelMeshes) mesh.visible = this.showZoneLabels;
     return this.showZoneLabels;
+  }
+
+  /**
+   * Live on/off switch for the bloom/glow post-processing pipeline. Forwards
+   * to GlowPipeline and takes effect on the very next frame; persistence is
+   * the caller's job (see OptionsDialog, which owns 'beamlineTycoon.glow').
+   */
+  setGlowEnabled(enabled) {
+    if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
+  }
+
+  get glowEnabled() {
+    return this._glowPipeline ? this._glowPipeline.enabled : true;
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -2785,10 +2813,15 @@ export class ThreeRenderer {
     // Render at 1/s resolution, then let CSS stretch the canvas back to
     // full size. `updateStyle=false` prevents three from clobbering the
     // CSS width/height we set explicitly below.
-    this.renderer.setSize(Math.max(1, Math.floor(w / s)), Math.max(1, Math.floor(h / s)), false);
+    const rw = Math.max(1, Math.floor(w / s));
+    const rh = Math.max(1, Math.floor(h / s));
+    this.renderer.setSize(rw, rh, false);
     const canvas = this.renderer.domElement;
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
+    // First call happens during init(), before the glow pipeline (which
+    // needs the scene/camera) is constructed — guard rather than reorder.
+    if (this._glowPipeline) this._glowPipeline.setSize(rw, rh);
   }
 
   _updateCameraFrustum() {
@@ -2951,8 +2984,11 @@ export class ThreeRenderer {
     this._lastAnimTime = _now;
     // Emissive-only breathe on existing marker materials — no rebuild.
     if (this.utilityLineBuilderV2) this.utilityLineBuilderV2.pulseUnwiredMarkers(_now);
+    // One uniform write per flow-patched material — no rebuilds, no per-line
+    // cost. See utility-flow.js.
+    tickFlow(_dt);
     if (this.staffPawns) this.staffPawns.update(_dt);
-    this.renderer.render(this.scene, this.camera);
+    this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
   }
@@ -3035,6 +3071,14 @@ export class ThreeRenderer {
       this._sunLight.color.setRGB(0.5, 0.6, 0.8);
       this._ambientLight.color.setRGB(0.4, 0.45, 0.6);
     }
+
+    // Glow role (screens, indicator lamps): brighten as dayness falls, but
+    // never let them read as fully dark at noon — a lit console screen stays
+    // legible (just washed out) in full daylight, matching how the sun
+    // itself never fully goes to zero intensity above.
+    const GLOW_NIGHT_FACTOR_FLOOR = 0.35;
+    const glowFactor = GLOW_NIGHT_FACTOR_FLOOR + (1 - GLOW_NIGHT_FACTOR_FLOOR) * (1 - dayness);
+    setGlowNightFactor(glowFactor);
   }
 
   async loadAssets() {
@@ -4114,6 +4158,10 @@ export class ThreeRenderer {
     if (this._viewCube) {
       this._viewCube.dispose();
       this._viewCube = null;
+    }
+    if (this._glowPipeline) {
+      this._glowPipeline.dispose();
+      this._glowPipeline = null;
     }
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;

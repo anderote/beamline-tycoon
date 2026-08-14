@@ -9,6 +9,7 @@ import { roleBuilderFallbacks } from '../data/validate.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
+import { BLOOM_LAYER } from './glow-pipeline.js';
 import {
   _buildBPMRoles,
   _buildICTRoles,
@@ -187,7 +188,7 @@ function _setInfraFaceUVsClamped(geometry, faceKey) {
 // bucketed into one of these roles. Each role maps to a shared material
 // (or a per-color cached material for 'accent').
 
-const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail']);
+const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail', 'glow']);
 
 // Paint-on-iron for the accent role. The color is overridden per beamline;
 // this base exists only to be cloned.
@@ -201,12 +202,14 @@ const ACCENT_BASE_METALNESS = 0.12;
 //   pipe   -> metal_brushed
 //   stand  -> metal_painted_white  (tinted dark gray via color)
 //   detail -> metal_dark
+//   glow   -> none (emissive surfaces have no albedo texture by default)
 const SHARED_MATERIALS = {
   iron:   new THREE.MeshStandardMaterial({ map: MATERIALS.metal_dark.map,          color: 0xffffff,    roughness: 0.5, metalness: 0.4 }),
   copper: new THREE.MeshStandardMaterial({ map: MATERIALS.copper.map,              color: 0xffffff,    roughness: 0.4, metalness: 0.5 }),
   pipe:   new THREE.MeshStandardMaterial({ map: MATERIALS.metal_brushed.map,       color: 0xffffff,    roughness: 0.3, metalness: 0.5 }),
   stand:  new THREE.MeshStandardMaterial({ map: MATERIALS.metal_painted_white.map, color: STAND_COLOR, roughness: 0.7, metalness: 0.1 }),
   detail: new THREE.MeshStandardMaterial({ map: MATERIALS.metal_dark.map,          color: 0xffffff,    roughness: 0.7, metalness: 0.3 }),
+  glow:   new THREE.MeshStandardMaterial({ color: 0x0a0a0a, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.35, metalness: 0.1 }),
 };
 
 /** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
@@ -233,6 +236,121 @@ export function getAccentMaterial(compType, colorHex) {
     _accentMatCache.set(key, m);
   }
   return m;
+}
+
+// ── Glow role: emissive screens and indicator lamps ─────────────────
+// A glow material is a dark, near-black surface lit purely by its emissive
+// term, so it reads as "off" (dim, not literally black) in full daylight and
+// "on" at night. `setGlowNightFactor` (driven by ThreeRenderer's day/night
+// cycle) scales every registered glow material's emissiveIntensity in
+// lockstep, so the whole registry brightens and dims together.
+const GLOW_BASE_ROUGHNESS = 0.35;
+const GLOW_BASE_METALNESS = 0.1;
+//
+// emissiveIntensity at full "night" brightness (night factor k = 1).
+//
+// CORRECTED (Task 3 fix round 1) — the first pass here got the color space
+// wrong and drew a conclusion the numbers don't support. `material.emissive
+// = colorHex` runs through three.js's `ColorManagement` (enabled by default
+// since r152), which treats a bare hex as sRGB and converts it to *linear*
+// on assignment. `UnrealBloomPass`'s luma test
+// (LuminosityHighPassShader: `dot(rgb, vec3(0.299,0.587,0.114))` against
+// `threshold=0.85`) runs on those already-linear values with no further
+// re-encoding — `RenderPass` writes to a non-null target (no OETF) and
+// `renderer.toneMapping` is `NoToneMapping` throughout this pipeline. The
+// original comment computed luma from the raw sRGB byte ratios (e.g.
+// 0x40e0ff -> 0.251/0.878/1.0) as if those were already linear. They are
+// not. Recomputed from the actual linear channel values
+// (`new THREE.Color(hex).r/g/b`), at GLOW_BASE_EMISSIVE_INTENSITY = 4.0
+// (unchanged — this fix does not touch it) and the noon floor of 0.35
+// (GLOW_NIGHT_FACTOR_FLOOR in ThreeRenderer._updateSunCycle):
+//
+//   compType        | linear luma | noon (×1.4) | night (×4.0)
+//   llrfController   0x40e0ff      0.567          0.794 (below 0.85)   2.268 (above)
+//   negPump          0x44ff66      0.619          0.867 (above 0.85)   2.478 (above)
+//   ionSource        0xff6633      0.381          0.533 (below 0.85)   1.523 (above)
+//
+// llrfController and ionSource each cross the 0.85 threshold somewhere
+// between noon and night, and `smoothWidth` in glow-pipeline.js's
+// UnrealBloomPass defaults to 0.01 — a near-binary cliff — so left alone
+// this would make those two surfaces snap their bloom halo on/off at one
+// instant in the cycle instead of easing in, while negPump's noon value
+// sits only 2% above the cliff (fragile, not a real margin). None of that
+// is fixed by raising these intensities further: the corrected llrfController
+// noon value (no bloom at midday) is the *more correct* behavior — a
+// console screen that only starts to bloom as ambient light falls is more
+// truthful than one blooming at noon — so the fix is not "make it cross the
+// threshold at noon after all." Instead, glow-pipeline.js's `smoothWidth`
+// was widened from 0.01 to 0.3 (see DEFAULT_SMOOTH_WIDTH there), turning the
+// threshold from a snap into a ramp wide enough to span each of these
+// crossings smoothly. That's a shared knob — it softens the bloom knee for
+// every BLOOM_LAYER object, not just these three — see that file's comment
+// for what else it touches. No per-material intensity change was needed.
+const GLOW_BASE_EMISSIVE_INTENSITY = 4.0;
+
+// Per-component-type emissive color. Component builders bucket geometry into
+// `b.glow` without choosing a color (buckets only carry geometry); the color
+// is resolved here, at instantiation, keyed by compType — mirroring how
+// getAccentMaterial keys by compType, but independent of the beamline's
+// accent paint, since a screen's color isn't a paint choice.
+const GLOW_COLORS = {
+  llrfController: 0x40e0ff, // cyan-blue LCD/CRT readout
+  negPump: 0x44ff66,        // green "active" indicator strip
+  ionSource: 0xff6633,      // hot-cathode orange (unchanged from the old hand-rolled material)
+};
+const DEFAULT_GLOW_COLOR = 0x40e0ff;
+
+/** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
+const _glowMatCache = new Map();
+/** Every material getGlowMaterial has ever created, so the night factor can reach them all. */
+const _glowMatRegistry = new Set();
+// Current night factor (0..1), applied to any material created after the
+// last setGlowNightFactor call — so a material created mid-cycle starts at
+// the correct brightness instead of always starting at full "night"
+// intensity and waiting for the next sun-cycle tick to correct itself.
+// Defaults to 1 (full base intensity) so a material created before the
+// renderer's first _updateSunCycle tick — e.g. a build-menu thumbnail — is
+// still visibly lit rather than starting dark.
+let _glowNightFactor = 1;
+
+/**
+ * Get or create an emissive material for a given component type at a given
+ * glow color. Same cache shape as `getAccentMaterial`. Every material this
+ * creates is registered so `setGlowNightFactor` can find it later — there is
+ * no separate emitter list; Task 5 finds glow meshes by traversing the scene
+ * for `userData.role === 'glow'` instead.
+ */
+export function getGlowMaterial(compType, colorHex) {
+  const key = compType + '|' + colorHex.toString(16).padStart(6, '0');
+  let m = _glowMatCache.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a, // near-black "unlit glass/housing" base — the glow itself is emissive
+      emissive: colorHex,
+      emissiveIntensity: GLOW_BASE_EMISSIVE_INTENSITY * _glowNightFactor,
+      roughness: GLOW_BASE_ROUGHNESS,
+      metalness: GLOW_BASE_METALNESS,
+    });
+    _glowMatCache.set(key, m);
+    _glowMatRegistry.add(m);
+  }
+  return m;
+}
+
+/**
+ * Scale every registered glow material's emissiveIntensity by `k` (0..1),
+ * relative to the full-night base intensity. Called from
+ * ThreeRenderer._updateSunCycle with a factor derived from `dayness`, clamped
+ * so screens never go fully dark at noon. Also remembered so a material
+ * created later (between two calls) starts at the correct brightness rather
+ * than always starting at full intensity.
+ */
+export function setGlowNightFactor(k) {
+  _glowNightFactor = k;
+  const intensity = GLOW_BASE_EMISSIVE_INTENSITY * k;
+  for (const m of _glowMatRegistry) {
+    m.emissiveIntensity = intensity;
+  }
 }
 
 // ── Template-and-tint infrastructure ────────────────────────────────
@@ -333,6 +451,8 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
     let mat;
     if (role === 'accent') {
       mat = getAccentMaterial(compType, accentColorHex);
+    } else if (role === 'glow') {
+      mat = getGlowMaterial(compType, GLOW_COLORS[compType] ?? DEFAULT_GLOW_COLOR);
     } else if (overrides && overrides[role]) {
       mat = _getOverrideRoleMaterial(compType, role, overrides[role]);
     } else {
@@ -351,6 +471,12 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
       mesh.userData.lod = 'detail';
       mesh.castShadow = false;
       mesh.receiveShadow = false;
+    } else if (role === 'glow') {
+      // A lit screen/lamp must not cast a shadow, and it opts into the
+      // bloom-only render pass (see glow-pipeline.js) by enabling BLOOM_LAYER.
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.layers.enable(BLOOM_LAYER);
     } else {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -650,19 +776,21 @@ function _buildDuoplasmatron() {
     group.add(torus);
   }
 
-  // ── Hot-cathode rear cap — small disc with emissive orange ──
+  // ── Hot-cathode rear cap — small disc, glowing hot-cathode orange ──
+  // This is legacy DETAIL_BUILDERS (returns a Group directly, not role
+  // buckets), so it doesn't go through _instantiateRoleTemplate's
+  // per-placement loop — the role tag, bloom layer, and shadow flag that
+  // loop would normally set have to be applied by hand here.
   {
     const capR = 0.18, capH = 0.05;
     const g = new THREE.CylinderGeometry(capR, capR, capH, SEGS);
     applyTiledCylinderUVs(g, capR, capH, SEGS);
-    const mat = new THREE.MeshStandardMaterial({
-      color: cathodeC,
-      emissive: 0xff6633,
-      emissiveIntensity: 0.4,
-      roughness: 0.6,
-      metalness: 0.1,
-    });
-    const cap = _addShadow(new THREE.Mesh(g, mat));
+    const mat = getGlowMaterial('ionSource', cathodeC);
+    const cap = new THREE.Mesh(g, mat);
+    cap.userData.role = 'glow';
+    cap.layers.enable(BLOOM_LAYER);
+    cap.castShadow = false;
+    cap.receiveShadow = true;
     cap.rotation.x = Math.PI / 2;
     cap.position.set(0, BEAM_HEIGHT, bodyZ - bodyH / 2 - flH - capH / 2);
     group.add(cap);
@@ -3824,12 +3952,19 @@ function _buildPartsOrFallback(compDef) {
 // ── Thumbnail renderer ──────────────────────────────────────────────
 // Static pre-rendered thumbnails. Vite resolves these at build time so the
 // palette never needs a live WebGL render for components that have a PNG.
-const _staticThumbs = import.meta.glob('/assets/textures/thumbnails/*.png', { eager: true, query: '?url', import: 'default' });
 const _staticThumbMap = {};
-for (const [path, val] of Object.entries(_staticThumbs)) {
-  const id = path.split('/').pop().replace('.png', '');
-  _staticThumbMap[id] = typeof val === 'string' ? val : (val && val.default) || val;
-}
+try {
+  // import.meta.glob is a Vite-only build-time macro. Guarded so this module
+  // stays importable from plain-Node headless tests (see
+  // test/test-glow-role.js), which have no Vite transform and no
+  // filesystem-backed asset glob — thumbnails there simply fall back to the
+  // live-render path below.
+  const _staticThumbs = import.meta.glob('/assets/textures/thumbnails/*.png', { eager: true, query: '?url', import: 'default' });
+  for (const [path, val] of Object.entries(_staticThumbs)) {
+    const id = path.split('/').pop().replace('.png', '');
+    _staticThumbMap[id] = typeof val === 'string' ? val : (val && val.default) || val;
+  }
+} catch (_) { /* not running under Vite — see comment above */ }
 
 const _thumbCache = new Map();
 

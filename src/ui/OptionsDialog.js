@@ -7,7 +7,10 @@
 //    controls (we dispatch events on its slider/select) so its persistence
 //    (localStorage 'beamlineTycoon.music') stays in one place.
 //  - View: zone overlay (O) and zone labels (L) — session flags on the
-//    3D renderer, same as the hotkeys; intentionally not persisted.
+//    3D renderer, same as the hotkeys; intentionally not persisted. Glow &
+//    dynamic lighting is the exception in this section: it IS persisted
+//    (localStorage 'beamlineTycoon.glow'), same convention as devMode/
+//    sandboxMode below, so the renderer can read it back at construction.
 //  - Gameplay: dev mode — game.setDevMode() persists it itself.
 
 import { makeDraggable } from './draggable.js';
@@ -79,6 +82,7 @@ export class OptionsDialog {
       this.renderer.zoneOverlayVisible !== false;
     this.el.querySelector('#opt-zone-labels').checked =
       this.renderer.showZoneLabels !== false;
+    this.el.querySelector('#opt-glow').checked = this.renderer.glowEnabled;
 
     this.el.querySelector('#opt-dev-mode').checked = !!this.game.devMode;
     this.el.querySelector('#opt-sandbox-mode').checked = !!this.game.sandboxMode;
@@ -125,6 +129,10 @@ export class OptionsDialog {
         <div class="opt-row">
           <label class="opt-label" for="opt-zone-labels">Zone labels <span class="opt-kbd">L</span></label>
           <input type="checkbox" id="opt-zone-labels" class="opt-check">
+        </div>
+        <div class="opt-row">
+          <label class="opt-label" for="opt-glow">Glow &amp; dynamic lighting</label>
+          <input type="checkbox" id="opt-glow" class="opt-check">
         </div>
 
         <div class="opt-section-title">Gameplay</div>
@@ -190,6 +198,12 @@ export class OptionsDialog {
       if (e.target.checked !== (this.renderer.showZoneLabels !== false)) {
         this.renderer.toggleZoneLabels();
       }
+    });
+    // Glow, unlike the two flags above, persists — same convention as
+    // devMode/sandboxMode below (localStorage '1'/'0').
+    el.querySelector('#opt-glow').addEventListener('change', (e) => {
+      this.renderer.setGlowEnabled(e.target.checked);
+      try { localStorage.setItem('beamlineTycoon.glow', e.target.checked ? '1' : '0'); } catch (_) {}
     });
 
     // Manual — same window the HUD "?" button and F1 open. Closing the
