@@ -138,13 +138,13 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | LN2 Dewar | | *inert* | |
 | LN2 Pre-cooler | | *inert* | |
 | Cryomodule Housing | | *inert* | |
-| He Recovery | 3 | +0.20 recovery fraction | |
+| He Recovery/Storage | 3 | raises recovery ceiling 0.70 → 0.90 | |
 | He Recovery Header | | +0.25 recovery fraction | |
 | He Gas Bag | | +0.15 recovery fraction | |
 | He Purifier | 3 | +0.20 recovery fraction | |
 | He Liquefier | 12 | +0.30 recovery fraction | |
 
-Recovery is facility-wide, counts each type once, and caps at 0.90. It multiplies net LHe loss, not boil-off.
+Recovery is facility-wide and counts each type once. The four contributing parts sum to 0.90, but the ceiling is 0.70 unless He Recovery/Storage is also built — you cannot keep more helium than you have vessels for. It multiplies net LHe loss, not boil-off.
 
 ### Power
 | Equipment | Provides |

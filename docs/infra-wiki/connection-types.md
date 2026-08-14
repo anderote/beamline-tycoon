@@ -60,7 +60,7 @@ Carries cryogenic helium between cold boxes and SRF components. The network's ou
 - **Consumers:** Half-Wave Resonator, Spoke Cavity, 9-cell Elliptical SRF, TESLA Cryomodule
 - **Cost:** $4,000/sub-unit ($16,000/tile) — the outlier of the ladder, by design
 - **Bus:** Cryo Valve Box, $400k, 6-cell service radius
-- **Support equipment (flavour only):** He Compressor, Cryomodule Housing, LN2 Pre-cooler, LN2 Dewar, He Recovery, Cryocooler
+- **Support equipment (flavour only):** He Compressor, Cryomodule Housing, LN2 Pre-cooler, LN2 Dewar, He Recovery/Storage, Cryocooler
 
 The **He Compressor is not required** for a cold box to work — the solver has no compressor check. The **Cryocooler declares no cryo source port** and therefore contributes zero capacity.
 

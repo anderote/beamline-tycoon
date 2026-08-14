@@ -42,7 +42,18 @@ import {
   _buildDryCoolerBankRoles,
   _buildCoolingTowerRoles,
   _buildDeioniserRoles,
+  _buildLcwSkidRoles,
+  _buildChillerRoles,
+  _buildEmergencyCoolingRoles,
+  _buildCoolingManifoldRoles,
 } from './builders/cooling-builder.js';
+import {
+  _buildColdBox4KRoles,
+  _buildColdBox2KRoles,
+  _buildHeCompressorRoles,
+  _buildCryomoduleHousingRoles,
+  _buildCryoValveBoxRoles,
+} from './builders/cryo-builder.js';
 import {
   _buildPulsedKlystronRoles,
   _buildCWKlystronRoles,
@@ -54,6 +65,11 @@ import {
   _buildCirculatorRoles,
   _buildRFCouplerRoles,
   _buildGyrotronRoles,
+  _buildSolidStateAmpRoles,
+  _buildHighPowerSSARoles,
+  _buildModulatorRoles,
+  _buildLLRFControllerRoles,
+  _buildWaveguideManifoldRoles,
 } from './builders/rf-builder.js';
 import {
   _buildApertureRoles,
@@ -1232,13 +1248,22 @@ ROLE_BUILDERS.heRecoveryHeader = _buildHeRecoveryHeaderRoles;
 ROLE_BUILDERS.heGasBag = _buildHeGasBagRoles;
 ROLE_BUILDERS.hePurifier = _buildHePurifierRoles;
 ROLE_BUILDERS.heLiquefier = _buildHeLiquefierRoles;
+ROLE_BUILDERS.coldBox4K = _buildColdBox4KRoles;
+ROLE_BUILDERS.coldBox2K = _buildColdBox2KRoles;
+ROLE_BUILDERS.heCompressor = _buildHeCompressorRoles;
+ROLE_BUILDERS.cryomoduleHousing = _buildCryomoduleHousingRoles;
+ROLE_BUILDERS.cryoValveBox = _buildCryoValveBoxRoles;
 ROLE_BUILDERS.waterLoad = _buildWaterLoadRoles;
 ROLE_BUILDERS.fanCoilCooler = _buildFanCoilCoolerRoles;
 ROLE_BUILDERS.packageChiller = _buildPackageChillerRoles;
 ROLE_BUILDERS.dualCircuitChiller = _buildDualCircuitChillerRoles;
 ROLE_BUILDERS.dryCoolerBank = _buildDryCoolerBankRoles;
+ROLE_BUILDERS.lcwSkid = _buildLcwSkidRoles;
+ROLE_BUILDERS.chiller = _buildChillerRoles;
 ROLE_BUILDERS.coolingTower = _buildCoolingTowerRoles;
 ROLE_BUILDERS.deionizer = _buildDeioniserRoles;
+ROLE_BUILDERS.emergencyCooling = _buildEmergencyCoolingRoles;
+ROLE_BUILDERS.coolingManifold = _buildCoolingManifoldRoles;
 ROLE_BUILDERS.slac5045Klystron = _buildSLAC5045KlystronRoles;
 ROLE_BUILDERS.pulsedKlystron = _buildPulsedKlystronRoles;
 ROLE_BUILDERS.cwKlystron = _buildCWKlystronRoles;
@@ -1249,6 +1274,11 @@ ROLE_BUILDERS.iot = _buildIOTRoles;
 ROLE_BUILDERS.circulator = _buildCirculatorRoles;
 ROLE_BUILDERS.rfCoupler = _buildRFCouplerRoles;
 ROLE_BUILDERS.gyrotron = _buildGyrotronRoles;
+ROLE_BUILDERS.solidStateAmp = _buildSolidStateAmpRoles;
+ROLE_BUILDERS.highPowerSSA = _buildHighPowerSSARoles;
+ROLE_BUILDERS.modulator = _buildModulatorRoles;
+ROLE_BUILDERS.llrfController = _buildLLRFControllerRoles;
+ROLE_BUILDERS.waveguideManifold = _buildWaveguideManifoldRoles;
 ROLE_BUILDERS.hvTransformer = _buildHVTransformerRoles;
 ROLE_BUILDERS.disconnectSwitch = _buildDisconnectSwitchRoles;
 ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;

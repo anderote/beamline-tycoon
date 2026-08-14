@@ -25,7 +25,7 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
-import { disposeGroupChildren } from './dispose-utils.js';
+import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
@@ -66,6 +66,13 @@ import {
   YAW_DIVISIONS,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
+import {
+  DEFAULT_ZONE_LABEL_STYLE,
+  zoneLabelStyleById,
+  buildZoneFloorLabel,
+  faceZoneLabels,
+  resolveLabelOverlaps,
+} from './zone-label.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -362,6 +369,13 @@ export class ThreeRenderer {
     this.labelLevel = 0;
     this.zoneOverlayVisible = true;
     this.showZoneLabels = true;
+    // Zone name paint (see zone-label.js). The style is swappable at runtime
+    // so the variants can be compared in the real scene; the meshes list and
+    // the camera-right signature drive the once-per-orbit direction flip.
+    this.zoneLabelStyle = DEFAULT_ZONE_LABEL_STYLE;
+    this._zoneLabelMeshes = [];
+    this._zoneLabelFacingSig = null;
+    this._zoneLabelFontRetry = false;
     this.activeMode = 'beamline';
     this.nodeSprites = {};
 
@@ -1320,18 +1334,15 @@ export class ThreeRenderer {
   }
 
   /**
-   * Show/hide only the zone name+count label sprites, leaving the zone tile
-   * tint visible. Cheap: flips `.visible` on the sprites already in
-   * zoneGroup (labels are the only Sprites in there — tiles are
-   * InstancedMeshes); no rebuild needed.
+   * Show/hide only the zone name paint, leaving the zone tile tint visible.
+   * Cheap: flips `.visible` on the label meshes already in zoneGroup; no
+   * rebuild needed. Keyed on userData.isZoneLabel rather than a type test —
+   * the labels used to be the only Sprites in the group, but they are ground
+   * quads now and would be indistinguishable from the tint tiles by type.
    */
   toggleZoneLabels() {
     this.showZoneLabels = !this.showZoneLabels;
-    if (this.zoneGroup) {
-      for (const child of this.zoneGroup.children) {
-        if (child.isSprite) child.visible = this.showZoneLabels;
-      }
-    }
+    for (const mesh of this._zoneLabelMeshes) mesh.visible = this.showZoneLabels;
     return this.showZoneLabels;
   }
 
@@ -2874,6 +2885,7 @@ export class ThreeRenderer {
     this._tickViewRotation();
     this._tickFreeOrbitSnap();
     this._tickCameraFocus();
+    this._updateZoneLabelFacing();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle();
     this._updateLOD();
@@ -3145,9 +3157,21 @@ export class ThreeRenderer {
     // Zone tiles are InstancedMeshes — disposeGroupChildren also frees their
     // instanceMatrix/instanceColor buffers, which geometry.dispose() misses.
     disposeGroupChildren(this.zoneGroup);
+    this._zoneLabelMeshes = [];
 
     const zones = this._updateSnapshot(['zones']).zones || [];
     if (zones.length === 0) return;
+
+    const style = this.zoneLabelStyle || DEFAULT_ZONE_LABEL_STYLE;
+    // The paint is drawn to a canvas with Press Start 2P; a webfont that has
+    // not loaded yet silently measures and rasterises as the monospace
+    // fallback. Rebuild once when the font arrives rather than shipping a
+    // wrong-metric texture for the rest of the session.
+    if (!this._zoneLabelFontRetry && document.fonts && !document.fonts.check(`16px 'Press Start 2P'`)) {
+      this._zoneLabelFontRetry = true;
+      document.fonts.ready.then(() => this._refreshZones()).catch(() => {});
+    }
+    const labels = [];
 
     const byType = new Map();
     for (const z of zones) {
@@ -3184,22 +3208,61 @@ export class ThreeRenderer {
       mesh.instanceMatrix.needsUpdate = true;
       this.zoneGroup.add(mesh);
 
-      const clusters = this._clusterZoneTiles(tiles);
-      for (const cluster of clusters) {
-        let cx = 0, cz = 0;
-        for (const t of cluster) { cx += t.col; cz += t.row; }
-        cx = cx / cluster.length * 2 + 1;
-        cz = cz / cluster.length * 2 + 1;
-        const label = `${def.name} [${cluster.length}]`;
-        const sprite = this._makeLabelSprite(label, { isZone: true });
-        sprite.position.set(cx, 0.55, cz);
-        sprite.renderOrder = 11;
-        sprite.visible = this.showZoneLabels !== false;
-        this.zoneGroup.add(sprite);
+      for (const cluster of this._clusterZoneTiles(tiles)) {
+        const label = buildZoneFloorLabel({
+          name: def.name,
+          color: def.color,
+          tiles: cluster,
+          style,
+          anisotropy: this.renderer?.capabilities?.getMaxAnisotropy?.() || 1,
+        });
+        if (label) labels.push(label);
       }
     }
 
+    // Adjacent zones of different types cluster independently, so two
+    // interlocking footprints can want the same patch of floor. Bigger room
+    // wins; the loser is dropped rather than shrunk into a smudge.
+    const keep = new Set(resolveLabelOverlaps(labels.map(m => m.userData.labelBox)));
+    for (let i = 0; i < labels.length; i++) {
+      if (!keep.has(i)) { disposeSceneObject(labels[i]); continue; }
+      labels[i].visible = this.showZoneLabels !== false;
+      this.zoneGroup.add(labels[i]);
+      this._zoneLabelMeshes.push(labels[i]);
+    }
+    this._zoneLabelFacingSig = null;   // force a facing pass on the next frame
+
     this.zoneGroup.visible = this.zoneOverlayVisible !== false;
+  }
+
+  /**
+   * Swap the zone-label variant at runtime (see ZONE_LABEL_STYLES). Used by
+   * the comparison screenshots; the game itself just takes the default.
+   * @returns {boolean} whether the id was known
+   */
+  setZoneLabelStyle(id) {
+    const style = zoneLabelStyleById(id);
+    if (!style) return false;
+    this.zoneLabelStyle = style;
+    this._refreshZones();
+    this.refresh?.();
+    return true;
+  }
+
+  /**
+   * Turn the floor labels to whichever end of their own axis reads
+   * left-to-right for the current camera (zone-label.js explains the scheme).
+   * Only the SIGNS of the camera-right vector can change the answer, so the
+   * pass is gated on those two bits: an orbiting camera touches the labels
+   * twice per full turn, and an idle one costs two comparisons per frame.
+   */
+  _updateZoneLabelFacing() {
+    if (this._zoneLabelMeshes.length === 0) return;
+    const e = this.camera.matrixWorld.elements;
+    const sig = (e[0] >= 0 ? 1 : 0) * 2 + (e[2] >= 0 ? 1 : 0);
+    if (sig === this._zoneLabelFacingSig) return;
+    this._zoneLabelFacingSig = sig;
+    faceZoneLabels(this._zoneLabelMeshes, e[0], e[2], this.zoneLabelStyle);
   }
 
   _clusterZoneTiles(tiles) {
@@ -3233,26 +3296,27 @@ export class ThreeRenderer {
     return clusters;
   }
 
-  _makeLabelSprite(text, opts = {}) {
+  /**
+   * Camera-facing text sprite. The only caller left is the beam-pipe drag
+   * cost readout — zone names are floor paint now (zone-label.js), not
+   * sprites, so the old isZone branch (white text, heavy black outline, dark
+   * plate) is gone with them.
+   */
+  _makeLabelSprite(text) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const isZone = opts.isZone ?? text.includes('[');
 
-    // Non-zone labels (beam-pipe cost) are re-made per rAF while dragging —
-    // reuse the cached canvas texture/material for a given text value. Zone
-    // labels rebuild only on zonesChanged and are owned/disposed by
-    // zoneGroup teardown, so they stay uncached.
-    if (!isZone) {
-      const cached = this._labelMatCache.get(text);
-      if (cached) {
-        const sprite = new THREE.Sprite(cached.material);
-        sprite.scale.set(cached.scaleX, cached.scaleY, 1);
-        sprite.renderOrder = 10;
-        sprite.userData.sharedLabelMaterial = true;
-        return sprite;
-      }
+    // Cost labels are re-made per rAF while dragging — reuse the cached
+    // canvas texture/material for a given text value.
+    const cached = this._labelMatCache.get(text);
+    if (cached) {
+      const sprite = new THREE.Sprite(cached.material);
+      sprite.scale.set(cached.scaleX, cached.scaleY, 1);
+      sprite.renderOrder = 10;
+      sprite.userData.sharedLabelMaterial = true;
+      return sprite;
     }
-    const fontSize = isZone ? 18 : 8;
-    const font = isZone ? `${fontSize}px Inter, 'Helvetica Neue', sans-serif` : `${fontSize}px 'Press Start 2P', monospace`;
+    const fontSize = 8;
+    const font = `${fontSize}px 'Press Start 2P', monospace`;
     const measureCanvas = document.createElement('canvas');
     const mctx = measureCanvas.getContext('2d');
     mctx.font = font;
@@ -3268,20 +3332,11 @@ export class ThreeRenderer {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.font = font;
-    if (isZone) ctx.font = `600 ${font}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
-    // zone labels get solid dark bg for readability when zoomed out
-    if (isZone) {
-      ctx.fillStyle = 'rgba(10,10,20,0.85)';
-      const r = 6;
-      ctx.beginPath();
-      ctx.roundRect(2, 2, cssW-4, cssH-4, r);
-      ctx.fill();
-    }
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
-    ctx.lineWidth = isZone ? 4 : 3;
+    ctx.lineWidth = 3;
     ctx.lineJoin = 'round';
     ctx.strokeText(text, cssW / 2, cssH / 2);
     ctx.fillText(text, cssW / 2, cssH / 2);
@@ -3292,25 +3347,23 @@ export class ThreeRenderer {
     tex.magFilter = THREE.LinearFilter;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
     const sprite = new THREE.Sprite(mat);
-    const worldH = isZone ? 0.92 : 0.42;
+    const worldH = 0.42;
     sprite.scale.set(worldH * (cssW / cssH), worldH, 1);
-    sprite.renderOrder = isZone ? 11 : 10;
-    if (!isZone) {
-      const LABEL_CACHE_MAX = 128;
-      if (this._labelMatCache.size >= LABEL_CACHE_MAX) {
-        for (const entry of this._labelMatCache.values()) {
-          if (entry.material.map) entry.material.map.dispose();
-          entry.material.dispose();
-        }
-        this._labelMatCache.clear();
+    sprite.renderOrder = 10;
+    const LABEL_CACHE_MAX = 128;
+    if (this._labelMatCache.size >= LABEL_CACHE_MAX) {
+      for (const entry of this._labelMatCache.values()) {
+        if (entry.material.map) entry.material.map.dispose();
+        entry.material.dispose();
       }
-      this._labelMatCache.set(text, {
-        material: mat,
-        scaleX: sprite.scale.x,
-        scaleY: sprite.scale.y,
-      });
-      sprite.userData.sharedLabelMaterial = true;
+      this._labelMatCache.clear();
     }
+    this._labelMatCache.set(text, {
+      material: mat,
+      scaleX: sprite.scale.x,
+      scaleY: sprite.scale.y,
+    });
+    sprite.userData.sharedLabelMaterial = true;
     return sprite;
   }
 

@@ -4,7 +4,9 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 // the registry pulls in every type descriptor and economy.js is imported from
 // inside that graph. cryoTransfer.js itself only reaches for cavity-specs and
 // endpoint-lookup, both leaves.
-import { heRecoveryFraction } from '../utility/types/cryoTransfer.js';
+import {
+  heRecoveryFraction, HE_RECOVERY_CAP, HE_RECOVERY_CAP_NO_STORAGE, HE_STORAGE_TYPE,
+} from '../utility/types/cryoTransfer.js';
 import {
   poweredPlaceables, beamlineEnergyDraw, facilityEnergyDraw,
   pumpCount as countPumps,
@@ -429,8 +431,13 @@ export function computeSystemStats(state) {
   // solver. The recovery chain is now a fraction of boil-off returned instead
   // of vented, contributed once per installed TYPE — so the panel reports the
   // fraction, which is the number that actually shows up on the helium bill.
-  // The table and the 90% cap live with the solver that applies them.
+  // The table and the ceiling live with the solver that applies them. The
+  // ceiling is not a constant: bulk storage (heRecovery) raises it from 0.70
+  // to 0.90, so the panel prints the fraction AND the ceiling in force —
+  // otherwise a player with a finished chain sees 70% and no reason for it.
   const heRecoveryFrac = heRecoveryFraction(Object.keys(counts));
+  const heRecoveryCeiling = counts[HE_STORAGE_TYPE]
+    ? HE_RECOVERY_CAP : HE_RECOVERY_CAP_NO_STORAGE;
 
   const cryoCapacity = portCapacity('cryo_out', 'coldCapacityW');
   // Every cryo sink counts, not just `cryomodule`: halfWaveResonator,
@@ -492,6 +499,7 @@ export function computeSystemStats(state) {
       cryoHousings,
       ln2Precoolers: ln2Precool,
       heRecoveryFraction: heRecoveryFrac,
+      heRecoveryCeiling,
       cryocoolers,
       staticLoad,
       dynamicLoad,

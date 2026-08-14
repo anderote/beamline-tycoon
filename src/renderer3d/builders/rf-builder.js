@@ -34,6 +34,81 @@ function makeBuckets() {
   return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
 }
 
+// Box helper — the rack and waveguide builders below are almost entirely
+// boxes, and spelling out the geometry/UV/transform trio at every one of
+// them buries the dimensions that actually matter.
+function boxAt(bucket, w, h, d, x, y, z) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  applyTiledBoxUVs(g, w, h, d);
+  pushT(bucket, g, trans(x, y, z));
+}
+function cylY(bucket, r, h, x, y, z, segs = SEGS) {
+  const g = new THREE.CylinderGeometry(r, r, h, segs);
+  applyTiledCylinderUVs(g, r, h, segs);
+  pushT(bucket, g, trans(x, y, z));
+}
+// Cylinder laid along Z (rotX) or along X (rotZ).
+function cylZ(bucket, r, len, x, y, z, segs = SEGS) {
+  const g = new THREE.CylinderGeometry(r, r, len, segs);
+  applyTiledCylinderUVs(g, r, len, segs);
+  pushT(bucket, g, new THREE.Matrix4().multiplyMatrices(trans(x, y, z), rotX(Math.PI / 2)));
+}
+function cylX(bucket, r, len, x, y, z, segs = SEGS) {
+  const g = new THREE.CylinderGeometry(r, r, len, segs);
+  applyTiledCylinderUVs(g, r, len, segs);
+  pushT(bucket, g, new THREE.Matrix4().multiplyMatrices(trans(x, y, z), rotZ(Math.PI / 2)));
+}
+
+// A bolted rectangular-waveguide flange: the plate plus the four bolt heads
+// that make it read as bolted rather than welded. `axis` is the run direction
+// the flange sits across.
+function wgFlange(b, { axis, x, y, z, bw, bh, t = 0.045, boltR = 0.018 }) {
+  if (axis === 'z') {
+    boxAt(b.detail, bw, bh, t, x, y, z);
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      cylZ(b.iron, boltR, t + 0.03, x + sx * (bw / 2 - 0.05), y + sy * (bh / 2 - 0.045), z, 6);
+    }
+  } else {
+    boxAt(b.detail, t, bh, bw, x, y, z);
+    for (const sz of [-1, 1]) for (const sy of [-1, 1]) {
+      cylX(b.iron, boltR, t + 0.03, x, y + sy * (bh / 2 - 0.045), z + sz * (bw / 2 - 0.05), 6);
+    }
+  }
+}
+
+// Sagging cable run drawn as a chain of short cylinders. `plane` picks which
+// pair of axes the catenary lives in; a cylinder's own axis is +Y, so each
+// segment needs only a single-axis rotation to lie along its chord.
+function cableArc(bucket, plane, fixed, a0, b0, a1, b1, sag, r, segs = 7) {
+  const pt = (t) => {
+    const a = a0 + (a1 - a0) * t;
+    const bb = b0 + (b1 - b0) * t - sag * 4 * t * (1 - t);
+    return [a, bb];
+  };
+  for (let i = 0; i < segs; i++) {
+    const [pa, pb] = pt(i / segs);
+    const [qa, qb] = pt((i + 1) / segs);
+    const da = qa - pa, db = qb - pb;
+    const len = Math.hypot(da, db);
+    const g = new THREE.CylinderGeometry(r, r, len * 1.08, 6);
+    applyTiledCylinderUVs(g, r, len, 6);
+    const mid = [(pa + qa) / 2, (pb + qb) / 2];
+    if (plane === 'zy') {
+      // a = z, b = y. rotX(t) sends +Y to (0, cos t, sin t).
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(fixed, mid[1], mid[0]), rotX(Math.atan2(da, db)),
+      );
+      pushT(bucket, g, m);
+    } else {
+      // a = x, b = y. rotZ(t) sends +Y to (-sin t, cos t, 0).
+      const m = new THREE.Matrix4().multiplyMatrices(
+        trans(mid[0], mid[1], fixed), rotZ(Math.atan2(-da, db)),
+      );
+      pushT(bucket, g, m);
+    }
+  }
+}
+
 // ── Klystron helpers ───────────────────────────────────────────────
 
 function _buildKlystronBase(b, {
@@ -235,6 +310,290 @@ export function _buildSLAC5045KlystronRoles() {
     applyTiledCylinderUVs(g, stubR, stubH, SEGS);
     pushT(b.pipe, g, trans(0, collBase + collH + stubH / 2, 0));
   }
+
+  return b;
+}
+
+// ── Solid-state amplifier racks ────────────────────────────────────
+//
+// The two solid-state units are the only RF sources in the game that are
+// NOT tubes, and the model exists to say so at a glance: where a klystron
+// is one tall cylinder on a stand, these are cabinets full of slide-in
+// modules. The module stack on the front face is the whole read, so the
+// slabs protrude past the cabinet skin rather than sitting flush — flush
+// modules vanish into the box at dimetric zoom.
+//
+// Front face is +X (matching the decal these components used to carry).
+
+// One cabinet of the family. `cz` is its centre along the ganging axis.
+function _ampCabinet(b, {
+  cz, width, depth, frontX, yBase, height,
+  modules, modH, modPitch, modBottom, modZ,
+}) {
+  const backX = frontX - depth;
+  const cx = (frontX + backX) / 2;
+  const yMid = yBase + height / 2;
+
+  // Painted cabinet shell.
+  boxAt(b.accent, depth, height, width, cx, yMid, cz);
+  // Corner posts, proud of the skin so the cabinet reads as a framed rack.
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    boxAt(b.stand, 0.05, height, 0.05,
+      cx + sx * (depth / 2 - 0.015), yMid, cz + sz * (width / 2 - 0.015));
+  }
+
+  // Slide-in amplifier modules.
+  for (let i = 0; i < modules; i++) {
+    const y = modBottom + modH / 2 + i * modPitch;
+    boxAt(b.pipe, 0.06, modH, modZ, frontX, y, cz);
+    // Extraction handles either side of the module face.
+    for (const sz of [-1, 1]) {
+      boxAt(b.detail, 0.04, modH * 0.42, 0.05,
+        frontX + 0.045, y, cz + sz * (modZ / 2 - 0.07));
+    }
+    // Fault/RF-on lamp between the handles.
+    boxAt(b.detail, 0.02, 0.022, 0.022, frontX + 0.04, y + modH * 0.28, cz);
+  }
+
+  // Intake louvres on the lower bay, below the module stack.
+  const louvreTop = modBottom - 0.05;
+  for (let i = 0; i < 4; i++) {
+    const y = yBase + 0.10 + i * 0.09;
+    if (y > louvreTop) break;
+    boxAt(b.detail, 0.03, 0.04, modZ, frontX - 0.01, y, cz);
+  }
+
+  // Roof: cap plate, extract cowl, fan hub.
+  const capY = yBase + height + 0.025;
+  boxAt(b.iron, depth + 0.04, 0.05, width + 0.04, cx, capY, cz);
+  boxAt(b.detail, depth * 0.42, 0.06, width * 0.72, cx, capY + 0.055, cz);
+  cylY(b.detail, width * 0.13, 0.05, cx, capY + 0.11, cz, 8);
+}
+
+export function _buildSolidStateAmpRoles() {
+  const b = makeBuckets();
+  // Envelope: 2 x 2 sub-tiles by 4 tall — 1.0 x 1.0 x 2.0 m.
+  const yBase = 0.09, height = 1.70;
+
+  boxAt(b.stand, 0.92, yBase, 0.92, 0, yBase / 2, 0);
+  _ampCabinet(b, {
+    cz: 0, width: 0.86, depth: 0.84, frontX: 0.42, yBase, height,
+    modules: 9, modH: 0.10, modPitch: 0.12, modBottom: 0.62, modZ: 0.78,
+  });
+
+  // Combining network down the back wall, and the coax that leaves it. The
+  // riser deliberately clears the cabinet roof: a 35 kW rack whose output is
+  // buried inside the box has no silhouette at all.
+  boxAt(b.copper, 0.08, 1.10, 0.20, -0.42, 1.00, 0);
+  cylY(b.copper, 0.06, 0.35, -0.42, 1.72, 0);
+  cylY(b.detail, 0.075, 0.03, -0.42, 1.91, 0);
+  // Coax elbow tying the spine to the riser.
+  boxAt(b.copper, 0.10, 0.10, 0.16, -0.42, 1.55, 0);
+
+  // AC feed conduit at the back corner.
+  boxAt(b.detail, 0.06, 0.55, 0.07, -0.43, 0.37, 0.32);
+
+  return b;
+}
+
+export function _buildHighPowerSSARoles() {
+  const b = makeBuckets();
+  // Envelope: 3 x 4 sub-tiles by 4 tall — 1.5 x 2.0 x 2.0 m.
+  // Same family as the 35 kW rack, ganged three wide: 300 kW is not a
+  // different technology, it is more of the same modules, and the model
+  // should cost the player nothing to recognise.
+  const yBase = 0.10, height = 1.66;
+
+  boxAt(b.stand, 1.30, yBase, 1.92, 0, yBase / 2, 0);
+
+  const cabZ = [-0.62, 0, 0.62];
+  for (const cz of cabZ) {
+    _ampCabinet(b, {
+      cz, width: 0.58, depth: 1.06, frontX: 0.48, yBase, height,
+      modules: 10, modH: 0.11, modPitch: 0.13, modBottom: 0.40, modZ: 0.50,
+    });
+  }
+  // Seam strips between adjacent cabinets.
+  for (const z of [-0.31, 0.31]) {
+    boxAt(b.stand, 1.08, height, 0.04, -0.05, yBase + height / 2, z);
+  }
+
+  // Combining manifold: one fat coax trunk along the back with a riser from
+  // each cabinet, then a single elbow out the top. This is what buys the
+  // "three cabinets, one transmitter" read.
+  cylZ(b.copper, 0.10, 1.70, -0.63, 1.40, 0);
+  for (const cz of cabZ) cylY(b.copper, 0.05, 0.78, -0.63, 0.92, cz);
+  cylY(b.copper, 0.10, 0.40, -0.61, 1.60, 0.83);
+  cylY(b.detail, 0.13, 0.04, -0.61, 1.82, 0.83);
+
+  // Switchgear cubicle for the 500 kW wall feed.
+  boxAt(b.iron, 0.16, 0.70, 0.30, -0.63, 0.45, -0.83);
+  boxAt(b.detail, 0.03, 0.20, 0.22, -0.72, 0.55, -0.83);
+
+  return b;
+}
+
+// ── Modulator ──────────────────────────────────────────────────────
+
+export function _buildModulatorRoles() {
+  const b = makeBuckets();
+  // Envelope: 2 x 3 sub-tiles by 4 tall — 1.0 x 1.5 x 2.0 m.
+  //
+  // A klystron modulator is a pulse transformer sitting in a tank of oil.
+  // Everything that makes it read as dangerous lives above the tank lid:
+  // three porcelain HV bushings and the cable festoon between them. The
+  // tank itself is deliberately a plain heavy slab — it is the thing the
+  // hazard sits on top of.
+
+  // Skid and oil tank.
+  boxAt(b.stand, 0.94, 0.10, 1.42, 0, 0.05, 0);
+  boxAt(b.iron, 0.86, 1.00, 1.30, 0, 0.60, 0);
+  const lidTop = 1.17;
+  boxAt(b.iron, 0.92, 0.07, 1.36, 0, lidTop - 0.035, 0);
+
+  // Radiator fins down the back face — oil-cooled, like a substation
+  // transformer.
+  for (const z of [-0.5, -0.3, -0.1, 0.1, 0.3, 0.5]) {
+    boxAt(b.detail, 0.07, 0.72, 0.06, -0.46, 0.60, z);
+  }
+
+  // Oil conservator along the back of the lid.
+  cylZ(b.pipe, 0.11, 1.00, -0.26, 1.34, 0);
+  for (const z of [-0.34, 0.34]) boxAt(b.detail, 0.05, 0.18, 0.05, -0.26, 1.24, z);
+
+  // Front access door with its hazard plate and handle.
+  boxAt(b.accent, 0.03, 0.80, 1.00, 0.435, 0.60, 0);
+  boxAt(b.detail, 0.02, 0.16, 0.20, 0.455, 0.86, -0.30);
+  boxAt(b.detail, 0.03, 0.05, 0.05, 0.46, 0.60, 0.42);
+  for (const z of [-0.44, 0.44]) boxAt(b.detail, 0.03, 0.07, 0.05, 0.45, 0.95, z);
+
+  // Three HV bushings on the lid.
+  const bushX = 0.16, bushZ = [-0.42, 0, 0.42];
+  const termY = 1.71;
+  for (const z of bushZ) {
+    cylY(b.iron, 0.10, 0.05, bushX, lidTop + 0.025, z);
+    {
+      const g = new THREE.CylinderGeometry(0.055, 0.075, 0.46, SEGS);
+      applyTiledCylinderUVs(g, 0.075, 0.46, SEGS);
+      pushT(b.pipe, g, trans(bushX, lidTop + 0.05 + 0.23, z));
+    }
+    for (const y of [1.30, 1.44, 1.58]) cylY(b.detail, 0.115, 0.025, bushX, y, z);
+    cylY(b.copper, 0.07, 0.06, bushX, termY, z);
+  }
+
+  // Cable festoon between the bushing terminals, and the thick output cable
+  // that drops away toward the klystron.
+  cableArc(b.detail, 'zy', bushX, bushZ[0], termY, bushZ[1], termY, 0.13, 0.024);
+  cableArc(b.detail, 'zy', bushX, bushZ[1], termY, bushZ[2], termY, 0.13, 0.024);
+  cableArc(b.detail, 'xy', bushZ[2], bushX, termY, 0.44, 1.22, 0.10, 0.028);
+
+  return b;
+}
+
+// ── LLRF controller ────────────────────────────────────────────────
+
+export function _buildLLRFControllerRoles() {
+  const b = makeBuckets();
+  // Envelope: 1 x 2 sub-tiles by 2 tall — 0.5 x 1.0 x 1.0 m.
+  //
+  // A half-height instrument rack. There is no physics to show here, so the
+  // model earns its keep purely as texture: a stack of chassis faces with
+  // handles, a patch panel of coax bulkheads, and one screen. Rack width
+  // runs along Z because the front panel faces +X.
+  const frontX = 0.195;
+
+  boxAt(b.stand, 0.44, 0.06, 0.90, 0, 0.03, 0);
+  // Frame posts.
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    boxAt(b.stand, 0.05, 0.80, 0.05, sx * 0.185, 0.46, sz * 0.395);
+  }
+  // Skins.
+  for (const sz of [-1, 1]) boxAt(b.accent, 0.40, 0.76, 0.025, 0, 0.44, sz * 0.408);
+  boxAt(b.accent, 0.025, 0.76, 0.82, -0.195, 0.44, 0);
+
+  // Five rack units.
+  for (let i = 0; i < 5; i++) {
+    const y = 0.19 + i * 0.13;
+    boxAt(b.iron, 0.36, 0.10, 0.76, 0, y, 0);
+    boxAt(b.pipe, 0.03, 0.105, 0.78, frontX, y, 0);
+    for (const sz of [-1, 1]) {
+      boxAt(b.detail, 0.035, 0.05, 0.05, 0.225, y, sz * 0.32);
+    }
+    boxAt(b.detail, 0.02, 0.02, 0.16, 0.215, y + 0.025, 0.20);
+  }
+  // The top unit is the operator console: a screen and two tuning knobs.
+  boxAt(b.detail, 0.02, 0.07, 0.30, 0.215, 0.71, -0.06);
+  for (const sz of [-1, 1]) cylX(b.pipe, 0.022, 0.03, 0.225, 0.32, sz * 0.20, 8);
+
+  // Patch panel of coax bulkheads across the top, then the lid.
+  boxAt(b.iron, 0.36, 0.06, 0.76, 0, 0.81, 0);
+  for (let i = 0; i < 8; i++) {
+    cylX(b.pipe, 0.015, 0.05, 0.215, 0.81, -0.28 + i * 0.08, 6);
+  }
+  boxAt(b.iron, 0.42, 0.04, 0.86, 0, 0.88, 0);
+
+  // Fibre/power conduit leaving the back.
+  boxAt(b.detail, 0.05, 0.55, 0.06, -0.215, 0.33, 0.30);
+
+  return b;
+}
+
+// ── Waveguide manifold ─────────────────────────────────────────────
+
+export function _buildWaveguideManifoldRoles() {
+  const b = makeBuckets();
+  // Envelope: 2 x 3 sub-tiles by 2 tall — 1.0 x 1.5 x 1.0 m.
+  //
+  // Nothing else on the floor is rectangular waveguide, so this leans all
+  // the way into it: a straight WR-sized trunk on stands, bolted flanges,
+  // square-cornered E-plane tees dropping to mitred bends, and a blank
+  // H-arm stub on top. Cross-sections are 0.22 x 0.11 m — several times
+  // oversize for the band, but a true WR-284 section is two pixels wide at
+  // this camera and reads as a wire.
+  const trunkY = 0.62, bw = 0.22, bh = 0.11;
+  const trunkHalf = 0.68;
+
+  // Main run.
+  boxAt(b.copper, bw, bh, trunkHalf * 2, 0, trunkY, 0);
+  // Bolted spool joints at each end, plus the terminating flanges.
+  for (const sz of [-1, 1]) {
+    wgFlange(b, { axis: 'z', x: 0, y: trunkY, z: sz * 0.6625, bw: 0.32, bh: 0.21 });
+    wgFlange(b, { axis: 'z', x: 0, y: trunkY, z: sz * 0.5625, bw: 0.32, bh: 0.21 });
+  }
+  // Tuning stubs / directional-coupler ports on the broad wall.
+  for (const z of [-0.50, 0.50]) cylY(b.pipe, 0.025, 0.06, 0, trunkY + 0.085, z, 8);
+
+  // Two H-frame stands.
+  for (const z of [-0.20, 0.20]) {
+    for (const sx of [-1, 1]) {
+      boxAt(b.stand, 0.05, 0.56, 0.05, sx * 0.14, 0.28, z);
+      boxAt(b.stand, 0.14, 0.03, 0.16, sx * 0.14, 0.015, z);
+    }
+    boxAt(b.stand, 0.33, 0.04, 0.05, 0, 0.58, z);
+  }
+
+  // Magic-tee H-arm: a short stub up off the trunk, blanked off.
+  boxAt(b.copper, 0.11, 0.20, 0.11, 0, trunkY + 0.155, 0);
+  boxAt(b.detail, 0.20, 0.04, 0.20, 0, 0.895, 0);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    cylY(b.iron, 0.015, 0.07, sx * 0.07, 0.895, sz * 0.07, 6);
+  }
+
+  // Two E-plane branches: down out of the trunk, mitred 90 degrees, and out
+  // the front to a bolted flange where the cavity feed picks up.
+  for (const z of [-0.36, 0.36]) {
+    boxAt(b.copper, 0.26, 0.17, 0.26, 0, trunkY, z);           // tee body
+    boxAt(b.copper, 0.11, 0.20, 0.22, 0, 0.44, z);             // down leg
+    boxAt(b.copper, 0.17, 0.13, 0.22, 0.03, 0.275, z);         // mitred corner
+    boxAt(b.copper, 0.28, 0.11, 0.22, 0.255, 0.275, z);        // out run
+    wgFlange(b, { axis: 'x', x: 0.4175, y: 0.275, z, bw: 0.32, bh: 0.21 });
+  }
+
+  // Every branch leaves on +X, so the assembly as built is lopsided in its
+  // tile. Slide the whole thing back along -X to re-centre the mass rather
+  // than adding decorative stubs on the other side.
+  const recentre = trans(-0.12, 0, 0);
+  for (const role of Object.keys(b)) for (const g of b[role]) g.applyMatrix4(recentre);
 
   return b;
 }

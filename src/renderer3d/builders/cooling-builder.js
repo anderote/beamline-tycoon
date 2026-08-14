@@ -1440,3 +1440,838 @@ export function _buildDeioniserRoles() {
 
   return b;
 }
+
+/**
+ * LCW Skid — 2×4 floor module, subH 3 (1.5 m tall).
+ * Plumbing on a frame, not a cabinet. A duty/standby centrifugal pump pair
+ * sits on plinths at the -Z end, water climbs through a bag filter and a DI
+ * cartridge vessel down the centreline, and two headers on posts run the full
+ * length at high level with handwheel isolation valves standing off them.
+ * Nothing is enclosed — you can see every joint — which is exactly what
+ * separates this from the chillers either side of it in the catalogue.
+ *
+ * Footprint 1.0 m (X) × 2.0 m (Z): nothing may pass x = ±0.50 or z = ±1.00.
+ * Widest features: the header outlet flanges at x = ±0.48 and the gauge board
+ * dials at z = +0.978.
+ */
+export function _buildLcwSkidRoles() {
+  const b = makeBuckets();
+
+  const headerY = 1.09;
+
+  // Skid deck and its two longitudinal channel rails.
+  {
+    const dW = 0.94, dH = 0.06, dD = 1.92;
+    const g = new THREE.BoxGeometry(dW, dH, dD);
+    applyTiledBoxUVs(g, dW, dH, dD);
+    pushT(b.stand, g, trans(0, dH / 2, 0));
+  }
+  for (const rx of [-0.38, 0.38]) {
+    const rW = 0.12, rH = 0.10, rD = 1.92;
+    const g = new THREE.BoxGeometry(rW, rH, rD);
+    applyTiledBoxUVs(g, rW, rH, rD);
+    pushT(b.stand, g, trans(rx, 0.06 + rH / 2, 0));
+  }
+
+  // Duty/standby pump pair at the -Z end: plinth, TEFC motor lying along Z,
+  // volute ahead of it, suction stub down to the deck, and a discharge riser
+  // climbing to the header on that pump's own side.
+  for (const pumpX of [-0.22, 0.22]) {
+    {
+      const pW = 0.30, pH = 0.12, pD = 0.46;
+      const g = new THREE.BoxGeometry(pW, pH, pD);
+      applyTiledBoxUVs(g, pW, pH, pD);
+      pushT(b.stand, g, trans(pumpX, 0.06 + pH / 2, -0.50));
+    }
+    {
+      const mR = 0.11, mL = 0.34;
+      const g = new THREE.CylinderGeometry(mR, mR, mL, SEGS);
+      applyTiledCylinderUVs(g, mR, mL, SEGS);
+      pushT(b.iron, g, new THREE.Matrix4().multiplyMatrices(
+        trans(pumpX, 0.30, -0.60), rotX(Math.PI / 2),
+      ));
+    }
+    {
+      const vR = 0.13, vH = 0.18;
+      const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
+      applyTiledCylinderUVs(g, vR, vH, SEGS);
+      pushT(b.detail, g, trans(pumpX, 0.27, -0.32));
+    }
+    {
+      const sR = 0.05, sH = 0.10;
+      const g = new THREE.CylinderGeometry(sR, sR, sH, 8);
+      applyTiledCylinderUVs(g, sR, sH, 8);
+      pushT(b.pipe, g, trans(pumpX, 0.13, -0.32));
+    }
+    {
+      const dR = 0.045, dH = 0.72;
+      const g = new THREE.CylinderGeometry(dR, dR, dH, 8);
+      applyTiledCylinderUVs(g, dR, dH, 8);
+      pushT(b.pipe, g, trans(pumpX, 0.36 + dH / 2, -0.32));
+    }
+    {
+      const eR = 0.045, eL = 0.16;
+      const g = new THREE.CylinderGeometry(eR, eR, eL, 8);
+      applyTiledCylinderUVs(g, eR, eL, 8);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(Math.sign(pumpX) * 0.26, headerY, -0.32),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Bag filter housing on the centreline, swing-bolt lid on top.
+  {
+    const fR = 0.115, fH = 0.54;
+    const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+    applyTiledCylinderUVs(g, fR, fH, SEGS);
+    pushT(b.pipe, g, trans(0, 0.06 + fH / 2, 0.14));
+  }
+  {
+    const lR = 0.135, lH = 0.05;
+    const g = new THREE.CylinderGeometry(lR, lR, lH, SEGS);
+    applyTiledCylinderUVs(g, lR, lH, SEGS);
+    pushT(b.detail, g, trans(0, 0.625, 0.14));
+  }
+
+  // DI cartridge vessel — the tall one, with a resistivity band round it.
+  {
+    const vR = 0.15, vH = 0.84;
+    const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
+    applyTiledCylinderUVs(g, vR, vH, SEGS);
+    pushT(b.pipe, g, trans(0, 0.06 + vH / 2, 0.62));
+  }
+  {
+    const cR = 0.16, cH = 0.05;
+    const g = new THREE.CylinderGeometry(cR, cR, cH, SEGS);
+    applyTiledCylinderUVs(g, cR, cH, SEGS);
+    pushT(b.detail, g, trans(0, 0.925, 0.62));
+  }
+  {
+    const bR = 0.155, bH = 0.06;
+    const g = new THREE.CylinderGeometry(bR, bR, bH, SEGS);
+    applyTiledCylinderUVs(g, bR, bH, SEGS);
+    pushT(b.accent, g, trans(0, 0.70, 0.62));
+  }
+
+  // Filter → DI crossover, then DI → supply header.
+  {
+    const pR = 0.04, pH = 0.14;
+    const g = new THREE.CylinderGeometry(pR, pR, pH, 8);
+    applyTiledCylinderUVs(g, pR, pH, 8);
+    pushT(b.copper, g, trans(0, 0.66, 0.14));
+  }
+  {
+    const pR = 0.04, pL = 0.40;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 0.72, 0.40), rotX(Math.PI / 2),
+    ));
+  }
+  {
+    const pR = 0.04, pH = 0.16;
+    const g = new THREE.CylinderGeometry(pR, pR, pH, 8);
+    applyTiledCylinderUVs(g, pR, pH, 8);
+    pushT(b.copper, g, trans(0, 1.03, 0.62));
+  }
+  {
+    const pR = 0.04, pL = 0.32;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.15, headerY, 0.62),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+  }
+
+  // Supply and return headers on posts, the full length of the skid.
+  for (const hx of [-0.30, 0.30]) {
+    for (const pz of [-0.70, 0.70]) {
+      const pW = 0.08, pH = 0.98, pD = 0.10;
+      const g = new THREE.BoxGeometry(pW, pH, pD);
+      applyTiledBoxUVs(g, pW, pH, pD);
+      pushT(b.stand, g, trans(hx, 0.06 + pH / 2, pz));
+    }
+    {
+      const hR = 0.065, hL = 1.80;
+      const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
+      applyTiledCylinderUVs(g, hR, hL, SEGS);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(hx, headerY, 0), rotX(Math.PI / 2),
+      ));
+    }
+
+    // Two isolation valves per header — body across the run, rising stem,
+    // handwheel on top. The handwheels are the tallest thing on the skid.
+    for (const vz of [-0.30, 0.55]) {
+      {
+        const vR = 0.09, vH = 0.11;
+        const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
+        applyTiledCylinderUVs(g, vR, vH, SEGS);
+        pushT(b.accent, g, new THREE.Matrix4().multiplyMatrices(
+          trans(hx, headerY, vz), rotX(Math.PI / 2),
+        ));
+      }
+      {
+        const sR = 0.02, sH = 0.13;
+        const g = new THREE.CylinderGeometry(sR, sR, sH, 6);
+        applyTiledCylinderUVs(g, sR, sH, 6);
+        pushT(b.detail, g, trans(hx, 1.245, vz));
+      }
+      {
+        const wR = 0.085, wH = 0.025;
+        const g = new THREE.CylinderGeometry(wR, wR, wH, SEGS);
+        applyTiledCylinderUVs(g, wR, wH, SEGS);
+        pushT(b.detail, g, trans(hx, 1.32, vz));
+      }
+    }
+
+    // Outboard supply/return connection, flanged.
+    {
+      const cR = 0.05, cL = 0.18;
+      const g = new THREE.CylinderGeometry(cR, cR, cL, 8);
+      applyTiledCylinderUVs(g, cR, cL, 8);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(Math.sign(hx) * 0.39, headerY, -0.85),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
+    {
+      const fR = 0.075, fH = 0.03;
+      const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+      applyTiledCylinderUVs(g, fR, fH, SEGS);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(Math.sign(hx) * 0.465, headerY, -0.85),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Control panel on the -Z end, two status lamps on its face.
+  {
+    const cW = 0.34, cH = 0.40, cD = 0.08;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(-0.10, 0.72, -0.92));
+  }
+  for (const lx of [-0.18, -0.02]) {
+    const lR = 0.025, lH = 0.02;
+    const g = new THREE.CylinderGeometry(lR, lR, lH, 8);
+    applyTiledCylinderUVs(g, lR, lH, 8);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(lx, 0.85, -0.965), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Pressure gauge board on its own post at the +Z end.
+  {
+    const sW = 0.06, sH = 0.78, sD = 0.06;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.stand, g, trans(0, 0.06 + sH / 2, 0.93));
+  }
+  {
+    const bW = 0.36, bH = 0.18, bD = 0.04;
+    const g = new THREE.BoxGeometry(bW, bH, bD);
+    applyTiledBoxUVs(g, bW, bH, bD);
+    pushT(b.accent, g, trans(0, 0.85, 0.93));
+  }
+  for (const gx of [-0.12, 0, 0.12]) {
+    const gR = 0.05, gH = 0.025;
+    const g = new THREE.CylinderGeometry(gR, gR, gH, SEGS);
+    applyTiledCylinderUVs(g, gR, gH, SEGS);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(gx, 0.85, 0.965), rotX(Math.PI / 2),
+    ));
+  }
+
+  return b;
+}
+
+/**
+ * Chiller — 3×4 floor module, subH 4 (2.0 m tall).
+ * The 300 kW sibling of the Package Chiller, and deliberately built from the
+ * same parts list: skid frame, cabinet pushed to -Z, compressors standing in
+ * the open strip, an evaporator, roof fans over a condenser, and a control
+ * panel on the -Z face. Everything the small one has one of, this has two of
+ * — two compressors, two roof fans, condenser coil on both flanks — and the
+ * evaporator has grown from a brazed-plate pack into a shell-and-tube barrel
+ * with saddles. Seen side by side the package unit is a box with a fan on it,
+ * and this is a plant room on a pallet.
+ *
+ * Footprint 1.5 m (X) × 2.0 m (Z): nothing may pass x = ±0.75 or z = ±1.00.
+ * Widest features: the condenser fin banding at x = ±0.74 and the control
+ * panel lamps at z = -1.00.
+ */
+export function _buildChillerRoles() {
+  const b = makeBuckets();
+
+  const skidTop = 0.10;
+  const cabW = 1.30, cabH = 1.45, cabD = 1.12, cabZ = -0.35;
+  const roofY = skidTop + cabH;
+
+  // Structural skid.
+  {
+    const sW = 1.44, sH = 0.10, sD = 1.94;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.stand, g, trans(0, sH / 2, 0));
+  }
+
+  // Main cabinet, pushed to -Z so the +Z strip stays open for the machinery.
+  {
+    const g = new THREE.BoxGeometry(cabW, cabH, cabD);
+    applyTiledBoxUVs(g, cabW, cabH, cabD);
+    pushT(b.iron, g, trans(0, skidTop + cabH / 2, cabZ));
+  }
+  // Painted band round the cabinet base.
+  {
+    const bW = 1.32, bH = 0.08, bD = 1.14;
+    const g = new THREE.BoxGeometry(bW, bH, bD);
+    applyTiledBoxUVs(g, bW, bH, bD);
+    pushT(b.accent, g, trans(0, skidTop + 0.06, cabZ));
+  }
+  // Roof plenum the fans draw through.
+  {
+    const pW = 1.32, pH = 0.06, pD = 1.14;
+    const g = new THREE.BoxGeometry(pW, pH, pD);
+    applyTiledBoxUVs(g, pW, pH, pD);
+    pushT(b.iron, g, trans(0, roofY + pH / 2, cabZ));
+  }
+
+  // Condenser coil on both flanks. The package chiller wears one plate stack
+  // on one side; this wears a full-height finned slab on each.
+  for (const side of [-1, 1]) {
+    {
+      const cW = 0.05, cH = 1.16, cD = 1.02;
+      const g = new THREE.BoxGeometry(cW, cH, cD);
+      applyTiledBoxUVs(g, cW, cH, cD);
+      pushT(b.copper, g, trans(side * 0.68, 0.86, cabZ));
+    }
+    for (let i = 0; i < 6; i++) {
+      const fW = 0.08, fH = 0.025, fD = 1.04;
+      const g = new THREE.BoxGeometry(fW, fH, fD);
+      applyTiledBoxUVs(g, fW, fH, fD);
+      pushT(b.pipe, g, trans(side * 0.70, 0.34 + i * 0.20, cabZ));
+    }
+  }
+
+  // Two condenser fans in a row on the roof.
+  const fanTop = roofY + 0.06;
+  for (const fz of [-0.62, -0.08]) {
+    {
+      const shR = 0.27, shH = 0.12;
+      const g = new THREE.CylinderGeometry(shR, shR, shH, SEGS);
+      applyTiledCylinderUVs(g, shR, shH, SEGS);
+      pushT(b.detail, g, trans(0, fanTop + shH / 2, fz));
+    }
+    {
+      const hubR = 0.075, hubH = 0.06;
+      const g = new THREE.CylinderGeometry(hubR, hubR, hubH, SEGS);
+      applyTiledCylinderUVs(g, hubR, hubH, SEGS);
+      pushT(b.accent, g, trans(0, fanTop + 0.12 + hubH / 2, fz));
+    }
+    // Swept radius sqrt(0.23² + 0.055²) = 0.237, inside the 0.27 shroud.
+    for (let i = 0; i < 4; i++) {
+      const bladeW = 0.46, bladeH = 0.015, bladeD = 0.11;
+      const g = new THREE.BoxGeometry(bladeW, bladeH, bladeD);
+      applyTiledBoxUVs(g, bladeW, bladeH, bladeD);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(0, fanTop + 0.165, fz),
+        new THREE.Matrix4().makeRotationY((i / 4) * Math.PI * 2 + 0.4),
+      ));
+    }
+    // Finger guard bars over each fan.
+    for (let i = 0; i < 3; i++) {
+      const gW = 0.52, gH = 0.02, gD = 0.02;
+      const g = new THREE.BoxGeometry(gW, gH, gD);
+      applyTiledBoxUVs(g, gW, gH, gD);
+      pushT(b.accent, g, trans(0, fanTop + 0.24, fz - 0.16 + i * 0.16));
+    }
+  }
+
+  // Two compressors standing on the skid in the open +Z strip, each with a
+  // motor cap, a discharge riser, and a hot-gas run back into the condenser.
+  for (const side of [-1, 1]) {
+    const cx = side * 0.46;
+    {
+      const compR = 0.16, compH = 0.60;
+      const g = new THREE.CylinderGeometry(compR, compR, compH, SEGS);
+      applyTiledCylinderUVs(g, compR, compH, SEGS);
+      pushT(b.detail, g, trans(cx, skidTop + compH / 2, 0.58));
+    }
+    {
+      const mR = 0.17, mH = 0.07;
+      const g = new THREE.CylinderGeometry(mR, mR, mH, SEGS);
+      applyTiledCylinderUVs(g, mR, mH, SEGS);
+      pushT(b.iron, g, trans(cx, 0.735, 0.58));
+    }
+    {
+      const dR = 0.045, dH = 0.46;
+      const g = new THREE.CylinderGeometry(dR, dR, dH, 8);
+      applyTiledCylinderUVs(g, dR, dH, 8);
+      pushT(b.copper, g, trans(cx, 0.77 + dH / 2, 0.58));
+    }
+    {
+      const dR = 0.045, dL = 0.42;
+      const g = new THREE.CylinderGeometry(dR, dR, dL, 8);
+      applyTiledCylinderUVs(g, dR, dL, 8);
+      pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+        trans(cx, 1.21, 0.37), rotX(Math.PI / 2),
+      ));
+    }
+    // Suction line up out of the barrel and across to this compressor.
+    {
+      const sR = 0.045, sH = 0.16;
+      const g = new THREE.CylinderGeometry(sR, sR, sH, 8);
+      applyTiledCylinderUVs(g, sR, sH, 8);
+      pushT(b.copper, g, trans(side * 0.24, 0.58, 0.58));
+    }
+    {
+      const sR = 0.045, sL = 0.24;
+      const g = new THREE.CylinderGeometry(sR, sR, sL, 8);
+      applyTiledCylinderUVs(g, sR, sL, 8);
+      pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.36, 0.64, 0.58),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Shell-and-tube evaporator barrel across the +Z strip, on saddles.
+  {
+    const eR = 0.16, eL = 0.62;
+    const g = new THREE.CylinderGeometry(eR, eR, eL, SEGS);
+    applyTiledCylinderUVs(g, eR, eL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 0.34, 0.58),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+  }
+  for (const side of [-1, 1]) {
+    {
+      const capR = 0.165, capH = 0.04;
+      const g = new THREE.CylinderGeometry(capR, capR, capH, SEGS);
+      applyTiledCylinderUVs(g, capR, capH, SEGS);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.33, 0.34, 0.58),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
+    {
+      const sW = 0.14, sH = 0.09, sD = 0.20;
+      const g = new THREE.BoxGeometry(sW, sH, sD);
+      applyTiledBoxUVs(g, sW, sH, sD);
+      pushT(b.stand, g, trans(side * 0.20, skidTop + sH / 2, 0.58));
+    }
+  }
+
+  // Chilled water supply and return off the barrel, out the +Z end.
+  for (const side of [-1, 1]) {
+    {
+      const wR = 0.06, wH = 0.26;
+      const g = new THREE.CylinderGeometry(wR, wR, wH, SEGS);
+      applyTiledCylinderUVs(g, wR, wH, SEGS);
+      pushT(b.pipe, g, trans(side * 0.12, 0.63, 0.58));
+    }
+    {
+      const wR = 0.06, wL = 0.34;
+      const g = new THREE.CylinderGeometry(wR, wR, wL, SEGS);
+      applyTiledCylinderUVs(g, wR, wL, SEGS);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.12, 0.74, 0.75), rotX(Math.PI / 2),
+      ));
+    }
+    {
+      const fR = 0.085, fH = 0.03;
+      const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+      applyTiledCylinderUVs(g, fR, fH, SEGS);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.12, 0.74, 0.925), rotX(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Control cabinet on the -Z face, with its lamp cluster.
+  {
+    const cW = 0.44, cH = 0.66, cD = 0.07;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(0.26, 0.90, -0.945));
+  }
+  for (const lx of [0.14, 0.26, 0.38]) {
+    const lR = 0.025, lH = 0.02;
+    const g = new THREE.CylinderGeometry(lR, lR, lH, 8);
+    applyTiledCylinderUVs(g, lR, lH, 8);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(lx, 1.14, -0.99), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Service louvres across the rest of the -Z face.
+  for (let i = 0; i < 4; i++) {
+    const lW = 0.50, lH = 0.03, lD = 0.02;
+    const g = new THREE.BoxGeometry(lW, lH, lD);
+    applyTiledBoxUVs(g, lW, lH, lD);
+    pushT(b.detail, g, trans(-0.30, 0.60 + i * 0.16, -0.92));
+  }
+
+  return b;
+}
+
+/**
+ * Emergency Cooling (UPS) — 2×3 floor module, subH 3 (1.5 m tall).
+ * This is insurance, and it has to look like insurance rather than plant: a
+ * bank of three battery/inverter cabinets down the -X side, a reserve water
+ * tank and a duty/standby pump set down the +X side, a DC conduit tying the
+ * two together, and a beacon on the cabinet roof. Nothing here makes cold
+ * water — it only keeps existing water moving after the wall supply drops —
+ * so there is no compressor, no coil and no fan anywhere in the silhouette,
+ * which is the tell against every working unit in the row.
+ *
+ * The cabinets, cap rail, pump motors, EPO mushroom and beacon dome all sit
+ * in the `iron` bucket, and the component carries
+ * `textures: { iron: 'metal_painted_red' }`, so the emergency kit reads red
+ * without needing a bucket the six-role system does not have.
+ *
+ * Footprint 1.0 m (X) × 1.5 m (Z): nothing may pass x = ±0.50 or z = ±0.75.
+ * Widest features: the tank level strip at x = +0.485 and the housekeeping
+ * pad at z = ±0.72.
+ */
+export function _buildEmergencyCoolingRoles() {
+  const b = makeBuckets();
+
+  const padTop = 0.08;
+
+  // Housekeeping pad.
+  {
+    const pW = 0.94, pH = 0.08, pD = 1.44;
+    const g = new THREE.BoxGeometry(pW, pH, pD);
+    applyTiledBoxUVs(g, pW, pH, pD);
+    pushT(b.stand, g, trans(0, pH / 2, 0));
+  }
+
+  // Battery / inverter cabinet bank down the -X side.
+  const cabX = -0.26, cabH = 1.02;
+  for (const cz of [-0.46, 0, 0.46]) {
+    {
+      const cW = 0.40, cD = 0.40;
+      const g = new THREE.BoxGeometry(cW, cabH, cD);
+      applyTiledBoxUVs(g, cW, cabH, cD);
+      pushT(b.iron, g, trans(cabX, padTop + cabH / 2, cz));
+    }
+    // Door latch bar on the +X face.
+    {
+      const hW = 0.03, hH = 0.20, hD = 0.03;
+      const g = new THREE.BoxGeometry(hW, hH, hD);
+      applyTiledBoxUVs(g, hW, hH, hD);
+      pushT(b.detail, g, trans(-0.045, 0.62, cz));
+    }
+    // Battery vent louvres near the top of each door.
+    for (let i = 0; i < 3; i++) {
+      const lW = 0.02, lH = 0.02, lD = 0.30;
+      const g = new THREE.BoxGeometry(lW, lH, lD);
+      applyTiledBoxUVs(g, lW, lH, lD);
+      pushT(b.detail, g, trans(-0.05, 0.88 + i * 0.07, cz));
+    }
+  }
+  // Continuous cap rail over the bank.
+  {
+    const rW = 0.44, rH = 0.05, rD = 1.40;
+    const g = new THREE.BoxGeometry(rW, rH, rD);
+    applyTiledBoxUVs(g, rW, rH, rD);
+    pushT(b.iron, g, trans(cabX, padTop + cabH + rH / 2, 0));
+  }
+  // Hazard band across the cabinet fronts.
+  {
+    const hW = 0.02, hH = 0.10, hD = 1.36;
+    const g = new THREE.BoxGeometry(hW, hH, hD);
+    applyTiledBoxUVs(g, hW, hH, hD);
+    pushT(b.accent, g, trans(-0.045, 0.30, 0));
+  }
+  // EPO mushroom on the middle cabinet, on its backing plate.
+  {
+    const pW = 0.02, pH = 0.14, pD = 0.14;
+    const g = new THREE.BoxGeometry(pW, pH, pD);
+    applyTiledBoxUVs(g, pW, pH, pD);
+    pushT(b.accent, g, trans(-0.05, 0.98, 0.20));
+  }
+  {
+    const mR = 0.04, mL = 0.03;
+    const g = new THREE.CylinderGeometry(mR, mR, mL, SEGS);
+    applyTiledCylinderUVs(g, mR, mL, SEGS);
+    pushT(b.iron, g, new THREE.Matrix4().multiplyMatrices(
+      trans(-0.04, 0.98, 0.20),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+  }
+
+  // Beacon on the cabinet roof — mast, lamp base, dome.
+  {
+    const mW = 0.05, mH = 0.16, mD = 0.05;
+    const g = new THREE.BoxGeometry(mW, mH, mD);
+    applyTiledBoxUVs(g, mW, mH, mD);
+    pushT(b.stand, g, trans(cabX, 1.23, 0));
+  }
+  {
+    const lR = 0.07, lH = 0.03;
+    const g = new THREE.CylinderGeometry(lR, lR, lH, SEGS);
+    applyTiledCylinderUVs(g, lR, lH, SEGS);
+    pushT(b.detail, g, trans(cabX, 1.325, 0));
+  }
+  {
+    const dR = 0.06, dH = 0.11;
+    const g = new THREE.CylinderGeometry(dR, dR, dH, SEGS);
+    applyTiledCylinderUVs(g, dR, dH, SEGS);
+    pushT(b.iron, g, trans(cabX, 1.395, 0));
+  }
+
+  // Reserve water tank at the -Z end of the +X side.
+  const tankX = 0.27, tankZ = -0.42;
+  {
+    const tR = 0.20, tH = 0.80;
+    const g = new THREE.CylinderGeometry(tR, tR, tH, SEGS);
+    applyTiledCylinderUVs(g, tR, tH, SEGS);
+    pushT(b.pipe, g, trans(tankX, padTop + tH / 2, tankZ));
+  }
+  {
+    const tH = 0.14;
+    const g = new THREE.CylinderGeometry(0.06, 0.20, tH, SEGS);
+    applyTiledCylinderUVs(g, 0.20, tH, SEGS);
+    pushT(b.pipe, g, trans(tankX, 0.95, tankZ));
+  }
+  {
+    const sW = 0.02, sH = 0.56, sD = 0.03;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.accent, g, trans(0.475, 0.44, tankZ));
+  }
+  {
+    const nR = 0.035, nH = 0.10;
+    const g = new THREE.CylinderGeometry(nR, nR, nH, 8);
+    applyTiledCylinderUVs(g, nR, nH, 8);
+    pushT(b.detail, g, trans(tankX, 1.07, tankZ));
+  }
+  // Tank outlet feeding the pump suction.
+  {
+    const oR = 0.045, oL = 0.14;
+    const g = new THREE.CylinderGeometry(oR, oR, oL, 8);
+    applyTiledCylinderUVs(g, oR, oL, 8);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(tankX, 0.20, -0.15), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Duty/standby emergency pump set.
+  for (const pz of [0.10, 0.52]) {
+    {
+      const pW = 0.30, pH = 0.10, pD = 0.26;
+      const g = new THREE.BoxGeometry(pW, pH, pD);
+      applyTiledBoxUVs(g, pW, pH, pD);
+      pushT(b.stand, g, trans(tankX, padTop + pH / 2, pz));
+    }
+    {
+      const mR = 0.085, mL = 0.22;
+      const g = new THREE.CylinderGeometry(mR, mR, mL, SEGS);
+      applyTiledCylinderUVs(g, mR, mL, SEGS);
+      pushT(b.iron, g, new THREE.Matrix4().multiplyMatrices(
+        trans(tankX, 0.29, pz + 0.08), rotX(Math.PI / 2),
+      ));
+    }
+    {
+      const vR = 0.10, vH = 0.13;
+      const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
+      applyTiledCylinderUVs(g, vR, vH, SEGS);
+      pushT(b.detail, g, trans(tankX, 0.26, pz - 0.13));
+    }
+    {
+      const rR = 0.035, rH = 0.42;
+      const g = new THREE.CylinderGeometry(rR, rR, rH, 8);
+      applyTiledCylinderUVs(g, rR, rH, 8);
+      pushT(b.pipe, g, trans(tankX, 0.325 + rH / 2, pz - 0.13));
+    }
+  }
+
+  // Emergency loop header over the pumps, with its outboard connection.
+  {
+    const hR = 0.05, hL = 0.62;
+    const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
+    applyTiledCylinderUVs(g, hR, hL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(tankX, 0.76, 0.20), rotX(Math.PI / 2),
+    ));
+  }
+  {
+    const oR = 0.05, oL = 0.16;
+    const g = new THREE.CylinderGeometry(oR, oR, oL, 8);
+    applyTiledCylinderUVs(g, oR, oL, 8);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.40, 0.76, 0.45),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+  }
+
+  // DC conduit from the inverter bank across to the pump starters.
+  {
+    const cW = 0.36, cH = 0.06, cD = 0.08;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.detail, g, trans(0.09, 1.05, 0.60));
+  }
+  {
+    const cW = 0.06, cH = 0.36, cD = 0.08;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.detail, g, trans(0.25, 0.87, 0.60));
+  }
+
+  return b;
+}
+
+/**
+ * LCW Manifold — 1×4 floor module, subH 2 (1.0 m tall), hasSurface: false.
+ * The cheapest thing in the cooling list and the only one that is not a
+ * machine: a supply run and a return run carried on three short stands, with
+ * handwheel isolation valves where branches leave and blanked-off tees where
+ * they have not been run yet. It must not read as a block — the open air
+ * between and under the two runs is the whole point — so the stands are
+ * deliberately thin and the runs sit clear above them. Supply is brushed
+ * pipe and return is copper so the pair never merges into one fat header.
+ *
+ * Footprint 0.5 m (X) × 2.0 m (Z): nothing may pass x = ±0.25 or z = ±1.00.
+ * Widest features: the valve bodies at x = ±0.215 and the end flanges at
+ * z = ±0.98.
+ */
+export function _buildCoolingManifoldRoles() {
+  const b = makeBuckets();
+
+  const runY = 0.68;
+  const SUPPLY_X = -0.13, RETURN_X = 0.13;
+
+  // Three short stands: foot plate, column, cross arm carrying both runs.
+  for (const sz of [-0.72, 0, 0.72]) {
+    {
+      const fW = 0.20, fH = 0.03, fD = 0.16;
+      const g = new THREE.BoxGeometry(fW, fH, fD);
+      applyTiledBoxUVs(g, fW, fH, fD);
+      pushT(b.stand, g, trans(0, fH / 2, sz));
+    }
+    {
+      const cW = 0.09, cH = 0.56, cD = 0.10;
+      const g = new THREE.BoxGeometry(cW, cH, cD);
+      applyTiledBoxUVs(g, cW, cH, cD);
+      pushT(b.stand, g, trans(0, cH / 2, sz));
+    }
+    {
+      const aW = 0.36, aH = 0.06, aD = 0.09;
+      const g = new THREE.BoxGeometry(aW, aH, aD);
+      applyTiledBoxUVs(g, aW, aH, aD);
+      pushT(b.stand, g, trans(0, 0.59, sz));
+    }
+  }
+
+  // The two runs.
+  {
+    const hR = 0.06, hL = 1.90;
+    const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
+    applyTiledCylinderUVs(g, hR, hL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(SUPPLY_X, runY, 0), rotX(Math.PI / 2),
+    ));
+  }
+  {
+    const hR = 0.055, hL = 1.90;
+    const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
+    applyTiledCylinderUVs(g, hR, hL, SEGS);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(RETURN_X, runY, 0), rotX(Math.PI / 2),
+    ));
+  }
+
+  for (const hx of [SUPPLY_X, RETURN_X]) {
+    // Blank end flanges — the run terminates here, it does not carry on.
+    for (const ez of [-0.965, 0.965]) {
+      const fR = 0.085, fH = 0.03;
+      const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+      applyTiledCylinderUVs(g, fR, fH, SEGS);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(hx, runY, ez), rotX(Math.PI / 2),
+      ));
+    }
+
+    // Isolation valves at the branch points.
+    for (const vz of [-0.62, 0, 0.62]) {
+      {
+        const vR = 0.085, vH = 0.11;
+        const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
+        applyTiledCylinderUVs(g, vR, vH, SEGS);
+        pushT(b.accent, g, new THREE.Matrix4().multiplyMatrices(
+          trans(hx, runY, vz), rotX(Math.PI / 2),
+        ));
+      }
+      {
+        const sR = 0.018, sH = 0.11;
+        const g = new THREE.CylinderGeometry(sR, sR, sH, 6);
+        applyTiledCylinderUVs(g, sR, sH, 6);
+        pushT(b.detail, g, trans(hx, 0.82, vz));
+      }
+      {
+        const wR = 0.065, wH = 0.022;
+        const g = new THREE.CylinderGeometry(wR, wR, wH, SEGS);
+        applyTiledCylinderUVs(g, wR, wH, SEGS);
+        pushT(b.detail, g, trans(hx, 0.886, vz));
+      }
+    }
+
+    // Capped branch tees between the valves — spare taps, blanked off.
+    for (const tz of [-0.31, 0.31]) {
+      {
+        const tR = 0.075, tH = 0.07;
+        const g = new THREE.CylinderGeometry(tR, tR, tH, SEGS);
+        applyTiledCylinderUVs(g, tR, tH, SEGS);
+        pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+          trans(hx, runY, tz), rotX(Math.PI / 2),
+        ));
+      }
+      {
+        const sR = 0.035, sH = 0.14;
+        const g = new THREE.CylinderGeometry(sR, sR, sH, 8);
+        applyTiledCylinderUVs(g, sR, sH, 8);
+        pushT(b.pipe, g, trans(hx, 0.79, tz));
+      }
+      {
+        const cR = 0.05, cH = 0.03;
+        const g = new THREE.CylinderGeometry(cR, cR, cH, SEGS);
+        applyTiledCylinderUVs(g, cR, cH, SEGS);
+        pushT(b.detail, g, trans(hx, 0.875, tz));
+      }
+    }
+
+    // Drain valve pointing down at the -Z end of each run.
+    {
+      const dR = 0.03, dH = 0.09;
+      const g = new THREE.CylinderGeometry(dR, dR, dH, 8);
+      applyTiledCylinderUVs(g, dR, dH, 8);
+      pushT(b.accent, g, trans(hx, 0.58, -0.86));
+    }
+  }
+
+  // Pressure gauge tapped off the supply run.
+  {
+    const sR = 0.018, sH = 0.09;
+    const g = new THREE.CylinderGeometry(sR, sR, sH, 6);
+    applyTiledCylinderUVs(g, sR, sH, 6);
+    pushT(b.detail, g, trans(SUPPLY_X, 0.78, -0.86));
+  }
+  {
+    const gR = 0.045, gH = 0.02;
+    const g = new THREE.CylinderGeometry(gR, gR, gH, SEGS);
+    applyTiledCylinderUVs(g, gR, gH, SEGS);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(SUPPLY_X, 0.845, -0.86), rotX(Math.PI / 2),
+    ));
+  }
+
+  return b;
+}

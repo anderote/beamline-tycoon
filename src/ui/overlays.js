@@ -2670,6 +2670,126 @@ UIHost.prototype._schematicDrawers = {
     for (let x = 12; x < 58; x += 3) dot(x, my, C.pipeRF);
   },
 
+  // === WAVEGUIDE MANIFOLD ===
+  // A plan-ish elevation of the real thing: one trunk in from the left,
+  // bolted flanges along it, three tees dropping to cavity feeds. The point
+  // the picture has to make is that the RF arriving on the left is the same
+  // RF leaving through all three legs — it is divided, never multiplied —
+  // so the input dashes are dense and each output run is sparser.
+  waveguideManifold(p, px, dot, W, H, cy, C) {
+    // Trunk rides high in the 70x30 buffer: everything interesting hangs
+    // below it, and the blanked stub needs the two rows above.
+    const my = cy - 5;          // trunk centreline
+    const taps = [22, 36, 50];  // tee positions along the trunk
+
+    // Input run to the first flange
+    px(2, my - 3, 8, 7, C.metalDk);
+    px(2, my - 2, 8, 5, C.metal);
+    for (let x = 3; x < 10; x++) dot(x, my, C.pipeRF);
+
+    // Trunk
+    px(10, my - 3, 52, 7, C.metalDk);
+    px(10, my - 2, 52, 5, C.metal);
+    px(11, my - 1, 50, 1, C.wallHi);
+
+    // Bolted flanges: a taller plate with two bolt heads
+    for (const fx of [10, 61]) {
+      px(fx - 1, my - 5, 3, 11, C.wall);
+      dot(fx, my - 4, C.metalDk);
+      dot(fx, my + 4, C.metalDk);
+    }
+    // Blanked H-arm stub on top — the magic tee's fourth port. Kept well
+    // clear of the taps so it does not read as a fourth output.
+    px(14, my - 8, 5, 3, C.metal);
+    px(13, my - 10, 7, 2, C.wall);
+
+    // Three E-plane tees dropping to mitred bends
+    for (const tx of [...taps]) {
+      // Tee body straddling the trunk
+      px(tx - 4, my - 5, 9, 11, C.metalDk);
+      px(tx - 3, my - 4, 7, 9, C.metal);
+      // Down leg
+      px(tx - 2, my + 4, 5, 9, C.metalDk);
+      px(tx - 1, my + 5, 3, 8, C.metal);
+      // Mitred corner and the run out to the cavity flange
+      px(tx - 2, my + 12, 8, 4, C.metalDk);
+      px(tx + 4, my + 13, 6, 3, C.metal);
+      px(tx + 9, my + 11, 2, 7, C.wall);
+      // Divided RF continuing down each leg
+      dot(tx, my + 6, C.pipeRF);
+      dot(tx, my + 9, C.pipeRF);
+      dot(tx + 4, my + 14, C.pipeRF);
+      dot(tx + 7, my + 14, C.pipeRF);
+    }
+
+    // Full-power RF along the trunk, thinning after each tap
+    for (let x = 12; x < 60; x += 2) {
+      const left = taps.filter(t => t > x).length;
+      dot(x, my, left >= 3 ? C.hotBright : left === 2 ? C.hot : left === 1 ? C.pipeRF : C.wallDk);
+    }
+  },
+
+  // === GYROTRON ===
+  // Drawn upright, because a gyrotron is a tube standing inside the bore of
+  // a superconducting magnet and the magnet is most of what you see. The
+  // read is: gun at the bottom, beam spiralling up the bore, collector and
+  // then the mm-wave beam leaving sideways through the window — not out the
+  // end like every other tube in the list.
+  gyrotron(p, px, dot, W, H, cy, C) {
+    const ax = 28;              // tube axis
+    // The magnet is squeezed to 12 rows so the collector and its cooling
+    // fins clear the top of the buffer and the gun still lands on the base.
+    const magTop = 9, magBot = 21;
+
+    // Base frame
+    px(14, 27, 30, 3, C.wallDk);
+
+    // Superconducting magnet cryostat around the bore
+    px(ax - 13, magTop, 26, magBot - magTop, C.metalDk);
+    px(ax - 12, magTop + 1, 24, magBot - magTop - 2, C.wall);
+    // Cold bore — the dark channel the tube sits in
+    px(ax - 4, magTop, 9, magBot - magTop, '#0d1420');
+    // SC coil pack either side of the bore
+    for (const sx of [-1, 1]) {
+      const x0 = ax + (sx < 0 ? -11 : 5);
+      px(x0, magTop + 3, 6, magBot - magTop - 6, C.scMagDk);
+      for (let y = magTop + 4; y < magBot - 3; y += 3) px(x0, y, 6, 1, C.scMagnet);
+    }
+    // Cryostat end plates and a helium fill neck
+    px(ax - 15, magTop - 2, 30, 2, C.metal);
+    px(ax - 15, magBot, 30, 2, C.metal);
+    px(ax - 15, magTop - 6, 3, 4, C.pipeCryo);
+
+    // Electron gun below the magnet — a magnetron injection gun, so it is
+    // an annular emitter, drawn as two flares rather than one cathode.
+    px(ax - 6, magBot + 2, 13, 4, C.metalDk);
+    px(ax - 5, magBot + 3, 3, 2, C.hot);
+    px(ax + 3, magBot + 3, 3, 2, C.hot);
+    for (let x = 4; x < ax - 6; x += 2) dot(x, magBot + 4, C.hotBright);
+
+    // Helical beam up the bore — cyclotron motion is the whole mechanism
+    for (let y = magBot; y > magTop; y--) {
+      dot(ax + Math.round(Math.sin(y * 0.7) * 3), y, C.pipeRF);
+    }
+
+    // Collector above the magnet, then the output window off the side
+    px(ax - 7, magTop - 8, 15, 6, C.metalDk);
+    px(ax - 6, magTop - 7, 13, 4, C.metal);
+    for (let x = ax - 6; x < ax + 7; x += 3) px(x, magTop - 9, 2, 1, C.metalDk);
+
+    // Diamond output window and the mm-wave beam leaving sideways
+    px(ax + 9, magTop - 7, 3, 5, C.scMagnet);
+    px(ax + 12, magTop - 8, 2, 7, C.wall);
+    for (let x = ax + 15; x < W - 2; x += 2) {
+      dot(x, magTop - 5, C.hotBright);
+      dot(x, magTop - 7, C.hot);
+      dot(x, magTop - 3, C.hot);
+    }
+    // 1 MW is a lot of water
+    px(ax + 9, magBot - 6, 8, 1, C.pipeCooling);
+    px(ax + 9, magBot - 3, 8, 1, C.pipeCooling);
+  },
+
   // === LLRF CONTROLLER ===
   llrfController(p, px, dot, W, H, cy, C) {
     const my = cy - 4;
@@ -3029,6 +3149,60 @@ UIHost.prototype._schematicDrawers = {
     px(60, 9, 2, 2, '#cc8844');
   },
 
+  // === CRYO VALVE BOX ===
+  // The small one, and the one that has to work hardest to say "cryo". Three
+  // cues do it: bayonet connectors running out both sides (nested cones, never
+  // a plain flange), a frost band across the bottom of the can, and valve
+  // stems standing well proud of the lid with handwheels on top.
+  cryoValveBox(p, px, dot, W, H, cy, C) {
+    const bx = 20, bw = 30, by = 9, bh = 14;
+
+    // Bayonet connections, left and right, drawn before the can so the can's
+    // wall overlaps their inboard ends.
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? 6 : 50;
+      // Outer vacuum jacket
+      px(x0, cy - 3, 14, 6, C.metalDk);
+      px(x0, cy - 2, 14, 4, C.metal);
+      // Jacket weld ring
+      px(x0 + (s < 0 ? 5 : 8), cy - 4, 1, 8, C.wallDk);
+      // Inner cold line, and the nose flange at the free end
+      px(x0 + 2, cy - 1, 10, 2, C.pipeCryo);
+      px(s < 0 ? 4 : 64, cy - 4, 2, 8, C.wallDk);
+    }
+
+    // Vacuum-jacketed can
+    px(bx, by, bw, bh, C.metalDk);
+    px(bx + 1, by + 1, bw - 2, bh - 2, C.metal);
+    // Cold interior
+    px(bx + 3, by + 3, bw - 6, bh - 6, '#0d1a2a');
+    // Supply and return headers inside
+    px(bx + 4, by + 4, bw - 8, 1, C.pipeCryo);
+    px(bx + 4, by + 6, bw - 8, 1, C.scMagDk);
+    // Frost sitting in the bottom of the can
+    px(bx + 3, by + 8, bw - 6, 3, '#7f96a8');
+    for (let x = bx + 4; x < bx + bw - 4; x += 3) dot(x, by + 9, '#c8dce8');
+    // Nameplate
+    px(bx + 2, by + bh - 3, 5, 2, C.label);
+
+    // Valve stems on the lid — the middle one is the control valve and stands
+    // taller than the two isolation valves either side of it.
+    for (const [sx, top] of [[25, 3], [33, 2], [41, 3]]) {
+      px(sx - 2, by - 3, 5, 3, C.metalDk);        // bonnet
+      px(sx - 1, by - 2, 3, 1, C.metal);
+      px(sx, top, 1, by - 3 - top, C.metal);      // stem
+      px(sx - 3, top - 1, 7, 1, '#cc8844');       // handwheel
+      dot(sx, top - 2, C.wallHi);
+    }
+
+    // Relief stack with its burst disc
+    px(46, by - 4, 3, 4, C.wallDk);
+    px(47, by - 7, 1, 3, '#cc8844');
+    dot(47, by - 8, '#ffaa44');
+    // Vacuum pump-out port, blanked off
+    px(21, by - 2, 2, 2, C.wallDk);
+  },
+
   // === ROUGHING PUMP ===
   roughingPump(p, px, dot, W, H, cy, C) {
     const my = cy - 3;
@@ -3227,6 +3401,41 @@ UIHost.prototype._schematicDrawers = {
     for (let y = my - 2; y <= my + 2; y += 2) {
       px(23, y, 14, 1, '#2255aa');
     }
+  },
+
+  // === LCW MANIFOLD ===
+  // A header, not a box. Two parallel runs on thin stands, handwheels where
+  // branches leave and blanked caps where they have not been run yet — the
+  // open space under and between the runs is the read.
+  coolingManifold(p, px, dot, W, H, cy, C) {
+    const my = cy - 1;
+    // Three short stands: column, foot plate, cross arm carrying both runs.
+    for (const x of [15, 34, 53]) {
+      px(x, my + 5, 3, 8, C.wallDk);
+      px(x - 3, my + 13, 9, 2, C.wallDk);
+      px(x - 4, my + 3, 11, 2, C.metalDk);
+    }
+    // Supply run (upper) and return run (lower)
+    px(8, my - 3, 54, 3, C.pipeCooling);
+    px(8, my + 1, 54, 3, C.coil);
+    // Blank end flanges on both runs
+    for (const x of [6, 62]) px(x, my - 4, 2, 9, C.metalDk);
+    // Isolation valves — body, rising stem, handwheel
+    for (const x of [18, 35, 52]) {
+      px(x - 3, my - 5, 7, 5, C.metalDk);
+      px(x, my - 8, 1, 3, C.metal);
+      px(x - 4, my - 10, 9, 2, C.metal);
+      dot(x, my - 9, C.wall);
+    }
+    // Capped branch tees between the valves
+    for (const x of [26, 44]) {
+      px(x - 1, my - 6, 2, 3, C.pipeCooling);
+      px(x - 3, my - 8, 6, 2, C.metalDk);
+    }
+    // Pressure gauge tapped off the supply run
+    px(11, my - 6, 1, 3, C.metal);
+    px(9, my - 9, 5, 3, C.metalDk);
+    dot(11, my - 8, '#44ff44');
   },
 
   // === FAN-COIL COOLER ===

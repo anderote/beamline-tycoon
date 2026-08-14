@@ -55,6 +55,103 @@ export const PORT_ANCHOR_OVERRIDES = {
   multibeamKlystron: { _default: { y: 1.0 } },
   chiller: { _default: { y: 0.8 } },
   coolingTower: { _default: { y: 1.0 } },
+
+  // === Measured against the 3D models ======================================
+  // Everything below was authored after walking each type's ROLE_BUILDERS
+  // output headless and reading the real world-space extents of its sub-meshes
+  // (beam pipe at y = 1.0, stands from the floor up, cooling manifolds, top
+  // waveguide runs). The heights quoted in the comments are those measured
+  // spans, so a builder that moves its hardware invalidates the number here.
+
+  // --- on-pipe hardware that hangs off the pipe, not off the floor ---------
+  // These models have no geometry below ~0.8 m at all: mid-shell derivation
+  // put their connector under the pipe in open air. Straight onto the part.
+  bellows: { _default: { y: 1.0, out: 0.05 } },              // convolution 0.82..1.18, dead on the axis
+  ict: { _default: { y: 1.0, out: 0.05 }, data_in: { y: 1.25 } },  // toroid 0.82..1.18; signal off the 1.18..1.30 stalk
+  baGauge: { _default: { y: 1.22, out: 0.05 } },             // hot-filament tube 1.14..1.25, cable to the head
+  coldCathodeGauge: { _default: { y: 1.2, out: 0.05 } },     // gauge body 1.07..1.27, HV lead on the body
+  negPump: { _default: { y: 0.5 } },                         // cartridge 0.03..0.53, port out of its top
+  tiSubPump: { _default: { y: 0.55 } },                      // filament head 0.535..0.625 caps a 0.51 body
+
+  // Screens and scanners: the can straddles the pipe and the actuator and
+  // camera sit on a head above it, so signal goes high and power stays at
+  // the pipe.
+  screen: { _default: { y: 1.0 }, data_in: { y: 1.35 } },    // pipe 0.82..1.18, camera head 1.18..1.73
+  wireScanner: { _default: { y: 1.0 } },                     // whole model is 0.84..1.16 around the axis
+  aperture: { _default: { y: 1.0 } },                        // jaws 0.65..1.35, centred on the axis
+  emittanceFilter: { _default: { y: 1.0 } },                 // slit body 0.7..1.3
+  velocitySelector: { _default: { y: 1.0 }, pwr_in: { y: 1.35 } },  // plates 0.72..1.28; HV stack 1.28..1.58
+
+  // Magnets that are modelled as a plain box rather than a yoke. The box sits
+  // on the floor and tops out at the beam line, so the derived 0.35 was down
+  // by the skirt. Match the quadrupole/dipole family instead.
+  solenoid: { _default: { y: 0.8 } },
+  collimator: { _default: { y: 0.8 }, cool_in: { y: 0.6 } },
+  chicane: { _default: { y: 0.8 } },
+  undulator: { _default: { y: 0.8 }, cool_in: { y: 0.6 } },
+  combinedFunctionMagnet: { _default: { y: 0.8 } },
+  injectionSeptum: { _default: { y: 0.8 } },
+  collisionPoint: { _default: { y: 0.8 }, data_in: { y: 1.0 } },
+  energyDegrader: { _default: { y: 0.8 }, cool_in: { y: 0.6 } },
+  scanningMagnet: { _default: { y: 0.85 }, cool_in: { y: 0.6 } },
+  recirculationArc: { _default: { y: 0.85 } },               // arc magnets 0.78..1.32 on a 0.78 stand
+  crystalChannelStage: { _default: { y: 0.9 } },             // goniometer block 0..1.66, pipe 0.75..1.4
+  fastKicker: { _default: { y: 0.95 }, data_in: { y: 1.15 } },  // ferrite frame 0.81..1.69 around a 1.0 pipe
+  finalFocusDoublet: { _default: { y: 0.9 }, cryo_in: { y: 0.7 } },  // coils 0.58..1.42 on a 0.69 stand
+  plasmaAfterburner: { _default: { y: 0.9 }, cool_in: { y: 0.7 } },  // cell body 0..1.48, stand to 0.78
+
+  // --- accelerating structures --------------------------------------------
+  // Same split the pillbox already documents: waveguide onto the run along
+  // the top of the structure, cooling onto the manifold just above the stand.
+  rfCavity: { _default: { y: 0.95 }, rf_in: { y: 1.45 }, cool_in: { y: 0.6 } },       // cells 0.5..1.5, WG 1.5..1.72
+  rfq: { _default: { y: 1.0 }, rf_in: { y: 1.5 }, cool_in: { y: 0.55 } },             // vanes 0.4..1.6, WG 1.55..1.9
+  sbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.35 }, cool_in: { y: 0.6 } }, // copper 0.48..1.52
+  cbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.3 }, cool_in: { y: 0.65 } }, // copper 0.56..1.44
+  xbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.25 }, cool_in: { y: 0.75 } },// copper 0.66..1.34, tall 0.9 stand
+  twoBeamModule: { _default: { y: 1.1 }, rf_in: { y: 1.45 }, cool_in: { y: 0.7 } },   // drive+main stack 0.81..1.9
+
+  // Cryostats. The vessel is the tall part; the transfer line lands low where
+  // the cold end and the valve box are, the coupler high on the shell — the
+  // same shape as the `cryomodule` entry above.
+  halfWaveResonator: { _default: { y: 1.1 }, rf_in: { y: 1.55 }, cryo_in: { y: 0.7 } },  // vessel 0.06..2.26
+  srf650Cryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },  // vessel 0.36..1.96
+  srf805Cryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },  // vessel 0.47..1.85
+  cwCryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },      // vessel 0.46..1.86
+  nbSnCryomodule: { _default: { y: 1.1 }, rf_in: { y: 1.4 }, cryo_in: { y: 0.7 } },      // vessel 0.55..1.76
+  srfLinacSector: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },    // vessel 0.51..1.81
+
+  // --- endpoints and big machines -----------------------------------------
+  // A dump or a target is a squat block of shielding: the water goes in low
+  // and close to the skid, and only the vacuum port belongs on the axis.
+  beamStop: { _default: { y: 0.6 }, cool_in: { y: 0.55 }, vac_in: { y: 1.0 } },   // block 0.4..1.6 on a 0.4 skid
+  target: { _default: { y: 0.9 }, cool_in: { y: 0.55 }, vac_in: { y: 1.0 }, data_in: { y: 1.2 } },  // cooling plate 0.46..0.53
+  beamDump: { _default: { y: 0.5 } },                                            // 1.5 m shielding block, services at its foot
+  faradayCup: { _default: { y: 1.0 }, data_in: { y: 1.3 }, pwr_in: { y: 0.85 } },// can 0.7..1.3, signal stalk to 1.485
+  detector: { _default: { y: 1.2 }, cool_in: { y: 0.7 }, vac_in: { y: 1.0 }, data_in: { y: 1.5 } },  // barrel -0.33..2.48
+  hawkingDetector: { _default: { y: 1.1 }, cool_in: { y: 0.7 }, vac_in: { y: 1.0 } },  // yoke 0..1.85, pipe stub at 1.0
+  blackHoleChamber: { _default: { y: 1.2 }, cool_in: { y: 0.8 }, vac_in: { y: 1.0 } }, // chamber 0.69..2.25 on a 1.55 cradle
+
+  // Machines still drawn as a plain box: the box stands on the floor and is
+  // metres tall, so mid-shell derivation climbed a blank wall. Feed at the
+  // base gland, RF and beam ports at working height.
+  vanDeGraaff: { _default: { y: 0.7 }, vac_in: { y: 1.0 } },                     // 3 m column
+  cockcroftWalton: { _default: { y: 0.7 }, cool_in: { y: 0.6 }, vac_in: { y: 1.0 } },  // 4 m rectifier stack
+  cyclotron30: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                    // 3 m yoke
+  cyclotron70: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                    // 4 m yoke
+  cyclotron230: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                   // 4 m yoke
+  positronSource: { _default: { y: 0.9 }, rf_in: { y: 1.4 }, cool_in: { y: 0.6 } },
+  lwfaStation: { _default: { y: 0.9 }, cool_in: { y: 0.6 }, data_in: { y: 1.1 } },
+  industrialLinac: { _default: { y: 0.85 }, rf_in: { y: 1.2 }, cool_in: { y: 0.7 } },  // 0.94 m tube centred on the axis
+
+  // --- support plant -------------------------------------------------------
+  // The other two bus heads, so all four read alike: powerBus 0.5 and
+  // vacuumManifold 0.6 are already authored above.
+  coolingManifold: { _default: { y: 0.5 } },
+  fiberBus: { _default: { y: 0.55 } },
+
+  lcwSkid: { _default: { y: 0.5 } },        // floor-standing pump skid, headers at knee height
+  bakeoutSystem: { _default: { y: 0.5 } },  // 1 m trolley; its box's mid-shell is already 0.5
+  areaMonitor: { _default: { y: 0.5 } },    // small head on a post — 0.35 sat on its bottom edge
 };
 
 /**
