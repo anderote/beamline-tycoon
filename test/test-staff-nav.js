@@ -435,5 +435,70 @@ console.log('\n=== 15. Meadow scattered across the WHOLE map does not defeat the
     `labelling stays fast even with infraOccupied covering the whole map, because meadow tiles don't count as "built" (got ${elapsedMs.toFixed(2)} ms)`);
 }
 
+console.log('\n=== 16. Scattered decorations (trees) do not widen the labelled region, even at map generator density ===\n');
+{
+  // generateStartingMap/generateAnnulus scatter LONELY_TREE_DENSITY (0.007)
+  // decoration placeables roughly uniformly across the whole site — every
+  // seed checked puts a tree within a tile or two of every map edge, so a
+  // real new game's decoration bbox is ~the entire map on turn one (the
+  // same "world-gen scatters something map-wide" trap groundsSurface tiles
+  // were). Decorations are therefore excluded from the content bbox (see
+  // buildNavGrid's placeables loop) — they still block their own subtile
+  // via blockedSubtiles/subgridOccupied exactly as before, they just don't
+  // widen the labelled region. A single tree stranded far from the built
+  // area must not drag the labelling out to cover it.
+  const state = makeState({ mapHalfExtent: 60 });
+  placeItem(state, 'shrub', 55, 55, 0, 0, 0); // decoration, far from the origin
+  const nav = getNavGrid(state);
+  const treeTile = { col: 55, row: 55, subCol: 0, subRow: 0 };
+  assertOk(!nav.passable.has(`${treeTile.col},${treeTile.row},${treeTile.subCol},${treeTile.subRow}`),
+    'the tree still blocks its own subtile');
+  // Two points near the tree (but not on it) and far from it — both bare
+  // grass, both outside the (tiny, empty-content-bbox-based) labelled
+  // region — must resolve via the OUTDOOR component, not force a
+  // region rebuild spanning out to the tree.
+  const nearTree = { col: 55, row: 54, subCol: 0, subRow: 0 };
+  const farAway = { col: -55, row: -55, subCol: 0, subRow: 0 };
+  assertOk(isReachable(nav, nearTree, farAway), 'a lone scattered tree does not disconnect (or widen the region around) distant bare ground');
+}
+
+console.log('\n=== 17. KNOWN LIMITATION: a closed ring of decorations outside the built bbox encloses an unreachable pocket that isReachable reports as reachable ===\n');
+{
+  // Documented tradeoff, not a bug: decorations don't feed the content
+  // bbox (see test 16 and buildNavGrid's comment), so a closed ring of
+  // decorations sitting entirely OUTSIDE the built region is invisible to
+  // the labelling — the pocket it encloses gets folded into the single
+  // OUTDOOR component along with everything else outdoors, even though a
+  // real pawn cannot physically walk into it.
+  //
+  // At LONELY_TREE_DENSITY = 0.007 with 1-subtile decorations, a closed
+  // ring requires adjacent decorations forming a complete loop, which is
+  // essentially impossible from map generation — but a player could
+  // deliberately plant one (four shrubs around a single subtile, as below).
+  // The failure this produces is bounded and safe, not silently wrong:
+  // isReachable says yes (this test), but findPath still runs real A*
+  // against blockedSubtiles/subgridOccupied and correctly returns null (also
+  // this test) — a pawn sent to the pocket goes idle with "no path found"
+  // rather than being told it walked there. Tolerated on that basis; see
+  // the task-4 report's fix-round-3 section for the full ruling.
+  const state = makeState({ mapHalfExtent: 60 });
+  // Pocket at (50,50,0,0); one shrub (1x1, blocks — subH:2, not stackable,
+  // no seat) on each of its four cardinal neighbor subtiles, sealing it.
+  placeItem(state, 'shrub', 49, 50, 3, 0, 0); // west
+  placeItem(state, 'shrub', 50, 49, 0, 3, 0); // north
+  placeItem(state, 'shrub', 50, 50, 1, 0, 0); // east
+  placeItem(state, 'shrub', 50, 50, 0, 1, 0); // south
+
+  const nav = getNavGrid(state);
+  const pocket = { col: 50, row: 50, subCol: 0, subRow: 0 };
+  const outside = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  assertOk(nav.passable.has('50,50,0,0'), 'sanity: the pocket subtile itself is passable (nothing placed on it)');
+
+  assertOk(isReachable(nav, outside, pocket),
+    'KNOWN LIMITATION: isReachable incorrectly reports the sealed pocket as reachable, because the ring sits outside the labelled bbox');
+  assertOk(findPath(nav, outside, pocket) === null,
+    'the limitation is bounded: findPath still runs real A* and correctly finds no path into the sealed pocket');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

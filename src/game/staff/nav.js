@@ -210,6 +210,33 @@ export function buildNavGrid(state) {
     extendContent(+c, +r);
   }
   for (const entry of placeables) {
+    // Decorations (kind: 'decoration' — trees, rocks, flowerbeds, ...) are
+    // excluded from the content bbox, though they still block their own
+    // subtile exactly as before (see blockedSubtiles below, computed
+    // independently from subgridOccupied). generateStartingMap/
+    // generateAnnulus scatter LONELY_TREE_DENSITY trees roughly uniformly
+    // across the whole site (map-generator.js) — every seed checked (1, 7,
+    // 42, 100, 2026, 31337) puts a tree within a tile or two of every edge
+    // of the map, so a real new game's decoration bbox is ~the entire map
+    // on turn one, the same "world-gen scatters something map-wide" trap
+    // groundsSurface tiles were above. A scattered tree doesn't create
+    // connectivity structure worth partitioning the map for — it's a
+    // 1-subtile obstacle, not a room boundary — so it shouldn't widen the
+    // labelled region just because a stray specimen landed near mapHalfExtent.
+    //
+    // Known limitation this accepts: a CLOSED RING of decorations sitting
+    // entirely outside the built bbox encloses a pocket that the labelling
+    // has no way to see, so that pocket gets folded into OUTDOOR and
+    // reported reachable even though it's actually walled off by trees. At
+    // LONELY_TREE_DENSITY = 0.007 with 1-subtile trees this is essentially
+    // impossible from generation (needs adjacent trees forming a closed
+    // loop), but a player COULD deliberately plant a ring. The failure is
+    // bounded and safe rather than silently wrong: isReachable says yes,
+    // but findPath still runs real A* against blockedSubtiles and correctly
+    // returns null, so a pawn sent there goes idle with "no path found"
+    // instead of walking into a tree. See test-staff-nav.js's
+    // "decoration ring" test for the explicit, documented behavior.
+    if (entry.kind === 'decoration') continue;
     if (Array.isArray(entry.cells) && entry.cells.length) {
       for (const cell of entry.cells) extendContent(cell.col, cell.row);
     } else if (Number.isFinite(entry.col) && Number.isFinite(entry.row)) {
