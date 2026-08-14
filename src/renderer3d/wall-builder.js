@@ -1,22 +1,65 @@
 // src/renderer3d/wall-builder.js
-// Renders walls and doors as 3D BoxGeometry slabs on tile edges.
+// Renders walls, doors and windows as 3D BoxGeometry slabs on tile edges.
 // THREE is a CDN global — do NOT import it.
+//
+// Doors and windows are both *openings*: an edge that carries one is dropped
+// from the main wall loop, and the opening's own pass rebuilds the wall
+// around it (below / beside / above) via the shared _buildOpeningSurround.
+// Doors call it with bottom 0 (nothing below a doorway); windows call it with
+// bottom = sillHeight, which is the only reason the "below" band exists.
 
-import { WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
+import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { contentKey } from './content-hash.js';
 
-const TILE_SIZE = 2;          // world units per tile (2m real)
+// Exported so callers that must size geometry to match what this builder
+// emits (e.g. ThreeRenderer.renderWindowPreview's drag ghost) read the same
+// numbers instead of restating them — a retune here must not silently drift
+// the ghost away from the built result.
+export const TILE_SIZE = 2;          // world units per tile (2m real)
 const M = TILE_SIZE / 2;     // 1 world unit = 2m, so 1m = 0.5 world units
 const DEFAULT_WALL_HEIGHT = 1.5 * M;  // 1.5m — one story
 const DEFAULT_WALL_THICKNESS = 0.15 * M; // 15cm
-const HEIGHT_SCALE = DEFAULT_WALL_HEIGHT / 14;   // maps data wallHeight 14 → 1.5m
+export const HEIGHT_SCALE = DEFAULT_WALL_HEIGHT / 14;   // maps data wallHeight 14 → 1.5m
 const THICKNESS_SCALE = DEFAULT_WALL_THICKNESS / 1.5; // maps data thickness 1.5 → 15cm
 const MIN_THICKNESS = 0.05 * M;  // 5cm min for fences/cubicles
 const DOOR_HEIGHT = 1.2 * M;     // 1.2m door
 const POST_WIDTH = 0.1 * M;      // 10cm posts
 const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
+
+// --- Window frame proportions (world units; M = 1 world unit per 2m) ---
+const WINDOW_FRAME_W = 0.06 * M;        // 6cm sill/head/jamb members
+const WINDOW_FRAME_W_HEAVY = 0.11 * M;  // shielded types get a chunkier frame
+const WINDOW_MULLION_W = 0.03 * M;      // industrialSash grid bars
+// How far the frame stands proud of the wall it sits in (a multiplier on the
+// wall's thickness) so the frame reads as a frame from either face.
+const WINDOW_FRAME_DEPTH_SCALE = 1.25;
+const GLASS_THICKNESS = 0.02 * M;
+// Warm interior light seen through the pane after dark. Set once at build
+// time; ThreeRenderer._updateLightingRamp only ever writes the scalar
+// emissiveIntensity (see glassGlowForDarkness in lighting-builder.js).
+const GLASS_EMISSIVE = 0xffd9a0;
+// Frame texture used when a window def names one that isn't in MATERIALS.
+const WINDOW_FRAME_FALLBACK_COLOR = 0xb0b0b0;
+// The two shielded types draw a heavier frame (design doc, "Catalogue").
+const HEAVY_FRAME_TYPES = new Set(['leadedObservation', 'hutchViewport']);
+
+/**
+ * The other name for the same physical tile edge. Every edge has exactly two
+ * representations — (col,row,'n') is the same seam as (col,row-1,'s') — and
+ * edge state may be stored under either. Mirrors Game._edgeAlias and
+ * InputHandler._edgeAlias; keep the three in step. Exported so
+ * test/test-window-alias-render.js can assert that agreement against the
+ * real implementations rather than local copies of them.
+ * @returns {string} the alias's "col,row,edge" key
+ */
+export function _edgeAliasKey(col, row, edge) {
+  if (edge === 'n') return `${col},${row - 1},s`;
+  if (edge === 's') return `${col},${row + 1},n`;
+  if (edge === 'e') return `${col + 1},${row},w`;
+  return `${col - 1},${row},e`;
+}
 
 // Stable integer hash of (col, row, edge) — used to pick a random but
 // deterministic variant + UV offset per wall segment.
@@ -44,25 +87,35 @@ export class WallBuilder {
     this._textureManager = textureManager;
     /** @type {THREE.Mesh[]} */
     this._meshes = [];
+    /**
+     * Every glass material created by the most recent build, deduped by
+     * type+variant+transparency. ThreeRenderer._updateLightingRamp() walks
+     * this each frame and writes emissiveIntensity — nothing else. Cleared
+     * by _cleanup (the materials themselves are disposed there too, since
+     * they are all attached to meshes in this._meshes).
+     * @type {THREE.Material[]}
+     */
+    this._glassMaterials = [];
     this._cacheKey = null;
   }
 
   /**
-   * Build (or rebuild) walls and doors from data arrays.
+   * Build (or rebuild) walls, doors and windows from data arrays.
    * @param {Array<{ col: number, row: number, edge: string, type: string }>} wallData
    * @param {Array<{ col: number, row: number, edge: string, type: string }>} doorData
+   * @param {Array<{ col: number, row: number, edge: string, type: string, variant?: number }>} windowData
    * @param {THREE.Group} parentGroup
    * @param {'up'|'transparent'|'cutaway'|'down'} wallVisibility
    * @param {Set<string>|null} cutawayRoom  Set of "col,row" strings for cutaway mode
    */
-  build(wallData, doorData, parentGroup, wallVisibility, cutawayRoom = null) {
+  build(wallData, doorData, windowData, parentGroup, wallVisibility, cutawayRoom = null) {
     if (wallVisibility === 'down') {
       this._cleanup(parentGroup);
       return;
     }
 
     const cutawayKey = cutawayRoom ? Array.from(cutawayRoom).sort().join(';') : '';
-    const newKey = contentKey({ wallData, doorData, wallVisibility, cutawayKey });
+    const newKey = contentKey({ wallData, doorData, windowData, wallVisibility, cutawayKey });
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     this._cleanup(parentGroup);
@@ -73,16 +126,38 @@ export class WallBuilder {
     // Cache materials by wall type to avoid duplicates
     const matCache = {};
 
-    // Build a set of door edge keys so we can skip walls that coincide with
-    // doors — the door builder creates its own side/above wall segments, and
-    // letting the main wall render on top would both block the opening and
-    // double-render the segment (causing z-fighting/shimmer in transparent mode).
-    const doorEdgeSet = new Set();
+    // Build a set of OPENING edge keys (doors and windows alike) so we can
+    // skip walls that coincide with one — the opening builder creates its own
+    // below/side/above wall segments, and letting the main wall render on top
+    // would both block the opening and double-render the segment (causing
+    // z-fighting/shimmer in transparent mode).
+    //
+    // Doors are matched on the EXACT triple only, and that is safe:
+    // Game.placeDoor/placeDoorPath gate on `state.wallOccupied[key]` with the
+    // same exact key, so a door can only ever exist on an edge whose wall is
+    // stored under the identical triple.
+    //
+    // Windows are NOT: Game.placeWindow accepts a wall found under either
+    // representation (`wallOccupied[key] || wallOccupied[aliasKey]`) and then
+    // stores the window under whichever triple the caller passed. A wall at
+    // (5,3,'s') can therefore carry a window recorded at (5,4,'n'). Matching
+    // only the exact key would leave that wall in the render list, so the
+    // full-height slab would draw straight across the glass — and the
+    // surround would be built with no wall def at all (default height and
+    // thickness, untextured fallback material) coincident with it. So window
+    // edges contribute BOTH representations. This cannot cause a false skip:
+    // the two triples name the same physical edge, so at most one of them
+    // holds a wall.
+    const openingEdgeSet = new Set();
     for (const d of (doorData || [])) {
-      doorEdgeSet.add(`${d.col},${d.row},${d.edge}`);
+      openingEdgeSet.add(`${d.col},${d.row},${d.edge}`);
+    }
+    for (const w of (windowData || [])) {
+      openingEdgeSet.add(`${w.col},${w.row},${w.edge}`);
+      openingEdgeSet.add(_edgeAliasKey(w.col, w.row, w.edge));
     }
     const wallsWithoutDoors = (wallData || []).filter(
-      w => !doorEdgeSet.has(`${w.col},${w.row},${w.edge}`)
+      w => !openingEdgeSet.has(`${w.col},${w.row},${w.edge}`)
     );
 
     // When transparent, merge adjacent colinear walls of the same type into
@@ -247,7 +322,6 @@ export class WallBuilder {
 
       const isNS = edge === 'n' || edge === 's';
       const edgeCenter = this._edgeCenter(col, row, edge);
-      const halfTile = TILE_SIZE / 2;
 
       // Door type properties
       const doorDef = type ? DOOR_TYPES[type] : null;
@@ -260,26 +334,12 @@ export class WallBuilder {
       // Find the wall type on this edge to match height/thickness/color
       const wallType = wallTypeByEdge[`${col},${row},${edge}`];
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
-      const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
       const wallThickness = wallDef
         ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
         : DEFAULT_WALL_THICKNESS;
-      const wallColor = wallDef ? wallDef.color : 0xcccccc;
 
       // Get or create wall material for wall segments around the door.
-      // Match the main wall material — tint white if textured so the map shows
-      // true colors, and disable depthWrite when transparent for consistent sort.
-      if (wallType && !matCache[wallType]) {
-        const baseMat = wallDef && wallDef.texture ? MATERIALS[wallDef.texture] : null;
-        matCache[wallType] = new THREE.MeshStandardMaterial({
-          map: baseMat ? baseMat.map : null,
-          color: baseMat ? 0xffffff : wallColor,
-          roughness: 0.8,
-          transparent: isTransparent,
-          opacity: isTransparent ? 0.3 : 1.0,
-          depthWrite: !isTransparent,
-        });
-      }
+      this._ensureOpeningWallMaterial(wallType, wallDef, matCache, isTransparent);
 
       const postGeo = new THREE.BoxGeometry(POST_WIDTH, doorHeight, POST_WIDTH);
 
@@ -329,89 +389,363 @@ export class WallBuilder {
       parentGroup.add(lintel);
       this._meshes.push(lintel);
 
-      // For single doors, fill wall on both sides of the opening
-      if (!isDouble) {
-        const sideWidth = (TILE_SIZE - doorOpeningWidth) / 2;
-        if (sideWidth > 0.001) {
-          const sideMat = matCache[wallType] || matCache['__default'] ||
-            (matCache['__default'] = new THREE.MeshStandardMaterial({
-              color: wallColor, roughness: 0.8,
-              transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
-              depthWrite: !isTransparent,
-            }));
-          const sideGeo = isNS
-            ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
-            : new THREE.BoxGeometry(wallThickness, wallHeight, sideWidth);
-          if (isNS) {
-            applyTiledBoxUVs(sideGeo, sideWidth, wallHeight, wallThickness);
-          } else {
-            applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, sideWidth);
-          }
+      // Wall fill around the opening. A doorway starts at the floor, so the
+      // "below" band is always zero-height here and emits nothing; the side
+      // fills (sub-tile widths only) and the band above the lintel are
+      // exactly what this pass used to inline.
+      this._buildOpeningSurround({
+        col, row, edge,
+        openingWidth: doorOpeningWidth,
+        openingBottom: 0,
+        openingTop: doorHeight + LINTEL_HEIGHT,
+        wallType, wallDef, matCache, isTransparent, parentGroup,
+      });
+    }
 
-          // Side A (negative direction)
-          const sideA = new THREE.Mesh(sideGeo, sideMat);
-          sideA.position.set(
-            edgeCenter.x + (isNS ? (-halfTile + sideWidth / 2) : 0),
-            wallHeight / 2,
-            edgeCenter.z + (isNS ? 0 : (-halfTile + sideWidth / 2))
-          );
-          sideA.castShadow = !isTransparent;
-          sideA.receiveShadow = true;
-          sideA.matrixAutoUpdate = false;
-          sideA.updateMatrix();
-          parentGroup.add(sideA);
-          this._meshes.push(sideA);
+    // --- Windows ---
+    this._buildWindows({
+      windowData, wallTypeByEdge, matCache, isTransparent,
+      wallVisibility, cutawayRoom, parentGroup,
+    });
 
-          // Side B (positive direction)
-          const sideB = new THREE.Mesh(sideGeo.clone(), sideMat);
-          sideB.position.set(
-            edgeCenter.x + (isNS ? (halfTile - sideWidth / 2) : 0),
-            wallHeight / 2,
-            edgeCenter.z + (isNS ? 0 : (halfTile - sideWidth / 2))
-          );
-          sideB.castShadow = !isTransparent;
-          sideB.receiveShadow = true;
-          sideB.matrixAutoUpdate = false;
-          sideB.updateMatrix();
-          parentGroup.add(sideB);
-          this._meshes.push(sideB);
-        }
+    this._cacheKey = newKey;
+  }
+
+  /**
+   * Every glass material created by the last build. ThreeRenderer's per-frame
+   * darkness ramp writes `emissiveIntensity` on each of these and nothing
+   * else. Returns the live array — do not mutate it.
+   * @returns {THREE.Material[]}
+   */
+  glassMaterials() {
+    return this._glassMaterials;
+  }
+
+  // --- Openings (doors + windows) ---------------------------------------
+
+  /**
+   * Get or create the wall material used for the segments an opening
+   * rebuilds around itself. Matches the main wall loop — tint white if
+   * textured so the map shows true colors, and disable depthWrite when
+   * transparent for consistent sort. No-op when the edge carries no wall.
+   */
+  _ensureOpeningWallMaterial(wallType, wallDef, matCache, isTransparent) {
+    if (!wallType || matCache[wallType]) return;
+    const baseMat = wallDef && wallDef.texture ? MATERIALS[wallDef.texture] : null;
+    const wallColor = wallDef ? wallDef.color : 0xcccccc;
+    matCache[wallType] = new THREE.MeshStandardMaterial({
+      map: baseMat ? baseMat.map : null,
+      color: baseMat ? 0xffffff : wallColor,
+      roughness: 0.8,
+      transparent: isTransparent,
+      opacity: isTransparent ? 0.3 : 1.0,
+      depthWrite: !isTransparent,
+    });
+  }
+
+  /**
+   * Rebuild the wall around an opening on one edge: the fills BESIDE it
+   * (sub-tile widths only), the band ABOVE it, and the band BELOW it. The
+   * edge's own wall segment was dropped from the main loop, so this is the
+   * only thing putting wall back.
+   *
+   * Doors call this with `openingBottom: 0` — the below band collapses to
+   * zero height and emits nothing, which is why the door result is
+   * unchanged by the extraction. Windows pass `openingBottom = sillHeight`.
+   *
+   * Geometry conventions kept from the original door code: side fills run
+   * the FULL wall height (not just the opening's span) and the below/above
+   * bands run the FULL tile width, so the two overlap at the corners of a
+   * sub-tile opening. That overlap is pre-existing door behaviour.
+   *
+   * @param {object} o
+   * @param {number} o.col
+   * @param {number} o.row
+   * @param {string} o.edge
+   * @param {number} o.openingWidth  world units across the edge
+   * @param {number} o.openingBottom world-Y of the opening's underside
+   * @param {number} o.openingTop    world-Y of the opening's head
+   * @param {string|undefined} o.wallType
+   * @param {object|null} o.wallDef
+   * @param {Record<string, THREE.Material>} o.matCache
+   * @param {boolean} o.isTransparent
+   * @param {THREE.Group} o.parentGroup
+   */
+  _buildOpeningSurround({
+    col, row, edge, openingWidth, openingBottom, openingTop,
+    wallType, wallDef, matCache, isTransparent, parentGroup,
+  }) {
+    const isNS = edge === 'n' || edge === 's';
+    const edgeCenter = this._edgeCenter(col, row, edge);
+    const halfTile = TILE_SIZE / 2;
+    const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
+    const wallThickness = wallDef
+      ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
+      : DEFAULT_WALL_THICKNESS;
+    const wallColor = wallDef ? wallDef.color : 0xcccccc;
+
+    // Resolved lazily so an opening that emits no fill never allocates the
+    // untextured fallback material (which nothing would ever dispose).
+    const fillMaterial = () =>
+      matCache[wallType] || matCache['__default'] ||
+      (matCache['__default'] = new THREE.MeshStandardMaterial({
+        color: wallColor, roughness: 0.8,
+        transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
+        depthWrite: !isTransparent,
+      }));
+
+    // One full-tile-width horizontal band spanning [y0, y0 + h].
+    const addBand = (y0, h) => {
+      if (!(h > 0.001)) return;
+      const geo = isNS
+        ? new THREE.BoxGeometry(TILE_SIZE, h, wallThickness)
+        : new THREE.BoxGeometry(wallThickness, h, TILE_SIZE);
+      if (isNS) {
+        applyTiledBoxUVs(geo, TILE_SIZE, h, wallThickness);
+      } else {
+        applyTiledBoxUVs(geo, wallThickness, h, TILE_SIZE);
       }
+      const mesh = new THREE.Mesh(geo, fillMaterial());
+      mesh.position.set(edgeCenter.x, y0 + h / 2, edgeCenter.z);
+      mesh.castShadow = !isTransparent;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      parentGroup.add(mesh);
+      this._meshes.push(mesh);
+    };
 
-      // Wall segment above the door (from lintel top to wall top)
-      const aboveDoorBottom = doorHeight + LINTEL_HEIGHT;
-      const aboveDoorHeight = wallHeight - aboveDoorBottom;
-      if (aboveDoorHeight > 0.001) {
-        const aboveMat = matCache[wallType] || matCache['__default'] ||
-          (matCache['__default'] = new THREE.MeshStandardMaterial({
-            color: wallColor, roughness: 0.8,
-            transparent: isTransparent, opacity: isTransparent ? 0.3 : 1.0,
-            depthWrite: !isTransparent,
-          }));
-        const aboveGeo = isNS
-          ? new THREE.BoxGeometry(TILE_SIZE, aboveDoorHeight, wallThickness)
-          : new THREE.BoxGeometry(wallThickness, aboveDoorHeight, TILE_SIZE);
-        if (isNS) {
-          applyTiledBoxUVs(aboveGeo, TILE_SIZE, aboveDoorHeight, wallThickness);
-        } else {
-          applyTiledBoxUVs(aboveGeo, wallThickness, aboveDoorHeight, TILE_SIZE);
-        }
-        const aboveMesh = new THREE.Mesh(aboveGeo, aboveMat);
-        aboveMesh.position.set(
-          edgeCenter.x,
-          aboveDoorBottom + aboveDoorHeight / 2,
-          edgeCenter.z
+    // 1. Fill beside the opening (sub-tile widths only). A full-tile opening
+    //    gives sideWidth 0 and emits nothing — the old `if (!isDouble)` guard
+    //    is subsumed by the width test.
+    const sideWidth = (TILE_SIZE - openingWidth) / 2;
+    if (sideWidth > 0.001) {
+      const sideMat = fillMaterial();
+      const sideGeo = isNS
+        ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
+        : new THREE.BoxGeometry(wallThickness, wallHeight, sideWidth);
+      if (isNS) {
+        applyTiledBoxUVs(sideGeo, sideWidth, wallHeight, wallThickness);
+      } else {
+        applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, sideWidth);
+      }
+      for (const [i, sign] of [[0, -1], [1, 1]]) {
+        const side = new THREE.Mesh(i === 0 ? sideGeo : sideGeo.clone(), sideMat);
+        const off = sign * (halfTile - sideWidth / 2);
+        side.position.set(
+          edgeCenter.x + (isNS ? off : 0),
+          wallHeight / 2,
+          edgeCenter.z + (isNS ? 0 : off)
         );
-        aboveMesh.castShadow = !isTransparent;
-        aboveMesh.receiveShadow = true;
-        aboveMesh.matrixAutoUpdate = false;
-        aboveMesh.updateMatrix();
-        parentGroup.add(aboveMesh);
-        this._meshes.push(aboveMesh);
+        side.castShadow = !isTransparent;
+        side.receiveShadow = true;
+        side.matrixAutoUpdate = false;
+        side.updateMatrix();
+        parentGroup.add(side);
+        this._meshes.push(side);
       }
     }
 
-    this._cacheKey = newKey;
+    // 2. Fill above the opening (head to wall top).
+    addBand(openingTop, wallHeight - openingTop);
+
+    // 3. Fill below the opening (floor to sill). Zero-height for doors.
+    addBand(0, openingBottom);
+  }
+
+  /**
+   * Window pass — frame, glass and surround for every placed window.
+   * A window is a hole in a wall: it never appears in doorOccupied and
+   * nothing here answers "can something pass through this edge".
+   */
+  _buildWindows({
+    windowData, wallTypeByEdge, matCache, isTransparent,
+    wallVisibility, cutawayRoom, parentGroup,
+  }) {
+    if (!windowData || windowData.length === 0) return;
+
+    // Frame + glass materials are deduped for the whole build; a facade of
+    // twenty identical windows costs two materials, not forty.
+    const frameMatCache = {};
+    const glassMatCache = {};
+
+    for (const wnd of windowData) {
+      const { col, row, edge, type } = wnd;
+      const def = type ? WINDOW_TYPES[type] : null;
+      if (!def) continue;
+
+      const isWindowCutaway = wallVisibility === 'cutaway' && cutawayRoom &&
+        this._wallBordersRoom(col, row, edge, cutawayRoom);
+      const ghosted = isTransparent || isWindowCutaway;
+
+      const isNS = edge === 'n' || edge === 's';
+      const edgeCenter = this._edgeCenter(col, row, edge);
+
+      // Alias fallback, for the same reason window edges contribute both
+      // representations to openingEdgeSet: the wall this window is a hole in
+      // may be stored under the OTHER name for this edge. Without the
+      // fallback the surround would silently fall back to DEFAULT_WALL_HEIGHT
+      // / DEFAULT_WALL_THICKNESS in the untextured grey material.
+      const wallType = wallTypeByEdge[`${col},${row},${edge}`]
+        ?? wallTypeByEdge[_edgeAliasKey(col, row, edge)];
+      const wallDef = wallType ? WALL_TYPES[wallType] : null;
+      const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
+      const wallThickness = wallDef
+        ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
+        : DEFAULT_WALL_THICKNESS;
+      this._ensureOpeningWallMaterial(wallType, wallDef, matCache, isTransparent);
+
+      // Opening box. Game.placeWindow enforces the fit rule
+      // (wallHeight >= sill + opening + 1), but clamp anyway so a window
+      // left behind by a wall swap degrades instead of poking out the top.
+      const openingBottom = def.sillHeight * HEIGHT_SCALE;
+      const openingTop = Math.min(
+        (def.sillHeight + def.openingHeight) * HEIGHT_SCALE,
+        wallHeight
+      );
+      const openingHeight = openingTop - openingBottom;
+      if (!(openingHeight > 0.001)) {
+        // The sill sits at or above the top of the wall, so there is no
+        // opening left to draw. The edge is already in openingEdgeSet under
+        // both representations, so the main wall loop dropped this segment —
+        // bailing out here would leave a hole with no wall AND no window.
+        // Put a plain full-height, full-width band back instead: passing a
+        // zero-height opening the width of the tile makes the surround emit
+        // exactly one band from the floor to the wall top and no side fill.
+        // Not reachable with today's catalogue (min wallHeight 8 vs max
+        // sillHeight 7) but one short wall type away.
+        this._buildOpeningSurround({
+          col, row, edge,
+          openingWidth: TILE_SIZE,
+          openingBottom: 0,
+          openingTop: 0,
+          wallType, wallDef, matCache, isTransparent, parentGroup,
+        });
+        continue;
+      }
+      const openingWidth = TILE_SIZE * (WINDOW_WIDTH_FRAC[def.windowWidth] ?? 0.5);
+
+      // Surround first, so the wall is behind the frame in the mesh list.
+      this._buildOpeningSurround({
+        col, row, edge, openingWidth, openingBottom, openingTop,
+        wallType, wallDef, matCache, isTransparent, parentGroup,
+      });
+
+      // --- Frame ---
+      const frameW = Math.min(
+        HEAVY_FRAME_TYPES.has(def.id) ? WINDOW_FRAME_W_HEAVY : WINDOW_FRAME_W,
+        openingHeight / 2.5,
+        openingWidth / 2.5
+      );
+      const frameDepth = Math.max(wallThickness * WINDOW_FRAME_DEPTH_SCALE, frameW);
+      const frameMat = this._windowFrameMaterial(def, frameMatCache, ghosted);
+
+      // Local axes: `u` runs along the wall edge, `y` is up, `d` is the
+      // wall's normal (thickness). addBar takes half-extents in (u, y).
+      const addBar = (uCenter, yCenter, uLen, yLen, depth) => {
+        if (!(uLen > 1e-4) || !(yLen > 1e-4)) return;
+        const geo = isNS
+          ? new THREE.BoxGeometry(uLen, yLen, depth)
+          : new THREE.BoxGeometry(depth, yLen, uLen);
+        const mesh = new THREE.Mesh(geo, frameMat);
+        mesh.position.set(
+          edgeCenter.x + (isNS ? uCenter : 0),
+          yCenter,
+          edgeCenter.z + (isNS ? 0 : uCenter)
+        );
+        mesh.castShadow = !ghosted;
+        mesh.receiveShadow = true;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        parentGroup.add(mesh);
+        this._meshes.push(mesh);
+      };
+
+      const halfOpening = openingWidth / 2;
+      // Sill and head run the full opening width; jambs fill the gap between
+      // them so the four members read as one closed frame.
+      addBar(0, openingBottom + frameW / 2, openingWidth, frameW, frameDepth);
+      addBar(0, openingTop - frameW / 2, openingWidth, frameW, frameDepth);
+      const jambH = openingHeight - 2 * frameW;
+      const jambY = openingBottom + openingHeight / 2;
+      for (const sign of [-1, 1]) {
+        addBar(sign * (halfOpening - frameW / 2), jambY, frameW, jambH, frameDepth);
+      }
+
+      // industrialSash: a 3x2 grid of panes — two vertical mullions, one
+      // horizontal transom.
+      if (def.id === 'industrialSash') {
+        const mullionDepth = Math.max(frameDepth * 0.7, GLASS_THICKNESS * 2);
+        for (const k of [-1, 1]) {
+          addBar(k * openingWidth / 6, jambY, WINDOW_MULLION_W, jambH, mullionDepth);
+        }
+        addBar(0, jambY, openingWidth - 2 * frameW, WINDOW_MULLION_W, mullionDepth);
+      }
+
+      // --- Glass ---
+      const glassMat = this._windowGlassMaterial(def, wnd.variant | 0, glassMatCache, ghosted);
+      const glassW = Math.max(openingWidth - 2 * frameW, 0.01);
+      const glassH = Math.max(openingHeight - 2 * frameW, 0.01);
+      const glassGeo = isNS
+        ? new THREE.BoxGeometry(glassW, glassH, GLASS_THICKNESS)
+        : new THREE.BoxGeometry(GLASS_THICKNESS, glassH, glassW);
+      const glass = new THREE.Mesh(glassGeo, glassMat);
+      glass.position.set(edgeCenter.x, jambY, edgeCenter.z);
+      glass.castShadow = false;
+      glass.receiveShadow = false;
+      glass.renderOrder = 2;
+      glass.matrixAutoUpdate = false;
+      glass.updateMatrix();
+      parentGroup.add(glass);
+      this._meshes.push(glass);
+    }
+  }
+
+  /** Frame material for a window def, deduped per texture + ghosted state. */
+  _windowFrameMaterial(def, cache, ghosted) {
+    const key = `${def.frameTexture || '__none'}:${ghosted ? 'g' : 'o'}`;
+    if (cache[key]) return cache[key];
+    const baseMat = def.frameTexture ? MATERIALS[def.frameTexture] : null;
+    cache[key] = new THREE.MeshStandardMaterial({
+      map: baseMat ? baseMat.map : null,
+      color: baseMat ? 0xffffff : WINDOW_FRAME_FALLBACK_COLOR,
+      roughness: 0.7,
+      metalness: 0.15,
+      transparent: ghosted,
+      opacity: ghosted ? 0.3 : 1.0,
+      depthWrite: !ghosted,
+    });
+    return cache[key];
+  }
+
+  /**
+   * Glass material for a window def + variant. Registered on
+   * `this._glassMaterials` so ThreeRenderer's darkness ramp can raise
+   * `emissiveIntensity` at night; the warm emissive colour itself is set
+   * once, here.
+   */
+  _windowGlassMaterial(def, variant, cache, ghosted) {
+    const key = `${def.id}:${variant}:${ghosted ? 'g' : 'o'}`;
+    if (cache[key]) return cache[key];
+    const color = def.variantGlassColors?.[variant] ?? def.glassColor ?? 0xcfe8f5;
+    const baseOpacity = def.variantGlassOpacities?.[variant] ?? def.glassOpacity ?? 0.2;
+    // Ghosted modes want to see THROUGH the building; never let a frosted
+    // pane read as more solid than the walls around it.
+    const opacity = ghosted ? Math.min(baseOpacity, 0.3) : baseOpacity;
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.1,
+      metalness: 0.1,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      emissive: GLASS_EMISSIVE,
+      emissiveIntensity: 0, // ramped per frame from darkness; 0 = broad daylight
+    });
+    cache[key] = mat;
+    this._glassMaterials.push(mat);
+    return mat;
   }
 
   /**
@@ -611,5 +945,9 @@ export class WallBuilder {
     for (const mat of mats) mat.dispose();
 
     this._meshes = [];
+    // Every glass material was attached to a mesh above, so it has already
+    // been disposed — just drop the registry so the darkness ramp stops
+    // walking dead materials.
+    this._glassMaterials = [];
   }
 }

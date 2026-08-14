@@ -224,6 +224,19 @@ function buildDoors(game) {
   }));
 }
 
+// Windows share the door pass's edge slot but never its occupancy map — a
+// window is a hole in a wall, not a passable opening. See
+// docs/superpowers/specs/2026-08-13-windows-design.md.
+function buildWindows(game) {
+  return (game.state.windows || []).map(w => ({
+    col: w.col,
+    row: w.row,
+    edge: w.edge,
+    type: w.type,
+    variant: w.variant || 0,
+  }));
+}
+
 function buildZones(game) {
   return (game.state.zones || []).map(z => ({
     col: z.col,
@@ -473,6 +486,7 @@ const SECTION_BUILDERS = {
   grassSurfaces: buildGrassSurfaces,
   walls: buildWalls,
   doors: buildDoors,
+  windows: buildWindows,
   wallOccupancy: buildWallOccupancy,
   zones: buildZones,
   components: buildComponents,

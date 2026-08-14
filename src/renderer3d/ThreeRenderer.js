@@ -17,7 +17,7 @@ import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
-import { WallBuilder } from './wall-builder.js';
+import { WallBuilder, HEIGHT_SCALE as WALL_HEIGHT_SCALE, TILE_SIZE as WALL_TILE_SIZE } from './wall-builder.js';
 import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds } from './component-builder.js';
 import { setModelBoundsProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
@@ -38,6 +38,7 @@ import { dayNightGrade, MOON_COLOR } from './day-night.js';
 import {
   buildLightPools, buildLightHalos,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
+  glassGlowForDarkness,
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { UIHost } from '../ui/UIHost.js';
@@ -46,7 +47,7 @@ import { UIHost } from '../ui/UIHost.js';
 import '../ui/hud.js';
 import '../ui/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
-import { WALL_TYPES } from '../data/structure.js';
+import { WALL_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
@@ -675,6 +676,7 @@ export class ThreeRenderer {
           break;
         case 'wallsChanged':
         case 'doorsChanged':
+        case 'windowsChanged':
           this._refreshWalls();
           break;
         case 'placeableChanged':
@@ -2239,6 +2241,42 @@ export class ThreeRenderer {
   }
 
   /**
+   * Render window placement preview — semi-transparent panes along the path,
+   * lifted to the type's sill height so the ghost reads as a window and not
+   * as a door. Mirrors renderDoorPreview; called by the WindowTool drag.
+   *
+   * Like the door tool, the ghost does NOT distinguish placeable edges from
+   * unplaceable ones (design doc, "Fit rule") — it shows the run, and the
+   * tool places what it can.
+   *
+   * @param {Array<{col:number,row:number,edge:string}>} path
+   * @param {string} windowType  a WINDOW_TYPES key
+   */
+  renderWindowPreview(path, windowType) {
+    this._clearPreview();
+    if (!path || path.length === 0) return;
+    const def = windowType ? WINDOW_TYPES[windowType] : null;
+    const mat = this._previewMat(0x88ccff, 0.4);
+    // Sizing constants come from wall-builder.js itself, so a retune there
+    // moves the ghost with the geometry it is previewing.
+    const sill = (def?.sillHeight ?? 5) * WALL_HEIGHT_SCALE;
+    const openH = (def?.openingHeight ?? 6) * WALL_HEIGHT_SCALE;
+    const width = WALL_TILE_SIZE * (WINDOW_WIDTH_FRAC[def?.windowWidth] ?? 0.5);
+    for (const seg of path) {
+      const isNS = seg.edge === 'n' || seg.edge === 's';
+      const geo = isNS
+        ? new THREE.BoxGeometry(width, openH, 0.06)
+        : new THREE.BoxGeometry(0.06, openH, width);
+      const mesh = new THREE.Mesh(geo, mat);
+      const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const midY = (ends.p0.y + ends.p1.y) / 2;
+      mesh.position.set(pos.x, midY + sill + openH / 2, pos.z);
+      this._addPreviewMesh(mesh);
+    }
+  }
+
+  /**
    * Highlight a single wall edge — white cross / edge marker on hover.
    */
   renderWallEdgeHighlight(col, row, edge, color = 0xffffff) {
@@ -3140,7 +3178,7 @@ export class ThreeRenderer {
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
     }
-    this.wallBuilder.build(snapshot.walls, snapshot.doors, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
+    this.wallBuilder.build(snapshot.walls, snapshot.doors, snapshot.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
     this.componentBuilder.build(snapshot.components, this.componentGroup);
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
@@ -3356,12 +3394,12 @@ export class ThreeRenderer {
   }
 
   _refreshWalls() {
-    const snap = this._updateSnapshot(['walls', 'doors', 'wallOccupancy']);
+    const snap = this._updateSnapshot(['walls', 'doors', 'windows', 'wallOccupancy']);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
     }
-    this.wallBuilder.build(snap.walls, snap.doors, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
+    this.wallBuilder.build(snap.walls, snap.doors, snap.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
   }
 
   /**
@@ -3524,10 +3562,11 @@ export class ThreeRenderer {
 
   /**
    * Per-frame darkness ramp for the Task 6 fake-lighting layer: fixture
-   * emissiveIntensity, pool mesh opacity, halo sprite opacity. All three
-   * read the SAME this._darkness (set by _updateSunCycle from
-   * dayNightGrade()) so they move in lockstep — no geometry work here, only
-   * scalar material properties, safe to run every frame even at sixty lamps.
+   * emissiveIntensity, pool mesh opacity, halo sprite opacity, and window
+   * glass emissiveIntensity. All four read the SAME this._darkness (set by
+   * _updateSunCycle from dayNightGrade()) so they move in lockstep — no
+   * geometry work here, only scalar material properties, safe to run every
+   * frame even at sixty lamps and a glazed facade.
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
@@ -3544,6 +3583,15 @@ export class ThreeRenderer {
       this.lightHaloGroup.traverse((child) => {
         if (child.isSprite) child.material.opacity = haloOpacityForDarkness(darkness);
       });
+    }
+    // Window panes come up warm from the outside as night falls. The builder
+    // hands back one material per (window type, variant, ghosted) combination
+    // — a facade of twenty identical windows is one write, not twenty — and
+    // the array is empty until a window is actually placed.
+    const glassMats = this.wallBuilder ? this.wallBuilder.glassMaterials() : null;
+    if (glassMats && glassMats.length) {
+      const glow = glassGlowForDarkness(darkness);
+      for (const mat of glassMats) mat.emissiveIntensity = glow;
     }
   }
 
