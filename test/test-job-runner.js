@@ -16,10 +16,10 @@
 // primary skill 5, zoneTier 0 -> efficiency = (5/5) * 0.5 * 1 = 0.5/tick.
 
 import { StaffMember } from '../src/game/staff/StaffMember.js';
-import { tickStaffMember } from '../src/game/staff/staffSystem.js';
+import { tickStaffMember, FATIGUE_PER_TICK } from '../src/game/staff/staffSystem.js';
 import { JOB_TYPES } from '../src/game/staff/jobs.js';
 import {
-  assignJobs, tickJobs, abandonJob, registerJobEffect,
+  assignJobs, tickJobs, abandonJob, registerJobEffect, NEEDS_THRESHOLD,
 } from '../src/game/staff/jobRunner.js';
 import {
   reserveStation, releaseAllFor, sanitizeStationReservations, getStationIndex,
@@ -565,11 +565,14 @@ console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddre
   // handleNeeds returns early once hunger lands the 'eat' job — a member
   // can hold only one job — but an EARLIER version of this file skipped the
   // fatigue branch ENTIRELY in that case, so fatigue (also over threshold
-  // here) got zero attention for the whole ~80-tick meal: tickStaffMember's
-  // own 'working' branch (status stays 'working' throughout an eat job)
-  // kept incrementing it, unchecked, straight to 1.0. utility-gate.js
-  // rejects any operator above fatigue 0.85 for beam staffing purposes, so
-  // an operator eating tripped the beam on a near-50% duty cycle.
+  // here) got zero attention for the whole meal: tickStaffMember's own
+  // 'working' branch (status stays 'working' throughout an eat job) kept
+  // incrementing it, unchecked, straight to 1.0. That was a real bug on its
+  // own terms regardless of any downstream consumer of fatigue.
+  //
+  // Ticks mid-meal rather than a hardcoded count, since eat's own workTicks
+  // (jobs.js) and its flat 1/tick accrual (jobRunner.js's tickJobs) are
+  // balance knobs this test shouldn't need editing every time they move.
   const state = makeState();
   floorRect(state, 0, 12, 0, 12);
   const table = placeItem(state, 'diningTable', 4, 4, 0, 0, 0);
@@ -592,17 +595,19 @@ console.log('\n=== 5b. I2: eating does not leave fatigue climbing/pegged unaddre
   assertOk(operator.job?.jobType === 'eat', `setup: hunger wins the one job slot (got ${operator.job?.jobType})`);
   arrive(operator);
 
-  for (let t = 0; t < 60; t++) {
+  // eat accrues at a flat 1/tick (jobRunner.js's tickJobs), so this
+  // completes in exactly JOB_TYPES.eat.workTicks ticks — stop partway
+  // through so the assertions below are actually exercising "mid-meal".
+  const midMealTicks = Math.floor(JOB_TYPES.eat.workTicks / 2);
+  for (let t = 0; t < midMealTicks; t++) {
     tickStaffMember(operator, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
     assignJobs(game);
     tickJobs(game);
   }
 
-  assertOk(operator.job?.jobType === 'eat', "still mid-meal after 60 ticks (eat's own workTicks/efficiency is 80)");
+  assertOk(operator.job?.jobType === 'eat', `still mid-meal after ${midMealTicks} ticks (eat's own workTicks is ${JOB_TYPES.eat.workTicks})`);
   assertOk(operator.needs.fatigue < fatigueAtStart,
     `fatigue actually decreased during the meal instead of climbing (started ${fatigueAtStart.toFixed(3)}, now ${operator.needs.fatigue.toFixed(3)})`);
-  assertOk(operator.needs.fatigue < 0.85,
-    `fatigue never reached utility-gate's 0.85 operator-rejection threshold during the meal (got ${operator.needs.fatigue.toFixed(3)})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -916,6 +921,122 @@ console.log('\n=== 11. abandonJob is the single choke point: releases the statio
   try { abandonJob(operator, game, 'again'); } catch (e) { threw = true; }
   assertOk(!threw, 'abandoning a member with no job does not throw');
   assertOk(operator.idleReason === 'again', 'idleReason still updates even with no job to release');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 12. Arithmetic guard: eat/rest must fit in one waking window; every other work job type is explicitly allowed to exceed it, and relies on fix (a) parking progress across windows to ever complete ===\n');
+{
+  // The bug this guards against: fatigue crosses NEEDS_THRESHOLD after
+  // NEEDS_THRESHOLD/FATIGUE_PER_TICK ticks of 'working', and abandonJob
+  // zeroes job.progress on every pre-emption — so before fix (a) existed, a
+  // job had to fit inside ONE such window (including travel) or it could
+  // never complete at any skill/tier, ever. This is the exact arithmetic
+  // that would have failed the day workTicks: 150 (fabricate) met the old
+  // fatigue += 0.02: a 40-tick window (0.8/0.02) at any realistic
+  // efficiency comes nowhere near 150.
+  //
+  // MEDIAN_EFFICIENCY: a skill-5 (this file's own FLAT_SKILLS), zoneTier-0,
+  // mood-'content' staffer — StaffMember.efficiency()'s own formula:
+  // (5/5) * (0.5 + 0.5*0/4) * 1 = 0.5. Named rather than inlined so the
+  // arithmetic below reads as "median efficiency", not a bare 0.5.
+  const MEDIAN_EFFICIENCY = 0.5;
+  const WAKING_WINDOW_TICKS = NEEDS_THRESHOLD / FATIGUE_PER_TICK;
+  const MAX_SINGLE_WINDOW_WORK_TICKS = WAKING_WINDOW_TICKS * MEDIAN_EFFICIENCY;
+
+  assertOk(WAKING_WINDOW_TICKS === 160,
+    `sanity: NEEDS_THRESHOLD (${NEEDS_THRESHOLD}) / FATIGUE_PER_TICK (${FATIGUE_PER_TICK}) is 160 ticks (got ${WAKING_WINDOW_TICKS})`);
+
+  // eat/rest are NEVER preempted (nothing outranks priority 1000/950) and
+  // fix (a)'s parking mechanism deliberately does not cover them (see
+  // tryTakeNeedJob — there is nothing to "resume" for a need job). These
+  // two are therefore the ones that genuinely must still complete inside a
+  // single waking window, or a hungry/tired staffer could never finish
+  // satisfying the one need blocking everything else.
+  for (const jobId of ['eat', 'rest']) {
+    const workTicks = JOB_TYPES[jobId].workTicks;
+    assertOk(workTicks <= MAX_SINGLE_WINDOW_WORK_TICKS,
+      `${jobId}.workTicks (${workTicks}) fits inside one waking window at median efficiency (ceiling ${MAX_SINGLE_WINDOW_WORK_TICKS})`);
+  }
+
+  // Every OTHER work job type is explicitly allowed to exceed that ceiling
+  // now — completing them at all depends on fix (a) (parked progress
+  // surviving a need pre-emption and resuming on reassignment) rather than
+  // ever fitting in one window the way the brief's own measurement showed
+  // was otherwise impossible at zone tier 0. Pinned as a positive
+  // assertion, not just a comment, so a future change that makes one of
+  // these fit in one window again doesn't silently mask a regression in
+  // the parking mechanism itself (test 13, below, is what actually
+  // exercises that mechanism).
+  const multiWindowJobs = Object.keys(JOB_TYPES).filter(id => id !== 'eat' && id !== 'rest');
+  const exceedsSingleWindow = multiWindowJobs.filter(id => JOB_TYPES[id].workTicks > MAX_SINGLE_WINDOW_WORK_TICKS);
+  assertOk(exceedsSingleWindow.length > 0,
+    `at least one non-need job type needs more than one waking window and so depends on fix (a)'s progress parking to ever complete: ${exceedsSingleWindow.join(', ')}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 13. Fix (a): work progress survives a need pre-emption and resumes on reassignment, instead of being zeroed by abandonJob ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 12, 0, 12);
+  placeItem(state, 'desk', 5, 5, 0, 0, 0); // offers paperwork (and analyze)
+  const table = placeItem(state, 'diningTable', 9, 9, 0, 0, 0);
+  placeItem(state, 'cafeteriaChair', table.col, table.row, 0, 3, 0);
+  bump(state);
+  const game = makeGame(state, []);
+
+  const admin = makeMember('admin', 'a1');
+  admin.fromNode = { col: 0, row: 0, subCol: 0, subRow: 0 }; // open floor, clear of both stations
+  state.staffMembers = [admin];
+
+  assignJobs(game);
+  assertOk(admin.job?.jobType === 'paperwork', `setup: admin assigned paperwork at the desk (got ${admin.job?.jobType})`);
+  arrive(admin);
+
+  // paperwork's workTicks is 80 and this member's efficiency is 0.5/tick
+  // (flat skills, zone tier 0 — see this file's own header), so 80 ticks
+  // lands progress at exactly 40 — the brief's own "tick to progress 40".
+  for (let t = 0; t < 80; t++) tickJobs(game);
+  assertOk(admin.job?.jobType === 'paperwork' && admin.job.progress === 40,
+    `setup: paperwork progress is exactly 40, still mid-job (got jobType=${admin.job?.jobType}, progress=${admin.job?.progress})`);
+
+  admin.needs.hunger = 1.0;
+  simTick(game, admin); // one full tick: tickStaffMember, assignJobs, tickJobs
+
+  assertOk(admin.job?.jobType === 'eat', `hunger pre-empts paperwork (got ${admin.job?.jobType})`);
+  assertOk(admin.parkedJob?.jobType === 'paperwork',
+    `the bumped job's type was parked on the member (got ${JSON.stringify(admin.parkedJob)})`);
+  assertOk(admin.parkedJob?.progress === 40,
+    `the bumped job's progress (40) was parked, not zeroed (got ${admin.parkedJob?.progress})`);
+
+  // Complete the meal (eat's own workTicks, flat 1/tick — see jobRunner.js's
+  // tickJobs and jobs.js's JOB_TYPES.eat).
+  arrive(admin);
+  let mealDone = false;
+  for (let t = 0; t < JOB_TYPES.eat.workTicks + 5 && !mealDone; t++) {
+    tickStaffMember(admin, { isNight: false, cafeteriaTier: 0, zoneTier: 0, rng: () => 0.5 });
+    assignJobs(game);
+    tickJobs(game);
+    if (admin.job === null) mealDone = true;
+  }
+  assertOk(mealDone, 'setup: the meal completed');
+
+  // Let paperwork be reassigned — the desk's reservation was released the
+  // moment it was bumped, so it's free again once the admin is idle.
+  let reassigned = false;
+  for (let t = 0; t < 10 && !reassigned; t++) {
+    assignJobs(game);
+    if (admin.job?.jobType === 'paperwork') reassigned = true;
+  }
+  assertOk(reassigned, `setup: paperwork was reassigned after the meal (got ${admin.job?.jobType})`);
+  assertOk(admin.job.progress === 40,
+    `resumed paperwork picks up at the parked progress (40), not 0 (got ${admin.job.progress})`);
+  assertOk(admin.parkedJob === null, 'the parked entry is consumed (cleared) once restored');
+
+  // And it keeps accruing from there rather than the restore being a
+  // one-time snapshot that gets silently overwritten on the next tick.
+  arrive(admin);
+  tickJobs(game);
+  assertOk(admin.job.progress > 40, `progress continues accruing past the resumed value (got ${admin.job.progress})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -45,7 +45,12 @@ import { countBeamlines } from '../utility-gate.js';
 // must not sit there starving forever waiting for a cafeteria that will
 // never be built. NEEDS_THRESHOLD / NO_STATION_RECOVERY_RATE below are the
 // guard against that — see handleNeeds()'s doc comment.
-const NEEDS_THRESHOLD = 0.8;
+// Exported for test-job-runner.js's arithmetic guard (see that test's own
+// header): "a job must fit in one waking window" is expressed in terms of
+// this threshold and staffSystem.js's FATIGUE_PER_TICK, so the guard reads
+// the same numbers this module actually runs on rather than a copy that can
+// drift.
+export const NEEDS_THRESHOLD = 0.8;
 // Same magic numbers the deleted onBreak branch used for its cafeteria-less
 // case (staffSystem.js history: hunger -0.02/tick, fatigue -0.05/tick) —
 // reused verbatim rather than re-derived, so "the current cafeteria-less
@@ -74,7 +79,23 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
   const state = game.state;
   const ref = findStation(state, { jobs: [jobType], fromNode: member.fromNode || null, staffId: member.id });
   if (ref && reserveStation(state, ref.key, member.id)) {
-    if (member.job) abandonJob(member, game, null);
+    if (member.job) {
+      // Park the bumped job's progress before abandonJob zeroes it out —
+      // see StaffMember's own doc comment on parkedJob for the full
+      // consume-or-discard contract assignOffer applies on the other end.
+      // Only real work jobs are worth parking; eat/rest have nothing to
+      // resume (bumping one need job for the other only happens when a
+      // reachable station exists for both, and there's no "meal in
+      // progress" worth remembering either way).
+      if (member.job.jobType !== 'eat' && member.job.jobType !== 'rest') {
+        member.parkedJob = {
+          jobType: member.job.jobType,
+          progress: member.job.progress,
+          target: member.job.target || null,
+        };
+      }
+      abandonJob(member, game, null);
+    }
     member.job = {
       jobType, target: null, specialty: null, stationKey: ref.key, destNode: ref.node,
       phase: 'travel', progress: 0,
@@ -114,8 +135,12 @@ function tryTakeNeedJob(member, game, jobType, needKey, missingLabel) {
  * real job this pass, but it still gets the same flat cafeteria-less-
  * equivalent trickle the deadlock guard uses. Skipping it entirely was a
  * real bug: a routine ~90-tick meal left fatigue climbing/pegged at 1.0 the
- * whole time, and utility-gate.js rejects any operator above fatigue 0.85 —
- * so an operator eating tripped the beam on a near-50% duty cycle. A need
+ * whole time — this comment used to go on to say utility-gate.js rejects any
+ * operator above fatigue 0.85, but no such check exists there anymore (see
+ * that module's own operatorCoverage, which filters only on
+ * status/job.jobType/job.phase); the near-50%-duty-cycle framing is stale
+ * along with it. Fatigue getting no attention for a whole meal was the real
+ * bug regardless of which downstream consumer would have cared. A need
  * that hits the DEADLOCK GUARD proper (no station reachable at all) still
  * gets its own full idleReason/recovery via tryTakeNeedJob, same as before.
  */
@@ -485,8 +510,41 @@ function resolveDestNode(game, member, offer) {
   return null;
 }
 
+// Whether `parked` (member.parkedJob) describes the SAME piece of work
+// `offer` is about to (re)assign — same job type, and for a target-addressed
+// job (repair/commission — parked.target set), the identical target too, so
+// resuming never silently reattaches an old technician's progress to a
+// different damaged component. Station-addressed jobs carry no target at
+// all (parked.target is null and so is offer.target), so they match on job
+// type alone — this is what makes "the staffer may return to a different
+// desk" true: progress is parked per MEMBER, never per station.
+function parkedProgressMatches(parked, offer) {
+  if (!parked || parked.jobType !== offer.jobType) return false;
+  if (parked.target) {
+    return !!offer.target
+      && offer.target.beamlineId === parked.target.beamlineId
+      && offer.target.nodeId === parked.target.nodeId;
+  }
+  return !offer.target;
+}
+
 function assignOffer(member, game, offer, destNode) {
   if (offer.stationKey) reserveStation(game.state, offer.stationKey, member.id);
+
+  // Consume-or-discard: this assignment is the one and only chance a parked
+  // entry gets to be resumed. A match restores its progress; anything else
+  // — a genuinely different job type, or the same job type against a
+  // different (or now-demolished) target — discards it right here rather
+  // than leaving it to linger and possibly reattach to some unrelated later
+  // job of the same type. That also means parked progress survives at most
+  // ONE need pre-emption in a row before either being spent or thrown away,
+  // never accumulating across several.
+  let progress = 0;
+  if (member.parkedJob) {
+    if (parkedProgressMatches(member.parkedJob, offer)) progress = member.parkedJob.progress;
+    member.parkedJob = null;
+  }
+
   member.job = {
     jobType: offer.jobType,
     target: offer.target,
@@ -494,7 +552,7 @@ function assignOffer(member, game, offer, destNode) {
     stationKey: offer.stationKey,
     destNode,
     phase: 'travel',
-    progress: 0,
+    progress,
   };
   member.idleReason = null;
 }
@@ -821,8 +879,14 @@ export function tickJobs(game) {
     const jobType = JOB_TYPES[job.jobType];
     if (!jobType) { abandonJob(member, game, 'That job no longer exists.'); continue; }
 
+    // eat/rest accrue at a flat 1/tick rather than member.efficiency(): a
+    // hungry person does not eat more slowly because they're unskilled or
+    // stuck in a tier-0 zone — efficiency modeling belongs to productive
+    // WORK, not to satisfying a need. Every other job type keeps scaling by
+    // skill/mood/zone-tier/specialty-match as before.
+    const flatNeedJob = job.jobType === 'eat' || job.jobType === 'rest';
     const zoneTier = zoneTierFor(state, member);
-    job.progress += member.efficiency(zoneTier, job.specialty);
+    job.progress += flatNeedJob ? 1 : member.efficiency(zoneTier, job.specialty);
 
     if (jobType.workTicks != null && job.progress >= jobType.workTicks) {
       onJobComplete(game, member, job);

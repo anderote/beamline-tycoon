@@ -4,6 +4,20 @@ import { StaffMember } from './StaffMember.js';
 import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professions.js';
 import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstories.js';
 
+// Base fatigue accrual per tick while 'working' (before trait multipliers).
+// Exported so jobRunner.js's own test (test-job-runner.js) can assert, as a
+// cheap arithmetic guard, that every work job's workTicks fits inside one
+// NEEDS_THRESHOLD-wide waking window at a representative staffer's
+// efficiency — see that test's own header for the full "workTicks: 150 met
+// fatigue += 0.02" history this constant exists to keep from repeating.
+//
+// Was 0.02 (threshold crossed at tick 41 — see this task's balance report),
+// which is roughly a quarter of DAY_LENGTH_TICKS (Game.js: 240) and left no
+// job of any real duration completable in one window even before travel.
+// 0.005 crosses NEEDS_THRESHOLD (0.8) at tick 160 — about two-thirds of one
+// in-game day, i.e. roughly one sleep per day rather than six.
+export const FATIGUE_PER_TICK = 0.005;
+
 function pickSpecialty(profession, rng) {
   const specs = specialtiesFor(profession);
   if (specs.length === 0) return null;
@@ -31,7 +45,7 @@ export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, rng = Mat
   let statusChanged = false;
 
   if (m.status === 'working') {
-    let fatigueInc = 0.02;
+    let fatigueInc = FATIGUE_PER_TICK;
     if (isNightOwl) fatigueInc *= isNight ? 0.7 : 1.3;
     if (m.traits.includes('perfectionist')) fatigueInc *= 1.1;
     m.needs.fatigue = Math.min(1, m.needs.fatigue + fatigueInc);

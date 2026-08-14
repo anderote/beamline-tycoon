@@ -85,6 +85,22 @@ export class StaffMember {
     // once for a member the runner has actually looked at; see jobRunner.js.
     this.job = opts.job || null;
     this.idleReason = opts.idleReason ?? null;
+    // Work progress a need pre-emption bumped this member off of — `{
+    // jobType, progress, target }` or null. Set only by jobRunner.js's
+    // tryTakeNeedJob (never for eat/rest itself — there's nothing useful to
+    // resume there) and consumed by assignOffer the moment this member is
+    // next assigned ANY job: a match (same jobType, same target for a
+    // target-addressed job) restores `progress`; a mismatch (a different
+    // job type taken, or the same job type against a different/now-gone
+    // target) silently discards it. That one-shot consume-or-discard rule
+    // is also why this never round-trips through toJSON/fromJSON below —
+    // save/load is exactly one more way the "same job, still there" premise
+    // can go stale (a demolished target, a reloaded world), so it's simplest
+    // to always start clean on load rather than re-validate a stashed job
+    // against a freshly-loaded world. Deliberately NOT read from `opts` even
+    // though every other field here is, so a hand-built save can't
+    // accidentally thread a stale one back in either.
+    this.parkedJob = null;
     this.history = opts.history || [{ tick: 0, event: 'hired', note: `Joined as ${this.profession}` }];
     this.stats = makeStats(opts.stats);
   }

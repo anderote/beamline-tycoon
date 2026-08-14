@@ -63,9 +63,15 @@ import { flattenPath } from '../../beamline/flattener.js';
 // technician off a live fix or an operator off a running beam; eat/rest
 // aren't either, for the same "don't do this halfway" reason. Everything
 // else can be paused for something more urgent.
+// eat/rest workTicks (15/60, tuned down from 40/80 — see this task's balance
+// report, src/game/staff/staffSystem.js's own FATIGUE_PER_TICK comment, and
+// jobRunner.js's tickJobs comment on why these two accrue progress at a flat
+// 1/tick rather than member.efficiency()) exist to give the labour economy a
+// time budget: at the old 0.02 fatigue/tick, needs alone consumed the
+// staffer's entire waking window before any work could start at all.
 export const JOB_TYPES = {
-  eat:        { id: 'eat',        name: 'Eat',           professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 1000, workTicks: 40,  interruptible: false },
-  rest:       { id: 'rest',       name: 'Rest',          professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 950,  workTicks: 80,  interruptible: false },
+  eat:        { id: 'eat',        name: 'Eat',           professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 1000, workTicks: 15,  interruptible: false },
+  rest:       { id: 'rest',       name: 'Rest',          professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 950,  workTicks: 60,  interruptible: false },
   repair:     { id: 'repair',     name: 'Repair',        professions: ['technician'],            usesSpecialty: false, basePriority: 90,   workTicks: 60,  interruptible: false },
   runBeam:    { id: 'runBeam',    name: 'Run Beam',      professions: ['operator'],               usesSpecialty: false, basePriority: 80,   workTicks: null, interruptible: false },
   commission: { id: 'commission', name: 'Commissioning', professions: ['engineer'],               usesSpecialty: true,  basePriority: 70,   workTicks: 90,  interruptible: true },
