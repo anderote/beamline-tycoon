@@ -12,6 +12,30 @@
 
 import { GROUNDS_WALLS } from './grounds.js';
 
+/**
+ * What one unit of `def` costs in the given variant — the single rule the
+ * charge sites in Game.js use (`variantCosts?.[variant] ?? cost`), exported
+ * so the HUD palette, the keyboard preview card and the demolish refund
+ * tooltip can DISPLAY the number that will actually be charged or refunded.
+ * A def with no variantCosts (or a variant it does not declare) falls back
+ * to the flat cost, so this is safe on any def.
+ *
+ * `cost` may be a number or a `{ funding }` object (components); variant
+ * costs are always plain numbers.
+ *
+ * @param {object|null} def       a FLOORS / WALL_TYPES / WINDOW_TYPES / … entry
+ * @param {number} [variant]      variant index
+ * @returns {number} funding cost
+ */
+export function variantCost(def, variant = 0) {
+  if (!def) return 0;
+  const flat = (typeof def.cost === 'object' && def.cost !== null)
+    ? (def.cost.funding ?? 0)
+    : (def.cost ?? 0);
+  const vc = def.variantCosts?.[variant];
+  return typeof vc === 'number' ? vc : flat;
+}
+
 // All floor types — placed as full tiles. Indoor floors require a
 // concrete foundation; outdoor floors can sit directly on bare ground
 // or on top of foundations.
@@ -547,6 +571,154 @@ export const DOOR_TYPES = {
     variants: ['Gray', 'Blue', 'White'],
     variantPreviewColors: [0xaaaaaa, 0x7799bb, 0xdddddd],
     variantTints: [null, 0x88aacc, 0xdddddd],
+  },
+};
+
+// windowWidth fractions of a tile — shared by the renderer and the tests so
+// there is exactly one source for how wide 'narrow' / 'single' / 'double'
+// windows are cut.
+export const WINDOW_WIDTH_FRAC = {
+  narrow: 0.4,
+  single: 0.5,
+  double: 1.0,
+};
+
+// Window types — placed on tile edges like doors, but never occupy
+// state.doorOccupied: a window is a hole in a wall, not a passable opening.
+// See docs/superpowers/specs/2026-08-13-windows-design.md for the model.
+export const WINDOW_TYPES = {
+  officeWindow: {
+    id: 'officeWindow',
+    name: 'Office Window',
+    desc: 'Standard interior window for offices, sharing daylight between adjoining rooms.',
+    cost: 30,
+    color: 0xccccbb,
+    topColor: 0xddddcc,
+    subH: 5,
+    sillHeight: 5,
+    openingHeight: 6,
+    windowWidth: 'single',
+    frameTexture: 'drywall_painted',
+    glassColor: 0xcfe8f5,
+    glassOpacity: 0.15,
+    daylight: 0.4,
+    subsection: 'interior',
+    isWindow: true,
+    variants: ['Clear', 'Tinted', 'Frosted'],
+    variantGlassColors: [0xcfe8f5, 0xc9a06a, 0xf0f0f0],
+    variantGlassOpacities: [0.15, 0.4, 0.55],
+    variantPreviewColors: [0xcfe8f5, 0xc9a06a, 0xf0f0f0],
+    variantCosts: [30, 34, 32],
+  },
+  glassPartition: {
+    id: 'glassPartition',
+    name: 'Glass Partition',
+    desc: 'Full-height glass partition for open-plan interiors. Borrows light between the rooms it divides.',
+    cost: 45,
+    color: 0x99aabb,
+    topColor: 0xaabbcc,
+    subH: 5,
+    sillHeight: 1,
+    openingHeight: 11,
+    windowWidth: 'double',
+    frameTexture: 'metal_brushed',
+    glassColor: 0xd8f0ff,
+    glassOpacity: 0.12,
+    daylight: 0.6,
+    subsection: 'interior',
+    isWindow: true,
+    variants: ['Clear', 'Frosted', 'Reeded'],
+    variantGlassColors: [0xd8f0ff, 0xeeeeee, 0xe0e8ea],
+    variantGlassOpacities: [0.12, 0.5, 0.4],
+    variantPreviewColors: [0xd8f0ff, 0xeeeeee, 0xc6d2d4],
+    variantCosts: [45, 48, 50],
+  },
+  pictureWindow: {
+    id: 'pictureWindow',
+    name: 'Picture Window',
+    desc: 'Large exterior window for offices and common areas. Floods a room with daylight.',
+    cost: 55,
+    color: 0xe8e8e0,
+    topColor: 0xf5f5f0,
+    subH: 5,
+    sillHeight: 3,
+    openingHeight: 8,
+    windowWidth: 'double',
+    frameTexture: 'metal_painted_white',
+    glassColor: 0xcfe8fa,
+    glassOpacity: 0.12,
+    daylight: 0.8,
+    subsection: 'exterior',
+    isWindow: true,
+    variants: ['Clear', 'Tinted', 'Mirrored'],
+    variantGlassColors: [0xcfe8fa, 0x8fa8b4, 0xb8d4e0],
+    variantGlassOpacities: [0.12, 0.4, 0.65],
+    variantPreviewColors: [0xcfe8fa, 0x8fa8b4, 0xa8c8dc],
+    variantCosts: [55, 62, 70],
+  },
+  industrialSash: {
+    id: 'industrialSash',
+    name: 'Industrial Sash Window',
+    desc: 'Steel-sashed exterior window for machine shops and utility bays.',
+    cost: 45,
+    color: 0x8899a2,
+    topColor: 0x9aabb5,
+    subH: 5,
+    sillHeight: 4,
+    openingHeight: 8,
+    windowWidth: 'double',
+    frameTexture: 'metal_brushed',
+    glassColor: 0xc8e0ec,
+    glassOpacity: 0.15,
+    daylight: 0.5,
+    subsection: 'exterior',
+    isWindow: true,
+    variants: ['Clear', 'Wired', 'Grimy'],
+    variantGlassColors: [0xc8e0ec, 0xb8c8c8, 0x8a9088],
+    variantGlassOpacities: [0.15, 0.35, 0.55],
+    variantPreviewColors: [0xc8e0ec, 0xacbcbc, 0x767c70],
+    variantCosts: [45, 50, 40],
+  },
+  leadedObservation: {
+    id: 'leadedObservation',
+    name: 'Leaded Observation Window',
+    desc: 'Leaded glass observation window for viewing into shielded hutches and radiation areas.',
+    cost: 150,
+    color: 0x5a5a6e,
+    topColor: 0x70708a,
+    subH: 5,
+    sillHeight: 5,
+    openingHeight: 6,
+    windowWidth: 'double',
+    frameTexture: 'metal_dark',
+    glassColor: 0x9fc9a0,
+    glassOpacity: 0.45,
+    daylight: 0.2,
+    subsection: 'shielded',
+    isWindow: true,
+    variants: ['Clear', 'Amber'],
+    variantGlassColors: [0x9fc9a0, 0xd9a54c],
+    variantGlassOpacities: [0.45, 0.5],
+    variantPreviewColors: [0x9fc9a0, 0xd9a54c],
+    variantCosts: [150, 160],
+  },
+  hutchViewport: {
+    id: 'hutchViewport',
+    name: 'Hutch Viewport',
+    desc: 'Small leaded viewport for direct sightlines into a beamline hutch.',
+    cost: 90,
+    color: 0x4a4a5a,
+    topColor: 0x606070,
+    subH: 5,
+    sillHeight: 7,
+    openingHeight: 3,
+    windowWidth: 'narrow',
+    frameTexture: 'metal_dark',
+    glassColor: 0x7a9a70,
+    glassOpacity: 0.6,
+    daylight: 0.05,
+    subsection: 'shielded',
+    isWindow: true,
   },
 };
 

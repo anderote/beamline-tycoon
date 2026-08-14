@@ -81,7 +81,7 @@ export class ScenarioEditor {
 
   // Serialize the current world into the scenario-data shape that
   // Game.applyScenario consumes. Covered: floors, zones, walls, doors,
-  // placeables (furnishings, decorations, equipment, beamline junctions),
+  // windows, placeables (furnishings, decorations, equipment, beamline junctions),
   // terrain corner heights, beam pipes (with on-pipe placements), and
   // utility lines. Not covered (regenerated or irrelevant per session):
   // wildlife entities, staff, resources, research, machines (legacy).
@@ -93,6 +93,7 @@ export class ScenarioEditor {
       zones: strip(s.zones),
       walls: strip(s.walls),
       doors: strip(s.doors),
+      windows: strip(s.windows || []),
       placeables: strip(s.placeables),
       placeableNextId: s.placeableNextId,
       cornerHeights: serializeCornerHeights(s.cornerHeights),
