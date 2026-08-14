@@ -40,6 +40,17 @@ export const KNOWN_KINDS = new Set([
   'beamline', 'infrastructure', 'furnishing', 'equipment', 'decoration',
 ]);
 
+// Closed vocabulary of staff job-type ids a `station` block may name. Kept
+// here (rather than in the staff module) so content validation has no
+// dependency on the staff sim; the station index (next plan task) imports
+// this same set as its source of truth.
+export const JOB_IDS = new Set([
+  'runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze',
+  'fabricate', 'paperwork', 'meet', 'eat', 'rest',
+]);
+const STATION_SEATED_VALUES = new Set(['required', 'preferred', 'never']);
+const FACINGS = new Set(['n', 'e', 's', 'w']);
+
 const PORT_SIDES = new Set(['front', 'back', 'left', 'right']);
 const PORT_ROLES = new Set(['source', 'sink', 'pass']);
 const BEAMLINE_ROLES = new Set(['junction', 'placement']);
@@ -221,6 +232,66 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // A `station` describes where a pawn stands or sits to do a job at a def,
+  // and a `seat` marks a chair as sit-able (nav.js's def.seat passability
+  // clause) plus the direction a seated pawn faces. Neither is consumed yet
+  // — the station index (next plan task) is the first reader — but a bad
+  // anchor or job id would otherwise sit silently dead until then, so it is
+  // caught here instead. Chairs are matched to stations by adjacency, never
+  // worked directly, so a def must never carry both blocks.
+  function checkStation(id, def) {
+    if (def.station == null && def.seat == null) return;
+    if (def.station != null && def.seat != null) {
+      problem(id, 'station', 'def carries both station and seat — chairs are matched to stations by adjacency, never worked directly');
+    }
+    if (def.seat != null) {
+      if (!FACINGS.has(def.seat.facing)) {
+        problem(id, 'seat.facing', `seat.facing must be one of ${[...FACINGS].join(', ')}, got ${JSON.stringify(def.seat.facing)}`);
+      }
+    }
+    if (def.station == null) return;
+    const { jobs, slots, seated, anchors } = def.station;
+    if (!Array.isArray(jobs) || jobs.length === 0) {
+      problem(id, 'station.jobs', 'station.jobs must be a non-empty array of job ids');
+    } else {
+      for (const j of jobs) {
+        if (!JOB_IDS.has(j)) {
+          problem(id, 'station.jobs', `unknown job id '${j}' (known: ${[...JOB_IDS].join(', ')})`);
+        }
+      }
+    }
+    const slotsOk = Number.isInteger(slots) && slots > 0;
+    if (!slotsOk) {
+      problem(id, 'station.slots', `station.slots must be a positive integer, got ${JSON.stringify(slots)}`);
+    }
+    if (!STATION_SEATED_VALUES.has(seated)) {
+      problem(id, 'station.seated', `station.seated must be one of ${[...STATION_SEATED_VALUES].join(', ')}, got ${JSON.stringify(seated)}`);
+    }
+    if (!Array.isArray(anchors)) {
+      problem(id, 'station.anchors', 'station.anchors must be an array');
+      return;
+    }
+    if (slotsOk && anchors.length !== slots) {
+      problem(id, 'station.anchors', `station.anchors.length (${anchors.length}) must match station.slots (${slots})`);
+    }
+    const subW = def.subW, subL = def.subL;
+    anchors.forEach((a, i) => {
+      if (!a || typeof a.subCol !== 'number' || typeof a.subRow !== 'number') {
+        problem(id, `station.anchors[${i}]`, `anchor must have numeric subCol/subRow, got ${JSON.stringify(a)}`);
+        return;
+      }
+      if (!FACINGS.has(a.facing)) {
+        problem(id, `station.anchors[${i}].facing`, `anchor.facing must be one of ${[...FACINGS].join(', ')}, got ${JSON.stringify(a.facing)}`);
+      }
+      if (typeof subW === 'number' && typeof subL === 'number') {
+        const inside = a.subCol >= 0 && a.subCol < subW && a.subRow >= 0 && a.subRow < subL;
+        if (inside) {
+          problem(id, `station.anchors[${i}]`, `anchor (${a.subCol},${a.subRow}) lies inside the def's own ${subW}x${subL} footprint — unreachable, dead station`);
+        }
+      }
+    });
+  }
+
   function checkBeamPorts(id, def) {
     if (def.ports == null) return;
     for (const [portName, spec] of Object.entries(def.ports)) {
@@ -331,6 +402,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (p.kind === 'decoration' && p.light != null) {
       checkCategory(id, p, DECORATION_CATEGORIES, 'decoration');
     }
+    checkStation(id, p);
   }
 
   // ── Utility ports table integrity ─────────────────────────────────

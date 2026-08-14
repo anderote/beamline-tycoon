@@ -10,7 +10,7 @@ import { EDGE_DELTAS, edgeKey, mirrorEdge } from '../game/edge-keys.js';
  * Check if movement from (col, row) in direction `edge` is blocked by a wall
  * (and not opened by a door).
  */
-function isBlocked(col, row, edge, state) {
+export function isBlocked(col, row, edge, state) {
   // Either spelling of the edge can hold the segment — see edge-keys.js.
   const m = mirrorEdge(col, row, edge);
   const wallKey1 = edgeKey(col, row, edge);
