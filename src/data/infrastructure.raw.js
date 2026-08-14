@@ -800,6 +800,55 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: [],
   },
+  // The bottom two rungs of the cooling ladder. Every other utility had a
+  // cheap way in (powerPanel $60k, roughingPump $50k, patchPanel $25k) while
+  // cooling started at the $600k skid — and almost every beamline component
+  // is a cooling sink, so the first magnet you place is already asking for
+  // plant you cannot afford. These two are deliberately BAD per kilowatt
+  // ($7,000 and $6,500/kW against the skid's $6,000): cheap to buy, not
+  // cheap to run at scale, so the plant is still the right answer once the
+  // machine grows.
+  fanCoilCooler: {
+    id: 'fanCoilCooler',
+    name: 'Fan-Coil Cooler',
+    desc: 'Finned water-to-air coil with a squirrel-cage blower, dumping 20 kW of magnet heat straight into the hall. No compressor, no tower, no basin — the supply temperature just tracks room ambient, so it holds nothing tighter than about +10°C over the air it is breathing. Enough to keep one or two magnets off their thermal interlocks while the beamline is still two components long. The worst dollars-per-kilowatt in the game, and the only cooling you can afford on day one.',
+    category: 'cooling', subsection: 'supply',
+    accentColor: 0x2fbccc,
+    cost: { funding: 140000 },
+    stats: {},
+    energyCost: 1,
+    subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue',
+    zoneTier: 0,
+    spriteKey: 'lcwSkid',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
+  packageChiller: {
+    id: 'packageChiller',
+    name: 'Package Chiller',
+    desc: 'Skid-mounted single-circuit chiller — scroll compressor, brazed-plate evaporator, air-cooled condenser and a buffer tank on one frame that arrives on a flatbed and asks only for power and two hose connections. 50 kW of stable water, enough for a short beamline and its RF load. One circuit means one setpoint for everything plumbed to it and no redundancy: when the compressor trips, the whole loop goes warm together.',
+    category: 'cooling', subsection: 'supply',
+    accentColor: 0x2fbccc,
+    cost: { funding: 325000 },
+    stats: {},
+    energyCost: 2,
+    // No `faces` decal: a ROLE_BUILDERS entry (cooling-builder.js) supplies
+    // the geometry, and the role path never reads compDef.faces — same as
+    // coolingTower and deionizer, which are also role-built.
+    subL: 2, subW: 2, subH: 3, gridW: 2, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue',
+    zoneTier: 1,
+    spriteKey: 'chiller',
+    spriteColor: 0x2fbccc,
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['powerCable'],
+  },
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',

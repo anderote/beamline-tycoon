@@ -43,7 +43,7 @@ Carries cooling capacity from chillers and LCW systems to heat-producing compone
 
 - **Color:** Blue (0x4488ff)
 - **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
-- **Source equipment:** Chiller, LCW Skid, Cooling Tower
+- **Source equipment:** Fan-Coil Cooler, Package Chiller, LCW Skid, Chiller, Cooling Tower
 - **Consumers:** Magnets, normal-conducting RF structures, beam absorbers (target, beam stop), the detector, the electron gun and ion sources, and the He compressor
 - **Cost:** $900/sub-unit ($3,600/tile)
 - **Bus:** Cooling Manifold, $80k, 8-cell service radius

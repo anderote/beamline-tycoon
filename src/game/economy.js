@@ -488,6 +488,12 @@ export function computeSystemStats(state) {
   };
 
   // === COOLING ===
+  // The two entry-tier units are counted on their own row rather than folded
+  // into lcwSkids/chillers: they are a different purchase decision (cheap per
+  // unit, bad per kW) and a player looking at the panel wants to see how much
+  // of their capacity is still coming from the starter gear.
+  const fanCoils = counts.fanCoilCooler || 0;
+  const packageChillers = counts.packageChiller || 0;
   const lcwSkids = counts.lcwSkid || 0;
   const chillers = counts.chiller || 0;
   const towers = counts.coolingTower || 0;
@@ -509,6 +515,8 @@ export function computeSystemStats(state) {
     energyDraw: categoryDraw('cooling'),
     margin: Math.max(coolingMargin, 0),
     detail: {
+      fanCoils,
+      packageChillers,
       lcwSkids,
       chillers,
       coolingTowers: towers,

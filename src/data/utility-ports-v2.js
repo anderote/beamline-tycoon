@@ -585,7 +585,8 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
 //                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
 //                   @VHF/UHF/L → gyrotron 1000 @C/X
-//   cooling (kW):   lcwSkid 100 → chiller 300 → coolingTower 800
+//   cooling (kW):   fanCoilCooler 20 → packageChiller 50 → lcwSkid 100
+//                   → chiller 300 → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
 //   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20
@@ -661,7 +662,11 @@ const INFRA_UTILITY_PORTS = {
   multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
-  // cooling
+  // cooling. The bottom two rungs buy their way in and pay for it per kW:
+  // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 4000 → 2500),
+  // so a bigger plant is always the better deal once you can afford one.
+  fanCoilCooler:       { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20 } } },
+  packageChiller:      { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50 } } },
   lcwSkid:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
   chiller:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
   coolingTower:        { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 800 } } },

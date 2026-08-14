@@ -114,6 +114,8 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 ### Cooling
 | Equipment | Power draw | Provides | Cooling sink |
 |-----------|:----------:|----------|:------------:|
+| Fan-Coil Cooler | 1 | 20 kW | |
+| Package Chiller | 2 | 50 kW | |
 | LCW Skid | 3 | 100 kW | |
 | Chiller | 5 | 300 kW | |
 | Cooling Tower | 4 | 800 kW | |

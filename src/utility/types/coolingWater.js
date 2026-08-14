@@ -27,9 +27,9 @@ export default {
   color: '#4488ff',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.04,
-  // Capacity and heatLoad are both kW of heat moved (Phase 7 tuning:
-  // lcwSkid 100 → chiller 300 → coolingTower 800); litres only track the
-  // reservoir level.
+  // Capacity and heatLoad are both kW of heat moved (fanCoilCooler 20 →
+  // packageChiller 50 → lcwSkid 100 → chiller 300 → coolingTower 800);
+  // litres only track the reservoir level.
   capacityUnit: 'kW',
   // Per-port param names the inspector reads for its source/sink rows.
   capacityParam: 'capacity',

@@ -3036,6 +3036,55 @@ UIHost.prototype._schematicDrawers = {
     }
   },
 
+  // === FAN-COIL COOLER ===
+  // A finned coil behind a blower: fin stack on the left, fan wheel on the
+  // right. No compressor anywhere — that is the whole point of the unit.
+  fanCoilCooler(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Cabinet
+    px(20, my - 7, 30, 15, C.metalDk);
+    px(21, my - 6, 28, 13, '#0d0d22');
+    // Finned coil block
+    for (let x = 23; x <= 33; x += 2) {
+      px(x, my - 4, 1, 9, '#886644');
+    }
+    // Coil headers top and bottom
+    px(23, my - 5, 11, 1, C.pipeCooling);
+    px(23, my + 5, 11, 1, C.pipeCooling);
+    // Blower wheel
+    for (let a = 0; a < Math.PI * 2; a += 0.25) {
+      dot(Math.round(42 + Math.cos(a) * 4), Math.round(my + Math.sin(a) * 4), C.metal);
+    }
+    dot(42, my, C.metalDk);
+    // Discharge grille
+    for (let y = my - 4; y <= my + 4; y += 2) px(47, y, 2, 1, C.wall);
+  },
+
+  // === PACKAGE CHILLER ===
+  // Skid frame, scroll compressor, and one condenser fan on top.
+  packageChiller(p, px, dot, W, H, cy, C) {
+    const my = cy - 3;
+    // Skid frame
+    px(17, my + 6, 30, 2, C.wallDk);
+    // Cabinet
+    px(18, my - 6, 28, 12, C.metalDk);
+    px(19, my - 5, 26, 10, C.metal);
+    // Scroll compressor — squat cylinder
+    px(22, my - 2, 7, 7, C.metalDk);
+    px(23, my - 3, 5, 1, C.wall);
+    // Brazed-plate evaporator stack
+    for (let x = 32; x <= 40; x += 2) px(x, my - 3, 1, 8, '#556677');
+    // Condenser fan on the roof
+    px(28, my - 8, 10, 2, C.wallDk);
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + 0.4;
+      dot(Math.round(33 + Math.cos(a) * 3), Math.round(my - 7 + Math.sin(a) * 1), C.metal);
+    }
+    // Supply/return stubs
+    px(46, my - 3, 3, 1, C.pipeCooling);
+    px(46, my + 1, 3, 1, C.pipeCooling);
+  },
+
   // === LCW SKID ===
   lcwSkid(p, px, dot, W, H, cy, C) {
     const my = cy - 3;

@@ -369,6 +369,211 @@ export function _buildWaterLoadRoles() {
 // ── Plant ───────────────────────────────────────────────────────────
 
 /**
+ * Fan-Coil Cooler — 1×2 floor module, subH 2 (1.0 m tall).
+ * The bottom rung of the cooling ladder and the only one with no
+ * refrigeration in it: a finned water-to-air coil, a squirrel-cage blower
+ * behind it, and a discharge grille. Read the silhouette as "no compressor,
+ * no basin" — that is what separates it from the package chiller next to it
+ * in the palette.
+ */
+export function _buildFanCoilCoolerRoles() {
+  const b = makeBuckets();
+
+  // Footprint 0.5 m (X) × 1.0 m (Z), height 1.0 m.
+  const baseW = 0.44, baseH = 0.05, baseD = 0.88;
+
+  // Skid base
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  // Sheet-metal cabinet
+  const cabW = 0.40, cabH = 0.78, cabD = 0.80;
+  {
+    const g = new THREE.BoxGeometry(cabW, cabH, cabD);
+    applyTiledBoxUVs(g, cabW, cabH, cabD);
+    pushT(b.iron, g, trans(0, baseH + cabH / 2, 0));
+  }
+
+  // Fin stack over the coil half (-Z end) — thin vertical plates proud of
+  // the cabinet face so the coil reads as finned tube, not a blank box.
+  for (let i = 0; i < 7; i++) {
+    const finW = 0.02, finH = 0.46, finD = 0.30;
+    const g = new THREE.BoxGeometry(finW, finH, finD);
+    applyTiledBoxUVs(g, finW, finH, finD);
+    pushT(b.copper, g, trans(cabW / 2 + 0.01, baseH + 0.42, -0.34 + i * 0.055));
+  }
+
+  // Coil supply/return headers running along the fin stack. Radius and
+  // offset are picked so the outermost surface lands at x = 0.235 — inside
+  // the 0.25 m half-tile, since a 1-wide module has no room to spare.
+  for (const y of [baseH + 0.20, baseH + 0.64]) {
+    const hR = 0.025, hL = 0.40;
+    const g = new THREE.CylinderGeometry(hR, hR, hL, 8);
+    applyTiledCylinderUVs(g, hR, hL, 8);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(cabW / 2 + 0.01, y, -0.20),
+      rotX(Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+
+  // Blower housing at the +Z end
+  {
+    const houR = 0.16, houH = 0.34;
+    const g = new THREE.CylinderGeometry(houR, houR, houH, SEGS);
+    applyTiledCylinderUVs(g, houR, houH, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, baseH + 0.42, 0.28),
+      rotX(Math.PI / 2),
+    );
+    pushT(b.detail, g, m);
+  }
+
+  // Discharge grille bars on the +Z face
+  for (let i = 0; i < 4; i++) {
+    const barW = 0.30, barH = 0.02, barD = 0.02;
+    const g = new THREE.BoxGeometry(barW, barH, barD);
+    applyTiledBoxUVs(g, barW, barH, barD);
+    pushT(b.accent, g, trans(0, baseH + 0.30 + i * 0.08, cabD / 2 + 0.01));
+  }
+
+  // Hose connections at the base — this thing plumbs in with two hoses.
+  for (const xOff of [-0.10, 0.10]) {
+    const sR = 0.03, sL = 0.08;
+    const g = new THREE.CylinderGeometry(sR, sR, sL, 6);
+    applyTiledCylinderUVs(g, sR, sL, 6);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(xOff, baseH + 0.12, -(cabD / 2 + sL / 2)),
+      rotX(Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+
+  return b;
+}
+
+/**
+ * Package Chiller — 2×2 floor module, subH 3 (1.5 m tall).
+ * One skid, one refrigerant circuit: scroll compressor, brazed-plate
+ * evaporator, a buffer tank, and a single air-cooled condenser fan on the
+ * roof. The roof fan is the tell that this one actually refrigerates.
+ */
+export function _buildPackageChillerRoles() {
+  const b = makeBuckets();
+
+  // Footprint 1.0 m × 1.0 m, height 1.5 m.
+  const baseW = 0.88, baseH = 0.08, baseD = 0.88;
+
+  // Structural skid frame — a chiller like this ships bolted to one.
+  {
+    const g = new THREE.BoxGeometry(baseW, baseH, baseD);
+    applyTiledBoxUVs(g, baseW, baseH, baseD);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+
+  // Main cabinet. Shallower than the skid and pushed to -Z so the buffer
+  // tank can sit beside it on the same frame and still be visible — the
+  // whole silhouette has to fit inside 1.0 m × 1.0 m.
+  const cabW = 0.80, cabH = 1.05, cabD = 0.56, cabZ = -0.14;
+  {
+    const g = new THREE.BoxGeometry(cabW, cabH, cabD);
+    applyTiledBoxUVs(g, cabW, cabH, cabD);
+    pushT(b.iron, g, trans(0, baseH + cabH / 2, cabZ));
+  }
+
+  // Scroll compressor — squat cylinder standing on the skid, half-exposed
+  // out the -X side the way a service panel leaves it.
+  {
+    const compR = 0.15, compH = 0.42;
+    const g = new THREE.CylinderGeometry(compR, compR, compH, SEGS);
+    applyTiledCylinderUVs(g, compR, compH, SEGS);
+    pushT(b.detail, g, trans(-(cabW / 2 - 0.06), baseH + compH / 2 + 0.04, cabZ - 0.10));
+  }
+
+  // Brazed-plate evaporator — a stack of thin plates on the +X side
+  for (let i = 0; i < 6; i++) {
+    const plW = 0.02, plH = 0.34, plD = 0.20;
+    const g = new THREE.BoxGeometry(plW, plH, plD);
+    applyTiledBoxUVs(g, plW, plH, plD);
+    pushT(b.copper, g, trans(cabW / 2 + 0.01, baseH + 0.30, cabZ - 0.14 + i * 0.055));
+  }
+
+  // Buffer tank — horizontal cylinder lying on the skid on the +Z side,
+  // where the shallow cabinet left room for it.
+  const tankR = 0.13, tankZ = 0.28;
+  {
+    const tankL = 0.56;
+    const g = new THREE.CylinderGeometry(tankR, tankR, tankL, SEGS);
+    applyTiledCylinderUVs(g, tankR, tankL, SEGS);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, baseH + tankR + 0.03, tankZ),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+  // Saddle supports under the tank
+  for (const xOff of [-0.20, 0.20]) {
+    const sW = 0.06, sH = 0.06, sD = 0.16;
+    const g = new THREE.BoxGeometry(sW, sH, sD);
+    applyTiledBoxUVs(g, sW, sH, sD);
+    pushT(b.stand, g, trans(xOff, baseH + sH / 2, tankZ));
+  }
+
+  // Condenser fan shroud on the roof, over the cabinet
+  const roofY = baseH + cabH;
+  {
+    const shR = 0.26, shH = 0.10;
+    const g = new THREE.CylinderGeometry(shR, shR, shH, SEGS);
+    applyTiledCylinderUVs(g, shR, shH, SEGS);
+    pushT(b.detail, g, trans(0, roofY + shH / 2, cabZ));
+  }
+
+  // Fan hub + blades
+  {
+    const hubR = 0.07, hubH = 0.06;
+    const g = new THREE.CylinderGeometry(hubR, hubR, hubH, SEGS);
+    applyTiledCylinderUVs(g, hubR, hubH, SEGS);
+    pushT(b.accent, g, trans(0, roofY + 0.10 + hubH / 2, cabZ));
+  }
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2;
+    const bladeW = 0.40, bladeH = 0.015, bladeD = 0.09;
+    const g = new THREE.BoxGeometry(bladeW, bladeH, bladeD);
+    applyTiledBoxUVs(g, bladeW, bladeH, bladeD);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, roofY + 0.12, cabZ),
+      new THREE.Matrix4().makeRotationY(angle),
+    );
+    pushT(b.detail, g, m);
+  }
+
+  // Supply/return connections out the +X face
+  for (const zOff of [cabZ - 0.16, cabZ + 0.16]) {
+    const pR = 0.04, pL = 0.08;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(cabW / 2 + pL / 2, baseH + 0.72, zOff),
+      new THREE.Matrix4().makeRotationZ(-Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+
+  // Control panel on the -Z face
+  {
+    const cW = 0.26, cH = 0.30, cD = 0.06;
+    const g = new THREE.BoxGeometry(cW, cH, cD);
+    applyTiledBoxUVs(g, cW, cH, cD);
+    pushT(b.accent, g, trans(0.16, baseH + 0.72, cabZ - (cabD / 2 + cD / 2)));
+  }
+
+  return b;
+}
+
+/**
  * Cooling Tower — 6×4 floor module, subH 6 (3.0 m tall), cylindrical.
  * Tall open-top tower with louvered base, tapered body, and a large
  * fan housing on top.

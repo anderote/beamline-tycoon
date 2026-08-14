@@ -9,15 +9,19 @@ About 60% of the electrical power consumed by beamline and facility equipment en
 
 ### Cooling Plant
 
-Three types of equipment provide cooling capacity:
+Five types of equipment provide cooling capacity:
 
-| Equipment | Capacity | Cost | Role |
-|-----------|----------|------|------|
-| LCW Skid | 100 kW | $600k | Entry level — local distribution of low-conductivity water |
-| Chiller | 300 kW | $1.2M | Precision temperature control (+/- 0.1 C) |
-| Cooling Tower | 800 kW | $2M | Industrial bulk heat rejection |
+| Equipment | Capacity | Cost | $/kW | Role |
+|-----------|----------|------|------|------|
+| Fan-Coil Cooler | 20 kW | $140k | $7,000 | Air-blast coil — one or two magnets, no refrigeration at all |
+| Package Chiller | 50 kW | $325k | $6,500 | Single-circuit skid — enough for a short beamline |
+| LCW Skid | 100 kW | $600k | $6,000 | Local distribution of low-conductivity water |
+| Chiller | 300 kW | $1.2M | $4,000 | Precision temperature control (+/- 0.1 C) |
+| Cooling Tower | 800 kW | $2M | $2,500 | Industrial bulk heat rejection |
 
-In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, chiller provides stable-temperature water, LCW skid distributes deionized water to individual components. In gameplay, each provides capacity and they all connect through cooling water networks.
+Cost per kilowatt falls monotonically up that ladder, and it is the number to plan against. The fan-coil and the package chiller are cheap to *buy*, not cheap to run: they exist so a first magnet is not gated behind $600k of plant. Once the machine is real, every kilowatt is cheaper from the bigger unit, so the entry-tier gear is something you outgrow rather than something you scale.
+
+In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, chiller provides stable-temperature water, LCW skid distributes deionized water to individual components. A fan-coil unit skips the whole hierarchy and rejects straight to room air, which is why its supply temperature can never get below ambient. In gameplay, each provides capacity and they all connect through cooling water networks.
 
 ### Cooling Networks
 

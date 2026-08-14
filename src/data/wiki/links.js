@@ -41,6 +41,7 @@ export const ARTICLE_COMPONENTS = {
     'waveguideManifold', 'circulator', 'modulator', 'rfCoupler', 'llrfController',
   ],
   'infra-cooling': [
+    'fanCoilCooler', 'packageChiller',
     'lcwSkid', 'chiller', 'coolingTower', 'coolingManifold', 'deionizer',
     'emergencyCooling', 'waterLoad',
   ],

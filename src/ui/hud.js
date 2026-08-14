@@ -2700,6 +2700,8 @@ UIHost.prototype._renderCoolingStats = function(d, summary, detail) {
 
   const dd = d.detail;
   detail.innerHTML = `<div class="sstat-detail-grid">
+    ${this._detailRow('Fan-Coil Coolers', dd.fanCoils)}
+    ${this._detailRow('Package Chillers', dd.packageChillers)}
     ${this._detailRow('LCW Skids', dd.lcwSkids)}
     ${this._detailRow('Chillers', dd.chillers)}
     ${this._detailRow('Cooling Towers', dd.coolingTowers)}

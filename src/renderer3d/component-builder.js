@@ -32,6 +32,8 @@ import {
   _buildLN2PrecoolerRoles,
   _buildHeRecoveryRoles,
   _buildWaterLoadRoles,
+  _buildFanCoilCoolerRoles,
+  _buildPackageChillerRoles,
   _buildCoolingTowerRoles,
   _buildDeioniserRoles,
 } from './builders/cooling-builder.js';
@@ -1220,6 +1222,8 @@ ROLE_BUILDERS.cryocooler = _buildCryocoolerRoles;
 ROLE_BUILDERS.ln2Precooler = _buildLN2PrecoolerRoles;
 ROLE_BUILDERS.heRecovery = _buildHeRecoveryRoles;
 ROLE_BUILDERS.waterLoad = _buildWaterLoadRoles;
+ROLE_BUILDERS.fanCoilCooler = _buildFanCoilCoolerRoles;
+ROLE_BUILDERS.packageChiller = _buildPackageChillerRoles;
 ROLE_BUILDERS.coolingTower = _buildCoolingTowerRoles;
 ROLE_BUILDERS.deionizer = _buildDeioniserRoles;
 ROLE_BUILDERS.pulsedKlystron = _buildPulsedKlystronRoles;
