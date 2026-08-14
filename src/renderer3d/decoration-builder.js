@@ -3,8 +3,12 @@
 // THREE is a CDN global — do NOT import it.
 
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
+import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
+import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
+
+const LIGHTING_DEFS_BY_ID = Object.fromEntries(LIGHTING_DEFS.map(d => [d.id, d]));
 
 // --- Procedural bark + foliage textures ---------------------------------
 // Shared module-level singletons. Materials clone color tint but reuse the
@@ -1188,103 +1192,6 @@ function _statue(footW, footL /* , totalH */) {
   return group;
 }
 
-// --- Lighting ------------------------------------------------------------
-
-// Lamppost: RCT2-style dark-teal cast-iron post with a boxy lantern head.
-function _lamppost(footW, footL, totalH) {
-  const group = new THREE.Group();
-  // Patina teal — dark dusty blue-green for the cast-iron post.
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x3a5e5e, roughness: 0.6, metalness: 0.35 });
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x24383a, roughness: 0.55, metalness: 0.4 });
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: 0xfff0b0, emissive: 0xffc864, emissiveIntensity: 1.6, roughness: 0.3,
-  });
-  const poleH = Math.max(totalH * 0.85, 1.5);
-  // Stepped base: square plinth + chamfered collar.
-  const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.09, 0.2), metalMat);
-  plinth.position.y = 0.045;
-  plinth.castShadow = true;
-  group.add(plinth);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.06, 8), metalMat);
-  collar.position.y = 0.12;
-  group.add(collar);
-  // Slender fluted pole.
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.038, poleH, 8), metalMat);
-  pole.position.y = poleH / 2 + 0.15;
-  pole.castShadow = true;
-  group.add(pole);
-  // Upper collar/finial cap below the lantern.
-  const topCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.05, 8), metalMat);
-  topCollar.position.y = poleH + 0.15 + 0.025;
-  group.add(topCollar);
-  // Boxy lantern head — warm glow core inside a dark frame cage.
-  const lanternY = poleH + 0.15 + 0.05 + 0.09;
-  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.14), glowMat);
-  glow.position.y = lanternY;
-  group.add(glow);
-  // Frame caps on top and bottom of the lantern.
-  const capTop = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.035, 0.18), frameMat);
-  capTop.position.y = lanternY + 0.1;
-  capTop.castShadow = true;
-  group.add(capTop);
-  const capBot = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.03, 0.17), frameMat);
-  capBot.position.y = lanternY - 0.095;
-  group.add(capBot);
-  // Tiny roof finial.
-  const finial = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.06, 4), frameMat);
-  finial.position.y = lanternY + 0.15;
-  finial.rotation.y = Math.PI / 4;
-  group.add(finial);
-  return group;
-}
-
-// Bollard light: short squat cylinder with glowing top cap.
-function _bollardLight(/* footW, footL, totalH */) {
-  const group = new THREE.Group();
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x48484a, roughness: 0.5, metalness: 0.7 });
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: 0xfff0b0, emissive: 0xffdd88, emissiveIntensity: 1.2, roughness: 0.4,
-  });
-  const h = 0.9;
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, h, 12), metalMat);
-  body.position.y = h / 2;
-  body.castShadow = true;
-  group.add(body);
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.12, 12), glowMat);
-  cap.position.y = h + 0.06;
-  group.add(cap);
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 12), metalMat);
-  top.position.y = h + 0.135;
-  group.add(top);
-  return group;
-}
-
-// Spot light: angled head on a short post.
-function _spotLight(/* footW, footL, totalH */) {
-  const group = new THREE.Group();
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.4, metalness: 0.8 });
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: 0xfffff0, emissive: 0xffffbb, emissiveIntensity: 1.8, roughness: 0.3,
-  });
-  const base = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.14), metalMat);
-  base.position.y = 0.025;
-  base.castShadow = true;
-  group.add(base);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.22, 6), metalMat);
-  post.position.y = 0.16;
-  group.add(post);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.22, 12), metalMat);
-  head.position.set(0.04, 0.32, 0);
-  head.rotation.z = -0.55;
-  head.castShadow = true;
-  group.add(head);
-  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.02, 12), glowMat);
-  lens.position.set(0.14, 0.38, 0);
-  lens.rotation.z = -0.55 + Math.PI / 2;
-  group.add(lens);
-  return group;
-}
-
 // --- Bins & signs --------------------------------------------------------
 
 function _binBase(bodyHex, lidHex, hatchHex, hingeHex) {
@@ -1410,9 +1317,6 @@ const ITEM_BUILDERS = {
   picnicTable:   _picnicTable,
   fountain:      _fountain,
   statue:        _statue,
-  lamppost:      _lamppost,
-  bollardLight:  _bollardLight,
-  spotLight:     _spotLight,
   trashCan:      _trashCan,
   recyclingBin:  _recyclingBin,
   infoSign:      _infoSign,
@@ -1448,7 +1352,15 @@ function _isFlowerBedType(typeId) {
   return typeId === 'flowerBed' || typeId === 'largeFlowerBed' || typeId === 'longFlowerBed';
 }
 
-function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 0, seed = 0) {
+function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 0, seed = 0, dir = 0) {
+  // Routed on the def actually carrying a `light` block (LIGHTING_DEFS_BY_ID
+  // only contains ids that do), not on `category === 'lighting'` — the
+  // mounted fixtures (wallSconce, bulkheadLight, ceilingPanel, highBay) are
+  // moving to a different palette category, and category is UI grouping,
+  // not a structural signal. `def.light != null` is what the def validator
+  // already keys on.
+  const lightDef = LIGHTING_DEFS_BY_ID[typeId];
+  if (lightDef) return buildLightFixture(lightDef, { dir });
   if (TREE_BUILDERS[typeId]) return TREE_BUILDERS[typeId](footW, footL, totalH, seed);
   if (_isFlowerBedType(typeId)) {
     const builder = FLOWER_BED_VARIANTS[variant ?? 0] || FLOWER_BED_VARIANTS[0];
@@ -1490,6 +1402,21 @@ export function decorationPlacement(dec) {
   };
 }
 
+/**
+ * Final placement yaw for a lighting fixture. Ground decorations normally
+ * take a deterministic random yaw from their seed for visual variety (see
+ * _oakTree above) — but a cone-shaped ground fixture (floodLight) is AIMED
+ * by `dir`, and stacking random yaw on top of an aim silently destroys it,
+ * because the whole point of rotating at placement is to point the beam
+ * somewhere specific. So: cone fixtures opt out entirely and use `rotY`
+ * (the dir-derived aim) unchanged; point fixtures may keep the jitter.
+ * Pure and exported so tests can pin the opt-out without a THREE global.
+ */
+export function lightingYaw(def, rotY, seed) {
+  if (isAimedFixture(def)) return rotY;
+  return rotY + _prng(seed)() * Math.PI * 2;
+}
+
 // --- Public builder class -----------------------------------------------
 
 export class DecorationBuilder {
@@ -1498,6 +1425,10 @@ export class DecorationBuilder {
     this._groups = [];
     /** Placeable id → group, for hover/demolish/move mesh lookups. @type {Map<string, THREE.Group>} */
     this._groupsById = new Map();
+    /** Lighting fixtures built by the last `build()` call, for Task 6/9 to
+     * enumerate without re-scanning every decoration.
+     * @type {Array<{id: string|number, def: object, group: THREE.Group}>} */
+    this._lightingFixtures = [];
   }
 
   /** The rendered group for a placeable id, or null. Mirrors ComponentBuilder's _meshMap lookup. */
@@ -1505,23 +1436,29 @@ export class DecorationBuilder {
     return this._groupsById.get(id) || null;
   }
 
+  /** Lighting fixtures placed by the last `build()` call. */
+  getLightingFixtures() {
+    return this._lightingFixtures;
+  }
+
   /**
    * Build a single decoration group from type + footprint dims (world units).
    */
-  _buildOne(typeId, category, footW, footL, totalH, variant = 0, seed = 0) {
-    return buildDecorationGroup(typeId, category, footW, footL, totalH, variant, seed);
+  _buildOne(typeId, category, footW, footL, totalH, variant = 0, seed = 0, dir = 0) {
+    return buildDecorationGroup(typeId, category, footW, footL, totalH, variant, seed, dir);
   }
 
   /**
    * Create a ghost preview for placement. Looks up footprint from defs.
-   * `pos` is the hovered {col,row,subCol,subRow}; when supplied the ghost is
-   * seeded from that cell so the previewed silhouette is the one `build` will
-   * produce there. Without it the ghost falls back to seed 0 (nominal form),
-   * which is a DIFFERENT tree than gets placed.
+   * `pos` is the hovered {col,row,subCol,subRow,dir}; when supplied the ghost
+   * is seeded from that cell so the previewed silhouette is the one `build`
+   * will produce there. Without it the ghost falls back to seed 0 (nominal
+   * form), which is a DIFFERENT tree than gets placed. `pos.dir` also drives
+   * a floodLight's aim, so the ghost turns as the player rotates it.
    * Geometry is authored unrotated — the caller applies rotY.
    */
   _createGhost(typeId, placeable, variant = 0, pos = null) {
-    const raw = DECORATIONS_RAW[typeId];
+    const raw = DECORATIONS_RAW[typeId] || LIGHTING_DEFS_BY_ID[typeId];
     if (!raw) return null;
     const sw = raw.subW ?? 4;
     const sl = raw.subL ?? 4;
@@ -1529,7 +1466,7 @@ export class DecorationBuilder {
     const seed = pos
       ? decorationSeed(pos.col ?? 0, pos.row ?? 0, pos.subCol ?? 0, pos.subRow ?? 0)
       : 0;
-    return this._buildOne(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant, seed);
+    return this._buildOne(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant, seed, pos?.dir ?? 0);
   }
 
   /**
@@ -1540,15 +1477,25 @@ export class DecorationBuilder {
   build(decorationData, parentGroup) {
     this.dispose(parentGroup);
     if (!decorationData) return;
+    this._lightingFixtures = [];
 
     for (const dec of decorationData) {
       const p = decorationPlacement(dec);
+      // Keyed on the def carrying a `light` block, not `dec.category` —
+      // category is palette grouping and is being reshuffled independently
+      // of which defs are actually light fixtures.
+      const lightDef = LIGHTING_DEFS_BY_ID[dec.type] || null;
 
-      const group = this._buildOne(dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed);
+      const group = this._buildOne(
+        dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
+      );
 
       // Center the geometry within the footprint; sit on terrain via dec.y.
       group.position.set(p.x, dec.y ?? 0, p.z);
-      group.rotation.y = p.rotY;
+      group.rotation.y = lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY;
+      if (lightDef) {
+        this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
+      }
 
       parentGroup.add(group);
       this._groups.push(group);
@@ -1570,6 +1517,7 @@ export class DecorationBuilder {
     }
     this._groups = [];
     this._groupsById.clear();
+    this._lightingFixtures = [];
   }
 }
 
@@ -1625,7 +1573,7 @@ function _getDecThumbRenderer(size) {
  * Render a decoration's 3D model to a data URL thumbnail. Returns null if
  * the typeId isn't a known decoration or THREE is unavailable.
  *
- * @param {string} typeId   Key in DECORATIONS_RAW (e.g. 'oakTree')
+ * @param {string} typeId   Key in DECORATIONS_RAW or LIGHTING_DEFS (e.g. 'oakTree', 'lamppost')
  * @param {number} [size=96]  Output PNG edge length in CSS pixels (rendered at 2x)
  * @param {number} [variant=0]  Variant index (flower bed color palette, etc.)
  * @returns {string|null} data: URL, static asset URL, or null
@@ -1638,7 +1586,10 @@ export function renderDecorationThumbnail(typeId, size = 96, variant = 0) {
   if (typeof THREE === 'undefined') return null;
   if (_decThumbCache.has(cacheKey)) return _decThumbCache.get(cacheKey);
 
-  const raw = DECORATIONS_RAW[typeId];
+  // Lighting fixtures live in LIGHTING_DEFS, not DECORATIONS_RAW (see
+  // src/data/placeables/lighting.js) — fall back so the palette gets a live
+  // 3D thumbnail for them too, same as any other decoration.
+  const raw = DECORATIONS_RAW[typeId] || LIGHTING_DEFS_BY_ID[typeId];
   if (!raw) return null;
   const sw = raw.subW ?? 4;
   const sl = raw.subL ?? 4;

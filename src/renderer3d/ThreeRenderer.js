@@ -274,6 +274,13 @@ export class ThreeRenderer {
     this.componentGroup = null;
     this.beamPipeGroup = null;
     this.decorationGroup = null;
+    // Registry (not a scene Group — lighting fixtures render as children of
+    // decorationGroup like any other decoration, so demolish/hover/move
+    // raycasting keeps working unchanged) of the lighting fixtures built by
+    // the last decorationBuilder.build() call: [{id, def, group}, ...].
+    // Task 6 (fake light pools) and Task 9 (real point lights) read this
+    // instead of re-scanning every decoration.
+    this.lightingGroup = [];
     this.previewGroup = null;
 
     // Design-placement ghost. Deliberately NOT in previewGroup: _clearPreview
@@ -2971,16 +2978,22 @@ export class ThreeRenderer {
   /**
    * Toggle visibility of detail meshes (userData.lod === 'detail') based on zoom.
    * Only runs when zoom level changes to avoid per-frame traversal cost.
+   * Covers componentGroup and decorationGroup — lighting fixtures (Task 5)
+   * live in the latter and tag their ornamental meshes the same way.
    */
   _updateLOD() {
     const showDetail = this.zoom >= 2.0;
     if (showDetail === this._lastLodDetail) return;
     this._lastLodDetail = showDetail;
-    this.componentGroup.traverse((child) => {
-      if (child.isMesh && child.userData.lod === 'detail') {
-        child.visible = showDetail;
-      }
-    });
+    const groups = [this.componentGroup, this.decorationGroup];
+    for (const g of groups) {
+      if (!g) continue;
+      g.traverse((child) => {
+        if (child.isMesh && child.userData.lod === 'detail') {
+          child.visible = showDetail;
+        }
+      });
+    }
   }
 
   _updateSunCycle() {
@@ -3119,6 +3132,7 @@ export class ThreeRenderer {
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
+    this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._refreshUtilityLinesV2();
     this._refreshUnwiredSinkMarkers(true);
     this._refreshPortFittings();
@@ -3488,6 +3502,7 @@ export class ThreeRenderer {
   _refreshDecorations() {
     const snap = this._updateSnapshot(['decorations']);
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
+    this.lightingGroup = this.decorationBuilder.getLightingFixtures();
   }
 
   _refreshConnections() {

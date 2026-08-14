@@ -49,10 +49,16 @@ const LIGHT_SHAPES = new Set(['point', 'cone']);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));
 const INFRA_CATEGORIES = new Set(Object.keys(MODES.infra.categories));
+// Decoration tabs live wherever a category declares isDecorationTab: true —
+// Grounds' free-standing fixtures (lighting, furniture, ...) AND Structure's
+// wall/ceiling-mounted fixtures (structureLights), which are building fabric
+// rather than landscaping. Scan every mode, not just grounds, so a category
+// added under a different mode is still recognised here.
 const DECORATION_CATEGORIES = new Set(
-  Object.entries(MODES.grounds.categories)
-    .filter(([, c]) => c.isDecorationTab)
-    .map(([key]) => key),
+  Object.values(MODES).flatMap(mode =>
+    Object.entries(mode.categories)
+      .filter(([, c]) => c.isDecorationTab)
+      .map(([key]) => key)),
 );
 const ZONE_TYPES = new Set(
   Object.values(MODES.facility.categories)
@@ -317,6 +323,14 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
     checkDims(id, p);
     checkLight(id, p);
+    // Lighting fixtures (src/data/placeables/lighting.js) are authored
+    // directly into PLACEABLES rather than via the `decorations` raw
+    // registry, so they never hit the checkCategory call below — check them
+    // here instead. An unrecognized category here is invisible in every
+    // palette (see file header).
+    if (p.kind === 'decoration' && p.light != null) {
+      checkCategory(id, p, DECORATION_CATEGORIES, 'decoration');
+    }
   }
 
   // ── Utility ports table integrity ─────────────────────────────────
