@@ -1,5 +1,6 @@
 // src/main.js — Beamline Tycoon entry point
 
+import './three-global.js';
 import { BeamlineRegistry } from './beamline/BeamlineRegistry.js';
 import { BeamPhysics } from './beamline/physics.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
