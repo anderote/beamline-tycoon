@@ -18,6 +18,9 @@
 //      the CHAIR's own seat height, not at 2x the rig's baked-in hip height.
 //   7. demolishing a station mid-walk, leaving its subtile ordinarily
 //      passable, must not let the pawn arrive and "work" the empty tile.
+// Scenario 8 is a fix-round-2 addition: the same demolished-station symptom
+// as 7, but in the sub-case where demolition happens AFTER arrival — a pawn
+// already 'working' must also notice and abandon, not just a pawn en route.
 
 import { StaffPawns } from '../src/renderer3d/StaffPawns.js';
 import { getNavGrid, subtileToWorld } from '../src/game/staff/nav.js';
@@ -478,6 +481,51 @@ console.log('\n=== 7. Demolishing the target station mid-walk (its subtile stays
   assertOk(pawn.stationKey === null, 'pawn.stationKey is cleared');
   assertOk(pawn.pendingStation === null, 'pawn.pendingStation is cleared');
   assertOk(state.stationReservations[ref.key] === undefined, 'the reservation is released');
+}
+
+console.log('\n=== 8. Demolishing a station AFTER the pawn already arrived and sat down abandons the job within one frame ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const consoleEntry = placeItem(state, 'operatorConsole', 4, 4, 0, 0, 0);
+  state.staffMembers = [{ id: 's1', profession: 'operator' }];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  const index = getStationIndex(state);
+  const ref = (index.byJob.runBeam || [])[0];
+  assertOk(!!ref, 'sanity: the console yields a runBeam station');
+  assertOk(reserveStation(state, ref.key, 's1'), 'sanity: reservation succeeds');
+  pawns.sendToStation('s1', ref);
+
+  // Walk all the way to 'working' — the console is still standing.
+  for (let i = 0; i < 4000 && pawn.mode !== 'working'; i++) pawns.update(0.02);
+  assertOk(pawn.mode === 'working', 'sanity: pawn reached the console and is now working it');
+  assertOk(state.stationReservations[ref.key] === 's1', 'sanity: the reservation is still held while working');
+
+  // NOW demolish the console the pawn is sitting/standing at — the same
+  // splice-and-bump every other demolish scenario in this file uses.
+  const idx = state.placeables.findIndex(p => p.id === consoleEntry.id);
+  state.placeables.splice(idx, 1);
+  state.placeableIndex = {};
+  state.placeables.forEach((p, i) => { state.placeableIndex[p.id] = i; });
+  for (const key of Object.keys(state.subgridOccupied)) {
+    if (state.subgridOccupied[key].id === consoleEntry.id) delete state.subgridOccupied[key];
+  }
+  bump(state);
+
+  // One frame is enough — this must not take up to WORK_MAX (~60s) to notice.
+  pawns.update(0.02);
+  assertOk(pawn.mode !== 'working', 'the pawn leaves "working" within one frame of the station being demolished');
+  assertOk(pawn.mode === 'idle', 'the pawn falls back to idle');
+  assertOk(pawn.stationKey === null, 'pawn.stationKey is cleared');
+  assertOk(pawn.pendingStation === null, 'pawn.pendingStation is cleared');
+  assertOk(state.stationReservations[ref.key] === undefined, 'the reservation is released, not held for the rest of the work timer');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

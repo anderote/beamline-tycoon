@@ -230,6 +230,10 @@ export class StaffPawns {
       path: null,
       pathIndex: 0,
       pathNavRevision: 0,
+      // navRevision last checked against the live station index while
+      // 'working' (see _advanceWorking) — separate from pathNavRevision,
+      // which only applies while actually walking.
+      workNavRevision: 0,
       // Set while walking to or occupying a work station; null while
       // ambling with no job (see _chooseNextAction).
       pendingStation: null,
@@ -348,6 +352,34 @@ export class StaffPawns {
     const target = this._pickTarget(pawn, member);
     if (target && this._beginPathWalk(pawn, target)) return;
     pawn.idleT = IDLE_MIN;
+  }
+
+  /**
+   * Advance one frame of 'working'. Counts down workT toward _finishWork
+   * exactly as before, but first re-checks the station is still live —
+   * a station demolished AFTER a pawn already arrived and sat down leaves
+   * mode 'working' with nothing to catch it otherwise, since neither
+   * _advancePathWalk's re-path check nor _arriveAtPathEnd's arrival check
+   * runs again once the pawn is done walking. Gated on navRevision having
+   * moved since the last check (workNavRevision), not every frame — a
+   * station cannot vanish without the revision moving, so this stays an
+   * infrequent O(1) lookup rather than a per-frame getStationIndex() call
+   * for every seated/working pawn in the facility.
+   */
+  _advanceWorking(pawn, dt) {
+    const state = this.game?.state;
+    const revision = state?.navRevision || 0;
+    if (revision !== pawn.workNavRevision) {
+      pawn.workNavRevision = revision;
+      if (!this._stationStillLive(state, pawn)) {
+        this._releaseStationFor(pawn);
+        pawn.mode = 'idle';
+        pawn.idleT = IDLE_MIN;
+        return;
+      }
+    }
+    pawn.workT -= dt;
+    if (pawn.workT <= 0) this._finishWork(pawn);
   }
 
   _finishWork(pawn) {
@@ -499,6 +531,7 @@ export class StaffPawns {
       pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
       pawn.mode = 'working';
       pawn.workT = WORK_MIN + Math.random() * (WORK_MAX - WORK_MIN);
+      pawn.workNavRevision = state?.navRevision || 0;
     } else {
       pawn.mode = 'idle';
       pawn.idleT = IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN);
@@ -524,8 +557,7 @@ export class StaffPawns {
       } else if (pawn.mode === 'pathWalk') {
         moved = this._advancePathWalk(pawn, dt);
       } else if (pawn.mode === 'working') {
-        pawn.workT -= dt;
-        if (pawn.workT <= 0) this._finishWork(pawn);
+        this._advanceWorking(pawn, dt);
       }
 
       pawn.pose = this._poseFor(pawn);
