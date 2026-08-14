@@ -356,12 +356,17 @@ export class DesignPlacer {
       return false;
     };
 
-    // Place foundation tiles
+    // Place foundation tiles. Through placeInfraTile, not by writing
+    // state.floors/infraOccupied directly: the direct write skipped the nav
+    // revision bump, and a design that lays foundation but places zero modules
+    // never reached placeJunction either, so the staff nav grid stayed stale
+    // against real topology. `free` because _recompute already quoted this
+    // concrete into totalCost, settled once at the end of confirm().
     for (const ft of this.foundationTiles) {
-      const key = ft.col + ',' + ft.row;
       this.game.removeDecoration(ft.col, ft.row);
-      this.game.state.floors.push({ type: 'concrete', col: ft.col, row: ft.row, variant: 0 });
-      this.game.state.infraOccupied[key] = 'concrete';
+      if (!this.game.placeInfraTile(ft.col, ft.row, 'concrete', 0, { free: true })) {
+        return fail('Design placement failed: could not lay foundation');
+      }
     }
 
     // Walk the design and emit modules + pipes + attachments

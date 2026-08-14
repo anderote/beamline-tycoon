@@ -1009,7 +1009,17 @@ export class Game {
 
   // === FLOORS ===
 
-  placeInfraTile(col, row, infraType, variant = 0) {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.free=false] skip the affordability check and the
+   *        charge, for callers that quote and settle the whole gesture
+   *        themselves (DesignPlacer). Mirrors placePlaceable's `free`. Every
+   *        other effect — infraOccupied, the nav bump, zone eviction, terrain
+   *        flattening — still runs, which is the entire reason to come through
+   *        here instead of writing infraOccupied directly.
+   */
+  placeInfraTile(col, row, infraType, variant = 0, opts = {}) {
+    const free = !!opts.free;
     const infra = FLOORS[infraType];
     if (!infra) return false;
     const key = col + ',' + row;
@@ -1052,7 +1062,7 @@ export class Game {
       const def = DECORATIONS[existingDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
     }
-    if (this.state.resources.funding < totalCost) return false;
+    if (!free && this.state.resources.funding < totalCost) return false;
     if (existingDec) this.removeDecoration(col, row, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
@@ -1073,7 +1083,7 @@ export class Game {
       }
     }
 
-    this.chargeConstruction(totalCost);
+    if (!free) this.chargeConstruction(totalCost);
     const tileEntry = { type: infraType, col, row, variant };
     if (foundation) tileEntry.foundation = foundation;
     this.state.floors.push(tileEntry);
