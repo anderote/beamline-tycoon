@@ -16,6 +16,7 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
+import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
@@ -520,11 +521,6 @@ UIHost.prototype._generateCategoryTabs = function() {
     tabsContainer.appendChild(btn);
   });
 
-  // Phase 6: the legacy #connection-tools rack-paint button row was removed
-  // along with CONNECTION_TYPES. Hide the container if the DOM still has it.
-  const connContainer = document.getElementById('connection-tools');
-  if (connContainer) connContainer.style.display = 'none';
-
   // Render palette for first category in mode
   if (catKeys.length > 0) {
     this._renderPalette(catKeys[0]);
@@ -616,6 +612,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   const palette = document.getElementById('component-palette');
   if (!palette) return;
   palette.innerHTML = '';
+
+  // Build-menu search results override the normal category-driven render
+  // while the search box holds a live query. Routed through here (instead
+  // of writing to #component-palette independently from the search input
+  // handler) so _renderPalette's hotkey-badge pass still runs afterward.
+  if (this._paletteSearchResults) {
+    this._renderPaletteSearchResults(palette, this._paletteSearchResults);
+    return;
+  }
 
   const compCategory = tabCategory;
 
@@ -2273,7 +2278,19 @@ UIHost.prototype._bindHUDEvents = function() {
       if (this.activeMode !== 'beamline') return;
       this._syncBeamlineTypeChrome();
     });
+
+    // The build-menu search index caches game.isComponentUnlocked results
+    // (see _getPaletteIndex); a completed research run can flip locked
+    // components to unlocked, so drop the cache and let the next search
+    // rebuild it — otherwise a just-unlocked item stays unsearchable until
+    // a reload.
+    this.game.on((ev) => {
+      if (ev !== 'researchChanged') return;
+      this._paletteIndexCache = null;
+    });
   }
+
+  this._bindPaletteSearch();
 
   // Mode switcher
   document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -2285,8 +2302,6 @@ UIHost.prototype._bindHUDEvents = function() {
       this.activeMode = mode;
       this._generateCategoryTabs();
       this._updateSystemStatsVisibility();
-      const connTools = document.getElementById('connection-tools');
-      if (connTools) connTools.style.display = mode === 'infra' ? '' : 'none';
     });
   });
 
@@ -2924,5 +2939,316 @@ UIHost.prototype._refreshStaffWindows = function() {
   if (hiring && typeof hiring.refresh === 'function') {
     try { hiring.refresh(); } catch (_) {}
   }
+};
+
+// --- Build-menu search ------------------------------------------------
+//
+// The search bar lives in #palette-search (index.html, in place of the
+// dead #connection-tools rack-paint row). Typing filters #component-palette
+// to a flat, cross-category result list; clicking a result switches mode +
+// category to the item's home and arms it — see src/ui/palette-search.js
+// for the index/ranking and .superpowers/sdd/.../search-brief.md for the
+// full design rationale.
+
+UIHost.prototype._getPaletteIndex = function() {
+  // Lazy + cached: rebuilding walks every COMPONENTS/FLOORS/WALL_TYPES/
+  // DOOR_TYPES/DECORATIONS/ZONE_FURNISHINGS/ZONES entry, which is cheap
+  // but pointless to redo on every keystroke. Invalidated on
+  // 'researchChanged' (see _bindHUDEvents) so newly-unlocked components
+  // become searchable without a reload.
+  if (!this._paletteIndexCache) this._paletteIndexCache = buildPaletteIndex(this.game);
+  return this._paletteIndexCache;
+};
+
+UIHost.prototype._bindPaletteSearch = function() {
+  const input = document.getElementById('palette-search-input');
+  if (!input) return;
+
+  const runSearch = (query) => {
+    const q = query.trim();
+    if (!q) {
+      this._paletteSearchResults = null;
+      this._refreshPalette();
+      return;
+    }
+    this._paletteSearchResults = searchPalette(q, this._getPaletteIndex());
+    // tabCategory is irrelevant here — _renderPaletteImpl short-circuits to
+    // the flat search list before the category switch runs — but routing
+    // through _renderPalette (rather than rendering into #component-palette
+    // directly) means its _applyPaletteHotkeyBadges() pass still runs.
+    this._renderPalette(undefined);
+  };
+
+  // Debounced like the manual's search box (WikiWindow.js) — 120ms.
+  input.addEventListener('input', () => {
+    if (this._paletteSearchDebounce) clearTimeout(this._paletteSearchDebounce);
+    this._paletteSearchDebounce = setTimeout(() => runSearch(input.value), 120);
+  });
+
+  // Escape clears the box locally instead of falling through to the
+  // esc-stack (src/ui/esc-stack.js), which would otherwise disarm the
+  // active tool or close whatever dialog is open — same pattern as the
+  // manual's search box (WikiWindow.js _buildLayout).
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && input.value) {
+      e.stopPropagation();
+      input.value = '';
+      if (this._paletteSearchDebounce) clearTimeout(this._paletteSearchDebounce);
+      runSearch('');
+    }
+  });
+};
+
+// Cost text for a search-result item. COMPONENTS/facility/furnishing defs
+// carry a multi-resource cost object (funding + possibly others); floors/
+// walls/doors/decorations carry a plain funding cost (see _costLabel); a
+// zone paint tool has no direct cost of its own — its cost is the floor it
+// requires.
+UIHost.prototype._searchResultCostLabel = function(kind, def) {
+  if (kind === 'zone') {
+    return `Requires ${FLOORS[def.requiredFloor]?.name || def.requiredFloor}`;
+  }
+  if (kind === 'component' || kind === 'facility' || kind === 'furnishing') {
+    return Object.entries(def.cost || {}).map(([r, a]) =>
+      r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
+    ).join(', ');
+  }
+  return _costLabel(def.cost);
+};
+
+// Preview thumbnail/swatch for a search-result item, dispatched by kind.
+// Mirrors the preview logic already in _createPaletteItem / _renderPaletteImpl
+// for each family, simplified to a single swatch fallback shape (search
+// results are a secondary view; the per-family clip-path shapes there exist
+// to match a tile/wall/door footprint, which doesn't matter here).
+UIHost.prototype._buildSearchResultPreview = function(result, def) {
+  const previewEl = document.createElement('div');
+  previewEl.className = 'palette-preview';
+  const { kind, id } = result;
+
+  if (kind === 'component' || kind === 'facility' || kind === 'furnishing') {
+    const thumbUrl = renderComponentThumbnail(id, 96);
+    if (thumbUrl) {
+      const img = document.createElement('img');
+      img.src = thumbUrl;
+      img.width = 96;
+      img.height = 96;
+      img.style.objectFit = 'contain';
+      previewEl.appendChild(img);
+    } else {
+      const color = def.spriteColor || 0x888888;
+      const hex = '#' + color.toString(16).padStart(6, '0');
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:48px;height:40px;background:${hex};border-radius:4px;`;
+      previewEl.appendChild(swatch);
+    }
+  } else if (kind === 'decoration') {
+    const vi = recallVariant(id);
+    const thumbUrl = renderDecorationThumbnail(id, 96, vi);
+    if (thumbUrl) {
+      const img = document.createElement('img');
+      img.src = thumbUrl;
+      img.width = 96;
+      img.height = 96;
+      img.style.objectFit = 'contain';
+      previewEl.appendChild(img);
+    } else {
+      const spritePath = this.sprites.getSpritePath(def.spriteKey);
+      const img = document.createElement('img');
+      img.src = spritePath || `assets/decorations/${def.spriteKey}.png`;
+      img.alt = def.name;
+      img.onerror = () => { img.style.display = 'none'; };
+      previewEl.appendChild(img);
+    }
+  } else if (kind === 'floor' || kind === 'wall' || kind === 'door') {
+    const vi = recallVariant(id);
+    const tilePath = this.sprites.getTilePath(id, vi);
+    if (tilePath) {
+      const img = document.createElement('img');
+      img.src = tilePath;
+      img.alt = def.name;
+      previewEl.appendChild(img);
+      applyPreviewTint(previewEl, def, vi);
+    } else {
+      const c = def.topColor || def.color || 0x888888;
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:48px;height:24px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);`;
+      previewEl.appendChild(swatch);
+    }
+  } else if (kind === 'zone') {
+    const hex = '#' + (def.color || 0x888888).toString(16).padStart(6, '0');
+    const swatch = document.createElement('div');
+    swatch.style.cssText = `width:48px;height:24px;background:${hex};clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);opacity:0.7;`;
+    previewEl.appendChild(swatch);
+  }
+  return previewEl;
+};
+
+// Look up a search-result's definition object in its owning family
+// registry. Returns null for a stale entry (id no longer exists) so the
+// caller can skip it defensively.
+function paletteSearchDef(kind, id) {
+  if (kind === 'component' || kind === 'facility') return COMPONENTS[id];
+  if (kind === 'furnishing') return ZONE_FURNISHINGS[id];
+  if (kind === 'floor') return FLOORS[id];
+  if (kind === 'wall') return WALL_TYPES[id];
+  if (kind === 'door') return DOOR_TYPES[id];
+  if (kind === 'decoration') return DECORATIONS[id];
+  if (kind === 'zone') return ZONES[id];
+  return null;
+}
+
+UIHost.prototype._buildSearchResultItem = function(result, idx) {
+  const { kind, id, mode, category } = result;
+  const def = paletteSearchDef(kind, id);
+  if (!def) return null;
+
+  // Same gates _createPaletteItem applies to COMPONENTS: the active
+  // beamline-type filter (checked live, not baked into the cached index —
+  // it can change every time the player selects a different beamline) and
+  // zone-tier gating for facility-mode items. Unlike research-lock, neither
+  // of these makes an item permanently unsearchable, so they're re-checked
+  // here at render time instead of at index-build time.
+  let zoneBlocked = false;
+  if (kind === 'component' || kind === 'facility') {
+    if (this._beamlineTypeHidesComponent(id, def)) return null;
+    if (isFacilityCategory(def.category) && this.game.getZoneTierForCategory) {
+      const zoneTier = this.game.getZoneTierForCategory(def.category);
+      const compTier = def.zoneTier != null ? def.zoneTier : 1;
+      zoneBlocked = zoneTier < compTier;
+    }
+  }
+
+  const affordable = kind === 'zone' ? true : this.game.canAfford(
+    (kind === 'component' || kind === 'facility' || kind === 'furnishing')
+      ? def.cost
+      : { funding: _costVal(def.cost) }
+  );
+
+  const item = document.createElement('div');
+  item.className = 'palette-item';
+  item.dataset.paletteIndex = idx;
+  item.dataset.paletteKey = id;
+  item.dataset.paletteKind = kind;
+  if (!affordable) item.classList.add('unaffordable');
+  if (zoneBlocked) item.classList.add('zone-blocked');
+
+  item.appendChild(this._buildSearchResultPreview(result, def));
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'palette-name';
+  nameEl.textContent = def.name || id;
+  item.appendChild(nameEl);
+
+  // Home-category subtitle — the whole point of a flat cross-category list
+  // is that the player didn't know (or shouldn't have to know) which tab
+  // this lives under, so tell them.
+  const catEl = document.createElement('div');
+  catEl.className = 'palette-search-category';
+  const modeDef = MODES[mode];
+  const catName = modeDef?.categories?.[category]?.name || category;
+  catEl.textContent = `${modeDef?.name || mode} • ${catName}`;
+  item.appendChild(catEl);
+
+  const costEl = document.createElement('div');
+  costEl.className = 'palette-cost';
+  costEl.textContent = this._searchResultCostLabel(kind, def);
+  item.appendChild(costEl);
+
+  if (kind === 'component' || kind === 'facility') {
+    item.addEventListener('mouseenter', () => this._showPalettePreview(def));
+    item.addEventListener('mouseleave', () => this._hidePalettePreview());
+  } else if (kind === 'zone') {
+    this._attachSimpleHoverPreview(item, def.name, def.desc, [
+      ['Requires', FLOORS[def.requiredFloor]?.name || def.requiredFloor],
+    ]);
+  } else {
+    this._attachSimpleHoverPreview(item, def.name, def.desc, [
+      ['Cost', this._searchResultCostLabel(kind, def)],
+    ]);
+  }
+
+  // Zone-blocked items are shown but inert, matching _createPaletteItem
+  // (no click handler attached at all while blocked).
+  if (!zoneBlocked) {
+    item.addEventListener('click', () => this._armSearchResult(result));
+  }
+
+  return item;
+};
+
+UIHost.prototype._renderPaletteSearchResults = function(palette, results) {
+  if (!results || results.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'palette-search-empty';
+    empty.textContent = 'No matches.';
+    palette.appendChild(empty);
+    return;
+  }
+  let paletteIdx = 0;
+  let sawDescDivider = false;
+  for (const result of results) {
+    // searchPalette groups name/id matches ahead of description-only
+    // matches (see palette-search.js). Mark the seam with a small label so
+    // "matched inside the description, not the name" is legible rather than
+    // reading as a randomly-included item — this is where "table" would
+    // have shown a cooling chiller before the word-boundary fix, and
+    // grouping+labelling keeps a *legitimate* description hit (e.g.
+    // "klystron" finding an RF source by its desc) from looking like noise.
+    if (result.matchedIn === 'desc' && !sawDescDivider) {
+      sawDescDivider = true;
+      const divider = document.createElement('div');
+      divider.className = 'palette-search-divider';
+      divider.textContent = 'Also mentioned in description';
+      palette.appendChild(divider);
+    }
+    const item = this._buildSearchResultItem(result, paletteIdx);
+    if (!item) continue; // beamline-type-hidden or stale entry
+    paletteIdx++;
+    palette.appendChild(item);
+  }
+};
+
+// Clicking a search result: switch mode + category to the item's home tab
+// (matching what a normal mode-button/cat-tab click does), clear the
+// search box back to the normal category view, then arm the tool — the
+// same {kind, key, variant} path every other palette click uses.
+UIHost.prototype._armSearchResult = function(result) {
+  const { mode, category, kind, id } = result;
+
+  // Facility mode's tab bar is additionally filtered by a Labs/Rooms
+  // toggle (_generateCategoryTabs); land on whichever side the result's
+  // category belongs to, or its tab won't be in the regenerated bar.
+  if (mode === 'facility') {
+    const catDef = MODES.facility.categories[category];
+    if (catDef?.group) this._facilityGroup = catDef.group;
+  }
+
+  this._paletteSearchResults = null;
+  const input = document.getElementById('palette-search-input');
+  if (input) input.value = '';
+
+  // Same steps as a mode-btn click (_bindHUDEvents).
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  this.activeMode = mode;
+  this._generateCategoryTabs();
+  this._updateSystemStatsVisibility();
+
+  // _generateCategoryTabs lands on the mode's first tab; select the
+  // result's actual home category instead (same effect as a cat-tab click).
+  const tabs = document.querySelectorAll('#category-tabs .cat-tab');
+  let matched = false;
+  tabs.forEach(t => {
+    const isMatch = t.dataset.category === category;
+    t.classList.toggle('active', isMatch);
+    if (isMatch) matched = true;
+  });
+  if (matched) {
+    this._renderPalette(category);
+    this._updateSystemStatsContent(category);
+    if (this._onTabSelect) this._onTabSelect(category);
+  }
+
+  this._selectPaletteTool(kind, id, recallVariant(id));
 };
 
