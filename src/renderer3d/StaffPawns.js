@@ -34,10 +34,19 @@
 // completes/abandons it. This file never asks which kind of job it is: it
 // walks the pawn to `job.destNode`, full stop, then reports arrival —
 // flipping `job.phase` from 'travel' to 'work' once the pawn's feet
-// actually land there — which is the one place this file writes back to
-// sim state (see _arriveAtPathEnd); everything else here only reads. A
-// member with no job ambles: _chooseAmbientTarget picks a random reachable
-// subtile and walks there, exactly like a job-driven walk mechanically, but
+// actually land there — the one place this file writes to a member's JOB
+// itself (see _arriveAtPathEnd); every other read of `job` is exactly
+// that, a read. Two other writes exist and are a different claim, not
+// contradicted by the one above: every frame, this file also reports the
+// pawn's own live position onto `member.fromNode` (see update()) — the
+// reachability/distance signal jobRunner.js's findStation/eligibleFor/
+// tie-break all key off — and it releases station RESERVATIONS
+// (releaseStation/releaseAllFor) on pawn teardown and via the raw
+// sendToStation/setDestination seam, Plan 2 machinery that predates the
+// job system entirely and is unrelated to job.phase (see
+// _releaseStationFor's and _destroyPawn's own comments). A member with no
+// job ambles: _chooseAmbientTarget picks a random reachable subtile and
+// walks there, exactly like a job-driven walk mechanically, but
 // never touches member.job at all. (An earlier version of this file drove
 // pawns itself — grab any reachable station, hold it 20-60s, release,
 // repeat — before the job board existed; that throwaway driver is gone.)
@@ -447,6 +456,20 @@ export class StaffPawns {
         pawn.pathIndex = 0;
         pawn.mode = 'idle';
         pawn.idleT = IDLE_MIN;
+        // The attempt throttle (see the 'travel' branch below) means "I
+        // already tried THIS JOB'S destination and nothing changed since" —
+        // it must not survive the job that set it. Left unreset, a member
+        // re-assigned a brand new job whose destNode happens to equal the
+        // PREVIOUS job's (the ordinary case: the same desk/console/bench,
+        // in a facility where nothing was built in between, so navRevision
+        // hasn't moved either) reads as "already attempted, nothing to do"
+        // on sight — _beginPathWalk never runs, job.phase never reaches
+        // 'work', and jobRunner's own travel-budget backstop abandons the
+        // job untouched, over and over, forever. Found live: one admin, one
+        // workstation, flat floor — the very first re-offer after the first
+        // job ever completes never gets walked to again.
+        pawn.jobAttemptDest = null;
+        pawn.jobAttemptRevision = -1;
       }
       return;
     }
@@ -704,8 +727,9 @@ export class StaffPawns {
   _arriveAtPathEnd(pawn, member) {
     const state = this.game?.state;
 
-    // Arrival reporting: the ONE place this file writes to sim state (see
-    // this file's header). The sim owns everything about a job — what it
+    // Arrival reporting: the one place this file writes to a member's JOB
+    // (see this file's header for the two other, unrelated writes this
+    // file also makes). The sim owns everything about a job — what it
     // is, how long it takes, when it's done — but only the renderer knows
     // WHEN a pawn's feet have actually landed on job.destNode, so this is
     // the sole signal that can flip travel -> work and let
@@ -799,17 +823,17 @@ export class StaffPawns {
       this._animate(pawn, dt, moved);
       this._placeFigure(pawn);
 
-      // Report the pawn's own position back onto its member. This is the
-      // ONLY other write this file makes to sim state (see the header and
-      // _arriveAtPathEnd): jobRunner's findStation/eligibleFor/tie-break
-      // all key off member.fromNode for reachability and distance, and
-      // nothing else in the sim ever sets it — before this, it was simply
-      // never populated, which is why every fromNode-gated runner path
-      // (eat/rest job assignment, the travel-budget path-length estimate,
-      // the nearest-station tie-break) sat dormant. Written every frame,
-      // unconditionally, for every live pawn — cheap (a couple of divides)
-      // and unconditionally correct, unlike job.phase which only ever
-      // moves forward on a specific event.
+      // Report the pawn's own position back onto its member — one of the
+      // two other writes this file makes besides job.phase (see the
+      // header and _arriveAtPathEnd): jobRunner's findStation/eligibleFor/
+      // tie-break all key off member.fromNode for reachability and
+      // distance, and nothing else in the sim ever sets it — before this,
+      // it was simply never populated, which is why every fromNode-gated
+      // runner path (eat/rest job assignment, the travel-budget path-length
+      // estimate, the nearest-station tie-break) sat dormant. Written every
+      // frame, unconditionally, for every live pawn — cheap (a couple of
+      // divides) and unconditionally correct, unlike job.phase which only
+      // ever moves forward on a specific event.
       if (member) member.fromNode = worldToSubtile(pawn.x, pawn.z);
     }
   }

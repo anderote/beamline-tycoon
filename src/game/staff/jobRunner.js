@@ -636,12 +636,15 @@ const MIN_TRAVEL_BUDGET_TICKS = 60; // floor: even a one-subtile hop gets a fair
 const VALID_SPEEDS = [1, 2, 4];    // Game.js's setSpeed()'s own allowed values
 
 // Worst-case cross-map subtile distance, used when a real path length can't
-// be computed yet (no member.fromNode — no pawn has reported a position,
-// true of every job before Task 3 wires the renderer, and of every
-// target-addressed job regardless, since those have no resolvable node at
-// all — see currentStationNode). A Manhattan corner-to-corner walk of the
-// whole nav grid on both axes; scales with state.mapHalfExtent so a grown
-// map gets a correspondingly larger (never tighter) budget.
+// be computed yet — no member.fromNode (no pawn has reported a position:
+// true of every job the instant it's assigned, before that member's own
+// pawn has rendered even one frame) or no node at all (should not happen
+// post-destNode-unification: jobRunner never hands out a job without a
+// resolved destNode — see resolveDestNode — but this stays a defensive
+// fallback rather than a `node` non-null assumption). A Manhattan
+// corner-to-corner walk of the whole nav grid on both axes; scales with
+// state.mapHalfExtent so a grown map gets a correspondingly larger (never
+// tighter) budget.
 function worstCaseMapSubtiles(state) {
   const half = Number.isFinite(state.mapHalfExtent) ? state.mapHalfExtent : 30;
   return (half * 2 + 1) * 4 * 2;
@@ -725,14 +728,15 @@ function needsBudgetRecompute(job, speedNow) {
  * ("need threshold crossed, target demolished, station destroyed, or path
  * lost" — this is the fourth one).
  *
- * The live isReachable() re-check only applies to station-addressed jobs
- * (currentStationNode returns null for repair/commission, which have no
- * resolvable node here at all — see this file's header). Every job still
- * gets a travel-tick budget as a hard backstop regardless — see this
- * section's header comment for why that budget is computed from the job's
- * own path length and the game's current speed, not a flat constant, and
- * why it's re-derived (needsBudgetRecompute) whenever state.speed rises
- * above whatever speed it was last computed at.
+ * The live isReachable() re-check applies to every travelling job alike —
+ * station-addressed via currentStationNode, target-addressed (repair/
+ * commission) via job.destNode, the same subtile StaffPawns.js is walking
+ * toward (see the travel-phase branch's own comment). Every job still gets
+ * a travel-tick budget as a hard backstop regardless — see this section's
+ * header comment for why that budget is computed from the job's own path
+ * length and the game's current speed, not a flat constant, and why it's
+ * re-derived (needsBudgetRecompute) whenever state.speed rises above
+ * whatever speed it was last computed at.
  *
  * Once `phase === 'work'`, progress accrues by the member's own efficiency
  * (skill/mood/zone-tier/specialty-match, all in StaffMember.efficiency) —
@@ -754,7 +758,20 @@ export function tickJobs(game) {
     }
 
     if (job.phase === 'travel') {
-      const node = currentStationNode(state, job);
+      // currentStationNode only ever resolves a station-addressed job's
+      // node (see its own comment) — a target-addressed job (repair/
+      // commission) falls back to job.destNode, the exact same subtile
+      // StaffPawns.js is walking toward (see this round's destNode
+      // unification). Before that field existed there was nothing to fall
+      // back to here at all, so a target job got NEITHER the live
+      // reachability re-check below NOR a real-path-length travel budget —
+      // only the worst-case-map fallback (computeTravelBudget) and, on a
+      // genuinely severed route, up to ~544 ticks (the map-scale backstop,
+      // ≈9 minutes of wall clock at TICK_MS=1000) standing motionless
+      // before giving up, versus 1 tick for the identical failure on a
+      // station job. destNode being universal now closes that gap for
+      // free — same check, same variable, no branch on jobType.
+      const node = currentStationNode(state, job) || job.destNode;
       if (node && member.fromNode) {
         const nav = getNavGrid(state);
         if (!isReachable(nav, member.fromNode, node)) {

@@ -410,5 +410,80 @@ console.log('\n=== 8. A station-addressed job whose declared station no longer r
   assertOk(pawn.x === startX && pawn.z === startZ, 'the pawn never moves toward the stale destNode');
 }
 
+console.log('\n=== 9. A SECOND job at the SAME destination (the ordinary "job completes, gets re-offered the same station" case) still walks and arrives ===\n');
+{
+  // The bug this pins: the attempt throttle (pawn.jobAttemptDest/
+  // jobAttemptRevision — see _syncJob's 'travel' branch) means "I already
+  // tried THIS JOB'S destination and nothing in the world changed since" —
+  // but it used to survive the job that set it. A member re-assigned a
+  // brand new job whose destNode happens to equal the PREVIOUS job's exact
+  // node — the routine case of the same desk/console/bench being offered
+  // again in a facility where nothing was built in between, so navRevision
+  // hasn't moved either — read as "already attempted, nothing to do" on
+  // sight: _beginPathWalk never ran, job.phase never reached 'work', and
+  // jobRunner's own travel-budget backstop abandoned the untouched job
+  // forever, over and over. This is precisely how a staffer that
+  // completes exactly one job and then loops "Gave up trying to get
+  // there." forever slipped past every other scenario in this file: every
+  // one of them either never completes a job at all, or reassigns to a
+  // DIFFERENT destination (see scenario 5) — none of them re-offer the
+  // IDENTICAL destination after a null gap, which is the one shape that
+  // trips the stale cache.
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  placeItem(state, 'operatorConsole', 8, 8, 0, 0, 0);
+  const member = { id: 's1', profession: 'operator', job: null };
+  state.staffMembers = [member];
+  bump(state);
+
+  const index = getStationIndex(state);
+  const ref = (index.byJob.runBeam || [])[0];
+  assertOk(!!ref, 'sanity: the console yields a runBeam station');
+  assertOk(reserveStation(state, ref.key, 's1'), 'sanity: reservation succeeds');
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get('s1');
+  const startWorld = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = startWorld.x; pawn.z = startWorld.z;
+
+  // Job A: walk to the console and arrive, exactly like scenario 1.
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, destNode: ref.node, phase: 'travel', progress: 0 };
+  let steps = 0;
+  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'work', `setup: job A reaches 'work' (after ${steps} steps)`);
+
+  // Job A "completes": jobRunner.abandonJob releases the reservation and
+  // nulls member.job — mirror that, then give the renderer exactly one
+  // frame to process the null (this is where the throttle must reset).
+  delete state.stationReservations[ref.key];
+  member.job = null;
+  pawns.update(0.02);
+  assertOk(pawn.mode !== 'working', 'sanity: the pawn left working mode once job A cleared');
+
+  // Job B: the SAME station, SAME destNode, and — critically — navRevision
+  // has not moved (nothing was built or demolished between the two jobs,
+  // the ordinary steady-state case). This is the exact shape that trips
+  // the stale (destNode, revision) cache if it wasn't reset above.
+  assertOk(reserveStation(state, ref.key, 's1'), 'sanity: the same station is reserved again for job B');
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, destNode: ref.node, phase: 'travel', progress: 0 };
+
+  steps = 0;
+  while (pawn.mode === 'idle' && steps < 50) { pawns.update(0.02); steps++; }
+  // The pawn never left the console between job A and job B (it was
+  // standing exactly on the anchor when job A cleared), so job B's
+  // "walk" is a zero-length path that resolves to 'working' within the
+  // very same frame _syncJob starts it — 'pathWalk' would only be
+  // observable here if the pawn had wandered off in between. Either
+  // outcome proves it wasn't silently throttled; 'idle' is the one that
+  // means the bug is back.
+  assertOk(pawn.mode === 'pathWalk' || pawn.mode === 'working',
+    `job B actually starts (or, being already there, instantly completes) instead of being silently throttled (mode is "${pawn.mode}" after ${steps} steps)`);
+
+  steps = 0;
+  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'work', `job B reaches 'work' — the staffer does a SECOND job, not just one forever (after ${steps} steps)`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
