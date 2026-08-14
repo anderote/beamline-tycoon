@@ -281,7 +281,16 @@ function stationLabel(member, game) {
 // Returns the player-facing sentence, or null when: an unrelated hard fault
 // is already blocking the beam; staffing itself is the (already
 // differently-surfaced) problem; there are no beamlines to run at all; or
-// the beam has, in fact, been started at least once.
+// EVERY registered line has, in fact, been started at least once.
+//
+// Fix round 3's issue E: this used to be `entries.some(hasEverRun)` — true,
+// and so silent, the moment ANY ONE line had ever run, even while a SECOND
+// line sat never-started right next to it. That's exactly the shape the
+// game scales into (multiple beamlines, one console each): a facility with
+// line 1 running fine and line 2 never started even once produced no
+// signal at all for line 2. The correct question is whether EVERY line has
+// run — `entries.every(hasEverRun)` — so a lone never-started line still
+// gets caught regardless of how many others are already up.
 function beamNotStartedMessage(game) {
   const state = game.state;
   if (state.infraCanRun === false) return null;
@@ -289,7 +298,8 @@ function beamNotStartedMessage(game) {
   if (!operatorCoverage(state).covered) return null;
   const entries = game.registry?.getAll?.() || [];
   if (entries.length === 0) return null; // no registry wired up (e.g. a bare fixture) — nothing to confirm against
-  if (entries.some(e => e.status === 'running' || (e.beamState?.beamOnTicks || 0) > 0)) return null;
+  const hasEverRun = e => e.status === 'running' || (e.beamState?.beamOnTicks || 0) > 0;
+  if (entries.every(hasEverRun)) return null;
   return 'The beam is fully staffed but has never been started — press Start to begin operation.';
 }
 
@@ -387,7 +397,11 @@ export function describeJob(member, game) {
 // as exactly that, and starts the clock over — the behavior the module
 // comment always claimed but, before this fix, never actually implemented.
 const STALL_WINDOW_FLOOR_TICKS = 240; // one in-game day (Game.js's DAY_LENGTH_TICKS) — the window even when nobody's actively working ANYTHING in flight.
-const CACHE_DISCONTINUITY_TICKS = 100; // larger than any plausible multi-tick catch-up between two _updateHUD-driven calls in one render frame; anything bigger means the world's clock moved out from under this cache — a save load, not normal play.
+// Exported (fix round 3's issue E) so test/test-staff-diagnostics.js's own
+// advanceProgress helper can assert its stepSize stays under this cliff by
+// construction, rather than by a comment a future edit could silently
+// invalidate — see that helper's own assertion.
+export const CACHE_DISCONTINUITY_TICKS = 100; // larger than any plausible multi-tick catch-up between two _updateHUD-driven calls in one render frame; anything bigger means the world's clock moved out from under this cache — a save load, not normal play.
 const progressCache = new WeakMap(); // state -> { fingerprint, sinceTick, lastSeenTick }
 
 function cacheFor(state, tick) {
@@ -405,27 +419,47 @@ function cacheFor(state, tick) {
 // ticksWorked/breakdowns, neither of which signals PROGRESS: ticksWorked
 // increments for merely being status:'working', breakdowns is a bad thing
 // happening, not a good one) — plus completedResearch's own length, plus
-// two fix-round-2 additions found live as false positives:
-//   - `state.researchProgress`, the fractional per-tick trickle
-//     research.js's tickResearch adds while a node is active. Omitting it
-//     meant research legitimately advancing (14.4/120 at tick 240, say)
-//     read as flat, identical to no research running at all.
-//   - the sum of every currently-held job's own `job.progress` —
-//     jobRunner.js's tickJobs accrues this for EVERY job type while
-//     phase:'work' (not just the five that also write a stats key on
-//     completion), so this alone is what makes takeData/labWork/paperwork/
-//     meet — none of which bump a stats key — register as progress while
-//     actually being worked, without a fourth special case for each.
-// Any completion, or any job still genuinely being worked, changes this
-// value; only a facility where NOTHING is being productively worked at all
-// stays flat.
+// `state.researchProgress` (the fractional per-tick trickle research.js's
+// tickResearch adds while a node is active — omitting it meant research
+// legitimately advancing, e.g. 14.4/120 at tick 240, read as flat).
+//
+// Fix round 3 (BLOCKING — this is the detector's OWN false-negative, the
+// mirror image of round 2's false positives): fix round 2 also summed the
+// RAW, UNCAPPED `job.progress` of every held job, reasoning that any job
+// genuinely being worked changes it every tick. True, but that conflates
+// "is anyone MOVING" with "is anyone COMPLETING anything" — and for an
+// OPEN-ENDED job (`workTicks === null` — runBeam is the only one) progress
+// grows WITHOUT BOUND and WITHOUT EVER COMPLETING, so a seated operator
+// alone kept this fingerprint changing every tick forever: measured on a
+// real Game, 28 hard blockers, a beam that had never run once, zero
+// income — the detector never fired once in 1200 ticks. Round 1 built this
+// signal for "everyone is busy and nothing progresses"; round 2's own fix
+// made "busy" the exact condition that silenced it.
+//
+// The ruling: fingerprint on progress TOWARD COMPLETION, not on raw motion.
+//   - `workTicks === null` jobs (runBeam) are excluded entirely — bare
+//     presence/duration at a console is not evidence of progress; only
+//     `operatorCoverage`/`beamNotStartedMessage` (elsewhere in this file)
+//     get to say anything about a seated operator.
+//   - Every other job's contribution is `min(job.progress, workTicks)` — a
+//     job that is genuinely, currently advancing still changes this every
+//     tick (so a real fabricate/analyze/labWork job in progress still
+//     suppresses the stall, same as before); a job whose progress is
+//     frozen (stuck, or — the case this plan's own round-1 motivating
+//     example turned out to be — travelling for a very long stretch with
+//     nothing accruing; see longestInFlightWindow's own fix-round-3 note)
+//     stops moving THIS number the moment it stops moving for real.
 function progressFingerprint(state) {
   let total = (state.completedResearch || []).length * 1000;
   total += state.researchProgress || 0;
   for (const m of state.staffMembers || []) {
     const s = m.stats || {};
     total += (s.repairs || 0) + (s.commissions || 0) + (s.sparesMade || 0) + (s.analyses || 0) + (s.beamHours || 0);
-    total += m.job?.progress || 0;
+    const job = m.job;
+    if (!job) continue;
+    const jobDef = JOB_TYPES[job.jobType];
+    if (!jobDef || jobDef.workTicks == null) continue; // open-ended (runBeam) — never evidence of progress on its own
+    total += Math.min(job.progress || 0, jobDef.workTicks);
   }
   return total;
 }
@@ -448,18 +482,27 @@ const MIN_REALISTIC_EFFICIENCY = 0.04;
 // whatever job is actually longest in flight right now, worst-cased by
 // MIN_REALISTIC_EFFICIENCY, rather than a single number tuned to one
 // specific job type. `jobType.workTicks == null` (runBeam — open-ended,
-// held until reassigned) never bounds the window; a travelling job counts
-// its full workTicks (no progress accrued yet) rather than whatever's left
-// of a stale `job.progress` from a previous stint.
+// held until reassigned) never bounds the window.
+//
+// Fix round 3's issue B: a job in phase:'travel' used to count its FULL
+// workTicks as "remaining" (no progress accrued yet), worst-cased the same
+// way as a real in-progress job — one member merely walking to a lathe
+// inflated the WHOLE FACILITY'S window to ~3,750 ticks (150/0.04), even
+// though that member isn't producing anything yet and travel is already
+// bounded on its own terms: jobRunner.js's tickJobs abandons a travelling
+// job once `travelTicks > travelBudgetTicks` (a real, computed, much
+// tighter bound — see that module's own "Travel budget" section), so this
+// window has no business re-deriving a second, far looser bound for the
+// same fact. Travelling jobs are simply excluded here; once a member
+// arrives (phase flips to 'work') their job is sized normally.
 function longestInFlightWindow(state) {
   let longest = STALL_WINDOW_FLOOR_TICKS;
   for (const m of state.staffMembers || []) {
     const job = m.job;
-    if (!job) continue;
+    if (!job || job.phase !== 'work') continue;
     const jobDef = JOB_TYPES[job.jobType];
     if (!jobDef || jobDef.workTicks == null) continue;
-    const progress = job.phase === 'work' ? (job.progress || 0) : 0;
-    const remaining = Math.max(0, jobDef.workTicks - progress);
+    const remaining = Math.max(0, jobDef.workTicks - (job.progress || 0));
     longest = Math.max(longest, remaining / MIN_REALISTIC_EFFICIENCY);
   }
   return longest;
@@ -477,8 +520,19 @@ function longestInFlightWindow(state) {
 // already carries a hand-authored sentence and no placeableId) passes
 // through untouched; `blocker.code` — an identifier itself
 // ('power_unconnected') — is never used as display text.
+// Fix round 3's issue D: 'solve_threw' (src/utility/solve-runner.js) is a
+// trapped exception, not a fault descriptor — its `message` is
+// `String(e.message || e)` off whatever the solver actually threw (a real
+// one seen live: "Cannot read properties of undefined (reading
+// 'portKey')"), a raw JS error never meant for a player screen. It carries
+// no `placeableId` either, so nothing else here would catch it before
+// falling through to `blocker.message`. Checked by code, explicitly, ahead
+// of everything else.
 function playerFacingBlockerMessage(state, blocker) {
   if (!blocker) return null;
+  if (blocker.code === 'solve_threw') {
+    return 'A utility network fault is blocking the facility — check its wiring for a broken loop.';
+  }
   const placeableId = blocker.location?.placeableId;
   if (placeableId) {
     const ep = findUtilityEndpoint(state, placeableId);
@@ -497,10 +551,10 @@ function playerFacingBlockerMessage(state, blocker) {
  */
 export function facilityProgressReport(game) {
   const state = game?.state || {};
-  if (!(state.staffMembers || []).length) return { stalled: false, reason: null };
+  if (!(state.staffMembers || []).length) return { stalled: false, reason: null, generic: false };
 
   const notStarted = beamNotStartedMessage(game);
-  if (notStarted) return { stalled: true, reason: notStarted };
+  if (notStarted) return { stalled: true, reason: notStarted, generic: false };
 
   const tick = state.tick || 0;
   const fp = progressFingerprint(state);
@@ -511,7 +565,7 @@ export function facilityProgressReport(game) {
   }
 
   const window = longestInFlightWindow(state);
-  if (tick - cache.sinceTick < window) return { stalled: false, reason: null };
+  if (tick - cache.sinceTick < window) return { stalled: false, reason: null, generic: false };
 
   // Best guess, most-specific first: the job board's own suppression
   // channel (a damaged component nobody can fix because there's nothing to
@@ -519,9 +573,18 @@ export function facilityProgressReport(game) {
   // idle right now); any live hard infra blocker (resolved to player-facing
   // text — see playerFacingBlockerMessage); a generic fallback that still
   // names the fact rather than staying silent.
+  //
+  // `generic` (fix round 3's issue A) marks ONLY that last fallback — the
+  // one case with nothing specific to say. hud.js reads this to decide
+  // whether this report may outrank a nonempty idle-staff banner: an idle
+  // roster is COUNTED, GROUPED, and CLICKABLE (facilityStaffingReport);
+  // replacing it with an uncounted, unclickable "nothing has completed"
+  // loses information the player already had. F4's "press Start", a
+  // suppression, and a resolved infra fault are all still MORE specific
+  // than any idle-staff line and always outrank it.
   const { suppressions } = buildJobOffers(game);
-  if (suppressions.length) return { stalled: true, reason: suppressions[0].reason };
+  if (suppressions.length) return { stalled: true, reason: suppressions[0].reason, generic: false };
   const blocker = (state.infraBlockers || [])[0];
-  if (blocker) return { stalled: true, reason: playerFacingBlockerMessage(state, blocker) };
-  return { stalled: true, reason: 'Nothing has completed in a while — check staffing, stations, and construction.' };
+  if (blocker) return { stalled: true, reason: playerFacingBlockerMessage(state, blocker), generic: false };
+  return { stalled: true, reason: 'Nothing has completed in a while — check staffing, stations, and construction.', generic: true };
 }

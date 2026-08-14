@@ -553,15 +553,28 @@ UIHost.prototype._renderStaffingBanner = function() {
   positionStaffingBanner(panel);
 
   const progress = facilityProgressReport(this.game);
-  const staffing = progress.stalled ? null : facilityStaffingReport(this.game);
+  const staffing = facilityStaffingReport(this.game);
 
-  const sig = progress.stalled
+  // Fix round 3's issue A: a stall outranks the idle-staff banner ONLY when
+  // it says something the idle banner doesn't. `progress.generic` marks
+  // exactly the one reason with nothing specific to say (the flat "nothing
+  // has completed" fallback — see facilityProgressReport's own doc
+  // comment); everything else (F4's "press Start", a suppression, a
+  // resolved infra fault) is still strictly more informative than "N staff
+  // idle" and keeps outranking it (round 2's own F2). A generic stall with
+  // a NONEMPTY idle report defers to it instead — the idle banner is
+  // COUNTED, GROUPED, and CLICKABLE; the generic fallback is none of those,
+  // and replacing the one with the other is a net loss of information, not
+  // a gain.
+  const preferProgress = progress.stalled && !(progress.generic && staffing.idleCount > 0);
+
+  const sig = preferProgress
     ? `stall|${progress.reason}`
     : (staffing.idleCount > 0 ? `idle|${staffing.idleCount}|${staffing.worst.reason}|${staffing.worst.count}` : '0');
   if (sig === this._staffingBannerSig) return;
   this._staffingBannerSig = sig;
 
-  if (progress.stalled) {
+  if (preferProgress) {
     panel.textContent = `⏸ Facility stalled: ${progress.reason}`;
     panel.title = 'Nothing has completed in a while — this outranks idle-staff notices until it clears.';
     panel.style.background = 'rgba(40,20,20,0.94)';
@@ -3330,17 +3343,53 @@ UIHost.prototype._openHiringDialog = function() {
 // exactly: raw fatigue/hunger/morale drift by a small fraction EVERY tick,
 // and comparing them at full precision would defeat the guard entirely —
 // every call would look "different" even though nothing visibly changed.
-function staffWindowSig(m) {
+// Facility-level facts no single member's own fields can see, but that
+// StaffInspector.js's renderInspector reads anyway (fix round 3's issue C):
+// the Beam <select>'s own option list (game.registry.getAll()'s ids) and,
+// via describeJob's F4 addition, whether the beam has ever actually run at
+// all. Computed once per _refreshStaffWindows call and folded into EVERY
+// member's own signature below — without it, an operator's inspector kept
+// reading "— but the beam has never been started (press Start)" for up to
+// 6 ticks after the player pressed Start, because nothing about that fact
+// lives on any per-member field this signature otherwise reads.
+function facilitySig(game) {
+  const state = game?.state || {};
+  const entries = game?.registry?.getAll?.() || [];
+  return `${state.infraCanRun}|${entries.map(e => `${e.id}:${e.status}`).join(',')}`;
+}
+
+// A cheap fingerprint of everything a staff inspector window's "Work"/
+// Needs/Assignment/Skills sections actually SHOW — fix round 1's F6's own
+// guard, the same shape _renderStaffingBanner already uses for its DOM.
+//
+// Fix round 3's issue C found this guard ALSO suppressing genuine updates,
+// including the one round 1's own F3 fix existed to fix: `describeJob`'s
+// beam-status suffix depends on `facilitySig` (added here), and
+// `stats.ticksWorked`/`stats.breakdowns`/the full `skills` object were
+// missing outright (frozen up to 49 ticks, never reflected at all).
+// Needs are rounded to the nearest 1% — StaffInspector.js's own needs bars
+// render `Math.round(pct)`, i.e. 1% precision; this signature used to round
+// to the nearest 5%, coarser than what's actually on screen, so a real,
+// visible 1-4% change could go un-rendered for several ticks. Still
+// rounded, not exact — raw fatigue/hunger/morale drift by a small fraction
+// EVERY tick, and comparing at full float precision would defeat the guard
+// entirely (measured otherwise fine: 340 real changes over 2000 ticks, a
+// dropdown surviving ~6 real seconds untouched).
+function staffWindowSig(m, facSig) {
   const job = m.job;
   const s = m.stats || {};
+  const skills = m.skills || {};
+  const skillsStr = Object.keys(skills).sort().map(k => `${k}:${skills[k]}`).join(',');
   return [
     m.mood, m.status, m.shift,
     m.assignment?.zoneId || '', m.assignment?.beamlineId || '',
     job?.jobType || '', job?.phase || '', job?.stationKey || '', job?.target?.nodeId || '',
     m.idleReason || '', m.unservicedPenalty ? 1 : 0,
-    Math.round((m.needs?.fatigue ?? 0) * 20), Math.round((m.needs?.hunger ?? 0) * 20), Math.round((m.needs?.morale ?? 0) * 20),
+    Math.round((m.needs?.fatigue ?? 0) * 100), Math.round((m.needs?.hunger ?? 0) * 100), Math.round((m.needs?.morale ?? 0) * 100),
     (m.history || []).length,
-    (s.repairs || 0) + (s.commissions || 0) + (s.sparesMade || 0) + (s.analyses || 0) + (s.beamHours || 0),
+    s.repairs || 0, s.commissions || 0, s.sparesMade || 0, s.analyses || 0, s.beamHours || 0, s.ticksWorked || 0, s.breakdowns || 0,
+    skillsStr,
+    facSig,
   ].join('|');
 }
 
@@ -3370,12 +3419,13 @@ function staffWindowSig(m) {
 UIHost.prototype._refreshStaffWindows = function() {
   const members = (this.game && this.game.state && this.game.state.staffMembers) || [];
   if (!this._staffWindowSigs) this._staffWindowSigs = new Map();
+  const facSig = facilitySig(this.game);
   const liveIds = new Set();
   for (const m of members) {
     const win = ContextWindow.getWindow('staff-' + m.id);
     if (!win || typeof win.refresh !== 'function') continue;
     liveIds.add(m.id);
-    const sig = staffWindowSig(m);
+    const sig = staffWindowSig(m, facSig);
     if (this._staffWindowSigs.get(m.id) === sig) continue;
     this._staffWindowSigs.set(m.id, sig);
     try { win.refresh(); } catch (_) {}

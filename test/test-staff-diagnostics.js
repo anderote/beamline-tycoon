@@ -56,8 +56,8 @@
 //   15.  F7: the unserviced-need penalty surfaced on a member who still
 //        holds a job (describeJob, not facilityStaffingReport).
 
-import { facilityStaffingReport, facilityProgressReport, describeJob } from '../src/game/staff/staffDiagnostics.js';
-import { assignJobs } from '../src/game/staff/jobRunner.js';
+import { facilityStaffingReport, facilityProgressReport, describeJob, CACHE_DISCONTINUITY_TICKS } from '../src/game/staff/staffDiagnostics.js';
+import { assignJobs, tickJobs } from '../src/game/staff/jobRunner.js';
 import { UtilityGate } from '../src/game/utility-gate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 
@@ -155,6 +155,14 @@ const noopPorts = () => ({});
 // exercising it (14e/14e(ii)) call facilityProgressReport directly instead
 // of through this helper. Returns the LAST report observed.
 function advanceProgress(game, target, stepSize = 90) {
+  // Fix round 3's issue E: this used to just be a comment ("under 100 by
+  // convention") — a future edit raising the default could silently
+  // self-neuter every test built on it (each step would itself look like a
+  // save-load discontinuity and reset the cache, exactly the trap 14a/14b
+  // fell into in fix round 2 before that was caught). Asserted, not noted.
+  if (stepSize >= CACHE_DISCONTINUITY_TICKS) {
+    throw new Error(`advanceProgress: stepSize (${stepSize}) must stay under CACHE_DISCONTINUITY_TICKS (${CACHE_DISCONTINUITY_TICKS}) or every step trips the save-load discontinuity guard`);
+  }
   const state = game.state;
   let report;
   let t = state.tick || 0;
@@ -866,6 +874,254 @@ console.log('\n=== 15. F7: an unserviced need surfaces on the inspector even tho
   state.staffMembers = [m];
   const report = facilityStaffingReport({ state });
   assert(report.idleCount === 0, 'facilityStaffingReport does not count a working-but-unserviced member as idle');
+}
+
+// ==========================================================================
+// Fix round 3. The main ruling (BLOCKING): fix round 2's fingerprint summed
+// EVERY held job's RAW job.progress, reasoning that "still moving" means
+// "not stalled" — true for motion, but the signal has to be "nothing is
+// COMPLETING", not "nothing is moving". An open-ended job (runBeam,
+// workTicks:null) can accrue progress forever without ever completing, so a
+// single seated-but-never-started operator kept the fingerprint moving
+// every tick, permanently — measured on a real Game (28 hard blockers, a
+// beam that had never run, zero income): never fired once in 1200 ticks.
+// Fixed by excluding workTicks:null jobs from the fingerprint entirely and
+// capping every other job's contribution at its own workTicks.
+//
+// TP1/TP2 below are the two TRUE POSITIVES this round's fix has to restore
+// — the exact two cases named in the review, reproduced through the REAL
+// job pipeline (assignJobs/tickJobs/jobRunner's own progress accrual), not
+// hand-typed fingerprint values.
+// ==========================================================================
+console.log('\n=== TP1 (fix round 3 ruling): a seated, never-started operator behind real hard faults eventually stalls — not silently forever ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console_ = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  const op = makeMember({
+    profession: 'operator', skills: { operating: 1 },
+    job: { jobType: 'runBeam', target: null, specialty: null, stationKey: `${console_.id}:0`, destNode: null, phase: 'work', progress: 0 },
+  });
+  state.staffMembers = [op];
+  // A representative slice of a real "many hard faults" facility — the
+  // exact count doesn't matter, only that infraCanRun is false (so F4's
+  // own "press Start" check correctly stays quiet — round 2's F1(b)) and a
+  // real blocker exists for the fallback to eventually name.
+  state.infraCanRun = false;
+  state.infraBlockers = [
+    { code: 'power_unconnected', severity: 'hard', message: 'source pwr_in not connected to powerCable', location: { placeableId: 'src1', portName: 'pwr_in' } },
+    { code: 'vacuum_unconnected', severity: 'hard', message: 'source vac_in not connected to vacuumPipe', location: { placeableId: 'src1', portName: 'vac_in' } },
+  ];
+  state.placeables.push({ id: 'src1', type: 'source', category: 'beamline' });
+  const game = { state, registry: { getAll: () => [{ id: 'bl1', status: 'stopped' }] } };
+
+  // op.job.progress climbs every tick — jobRunner.js's tickJobs really does
+  // this for a seated, phase:'work' runBeam job, unbounded, forever. Under
+  // round 2's fingerprint this alone masked the stall completely; under
+  // this round's fix it contributes nothing (workTicks === null).
+  let firstStallTick = null;
+  for (let t = 1; t <= 500; t++) {
+    state.tick = t;
+    op.job.progress += 0.5;
+    const r = facilityProgressReport(game);
+    if (r.stalled && firstStallTick == null) firstStallTick = t;
+  }
+  assert(firstStallTick != null, `TP1: the detector fires at all (got firstStallTick=${firstStallTick})`);
+  assert(firstStallTick <= 260, `TP1: fires at the floor window (240), not thousands of ticks late or never (got tick ${firstStallTick})`);
+}
+
+console.log('\n=== TP2 (fix round 3 ruling): a facility perpetually reassigning labWork, with nothing else happening, eventually stalls ===\n');
+{
+  // Headless — no renderer, so nothing ever flips job.phase from 'travel'
+  // to 'work' (StaffPawns.js's own job, per jobRunner.js's header comment)
+  // — exactly the shape of a real balance-playthrough script (this whole
+  // plan's own origin story: an 80,000-tick headless run that missed a
+  // dead facility because nothing surfaced it). Round 2's window bug
+  // (issue B, fixed this round) inflated the window to ~3,750 ticks off
+  // this member's OWN full, un-accrued workTicks while stuck in travel;
+  // excluding travelling jobs from the window is what actually restores
+  // this specific true positive — see longestInFlightWindow's own comment.
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  placeItem(state, 'testChamber', 2, 2, 0, 0, 0); // a real labWork station (vacuumLab)
+  const engineer = makeMember({ id: 'eng1', profession: 'engineer', skills: { technical: 5 } });
+  state.staffMembers = [engineer];
+  const game = { state, registry: { getAll: () => [] } };
+
+  let firstStallTick = null;
+  for (let t = 1; t <= 500; t++) {
+    state.tick = t;
+    assignJobs(game);
+    tickJobs(game);
+    const r = facilityProgressReport(game);
+    if (r.stalled && firstStallTick == null) firstStallTick = t;
+  }
+  assert(engineer.job?.jobType === 'labWork' && engineer.job?.phase === 'travel',
+    `setup sanity: assigned labWork, permanently stuck in travel with nothing to promote it (got ${JSON.stringify(engineer.job)})`);
+  assert(firstStallTick != null, `TP2: the detector eventually fires (got firstStallTick=${firstStallTick})`);
+  assert(firstStallTick <= 260, `TP2: fires near the 240-tick floor window, not thousands of ticks late (got tick ${firstStallTick})`);
+}
+
+// ==========================================================================
+// Confirm the six false-positive fixes from rounds 1/2 SURVIVE this
+// round's ruling — a real fabricate job and research mid-progress must
+// still suppress the stall (job.progress capped at workTicks still changes
+// every tick while genuinely advancing; only OPEN-ENDED accrual is
+// excluded).
+// ==========================================================================
+console.log('\n=== Regression: a real fabricate job (finite workTicks, phase:work) still suppresses the stall under the capped fingerprint ===\n');
+{
+  const state = makeState();
+  const machinist = makeMember({ profession: 'machinist', job: { jobType: 'fabricate', target: null, specialty: null, stationKey: 'lathe1:0', destNode: null, phase: 'work', progress: 0 } });
+  state.staffMembers = [machinist];
+  let r;
+  for (let t = 1; t <= 300; t++) {
+    state.tick = t;
+    machinist.job.progress += 0.5; // default machinist efficiency
+    r = facilityProgressReport({ state });
+  }
+  assert(r.stalled === false, `tick 300: still actively fabricating -> never stalled (got ${JSON.stringify(r)})`);
+}
+
+// ==========================================================================
+// Issue B: a member merely TRAVELLING toward a large job must not inflate
+// the whole facility's window — travel is separately, tightly bounded by
+// its own travelBudgetTicks; re-deriving a second, far looser bound off
+// the job's full workTicks (as if it were already being worked) is exactly
+// what let TP2 stay silent for thousands of ticks before this fix.
+// ==========================================================================
+console.log('\n=== Issue B: a travelling job does not widen the window off its own (un-accrued) workTicks ===\n');
+{
+  const state = makeState();
+  const machinist = makeMember({
+    profession: 'machinist',
+    job: { jobType: 'fabricate', target: null, specialty: null, stationKey: 'lathe1:0', destNode: null, phase: 'travel', progress: 0, travelBudgetTicks: 50 },
+  });
+  state.staffMembers = [machinist];
+  state.tick = 0;
+  facilityProgressReport({ state }); // seed the cache
+  const r = advanceProgress({ state }, 250); // past the floor window (240) -- a phase:'work' fabricate job here would have widened this to ~3,750
+  assert(r.stalled === true,
+    `tick 250: a travelling (not yet working) job does not widen the window past the floor -> stalled (got ${JSON.stringify(r)})`);
+}
+
+// ==========================================================================
+// Issue A: the generic stall fallback must defer to a nonempty idle-staff
+// report — it is COUNTED, GROUPED, and CLICKABLE; the generic fallback is
+// none of those, and must never silently replace it. F4/suppression/a
+// resolved infra blocker are all still MORE specific and must continue to
+// outrank idle staff unconditionally (round 2's own F2 fix).
+// ==========================================================================
+console.log('\n=== Issue A: the report exposes generic:true ONLY for the uninformative fallback, never for a specific reason ===\n');
+{
+  // Generic fallback: two idle-adjacent staff, nothing else happening.
+  const state = makeState();
+  state.staffMembers = [
+    makeMember({ profession: 'admin', job: null, idleReason: 'Nothing to do right now.' }),
+    makeMember({ profession: 'admin', job: null, idleReason: 'Nothing to do right now.' }),
+  ];
+  let r;
+  for (let t = 1; t <= 250; t++) { state.tick = t; r = facilityProgressReport({ state }); }
+  assert(r.stalled === true && r.generic === true,
+    `the uninformative fallback is marked generic (got ${JSON.stringify(r)})`);
+
+  // F4 (beam never started): specific, must be generic:false.
+  const state2 = makeState();
+  floorRect(state2, 0, 8, 0, 8);
+  const console_ = placeItem(state2, 'operatorConsole', 2, 2, 0, 0, 0);
+  addBeamline(state2, 'bl1');
+  const op = makeMember({
+    profession: 'operator',
+    job: { jobType: 'runBeam', target: null, specialty: null, stationKey: `${console_.id}:0`, destNode: null, phase: 'work', progress: 0 },
+  });
+  state2.staffMembers = [op];
+  const r2 = facilityProgressReport({ state: state2, registry: { getAll: () => [{ id: 'bl1', status: 'stopped' }] } });
+  assert(r2.stalled === true && r2.generic === false, `F4's "press Start" is marked specific, not generic (got ${JSON.stringify(r2)})`);
+}
+
+console.log('\n=== Issue A: the HUD banner priority — a generic stall defers to a nonempty idle report, but a specific one still outranks it ===\n');
+{
+  // Mirrors hud.js's own _renderStaffingBanner decision exactly, using the
+  // real report objects — hud.js itself is DOM-only and untestable here
+  // (see this plan's own convention), so this is the closest direct check
+  // on the logic both share.
+  function wouldShowIdleBanner(progress, staffing) {
+    const preferProgress = progress.stalled && !(progress.generic && staffing.idleCount > 0);
+    return !preferProgress && staffing.idleCount > 0;
+  }
+
+  const genericProgress = { stalled: true, reason: 'Nothing has completed in a while — check staffing, stations, and construction.', generic: true };
+  const idleStaffing = { idleCount: 2, worst: { reason: 'No reachable rest station.', count: 3 } };
+  assert(wouldShowIdleBanner(genericProgress, idleStaffing) === true,
+    'a generic stall defers to a nonempty, specific idle-staff report');
+
+  const specificProgress = { stalled: true, reason: 'The beam is fully staffed but has never been started — press Start to begin operation.', generic: false };
+  assert(wouldShowIdleBanner(specificProgress, idleStaffing) === false,
+    'a specific stall (F4/suppression/resolved blocker) still outranks idle staff — round 2\'s F2 preserved');
+
+  const noIdle = { idleCount: 0, worst: null };
+  assert(wouldShowIdleBanner(genericProgress, noIdle) === false,
+    'a generic stall still shows when there is no idle report to defer to');
+}
+
+// ==========================================================================
+// Issue D: 'solve_threw' (src/utility/solve-runner.js) is a trapped
+// exception, not a fault descriptor — its message is a raw JS error string
+// ("Cannot read properties of undefined (reading 'portKey')", seen live),
+// and it carries no placeableId for the normal resolution path to catch.
+// ==========================================================================
+console.log("\n=== Issue D: a 'solve_threw' blocker never forwards the raw JS exception text ===\n");
+{
+  const state = makeState();
+  const admin = makeMember({ profession: 'admin', job: null, idleReason: 'Nothing to do right now.' });
+  state.staffMembers = [admin];
+  state.infraBlockers = [{
+    code: 'solve_threw', severity: 'hard',
+    message: "Cannot read properties of undefined (reading 'portKey')",
+    location: { networkId: 'net1' },
+  }];
+  state.tick = 0;
+  facilityProgressReport({ state });
+  const r = advanceProgress({ state }, 300);
+  assert(r.stalled === true, 'setup: stalled (a real solve_threw blocker present)');
+  assert(!/portKey/i.test(r.reason || ''), `the raw exception text never reaches the player (got "${r.reason}")`);
+  assert(!/cannot read propert/i.test(r.reason || ''), `no raw JS error phrasing either (got "${r.reason}")`);
+  assert(!IDENTIFIER_LEAK_RE.test(r.reason || ''), `no identifier leak (got "${r.reason}")`);
+}
+
+// ==========================================================================
+// Issue E: beamNotStartedMessage used to be `entries.some(hasEverRun)` —
+// silent the moment ANY ONE registered line had ever run, even with a
+// SECOND line right next to it that never has. The multi-beamline case the
+// game scales into.
+// ==========================================================================
+console.log('\n=== Issue E: a second, never-started beamline is still caught even though the first line has run ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 8, 0, 8);
+  const console1 = placeItem(state, 'operatorConsole', 2, 2, 0, 0, 0);
+  const console2 = placeItem(state, 'operatorConsole', 2, 6, 0, 0, 0);
+  addBeamline(state, 'bl1');
+  addBeamline(state, 'bl2');
+  const op1 = makeMember({
+    id: 'op1', profession: 'operator', skills: { operating: 10 }, // maxed -> capacity 3, covers both lines alone
+    job: { jobType: 'runBeam', target: null, specialty: null, stationKey: `${console1.id}:0`, destNode: null, phase: 'work', progress: 0 },
+  });
+  state.staffMembers = [op1];
+  // Line 1 has run (beamOnTicks > 0); line 2 has NEVER run at all.
+  const game = {
+    state,
+    registry: {
+      getAll: () => [
+        { id: 'bl1', status: 'stopped', beamState: { beamOnTicks: 500 } },
+        { id: 'bl2', status: 'stopped', beamState: { beamOnTicks: 0 } },
+      ],
+    },
+  };
+  const d = describeJob(op1, game);
+  assert(/press start/i.test(d.status),
+    `a never-started second line is still caught even though line 1 has run (got "${d.status}")`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
