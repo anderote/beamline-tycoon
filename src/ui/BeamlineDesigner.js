@@ -358,12 +358,13 @@ export class BeamlineDesigner {
         const clickX = e.clientX - rect.left;
         const clickY = e.clientY - rect.top;
 
-        // Check ghost quad click first
+        // Check ghost quad click first. Ghost regions are recorded in the same
+        // CSS-pixel space as _compRegions — the renderer applies its own
+        // ctx.scale(dpr, dpr) — so they compare against clickX directly.
         if (this._ghostRegions) {
-          const dpr = window.devicePixelRatio || 1;
           for (const gr of this._ghostRegions) {
-            if (clickX >= gr.x / dpr && clickX <= (gr.x + gr.w) / dpr &&
-                clickY >= gr.y / dpr && clickY <= (gr.y + gr.h) / dpr) {
+            if (clickX >= gr.x && clickX <= gr.x + gr.w &&
+                clickY >= gr.y && clickY <= gr.y + gr.h) {
               this._insertGhostQuad(gr.ghost);
               return;
             }
@@ -1544,23 +1545,7 @@ export class BeamlineDesigner {
     const effZoom = this.viewZoom * baseZoom;
     const panPx = -this.viewX * effZoom;
 
-    const compWidths = this.draftNodes.map(n => this._compPixelWidth(n.type, _nodeSubL(n)));
-    const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
-
-    let markerPx = 20 + panPx;
-    let cumS = 0;
-    for (let i = 0; i < this.draftNodes.length; i++) {
-      const tileLen = _nodeSubL(this.draftNodes[i]) * 0.5;
-      const compLen = (tileLen / tileLenSum) * this.totalLength;
-      const compW = compWidths[i] * effZoom;
-      if (this.markerS <= cumS + compLen) {
-        const frac = compLen > 0 ? (this.markerS - cumS) / compLen : 0;
-        markerPx += frac * compW;
-        break;
-      }
-      cumS += compLen;
-      markerPx += compW;
-    }
+    const markerPx = 20 + panPx + this._sToPixelOffset(this.markerS, effZoom);
 
     const centerX = W / 2;
     const deadZone = W * 0.4;
@@ -1632,6 +1617,30 @@ export class BeamlineDesigner {
   _compPhysLengths() {
     const tileLenSum = this.draftNodes.reduce((s, n) => s + _nodeSubL(n) * 0.5, 0) || 1;
     return this.draftNodes.map(n => (_nodeSubL(n) * 0.5 / tileLenSum) * this.totalLength);
+  }
+
+  /** Pixel offset from the left edge of the beamline (x = 20 + panPx) to
+   *  physical position s. Inverse of the click mapping in
+   *  _placeMarkerAtClickX, so the marker draws under the cursor that set it. */
+  _sToPixelOffset(s, effectiveZoom) {
+    // _compPhysLengths is the one length model in this file — it reads a
+    // trimmed drift's real length off the node, the same way the click
+    // mapping and totalLength do. Recomputing it from COMPONENTS[type].subL
+    // here would put the marker somewhere other than where it was clicked.
+    const lengths = this._compPhysLengths();
+    let px = 0;
+    let cumS = 0;
+    for (let i = 0; i < this.draftNodes.length; i++) {
+      const compW = this._compPixelWidth(this.draftNodes[i].type,
+        _nodeSubL(this.draftNodes[i])) * effectiveZoom;
+      if (s <= cumS + lengths[i]) {
+        const frac = lengths[i] > 0 ? (s - cumS) / lengths[i] : 0;
+        return px + frac * compW;
+      }
+      cumS += lengths[i];
+      px += compW;
+    }
+    return px;
   }
 
   /** Set markerS to the center of the currently selected component (instant, for clicks). */
