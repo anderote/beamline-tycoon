@@ -43,7 +43,7 @@ function makeGame() {
   const g = new Game(new BeamlineRegistry(), { seed: 11 });
   g.state.resources.funding = 1e9;
   g.state.placeables.push({
-    id: 'src_1', type: 'hvTransformer', kind: 'infrastructure',
+    id: 'src_1', type: 'mcc', kind: 'infrastructure',
     category: 'infrastructure', col: 1, row: 1, subCol: 0, subRow: 0, dir: 0,
   });
   g.state.beamPipes.push({
@@ -90,7 +90,7 @@ function powerLines(game) {
 // The trunk every case here branches off: transformer → the first quad.
 function withTrunk() {
   const game = makeGame();
-  drag(game, portTile(game, 'src_1', 'pwr_out'), portTile(game, 'pl_1', 'pwr_in'));
+  drag(game, portTile(game, 'src_1', 'pwr_out_1'), portTile(game, 'pl_1', 'pwr_in'));
   const trunk = powerLines(game)[0];
   return { game, trunk };
 }

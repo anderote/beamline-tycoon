@@ -291,13 +291,25 @@ export function buildBeamline(game, row, grade = 'cup') {
     wiringCost += (runWiringCost(util, line ? line.subL : 0) || {}).funding || 0;
     return id;
   };
+  // Supply -> HV -> distribution -> branch circuits. One HV feeder into an MCC,
+  // whose eight sockets carry the line's loads; a ninth load (a separate data
+  // end-station) takes a second panel, which is the shape of the decision the
+  // chain creates.
   const powered = [[src, 'pwr_in'], [end, 'pwr_in'], [cool, 'pwr_in'],
     [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
     [pwrBus, 'bus_left']];
   if (endData !== ioc) powered.push([endData, 'pwr_in']);
-  for (const [id, port] of powered) {
-    wire('powerCable', { id: gear, port: 'pwr_out' }, { id, port });
+  const panels = [];
+  for (let i = 0; i < Math.ceil(powered.length / 8); i++) {
+    const panel = place('mcc', -6 + i * 2, row - 3);
+    if (!panel) return null;
+    panels.push(panel);
+    wire('hvCable', { id: gear, port: `hv_out_${i + 1}` }, { id: panel, port: 'hv_in' });
   }
+  powered.forEach(([id, port], i) => {
+    const panel = panels[Math.floor(i / 8)];
+    wire('powerCable', { id: panel, port: `pwr_out_${(i % 8) + 1}` }, { id, port });
+  });
   // Both pumps land on the one vacuum network: pump speed sums across a
   // network, so the turbo backs the whole line and not just the end station.
   for (const [id, port] of [[src, 'vac_in'], [end, 'vac_in'],

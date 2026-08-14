@@ -8,9 +8,14 @@ import rfWaveguide from './types/rfWaveguide.js';
 import coolingWater from './types/coolingWater.js';
 import cryoTransfer from './types/cryoTransfer.js';
 import dataFiber from './types/dataFiber.js';
+import hvCable from './types/hvCable.js';
 import { UTILITY_LINE_Y } from './line-geometry.js';
 
-const all = [powerCable, vacuumPipe, rfWaveguide, coolingWater, cryoTransfer, dataFiber];
+// hvCable BEFORE powerCable: a distribution panel's outlets are gated on the
+// quality its own HV feed solved to, and SolveRunner walks this list in order,
+// so the feeder has to be solved on the same tick the panel reads it. Reverse
+// them and a panel reacts to losing its supply one tick late, every time.
+const all = [hvCable, powerCable, vacuumPipe, rfWaveguide, coolingWater, cryoTransfer, dataFiber];
 
 export const UTILITY_TYPES = Object.fromEntries(all.map(d => [d.type, d]));
 

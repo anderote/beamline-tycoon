@@ -197,12 +197,28 @@ console.log('\n--- RF band injection ---');
 // ==========================================================================
 console.log('\n--- Test 10: infrastructure capacity ladders ---');
 {
-  const panel = getUtilityPortsV2('powerPanel');
+  // Power comes in two tiers now: SUPPLY holds the capacity and hands out HV
+  // feeders, DISTRIBUTION takes one feeder and hands out branch circuits. The
+  // ladder is therefore over the supplies; a panel's rating is what it draws,
+  // not what it makes.
   const pad = getUtilityPortsV2('padMountTransformer');
+  const gear = getUtilityPortsV2('switchgear');
   const hv = getUtilityPortsV2('hvTransformer');
-  assert(panel.pwr_out.params.capacity < pad.pwr_out.params.capacity
-      && pad.pwr_out.params.capacity < hv.pwr_out.params.capacity,
-    'power ladder: powerPanel < padMount < hvTransformer');
+  assert(pad.hv_out_1.params.capacity < gear.hv_out_1.params.capacity
+      && gear.hv_out_1.params.capacity < hv.hv_out_1.params.capacity,
+    'supply ladder: padMount < switchgear < hvTransformer');
+
+  const panel = getUtilityPortsV2('powerPanel');
+  const mcc = getUtilityPortsV2('mcc');
+  assert(panel.hv_in.params.demand < mcc.hv_in.params.demand,
+    'distribution ladder: powerPanel draws less than an MCC');
+  const outlets = (t) => Object.keys(getUtilityPortsV2(t))
+    .filter(n => n.startsWith('pwr_out')).length;
+  assert(outlets('ups') < outlets('powerPanel') && outlets('powerPanel') < outlets('mcc'),
+    `outlet counts rise with the device (ups ${outlets('ups')}, `
+    + `panel ${outlets('powerPanel')}, mcc ${outlets('mcc')})`);
+  assert(outlets('hvTransformer') === 0,
+    'a supply hands out no branch circuits — everything goes through distribution');
 
   const lcw = getUtilityPortsV2('lcwSkid');
   const tower = getUtilityPortsV2('coolingTower');

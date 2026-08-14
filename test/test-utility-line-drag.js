@@ -49,7 +49,7 @@ function makeGame({ dir = 0, col = 1, row = 1 } = {}) {
   const g = new Game(new BeamlineRegistry(), { seed: 7 });
   g.state.resources.funding = 1e9;
   g.state.placeables.push({
-    id: 'src_1', type: 'hvTransformer', kind: 'infrastructure',
+    id: 'src_1', type: 'mcc', kind: 'infrastructure',
     category: 'infrastructure', col, row, subCol: 0, subRow: 0, dir,
   });
   g.state.beamPipes.push({
@@ -106,12 +106,12 @@ console.log('\n--- 1. A port-to-port drag commits whatever way the ports face --
   // plain Manhattan L happened to produce.
   for (const dir of [0, 1, 2, 3]) {
     const game = makeGame({ dir });
-    const src = portTile(game, 'src_1', 'pwr_out');
+    const src = portTile(game, 'src_1', 'pwr_out_1');
     const sink = portTile(game, 'pl_2', 'pwr_in');
     drag(game, src, sink);
     const lines = powerLines(game);
     assert(lines.length === 1,
-      `source facing ${facing(game, 'src_1', 'pwr_out')} → sink facing N commits`
+      `source facing ${facing(game, 'src_1', 'pwr_out_1')} → sink facing N commits`
       + ` (got ${lines.length}${game._logs.join('') && ' — ' + game._logs.join(' | ')})`);
     if (lines.length === 1) {
       assert(lines[0].start.placeableId === 'src_1' && lines[0].end.placeableId === 'pl_2',
@@ -124,7 +124,7 @@ console.log('\n--- 1. A port-to-port drag commits whatever way the ports face --
   // The same drag made the other way round. This is the one the player hits
   // constantly: grab the component, pull the cable back to the transformer.
   const game = makeGame();
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const sink = portTile(game, 'pl_2', 'pwr_in');
   drag(game, sink, src);
   const lines = powerLines(game);
@@ -140,7 +140,7 @@ console.log('\n--- 1. A port-to-port drag commits whatever way the ports face --
   // Source east of its sink: the lead-out has to head away from the target
   // before the path turns back, which a single-bend L can never do.
   const game = makeGame({ col: 14, row: 1 });
-  const src = portTile(game, 'src_1', 'pwr_out');   // faces E, at col ~14.75
+  const src = portTile(game, 'src_1', 'pwr_out_1');   // faces E, at col ~14.75
   const sink = portTile(game, 'pl_1', 'pwr_in');    // at col ~2.25
   assert(src.col > sink.col, 'the source really is east of the sink');
   drag(game, src, sink);
@@ -152,7 +152,7 @@ console.log('\n--- 1. A port-to-port drag commits whatever way the ports face --
 console.log('\n--- 2. The preview is the line that commits ---');
 {
   const game = makeGame({ dir: 2 });
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const sink = portTile(game, 'pl_3', 'pwr_in');
   const { previewPath } = drag(game, src, sink);
   const lines = powerLines(game);
@@ -176,7 +176,7 @@ console.log('\n--- 3. Open-ended drags are unchanged ---');
 {
   // Port at one end only: lead-out on that end, cursor point on the other.
   const game = makeGame();
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   drag(game, src, { col: 12, row: 12 });
   const lines = powerLines(game);
   assert(lines.length === 1 && lines[0].start && lines[0].start.placeableId === 'src_1'
@@ -197,7 +197,7 @@ console.log('\n--- 4. R flips which way the bend turns ---');
     const ctrl = new UtilityLineInputController({ game, renderer: {} });
     ctrl.setUtilityType('powerCable');
     ctrl.setPreferVerticalFirst(vertFirst);
-    const src = portTile(game, 'src_1', 'pwr_out');
+    const src = portTile(game, 'src_1', 'pwr_out_1');
     const sink = portTile(game, 'pl_2', 'pwr_in');
     const from = gridToIso(src.col, src.row);
     const to = gridToIso(sink.col, sink.row);
@@ -237,7 +237,7 @@ console.log('\n--- 4. R flips which way the bend turns ---');
   };
   const ctx = { game, input, renderer: { screenToWorld: (x, y) => ({ x, y }) } };
   assert(tool.onRotateKey(ctx) === false, 'R is not consumed when no drag is in flight');
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const from = gridToIso(src.col, src.row);
   ctrl.onMouseDown(from.x, from.y, 0, {});
   const before = ctrl.preferVerticalFirst;
@@ -314,7 +314,7 @@ console.log('\n--- 5. The tool picks on the cable plane, not the floor ---');
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');
 {
   const game = makeGame();
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const sink = portTile(game, 'pl_2', 'pwr_in');
   drag(game, src, sink);
   assert(powerLines(game).length === 1, 'a line to erase');
@@ -350,7 +350,7 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   // removed — six utilities share the same walls, and deleting the wrong one
   // is worse than deleting nothing.
   const game = makeGame();
-  drag(game, portTile(game, 'src_1', 'pwr_out'), portTile(game, 'pl_2', 'pwr_in'));
+  drag(game, portTile(game, 'src_1', 'pwr_out_1'), portTile(game, 'pl_2', 'pwr_in'));
   const line = powerLines(game)[0];
   const mid = line.path[Math.floor(line.path.length / 2)];
   const iso = gridToIso(mid.col, mid.row);
@@ -377,7 +377,7 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   const tool = new UtilityLineTool('powerCable');
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('powerCable');
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const from = gridToIso(src.col, src.row);
   ctrl.onMouseDown(from.x, from.y, 0, {});
   const ctx = {
@@ -397,7 +397,7 @@ console.log('\n--- 7. A drag that will be refused says so before the release ---
   // few runs in it, and the only feedback was the gesture doing nothing: the
   // commit logs a reason, but nothing in the game renders the log.
   const game = makeGame();
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   drag(game, src, portTile(game, 'pl_2', 'pwr_in'));
   assert(powerLines(game).length === 1, 'a first line, claiming pl_2\'s inlet');
 
@@ -429,7 +429,7 @@ console.log('\n--- 7. A drag that will be refused says so before the release ---
   const game = makeGame();
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('powerCable');
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const sink = portTile(game, 'pl_3', 'pwr_in');
   const a = gridToIso(src.col, src.row);
   const b = gridToIso(sink.col, sink.row);
@@ -442,7 +442,7 @@ console.log('\n--- 8. Genuinely invalid gestures are still refused ---');
 {
   // Port onto itself: no line, no charge.
   const game = makeGame();
-  const src = portTile(game, 'src_1', 'pwr_out');
+  const src = portTile(game, 'src_1', 'pwr_out_1');
   const fundsBefore = game.state.resources.funding;
   drag(game, src, src);
   assert(powerLines(game).length === 0, 'a drag that never left the port commits nothing');

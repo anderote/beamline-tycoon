@@ -55,6 +55,10 @@ export const UTILITY_META = {
     capacityParam: 'coldCapacityW', loadParam: 'srfHeatW', loadUnit: 'W',
     hardGate: true, article: 'infra-cryogenics',
   },
+  hvCable: {
+    capacityParam: 'capacity', loadParam: 'demand', loadUnit: 'kW',
+    hardGate: true, article: 'infra-power',
+  },
   dataFiber: {
     capacityParam: 'capacity', loadParam: 'demand', loadUnit: 'Gbps',
     hardGate: false, article: 'infra-controls',
@@ -140,6 +144,14 @@ const fmt = (n, digits = 2) => {
  */
 function sinkEffect(utility, klass, params, comp) {
   switch (utility) {
+    case 'hvCable':
+      // The one sink on the HV side is a distribution device's feeder inlet.
+      return 'Hard gate: this is the feeder inlet of a distribution device. It '
+        + 'draws its full rating from the supply whether or not every socket is '
+        + 'in use — you size the feeder for the panel — and with no live feeder '
+        + 'behind it the device\'s outlets deliver nothing, which starves every '
+        + 'machine plugged into them.';
+
     case 'powerCable': {
       const base = 'Hard gate: a power network carrying sinks but no source capacity '
         + 'raises power_starved and trips the beam. Above zero, every sink on the '

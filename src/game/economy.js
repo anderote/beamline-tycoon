@@ -524,16 +524,23 @@ export function computeSystemStats(state) {
   const panels = counts.powerPanel || 0;
   const laserSystems = counts.laserSystem || 0;
 
-  // Capacity is the sum of every placed power source's declared `pwr_out`
-  // capacity — the same ladder the utility solver uses (powerPanel 40 →
-  // hvTransformer 1200). This used to read `state.maxElectricalPower`, a
-  // field whose only other reference in the tree is the line in Game.load()
-  // that deletes it as deprecated, so the panel was permanently pinned to the
-  // 500 kW fallback and read 100% utilization on any real facility.
+  // Capacity is the sum of every placed SUPPLY's HV outlets — the same ladder
+  // the utility solver gates on (padMount 150 → switchgear 400 → hvTransformer
+  // 1200). Distribution panels are deliberately not counted: they add no
+  // capacity, they convert one feeder into sockets, so counting their ratings
+  // here would tell the player they had more power than the solver will give
+  // them. (This used to read `state.maxElectricalPower`, a field whose only
+  // other reference is the line in Game.load() that deletes it as deprecated,
+  // so the panel was pinned to a 500 kW fallback and read 100% utilization on
+  // any real facility.)
   let powerCapacity = 0;
   for (const e of equip) {
-    const cap = getUtilityPortsV2(e.type)?.pwr_out?.params?.capacity;
-    if (typeof cap === 'number') powerCapacity += cap;
+    const ports = getUtilityPortsV2(e.type) || {};
+    for (const spec of Object.values(ports)) {
+      if (!spec || spec.utility !== 'hvCable' || spec.role !== 'source') continue;
+      const cap = spec.params && spec.params.capacity;
+      if (typeof cap === 'number') powerCapacity += cap;
+    }
   }
   // Draw is the sum over every placed unit plus the running beamlines — the
   // SAME accessor computeTickUpkeep bills on. Adding the per-category draws

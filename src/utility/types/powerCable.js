@@ -11,6 +11,12 @@ export default {
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.02,
   capacityUnit: 'kW',
+  // A cable is point to point: terminated at both ends, one plug per socket.
+  // You do not cut one open mid-run to add a machine — you go back to a
+  // distribution panel. Together these two make outlet count the resource that
+  // decides how much distribution gear a facility needs and where it sits.
+  allowsTap: false,
+  fansOut: false,
   // Adjacency bridging: components whose footprints touch share this utility
   // with no line between them (network-discovery.computeAdjacency). Bolting a
   // rack onto the one beside it is how a real hall distributes power.
@@ -47,7 +53,26 @@ export default {
   costPerSubUnit: 600,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
-    const totalCapacity = network.sources.reduce((a, s) => a + (s.capacity || 0), 0);
+    // A distribution panel delivers only what its own feeder gives it.
+    //
+    // The HV network and this branch network are separate networks of separate
+    // types, so the coupling has to be explicit: scale each outlet's capacity
+    // by the quality the owning device's hv_in last solved to. No feeder, or a
+    // starved one, and the outlets deliver nothing — which then trips the
+    // existing power_starved hard error on the branch, the correct reading
+    // (the machines on that panel are dead).
+    //
+    // hvCable is registered BEFORE powerCable, so this reads the same tick's
+    // result rather than the previous one. A device with no hv_in at all
+    // defaults to 1: it is a supply in its own right, not a panel.
+    const nodeQualities = worldState && worldState.nodeQualities;
+    const feedFactor = (placeableId) => {
+      const node = nodeQualities && nodeQualities[placeableId];
+      if (!node || node.hvQuality === undefined) return 1;
+      return node.hvQuality;
+    };
+    const totalCapacity = network.sources.reduce(
+      (a, s) => a + (s.capacity || 0) * feedFactor(s.placeableId), 0);
     const totalDemand   = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
     const errors = [];
     const perSinkQuality = {};
