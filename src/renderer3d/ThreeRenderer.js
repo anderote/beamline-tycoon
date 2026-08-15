@@ -3443,6 +3443,7 @@ export class ThreeRenderer {
     // One uniform write per flow-patched material — no rebuilds, no per-line
     // cost. See utility-flow.js.
     tickFlow(_dt);
+    this.beamBuilder?.update(_dt);
     // Update moving visual instances/proxies before LightRig ranks those
     // proxies, so physical lights follow the current-frame pulse positions.
     this._effectSystem?.update(_dt, this._darkness ?? 0);

@@ -9,6 +9,10 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
 import { placementPose } from '../beamline/pipe-placements.js';
+import { flattenPath } from '../beamline/flattener.js';
+import { getBeamlineType } from '../data/beamline-types.js';
+import { beamVisualMode } from './beam-visual-mode.js';
+import { beamVisualPath } from './beam-visual-path.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -417,7 +421,13 @@ function buildBeamPaths(game) {
 
   for (const entry of game.registry.getAll()) {
     if (entry.status !== 'running') continue;
-    const nodes = (game.state.placeables || []).filter(p => p.beamlineId === entry.id);
+    // flattenPath is the graph's authoritative source-to-endpoint order.
+    // Reading the raw placeables array here made the old glow cut diagonally
+    // across turns whenever placement order differed from beam order.
+    const flat = entry.sourceId ? flattenPath(game.state, entry.sourceId) : [];
+    const nodes = flat
+      .filter(el => el.kind === 'module' && el.placeable)
+      .map(el => el.placeable);
     if (nodes.length < 2) continue;
 
     const dimmed = !!(editingId && entry.id !== editingId);
@@ -430,6 +440,9 @@ function buildBeamPaths(game) {
         tiles: n.cells ? n.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: n.col, row: n.row }],
       })),
       dimmed,
+      visualMode: beamVisualMode(getBeamlineType(entry.typeId), flat),
+      color: entry.accentColor || 0x44ff44,
+      worldPoints: beamVisualPath(flat, game.state.beamPipes),
     });
   }
 
