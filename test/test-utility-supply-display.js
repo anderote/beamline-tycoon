@@ -8,7 +8,7 @@
 //
 // Covers:
 //   1. Every source component in the named ladders (powerCable x6,
-//      rfWaveguide x9, coolingWater x3, cryoTransfer x2, vacuumPipe x8) yields a correct
+//      rfWaveguide x9, coolingWater x3, cryoTransfer x2, vacuumPipe x9) yields a correct
 //      supply row.
 //   2. A component with no source port yields no supply row.
 //   3. A component that both draws and supplies yields both rows.
@@ -63,7 +63,8 @@ console.log('\n--- Test 1: source components report correct supply ---');
   }
 
   const VACUUM = {
-    roughingPump: 15, roughingPumpCart: 60, turboPump: 300, vacuumCart: 330,
+    roughingPump: 15, roughingPumpCart: 60, turboPump: 300, turboPumpCart: 1200,
+    vacuumCart: 330,
     tiSubPump: 400, negPump: 500, ionPump: 600,
     highCapacityVacuumStation: 3000,
   };
@@ -93,7 +94,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 30, `30 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 31, `31 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================

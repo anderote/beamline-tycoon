@@ -3287,6 +3287,7 @@ UIHost.prototype._renderVacuumStats = function(d, summary, detail) {
     ${this._detailRow('Roughing Pumps', dd.roughingPumps)}
     ${this._detailRow('Roughing Carts', dd.roughingPumpCarts)}
     ${this._detailRow('Turbo Pumps', dd.turboPumps)}
+    ${this._detailRow('Turbo Carts', dd.turboPumpCarts)}
     ${this._detailRow('Ion Pumps', dd.ionPumps)}
     ${this._detailRow('NEG Pumps', dd.negPumps)}
     ${this._detailRow('Ti-Sub Pumps', dd.tiSubPumps)}

@@ -36,8 +36,21 @@ console.log('\n=== 2. The new vacuum supply ladder is real catalog data ===\n');
 {
   assert(COMPONENTS.roughingPumpCart?.energyCost === 2,
     'roughing cart is a placeable bank of four dry pumps');
+  assert(COMPONENTS.roughingPumpCart?.subW === 1
+      && COMPONENTS.roughingPumpCart?.subL === 2
+      && COMPONENTS.roughingPumpCart?.subH === 3,
+    'roughing cart occupies the compact 1×2×3-subtile envelope');
   assert(getUtilityPortsV2('roughingPumpCart').vac_out.params.roughingSpeed === 60,
     'roughing cart exposes four times the single-pump backing capacity');
+  assert(COMPONENTS.turboPumpCart?.energyCost === 4,
+    'turbo cart is a placeable bank of four turbomolecular pumps');
+  assert(COMPONENTS.turboPumpCart?.subW === 1
+      && COMPONENTS.turboPumpCart?.subL === 2
+      && COMPONENTS.turboPumpCart?.subH === 3,
+    'turbo cart occupies the compact 1×2×3-subtile envelope');
+  assert(getUtilityPortsV2('turboPumpCart').vac_out.params.highVacSpeed === 1200
+      && getUtilityPortsV2('turboPumpCart').vac_out.params.backingDemand === 60,
+    'turbo cart combines four high-vac stages and needs one roughing cart');
   assert(COMPONENTS.vacuumCart?.energyCost === 3,
     'mobile cart is a placeable integrated pumping package');
   assert(getUtilityPortsV2('vacuumCart').vac_out.params.pumpSpeed === 330,
