@@ -1,26 +1,54 @@
 # Electrical Power
 
 ## Quick Tip
-Every active component draws power. Transformers and panels supply it. No power connection = no function.
+Every active component draws power. A transformer supplies capacity; switchgear,
+panels, busways and spider boxes only distribute that upstream capacity. No power
+connection = no function.
 
 ## How It Works
 
 Electrical power is the most fundamental infrastructure system. Almost everything in your facility needs it — magnets, RF sources, pumps, chillers, diagnostics, controls. Without power, nothing runs.
 
-### Supply
+### HV Supply
 
 Power sources form a capacity ladder — upgrading is a real decision:
 
 | Source | Capacity | Cost | Role |
 |--------|----------|------|------|
-| Power Panel | 40 kW | $60k | Branch circuit for diagnostics and small pumps |
-| UPS / Battery Bank | 100 kW | $500k | Backup for critical controls and LLRF |
 | Pad-Mount Transformer | 150 kW | $200k | Starter workhorse — feeds a small beamline |
-| Motor Control Center | 250 kW | $300k | Motor loads: pumps, compressors, drives |
-| Switchgear Cabinet | 400 kW | $400k | Mid-size facility distribution |
+| Facility Transformer | 400 kW | $400k | Medium facility service with two HV feeders |
 | HV Transformer | 1200 kW | $800k | Industrial — anchors a serious facility |
+| Grid Intertie Transformer | 3000 kW | $1.8M | Campus-scale supply for several accelerator halls |
 
-One pad-mount transformer covers a starter beamline (source + a few magnets + diagnostics). A facility with NC RF structures, a detector, or cryomodules needs planned distribution across several sources.
+One pad-mount transformer covers a starter beamline. Larger facilities need a
+larger source and enough protected feeder outlets to reach their local
+distribution equipment.
+
+### Distribution
+
+Power is a radial tree, not a mesh:
+
+```text
+transformer → HV feeder → main switchgear → HV feeder → panel / MCC / UPS
+            → branch circuit → busway / spider box → equipment
+```
+
+- **Main Switchgear** takes one HV input and provides four protected feeders
+  for downstream distribution equipment.
+- **Power Distribution Panel** has four front-face branch outlets for nearby
+  diagnostics, small pumps and electronics.
+- **Motor Control Center** has eight front-face outlets for larger equipment
+  clusters.
+- **UPS / Battery Bank** has two protected outlets for critical controls and
+  LLRF. It does not yet simulate stored-energy ride-through.
+- **Beamline Busway** is a long field distributor: one feeder in, a whole
+  beamline segment covered.
+- **Spider Box** is a small field distributor: one feeder in, four local taps.
+
+Distribution equipment adds no capacity. Each item accepts exactly one
+upstream feeder, and distribution outputs cannot be tied together. If a future
+facility needs redundant feeds, it will use an explicit transfer switch rather
+than silently paralleling two live panels.
 
 ### Demand
 
@@ -39,15 +67,18 @@ If total draw exceeds total capacity in a network, every component on it derates
 
 ### Networks
 
-Power cables form isolated networks. A transformer's capacity is only available to components reachable via power cable from it. Two sources on opposite sides of your facility with no cable between them are two independent power networks, each with its own capacity budget.
+Power cables form isolated radial networks. A transformer's capacity is only
+available to components reachable through its feeder and distribution tree.
+Two sources on opposite sides of your facility with no cable between them are
+two independent power networks, each with its own capacity budget.
 
 This means you can have one power network for your RF systems and another for your magnet string. If the RF network is overloaded, it doesn't matter that the magnet network has spare capacity.
 
 ### Strategy
 
-- Start with one pad-mount transformer for a small linac
-- Add switchgear or an HV transformer as you add high-draw equipment (NC RF structures, detectors, cryomodules)
-- Power panels are cheap but tiny — good for a diagnostics run, not a magnet string
+- Start with one pad-mount transformer and a small distribution panel
+- Add a facility/HV transformer and main switchgear as you add high-draw equipment (NC RF structures, detectors, cryomodules)
+- Power panels are cheap but tiny; use a busway or spider box to reach clustered equipment without creating a second supply
 - Watch utilization — running above 90% leaves no headroom for expansion
 - Plan power network topology before building: it's easier to lay cables on an empty floor
 

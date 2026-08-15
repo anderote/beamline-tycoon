@@ -4,6 +4,8 @@
 // demand. Hard error when sinks exist but no capacity (trips beam via
 // infraCanRun), soft error for overload.
 
+import { hvFeedFactor } from '../power-feed.js';
+
 export default {
   type: 'powerCable',
   displayName: 'Power Cable',
@@ -65,14 +67,8 @@ export default {
     // hvCable is registered BEFORE powerCable, so this reads the same tick's
     // result rather than the previous one. A device with no hv_in at all
     // defaults to 1: it is a supply in its own right, not a panel.
-    const nodeQualities = worldState && worldState.nodeQualities;
-    const feedFactor = (placeableId) => {
-      const node = nodeQualities && nodeQualities[placeableId];
-      if (!node || node.hvQuality === undefined) return 1;
-      return node.hvQuality;
-    };
     const totalCapacity = network.sources.reduce(
-      (a, s) => a + (s.capacity || 0) * feedFactor(s.placeableId), 0);
+      (a, s) => a + (s.capacity || 0) * hvFeedFactor(worldState, s.placeableId), 0);
     const totalDemand   = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
     const errors = [];
     const perSinkQuality = {};

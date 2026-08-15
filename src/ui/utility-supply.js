@@ -6,7 +6,7 @@
 // existed, all four sites unconditionally printed `Energy Cost: {energyCost}
 // kW`, which is fine for a load but noise for a zero-draw component and
 // silent about the one interesting fact pure distribution gear has: what it
-// supplies. hvTransformer / switchgear / padMountTransformer / powerPanel
+// supplies. HV transformers, switchgear, panels and MCCs
 // all draw 0 kW and were reporting exactly that number.
 //
 // Draw and supply are NOT mutually exclusive: several components genuinely
@@ -39,7 +39,6 @@ const SUPPLY_LABEL = 'Supplies';
 const SUPPLY_SPEC = {
   hvCable:      { param: 'capacity',      unit: 'kW' },
   powerCable:   { param: 'capacity',      unit: 'kW' },
-  hvCable:      { param: 'capacity',      unit: 'kW' },
   rfWaveguide:  { param: 'capacity',      unit: 'kW' },
   coolingWater: { param: 'capacity',      unit: 'kW thermal' },
   cryoTransfer: { param: 'coldCapacityW', unit: 'W' },

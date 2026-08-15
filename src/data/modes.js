@@ -20,7 +20,7 @@ export const MODES = {
       // and it is the run the player draws before any branch circuit exists.
       power:        { name: 'Power',           color: '#4c4',
                       utilityLineTools: ['hvCable', 'powerCable'],
-                      subsections: { transport: { name: 'Transport' }, supply: { name: 'Supply' }, distribution: { name: 'Distribution' }, specialty: { name: 'Specialty' } } },
+                      subsections: { transport: { name: 'Transport' }, hvSupply: { name: 'HV Supply' }, distribution: { name: 'Distribution' }, fieldDistribution: { name: 'Field Distribution' }, specialty: { name: 'Specialty' } } },
       vacuum:       { name: 'Vacuum',          color: '#999',
                       utilityLineTools: ['vacuumPipe'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'Pumps & Supply' }, distribution: { name: 'Distribution' }, instruments: { name: 'Instruments' }, hardware: { name: 'Hardware' } } },

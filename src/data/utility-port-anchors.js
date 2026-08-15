@@ -52,8 +52,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- support plant -------------------------------------------------------
   // Tall cabinets: feed at the bottom where the gland plate is, not mid-face.
   hvTransformer: { _default: { y: 0.7 } },
+  facilityTransformer: { _default: { y: 0.7 } },
+  gridIntertieTransformer: { _default: { y: 0.7 } },
   switchgear: { _default: { y: 0.7 } },
   powerBus: { _default: { y: 0.5 } },
+  spiderBox: { _default: { y: 0.45 } },
 
   // Pumps are squat and top-connected.
   turboPump: { _default: { y: 0.85 } },

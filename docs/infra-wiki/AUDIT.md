@@ -109,7 +109,7 @@ Almost entirely correct. Changes:
 - Added that the linear derate applies to **magnet focus strength** and is the physically correct exponent, and that power no longer multiplies into cavity gradient. Source: `beam_physics/gameplay.py`, `focusStrength *= power_q`.
 - Demand tier table corrected against declared ports (SRF cavities are 8/10/12 kW, not "8-15"; added velocity selector 15, collision point 20, pepper-pot 2).
 - Added that facility equipment power demand is derived from its own `energyCost`. Source: `utility-ports-v2.js` `buildInfraSinkPorts()`.
-- Values verified correct: panel 40/$60k, UPS 100/$500k, pad-mount 150/$200k, MCC 250/$300k, switchgear 400/$400k, HV 1200/$800k.
+- Historical values at the time of this audit: panel 40/$60k, UPS 100/$500k, pad-mount 150/$200k, MCC 250/$300k, switchgear 400/$400k, HV 1200/$800k. The live power model now separates four HV supply tiers from downstream switchgear/panel distribution; see `power.md`.
 
 ---
 

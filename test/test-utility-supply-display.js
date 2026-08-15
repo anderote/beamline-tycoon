@@ -7,7 +7,7 @@
 // UI files themselves, which touch the DOM and aren't Node-testable.
 //
 // Covers:
-//   1. Every one of the 25 source components (powerCable x6, rfWaveguide x9,
+//   1. Every one of the 27 source components (powerCable x8, rfWaveguide x9,
 //      coolingWater x3, cryoTransfer x2, vacuumPipe x5) yields a correct
 //      supply row.
 //   2. A component with no source port yields no supply row.
@@ -39,8 +39,9 @@ function drawRows(id) {
 console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
-    hvTransformer: 1200, switchgear: 400, mcc: 250,
-    padMountTransformer: 150, ups: 100, powerPanel: 40,
+    padMountTransformer: 150, facilityTransformer: 400, hvTransformer: 1200,
+    gridIntertieTransformer: 3000, switchgear: 400, mcc: 250, ups: 100,
+    powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {
     const rows = supplyRows(id);
@@ -89,7 +90,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 25, `25 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 27, `27 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================
@@ -120,7 +121,7 @@ console.log('\n--- Test 3: draw + supply coexist ---');
 // ==========================================================================
 console.log('\n--- Test 4: zero draw -> no draw row ---');
 {
-  for (const id of ['hvTransformer', 'switchgear', 'padMountTransformer', 'powerPanel']) {
+  for (const id of ['hvTransformer', 'facilityTransformer', 'switchgear', 'padMountTransformer', 'powerPanel']) {
     assert(COMPONENTS[id].energyCost === 0, `${id}: fixture assumption — energyCost is 0`);
     assert(drawRows(id).length === 0, `${id}: no draw row when energyCost is 0`);
   }

@@ -113,5 +113,33 @@ console.log('\n--- Test 6: purity ---');
 }
 
 // ==========================================================================
+// Test 7: a powered pump contributes only when its power sink is live.
+// ==========================================================================
+console.log('\n--- Test 7: powered pump is fail-closed ---');
+{
+  const powerNetwork = {
+    id: 'net_power', ports: [{ placeableId: 'pump_1', portName: 'pwr_in' }],
+  };
+  const world = {
+    placeables: [{ id: 'pump_1', type: 'roughingPump' }],
+    utilityNetworks: new Map([['powerCable', [powerNetwork]]]),
+    utilityNetworkData: new Map([['powerCable', new Map([['net_power', {
+      perSinkQuality: { 'pump_1:pwr_in': 0.5 },
+    }]])]]),
+  };
+  const net = mkNetwork({
+    sources: [{ portKey: 'pump_1:vac_out', placeableId: 'pump_1', portName: 'vac_out', params: { pumpSpeed: 100 } }],
+  });
+  const halfPowered = desc.solve(net, {}, world);
+  assert(halfPowered.flowState.totalCapacity === 50,
+    `a partly served power inlet derates pump speed (got ${halfPowered.flowState.totalCapacity})`);
+
+  world.utilityNetworkData = new Map();
+  const unpowered = desc.solve(net, {}, world);
+  assert(unpowered.flowState.totalCapacity === 0,
+    'an unwired power inlet contributes no pumping capacity');
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

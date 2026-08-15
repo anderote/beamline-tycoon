@@ -287,7 +287,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hv && mcc1) wire('hvCable', { id: hv, port: 'hv_out_1' }, { id: mcc1, port: 'hv_in' });
   if (hv && mcc2) wire('hvCable', { id: hv, port: 'hv_out_2' }, { id: mcc2, port: 'hv_in' });
   const westLoads = [[src2, 'pwr_in'], [mbk, 'pwr_in'], [ssa2, 'pwr_in'],
-    [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'bus_left']];
+    [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'pwr_in']];
   const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in']];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
     loads.forEach(([id, port], i) => {

@@ -204,7 +204,6 @@ export class UtilityLineTool extends Tool {
     if (screenX != null && reject && (!plan || plan.stubs.length === 0)) {
       ctx.input._showDragCostTooltip?.(0, screenX, screenY, {
         note: `can't place: ${reject}`,
-        insufficientFunding: true,
       });
       return;
     }

@@ -150,11 +150,13 @@ export function setupSmallBeamlineFacility(game) {
 
   // Service row (north). Power: 172 kW total draw — gun 50, cavities 30,
   // quad 10, buncher 5, cup + BPM 2, support gear 5, and the amplifier's 70 —
-  // so the feed is a 400 kW switchgear cabinet, not a 150 kW pad-mount.
+  // so this starts with the 400 kW transformer tier and a main switchgear
+  // cabinet, rather than the 150 kW pad-mount starter.
   // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they
   // share one network — which is the point of the low-band consolidation. Only
   // the SSA and the TWT cover VHF, and the SSA (35 kW against 17 kW of demand)
   // is the one with the power.
+  const xfmr = game.placePlaceable({ type: 'facilityTransformer', col: -8, row: -1, free: true, silent: true });
   const gear = game.placePlaceable({ type: 'switchgear', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
@@ -169,8 +171,7 @@ export function setupSmallBeamlineFacility(game) {
   // Distribution row (south). One power bus (reach 10) spans the whole run;
   // vacuum manifolds only reach 5, so the run needs two.
   const pwrBus  = game.placePlaceable({ type: 'powerBus', col: 0, row: 1, free: true, silent: true });
-  // The distribution panel for the support row. 250 kW of the switchgear's 400
-  // and eight sockets; the bus takes the second HV feeder for the on-pipe kit.
+  // The local distribution panel for the support row: 250 kW and eight sockets.
   const mccPanel = game.placePlaceable({ type: 'mcc', col: -5, row: 1, free: true, silent: true });
   const vacW    = game.placePlaceable({ type: 'vacuumManifold', col: -3, row: 1, free: true, silent: true });
   const vacE    = game.placePlaceable({ type: 'vacuumManifold', col: 3, row: 1, free: true, silent: true });
@@ -182,14 +183,12 @@ export function setupSmallBeamlineFacility(game) {
 
   const wire = (util, from, to) => wireUtility(game, util, from, to);
 
-  // Power runs supply → HV → distribution → branch circuits.
+  // Power runs supply → main distribution → local distribution → branches.
   //
-  // The switchgear holds all 400 kW and hands out two HV feeders: one to the
-  // MCC that serves the support row, one to the power bus that covers the
-  // on-pipe sinks. Distribution adds no capacity — it hands out SOCKETS, and a
-  // cable is point to point, so the seven support loads take seven of the
-  // MCC's eight outlets and the eighth is the room this facility has to grow
-  // into before it needs a second panel.
+  // The transformer carries the facility's 400 kW. Main switchgear turns its
+  // one feed into protected downstream feeders, and the MCC turns one of those
+  // into eight branch circuits. Neither distributor creates capacity.
+  if (xfmr && gear) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: gear, port: 'hv_in' });
   if (gear && mccPanel) wire('hvCable', { id: gear, port: 'hv_out_1' }, { id: mccPanel, port: 'hv_in' });
   if (mccPanel) {
     // Seven support loads and the power bus: eight circuits, eight sockets, and
@@ -197,7 +196,7 @@ export function setupSmallBeamlineFacility(game) {
     // switchgear's second HV feeder is sitting there for it.
     const loads = [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
       [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
-      [pwrBus, 'bus_left']];
+      [pwrBus, 'pwr_in']];
     loads.forEach(([id, port], i) => {
       if (id) wire('powerCable', { id: mccPanel, port: `pwr_out_${i + 1}` }, { id, port });
     });

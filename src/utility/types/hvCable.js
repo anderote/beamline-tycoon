@@ -1,7 +1,7 @@
 // src/utility/types/hvCable.js
 //
-// High-voltage feeders: the runs from a supply (transformer, switchgear) to a
-// distribution device (panel, MCC, UPS, busway). Nothing else uses them.
+// High-voltage feeders: the runs from an HV supply or main switchgear to a
+// distribution device (switchgear, panel, MCC, UPS). Nothing else uses them.
 //
 // Why a seventh utility rather than "powerCable at a different point in the
 // chain": with one type, nothing stops a player cabling a magnet straight to
@@ -14,6 +14,8 @@
 // principle the distribution buses already follow), so total facility capacity
 // is exactly the sum of the supplies wired to something, and "how big a grid
 // connection, and how many distribution points" is the decision.
+
+import { hvFeedFactor } from '../power-feed.js';
 
 export default {
   type: 'hvCable',
@@ -53,8 +55,12 @@ export default {
    * coupling — and makes an oversized panel a real cost rather than a free
    * upgrade.
    */
-  solve(network, persistent) {
-    const totalCapacity = network.sources.reduce((a, s) => a + (s.capacity || 0), 0);
+  solve(network, persistent, worldState) {
+    // A main switchgear cabinet is a downstream distributor, not a second
+    // grid connection. Its HV outputs inherit the quality of its one HV input;
+    // actual transformers have no hv_in and retain factor 1.
+    const totalCapacity = network.sources.reduce(
+      (a, s) => a + (s.capacity || 0) * hvFeedFactor(worldState, s.placeableId), 0);
     const totalDemand = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
     const errors = [];
     const perSinkQuality = {};

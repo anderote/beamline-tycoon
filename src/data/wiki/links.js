@@ -27,8 +27,9 @@ export const NAVIGATION_ARTICLES = new Set(['infra-README', 'physics-README']);
 /** Article id → the components that article actually documents. */
 export const ARTICLE_COMPONENTS = {
   'infra-power': [
-    'powerPanel', 'ups', 'padMountTransformer', 'mcc', 'switchgear',
-    'hvTransformer', 'powerBus', 'disconnectSwitch',
+    'powerPanel', 'ups', 'padMountTransformer', 'facilityTransformer',
+    'hvTransformer', 'gridIntertieTransformer', 'mcc', 'switchgear',
+    'powerBus', 'spiderBox', 'disconnectSwitch',
   ],
   'infra-vacuum': [
     'roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump',
@@ -58,7 +59,7 @@ export const ARTICLE_COMPONENTS = {
     'mps', 'ppsInterlock', 'accessControl', 'searchSecure', 'areaMonitor',
   ],
   'infra-connection-types': [
-    'powerBus', 'coolingManifold', 'vacuumManifold', 'waveguideManifold',
+    'powerBus', 'spiderBox', 'coolingManifold', 'vacuumManifold', 'waveguideManifold',
     'cryoValveBox', 'fiberBus',
   ],
   'physics-tier1-components': [
