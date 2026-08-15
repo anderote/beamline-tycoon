@@ -616,10 +616,10 @@ function makePoints() {
   return [new V3(0, 0.5, 0), new V3(4, 0.5, 0), new V3(4, 0.5, 6)];
 }
 
-test('buildFloorGlowStrip refuses to light vacuumPipe (no flow) or a hard-faulted run', () => {
-  assert.equal(FLOW_PARAMS.vacuumPipe, null, 'sanity: vacuumPipe really has no FLOW_PARAMS entry');
-  assert.equal(buildFloorGlowStrip(makePoints(), 'vacuumPipe', 'ok'), null,
-    'no flow to paint, regardless of flow state');
+test('buildFloorGlowStrip lights a healthy vacuum run but refuses a hard-faulted run', () => {
+  assert.ok(FLOW_PARAMS.vacuumPipe, 'vacuum pipe has a restrained molecular-flow profile');
+  assert.ok(buildFloorGlowStrip(makePoints(), 'vacuumPipe', 'ok'),
+    'a healthy vacuum run contributes its subtle distributed light field');
   assert.equal(buildFloorGlowStrip(makePoints(), 'coolingWater', 'hard'), null,
     'a dead network paints nothing, same as the pipe above it going dark');
 });
