@@ -191,8 +191,11 @@ export function utilityStatRows(comp) {
     if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
 
     const entry = totals.get(port.utility)
-      ?? { utility: port.utility, spec, amount: 0, dutyFactor: undefined };
+      ?? { utility: port.utility, spec, amount: 0, dutyFactor: undefined, displayLabel: undefined };
     entry.amount += amount;
+    if (entry.displayLabel === undefined && typeof port.params?.displayLabel === 'string') {
+      entry.displayLabel = port.params.displayLabel;
+    }
     // Every source port of one device shares its duty cycle; take the first
     // that declares one.
     if (entry.dutyFactor === undefined && typeof port.params?.dutyFactor === 'number') {
@@ -201,7 +204,7 @@ export function utilityStatRows(comp) {
     totals.set(port.utility, entry);
   }
 
-  for (const { utility, spec, amount, dutyFactor } of totals.values()) {
+  for (const { utility, spec, amount, dutyFactor, displayLabel } of totals.values()) {
     // Skip zero — e.g. bakeoutSystem's pumpSpeed:0 marker port, which exists
     // only so the vacuum solver can detect the component, not because it
     // supplies any real pumping.
@@ -212,7 +215,7 @@ export function utilityStatRows(comp) {
     if (utility === 'rfWaveguide' && typeof dutyFactor === 'number') {
       value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
     }
-    rows.push({ label: SUPPLY_LABEL, value });
+    rows.push({ label: displayLabel || SUPPLY_LABEL, value });
   }
 
   return rows;

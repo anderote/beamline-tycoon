@@ -164,12 +164,15 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
     `ecrIonSource rf_in lands in sband (got ${ecr.rf_in.params.band})`);
 
   const ssa = getUtilityPortsV2('solidStateAmp');
-  assert(ssa.rf_out.params.bands.join(',') === 'vhf,uhf',
-    `solidStateAmp covers vhf,uhf (got ${ssa.rf_out.params.bands.join(',')})`);
+  const ssaOutlets = Object.values(ssa).filter(port => port.role === 'source'
+    && port.utility === 'rfWaveguide');
+  assert(ssaOutlets.length === 4 && ssaOutlets.every(port => port.params.bands.join(',') === 'vhf,uhf'),
+    `solidStateAmp's four outputs cover vhf,uhf (got ${ssaOutlets.map(port => port.params.bands.join(',')).join(';')})`);
 
   const gyro = getUtilityPortsV2('gyrotron');
-  assert(mag.rf_out.params.capacity < ssa.rf_out.params.capacity
-      && ssa.rf_out.params.capacity < gyro.rf_out.params.capacity,
+  const ssaCapacity = ssaOutlets.reduce((sum, port) => sum + port.params.capacity, 0);
+  assert(mag.rf_out.params.capacity < ssaCapacity
+      && ssaCapacity < gyro.rf_out.params.capacity,
     'RF capacity ladder ascends magnetron < SSA < gyrotron');
 }
 
@@ -255,15 +258,26 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'a supply hands out no branch circuits — everything goes through distribution');
 
   const lcw = getUtilityPortsV2('lcwSkid');
-  const packageUnit = getUtilityPortsV2('packageChiller');
+  const packageChiller = getUtilityPortsV2('packageChiller');
+  const solidStateAmp = getUtilityPortsV2('solidStateAmp');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
   assert(lcw.cool_out.params.capacity === 25 && lcw.cool_out.params.reservoir
       && lcw.cool_out.params.heatRejectionCapacity === 25,
   'LCW skid is a self-contained 25 kW cooling plant');
-  assert(packageUnit.cool_out.params.capacity === 5 && packageUnit.cool_out.params.reservoir
-      && packageUnit.cool_out.params.heatRejectionCapacity === 5,
-  'package chiller is a self-contained 5 kW cooling plant');
+  const packageOutlets = Object.entries(packageChiller)
+    .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
+  assert(packageOutlets.length === 3
+      && packageOutlets.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 5
+      && packageOutlets.reduce((sum, [, port]) => sum + port.params.heatRejectionCapacity, 0) === 5
+      && packageOutlets.every(([, port]) => port.params.reservoir),
+  'package chiller has three outlets sharing one self-contained 5 kW plant');
+  const ssaOutputs = Object.entries(solidStateAmp)
+    .filter(([, port]) => port.utility === 'rfWaveguide' && port.role === 'source');
+  assert(ssaOutputs.length === 4
+      && ssaOutputs.every(([, port]) => port.side === 'left')
+      && ssaOutputs.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 35,
+  'solid-state amplifier exposes four left-side RF outputs totaling 35 kW');
   assert(tower.cool_out.params.heatRejectionCapacity === 800,
     'cooling tower provides heat rejection on Cooling Water');
   assert(tank.cool_out?.utility === 'coolingWater' && tank.cool_out.params.reservoir,

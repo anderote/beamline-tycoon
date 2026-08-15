@@ -103,7 +103,7 @@ export const INFRASTRUCTURE_RAW = {
   solidStateAmp: {
     id: 'solidStateAmp',
     name: 'Solid-State Amplifier',
-    desc: 'Modern modular RF amplifier delivering 35 kW from semiconductor transistors. Reliable, compact, and easy to maintain — if one module fails the rest keep running. Lower peak power than tube sources but excellent for low-energy cavities and bunchers.',
+    desc: 'Modern modular RF amplifier delivering 35 kW from semiconductor transistors through four independently flanged 8.75 kW outputs. Reliable, compact, and easy to maintain — if one module fails the rest keep running. Lower peak power than tube sources but excellent for low-energy cavities and bunchers.',
     category: 'rfPower', subsection: 'supply',
     // 35 kW, VHF+UHF, CW. Below L-band, so the frequency term is a discount
     // (sqrt(0.5)); CW and two bands pull it back up. → $6,429/kW.
@@ -1044,7 +1044,7 @@ export const INFRASTRUCTURE_RAW = {
   packageChiller: {
     id: 'packageChiller',
     name: 'Package Chiller',
-    desc: 'Self-contained 5 kW cooling package: reservoir, pump, chiller and air-cooled heat rejector on one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment is needed.',
+    desc: 'Self-contained 5 kW cooling package with three independently routable outlets: reservoir, pump, chiller and air-cooled heat rejector on one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment is needed.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,

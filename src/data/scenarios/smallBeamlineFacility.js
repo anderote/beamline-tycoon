@@ -211,7 +211,7 @@ export function setupSmallBeamlineFacility(game) {
 
   // RF: one waveguide run into the manifold feeds the buncher and all three
   // cavities.
-  if (ssa && wgBus) wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
+  if (ssa && wgBus) wire('rfWaveguide', { id: ssa, port: 'rf_out_1' }, { id: wgBus, port: 'bus_left' });
 
   // Cooling: gun collector heat plus the one quadrupole. A single magnet does
   // not earn a header, so it gets a stub. The starter LCW skid is a complete

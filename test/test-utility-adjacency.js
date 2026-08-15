@@ -1,8 +1,8 @@
 // test/test-utility-adjacency.js — adjacency bridging.
 //
-// Components that physically touch share the utility with no line between
-// them: power one of a packed string and the whole string is powered, bolt a
-// turbo onto a roughing pump and they are one pumping stack. What the rule has
+// Components that physically touch can share selected utilities with no line
+// between them: bolt a turbo onto a roughing pump and they are one pumping
+// stack. Electrical and HV connections remain explicit. What the rule has
 // to get right is where it STOPS:
 //   1. Geometry: flush (or one sub-unit shy) counts, a tile apart does not, and
 //      corner contact is not adjacency.
@@ -21,6 +21,7 @@ import {
   findUnconnectedSinks,
   ADJ_MAX_GAP_SUB,
 } from '../src/utility/network-discovery.js';
+import { UTILITY_TYPES } from '../src/utility/registry.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -33,8 +34,8 @@ function assert(cond, msg) {
 // Fake component types, so the rules are pinned independent of the real
 // catalogue. Footprints are 2x2 sub-units (half a tile square).
 const PORTS = {
-  rack:      { pwr_in: { utility: 'powerCable', role: 'sink', side: 'left', params: { demand: 10 } } },
-  feeder:    { pwr_out: { utility: 'powerCable', role: 'source', side: 'right', params: { capacity: 100 } } },
+  rack:      { vac_in: { utility: 'vacuumPipe', role: 'sink', side: 'left', params: { demand: 10 } } },
+  feeder:    { vac_out: { utility: 'vacuumPipe', role: 'source', side: 'right', params: { capacity: 100 } } },
   cryostat:  { cryo_in: { utility: 'cryoTransfer', role: 'sink', side: 'left', params: { demand: 5 } } },
   cryoPlant: { cryo_out: { utility: 'cryoTransfer', role: 'source', side: 'right', params: { capacity: 50 } } },
   // Declares both directions of one utility: a converter, and therefore a
@@ -104,7 +105,14 @@ console.log('\n--- 1. What counts as touching ---');
   assert((adj.get('b') || []).includes('a'), 'adjacency is symmetric');
 }
 
-console.log('\n--- 2. A line into one component feeds the string ---');
+console.log('\n--- 1b. Electrical connections stay explicit ---');
+{
+  assert(UTILITY_TYPES.powerCable.bridgesAdjacent === false
+      && UTILITY_TYPES.hvCable.bridgesAdjacent === false,
+  'power and HV never bridge merely because equipment touches');
+}
+
+console.log('\n--- 2. An adjacency-enabled line into one component feeds the string ---');
 {
   //  feeder ][ rack1 ][ rack2 ][ rack3      all flush, one line into rack1
   const eps = [
@@ -113,17 +121,17 @@ console.log('\n--- 2. A line into one component feeds the string ---');
     at('r2', 'rack', 4, 0),
     at('r3', 'rack', 6, 0),
   ];
-  const lines = [feedLine('powerCable',
-    { placeableId: 'src', portName: 'pwr_out' },
-    { placeableId: 'r1', portName: 'pwr_in' })];
-  const net = networkFor('powerCable', eps, lines);
+  const lines = [feedLine('vacuumPipe',
+    { placeableId: 'src', portName: 'vac_out' },
+    { placeableId: 'r1', portName: 'vac_in' })];
+  const net = networkFor('vacuumPipe', eps, lines);
   assert(net && net.sinks.length === 3,
-    `one line powers all three racks (got ${net ? net.sinks.length : 0})`);
+    `one line serves all three racks (got ${net ? net.sinks.length : 0})`);
   assert(net && net.sources.length === 1, 'off the one feeder');
   assert(net && net.sinks.reduce((a, s) => a + s.demand, 0) === 30,
     'and the bridged sinks bring their demand with them');
 
-  const report = findUnconnectedSinks(eps, lines, getPorts, ['powerCable']);
+  const report = findUnconnectedSinks(eps, lines, getPorts, ['vacuumPipe']);
   assert(report.length === 0,
     `the gate agrees nothing is unconnected (got ${JSON.stringify(report.map(r => r.placeableId))})`);
 }
@@ -136,13 +144,13 @@ console.log('\n--- 2. A line into one component feeds the string ---');
     at('r2', 'rack', 4, 0),
     at('r3', 'rack', 10, 0),
   ];
-  const lines = [feedLine('powerCable',
-    { placeableId: 'src', portName: 'pwr_out' },
-    { placeableId: 'r1', portName: 'pwr_in' })];
-  const net = networkFor('powerCable', eps, lines);
+  const lines = [feedLine('vacuumPipe',
+    { placeableId: 'src', portName: 'vac_out' },
+    { placeableId: 'r1', portName: 'vac_in' })];
+  const net = networkFor('vacuumPipe', eps, lines);
   assert(net && net.sinks.length === 2,
     `the bridge stops at the gap (got ${net ? net.sinks.length : 0} sinks)`);
-  const report = findUnconnectedSinks(eps, lines, getPorts, ['powerCable']);
+  const report = findUnconnectedSinks(eps, lines, getPorts, ['vacuumPipe']);
   assert(report.length === 1 && report[0].placeableId === 'r3',
     `and the detached rack is still reported (got ${JSON.stringify(report.map(r => r.placeableId))})`);
 }
@@ -155,10 +163,10 @@ console.log('\n--- 2. A line into one component feeds the string ---');
     at('box', 'crate', 4, 0),
     at('r2', 'rack', 6, 0),
   ];
-  const lines = [feedLine('powerCable',
-    { placeableId: 'src', portName: 'pwr_out' },
-    { placeableId: 'r1', portName: 'pwr_in' })];
-  const net = networkFor('powerCable', eps, lines);
+  const lines = [feedLine('vacuumPipe',
+    { placeableId: 'src', portName: 'vac_out' },
+    { placeableId: 'r1', portName: 'vac_in' })];
+  const net = networkFor('vacuumPipe', eps, lines);
   assert(net && net.sinks.length === 1,
     `bridging does not route through an unrelated component (got ${net ? net.sinks.length : 0})`);
 }
@@ -167,9 +175,9 @@ console.log('\n--- 3. An unwired cluster stays unwired ---');
 {
   // Three racks bolted together, no line anywhere near them.
   const eps = [at('r1', 'rack', 0, 0), at('r2', 'rack', 2, 0), at('r3', 'rack', 4, 0)];
-  const nets = discoverNetworks('powerCable', [], lookupFor(eps));
+  const nets = discoverNetworks('vacuumPipe', [], lookupFor(eps));
   assert(nets.length === 0, `touching alone builds no network (got ${nets.length})`);
-  const report = findUnconnectedSinks(eps, [], getPorts, ['powerCable']);
+  const report = findUnconnectedSinks(eps, [], getPorts, ['vacuumPipe']);
   assert(report.length === 3,
     `all three are still reported unconnected (got ${report.length})`);
 }
@@ -223,16 +231,16 @@ console.log('\n--- 6. Bridging is stable and does not double-count ---');
     at('r1', 'rack', 2, 0),
     at('r2', 'rack', 4, 0),
   ];
-  const l1 = feedLine('powerCable',
-    { placeableId: 'src', portName: 'pwr_out' }, { placeableId: 'r1', portName: 'pwr_in' });
+  const l1 = feedLine('vacuumPipe',
+    { placeableId: 'src', portName: 'vac_out' }, { placeableId: 'r1', portName: 'vac_in' });
   const l2 = {
-    ...feedLine('powerCable',
-      { placeableId: 'src', portName: 'pwr_out' }, { placeableId: 'r2', portName: 'pwr_in' }),
+    ...feedLine('vacuumPipe',
+      { placeableId: 'src', portName: 'vac_out' }, { placeableId: 'r2', portName: 'vac_in' }),
     id: 'ul_2',
     path: [{ col: 0, row: 2 }, { col: 2, row: 2 }],
   };
-  const forward = discoverNetworks('powerCable', [l1, l2], lookupFor(eps));
-  const reverse = discoverNetworks('powerCable', [l2, l1], lookupFor(eps));
+  const forward = discoverNetworks('vacuumPipe', [l1, l2], lookupFor(eps));
+  const reverse = discoverNetworks('vacuumPipe', [l2, l1], lookupFor(eps));
   assert(forward.length === 1, `two lines into one cluster make one network (got ${forward.length})`);
   assert(forward.length === 1 && forward[0].sinks.length === 2,
     'with each sink counted once');

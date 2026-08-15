@@ -1006,7 +1006,8 @@ export function _buildPackageChillerRoles() {
     pushT(b.detail, g, m);
   }
 
-  // Supply/return connections out the +X face
+  // Two process-water header connections out the +X face. They map to the
+  // two independently routable right-side cooling terminals.
   for (const zOff of [cabZ - 0.16, cabZ + 0.16]) {
     const pR = 0.04, pL = 0.08;
     const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
@@ -1014,6 +1015,19 @@ export function _buildPackageChillerRoles() {
     const m = new THREE.Matrix4().multiplyMatrices(
       trans(cabW / 2 + pL / 2, baseH + 0.72, zOff),
       new THREE.Matrix4().makeRotationZ(-Math.PI / 2),
+    );
+    pushT(b.pipe, g, m);
+  }
+
+  // A third process-water connection is reachable from the front side. The
+  // front-facing position makes a dense utility run much easier to route.
+  {
+    const pR = 0.04, pL = 0.09;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    const m = new THREE.Matrix4().multiplyMatrices(
+      trans(0, baseH + 0.28, 0.44 + pL / 2),
+      rotX(Math.PI / 2),
     );
     pushT(b.pipe, g, m);
   }

@@ -390,6 +390,14 @@ export function _buildSolidStateAmpRoles() {
   // Coax elbow tying the spine to the riser.
   boxAt(b.copper, 0.10, 0.10, 0.16, -0.42, 1.55, 0);
 
+  // Four individually flanged RF outputs along the combiner wall. These are
+  // the physical ports declared in utility-ports-v2, not decorative vents:
+  // four direct runs avoid an impedance-penalised waveguide tee.
+  for (const [z, y] of [[-0.30, 0.78], [-0.10, 0.78], [0.10, 1.12], [0.30, 1.12]]) {
+    boxAt(b.copper, 0.12, 0.07, 0.07, -0.48, y, z);
+    wgFlange(b, { axis: 'x', x: -0.50, y, z, bw: 0.12, bh: 0.12, t: 0.025 });
+  }
+
   // AC feed conduit at the back corner.
   boxAt(b.detail, 0.06, 0.55, 0.07, -0.43, 0.37, 0.32);
 

@@ -31,6 +31,10 @@ const panel = componentHoverInfo(COMPONENTS.powerPanel);
 assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',
   `power distributor hover compares consumed and produced power (${panel.detail})`);
 
+const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);
+assert(packageChiller.detail === 'Cooling output: 5 kW',
+  `package chiller hover shows its total cooling capacity (${packageChiller.detail})`);
+
 const network = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
   utilization: 0.75,
   totalDemand: 75,

@@ -126,6 +126,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   vacuumManifold: { _default: { y: 0.6 } },
 
   waveguideManifold: { _default: { y: 1.1 } },
+  solidStateAmp: {
+    _default: { y: 0.95, lat: 0.48 },
+    rf_out_1: { y: 0.78, along: -0.30 }, rf_out_2: { y: 0.78, along: -0.10 },
+    rf_out_3: { y: 1.12, along: 0.10 }, rf_out_4: { y: 1.12, along: 0.30 },
+  },
   pulsedKlystron: { _default: { y: 1.0 } },
   cwKlystron: { _default: { y: 1.0 } },
   multibeamKlystron: { _default: { y: 1.0 } },

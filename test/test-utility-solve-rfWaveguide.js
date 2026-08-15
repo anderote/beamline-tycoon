@@ -6,7 +6,7 @@
 // declared `bands` include the served frequency's band; none of them means a
 // soft rf_frequency_mismatch, too few of them means a soft rf_overload.
 
-import desc, { RF_BANDS, bandForFrequencyHz } from '../src/utility/types/rfWaveguide.js';
+import desc, { RF_BANDS, bandForFrequencyHz, RF_BRANCH_REFLECTION_PER_JUNCTION } from '../src/utility/types/rfWaveguide.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -161,6 +161,31 @@ console.log('\n--- Band table ---');
   assert(bandForFrequencyHz(11424e6) === 'xband', '11424 MHz -> xband');
   assert(bandForFrequencyHz(20e6) === null, 'below vhf -> null');
   assert(bandForFrequencyHz(99e9) === null, 'above xband -> null');
+}
+
+// ==========================================================================
+// Test 7: a branch into a waveguide trunk creates a reflected-power penalty.
+// ==========================================================================
+console.log('\n--- Test 7: RF tee mismatch ---');
+{
+  const net = mkNetwork({
+    id: 'rf-tee', lineIds: ['trunk', 'branch'],
+    sources: [{ portKey: 'amp:rf_out', placeableId: 'amp', portName: 'rf_out', capacity: 100, params: { bands: ['lband'], dutyFactor: 1 } }],
+    sinks: [
+      { portKey: 'a:rf_in', placeableId: 'a', portName: 'rf_in', demand: 30, params: { frequency: 1.3e9 } },
+      { portKey: 'b:rf_in', placeableId: 'b', portName: 'rf_in', demand: 30, params: { frequency: 1.3e9 } },
+    ],
+  });
+  const state = { utilityLines: new Map([
+    ['trunk', { id: 'trunk', utilityType: 'rfWaveguide', start: { placeableId: 'amp', portName: 'rf_out' }, end: { placeableId: 'a', portName: 'rf_in' }, path: [{ col: 0, row: 0 }, { col: 4, row: 0 }] }],
+    ['branch', { id: 'branch', utilityType: 'rfWaveguide', start: null, end: { placeableId: 'b', portName: 'rf_in' }, path: [{ col: 2, row: 0 }, { col: 2, row: 2 }] }],
+  ]) };
+  const r = desc.solve(net, {}, state);
+  assert(r.flowState.branchCount === 1, `one tee branch (got ${r.flowState.branchCount})`);
+  assert(approx(r.flowState.branchReflectionFraction, RF_BRANCH_REFLECTION_PER_JUNCTION),
+    `tee reflects ${RF_BRANCH_REFLECTION_PER_JUNCTION} (got ${r.flowState.branchReflectionFraction})`);
+  assert(r.flowState.totalCapacity < 100, `tee lowers delivered capacity (got ${r.flowState.totalCapacity})`);
+  assert(r.errors.some(e => e.code === 'rf_branch_mismatch'), 'tee reports RF mismatch / reflected power');
 }
 
 // ==========================================================================

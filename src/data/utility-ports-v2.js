@@ -910,7 +910,15 @@ const INFRA_UTILITY_PORTS = {
   ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
   // rf (capacity kW = raw params.power)
   magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
-  solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35, dutyFactor: 1.0 } } },
+  // Four independently flanged 8.75 kW outputs. They are one 35 kW combiner
+  // internally (discovery unites same-device source ports), but keeping each
+  // client on its own port avoids an unnecessary tee and its VSWR penalty.
+  solidStateAmp:       {
+    rf_out_1: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.20, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
+    rf_out_2: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.40, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
+    rf_out_3: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.60, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
+    rf_out_4: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.80, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
+  },
   twt:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20, dutyFactor: 0.05 } } },
   // The beginner rung into pulsed peak power. At $10,000/kW it matches the
   // magnetron and undercuts the Pulsed Klystron's $30,000/kW threefold, but it
@@ -934,7 +942,14 @@ const INFRA_UTILITY_PORTS = {
   fanCoilCooler:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 50 } } },
   dryCoolerBank:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 500 } } },
   coolingTower:          { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 800 } } },
-  packageChiller:        { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 5, heatRejectionCapacity: 5 } } },
+  // Three physical outlets share one integrated 5 kW reservoir/chiller/
+  // rejector package. Discovery joins same-device sources into one header;
+  // splitting every numeric rating prevents multiple sockets minting capacity.
+  packageChiller:        {
+    cool_out_a: { utility: 'coolingWater', side: 'right', offsetAlong: 0.25, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
+    cool_out_b: { utility: 'coolingWater', side: 'right', offsetAlong: 0.75, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
+    cool_out_side: { utility: 'coolingWater', side: 'front', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
+  },
   lcwSkid:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 25, heatRejectionCapacity: 25 } } },
   dualCircuitChiller:    { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
   chiller:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },

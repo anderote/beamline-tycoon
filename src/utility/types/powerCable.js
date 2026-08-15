@@ -19,10 +19,9 @@ export default {
   // decides how much distribution gear a facility needs and where it sits.
   allowsTap: false,
   fansOut: false,
-  // Adjacency bridging: components whose footprints touch share this utility
-  // with no line between them (network-discovery.computeAdjacency). Bolting a
-  // rack onto the one beside it is how a real hall distributes power.
-  bridgesAdjacent: true,
+  // A plug is an explicit port-to-port connection. Distribution is modeled by
+  // panels and busways, never by two cabinets merely touching on the floor.
+  bridgesAdjacent: false,
   // Utility routing is support infrastructure, not the main capital expense.
   // Rates are per quarter-tile; the current ladder per tile is fibre $48,
   // power $96, cooling $144, HV $192, vacuum $224, RF $288, and cryo $640.

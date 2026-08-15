@@ -28,6 +28,7 @@
 // the wrong exponent as well as the wrong units.
 
 import { powerFeedFactor } from '../power-feed.js';
+import { expandPath } from '../line-geometry.js';
 //
 // DUTY FACTOR reconciles the game's kilowatt-scale RF ladder with the megawatt
 // peak power a normal-conducting structure needs. Pulsed sources deliver their
@@ -76,6 +77,63 @@ function distributePower(sinks, capKw, demandTotal, peakFactor) {
   return out;
 }
 
+// A waveguide tee is not transparent: each unmatched branch is an impedance
+// discontinuity. Count real T-junctions (a line end landing on another line's
+// interior) plus any source connector used by more than one run. Dedicated
+// multi-output hardware, such as the four-output solid-state amplifier, has
+// one line per port and therefore does not pay this penalty.
+function branchTopology(network, worldState) {
+  const lineMap = worldState?.utilityLines;
+  const ids = new Set(network.lineIds || []);
+  if (!lineMap || ids.size === 0) return { taps: 0, sourceFanouts: 0, count: 0 };
+  const getLine = id => typeof lineMap.get === 'function'
+    ? lineMap.get(id)
+    : (Array.isArray(lineMap) ? lineMap.find(line => line?.id === id) : lineMap[id]);
+  const pointKey = point => `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
+  const interiorAt = new Map();
+  const endsAt = new Map();
+  const sourceKeys = new Set((network.sources || []).map(source => source.portKey));
+  const sourceUses = new Map();
+
+  for (const id of ids) {
+    const line = getLine(id);
+    if (!line || line.utilityType !== 'rfWaveguide') continue;
+    const path = expandPath(line.path || []);
+    if (path.length < 2) continue;
+    for (let i = 1; i < path.length - 1; i++) {
+      const key = pointKey(path[i]);
+      let lines = interiorAt.get(key);
+      if (!lines) { lines = new Set(); interiorAt.set(key, lines); }
+      lines.add(id);
+    }
+    for (const [index, ref] of [[0, line.start], [path.length - 1, line.end]]) {
+      const key = pointKey(path[index]);
+      let lines = endsAt.get(key);
+      if (!lines) { lines = new Set(); endsAt.set(key, lines); }
+      lines.add(id);
+      if (ref) {
+        const portKey = `${ref.placeableId}:${ref.portName}`;
+        if (sourceKeys.has(portKey)) sourceUses.set(portKey, (sourceUses.get(portKey) || 0) + 1);
+      }
+    }
+  }
+
+  let taps = 0;
+  for (const [key, endLines] of endsAt) {
+    const interiors = interiorAt.get(key);
+    if (interiors && [...endLines].some(id => !interiors.has(id))) taps++;
+  }
+  let sourceFanouts = 0;
+  for (const uses of sourceUses.values()) sourceFanouts += Math.max(0, uses - 1);
+  return { taps, sourceFanouts, count: taps + sourceFanouts };
+}
+
+export const RF_BRANCH_REFLECTION_PER_JUNCTION = 0.04;
+
+function branchReflectionFraction(branches) {
+  return 1 - Math.pow(1 - RF_BRANCH_REFLECTION_PER_JUNCTION, branches);
+}
+
 export default {
   type: 'rfWaveguide',
   displayName: 'RF Waveguide',
@@ -83,9 +141,9 @@ export default {
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',
-  // A waveguide run is flanged end to end. A tee is a component you buy (the
-  // manifold), not something you cut into a run.
-  allowsTap: false,
+  // Waveguide may tee, but every tee introduces a modeled impedance mismatch.
+  // Extra branches show up as reflected power and worse VSWR in the RF panel.
+  allowsTap: true,
   // Ports still fan out, though. Socket-counting is a POWER mechanic — it is
   // what makes distribution panels a decision — and applying it here would
   // mean re-authoring every amplifier and IOC with a port per client for no
@@ -127,15 +185,18 @@ export default {
     //    a source that cannot reach this band contributes neither watts nor
     //    duty, or an out-of-band CW tube would flatten a pulsed network's peak.
     const servedBand = served === null ? null : bandForFrequencyHz(served);
-    let capacity = 0, dutyWeighted = 0, dutyTotalCap = 0;
+    let nameplateCapacity = 0, dutyWeighted = 0, dutyTotalCap = 0;
     for (const s of network.sources) {
       const bands = (s.params && s.params.bands) || [];
       if (!servedBand || !bands.includes(servedBand)) continue;
       const cap = (s.capacity || 0) * powerFeedFactor(worldState, s.placeableId);
-      capacity += cap;
+      nameplateCapacity += cap;
       dutyWeighted += cap * ((s.params && s.params.dutyFactor) || 1.0);
       dutyTotalCap += cap;
     }
+    const topology = branchTopology(network, worldState);
+    const branchReflection = branchReflectionFraction(topology.count);
+    const capacity = nameplateCapacity * (1 - branchReflection);
     const meanDuty = dutyTotalCap > 0 ? dutyWeighted / dutyTotalCap : 1.0;
     // Peak power is average divided by duty. Clamped so a pathological duty
     // cannot mint unbounded gradient.
@@ -190,20 +251,38 @@ export default {
       }
     }
 
+    if (topology.count > 0) {
+      errors.push({
+        severity: 'soft',
+        code: 'rf_branch_mismatch',
+        message: `RF network has ${topology.count} waveguide branch${topology.count === 1 ? '' : 'es'}; `
+          + `${Math.round(branchReflection * 100)}% is reflected at the tee${topology.count === 1 ? '' : 's'}.`,
+        location: { networkId: network.id },
+      });
+    }
+
     return {
       flowState: {
         networkId: network.id,
         utilityType: network.utilityType,
-        // Eligible capacity only. An out-of-band klystron parked on this
+        // Eligible delivered capacity only. An out-of-band klystron parked on this
         // network is not headroom, and reporting it as such would show a
         // healthy utilisation bar over a network delivering zero watts.
         totalCapacity: capacity,
+        nameplateCapacity,
         totalDemand,
         utilization: capacity > 0
           ? Math.min(1, totalDemand / capacity)
           : (totalDemand > 0 ? 1 : 0),
         meanDuty,
         peakFactor,
+        branchCount: topology.count,
+        branchTapCount: topology.taps,
+        branchSourceFanouts: topology.sourceFanouts,
+        branchReflectionFraction: branchReflection,
+        vswr: branchReflection > 0
+          ? (1 + Math.sqrt(branchReflection)) / (1 - Math.sqrt(branchReflection))
+          : 1,
         perSegmentLoad: [],
         perSinkQuality,
         perSinkPower,

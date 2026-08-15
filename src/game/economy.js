@@ -247,6 +247,10 @@ export function worstReflectedFraction(state) {
     const r = p && p.reflectedFraction;
     if (typeof r === 'number' && r > worst) worst = r;
   }
+  for (const flow of state?.utilityNetworkData?.get?.('rfWaveguide')?.values?.() || []) {
+    const r = flow && flow.branchReflectionFraction;
+    if (typeof r === 'number' && r > worst) worst = r;
+  }
   return Math.min(worst, 0.99);
 }
 
@@ -316,10 +320,15 @@ export function computeSystemStats(state) {
   // 400x on RF and inverted the pump ranking, so the panel a player plans from
   // recommended the wrong hardware.
   const portCapacity = (portName, param) => {
+    const matches = typeof portName === 'function'
+      ? portName
+      : name => name === portName;
     let total = 0;
     for (const e of equip) {
-      const v = getUtilityPortsV2(e.type)?.[portName]?.params?.[param];
-      if (typeof v === 'number') total += v;
+      for (const [name, port] of Object.entries(getUtilityPortsV2(e.type) || {})) {
+        const v = port?.params?.[param];
+        if (matches(name) && typeof v === 'number') total += v;
+      }
     }
     return total;
   };
@@ -387,7 +396,9 @@ export function computeSystemStats(state) {
   ];
   const rfSourceCount = rfSourceTypes.reduce((s, t) => s + (counts[t] || 0), 0);
 
-  const totalFwdPower = portCapacity('rf_out', 'capacity');
+  // Some amplifiers expose several physical RF outputs; they are a shared
+  // internal combiner whose per-port ratings add to its nameplate output.
+  const totalFwdPower = portCapacity(name => name.startsWith('rf_out'), 'capacity');
   // Reflected power comes from real cavity detuning rather than a flat 2%
   // guess. An undercooled normal-conducting cavity expands, walks off
   // resonance, and stops absorbing the power aimed at it — the physics pass
