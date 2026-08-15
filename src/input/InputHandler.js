@@ -23,6 +23,10 @@ import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
 import { FloorTool, WallTool, DoorTool, WindowTool } from './structure-tools.js';
+import {
+  buildFloorRegionPerimeter,
+  buildSmartFloorWallPath,
+} from './floor-wall-paths.js';
 import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
@@ -882,43 +886,22 @@ export class InputHandler {
     this.game.removeWindow(pt.col, pt.row, pt.edge);
   }
 
+  /** Return the full exposed perimeter of the contiguous floor region. */
+  _buildFloorBoundaryRegion(origin) {
+    return buildFloorRegionPerimeter(this.game.state.infraOccupied, origin);
+  }
+
   /**
-   * Walk along a floor boundary from the clicked edge in both directions,
-   * collecting every contiguous edge that sits on the same boundary.
+   * Choose between a mixed-floor interface run and a whole-region perimeter,
+   * based on how close the cursor is to the shared edge.
    */
+  _buildSmartFloorWallPath(origin) {
+    return buildSmartFloorWallPath(this.game.state.infraOccupied, origin);
+  }
+
+  // Compatibility wrapper for demolish/tools that only need the old array.
   _buildFloorBoundaryPath(origin) {
-    const occ = this.game.state.infraOccupied;
-    const { edge } = origin;
-
-    const neighborKey = (col, row, e) => {
-      if (e === 'n') return `${col},${row - 1}`;
-      if (e === 's') return `${col},${row + 1}`;
-      if (e === 'e') return `${col + 1},${row}`;
-      return `${col - 1},${row}`;
-    };
-
-    const isBoundary = (col, row, e) => {
-      const a = !!occ[`${col},${row}`];
-      const b = !!occ[neighborKey(col, row, e)];
-      return a !== b;
-    };
-
-    if (!isBoundary(origin.col, origin.row, edge)) return [origin];
-
-    const horizontal = edge === 'n' || edge === 's';
-    const path = [origin];
-
-    for (const dir of [-1, 1]) {
-      let col = origin.col;
-      let row = origin.row;
-      for (;;) {
-        if (horizontal) col += dir; else row += dir;
-        if (!isBoundary(col, row, edge)) break;
-        const pt = { col, row, edge };
-        if (dir === -1) path.unshift(pt); else path.push(pt);
-      }
-    }
-    return path;
+    return this._buildFloorBoundaryRegion(origin).path;
   }
 
   /**
@@ -1361,7 +1344,8 @@ export class InputHandler {
 
   /**
    * Return the nearest edge of the cursor's tile, preferring edges that sit
-   * on a flooring boundary (one side has infrastructure, the other doesn't).
+   * on a flooring boundary (the material differs across the edge, including
+   * floor-to-empty boundaries).
    */
   _getNearestFloorEdge(screenX, screenY) {
     const world = this.renderer.screenToWorld(screenX, screenY);
@@ -1390,9 +1374,9 @@ export class InputHandler {
     };
 
     const isFloorBoundary = (e) => {
-      const a = !!occ[`${e.col},${e.row}`];
-      const b = !!occ[neighbor(e)];
-      return a !== b;
+      const a = occ[`${e.col},${e.row}`] || null;
+      const b = occ[neighbor(e)] || null;
+      return (a || b) && a !== b;
     };
 
     candidates.sort((a, b) => {
@@ -3527,7 +3511,7 @@ export class InputHandler {
    * Refresh the bottom-left shift-hint chip based on the active tool.
    * Shows contextual hints for the armed tool: rotate/cancel while a
    * rotatable placeable is selected, shift-modified actions (line place,
-   * wall boundary fill, demolish whole run), and floor orientation.
+   * smart floor wall paths, demolish whole run), and floor orientation.
    * Hidden when no hint applies to the current selection.
    */
   _updateShiftHint() {
@@ -3543,7 +3527,8 @@ export class InputHandler {
       html = (tool.payload.operation === 'copy' ? 'Click: paste selection' : 'Click: place selection')
         + sep + `<span class="k">ESC</span> Cancel`;
     } else if (tool?.kind === 'wall') {
-      html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
+      html = `<span class="k">SHIFT</span>: smart floor outline`
+        + sep + `<span class="k">SHIFT</span>+drag: free wall run`;
     } else if (this.armedPlaceableId) {
       const comp = COMPONENTS[this.armedPlaceableId];
       const rotatable = !(comp && (comp.role === 'junction'
