@@ -80,7 +80,11 @@ authorizes discarding it.
 
 ## Promoting dev to master
 
-Promotion is periodic and deliberate:
+Promotion is always a manual action performed by the repository owner. Agents
+must never fast-forward, merge, or push `master`. An agent may validate `dev` and
+report that it is ready for promotion, but must stop before changing `master`.
+
+For manual promotion:
 
 1. Confirm `dev` is clean, integrated, and validated.
 2. Fast-forward `master` from `dev`; do not independently merge feature branches
@@ -89,7 +93,7 @@ Promotion is periodic and deliberate:
 4. Keep `dev` at least equal to `master` at all times. If `master` ever advances
    unexpectedly, reconcile it into `dev` immediately before starting more work.
 
-Typical promotion:
+Manual promotion reference:
 
 ```sh
 git -C /path/to/master-worktree merge --ff-only dev
