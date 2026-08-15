@@ -45,6 +45,19 @@
         <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
         <div id="top-buttons">
           <span id="beam-summary" class="beam-summary"></span>
+          <div id="music-player">
+            <button class="mp-btn mp-prev" title="Previous">&lt;</button>
+            <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
+            <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
+            <div class="mp-track-name-wrap">
+              <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
+              <div class="mp-track-list" hidden></div>
+            </div>
+            <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
+            <select class="mp-theme" title="Theme"></select>
+            <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
+            <button class="mp-btn mp-minimize" title="Minimize">_</button>
+          </div>
           <button id="btn-designer" class="hud-btn">Beamline Designer</button>
           <button id="btn-research" class="hud-btn">Research</button>
           <button id="btn-economy" class="hud-btn">Economy</button>
@@ -63,23 +76,6 @@
               <button class="menu-item" data-action="main-menu">Main Menu</button>
             </div>
           </div>
-        </div>
-      </div>
-      <div id="top-bar-secondary">
-        <!-- Compact facility utility overview. -->
-        <div id="utility-stats-container"></div>
-        <div id="music-player">
-          <button class="mp-btn mp-prev" title="Previous">&lt;</button>
-          <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
-          <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
-          <div class="mp-track-name-wrap">
-            <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
-            <div class="mp-track-list" hidden></div>
-          </div>
-          <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
-          <select class="mp-theme" title="Theme"></select>
-          <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
-          <button class="mp-btn mp-minimize" title="Minimize">_</button>
         </div>
       </div>
     </div>

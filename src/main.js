@@ -29,7 +29,6 @@ import { CloudSaves } from './game/CloudSaves.js';
 import { SaveSlots } from './game/SaveSlots.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
-import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { AdvisorEngine } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
@@ -533,12 +532,6 @@ function showScenarioPicker(game) {
   // Declared after musicPlayer; the menu click handler above only runs
   // post-init, so the binding is live by then.
   const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer });
-
-  // Utility stats now live in the top bar's second row beside the music
-  // player, replacing the old floating right-rail panel. Keeping them mounted
-  // in every mode turns the row into a stable facility-health readout.
-  const utilityStatsContainer = document.getElementById('utility-stats-container');
-  new UtilityStatsPanel(game, utilityStatsContainer);
 
   // Debug fallback: open a utility inspector for a given line id from the
   // browser console. Unblocks Phase 6 playtesting if the 3D click path
