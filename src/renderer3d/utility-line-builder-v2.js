@@ -1112,6 +1112,7 @@ function buildLineGroup(
       speed: flow.speed,
       period: flow.period,
       radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
+      crest: flow.crest !== false,
       radialScale: flow.pulseRadialScale,
       lengthScale: flow.pulseLengthScale,
       groundSpill: false,

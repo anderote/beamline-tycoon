@@ -214,6 +214,8 @@ console.log('\n--- 2. Continuous across segment boundaries, source -> sink ---')
   const { group } = buildFlowLine('vacuumPipe');
   const effect = group.userData.visualEffects?.[0];
   assert(effect?.kind === 'pathPulse', 'the builder publishes a declarative path-pulse effect');
+  assert(effect?.crest === false,
+    'vacuum flow keeps its moving light but publishes no visible crest object');
   assert(effect?.groundSpill === false,
     'utility pulses do not paint repeating circular glows on the floor');
   assert(effect?.path?.length === 3, 'the effect receives the same complete polyline as the pipe');

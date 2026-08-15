@@ -89,6 +89,24 @@ test('path effects can keep emissive crests and real-light proxies without floor
   system.dispose();
 });
 
+test('path effects can keep moving light proxies without crest objects', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
+  system.syncScope('utilities', [{
+    id: 'vacuum-1', kind: 'pathPulse', crest: false, groundSpill: false,
+    path: [{ x: 0, y: 0.5, z: 0 }, { x: 4, y: 0.5, z: 0 }],
+    color: '#aebbc2', speed: 0.3, period: 2,
+    light: { intensity: 0.055, distance: 0.9 },
+  }]);
+
+  system.update(0, 1);
+  assert.equal(system._pulseMesh.count, 0, 'no travelling crest object is drawn');
+  assert.equal(system._spillMesh.count, 0, 'no projected spill object is drawn');
+  assert.ok(system.getStats().lightCandidates > 0,
+    'moving light proxies remain available for nearby illumination');
+  system.dispose();
+});
+
 test('path effects honor utility-specific silhouettes and can opt out of room light', () => {
   const scene = new Three.Scene();
   const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
