@@ -358,7 +358,7 @@ export class Game {
       placementNextId: 0,           // monotonic id source for pipe placements (BeamlineSystem)
       placementMode: 'snap',        // 'snap' | 'insert' | 'replace' — current pipe-placement UX mode
       // Walls (per-tile edge-based, like RCT2 fences)
-      walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
+      walls: [],              // [{ type, col, row, edge, facePaint? }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
       wallOverlays: [],       // copper/etc. layered on a structural wall
       wallOverlayOccupied: {}, // "col,row,edge" -> overlayType (derived)
@@ -1787,6 +1787,29 @@ export class Game {
       .filter(p => p.wallMount && physicalWallKey(p.wallMount) === removedWallKey)
       .map(p => p.id);
     for (const id of mountedIds) this.removePlaceable(id);
+    this.emit('wallsChanged');
+    return true;
+  }
+
+  /**
+   * Paint one physical face of a wall. A request made through the wall's
+   * stored edge paints its tile-facing side; its mirrored edge paints the
+   * opposite face. This keeps two rooms independently paintable.
+   */
+  paintWallFace(col, row, edge, paintId = null) {
+    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+    const wall = key && this._wallAt(key);
+    if (!wall) return false;
+    const requestedKey = edgeKey(col, row, edge);
+    const face = requestedKey === key ? 'inside' : 'outside';
+    const before = wall.facePaint?.[face] ?? null;
+    if (before === paintId) return false;
+    if (paintId) wall.facePaint = { ...(wall.facePaint || {}), [face]: paintId };
+    else {
+      wall.facePaint = { ...(wall.facePaint || {}) };
+      delete wall.facePaint[face];
+      if (Object.keys(wall.facePaint).length === 0) delete wall.facePaint;
+    }
     this.emit('wallsChanged');
     return true;
   }

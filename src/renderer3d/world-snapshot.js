@@ -219,6 +219,7 @@ function buildWalls(game) {
     edge: w.edge,
     type: w.type,
     variant: w.variant ?? 0,
+    facePaint: w.facePaint ?? null,
     baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
   }));
   for (const layer of (game.state.wallOverlays || [])) {

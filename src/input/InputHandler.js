@@ -22,7 +22,7 @@ import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
-import { FloorTool, WallTool, DoorTool, WindowTool } from './structure-tools.js';
+import { FloorTool, WallTool, WallPaintTool, DoorTool, WindowTool } from './structure-tools.js';
 import {
   buildFloorRegionPerimeter,
   buildSmartFloorWallPath,
@@ -2453,6 +2453,7 @@ export class InputHandler {
       case 'facility':   this.setTool(new PlaceableTool('facility', key, variant)); break;
       case 'floor':      this.setTool(new FloorTool(key, variant)); break;
       case 'wall':       this.setTool(new WallTool(key, variant)); break;
+      case 'wallPaint':  this.setTool(new WallPaintTool(key)); break;
       case 'door':       this.setTool(new DoorTool(key, variant)); break;
       case 'window':     this.setTool(new WindowTool(key, variant)); break;
       case 'zone':       this.setTool(new ZonePaintTool(key)); break;

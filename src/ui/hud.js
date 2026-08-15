@@ -4,7 +4,7 @@
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, variantCost } from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { getBeamlineType } from '../data/beamline-types.js';
@@ -955,7 +955,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     for (const subKey of subKeys) {
       const subDef = subsections[subKey];
       const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey);
-      if (subItems.length === 0) continue;
+      if (subItems.length === 0 && subKey !== 'paint') continue;
 
       if (renderedSections > 0) {
         const divider = document.createElement('div');
@@ -972,6 +972,41 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
+
+      if (subKey === 'paint') {
+        for (const paint of Object.values(WALL_PAINTS)) {
+          const item = document.createElement('div');
+          item.className = 'palette-item';
+          item.dataset.paletteIndex = paletteIdx;
+          item.dataset.paletteKey = paint.id;
+          item.dataset.paletteKind = 'wallPaint';
+          const idx = paletteIdx++;
+          const previewEl = document.createElement('div');
+          previewEl.className = 'palette-preview';
+          previewEl.innerHTML = `<div style="width:48px;height:32px;background:#${paint.color.toString(16).padStart(6, '0')};border-radius:3px"></div>`;
+          item.appendChild(previewEl);
+          const nameEl = document.createElement('div');
+          nameEl.className = 'palette-name';
+          nameEl.textContent = paint.name;
+          item.appendChild(nameEl);
+          const hintEl = document.createElement('div');
+          hintEl.className = 'palette-cost';
+          hintEl.textContent = 'face paint';
+          item.appendChild(hintEl);
+          this._attachSimpleHoverPreview(item, paint.name,
+            'Click a wall face to paint it. Shift-click a floor area to paint its inward-facing perimeter walls.',
+            [['Placement', 'Wall face'], ['Shift', 'Room perimeter']]);
+          item.addEventListener('click', () => {
+            if (this._onPaletteClick) this._onPaletteClick(idx);
+            this._selectPaletteTool('wallPaint', paint.id);
+          });
+          itemsContainer.appendChild(item);
+        }
+        section.appendChild(itemsContainer);
+        palette.appendChild(section);
+        renderedSections++;
+        continue;
+      }
 
       for (const key of subItems) {
         const infra = WALL_TYPES[key];
