@@ -43,7 +43,7 @@ test('midnight keeps the world readable with selective glow enabled', async ({ p
     // behind its trees), making this sample measure the map instead of the box.
     const viewDirection = new window.THREE.Vector3();
     r.camera.getWorldDirection(viewDirection);
-    probe.position.copy(r.camera.position).addScaledVector(viewDirection, 30);
+    probe.position.copy(r.camera.position).addScaledVector(viewDirection, 10);
     r.scene.add(probe);
     window.__nightLightingProbe = probe;
     if (r._animFrameId !== null) cancelAnimationFrame(r._animFrameId);
