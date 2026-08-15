@@ -197,6 +197,23 @@ body {
   min-width: 70px;
 }
 
+#res-funding {
+  align-items:stretch;
+  flex-direction:column;
+  gap:2px;
+}
+.res-main { display:flex; align-items:center; gap:4px; }
+.local-funding-btn {
+  padding:2px 4px;
+  border:1px solid rgba(70,210,100,0.48);
+  border-radius:2px;
+  background:rgba(25,85,45,0.65);
+  color:#8ff0a8;
+  font:700 8px/1 monospace;
+  cursor:pointer;
+}
+.local-funding-btn:hover { background:rgba(35,125,65,0.8); color:#d0ffe0; }
+
 .res-icon {
   font-size: 10px;
   font-weight: bold;
@@ -2507,20 +2524,6 @@ body {
 .beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; cursor:pointer; animation: beamFaultBlink 0.9s steps(2) infinite; }
 @keyframes beamFaultBlink { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
 
-/* A staff/stall signal is a peer of the beam/fault chip, not a third floating
-   panel. HUD code supplies the severity colors and click behavior. */
-.staffing-summary {
-  display: none;
-  max-width: min(340px, 28vw);
-  overflow: hidden;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 10px;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
 /* Designs Library */
 .designs-category-tabs {
@@ -5559,7 +5562,6 @@ body {
   .utility-stats-title { display: none; }
   .utility-stats-flow { display: none; }
   .mp-track-name-wrap { width: 92px; }
-  .staffing-summary { max-width: min(250px, 62vw); }
 }
 
 @media (max-width: 600px) {

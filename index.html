@@ -15,8 +15,8 @@
         <div id="game-title">Beamline Tycoon</div>
         <div id="resources">
           <div class="res-box" id="res-funding" title="Funding">
-            <span class="res-icon">$</span>
-            <span class="res-val" id="val-funding">500</span>
+            <span class="res-main"><span class="res-icon">$</span><span class="res-val" id="val-funding">500</span></span>
+            <button id="btn-local-funding" class="local-funding-btn hidden" type="button" title="Local development only: add $250k">+ $250k</button>
           </div>
           <div class="res-box" id="res-energy" title="Power Draw (kW)">
             <span class="res-icon">kW</span>
@@ -45,7 +45,6 @@
         <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
         <div id="top-buttons">
           <span id="beam-summary" class="beam-summary"></span>
-          <span id="staffing-summary" class="staffing-summary" role="status" aria-live="polite"></span>
           <button id="btn-designer" class="hud-btn">Beamline Designer</button>
           <button id="btn-research" class="hud-btn">Research</button>
           <button id="btn-economy" class="hud-btn">Economy</button>

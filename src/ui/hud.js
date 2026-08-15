@@ -115,6 +115,11 @@ UIHost.prototype._updateHUD = function() {
     const el = document.getElementById(id);
     if (el) el.textContent = typeof val === 'string' ? val : this._fmt(val);
   };
+  const localFundingBtn = document.getElementById('btn-local-funding');
+  if (localFundingBtn) {
+    const host = globalThis.location?.hostname;
+    localFundingBtn.classList.toggle('hidden', !['localhost', '127.0.0.1', '::1'].includes(host));
+  }
   setEl('val-funding', Math.floor(res.funding));
   const ss = this.game.state.systemStats;
   if (ss && ss.power) {
@@ -214,7 +219,8 @@ UIHost.prototype._updateHUD = function() {
     );
   }
 
-  // Facility staffing summary (Task 8) — the idle-legibility headline.
+  // Staffing and progress warnings share the left notification stack with
+  // infrastructure faults, rather than taking another top-bar status chip.
   this._renderStaffingBanner();
 
   // Fix round 1's F3: keep any open staff/roster windows live every tick,
@@ -332,22 +338,30 @@ UIHost.prototype._renderInfraBlockerList = function() {
   if (!panel) return;
   const state = this.game.state;
   const blockers = state.infraBlockers || [];
+  const progress = facilityProgressReport(this.game);
+  const staffing = facilityStaffingReport(this.game);
+  const preferProgress = progress.stalled && !(progress.generic && staffing.idleCount > 0);
+  const staffingNotice = preferProgress
+    ? { kind: 'stall', text: `Facility stalled: ${progress.reason}` }
+    : (staffing.idleCount > 0
+      ? { kind: 'idle', text: `${staffing.worst.count} staff idle: ${staffing.worst.reason}` }
+      : null);
 
   // Signature guard: this runs every tick, and the DOM rebuild below walks
   // every utility endpoint (state.placeables plus every pipe placement) to
   // resolve offender positions. A steady fault costs one string join.
   const sig = blockers
     .map(b => `${b.code}@${b.location?.placeableId || ''}:${b.location?.portName || ''}`)
-    .join('|');
+    .join('|') + `|staff:${staffingNotice?.kind || '0'}:${staffingNotice?.text || ''}`;
   // Reposition regardless: the facility overview above grows and shrinks with
   // what is live, independently of the blocker set — as does the top bar,
   // which wraps to extra rows on a narrow window.
-  if (blockers.length > 0) positionBlockerPanel(panel);
+  if (blockers.length > 0 || staffingNotice) positionBlockerPanel(panel);
   if (sig === this._infraBlockerSig) return;
   this._infraBlockerSig = sig;
 
   panel.textContent = '';
-  if (blockers.length === 0) {
+  if (blockers.length === 0 && !staffingNotice) {
     panel.style.display = 'none';
     // Clearing the faults clears the dismissal too, so an identical fault set
     // coming back later is treated as news rather than as still-dismissed.
@@ -357,6 +371,10 @@ UIHost.prototype._renderInfraBlockerList = function() {
   // A dismissal only silences the exact fault set it was aimed at; the
   // signature changing means something new went wrong, so speak up again.
   panel.style.display = this._infraBlockerDismissedSig === sig ? 'none' : '';
+  const hasInfraFaults = blockers.length > 0;
+  panel.style.background = hasInfraFaults ? 'rgba(30,8,8,0.94)' : 'rgba(40,30,8,0.94)';
+  panel.style.borderColor = hasInfraFaults ? 'rgba(255,90,90,0.45)' : 'rgba(255,190,90,0.45)';
+  panel.style.color = hasInfraFaults ? '#ffa08c' : '#ffd28c';
 
   // Only build the endpoint index when something actually needs locating.
   const needsIndex = blockers.some(b => b.location?.placeableId);
@@ -395,17 +413,19 @@ UIHost.prototype._renderInfraBlockerList = function() {
   const headText = document.createElement('div');
   headText.style.cssText = 'flex:1;font-size:9px;letter-spacing:0.5px;color:#ff7766;line-height:1.5;';
   const title = document.createElement('div');
-  title.textContent = 'INFRA FAULT — BEAM TRIPPED';
-  title.style.cssText = 'color:#ff5544;';
+  title.textContent = hasInfraFaults ? 'INFRASTRUCTURE ISSUES' : 'FACILITY NOTIFICATIONS';
+  title.style.cssText = `color:${hasInfraFaults ? '#ff5544' : '#e0a030'};`;
   headText.appendChild(title);
   const unwired = blockers.filter(b => b.fromUnconnectedCheck).length;
   const sub = document.createElement('div');
   // The unwired count is called out separately because it is the one class
   // of blocker the player fixes by drawing a line, and on-pipe placements
   // produce it a dozen at a time.
-  sub.textContent = `${blockers.length} BLOCKER${blockers.length > 1 ? 'S' : ''}`
-    + (unwired > 0 ? ` · ${unwired} UNWIRED SINK${unwired > 1 ? 'S' : ''}` : '');
-  headText.appendChild(sub);
+  if (hasInfraFaults) {
+    sub.textContent = `${blockers.length} BLOCKER${blockers.length > 1 ? 'S' : ''}`
+      + (unwired > 0 ? ` · ${unwired} UNWIRED SINK${unwired > 1 ? 'S' : ''}` : '');
+    headText.appendChild(sub);
+  }
   header.appendChild(headText);
 
   const close = document.createElement('button');
@@ -475,6 +495,24 @@ UIHost.prototype._renderInfraBlockerList = function() {
     more.style.cssText = 'font-size:9px;color:#cc8877;padding:2px 4px;';
     panel.appendChild(more);
   }
+
+  if (staffingNotice) {
+    const row = document.createElement('div');
+    const isIdle = staffingNotice.kind === 'idle';
+    row.textContent = `${isIdle ? '⚠' : '⏸'} ${staffingNotice.text}`;
+    row.style.cssText = [
+      'padding:4px', `margin-top:${list.length ? '5px' : '1px'}`,
+      'border-radius:2px',
+      `background:${isIdle ? 'rgba(90,65,12,0.55)' : 'rgba(70,20,20,0.55)'}`,
+      `color:${isIdle ? '#ffd28c' : '#ffb08c'}`,
+      `cursor:${isIdle ? 'pointer' : 'default'}`,
+    ].join(';');
+    row.title = isIdle
+      ? `${staffing.idleCount} staff idle facility-wide — click to see who`
+      : 'Nothing has completed in a while.';
+    if (isIdle) row.addEventListener('click', () => this._openStaffingBannerGroup());
+    panel.appendChild(row);
+  }
 };
 
 // Undo a dismissal and force a rebuild — the top-bar fault chip's click target.
@@ -484,7 +522,7 @@ UIHost.prototype._showInfraBlockerPanel = function() {
   this._renderInfraBlockerList();
 };
 
-// --- Facility staffing summary (Task 8, staff-professions-3 jobs-and-gates) -
+// --- Facility staffing notification (Task 8, staff-professions-3 jobs-and-gates) -
 //
 // The idle-legibility layer, two signals sharing one banner slot:
 //   - staffDiagnostics.facilityStaffingReport groups every staffer currently
@@ -499,23 +537,9 @@ UIHost.prototype._showInfraBlockerPanel = function() {
 //     to say when nobody is idle). Shown only when nobody IS idle — an idle
 //     roster is already the more specific, more actionable fact.
 // This signal exists independently of infrastructure blockers — a facility
-// can be fully wired while staff sit idle — but it now shares the compact
-// top-bar notification rail with beam/fault status instead of opening a third
-// floating panel.
-const STAFFING_BANNER_ID = 'staffing-summary';
+// can be fully wired while staff sit idle — but it now appears as a clickable
+// row in the left notification stack, alongside infrastructure issues.
 const STAFFING_ROSTER_WINDOW_ID = 'staffing-roster';
-
-function ensureStaffingBanner() {
-  let panel = document.getElementById(STAFFING_BANNER_ID);
-  if (panel) return panel;
-  const host = document.getElementById('top-buttons');
-  if (!host) return null;
-  panel = document.createElement('span');
-  panel.id = STAFFING_BANNER_ID;
-  panel.className = 'staffing-summary';
-  host.appendChild(panel);
-  return panel;
-}
 
 // Rebuilds only when the underlying signal actually changed (signature =
 // which report is showing, plus its own identifying text/counts) — this
@@ -533,58 +557,9 @@ function ensureStaffingBanner() {
 // problem than one admin with nothing to do, and must never be hidden by
 // it.
 UIHost.prototype._renderStaffingBanner = function() {
-  const panel = ensureStaffingBanner();
-  if (!panel) return;
-
-  const progress = facilityProgressReport(this.game);
-  const staffing = facilityStaffingReport(this.game);
-
-  // Fix round 3's issue A: a stall outranks the idle-staff banner ONLY when
-  // it says something the idle banner doesn't. `progress.generic` marks
-  // exactly the one reason with nothing specific to say (the flat "nothing
-  // has completed" fallback — see facilityProgressReport's own doc
-  // comment); everything else (F4's "press Start", a suppression, a
-  // resolved infra fault) is still strictly more informative than "N staff
-  // idle" and keeps outranking it (round 2's own F2). A generic stall with
-  // a NONEMPTY idle report defers to it instead — the idle banner is
-  // COUNTED, GROUPED, and CLICKABLE; the generic fallback is none of those,
-  // and replacing the one with the other is a net loss of information, not
-  // a gain.
-  const preferProgress = progress.stalled && !(progress.generic && staffing.idleCount > 0);
-
-  const sig = preferProgress
-    ? `stall|${progress.reason}`
-    : (staffing.idleCount > 0 ? `idle|${staffing.idleCount}|${staffing.worst.reason}|${staffing.worst.count}` : '0');
-  if (sig === this._staffingBannerSig) return;
-  this._staffingBannerSig = sig;
-
-  if (preferProgress) {
-    panel.textContent = `⏸ Facility stalled: ${progress.reason}`;
-    panel.title = 'Nothing has completed in a while — this outranks idle-staff notices until it clears.';
-    panel.style.background = 'rgba(40,20,20,0.94)';
-    panel.style.border = '1px solid rgba(255,120,90,0.5)';
-    panel.style.color = '#ffb08c';
-    panel.style.cursor = 'default';
-    panel.style.display = 'inline-flex';
-    panel.onclick = null;
-    return;
-  }
-
-  if (staffing.idleCount > 0) {
-    const { reason, count } = staffing.worst;
-    panel.textContent = `⚠ ${count} staff idle: ${reason}`;
-    panel.title = `${staffing.idleCount} staff idle facility-wide — click to see who`;
-    panel.style.background = 'rgba(40,30,8,0.94)';
-    panel.style.border = '1px solid rgba(255,190,90,0.45)';
-    panel.style.color = '#ffd28c';
-    panel.style.cursor = 'pointer';
-    panel.style.display = 'inline-flex';
-    panel.onclick = () => this._openStaffingBannerGroup();
-    return;
-  }
-
-  panel.style.display = 'none';
-  panel.onclick = null;
+  // _updateBeamSummary() renders the shared stack first. Keep this hook for
+  // callers that refresh staffing independently of the regular HUD tick.
+  this._renderInfraBlockerList();
 };
 
 // Opens a roster of exactly the staff behind the banner's CURRENT headline
@@ -2820,6 +2795,24 @@ UIHost.prototype._bindHUDEvents = function() {
     hireBtn.addEventListener('click', () => {
       this._openHiringDialog();
     });
+  }
+
+  // Deliberately local-only: development playthroughs can be funded without
+  // exposing a cheat control in deployed builds. save() persists the grant to
+  // the active slot immediately, rather than waiting for the next autosave.
+  const localFundingBtn = document.getElementById('btn-local-funding');
+  if (localFundingBtn) {
+    const host = globalThis.location?.hostname;
+    const isLocal = ['localhost', '127.0.0.1', '::1'].includes(host);
+    localFundingBtn.classList.toggle('hidden', !isLocal);
+    if (isLocal) {
+      localFundingBtn.addEventListener('click', () => {
+        this.game.state.resources.funding = (this.game.state.resources.funding || 0) + 250_000;
+        this.game.log?.('Local development grant: +$250k.', 'good');
+        this.game.save?.();
+        this._updateHUD();
+      });
+    }
   }
 
   // Manual: "?" button in the top-right HUD cluster + F1 / ? hotkeys.
