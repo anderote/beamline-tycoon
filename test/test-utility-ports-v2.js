@@ -266,10 +266,12 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(busTaps.every(([, p], i) => p.side === (i % 2 === 0 ? 'right' : 'left'))
       && new Set(busTaps.map(([, p]) => p.offsetAlong)).size === 4,
     'busway taps form four matched pairs along its left and right edges');
-  assert(spider.pwr_in?.connectionKind === 'powerFieldIn'
-      && Object.values(spider).filter(p => p.connectionKind === 'powerFieldOut').length === 3
-      && spider.pwr_in.params.fieldCapacity === 30,
-    'spider box has one feeder input, three local taps, and a 30 kW rating');
+  const spiderPorts = Object.values(spider);
+  assert(spiderPorts.length === 4
+      && spiderPorts.every(p => p.role === 'pass'
+        && p.connectionKind === 'powerFieldPort'
+        && p.params.fieldCapacity === 30),
+    'spider box has four interchangeable pass-through sockets sharing one 30 kW rating');
   assert(outlets('hvTransformer') === 0,
     'a supply hands out no branch circuits — everything goes through distribution');
 

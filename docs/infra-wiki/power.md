@@ -36,12 +36,15 @@ transformer → HV feeder → distribution panel → branch circuit → field di
 - **Section Distribution Panel**: 150 kW, one HV feed, six 25 kW branch outlets.
 - **Main Distribution Panel**: 400 kW, one HV feed, eight 50 kW branch outlets.
 - **Beamline Busway**: 160 kW field limit, one branch feed, eight plug-in taps.
-- **Spider Box**: 30 kW field limit, one branch feed, three local taps.
+- **Spider Box**: 30 kW field limit and four interchangeable sockets. Connect
+  any socket to a panel; the other three become local taps.
 
 Distribution equipment adds no capacity. Each item accepts exactly one
-upstream feed; a field distributor cannot feed another field distributor. If a future
-facility needs redundant feeds, it will use an explicit transfer switch rather
-than silently paralleling two live panels.
+upstream feed; a field distributor cannot feed another field distributor. A
+spider box does not care which physical socket receives that feed, but wiring a
+second live feed is still invalid. If a future facility needs redundant feeds,
+it will use an explicit transfer switch rather than silently paralleling two
+live panels.
 
 ### Demand
 

@@ -6,6 +6,8 @@ import { COMPONENTS } from '../src/data/components.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
 import { portApproachVec, portWorldPosition } from '../src/utility/ports.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
+import powerCable from '../src/utility/types/powerCable.js';
 
 let passed = 0;
 let failed = 0;
@@ -64,12 +66,57 @@ assert(candidate('powerCable', ref('bus', 'pwr_out_1'), ref('load', 'pwr_in')).o
   'busway tap -> equipment load is valid');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_2'), ref('spider', 'pwr_in')).ok,
   'panel -> spider box feeder input is valid');
+for (const portName of ['pwr_in', 'pwr_out_1', 'pwr_out_2', 'pwr_out_3']) {
+  assert(candidate('powerCable', ref('panelA', 'pwr_out_2'), ref('spider', portName)).ok,
+    `panel may feed spider box through ${portName}`);
+  assert(candidate('powerCable', ref('spider', portName), ref('load', 'pwr_in')).ok,
+    `spider box ${portName} may feed a load`);
+}
+assert(candidate('powerCable', ref('load', 'pwr_in'), ref('spider', 'pwr_out_3')).ok,
+  'the player may draw from a load back to any spider-box socket too');
 assert(candidate('powerCable', ref('bus', 'pwr_out_2'), ref('spider', 'pwr_in')).reason === 'invalid_port_pair',
   'a field distributor cannot feed another field distributor');
+assert(validateDrawLine(state, {
+  utilityType: 'powerCable',
+  start: ref('spider', 'pwr_in'), end: ref('spider', 'pwr_out_1'),
+  path: [{ col: 24, row: 8 }, { col: 25, row: 8 }],
+}).reason === 'invalid_port_pair',
+  'a spider box cannot loop one of its own sockets back into another');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_3'), ref('panelB', 'pwr_out_1')).reason === 'invalid_port_pair',
   'two distribution outputs cannot be tied together');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_4'), ref('bus', 'pwr_out_2')).reason === 'invalid_port_pair',
   'a panel can only enter the designated busway feeder port');
+
+console.log('\n--- Omnidirectional spider-box solve ---');
+{
+  const wired = {
+    ...state,
+    utilityLines: new Map([
+      ['feed', {
+        id: 'feed', utilityType: 'powerCable',
+        // Store both lines opposite the conceptual flow direction to prove
+        // that endpoint order and legacy input/output names do not matter.
+        start: ref('spider', 'pwr_out_2'), end: ref('panelA', 'pwr_out_1'),
+        path: [{ col: 20, row: 8 }, { col: 16, row: 8 }],
+      }],
+      ['branch', {
+        id: 'branch', utilityType: 'powerCable',
+        start: ref('load', 'pwr_in'), end: ref('spider', 'pwr_in'),
+        path: [{ col: 32, row: 0 }, { col: 24, row: 0 }],
+      }],
+    ]),
+  };
+  const networks = discoverNetworks('powerCable', wired.utilityLines, makeDefaultPortLookup(wired));
+  assert(networks.length === 1, `feed and branch form one network (got ${networks.length})`);
+  const network = networks[0];
+  assert(network.ports.filter(p => p.placeableId === 'spider').length === 4,
+    'touching any two spider sockets unites all four sockets inside the box');
+  assert(network.sinks.some(s => s.placeableId === 'load'),
+    'the load is downstream regardless of which spider sockets and draw directions were used');
+  const solved = powerCable.solve(network, {}, null).flowState;
+  assert(solved.totalCapacity === 30 && solved.perSinkQuality['load:pwr_in'] === 1,
+    `the arbitrary-port network keeps the spider box's 30 kW cap (got ${solved.totalCapacity} kW)`);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

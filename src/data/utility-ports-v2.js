@@ -818,11 +818,14 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
  * the original panel's network and capacity is never duplicated. The field
  * rating is a real bottleneck in powerCable.solve, not decorative metadata.
  */
-function fieldDistributionPorts(count, { capacity, serviceRadius = null, feedSide = 'back' } = {}) {
+function fieldDistributionPorts(count, {
+  capacity, serviceRadius = null, feedSide = 'back', interchangeable = false,
+} = {}) {
+  const fieldKind = interchangeable ? 'powerFieldPort' : null;
   const out = {
     pwr_in: {
       utility: 'powerCable', side: feedSide, offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'powerFieldIn',
+      role: 'pass', connectionKind: fieldKind || 'powerFieldIn',
       ...(serviceRadius == null ? {} : { bus: true }),
       params: { fieldCapacity: capacity, ...(serviceRadius == null ? {} : { serviceRadius }) },
     },
@@ -834,7 +837,7 @@ function fieldDistributionPorts(count, { capacity, serviceRadius = null, feedSid
       // the first cable tray outside the device.
       utility: 'powerCable', side: OUTLET_SIDES[i % OUTLET_SIDES.length],
       offsetAlong: 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
-      role: 'pass', connectionKind: 'powerFieldOut',
+      role: 'pass', connectionKind: fieldKind || 'powerFieldOut',
       ...(serviceRadius == null ? {} : { bus: true }),
       params: { fieldCapacity: capacity, ...(serviceRadius == null ? {} : { serviceRadius }) },
     };
@@ -864,11 +867,13 @@ function buswayPorts(capacity, serviceRadius) {
 }
 
 const INFRA_UTILITY_PORTS = {
-  // Field distribution is deliberately physical: an incoming branch circuit
-  // and a finite set of real tap boxes. It is not a service-radius shortcut
-  // and it cannot bridge another field distributor.
+  // Field distribution is deliberately physical: a finite set of real
+  // sockets, not a service-radius shortcut, and it cannot bridge another
+  // field distributor. A busway keeps a designated feeder end; a portable
+  // spider box has four equivalent sockets, so whichever one the panel reaches
+  // becomes the feed and the remaining three can serve loads.
   powerBus:            buswayPorts(160, 10),
-  spiderBox:           fieldDistributionPorts(3, { capacity: 30 }),
+  spiderBox:           fieldDistributionPorts(3, { capacity: 30, interchangeable: true }),
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      busPorts('vacuumPipe',    5),
   waveguideManifold:   busPorts('rfWaveguide',   6),

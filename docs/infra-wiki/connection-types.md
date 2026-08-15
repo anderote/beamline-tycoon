@@ -22,7 +22,7 @@ Carries low-voltage branch power from distribution panels to field distribution 
 - **Source equipment:** Compact, Section and Main Distribution Panels
 - **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
 - **Cost:** $600/sub-unit ($2,400/tile)
-- **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (three taps, 30 kW). Both take one upstream branch, add no capacity, and cannot be chained.
+- **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (four interchangeable sockets, 30 kW). Connect a panel to any spider-box socket and use the remaining three for loads. Both add no capacity and cannot be chained.
 
 ### Vacuum Pipe (gray)
 Connects vacuum pumps to the beamline. Each pump adds its rated speed to the network; pressure is the network's total gas load divided by its total pump speed.

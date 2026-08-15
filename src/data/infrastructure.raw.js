@@ -1924,7 +1924,7 @@ export const INFRASTRUCTURE_RAW = {
   spiderBox: {
     id: 'spiderBox',
     name: 'Spider Box',
-    desc: 'Compact field distribution box. One incoming branch circuit fans to three local loads, up to 30 kW total, without adding capacity.',
+    desc: 'Compact 30 kW field distribution box with four interchangeable sockets. Feed any socket from a panel, then use the other three for local loads.',
     category: 'power', subsection: 'fieldDistribution',
     paletteOrder: 20,
     cost: { funding: 18000 },

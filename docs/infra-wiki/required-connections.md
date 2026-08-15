@@ -158,7 +158,7 @@ Recovery is facility-wide and counts each type once. The four contributing parts
 | Power Distribution Panel | 1 HV input → 4 branch circuits; no new capacity |
 | UPS / Battery Bank | 1 HV input → 2 critical branch circuits; no new capacity |
 | Beamline Busway | 1 branch input, 10-cell field reach; no new capacity |
-| Spider Box | 1 branch input → 4 local taps; no new capacity |
+| Spider Box | 4 interchangeable sockets; one panel feed leaves 3 local taps; no new capacity |
 | Disconnect Switch | *inert* |
 | Laser System | 3 kW draw, *inert* |
 

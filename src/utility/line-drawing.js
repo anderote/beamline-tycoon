@@ -271,7 +271,13 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     const b = connectionKind(endSpec, utilityType);
     return oneOfPair(a, b, 'powerDistributionOut', 'powerLoadIn')
       || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldIn')
-      || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn');
+      || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn')
+      // A portable spider box has no privileged feeder socket: any one of its
+      // four sockets may face the panel, and any remaining socket may face a
+      // load. Field-port to field-port stays illegal, preserving the radial
+      // no-chaining/no-backfeed rule.
+      || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldPort')
+      || oneOfPair(a, b, 'powerFieldPort', 'powerLoadIn');
   }
   return true;
 }
@@ -367,6 +373,16 @@ export function validateDrawLine(state, {
     // arrival direction at a fitting.
   }
 
+  // Interchangeable spider-box sockets would otherwise accept a meaningless
+  // cable back into the same box and consume two sockets. Keep this check
+  // specific to field ports so legacy same-device lines for other utilities
+  // can still be re-anchored when their host moves.
+  if (start && end && start.placeableId === end.placeableId
+      && (connectionKind(startSpec, utilityType) === 'powerFieldPort'
+        || connectionKind(endSpec, utilityType) === 'powerFieldPort')) {
+    return reject('invalid_port_pair');
+  }
+
   if (!portsCanConnect(startSpec, endSpec, utilityType)) {
     return reject('invalid_port_pair');
   }
@@ -390,7 +406,8 @@ export function validateDrawLine(state, {
     // like sources for the limited shared-device tray exemption only; they
     // remain single-use ports and never gain source semantics in the solver.
     if (!spec || (spec.role !== 'source'
-        && connectionKind(spec, utilityType) !== 'powerFieldOut')) continue;
+        && connectionKind(spec, utilityType) !== 'powerFieldOut'
+        && connectionKind(spec, utilityType) !== 'powerFieldPort')) continue;
     if (!deviceHasLine(state, ref.placeableId, utilityType)) continue;
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;
