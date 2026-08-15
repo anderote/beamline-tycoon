@@ -240,7 +240,14 @@ export const PORT_ANCHOR_OVERRIDES = {
   coolingManifold: { _default: { y: 0.5 } },
   fiberBus: { _default: { y: 0.55 } },
 
-  lcwSkid: { _default: { y: 0.5 } },        // floor-standing pump skid, headers at knee height
+  lcwSkid: {
+    _default: { y: 0.5 },
+    // Cooling branches bolt to the visible high-level supply header. The
+    // legacy centre outlet stays at along=0; the two new branches flank it.
+    cool_out:   { y: 1.09, lat: 0.465, along: 0 },
+    cool_out_2: { y: 1.09, lat: 0.465, along: -0.60 },
+    cool_out_3: { y: 1.09, lat: 0.465, along: 0.60 },
+  },
   bakeoutSystem: { _default: { y: 0.5 } },  // 1 m trolley; its box's mid-shell is already 0.5
   areaMonitor: { _default: { y: 0.5 } },    // small head on a post — 0.35 sat on its bottom edge
 };

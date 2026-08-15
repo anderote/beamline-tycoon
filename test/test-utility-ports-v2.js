@@ -280,9 +280,14 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const solidStateAmp = getUtilityPortsV2('solidStateAmp');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
-  assert(lcw.cool_out.params.capacity === 25 && lcw.cool_out.params.reservoir
-      && lcw.cool_out.params.heatRejectionCapacity === 25,
-  'LCW skid is a self-contained 25 kW cooling plant');
+  const lcwOutlets = Object.entries(lcw)
+    .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
+  assert(lcwOutlets.length === 3
+      && lcwOutlets.every(([, port]) => port.side === 'right' && port.params.reservoir)
+      && new Set(lcwOutlets.map(([, port]) => port.offsetAlong)).size === 3
+      && lcwOutlets.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 25
+      && lcwOutlets.reduce((sum, [, port]) => sum + port.params.heatRejectionCapacity, 0) === 25,
+  'LCW skid has three right-side outlets sharing one self-contained 25 kW plant');
   const packageOutlets = Object.entries(packageChiller)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
   assert(packageOutlets.length === 3
