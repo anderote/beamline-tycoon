@@ -91,7 +91,7 @@ body {
 }
 
 /* === TOP BAR === */
-/* Two stable rows: commands above, live facility information below. */
+/* Two stable rows: identity/audio above, navigation and live stats below. */
 #top-bar {
   position: absolute;
   top: 0;
@@ -157,10 +157,11 @@ body {
 
 #top-buttons {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
-  margin-left: auto;
+  margin-left: 0;
   min-width: 0;
 }
 
@@ -169,17 +170,17 @@ body {
 #btn-hire,
 #menu-wrapper { flex-shrink: 0; }
 
+#top-bar-primary #sim-controls {
+  margin-left: auto;
+}
+
 @media (max-width: 1480px) {
   #top-bar-primary { gap: 8px; }
-  #game-title { font-size: 9px; }
-  #top-bar-primary .hud-btn { padding-right: 8px; padding-left: 8px; font-size: 8px; }
+  #top-bar-info { gap: 8px; }
+  #top-bar-info .hud-btn { padding-right: 8px; padding-left: 8px; font-size: 8px; }
   #music-player .mp-track-name-wrap { width: 110px; }
   #top-bar-info #beam-stats-panel { gap: 4px 9px; }
   #top-bar-info .res-box { min-width: 62px; padding-right: 6px; padding-left: 6px; }
-}
-
-@media (max-width: 1320px) {
-  #game-title { display: none; }
 }
 
 @media (max-width: 1160px) {
@@ -306,10 +307,10 @@ body {
   color: #ffcc88;
 }
 
-/* === MUSIC PLAYER (embedded with the primary top-bar actions) === */
+/* === MUSIC PLAYER (embedded beside the game title) === */
 #music-player {
   position: static;
-  margin-left: 2px;
+  margin-left: 0;
   display: flex;
   align-items: center;
   gap: 4px;

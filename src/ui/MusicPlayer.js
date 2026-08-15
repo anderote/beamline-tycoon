@@ -66,7 +66,7 @@ export class MusicPlayer {
     this.themeSelect = this.el.querySelector('.mp-theme');
     this.minimizeBtn = this.el.querySelector('.mp-minimize');
     this.minimized = false;
-    this._embedded = !!this.el.closest('#top-buttons');
+    this._embedded = !!this.el.closest('#top-bar');
 
     // Drag / position state
     this._customPos = null;      // { left, top } once the user has dragged the player
@@ -74,7 +74,7 @@ export class MusicPlayer {
 
     this._bindEvents();
     this._updateMuteButton();
-    // The in-game player lives with the top-bar actions. Keep the
+    // The in-game player lives beside the title in the top bar. Keep the
     // draggable positioning support for any standalone embedding, but never
     // let a saved floating position tear the HUD layout apart.
     if (!this._embedded) {
