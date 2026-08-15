@@ -2415,11 +2415,17 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   if (!affordable) item.classList.add('unaffordable');
   if (zoneBlocked) item.classList.add('zone-blocked');
 
-  // Visually distinguish attachment-type components (placed on beam pipes)
-  // from module-type components (placed on the grid).
+  // Visually distinguish attachment-type components from grid modules, and
+  // name every mount the tool actually accepts. Vacuum gauges prefer a drawn
+  // utility run but deliberately retain beam-pipe mounting as a fallback.
   if (comp.placement === 'attachment') {
     item.classList.add('attachment-tool');
-    item.title = `${comp.name} — attaches to beam pipe`;
+    const utilityName = comp.utilityMount
+      ? (UTILITY_TYPES[comp.utilityMount]?.displayName || comp.utilityMount)
+      : null;
+    item.title = utilityName
+      ? `${comp.name} — attaches anywhere along ${utilityName} runs or to beam pipe`
+      : `${comp.name} — attaches to beam pipe`;
   }
 
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch

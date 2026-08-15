@@ -11,6 +11,7 @@ import {
 } from '../src/utility/line-attachments.js';
 import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { InputHandler } from '../src/input/InputHandler.js';
+import { BeamlineTool } from '../src/input/beamline-tool.js';
 import { gridToIso } from '../src/renderer/grid.js';
 
 let passed = 0, failed = 0;
@@ -63,6 +64,10 @@ console.log('\n=== 2. The new vacuum supply ladder is real catalog data ===\n');
 
 console.log('\n=== 3. The armed placement tool finds and previews vacuum runs ===\n');
 {
+  assert(['piraniGauge', 'coldCathodeGauge', 'baGauge'].every(
+    type => COMPONENTS[type]?.utilityMount === 'vacuumPipe',
+  ), 'every vacuum gauge declares the vacuum-run mounting capability');
+
   const line = {
     id: 'ul_preview', utilityType: 'vacuumPipe',
     path: [{ col: 1, row: 2 }, { col: 5, row: 2 }], attachments: [],
@@ -88,7 +93,44 @@ console.log('\n=== 3. The armed placement tool finds and previews vacuum runs ==
     'green placement ghost renders at the exact utility-run mount pose');
 }
 
-console.log('\n=== 4. Gauges mount, render, save, wire, and refund as line equipment ===\n');
+console.log('\n=== 4. A palette-tool click mounts the gauge at the cursor ===\n');
+{
+  const game = new Game(new BeamlineRegistry());
+  game.sandboxMode = false;
+  game.state.resources.funding = 5_000_000;
+  const line = {
+    id: 'ul_click', utilityType: 'vacuumPipe',
+    path: [{ col: 1, row: 2 }, { col: 5, row: 2 }], attachments: [],
+    start: null, end: null,
+  };
+  game.state.utilityLines.set(line.id, line);
+
+  const cursor = gridToIso(3.2, 2.12);
+  const renderer = { screenToWorld: () => cursor };
+  const input = Object.create(InputHandler.prototype);
+  input.game = game;
+  input.renderer = renderer;
+  input.placementDir = 0;
+  input.selectedParamOverrides = null;
+
+  const tool = new BeamlineTool('piraniGauge');
+  const consumed = tool.onClick(
+    { clientX: 20, clientY: 30 },
+    { input, game, renderer },
+  );
+  const mounted = line.attachments[0];
+  const pose = mounted && utilityAttachmentPose(line, mounted);
+  assert(consumed === true && mounted?.type === 'piraniGauge',
+    'the normal palette tool consumes a click and creates a line attachment');
+  assert(Math.abs(pose?.worldX - 6.4) < 1e-9 && Math.abs(pose?.worldZ - 4) < 1e-9,
+    'the committed gauge lands at the arbitrary cursor projection, not a path vertex');
+
+  game.undo();
+  assert(game.state.utilityLines.get('ul_click')?.attachments?.length === 0,
+    'the click is one undoable placement gesture');
+}
+
+console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equipment ===\n');
 {
   const game = new Game(new BeamlineRegistry());
   game.sandboxMode = false;
