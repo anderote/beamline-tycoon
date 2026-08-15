@@ -194,6 +194,55 @@ console.log('\n=== 3. Move previews ignore only the object being moved ===\n');
   'self-exclusion still treats every other object as a blocker');
 }
 
+// Junctions use BeamlineInputController for their ghost rather than the
+// generic branch above. That split used to lose both self-exclusion and the
+// snapped hover pose, so a placed source previewed red on its own footprint
+// and the selected item's Place action had no destination to commit.
+{
+  const g = makeGame(106);
+  const pl = PLACEABLES.penningIonSource;
+  const origin = findClearTile(g, pl);
+  const id = g.placePlaceable({
+    type: 'penningIonSource', ...origin.snap, dir: 0, free: true, silent: true,
+  });
+  assertOk(!!id, 'setup: placed a Penning source for a junction move');
+
+  // Moving is free even if the player cannot afford another source.
+  g.state.resources.funding = 0;
+  g.state.resources.spares = 0;
+  const renderer = makeRenderer();
+  const input = makeInput(g, renderer, 'penningIonSource');
+  input.activeTool = {
+    kind: 'move',
+    payload: {
+      kind: 'selectedPlaceable', placeableId: id,
+      type: 'penningIonSource', dir: 0,
+    },
+  };
+  input.beamlineController = new BeamlineInputController({
+    game: g, renderer, inputHandler: input,
+  });
+  input.lastMouseWorldX = origin.iso.x;
+  input.lastMouseWorldY = origin.iso.y;
+
+  input._updatePlaceablePreview();
+  assertOk(renderer.ghosts.at(-1)?.ok === true,
+    'a Penning source does not block its move ghost on its own footprint');
+  assertOk(input.hoverPlaceable?.valid === true,
+    'junction move retains the snapped hover pose needed by the Place action');
+
+  input.placementDir = 1;
+  input._updatePlaceablePreview();
+  assertOk(renderer.ghosts.at(-1)?.hover?.dir === 1,
+    'rotating a Penning source updates the directional ghost immediately');
+
+  input._showToast = () => {};
+  input._placeMovedObject = InputHandler.prototype._placeMovedObject;
+  const moved = input._placeMovedObject(input.activeTool.payload, origin.col, origin.row);
+  assertOk(moved === true && g.getPlaceable(id)?.dir === 1,
+    'the Place action commits the rotated Penning source with its stable id');
+}
+
 console.log('\n=== 4. Line placement previews only what the budget covers ===\n');
 
 {

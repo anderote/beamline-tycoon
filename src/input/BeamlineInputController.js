@@ -121,14 +121,14 @@ export class BeamlineInputController {
     return `Can't place ${def.name} on this pipe (${reason || 'invalid position'}).`;
   }
 
-  onHover(worldX, worldY, selectedId) {
+  onHover(worldX, worldY, selectedId, options = {}) {
     if (!selectedId) return;
     const def = COMPONENTS[selectedId];
     if (!def) return;
     if (def.role === 'junction') {
-      this._previewJunction(selectedId, worldX, worldY);
+      return this._previewJunction(selectedId, worldX, worldY, options);
     } else if (def.role === 'placement') {
-      this._previewPlacement(selectedId, worldX, worldY);
+      return this._previewPlacement(selectedId, worldX, worldY);
     }
   }
 
@@ -285,7 +285,7 @@ export class BeamlineInputController {
   // Internals.
   // -------------------------------------------------------------------------
 
-  _previewJunction(selectedId, worldX, worldY) {
+  _previewJunction(selectedId, worldX, worldY, options = {}) {
     const placeable = PLACEABLES[selectedId];
     if (!placeable) return;
     const dir = this.input.placementDir || 0;
@@ -296,10 +296,11 @@ export class BeamlineInputController {
     const result = previewPlacement(
       this.game, placeable,
       snap.col, snap.row, snap.subCol, snap.subRow, dir,
+      options,
     );
-    // Controller owns the ghost for junctions now, so hoverPlaceable stays
-    // null — the generic click path in InputHandler is bypassed via the
-    // role-based delegation guard.
+    // Controller owns rendering/commit for a newly armed junction. During a
+    // move, InputHandler also retains this returned pose so MoveTool can drop
+    // the existing stable-id junction through Game.movePlaceable.
     const hover = {
       id: selectedId,
       col: snap.col,
@@ -310,8 +311,13 @@ export class BeamlineInputController {
       portsFlipped: this.input.placementPortsFlipped === true,
       placeY: 0,
       stackTargetId: null,
+      valid: result.ok,
+      reason: result.reason,
     };
     this.renderer.renderPlaceableGhost(hover, result.ok, result.reason);
+    // InputHandler uses this returned pose when a placed junction is being
+    // carried. Normal BeamlineTool commits still stay controller-owned.
+    return hover;
   }
 
   // --- placement-on-pipe preview + commit --------------------------------

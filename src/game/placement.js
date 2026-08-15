@@ -234,7 +234,10 @@ export function previewPlacement(
 ) {
   const geo = canPlace(game, placeable, col, row, subCol, subRow, dir, options);
   const cost = componentCostFor(placeable);
-  const affordable = canAffordCost(game, cost);
+  // Moving an existing placeable is free. Move previews still use this shared
+  // helper for collision/wall validation, but must not turn amber (or refuse)
+  // merely because the player could not afford to buy the item again.
+  const affordable = options.free === true || canAffordCost(game, cost);
   const reason = !geo.ok
     ? (geo.wallBlocked ? PLACE_WALL : PLACE_BLOCKED)
     : (affordable ? null : PLACE_UNAFFORDABLE);
