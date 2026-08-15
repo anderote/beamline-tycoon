@@ -34,8 +34,9 @@ git worktree add -b agent/<short-feature-slug> ../beamline-tycoon-<short-feature
 - Port `8000` is reserved exclusively for the stable game served from the root
   `master` worktree. Feature, fix, test, and review worktrees must never start,
   stop, replace, or kill the listener on port `8000`.
-- Do not run `npm run dev` from a non-root worktree. Its `predev` script kills
-  the process on port `8000`, even when a different Vite port is passed later.
+- Do not run `npm run dev` for isolated validation because it does not reserve
+  an ephemeral port or enable `--strictPort`. The package deliberately has no
+  script that kills an existing listener.
 - Discover a currently unused ephemeral port for every local server launch;
   do not reuse a hard-coded alternate port. Start Vite directly with
   `--strictPort` so a race for that port fails visibly instead of silently
@@ -57,6 +58,38 @@ lsof -tiTCP:"$beamline_port" -sTCP:LISTEN
 
 The final `lsof` command must print nothing. If it prints a PID, the temporary
 server still needs to be stopped before the task is handed off.
+
+## Architecture and content contracts
+
+- Read `docs/ARCHITECTURE.md` before changing ownership boundaries or adding a
+  new subsystem. Read `docs/CONTENT-CONTRACTS.md` before adding or changing
+  placeables, utility ports, research unlocks, scenarios, or stock designs.
+- Preserve the dependency direction described there. In particular, data
+  modules must not acquire indirect runtime dependencies, and all `src/`
+  imports must remain acyclic (`test/test-import-boundaries.js` enforces this).
+- Prefer a small command or coordinator module when adding transactional
+  behavior to `Game.js`, `InputHandler.js`, or `ThreeRenderer.js`. Keep those
+  files as composition/event-routing surfaces; do not add another multi-step
+  workflow directly when it can be tested through a public function or class.
+- Cross-module calls use public methods. Underscored methods are private to
+  their owner and must not become a new test or integration seam.
+- Scenario wiring selects utility ports by capability (`utility`, `role`,
+  optional `side`/`index`) through `src/utility/port-contracts.js`. Do not copy
+  authored connector names into scenario scripts unless the exact physical
+  connector is itself part of the scenario's intent.
+- Production UI displays published game/solver values; it must not independently
+  recompute economy, utility, or beam-physics quantities.
+
+## Validation
+
+- Follow `docs/TESTING.md`. During development, run the closest focused test,
+  then `npm run test:fast` and `npm run build` before handoff.
+- Run `npm run test:simulation` whenever economy, staffing, scenario, or
+  utility-topology changes can affect a facility's operating balance.
+- `npm test` / `npm run test:all` is the complete non-browser gate. Run the
+  Playwright lane when behavior depends on browser rendering or interaction.
+- A changed contract requires a test at the contract boundary, not only a test
+  of the current implementation's private helpers.
 
 ## Completing feature work
 

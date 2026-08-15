@@ -11,7 +11,9 @@
 //      drains the reservoir (refills are a real recurring cost).
 //   C) A late-game-ish build (second bigger beamline + detector + RF plant +
 //      cooling loop + full staff roster) pays a meaningful fraction of gross
-//      income back out as upkeep: between 20% and 70% (currently ~43%).
+//      income back out as upkeep: between 20% and 75%. The staged cooling
+//      plant and dedicated RF networks make the modern recipe more expensive
+//      than the original integrated-skid build, while it remains net-positive.
 //
 // Bounds are deliberately loose: this test flags economy regressions (a knob
 // change or new cost stream that breaks a whole phase of the game), it does
@@ -21,9 +23,8 @@
 // at all (it re-derived beamIncomePerNode to the same 240 and did its work in
 // the research/objective/utility cost tables), so these bounds still stand.
 //
-// This file measures RATES — what a facility earns and pays per tick. What a
-// whole playthrough costs, and how long it takes, lives in
-// test/test-progression.js.
+// This file measures RATES — what a facility earns and pays per tick.
+// test/test-progression.js separately checks static progression contracts.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -199,8 +200,8 @@ function measure(game, ticks) {
   const m = measure(game, 700);
   assert(m.gross > 0, 'late-game gross income positive');
   const frac = m.upkeep / m.gross;
-  assert(frac > 0.2 && frac < 0.7,
-    `late-game upkeep fraction 20-70% of gross (got ${(100 * frac).toFixed(1)}%)`);
+  assert(frac > 0.2 && frac < 0.75,
+    `late-game upkeep fraction 20-75% of gross (got ${(100 * frac).toFixed(1)}%)`);
   assert(m.dFunds > 0, `late-game still net-positive (${(m.dFunds / 700).toFixed(1)}/t)`);
   assert(m.refills > 0, `reservoir refills occurred ($${m.refills})`);
 }

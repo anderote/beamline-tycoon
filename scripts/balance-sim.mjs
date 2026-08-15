@@ -1,8 +1,7 @@
 // scripts/balance-sim.mjs — headless economy balance simulation.
 //
-// Four scripted runs. A/B/C are steady-state rate measurements printing a
-// tick-by-100 table of funds / reputation / cumulative refill spend each; D is
-// a whole PLAYTHROUGH and is the one progression tuning reads.
+// Three steady-state rate measurements printing a tick-by-100 table of funds,
+// reputation, and cumulative refill spend.
 //
 //   A) Fresh sandbox doing nothing. Target: survives >300 ticks (funds stay
 //      positive) on starting money — passive income vs the seeded operator.
@@ -13,18 +12,8 @@
 //      plant and cooling loop + a real staff roster + decorations). Target:
 //      strong gross income with upkeep (staff + power + pumps + refills)
 //      eating 20-70% of gross.
-//   D) A full playthrough from the starter facility to the top of the tech
-//      tree, with a scripted research-purchase and facility-expansion policy.
-//      Target: 28,800 ticks (~8 h at 1x). Reports per-tier completion ticks,
-//      the funds/reputation/data trajectory, what the run was BLOCKED on, and
-//      the ratio against the target. Lives in scripts/balance-playthrough.mjs.
-//
-// Run: node scripts/balance-sim.mjs           (A/B/C — D is opt-in, it is slow)
+// Run: node scripts/balance-sim.mjs           (A/B/C)
 //      node scripts/balance-sim.mjs bc        (pick runs by letter)
-//      node scripts/balance-sim.mjs d         (the playthrough table)
-//      node scripts/balance-sim.mjs d --sweep (run length vs build-out size)
-//      node scripts/balance-sim.mjs d --no-expand --max-ticks=400000
-//      flags: --seed --max-ticks --sample --max-lines --detectors --no-expand
 //
 // This is the tuning companion to test/test-economy-balance.js, which encodes
 // A/B/C's targets as loose assertions and imports run C's build recipe from
@@ -41,27 +30,6 @@
 //   B +1306.8/t 15.6%   upkeep 241.2/t   (staff 120, power 98, pumps 16, refill 7)
 //   C +2557.0/t 43.5%   upkeep 1970.1/t  (staff 1150, power 623, pumps 24, refill 173)
 //
-// Run D's baseline, measured before any Phase-12 tuning (`d --sweep`, seed 909;
-// "extra lines" is the cap on beamlines the expansion ladder may add):
-//   lines | tree done |   ticks | ratio | income/tick | blocked on
-//       0 |     54/68 | 150,000+|    -- |       1,843 | funding 97%
-//       2 |     68/68 | 114,034 |  3.96 |       5,733 | funding 95%
-//       4 |     68/68 |  78,175 |  2.71 |       8,455 | funding 94%
-//       8 |     68/68 |  50,264 |  1.75 |      13,435 | funding 91%
-//      16 |     68/68 |  32,502 |  1.13 |      21,646 | funding 87%
-//      24 |     68/68 |  26,238 |  0.91 |      27,879 | funding 86%
-// Read it as: run length is set almost entirely by how many identical beamlines
-// the player builds, because beam income is linear in hardware node count with
-// no diminishing return. One cup line — $3.37M at the time of this baseline,
-// $3.83M now that the drift pipe and the wiring are priced into it — adds
-// ~1,100/tick net and pays back in ~3,000 ticks, so line-spam is strictly
-// dominant and the tree's price tag is not what paces the game.
-//   `d --no-expand` (no labs either): NEVER finishes. 31 of 68 nodes stay
-//   unreachable and 95% of the run is blocked on labTier — the shipped starter
-//   facility has no opticsLab / coolingLab / diagnosticsLab / machineShop, and
-//   RESEARCH_SPEED_TABLE blocks depth-5+ and final nodes below lab tier 1/2.
-//   Reputation blocked 0% of every run measured; data under 2%.
-
 import './balance-env.mjs';
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -70,12 +38,38 @@ import { wireUtility } from '../src/data/scenarios/scenario-wiring.js';
 import { createStaffMember } from '../src/game/staff/staffSystem.js';
 import { computeTickUpkeep } from '../src/game/economy.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
-import {
-  runPlaythrough, printPlaythrough, runSweep, autoRefill,
-} from './balance-playthrough.mjs';
+import { UTILITY_TYPES } from '../src/utility/registry.js';
 
 function mkGame(seed) {
   return new Game(new BeamlineRegistry(), { seed });
+}
+
+const REFILL_TRIGGER = {
+  coolingWater: persistent => (persistent?.reservoirVolumeL ?? Infinity) < 100,
+  cryoTransfer: persistent => (persistent?.lheVolumeL ?? Infinity) < 60,
+};
+
+function autoRefill(game) {
+  const state = game.state;
+  let spent = 0;
+  for (const [utilityType, networks] of state.utilityNetworks || []) {
+    const descriptor = UTILITY_TYPES[utilityType];
+    const shouldRefill = REFILL_TRIGGER[utilityType];
+    if (!descriptor || !shouldRefill || typeof descriptor.refillCost !== 'function') continue;
+    for (const network of networks) {
+      const persistent = state.utilityNetworkState.get(network.id);
+      if (!persistent || !shouldRefill(persistent)) continue;
+      const cost = descriptor.refillCost(persistent);
+      if (!cost?.funding || state.resources.funding < cost.funding) continue;
+      state.resources.funding -= cost.funding;
+      spent += cost.funding;
+      state.utilityNetworkState.set(network.id, {
+        ...persistent,
+        ...descriptor.persistentStateDefaults,
+      });
+    }
+  }
+  return spent;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +224,8 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     if (!ok) log('C: placeOnPipe failed', type, position);
     onPipe.push(ok);
   }
+  const buncher2 = onPipe[0];
+  const cavities2 = [onPipe[1], onPipe[2], onPipe[3], onPipe[5]];
   const bpm2 = onPipe[7];
 
   const place = (type, col, row) => {
@@ -248,7 +244,9 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   //   data 41 -> a 40-capacity network switch alongside the IOC.
   const hv   = place('hvTransformer', -6, 8);
   const mbk  = place('multibeamKlystron', -3, 8);
-  const ssa2 = place('solidStateAmp', -1, 8);
+  // Keep the VHF source west of the S-band gallery so their waveguide trunks
+  // leave on different corridors and never join by accidental overlap.
+  const ssa2 = place('solidStateAmp', -10, 8);
   const tp   = place('turboPump', 0, 8);
   // A turbo is not a stand-alone atmosphere-to-high-vacuum source. Keep the
   // portable roughing stage on the same header so this scripted facility uses
@@ -277,7 +275,6 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // aisle — put distribution where its loads are, which is the decision the
   // chain exists to create.
   const mcc2     = place('mcc', 2, 12);
-  const wgBus2   = place('waveguideManifold', -2, 9);
   const coolW2   = place('coolingManifold', 1, 9);
   const coolE2   = place('coolingManifold', 5, 11);
   const vacW2    = place('vacuumManifold', -3, 9);
@@ -287,60 +284,61 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     const id = wireUtility(game, util, from, to);
     if (!id) log('C: wire failed', util, from.id, '->', to.id);
   };
+  const sourcePort = (id, index = 0) => ({ id, role: 'source', index });
+  const sinkPort = id => ({ id, role: 'sink' });
+  const passPort = (id, side) => ({ id, role: 'pass', side });
   // Power runs supply -> HV -> distribution -> branch circuits. The two RF
   // sources are dedicated HV loads; the remaining ten branch loads need two
   // MCCs and their point-to-point sockets.
-  if (hv && mcc1) wire('hvCable', { id: hv, port: 'hv_out_1' }, { id: mcc1, port: 'hv_in' });
-  if (hv && mcc2) wire('hvCable', { id: hv, port: 'hv_out_2' }, { id: mcc2, port: 'hv_in' });
-  if (hv && mbk) wire('hvCable', { id: hv, port: 'hv_out_3' }, { id: mbk, port: 'hv_in' });
-  if (hv && ssa2) wire('hvCable', { id: hv, port: 'hv_out_4' }, { id: ssa2, port: 'hv_in' });
-  const westLoads = [[src2, 'pwr_in'],
-    [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'pwr_in']];
-  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in'], [tower, 'pwr_in'], [rp, 'pwr_in']];
+  if (hv && mcc1) wire('hvCable', sourcePort(hv, 0), sinkPort(mcc1));
+  if (hv && mcc2) wire('hvCable', sourcePort(hv, 1), sinkPort(mcc2));
+  if (hv && mbk) wire('hvCable', sourcePort(hv, 2), sinkPort(mbk));
+  if (hv && ssa2) wire('hvCable', sourcePort(hv, 3), sinkPort(ssa2));
+  const westLoads = [sinkPort(src2), sinkPort(tp), sinkPort(ioc2), sinkPort(nsw),
+    passPort(pwrBus2, 'back')];
+  const eastLoads = [sinkPort(det), sinkPort(ch1), sinkPort(ch2), sinkPort(tower), sinkPort(rp)];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
-    loads.forEach(([id, port], i) => {
-      if (id && panel) wire('powerCable', { id: panel, port: `pwr_out_${i + 1}` }, { id, port });
+    loads.forEach((target, i) => {
+      if (target.id && panel) wire('powerCable', sourcePort(panel, i), target);
     });
   }
   if (tp) {
-    for (const [id, port] of [[src2, 'vac_in'], [det, 'vac_in'],
-      [vacW2, 'bus_left'], [vacE2, 'bus_left']]) {
-      if (id) wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id, port });
+    for (const target of [sinkPort(src2), sinkPort(det), passPort(vacW2, 'left'), passPort(vacE2, 'left')]) {
+      if (target.id) wire('vacuumPipe', sourcePort(tp), target);
     }
   }
-  if (rp && vacE2) wire('vacuumPipe', { id: rp, port: 'vac_out' }, { id: vacE2, port: 'bus_right' });
-  // TODO(balance): both RF sources land on the same manifold, which used to be
-  // fine when the solver bucketed by frequency. It no longer is — one network
-  // now carries ONE frequency, so this network serves the cavities' 2856 MHz
-  // (120 kW of demand against the buncher's 2 kW) and the buncher is starved
-  // with rf_frequency_split. The SSA on this manifold contributes nothing.
-  // Re-laying this as two waveguide networks is a layout change that has to be
-  // made and measured together, so it belongs with the balance pass, not here.
-  if (wgBus2) {
-    if (mbk) wire('rfWaveguide', { id: mbk, port: 'rf_out' }, { id: wgBus2, port: 'bus_left' });
-    if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out' }, { id: wgBus2, port: 'bus_right' });
+  if (rp && vacE2) wire('vacuumPipe', sourcePort(rp), passPort(vacE2, 'right'));
+  // One RF network carries one frequency. Keep the VHF buncher on the SSA and
+  // the 2.856 GHz cavities on the multibeam klystron; joining them through one
+  // manifold starves the buncher and depresses the entire line's income.
+  if (ssa2 && buncher2) wire('rfWaveguide', sourcePort(ssa2), sinkPort(buncher2));
+  if (mbk) {
+    for (const cavity of cavities2) {
+      if (cavity) wire('rfWaveguide', sourcePort(mbk), sinkPort(cavity));
+    }
   }
-  if (plantTank && tower) wire('plantWater', { id: plantTank, port: 'water_out' }, { id: tower, port: 'plant_in' });
-  if (tower && ch1) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch1, port: 'reject_in' });
-  if (tower && ch2) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch2, port: 'reject_in' });
+  // Reservoir, chillers, and heat rejection are roles on one cooling-water
+  // topology. Join all three plant stages to the same manifolded network.
+  if (plantTank && ch1) wire('coolingWater', sourcePort(plantTank), sourcePort(ch1, 1));
+  if (tower && ch2) wire('coolingWater', sourcePort(tower), sourcePort(ch2, 1));
   // East chiller first: its drop runs along the same service row as the west
   // chiller's feed to the detector, and lines of one utility may not overlap
   // unless they share a source.
-  if (ch2 && coolE2) wire('coolingWater', { id: ch2, port: 'cool_out' }, { id: coolE2, port: 'bus_left' });
+  if (ch2 && coolE2) wire('coolingWater', sourcePort(ch2), passPort(coolE2, 'left'));
   if (ch1) {
-    for (const [id, port] of [[src2, 'cool_in'], [det, 'cool_in'], [coolW2, 'bus_left']]) {
-      if (id) wire('coolingWater', { id: ch1, port: 'cool_out' }, { id, port });
+    for (const target of [sinkPort(src2), sinkPort(det), passPort(coolW2, 'left')]) {
+      if (target.id) wire('coolingWater', sourcePort(ch1), target);
     }
   }
   if (nsw) {
-    for (const [id, port] of [[det, 'data_in'], [bpm2, 'data_in']]) {
-      if (id) wire('dataFiber', { id: nsw, port: 'data_out' }, { id, port });
+    for (const id of [det, bpm2]) {
+      if (id) wire('dataFiber', sourcePort(nsw), sinkPort(id));
     }
   }
 
   // Staff roster on top of the seeded operator: +1 operator (covers fatigue
   // breaks and this second beamline), 2 technicians, 1 scientist, 1 engineer.
-  const roles = ['operator', 'technician', 'technician', 'scientist', 'engineer'];
+  const roles = ['operator', 'technician', 'scientist', 'engineer'];
   for (const role of roles) {
     const m = createStaffMember(role, `staff_${state.staffNextId++}`, state.tick, game.rng);
     if (role === 'operator') {
@@ -387,30 +385,6 @@ function runC() {
   runSim('C: late-game-ish, two beamlines + detector + cooling', game, 2000, { measureFrom: 300 });
 }
 
-// ---------------------------------------------------------------------------
-// Run D — the playthrough. A/B/C measure rates; only D measures LENGTH, which
-// is the question the progression pass exists to answer. Lives in
-// scripts/balance-playthrough.mjs.
-// ---------------------------------------------------------------------------
-function runD(args) {
-  const arg = (name, dflt) => {
-    const hit = args.find(a => a.startsWith(`--${name}=`));
-    return hit ? Number(hit.slice(name.length + 3)) : dflt;
-  };
-  if (args.includes('--sweep')) {
-    runSweep({ seed: arg('seed', 909), maxTicks: arg('max-ticks', 150_000) });
-    return;
-  }
-  printPlaythrough(runPlaythrough({
-    seed: arg('seed', 909),
-    maxTicks: arg('max-ticks', 400_000),
-    sampleEvery: arg('sample', 2000),
-    detectors: arg('detectors', undefined),
-    maxLines: arg('max-lines', undefined),
-    expand: !args.includes('--no-expand'),
-  }));
-}
-
 // Only run the tables when invoked as a script — test/test-economy-balance.js
 // imports buildLateGameFacility from here.
 if (process.argv[1] && process.argv[1].endsWith('balance-sim.mjs')) {
@@ -419,5 +393,4 @@ if (process.argv[1] && process.argv[1].endsWith('balance-sim.mjs')) {
   if (which.includes('a')) runA();
   if (which.includes('b')) runB();
   if (which.includes('c')) runC();
-  if (which.includes('d')) runD(args);
 }

@@ -40,7 +40,7 @@
 
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
-import { bandForFrequencyHz } from '../utility/types/rfWaveguide.js';
+import { bandForFrequencyHz } from './rf-bands.js';
 
 // ---------------------------------------------------------------------------
 // Per-utility fallback params (safety net only — ports declare their own).
