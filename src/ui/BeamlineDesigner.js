@@ -3,6 +3,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { getBeamlineType } from '../data/beamline-types.js';
+import { beamlineTypeHidesComponent } from './BeamlineTypePicker.js';
 import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
@@ -14,6 +15,10 @@ import { pushEscHandler } from './esc-stack.js';
 import { applyPreviewDialog } from './ApplyPreviewDialog.js';
 import { DesignNameDialog } from './DesignNameDialog.js';
 import { portWorldPosition } from '../utility/ports.js';
+import {
+  computePlacementHints,
+  missionPlotTargets,
+} from '../beamline/designer-placement-hints.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -63,7 +68,12 @@ export class BeamlineDesigner {
     this._baselinePending = false;  // baseline deferred until physics is ready
     // Utility lines a moveJunction op could not re-route, counted per apply.
     this._danglingLineCount = 0;
-    this.ghostQuads = [];      // suggested quad positions [{s, nodeIndex, polarity}]
+    // Physics-driven, non-mutating insertion recipes. `ghostQuads` remains a
+    // focus-only compatibility view for Stubby and older tests; all designer
+    // rendering and one-click insertion use placementHints.
+    this.placementHints = [];
+    this.ghostQuads = [];
+    this._hoverSchematicX = null;
     this.selectedIndex = -1;    // index into draftNodes
 
     // Mode: 'edit' (from placed beamline) or 'design' (standalone sandbox)
@@ -373,7 +383,7 @@ export class BeamlineDesigner {
           for (const gr of this._ghostRegions) {
             if (clickX >= gr.x && clickX <= gr.x + gr.w &&
                 clickY >= gr.y && clickY <= gr.y + gr.h) {
-              this._insertGhostQuad(gr.ghost);
+              this._acceptPlacementHint(gr.hint || gr.ghost);
               return;
             }
           }
@@ -383,6 +393,25 @@ export class BeamlineDesigner {
         this.focusRow = 0;
         this._updateFocusRowVisuals();
         this._renderAll();
+      });
+
+      // Pointer-local advice. This does not move the blue inspection marker or
+      // re-run physics: it only asks the schematic to reveal the closest
+      // already-computed build hint. A single rAF coalesces dense mousemove
+      // events so the canvas stays responsive on long lattices.
+      schematicCanvas.addEventListener('mousemove', (e) => {
+        if (!this.isOpen || dragging || reorderDragging) return;
+        const rect = schematicCanvas.getBoundingClientRect();
+        this._hoverSchematicX = e.clientX - rect.left;
+        if (this._hoverHintFrame) return;
+        this._hoverHintFrame = requestAnimationFrame(() => {
+          this._hoverHintFrame = null;
+          if (this.isOpen) this._renderSchematic();
+        });
+      });
+      schematicCanvas.addEventListener('mouseleave', () => {
+        this._hoverSchematicX = null;
+        if (this.isOpen) this._renderSchematic();
       });
 
       // Mousewheel zoom
@@ -400,7 +429,7 @@ export class BeamlineDesigner {
     if (advisorReadout) {
       advisorReadout.addEventListener('click', () => {
         if (!this.isOpen) return;
-        this._jumpToNextGhost();
+        this._jumpToNextPlacementHint();
       });
     }
 
@@ -1367,7 +1396,7 @@ export class BeamlineDesigner {
     this._renderAll();
   }
 
-  insertComponent(index, type, position) {
+  insertComponent(index, type, position, initialParams = null) {
     const comp = COMPONENTS[type];
     if (!comp) return;
     this._pushUndo();
@@ -1395,6 +1424,20 @@ export class BeamlineDesigner {
     if (comp.params) {
       for (const [k, v] of Object.entries(comp.params)) {
         if (!(k in newNode.params)) newNode.params[k] = v;
+      }
+    }
+    // Advisor insertions travel through this same public draft operation, but
+    // may carry a physics-derived starting point (for example quadrupole
+    // polarity). Only declared, non-derived controls may be initialized — a
+    // hint cannot smuggle arbitrary state onto a component.
+    if (initialParams && typeof initialParams === 'object') {
+      const defs = PARAM_DEFS[type] || {};
+      for (const [key, value] of Object.entries(initialParams)) {
+        const def = defs[key];
+        if (!def || def.derived || !Number.isFinite(value)) continue;
+        const lo = Number.isFinite(def.min) ? def.min : value;
+        const hi = Number.isFinite(def.max) ? def.max : value;
+        newNode.params[key] = Math.max(lo, Math.min(hi, value));
       }
     }
 
@@ -1954,19 +1997,29 @@ export class BeamlineDesigner {
     return { W, effZoom: this.viewZoom * (W / (5 * SCHEM_PW + 40)) };
   }
 
-  /** Show how many quads the advisor is proposing. The schematic shows roughly
-   *  five components at base zoom, so on any real beamline the suggestions sit
-   *  off the visible span — without a readout the advisor is silent work. */
+  /** Show how many physics-backed build insertions are currently actionable. */
   _updateAdvisorReadout() {
     const el = document.getElementById('dsgn-advisor-readout');
     if (!el) return;
-    const n = this.ghostQuads ? this.ghostQuads.length : 0;
+    const n = this.placementHints ? this.placementHints.length : 0;
     if (n === 0) {
       el.classList.add('hidden');
       return;
     }
     el.classList.remove('hidden');
-    el.textContent = `▲ focus advisor: ${n} suggested quad${n === 1 ? '' : 's'}`;
+    el.textContent = `▲ physics advisor: ${n} build hint${n === 1 ? '' : 's'}`;
+  }
+
+  /** Walk through every typed placement hint from source to endpoint. */
+  _jumpToNextPlacementHint() {
+    if (!this.placementHints || this.placementHints.length === 0) return;
+    const i = (this._placementHintCursor ?? -1) + 1;
+    this._placementHintCursor = i >= this.placementHints.length ? 0 : i;
+    this.markerS = this.placementHints[this._placementHintCursor].s;
+    this._hoverSchematicX = null;
+    this._updateSelectionFromMarker();
+    this._centerViewOnMarker();
+    this._renderAll();
   }
 
   /** Walk the marker through the advisor's suggestions, one per click, and
@@ -1980,6 +2033,13 @@ export class BeamlineDesigner {
     this._updateSelectionFromMarker();
     this._centerViewOnMarker();
     this._renderAll();
+  }
+
+  /** Goal bands consumed by ProbePlots. Kept on the designer so a saved,
+   *  typeless design simply returns quiet plots rather than inventing goals. */
+  _missionPlotTargets() {
+    const typeId = this._designerBeamlineTypeId?.();
+    return missionPlotTargets(typeId ? getBeamlineType(typeId) : null);
   }
 
   /** Centre the schematic viewport on the marker (unlike _panToFollowMarker,
@@ -2171,8 +2231,10 @@ export class BeamlineDesigner {
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
     if (!this.draftEnvelope) {
+      this.placementHints = [];
       this.ghostQuads = [];
       this._advisorCursor = -1;
+      this._placementHintCursor = -1;
       this._updateAdvisorReadout();
       return;
     }
@@ -2192,108 +2254,66 @@ export class BeamlineDesigner {
       if (maxS > 0) this.totalLength = maxS;
     }
 
-    // Compute ghost quad suggestions from focus urgency
-    this._computeGhostQuads();
+    // Compute typed build suggestions from the same propagated beam state the
+    // plots display. No extra physics pass and no UI heuristic copy.
+    this._computePlacementHints();
     // The suggestion list just changed, so a cursor into the old list points at
     // an unrelated position. Start the walk over.
     this._advisorCursor = -1;
+    this._placementHintCursor = -1;
     this._updateAdvisorReadout();
     // Optics advice is only meaningful against the current draft, and the
     // draft changes far faster than the tick Stubby normally runs on.
     this.game?._runAdvisor?.();
   }
 
-  /**
-   * Compute suggested quad positions from focus urgency data.
-   * Returns array of { s, nodeIndex, polarity } objects.
-   */
+  /** Whether the player can actually insert a component into this machine. */
+  _componentAvailableForHint(type) {
+    const comp = COMPONENTS[type];
+    if (!comp || comp.category === 'source' || comp.category === 'endpoint') return false;
+    if (!this.game?.isComponentUnlocked?.(comp)) return false;
+    const typeId = this._designerBeamlineTypeId?.();
+    return !beamlineTypeHidesComponent(typeId, type, comp);
+  }
+
+  /** Compute all designer-local insertion recipes. */
+  _computePlacementHints() {
+    const typeId = this._designerBeamlineTypeId?.();
+    const beamlineType = typeId ? getBeamlineType(typeId) : null;
+    this.placementHints = computePlacementHints({
+      nodes: this.draftNodes,
+      envelope: this.draftEnvelope,
+      beamlineType,
+      isAvailable: type => this._componentAvailableForHint(type),
+    });
+    // Stubby's existing focus rules and the regression suite consume this
+    // narrow view. Keep it derived so it cannot disagree with the canvas.
+    this.ghostQuads = this.placementHints
+      .filter(hint => hint.kind === 'focus' && hint.componentType === 'quadrupole')
+      .map(hint => ({
+        s: hint.s,
+        nodeIndex: hint.nodeIndex,
+        polarity: hint.params?.polarity,
+      }));
+  }
+
+  /** Compatibility entry point used by focused unit tests. */
   _computeGhostQuads() {
-    this.ghostQuads = [];
-    const env = this.draftEnvelope;
-    if (!env || env.length < 2) return;
-
-    const URGENCY_THRESHOLD = 0.7;
-    // A long machine would otherwise wallpaper the schematic with arrows. The
-    // first dozen are the ones worth acting on; placing them drops urgency
-    // downstream and the advisor re-proposes from there.
-    const MAX_GHOSTS = 12;
-
-    // Find s-positions of existing quads
-    const quadTypes = new Set([
-      'quadrupole', 'scQuad', 'protonQuad', 'combinedFunctionMagnet',
-    ]);
-    const existingQuadS = [];
-    let lastQuadPolarity = 1; // default: first ghost is Focus X
-    let cumS = 0;
-    for (const node of this.draftNodes) {
-      const compLen = _nodeSubL(node) * 0.5;
-      if (quadTypes.has(node.type)) {
-        existingQuadS.push(cumS + compLen / 2);
-        // Track last quad polarity for alternation
-        const p = node.params?.polarity;
-        lastQuadPolarity = (p === 1) ? -1 : 1; // next should be opposite
-      }
-      cumS += compLen;
+    // Prototype-only tests intentionally construct a designer without a game;
+    // in that case every catalogue component is available and the untyped line
+    // defaults to the established quadrupole behavior.
+    if (!this.game) {
+      this.placementHints = computePlacementHints({
+        nodes: this.draftNodes,
+        envelope: this.draftEnvelope,
+        isAvailable: type => type === 'quadrupole',
+      });
+      this.ghostQuads = this.placementHints
+        .filter(hint => hint.kind === 'focus')
+        .map(hint => ({ s: hint.s, nodeIndex: hint.nodeIndex, polarity: hint.params.polarity }));
+      return;
     }
-
-    // Estimate one cell length for spacing and the "nearby" check.
-    // Use ref_focal from the beam energy at midpoint.
-    const midEnv = env[Math.floor(env.length / 2)];
-    const pGev = midEnv ? midEnv.energy : 0.01;
-    const refFocal = pGev / (0.2998 * 20.0 * 2.0);
-    const cellLength = Math.max(refFocal * 2, 3.0);
-    // Spacing comes from the same model the advisor is reading, not from the
-    // half-cell estimate: lattice.py saturates drift_urgency at 20 m of
-    // unfocused drift, so urgency crosses URGENCY_THRESHOLD after ~14 m
-    // without focusing. Space the string a little tighter than that and a
-    // player who builds every arrow ends up with a line that stays under the
-    // threshold. The half-cell estimate collapses to its 3 m floor at low
-    // energy — focusStrength is calibrated at 1 GeV, so focal lengths on a
-    // 10 MeV beam are centimetres — and spacing on it proposed a quad every
-    // 2 m, seven times more hardware than the beam actually needs.
-    const URGENCY_DRIFT_SCALE = 20.0;   // lattice.py drift_urgency denominator
-    const spacing = Math.max(3.0, URGENCY_THRESHOLD * URGENCY_DRIFT_SCALE * 0.85);
-
-    // Walk the envelope once. `nextS` is the earliest s at which another quad
-    // may be proposed — it advances by one half-cell after each suggestion, so
-    // suggestions come out evenly spaced instead of one per rising edge.
-    // Deliberately NOT a rising-edge latch: urgency on an unfocused line ramps
-    // to 1.0 and stays pinned, so a latch fires once and never re-arms.
-    let nextS = -Infinity;
-    for (let i = 0; i < env.length && this.ghostQuads.length < MAX_GHOSTS; i++) {
-      const d = env[i];
-      const urgency = d.focus_urgency || 0;
-      if (urgency < URGENCY_THRESHOLD) continue;
-
-      const ghostS = d.s || 0;
-      if (ghostS < nextS) continue;
-
-      // Existing focusing within a cell ahead already covers this stretch.
-      // Step past that quad rather than giving up on the rest of the line —
-      // the beam still diverges downstream of it and still needs advice.
-      const nearbyQuad = existingQuadS.find(qs =>
-        qs >= ghostS - spacing && qs <= ghostS + cellLength
-      );
-      if (nearbyQuad !== undefined) {
-        nextS = nearbyQuad + spacing;
-        continue;
-      }
-
-      // Map s-position to node index
-      let nodeIdx = this.draftNodes.length - 1;
-      let accS = 0;
-      for (let j = 0; j < this.draftNodes.length; j++) {
-        accS += _nodeSubL(this.draftNodes[j]) * 0.5;
-        if (accS >= ghostS) { nodeIdx = j; break; }
-      }
-
-      // Alternate polarity from last real or ghost quad
-      const polarity = lastQuadPolarity;
-      lastQuadPolarity = polarity === 1 ? -1 : 1;
-
-      this.ghostQuads.push({ s: ghostS, nodeIndex: nodeIdx, polarity });
-      nextS = ghostS + spacing;
-    }
+    this._computePlacementHints();
   }
 
   /**
@@ -2316,6 +2336,23 @@ export class BeamlineDesigner {
     this._updateFocusRowVisuals();
 
     this._renderAll();
+  }
+
+  /** Commit a rendered recipe as one ordinary, undoable draft insertion. */
+  _acceptPlacementHint(hint) {
+    if (!hint || !hint.componentType) return;
+    if (!this._componentAvailableForHint(hint.componentType)) return;
+    this.markerS = Math.max(0, Math.min(this.totalLength, hint.s || 0));
+    this.insertMode = 'nearest';
+    this._updateInsertButtons();
+    this.insertComponent(
+      Math.max(0, Math.min(this.draftNodes.length - 1, hint.nodeIndex || 0)),
+      hint.componentType,
+      hint.position || 'after',
+      hint.params || null,
+    );
+    const name = COMPONENTS[hint.componentType]?.name || hint.componentType;
+    this.game?.log?.(`${name} inserted from physics hint`, 'good');
   }
 
   _hasDraftChanges() {

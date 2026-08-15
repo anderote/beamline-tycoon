@@ -3200,15 +3200,15 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: rgba(255, 190, 90, 0.9);
-  background: rgba(255, 170, 34, 0.10);
-  border: 1px solid rgba(255, 170, 34, 0.35);
-  border-radius: 2px;
+  background: transparent;
+  border: 0;
   padding: 1px 7px;
   cursor: pointer;
 }
 .dsgn-advisor-readout:hover {
-  background: rgba(255, 170, 34, 0.22);
+  background: transparent;
   color: rgba(255, 214, 140, 1);
+  text-decoration: underline;
 }
 .dsgn-schematic-row {
   flex: 0.5;

@@ -17,7 +17,11 @@ export const ProbePlots = (() => {
   function draw(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
     const ctx = canvas.getContext('2d');
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
-    const o = { ghost: !!(opts && opts.ghost), yd: null };
+    const o = {
+      ghost: !!(opts && opts.ghost),
+      yd: null,
+      targets: (opts && opts.targets) || null,
+    };
     if (!(opts && opts.noClear)) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
@@ -175,6 +179,21 @@ export const ProbePlots = (() => {
       out.push([Math.min(ca[0], cb[0]), Math.max(ca[1], cb[1])]);
     }
     return out;
+  }
+
+  /** Extra y extent required to keep a machine mission band visible. */
+  function targetYDomain(type, targets) {
+    if (!targets) return null;
+    if (type === 'energy-dispersion' && targets.energyGeV) {
+      return [targets.energyGeV, null];
+    }
+    if (type === 'beam-envelope' && targets.spotSizeMm) {
+      return [targets.spotSizeMm];
+    }
+    if (type === 'current-loss' && targets.currentMA) {
+      return [targets.currentMA];
+    }
+    return null;
   }
 
   // Accept both the documented [lo, hi] and the multi-channel [[lo, hi], ...]
@@ -342,6 +361,40 @@ export const ProbePlots = (() => {
     }
   }
 
+  /** Draw an endpoint mission band behind a live curve. The label is explicit
+   *  because a final-energy target is not a claim that energy must remain in
+   *  that band throughout the accelerator. */
+  function _targetBand(ctx, a, band, yMin, yMax) {
+    if (!Array.isArray(band) || band.length < 2 || !isFinite(yMin) || !isFinite(yMax)) return;
+    const span = yMax - yMin || 1;
+    const lo = band[0] == null ? yMin : band[0];
+    const hi = band[1] == null ? yMax : band[1];
+    if (hi < yMin || lo > yMax) return;
+    const clippedLo = Math.max(yMin, Math.min(yMax, lo));
+    const clippedHi = Math.max(yMin, Math.min(yMax, hi));
+    const yTop = a.y + a.h - ((clippedHi - yMin) / span) * a.h;
+    const yBottom = a.y + a.h - ((clippedLo - yMin) / span) * a.h;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(80, 220, 150, 0.07)';
+    ctx.fillRect(a.x, yTop, a.w, Math.max(1, yBottom - yTop));
+    ctx.strokeStyle = 'rgba(80, 220, 150, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    for (const y of [yTop, yBottom]) {
+      ctx.beginPath();
+      ctx.moveTo(a.x, y);
+      ctx.lineTo(a.x + a.w, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(100, 235, 165, 0.82)';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('END TARGET', a.x + a.w - 3, Math.max(a.y + 8, yTop + 8));
+    ctx.restore();
+  }
+
   function _hexRgb(hex) {
     const s = hex.length === 4
       ? hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3]
@@ -361,6 +414,7 @@ export const ProbePlots = (() => {
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
     const [yMin, yMax] = _chan(o, 0, [0, 1]);
     if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
+    if (!ghost) _targetBand(ctx, a, o?.targets?.spotSizeMm, yMin, yMax);
     _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost);
     _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost);
     if (ghost) return;
@@ -374,6 +428,7 @@ export const ProbePlots = (() => {
     const ghost = o && o.ghost;
     const [yMin, yMax] = _chan(o, 0, [0, 1]);
     if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
+    if (!ghost) _targetBand(ctx, a, o?.targets?.currentMA, yMin, yMax);
     // Shade loss regions
     for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
@@ -432,6 +487,10 @@ export const ProbePlots = (() => {
     }
 
     _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax);
+    const energyTarget = o?.targets?.energyGeV;
+    _targetBand(ctx, aR,
+      energyTarget ? energyTarget.map(v => v == null ? null : v * eScale) : null,
+      eMin, eMax);
     _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale);
     _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);
     _pinMarkers(ctx, aR, env, pins, xMin, xMax);
@@ -814,5 +873,5 @@ export const ProbePlots = (() => {
     return (ma * 1e6).toPrecision(3) + ' nA';
   }
 
-  return { draw, yDomainFor, unionYDomain };
+  return { draw, yDomainFor, unionYDomain, targetYDomain };
 })();
