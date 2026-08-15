@@ -20,6 +20,7 @@ import {
 import { DIR_DELTA } from '../data/directions.js';
 import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
 import {
+  BEAM_PIPE_Y,
   snapPipePoint,
   buildStraightPath,
   findNearestPipeToWorld,
@@ -34,6 +35,10 @@ import { isoToGridFloat } from '../renderer/grid.js';
 // half a tile — generous enough that the user rarely misses but tight
 // enough to avoid bleeding into adjacent sub-cells on dense layouts.
 const PIPE_SNAP_RADIUS = 0.5;
+// Visible beam flanges are hand-eye targets, so use a fixed viewport budget
+// when the renderer can project them. This stays forgiving across zoom levels
+// and avoids asking the player to click the flange's ground-plane shadow.
+const PIPE_SNAP_RADIUS_PX = 42;
 // Tolerance for matching a pipe path point during right-click-drag removal.
 // Matches the value used in the legacy InputHandler flow.
 const PIPE_REMOVE_EPS = 0.13;
@@ -179,30 +184,43 @@ export class BeamlineInputController {
    * `hoverPoint`/`hoverOpenEnd` so ThreeRenderer's animate loop can draw the
    * pre-click marker. Called from BeamlineTool's mousemove path.
    */
-  onPipeToolHover(worldX, worldY) {
+  onPipeToolHover(worldX, worldY, screen) {
     this._guidedPath = null;
     const snapped = snapPipePoint(worldX, worldY);
     // If the cursor is near an existing pipe's open (capped) end, snap the
     // hover marker to that exact point so the player sees "you can start
     // here" before clicking.
-    const openEnd = this._findOpenEndNearCursor(snapped);
+    const openEnd = this._findOpenEndNearCursor(snapped, screen);
     if (openEnd) {
       this._hoverPoint = { col: openEnd.point.col, row: openEnd.point.row };
       this._hoverOpenEnd = { pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
       this._hoverValidAnchor = true;
     } else {
-      this._hoverPoint = snapped;
+      const port = this._findPortNearCursor(snapped, screen);
+      // Put the marker on the actual flange, not merely on the nearby cursor
+      // snap that happened to acquire it. The preview and eventual pipe now
+      // meet the same visible point.
+      this._hoverPoint = port
+        ? { col: port.pathPos.col, row: port.pathPos.row }
+        : snapped;
       this._hoverOpenEnd = null;
       // A draw can only START on a junction port or an open pipe end
       // (_pipeDrawStart). Anywhere else the click is discarded, so the marker
       // must not be painted in the valid-placement green — it used to be, and
       // the very first gesture a new player makes (the source auto-arms the
       // drift tool) looked legal and did nothing.
-      this._hoverValidAnchor = !!this._findPortNearCursor(snapped);
+      this._hoverValidAnchor = !!port;
     }
   }
 
-  onMouseDown(worldX, worldY, button, selectedId) {
+  /** Find an available beam exit on a source for idle direct manipulation. */
+  findSourcePortAt(worldX, worldY, screen) {
+    return this._findPortNearCursor(
+      snapPipePoint(worldX, worldY), screen, { sourceOnly: true },
+    );
+  }
+
+  onMouseDown(worldX, worldY, button, selectedId, screen) {
     // Pipe-draw tool: left-click starts a draw anchored at a port or open
     // end; right-click drag starts a remove-sweep.
     if (selectedId && COMPONENTS[selectedId]?.isDrawnConnection) {
@@ -210,7 +228,7 @@ export class BeamlineInputController {
       // mode: pressing right during a left draw used to convert the whole
       // gesture into a destructive remove-sweep (and vice versa). Swallow it.
       if (this._drawing) return true;
-      if (button === 0) return this._pipeDrawStart(worldX, worldY);
+      if (button === 0) return this._pipeDrawStart(worldX, worldY, screen);
       if (button === 2) return this._pipeRemoveStart(worldX, worldY);
       return false;
     }
@@ -269,12 +287,16 @@ export class BeamlineInputController {
     return true;
   }
 
-  onMouseMove(worldX, worldY) {
+  onMouseMove(worldX, worldY, screen) {
     if (!this._drawing) return;
-    const pt = snapPipePoint(worldX, worldY);
+    const pt = this._drawMode === 'remove'
+      ? snapPipePoint(worldX, worldY)
+      : this._resolveDrawTarget(worldX, worldY, screen).point;
     const last = this._drawPath[this._drawPath.length - 1];
     if (!last || last.col !== pt.col || last.row !== pt.row) {
-      this._drawPath = buildStraightPath(this._drawOrigin, pt);
+      this._drawPath = this._drawMode === 'remove'
+        ? buildStraightPath(this._drawOrigin, pt)
+        : this._buildDrawPath(pt);
       this.renderer.renderBeamPipePreview(this._drawPath, this._drawMode, this._previewCost());
     }
   }
@@ -296,7 +318,7 @@ export class BeamlineInputController {
     return { funding: Math.max(1, Math.floor(perTile * Math.max(tileDist, 0.25))) };
   }
 
-  onMouseUp(worldX, worldY, button) {
+  onMouseUp(worldX, worldY, button, screen) {
     if (!this._drawing) return false;
     // Only the button that armed the gesture may commit it. (Releasing the
     // *other* button mid-gesture used to run the commit path.)
@@ -308,7 +330,9 @@ export class BeamlineInputController {
       // commitGesture, not a raw push inside _pipeDrawEnd: drawPipe/extendPipe
       // validate on commit (port_mismatch is the common one) and return null,
       // which would otherwise leave a phantom undo entry and clear redo.
-      builtPipeId = this.game.commitGesture({ mutate: () => this._pipeDrawEnd(worldX, worldY) });
+      builtPipeId = this.game.commitGesture({
+        mutate: () => this._pipeDrawEnd(worldX, worldY, screen),
+      });
     }
     this._resetDrawing();
     if (builtPipeId) this.game._guidedSetup?.onPipeBuilt?.(builtPipeId);
@@ -536,12 +560,12 @@ export class BeamlineInputController {
 
   // --- pipe draw: start ---------------------------------------------------
 
-  _pipeDrawStart(worldX, worldY) {
+  _pipeDrawStart(worldX, worldY, screen) {
     // Origin must snap to a junction port OR an existing pipe's open end.
     // Anywhere else is a miss — swallow the click with no side effects so
     // the user doesn't accidentally create floating stubs.
     const cursor = snapPipePoint(worldX, worldY);
-    const port = this._findPortNearCursor(cursor);
+    const port = this._findPortNearCursor(cursor, screen);
     if (port) {
       this._guidedPath = null;
       this._drawing = true;
@@ -553,7 +577,7 @@ export class BeamlineInputController {
       this.renderer.renderBeamPipePreview(this._drawPath, 'add');
       return true;
     }
-    const openEnd = this._findOpenEndNearCursor(cursor);
+    const openEnd = this._findOpenEndNearCursor(cursor, screen);
     if (openEnd) {
       this._guidedPath = null;
       this._drawing = true;
@@ -586,9 +610,10 @@ export class BeamlineInputController {
 
   // --- pipe draw: end -----------------------------------------------------
 
-  _pipeDrawEnd(worldX, worldY) {
-    const endPt = snapPipePoint(worldX, worldY);
-    let path = buildStraightPath(this._drawOrigin, endPt);
+  _pipeDrawEnd(worldX, worldY, screen) {
+    const target = this._resolveDrawTarget(worldX, worldY, screen);
+    const endPt = target.point;
+    let path = this._buildDrawPath(endPt);
     // Zero-length drag: extend by one sub-tile so a bare click still creates
     // a visible stub. Use the port's outward direction when starting from a
     // port (otherwise validateDrawPipe would reject on port_mismatch); fall
@@ -600,8 +625,8 @@ export class BeamlineInputController {
     }
 
     const anchorStart = this._drawStartAnchor;
-    const portEnd = this._findPortNearCursor(endPt);
-    const openEndHit = this._findOpenEndNearCursor(endPt);
+    const portEnd = target.port;
+    const openEndHit = target.openEnd;
 
     // Undo capture is the caller's (onMouseUp wraps this in game._withUndo).
 
@@ -668,6 +693,103 @@ export class BeamlineInputController {
     });
   }
 
+  // The first segment of either legal add gesture already determines the
+  // axis: junction ports have a compass-facing normal, while pipe extensions
+  // continue the terminal segment. Projecting the hand onto that axis makes
+  // a slightly diagonal drag feel straight instead of previewing a path the
+  // validator will throw away on release.
+  _drawAxis() {
+    const anchor = this._drawStartAnchor;
+    if (anchor?.kind === 'port') {
+      const p = this._findPlaceable(anchor.junctionId);
+      const side = p && portSide(p, anchor.portName);
+      if (side === 'N') return { dCol: 0, dRow: -1 };
+      if (side === 'S') return { dCol: 0, dRow: 1 };
+      if (side === 'E') return { dCol: 1, dRow: 0 };
+      if (side === 'W') return { dCol: -1, dRow: 0 };
+      return null;
+    }
+    if (anchor?.kind !== 'openEnd') return null;
+    const pipe = (this.game.state?.beamPipes || []).find(p => p.id === anchor.pipeId);
+    const path = pipe?.path || [];
+    if (path.length < 2) return null;
+    const tipIndex = anchor.openEnd === 'start' ? 0 : path.length - 1;
+    const neighborIndex = anchor.openEnd === 'start' ? 1 : path.length - 2;
+    const tip = path[tipIndex];
+    const neighbor = path[neighborIndex];
+    const dc = tip.col - neighbor.col;
+    const dr = tip.row - neighbor.row;
+    if (Math.abs(dc) >= Math.abs(dr) && Math.abs(dc) > 1e-9) {
+      return { dCol: Math.sign(dc), dRow: 0 };
+    }
+    if (Math.abs(dr) > 1e-9) return { dCol: 0, dRow: Math.sign(dr) };
+    return null;
+  }
+
+  _pointOnDrawRay(point, axis = this._drawAxis()) {
+    if (!point || !axis || !this._drawOrigin) return false;
+    const dc = point.col - this._drawOrigin.col;
+    const dr = point.row - this._drawOrigin.row;
+    const cross = dc * axis.dRow - dr * axis.dCol;
+    const forward = dc * axis.dCol + dr * axis.dRow;
+    return Math.abs(cross) < 1e-6 && forward > 1e-6;
+  }
+
+  _buildDrawPath(point) {
+    return buildStraightPath(this._drawOrigin, point);
+  }
+
+  _resolveDrawTarget(worldX, worldY, screen) {
+    const cursor = snapPipePoint(worldX, worldY);
+    const axis = this._drawAxis();
+    const start = this._drawStartAnchor;
+    const reachable = hit => this._pointOnDrawRay(hit.pathPos || hit.point, axis);
+
+    const port = this._findPortNearCursor(cursor, screen, {
+      accept: hit => {
+        const isStart = start?.kind === 'port'
+          && hit.junctionId === start.junctionId
+          && hit.portName === start.portName;
+        return !isStart && reachable(hit);
+      },
+    });
+    if (port) return {
+      point: { col: port.pathPos.col, row: port.pathPos.row },
+      port,
+      openEnd: null,
+    };
+
+    const openEnd = this._findOpenEndNearCursor(cursor, screen, {
+      accept: hit => {
+        const isStart = start?.kind === 'openEnd'
+          && hit.pipeId === start.pipeId
+          && hit.openEnd === start.openEnd;
+        return !isStart && reachable(hit);
+      },
+    });
+    if (openEnd) return {
+      point: { col: openEnd.point.col, row: openEnd.point.row },
+      port: null,
+      openEnd,
+    };
+
+    if (!axis || !this._drawOrigin) return { point: cursor, port: null, openEnd: null };
+    const dc = cursor.col - this._drawOrigin.col;
+    const dr = cursor.row - this._drawOrigin.row;
+    // Keep the sign: dragging behind a flange must remain a rejected backward
+    // path, not silently buy a forward stub. Quantize after projection so the
+    // preview stays on the pipe's quarter-tile grid.
+    const along = Math.round((dc * axis.dCol + dr * axis.dRow) * 4) / 4;
+    return {
+      point: {
+        col: this._drawOrigin.col + axis.dCol * along,
+        row: this._drawOrigin.row + axis.dRow * along,
+      },
+      port: null,
+      openEnd: null,
+    };
+  }
+
   // Outward unit vector (in pipe-path space) for the zero-drag stub. Uses the
   // port's rotated compass side if starting from a port; falls back to the
   // current placementDir for open-end starts.
@@ -702,10 +824,48 @@ export class BeamlineInputController {
   // col/row = 0 renders at world x/z = 1). Callers pre-snap the cursor via
   // snapPipePoint so it's already in this space, and port world coords are
   // converted on the fly.
-  _findPortNearCursor(cursor) {
+  _findPortNearCursor(cursor, screen, { sourceOnly = false, accept = null } = {}) {
     const state = this.game.state;
     const placeables = (state && state.placeables) || [];
     const beamPipes = (state && state.beamPipes) || [];
+    const accepted = typeof accept === 'function' ? accept : () => true;
+    const portHit = (p, portName, pos) => ({
+      junctionId: p.id,
+      portName,
+      pathPos: { col: (pos.x - 1) / 2, row: (pos.z - 1) / 2 },
+    });
+    const candidatePlaceable = (p) => {
+      const def = COMPONENTS[p.type];
+      return def && def.role === 'junction' && def.ports
+        && (!sourceOnly || def.isSource);
+    };
+
+    // In the live renderer, acquire the flange where it is actually drawn:
+    // at BEAM_PIPE_Y and projected through the camera. Ground-plane picking
+    // targets the flange's shadow and changes its effective radius with zoom.
+    const canProject = !!(screen && this.renderer
+      && typeof this.renderer.worldToScreen === 'function');
+    if (canProject) {
+      let best = null;
+      let bestDist = PIPE_SNAP_RADIUS_PX;
+      for (const p of placeables) {
+        if (!candidatePlaceable(p)) continue;
+        for (const portName of availablePorts(p, beamPipes)) {
+          const pos = portWorldPosition(p, portName);
+          if (!pos) continue;
+          const hit = portHit(p, portName, pos);
+          if (!accepted(hit)) continue;
+          const projected = this.renderer.worldToScreen(pos.x, BEAM_PIPE_Y, pos.z);
+          if (!projected) continue;
+          const dist = Math.hypot(projected.x - screen.x, projected.y - screen.y);
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = hit;
+          }
+        }
+      }
+      return best;
+    }
 
     // Cursor is over a junction's footprint → snap to that junction's nearest
     // available port, regardless of distance. Users expect clicking anywhere
@@ -733,8 +893,7 @@ export class BeamlineInputController {
     let footprintBest = null;
     let footprintBestDist = Infinity;
     for (const p of placeables) {
-      const def = COMPONENTS[p.type];
-      if (!def || def.role !== 'junction' || !def.ports) continue;
+      if (!candidatePlaceable(p)) continue;
       const cells = p.cells || [{ col: p.col, row: p.row }];
       const onFootprint = cells.some(c => checkedSet.has(tileKey(c.col, c.row)));
       if (!onFootprint) continue;
@@ -743,16 +902,14 @@ export class BeamlineInputController {
       for (const portName of avail) {
         const pos = portWorldPosition(p, portName);
         if (!pos) continue;
-        const pathCol = (pos.x - 1) / 2;
-        const pathRow = (pos.z - 1) / 2;
+        const hit = portHit(p, portName, pos);
+        if (!accepted(hit)) continue;
+        const pathCol = hit.pathPos.col;
+        const pathRow = hit.pathPos.row;
         const d = Math.abs(pathCol - cursor.col) + Math.abs(pathRow - cursor.row);
         if (d < footprintBestDist) {
           footprintBestDist = d;
-          footprintBest = {
-            junctionId: p.id,
-            portName,
-            pathPos: { col: pathCol, row: pathRow },
-          };
+          footprintBest = hit;
         }
       }
     }
@@ -764,25 +921,22 @@ export class BeamlineInputController {
     let best = null;
     let bestDist = Infinity;
     for (const p of placeables) {
-      const def = COMPONENTS[p.type];
-      if (!def || def.role !== 'junction' || !def.ports) continue;
+      if (!candidatePlaceable(p)) continue;
       const avail = availablePorts(p, beamPipes);
       for (const portName of avail) {
         const pos = portWorldPosition(p, portName);
         if (!pos) continue;
-        const pathCol = (pos.x - 1) / 2;
-        const pathRow = (pos.z - 1) / 2;
+        const hit = portHit(p, portName, pos);
+        if (!accepted(hit)) continue;
+        const pathCol = hit.pathPos.col;
+        const pathRow = hit.pathPos.row;
         const dc = Math.abs(pathCol - cursor.col);
         const dr = Math.abs(pathRow - cursor.row);
         if (dc < PIPE_SNAP_RADIUS && dr < PIPE_SNAP_RADIUS) {
           const dist = dc + dr;
           if (dist < bestDist) {
             bestDist = dist;
-            best = {
-              junctionId: p.id,
-              portName,
-              pathPos: { col: pathCol, row: pathRow },
-            };
+            best = hit;
           }
         }
       }
@@ -790,11 +944,14 @@ export class BeamlineInputController {
     return best;
   }
 
-  _findOpenEndNearCursor(cursor) {
+  _findOpenEndNearCursor(cursor, screen, { accept = null } = {}) {
     const state = this.game.state;
     const pipes = (state && state.beamPipes) || [];
+    const accepted = typeof accept === 'function' ? accept : () => true;
+    const canProject = !!(screen && this.renderer
+      && typeof this.renderer.worldToScreen === 'function');
     let best = null;
-    let bestDist = Infinity;
+    let bestDist = canProject ? PIPE_SNAP_RADIUS_PX : Infinity;
     for (const pipe of pipes) {
       const candidates = [];
       if (pipe.start === null && pipe.path && pipe.path.length > 0) {
@@ -804,14 +961,23 @@ export class BeamlineInputController {
         candidates.push({ pipeId: pipe.id, openEnd: 'end', point: pipe.path[pipe.path.length - 1] });
       }
       for (const c of candidates) {
-        const dc = Math.abs(c.point.col - cursor.col);
-        const dr = Math.abs(c.point.row - cursor.row);
-        if (dc < PIPE_SNAP_RADIUS && dr < PIPE_SNAP_RADIUS) {
-          const dist = dc + dr;
-          if (dist < bestDist) {
-            bestDist = dist;
-            best = c;
-          }
+        if (!accepted(c)) continue;
+        let dist;
+        if (canProject) {
+          const px = this.renderer.worldToScreen(
+            c.point.col * 2 + 1, BEAM_PIPE_Y, c.point.row * 2 + 1,
+          );
+          if (!px) continue;
+          dist = Math.hypot(px.x - screen.x, px.y - screen.y);
+        } else {
+          const dc = Math.abs(c.point.col - cursor.col);
+          const dr = Math.abs(c.point.row - cursor.row);
+          if (dc >= PIPE_SNAP_RADIUS || dr >= PIPE_SNAP_RADIUS) continue;
+          dist = dc + dr;
+        }
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = c;
         }
       }
     }

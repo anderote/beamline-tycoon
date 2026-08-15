@@ -48,7 +48,7 @@ import {
   moveSelectionGroup,
 } from './selection-commands.js';
 import {
-  projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
+  BEAM_PIPE_Y, projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
 } from '../beamline/pipe-geometry.js';
 import { pipeRefund } from '../beamline/BeamlineSystem.js';
 import { pushEscHandler } from '../ui/esc-stack.js';
@@ -2108,6 +2108,26 @@ export class InputHandler {
       // Active tool gets first claim on the press (after camera controls,
       // which are built-in input handling, not tools).
       if (this._toolConsumed('onMouseDown', e)) return;
+
+      // A source's output flange is itself the natural beam-pipe handle. With
+      // no tool armed, grabbing that visible open end arms the drift tool and
+      // begins the very same gesture the palette would. Beam ports win before
+      // utility fittings because a source can carry both in a small footprint,
+      // while the output flange is the only one sitting on the beam axis.
+      if (e.button === 0 && !this.activeTool && !this.game._designPlacer?.active) {
+        const r = this.renderer;
+        const world = r.screenToWorldAtHeight
+          ? r.screenToWorldAtHeight(e.clientX, e.clientY, BEAM_PIPE_Y)
+          : r.screenToWorld(e.clientX, e.clientY);
+        const port = this.beamlineController.findSourcePortAt(
+          world.x, world.y, { x: e.clientX, y: e.clientY },
+        );
+        if (port) {
+          this.setTool(new BeamlineTool('drift'));
+          this._toolConsumed('onMouseDown', e);
+          return;
+        }
+      }
 
       // With no build tool active, a direct grab on a visible connector starts
       // the matching utility gesture. This keeps ordinary equipment selection

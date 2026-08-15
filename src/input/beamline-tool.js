@@ -25,6 +25,7 @@ import { Tool } from './Tool.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { isoToGrid } from '../renderer/grid.js';
+import { BEAM_PIPE_Y } from '../beamline/pipe-geometry.js';
 
 export class BeamlineTool extends Tool {
   constructor(key, paramOverrides = null) {
@@ -57,6 +58,16 @@ export class BeamlineTool extends Tool {
     ctx.renderer.setBuildMode(false);
   }
 
+  // Beam pipe geometry rides on the 1 m beam axis. Picking against the floor
+  // shifts the result down-screen under the dimetric camera, so the preview
+  // appears detached from the cursor and from a source's visible flange.
+  _pipeWorld(e, ctx) {
+    const r = ctx.renderer;
+    return r.screenToWorldAtHeight
+      ? r.screenToWorldAtHeight(e.clientX, e.clientY, BEAM_PIPE_Y)
+      : r.screenToWorld(e.clientX, e.clientY);
+  }
+
   // Off-canvas release / focus loss: drop the in-flight draw / remove sweep
   // without committing it, so it can't fire at the next canvas click.
   cancelGesture(ctx) {
@@ -68,8 +79,11 @@ export class BeamlineTool extends Tool {
     const def = this.def;
     if (def?.isDrawnConnection) {
       // Pipe drawing starts on press (left = draw, right = remove-sweep).
-      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
-      ctx.input.beamlineController.onMouseDown(world.x, world.y, e.button, this.key);
+      const world = this._pipeWorld(e, ctx);
+      ctx.input.beamlineController.onMouseDown(
+        world.x, world.y, e.button, this.key,
+        { x: e.clientX, y: e.clientY },
+      );
       return true;
     }
     if (def?.role === 'junction' || def?.role === 'placement') {
@@ -85,18 +99,19 @@ export class BeamlineTool extends Tool {
     const input = ctx.input;
     const renderer = ctx.renderer;
     const c = input.beamlineController;
-    const world = renderer.screenToWorld(e.clientX, e.clientY);
+    const def = this.def;
+    const ground = renderer.screenToWorld(e.clientX, e.clientY);
+    const world = def?.isDrawnConnection ? this._pipeWorld(e, ctx) : ground;
     if (c.isActive()) {
       // Mid pipe-draw: extend the preview path.
-      c.onMouseMove(world.x, world.y);
+      c.onMouseMove(world.x, world.y, { x: e.clientX, y: e.clientY });
       return true;
     }
-    const grid = isoToGrid(world.x, world.y);
+    const grid = isoToGrid(ground.x, ground.y);
     renderer.updateHover(grid.col, grid.row);
-    const def = this.def;
     if (def?.isDrawnConnection) {
       // Pre-click hover marker for the pipe-draw tool.
-      c.onPipeToolHover(world.x, world.y);
+      c.onPipeToolHover(world.x, world.y, { x: e.clientX, y: e.clientY });
     }
     // For stackable items, use the surface-aware raycast (mirrors the shared
     // hover branch; beamline comps are normally not stackable).
@@ -129,8 +144,8 @@ export class BeamlineTool extends Tool {
     if (c.isActive()) {
       // Pipe draw / remove-sweep commit. Undo pushes happen inside the
       // controller's commit paths.
-      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
-      c.onMouseUp(world.x, world.y, e.button);
+      const world = this._pipeWorld(e, ctx);
+      c.onMouseUp(world.x, world.y, e.button, { x: e.clientX, y: e.clientY });
       return true;
     }
     // Plain release falls through to _handleClick → onClick / onRightClick.

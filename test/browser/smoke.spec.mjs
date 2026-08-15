@@ -10,7 +10,7 @@
 //   -> place a wall run                   [UI: mode/tab/palette + canvas drag]
 //   -> place a decoration                 [UI: mode/tab/palette + canvas click]
 //   -> place two beamline junctions       [UI: palette + canvas click]
-//   -> draw a beam pipe between them      [UI: canvas press-drag-release]
+//   -> drag source flange into beam pipe  [UI: direct canvas press-drag-release]
 //   -> place an on-pipe component         [UI: palette + canvas click]
 //   -> draw a utility line port-to-port   [UI: palette + canvas press-drag]
 //   -> pause the sim                      [UI: HUD pause button]
@@ -195,9 +195,25 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
   });
 
   // ── beamline: pipe ──────────────────────────────────────────────────────
-  await test.step('draw a beam pipe between them (press-drag-release)', async () => {
-    await armPaletteTool(page, 'beamline', 'source', 'component', 'drift');
-    await dragTiles(page, [srcTile.col, srcTile.row], [cupTile.col, cupTile.row], 10);
+  await test.step('drag the source output flange directly into beam pipe', async () => {
+    // The endpoint tool is still armed from the previous step. Return to the
+    // ordinary selection state, then grab the visible source flange without
+    // selecting Beam Pipe from the palette. That press should arm drift and
+    // begin the exact same gesture as the explicit tool.
+    await page.keyboard.press('Escape');
+    expect(await activeToolId(page)).toBeNull();
+    const from = await beamPortScreen(page, 'source', 'exit');
+    const to = await beamPortScreen(page, 'faradayCup', 'entry');
+    expect(from, 'source exit has a visible beam-axis position').not.toBeNull();
+    expect(to, 'cup entry has a visible beam-axis position').not.toBeNull();
+
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    expect(await activeToolId(page), 'grabbing the source flange arms Beam Pipe')
+      .toBe('component:drift');
+    await page.mouse.move((from.x + to.x) / 2 + 8, (from.y + to.y) / 2, { steps: 5 });
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
     await frames(page);
     const s = await before();
     expect(s.pipes, 'a beam pipe now exists').toBeGreaterThan(0);
@@ -619,4 +635,15 @@ async function dragPortToPort(page, from, to) {
   await page.mouse.move(b.x, b.y);
   expect(await snapped(), `cursor snapped to ${to.type}.${to.port}`).toBe(to.port);
   await page.mouse.up();
+}
+
+/** Screen position of the visible beam flange at the shared 1 m beam axis. */
+function beamPortScreen(page, type, port) {
+  return page.evaluate(async ([t, p]) => {
+    const { portWorldPosition } = await import('/src/beamline/junctions.js');
+    const { BEAM_PIPE_Y } = await import('/src/beamline/pipe-geometry.js');
+    const pl = window.game.state.placeables.find(x => x.type === t);
+    const pos = pl ? portWorldPosition(pl, p) : null;
+    return pos ? window.__bt.worldToScreen(pos.x, BEAM_PIPE_Y, pos.z) : null;
+  }, [type, port]);
 }

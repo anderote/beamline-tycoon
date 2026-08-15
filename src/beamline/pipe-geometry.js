@@ -12,6 +12,11 @@ import { isoToGridFloat } from '../renderer/grid.js';
 
 const EPS = 1e-6;
 
+// Beam transport, source exit flanges, and the pipe preview all share this
+// physical axis. Input must pick against the same plane or the dimetric camera
+// makes the pipe land visibly above the cursor.
+export const BEAM_PIPE_Y = 1.0;
+
 /**
  * Sub-tile step size (0.25 = quarter-tile, matching _buildStraightPath in
  * InputHandler). Pipe paths created in-game are stored dense at this
