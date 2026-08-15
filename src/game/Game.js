@@ -49,6 +49,7 @@ import { canPlace } from './placement.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
+import { SaveSlots } from './SaveSlots.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -5153,7 +5154,14 @@ export class Game {
     // balance sims) also call — there localStorage may be missing or
     // non-functional, and persistence must never kill the sim.
     try {
-      localStorage.setItem('beamlineTycoon', this.serialize());
+      const payload = this.serialize();
+      localStorage.setItem('beamlineTycoon', payload);
+      SaveSlots.autosave(payload, {
+        funding: Math.floor(this.state.resources?.funding ?? 0),
+        staff: (this.state.staffMembers || []).length,
+        components: (this.state.placeables || []).filter(p => p.category !== 'decoration').length,
+        tick: this.state.tick || 0,
+      });
     } catch (_) {}
   }
 

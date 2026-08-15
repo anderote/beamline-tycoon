@@ -11,6 +11,9 @@
 const ACTIVE_KEY = 'beamlineTycoon';
 const INDEX_KEY = 'beamlineTycoon.slotIndex';
 const SLOT_PREFIX = 'beamlineTycoon.slots.';
+const AUTOSAVE_PREFIX = 'beamlineTycoon.autosaves.';
+const AUTOSAVE_LIMIT = 12;
+const AUTOSAVE_INTERVAL = 5 * 60 * 1000;
 
 function readIndex() {
   try {
@@ -49,7 +52,8 @@ export const SaveSlots = {
 
   // Return the payload string for a slot, or null if missing.
   load(id) {
-    return localStorage.getItem(SLOT_PREFIX + id);
+    const entry = readIndex().find(s => s.id === id);
+    return localStorage.getItem((entry?.kind === 'autosave' ? AUTOSAVE_PREFIX : SLOT_PREFIX) + id);
   },
 
   // Copy a slot's payload into the ACTIVE key. Returns true on success.
@@ -62,7 +66,8 @@ export const SaveSlots = {
   },
 
   remove(id) {
-    localStorage.removeItem(SLOT_PREFIX + id);
+    const entry = readIndex().find(s => s.id === id);
+    localStorage.removeItem((entry?.kind === 'autosave' ? AUTOSAVE_PREFIX : SLOT_PREFIX) + id);
     writeIndex(readIndex().filter(s => s.id !== id));
   },
 
@@ -73,5 +78,58 @@ export const SaveSlots = {
     entry.name = name;
     writeIndex(index);
     return true;
+  },
+
+  // Keep a small, time-spaced recovery history in addition to the rolling
+  // active save. `force` is used before replacing a game, so even a very new
+  // session remains recoverable.
+  autosave(payload, meta = {}, { force = false, name = 'Autosave' } = {}) {
+    if (!payload) return null;
+    const index = readIndex();
+    const newest = index
+      .filter(s => s.kind === 'autosave')
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))[0];
+    const now = Date.now();
+    if (!force && newest && now - newest.savedAt < AUTOSAVE_INTERVAL) return newest.id;
+
+    const entry = {
+      id: `auto_${now}_${Math.floor(Math.random() * 1e4)}`,
+      name,
+      kind: 'autosave',
+      savedAt: now,
+      meta,
+    };
+    try {
+      localStorage.setItem(AUTOSAVE_PREFIX + entry.id, payload);
+      index.push(entry);
+      const autosaves = index.filter(s => s.kind === 'autosave')
+        .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+      const expired = autosaves.slice(AUTOSAVE_LIMIT);
+      for (const old of expired) localStorage.removeItem(AUTOSAVE_PREFIX + old.id);
+      writeIndex(index.filter(s => !expired.some(old => old.id === s.id)));
+      return entry.id;
+    } catch (_) {
+      // The rolling active save remains useful if localStorage is full.
+      try { localStorage.removeItem(AUTOSAVE_PREFIX + entry.id); } catch (_) {}
+      return null;
+    }
+  },
+
+  // Snapshot the rolling save before New Game/scenario flows remove it.
+  preserveActive(name = 'Previous game') {
+    let payload;
+    try { payload = localStorage.getItem(ACTIVE_KEY); } catch (_) { return null; }
+    if (!payload) return null;
+    let meta = {};
+    try {
+      const state = JSON.parse(payload)?.state || {};
+      meta = {
+        funding: Math.floor(state.resources?.funding ?? 0),
+        staff: (state.staffMembers || []).length,
+        components: (state.placeables || []).filter(p => p.category !== 'decoration').length,
+        tick: state.tick || 0,
+      };
+    } catch (_) {}
+    return this.autosave(payload, meta, { force: true, name });
   },
 };

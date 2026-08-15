@@ -295,6 +295,25 @@ console.log('\n--- Test: infrastructure requiredConnections have sink ports ---'
 }
 
 // ==========================================================================
+// Distribution cabinets: terminals live together on the modeled front face.
+// ==========================================================================
+console.log('\n--- Distribution cabinet port layout ---');
+{
+  for (const [id, count] of [['powerPanel', 4], ['mcc', 8], ['ups', 2]]) {
+    const ports = getUtilityPortsV2(id);
+    const outlets = Object.entries(ports)
+      .filter(([name]) => name.startsWith('pwr_out_'))
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+    assert(outlets.length === count, `${id} exposes ${count} real branch outlets`);
+    assert(outlets.every(([, p]) => p.side === 'right'),
+      `${id} branch outlets all occupy its +X front face`);
+    assert(new Set(outlets.map(([, p]) => p.offsetAlong)).size === count,
+      `${id} branch outlets are spaced to distinct positions`);
+    assert(ports.hv_in.side === 'left', `${id} HV feed enters through the rear`);
+  }
+}
+
+// ==========================================================================
 // Summary.
 // ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
