@@ -91,6 +91,15 @@ import {
   _buildBeamStopRoles,
   _buildDetectorRoles,
   _buildTargetRoles,
+  _buildMaterialsTestStationRoles,
+  _buildEBeamIrradiationVaultRoles,
+  _buildIsotopeProductionTargetRoles,
+  _buildRadiationEffectsStationRoles,
+  _buildProtonTherapyGantryRoles,
+  _buildSpallationNeutronTargetRoles,
+  _buildPhotonScienceHutchRoles,
+  _buildXfelEndstationRoles,
+  _buildEuvCollectorRoles,
 } from './builders/endpoint-builder.js';
 // Phase 6: utility-port-builder and carrier-rack modules removed. Port stub
 // rendering was already commented-out at call sites; carrierRack is no longer
@@ -3687,6 +3696,15 @@ ROLE_BUILDERS.faradayCup = _buildFaradayCupRoles;
 ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;
 ROLE_BUILDERS.detector   = _buildDetectorRoles;
 ROLE_BUILDERS.target     = _buildTargetRoles;
+ROLE_BUILDERS.materialsTestStation = _buildMaterialsTestStationRoles;
+ROLE_BUILDERS.eBeamIrradiationVault = _buildEBeamIrradiationVaultRoles;
+ROLE_BUILDERS.isotopeProductionTarget = _buildIsotopeProductionTargetRoles;
+ROLE_BUILDERS.radiationEffectsStation = _buildRadiationEffectsStationRoles;
+ROLE_BUILDERS.protonTherapyGantry = _buildProtonTherapyGantryRoles;
+ROLE_BUILDERS.spallationNeutronTarget = _buildSpallationNeutronTargetRoles;
+ROLE_BUILDERS.photonScienceHutch = _buildPhotonScienceHutchRoles;
+ROLE_BUILDERS.xfelEndstation = _buildXfelEndstationRoles;
+ROLE_BUILDERS.euvCollector = _buildEuvCollectorRoles;
 
 // Registry: component type id → builder function (legacy path for builders
 // that still return a fully-assembled THREE.Group rather than role buckets).

@@ -99,7 +99,7 @@ export const BEAMLINE_TYPES = {
     // already withhold. The sandbox where you may build things that do not
     // work is what keeps a type-filtered game from feeling like a cage.
     excludes: [],
-    requiredEndpoint: ['faradayCup', 'beamStop'],
+    requiredEndpoint: ['materialsTestStation', 'faradayCup', 'beamStop'],
     blurb: 'A bench you are allowed to break. Qualify hardware and rent beam time to groups who do not mind the beam going away.',
     accentColor: 0x9aa7b5,
   },
@@ -134,7 +134,7 @@ export const BEAMLINE_TYPES = {
     // this type's identity is withheld by allowlists: no cryo, no ion front
     // end, no detector.
     excludes: ['sextupole', 'velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['beamStop', 'faradayCup'],
+    requiredEndpoint: ['eBeamIrradiationVault', 'beamStop', 'faradayCup'],
     blurb: 'You sell dose, by the pallet. Medical-device sterilisation, cable crosslinking, food irradiation — paid on beam power, not beam quality.',
     accentColor: 0x46c25a,
   },
@@ -174,7 +174,7 @@ export const BEAMLINE_TYPES = {
     // Nothing denied. A 70 MeV proton line is exactly where a Wien filter and
     // a pepper-pot still make sense, and it is the last type where they do.
     excludes: [],
-    requiredEndpoint: ['target', 'beamStop'],
+    requiredEndpoint: ['isotopeProductionTarget', 'radiationEffectsStation', 'target', 'beamStop'],
     blurb: 'Two customers on one machine: PET isotopes sold by the curie, and aerospace electronics paid for by the shift. Highest revenue per square metre in the roster.',
     accentColor: 0xe0a33a,
   },
@@ -215,7 +215,7 @@ export const BEAMLINE_TYPES = {
     // these are trunk hardware everywhere below 250 MeV — this is the exact
     // case the type-side denylist exists for.
     excludes: ['velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['beamStop'],
+    requiredEndpoint: ['protonTherapyGantry', 'beamStop'],
     blurb: 'Hospitals buy treatment fractions, not physics. Revenue is capped and being brilliant earns nothing extra — what you can do is fail, and a cancelled fraction costs reputation.',
     accentColor: 0x3fb9c4,
   },
@@ -250,7 +250,7 @@ export const BEAMLINE_TYPES = {
     // idea available. wireScanner survives because real MW machines do use
     // them, at low duty cycle and briefly.
     excludes: ['screen', 'velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['target', 'beamStop'],
+    requiredEndpoint: ['spallationNeutronTarget', 'target', 'beamStop'],
     blurb: 'One accelerator, twenty instruments, and the cheapest data in the game — provided you can put a megawatt on target without activating the tunnel.',
     accentColor: 0xd8463a,
   },
@@ -288,7 +288,7 @@ export const BEAMLINE_TYPES = {
     // statement than "degrades it", and is why screen is denied here and not
     // merely discouraged.
     excludes: ['screen', 'velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['beamStop', 'faradayCup'],
+    requiredEndpoint: ['photonScienceHutch', 'beamStop', 'faradayCup'],
     blurb: 'An XFEL serves three experiments at a time; a ring serves forty. The workhorse public user facility, and the one machine here that is a ring.',
     accentColor: 0xe8c33a,
   },
@@ -325,7 +325,7 @@ export const BEAMLINE_TYPES = {
     // An XFEL is an emittance-preservation machine; a pepper-pot plate in
     // front of a 17 GeV, 5 kA beam is a plasma experiment, not a filter.
     excludes: ['velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['beamStop', 'faradayCup'],
+    requiredEndpoint: ['xfelEndstation', 'beamStop', 'faradayCup'],
     blurb: 'Molecular movies and diffraction-before-destruction. The highest data rate in the roster by a wide margin, and the currency is Nature papers.',
     accentColor: 0xcf5bb0,
   },
@@ -364,7 +364,7 @@ export const BEAMLINE_TYPES = {
     // you are handling 10 MW of beam power continuously; normal-conducting
     // copper would melt and the wall-plug bill would eat the contract.
     excludes: ['velocitySelector', 'emittanceFilter', 'pillboxCavity'],
-    requiredEndpoint: ['beamStop', 'faradayCup'],
+    requiredEndpoint: ['euvCollector', 'beamStop', 'faradayCup'],
     blurb: 'One customer: a semiconductor fab. The highest revenue in the game, an availability contract with punitive downtime clauses, and almost no science.',
     accentColor: 0x6457d6,
   },

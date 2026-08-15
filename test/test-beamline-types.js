@@ -154,6 +154,30 @@ for (const t of TYPES) {
     `${t.id}: ${hidden.length === 0 ? 'endpoints survive its own filter' : `filtered out ${hidden.join(', ')}`}`);
 }
 
+console.log('\n--- purpose-specific endpoints give every non-collider line its own finish ---');
+{
+  const PURPOSE_ENDPOINTS = {
+    testStand: 'materialsTestStation',
+    ebeamProcessing: 'eBeamIrradiationVault',
+    isotopeIrradiation: 'isotopeProductionTarget',
+    therapy: 'protonTherapyGantry',
+    spallation: 'spallationNeutronTarget',
+    lightSource: 'photonScienceHutch',
+    xfel: 'xfelEndstation',
+    euvFel: 'euvCollector',
+  };
+  for (const [typeId, endpointId] of Object.entries(PURPOSE_ENDPOINTS)) {
+    const type = BEAMLINE_TYPES[typeId];
+    const endpoint = COMPONENTS[endpointId];
+    assert(endpoint?.isEndpoint && endpoint.category === 'endpoint',
+      `${endpointId} is a terminating endpoint`);
+    assert(endpoint?.beamlineTypes?.length === 1 && endpoint.beamlineTypes[0] === typeId,
+      `${endpointId} belongs only to ${typeId}`);
+    assert(type?.requiredEndpoint?.includes(endpointId),
+      `${typeId} accepts its purpose-specific endpoint`);
+  }
+}
+
 // Same argument one step upstream: a type with no source cannot be started.
 console.log('\n--- every type has at least one buildable source ---');
 for (const t of TYPES) {
