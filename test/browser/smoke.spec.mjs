@@ -478,12 +478,9 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.keyboard.press('Escape');
     await expect(page.locator('#designer-overlay')).toBeHidden();
 
-    // 5. save/load dialog. The dropdown is a child of #top-bar, whose z-index
-    // opens a stacking context, so the menu's own 300 is scoped inside it and
-    // the whole dropdown used to stack at the bar's 100 — under #music-player
-    // (101), which parks directly beneath these very buttons and swallowed the
-    // clicks. Hit-test every item the walk goes on to click, so a stacking
-    // regression names the intercepting layer instead of timing out on a click.
+    // 5. save/load dialog. The dropdown is a child of #top-bar, so hit-test
+    // every item the walk goes on to click. This catches a top-bar stacking
+    // regression with a useful intercepting-layer name instead of timing out.
     await page.click('#btn-menu');
     for (const action of ['save-game', 'load-game', 'options', 'guide']) {
       const covering = await page.evaluate((a) => {

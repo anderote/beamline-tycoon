@@ -205,7 +205,16 @@ UIHost.prototype._updateHUD = function() {
   // Staff bar (top bar portraits)
   this._renderStaffBar();
 
-  // Facility staffing banner (Task 8) — the idle-legibility headline.
+  // The top bar has a dedicated systems row. Keep the remaining anchored HUD
+  // panels below both rows even when the primary row wraps on narrow screens.
+  const topBar = document.getElementById('top-bar');
+  if (topBar) {
+    document.documentElement.style.setProperty(
+      '--hud-topbar-bottom', `${Math.ceil(topBar.getBoundingClientRect().bottom)}px`,
+    );
+  }
+
+  // Facility staffing summary (Task 8) — the idle-legibility headline.
   this._renderStaffingBanner();
 
   // Fix round 1's F3: keep any open staff/roster windows live every tick,
@@ -475,7 +484,7 @@ UIHost.prototype._showInfraBlockerPanel = function() {
   this._renderInfraBlockerList();
 };
 
-// --- Facility staffing banner (Task 8, staff-professions-3 jobs-and-gates) -
+// --- Facility staffing summary (Task 8, staff-professions-3 jobs-and-gates) -
 //
 // The idle-legibility layer, two signals sharing one banner slot:
 //   - staffDiagnostics.facilityStaffingReport groups every staffer currently
@@ -489,53 +498,29 @@ UIHost.prototype._showInfraBlockerPanel = function() {
 //     is BUSY and nothing is progressing (an idle-only report has nothing
 //     to say when nobody is idle). Shown only when nobody IS idle — an idle
 //     roster is already the more specific, more actionable fact.
-// Both exist independently of the infra-blocker panel above: a facility can
-// be fully wired (no infraBlockers at all) while staff sit idle, or fully
-// staffed and wired while nobody's ever pressed Start — neither reaches the
-// gate at all.
-const STAFFING_BANNER_ID = 'staffing-banner';
+// This signal exists independently of infrastructure blockers — a facility
+// can be fully wired while staff sit idle — but it now shares the compact
+// top-bar notification rail with beam/fault status instead of opening a third
+// floating panel.
+const STAFFING_BANNER_ID = 'staffing-summary';
 const STAFFING_ROSTER_WINDOW_ID = 'staffing-roster';
 
 function ensureStaffingBanner() {
   let panel = document.getElementById(STAFFING_BANNER_ID);
   if (panel) return panel;
-  const host = document.getElementById('game') || document.body;
+  const host = document.getElementById('top-buttons');
   if (!host) return null;
-  panel = document.createElement('div');
+  panel = document.createElement('span');
   panel.id = STAFFING_BANNER_ID;
-  // `top` is set every render by positionStaffingBanner (fix round 1's F9)
-  // — the top bar wraps to extra rows on a narrow window, same as the infra
-  // blocker panel's own positionBlockerPanel() already accounts for, so a
-  // fixed pixel guess here would sit under a wrapped bar exactly the way
-  // that panel's own comment warns about. Centered horizontally only.
-  panel.style.cssText = [
-    'position:absolute', 'left:50%', 'transform:translateX(-50%)',
-    'z-index:101', 'max-width:70vw',
-    'font-family:monospace', 'font-size:10px', 'letter-spacing:0.3px',
-    'border-radius:3px', 'padding:4px 10px',
-    'box-shadow:0 4px 14px rgba(0,0,0,0.5)',
-    'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
-    'display:none',
-  ].join(';');
+  panel.className = 'staffing-summary';
   host.appendChild(panel);
   return panel;
-}
-
-// Mirrors positionBlockerPanel's own measurement exactly (fix round 1's
-// F9) — see that function's comment for why a fixed pixel guess is wrong.
-function positionStaffingBanner(panel) {
-  const bar = document.getElementById('top-bar');
-  const top = bar ? bar.offsetTop + bar.offsetHeight + 6 : 42;
-  panel.style.top = `${top}px`;
 }
 
 // Rebuilds only when the underlying signal actually changed (signature =
 // which report is showing, plus its own identifying text/counts) — this
 // runs every frame via _updateHUD, and a steady idle roster (or a steady
-// stall) must not thrash the DOM. Repositioned every call regardless (fix
-// round 1's F9, mirroring _renderInfraBlockerList's own "reposition
-// regardless" comment) since the top bar's height can change independently
-// of either report.
+// stall) must not thrash the DOM.
 //
 // Fix round 2's F2 (BLOCKING): facilityProgressReport used to be asked ONLY
 // when `staffing.idleCount === 0` — so a facility earning nothing (an
@@ -550,7 +535,6 @@ function positionStaffingBanner(panel) {
 UIHost.prototype._renderStaffingBanner = function() {
   const panel = ensureStaffingBanner();
   if (!panel) return;
-  positionStaffingBanner(panel);
 
   const progress = facilityProgressReport(this.game);
   const staffing = facilityStaffingReport(this.game);
@@ -581,7 +565,7 @@ UIHost.prototype._renderStaffingBanner = function() {
     panel.style.border = '1px solid rgba(255,120,90,0.5)';
     panel.style.color = '#ffb08c';
     panel.style.cursor = 'default';
-    panel.style.display = '';
+    panel.style.display = 'inline-flex';
     panel.onclick = null;
     return;
   }
@@ -594,7 +578,7 @@ UIHost.prototype._renderStaffingBanner = function() {
     panel.style.border = '1px solid rgba(255,190,90,0.45)';
     panel.style.color = '#ffd28c';
     panel.style.cursor = 'pointer';
-    panel.style.display = '';
+    panel.style.display = 'inline-flex';
     panel.onclick = () => this._openStaffingBannerGroup();
     return;
   }

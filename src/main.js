@@ -534,46 +534,11 @@ function showScenarioPicker(game) {
   // post-init, so the binding is live by then.
   const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer });
 
-  // Utility stats side panel — positioned just below the music player
-  // (top:56px right:12px) so it sits in the same right-rail region.
-  // Visible only in infra mode; mount/destroy driven by 'activeModeChanged'.
-  const utilityStatsContainer = document.createElement('div');
-  utilityStatsContainer.id = 'utility-stats-container';
-  utilityStatsContainer.style.cssText = [
-    'position:absolute',
-    'top:108px',       // below music player (56 + ~44 height)
-    'right:12px',
-    'z-index:98',
-    'pointer-events:auto',
-    'display:none',
-  ].join(';');
-  document.body.appendChild(utilityStatsContainer);
-
-  let utilityStatsPanel = null;
-  const syncUtilityStatsPanel = (mode) => {
-    if (mode === 'infra') {
-      utilityStatsContainer.style.display = '';
-      if (!utilityStatsPanel) {
-        utilityStatsPanel = new UtilityStatsPanel(game, utilityStatsContainer);
-      } else {
-        utilityStatsPanel.render();
-      }
-    } else {
-      utilityStatsContainer.style.display = 'none';
-      if (utilityStatsPanel) {
-        utilityStatsPanel.destroy();
-        utilityStatsPanel = null;
-      }
-    }
-  };
-  game.on((event, data) => {
-    if (event === 'activeModeChanged') {
-      syncUtilityStatsPanel(data?.mode);
-    }
-  });
-  // Initial sync — handles the restored-from-save case where setActiveMode
-  // fired before this listener was registered.
-  syncUtilityStatsPanel(input.activeMode);
+  // Utility stats now live in the top bar's second row beside the music
+  // player, replacing the old floating right-rail panel. Keeping them mounted
+  // in every mode turns the row into a stable facility-health readout.
+  const utilityStatsContainer = document.getElementById('utility-stats-container');
+  new UtilityStatsPanel(game, utilityStatsContainer);
 
   // Debug fallback: open a utility inspector for a given line id from the
   // browser console. Unblocks Phase 6 playtesting if the 3D click path
