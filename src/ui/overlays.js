@@ -4693,12 +4693,20 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
   const ew = new EquipmentWindow(this.game, equip, {
     onPlace: id => input?._beginSelectionPlacement('move', id),
     onCopy: id => input?._beginSelectedCopy(id),
+    onCopyToClipboard: id => input?._copySelectionToClipboard(id),
+    onPaste: () => input?._pasteSelectionClipboard(),
+    onSaveSlot: (slot, id) => input?._saveSelectionSlot(slot, id),
     onRotate: id => input?._beginSelectionTransform('rotate', id),
     onMirror: id => input?._beginSelectionTransform('mirror', id),
     onDemolish: id => input?._demolishSelected(id),
     onAutoConnect: id => input?._autoConnectPanel(id),
     getAutoConnectPlan: id => input?._panelAutoConnectPlan(id),
-    getSelectionCount: id => input?._selectionIdsForAnchor(id).length || 1,
+    getSelectionEntries: id => (input?._selectionIdsForAnchor(id) || [])
+      .map(selectedId => this.game.getPlaceable(selectedId))
+      .filter(Boolean),
+    getClipboardCount: () => input?._selectionClipboard?.items?.length || 0,
+    getSelectionSlots: () => Object.fromEntries(Object.entries(input?._selectionSlots || {})
+      .map(([slot, payload]) => [slot, payload?.items?.length || 0])),
   });
   if (!ew.ctx) return;
   this._equipmentWindows[equip.id] = ew;

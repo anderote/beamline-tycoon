@@ -168,9 +168,11 @@ console.log('\n=== Selection groups ===\n');
 
 {
   const selectedFrames = [];
+  const closedWindows = [];
   const entries = {
     a: { id: 'a', type: 'labBench', kind: 'equipment', category: 'equipment' },
     b: { id: 'b', type: 'controlConsole', kind: 'equipment', category: 'equipment' },
+    old: { id: 'old', type: 'flowerBed', kind: 'decoration', category: 'decoration' },
   };
   const input = {
     _marquee: { startX: 10, startY: 20, endX: 100, endY: 120, additive: false, dragging: true },
@@ -183,12 +185,13 @@ console.log('\n=== Selection groups ===\n');
       ],
       setSelectionOutlines: roots => selectedFrames.push(roots.slice()),
       _openEquipmentWindow() {},
+      _closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
       _refreshContextWindows() {},
     },
     game: { getPlaceable: id => entries[id] || null },
     selectedNodeId: null,
     selectedPlaceableId: null,
-    selectedPlaceableIds: new Set(),
+    selectedPlaceableIds: new Set(['old']),
     _selectedRootsById: new Map(),
     _renderSelectionOutlines: InputHandler.prototype._renderSelectionOutlines,
     _showToast() {},
@@ -198,6 +201,9 @@ console.log('\n=== Selection groups ===\n');
     'a dragged screen marquee selects every matching movable placeable');
   assert(input.selectedPlaceableId === 'b' && selectedFrames.at(-1).length === 2,
     'marquee selection establishes one primary item and outlines the whole group');
+  assert(closedWindows.includes('old') && closedWindows.includes('a')
+      && !closedWindows.includes('b'),
+  'marquee leaves one group panel instead of stale per-item windows');
 }
 
 {
