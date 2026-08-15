@@ -1,8 +1,8 @@
 // src/renderer3d/utility-flow.js
 //
 // Energy visibly moving through utility runs. Each utility pulses in its own
-// colour and rhythm — a repeating soft band added on top of the pipe's normal
-// PBR shading, via onBeforeCompile, in the utility's own colour. Gated on
+// colour and rhythm — a repeating soft band applied to the pipe's material,
+// via onBeforeCompile, in the utility's own colour. Gated on
 // whatever getLineMaterial's caller already knows about network health
 // (ok/soft/hard from utility-line-builder-v2._buildErrorMap): a hard fault
 // stops the pipe from carrying anything. Motion is the line-level delivery
@@ -11,7 +11,7 @@
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
 
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
-import { min, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
+import { min, mix, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 
 // ---- Per-utility motion --------------------------------------------------
 //
@@ -19,39 +19,32 @@ import { min, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 // writes ABSOLUTE run distance in metres into uv.y, not a 0..1 fraction, so
 // `speed` is metres/second and `period`/`width` are metres of pipe.
 //
-// `color` is the pulse's own emissive tint — deliberately the utility's own
-// descriptor colour (UTILITY_TYPES[type].color) in every case but one: an
-// emissive term is a multiply against that colour, and hvCable's descriptor
-// colour is #141418 (near-black by design — see hvCable.js's "has to look
-// like trunk" comment), which stays invisible no matter how hard you push the
-// emissive strength.
+// `color` is the pulse's tint. Emissive flows normally use the utility's own
+// descriptor colour (UTILITY_TYPES[type].color). Electrical cables are the
+// exception: their flow is an albedo variation on the cable surface, with no
+// bloom, crest object, or real-light proxy. That needs an explicit lighter
+// target colour so powerCable's green-on-green variation remains visible and
+// hvCable's near-black trunk can visibly change at all.
 //
-// AUTHORIZED EXCEPTION — hvCable's `color` below is NOT powerCable's tint and
-// is NOT a free pick: it's a deliberate, ruled-on departure from "pulse = the
-// pipe's own colour", scoped to this one utility because that rule has no
-// answer for a genuinely near-black base. `#8f94c8` is a dim, desaturated
-// blue-violet — the colour of corona/arc discharge around a live HV
-// conductor (ionised-air emission reads blue-violet, not white or green), so
-// it still says "this conductor is live and dangerous" in the same grounded
-// register as every other utility's pulse, rather than an arbitrary neon
-// accent standing in for an unglowable black.
+// `#8f94c8` remains a dim, desaturated blue-violet so HV reads differently
+// from ordinary branch power. It is now only a surface colour and does not
+// imply that the cable is casting light into the room.
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    // Long violet surges with a broad smoothstep tail. They remain more widely
-    // spaced than branch-power packets, but recur often enough that a live HV
-    // feeder does not spend most of its time looking inert.
+    // Long violet surface bands with a broad smoothstep tail. They remain more
+    // widely spaced than branch-power packets, but recur often enough that a
+    // live HV feeder does not spend most of its time looking inert.
     speed: 2.35, period: 3.2, width: 0.48, strength: 1.60, baseGlow: 0.045,
     color: '#8f94c8',
-    pulseRadialScale: 0.52, pulseLengthScale: 6.6,
-    lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
+    emissive: false, crest: false, light: false,
   },
   powerCable: {
-    // A regular train of elongated green current gradients: dependable and
-    // frequent, but visibly less violent than the HV surges above.
+    // A regular train of elongated green surface gradients: dependable and
+    // frequent, but visibly less forceful than the HV bands above.
     speed: 1.35, period: 0.88, width: 0.30, strength: 1.12, baseGlow: 0.09,
-    pulseRadialScale: 0.71, pulseLengthScale: 3.6,
-    lightIntensity: 0.16, lightDistance: 1.5, daylightFloor: 0.26,
+    color: '#9be39b',
+    emissive: false, crest: false, light: false,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
@@ -210,9 +203,9 @@ const _patchedMaterials = new Set();
  * untouched — when the utility has no flow (FLOW_PARAMS[utilityType] is
  * null/undefined, e.g. vacuumPipe).
  *
- * Adds to totalEmissiveRadiance; never touches material.emissive/.color, so
- * it composes with the "a line's colour is its utility, always and only"
- * rule above getLineMaterial rather than fighting it.
+ * Emissive utilities add to totalEmissiveRadiance. Electrical cables instead
+ * blend the lit surface colour toward their flow tint, preserving the motion
+ * cue without bloom or emitted light.
  */
 export function patchFlowMaterial(material, utilityType, flowState) {
   const params = FLOW_PARAMS[utilityType];
@@ -258,11 +251,16 @@ export function patchFlowMaterial(material, utilityType, flowState) {
   const flowThrum = sin(uniforms.uTime.node.mul(6)).mul(0.5).add(0.5)
     .mul(0.28).add(0.72);
   const flowGate = uniforms.uStutter.node.greaterThan(0.5).select(flowThrum, 1);
-  material.emissiveNode = uniforms.uFlowColor.node.mul(
-    uniforms.uBaseGlow.node.add(
-      uniforms.uStrength.node.mul(flowPulse).mul(flowGate),
-    ),
+  const flowAmount = uniforms.uBaseGlow.node.add(
+    uniforms.uStrength.node.mul(flowPulse).mul(flowGate),
   );
+  if (params.emissive === false) {
+    material.colorNode = mix(
+      uniform(material.color), uniforms.uFlowColor.node, min(flowAmount, 1),
+    );
+  } else {
+    material.emissiveNode = uniforms.uFlowColor.node.mul(flowAmount);
+  }
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -274,6 +272,20 @@ export function patchFlowMaterial(material, utilityType, flowState) {
       .replace('#include <common>', '#include <common>\nvarying float vFlowDist;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvFlowDist = uv.y;');
 
+    const flowLines = [
+      'float flowCycle = mod( vFlowDist - uTime * uSpeed, uPeriod );',
+      'float flowEdge = min( flowCycle, uPeriod - flowCycle );',
+      'float flowPulse = 1.0 - smoothstep( 0.0, uWidth, flowEdge );',
+      // A soft fault thrums instead of square-wave blinking. The red fault
+      // mark still communicates the problem; motion stays readable.
+      'float flowThrum = 0.72 + 0.28 * ( 0.5 + 0.5 * sin( uTime * 6.0 ) );',
+      'float flowGate = uStutter > 0.5 ? flowThrum : 1.0;',
+      params.emissive === false
+        ? 'diffuseColor.rgb = mix( diffuseColor.rgb, uFlowColor, clamp( uBaseGlow + uStrength * flowPulse * flowGate, 0.0, 1.0 ) );'
+        : 'totalEmissiveRadiance += uFlowColor * ( uBaseGlow + uStrength * flowPulse * flowGate );',
+    ];
+    const flowAnchor = params.emissive === false
+      ? '#include <color_fragment>' : '#include <emissivemap_fragment>';
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', [
         '#include <common>',
@@ -287,19 +299,7 @@ export function patchFlowMaterial(material, utilityType, flowState) {
         'uniform float uStutter;',
         'uniform vec3 uFlowColor;',
       ].join('\n'))
-      // Placed right after emissivemap_fragment: totalEmissiveRadiance is in
-      // scope there and this is purely additive over it, never a replacement.
-      .replace('#include <emissivemap_fragment>', [
-        '#include <emissivemap_fragment>',
-        'float flowCycle = mod( vFlowDist - uTime * uSpeed, uPeriod );',
-        'float flowEdge = min( flowCycle, uPeriod - flowCycle );',
-        'float flowPulse = 1.0 - smoothstep( 0.0, uWidth, flowEdge );',
-        // A soft fault thrums instead of square-wave blinking. The red fault
-        // mark still communicates the problem; motion stays readable.
-        'float flowThrum = 0.72 + 0.28 * ( 0.5 + 0.5 * sin( uTime * 6.0 ) );',
-        'float flowGate = uStutter > 0.5 ? flowThrum : 1.0;',
-        'totalEmissiveRadiance += uFlowColor * ( uBaseGlow + uStrength * flowPulse * flowGate );',
-      ].join('\n'));
+      .replace(flowAnchor, [flowAnchor, ...flowLines].join('\n'));
   };
 
   // Without this, three's program cache can key two structurally-identical
