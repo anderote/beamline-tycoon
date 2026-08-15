@@ -29,6 +29,9 @@ the short authoring contract.
   to the scenario. Renaming a connector should otherwise not break balance runs.
 - RF frequency bands live in `src/data/rf-bands.js`, a dependency-neutral data
   module shared by port authoring and the RF solver descriptor.
+- RF waveguides and cryogenic transfer lines use the `rectilinear` routing
+  profile: their paths must be axis-aligned with 90-degree bends, but do not
+  reserve rigid equipment or service-clearance aisles.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 

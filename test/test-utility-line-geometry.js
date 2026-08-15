@@ -143,13 +143,14 @@ console.log('\n--- Test 9: fixed port tails preserve clearance ---');
   assertEq(noClearance[0], [{ col: 0, row: 0 }, { col: 0.25, row: 0 }],
     'a no-clearance utility can turn/connect immediately beside its fitting');
 
-  for (const utilityType of ['vacuumPipe', 'cryoTransfer']) {
+  for (const utilityType of ['vacuumPipe', 'rfWaveguide', 'cryoTransfer']) {
     assert(UTILITY_TYPES[utilityType].portClearance === false,
       `${utilityType} opts out of fixed port-clearance tails`);
   }
-  assert(UTILITY_TYPES.rfWaveguide.portClearance === true
-    && UTILITY_TYPES.rfWaveguide.portTailTiles >= 0.5,
-  'rfWaveguide reserves a longer straight launch for its physical bend radius');
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    assert(UTILITY_TYPES[utilityType].routingProfile === 'rectilinear',
+      `${utilityType} explicitly uses forgiving rectilinear routing`);
+  }
   assert(UTILITY_TYPES.powerCable.portClearance !== false,
     'power cords retain their small fitting lead-outs');
 

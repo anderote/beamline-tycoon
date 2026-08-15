@@ -1,4 +1,4 @@
-// test/test-rigid-utility-routing.js — physical routing rules for vacuum/RF.
+// test/test-rigid-utility-routing.js — rigid vacuum and rectilinear RF/cryo rules.
 
 import {
   expandPath,
@@ -22,7 +22,7 @@ function pointKey(point) {
   return `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
 }
 
-console.log('\n--- 1. Installed rigid services cannot cross ---');
+console.log('\n--- 1. Vacuum stays rigid; RF/cryo may cross other services ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -35,8 +35,7 @@ console.log('\n--- 1. Installed rigid services cannot cross ---');
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   });
-  assert(!crossed.ok && crossed.reason === 'overlap_rigid_service',
-    `vacuum refuses to pass through waveguide (${crossed.reason})`);
+  assert(crossed.ok, 'rectilinear waveguide does not block a vacuum crossing');
 
   const cable = validateDrawLine(state, {
     utilityType: 'powerCable', start: null, end: null,
@@ -51,6 +50,12 @@ console.log('\n--- 1. Installed rigid services cannot cross ---');
       path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
     }]]),
   };
+  const duplicateVacuum = validateDrawLine(vacuumState, {
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
+  });
+  assert(!duplicateVacuum.ok && duplicateVacuum.reason === 'overlap_same_type',
+    `two rigid vacuum runs still cannot cross (${duplicateVacuum.reason})`);
   const tee = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 2, row: 2 }],
@@ -70,8 +75,8 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
 {
   const state = {
     placeables: [], beamPipes: [],
-    utilityLines: new Map([['guide', {
-      id: 'guide', utilityType: 'rfWaveguide', start: null, end: null,
+    utilityLines: new Map([['pipe', {
+      id: 'pipe', utilityType: 'vacuumPipe', start: null, end: null,
       path: [{ col: 2, row: -1 }, { col: 2, row: 1 }],
     }]]),
   };
@@ -120,8 +125,8 @@ console.log('\n--- 3b. The ordinary drag controller invokes the detour search --
 {
   const state = {
     placeables: [], beamPipes: [],
-    utilityLines: new Map([['guide', {
-      id: 'guide', utilityType: 'rfWaveguide', start: null, end: null,
+    utilityLines: new Map([['pipe', {
+      id: 'pipe', utilityType: 'vacuumPipe', start: null, end: null,
       path: [{ col: 2, row: -1 }, { col: 2, row: 1 }],
     }]]),
   };
@@ -136,23 +141,35 @@ console.log('\n--- 3b. The ordinary drag controller invokes the detour search --
     'the controller preview does not cross the installed guide');
 }
 
-console.log('\n--- 4. Waveguide owns a larger, directional bend envelope ---');
+console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
 {
   const rf = UTILITY_TYPES.rfWaveguide;
-  const vacuum = UTILITY_TYPES.vacuumPipe;
-  assert(rf.minStraightTiles > 0 && rf.portTailTiles >= rf.minStraightTiles,
-    'waveguide reserves straight launch and elbow legs');
-  assert(rf.routeClearanceTiles > vacuum.routeClearanceTiles,
-    'waveguide keeps a wider service aisle than vacuum');
+  const cryo = UTILITY_TYPES.cryoTransfer;
+  assert(rf.routingProfile === 'rectilinear' && cryo.routingProfile === 'rectilinear',
+    'RF and cryo publish the same rectilinear routing profile');
+  assert(rf.portClearance === false && cryo.portClearance === false,
+    'RF and cryo may turn immediately beside a fitting');
+  assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,
+    'RF and cryo do not reserve rigid service aisles');
   const tight = [
     { col: 0, row: 0 },
     { col: 0.25, row: 0 },
     { col: 0.25, row: 2 },
   ];
-  assert(!hasMinimumBendClearance(tight, rf.minStraightTiles),
-    'a quarter-tile RF elbow is geometrically too tight');
   assert(hasMinimumBendClearance(tight, 0),
-    'the same compact elbow remains valid vacuum geometry');
+    'a compact quarter-tile elbow is valid rectilinear geometry');
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    const compact = validateDrawLine({ placeables: [], beamPipes: [], utilityLines: new Map() }, {
+      utilityType, start: null, end: null, path: tight,
+    });
+    assert(compact.ok, `${utilityType} accepts the compact 90-degree route`);
+    const diagonal = validateDrawLine({ placeables: [], beamPipes: [], utilityLines: new Map() }, {
+      utilityType, start: null, end: null,
+      path: [{ col: 0, row: 0 }, { col: 1, row: 1 }],
+    });
+    assert(!diagonal.ok && diagonal.reason === 'not_manhattan',
+      `${utilityType} still rejects diagonal routing`);
+  }
 
   const defs = {
     amp: { subW: 2, subL: 2, ports: {
@@ -181,8 +198,7 @@ console.log('\n--- 4. Waveguide owns a larger, directional bend envelope ---');
     start: { placeableId: 'amp', portName: 'rf_out' }, end: null,
     path: [start, { col: start.col - 2, row: start.row }],
   });
-  assert(!wrongWay.ok && wrongWay.reason === 'port_mismatch_start',
-    'waveguide cannot fold backward through its launcher');
+  assert(wrongWay.ok, 'waveguide may leave a fitting in any rectilinear direction');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
