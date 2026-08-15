@@ -1522,25 +1522,25 @@ ROLE_BUILDERS.velocitySelector = _buildVelocitySelectorRoles;
 ROLE_BUILDERS.emittanceFilter = _buildEmittanceFilterRoles;
 
 /**
- * Bellows Section — 0.5 m long (1 sub-unit) corrugated vacuum coupling.
+ * Bellows Section — compact 0.25 m corrugated vacuum coupling.
  *
  * A stack of torus rings produces the accordion silhouette. Flanges at
- * both subtile edges so it sits flush between neighboring components. No
- * support stand — bellows normally hangs between its neighbors.
+ * both ends keep the coupling readable without filling the 0.5 m visual
+ * subtile around its inline anchor. No support stand — bellows normally hangs
+ * between its neighbors.
  */
 function _buildBellowsRoles() {
   /** @type {Record<string, THREE.BufferGeometry[]>} */
   const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
 
-  const subtileHalf = 0.25;                 // ±0.25 m from a 0.5 m subtile centre
-  const flangeZ   = subtileHalf - FLANGE_H / 2;
-  const bellowsL  = 2 * (subtileHalf - FLANGE_H - 0.025); // small stub to the flanges
+  const visualHalf = 0.125;                 // compact ±0.125 m envelope around the point slot
+  const flangeZ   = visualHalf - FLANGE_H / 2;
+  const bellowsL  = 0.12;                   // short accordion between the two end flanges
   const ringInner = PIPE_R;                  // inner bore radius
   const ringOuter = PIPE_R * 2.4;            // outer accordion radius
   const tube      = (ringOuter - ringInner) / 2;
   const ringCentR = ringInner + tube;
-  const ringCount = 7;
-  const ringSpacing = bellowsL / ringCount;
+  const ringCount = 4;
   const ringSegs  = 10;
   const tubeSegs  = 12;
 
@@ -1564,8 +1564,8 @@ function _buildBellowsRoles() {
     _pushTransformed(buckets.pipe, g, trans);
   }
 
-  // CF flanges at both subtile edges — standard sizes so the bellows butts
-  // flush against drift pipes or magnets on either side.
+  // CF flanges at the compact visual ends. The attachment's inline point slot,
+  // rather than this mesh envelope, owns longitudinal placement occupancy.
   for (const sign of [-1, 1]) {
     const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
     applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
