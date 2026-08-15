@@ -5,6 +5,8 @@ import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { BeamPhysics } from '../beamline/physics.js';
+import { PhysicsRecalcCoordinator } from '../beamline/physics-recalc-coordinator.js';
+import { aggregateBeamlinePhysics } from '../beamline/physics-result-aggregate.js';
 import { buildPhysicsElements } from '../beamline/physics-payload.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { beamlineTypeUnlocked, getBeamlineType } from '../data/beamline-types.js';
@@ -262,6 +264,8 @@ function normalizePipePlacementContracts(pipes) {
 export class Game {
   constructor(registry, options = {}) {
     this.registry = registry;
+    this.physicsEngine = options.physicsEngine || BeamPhysics;
+    this.physicsRecalcCoordinator = new PhysicsRecalcCoordinator(this.physicsEngine);
 
     // Deterministic sim RNG. Only the seed is persisted (state.seed) — a
     // loaded game restarts the stream, it does not resume mid-stream.
@@ -3803,8 +3807,8 @@ export class Game {
    * hand out duplicate s-positions: probe pins on machine B resolved to
    * machine A's envelope samples. Every source after the first is therefore
    * shifted onto its own stretch of the s-axis (`sourceIndex` records which
-   * machine an element belongs to, and _recalcMainBeamGraph runs one physics
-   * pass per machine rather than treating the concatenation as one lattice).
+   * machine an element belongs to). The facility summary offsets each
+   * already-computed per-machine envelope onto this combined axis.
    */
   _deriveBeamGraph() {
     const beamItems = this.state.placeables.filter(p => p.category === 'beamline');
@@ -4021,6 +4025,7 @@ export class Game {
    */
   _removeBeamlineForSourcePlaceable(instance) {
     if (!instance || !instance.beamlineId) return;
+    this.physicsRecalcCoordinator.invalidate(instance.beamlineId);
     this.registry.removeBeamline(instance.beamlineId);
     instance.beamlineId = null;
   }
@@ -4122,107 +4127,16 @@ export class Game {
     this.recalcAllBeamlines();
   }
 
-  // Physics pass for the unified main-map pipe graph. Runs additively on top
-  // of the per-registry-entry physics used by designer-placed beamlines.
-  // Derives state.beamline from the pipe graph (via _deriveBeamGraph) and
-  // runs BeamPhysics.compute() once over the ordered modules + drift + attachments.
-  // Result is stored in state.mainBeamState so renderers / HUD can read it
-  // without clobbering per-entry beamState data.
+  // Facility physics read model. The former implementation ran Python once
+  // per registry entry and then once AGAIN per source in this graph. Derive
+  // the aggregate from authoritative per-entry results instead: no duplicate
+  // optics work and no chance for two payload shapes to disagree.
   _recalcMainBeamGraph() {
-    // _deriveBeamGraph writes the unified ordered list into state.beamline
-    // (overwriting the registry-node snapshot _updateAggregateBeamline set).
     this._deriveBeamGraph();
-    const ordered = this.state.beamline || [];
-    if (ordered.length === 0) {
-      this.state.mainBeamState = null;
-      return;
-    }
-
-    // Contract check: every entry must have a non-negative subL. Inline
-    // attachments are intentional zero-length (thin) elements.
-    for (const node of ordered) {
-      if (typeof node.subL !== 'number' || node.subL < 0) {
-        console.warn('[physics] element with bad subL', node);
-      }
-    }
-
-    // Build physics input from ordered entries. Each entry already has subL
-    // in sub-units, params, and the component type. Physics multiplies subL
-    // by 0.5 to get metres.
-    const toPhysics = (nodes) => nodes.map(node => {
-      const def = COMPONENTS[node.type];
-      return {
-        type: node.type,
-        subL: node.subL ?? (def ? def.subL : 4) ?? 4,
-        stats: def && def.stats ? { ...def.stats } : {},
-        params: node.params || {},
-      };
-    });
-
-    // One lattice per SOURCE. Feeding the concatenation of every source's
-    // path to a single compute() made lattice.py treat a mid-lattice source
-    // as a bare s-advance (no beam reset) and extract_source_params only ever
-    // read the first source — so machine B was computed as a continuation of
-    // machine A's exit beam, and the HUD's "peak energy" was A's gain plus
-    // B's gain instead of max(A, B).
-    const segments = [];
-    for (const node of ordered) {
-      const idx = node.sourceIndex || 0;
-      const seg = segments.find(s => s.index === idx);
-      if (seg) seg.nodes.push(node);
-      else segments.push({ index: idx, nodes: [node], offset: node.beamStart || 0 });
-    }
-
-    // Collect research effects
-    const researchEffects = {};
-    for (const key of RESEARCH_PHYSICS_EFFECT_KEYS) {
-      const v = this.getEffect(key, key.endsWith('Mult') ? 1 : 0);
-      researchEffects[key] = v;
-    }
-
-    if (!BeamPhysics.isReady()) {
-      this.state.mainBeamState = null;
-      return;
-    }
-    const runs = [];
-    for (const seg of segments) {
-      const res = BeamPhysics.compute(toPhysics(seg.nodes), researchEffects);
-      if (res) runs.push({ res, offset: seg.offset });
-    }
-    if (runs.length === 0) {
-      this.state.mainBeamState = null;
-      this.emit('physicsUpdated');
-      return;
-    }
-
-    // Headline state is the strongest machine; production rates are additive
-    // across machines. The envelope is the machines' envelopes laid end to end
-    // on the same shifted s-axis state.beamline uses, so probe pins (which
-    // resolve by nearest `.s` to their element's beamStart) land in their own
-    // machine's samples.
-    let main;
-    if (runs.length === 1) {
-      main = runs[0].res;
-    } else {
-      const best = runs.reduce((a, b) => ((b.res.beamEnergy || 0) > (a.res.beamEnergy || 0) ? b : a));
-      main = { ...best.res };
-      for (const key of ['dataRate', 'collisionRate', 'photonRate', 'luminosity', 'nDiagnostics']) {
-        main[key] = runs.reduce((sum, r) => sum + (r.res[key] || 0), 0);
-      }
-      main.beamAlive = runs.some(r => r.res.beamAlive);
-    }
-
-    const envelope = [];
-    for (const { res, offset } of runs) {
-      for (const s of (res.envelope || [])) {
-        envelope.push(offset ? { ...s, s: (s.s || 0) + offset } : s);
-      }
-    }
-    main.envelope = envelope;
+    const main = aggregateBeamlinePhysics(this.registry.getAll(), this.state.beamline);
     this.state.mainBeamState = main;
-    // Also expose envelope for probe.js, which reads state.physicsEnvelope
-    if (envelope.length > 0) {
-      this.state.physicsEnvelope = envelope;
+    if (main?.envelope?.length > 0) {
+      this.state.physicsEnvelope = main.envelope;
     }
     this.emit('physicsUpdated');
   }
@@ -4421,19 +4335,27 @@ export class Game {
   }
 
   runPhysicsForBeamline(entry, physicsBeamline, researchEffects) {
-    if (!BeamPhysics.isReady()) {
+    if (!this.physicsEngine.isReady()) {
       // Physics not loaded yet -- use simple fallback
       this._fallbackStatsForBeamline(entry, physicsBeamline);
       return;
     }
+    this.physicsRecalcCoordinator.request(
+      entry.id, physicsBeamline, researchEffects,
+      result => {
+        // A load/remove can replace a registry object while its worker job is
+        // in flight. Revision checks reject changed payloads; identity rejects
+        // a result belonging to an entry that no longer exists.
+        if (this.registry.get(entry.id) !== entry) return;
+        if (result) this.applyPhysicsResultForBeamline(entry, result);
+        else this._fallbackStatsForBeamline(entry, physicsBeamline);
+        this._updateAggregateBeamline();
+        this._recalcMainBeamGraph();
+      },
+    );
+  }
 
-    const result = BeamPhysics.compute(physicsBeamline, researchEffects);
-    if (!result) {
-      this._fallbackStatsForBeamline(entry, physicsBeamline);
-      return;
-    }
-
-    // Apply physics results to beamState
+  applyPhysicsResultForBeamline(entry, result) {
     const bs = entry.beamState;
     bs.beamEnergy = result.beamEnergy;
     bs.dataRate = result.dataRate;
@@ -4445,6 +4367,7 @@ export class Game {
     bs.discoveryChance = result.discoveryChance || 0;
     bs.photonRate = result.photonRate || 0;
     bs.collisionRate = result.collisionRate || 0;
+    bs.nDiagnostics = result.nDiagnostics || 0;
     bs.physicsEnvelope = result.envelope || null;
     // These three are produced by gameplay.py but used to be dropped here,
     // which left the objectives that read them (subMicronEmittance,

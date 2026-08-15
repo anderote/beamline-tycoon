@@ -11,11 +11,88 @@
 import { isoToGridFloat } from '../renderer/grid.js';
 
 const EPS = 1e-6;
+const STEP = 0.25;
 
 // Beam transport, source exit flanges, and the pipe preview all share this
 // physical axis. Input must pick against the same plane or the dimetric camera
 // makes the pipe land visibly above the cursor.
 export const BEAM_PIPE_Y = 1.0;
+
+/** Collapse waypoints into maximal collinear runs. */
+export function pipePathRuns(path) {
+  if (!path || path.length < 2) return [];
+  const runs = [];
+  let runStart = path[0];
+  let prev = path[0];
+  let prevDc = null, prevDr = null;
+  for (let i = 1; i < path.length; i++) {
+    const curr = path[i];
+    const dc = curr.col - prev.col;
+    const dr = curr.row - prev.row;
+    if (Math.abs(dc) < EPS && Math.abs(dr) < EPS) continue;
+    const ndc = Math.sign(dc), ndr = Math.sign(dr);
+    if (prevDc === null) {
+      prevDc = ndc; prevDr = ndr;
+    } else if (ndc !== prevDc || ndr !== prevDr) {
+      runs.push({ start: runStart, end: prev });
+      runStart = prev;
+      prevDc = ndc; prevDr = ndr;
+    }
+    prev = curr;
+  }
+  if (prevDc !== null) runs.push({ start: runStart, end: prev });
+  return runs;
+}
+
+/** Carve module-occupied quarter tiles out of one straight pipe run. */
+export function splitRunExcludingModules(start, end, moduleTileSet) {
+  const dc = end.col - start.col;
+  const dr = end.row - start.row;
+  const horiz = Math.abs(dc) >= Math.abs(dr);
+  const startV = horiz ? start.col : start.row;
+  const endV = horiz ? end.col : end.row;
+  const cross = horiz ? start.row : start.col;
+  const dir = Math.sign(endV - startV);
+  if (dir === 0) return [{ start, end }];
+  const lo = Math.min(startV, endV), hi = Math.max(startV, endV);
+  const mkPt = value => horiz ? { col: value, row: cross } : { col: cross, row: value };
+  const blocked = [];
+  for (let value = Math.ceil(lo / STEP - 0.01) * STEP; value <= hi + 0.01; value += STEP) {
+    const colF = horiz ? value : cross;
+    const rowF = horiz ? cross : value;
+    const adjCol = colF + 0.5, adjRow = rowF + 0.5;
+    const tileCol = Math.floor(adjCol + EPS), tileRow = Math.floor(adjRow + EPS);
+    const subCol = Math.round((adjCol - tileCol) * 4);
+    const subRow = Math.round((adjRow - tileRow) * 4);
+    if (moduleTileSet.has(`${tileCol},${tileRow},${subCol},${subRow}`)) blocked.push(value);
+  }
+  if (blocked.length === 0) return [{ start, end }];
+  blocked.sort((a, b) => dir * (a - b));
+  const ranges = [];
+  let rangeStart = blocked[0], rangePrev = blocked[0];
+  for (let i = 1; i < blocked.length; i++) {
+    if (Math.abs(blocked[i] - rangePrev - STEP) < 0.01) rangePrev = blocked[i];
+    else {
+      ranges.push({ lo: rangeStart, hi: rangePrev });
+      rangeStart = blocked[i]; rangePrev = blocked[i];
+    }
+  }
+  ranges.push({ lo: rangeStart, hi: rangePrev });
+  const subRuns = [];
+  let cursor = startV;
+  for (const range of ranges) {
+    const nearEdge = dir > 0 ? range.lo : range.hi + STEP;
+    const farEdge = dir > 0 ? range.hi + STEP : range.lo;
+    if (dir * (nearEdge - cursor) > 0.01) {
+      subRuns.push({ start: mkPt(cursor), end: mkPt(nearEdge) });
+    }
+    cursor = farEdge;
+  }
+  if (dir * (endV - cursor) > 0.01) {
+    subRuns.push({ start: mkPt(cursor), end: mkPt(endV) });
+  }
+  return subRuns;
+}
 
 /**
  * Sub-tile step size (0.25 = quarter-tile, matching _buildStraightPath in
@@ -25,8 +102,6 @@ export const BEAM_PIPE_Y = 1.0;
  * expanded at this resolution too, which is harmless — it just produces
  * more entries.
  */
-const STEP = 0.25;
-
 /**
  * Expand a waypoint path into a dense list of points spaced STEP apart.
  * Handles both sparse waypoint paths (start/end only) and already-dense

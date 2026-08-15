@@ -46,11 +46,15 @@ async function rendererModules({ quiet = false } = {}) {
     const priorInfo = console.info;
     if (quiet) console.info = () => {};
     try {
-      const [{ ComponentBuilder }, { BeamBuilder }] = await Promise.all([
+      const [
+        { ComponentBuilder }, { BeamBuilder }, { PipeAttachmentBuilder }, { BeamPipeBuilder },
+      ] = await Promise.all([
         import('../../src/renderer3d/component-builder.js'),
         import('../../src/renderer3d/beam-builder.js'),
+        import('../../src/renderer3d/pipe-attachment-builder.js'),
+        import('../../src/renderer3d/beam-pipe-builder.js'),
       ]);
-      return { ComponentBuilder, BeamBuilder };
+      return { ComponentBuilder, BeamBuilder, PipeAttachmentBuilder, BeamPipeBuilder };
     } finally {
       console.info = priorInfo;
     }
@@ -98,7 +102,9 @@ export function collectSceneMetrics(root) {
 
     const instances = object.isInstancedMesh ? Math.max(0, object.count | 0) : 1;
     const draws = materialDrawCount(object);
-    const triangles = geometryTriangles(object.geometry) * instances;
+    const triangles = object.isBatchedMesh && Number.isFinite(object.userData?.renderedTriangles)
+      ? object.userData.renderedTriangles
+      : geometryTriangles(object.geometry) * instances;
     metrics.visibleMeshes++;
     metrics.drawCalls += draws;
     metrics.renderedTriangles += triangles;
@@ -119,49 +125,62 @@ export function collectSceneMetrics(root) {
   return metrics;
 }
 
-function setDetailVisibility(group, visible) {
-  group.traverse(object => {
-    if (object.isMesh && object.userData?.lod === 'detail') object.visible = visible;
-  });
-}
-
-function collectBreakdown(componentGroup, attachmentGroup, beamGroup) {
+function collectBreakdown(componentGroup, attachmentGroup, beamPipeGroup, beamGroup) {
   return {
     components: collectSceneMetrics(componentGroup),
     pipeAttachments: collectSceneMetrics(attachmentGroup),
+    beamPipes: collectSceneMetrics(beamPipeGroup),
     beamEffects: collectSceneMetrics(beamGroup),
   };
 }
 
 /** Build the public component and beam-effect renderer paths headlessly. */
 export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {}) {
-  const { ComponentBuilder, BeamBuilder } = await rendererModules({ quiet });
+  const {
+    ComponentBuilder, BeamBuilder, PipeAttachmentBuilder, BeamPipeBuilder,
+  } = await rendererModules({ quiet });
   const root = new globalThis.THREE.Group();
   const componentGroup = new globalThis.THREE.Group();
   const attachmentGroup = new globalThis.THREE.Group();
+  const beamPipeGroup = new globalThis.THREE.Group();
   const beamGroup = new globalThis.THREE.Group();
-  root.add(componentGroup, attachmentGroup, beamGroup);
+  root.add(componentGroup, attachmentGroup, beamPipeGroup, beamGroup);
 
   const componentBuilder = new ComponentBuilder();
-  const attachmentBuilder = new ComponentBuilder();
+  const attachmentBuilder = new PipeAttachmentBuilder();
+  const beamPipeBuilder = new BeamPipeBuilder();
   const beamBuilder = new BeamBuilder();
   const started = performance.now();
   componentBuilder.build(snapshot.components || [], componentGroup);
   attachmentBuilder.build(snapshot.pipeAttachments || [], attachmentGroup);
+  beamPipeBuilder.build({
+    beamPipes: snapshot.beamPipes || [],
+    moduleSubTiles: snapshot.moduleSubTiles || [],
+  }, beamPipeGroup);
   beamBuilder.build(snapshot.beamPaths || [], beamGroup);
   const buildMs = performance.now() - started;
 
   const near = collectSceneMetrics(root);
-  const nearBreakdown = collectBreakdown(componentGroup, attachmentGroup, beamGroup);
+  const nearBreakdown = collectBreakdown(
+    componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
+  );
 
   // Mirror ThreeRenderer._updateLOD exactly. At present only componentGroup
   // participates, so pipe-mounted attachment detail remains visible far away.
   // Keeping that distinction here turns a future attachment-LOD fix into a
   // measurable improvement instead of silently assuming it already exists.
-  setDetailVisibility(componentGroup, false);
+  componentBuilder.setDetailLevel(false);
+  attachmentBuilder.setDetailLevel(false);
+  beamPipeBuilder.setDetailLevel(false);
+  beamBuilder.setDetailLevel(false);
   const far = collectSceneMetrics(root);
-  const farBreakdown = collectBreakdown(componentGroup, attachmentGroup, beamGroup);
-  setDetailVisibility(componentGroup, true);
+  const farBreakdown = collectBreakdown(
+    componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
+  );
+  componentBuilder.setDetailLevel(true);
+  attachmentBuilder.setDetailLevel(true);
+  beamPipeBuilder.setDetailLevel(true);
+  beamBuilder.setDetailLevel(true);
 
   return {
     root,
@@ -169,5 +188,6 @@ export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {
     near,
     far,
     breakdown: { near: nearBreakdown, far: farBreakdown },
+    pipeStats: beamPipeBuilder.getStats(),
   };
 }

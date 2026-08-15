@@ -19,6 +19,9 @@ import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, TILE_SIZE as WALL_TILE_SIZE } from './wall-builder.js';
 import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds, measureShellSurfaces, setGlowNightFactor } from './component-builder.js';
+import { PipeAttachmentBuilder } from './pipe-attachment-builder.js';
+import { BeamPipeBuilder } from './beam-pipe-builder.js';
+import { pipePathRuns } from '../beamline/pipe-geometry.js';
 import { setModelBoundsProvider, setShellMeasureProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
@@ -137,123 +140,6 @@ const SHADOW_GEOMETRY_EVENTS = new Set([
 function ghostTint(valid, reason) {
   if (valid) return GHOST_TINT_OK;
   return reason === PLACE_UNAFFORDABLE ? GHOST_TINT_UNAFFORDABLE : GHOST_TINT_BLOCKED;
-}
-
-/**
- * Collapse a pipe path into "runs" — maximal sequences of collinear segments.
- * Returns an array of { start, end } in grid coords. A straight path yields
- * one run; an L-shape yields two.
- */
-function pipePathRuns(path) {
-  if (!path || path.length < 2) return [];
-  const runs = [];
-  let runStart = path[0];
-  let prev = path[0];
-  let prevDc = null, prevDr = null;
-  const EPS = 1e-6;
-  for (let i = 1; i < path.length; i++) {
-    const curr = path[i];
-    const dc = curr.col - prev.col;
-    const dr = curr.row - prev.row;
-    if (Math.abs(dc) < EPS && Math.abs(dr) < EPS) continue;
-    const ndc = Math.sign(dc);
-    const ndr = Math.sign(dr);
-    if (prevDc === null) {
-      prevDc = ndc; prevDr = ndr;
-    } else if (ndc !== prevDc || ndr !== prevDr) {
-      runs.push({ start: runStart, end: prev });
-      runStart = prev;
-      prevDc = ndc; prevDr = ndr;
-    }
-    prev = curr;
-  }
-  if (prevDc !== null) runs.push({ start: runStart, end: prev });
-  return runs;
-}
-
-/**
- * Split a straight pipe run into sub-runs that skip tiles occupied by
- * beamline modules.  Modules already render their own internal beam pipe
- * geometry, so the connecting beam pipe must stop at the module boundary
- * to avoid clipping with component flanges.
- *
- * Returns an array of { start, end } objects in the same direction as the
- * original run.  If no module tiles intersect the run, returns the
- * original run unchanged (single-element array).
- */
-function splitRunExcludingModules(start, end, moduleTileSet) {
-  const dc = end.col - start.col;
-  const dr = end.row - start.row;
-  const horiz = Math.abs(dc) >= Math.abs(dr);
-  const startV = horiz ? start.col : start.row;
-  const endV   = horiz ? end.col   : end.row;
-  const cross  = horiz ? start.row : start.col;
-  const dir = Math.sign(endV - startV);
-  if (dir === 0) return [{ start, end }];
-
-  const lo = Math.min(startV, endV);
-  const hi = Math.max(startV, endV);
-  const mkPt = v => horiz
-    ? { col: v, row: cross }
-    : { col: cross, row: v };
-
-  // Find subtile positions along the run that are blocked by modules.
-  // moduleTileSet stores keys at subtile precision: "col,row,subCol,subRow".
-  // Iterate at 0.25 steps (one subtile) along the run.
-  const STEP = 0.25;
-  const blocked = [];
-  for (let t = Math.ceil(lo / STEP - 0.01) * STEP; t <= hi + 0.01; t += STEP) {
-    const v = t;
-    const colF = horiz ? v : cross;
-    const rowF = horiz ? cross : v;
-    // Pipe coordinates are tile-center-aligned (col*2+1 in world space),
-    // but module cells use tile-corner-aligned subtile indices. Shift by
-    // +0.5 to convert pipe coords to the module subtile grid.
-    const adjCol = colF + 0.5;
-    const adjRow = rowF + 0.5;
-    const tileCol = Math.floor(adjCol + 1e-6);
-    const tileRow = Math.floor(adjRow + 1e-6);
-    const subCol = Math.round((adjCol - tileCol) * 4);
-    const subRow = Math.round((adjRow - tileRow) * 4);
-    if (moduleTileSet.has(`${tileCol},${tileRow},${subCol},${subRow}`)) {
-      blocked.push(v);
-    }
-  }
-  if (blocked.length === 0) return [{ start, end }];
-  blocked.sort((a, b) => dir * (a - b));
-
-  // Merge adjacent blocked subtiles into contiguous blocked ranges,
-  // then carve each range out of the run.
-  const ranges = [];
-  let rangeStart = blocked[0];
-  let rangePrev = blocked[0];
-  for (let i = 1; i < blocked.length; i++) {
-    if (Math.abs(blocked[i] - rangePrev - STEP) < 0.01) {
-      rangePrev = blocked[i];
-    } else {
-      ranges.push({ lo: rangeStart, hi: rangePrev });
-      rangeStart = blocked[i];
-      rangePrev = blocked[i];
-    }
-  }
-  ranges.push({ lo: rangeStart, hi: rangePrev });
-
-  const subRuns = [];
-  let cursor = startV;
-
-  for (const range of ranges) {
-    const nearEdge = dir > 0 ? range.lo : range.hi + STEP;
-    const farEdge  = dir > 0 ? range.hi + STEP : range.lo;
-    if (dir * (nearEdge - cursor) > 0.01) {
-      subRuns.push({ start: mkPt(cursor), end: mkPt(nearEdge) });
-    }
-    cursor = farEdge;
-  }
-  if (dir * (endV - cursor) > 0.01) {
-    subRuns.push({ start: mkPt(cursor), end: mkPt(endV) });
-  }
-
-  return subRuns;
 }
 
 export class ThreeRenderer {
@@ -385,7 +271,8 @@ export class ThreeRenderer {
     // utility/port-anchors.js stays headless-safe.
     setModelBoundsProvider(getModelBounds);
     setShellMeasureProvider(measureShellSurfaces);
-    this.pipeAttachmentBuilder = new ComponentBuilder();
+    this.pipeAttachmentBuilder = new PipeAttachmentBuilder();
+    this.beamPipeBuilder = new BeamPipeBuilder();
     this.beamBuilder = new BeamBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
@@ -1077,7 +964,7 @@ export class ThreeRenderer {
     for (const g of groups) {
       if (!g) continue;
       // three.js tests object.visible, not material.visible, so the invisible
-      // collision box ComponentBuilder._createObject adds at BEAM_HEIGHT is a
+      // collision box ComponentBuilder.createObject adds at BEAM_HEIGHT is a
       // live raycast target. Snapping to it lifts stackable ghosts a metre
       // into the air next to any beamline module. (Same guard as
       // _outlineObject.)
@@ -1190,6 +1077,21 @@ export class ThreeRenderer {
         return { group: 'component', rootObj: obj };
       }
       if (obj.parent === this.pipeAttachmentGroup) {
+        const batched = this.pipeAttachmentBuilder?.resolveBatchHit?.(hit);
+        if (batched) {
+          if (batched.lineId) return {
+            group: 'utilityAttachment',
+            rootObj: batched.rootObj,
+            attachmentId: batched.attachmentId,
+            lineId: batched.lineId,
+          };
+          return {
+            group: 'attachment',
+            rootObj: batched.rootObj,
+            attachmentId: batched.attachmentId,
+            pipeId: batched.pipeId,
+          };
+        }
         // Attachment wrappers are built by the same ComponentBuilder, so the
         // attachment id rides on userData.nodeId; pipeId is stamped too.
         if (obj.userData.utilityLineId) return {
@@ -1222,6 +1124,10 @@ export class ThreeRenderer {
         return { group: 'connection', rootObj: obj };
       }
       if (obj.parent === this.beamPipeGroup) {
+        const batched = this.beamPipeBuilder?.resolveBatchHit?.(hit);
+        if (batched) {
+          return { group: 'beampipe', rootObj: batched.rootObj, pipeId: batched.pipeId };
+        }
         return { group: 'beampipe', rootObj: obj, pipeId: obj.userData.pipeId || null };
       }
       obj = obj.parent;
@@ -2061,7 +1967,7 @@ export class ThreeRenderer {
    * A ghostified, off-scene wrapper for one component type at one tint, built
    * once and cloned thereafter.
    *
-   * Geometry comes from ComponentBuilder._createObject — the same factory the
+   * Geometry comes from ComponentBuilder.createObject — the same factory the
    * committed scene uses — so the ghost is the real model, not an approximation
    * that can drift from it. The material work happens here, once per
    * (type, tint) pair: cloning per mesh per rebuild would mint ~50 materials
@@ -2076,7 +1982,7 @@ export class ThreeRenderer {
 
     const compDef = COMPONENTS[compType];
     if (!compDef) return null;
-    const obj = this.componentBuilder._createObject(compDef);
+    const obj = this.componentBuilder.createObject(compDef);
     if (!obj) return null;
 
     // Same ghostify contract as renderAttachmentGhost: per-face material
@@ -2097,7 +2003,7 @@ export class ThreeRenderer {
     obj.traverse(child => {
       if (!child.isMesh) return;
       const first = Array.isArray(child.material) ? child.material[0] : child.material;
-      // The invisible raycast hitbox _createObject bolts on. designGhostGroup
+      // The invisible raycast hitbox createObject bolts on. designGhostGroup
       // is not a raycast target, so it would only cost a clone per instance.
       if (first && first.visible === false) { doomed.push(child); return; }
       child.material = Array.isArray(child.material)
@@ -2309,7 +2215,7 @@ export class ThreeRenderer {
     sourceObj.traverse(child => {
       if (!child.isMesh || !child.geometry) return;
       // Skip invisible hitbox meshes (used for raycasting only — see
-      // ComponentBuilder._createObject which adds a larger Box hitbox).
+      // ComponentBuilder.createObject which adds a larger Box hitbox).
       if (child.visible === false) return;
       const mat = Array.isArray(child.material) ? child.material[0] : child.material;
       if (mat && mat.visible === false) return;
@@ -2968,7 +2874,7 @@ export class ThreeRenderer {
   /**
    * Unified ghost renderer for any placeable. Looks up the entry in
    * PLACEABLES, builds the same 3D mesh that the committed instance will
-   * use via componentBuilder._createObject, tints it by validity, and
+   * use via componentBuilder.createObject, tints it by validity, and
    * positions it on the subtile grid with 4-way rotation.
    *
    * Positioning math mirrors ComponentBuilder.build exactly so the ghost
@@ -3083,7 +2989,7 @@ export class ThreeRenderer {
       obj = this.decorationBuilder._createGhost(hover.id, placeable, hover.variant ?? 0, hover);
     }
     if (!obj) {
-      obj = this.componentBuilder._createObject(placeable);
+      obj = this.componentBuilder.createObject(placeable);
     }
     if (!obj) return;
 
@@ -3114,7 +3020,7 @@ export class ThreeRenderer {
       }
     });
 
-    // obj.children.length is always > 0 because _createObject wraps every
+    // obj.children.length is always > 0 because createObject wraps every
     // visual in a Group with an invisible hitbox — so children-count cannot
     // be used to detect detailed geometry. Use the authoritative builder
     // registry check instead (same source of truth as ComponentBuilder.build
@@ -3272,7 +3178,7 @@ export class ThreeRenderer {
     this._renderGridAroundCursor(Math.floor(px / 2), Math.floor(pz / 2));
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
-    const obj = this.componentBuilder._createObject(compDef);
+    const obj = this.componentBuilder.createObject(compDef);
     if (!obj) return;
     // Same ghostify contract as _addPlaceableGhostMeshes: per-face material
     // ARRAYS come back from component-builder's fallback path, and Array has
@@ -3301,7 +3207,7 @@ export class ThreeRenderer {
         child.renderOrder = 999;
       }
     });
-    // _createObject always wraps the visual in a Group with an invisible
+    // createObject always wraps the visual in a Group with an invisible
     // hitbox, so a children-count test is always true. Use the same
     // authoritative check ComponentBuilder.build uses to position committed
     // attachment meshes, or the ghost sits a metre below the pipe.
@@ -3868,16 +3774,15 @@ export class ThreeRenderer {
   }
 
   /**
-   * Toggle visibility of detail meshes (userData.lod === 'detail') based on zoom.
-   * Only runs when zoom level changes to avoid per-frame traversal cost.
-   * Covers componentGroup and decorationGroup — lighting fixtures (Task 5)
-   * live in the latter and tag their ornamental meshes the same way.
+   * Switch coordinated geometry/shadow LOD based on zoom. Only runs when the
+   * zoom band changes; each builder owns its batches, while decoration detail
+   * remains a small direct traversal.
    */
   _updateLOD() {
     const showDetail = this.zoom >= 2.0;
     if (showDetail === this._lastLodDetail) return;
     this._lastLodDetail = showDetail;
-    const groups = [this.componentGroup, this.decorationGroup];
+    const groups = [this.decorationGroup];
     for (const g of groups) {
       if (!g) continue;
       g.traverse((child) => {
@@ -3886,6 +3791,10 @@ export class ThreeRenderer {
         }
       });
     }
+    this.componentBuilder?.setDetailLevel?.(showDetail);
+    this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
+    this.beamPipeBuilder?.setDetailLevel?.(showDetail);
+    this.beamBuilder?.setDetailLevel?.(showDetail);
   }
 
   _updateSunCycle() {
@@ -4061,9 +3970,12 @@ export class ThreeRenderer {
     }
     this.wallBuilder.build(snapshot.walls, snapshot.doors, snapshot.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
     this.componentBuilder.build(snapshot.components, this.componentGroup);
+    this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
+    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
+    this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
@@ -4683,6 +4595,7 @@ export class ThreeRenderer {
       state,
     });
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
     this._utilityLineVisualSig = utilityLineVisualSignature(state);
   }
@@ -4806,257 +4719,17 @@ export class ThreeRenderer {
   }
 
   _refreshBeamPipes() {
-    // The hover stub reads pipe paths off the snapshot, so a pipe edit has to
-    // re-arm the preview memo even when the cursor hasn't moved.
     this._beamPipeSig = null;
-    // Remove old beam pipe meshes from group
-    if (this.beamPipeGroup) {
-      while (this.beamPipeGroup.children.length > 0) {
-        const child = this.beamPipeGroup.children[0];
-        this.beamPipeGroup.remove(child);
-        child.traverse(obj => {
-          if (obj.isMesh) {
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-          }
-        });
-      }
-    }
-    this._beamPipeMeshes = [];
-
     const snap = this._updateSnapshot(['beamPipes', 'moduleSubTiles', 'pipeAttachments']);
-    const pipes = snap.beamPipes || [];
-    if (pipes.length === 0) {
-      // Still rebuild attachments (they may have all been removed with pipes).
-      this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-      return;
-    }
+    this.beamPipeBuilder.build({
+      beamPipes: snap.beamPipes || [],
+      moduleSubTiles: snap.moduleSubTiles || [],
+    }, this.beamPipeGroup);
+    this.beamPipeBuilder.setDetailLevel(this.zoom >= 2.0);
 
-    const PIPE_RADIUS = 0.06;
-    const PIPE_Y = 1.0;
-    const FLANGE_R = 0.12;
-    const FLANGE_W = 0.045;
-    const STAND_W = 0.06;
-
-    const pipeMat = new THREE.MeshStandardMaterial({
-      color: 0x99aabb, roughness: 0.3, metalness: 0.5,
-    });
-    const flangeMat = new THREE.MeshStandardMaterial({
-      color: 0xbbbbbb, roughness: 0.3, metalness: 0.6,
-    });
-    const standMat = new THREE.MeshStandardMaterial({
-      color: 0x555555, roughness: 0.7, metalness: 0.1,
-    });
-    // Warning-amber cap material for open (unconnected) pipe ends.
-    const openCapMat = new THREE.MeshStandardMaterial({
-      color: 0xffaa22, roughness: 0.4, metalness: 0.2,
-      emissive: 0xcc6600, emissiveIntensity: 0.6,
-    });
-
-    // Collect all pipe endpoints so adjacent pipes can have shared flanges
-    // suppressed, merging them visually into continuous runs.
-    const endpointKey = (col, row) => `${Math.round(col * 4)},${Math.round(row * 4)}`;
-    const endpointCounts = new Map();
-    for (const pipe of pipes) {
-      if (!pipe.path || pipe.path.length < 2) continue;
-      const first = pipe.path[0];
-      const last = pipe.path[pipe.path.length - 1];
-      for (const p of [first, last]) {
-        const k = endpointKey(p.col, p.row);
-        endpointCounts.set(k, (endpointCounts.get(k) || 0) + 1);
-      }
-    }
-    // Tiles occupied by beamline modules (subtile precision, from the
-    // snapshot) — pipe runs are carved around them and flanges suppressed
-    // where the pipe meets the module body.
-    const moduleTiles = new Set(snap.moduleSubTiles || []);
-    const isModuleAt = (col, row) => {
-      // Pipe coordinates are tile-center-aligned (col*2+1 in world space),
-      // but module cells use tile-corner-aligned subtile indices. Shift by
-      // +0.5 to convert pipe coords to the module subtile grid.
-      const adjCol = col + 0.5;
-      const adjRow = row + 0.5;
-      const tileCol = Math.floor(adjCol + 1e-6);
-      const tileRow = Math.floor(adjRow + 1e-6);
-      const subCol = Math.round((adjCol - tileCol) * 4);
-      const subRow = Math.round((adjRow - tileRow) * 4);
-      return moduleTiles.has(`${tileCol},${tileRow},${subCol},${subRow}`);
-    };
-
-    for (const pipe of pipes) {
-      if (!pipe.path || pipe.path.length < 2) continue;
-
-      const pipeWrapper = new THREE.Group();
-      pipeWrapper.userData.pipeId = pipe.id;
-
-      const runs = pipePathRuns(pipe.path);
-      const runCount = runs.length;
-
-      for (let r = 0; r < runCount; r++) {
-        const origStart = runs[r].start;
-        const origEnd   = runs[r].end;
-
-        // Split the run into sub-segments that skip module tiles.
-        // Modules already render their own internal pipe + flanges.
-        const subRuns = splitRunExcludingModules(origStart, origEnd, moduleTiles);
-
-        for (const sub of subRuns) {
-          const { start, end } = sub;
-          const x1 = start.col * 2 + 1;
-          const z1 = start.row * 2 + 1;
-          const x2 = end.col * 2 + 1;
-          const z2 = end.row * 2 + 1;
-
-          const dx = x2 - x1;
-          const dz = z2 - z1;
-          const length = Math.sqrt(dx * dx + dz * dz);
-          if (length < 0.01) continue;
-
-          const angle = -Math.atan2(dz, dx);
-          const cx = (x1 + x2) / 2;
-          const cz = (z1 + z2) / 2;
-
-          const geo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
-          geo.rotateZ(Math.PI / 2);
-
-          const mesh = new THREE.Mesh(geo, pipeMat);
-          mesh.position.set(cx, PIPE_Y, cz);
-          mesh.rotation.y = angle;
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          pipeWrapper.add(mesh);
-          this._beamPipeMeshes.push(mesh);
-
-          // Flange emission — only at original pipe start/end and corners,
-          // never at module boundaries (the module has its own flanges).
-          const flangeGeo = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
-          flangeGeo.rotateZ(Math.PI / 2);
-
-          const addFlange = (fx, fz) => {
-            const flange = new THREE.Mesh(flangeGeo, flangeMat);
-            flange.position.set(fx, PIPE_Y, fz);
-            flange.rotation.y = angle;
-            flange.castShadow = true;
-            pipeWrapper.add(flange);
-            this._beamPipeMeshes.push(flange);
-          };
-
-          const isOrigStart = Math.abs(start.col - origStart.col) < 0.01
-                           && Math.abs(start.row - origStart.row) < 0.01;
-          const isOrigEnd   = Math.abs(end.col - origEnd.col) < 0.01
-                           && Math.abs(end.row - origEnd.row) < 0.01;
-
-          // Start flange: only on the first run's original start
-          if (isOrigStart && r === 0) {
-            const sharesEnd = (endpointCounts.get(endpointKey(start.col, start.row)) || 0) > 1;
-            const onModule = isModuleAt(start.col, start.row);
-            if (!sharesEnd && !onModule) addFlange(x1, z1);
-          }
-          // Corner flange at original run start (between previous run and this one)
-          if (isOrigStart && r > 0) {
-            addFlange(x1, z1);
-          }
-          // End flange: only on the last run's original end
-          if (isOrigEnd && r === runCount - 1) {
-            const sharesEnd = (endpointCounts.get(endpointKey(end.col, end.row)) || 0) > 1;
-            const onModule = isModuleAt(end.col, end.row);
-            if (!sharesEnd && !onModule) addFlange(x2, z2);
-          }
-          // Intermediate flanges every 2 world units, skipping module tiles
-          const MAX_UNFLANGED = 2;
-          if (length > MAX_UNFLANGED + 0.01) {
-            const nInterior = Math.floor(length / MAX_UNFLANGED - 1e-3);
-            for (let k = 1; k <= nInterior; k++) {
-              const t = (k * MAX_UNFLANGED) / length;
-              const fx = x1 + dx * t;
-              const fz = z1 + dz * t;
-              // Convert world position back to tile coords and skip if on a module
-              const tileC = (fx - 1) / 2;
-              const tileR = (fz - 1) / 2;
-              if (!isModuleAt(tileC, tileR)) addFlange(fx, fz);
-            }
-          }
-
-          // Support stands every ~2 world units, skipping module tiles
-          const standH = PIPE_Y - PIPE_RADIUS;
-          const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
-          const standStep = 2;
-          const nStands = Math.max(1, Math.round(length / standStep));
-          for (let k = 0; k < nStands; k++) {
-            const t = (k + 0.5) / nStands;
-            const sx = x1 + dx * t;
-            const sz = z1 + dz * t;
-            const tileC = (sx - 1) / 2;
-            const tileR = (sz - 1) / 2;
-            if (isModuleAt(tileC, tileR)) continue;
-            const stand = new THREE.Mesh(standGeo, standMat);
-            stand.position.set(sx, standH / 2, sz);
-            stand.castShadow = true;
-            stand.receiveShadow = true;
-            pipeWrapper.add(stand);
-            this._beamPipeMeshes.push(stand);
-          }
-
-          // Invisible hitbox for easier click detection
-          const hitGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 6);
-          hitGeo.rotateZ(Math.PI / 2);
-          const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
-          hitMesh.position.set(cx, PIPE_Y, cz);
-          hitMesh.rotation.y = angle;
-          pipeWrapper.add(hitMesh);
-          this._beamPipeMeshes.push(hitMesh);
-        }
-      }
-
-      // Open-end caps: render a warning-amber disc at any end where the
-      // junction ref is null (pipe isn't connected to a junction on that side).
-      // Each end's orientation is perpendicular to the pipe axis at that end.
-      const addOpenCap = (tipCol, tipRow, prevCol, prevRow) => {
-        const tx = tipCol * 2 + 1;
-        const tz = tipRow * 2 + 1;
-        const px = prevCol * 2 + 1;
-        const pz = prevRow * 2 + 1;
-        const dx = tx - px;
-        const dz = tz - pz;
-        const len = Math.sqrt(dx * dx + dz * dz);
-        if (len < 0.01) return;
-        const angle = -Math.atan2(dz, dx);
-        // Thin cylinder oriented along the pipe axis — its circular faces
-        // sit perpendicular to the pipe direction like a disc/cap.
-        const capR = PIPE_RADIUS * 2.2;
-        const capW = 0.04;
-        const capGeo = new THREE.CylinderGeometry(capR, capR, capW, 12);
-        capGeo.rotateZ(Math.PI / 2);
-        const cap = new THREE.Mesh(capGeo, openCapMat);
-        cap.position.set(tx, PIPE_Y, tz);
-        cap.rotation.y = angle;
-        cap.castShadow = true;
-        cap.userData.tooltip = 'unconnected';
-        cap.userData.pipeId = pipe.id;
-        pipeWrapper.add(cap);
-        this._beamPipeMeshes.push(cap);
-      };
-
-      if (pipe.path && pipe.path.length >= 2) {
-        if (pipe.openStart) {
-          const a = pipe.path[0];
-          const b = pipe.path[1];
-          // Tip is a; previous direction points from b toward a so the disc
-          // orients perpendicular to the pipe's outgoing direction at the tip.
-          addOpenCap(a.col, a.row, b.col, b.row);
-        }
-        if (pipe.openEnd) {
-          const a = pipe.path[pipe.path.length - 1];
-          const b = pipe.path[pipe.path.length - 2];
-          addOpenCap(a.col, a.row, b.col, b.row);
-        }
-      }
-
-      this.beamPipeGroup.add(pipeWrapper);
-    }
-
-    // Rebuild inline attachments — their positions depend on pipe paths.
+    // Inline attachments move with pipes, so they share the same refresh.
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
   }
 
   renderBeamPipePreview(path, mode, cost) {
@@ -5285,14 +4958,17 @@ export class ThreeRenderer {
   _refreshBeam() {
     const snap = this._updateSnapshot(['beamPaths']);
     this.beamBuilder.build(snap.beamPaths, this.componentGroup);
+    this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
   }
 
   _refreshComponents() {
     try {
     const snap = this._updateSnapshot(['components', 'pipeAttachments']);
     this.componentBuilder.build(snap.components, this.componentGroup);
+    this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
     } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
   }
 
