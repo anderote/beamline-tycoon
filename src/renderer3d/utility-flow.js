@@ -38,30 +38,46 @@ import { min, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    speed: 1.05, period: 2.1, width: 0.32, strength: 1.05, baseGlow: 0.09,
+    // Sparse, needle-sharp violet surges.  The long crest and stronger local
+    // light make an HV feeder feel dangerous instead of reading as a second
+    // green branch circuit.
+    speed: 2.35, period: 4.4, width: 0.11, strength: 1.45, baseGlow: 0.035,
     color: '#8f94c8',
+    pulseRadialScale: 0.48, pulseLengthScale: 4.8,
+    lightIntensity: 0.24, lightDistance: 1.9, daylightFloor: 0.3,
   },
   powerCable: {
-    speed: 1.05, period: 2.1, width: 0.32, strength: 1.05, baseGlow: 0.09,
+    // A regular train of compact green current packets: dependable, frequent,
+    // and visibly less violent than the HV surges above.
+    speed: 1.35, period: 1.05, width: 0.16, strength: 1.0, baseGlow: 0.075,
+    pulseRadialScale: 0.66, pulseLengthScale: 2.25,
+    lightIntensity: 0.13, lightDistance: 1.35, daylightFloor: 0.22,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
     // a vacuum header reads as molecular flow in pipework, not another power
     // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
-    speed: 0.65, period: 1.8, width: 0.24, strength: 0.62, baseGlow: 0.025,
+    speed: 0.30, period: 3.8, width: 0.78, strength: 0.46, baseGlow: 0.018,
     color: '#aebbc2',
+    pulseRadialScale: 0.92, pulseLengthScale: 5.6,
+    lightIntensity: 0.055, lightDistance: 0.9, daylightFloor: 0.12,
   },
   rfWaveguide: {
     // The moving field itself is the light source. A strong, broad emissive
     // crest crosses the selective-bloom threshold all along the geometry;
     // the quieter base keeps the complete guide faintly luminous between
     // crests without introducing a separate point-light hotspot.
-    speed: 1.35, period: 1.6, width: 0.28, strength: 1.65, baseGlow: 0.18,
+    speed: 3.1, period: 0.82, width: 0.10, strength: 1.75, baseGlow: 0.11,
+    // A broad, very short disc reads as an EM wavefront crossing the guide.
+    pulseRadialScale: 1.18, pulseLengthScale: 0.52,
+    lightIntensity: 0.30, lightDistance: 2.15, daylightFloor: 0.28,
   },
   coolingWater: {
     // The reference treatment: a broad, slow band whose neighbours nearly
     // merge into a steady flowing gradient.
-    speed: 0.85, period: 2.2, width: 0.45, strength: 0.90, baseGlow: 0.10,
+    speed: 0.62, period: 2.6, width: 0.72, strength: 0.82, baseGlow: 0.075,
+    pulseRadialScale: 0.82, pulseLengthScale: 6.4,
+    lightIntensity: 0.10, lightDistance: 1.35, daylightFloor: 0.18,
   },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
@@ -70,11 +86,17 @@ export const FLOW_PARAMS = {
     // frost forms on the OUTER jacket of a real cryo line, so the jacket
     // carrying its own baseGlow instead of just occluding the core's is the
     // physically-motivated fix, not just the convenient one.
-    speed: 0.38, period: 2.8, width: 0.65, strength: 0.70, baseGlow: 0.16,
+    speed: 0.16, period: 4.8, width: 1.35, strength: 0.42, baseGlow: 0.19,
+    pulseRadialScale: 1.05, pulseLengthScale: 8.2,
+    lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {
-    // Still the quickest utility, but a soft travelling wash rather than blips.
-    speed: 1.65, period: 1.5, width: 0.22, strength: 0.90, baseGlow: 0.07,
+    // Tiny, rapid white packets are intentionally lightless: fibre carries
+    // information, so it should sparkle on the cable without illuminating
+    // the room like an energy service.
+    speed: 4.4, period: 0.50, width: 0.055, strength: 1.18, baseGlow: 0.025,
+    pulseRadialScale: 0.42, pulseLengthScale: 0.58,
+    light: false,
   },
 };
 

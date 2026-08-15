@@ -356,9 +356,12 @@ export class VisualEffectSystem {
       }
     }
     this._position.set(point.x, point.y, point.z);
-    // A short luminous streak reads as a traveling wave packet instead of a
-    // bead sliding along the pipe. It remains one instanced mesh/draw call.
-    this._scale.set(radius * 0.72, radius * 0.72, radius * 2.65);
+    // Producers can choose a silhouette without adding geometry or draw
+    // calls: a short wide RF disc, a long water slug, a data pinprick, etc.
+    // The legacy defaults remain a short luminous traveling streak.
+    const radialScale = Math.max(0.1, Number(effect.radialScale) || 0.72);
+    const lengthScale = Math.max(0.1, Number(effect.lengthScale) || 2.65);
+    this._scale.set(radius * radialScale, radius * radialScale, radius * lengthScale);
     this._matrix.compose(this._position, this._pulseQuat, this._scale);
     this._pulseMesh.setMatrixAt(index, this._matrix);
     this._color.set(effectColor(effect.color)).multiplyScalar(Math.max(0.35, strength));
