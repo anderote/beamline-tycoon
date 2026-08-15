@@ -800,6 +800,33 @@ export function disposeLightGlowTexture() {
 }
 
 /**
+ * Wall materials render front-sided for good fill-rate, but a physical wall
+ * must block light from either side. THREE's Mesh.raycast honours material
+ * side, so temporarily make solid occluders double-sided while the static
+ * pool geometry is traced, then restore their render material immediately.
+ */
+function makePoolOccludersDoubleSided(occluders) {
+  const restore = [];
+  const visit = (object) => {
+    if (!object?.material || object.castShadow === false) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!material || material.transparent && (material.opacity ?? 1) < 0.98) continue;
+      if (material.side === THREE.DoubleSide) continue;
+      restore.push([material, material.side]);
+      material.side = THREE.DoubleSide;
+    }
+  };
+  for (const occluder of occluders) {
+    if (typeof occluder?.traverse === 'function') occluder.traverse(visit);
+    else visit(occluder);
+  }
+  return () => {
+    for (const [material, side] of restore) material.side = side;
+  };
+}
+
+/**
  * Merge every fixture's ground light pool into one additive mesh — the
  * failure mode this exists to avoid is sixty draw calls for sixty lamps.
  * Depth-tested but NOT depth-writing (material below), so overlapping pools
@@ -853,6 +880,10 @@ export function buildLightPools(fixtures, opts = {}) {
   const rayTarget = new THREE.Vector3();
   const rayDelta = new THREE.Vector3();
   const RAY_SEGMENTS = 32;
+  // A wall's render side is view-facing, not physics-facing. Keep the change
+  // scoped to this one-off rebuild: the visible material is restored before
+  // the renderer can draw another frame.
+  const restoreOccluderSides = raycaster ? makePoolOccludersDoubleSided(occluders) : null;
 
   for (const fx of fixtures) {
     const def = fx.def;
@@ -937,6 +968,7 @@ export function buildLightPools(fixtures, opts = {}) {
     if (fx.id != null) poolVertexRanges.set(fx.id, { start: firstVertex, count: vertCount - firstVertex });
     poolCount += 1;
   }
+  restoreOccluderSides?.();
 
   if (vertCount === 0) return null;
 

@@ -85,13 +85,16 @@ class Vector3 {
 }
 class Raycaster {
   set(_origin, direction) { this.direction = direction; }
-  intersectObjects() {
+  intersectObjects(objects) {
     // A solid wall one unit east of the lamp. Only rays aimed east see it.
+    if (objects[0]?.wall?.material?.side === 2) raycastsSawDoubleSide++;
     return this.direction.x > 0.1
       ? [{ point: { x: 1, y: 0, z: 0 }, object: { castShadow: true, material: { transparent: false } } }]
       : [];
   }
 }
+
+let raycastsSawDoubleSide = 0;
 
 globalThis.THREE = {
   Color: ColorStub,
@@ -103,6 +106,7 @@ globalThis.THREE = {
   CanvasTexture,
   Vector3,
   Raycaster,
+  DoubleSide: 2,
   AdditiveBlending: 2,
 };
 
@@ -221,12 +225,18 @@ console.log('\n=== suppressing one fixture touches only that fixture\'s quad ===
 // ---------------------------------------------------------------------------
 console.log('\n=== wall-aware pools trace and clip their own ground polygon ===\n');
 {
-  const mesh = buildLightPools([fixture('A', RED)], { occluders: [{}] });
+  const wall = { castShadow: true, material: { transparent: false, side: 0 } };
+  const occluders = { wall, traverse(visitor) { visitor(wall); } };
+  const mesh = buildLightPools([fixture('A', RED)], { occluders });
   const positions = mesh.geometry.attributes.position.array;
   const ranges = mesh.userData.poolVertexRanges;
   assert(positions.length === 33 * 3, 'occluded pool uses a centre plus a 32-ray fan, rather than one wall-blind quad');
   assert(ranges.get('A').count === 33, 'suppression tracks the complete fan vertex range for the fixture');
   assert(positions[3] < 4, 'an east-facing rim ray is clipped before the 4m pool boundary by the wall hit');
+  assert(raycastsSawDoubleSide > 0,
+    'wall collision is traced double-sided, so a lamp outside the wall cannot leak through its back face');
+  assert(wall.material.side === 0,
+    'the temporary double-sided collision setup restores the wall render material afterwards');
 
   applyPoolSuppression(mesh, new Map([['A', 1]]));
   const alphas = mesh.geometry.attributes.color.array;
