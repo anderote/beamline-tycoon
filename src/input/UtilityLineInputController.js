@@ -244,6 +244,10 @@ export class UtilityLineInputController {
       utilityType: this._utilityType,
       path: previewPath,
       valid: !!(this._runPlan?.stubs?.length) || !this._dragReject,
+      // A bulk run preview is a flattened set of independent stubs, so it has
+      // no single start/end whose 3D dogleg can be shown. Ordinary RF draws do
+      // and should preview the same adaptive drops the commit will build.
+      endpointTransitions: !(this._runPlan && this._runPlan.stubs.length > 0),
       cablePath: isSoftCable(this._utilityType) && !this._runPlan
         ? this._cableTrace.map(point => ({ ...point }))
         : null,

@@ -194,16 +194,15 @@ function cylinderMeshes(group) {
   return out;
 }
 
-// Corner fittings are BoxGeometry too; this helper is only about the pipe's
-// own rectWaveguide segments.
+// RF joints and support hardware are BoxGeometry too. The builder publishes
+// the traversable-run role explicitly so this contract does not depend on the
+// current decorative geometry.
 function boxMeshes(group) {
   const out = [];
   const walk = (o) => {
-    // Corner joints are boxes too on a rectWaveguide, but they are plumbing
-    // fittings rather than flow segments — no run-distance is baked into them,
-    // so they must not be counted among the segments the flow travels along.
-    if (o.userData && o.userData.isUtilityJoint) return;
-    if (o.isMesh && o.geometry instanceof BoxGeometry) out.push(o);
+    if (o.isMesh
+      && o.geometry instanceof BoxGeometry
+      && o.userData?.isUtilityLineSegment) out.push(o);
     for (const c of o.children || []) walk(c);
   };
   walk(group);

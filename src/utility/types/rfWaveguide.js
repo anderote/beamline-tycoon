@@ -127,6 +127,17 @@ export default {
   color: '#cc4444',
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
+  // A routed guide rides on low steel saddles rather than clipping into the
+  // slab. High equipment ports use a short horizontal launch and a sloped
+  // dogleg down to this deck height; the renderer derives the exact drop from
+  // the measured connector, so authored/model misalignments remain harmless.
+  runHeightMeters: 0.22,
+  dropLaunchMeters: 0.28,
+  dropMinRampMeters: 0.35,
+  dropMaxRampMeters: 1.35,
+  dropRunPerRise: 1,
+  supportSpacingMeters: 3,
+  supportMinimumRunMeters: 5,
   // Keep waveguide routing readable without making gallery layout a puzzle:
   // paths stay rectilinear, but may turn immediately at a fitting and cross
   // equipment/other services like the existing cryogenic transfer-line
