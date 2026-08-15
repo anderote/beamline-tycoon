@@ -208,6 +208,7 @@ export function findSlot(pipe, opts = {}) {
     mode,
     idGenerator,
     params,
+    portsFlipped = false,
   } = opts;
 
   if (!pipe || typeof pipe.subL !== 'number' || pipe.subL <= 0) {
@@ -234,6 +235,7 @@ export function findSlot(pipe, opts = {}) {
     position: result.position,
     subL,
     params: params || {},
+    portsFlipped: portsFlipped === true,
   };
   const placements = sortByPosition([...kept, newPl]);
   return { ok: true, placements };

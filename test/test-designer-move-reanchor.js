@@ -354,9 +354,10 @@ console.log('\n--- B2: straight two-point line slides along its axis ---');
 }
 
 // ==========================================================================
-// B3: an illegal slide dangles, keeping the drawn path.
+// B3: a slide past the original bend remains connected. Utility fittings no
+// longer impose a one-way approach direction.
 // ==========================================================================
-console.log('\n--- B3: illegal slide dangles the endpoint, keeps the path ---');
+console.log('\n--- B3: slide past the old bend stays connected ---');
 {
   const { system, state, events } = fixture();
   const line = addRaw(state, {
@@ -365,14 +366,11 @@ console.log('\n--- B3: illegal slide dangles the endpoint, keeps the path ---');
     end: { placeableId: 'sink1', portName: 'powerIn' },
     path: [{ col: 3, row: 3 }, { col: 5, row: 3 }, { col: 5, row: 6 }, { col: 8, row: 6 }],
   });
-  const pathBefore = JSON.stringify(line.path);
-
-  // Past the bend: the east-facing port would now be fed from the east.
   const res = system.reanchorLine('l3', 'src1', { powerOut: { col: 6, row: 3 } });
-  assert(res.ok === false && res.dangled === true, `dangled (${JSON.stringify(res)})`);
-  assert(line.start === null, 'moved end nulled');
+  assert(res.ok === true, `reanchor succeeded (${JSON.stringify(res)})`);
+  assert(line.start?.placeableId === 'src1', 'moved end remains connected');
   assert(line.end && line.end.placeableId === 'sink1', 'the other end is left alone');
-  assert(JSON.stringify(line.path) === pathBefore, 'original path kept as a loose segment');
+  assert(line.path[0].col === 6 && line.path[0].row === 3, 'path terminal follows the moved fitting');
   assert(state.utilityLines.has('l3'), 'the line itself survives');
   const ev = events.find(e => e.ev === 'utilityLinesChanged');
   assert(ev && ev.data.utilityType === 'powerCable', 'utilityLinesChanged still emitted');
@@ -409,9 +407,9 @@ console.log('\n--- B4: both ends on one placeable move together ---');
 }
 
 // ==========================================================================
-// B5: both-ends failure nulls both endpoints.
+// B5: both ends remain connected even when the moved source crosses a bend.
 // ==========================================================================
-console.log('\n--- B5: both-ends failure nulls both endpoints ---');
+console.log('\n--- B5: both-ends reanchor stays connected ---');
 {
   const { system, state } = fixture();
   const line = addRaw(state, {
@@ -424,14 +422,14 @@ console.log('\n--- B5: both-ends failure nulls both endpoints ---');
     ],
   });
 
-  // powerOut lands past its own bend, so the first leg reverses.
   const res = system.reanchorLine('l5', 'loop1', {
     powerOut: { col: 6, row: 3 },
     powerIn: { col: 2, row: 5 },
   });
-  assert(res.ok === false && res.dangled === true, `dangled (${JSON.stringify(res)})`);
-  assert(line.start === null && line.end === null, 'both endpoints nulled');
-  assert(state.utilityLines.has('l5'), 'the line survives as a loose segment');
+  assert(res.ok === true, `both-ends reanchor succeeded (${JSON.stringify(res)})`);
+  assert(line.start?.placeableId === 'loop1' && line.end?.placeableId === 'loop1', 'both endpoints remain connected');
+  assert(line.path[0].col === 6 && line.path[0].row === 3, 'start terminal follows the moved fitting');
+  assert(line.path.at(-1).col === 2 && line.path.at(-1).row === 5, 'end terminal follows the moved fitting');
 }
 
 // ==========================================================================

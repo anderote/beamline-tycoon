@@ -22,8 +22,8 @@ const CAREER_LABELS = {
   ticksWorked: 'Ticks Worked',
   commissions: 'Commissions',
   repairs: 'Repairs Made',
-  beamHours: 'Beam Hours',
   sparesMade: 'Spares Fabricated',
+  beamHours: 'Beam Hours',
   analyses: 'Analyses Run',
   breakdowns: 'Breakdowns',
 };

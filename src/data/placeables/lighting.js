@@ -53,10 +53,10 @@ const LIGHT_PROFILES = {
   bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'cage' },
   wallStripLight: { sourceRadius: 0.16, shadowSoftness: 0.75, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   emergencyWallLight: { sourceRadius: 0.08, shadowSoftness: 0.6, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'statusBlink', cookieProfile: 'soft' },
-  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
   linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.8, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
-  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.9, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.9, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   deskLamp:       { sourceRadius: 0.07, shadowSoftness: 0.7, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
   portableWorkLight: { sourceRadius: 0.1, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
 };
@@ -159,7 +159,10 @@ const RAW_LIGHTING_DEFS = [
     subW: 1, subL: 1, subH: 2,
     desc: 'Cool white office panel hung from a short chain.',
     energyCost: 0.05,
-    light: { color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'point', emitterY: 3.0 },
+    light: {
+      color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'cone',
+      coneDeg: 105, beamAngleDeg: 105, tiltDeg: 0, emitterY: 1.5,
+    },
   },
   {
     id: 'highBay', name: 'High Bay Light', cost: { funding: 22 }, removeCost: 0,
@@ -180,7 +183,10 @@ const RAW_LIGHTING_DEFS = [
     subW: 3, subL: 1, subH: 2,
     desc: 'A suspended linear luminaire for benches and equipment aisles.',
     energyCost: 0.18,
-    light: { color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'point', emitterY: 3.4 },
+    light: {
+      color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'cone',
+      coneDeg: 100, beamAngleDeg: 100, tiltDeg: 0, emitterY: 2.2,
+    },
   },
   {
     id: 'cleanroomPanel', name: 'Cleanroom Panel', cost: { funding: 28 }, removeCost: 0,
@@ -189,7 +195,10 @@ const RAW_LIGHTING_DEFS = [
     subW: 2, subL: 2, subH: 2,
     desc: 'A sealed high-output panel for clean and controlled spaces.',
     energyCost: 0.22,
-    light: { color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'point', emitterY: 3.2 },
+    light: {
+      color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'cone',
+      coneDeg: 110, beamAngleDeg: 110, tiltDeg: 0, emitterY: 2.1,
+    },
   },
 
   // === Surface — stack on desks, benches, cabinets, and worktops ===

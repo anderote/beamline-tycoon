@@ -47,6 +47,7 @@ function placementRecord(pipe, att) {
     subRow: -footRowSub / 2,
     dir: pose.dir,
     params: att.params,
+    portsFlipped: att.portsFlipped === true,
     pipeId: pipe.id,
     isPlacement: true,
     // Physics write-back (Game._writeBackCavityResults). The cryogenic solver

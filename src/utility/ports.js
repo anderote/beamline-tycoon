@@ -15,6 +15,7 @@ import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from './registry.js';
 
 const SIDE_TO_COMPASS = { back: 'N', front: 'S', left: 'W', right: 'E' };
+const OPPOSITE_SIDE = { back: 'front', front: 'back', left: 'right', right: 'left' };
 const COMPASS_CW = ['N', 'E', 'S', 'W'];
 const SIDE_VEC = {
   N: { dCol: 0, dRow: -1 },
@@ -41,10 +42,19 @@ export function isUtilityPort(def, portName) {
   return !!(spec && spec.utility);
 }
 
-export function portSide(def, portName, dir) {
+function effectiveSide(spec, portsFlipped = false) {
+  if (!spec) return null;
+  // Port flipping is a utility-routing convenience, not a beam-optics
+  // mutation. Entry/exit ports share the same side vocabulary but must stay
+  // put or an F press would silently change the accelerator graph.
+  if (!portsFlipped || !spec.utility) return spec.side;
+  return OPPOSITE_SIDE[spec.side] || spec.side;
+}
+
+export function portSide(def, portName, dir, portsFlipped = false) {
   const spec = getPortSpec(def, portName);
   if (!spec) return null;
-  const base = SIDE_TO_COMPASS[spec.side];
+  const base = SIDE_TO_COMPASS[effectiveSide(spec, portsFlipped)];
   if (!base) return null;
   return rotateCompass(base, dir || 0);
 }
@@ -92,12 +102,20 @@ export function availablePorts(placeable, def, utilityType, lines) {
  * placeable/port has no resolvable side.
  */
 export function portApproachVec(placeable, def, portName) {
-  const side = portSide(def, portName, (placeable && placeable.dir) || 0);
+  const side = portSide(
+    def, portName,
+    (placeable && placeable.dir) || 0,
+    placeable?.portsFlipped === true,
+  );
   return (side && SIDE_VEC[side]) || null;
 }
 
 export function portMatchesApproach(placeable, def, portName, approachDir, isEnd) {
-  const side = portSide(def, portName, placeable && placeable.dir || 0);
+  const side = portSide(
+    def, portName,
+    placeable && placeable.dir || 0,
+    placeable?.portsFlipped === true,
+  );
   if (!side) return false;
   const vec = SIDE_VEC[side];
   if (!vec) return false;
@@ -169,10 +187,10 @@ export function placeableCenterWorld(placeable, def) {
  *
  * @returns {{axis: 'x'|'z', sign: 1|-1}|null}
  */
-export function portLocalAxis(def, portName) {
+export function portLocalAxis(def, portName, portsFlipped = false) {
   const spec = getPortSpec(def, portName);
   if (!spec) return null;
-  return SIDE_TO_LOCAL[spec.side] || null;
+  return SIDE_TO_LOCAL[effectiveSide(spec, portsFlipped)] || null;
 }
 
 /**
@@ -218,7 +236,7 @@ export function rotateLocalOffset(off, dir) {
 export function portWorldPosition(placeable, def, portName) {
   if (!placeable || !portName) return null;
   const spec = getPortSpec(def, portName);
-  const local = portLocalAxis(def, portName);
+  const local = portLocalAxis(def, portName, placeable.portsFlipped === true);
   if (!local) return null;
   const centre = placeableCenterWorld(placeable, def);
   if (!centre) return null;

@@ -98,11 +98,8 @@ export function nearestOnPath(p, path) {
 // --- stub routing ----------------------------------------------------------
 
 /**
- * A path from a source port to a sink port that satisfies both ports' approach
- * constraints: it leaves the source along the source side's outward normal and
- * arrives at the sink against the sink side's outward normal (what
- * portMatchesApproach demands of the first and last segment). Between the two
- * lead-outs it is an ordinary Manhattan path.
+ * A Manhattan path from a source fitting to a sink fitting. Port vectors make
+ * the lead-outs tidy visually; validator rules do not require their direction.
  */
 export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerticalFirst) {
   return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, { preferVerticalFirst });

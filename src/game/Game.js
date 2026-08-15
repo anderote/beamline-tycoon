@@ -10,7 +10,7 @@ import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
-import { BeamlineSystem, pipeRefund, sparesCostForFunding, missingResourceLabel } from '../beamline/BeamlineSystem.js';
+import { BeamlineSystem, pipeRefund, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -72,7 +72,7 @@ const SERIALIZED_FIELDS = [
   'stationReservations',
   // world / terrain
   'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
-  'zones', 'walls', 'doors', 'windows',
+  'zones', 'walls', 'wallOverlays', 'doors', 'windows',
   // zoneConnectivity is mostly derived (active/tileCount/tileTier/tier are
   // rebuilt from `zones` on every recomputeZoneConnectivity() call — see
   // that method's own header), but staffedOutput/peakTier are accumulated
@@ -271,9 +271,6 @@ export class Game {
     })();
 
     this.state = {
-      // spares starts at 50 so a fresh facility can absorb a few repairs
-      // before a machine shop exists. Nothing produces or consumes it yet —
-      // machinists produce it and repairs consume it in a later plan.
       resources: { funding: 5000000, reputation: 0, data: 0, spares: 50 },
       beamline: [],    // aggregate of all beamline nodes (populated by _updateAggregateBeamline)
       completedResearch: [],
@@ -357,6 +354,8 @@ export class Game {
       // Walls (per-tile edge-based, like RCT2 fences)
       walls: [],              // [{ type, col, row, edge }]  edge = 'n'|'e'|'s'|'w'
       wallOccupied: {},       // "col,row,edge" -> wallType
+      wallOverlays: [],       // copper/etc. layered on a structural wall
+      wallOverlayOccupied: {}, // "col,row,edge" -> overlayType (derived)
       // Doors (edge-based, like walls)
       doors: [],              // [{ type, col, row, edge }]  edge = 'e' | 's'
       doorOccupied: {},       // "col,row,edge" -> doorType
@@ -441,6 +440,7 @@ export class Game {
     this.state.floors = starter.floors;
     this.state.zones = starter.zones;
     this.state.walls = starter.walls;
+    this.state.wallOverlays = starter.wallOverlays || [];
     this.state.doors = starter.doors;
     this.state.placeables = starter.placeables;
     this.state.placeableNextId = starter.placeableNextId;
@@ -454,6 +454,7 @@ export class Game {
     for (const tile of this.state.floors)
       this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
     this._rebuildPlaceableIndex();
+    this._rebuildWallLayerIndexes();
 
     // Dev-only shape-invariant check: catches any lingering legacy pipe shape
     // (pre-B2 migration). Warn only — don't hard-throw because old saves from
@@ -590,6 +591,9 @@ export class Game {
         }
       }
     }
+    // Shielding strips share the same collision lattice but are derived from
+    // walls, not placeables. Re-claim them whenever this map is rebuilt.
+    this._refreshWallInsetOccupancy?.();
   }
 
   // Invalidate the staff nav grid (src/game/staff/nav.js): call from every
@@ -1056,32 +1060,11 @@ export class Game {
    * every use.
    */
   _refundCostFor(placeable) {
-    if (!placeable?.cost) return null;
-    // `.kind === 'beamline'` catches a junction resolved via PLACEABLES
-    // (source, dipole, ...); a `role: 'placement'` on-pipe component
-    // (quadrupole, BPM, RF cavity, ...) resolved directly off COMPONENTS —
-    // as removeBeamPipe/demolishTarget's 'beamlineWhole' both do — carries
-    // no `.kind` at all (see components.js's own "legacy shim" header: it's
-    // a flat merge of every category, junction-only PLACEABLES aside), only
-    // `.role`. Checking either is what makes this one function work for
-    // both call shapes without the caller having to know which one it has.
-    if (placeable.kind !== 'beamline' && !placeable.role) return placeable.cost;
-    return { ...placeable.cost, spares: sparesCostForFunding(placeable.cost.funding || 0) };
+    return placeable?.cost || null;
   }
 
   spend(costs) {
     if (this.sandboxMode) return;
-    // Fix round 1: floor every resource at 0. Funding is allowed to run
-    // negative today (an existing, separate design choice — upkeep can
-    // outrun income) and this floor deliberately does not touch that; it
-    // exists because a genuine two-technicians-race on the last spare (see
-    // jobEffects/repair.js's own comment) could otherwise push `spares`
-    // negative, which then means repair stays suppressed until a machinist
-    // fabricates off a debt that was never really borrowed. `spares` is the
-    // one resource this codebase currently spends outside of a player-
-    // initiated purchase (a completed job, not a click), so it's the one
-    // that needs the floor; funding's every debit is still a deliberate,
-    // player-visible spend.
     for (const [r, a] of Object.entries(costs)) {
       if (r === 'spares') this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - a);
       else this.state.resources[r] -= a;
@@ -1106,9 +1089,6 @@ export class Game {
     if (this.sandboxMode) return;
     const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
     if (c.funding) this.state.resources.funding -= c.funding;
-    // Floored at 0 — see spend()'s own comment on why spares specifically
-    // needs this and funding deliberately doesn't.
-    if (c.spares) this.state.resources.spares = Math.max(0, (this.state.resources.spares || 0) - c.spares);
   }
 
   /**
@@ -1498,9 +1478,152 @@ export class Game {
     return this.state.walls.find(w => edgeKey(w.col, w.row, w.edge) === key);
   }
 
+  _wallOverlayAt(key) {
+    return (this.state.wallOverlays || []).find(
+      w => edgeKey(w.col, w.row, w.edge) === key
+    );
+  }
+
+  _wallInsetCells(wall, includeDoorOpening = false) {
+    if (!wall || !WALL_TYPES[wall.type]?.insetSubtiles) return [];
+    const cells = [];
+    for (let slot = 0; slot < 4; slot++) {
+      if (wall.edge === 'n') cells.push({ col: wall.col, row: wall.row, subCol: slot, subRow: 0 });
+      else if (wall.edge === 's') cells.push({ col: wall.col, row: wall.row, subCol: 3 - slot, subRow: 3 });
+      else if (wall.edge === 'e') cells.push({ col: wall.col, row: wall.row, subCol: 3, subRow: slot });
+      else if (wall.edge === 'w') cells.push({ col: wall.col, row: wall.row, subCol: 0, subRow: 3 - slot });
+    }
+    if (includeDoorOpening) return cells;
+    const doorKey = findEdgeKey(this.state.doorOccupied, wall.col, wall.row, wall.edge);
+    if (!doorKey) return cells;
+    const door = this.state.doors.find(d => edgeKey(d.col, d.row, d.edge) === doorKey);
+    const dt = door && DOOR_TYPES[door.type];
+    if (!door || !dt) return cells;
+    let off = door.off ?? defaultDoorOff(dt);
+    if (isMirroredKey(doorKey, wall.col, wall.row, wall.edge)) off = mirrorDoorOff(off, dt);
+    const width = dt.doorWidth === 'double' ? 4 : 2;
+    return cells.filter((_cell, slot) => slot < off || slot >= off + width);
+  }
+
+  _wallInsetOccupantId(wall) {
+    return `shielding-wall:${edgeKey(wall.col, wall.row, wall.edge)}`;
+  }
+
+  _releaseWallInset(wall) {
+    if (!wall) return;
+    const id = this._wallInsetOccupantId(wall);
+    for (const [key, occ] of Object.entries(this.state.subgridOccupied || {})) {
+      if (occ?.id === id) delete this.state.subgridOccupied[key];
+    }
+  }
+
+  _canClaimWallInset(wall, replacing = null) {
+    const ownId = this._wallInsetOccupantId(wall);
+    const replacingId = replacing ? this._wallInsetOccupantId(replacing) : null;
+    return this._wallInsetCells(wall).every(cell => {
+      const occ = this.state.subgridOccupied?.[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`];
+      return !occ || occ.id === ownId || occ.id === replacingId;
+    });
+  }
+
+  _claimWallInset(wall) {
+    const id = this._wallInsetOccupantId(wall);
+    for (const cell of this._wallInsetCells(wall)) {
+      const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+      if (!this.state.subgridOccupied[key]) {
+        this.state.subgridOccupied[key] = { id, kind: 'shieldingWall' };
+      }
+    }
+  }
+
+  _refreshWallInsetOccupancy() {
+    for (const [key, occ] of Object.entries(this.state.subgridOccupied || {})) {
+      if (occ?.kind === 'shieldingWall') delete this.state.subgridOccupied[key];
+    }
+    for (const wall of (this.state.walls || [])) this._claimWallInset(wall);
+  }
+
+  _rebuildWallLayerIndexes() {
+    this.state.walls = this.state.walls || [];
+    this.state.wallOverlays = this.state.wallOverlays || [];
+    this.state.wallOccupied = {};
+    for (const wall of this.state.walls) {
+      this.state.wallOccupied[edgeKey(wall.col, wall.row, wall.edge)] = wall.type;
+    }
+    this.state.wallOverlayOccupied = {};
+    for (const layer of this.state.wallOverlays) {
+      // A layer without a host can only come from hand-edited/invalid data;
+      // keep it serialized but do not expose it as a buildable physical edge.
+      if (findWallKey(this.state.wallOccupied, layer.col, layer.row, layer.edge)) {
+        this.state.wallOverlayOccupied[edgeKey(layer.col, layer.row, layer.edge)] = layer.type;
+      }
+    }
+    this._refreshWallInsetOccupancy();
+  }
+
+  _placeWallOverlay(col, row, edge, wallType, variant = 0) {
+    const wt = WALL_TYPES[wallType];
+    const hostKey = findWallKey(this.state.wallOccupied, col, row, edge);
+    if (!wt?.wallOverlay || !hostKey) {
+      if (wt?.wallOverlay) this.log(`${wt.name} must be layered onto an existing wall`, 'bad');
+      return false;
+    }
+    const host = this._wallAt(hostKey);
+    const hostDef = host && WALL_TYPES[host.type];
+    if (!hostDef || hostDef.wallHeight < wt.wallHeight) {
+      this.log(`${wt.name} needs a full-height host wall`, 'bad');
+      return false;
+    }
+    if (findEdgeKey(this.state.doorOccupied, col, row, edge) ||
+        findEdgeKey(this.state.windowOccupied, col, row, edge)) {
+      this.log(`${wt.name} needs an uninterrupted wall segment`, 'bad');
+      return false;
+    }
+    const heldKey = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge);
+    if (heldKey && this.state.wallOverlayOccupied[heldKey] === wallType) {
+      const held = this._wallOverlayAt(heldKey);
+      if (held && (held.variant ?? 0) !== variant) {
+        held.variant = variant;
+        this.emit('wallsChanged');
+      }
+      return true;
+    }
+    const segCost = wt.variantCosts?.[variant] ?? wt.cost;
+    if (this.state.resources.funding < segCost) return false;
+    if (heldKey) {
+      this.state.wallOverlays = this.state.wallOverlays.filter(
+        w => edgeKey(w.col, w.row, w.edge) !== heldKey
+      );
+      delete this.state.wallOverlayOccupied[heldKey];
+    }
+    this.chargeConstruction(segCost);
+    const key = edgeKey(col, row, edge);
+    const entry = { type: wallType, col, row, edge };
+    if (variant) entry.variant = variant;
+    this.state.wallOverlays.push(entry);
+    this.state.wallOverlayOccupied[key] = wallType;
+    this.emit('wallsChanged');
+    return true;
+  }
+
+  _removeWallOverlay(col, row, edge) {
+    const key = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge);
+    if (!key) return false;
+    const entry = this._wallOverlayAt(key);
+    const wt = WALL_TYPES[this.state.wallOverlayOccupied[key]];
+    if (wt) this.state.resources.funding += Math.floor(variantCost(wt, entry?.variant ?? 0) * 0.5);
+    this.state.wallOverlays = this.state.wallOverlays.filter(
+      w => edgeKey(w.col, w.row, w.edge) !== key
+    );
+    delete this.state.wallOverlayOccupied[key];
+    this.emit('wallsChanged');
+    return true;
+  }
+
   placeWall(col, row, edge, wallType, variant = 0) {
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
+    if (wt.wallOverlay) return this._placeWallOverlay(col, row, edge, wallType, variant);
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     const key = this._wallSiteKey(col, row, edge);
     if (this.state.wallOccupied[key] === wallType) {
@@ -1513,11 +1636,22 @@ export class Game {
       return true;
     }
     if (this.state.resources.funding < segCost) return false;
+    const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
+    const requestedSite = { type: wallType, col, row, edge };
+    const site = wt.insetSubtiles
+      ? requestedSite
+      : { type: wallType, ...this._wallSite(key, col, row, edge) };
+    if (wt.insetSubtiles && !this._canClaimWallInset(site, replaced)) {
+      this.log(`${wt.name} needs a clear one-subtile strip beside the edge`, 'bad');
+      return false;
+    }
     if (this.state.wallOccupied[key]) {
       // Replace existing wall on this edge
+      this._releaseWallInset(replaced);
       this.state.walls = this.state.walls.filter(
         w => edgeKey(w.col, w.row, w.edge) !== key
       );
+      delete this.state.wallOccupied[key];
     }
     // The replacement wall may be too short for a window already on this
     // edge — placeWindow's fit rule has to survive a wall swap, or the
@@ -1525,11 +1659,12 @@ export class Game {
     // paying the full amount.
     this._evictUnfittableWindows(col, row, edge, wt);
     this.chargeConstruction(segCost);
-    const site = this._wallSite(key, col, row, edge);
     const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
     if (variant) wallEntry.variant = variant;
     this.state.walls.push(wallEntry);
-    this.state.wallOccupied[key] = wallType;
+    const storedKey = edgeKey(site.col, site.row, site.edge);
+    this.state.wallOccupied[storedKey] = wallType;
+    this._claimWallInset(wallEntry);
     this._markNavDirty();
     this.emit('wallsChanged');
     return true;
@@ -1538,6 +1673,12 @@ export class Game {
   placeWallPath(path, wallType, variant = 0) {
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
+    if (wt.wallOverlay) {
+      let placed = 0;
+      for (const pt of path) if (this._placeWallOverlay(pt.col, pt.row, pt.edge, wallType, variant)) placed++;
+      if (placed > 0) this.log(`Layered ${placed} ${wt.name} segment${placed > 1 ? 's' : ''}`, 'good');
+      return placed > 0;
+    }
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     for (const pt of path) {
@@ -1551,20 +1692,28 @@ export class Game {
         continue;
       }
       if (this.state.resources.funding < segCost) break;
+      const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
+      const requestedSite = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
+      const site = wt.insetSubtiles
+        ? requestedSite
+        : { type: wallType, ...this._wallSite(key, pt.col, pt.row, pt.edge) };
+      if (wt.insetSubtiles && !this._canClaimWallInset(site, replaced)) continue;
       if (this.state.wallOccupied[key]) {
+        this._releaseWallInset(replaced);
         this.state.walls = this.state.walls.filter(
           w => edgeKey(w.col, w.row, w.edge) !== key
         );
+        delete this.state.wallOccupied[key];
       }
       // See placeWall: a shorter replacement wall evicts a window it can no
       // longer hold.
       this._evictUnfittableWindows(pt.col, pt.row, pt.edge, wt);
       this.chargeConstruction(segCost);
-      const site = this._wallSite(key, pt.col, pt.row, pt.edge);
       const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
       if (variant) wallEntry.variant = variant;
       this.state.walls.push(wallEntry);
-      this.state.wallOccupied[key] = wallType;
+      this.state.wallOccupied[edgeKey(site.col, site.row, site.edge)] = wallType;
+      this._claimWallInset(wallEntry);
       placed++;
     }
     if (placed > 0) {
@@ -1576,6 +1725,7 @@ export class Game {
   }
 
   removeWall(col, row, edge) {
+    if (this._removeWallOverlay(col, row, edge)) return true;
     const key = findWallKey(this.state.wallOccupied, col, row, edge);
     if (!key) return false;
     const wallType = this.state.wallOccupied[key];
@@ -1590,6 +1740,8 @@ export class Game {
       const existing = this._wallAt(key);
       this.state.resources.funding += Math.floor(variantCost(wt, existing?.variant ?? 0) * 0.5);
     }
+    const removedWall = this._wallAt(key);
+    this._releaseWallInset(removedWall);
     this.state.walls = this.state.walls.filter(
       w => edgeKey(w.col, w.row, w.edge) !== key
     );
@@ -1681,9 +1833,16 @@ export class Game {
       this.log(`No wall on that edge — a ${dt.name} has to hang on a wall`, 'bad');
       return false;
     }
+    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge)) {
+      this.log(`Remove the wall sheeting before cutting a door opening`, 'bad');
+      return false;
+    }
     if (this.state.doorOccupied[site.key] === doorType) {
       // Same door, same edge: re-placing nudges variant / opening position.
-      if (this._updateDoorRecord(site.key, variant, site.off)) this.emit('doorsChanged');
+      if (this._updateDoorRecord(site.key, variant, site.off)) {
+        this._refreshWallInsetOccupancy();
+        this.emit('doorsChanged');
+      }
       return true;
     }
     // Funding gates every state mutation below: check it before touching
@@ -1710,6 +1869,7 @@ export class Game {
       type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
     });
     this.state.doorOccupied[site.key] = doorType;
+    this._refreshWallInsetOccupancy();
     this._markNavDirty();
     this.emit('doorsChanged');
     return true;
@@ -1730,6 +1890,7 @@ export class Game {
     for (const pt of path) {
       const site = this._resolveDoorSite(pt.col, pt.row, pt.edge, dt, pt.off ?? off);
       if (!site) { noWall++; continue; }
+      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge)) { noWall++; continue; }
       if (this.state.doorOccupied[site.key] === doorType) {
         if (this._updateDoorRecord(site.key, variant, site.off)) updated++;
         continue;
@@ -1750,6 +1911,7 @@ export class Game {
         type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
       });
       this.state.doorOccupied[site.key] = doorType;
+      this._refreshWallInsetOccupancy();
       placed++;
     }
     if (placed > 0) {
@@ -1763,17 +1925,32 @@ export class Game {
       this.log(`Ran out of funding for the rest of the ${dt.name} run ($${dt.cost} each)`, 'bad');
     }
     if (placed > 0 || updated > 0) this.emit('doorsChanged');
+    if (updated > 0) this._refreshWallInsetOccupancy();
     return placed > 0 || updated > 0;
   }
 
   removeDoor(col, row, edge) {
     const key = findEdgeKey(this.state.doorOccupied, col, row, edge);
     if (!key) return false;
+    const wallKey = findWallKey(this.state.wallOccupied, col, row, edge);
+    const wall = wallKey ? this._wallAt(wallKey) : null;
+    if (wall && WALL_TYPES[wall.type]?.insetSubtiles) {
+      const id = this._wallInsetOccupantId(wall);
+      const blocked = this._wallInsetCells(wall, true).some(cell => {
+        const occ = this.state.subgridOccupied?.[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`];
+        return occ && occ.id !== id;
+      });
+      if (blocked) {
+        this.log(`Clear the shielding-wall opening before removing its door`, 'bad');
+        return false;
+      }
+    }
     const doorType = this.state.doorOccupied[key];
     const dt = DOOR_TYPES[doorType];
     if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
     this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== key);
     delete this.state.doorOccupied[key];
+    this._refreshWallInsetOccupancy();
     this._markNavDirty();
     this.emit('doorsChanged');
     return true;
@@ -1837,6 +2014,7 @@ export class Game {
     const key = `${col},${row},${edge}`;
     const alias = this._edgeAlias(col, row, edge);
     const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge)) return false;
     // A window is a hole in an existing wall — accept the wall under either
     // edge representation, the same way InputHandler._findWallOrDoorAtEdge does.
     const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
@@ -1904,6 +2082,7 @@ export class Game {
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     for (const pt of path) {
+      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge)) continue;
       const key = `${pt.col},${pt.row},${pt.edge}`;
       const alias = this._edgeAlias(pt.col, pt.row, pt.edge);
       const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
@@ -2439,6 +2618,7 @@ export class Game {
   _placePlaceableInner(opts, opts2) {
     const {
       type, col, row, subCol, subRow, dir = 0, params, variant = 0,
+      portsFlipped = false,
       wallMount = null, free = false, silent = false,
     } = opts;
     const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
@@ -2466,17 +2646,7 @@ export class Game {
       // (defensive; shouldn't happen after A1).
     }
 
-    // Beamline junctions are the only 'beamline'-kind placeable that reaches
-    // this point (a 'placement'-role component is turned away above, and
-    // must go through BeamlineSystem.placeOnPipe instead) — so this is the
-    // one place a junction's purchase is charged, and the natural place to
-    // add its spares cost: parts a machinist has to fabricate, drawn down at
-    // build time alongside the funding. See chargeConstruction's own doc
-    // comment for why this goes through it rather than a bare
-    // `resources.spares -=` here, which sandbox mode could not suppress.
-    const cost = (kind === 'beamline')
-      ? { ...placeable.cost, spares: sparesCostForFunding(placeable.cost?.funding || 0) }
-      : placeable.cost;
+    const cost = placeable.cost;
 
     if (!free && !this.canAfford(cost)) {
       this.log(`Can't afford ${placeable.name}! (${this._missingResourceLabel(cost)})`, 'bad');
@@ -2589,6 +2759,7 @@ export class Game {
       subCol: subCol || 0,
       subRow: subRow || 0,
       dir,
+      portsFlipped: kind === 'beamline' && portsFlipped === true,
       params: null,
       variant: variant || 0,
       cells,
@@ -3175,11 +3346,6 @@ export class Game {
         const entry = this.registry.get(target.beamlineId);
         if (!entry) return false;
         let refund = 0;
-        // Fix round 1: same funding-only bug the other three refund sites
-        // had (see _refundCostFor's own header) — every module and on-pipe
-        // placement in a whole-beamline demolish also cost spares, and this
-        // lump-sum payout was silently dropping that half.
-        let sparesRefund = 0;
         const flat = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
         const placeableIdsToRemove = [];
         for (const el of flat) {
@@ -3187,7 +3353,6 @@ export class Game {
             const def = COMPONENTS[el.type];
             const funding = def?.cost?.funding || 0;
             refund += Math.floor(funding * 0.5);
-            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
             placeableIdsToRemove.push(el.id);
           }
         }
@@ -3203,7 +3368,6 @@ export class Game {
           for (const att of (pipe.placements || [])) {
             const funding = COMPONENTS[att.type]?.cost?.funding || 0;
             refund += Math.floor(funding * 0.5);
-            sparesRefund += Math.floor(sparesCostForFunding(funding) * 0.5);
           }
         }
         for (const pid of placeableIdsToRemove) {
@@ -3212,11 +3376,10 @@ export class Game {
           this.removePlaceable(pid, { skipRefund: true });
         }
         this.state.resources.funding += refund;
-        this.state.resources.spares = (this.state.resources.spares || 0) + sparesRefund;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
         if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
         this.registry.removeBeamline(target.beamlineId);
-        this.log(`Demolished beamline (+$${refund.toLocaleString()}, +${sparesRefund} spares)`, 'good');
+        this.log(`Demolished beamline (+$${refund.toLocaleString()})`, 'good');
         this.recalcAllBeamlines();
         this.computeSystemStats();
         this.emit('beamlineChanged');
@@ -4547,29 +4710,6 @@ export class Game {
       assignJobs(this, { breaksEnabled: STAFF_BREAKS_ENABLED });
       tickJobs(this);
 
-      // Fix round 1: task 5's own brief promised a spares-starved repair
-      // surfaces two ways — the idle reason (jobRunner.js's own idleReason
-      // string, already set above) and a log line the FIRST time it
-      // happens. Read here, in Game.js's own tick loop, rather than added
-      // as a side effect inside jobs.js's buildJobOffers/repairOffers: that
-      // module is documented as read-only (see its own header — a
-      // deep-freeze regression test enforces it), so a `this.log(...)` call
-      // in there would both violate that contract and mutate state.log
-      // against a frozen state. Rate-limited on an instance flag (not
-      // `state`, since this is an ephemeral log-dedupe concern, not
-      // something a save needs to remember) so a facility that stays out of
-      // spares for hours doesn't spam the log every tick, and cleared the
-      // moment no technician is reporting the shortage anymore so the next
-      // genuine one logs again.
-      const spareShortage = (this.state.staffMembers || []).some(
-        m => m.profession === 'technician' && m.idleReason === 'No spares available to make the repair.',
-      );
-      if (spareShortage && !this._spareShortageLogged) {
-        this.log('No spares available to make repairs — a machinist can fabricate more.', 'bad');
-        this._spareShortageLogged = true;
-      } else if (!spareShortage) {
-        this._spareShortageLogged = false;
-      }
     }
 
     // Tick all running beamlines
@@ -5083,6 +5223,7 @@ export class Game {
     this.state.floors = scenarioData.floors;
     this.state.zones = scenarioData.zones;
     this.state.walls = scenarioData.walls;
+    this.state.wallOverlays = scenarioData.wallOverlays || [];
     this.state.doors = scenarioData.doors;
     this.state.windows = scenarioData.windows || [];
     this.state.placeables = scenarioData.placeables;
@@ -5119,12 +5260,11 @@ export class Game {
     this.state.zoneOccupied = {};
     for (const z of this.state.zones)
       this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
-    this.state.wallOccupied = {};
-    for (const w of this.state.walls)
-      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+    this._rebuildWallLayerIndexes();
     this.state.doorOccupied = {};
     for (const d of this.state.doors)
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    this._refreshWallInsetOccupancy();
     this.state.windowOccupied = {};
     for (const w of this.state.windows)
       this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
@@ -5662,12 +5802,8 @@ export class Game {
     }
     this._rebuildPlaceableIndex();
 
-    // Rebuild wall state
-    this.state.walls = this.state.walls || [];
-    this.state.wallOccupied = {};
-    for (const w of this.state.walls) {
-      this.state.wallOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
-    }
+    // Rebuild structural wall, overlay, and shielding-subtile state.
+    this._rebuildWallLayerIndexes();
     // Rebuild door edge state. Derived like wallOccupied — without this,
     // placed doors are undeletable after a load and undone doors leave a
     // phantom entry that blocks re-placing on that edge. Room detection
@@ -5678,6 +5814,7 @@ export class Game {
     for (const d of this.state.doors) {
       this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
     }
+    this._refreshWallInsetOccupancy();
     // Load/undo/redo all replace infraOccupied, wallOccupied, doorOccupied
     // and placeables wholesale above — the nav grid must rebuild against the
     // restored topology rather than the pre-load session's.

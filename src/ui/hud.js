@@ -15,6 +15,7 @@ import { DECORATIONS } from '../data/decorations.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
+import { windowPreviewDataUrl } from './window-preview.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import { ContextWindow } from './ContextWindow.js';
@@ -676,6 +677,7 @@ UIHost.prototype._generateCategoryTabs = function() {
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
       this._renderPalette(key);
+      this._renderConnectionGuide(key);
       this._updateSystemStatsContent(key);
       if (this._onTabSelect) this._onTabSelect(key);
     });
@@ -685,8 +687,59 @@ UIHost.prototype._generateCategoryTabs = function() {
   // Render palette for first category in mode
   if (catKeys.length > 0) {
     this._renderPalette(catKeys[0]);
+    this._renderConnectionGuide(catKeys[0]);
     this._updateSystemStatsContent(catKeys[0]);
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
+  }
+};
+
+const CONNECTION_GUIDES = {
+  power: {
+    title: 'POWER PATH',
+    lines: ['[ GRID / HV ] ── HV cable ──> [ SWITCHGEAR ]', '[ SWITCHGEAR ] ─ power cable ─> [ EQUIPMENT ]'],
+  },
+  vacuum: {
+    title: 'VACUUM PATH',
+    lines: ['[ ROUGH + TURBO PUMPS ] ─ vacuum pipe ─> [ BEAMLINE ]', '[ BEAMLINE ] <──── pressure protection ────> [ GAUGES ]'],
+  },
+  rfPower: {
+    title: 'RF PATH',
+    lines: ['[ RF SOURCE ] ── waveguide ──> [ RF CAVITY ]', '[ MODULATOR / CONTROL ] ─── data fiber ───> [ RF SOURCE ]'],
+  },
+  cooling: {
+    title: 'COOLING LOOP',
+    lines: ['[ MAKE-UP WATER ] ─ plant water ─> [ CHILLER ]', '[ CHILLER ] ─ cooling water ─> [ HEAT LOAD ] ─> [ DRY COOLER ]'],
+  },
+  dataControls: {
+    title: 'CONTROL PATH',
+    lines: ['[ CONTROL RACK ] ── data fiber ──> [ EQUIPMENT ]', '[ EQUIPMENT ] ─── telemetry / interlocks ───> [ CONTROL RACK ]'],
+  },
+  ops: {
+    title: 'OPERATIONS',
+    lines: ['[ SAFETY + SHIELDING ] ──> [ STAFFED BEAMLINE ]', '[ MATERIAL HANDLING ] ──> [ TARGETS / ENDSTATIONS ]'],
+  },
+};
+
+UIHost.prototype._renderConnectionGuide = function(category) {
+  const el = document.getElementById('connection-guide');
+  if (!el) return;
+  const guide = this.activeMode === 'infra' ? CONNECTION_GUIDES[category] : null;
+  if (!guide) {
+    el.classList.add('hidden');
+    el.replaceChildren();
+    return;
+  }
+  el.classList.remove('hidden');
+  el.replaceChildren();
+  const title = document.createElement('div');
+  title.className = 'connection-guide-title';
+  title.textContent = guide.title;
+  el.appendChild(title);
+  for (const line of guide.lines) {
+    const row = document.createElement('div');
+    row.className = 'connection-guide-line';
+    row.textContent = line;
+    el.appendChild(row);
   }
 };
 
@@ -1195,11 +1248,8 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.dataset.paletteKind = 'window';
         const idx = paletteIdx++;
 
-        // Window preview (variant-aware via remembered selection). Windows
-        // have no manifest texture (frameTexture drives the 3D frame
-        // material, not a palette thumbnail), so getTilePath returns null
-        // here and every window falls to the colored swatch fallback —
-        // matching the design's "existing colour-swatch fallback" scope.
+        // Window preview: an actual framed-glass illustration rather than a
+        // generic colour swatch. It follows the selected tint variant.
         const rememberedVi = recallVariant(key);
         // Same variant drives the COST: placeWindow charges
         // variantCosts[variant] (a Mirrored Picture Window is 70, not 55), so
@@ -1212,20 +1262,13 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
-        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
-        if (tilePath2) {
-          const img = document.createElement('img');
-          img.src = tilePath2;
-          img.alt = win.name;
-          previewEl.appendChild(img);
-          applyPreviewTint(previewEl, win, rememberedVi);
-        } else {
-          const swatch = document.createElement('div');
-          const c = resolveVariantPreview(win, rememberedVi) ?? (win.topColor || win.color || 0x888888);
-          const swatchColor = Array.isArray(c) ? c[0] : c;
-          swatch.style.cssText = `width:48px;height:32px;background:#${swatchColor.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
-          previewEl.appendChild(swatch);
-        }
+        const img = document.createElement('img');
+        img.src = windowPreviewDataUrl(key, rememberedVi);
+        img.alt = win.name;
+        img.width = 96;
+        img.height = 64;
+        img.style.objectFit = 'contain';
+        previewEl.appendChild(img);
         item.appendChild(previewEl);
 
         const nameEl = document.createElement('div');
@@ -1278,21 +1321,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                 retuneCost(variantIdx);
                 const previewElNow = item.querySelector('.palette-preview');
                 const previewImg = previewElNow?.querySelector('img');
-                if (previewImg) {
-                  const newPath = this.sprites.getTilePath(key, variantIdx);
-                  if (newPath) previewImg.src = newPath;
-                } else if (previewElNow) {
-                  const swatchEl = previewElNow.querySelector('div');
-                  if (swatchEl) {
-                    const nc = resolveVariantPreview(win, variantIdx) ?? (win.topColor || win.color || 0x888888);
-                    const swatchColorNow = Array.isArray(nc) ? nc[0] : nc;
-                    swatchEl.style.background = `#${swatchColorNow.toString(16).padStart(6,'0')}`;
-                  }
-                }
-                if (previewImg && previewElNow) {
-                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
-                  applyPreviewTint(previewElNow, win, variantIdx);
-                }
+                if (previewImg) previewImg.src = windowPreviewDataUrl(key, variantIdx);
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
                 this._removeParamFlyout();
@@ -3576,6 +3605,15 @@ UIHost.prototype._buildSearchResultPreview = function(result, def) {
       img.onerror = () => { img.style.display = 'none'; };
       previewEl.appendChild(img);
     }
+  } else if (kind === 'window') {
+    const vi = recallVariant(id);
+    const img = document.createElement('img');
+    img.src = windowPreviewDataUrl(id, vi);
+    img.alt = def.name;
+    img.width = 96;
+    img.height = 64;
+    img.style.objectFit = 'contain';
+    previewEl.appendChild(img);
   } else if (kind === 'floor' || kind === 'wall' || kind === 'door') {
     const vi = recallVariant(id);
     const tilePath = this.sprites.getTilePath(id, vi);

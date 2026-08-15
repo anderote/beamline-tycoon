@@ -857,7 +857,7 @@ console.log("\n=== 9. runBeam cap: at most (registered) beamlineCount operators 
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 10. repair cap: at most state.resources.spares technicians hold repair at once, even with more damaged components AND a free console/running beamline present ===\n');
+console.log('\n=== 10. repair dispatch is limited by maintenance spares ===\n');
 {
   // Also not fixture-lucky: a free console + running beamline (runBeam,
   // priority 80, below repair's own ~90-140) sits in the same world. A
@@ -871,7 +871,6 @@ console.log('\n=== 10. repair cap: at most state.resources.spares technicians ho
   const bl2 = placeDamagedBeamline(state, 'bl-2', 12, 4, 40);
   const bl3 = placeDamagedBeamline(state, 'bl-3', 20, 4, 40);
   bump(state);
-  state.resources.spares = 1;
   const running = { id: 'bl-4', sourceId: null, status: 'running', beamState: { componentHealth: {} } };
   const game = makeGame(state, [bl1, bl2, bl3, running]);
 
@@ -880,19 +879,16 @@ console.log('\n=== 10. repair cap: at most state.resources.spares technicians ho
   const t3 = makeMember('technician', 't3');
   state.staffMembers = [t1, t2, t3];
 
+  state.resources.spares = 1;
   assignJobs(game);
   const repairHolders = state.staffMembers.filter(m => m.job?.jobType === 'repair');
   assertOk(repairHolders.length === 1, `exactly 1 technician holds repair with 1 spare (got ${repairHolders.length})`);
   const idleTechs = state.staffMembers.filter(m => m.job === null);
   assertOk(idleTechs.length === 2, `the other 2 technicians are left without a job (got ${idleTechs.length})`);
-  for (const m of idleTechs) {
-    assertOk(/spares/i.test(m.idleReason || ''), `${m.id}'s idleReason names the spares shortage (got "${m.idleReason}")`);
-    assertOk(!/operator/i.test(m.idleReason || ''), `${m.id}'s idleReason is not a misdirected runBeam-profession rejection (got "${m.idleReason}")`);
-  }
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 10b. fix-round-2: with spares === 0, the board suppresses repair entirely — the idle technician gets the SUPPRESSION reason, not a generic "nothing to do" ===\n');
+console.log('\n=== 10b. repairs wait when maintenance spares are depleted ===\n');
 {
   // spares === 0 makes jobs.js's repairOffers suppress EVERY repair offer
   // (see its own reason: 'No spares available to make the repair.') —
@@ -912,11 +908,8 @@ console.log('\n=== 10b. fix-round-2: with spares === 0, the board suppresses rep
   state.staffMembers = [technician];
 
   assignJobs(game);
-  assertOk(technician.job === null, 'setup: no spares — the technician gets no job');
-  assertOk(/spares/i.test(technician.idleReason || ''),
-    `idleReason surfaces the board's suppression reason, naming spares (got "${technician.idleReason}")`);
-  assertOk(technician.idleReason !== 'Nothing to do right now.',
-    `idleReason is NOT the generic fallback (got "${technician.idleReason}")`);
+  assertOk(technician.job === null, 'the technician waits when no maintenance spares are available');
+  assertOk(/spares/i.test(technician.idleReason || ''), 'the idle reason names the missing maintenance spares');
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,6 @@
 // inside placePlaceable / removePlaceable, which take game as an argument.
 
 import { isoToGridFloat } from '../renderer/grid.js';
-import { sparesCostForFunding } from '../beamline/BeamlineSystem.js';
 import { findWallKey, mirrorEdge } from './edge-keys.js';
 
 /**
@@ -208,9 +207,7 @@ export function canAffordCost(game, cost) {
  * spares (fix round 1).
  */
 export function componentCostFor(def) {
-  if (!def?.cost) return def?.cost;
-  if (def.kind !== 'beamline' && !def.role) return def.cost;
-  return { ...def.cost, spares: sparesCostForFunding(def.cost.funding || 0) };
+  return def?.cost;
 }
 
 /**

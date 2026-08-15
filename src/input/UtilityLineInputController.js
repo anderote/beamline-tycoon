@@ -33,10 +33,9 @@ import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wir
 import { isoToGridFloat } from '../renderer/grid.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
-// 1.0 = half a tile — roomy so the player can grab a port without needing
-// pixel-perfect aim. Tightened automatically (0.5) near ports on the same
-// placeable since those are packed tighter.
-const PORT_SNAP_RADIUS_WORLD = 1.0;
+// 1.5 m gives a deliberately magnetic, but still local, pickup/drop zone.
+// The nearest compatible fitting wins, so closely spaced ports remain usable.
+const PORT_SNAP_RADIUS_WORLD = 1.5;
 
 // Grab radius around a port's PROJECTED anchor, in viewport pixels. Sized to
 // the fitting the renderer draws there plus a forgiving margin. Thirty pixels
@@ -44,7 +43,7 @@ const PORT_SNAP_RADIUS_WORLD = 1.0;
 // crowded connectors remain separable because _snapToNearestPort always picks
 // the nearest candidate. Pixels, not metres, because this is a hand-eye budget
 // — it must not shrink as the player zooms out.
-const PORT_SNAP_RADIUS_PX = 30;
+const PORT_SNAP_RADIUS_PX = 42;
 
 // How close the cursor has to be to an existing line of the same utility to
 // grab it, in tiles. Tighter than the port radius: ports are the primary
@@ -320,13 +319,10 @@ export class UtilityLineInputController {
    * near one, start + end quantised to the 0.25 sub-tile grid, and the path
    * between them (null when the drag has not left the anchor).
    *
-   * Routing is port-aware and validator-checked, exactly as a run-wiring stub
-   * is: each port end gets a lead-out along its own outward normal, and the
-   * route between them comes from buildPortRoutedPaths. A plain start→end
-   * Manhattan L only satisfied the ports' approach constraints by luck, so most
-   * drags — anything back toward a source, or between ports whose sides didn't
-   * match the L's shape — died at commit with "doesn't align with port
-   * direction".
+   * Routing is deliberately direction-agnostic: fittings still have authored
+   * sides for credible placement and rendering, but utility runs may turn away
+   * from any fitting. This makes a nearby port a forgiving connection target
+   * rather than a one-way constraint.
    *
    * Two jobs are being done here and they belong to different owners. Is this
    * route a SENSIBLE shape — does it double back, how many corners does it turn
@@ -370,8 +366,8 @@ export class UtilityLineInputController {
     };
 
     const candidates = buildPortRoutedPaths(
-      startTile, this._anchorVec(this._drawStart),
-      endTile, this._anchorVec(endAnchor),
+      startTile, this._portVec(this._drawStart),
+      endTile, this._portVec(endAnchor),
       { preferVerticalFirst: this._preferVerticalFirst });
 
     let chosen = null;
@@ -415,14 +411,13 @@ export class UtilityLineInputController {
     return { placeableId: anchor.placeableId, portName: anchor.portName };
   }
 
-  /** Outward normal of a draw end's port, null when the end is open. */
-  _anchorVec(anchor) {
+  /** Geometry hint used to pick tidy visual lead-outs; never a validity rule. */
+  _portVec(anchor) {
     const ref = this._anchorRef(anchor);
     if (!ref) return null;
     const endpoint = findUtilityEndpoint(this.game.state, ref.placeableId);
     const def = endpoint ? COMPONENTS[endpoint.type] : null;
-    if (!def) return null;
-    return portApproachVec(endpoint, def, ref.portName);
+    return def ? portApproachVec(endpoint, def, ref.portName) : null;
   }
 
   /**

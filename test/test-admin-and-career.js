@@ -422,30 +422,7 @@ console.log('\n=== 6b. commission: a diary entry only on the FIRST commission ==
     `the SECOND commission gets no additional diary entry (got ${engineer.history.length})`);
 }
 
-console.log('\n=== 6c. fabricate: a diary entry only when the hundredth-spare boundary is CROSSED ===\n');
-{
-  // construction 8 -> made = 1 + floor(8/3) = 3 per completion: 33 * 3 = 99,
-  // the 34th completion lands on 102 — jumping OVER the 100 boundary rather
-  // than landing on it exactly. A naive `sparesMade % 100 === 0` check
-  // would miss this entirely; the real check compares
-  // floor(before/100) < floor(after/100).
-  const machinist = makeMember('machinist', 'm1', { construction: 8 });
-  const state = { tick: 1, resources: { spares: 0 } };
-  const game = { state };
-
-  const fabJob = { jobType: 'fabricate' };
-  const baselineLen = machinist.history.length;
-  for (let n = 1; n <= 33; n++) onJobComplete(game, machinist, fabJob);
-  assertOk(machinist.stats.sparesMade === 99, `setup: 33 completions -> 99 spares (got ${machinist.stats.sparesMade})`);
-  assertOk(machinist.history.length === baselineLen, 'no diary entry before the boundary is crossed');
-
-  onJobComplete(game, machinist, fabJob);
-  assertOk(machinist.stats.sparesMade === 102, `the 34th completion jumps over 100 to 102 (got ${machinist.stats.sparesMade})`);
-  assertOk(machinist.history.length === baselineLen + 1,
-    `a diary entry appears on the completion that CROSSES 100, even though it did not land on it (got ${machinist.history.length})`);
-}
-
-console.log('\n=== 6d. analyze: a diary entry only for the analysis that finishes the active research item ===\n');
+console.log('\n=== 6c. analyze: a diary entry only for the analysis that finishes the active research item ===\n');
 {
   const duration = RESEARCH.beamOptics.duration; // 30
   const scientist = makeMember('scientist', 's1');

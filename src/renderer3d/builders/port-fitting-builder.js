@@ -437,7 +437,7 @@ export function portFittingSignature(endpoints) {
     const def = COMPONENTS[ep.type];
     if (!def || !def.ports) continue;
     if (!Object.values(def.ports).some(s => s && s.utility)) continue;
-    parts.push(`${ep.id}:${ep.type}:${ep.col},${ep.row},${ep.subCol || 0},${ep.subRow || 0},${ep.dir || 0}`);
+    parts.push(`${ep.id}:${ep.type}:${ep.col},${ep.row},${ep.subCol || 0},${ep.subRow || 0},${ep.dir || 0},${ep.portsFlipped ? 1 : 0}`);
   }
   return parts.join(';');
 }

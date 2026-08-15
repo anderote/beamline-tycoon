@@ -21,6 +21,7 @@ import {
   emitterIntensityForDarkness,
   poolOpacityForDarkness,
   haloOpacityForDarkness,
+  fixtureUsesBillboardHalo,
 } from '../src/renderer3d/lighting-builder.js';
 import { fixtureLightProjection, fixtureFloorY, fixtureMountY } from '../src/renderer3d/fixture-light-math.js';
 import { LIGHTING_DEFS } from '../src/data/placeables/lighting.js';
@@ -160,6 +161,15 @@ console.log('\n=== non-cone shapes (or a missing light block) degrade to a circl
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n=== overhead sources project light instead of wearing billboard halos ===\n');
+{
+  for (const id of ['ceilingPanel', 'highBay', 'linearPendant', 'cleanroomPanel']) {
+    assert(!fixtureUsesBillboardHalo(DEF[id]), `${id}: no camera-facing circular halo`);
+  }
+  assert(fixtureUsesBillboardHalo(DEF.lamppost), 'ground fixtures retain their small source halo');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n=== darkness ramp: bounded, monotonic, matches its documented endpoints ===\n');
 {
   assert(emitterIntensityForDarkness(0) === EMITTER_BASE_INTENSITY, `emitterIntensityForDarkness(0) === EMITTER_BASE_INTENSITY (got ${emitterIntensityForDarkness(0)})`);
@@ -238,11 +248,15 @@ console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
   const yaws = [0, 1, 2, 3].map((d) => fixtureLightTag(DEF.floodLight, { id: 'F', dir: d }).aimYaw);
   assert(new Set(yaws).size === 4, `all four dirs give distinct aim yaws (got ${yaws.join(', ')})`);
 
-  // --- overhead cone (highBay): a cone, but NOT aimed ---
+  // --- overhead fixtures: downward cones, but NOT horizontally aimed ---
+  for (const id of ['ceilingPanel', 'highBay', 'linearPendant', 'cleanroomPanel']) {
+    const overhead = fixtureLightTag(DEF[id], { id: `overhead-${id}`, dir: 1 });
+    assert(overhead.shape === 'cone', `${id} uses a directional cone, not an omnidirectional point light`);
+    assert(overhead.aimed === false, `${id} points straight down — placement dir does not tilt it sideways`);
+    assert(overhead.aimYaw === 0, `${id} reports zero horizontal aim yaw`);
+    assert(overhead.volumeProfile === 'downlight', `${id} publishes a visible downward volume profile`);
+  }
   const bay = fixtureLightTag(DEF.highBay, { id: 'H1', dir: 1 });
-  assert(bay.shape === 'cone', 'highBay is a cone');
-  assert(bay.aimed === false, 'an OVERHEAD cone points straight down — it is not aimed, even with dir set');
-  assert(bay.aimYaw === 0, 'and so reports zero yaw');
   assert(bay.coneDeg === 90, 'highBay keeps its wide 90 degree cone');
 
   // --- defs with no light block, and field defaults ---

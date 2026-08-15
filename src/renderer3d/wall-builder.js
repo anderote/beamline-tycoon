@@ -266,9 +266,7 @@ export class WallBuilder {
         variant = _hashWallPos(col, row, edge) % def.variantTextures.length;
       }
       const height = def ? def.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-      const thickness = def
-        ? Math.max(def.thickness * THICKNESS_SCALE, MIN_THICKNESS)
-        : DEFAULT_WALL_THICKNESS;
+      const thickness = this._wallThickness(def);
       const color = def ? def.color : 0xcccccc;
 
       // Determine if this wall should be transparent. _mergeWalls resolved
@@ -370,6 +368,7 @@ export class WallBuilder {
       // Position at the center of the merged span. Y=0 since absolute Y is
       // now baked into geometry vertices.
       const pos = this._wallPosition(col, row, edge, height);
+      this._offsetWallPosition(pos, w, thickness);
       pos.y = 0;
       if (span && span > 1) {
         if (isNS) {
@@ -395,7 +394,10 @@ export class WallBuilder {
     // whichever side of the line that wall was drawn from.
     const wallTypeByEdge = {};
     for (const w of (wallData || [])) {
-      const entry = { type: w.type, variant: w.variant ?? 0 };
+      // A surface layer must never become the structural wall used to size a
+      // door/window surround. Copper rides on the wall; it does not replace it.
+      if (w.overlay) continue;
+      const entry = { type: w.type, variant: w.variant ?? 0, wall: w };
       wallTypeByEdge[`${w.col},${w.row},${w.edge}`] = entry;
       const m = mirrorEdgeKey(w.col, w.row, w.edge);
       if (m && !wallTypeByEdge[m]) wallTypeByEdge[m] = entry;
@@ -428,7 +430,7 @@ export class WallBuilder {
         this._wallBordersRoom(col, row, edge, cutawayRoom);
 
       const isNS = edge === 'n' || edge === 's';
-      const edgeCenter = this._edgeCenter(col, row, edge);
+      const rawEdgeCenter = this._edgeCenter(col, row, edge);
 
       // Door type properties
       const doorDef = type ? DOOR_TYPES[type] : null;
@@ -459,6 +461,7 @@ export class WallBuilder {
         ? `${wallType}:${wallVariant}${isDoorCutaway ? ':cutaway' : ''}`
         : null;
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
+      const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
       const wallHeight = wallDef
         ? wallDef.wallHeight * HEIGHT_SCALE
         : (doorDef?.wallHeight ? doorDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT);
@@ -473,9 +476,7 @@ export class WallBuilder {
         0.1,
         Math.min(nominalDoorHeight, wallHeight - LINTEL_HEIGHT)
       );
-      const wallThickness = wallDef
-        ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
-        : DEFAULT_WALL_THICKNESS;
+      const wallThickness = this._wallThickness(wallDef);
 
       // Get or create wall material for wall segments around the door.
       // Match the main wall material — tint white if textured so the map shows
@@ -747,15 +748,13 @@ export class WallBuilder {
    */
   _buildOpeningSurround({
     col, row, edge, openingWidth, openingBottom, openingTop, base = 0,
-    matKey, wallDef, matCache, isTransparent, parentGroup,
+    matKey, wallDef, wallRecord, matCache, isTransparent, parentGroup,
   }) {
     const isNS = edge === 'n' || edge === 's';
-    const edgeCenter = this._edgeCenter(col, row, edge);
+    const edgeCenter = this._offsetEdgeCenter(this._edgeCenter(col, row, edge), wallRecord);
     const halfTile = TILE_SIZE / 2;
     const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-    const wallThickness = wallDef
-      ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
-      : DEFAULT_WALL_THICKNESS;
+    const wallThickness = this._wallThickness(wallDef);
     const wallColor = wallDef ? wallDef.color : 0xcccccc;
 
     // Resolved lazily so an opening that emits no fill never allocates the
@@ -848,7 +847,7 @@ export class WallBuilder {
       const ghosted = isTransparent || isWindowCutaway;
 
       const isNS = edge === 'n' || edge === 's';
-      const edgeCenter = this._edgeCenter(col, row, edge);
+      const rawEdgeCenter = this._edgeCenter(col, row, edge);
 
       // Alias fallback, for the same reason window edges contribute both
       // representations to openingEdgeSet: the wall this window is a hole in
@@ -860,10 +859,9 @@ export class WallBuilder {
       const wallType = wallEntry?.type;
       const wallVariant = wallEntry?.variant ?? 0;
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
+      const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
       const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-      const wallThickness = wallDef
-        ? Math.max(wallDef.thickness * THICKNESS_SCALE, MIN_THICKNESS)
-        : DEFAULT_WALL_THICKNESS;
+      const wallThickness = this._wallThickness(wallDef);
       const matKey = this._ensureOpeningWallMaterial(
         wallType, wallDef, wallVariant, isWindowCutaway, matCache, isTransparent
       );
@@ -897,7 +895,8 @@ export class WallBuilder {
           openingWidth: TILE_SIZE,
           openingBottom: 0,
           openingTop: 0,
-          base, matKey, wallDef, matCache, isTransparent, parentGroup,
+          base, matKey, wallDef, wallRecord: wallEntry?.wall,
+          matCache, isTransparent, parentGroup,
         });
         continue;
       }
@@ -906,7 +905,8 @@ export class WallBuilder {
       // Surround first, so the wall is behind the frame in the mesh list.
       this._buildOpeningSurround({
         col, row, edge, openingWidth, openingBottom, openingTop,
-        base, matKey, wallDef, matCache, isTransparent, parentGroup,
+        base, matKey, wallDef, wallRecord: wallEntry?.wall,
+        matCache, isTransparent, parentGroup,
       });
 
       // --- Frame ---
@@ -1084,6 +1084,51 @@ export class WallBuilder {
     }
   }
 
+  _wallThickness(def) {
+    if (def?.insetSubtiles) return SUBTILE_SIZE * def.insetSubtiles;
+    return def
+      ? Math.max(def.thickness * THICKNESS_SCALE, MIN_THICKNESS)
+      : DEFAULT_WALL_THICKNESS;
+  }
+
+  _inward(edge) {
+    if (edge === 'n') return { x: 0, z: 1 };
+    if (edge === 's') return { x: 0, z: -1 };
+    if (edge === 'e') return { x: -1, z: 0 };
+    return { x: 1, z: 0 };
+  }
+
+  _offsetEdgeCenter(center, wall) {
+    if (!wall || !WALL_TYPES[wall.type]?.insetSubtiles) return { ...center };
+    const inward = this._inward(wall.edge);
+    const amount = this._wallThickness(WALL_TYPES[wall.type]) / 2;
+    return { x: center.x + inward.x * amount, z: center.z + inward.z * amount };
+  }
+
+  _offsetWallPosition(position, wall, thickness) {
+    if (wall.overlay && wall.host) {
+      const inward = this._inward(wall.edge);
+      const edge = this._edgeCenter(wall.col, wall.row, wall.edge);
+      const hostDef = WALL_TYPES[wall.host.type];
+      const hostThickness = this._wallThickness(hostDef);
+      const hostEdge = this._edgeCenter(wall.host.col, wall.host.row, wall.host.edge);
+      const hostInward = this._inward(wall.host.edge);
+      const hostInset = hostDef?.insetSubtiles ? hostThickness / 2 : 0;
+      const hostX = hostEdge.x + hostInward.x * hostInset;
+      const hostZ = hostEdge.z + hostInward.z * hostInset;
+      const projectedHostCenter = (hostX - edge.x) * inward.x + (hostZ - edge.z) * inward.z;
+      const amount = projectedHostCenter + hostThickness / 2 + thickness / 2;
+      position.x += inward.x * amount;
+      position.z += inward.z * amount;
+      return;
+    }
+    const def = WALL_TYPES[wall.type];
+    if (!def?.insetSubtiles) return;
+    const inward = this._inward(wall.edge);
+    position.x += inward.x * thickness / 2;
+    position.z += inward.z * thickness / 2;
+  }
+
   /**
    * Returns world-space center of a tile edge (at Y=0).
    */
@@ -1151,7 +1196,10 @@ export class WallBuilder {
       const variant = wall.variant ?? 0;
       const cutaway = !!hasCutaway &&
         this._wallBordersRoom(wall.col, wall.row, wall.edge, cutawayRoom);
-      const groupKey = `${wall.edge},${wall.type},${variant},${cutaway ? 1 : 0},${isNS ? wall.row : wall.col}`;
+      const layerKey = wall.overlay
+        ? `overlay:${wall.host?.col},${wall.host?.row},${wall.host?.edge}`
+        : 'structural';
+      const groupKey = `${wall.edge},${wall.type},${variant},${cutaway ? 1 : 0},${layerKey},${isNS ? wall.row : wall.col}`;
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({ ...wall, cutaway });
     }

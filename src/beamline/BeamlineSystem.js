@@ -105,10 +105,6 @@ function reasonMessage(reason) {
 // everywhere, rather than four copies of `Math.ceil(funding / 5000)` that
 // only agreed with each other by convention — which is exactly how the
 // preview and the real check drifted apart before this fix round.
-export function sparesCostForFunding(funding) {
-  return Math.max(1, Math.ceil((funding || 0) / 5000));
-}
-
 // Fix round 3: which resource(s) in `cost` are short against `resources`,
 // as player-facing text ("need 30 more spares") — extracted from
 // Game._missingResourceLabel (fix round 1) into a pure function so
@@ -210,6 +206,7 @@ export class BeamlineSystem {
       subRow: opts.subRow || 0,
       dir: opts.dir || 0,
       params: opts.params || {},
+      portsFlipped: opts.portsFlipped === true,
       // Forward cost/log suppression so free/silent placements (tests, move
       // mode, scenario builders) behave like every other placeable kind.
       free: !!opts.free,
@@ -715,8 +712,7 @@ export class BeamlineSystem {
     // meant a player who only ever built through the designer (see
     // DesignPlacer, also on-pipe-and-junction free:true through here) never
     // met the spares gate at all.
-    const baseCost = (def && def.cost) || {};
-    const cost = { ...baseCost, spares: sparesCostForFunding(baseCost.funding || 0) };
+    const cost = (def && def.cost) || {};
     if (!opts.free) {
       if (def && !this.isUnlocked(def)) {
         this.log(`${def.name || opts.type} is not researched yet!`, 'bad');
@@ -757,6 +753,7 @@ export class BeamlineSystem {
       // Every RF cavity in the game is role 'placement' and comes through
       // here. See src/beamline/component-params.js.
       params: seedComponentParams(opts.type, opts.params),
+      portsFlipped: opts.portsFlipped === true,
       idGenerator: () => this.nextPlacementId(),
     });
     if (!result.ok) {
@@ -812,8 +809,7 @@ export class BeamlineSystem {
       // attachment returned $100k AND 20 spares. Two refund paths for the
       // same removed part must agree, or the cheaper move is always to
       // destroy more.
-      const refundCost = { ...def.cost, spares: sparesCostForFunding(def.cost.funding || 0) };
-      for (const [r, a] of Object.entries(refundCost)) {
+      for (const [r, a] of Object.entries(def.cost)) {
         state.resources[r] = (state.resources[r] || 0) + Math.floor(a * 0.5);
       }
     }

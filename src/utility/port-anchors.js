@@ -189,12 +189,12 @@ function resolveLat(override, bounds, measured, axis, sign, halfLat) {
  * One call, one model instantiation: measuring a port one at a time would walk
  * a cryomodule's builder four times over.
  */
-function resolveTypeMounts(type, def) {
+function resolveTypeMounts(type, def, portsFlipped = false) {
   const bounds = modelBounds(type);
   const half = footprintHalfExtents(def);
   const ports = [];
   for (const portName of Object.keys((def && def.ports) || {})) {
-    const local = portLocalAxis(def, portName);
+    const local = portLocalAxis(def, portName, portsFlipped);
     if (!local) continue;
     const spec = getPortSpec(def, portName);
     const override = type ? portAnchorOverride(type, portName) : null;
@@ -228,17 +228,17 @@ function resolveTypeMounts(type, def) {
     const lat = resolveLat(p.override, bounds, hit, p.local.axis, p.local.sign, halfLat);
     const mount = { lat, along: p.along, y: p.y };
     mounts.set(p.portName, mount);
-    if (type) _mountCache.set(`${type}:${p.portName}`, mount);
+    if (type) _mountCache.set(`${type}:${p.portName}:${portsFlipped ? 1 : 0}`, mount);
   }
   return mounts;
 }
 
-function mountFor(type, def, portName) {
+function mountFor(type, def, portName, portsFlipped = false) {
   if (type) {
-    const hit = _mountCache.get(`${type}:${portName}`);
+    const hit = _mountCache.get(`${type}:${portName}:${portsFlipped ? 1 : 0}`);
     if (hit) return hit;
   }
-  return resolveTypeMounts(type, def).get(portName) || null;
+  return resolveTypeMounts(type, def, portsFlipped).get(portName) || null;
 }
 
 /**
@@ -247,7 +247,8 @@ function mountFor(type, def, portName) {
  */
 export function portAnchor3D(placeable, def, portName) {
   if (!placeable || !portName) return null;
-  const local = portLocalAxis(def, portName);
+  const portsFlipped = placeable.portsFlipped === true;
+  const local = portLocalAxis(def, portName, portsFlipped);
   if (!local) return null;
   // Renderer snapshot records mark pipe attachments with null subtile fields,
   // while utility-endpoint records carry `isPlacement` and synthetic negative
@@ -263,7 +264,7 @@ export function portAnchor3D(placeable, def, portName) {
   if (!centre) return null;
 
   const type = placeable.type;
-  const mount = mountFor(type, def, portName);
+  const mount = mountFor(type, def, portName, portsFlipped);
   if (!mount) return null;
 
   // With no renderer geometry to measure, presentation must land exactly on

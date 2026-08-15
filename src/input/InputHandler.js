@@ -82,6 +82,7 @@ export class InputHandler {
     this.selectedCategory = 'source';
     this.dipoleBendDir = 'right';
     this.placementDir = DIR.NE;     // direction for source/free placement
+    this.placementPortsFlipped = false; // F mirrors armed beamline utility ports
     this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
@@ -505,9 +506,11 @@ export class InputHandler {
       const nearest = this._getNearestEdge?.(screenX, screenY);
       const hit = nearest && this._findWallOrDoorAtEdge(nearest);
       if (hit) {
-        const { edge, wallType, doorType, windowType } = hit;
+        const { edge, overlayType, wallType, doorType, windowType } = hit;
         if (this._shiftDown && dt === 'demolishBuilding') {
-          const seg = wallType
+          const seg = overlayType
+            ? this._buildWallOverlaySegmentPath(edge)
+            : wallType
             ? this._buildWallSegmentPath(edge)
             : doorType
               ? this._buildDoorSegmentPath(edge)
@@ -517,14 +520,14 @@ export class InputHandler {
         } else {
           this.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
         }
-        const def = wallType ? WALL_TYPES[wallType] : doorType ? DOOR_TYPES[doorType] : WINDOW_TYPES[windowType];
+        const def = overlayType ? WALL_TYPES[overlayType] : wallType ? WALL_TYPES[wallType] : doorType ? DOOR_TYPES[doorType] : WINDOW_TYPES[windowType];
         // Price the variant that is actually standing there: walls and
         // windows are charged and refunded per variant, so a base-cost
         // preview would promise the wrong money back (a Reinforced
         // structuralWall refunds 17, not 12).
-        const kind = wallType ? 'wall' : doorType ? 'door' : 'window';
+        const kind = overlayType ? 'overlay' : wallType ? 'wall' : doorType ? 'door' : 'window';
         this._showDemolishTooltip(
-          def?.name || (wallType ? 'Wall' : doorType ? 'Door' : 'Window'),
+          def?.name || (overlayType ? 'Wall layer' : wallType ? 'Wall' : doorType ? 'Door' : 'Window'),
           demolishRefund(def, this._placedEdgeVariant(kind, edge)), screenX, screenY,
         );
         found = true;
@@ -812,18 +815,24 @@ export class InputHandler {
   }
 
   /**
-   * Resolve a wall/door/window segment at an edge, checking both
-   * representations. Returns { edge, wallType, doorType, windowType }
+   * Resolve a wall layer/wall/door/window segment at an edge, checking both
+   * representations. Surface layers win so one demolish click peels copper
+   * without also destroying its host wall.
    * normalized to the representation the segment is actually stored under,
    * or null when no alias holds a wall, a door, or a window.
    */
   _findWallOrDoorAtEdge(edge) {
     for (const e of [edge, this._edgeAlias(edge)]) {
       const k = `${e.col},${e.row},${e.edge}`;
+      const overlayType = this.game.state.wallOverlayOccupied?.[k] || null;
+      if (overlayType) return { edge: e, overlayType, wallType: null, doorType: null, windowType: null };
+    }
+    for (const e of [edge, this._edgeAlias(edge)]) {
+      const k = `${e.col},${e.row},${e.edge}`;
       const wallType = this.game.state.wallOccupied?.[k] || null;
       const doorType = this.game.state.doorOccupied?.[k] || null;
       const windowType = this.game.state.windowOccupied?.[k] || null;
-      if (wallType || doorType || windowType) return { edge: e, wallType, doorType, windowType };
+      if (wallType || doorType || windowType) return { edge: e, overlayType: null, wallType, doorType, windowType };
     }
     return null;
   }
@@ -838,7 +847,7 @@ export class InputHandler {
    */
   _placedEdgeVariant(kind, edge) {
     const s = this.game.state;
-    const list = kind === 'wall' ? s.walls : kind === 'door' ? s.doors : s.windows;
+    const list = kind === 'overlay' ? s.wallOverlays : kind === 'wall' ? s.walls : kind === 'door' ? s.doors : s.windows;
     const found = (list || []).find(
       x => x.col === edge.col && x.row === edge.row && x.edge === edge.edge
     );
@@ -853,13 +862,12 @@ export class InputHandler {
    * key can differ from the wall's.
    */
   _removeWallAndDoorAtEdge(pt) {
-    const alias = this._edgeAlias(pt);
+    // Every game mutator is alias-aware. Calling each side used to be a
+    // harmless compatibility belt-and-suspenders, but layered walls turn it
+    // into two destructive actions (peel copper, then delete its host).
     this.game.removeWall(pt.col, pt.row, pt.edge);
     this.game.removeDoor(pt.col, pt.row, pt.edge);
     this.game.removeWindow(pt.col, pt.row, pt.edge);
-    this.game.removeWall(alias.col, alias.row, alias.edge);
-    this.game.removeDoor(alias.col, alias.row, alias.edge);
-    this.game.removeWindow(alias.col, alias.row, alias.edge);
   }
 
   /**
@@ -935,6 +943,10 @@ export class InputHandler {
    */
   _buildWallSegmentPath(origin) {
     return this._buildEdgeSegmentPath(this.game.state.wallOccupied, origin);
+  }
+
+  _buildWallOverlaySegmentPath(origin) {
+    return this._buildEdgeSegmentPath(this.game.state.wallOverlayOccupied || {}, origin);
   }
 
   /**
@@ -1369,13 +1381,14 @@ export class InputHandler {
     const wo = this.game.state.wallOccupied;
     const hasWall = (e) => !!findWallKey(wo, e.col, e.row, e.edge);
 
-    candidates.sort((a, b) => {
-      const aScore = a.dist - (hasWall(a) ? 0.35 : 0);
-      const bScore = b.dist - (hasWall(b) ? 0.35 : 0);
-      return aScore - bScore;
-    });
-
-    return candidates[0];
+    // A wall-mounted tool should feel magnetic to an existing wall rather
+    // than merely *biased* toward one. If this tile touches a wall, choose
+    // the nearest such edge; only fall back to an empty edge to show the
+    // useful red "requires a wall" preview.
+    const wallCandidates = candidates.filter(hasWall);
+    const pool = wallCandidates.length ? wallCandidates : candidates;
+    pool.sort((a, b) => a.dist - b.dist);
+    return pool[0];
   }
 
   // --- Keyboard bindings ---
@@ -1501,6 +1514,7 @@ export class InputHandler {
                 subCol: this.hoverPlaceable.subCol,
                 subRow: this.hoverPlaceable.subRow,
                 dir: this.hoverPlaceable.dir,
+                portsFlipped: this.hoverPlaceable.portsFlipped === true,
                 wallMount: this.hoverPlaceable.wallMount,
                 params: this.selectedParamOverrides,
                 variant: this.selectedPlaceableVariant,
@@ -2551,6 +2565,7 @@ export class InputHandler {
       subCol: snap.subCol,
       subRow: snap.subRow,
       dir: this.placementDir,
+      portsFlipped: this.placementPortsFlipped === true,
       placeY,
       stackTargetId,
       variant: this.selectedPlaceableVariant,
@@ -2601,6 +2616,7 @@ export class InputHandler {
         subCol: this.hoverPlaceable.subCol,
         subRow: this.hoverPlaceable.subRow,
         dir: this.hoverPlaceable.dir,
+        portsFlipped: this.hoverPlaceable.portsFlipped === true,
         wallMount: this.hoverPlaceable.wallMount,
         params: this.selectedParamOverrides,
         variant: this.selectedPlaceableVariant,
@@ -3365,15 +3381,24 @@ export class InputHandler {
     } else if (tool?.kind === 'wall') {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
     } else if (this.armedPlaceableId) {
-      // Placement hint: F rotates every free-placed placeable (furnishings,
-      // decorations, equipment, grid beamline components). Pipe-bound tools
-      // (junctions, on-pipe placements, drawn pipes) take orientation from
-      // the pipe, so no rotate hint for them.
+      // BeamlineTool claims F for utility-port mirroring; R is the normal
+      // placeable rotation key. Other free-placed families retain the legacy
+      // F rotate shortcut.
       const comp = COMPONENTS[this.armedPlaceableId];
       const rotatable = !(comp && (comp.role === 'junction'
         || comp.role === 'placement' || comp.isDrawnConnection));
-      if (rotatable) {
-        const bits = [`<span class="k">F</span> Rotate`];
+      const isBeamline = PLACEABLES[this.armedPlaceableId]?.kind === 'beamline';
+      const hasUtilityPorts = Object.values(comp?.ports || {}).some(port => port?.utility);
+      if (rotatable || (isBeamline && hasUtilityPorts)) {
+        const bits = [];
+        if (isBeamline) {
+          if (comp?.role !== 'placement' && !comp?.isDrawnConnection) {
+            bits.push(`<span class="k">R</span> Rotate`);
+          }
+          if (hasUtilityPorts) bits.push(`<span class="k">F</span> Flip ports`);
+        } else {
+          bits.push(`<span class="k">F</span> Rotate`);
+        }
         const pl = PLACEABLES[this.armedPlaceableId];
         if (pl && pl.kind === 'decoration') {
           bits.push(`<span class="k">SHIFT</span>+drag: line place`);

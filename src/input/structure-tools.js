@@ -25,8 +25,8 @@
 // because the demolish family shares them.
 
 import { Tool } from './Tool.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';
-import { doorOffFromFrac, findWallKey } from '../game/edge-keys.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES } from '../data/structure.js';
+import { doorOffFromFrac, findWallKey, findEdgeKey } from '../game/edge-keys.js';
 import { isoToGrid } from '../renderer/grid.js';
 
 export class FloorTool extends Tool {
@@ -272,8 +272,16 @@ export class WallTool extends Tool {
     if (!wt) return 0;
     const segCost = wt.variantCosts?.[this.variant] ?? wt.cost;
     const occupied = ctx.game.state.wallOccupied;
+    const overlays = ctx.game.state.wallOverlayOccupied || {};
     let count = 0;
     for (const pt of path) {
+      if (wt.wallOverlay) {
+        if (!findWallKey(occupied, pt.col, pt.row, pt.edge)) continue;
+        const overlayKey = findEdgeKey(overlays, pt.col, pt.row, pt.edge);
+        if (overlayKey && overlays[overlayKey] === this.wallType) continue;
+        count++;
+        continue;
+      }
       const key = findWallKey(occupied, pt.col, pt.row, pt.edge);
       if (key && occupied[key] === this.wallType) continue;
       count++;
@@ -529,13 +537,43 @@ export class WindowTool extends Tool {
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
 
+  // Keep the ghost honest before the click: this mirrors Game.placeWindow's
+  // wall/height/funding gates, including the free same-type repaint case.
+  _previewStatus(game, edge) {
+    const def = WINDOW_TYPES[this.windowType];
+    if (!def || !edge) return { valid: false, reason: 'Unknown window type' };
+    const key = `${edge.col},${edge.row},${edge.edge}`;
+    const alias = game._edgeAlias(edge.col, edge.row, edge.edge);
+    const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+    const wallType = game.state.wallOccupied[key] || game.state.wallOccupied[aliasKey];
+    if (!wallType) return { valid: false, reason: 'Requires an existing wall' };
+    const wall = WALL_TYPES[wallType];
+    if (!wall || wall.wallHeight < def.sillHeight + def.openingHeight + 1) {
+      return { valid: false, reason: `${wall?.name || 'Wall'} is too short` };
+    }
+    const heldType = game.state.windowOccupied[key] || game.state.windowOccupied[aliasKey];
+    if (heldType === this.windowType) return { valid: true, reason: null };
+    const cost = def.variantCosts?.[this.variant] ?? def.cost;
+    if (game.state.resources.funding < cost) return { valid: false, reason: 'Insufficient funding' };
+    return { valid: true, reason: null };
+  }
+
+  _renderPreview(ctx, path) {
+    const previewPath = path.map(edge => ({
+      ...edge,
+      variant: this.variant,
+      ...this._previewStatus(ctx.game, edge),
+    }));
+    ctx.renderer.renderWindowPreview(previewPath, this.windowType);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
     this._drawing = true;
     this._start = edge;
     this._path = [edge];
-    ctx.renderer.renderWindowPreview(this._path, this.windowType);
+    this._renderPreview(ctx, this._path);
     return true;
   }
 
@@ -545,7 +583,7 @@ export class WindowTool extends Tool {
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
       this._path = input._buildWallLine(this._start, edge);
-      renderer.renderWindowPreview(this._path, this.windowType);
+      this._renderPreview(ctx, this._path);
       return true;
     }
     // Every other tool keeps renderer.hoverCol/hoverRow and the last cursor
@@ -558,7 +596,9 @@ export class WindowTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    // Unlike the old tiny crosshair, hovering a window tool renders the
+    // actual framed opening snapped to the nearest real wall.
+    this._renderPreview(ctx, [edge]);
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
   }

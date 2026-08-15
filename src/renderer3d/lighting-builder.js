@@ -954,7 +954,7 @@ export function applyPoolSuppression(poolMesh, suppression) {
 }
 
 /**
- * One soft additive billboard Sprite per glowing emitter mesh (traversing
+ * One soft additive billboard Sprite per non-overhead glowing emitter mesh (traversing
  * `group.userData.emitterMaterial` rather than hardcoding per-fixture-type
  * positions — this is what makes a doubleLamppost's two heads or a
  * highMastLight's four heads each get their own halo for free). Sprites
@@ -978,6 +978,14 @@ export function buildLightHalos(fixtures) {
     const emitterMat = fx.group.userData.emitterMaterial;
     if (!light || !emitterMat) continue;
 
+    // A billboard always faces the camera, so on a suspended fixture it reads
+    // as a large, circular aura wrapped around the housing. Overhead lights
+    // already have an emissive diffuser for a tight source glint, a projected
+    // pool on the floor, a real downward SpotLight when one is available, and
+    // a budgeted volumetric cone. Do not lay the omnidirectional billboard on
+    // top of those directional cues.
+    if (!fixtureUsesBillboardHalo(fx.def)) continue;
+
     const size = HALO_BASE_SIZE + (light.sourceRadius ?? 0.1) * HALO_SOURCE_FACTOR;
     fx.group.updateMatrixWorld(true);
     fx.group.traverse((child) => {
@@ -1000,6 +1008,11 @@ export function buildLightHalos(fixtures) {
     });
   }
   return group;
+}
+
+/** Suspended fixtures use a downward beam/pool instead of a camera-facing aura. */
+export function fixtureUsesBillboardHalo(def) {
+  return def?.mount !== 'overhead';
 }
 
 // --- Darkness ramp (Task 6) --------------------------------------------------

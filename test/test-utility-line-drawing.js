@@ -11,7 +11,7 @@
 //
 // Expected reason codes: invalid_path, not_manhattan, overlap_same_type,
 // invalid_start, invalid_end, port_type_mismatch, port_taken,
-// port_mismatch_start, port_mismatch_end.
+// invalid_port_pair.
 
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 
@@ -29,7 +29,7 @@ function assert(cond, msg) {
 const SRC_DEF = {
   subL: 2, subW: 2,
   ports: {
-    powerOut: { side: 'right', utility: 'powerCable' },
+    powerOut: { side: 'right', utility: 'powerCable', role: 'source' },
     dataOut:  { side: 'back',  utility: 'dataCable'  },
   },
 };
@@ -37,7 +37,7 @@ const SRC_DEF = {
 const SINK_DEF = {
   subL: 2, subW: 2,
   ports: {
-    powerIn: { side: 'left', utility: 'powerCable' },
+    powerIn: { side: 'left', utility: 'powerCable', role: 'sink' },
   },
 };
 
@@ -308,9 +308,9 @@ console.log('\n--- Test 9: port_taken ---');
 }
 
 // ==========================================================================
-// Test 10: First segment doesn't align with start port's side → port_mismatch_start.
+// Test 10: a run may leave a fitting in any direction.
 // ==========================================================================
-console.log('\n--- Test 10: port_mismatch_start ---');
+console.log('\n--- Test 10: start direction is permissive ---');
 {
   const state = makeState({
     placeables: [
@@ -325,14 +325,13 @@ console.log('\n--- Test 10: port_mismatch_start ---');
     end:   null,
     path:  [{ col: 2, row: 3 }, { col: 0, row: 3 }],
   });
-  assert(res && res.ok === false, 'ok=false');
-  assert(res.reason === 'port_mismatch_start', `reason=port_mismatch_start (got ${res.reason})`);
+  assert(res && res.ok === true, `off-side start still connects (got ${JSON.stringify(res)})`);
 }
 
 // ==========================================================================
-// Test 11: Last segment inverse doesn't align with end port's side → port_mismatch_end.
+// Test 11: a run may arrive at a fitting from any direction.
 // ==========================================================================
-console.log('\n--- Test 11: port_mismatch_end ---');
+console.log('\n--- Test 11: end direction is permissive ---');
 {
   const state = makeState({
     placeables: [
@@ -356,8 +355,7 @@ console.log('\n--- Test 11: port_mismatch_end ---');
     end:   { placeableId: 'r2', portName: 'powerIn'  },
     path:  [{ col: 2, row: 3 }, { col: 8, row: 3 }, { col: 8, row: 7 }],
   });
-  assert(res && res.ok === false, 'ok=false');
-  assert(res.reason === 'port_mismatch_end', `reason=port_mismatch_end (got ${res.reason})`);
+  assert(res && res.ok === true, `off-side arrival still connects (got ${JSON.stringify(res)})`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -19,7 +19,6 @@ import { UTILITY_TYPES } from './registry.js';
 import {
   getPortSpec,
   availablePorts,
-  portMatchesApproach,
 } from './ports.js';
 import {
   pathLengthSubUnits,
@@ -345,11 +344,9 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     if (!portReusable(spec, utilityType)
         && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
 
-    const firstDir = segmentDirection(path[0], path[1]);
-    if (!firstDir) return reject('not_manhattan');
-    if (!portMatchesApproach(p, def, start.portName, firstDir, false)) {
-      return reject('port_mismatch_start');
-    }
+    // Utility fittings identify the service and make the object readable; they
+    // are not directional couplings.  A cable, hose, or fibre may leave a
+    // fitting in whichever Manhattan direction gives the player a clean run.
   }
 
   // Resolve end endpoint.
@@ -366,12 +363,8 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     if (!portReusable(spec, utilityType)
         && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
 
-    const n = path.length;
-    const lastDir = segmentDirection(path[n - 2], path[n - 1]);
-    if (!lastDir) return reject('not_manhattan');
-    if (!portMatchesApproach(p, def, end.portName, lastDir, true)) {
-      return reject('port_mismatch_end');
-    }
+    // See the start-port note above: utility lines do not require a prescribed
+    // arrival direction at a fitting.
   }
 
   if (!portsCanConnect(startSpec, endSpec, utilityType)) {

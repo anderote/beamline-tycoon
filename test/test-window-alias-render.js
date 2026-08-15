@@ -153,17 +153,17 @@ function makeGroup() {
 }
 
 // cinderblockWall / officeWindow are real catalogue entries: wallHeight 14,
-// thickness 2.5, texture 'wall_cinderblock'; sillHeight 5 + openingHeight 6
+// one-subtile inset thickness, texture 'wall_cinderblock'; sillHeight 5 + openingHeight 6
 // + 1 = 12 fits (same fit-rule arithmetic test/test-windows.js relies on for
-// officeWall, which has wallHeight 14 too). cinderblockWall's thickness
-// (2.5 -> 0.25 world units) is deliberately NOT equal to
+// officeWall, which has wallHeight 14 too). cinderblockWall's one-subtile
+// thickness (0.5 world units) is deliberately NOT equal to
 // DEFAULT_WALL_THICKNESS (0.15) — officeWall's 1.5 -> 0.15 would coincide
 // with the default and silently defeat the "used the real wall's thickness,
 // not __default's" assertion below.
 const WALL_DEF = WALL_TYPES.cinderblockWall;
 const WINDOW_DEF = WINDOW_TYPES.officeWindow;
 const EXPECTED_HEIGHT = WALL_DEF.wallHeight * (1.5 / 14); // HEIGHT_SCALE, wall-builder.js:24
-const EXPECTED_THICKNESS = WALL_DEF.thickness * (0.15 / 1.5); // THICKNESS_SCALE, wall-builder.js:25
+const EXPECTED_THICKNESS = 2 / 4 * WALL_DEF.insetSubtiles; // quarter-tile strip
 // DEFAULT_WALL_HEIGHT / DEFAULT_WALL_THICKNESS from wall-builder.js:22-23
 const DEFAULT_HEIGHT = 1.5 * 1; // 1.5 * M, M = 1
 const DEFAULT_THICKNESS = 0.15 * 1;
@@ -288,11 +288,47 @@ console.log('\n=== negative control: a genuinely different neighbouring edge is 
 
   const fullHeightOnNorthEdge = group.children.filter(m =>
     Math.abs(m.geometry.parameters.height - EXPECTED_HEIGHT) < 1e-9 &&
-    Math.abs(m.position.z - 3 * 2) < 1e-6 // row*TILE_SIZE, TILE_SIZE=2 — the 'n' edge of row 3
+    // Inset shielding is centred half a subtile inside the selected tile.
+    Math.abs(m.position.z - (3 * 2 + EXPECTED_THICKNESS / 2)) < 1e-6
   );
   assert(fullHeightOnNorthEdge.length === 1,
     `the untouched neighbour edge (5,3,'n') still renders exactly one intact full-height wall slab ` +
     `(got ${fullHeightOnNorthEdge.length}) — the window's alias-skip must not bleed onto a different edge`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== shielding geometry is inset; copper is a separate skin ===\n');
+{
+  const group = makeGroup();
+  const wb = new WallBuilder(null);
+  wb.build([
+    { col: 1, row: 2, edge: 'n', type: 'cinderblockWall' },
+    { col: 3, row: 2, edge: 'n', type: 'officeWall' },
+    {
+      col: 3, row: 2, edge: 'n', type: 'copperSheeting', overlay: true,
+      host: { col: 3, row: 2, edge: 'n', type: 'officeWall' },
+    },
+  ], [], [], group, 'up', null);
+
+  const cinder = group.children.find(m =>
+    Math.abs(m.geometry.parameters.depth - 0.5) < 1e-9 &&
+    Math.abs(m.position.x - 3) < 1e-9
+  );
+  assert(!!cinder && Math.abs(cinder.position.z - 4.25) < 1e-9,
+    'cinderblock occupies a 0.5-world-unit strip centred 0.25 inside the selected tile');
+
+  const copper = group.children.find(m =>
+    Math.abs(m.geometry.parameters.depth - 0.1) < 1e-9 &&
+    Math.abs(m.position.x - 7) < 1e-9
+  );
+  assert(!!copper && Math.abs(copper.position.z - 4.125) < 1e-9,
+    'copper renders as a thin skin on the inward face of its host wall');
+  const host = group.children.find(m =>
+    Math.abs(m.geometry.parameters.depth - 0.15) < 1e-9 &&
+    Math.abs(m.position.x - 7) < 1e-9
+  );
+  assert(!!host && Math.abs(host.position.z - 4) < 1e-9,
+    'the structural host still renders independently beneath copper');
 }
 
 // ---------------------------------------------------------------------------

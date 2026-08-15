@@ -864,6 +864,8 @@ body {
   flex-direction: column;
   gap: 4px;
   padding: 2px 0;
+  min-height: 62px;
+  position: relative;
 }
 
 #hud-top-row {
@@ -877,6 +879,36 @@ body {
   display: flex;
   gap: 3px;
   justify-content: flex-start;
+}
+
+#connection-guide {
+  position: absolute;
+  top: 2px;
+  right: 300px;
+  width: min(540px, 34vw);
+  height: 60px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  border-left: 1px solid rgba(104, 156, 210, 0.25);
+  background: linear-gradient(90deg, rgba(18, 24, 52, 0.2), rgba(18, 24, 52, 0.76));
+  color: #8ecdf2;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  line-height: 1.7;
+  overflow: hidden;
+  pointer-events: none;
+}
+#connection-guide.hidden { display: none; }
+.connection-guide-title {
+  color: #d8a85d;
+  font-size: 7px;
+  letter-spacing: 1px;
+  margin-bottom: 1px;
+}
+.connection-guide-line { white-space: nowrap; }
+
+@media (max-width: 1250px) {
+  #connection-guide { display: none; }
 }
 
 .cat-tab {

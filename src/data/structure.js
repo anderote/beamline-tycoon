@@ -358,6 +358,9 @@ export const STRUCTURE_WALLS = {
     texture: 'wall_cinderblock',
     subsection: 'shielding',
     isWall: true,
+    // Shielding is a physical, quarter-tile-deep barrier rather than a
+    // zero-footprint divider painted directly on the tile seam.
+    insetSubtiles: 1,
   },
   leadWall: {
     id: 'leadWall',
@@ -373,11 +376,12 @@ export const STRUCTURE_WALLS = {
     texture: 'metal_dark',
     subsection: 'shielding',
     isWall: true,
+    insetSubtiles: 1,
   },
   copperSheeting: {
     id: 'copperSheeting',
     name: 'Copper Sheeting',
-    desc: 'Thin copper sheet wall for RF shielding and electromagnetic isolation.',
+    desc: 'Thin copper RF shielding layered onto an existing solid wall.',
     cost: 55,
     color: 0xb87333,
     topColor: 0xda8a44,
@@ -388,6 +392,7 @@ export const STRUCTURE_WALLS = {
     texture: 'copper',
     subsection: 'shielding',
     isWall: true,
+    wallOverlay: true,
   },
 };
 
@@ -721,4 +726,3 @@ export const WINDOW_TYPES = {
     isWindow: true,
   },
 };
-

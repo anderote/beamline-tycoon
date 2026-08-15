@@ -87,7 +87,9 @@ export class DemolishTool extends Tool {
       if (found) {
         if (input._shiftDown) {
           // Shift-click: delete the whole connected run at once.
-          const segment = found.wallType
+          const segment = found.overlayType
+            ? input._buildWallOverlaySegmentPath(found.edge)
+            : found.wallType
             ? input._buildWallSegmentPath(found.edge)
             : found.doorType
               ? input._buildDoorSegmentPath(found.edge)
@@ -363,13 +365,13 @@ export class DemolishTool extends Tool {
         // Edge-first: a wall or door under the cursor wins over the tile.
         const found = input._findWallOrDoorAtEdge(input._getNearestEdge(screenX, screenY));
         if (found) {
-          if (found.wallType) {
+          if (found.overlayType || found.wallType) {
             // Route through the shared helper (matches the shift-click and
             // drag-commit siblings below) rather than calling
-            // game.removeWall directly: removeWall's own window cascade is
-            // alias-aware now, but _removeWallAndDoorAtEdge additionally
-            // sweeps both edge representations for door/window leftovers,
-            // so this path can't drift from its siblings again.
+            // game.removeWall directly. The helper keeps the edge families
+            // together while each mutator resolves aliases itself; crucially,
+            // it calls removeWall only once so copper peels without taking
+            // the host wall in the same click.
             input._removeWallAndDoorAtEdge(found.edge);
           } else if (found.doorType) {
             game.removeDoor(found.edge.col, found.edge.row, found.edge.edge);
@@ -419,9 +421,11 @@ export class DemolishTool extends Tool {
       input._getNearestEdge(input._lastScreenX, input._lastScreenY),
     );
     if (!found) return;
-    const { edge, wallType, doorType } = found;
+    const { edge, overlayType, wallType, doorType } = found;
     if (down) {
-      const path = wallType
+      const path = overlayType
+        ? input._buildWallOverlaySegmentPath(edge)
+        : wallType
         ? input._buildWallSegmentPath(edge)
         : doorType
           ? input._buildDoorSegmentPath(edge)

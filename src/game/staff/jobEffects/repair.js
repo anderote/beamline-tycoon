@@ -94,13 +94,8 @@ registerJobEffect('repair', (game, member, job) => {
   const type = resolveComponentType(state, target.nodeId);
   const label = COMPONENTS[type]?.name || type || 'component';
 
-  // The race this guards against — see this file's own header. Skipped
-  // entirely in sandbox mode: setSandboxMode's own contract is "nothing is
-  // charged" (verified directly: a sandbox facility with funding AND
-  // spares at 0 still places components and refuses nothing), so a sandbox
-  // repair blocking on a spares count it will never actually spend would
-  // contradict that same guarantee — the ONE thing repair ever spends
-  // (game.spend below) already no-ops there.
+  // A job can outlive the inventory that made it eligible (another repair
+  // may have completed first), so check again at completion.
   if (!game.sandboxMode && (state.resources.spares || 0) <= 0) {
     game.log(`No spares to repair the ${label} with — the job will be re-offered once some are available.`, 'bad');
     return;
@@ -110,12 +105,6 @@ registerJobEffect('repair', (game, member, job) => {
   const health = entry.beamState.componentHealth[target.nodeId] ?? 100;
   entry.beamState.componentHealth[target.nodeId] = Math.min(100, health + HEAL_PER_COMPLETION * efficiency);
 
-  // Spares are a resource like any other spend — routed through Game.spend
-  // (not chargeConstruction, which this plan reserves for build-time
-  // placement debits) so sandbox mode's blanket "nothing is charged" still
-  // holds for repair the same way it already does for every other spend.
-  // spend() itself floors at 0 (fix round 1) as a second, independent
-  // backstop against the same race — belt and suspenders, not either/or.
   game.spend({ spares: 1 });
 
   member.stats.repairs = (member.stats.repairs || 0) + 1;

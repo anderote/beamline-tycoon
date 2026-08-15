@@ -396,11 +396,6 @@ function repairOffers(nodes, nav, state) {
     if (health === undefined || health >= 100) continue;
     const target = { beamlineId: entry.id, nodeId: node.id };
 
-    // Rejected before offering — no offer is emitted at all, a suppression
-    // is recorded instead — when there's nothing to fix it with, or the
-    // node can't be reached. Spares checked first only because it's the
-    // cheaper test; neither check has a side effect, so the order carries
-    // no other meaning.
     if (spares <= 0) {
       suppressions.push({ jobType: 'repair', target, reason: 'No spares available to make the repair.' });
       continue;

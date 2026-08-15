@@ -214,6 +214,7 @@ export class BeamlineInputController {
         subRow: snap.subRow,
         dir,
         params: this.input.selectedParamOverrides,
+        portsFlipped: this.input.placementPortsFlipped === true,
       }),
     });
     // Sources auto-advance the tool to the beam-pipe draw tool (same UX
@@ -306,6 +307,7 @@ export class BeamlineInputController {
       subCol: snap.subCol,
       subRow: snap.subRow,
       dir,
+      portsFlipped: this.input.placementPortsFlipped === true,
       placeY: 0,
       stackTargetId: null,
     };
@@ -413,6 +415,7 @@ export class BeamlineInputController {
         centerPoint.col, centerPoint.row, selectedId, centerPoint.dir,
         valid && affordable,
         (valid && !affordable) ? PLACE_UNAFFORDABLE : null,
+        this.input.placementPortsFlipped === true,
       );
     }
   }
@@ -467,6 +470,7 @@ export class BeamlineInputController {
         subL,
         mode,
         params: this.input.selectedParamOverrides,
+        portsFlipped: this.input.placementPortsFlipped === true,
       }),
     });
     if (placedId) {

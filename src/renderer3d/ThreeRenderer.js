@@ -2434,14 +2434,25 @@ export class ThreeRenderer {
     this._clearPreview();
     if (!path || path.length === 0) return;
     const mat = this._previewMat(0xffffff, 0.4);
-    const wallH = 0.75;
-    const T = 0.08;          // wall thickness
+    const def = WALL_TYPES[wallType];
+    const wallH = (def?.wallHeight || 7) * HEIGHT_SCALE;
+    const T = def?.insetSubtiles ? 0.5 * def.insetSubtiles : 0.08;
     const HT = T / 2;
     for (const seg of path) {
       const isNS = seg.edge === 'n' || seg.edge === 's';
       const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
-      const ax = ends.p0.x, ay = ends.p0.y, az = ends.p0.z;
-      const bx = ends.p1.x, by = ends.p1.y, bz = ends.p1.z;
+      const inwardX = seg.edge === 'e' ? -1 : seg.edge === 'w' ? 1 : 0;
+      const inwardZ = seg.edge === 'n' ? 1 : seg.edge === 's' ? -1 : 0;
+      let inset = def?.insetSubtiles ? HT : 0;
+      if (def?.wallOverlay) {
+        const hostKey = this.game?._wallSiteKey?.(seg.col, seg.row, seg.edge);
+        const host = hostKey && this.game?._wallAt?.(hostKey);
+        const hostDef = host && WALL_TYPES[host.type];
+        const hostT = hostDef?.insetSubtiles ? 0.5 * hostDef.insetSubtiles : 0.08;
+        inset = hostT / 2 + HT;
+      }
+      const ax = ends.p0.x + inwardX * inset, ay = ends.p0.y, az = ends.p0.z + inwardZ * inset;
+      const bx = ends.p1.x + inwardX * inset, by = ends.p1.y, bz = ends.p1.z + inwardZ * inset;
       // Two thickness offsets perpendicular to the edge axis.
       const px = isNS ? 0 : HT;
       const pz = isNS ? HT : 0;
@@ -2548,23 +2559,54 @@ export class ThreeRenderer {
     this._clearPreview();
     if (!path || path.length === 0) return;
     const def = windowType ? WINDOW_TYPES[windowType] : null;
-    const mat = this._previewMat(0x88ccff, 0.4);
     // Sizing constants come from wall-builder.js itself, so a retune there
     // moves the ghost with the geometry it is previewing.
     const sill = (def?.sillHeight ?? 5) * HEIGHT_SCALE;
     const openH = (def?.openingHeight ?? 6) * HEIGHT_SCALE;
     const width = WALL_TILE_SIZE * (WINDOW_WIDTH_FRAC[def?.windowWidth] ?? 0.5);
     for (const seg of path) {
+      const valid = seg.valid !== false;
+      const paneColor = valid
+        ? (def?.variantGlassColors?.[seg.variant ?? 0] ?? def?.glassColor ?? 0x88ccff)
+        : 0xff5f5f;
+      const frameColor = valid ? 0xd9e3ea : 0xff8a7a;
+      const paneMat = this._previewMat(paneColor, 0.38);
+      const frameMat = this._previewMat(frameColor, 0.78);
       const isNS = seg.edge === 'n' || seg.edge === 's';
-      const geo = isNS
+      const paneGeo = isNS
         ? new THREE.BoxGeometry(width, openH, 0.06)
         : new THREE.BoxGeometry(0.06, openH, width);
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(paneGeo, paneMat);
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
       const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
       const midY = (ends.p0.y + ends.p1.y) / 2;
       mesh.position.set(pos.x, midY + sill + openH / 2, pos.z);
       this._addPreviewMesh(mesh);
+
+      // Four frame members make the idle ghost read as a window (rather than
+      // a blue door-shaped slab) and reveal the true aperture at a glance.
+      const heavy = windowType === 'leadedObservation' || windowType === 'hutchViewport';
+      const frameW = heavy ? 0.11 : 0.06;
+      const makeFrame = (long, tall, cx, cy) => {
+        const geo = isNS
+          ? new THREE.BoxGeometry(long, tall, 0.085)
+          : new THREE.BoxGeometry(0.085, tall, long);
+        const part = new THREE.Mesh(geo, frameMat);
+        part.position.set(isNS ? pos.x + cx : pos.x, midY + cy, isNS ? pos.z : pos.z + cx);
+        this._addPreviewMesh(part);
+      };
+      const centerY = sill + openH / 2;
+      makeFrame(width + frameW * 2, frameW, 0, centerY - openH / 2 - frameW / 2);
+      makeFrame(width + frameW * 2, frameW, 0, centerY + openH / 2 + frameW / 2);
+      makeFrame(frameW, openH, -width / 2 - frameW / 2, centerY);
+      makeFrame(frameW, openH, width / 2 + frameW / 2, centerY);
+
+      if (windowType === 'industrialSash' || heavy) {
+        const count = windowType === 'industrialSash' ? 2 : 1;
+        for (let i = 1; i <= count; i++) makeFrame(
+          frameW * 0.7, openH, -width / 2 + width * i / (count + 1), centerY);
+        makeFrame(width, frameW * 0.7, 0, centerY);
+      }
     }
   }
 
@@ -2919,7 +2961,7 @@ export class ThreeRenderer {
    *
    * `reason` follows renderPlaceableGhost: 'unaffordable' tints amber.
    */
-  renderAttachmentGhost(col, row, compType, direction, valid, reason = null) {
+  renderAttachmentGhost(col, row, compType, direction, valid, reason = null, portsFlipped = false) {
     this._clearPreviewMeshes();
     this._renderGridAroundCursor(Math.floor(col), Math.floor(row));
     const compDef = COMPONENTS[compType];
@@ -2974,6 +3016,7 @@ export class ThreeRenderer {
     // an on-pipe placement to portAnchor3D, preserving its centred pose.
     this._addGhostUtilityPorts({
       type: compType, col, row, subCol: null, subRow: null, dir: direction,
+      portsFlipped: portsFlipped === true,
     }, compDef);
 
     // Footprint outline (same size as the component's sub-tile footprint,

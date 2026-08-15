@@ -206,7 +206,7 @@ function edgeBaseY(state, col, row, edge) {
 }
 
 function buildWalls(game) {
-  return (game.state.walls || []).map(w => ({
+  const walls = (game.state.walls || []).map(w => ({
     col: w.col,
     row: w.row,
     edge: w.edge,
@@ -214,6 +214,22 @@ function buildWalls(game) {
     variant: w.variant ?? 0,
     baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
   }));
+  for (const layer of (game.state.wallOverlays || [])) {
+    const hostKey = game._wallSiteKey?.(layer.col, layer.row, layer.edge);
+    const host = hostKey ? game._wallAt?.(hostKey) : null;
+    if (!host) continue;
+    walls.push({
+      col: layer.col,
+      row: layer.row,
+      edge: layer.edge,
+      type: layer.type,
+      variant: layer.variant ?? 0,
+      overlay: true,
+      host: { col: host.col, row: host.row, edge: host.edge, type: host.type },
+      baseY: edgeBaseY(game.state, layer.col, layer.row, layer.edge),
+    });
+  }
+  return walls;
 }
 
 /**
@@ -306,6 +322,7 @@ function buildComponents(game) {
       subCol: p.subCol ?? null,
       subRow: p.subRow ?? null,
       direction: p.dir ?? null,
+      portsFlipped: p.portsFlipped === true,
       tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
       dimmed,
       health,
@@ -458,6 +475,7 @@ function buildPipeAttachments(game) {
         // the renderer falls back to a placeholder box.
         subL: att.subL,
         params: att.params,
+        portsFlipped: att.portsFlipped === true,
       });
     }
   }

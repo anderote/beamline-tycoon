@@ -187,7 +187,7 @@ console.log('\n=== 2. repair: priority rises as health falls (real \'source\' mo
   assertOk(healthy === undefined, 'a node at full health produces no repair offer');
 }
 
-console.log('\n=== 3. repair: spares === 0 -> offer absent (reason: no spares to fix it with) ===\n');
+console.log('\n=== 3. repair: spares === 0 -> offer absent ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
@@ -198,15 +198,12 @@ console.log('\n=== 3. repair: spares === 0 -> offer absent (reason: no spares to
   let { offers, suppressions } = buildJobOffers(game);
   assertOk(!offers.some(o => o.jobType === 'repair'), 'spares === 0: repair offer is absent');
   const spareSuppression = suppressions.find(s => s.jobType === 'repair' && s.target.nodeId === entry.sourceId);
-  assertOk(!!spareSuppression, 'spares === 0: a suppression is recorded for the damaged node (not just silently dropped)');
-  assertOk(!!spareSuppression && /spares/i.test(spareSuppression.reason), `the suppression's reason actually mentions spares (got "${spareSuppression?.reason}")`);
-  if (spareSuppression) collectedReasons.push(spareSuppression.reason);
-
+  assertOk(!!spareSuppression, 'spares === 0: a suppression is recorded for the damaged node');
+  assertOk(!!spareSuppression && /spares/i.test(spareSuppression.reason), 'the suppression explains the missing spares');
   state.resources.spares = 5;
   ({ offers, suppressions } = buildJobOffers(game));
-  assertOk(offers.some(o => o.jobType === 'repair'), 'spares > 0: the same damaged node is offered again');
-  assertOk(!suppressions.some(s => s.jobType === 'repair' && s.target.nodeId === entry.sourceId),
-    'spares > 0: the node no longer appears in suppressions either');
+  assertOk(offers.some(o => o.jobType === 'repair'), 'spares > 0: the damaged node is offered again');
+  assertOk(!suppressions.some(s => s.jobType === 'repair' && s.target.nodeId === entry.sourceId), 'the suppression clears when stock is available');
 }
 
 console.log('\n=== 4. eligibleFor: a walled-off console is ineligible (unreachable), reachable once a door opens ===\n');
