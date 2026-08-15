@@ -119,4 +119,3 @@ export function softCableControlPoints(path, {
   sampled[sampled.length - 1].y = endY;
   return sampled;
 }
-
