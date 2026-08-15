@@ -109,6 +109,10 @@ import {
   _buildXfelEndstationRoles,
   _buildEuvCollectorRoles,
 } from './builders/endpoint-builder.js';
+import {
+  _buildVanDeGraaffRoles,
+  _buildCockcroftWaltonRoles,
+} from './builders/compound-machine-builder.js';
 // Phase 6: utility-port-builder and carrier-rack modules removed. Port stub
 // rendering was already commented-out at call sites; carrierRack is no longer
 // a placeable.
@@ -1735,6 +1739,8 @@ ROLE_BUILDERS.sectionDistributionPanel = _buildSectionDistributionPanelRoles;
 ROLE_BUILDERS.mainDistributionPanel = _buildMainDistributionPanelRoles;
 ROLE_BUILDERS.powerBus = _buildPowerBusRoles;
 ROLE_BUILDERS.spiderBox = _buildSpiderBoxRoles;
+ROLE_BUILDERS.vanDeGraaff = _buildVanDeGraaffRoles;
+ROLE_BUILDERS.cockcroftWalton = _buildCockcroftWaltonRoles;
 
 // Phase 6: carrierRack removed with the legacy rack-paint system. The role
 // builder and its constants are gone.

@@ -11,7 +11,6 @@ import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 // box to the catalogue means it is visible here during art review.
 export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   // Beamline modules without a dedicated role builder.
-  vanDeGraaff: 'tower', cockcroftWalton: 'tower',
   cyclotron30: 'cyclotron', cyclotron70: 'cyclotron', cyclotron230: 'cyclotron',
   lwfaStation: 'laserBay', positronSource: 'targetStation',
   injectionSeptum: 'magnet', combinedFunctionMagnet: 'magnet',
