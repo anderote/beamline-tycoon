@@ -28,7 +28,8 @@ globalThis.document = {
 };
 
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
-const { ComponentBuilder } = await import('../src/renderer3d/component-builder.js');
+const { ComponentBuilder, isDetailedComponent } =
+  await import('../src/renderer3d/component-builder.js');
 const { EquipmentBuilder } = await import('../src/renderer3d/equipment-builder.js');
 const {
   PLACEABLE_VISUAL_PROFILES,
@@ -103,6 +104,23 @@ test('every source family has bespoke, mechanically detailed 3D geometry', () =>
   for (const id of sourceIds) {
     const object = builder._createObject(PLACEABLES[id], PLACEABLES[id].accentColor);
     assert.ok(meshCount(object) >= 8, `${id} has a multi-part source-machine silhouette`);
+  }
+});
+
+test('early RF driver supplies reuse the matching dedicated machine geometry', () => {
+  const builder = new ComponentBuilder();
+  for (const [id, family] of [
+    ['widebandDriverAmp', 'travelling-wave-tube'],
+    ['lowBandBuncherAmp', 'solid-state amplifier'],
+  ]) {
+    const def = PLACEABLES[id];
+    assert.equal(isDetailedComponent(id, def), true,
+      `${id} must use its ${family} role builder instead of a plain fallback box`);
+    assert.equal(PLACEABLE_VISUAL_PROFILES[id], undefined,
+      `${id} should not be papered over with a generic visual profile`);
+    const object = builder._createObject(def, def.accentColor);
+    assert.ok(meshCount(object) >= 6,
+      `${id} needs the mechanically detailed ${family} silhouette`);
   }
 });
 
