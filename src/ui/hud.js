@@ -696,27 +696,27 @@ UIHost.prototype._generateCategoryTabs = function() {
 const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
-    lines: ['[ GRID / HV ] ── HV cable ──> [ SWITCHGEAR ]', '[ SWITCHGEAR ] ─ power cable ─> [ EQUIPMENT ]'],
+    flow: ['GRID / HV', 'SWITCHGEAR', 'EQUIPMENT'],
   },
   vacuum: {
     title: 'VACUUM PATH',
-    lines: ['[ ROUGH + TURBO PUMPS ] ─ vacuum pipe ─> [ BEAMLINE ]', '[ BEAMLINE ] <──── pressure protection ────> [ GAUGES ]'],
+    flow: ['ROUGH + TURBO PUMPS', 'BEAMLINE', 'GAUGES'],
   },
   rfPower: {
     title: 'RF PATH',
-    lines: ['[ RF SOURCE ] ── waveguide ──> [ RF CAVITY ]', '[ MODULATOR / CONTROL ] ─── data fiber ───> [ RF SOURCE ]'],
+    flow: ['MODULATOR / CONTROL', 'RF SOURCE', 'RF CAVITY'],
   },
   cooling: {
     title: 'COOLING LOOP',
-    lines: ['[ MAKE-UP WATER ] ─ plant water ─> [ CHILLER ]', '[ CHILLER ] ─ cooling water ─> [ HEAT LOAD ] ─> [ DRY COOLER ]'],
+    flow: ['MAKE-UP WATER', 'CHILLER', 'HEAT LOAD', 'DRY COOLER'],
   },
   dataControls: {
     title: 'CONTROL PATH',
-    lines: ['[ CONTROL RACK ] ── data fiber ──> [ EQUIPMENT ]', '[ EQUIPMENT ] ─── telemetry / interlocks ───> [ CONTROL RACK ]'],
+    flow: ['CONTROL RACK', 'EQUIPMENT'],
   },
   ops: {
     title: 'OPERATIONS',
-    lines: ['[ SAFETY + SHIELDING ] ──> [ STAFFED BEAMLINE ]', '[ MATERIAL HANDLING ] ──> [ TARGETS / ENDSTATIONS ]'],
+    flow: ['SAFETY + STAFF', 'BEAMLINE', 'TARGETS / ENDSTATIONS'],
   },
 };
 
@@ -735,12 +735,21 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   title.className = 'connection-guide-title';
   title.textContent = guide.title;
   el.appendChild(title);
-  for (const line of guide.lines) {
-    const row = document.createElement('div');
-    row.className = 'connection-guide-line';
-    row.textContent = line;
-    el.appendChild(row);
-  }
+  const flow = document.createElement('div');
+  flow.className = 'connection-guide-flow';
+  guide.flow.forEach((label, index) => {
+    const node = document.createElement('span');
+    node.className = 'connection-guide-node';
+    node.textContent = label;
+    flow.appendChild(node);
+    if (index < guide.flow.length - 1) {
+      const arrow = document.createElement('span');
+      arrow.className = 'connection-guide-arrow';
+      arrow.textContent = '→';
+      flow.appendChild(arrow);
+    }
+  });
+  el.appendChild(flow);
 };
 
 /**

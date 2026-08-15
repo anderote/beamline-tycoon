@@ -860,18 +860,19 @@ body {
 
 /* HUD controls — two rows: modes+pipes on top, category tabs below */
 #hud-controls {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
   gap: 4px;
   padding: 2px 0;
   min-height: 62px;
-  position: relative;
 }
 
 #hud-top-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  grid-column: 1 / -1;
 }
 
 /* Category tabs — left-justified row */
@@ -879,33 +880,48 @@ body {
   display: flex;
   gap: 3px;
   justify-content: flex-start;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 #connection-guide {
-  position: absolute;
-  top: 2px;
-  right: 300px;
-  width: min(540px, 34vw);
-  height: 60px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  max-width: min(760px, 50vw);
   box-sizing: border-box;
-  padding: 5px 10px;
+  padding: 3px 14px;
   border-left: 1px solid rgba(104, 156, 210, 0.25);
   background: linear-gradient(90deg, rgba(18, 24, 52, 0.2), rgba(18, 24, 52, 0.76));
   color: #8ecdf2;
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
-  line-height: 1.7;
   overflow: hidden;
   pointer-events: none;
 }
 #connection-guide.hidden { display: none; }
 .connection-guide-title {
   color: #d8a85d;
-  font-size: 7px;
+  font-size: 8px;
   letter-spacing: 1px;
-  margin-bottom: 1px;
+  margin-right: 16px;
+  white-space: nowrap;
 }
-.connection-guide-line { white-space: nowrap; }
+.connection-guide-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+.connection-guide-node {
+  color: #a9d8f7;
+  font-size: 11px;
+  line-height: 1;
+}
+.connection-guide-arrow {
+  color: #6fd4ff;
+  font-size: 16px;
+  line-height: 0;
+}
 
 @media (max-width: 1250px) {
   #connection-guide { display: none; }
