@@ -13,6 +13,7 @@ import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js
 import { BeamlineSystem, pipeRefund, sparesCostForFunding, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
+import { portWorldPosition } from '../utility/ports.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
@@ -2757,6 +2758,38 @@ export class Game {
     // placeableChanged with beamlineChanged for each so the two always arrive
     // together. Emitting from both layers would double every refresh.
     return true;
+  }
+
+  /**
+   * Re-anchor every utility cable or pipe connected to a moved placeable.
+   * The utility system preserves the existing line where it can, and turns a
+   * route that no longer fits into a visible dangling end rather than leaving
+   * a line secretly connected to the object's old position.
+   */
+  reanchorUtilityLinesForPlaceable(placeableId) {
+    const placeable = this.getPlaceable(placeableId);
+    const lines = this.state.utilityLines;
+    if (!placeable || !lines || !this.utilityLineSystem) return 0;
+    const def = PLACEABLES[placeable.type] || COMPONENTS[placeable.type];
+    if (!def) return 0;
+
+    let dangled = 0;
+    const attached = [];
+    for (const line of lines.values()) {
+      const ports = [];
+      if (line.start?.placeableId === placeableId) ports.push(line.start.portName);
+      if (line.end?.placeableId === placeableId) ports.push(line.end.portName);
+      if (ports.length) attached.push({ id: line.id, ports });
+    }
+    for (const { id, ports } of attached) {
+      const byPort = {};
+      for (const name of ports) {
+        const world = portWorldPosition(placeable, def, name);
+        if (world) byPort[name] = { col: world.x / 2, row: world.z / 2 };
+      }
+      if (this.utilityLineSystem.reanchorLine(id, placeableId, byPort)?.dangled) dangled++;
+    }
+    return dangled;
   }
 
   /**

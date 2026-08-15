@@ -224,7 +224,7 @@ UIHost.prototype._updateSimControls = function() {
     pauseBtn.classList.toggle('active', !!s.paused);
     // Paused shows a play glyph (click resumes); running shows pause bars.
     pauseBtn.innerHTML = s.paused ? '&#9654;' : '&#10074;&#10074;';
-    pauseBtn.title = s.paused ? 'Resume (P)' : 'Pause (P)';
+    pauseBtn.title = s.paused ? 'Resume' : 'Pause';
   }
   document.querySelectorAll('#sim-controls .speed-btn').forEach(btn => {
     btn.classList.toggle('active', parseInt(btn.dataset.speed, 10) === (s.speed || 1));
@@ -3764,4 +3764,3 @@ UIHost.prototype._armSearchResult = function(result) {
 
   this._selectPaletteTool(kind, id, recallVariant(id));
 };
-

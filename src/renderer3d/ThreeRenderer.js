@@ -699,6 +699,14 @@ export class ThreeRenderer {
     this.previewGroup.renderOrder = 999;
     this.scene.add(this.previewGroup);
 
+    // Selection is deliberately separate from previewGroup. Placement and
+    // hover feedback clear that group every mouse move; a clicked object must
+    // remain legible as selected while its information window is open.
+    this.selectionGroup = new THREE.Group();
+    this.selectionGroup.name = 'selectionOutline';
+    this.selectionGroup.renderOrder = 1000;
+    this.scene.add(this.selectionGroup);
+
     // Design-placement ghost — see the constructor field comment. Added before
     // previewGroup's tile quads in draw order would be wrong (the quads are
     // depthTest:false floor markers meant to read *under* the machine), so it
@@ -2080,13 +2088,13 @@ export class ThreeRenderer {
    * Create a red wireframe outline around a source 3D object (Group or Mesh).
    * Traverses all child meshes and adds edge outlines to the preview group.
    */
-  _outlineObject(sourceObj, color = 0xff4444) {
+  _outlineObject(sourceObj, color = 0xff4444, targetGroup = this.previewGroup, linewidth = 1) {
     if (!sourceObj) return;
     // Depth-tested outline so back edges of the box are hidden behind the
     // front faces. Without this, every edge renders through the mesh and
     // the back-top edges look like a phantom duplicate floating above.
     const lineMat = new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: 0.95,
+      color, transparent: true, opacity: 0.95, linewidth,
     });
     const wrapper = new THREE.Group();
 
@@ -2108,7 +2116,24 @@ export class ThreeRenderer {
       wrapper.add(line);
     });
 
-    this.previewGroup.add(wrapper);
+    targetGroup.add(wrapper);
+  }
+
+  /** Keep a clicked object's white outline independent of transient hovers. */
+  setSelectionOutline(sourceObj) {
+    this.clearSelectionOutline();
+    if (sourceObj) this._outlineObject(sourceObj, 0xffffff, this.selectionGroup, 3);
+  }
+
+  clearSelectionOutline() {
+    while (this.selectionGroup?.children?.length) {
+      const child = this.selectionGroup.children[0];
+      this.selectionGroup.remove(child);
+      child.traverse?.((obj) => {
+        obj.geometry?.dispose?.();
+        obj.material?.dispose?.();
+      });
+    }
   }
 
   /**
