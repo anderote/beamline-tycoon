@@ -462,6 +462,54 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.3, role: 'sink', params: { heatLoad: 40 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.7, role: 'sink', params: { demand: 5 } },
   },
+  // Purpose-built endpoints.  These are real facility loads, rather than
+  // decorative end caps: the utility requirements on the component definitions
+  // are backed by ports that players can route to.
+  materialsTestStation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 4 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 3 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 1 } },
+  },
+  eBeamIrradiationVault: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 35 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 120 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 2 } },
+  },
+  isotopeProductionTarget: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 12 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 100 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 2 } },
+  },
+  radiationEffectsStation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 25 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 75 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 3 } },
+  },
+  protonTherapyGantry: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 180 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 120 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 5 } },
+  },
+  spallationNeutronTarget: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 450 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 1000 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 12 } },
+  },
+  photonScienceHutch: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 90 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 60 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 10 } },
+  },
+  xfelEndstation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 220 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 180 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 25 } },
+  },
+  euvCollector: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 600 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.7, role: 'sink', params: { heatLoad: 700 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 8 } },
+  },
   collisionPoint: {
     // Beam ports occupy back+front (entryA/entryB) — utilities enter from the sides.
     pwr_in:  { utility: 'powerCable', side: 'left',  offsetAlong: 0.5, role: 'sink', params: { demand: 20 } },

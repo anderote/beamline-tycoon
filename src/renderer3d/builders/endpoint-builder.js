@@ -468,3 +468,146 @@ export function _buildTargetRoles() {
 
   return buckets;
 }
+
+// ── Purpose-built endpoint facilities ────────────────────────────────
+// These are deliberately not scaled copies of Target/BeamStop.  Endpoints
+// are the visible promise of each machine type, so their silhouettes explain
+// the work being sold: a test hutch, an irradiation conveyor, a therapy
+// gantry, a neutron monolith, and photon-science instruments.
+function _addBox(buckets, role, w, h, l, x, y, z) {
+  const g = new THREE.BoxGeometry(w, h, l);
+  applyTiledBoxUVs(g, w, h, l);
+  _pushTransformed(buckets[role], g, new THREE.Matrix4().makeTranslation(x, y, z));
+}
+
+function _addXCylinder(buckets, role, r, l, x, y, z, segs = SEGS) {
+  const g = new THREE.CylinderGeometry(r, r, l, segs);
+  applyTiledCylinderUVs(g, r, l, segs);
+  const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  const trans = new THREE.Matrix4().makeTranslation(x, y, z);
+  _pushTransformed(buckets[role], g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+}
+
+function _addVerticalCylinder(buckets, role, r, h, x, y, z, segs = SEGS) {
+  const g = new THREE.CylinderGeometry(r, r, h, segs);
+  applyTiledCylinderUVs(g, r, h, segs);
+  _pushTransformed(buckets[role], g, new THREE.Matrix4().makeTranslation(x, y, z));
+}
+
+function _addFacilityEnvelope(buckets, { halfZ, width, height, length, entryTo, supports = 2 }) {
+  _addBox(buckets, 'iron', width, height, length, 0, BEAM_HEIGHT, 0);
+  _addBox(buckets, 'accent', width + 0.04, 0.08, length + 0.05, 0, BEAM_HEIGHT + height / 2 + 0.04, 0);
+  _addEntryFlange(buckets, halfZ, entryTo);
+  const bottomY = BEAM_HEIGHT - height / 2;
+  for (let i = 0; i < supports; i++) {
+    const z = supports === 1 ? 0 : -length * 0.32 + i * (length * 0.64 / (supports - 1));
+    _addPedestal(buckets, z, bottomY, Math.min(0.65, width * 0.22), 0.38);
+  }
+}
+
+export function _buildMaterialsTestStationRoles() {
+  const buckets = _makeBuckets();
+  // Small shielded hutch with a visibly raised sample table and camera mast.
+  _addFacilityEnvelope(buckets, { halfZ: 1.25, width: 1.65, height: 1.05, length: 2.05, entryTo: 0.95 });
+  _addBox(buckets, 'stand', 1.1, 0.08, 0.8, 0, 0.35, 0.2);
+  _addVerticalCylinder(buckets, 'copper', 0.18, 0.18, 0, 0.48, 0.2, 12);
+  _addBox(buckets, 'detail', 0.42, 0.28, 0.38, 0.42, 0.72, 0.2); // camera / instrument pod
+  _addVerticalCylinder(buckets, 'pipe', 0.04, 0.5, -0.42, 0.72, 0.2, 8);
+  return buckets;
+}
+
+export function _buildEBeamIrradiationVaultRoles() {
+  const buckets = _makeBuckets();
+  // Shielding bunker plus a conveyor that clearly runs through the dose cell.
+  _addFacilityEnvelope(buckets, { halfZ: 2.5, width: 3.5, height: 1.8, length: 4.25, entryTo: 2.0, supports: 3 });
+  _addBox(buckets, 'stand', 1.25, 0.13, 3.7, 0, 0.28, 0.25);
+  for (const z of [-1.3, -0.45, 0.4, 1.25]) _addVerticalCylinder(buckets, 'detail', 0.11, 0.16, -0.52, 0.48, z, 10);
+  _addBox(buckets, 'accent', 0.75, 0.75, 0.12, 0, 1.0, -2.19); // maze door / warning face
+  _addXCylinder(buckets, 'copper', 0.08, 3.8, 0.72, 0.95, 0.2, 10);
+  return buckets;
+}
+
+export function _buildIsotopeProductionTargetRoles() {
+  const buckets = _makeBuckets();
+  // Compact target vault: central target chamber, hot-cell transfer cask, and cooling headers.
+  _addFacilityEnvelope(buckets, { halfZ: 1.5, width: 2.55, height: 1.45, length: 2.45, entryTo: 1.15 });
+  _addXCylinder(buckets, 'pipe', 0.52, 1.25, 0, BEAM_HEIGHT, 0.15);
+  _addVerticalCylinder(buckets, 'copper', 0.23, 0.38, 0, BEAM_HEIGHT + 0.62, 0.15, 12);
+  _addVerticalCylinder(buckets, 'iron', 0.42, 0.95, 0.78, 0.52, 0.45, 12); // transfer cask dock
+  for (const x of [-0.45, 0.45]) _addXCylinder(buckets, 'copper', 0.045, 1.35, x, 0.36, 0.15, 8);
+  return buckets;
+}
+
+export function _buildRadiationEffectsStationRoles() {
+  const buckets = _makeBuckets();
+  // Test cave with a broad raster-scanning head over a sample fixture.
+  _addFacilityEnvelope(buckets, { halfZ: 2.0, width: 2.75, height: 1.5, length: 3.15, entryTo: 1.48 });
+  _addBox(buckets, 'copper', 1.15, 0.12, 0.9, 0, 0.37, 0.25);
+  _addBox(buckets, 'accent', 1.35, 0.15, 0.3, 0, 1.62, 0.05); // scanning magnet yoke
+  _addBox(buckets, 'accent', 0.3, 0.15, 1.35, 0, 1.62, 0.05);
+  _addVerticalCylinder(buckets, 'detail', 0.12, 0.85, 0.82, 0.75, 0.3, 10); // remote camera
+  return buckets;
+}
+
+export function _buildProtonTherapyGantryRoles() {
+  const buckets = _makeBuckets();
+  // A large vertical ring is instantly legible as a medical treatment gantry.
+  const halfZ = 3.5;
+  _addEntryFlange(buckets, halfZ, 1.0);
+  _addXCylinder(buckets, 'iron', 2.35, 0.55, 0, BEAM_HEIGHT, 0, 16);
+  _addXCylinder(buckets, 'accent', 1.95, 0.64, 0, BEAM_HEIGHT, 0, 16);
+  _addXCylinder(buckets, 'pipe', 0.72, 0.75, 0, BEAM_HEIGHT, 0, 16);
+  _addBox(buckets, 'stand', 3.7, 0.22, 1.4, 0, 0.11, 0.72); // patient couch
+  _addBox(buckets, 'detail', 0.75, 0.18, 2.6, 0, 0.4, 1.4);
+  _addBox(buckets, 'accent', 0.22, 0.7, 0.22, -2.0, 1.35, 0);
+  _addBox(buckets, 'accent', 0.22, 0.7, 0.22, 2.0, 1.35, 0);
+  _addPedestal(buckets, -1.1, 0.2, 0.75, 0.7);
+  _addPedestal(buckets, 1.1, 0.2, 0.75, 0.7);
+  return buckets;
+}
+
+export function _buildSpallationNeutronTargetRoles() {
+  const buckets = _makeBuckets();
+  // Massive target monolith, moderator vessel, and conspicuous water headers.
+  _addFacilityEnvelope(buckets, { halfZ: 3.0, width: 4.4, height: 2.5, length: 4.65, entryTo: 2.18, supports: 3 });
+  _addXCylinder(buckets, 'copper', 0.75, 1.35, 0, BEAM_HEIGHT, 0.1, 16);
+  _addVerticalCylinder(buckets, 'accent', 1.02, 0.32, 0, BEAM_HEIGHT + 1.42, 0.1, 16);
+  for (const x of [-1.85, 1.85]) {
+    _addXCylinder(buckets, 'pipe', 0.09, 3.8, x, 1.25, 0.1, 10);
+    _addVerticalCylinder(buckets, 'pipe', 0.07, 0.75, x, 0.88, 1.75, 10);
+  }
+  return buckets;
+}
+
+export function _buildPhotonScienceHutchRoles() {
+  const buckets = _makeBuckets();
+  // Long experimental hutch with an optical table, sample goniometer, and detector arm.
+  _addFacilityEnvelope(buckets, { halfZ: 3.0, width: 4.4, height: 1.8, length: 5.1, entryTo: 2.4, supports: 3 });
+  _addBox(buckets, 'stand', 2.3, 0.12, 3.6, 0, 0.38, 0.45);
+  _addVerticalCylinder(buckets, 'copper', 0.3, 0.22, 0, 0.62, 0.35, 12);
+  _addXCylinder(buckets, 'detail', 0.28, 1.25, 1.05, 1.05, 0.35, 12); // detector arm
+  _addBox(buckets, 'accent', 0.85, 0.65, 0.65, -0.9, 1.0, -0.85); // monochromator cabinet
+  return buckets;
+}
+
+export function _buildXfelEndstationRoles() {
+  const buckets = _makeBuckets();
+  // A more dense hutch: large area detector tower, timing rack, and liquid-jet chamber.
+  _addFacilityEnvelope(buckets, { halfZ: 3.0, width: 4.4, height: 2.1, length: 5.05, entryTo: 2.35, supports: 3 });
+  _addVerticalCylinder(buckets, 'pipe', 0.48, 1.05, 0, BEAM_HEIGHT + 0.1, 0.2, 16);
+  _addBox(buckets, 'accent', 1.55, 1.5, 0.38, 0.92, 1.15, 0.55); // area detector
+  _addBox(buckets, 'detail', 0.65, 1.3, 0.55, -1.15, 1.0, -0.6); // timing tool rack
+  _addVerticalCylinder(buckets, 'copper', 0.08, 1.25, 0, 2.05, 0.2, 8); // injector
+  return buckets;
+}
+
+export function _buildEuvCollectorRoles() {
+  const buckets = _makeBuckets();
+  // Collector chamber with a flared collector cone, metrology cabinets, and large heat exchanger lines.
+  _addFacilityEnvelope(buckets, { halfZ: 2.5, width: 4.45, height: 2.1, length: 4.2, entryTo: 1.95, supports: 3 });
+  _addXCylinder(buckets, 'pipe', 1.0, 1.85, 0, BEAM_HEIGHT, 0.15, 16);
+  _addXCylinder(buckets, 'copper', 0.58, 1.45, 0, BEAM_HEIGHT, 0.35, 16);
+  _addBox(buckets, 'accent', 0.85, 1.2, 0.75, -1.42, 0.95, 0.5);
+  for (const x of [-1.65, 1.65]) _addXCylinder(buckets, 'copper', 0.1, 3.35, x, 1.35, 0.15, 10);
+  return buckets;
+}
