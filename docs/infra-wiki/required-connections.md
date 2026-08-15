@@ -113,19 +113,19 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Bakeout System | 5 | 100x outgassing reduction — **but declares no vacuum port, so it cannot join a network** |
 
 ### Cooling
-| Equipment | Power draw | Provides | Cooling sink |
+| Equipment | Power draw | Role | Cooling capacity |
 |-----------|:----------:|----------|:------------:|
-| Fan-Coil Cooler | 1 | 20 kW | |
-| Package Chiller | 2 | 50 kW | |
-| LCW Skid | 3 | 100 kW | |
-| Dual-Circuit Chiller | 4 | 175 kW | |
-| Chiller | 5 | 300 kW | |
-| Dry Cooler Bank | 5 | 500 kW | |
-| Cooling Tower | 4 | 800 kW | |
-| Cooling Manifold | | Cooling bus, 8-cell reach | |
-| Deionizer | 1 | *inert* | |
-| Emergency Cooling | 0.1 | *inert* | |
-| Water Load | | *inert* | |
+| Package Chiller | 2 | Process cooling | 50 kW |
+| LCW Skid | 3 | Process cooling | 100 kW |
+| Dual-Circuit Chiller | 4 | Process cooling | 175 kW |
+| Chiller | 5 | Process cooling | 300 kW |
+| Fan-Coil Cooler | 1 | Direct air heat rejection | 20 kW |
+| Dry Cooler Bank | 5 | Heat rejection | 500 kW |
+| Cooling Tower | 4 | Heat rejection | 800 kW |
+| Cooling Manifold | | Distribution bus, 8-cell reach | |
+| Deionizer | 1 | Water treatment | |
+| Emergency Cooling | 0.1 | Backup support | |
+| Water Load | | RF support load | |
 
 ### Cryogenics
 | Equipment | Power draw | Provides | Cooling sink |
@@ -149,13 +149,16 @@ Recovery is facility-wide and counts each type once. The four contributing parts
 ### Power
 | Equipment | Provides |
 |-----------|----------|
-| Power Distribution Panel | 40 kW |
-| UPS / Battery Bank | 100 kW |
-| Pad-Mount Transformer | 150 kW |
-| Motor Control Center | 250 kW |
-| Switchgear Cabinet | 400 kW |
-| HV Transformer | 1200 kW |
-| Beamline Power Bus | Power bus, 10-cell reach |
+| Pad-Mount Transformer | 150 kW HV supply, 1 feeder |
+| Facility Transformer | 400 kW HV supply, 2 feeders |
+| HV Transformer | 1200 kW HV supply, 4 feeders |
+| Grid Intertie Transformer | 3000 kW HV supply, 6 feeders |
+| Main Switchgear | 1 HV input → 4 protected HV feeders; no new capacity |
+| Motor Control Center | 1 HV input → 8 branch circuits; no new capacity |
+| Power Distribution Panel | 1 HV input → 4 branch circuits; no new capacity |
+| UPS / Battery Bank | 1 HV input → 2 critical branch circuits; no new capacity |
+| Beamline Busway | 1 branch input, 10-cell field reach; no new capacity |
+| Spider Box | 1 branch input → 4 local taps; no new capacity |
 | Disconnect Switch | *inert* |
 | Laser System | 3 kW draw, *inert* |
 

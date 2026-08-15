@@ -26,6 +26,8 @@
 // power. That is what actually sets a cavity's gradient — E_acc goes as
 // sqrt(P) (see beam_physics/srf.py), so the old linear rfQuality derate had
 // the wrong exponent as well as the wrong units.
+
+import { powerFeedFactor } from '../power-feed.js';
 //
 // DUTY FACTOR reconciles the game's kilowatt-scale RF ladder with the megawatt
 // peak power a normal-conducting structure needs. Pulsed sources deliver their
@@ -129,7 +131,7 @@ export default {
     for (const s of network.sources) {
       const bands = (s.params && s.params.bands) || [];
       if (!servedBand || !bands.includes(servedBand)) continue;
-      const cap = s.capacity || 0;
+      const cap = (s.capacity || 0) * powerFeedFactor(worldState, s.placeableId);
       capacity += cap;
       dutyWeighted += cap * ((s.params && s.params.dutyFactor) || 1.0);
       dutyTotalCap += cap;

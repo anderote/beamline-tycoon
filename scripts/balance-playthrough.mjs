@@ -214,12 +214,12 @@ const LINE_ON_PIPE = [
 // 100 kW loop and four times the rackIoc's fiber capacity all at once.
 const LINE_PLANT = {
   cup: {
-    power: 'switchgear', cooling: 'lcwSkid', endData: 'rackIoc',
+    supply: 'hvTransformer', cooling: 'lcwSkid', endData: 'rackIoc',
     extra: ['solidStateAmp', 'roughingPump', 'turboPump', 'powerBus',
       'vacuumManifold', 'vacuumManifold', 'waveguideManifold'],
   },
   detector: {
-    power: 'hvTransformer', cooling: 'chiller', endData: 'networkSwitch',
+    supply: 'hvTransformer', cooling: 'chiller', endData: 'networkSwitch',
     extra: ['solidStateAmp', 'rackIoc', 'roughingPump', 'turboPump', 'powerBus',
       'vacuumManifold', 'vacuumManifold', 'waveguideManifold'],
   },
@@ -230,7 +230,7 @@ export function beamlineHardwareCost(grade) {
   const plant = LINE_PLANT[grade] || LINE_PLANT.cup;
   const parts = ['source', grade === 'detector' ? 'detector' : 'faradayCup',
     ...LINE_ON_PIPE.map(p => p[0]),
-    plant.power, plant.cooling, plant.endData, ...plant.extra];
+    plant.supply, 'switchgear', plant.cooling, plant.endData, ...plant.extra];
   return parts.reduce((s, t) => s + (COMPONENTS[t]?.cost?.funding || 0), 0);
 }
 
@@ -303,7 +303,8 @@ export function buildBeamline(game, row, grade = 'cup') {
   // manifolds only reach 5 cells, so the run takes two.
   const plant = LINE_PLANT[grade] || LINE_PLANT.cup;
   const place = (type, col, r) => game.placePlaceable({ type, col, row: r, ...opts });
-  const gear  = place(plant.power, -5, row - 2);
+  const supply = place(plant.supply, -8, row - 2);
+  const gear  = place('switchgear', -5, row - 2);
   const cool  = place(plant.cooling, -3, row - 2);
   const ssa   = place('solidStateAmp', 0, row - 2);
   const ioc   = place('rackIoc', 3, row - 2);
@@ -317,7 +318,7 @@ export function buildBeamline(game, row, grade = 'cup') {
   const vacE   = place('vacuumManifold', 3, row - 1);
   const wgBus  = place('waveguideManifold', -2, row - 1);
   const turbo  = place('turboPump', 5, row - 1);
-  if (!gear || !cool || !ssa || !ioc || !pump || !endData || !pwrBus || !vacW
+  if (!supply || !gear || !cool || !ssa || !ioc || !pump || !endData || !pwrBus || !vacW
     || !vacE || !wgBus || !turbo) return null;
 
   // Priced through the same runWiringCost the drawing gesture commits with, off
@@ -330,15 +331,16 @@ export function buildBeamline(game, row, grade = 'cup') {
     wiringCost += (runWiringCost(util, line ? line.subL : 0) || {}).funding || 0;
     return id;
   };
-  // Supply -> HV -> distribution -> branch circuits. One HV feeder into an MCC,
+  // Supply -> main switchgear -> distribution -> branch circuits. One HV feeder into an MCC,
   // whose eight sockets carry the line's loads; a ninth load (a separate data
   // end-station) takes a second panel, which is the shape of the decision the
   // chain creates.
   const powered = [[src, 'pwr_in'], [end, 'pwr_in'], [cool, 'pwr_in'],
     [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
-    [pwrBus, 'bus_left']];
+    [pwrBus, 'pwr_in']];
   if (endData !== ioc) powered.push([endData, 'pwr_in']);
   const panels = [];
+  wire('hvCable', { id: supply, port: 'hv_out_1' }, { id: gear, port: 'hv_in' });
   for (let i = 0; i < Math.ceil(powered.length / 8); i++) {
     const panel = place('mcc', -6 + i * 2, row - 3);
     if (!panel) return null;

@@ -1,19 +1,28 @@
 # Connection Types
 
 ## Quick Tip
-Six types of pipes and cables connect facility equipment to the beamline. Each carries a different utility, and each is drawn port-to-port.
+Seven types of pipes and cables connect facility equipment to the beamline. Each carries a different utility, and each is drawn port-to-port.
 
 ## Connection Types
 
+### HV Feeder (black)
+Carries high-voltage power from a transformer to main/local distribution. It is the upstream half of the radial electrical tree.
+
+- **Color:** Black (0x141418)
+- **Network type:** Capacity-based (kW supply vs rated distribution demand)
+- **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; main switchgear after it has one HV input
+- **Consumers:** Main switchgear, distribution panels, MCCs, UPS units
+- **Cost:** $1,200/sub-unit ($4,800/tile)
+
 ### Power Cable (green)
-Carries electrical power from transformers and panels to all active equipment. Forms power networks with capacity budgets. Almost every active component needs one.
+Carries low-voltage branch power from panels, MCCs and UPS units to field distribution or active equipment. It never starts at a transformer.
 
 - **Color:** Green (0x44cc44)
 - **Network type:** Capacity-based (kW supply vs demand)
-- **Source equipment:** Power Panel, Pad-Mount Transformer, Motor Control Center, Switchgear Cabinet, HV Transformer, UPS
+- **Source equipment:** Power Panel, Motor Control Center, UPS / Battery Bank
 - **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
 - **Cost:** $600/sub-unit ($2,400/tile)
-- **Bus:** Power Bus, $90k, 10-cell service radius
+- **Field distribution:** Beamline Busway ($90k, 10-cell service radius) and Spider Box (four local taps). Both take one upstream branch and add no capacity.
 
 ### Vacuum Pipe (gray)
 Connects vacuum pumps to the beamline. Each pump adds its rated speed to the network; pressure is the network's total gas load divided by its total pump speed.
@@ -43,7 +52,9 @@ Carries cooling capacity from chillers and LCW systems to heat-producing compone
 
 - **Color:** Blue (0x4488ff)
 - **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
-- **Source equipment:** Fan-Coil Cooler, Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller, Dry Cooler Bank, Cooling Tower
+- **Process-cooling equipment:** Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller
+- **Heat-rejection equipment:** Fan-Coil Cooler (direct air), Dry Cooler Bank, Cooling Tower
+- **Distribution:** LCW Manifold (adds no capacity)
 - **Consumers:** Magnets, normal-conducting RF structures, beam absorbers (target, beam stop), the detector, the electron gun and ion sources, and the He compressor
 - **Cost:** $900/sub-unit ($3,600/tile)
 - **Bus:** Cooling Manifold, $80k, 8-cell service radius

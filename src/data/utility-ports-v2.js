@@ -640,8 +640,10 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 // ---------------------------------------------------------------------------
 // Infrastructure (sources). Capacity ladders per utility:
 //
-//   power   (kW):   powerPanel 40 → padMount 150 → mcc 250 → switchgear 400
-//                   → hvTransformer 1200; ups 100 (critical loads)
+//   power   (kW):   padMount 150 → facilityTransformer 400 → hvTransformer
+//                   1200 → gridIntertieTransformer 3000. Those are the ONLY
+//                   capacity sources; switchgear, panels, MCCs, buses and UPS
+//                   units distribute an upstream feed without creating power.
 //   rf      (kW):   magnetron 5 @S → TWT 20 @all → slac5045Klystron 25 @S
 //                   → SSA 35 @VHF/UHF
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
@@ -715,11 +717,37 @@ function supplyPorts(capacity, count) {
       side: OUTLET_SIDES[i % OUTLET_SIDES.length],
       offsetAlong: 0.5 + 0.25 * Math.floor(i / OUTLET_SIDES.length),
       role: 'source',
+      connectionKind: 'hvSupplyOut',
       // capacity/N per outlet, for the same reason distribution splits its
       // rating: discovery unites a device's source ports into one busbar, so
       // the outlets add back up to the supply's actual rating rather than
       // multiplying it by the number of feeders it can run.
       params: { capacity: capacity / count },
+    };
+  }
+  return out;
+}
+
+/**
+ * Main HV distribution: one protected incoming feeder feeds `count` protected
+ * outgoing feeders. It is deliberately split into separate HV networks: the
+ * input is a sink, the outputs are sources gated by that input's hvQuality.
+ * This keeps the electrical graph radial while letting one main switchgear
+ * cabinet feed several downstream panels.
+ */
+function hvDistributionPorts(rating, count) {
+  const out = {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'sink', connectionKind: 'hvDistributionIn', params: { demand: rating },
+    },
+  };
+  for (let i = 0; i < count; i++) {
+    out[`hv_out_${i + 1}`] = {
+      utility: 'hvCable',
+      side: 'front', offsetAlong: (i + 1) / (count + 1),
+      role: 'source', connectionKind: 'hvDistributionOut',
+      params: { capacity: rating / count },
     };
   }
   return out;
@@ -735,7 +763,7 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'sink', params: { demand: rating },
+      role: 'sink', connectionKind: 'hvDistributionIn', params: { demand: rating },
     },
   };
   for (let i = 0; i < count; i++) {
@@ -749,11 +777,37 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
         ? (i + 1) / (count + 1)
         : 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
       role: 'source',
+      connectionKind: 'powerDistributionOut',
       // rating/N per outlet: discovery unites a device's outlets into one
       // busbar, so these add back up to exactly the panel's rating no matter
       // how many of them are in use. Declaring the full rating on each would
       // make a 4-way panel four full-rating supplies.
       params: { capacity: rating / count },
+    };
+  }
+  return out;
+}
+
+/**
+ * A field box is passive copper, not another source. Its one feed port can
+ * only accept a panel/MCC/UPS branch circuit; the remaining pass ports can
+ * only leave toward loads or another passive field box. Discovery unites pass
+ * ports on one device, so all attached loads stay on the original panel's
+ * network and capacity is never duplicated.
+ */
+function fieldDistributionPorts(count, { serviceRadius = null, feedSide = 'back' } = {}) {
+  const out = {
+    pwr_in: {
+      utility: 'powerCable', side: feedSide, offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerFieldIn',
+      ...(serviceRadius == null ? {} : { bus: true, params: { serviceRadius } }),
+    },
+  };
+  for (let i = 0; i < count; i++) {
+    out[`pwr_out_${i + 1}`] = {
+      utility: 'powerCable', side: 'front', offsetAlong: (i + 1) / (count + 1),
+      role: 'pass', connectionKind: 'powerFieldOut',
+      ...(serviceRadius == null ? {} : { bus: true, params: { serviceRadius } }),
     };
   }
   return out;
@@ -766,7 +820,10 @@ const INFRA_UTILITY_PORTS = {
   // covers. It is not a distribution device in the HV sense — it hands out no
   // sockets and holds no rating, it just saves the player a dozen identical
   // stubs, which is exactly what it did before the chain existed.
-  powerBus:            busPorts('powerCable',   10),
+  // One rear feeder and orderly front taps: the power bus is a field device,
+  // not a free-form junction that can quietly tie two panels together.
+  powerBus:            fieldDistributionPorts(3, { serviceRadius: 10 }),
+  spiderBox:           fieldDistributionPorts(4),
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      busPorts('vacuumPipe',    5),
   waveguideManifold:   busPorts('rfWaveguide',   6),
@@ -788,17 +845,22 @@ const INFRA_UTILITY_PORTS = {
   // A distribution device's hv_in demand is its own rating, not its live draw:
   // you size the feeder for the panel. That keeps the HV solve local and makes
   // an oversized panel cost something instead of being a free upgrade.
-  hvTransformer:       supplyPorts(1200, 4),
-  switchgear:          supplyPorts(400, 2),
-  padMountTransformer: supplyPorts(150, 1),
+  padMountTransformer:      supplyPorts(150, 1),
+  facilityTransformer:      supplyPorts(400, 2),
+  hvTransformer:            supplyPorts(1200, 4),
+  gridIntertieTransformer:  supplyPorts(3000, 6),
+  switchgear:               hvDistributionPorts(400, 4),
   // This cabinet is only 0.5 m wide, so four outlets on its front collapse
   // into two routing cells. Spread the logical connectors around the cabinet
   // so every branch remains independently wireable.
-  powerPanel:          distributionPorts(40, 4),
-  mcc:                 distributionPorts(250, 8),
+  // Face-mounted circuit breakers and sockets all live on the front face.
+  // `offsetAlong` gives every visible fitting an independent, evenly-spaced
+  // anchor, so a cable leaves the socket it appears to be plugged into.
+  powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
+  mcc:                 distributionPorts(250, 8, { outletSide: 'front' }),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.
-  ups:                 distributionPorts(100, 2),
+  ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
   // rf (capacity kW = raw params.power)
   magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
   solidStateAmp:       { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 35, dutyFactor: 1.0 } } },

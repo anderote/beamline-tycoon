@@ -202,11 +202,18 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   // ladder is therefore over the supplies; a panel's rating is what it draws,
   // not what it makes.
   const pad = getUtilityPortsV2('padMountTransformer');
-  const gear = getUtilityPortsV2('switchgear');
+  const facility = getUtilityPortsV2('facilityTransformer');
   const hv = getUtilityPortsV2('hvTransformer');
-  assert(pad.hv_out_1.params.capacity < gear.hv_out_1.params.capacity
-      && gear.hv_out_1.params.capacity < hv.hv_out_1.params.capacity,
-    'supply ladder: padMount < switchgear < hvTransformer');
+  const grid = getUtilityPortsV2('gridIntertieTransformer');
+  assert(pad.hv_out_1.params.capacity < facility.hv_out_1.params.capacity
+      && facility.hv_out_1.params.capacity < hv.hv_out_1.params.capacity
+      && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,
+    'HV supply ladder: pad-mount < facility < HV < grid intertie');
+
+  const gear = getUtilityPortsV2('switchgear');
+  assert(gear.hv_in?.connectionKind === 'hvDistributionIn'
+      && Object.values(gear).filter(p => p.connectionKind === 'hvDistributionOut').length === 4,
+    'main switchgear has one HV input and four protected downstream feeders');
 
   const panel = getUtilityPortsV2('powerPanel');
   const mcc = getUtilityPortsV2('mcc');
@@ -221,8 +228,18 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
   assert(panelOutputs.length === 4
-      && new Set(panelOutputs.map(spec => spec.side)).size === 4,
-    'power panel exposes four independently routable branch sockets');
+      && panelOutputs.every(spec => spec.side === 'front')
+      && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4,
+    'power panel exposes four evenly spaced front-face branch sockets');
+  assert(panel.hv_in.side === 'back', 'power panel HV feeder enters through the rear');
+  const bus = getUtilityPortsV2('powerBus');
+  const spider = getUtilityPortsV2('spiderBox');
+  assert(bus.pwr_in?.connectionKind === 'powerFieldIn'
+      && Object.values(bus).filter(p => p.connectionKind === 'powerFieldOut').length === 3,
+    'beamline busway has one feeder input and distinct field taps');
+  assert(spider.pwr_in?.connectionKind === 'powerFieldIn'
+      && Object.values(spider).filter(p => p.connectionKind === 'powerFieldOut').length === 4,
+    'spider box has one feeder input and four local taps');
   assert(outlets('hvTransformer') === 0,
     'a supply hands out no branch circuits — everything goes through distribution');
 

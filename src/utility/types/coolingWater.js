@@ -9,6 +9,8 @@
 // 0.6 L/tick — a ~$5k refill every ~700 ticks; a 60 kW detector loop refills
 // about twice as often. Visible recurring cost, not a death spiral.
 
+import { powerFeedFactor } from '../power-feed.js';
+
 export const EVAP_PER_KW_PER_TICK = 0.02;
 export const RESERVOIR_MAX_L = 500;
 export const WATER_COST_PER_L = 12;
@@ -47,7 +49,8 @@ export default {
   persistentStateDefaults: { reservoirVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(
-      (a, s) => a + ((s.params && s.params.capacity) || 0), 0);
+      (a, s) => a + ((s.params && s.params.capacity) || 0)
+        * powerFeedFactor(worldState, s.placeableId), 0);
     const totalDemand = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.heatLoad) || 0), 0);
     const currentReservoir = (persistent && persistent.reservoirVolumeL) || 0;

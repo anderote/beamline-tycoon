@@ -171,16 +171,16 @@ for (const scenario of SCENARIOS) {
   assert(placements.filter(t => t === 'pillboxCavity').length === 3,
     'three pillbox cavities on the pipe');
 
-  // Wiring: 1 HV feeder (switchgear → MCC), 8 branch circuits off the MCC's
+  // Wiring: transformer → switchgear → MCC is 2 HV feeders, then 8 branch circuits off the MCC's
   // eight sockets (2 junctions + 5 support units + the power bus), 5 vacuum
   // (2 junctions + 2 manifolds + the turbo's tap), 1 RF into the waveguide
   // manifold, 2 cooling, 2 data = 19 lines. Four of them are bus feeds standing
   // in for what would otherwise be 16 per-component stubs.
-  assert((state.utilityLines?.size || 0) === 19,
-    `nineteen utility lines wired (got ${state.utilityLines?.size})`);
+  assert((state.utilityLines?.size || 0) === 20,
+    `twenty utility lines wired (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
-  assert(hvLines.length === 1, `exactly one HV feeder (got ${hvLines.length})`);
+  assert(hvLines.length === 2, `transformer and switchgear use two HV feeders (got ${hvLines.length})`);
   const branch = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'powerCable');
   assert(new Set(branch.map(l => l.start.portName)).size === branch.length,
@@ -229,19 +229,17 @@ for (const scenario of SCENARIOS) {
 
   // Differentiated demands: power network must show real numbers, not the
   // old flat 50-per-sink placeholder. Demand covers the on-pipe sinks the bus
-  // pulls in — a bus distributes, it does not generate, so the switchgear
+  // pulls in — a bus distributes, it does not generate, so the transformer
   // still has to carry them.
-  // Power is a two-stage chain: the switchgear's 400 kW sits on the HV network
-  // and the MCC's 250 kW is what the branch circuits actually see. Distribution
-  // adds no capacity — it converts one HV feeder into eight sockets — so the
-  // facility's ceiling is still the supply, and the panel is the narrower of
-  // the two here.
+  // Power is a radial three-stage chain: facility transformer → main
+  // switchgear → MCC. Both distributors pass capacity downstream rather than
+  // making any, and the MCC is the narrower 250 kW branch bottleneck.
   const hvFlows = state.utilityNetworkData?.get?.('hvCable');
-  const hvFlow = hvFlows && [...hvFlows.values()][0];
-  assert(!!hvFlow && hvFlow.totalCapacity === 400,
-    `switchgear supplies 400 kW on the HV side (got ${hvFlow?.totalCapacity})`);
-  assert(!!hvFlow && hvFlow.totalDemand === 250,
-    `and the MCC draws its 250 kW rating from it (got ${hvFlow?.totalDemand})`);
+  const hvFlowValues = hvFlows ? [...hvFlows.values()] : [];
+  assert(hvFlowValues.some(f => f.totalCapacity === 400 && f.totalDemand === 400),
+    `transformer feeds switchgear at 400 kW (${JSON.stringify(hvFlowValues)})`);
+  assert(hvFlowValues.some(f => f.totalCapacity === 400 && f.totalDemand === 250),
+    `switchgear feeds the MCC's 250 kW rating (${JSON.stringify(hvFlowValues)})`);
 
   const powerFlows = state.utilityNetworkData?.get?.('powerCable');
   const flow = powerFlows && [...powerFlows.values()][0];

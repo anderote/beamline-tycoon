@@ -21,6 +21,7 @@ import {
   Q_SPECIFIC_UNBAKED, Q_SPECIFIC_BAKED, outgassingForLength,
 } from '../../data/utility-ports-v2.js';
 import { endpointsById } from '../endpoint-lookup.js';
+import { powerFeedFactor } from '../power-feed.js';
 
 export const BAKEOUT_FACTOR = Q_SPECIFIC_BAKED / Q_SPECIFIC_UNBAKED;
 
@@ -91,7 +92,8 @@ export default {
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const totalPumpSpeed = network.sources.reduce(
-      (a, s) => a + ((s.params && s.params.pumpSpeed) || 0), 0);
+      (a, s) => a + ((s.params && s.params.pumpSpeed) || 0)
+        * powerFeedFactor(worldState, s.placeableId), 0);
     const byId = endpointsById(worldState);
     const baked = isBaked(network, byId);
     const componentOutgas = network.sinks.reduce(

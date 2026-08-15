@@ -41,6 +41,7 @@
 
 import { CAVITY_SPECS, T_CRITICAL, pDiss } from '../../beamline/cavity-specs.js';
 import { endpointsById } from '../endpoint-lookup.js';
+import { powerFeedFactor } from '../power-feed.js';
 
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
 export const RESERVOIR_MAX_L = 500;
@@ -210,6 +211,7 @@ function designTemp(network, worldState) {
   const byId = endpointsById(worldState);
   let coldest = null;
   for (const src of network.sources) {
+    if (powerFeedFactor(worldState, src.placeableId) <= 0) continue;
     const rec = byId.get(src.placeableId);
     const t = rec && PLANT_DESIGN_TEMP[rec.type];
     if (t != null && (coldest === null || t < coldest)) coldest = t;
@@ -239,7 +241,8 @@ export default {
   persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L, tempK: T_DEFAULT },
   solve(network, persistent, worldState) {
     const ratedCapacity = network.sources.reduce(
-      (a, s) => a + ((s.params && s.params.coldCapacityW) || 0), 0);
+      (a, s) => a + ((s.params && s.params.coldCapacityW) || 0)
+        * powerFeedFactor(worldState, s.placeableId), 0);
     // Declared srfHeatW is the STATIC load — vessel, transfer line and
     // radiation heat a cavity leaks whether or not it is powered. Taken at
     // face value: it is what the inspector renders as the sink's demand, so

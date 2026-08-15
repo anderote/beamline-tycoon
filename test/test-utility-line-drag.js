@@ -210,7 +210,9 @@ console.log('\n--- 4. R flips which way the bend turns ---');
   // equals; this case is the equals.
   const corners = [];
   for (const vertFirst of [false, true]) {
-    const game = makeGame({ dir: 1 });
+    // Front-face panel outlets face south at dir 0; this gives both legal
+    // bend orders room to differ while still obeying the real port leads.
+    const game = makeGame({ dir: 0 });
     const ctrl = new UtilityLineInputController({ game, renderer: {} });
     ctrl.setUtilityType('powerCable');
     ctrl.setPreferVerticalFirst(vertFirst);
@@ -474,17 +476,16 @@ console.log('\n--- 9. A drag routes AROUND cable that is already down ---');
   // refuse — otherwise wiring a hall gets harder with every cable laid, which
   // is exactly backwards.
   //
-  // Two transformers. The first is wired to pl_3, which sends its cable east
-  // along row 2.25 and then south down column 10.25 into the quad. The second
-  // sits at col 9 and is dragged to pl_1, whose best route would come south
-  // down that same column 10.25 — collinear with the trunk for three tiles,
+  // Two distribution panels. The first is wired to pl_3; the second sits at
+  // col 6 on the same service row and is dragged to pl_1. Its best route
+  // would overlap the first cable collinearly for several subtiles,
   // which is "laying cable down an existing run" and is refused. A route one
   // rank down goes south early and crosses the trunk perpendicularly instead,
   // which is an ordinary legal crossing.
   const game = makeGame({ col: 1, row: 2, dir: 0 });
   game.state.placeables.push({
     id: 'src_2', type: 'mcc', kind: 'infrastructure',
-    category: 'infrastructure', col: 9, row: 1, subCol: 0, subRow: 0, dir: 0,
+    category: 'infrastructure', col: 6, row: 2, subCol: 0, subRow: 0, dir: 0,
   });
 
   drag(game, portTile(game, 'src_1', 'pwr_out_1'), portTile(game, 'pl_3', 'pwr_in'));

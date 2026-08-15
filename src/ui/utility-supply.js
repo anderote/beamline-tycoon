@@ -108,6 +108,48 @@ export function paletteUtilityMetrics(comp) {
     }));
 }
 
+const PALETTE_UTILITY_SPEC = {
+  hvCable:      { key: 'power', label: 'P', param: 'capacity', unit: 'kW' },
+  powerCable:   { key: 'power', label: 'P', param: 'capacity', unit: 'kW' },
+  rfWaveguide:  { key: 'rf', label: 'R', param: 'capacity', unit: 'kW' },
+  coolingWater: { key: 'cooling', label: 'C', param: 'capacity', unit: 'kW' },
+  cryoTransfer: { key: 'cryo', label: 'K', param: 'coldCapacityW', unit: 'W' },
+  vacuumPipe:   { key: 'vacuum', label: 'V', param: 'pumpSpeed', unit: 'L/s' },
+  dataFiber:    { key: 'data', label: 'D', param: 'capacity', unit: 'Gbps' },
+};
+const PALETTE_UTILITY_ORDER = ['power', 'cooling', 'rf', 'cryo', 'vacuum', 'data'];
+
+/** Compact signed draw/supply badges for a palette item. */
+export function paletteUtilityTags(comp) {
+  const tags = [];
+  if (!comp) return tags;
+  const amount = value => String(Math.round(value * 1000) / 1000);
+  if (Number.isFinite(comp.energyCost) && comp.energyCost !== 0) {
+    tags.push({ key: 'power', text: `P: -${amount(comp.energyCost)} kW`, direction: 'draw' });
+  }
+  if (Number.isFinite(comp.rfPowerRequired) && comp.rfPowerRequired !== 0) {
+    tags.push({ key: 'rf', text: `R: -${amount(comp.rfPowerRequired)} kW`, direction: 'draw' });
+  }
+  const totals = new Map();
+  for (const port of Object.values(comp.ports || {})) {
+    if (!port || port.role !== 'source') continue;
+    const spec = PALETTE_UTILITY_SPEC[port.utility];
+    const value = port.params?.[spec?.param];
+    if (!spec || !Number.isFinite(value)) continue;
+    totals.set(spec.key, { ...spec, amount: (totals.get(spec.key)?.amount || 0) + value });
+  }
+  for (const key of PALETTE_UTILITY_ORDER) {
+    const total = totals.get(key);
+    if (!total || total.amount === 0) continue;
+    tags.push({
+      key,
+      text: `${total.label}: +${amount(total.amount)} ${total.unit}`,
+      direction: 'supply',
+    });
+  }
+  return tags;
+}
+
 // 0.001 -> "0.1%", 0.005 -> "0.5%", 0.05 -> "5%", 1 -> "100%".
 function fmtDutyPercent(dutyFactor) {
   const pct = Math.round(dutyFactor * 1000) / 10;

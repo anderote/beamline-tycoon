@@ -71,7 +71,7 @@ function wireBus(state) {
   state.utilityLines.set('ul_1', {
     id: 'ul_1', utilityType: 'powerCable',
     start: { placeableId: 'src_1', portName: 'pwr_out_1' },
-    end: { placeableId: 'bus_1', portName: 'bus_front' },
+    end: { placeableId: 'bus_1', portName: 'pwr_in' },
     path: [{ col: 3, row: 6 }, { col: 3, row: 1 }],
   });
 }

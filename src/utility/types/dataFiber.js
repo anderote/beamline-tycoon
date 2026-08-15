@@ -4,6 +4,8 @@
 // network has ≥1 source, every sink is "connected" (quality 1); otherwise the
 // sinks are orphaned (quality 0) and a soft data_disconnected error is raised.
 
+import { powerFeedFactor } from '../power-feed.js';
+
 export default {
   type: 'dataFiber',
   displayName: 'Data Fiber',
@@ -29,13 +31,15 @@ export default {
   costPerSubUnit: 300,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
-    const hasSource = network.sources.length > 0;
+    const poweredSources = network.sources.filter(s => powerFeedFactor(worldState, s.placeableId) > 0);
+    const hasSource = poweredSources.length > 0;
     // The physics is binary connectivity, but the flow totals are display
     // fields tagged with capacityUnit — publish real Gbps like every other
     // descriptor, not port counts (the inspector showed "1.0 Gbps" above
     // rows reading "40 Gbps").
     const totalCapacity = network.sources.reduce(
-      (a, s) => a + ((s.params && s.params.capacity) || 0), 0);
+      (a, s) => a + ((s.params && s.params.capacity) || 0)
+        * powerFeedFactor(worldState, s.placeableId), 0);
     const totalDemand = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.demand) || 0), 0);
     const perSinkQuality = {};

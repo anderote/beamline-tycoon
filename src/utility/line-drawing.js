@@ -233,6 +233,48 @@ function portReusable(spec, utilityType) {
   return !d || d.fansOut !== false;
 }
 
+// Power is intentionally radial. The generic utility graph permits sources to
+// merge (correct for fluid headers and some RF layouts), but connecting two
+// live panel outputs is a backfeed, not a useful power run. The port table
+// expresses the stages; this validator makes them a real wiring rule.
+//
+// `connectionKind` is optional so old content and small test fixtures retain
+// their natural source -> sink behavior. Power infrastructure opts into the
+// narrower stage names in utility-ports-v2.js.
+function connectionKind(spec, utilityType) {
+  if (spec && spec.connectionKind) return spec.connectionKind;
+  if (utilityType === 'hvCable') {
+    return spec?.role === 'source' ? 'hvSupplyOut' : 'hvDistributionIn';
+  }
+  if (utilityType === 'powerCable') {
+    return spec?.role === 'source' ? 'powerDistributionOut' : 'powerLoadIn';
+  }
+  return null;
+}
+
+function oneOfPair(a, b, x, y) {
+  return (a === x && b === y) || (a === y && b === x);
+}
+
+function portsCanConnect(startSpec, endSpec, utilityType) {
+  if (!startSpec || !endSpec) return true; // open utility runs remain legal
+  if (utilityType === 'hvCable') {
+    const a = connectionKind(startSpec, utilityType);
+    const b = connectionKind(endSpec, utilityType);
+    return oneOfPair(a, b, 'hvSupplyOut', 'hvDistributionIn')
+      || oneOfPair(a, b, 'hvDistributionOut', 'hvDistributionIn');
+  }
+  if (utilityType === 'powerCable') {
+    const a = connectionKind(startSpec, utilityType);
+    const b = connectionKind(endSpec, utilityType);
+    return oneOfPair(a, b, 'powerDistributionOut', 'powerLoadIn')
+      || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldIn')
+      || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn')
+      || oneOfPair(a, b, 'powerFieldOut', 'powerFieldIn');
+  }
+  return true;
+}
+
 /** Does any line of this utility already touch this device? */
 function deviceHasLine(state, placeableId, utilityType) {
   const lines = state && state.utilityLines;
@@ -279,6 +321,9 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
   }
   if (totalDist < EPS) return reject('invalid_path');
 
+  let startSpec = null;
+  let endSpec = null;
+
   // Resolve start endpoint.
   if (start) {
     if (!start.placeableId || !start.portName) return reject('invalid_start');
@@ -289,6 +334,7 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     const spec = getPortSpec(def, start.portName);
     if (!spec) return reject('invalid_start');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
+    startSpec = spec;
     if (!portReusable(spec, utilityType)
         && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
 
@@ -309,6 +355,7 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     const spec = getPortSpec(def, end.portName);
     if (!spec) return reject('invalid_end');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
+    endSpec = spec;
     if (!portReusable(spec, utilityType)
         && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
 
@@ -318,6 +365,10 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     if (!portMatchesApproach(p, def, end.portName, lastDir, true)) {
       return reject('port_mismatch_end');
     }
+  }
+
+  if (!portsCanConnect(startSpec, endSpec, utilityType)) {
+    return reject('invalid_port_pair');
   }
 
   // Overlap against same-type lines only — branching at a shared source
@@ -367,4 +418,5 @@ export const REASONS = Object.freeze({
   port_taken: 'port_taken',
   port_mismatch_start: 'port_mismatch_start',
   port_mismatch_end: 'port_mismatch_end',
+  invalid_port_pair: 'invalid_port_pair',
 });

@@ -18,7 +18,7 @@
 //      yields no supply row.
 
 import { COMPONENTS } from '../src/data/components.js';
-import { paletteUtilityMetrics, utilityStatRows } from '../src/ui/utility-supply.js';
+import { paletteUtilityMetrics, paletteUtilityTags, utilityStatRows } from '../src/ui/utility-supply.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -169,6 +169,12 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
   const cryoMetrics = paletteUtilityMetrics(COMPONENTS.ellipticalSrfCavity);
   assert(cryoMetrics.some(r => r.label === 'Cryo draw'),
     'SRF cavity: palette shows its cryogenic draw');
+
+  const fanCoilTags = paletteUtilityTags(COMPONENTS.fanCoilCooler);
+  assert(fanCoilTags.some(tag => tag.text === 'P: -1 kW' && tag.direction === 'draw'),
+    'fan coil: compact palette tag shows its power draw');
+  assert(fanCoilTags.some(tag => tag.text === 'C: +20 kW' && tag.direction === 'supply'),
+    'fan coil: compact palette tag shows its cooling output');
 }
 
 // ==========================================================================
