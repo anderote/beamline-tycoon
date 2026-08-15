@@ -5,7 +5,7 @@
 // Covers what can't be seen by eye headlessly:
 //   1. bakeRunDistanceUVs rescales a segment's own 0..1 uv.y into an absolute
 //      [distStart, distEnd] window, in isolation.
-//   2. Built through a real multi-leg cylinder line (coolingWater), that
+//   2. Built through a real multi-leg rigid cylinder line (vacuumPipe), that
 //      rescaling is CONTINUOUS across segment boundaries (no reset-to-0 at a
 //      waypoint) and oriented source (line.start) -> sink (line.end).
 //   2b. Same continuity/orientation check for rfWaveguide's rectangular
@@ -212,7 +212,7 @@ function boxMeshes(group) {
 
 console.log('\n--- 2. Continuous across segment boundaries, source -> sink ---');
 {
-  const { group } = buildFlowLine('coolingWater');
+  const { group } = buildFlowLine('vacuumPipe');
   const effect = group.userData.visualEffects?.[0];
   assert(effect?.kind === 'pathPulse', 'the builder publishes a declarative path-pulse effect');
   assert(effect?.path?.length === 3, 'the effect receives the same complete polyline as the pipe');

@@ -72,6 +72,9 @@ export default {
   color: '#888888',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.06,
+  // The fitting itself supplies the transition; routing may turn immediately
+  // without reserving an extra quarter-tile tail on the deck.
+  portClearance: false,
   // Capacity is aggregate pump speed (L/s); demand is total outgassing
   // (mbar\u00b7L/s) \u2014 different physical quantities, hence the two units.
   capacityUnit: 'L/s',

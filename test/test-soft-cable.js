@@ -1,7 +1,9 @@
-// Flexible Power/HV cable geometry is pure and independent of Three.js.
+// Flexible cord/hose geometry is pure and independent of Three.js.
 
 import {
   SOFT_CABLE_TYPES,
+  FREEFORM_TOPOLOGY_TYPES,
+  SOFT_CABLE_MAX_POINTS,
   cablePathLengthSubUnits,
   sanitizeCablePath,
   softCableControlPoints,
@@ -13,8 +15,12 @@ function assert(condition, message) {
   else { failed++; console.log('FAIL ', message); }
 }
 
-assert(SOFT_CABLE_TYPES.join(',') === 'powerCable,hvCable',
-  'only Power and HV use flexible cable geometry');
+assert(SOFT_CABLE_TYPES.join(',') === 'powerCable,hvCable,coolingWater',
+  'Power, HV and cooling water use flexible drawn geometry');
+assert(FREEFORM_TOPOLOGY_TYPES.join(',') === 'coolingWater',
+  'only cooling uses its visible freehand route as network topology');
+assert(SOFT_CABLE_MAX_POINTS === 1024,
+  'detailed freehand runs retain up to 1024 samples');
 
 const trace = sanitizeCablePath([
   { col: 0, row: 0 },
