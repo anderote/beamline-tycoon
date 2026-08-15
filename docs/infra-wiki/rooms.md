@@ -29,7 +29,9 @@ Zone overlays take priority — if you paint an RF Lab zone in a concrete room, 
 
 **Morale.** Furnishings with a `morale` effect apply to every staff member in the room they sit in. This is the live room mechanic, and it feeds the staffing gate: an unhappy or exhausted operator can't hold the beam on.
 
-**Zone matching.** A furnishing only contributes its bonuses in its preferred zone type — a spectrum analyzer counts in an RF Lab, not in a hallway.
+**Zone matching.** Equipment and furnishings can be placed and operated on any valid build surface. An item's preferred zone is a bonus condition, not an operating permit: its complete footprint must be inside that zone to contribute zone-output or research bonuses. A spectrum analyzer still works in a hallway, but only earns its authored bonus in an RF Lab.
+
+**Control-room connections.** The Control Room palette includes Data Fiber and Power Cable. Powered consoles, displays, alarms, and data cabinets expose both connectors on their rear panels. Power remains an explicit cable connection; touching data cabinets share the same internal data backbone once fiber reaches one ingest-capable gateway.
 
 ### Known Limitations
 

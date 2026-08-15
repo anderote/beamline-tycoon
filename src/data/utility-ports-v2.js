@@ -909,6 +909,29 @@ function buswayPorts(capacity, serviceRadius) {
   return out;
 }
 
+// Control-room electronics put both service connectors on the panel opposite
+// their visible screens, faceplates and status LEDs. Most detailed control
+// furniture faces local -Z and therefore uses local +Z (`front` in the utility
+// side vocabulary) as its rear. The simple decal-built compute cabinets face
+// +Z and pass `rearSide: 'back'` instead. Capture gateways expose data_out;
+// downstream cabinets expose data_in so touching cabinets join through data
+// adjacency.
+function controlElectronicsPorts({
+  powerDemand, dataRole, dataCapacity = 0, dataDemand = 0, rearSide = 'front',
+}) {
+  return {
+    pwr_in: {
+      utility: 'powerCable', side: rearSide, offsetAlong: 0.3,
+      role: 'sink', params: { demand: powerDemand },
+    },
+    [dataRole === 'source' ? 'data_out' : 'data_in']: {
+      utility: 'dataFiber', side: rearSide, offsetAlong: 0.7,
+      role: dataRole,
+      params: dataRole === 'source' ? { capacity: dataCapacity } : { demand: dataDemand },
+    },
+  };
+}
+
 // Cooling plant uses a consistent, mirrorable header layout. Process-water
 // suppliers and reservoirs expose four branches on the primary (+X/right)
 // header and two on the opposite header. Heat rejectors only need their
@@ -1110,13 +1133,18 @@ const INFRA_UTILITY_PORTS = {
   llrfController:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
   patchPanel:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 2 } } },
   // Control-room and diagnostics capture gateways terminate experimental
-  // fiber. Storage and compute racks sit behind that gateway on the room's
-  // internal fabric, so they deliberately expose no facility-fiber source:
-  // wiring a detector straight to a disk shelf must not create a DAQ path.
-  dataAppliance:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
-  serverRack:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
-  daqRack:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
-  serverCluster:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 12 } } },
+  // fiber. Their touching storage, compute, display and console cabinets join
+  // the same physical backbone through the data adjacency bridge.
+  monitorBank:         controlElectronicsPorts({ powerDemand: 0.8, dataRole: 'sink', dataDemand: 1 }),
+  dataAppliance:       controlElectronicsPorts({ powerDemand: 1.2, dataRole: 'source', dataCapacity: 4, rearSide: 'back' }),
+  serverRack:          controlElectronicsPorts({ powerDemand: 3, dataRole: 'source', dataCapacity: 8 }),
+  dataStorageRack:     controlElectronicsPorts({ powerDemand: 4, dataRole: 'sink', rearSide: 'back' }),
+  cpuComputeRack:      controlElectronicsPorts({ powerDemand: 9, dataRole: 'sink', rearSide: 'back' }),
+  gpuComputeRack:      controlElectronicsPorts({ powerDemand: 16, dataRole: 'sink', rearSide: 'back' }),
+  operatorConsole:     controlElectronicsPorts({ powerDemand: 0.5, dataRole: 'sink', dataDemand: 1 }),
+  alarmPanel:          controlElectronicsPorts({ powerDemand: 0.1, dataRole: 'sink', dataDemand: 1 }),
+  daqRack:             controlElectronicsPorts({ powerDemand: 1.5, dataRole: 'source', dataCapacity: 40 }),
+  serverCluster:       controlElectronicsPorts({ powerDemand: 5, dataRole: 'source', dataCapacity: 12, rearSide: 'back' }),
 };
 
 // ---------------------------------------------------------------------------

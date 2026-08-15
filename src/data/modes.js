@@ -58,7 +58,7 @@ export const MODES = {
       machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop',  group: 'labs' },
       maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance',  group: 'labs' },
       // --- Rooms ---
-      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms' },
+      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms', utilityLineTools: ['dataFiber', 'powerCable'] },
       officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms' },
       meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms' },
       cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms' },

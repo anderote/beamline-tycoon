@@ -4204,7 +4204,7 @@ export class InputHandler {
         ];
         if (furn.energyCost) furnStats.push(['Energy', `${furn.energyCost} kW`]);
         const zoneType = MODES.facility?.categories?.[this.selectedCategory]?.zoneType;
-        if (zoneType) furnStats.push(['Zone', ZONES[zoneType]?.name || zoneType]);
+        if (zoneType) furnStats.push(['Bonus Zone', ZONES[zoneType]?.name || zoneType]);
         this._renderPreview(furn.name, furn.desc || '', furnStats);
         return;
       }

@@ -423,6 +423,7 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
     id: 'daqRack', name: 'High-Throughput DAQ Rack',
     zoneTypes: ['controlRoom', 'diagnosticsLab'],
     cost: { funding: 15000 }, energyCost: 1.5, spriteColor: 0x2a2c30,
+    requiredConnections: ['powerCable'],
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'daqRack',
     effects: {
       zoneOutput: 0.07, research: 0.02,
@@ -489,7 +490,7 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       { name: 'lamp6', x:  0.30, y: 4.58, z: -0.97, w: 0.06, h: 0.06, l: 0.02, color: 0x44ff66 },
     ],
   },
-  serverCluster:    { id: 'serverCluster',     name: 'Data Processing Cluster', zoneTypes: ['controlRoom', 'diagnosticsLab'], cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08, dataSystem: { kind: 'allInOne', ingest: 12, storage: 600, cpu: 20, gpu: 12 } }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
+  serverCluster:    { id: 'serverCluster',     name: 'Data Processing Cluster', zoneTypes: ['controlRoom', 'diagnosticsLab'], cost: { funding: 50000 },  energyCost: 5.0, requiredConnections: ['powerCable'], spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08, dataSystem: { kind: 'allInOne', ingest: 12, storage: 600, cpu: 20, gpu: 12 } }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
   toolChest: {
     id: 'toolChest', name: 'Tool Chest', zoneType: 'maintenance',
     cost: { funding: 3000 }, energyCost: 0, spriteColor: 0xcc2222,
@@ -666,8 +667,8 @@ const LAB_FURNISHING_DESCS = {
   scopeStation: 'Rolling scope cart for wherever the signal is misbehaving today. Diagnostics Lab.',
   wireScannerBench: 'Bench electronics for wire-scanner beam profile readout. Diagnostics Lab.',
   bpmTestFixture: 'Test electronics for beam position monitor pickups. Diagnostics Lab.',
-  daqRack: 'High-throughput fiber ingest and a short acquisition buffer; place it in the Control Room or beside specialist diagnostics.',
-  serverCluster: 'Larger all-in-one capture, storage, and compute cluster for the Control Room or Diagnostics Lab.',
+  daqRack: 'High-throughput fiber ingest and a short buffer. Works anywhere; Control Room and Diagnostics Lab grant bonuses.',
+  serverCluster: 'Large all-in-one capture, storage, and compute cluster. Works anywhere; Control Room and Diagnostics Lab grant bonuses.',
   toolChest: 'Maintenance tool storage. Contents migrate mysteriously between shifts. Maintenance zone.',
   partsShelf: 'Spare-parts shelving, organized by "I will remember where it is". Maintenance zone.',
   workCart: 'Wheeled cart for hauling tools to wherever the fault is. Maintenance zone.',

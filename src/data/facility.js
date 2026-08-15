@@ -71,6 +71,30 @@ export function itemMatchesZone(def, zoneType) {
   return false;
 }
 
+// Resolve the preferred zone that contains an item's complete footprint.
+// Placement and core equipment behavior do not use this helper: zones are a
+// bonus layer. Research/zone-output bonuses do use it so straddling a room
+// boundary cannot activate an item that is only partly inside its bonus zone.
+export function matchingZoneForPlacement(def, placed, zoneOccupied) {
+  if (!def || !placed || !zoneOccupied) return null;
+  const tiles = new Set();
+  const cells = Array.isArray(placed.cells) && placed.cells.length
+    ? placed.cells : [{ col: placed.col, row: placed.row }];
+  for (const cell of cells) {
+    if (cell?.col == null || cell?.row == null) return null;
+    tiles.add(`${cell.col},${cell.row}`);
+  }
+
+  let matched = null;
+  for (const key of tiles) {
+    const zoneType = zoneOccupied[key];
+    if (!itemMatchesZone(def, zoneType)) return null;
+    if (matched !== null && matched !== zoneType) return null;
+    matched = zoneType;
+  }
+  return matched;
+}
+
 // --- Zone-tier ratchet (staff-professions-3, jobs-and-gates, task 6) ------
 //
 // Zone tier used to be a pure function of tile count. It is now

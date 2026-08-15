@@ -178,21 +178,21 @@ for (const scenario of SCENARIOS) {
   assert(placements.filter(t => t === 'pillboxCavity').length === 3,
     'three pillbox cavities on the pipe');
 
-  // Wiring: transformer → main panel and RF source are two HV feeders, then
-  // seven branch circuits off the main panel. Seven sockets (2 junctions + 4
-  // support units + the power bus), 4 vacuum
-  // (2 junctions + west manifold + the turbo's east-manifold feed), 1 RF into the waveguide
-  // manifold, 2 process-water, 2 data = 18 lines. Four of them are bus feeds standing
-  // in for what would otherwise be 16 per-component stubs.
-  assert((state.utilityLines?.size || 0) === 18,
-    `eighteen utility lines wired; rigid services use distinct feeds (got ${state.utilityLines?.size})`);
+  // Wiring: transformer → main panel, RF source and the room panel are three
+  // HV feeders. Seven main-panel branches serve beam/support loads; three room
+  // branches serve the console, display and capture rack. Vacuum/RF/cooling
+  // retain their bus/stub layout, while four data runs cover science endpoints
+  // and the two control-room consumers: 24 lines total.
+  assert((state.utilityLines?.size || 0) === 24,
+    `twenty-four utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
-  assert(hvLines.length === 2, `transformer feeds the panel and RF source with two HV feeders (got ${hvLines.length})`);
+  assert(hvLines.length === 3,
+    `transformer feeds main distribution, RF and the room panel (got ${hvLines.length})`);
   const branch = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'powerCable');
-  assert(new Set(branch.map(l => l.start.portName)).size === branch.length,
-    'every branch circuit takes its own socket on the panel');
+  assert(new Set(branch.map(l => `${l.start.placeableId}:${l.start.portName}`)).size === branch.length,
+    'every branch circuit takes its own socket on its distribution panel');
 
   // The buses must be what serves the on-pipe components — that is the whole
   // point of shipping them in the starter layout. Cut the bus feeds and the
@@ -241,8 +241,8 @@ for (const scenario of SCENARIOS) {
   // with a separate dedicated feeder for the RF source.
   const hvFlows = state.utilityNetworkData?.get?.('hvCable');
   const hvFlowValues = hvFlows ? [...hvFlows.values()] : [];
-  assert(hvFlowValues.some(f => f.totalCapacity === 1200 && f.totalDemand === 470),
-    `transformer feeds panel and RF source at 470 kW (${JSON.stringify(hvFlowValues)})`);
+  assert(hvFlowValues.some(f => f.totalCapacity === 1200 && f.totalDemand === 510),
+    `transformer feeds main distribution, RF and room panel at 510 kW (${JSON.stringify(hvFlowValues)})`);
 
   const powerFlows = state.utilityNetworkData?.get?.('powerCable');
   const flow = powerFlows && [...powerFlows.values()][0];

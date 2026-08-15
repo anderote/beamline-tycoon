@@ -282,6 +282,10 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const coolE2   = place('coolingManifold', 5, 11);
   const vacW2    = place('vacuumManifold', -3, 9);
   const vacE2    = place('vacuumManifold', 3, 9);
+  // The second beamline needs a second staffed console. It is intentionally
+  // separate from the starter control room, but it still receives explicit
+  // branch power and data like every other active control-room item.
+  const secondConsole = place('operatorConsole', -30, 8);
 
   const wire = (util, from, to) => {
     const id = wireUtility(game, util, from, to);
@@ -298,7 +302,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hv && mbk) wire('hvCable', sourcePort(hv, 2), sinkPort(mbk));
   if (hv && ssa2) wire('hvCable', sourcePort(hv, 3), sinkPort(ssa2));
   const westLoads = [sinkPort(src2), sinkPort(tp), sinkPort(ioc2), sinkPort(nsw),
-    passPort(pwrBus2, 'back')];
+    passPort(pwrBus2, 'back'), sinkPort(secondConsole)];
   const eastLoads = [sinkPort(det), sinkPort(ch1), sinkPort(ch2), sinkPort(tower), sinkPort(rp)];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
     loads.forEach((target, i) => {
@@ -334,7 +338,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     }
   }
   if (nsw) {
-    for (const id of [det, bpm2]) {
+    for (const id of [det, bpm2, secondConsole]) {
       if (id) wire('dataFiber', sourcePort(nsw), sinkPort(id));
     }
   }
@@ -354,9 +358,8 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       // job, and jobRunner offers at most one runBeam job per free console
       // SLOT (see task-4-brief.md). The starter scenario ships exactly one
       // console for the seeded operator; this second line needs its own.
-      // Placed off in its own strip, well clear of everything else this
-      // function builds.
-      place('operatorConsole', -30, 8);
+      // The separately wired console was placed with the service equipment
+      // above, well clear of everything else this function builds.
     }
     state.staffMembers.push(m);
   }

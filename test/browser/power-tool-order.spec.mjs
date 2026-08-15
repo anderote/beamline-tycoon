@@ -41,5 +41,16 @@ test('Power and RF palettes expose their transport tools in workflow order', asy
   await expect(beamlineTabs.nth(1)).toHaveAttribute('data-category', 'rf');
   await expect(beamlineTabs.nth(2)).toHaveAttribute('data-category', 'optics');
 
+  await page.click('.mode-btn[data-mode="facility"]');
+  if (await page.locator('.cat-tab[data-category="controlRoom"]').count() === 0) {
+    await page.click('.facility-group-toggle');
+  }
+  await page.click('.cat-tab[data-category="controlRoom"]');
+  await expect(tools).toHaveCount(2);
+  await expect(tools.nth(0)).toHaveAttribute('data-palette-key', 'dataFiber');
+  await expect(tools.nth(1)).toHaveAttribute('data-palette-key', 'powerCable');
+  await expect(tools.nth(0).locator('.palette-name')).toHaveText('Data Fiber');
+  await expect(tools.nth(1).locator('.palette-name')).toHaveText('Power Cable');
+
   errors.check('Power and RF transport palettes');
 });

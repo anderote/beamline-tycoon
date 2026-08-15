@@ -1,6 +1,6 @@
 import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
-import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
+import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, matchingZoneForPlacement, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { seedComponentParams } from '../beamline/component-params.js';
@@ -56,7 +56,7 @@ import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
 import { computeEndpointService } from './endpoint-economy.js';
-import { dataSystemHomeZone, tickDataSystems } from './data-systems.js';
+import { tickDataSystems } from './data-systems.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -2724,24 +2724,6 @@ export class Game {
     const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
     const usesFloor = usesFloorOccupancy(placeable);
 
-    // Functional data hardware belongs in an authored operations room. The
-    // palette has always grouped furnishings by zone, but placement itself
-    // never enforced that grouping, which let a Raw Data Buffer on bare dirt
-    // contribute to the facility-wide pipeline. Reject the misleading build
-    // instead of accepting an object whose gameplay effect will be inactive.
-    if (placeable.effects?.dataSystem && this.state.zoneOccupied) {
-      const footprintTiles = new Set(cells.map(c => `${c.col},${c.row}`));
-      for (const tileKey of footprintTiles) {
-        if (!itemMatchesZone(placeable, this.state.zoneOccupied[tileKey])) {
-          const zones = Array.isArray(placeable.zoneTypes)
-            ? placeable.zoneTypes : [placeable.zoneType];
-          const names = zones.filter(Boolean).map(z => ZONES[z]?.name || z).join(' or ');
-          this.log(`${placeable.name} must be placed entirely inside ${names}`, 'bad');
-          return false;
-        }
-      }
-    }
-
     if (stackTarget) {
       // Stacking — cells are occupied by the ground item, which is expected.
     } else if (usesFloor) {
@@ -4584,8 +4566,8 @@ export class Game {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects) continue;
 
-      const key = furn.col + ',' + furn.row;
-      const tileZone = this.state.zoneOccupied[key];
+      const tileZone = matchingZoneForPlacement(
+        furnDef, furn, this.state.zoneOccupied);
 
       // zoneOutput only applies in the preferred zone
       if (furnDef.effects.zoneOutput && itemMatchesZone(furnDef, tileZone)) {
@@ -5053,7 +5035,7 @@ export class Game {
         const hasGateway = (network.sources || []).some(source => {
           const placed = this.state.placeables.find(p => p.id === source.placeableId);
           const spec = placed && PLACEABLES[placed.type]?.effects?.dataSystem;
-          return !!(spec?.ingest > 0 && dataSystemHomeZone(this.state, placed) !== null);
+          return !!(spec?.ingest > 0);
         });
         gatewayByNetwork.set(network.id, hasGateway);
       }
@@ -5078,7 +5060,8 @@ export class Game {
         const networkQuality = nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : fallback;
         // IOCs, switches, and telemetry archivers keep controls traffic alive,
         // but science data is only captured when this endpoint's own network
-        // reaches an ingest-capable DAQ gateway in its valid room.
+        // reaches an ingest-capable DAQ gateway. The gateway's room controls
+        // authored bonuses, not capture functionality.
         totalDataQ += sinkHasGateway(node.id) ? networkQuality : 0;
         dataNodeCount++;
       }

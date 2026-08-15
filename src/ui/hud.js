@@ -913,6 +913,49 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   const compCategory = tabCategory;
 
   let paletteIdx = 0;
+  const appendUtilityLineItem = (container, utilityType, showHint = true) => {
+    const descriptor = UTILITY_TYPES[utilityType];
+    if (!descriptor) return;
+    const item = document.createElement('div');
+    item.className = 'palette-item';
+    item.dataset.paletteIndex = paletteIdx;
+    item.dataset.paletteKey = utilityType;
+    item.dataset.paletteKind = 'utility';
+    const idx = paletteIdx++;
+
+    const previewEl = document.createElement('div');
+    previewEl.className = 'palette-preview';
+    const hex = descriptor.color || '#ffffff';
+    const swatch = document.createElement('div');
+    // Keep even black cables visible against the palette chrome.
+    swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;`
+      + `margin:9px auto;border:1px solid rgba(255,255,255,0.4);box-sizing:border-box;`
+      + `box-shadow:0 0 6px ${hex};`;
+    previewEl.appendChild(swatch);
+    item.appendChild(previewEl);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'palette-name';
+    nameEl.textContent = descriptor.displayName || utilityType;
+    item.appendChild(nameEl);
+    if (showHint) {
+      const descEl = document.createElement('div');
+      descEl.className = 'palette-cost';
+      descEl.textContent = '(drag port→port)';
+      item.appendChild(descEl);
+    }
+
+    item.addEventListener('click', () => {
+      if (this._onPaletteClick) this._onPaletteClick(idx);
+      document.querySelectorAll('.palette-item.util-line-active')
+        .forEach(el => el.classList.remove('util-line-active'));
+      item.classList.add('util-line-active');
+      this._selectPaletteTool('utility', utilityType);
+    });
+    item.addEventListener('mouseenter', () => this._showUtilityLinePreview(descriptor));
+    item.addEventListener('mouseleave', () => this._hidePalettePreview());
+    container.appendChild(item);
+  };
 
   // Infrastructure tab uses FLOORS items instead of COMPONENTS
   if (compCategory === 'infrastructure') {
@@ -2014,6 +2057,27 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     zoneSection.appendChild(zoneItems);
     palette.appendChild(zoneSection);
 
+    const roomUtilities = Array.isArray(zoneCatDef.utilityLineTools)
+      ? zoneCatDef.utilityLineTools : [];
+    if (roomUtilities.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'palette-subsection-divider';
+      palette.appendChild(divider);
+      const utilitySection = document.createElement('div');
+      utilitySection.className = 'palette-subsection';
+      const utilityLabel = document.createElement('div');
+      utilityLabel.className = 'palette-subsection-label';
+      utilityLabel.textContent = 'Connections';
+      utilitySection.appendChild(utilityLabel);
+      const utilityItems = document.createElement('div');
+      utilityItems.className = 'palette-subsection-items';
+      for (const utilityType of roomUtilities) {
+        appendUtilityLineItem(utilityItems, utilityType);
+      }
+      utilitySection.appendChild(utilityItems);
+      palette.appendChild(utilitySection);
+    }
+
     // Furnishings section
     const furnEntries = Object.entries(ZONE_FURNISHINGS).filter(([, f]) => itemMatchesZone(f, zoneType));
     if (furnEntries.length > 0) {
@@ -2080,7 +2144,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           ['Size', `${gw}×${gh}`],
         ];
         if (furn.energyCost) furnStats.push(['Energy', `${furn.energyCost} kW`]);
-        furnStats.push(['Zone', zone.name]);
+        furnStats.push(['Bonus Zone', zone.name]);
         this._attachSimpleHoverPreview(item, furn.name, furn.desc, furnStats);
 
         const furnHasVariants = Array.isArray(furn.variants) && furn.variants.length > 1;
@@ -2225,64 +2289,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       // the UtilityLineInputController (click+drag between ports) — distinct
       // from the legacy rack-paint conn tools just below.
       for (const utilityType of utilityLineTools) {
-        const descriptor = UTILITY_TYPES[utilityType];
-        if (!descriptor) continue;
-        const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.dataset.paletteIndex = paletteIdx;
-        item.dataset.paletteKey = utilityType;
-        item.dataset.paletteKind = 'utility';
-        const idx = paletteIdx++;
-
-        const previewEl = document.createElement('div');
-        previewEl.className = 'palette-preview';
-        const hex = descriptor.color || '#ffffff';
-        const swatch = document.createElement('div');
-        // Outlined, not just glowing: HV cable is black so it reads as trunk in
-        // the world, and a black swatch with a black glow is invisible against
-        // the palette's dark chrome. The rule stays 1px on every utility so the
-        // swatches remain a set rather than one special case.
-        swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;`
-          + `margin:9px auto;border:1px solid rgba(255,255,255,0.4);box-sizing:border-box;`
-          + `box-shadow:0 0 6px ${hex};`;
-        previewEl.appendChild(swatch);
-        item.appendChild(previewEl);
-
-        const nameEl = document.createElement('div');
-        nameEl.className = 'palette-name';
-        nameEl.textContent = descriptor.displayName || utilityType;
-        item.appendChild(nameEl);
-
         // The two Power transport cards are already self-explanatory and sit
         // side by side; keep them compact instead of repeating the same
         // interaction hint under both names.
-        if (compCategory !== 'power') {
-          const descEl = document.createElement('div');
-          descEl.className = 'palette-cost';
-          descEl.textContent = '(drag port→port)';
-          item.appendChild(descEl);
-        }
-
-        item.addEventListener('click', () => {
-          if (this._onPaletteClick) this._onPaletteClick(idx);
-          // TODO: Phase 5 will polish tool-picker UI (active-state highlight,
-          // mutual exclusion with legacy conn tools in the top bar, etc.).
-          document.querySelectorAll('.palette-item.util-line-active')
-            .forEach(el => el.classList.remove('util-line-active'));
-          item.classList.add('util-line-active');
-          this._selectPaletteTool('utility', utilityType);
-        });
-
-        // Hover popup — show descriptor-based info instead of the stale
-        // component-popup content from whichever item was hovered last.
-        item.addEventListener('mouseenter', () => {
-          this._showUtilityLinePreview(descriptor);
-        });
-        item.addEventListener('mouseleave', () => {
-          this._hidePalettePreview();
-        });
-
-        itemsContainer.appendChild(item);
+        appendUtilityLineItem(itemsContainer, utilityType, compCategory !== 'power');
       }
 
       for (const { key, comp } of subComps) {
