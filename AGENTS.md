@@ -29,6 +29,35 @@ Typical setup:
 git worktree add -b agent/<short-feature-slug> ../beamline-tycoon-<short-feature-slug> dev
 ```
 
+## Local development servers
+
+- Port `8000` is reserved exclusively for the stable game served from the root
+  `master` worktree. Feature, fix, test, and review worktrees must never start,
+  stop, replace, or kill the listener on port `8000`.
+- Do not run `npm run dev` from a non-root worktree. Its `predev` script kills
+  the process on port `8000`, even when a different Vite port is passed later.
+- Discover a currently unused ephemeral port for every local server launch;
+  do not reuse a hard-coded alternate port. Start Vite directly with
+  `--strictPort` so a race for that port fails visibly instead of silently
+  moving the server again.
+- Keep track of the exact process or tool session that owns the temporary
+  server. When testing is finished (including after an error or interruption),
+  terminate that exact process and verify its port is no longer listening.
+  Never use a broad `pkill`, `killall`, or unrelated-port cleanup command.
+
+Typical isolated server lifecycle:
+
+```sh
+beamline_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+npm exec vite -- --host 127.0.0.1 --port "$beamline_port" --strictPort
+
+# After testing, stop that exact Vite process/session, then confirm cleanup:
+lsof -tiTCP:"$beamline_port" -sTCP:LISTEN
+```
+
+The final `lsof` command must print nothing. If it prints a PID, the temporary
+server still needs to be stopped before the task is handed off.
+
 ## Completing feature work
 
 1. Commit all intended feature changes in the feature worktree.
