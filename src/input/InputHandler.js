@@ -4229,9 +4229,10 @@ export class InputHandler {
       case 'utility': {
         const descriptor = UTILITY_TYPES[key];
         if (!descriptor) { this._hidePreview(); return; }
-        this._renderPreview(descriptor.displayName || key, descriptor.desc || '', [
-          ['Placement', 'Drag port → port'],
-        ]);
+        const stats = this.selectedCategory === 'power'
+          ? []
+          : [['Placement', 'Drag port → port']];
+        this._renderPreview(descriptor.displayName || key, descriptor.desc || '', stats);
         return;
       }
       case 'component':

@@ -16,10 +16,10 @@ export const MODES = {
       // Each infra category leads with a `transport` subsection containing
       // the utility-line tools for that category's utility type(s). Physical
       // equipment (supply, distribution, etc.) follows.
-      // HV first: it is the upstream half of the chain (supply -> distribution),
-      // and it is the run the player draws before any branch circuit exists.
+      // Put the everyday branch cable first; the upstream HV feeder remains
+      // beside it but is the less frequently selected transport tool.
       power:        { name: 'Power',           color: '#4c4',
-                      utilityLineTools: ['hvCable', 'powerCable'],
+                      utilityLineTools: ['powerCable', 'hvCable'],
                       subsections: { transport: { name: 'Transport' }, hvSupply: { name: 'HV Supply' }, distribution: { name: 'Distribution' }, fieldDistribution: { name: 'Field Distribution' }, specialty: { name: 'Specialty' } } },
       vacuum:       { name: 'Vacuum',          color: '#999',
                       utilityLineTools: ['vacuumPipe'],

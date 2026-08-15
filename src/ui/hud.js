@@ -2253,10 +2253,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         nameEl.textContent = descriptor.displayName || utilityType;
         item.appendChild(nameEl);
 
-        const descEl = document.createElement('div');
-        descEl.className = 'palette-cost';
-        descEl.textContent = '(drag port→port)';
-        item.appendChild(descEl);
+        // The two Power transport cards are already self-explanatory and sit
+        // side by side; keep them compact instead of repeating the same
+        // interaction hint under both names.
+        if (compCategory !== 'power') {
+          const descEl = document.createElement('div');
+          descEl.className = 'palette-cost';
+          descEl.textContent = '(drag port→port)';
+          item.appendChild(descEl);
+        }
 
         item.addEventListener('click', () => {
           if (this._onPaletteClick) this._onPaletteClick(idx);
