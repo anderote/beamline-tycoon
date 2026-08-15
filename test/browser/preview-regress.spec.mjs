@@ -54,6 +54,40 @@ import {
   frames, clickTile,
 } from './helpers.mjs';
 
+test('placement grid preview has a 1.5-tile radius', async ({ page }) => {
+  await bootFreshGame(page);
+  await expectRendererLive(page);
+
+  const grid = await page.evaluate(() => {
+    const renderer = window._renderer;
+    const col = 20, row = 20;
+    renderer.renderPlacementGridOnly(col, row);
+    const major = renderer.gridOverlayGroup.children.find(child =>
+      child.material?.opacity === 0.45);
+    const positions = major?.geometry?.getAttribute('position');
+    if (!positions) return null;
+    const xs = [];
+    const zs = [];
+    for (let i = 0; i < positions.count; i++) {
+      xs.push(positions.getX(i));
+      zs.push(positions.getZ(i));
+    }
+    const centreX = col * 2 + 1;
+    const centreZ = row * 2 + 1;
+    return {
+      radiusTiles: Math.max(
+        centreX - Math.min(...xs), Math.max(...xs) - centreX,
+        centreZ - Math.min(...zs), Math.max(...zs) - centreZ,
+      ) / 2,
+      tileCount: positions.count / 8,
+    };
+  });
+
+  expect(grid, 'the major placement grid was rendered').not.toBeNull();
+  expect(grid.radiusTiles, 'the preview radius is half the former 3 tiles').toBe(1.5);
+  expect(grid.tileCount, 'a centred 1.5-tile radius covers a 3×3 tile square').toBe(9);
+});
+
 test('placement previews: keyboard arming, stackable hitbox, decoration rotation', async ({ page }) => {
   const errors = createErrorCollector(page);
   autoAcceptDialogs(page);

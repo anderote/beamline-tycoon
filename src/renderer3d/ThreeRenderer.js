@@ -3395,7 +3395,7 @@ export class ThreeRenderer {
     this._invalidateGridOverlay();
     this._gridOverlaySig = sig;
 
-    const majorRadius = 3;   // tiles around cursor for major grid
+    const majorRadius = 1.5; // half the previous 3-tile preview radius
     const subRadius = 1;     // tiles around cursor for sub-grid
     const Y_OFFSET = 0.04;
 
@@ -3407,8 +3407,8 @@ export class ThreeRenderer {
 
     // --- Per-tile borders (bold) ---
     const majorVerts = [];
-    for (let dr = -majorRadius; dr <= majorRadius; dr++) {
-      for (let dc = -majorRadius; dc <= majorRadius; dc++) {
+    for (let dr = Math.ceil(-majorRadius); dr <= Math.floor(majorRadius); dr++) {
+      for (let dc = Math.ceil(-majorRadius); dc <= Math.floor(majorRadius); dc++) {
         const c = getTileCornersY(state, col + dc, row + dr);
         const x0 = (col + dc) * 2, x1 = x0 + 2;
         const z0 = (row + dr) * 2, z1 = z0 + 2;
