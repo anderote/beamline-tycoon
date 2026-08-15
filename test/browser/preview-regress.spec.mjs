@@ -54,7 +54,7 @@ import {
   frames, clickTile,
 } from './helpers.mjs';
 
-test('placement grid preview has a 1.5-tile radius', async ({ page }) => {
+test('placement grid preview has a compact radius, soft falloff, and line hierarchy', async ({ page }) => {
   await bootFreshGame(page);
   await expectRendererLive(page);
 
@@ -63,9 +63,13 @@ test('placement grid preview has a 1.5-tile radius', async ({ page }) => {
     const col = 20, row = 20;
     renderer.renderPlacementGridOnly(col, row);
     const major = renderer.gridOverlayGroup.children.find(child =>
-      child.material?.opacity === 0.45);
+      child.userData?.gridLineKind === 'major');
+    const subgrid = renderer.gridOverlayGroup.children.find(child =>
+      child.userData?.gridLineKind === 'subgrid');
     const positions = major?.geometry?.getAttribute('position');
-    if (!positions) return null;
+    const majorColors = major?.geometry?.getAttribute('color');
+    const subgridColors = subgrid?.geometry?.getAttribute('color');
+    if (!positions || !majorColors || !subgridColors) return null;
     const xs = [];
     const zs = [];
     for (let i = 0; i < positions.count; i++) {
@@ -74,18 +78,35 @@ test('placement grid preview has a 1.5-tile radius', async ({ page }) => {
     }
     const centreX = col * 2 + 1;
     const centreZ = row * 2 + 1;
+    const majorAlphas = [];
+    const subgridAlphas = [];
+    for (let i = 0; i < majorColors.count; i++) majorAlphas.push(majorColors.getW(i));
+    for (let i = 0; i < subgridColors.count; i++) subgridAlphas.push(subgridColors.getW(i));
+    const lineWidth = major.userData.lineWidthWorld;
     return {
       radiusTiles: Math.max(
         centreX - Math.min(...xs), Math.max(...xs) - centreX,
         centreZ - Math.min(...zs), Math.max(...zs) - centreZ,
-      ) / 2,
-      tileCount: positions.count / 8,
+      ) / 2 - lineWidth / 4,
+      tileCount: positions.count / 16,
+      majorAlphaRange: [Math.min(...majorAlphas), Math.max(...majorAlphas)],
+      subgridAlphaRange: [Math.min(...subgridAlphas), Math.max(...subgridAlphas)],
+      majorIsRibbon: major.isMesh === true,
+      subgridIsHairline: subgrid.isLineSegments === true,
     };
   });
 
   expect(grid, 'the major placement grid was rendered').not.toBeNull();
   expect(grid.radiusTiles, 'the preview radius is half the former 3 tiles').toBe(1.5);
   expect(grid.tileCount, 'a centred 1.5-tile radius covers a 3×3 tile square').toBe(9);
+  expect(grid.majorAlphaRange[1], 'major lines are strongest by the cursor')
+    .toBeGreaterThan(grid.majorAlphaRange[0]);
+  expect(grid.subgridAlphaRange[1], 'subgrid lines also fade outward')
+    .toBeGreaterThan(grid.subgridAlphaRange[0]);
+  expect(grid.majorAlphaRange[1], 'major lines remain more definite than the subgrid')
+    .toBeGreaterThan(grid.subgridAlphaRange[1]);
+  expect(grid.majorIsRibbon, 'major tile boundaries use reliable wide geometry').toBe(true);
+  expect(grid.subgridIsHairline, 'subgrid divisions remain hairline segments').toBe(true);
 });
 
 test('placement previews: keyboard arming, stackable hitbox, decoration rotation', async ({ page }) => {
