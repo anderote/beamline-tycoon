@@ -390,7 +390,7 @@ export function computeSystemStats(state) {
   // placed (and was billed for) counted as zero here — the panel reported
   // "Sources 0 / Fwd 0 kW" next to a non-zero draw.
   const rfSourceTypes = [
-    'magnetron', 'iot', 'solidStateAmp', 'highPowerSSA', 'twt',
+    'magnetron', 'iot', 'widebandDriverAmp', 'lowBandBuncherAmp', 'solidStateAmp', 'highPowerSSA', 'twt',
     'slac5045Klystron', 'pulsedKlystron', 'cwKlystron', 'multibeamKlystron',
     'gyrotron',
   ];
@@ -429,10 +429,11 @@ export function computeSystemStats(state) {
     detail: {
       klystrons: (counts.slac5045Klystron || 0) + (counts.pulsedKlystron || 0)
         + (counts.cwKlystron || 0) + (counts.multibeamKlystron || 0),
-      ssas: (counts.solidStateAmp || 0) + (counts.highPowerSSA || 0),
+      ssas: (counts.lowBandBuncherAmp || 0) + (counts.solidStateAmp || 0)
+        + (counts.highPowerSSA || 0),
       iots: counts.iot || 0,
       magnetrons: counts.magnetron || 0,
-      twts: counts.twt || 0,
+      twts: (counts.widebandDriverAmp || 0) + (counts.twt || 0),
       gyrotrons: counts.gyrotron || 0,
       modulators: counts.modulator || 0,
       circulators: counts.circulator || 0,

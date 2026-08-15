@@ -665,8 +665,9 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //                   1200 → gridIntertieTransformer 3000. Those are the ONLY
 //                   capacity sources; switchgear, panels, MCCs, buses and UPS
 //                   units distribute an upstream feed without creating power.
-//   rf      (kW):   magnetron 5 @S → TWT 20 @all → slac5045Klystron 25 @S
-//                   → SSA 35 @VHF/UHF
+//   rf      (kW):   magnetron 5 @S → wideband driver 5 @all
+//                   → low-band buncher SSA 10 @VHF/UHF → TWT 20 @all
+//                   → slac5045Klystron 25 @S → SSA 35 @VHF/UHF
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
 //                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
 //                   @VHF/UHF/L → gyrotron 1000 @C/X
@@ -972,6 +973,11 @@ const INFRA_UTILITY_PORTS = {
   ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
   // rf (capacity kW = raw params.power)
   magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
+  widebandDriverAmp:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 1.0 } } },
+  // A single clean 10 kW output: enough for the first VHF buncher/pillbox
+  // network, while the 35 kW rack below earns its four independently flanged
+  // outputs when a real front end begins to fan out.
+  lowBandBuncherAmp:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 10, dutyFactor: 1.0 } } },
   // Four independently flanged 8.75 kW outputs. They are one 35 kW combiner
   // internally (discovery unites same-device source ports), but keeping each
   // client on its own port avoids an unnecessary tee and its VSWR penalty.

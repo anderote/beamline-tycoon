@@ -158,6 +158,24 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
   assert(mag.rf_out.params.frequency === undefined,
     'a source carries no frequency — bands are the matching key');
 
+  const wideband = getUtilityPortsV2('widebandDriverAmp');
+  assert(wideband.rf_out?.params.capacity === 5
+      && wideband.rf_out.params.dutyFactor === 1.0
+      && wideband.rf_out.params.bands.join(',') === 'vhf,uhf,lband,sband,cband,xband',
+  'wideband driver provides 5 kW CW across every RF band');
+  assert(wideband.hv_in?.utility === 'hvCable'
+      && wideband.hv_in.params.demand === 13,
+  'wideband driver exposes its 13 kW HV input');
+
+  const buncherAmp = getUtilityPortsV2('lowBandBuncherAmp');
+  assert(buncherAmp.rf_out?.params.capacity === 10
+      && buncherAmp.rf_out.params.dutyFactor === 1.0
+      && buncherAmp.rf_out.params.bands.join(',') === 'vhf,uhf',
+  'starter buncher amplifier provides 10 kW CW across VHF/UHF');
+  assert(buncherAmp.hv_in?.utility === 'hvCable'
+      && buncherAmp.hv_in.params.demand === 18,
+  'starter buncher amplifier exposes its 18 kW HV input');
+
   const ecr = getUtilityPortsV2('ecrIonSource');
   assert(ecr.rf_in.params.frequency === 2450 * 1e6,
     `ecrIonSource rf_in frequency === 2.45e9 Hz (got ${ecr.rf_in.params.frequency})`);

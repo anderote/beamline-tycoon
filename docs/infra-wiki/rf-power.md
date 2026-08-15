@@ -14,6 +14,8 @@ Different source types serve different purposes. **Duty factor** is now a first-
 | Source | Bands covered | Avg Power | Duty | Peak Power | Cost | $/kW |
 |--------|---------------|-----------|------|-----------|------|------|
 | Magnetron | S | 5 kW | 0.01 | 500 kW | $50k | $10,000 |
+| 5 kW Wideband Driver Amplifier | VHF, UHF, L, S, C, X | 5 kW | 1.0 (CW) | 5 kW | $125k | $25,000 |
+| 10 kW Low-Band Buncher Amplifier | VHF, UHF | 10 kW | 1.0 (CW) | 10 kW | $75k | $7,500 |
 | TWT | VHF, UHF, L, S, C, X | 20 kW | 0.05 | 400 kW | $475k | $23,750 |
 | SSA | VHF, UHF | 35 kW | 1.0 (CW) | 35 kW | $225k | $6,429 |
 | SLAC 5045 Klystron | S | 25 kW | 0.001 | **25 MW** | $205k | $8,200 |
@@ -36,6 +38,8 @@ This is what reconciles the game's kilowatt-scale RF ladder with the **megawatt*
 A network mixing pulsed and CW sources gets a capacity-weighted mean duty factor, which dilutes the pulsed advantage. Keep your pulsed and CW chains on separate waveguide networks.
 
 The bands themselves: **VHF** 50–500 MHz, **UHF** 500–1000, **L** 1000–2000, **S** 2000–4000, **C** 4000–8000, **X** 8000–16000. They are contiguous, so every cavity frequency lands in exactly one.
+
+The 5 kW Wideband Driver Amplifier is the commissioning choice: it is available at the first RF-lab tier, draws 13 kW from the wall, and reaches every band. It can prove out a buncher, ECR source, or single low-power test cavity without committing to a dedicated source, but its output is intentionally too small for a real linac. The 10 kW Low-Band Buncher Amplifier is the economical front-end choice: it draws 18 kW and covers VHF/UHF. The VHF coverage matters because the starter buncher is 162.5 MHz; a UHF-only rack would not actually drive it. Ten kilowatts runs a buncher and one first pillbox with headroom, while the 35 kW SSA remains the expansion choice for several low-band structures.
 
 The TWT is the only source covering all six, and at 20 kW it is deliberately the weakest thing on the ladder. It exists to unblock a frequency you have no real source for, never to power a machine. It is also the worst value on the board at $23,750/kW — it pays the X-band frequency premium *and* the full breadth surcharge for those six bands. You are buying coverage, and coverage is expensive.
 
