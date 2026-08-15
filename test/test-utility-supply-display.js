@@ -39,7 +39,7 @@ function drawRows(id) {
 console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
-    hvTransformer: 1200, switchgear: 400, mcc: 250,
+    hvTransformer: 1200, switchgear: 400, compactHvDistributor: 200, mcc: 250,
     padMountTransformer: 150, ups: 100, powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {
@@ -94,7 +94,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 31, `31 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 32, `32 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================
@@ -125,7 +125,7 @@ console.log('\n--- Test 3: draw + supply coexist ---');
 // ==========================================================================
 console.log('\n--- Test 4: zero draw -> no draw row ---');
 {
-  for (const id of ['hvTransformer', 'switchgear', 'padMountTransformer', 'powerPanel']) {
+  for (const id of ['hvTransformer', 'compactHvDistributor', 'switchgear', 'padMountTransformer', 'powerPanel']) {
     assert(COMPONENTS[id].energyCost === 0, `${id}: fixture assumption — energyCost is 0`);
     assert(drawRows(id).length === 0, `${id}: no draw row when energyCost is 0`);
   }
@@ -180,6 +180,12 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'passive fan coil has no invented power draw');
   assert(fanCoilTags.some(tag => tag.text === 'C: +50 kW' && tag.direction === 'supply'),
     'fan coil: compact palette tag shows its cooling output');
+
+  const compactHvMetrics = paletteUtilityMetrics(COMPONENTS.compactHvDistributor);
+  assert(compactHvMetrics.some(r => r.label === 'Power draw' && r.value === '200 kW'),
+    'compact HV distributor: palette shows its 200 kW incoming feeder rating');
+  assert(compactHvMetrics.some(r => r.label === 'Power capacity' && r.value === '200 kW'),
+    'compact HV distributor: palette shows two outputs totaling 200 kW');
 }
 
 // ==========================================================================

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 globalThis.THREE = THREE;
 
 const {
+  _buildCompactHvDistributorRoles,
   _buildSwitchgearRoles,
   _buildMCCRoles,
   _buildCompactDistributionPanelRoles,
@@ -45,8 +46,17 @@ test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', (
 });
 
 test('switchgear and MCC show serviceable electrical compartments', () => {
+  const compactHv = _buildCompactHvDistributorRoles();
   const switchgear = _buildSwitchgearRoles();
   const mcc = _buildMCCRoles();
+
+  assert.ok(totalParts(compactHv) >= 20,
+    `compact HV distributor has a door, two breaker outlets and rear inlet (${totalParts(compactHv)} parts)`);
+  assert.equal(compactHv.glow.length, 1, 'compact HV distributor has one restrained status lamp');
+  assert.equal(compactHv.copper.length, 4,
+    'compact HV distributor shows one inlet, two outlets and its grounding bond');
+  assert.ok(totalParts(compactHv) < totalParts(switchgear),
+    'compact 1-to-2 cabinet is visually simpler than the four-way switchgear');
 
   assert.ok(totalParts(switchgear) >= 35,
     `switchgear has a door, meter, breaker hardware and lifting eyes (${totalParts(switchgear)} parts)`);
@@ -58,6 +68,7 @@ test('switchgear and MCC show serviceable electrical compartments', () => {
   assert.equal(mcc.glow.length, 8, 'each MCC starter bucket has one pilot lamp');
   assert.ok(mcc.accent.length >= 9, 'MCC enclosure carries eight proud compartment doors');
 
+  disposeBuckets(compactHv);
   disposeBuckets(switchgear);
   disposeBuckets(mcc);
 });
