@@ -2976,15 +2976,16 @@ export class InputHandler {
       this.selectionGroupPreview = null;
       return;
     }
+    const dir = this.placementDir ?? primary.dir;
     const snap = snapForPlaceable(
       this.lastMouseWorldX ?? 0,
       this.lastMouseWorldY ?? 0,
       def,
-      primary.dir,
+      dir,
     );
     const preview = previewSelectionGroup(this.game, payload, {
       ...snap,
-      dir: primary.dir,
+      dir,
     });
     this.selectionGroupPreview = preview;
     const renderReason = typeof preview.reason === 'string' && preview.reason.startsWith('utility:')
