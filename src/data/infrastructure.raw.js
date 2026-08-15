@@ -961,6 +961,15 @@ export const INFRASTRUCTURE_RAW = {
   },
 
   // ── Cooling Water ─────────────────────────────────────────────────
+  waterTank: {
+    id: 'waterTank', name: 'Make-up Water Tank',
+    desc: 'Bulk treated-water storage for the cooling plant. Start the plant-water chain here: connect this tank to a heat rejector, then connect the rejector to a chiller. It does not feed beamline equipment directly.',
+    category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
+    cost: { funding: 180000 }, stats: {}, energyCost: 0,
+    subL: 3, subW: 3, subH: 4, gridW: 3, gridH: 3, geometryType: 'cylinder',
+    baseMaterial: 'metal_painted_blue', zoneTier: 0, spriteKey: 'waterLoad', spriteColor: 0x277a9c,
+    placement: 'module', ports: {}, requiredConnections: [],
+  },
   waterLoad: {
     id: 'waterLoad',
     name: 'High-Power Water Load',
@@ -1012,15 +1021,16 @@ export const INFRASTRUCTURE_RAW = {
   // machine grows.
   fanCoilCooler: {
     id: 'fanCoilCooler',
-    name: 'Fan-Coil Cooler',
-    desc: 'Finned water-to-air coil with a squirrel-cage blower, dumping 20 kW of magnet heat straight into the hall. No compressor, no tower, no basin — the supply temperature just tracks room ambient, so it holds nothing tighter than about +10°C over the air it is breathing. Enough to keep one or two magnets off their thermal interlocks while the beamline is still two components long. The worst dollars-per-kilowatt in the game, and the only cooling you can afford on day one.',
-    // This is a direct air heat rejector, not a source of chilled water.
-    coolingRole: 'directAir',
+    name: 'Air-Cooled Condenser',
+    desc: 'Small air-cooled heat rejector for a starter cooling plant. Connect a Make-up Water Tank to this unit, then connect it to a Package Chiller. It rejects 50 kW to hall air: expensive and noisy, but the affordable first rung before an outdoor dry cooler or cooling tower.',
+    coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
     cost: { funding: 140000 },
     stats: {},
-    energyCost: 1,
+    // Passive starter rejector: its tiny natural-convection capacity is what
+    // keeps the first complete plant affordable. Larger rejectors need power.
+    energyCost: 0,
     subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
     zoneTier: 0,
@@ -1029,14 +1039,14 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: [],
   },
   packageChiller: {
     id: 'packageChiller',
     name: 'Package Chiller',
-    desc: 'Skid-mounted single-circuit chiller — scroll compressor, brazed-plate evaporator, air-cooled condenser and a buffer tank on one frame that arrives on a flatbed and asks only for power and two hose connections. 50 kW of stable water, enough for a short beamline and its RF load. One circuit means one setpoint for everything plumbed to it and no redundancy: when the compressor trips, the whole loop goes warm together.',
-    coolingRole: 'processCooling',
-    category: 'cooling', subsection: 'processCooling',
+    desc: 'Self-contained 50 kW cooling package: buffer tank, pump, chiller and air-cooled heat rejector on one frame. Give it power and run Process Water to your equipment — no separate tank or tower is needed. Cheap and simple for a short beamline; one circuit means one setpoint and no redundancy.',
+    coolingRole: 'integratedCooling',
+    category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,
     cost: { funding: 325000 },
     stats: {},
@@ -1057,9 +1067,9 @@ export const INFRASTRUCTURE_RAW = {
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',
-    desc: 'Low-Conductivity Water (LCW) distribution skid that supplies deionized cooling water to magnets and RF cavities. The backbone of your cooling infrastructure — most beamline components need water cooling. Connect to components via Cooling Water lines.',
-    coolingRole: 'processCooling',
-    category: 'cooling', subsection: 'processCooling',
+    desc: 'Self-contained 100 kW low-conductivity-water skid. Its own buffer tank, pump, chiller, air-cooled rejector and deionizing loop are packaged together: connect power, then run Process Water to magnets and warm RF. Outgrow it into a central chiller plus separate tank and heat rejection when the facility gets large.',
+    coolingRole: 'integratedCooling',
+    category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,
     cost: { funding: 600000 },
     stats: {},

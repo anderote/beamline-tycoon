@@ -354,10 +354,12 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
     assert(st1(t).cryo.coolingCapacity === cap(t, 'cryo_out', 'coldCapacityW'),
       `${t} cryo capacity matches the solver ladder (${cap(t, 'cryo_out', 'coldCapacityW')} W)`);
   }
-  for (const t of ['lcwSkid', 'chiller', 'coolingTower']) {
+  for (const t of ['lcwSkid', 'chiller']) {
     assert(st1(t).cooling.coolingCapacity === cap(t, 'cool_out', 'capacity'),
       `${t} cooling capacity matches the solver ladder (${cap(t, 'cool_out', 'capacity')} kW)`);
   }
+  assert(cap('coolingTower', 'reject_out', 'rejectionCapacity') === 800,
+    'cooling tower exposes 800 kW of heat-rejection capacity, not process cooling');
 
   // Cryo LOAD counts every cryo sink, not just `cryomodule`.
   const srf = computeSystemStats({

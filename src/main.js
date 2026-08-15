@@ -680,6 +680,8 @@ function showScenarioPicker(game) {
     const pump = game.placePlaceable({type:'turboPump', col:2, row:14});
     const ioc  = game.placePlaceable({type:'rackIoc', col:4, row:14});
     const chil = game.placePlaceable({type:'chiller', col:6, row:14});
+    const tank = game.placePlaceable({type:'waterTank', col:0, row:16});
+    const condenser = game.placePlaceable({type:'fanCoilCooler', col:3, row:16});
     const kly  = game.placePlaceable({type:'pulsedKlystron', col:8, row:14});
     const pwrBus = game.placePlaceable({type:'powerBus', col:1, row:13});
     const vacBus = game.placePlaceable({type:'vacuumManifold', col:3, row:13});
@@ -693,6 +695,8 @@ function showScenarioPicker(game) {
     for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
       wire('vacuumPipe', pump,'vac_out', id, port);
     wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');
+    wire('plantWater', tank,'water_out', condenser,'plant_in');
+    wire('plantWater', condenser,'reject_out', chil,'reject_in');
     for (const [id, port] of [[src,'cool_in'],[coolBus,'bus_left']])
       wire('coolingWater', chil,'cool_out', id, port);
     for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])

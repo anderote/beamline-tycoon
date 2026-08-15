@@ -211,8 +211,8 @@ export function setupSmallBeamlineFacility(game) {
   if (ssa && wgBus) wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
 
   // Cooling: gun collector heat plus the one quadrupole. A single magnet does
-  // not earn a header, so it gets a stub. Gives the starter facility a live
-  // water reservoir (a recurring refill cost).
+  // not earn a header, so it gets a stub. The starter LCW skid is a complete
+  // package: its tank, pump and air-cooled rejection live in the enclosure.
   if (skid) {
     if (src) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: src, port: 'cool_in' });
     if (quad) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: quad, port: 'cool_in' });

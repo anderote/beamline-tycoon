@@ -27,6 +27,13 @@ function powerInputNetwork(worldState, placeableId) {
     .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
 }
 
+function plantWaterInputNetwork(worldState, placeableId) {
+  const networks = worldState?.utilityNetworks?.get?.('plantWater') || [];
+  const inputKey = `${placeableId}:reject_in`;
+  return networks.find(network => (network.ports || [])
+    .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
+}
+
 // Evaluate a feeder tree directly from discovered topology. `hvCable` runs
 // before branch power, but one hvCable network can itself feed another through
 // main switchgear. Reading last tick's nodeQualities made that chain take an
@@ -70,10 +77,30 @@ export function hvFeedFactor(worldState, placeableId, visiting = new Set()) {
 export function powerFeedFactor(worldState, placeableId) {
   // Descriptor-only unit tests often use opaque ids without a world model.
   if (!worldState) return 1;
+  // Thermal/physics descriptor tests provide a small world containing the
+  // relevant equipment but intentionally no utility solve state. That means
+  // "power is outside this model", not "the equipment is unwired". A live
+  // Game always publishes utilityNetworks before any descriptor is solved.
+  if (!worldState.utilityNetworks || typeof worldState.utilityNetworks.get !== 'function') return 1;
   const type = typeForId(worldState, placeableId);
   if (!type || !getUtilityPortsV2(type).pwr_in) return 1;
   const network = powerInputNetwork(worldState, placeableId);
   const flow = network && worldState.utilityNetworkData?.get?.('powerCable')?.get?.(network.id);
   const quality = flow?.perSinkQuality?.[`${placeableId}:pwr_in`];
+  return typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : 0;
+}
+
+/**
+ * A process chiller cannot create useful LCW unless its condenser is tied to
+ * a live make-up-water and heat-rejection network. Plant water solves before
+ * coolingWater, so this sees the current tick's delivery quality.
+ */
+export function heatRejectionFeedFactor(worldState, placeableId) {
+  if (!worldState) return 1;
+  const type = typeForId(worldState, placeableId);
+  if (!type || !getUtilityPortsV2(type).reject_in) return 1;
+  const network = plantWaterInputNetwork(worldState, placeableId);
+  const flow = network && worldState.utilityNetworkData?.get?.('plantWater')?.get?.(network.id);
+  const quality = flow?.perSinkQuality?.[`${placeableId}:reject_in`];
   return typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : 0;
 }
