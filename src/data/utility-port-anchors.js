@@ -143,9 +143,13 @@ export const PORT_ANCHOR_OVERRIDES = {
     rf_out_1: { y: 0.78, along: -0.30 }, rf_out_2: { y: 0.78, along: -0.10 },
     rf_out_3: { y: 1.12, along: 0.10 }, rf_out_4: { y: 1.12, along: 0.30 },
   },
-  pulsedKlystron: { _default: { y: 1.0 } },
-  cwKlystron: { _default: { y: 1.0 } },
-  multibeamKlystron: { _default: { y: 1.0 } },
+  // The RF flange sits on the output cavity above the solenoid midpoint. Keep
+  // the HV gland at the ordinary service height while routing the rectangular
+  // guide from the stub the model actually draws.
+  slac5045Klystron: { _default: { y: 1.0 }, rf_out: { y: 1.41 } },
+  pulsedKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
+  cwKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
+  multibeamKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
   chiller: { _default: { y: 0.8 } },
   coolingTower: { _default: { y: 1.0 } },
 

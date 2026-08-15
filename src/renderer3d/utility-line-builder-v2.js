@@ -27,6 +27,11 @@ import {
   softCableBendRadiusMeters,
   softCableControlPoints,
 } from '../utility/soft-cable.js';
+import {
+  waveguideDropProfile,
+  waveguideSupportFrames,
+  waveguideTransitionPoints,
+} from './waveguide-presentation.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -44,6 +49,7 @@ const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 const _matCache = new Map();
 const _jacketMatCache = new Map();
 const _hardwareMatCache = new Map();
+let _waveguideSupportMaterial = null;
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
@@ -124,6 +130,16 @@ function getLineHardwareMaterial(utilityType) {
   return mat;
 }
 
+function getWaveguideSupportMaterial() {
+  if (_waveguideSupportMaterial) return _waveguideSupportMaterial;
+  _waveguideSupportMaterial = shared(new THREE.MeshStandardMaterial({
+    color: 0x465158,
+    roughness: 0.42,
+    metalness: 0.72,
+  }));
+  return _waveguideSupportMaterial;
+}
+
 // Convert a tile-coord waypoint to 3D world (x,z). 1 tile = 2 world meters,
 // matching the game's col*2 / row*2 world placement.
 function tileToWorld(pt) {
@@ -139,8 +155,8 @@ function tileToWorld(pt) {
 // Their endpoint can be metres away on an on-pipe component's reserved
 // footprint. Appending a bridge to that old point removes the diagonal but
 // leaves a conspicuous rectangular loop; sliding the terminal collapses it.
-function alignTerminalToAnchor(points, which, anchor) {
-  if (!anchor || points.length < 3) return false;
+function alignTerminalToTarget(points, which, target) {
+  if (!target || points.length < 3) return false;
   const t = which === 'start' ? 0 : points.length - 1;
   const nb = which === 'start' ? 1 : points.length - 2;
   const endpoint = points[t];
@@ -150,10 +166,10 @@ function alignTerminalToAnchor(points, which, anchor) {
   if (dx < 1e-6 && dz < 1e-6) return false;
   if (dx > 1e-6 && dz > 1e-6) return false;
 
-  endpoint.x = anchor.x;
-  endpoint.z = anchor.z;
-  if (dx > 1e-6) neighbor.z = anchor.z;
-  else neighbor.x = anchor.x;
+  endpoint.x = target.x;
+  endpoint.z = target.z;
+  if (dx > 1e-6) neighbor.z = target.z;
+  else neighbor.x = target.x;
   return true;
 }
 
@@ -173,6 +189,38 @@ function anchorTip(anchor) {
     y: anchor.y,
     z: anchor.z + out.z * standoff,
   };
+}
+
+function waveguideDropOptions(descriptor) {
+  return {
+    launchMeters: descriptor?.dropLaunchMeters,
+    minRampMeters: descriptor?.dropMinRampMeters,
+    maxRampMeters: descriptor?.dropMaxRampMeters,
+    runPerRise: descriptor?.dropRunPerRise,
+  };
+}
+
+function attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descriptor) {
+  if (!Array.isArray(points) || points.length === 0) return points;
+  const opts = waveguideDropOptions(descriptor);
+  const startDrop = waveguideDropProfile(startAnchor, runY, opts);
+  const endDrop = waveguideDropProfile(endAnchor, runY, opts);
+  alignTerminalToTarget(points, 'start', startDrop?.landing || startAnchor);
+  alignTerminalToTarget(points, 'end', endDrop?.landing || endAnchor);
+
+  const startRunPoint = points[0];
+  const endRunPoint = points[points.length - 1];
+  if (startDrop) {
+    const transition = waveguideTransitionPoints(startAnchor, runY, startRunPoint, opts)
+      .map(point => new THREE.Vector3(point.x, point.y, point.z));
+    if (transition.length > 0) points.splice(0, 1, ...transition.reverse());
+  }
+  if (endDrop && points.length > 0) {
+    const transition = waveguideTransitionPoints(endAnchor, runY, endRunPoint, opts)
+      .map(point => new THREE.Vector3(point.x, point.y, point.z));
+    if (transition.length > 0) points.splice(points.length - 1, 1, ...transition);
+  }
+  return points;
 }
 
 /** Flexible cord/hose centreline, including true-height fitting endpoints. */
@@ -213,8 +261,12 @@ export function buildWorldPoints(line, placeablesById) {
   // corner absorbs the start's row and the end's column (or vice versa).
   const startAnchor = anchorFor(line.start, placeablesById);
   const endAnchor = anchorFor(line.end, placeablesById);
-  alignTerminalToAnchor(points, 'start', startAnchor);
-  alignTerminalToAnchor(points, 'end', endAnchor);
+  const descriptor = UTILITY_TYPES[line.utilityType] || {};
+  if (line.utilityType === 'rfWaveguide') {
+    return attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descriptor);
+  }
+  alignTerminalToTarget(points, 'start', startAnchor);
+  alignTerminalToTarget(points, 'end', endAnchor);
 
   // At each end the floor run reaches the connector's X/Z, climbs the device,
   // and steps out into its fitting. Two-point legacy lines cannot slide a
@@ -626,6 +678,70 @@ function addInlineCouplers(group, start, end, descriptor, material) {
   }
 }
 
+// Low H-frame saddle under one deck-level waveguide span. The frame is built
+// in a +Z local run direction, then turned onto the actual segment. Its top bar
+// touches the underside of the rectangular guide; feet always remain on y=0.
+function buildWaveguideSupport(frame, descriptor, materialOverride = null) {
+  if (!frame?.point || !frame?.direction) return null;
+  const radius = descriptor?.pipeRadiusMeters || 0.05;
+  const guideWidth = radius * 2;
+  const guideHeight = radius * 1.4;
+  const floorY = frame.point.y;
+  const footH = 0.025;
+  const barH = 0.032;
+  const barTop = floorY - guideHeight * 0.5 - 0.006;
+  const barBottom = barTop - barH;
+  if (barBottom <= footH + 0.015) return null;
+
+  const material = materialOverride || getWaveguideSupportMaterial();
+  const support = new THREE.Group();
+  const saddleWidth = Math.max(0.24, guideWidth * 2.25);
+  const depth = 0.13;
+  const foot = new THREE.Mesh(
+    new THREE.BoxGeometry(saddleWidth + 0.10, footH, depth + 0.07), material);
+  foot.position.y = footH * 0.5;
+  support.add(foot);
+
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(saddleWidth + 0.04, barH, depth), material);
+  bar.position.y = barBottom + barH * 0.5;
+  support.add(bar);
+
+  const legH = barBottom - footH;
+  const legOffset = saddleWidth * 0.5 - 0.035;
+  for (const side of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, legH, 0.055), material);
+    leg.position.set(side * legOffset, footH + legH * 0.5, 0);
+    support.add(leg);
+  }
+
+  support.position.set(frame.point.x, 0, frame.point.z);
+  support.rotation.y = Math.atan2(frame.direction.x, frame.direction.z);
+  support.userData = {
+    isUtilitySupport: true,
+    utilityType: 'rfWaveguide',
+    runLength: frame.runLength,
+  };
+  return support;
+}
+
+function addWaveguideSupports(group, points, descriptor, materialOverride = null) {
+  const spacing = descriptor?.supportSpacingMeters;
+  const minimum = descriptor?.supportMinimumRunMeters;
+  if (!(spacing > 0) || !(minimum > 0)) return;
+  const floorY = Number.isFinite(descriptor.runHeightMeters)
+    ? descriptor.runHeightMeters : utilityLineHeight('rfWaveguide');
+  const frames = waveguideSupportFrames(points, {
+    floorY,
+    spacingMeters: spacing,
+    minimumRunMeters: minimum,
+  });
+  for (const frame of frames) {
+    const support = buildWaveguideSupport(frame, descriptor, materialOverride);
+    if (support) group.add(support);
+  }
+}
+
 // --- Elbows -------------------------------------------------------------
 //
 // Straight segments butt-joined at a waypoint leave a notch on the OUTSIDE of
@@ -898,11 +1014,17 @@ function buildLineGroup(
       mesh = buildCylinderSegment(a, b, radius, mat, runDist);
     }
     if (mesh) {
+      // Publish an explicit boundary between the utility's traversable run and
+      // decorative hardware (joints, couplers, and RF support frames).  Tests
+      // and presentation effects must not infer that role from geometry type.
+      mesh.userData.isUtilityLineSegment = true;
       if (flowing) mesh.layers.enable(BLOOM_LAYER);
       group.add(mesh);
     }
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
+
+  if (style === 'rectWaveguide') addWaveguideSupports(group, points, descriptor);
 
   // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
   // purpose: they either disappear into a port fitting or carry an open-end
@@ -1042,8 +1164,13 @@ function buildPreviewLine(preview) {
       }, null, { start: preview.startAnchor, end: preview.endAnchor })
     : preview.path.map(p => {
         const w = tileToWorld(p);
-        return new THREE.Vector3(w.x, previewY, w.z);
-      });
+      return new THREE.Vector3(w.x, previewY, w.z);
+    });
+  if (!flexible && preview.utilityType === 'rfWaveguide'
+    && preview.endpointTransitions !== false) {
+    attachWaveguideTransitions(
+      points, preview.startAnchor, preview.endAnchor, previewY, descriptor);
+  }
   const group = new THREE.Group();
   group.userData = { isUtilityLinePreview: true };
   const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
@@ -1064,6 +1191,9 @@ function buildPreviewLine(preview) {
       mesh = buildCylinderSegment(a, b, radius, mat);
     }
     if (mesh) group.add(mesh);
+  }
+  if (!flexible && style === 'rectWaveguide' && preview.endpointTransitions !== false) {
+    addWaveguideSupports(group, points, descriptor, mat);
   }
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
@@ -1649,6 +1779,7 @@ export class UtilityLineBuilderV2 {
       ? preview.utilityType + '|' + preview.valid + '|' +
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
         + (preview.cablePath || []).map(p => `${p.col},${p.row}`).join(';') + '|'
+        + (preview.endpointTransitions === false ? 'flat|' : 'drops|')
         + [preview.startAnchor, preview.endAnchor]
           .map(a => a ? `${a.x},${a.y},${a.z}` : '-').join('|')
       : null;
