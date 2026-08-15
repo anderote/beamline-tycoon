@@ -358,7 +358,7 @@ test('production fixture registry drives real spots without a legacy scene tag',
     'the spot follows the rendered group rotation instead of assuming dir=0');
 });
 
-test('the production many-light budget selects 64 real fixtures and shadows its nearest 24', () => {
+test('a large many-light pool selects 64 real fixtures and shadows its nearest 24', () => {
   const scene = new SceneStub();
   const fixtures = [];
   for (let i = 0; i < 80; i++) {

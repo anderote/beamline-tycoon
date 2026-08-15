@@ -496,6 +496,7 @@ export class WallBuilder {
         ? `${wallType}:${wallVariant}${isDoorCutaway ? ':cutaway' : ''}`
         : null;
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
+      const wallColor = wallDef ? wallDef.color : 0xcccccc;
       const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
       const wallHeight = wallDef
         ? wallDef.wallHeight * HEIGHT_SCALE

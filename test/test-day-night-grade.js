@@ -10,6 +10,7 @@
 
 import {
   dayNightGrade,
+  DAY_AMBIENT,
   NIGHT_AMBIENT,
 } from '../src/renderer3d/day-night.js';
 
@@ -51,25 +52,38 @@ console.log('\n=== darkness is monotonic from noon to midnight ===\n');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== ambientIntensity ranges from 1.3 (noon) to NIGHT_AMBIENT (midnight) ===\n');
+console.log('\n=== ambientIntensity ranges from the cinematic day fill to NIGHT_AMBIENT ===\n');
 {
-  assert(NIGHT_AMBIENT === 0.65, `NIGHT_AMBIENT is 0.65 (got ${NIGHT_AMBIENT})`);
+  assert(NIGHT_AMBIENT === 0.48, `NIGHT_AMBIENT is 0.48 (got ${NIGHT_AMBIENT})`);
   const noon = dayNightGrade(0.5);
   const midnight = dayNightGrade(0.0);
-  assert(noon.ambientIntensity === 1.3, `ambientIntensity is 1.3 at noon (got ${noon.ambientIntensity})`);
+  assert(noon.ambientIntensity === DAY_AMBIENT, `ambientIntensity is DAY_AMBIENT at noon (got ${noon.ambientIntensity})`);
   assert(midnight.ambientIntensity === NIGHT_AMBIENT, `ambientIntensity is NIGHT_AMBIENT at midnight (got ${midnight.ambientIntensity})`);
 
   let inRange = true;
   for (let i = 0; i < 100; i++) {
     const t = i / 100;
     const { ambientIntensity } = dayNightGrade(t);
-    if (ambientIntensity < NIGHT_AMBIENT || ambientIntensity > 1.3) inRange = false;
+    if (ambientIntensity < NIGHT_AMBIENT || ambientIntensity > DAY_AMBIENT) inRange = false;
   }
-  assert(inRange, 'ambientIntensity never leaves [NIGHT_AMBIENT, 1.3] across a full day');
+  assert(inRange, 'ambientIntensity never leaves the centralized day/night range');
 
   const darkestChannel = Math.min(...midnight.ambientColor) * midnight.ambientIntensity;
-  assert(darkestChannel >= 0.25,
-    `midnight ambient keeps every colour channel legible before tone mapping (got ${darkestChannel})`);
+  assert(darkestChannel >= 0.17,
+    `midnight ambient preserves readable cool fill without flattening the scene (got ${darkestChannel})`);
+}
+
+console.log('\n=== solar altitude crosses the horizon and atmosphere remains bounded ===\n');
+{
+  assert(Math.abs(dayNightGrade(0.25).solarAltitude) < 1e-12, 'sun is on the horizon at dawn');
+  assert(dayNightGrade(0.5).solarAltitude === 1, 'sun reaches maximum altitude at noon');
+  assert(Math.abs(dayNightGrade(0.75).solarAltitude) < 1e-12, 'sun is on the horizon at dusk');
+  assert(dayNightGrade(0).solarAltitude === -1, 'sun is below the horizon at midnight');
+  for (const t of [0, 0.25, 0.5, 0.75]) {
+    const grade = dayNightGrade(t);
+    assert(grade.fogDensity > 0 && grade.fogDensity < 0.01, `fog density stays subtle at ${t}`);
+    assert(grade.exposure >= 1 && grade.exposure < 1.3, `exposure stays filmic at ${t}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +111,7 @@ console.log('\n=== sunIntensity reaches 0 at night; moonIntensity is 0 by day ==
 console.log('\n=== colours are well-formed RGB triples ===\n');
 {
   for (const t of [0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 0.999]) {
-    const { ambientColor, sunColor } = dayNightGrade(t);
+    const { ambientColor, groundColor, sunColor, skyColor, fogColor } = dayNightGrade(t);
     assert(
       Array.isArray(ambientColor) && ambientColor.length === 3 &&
         ambientColor.every((c) => c >= 0 && c <= 1),
@@ -108,6 +122,10 @@ console.log('\n=== colours are well-formed RGB triples ===\n');
         sunColor.every((c) => c >= 0 && c <= 1),
       `sunColor at timeOfDay=${t} is a valid [r,g,b] in [0,1] (got ${JSON.stringify(sunColor)})`
     );
+    for (const [name, color] of Object.entries({ groundColor, skyColor, fogColor })) {
+      assert(Array.isArray(color) && color.length === 3 && color.every((c) => c >= 0 && c <= 1),
+        `${name} at timeOfDay=${t} is a valid RGB triple`);
+    }
   }
 }
 

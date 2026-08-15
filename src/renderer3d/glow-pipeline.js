@@ -19,8 +19,10 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPipeline } from 'three/webgpu';
-import { pass } from 'three/tsl';
+import { mix, mrt, normalView, output, pass, uniform, vec3, vec4 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { ao } from 'three/addons/tsl/display/GTAONode.js';
+import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 
 // Layer index glow meshes are assigned to (`mesh.layers.enable(BLOOM_LAYER)`).
 // Object3Ds default to layer 0 only, so anything that never opts in is
@@ -31,9 +33,9 @@ export const SOFT_GLOW_LAYER = 2;
 
 // Conservative starting point (grounded industrial look, tuned at low-res
 // pixel scale) — Task 3 tunes these by eye once real glow materials exist.
-const DEFAULT_STRENGTH = 0.6;
-const DEFAULT_RADIUS = 0.3;
-const DEFAULT_THRESHOLD = 0.85;
+const DEFAULT_STRENGTH = CINEMATIC_LIGHTING.bloom.strength;
+const DEFAULT_RADIUS = CINEMATIC_LIGHTING.bloom.radius;
+const DEFAULT_THRESHOLD = CINEMATIC_LIGHTING.bloom.threshold;
 // UnrealBloomPass hardcodes its internal LuminosityHighPassShader's
 // `smoothWidth` uniform to 0.01 (a near-binary cliff at `threshold`) and
 // doesn't expose it as a constructor argument — GlowPipeline sets it
@@ -287,17 +289,58 @@ class ModernGlowPipeline {
     this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
     this._quality = opts.quality || { glowScale: 0.5, softGlow: true };
 
+    // The base pass publishes view normals alongside colour so GTAO can add
+    // stable contact grounding beneath machines, walls, and pipework.
     this._scenePass = pass(scene, camera);
+    this._contactAOEnabled = renderer.backend?.isWebGPUBackend === true;
+    if (this._contactAOEnabled) this._scenePass.setMRT(mrt({ output, normal: normalView }));
     this._sceneColor = this._scenePass.getTextureNode('output');
+    if (this._contactAOEnabled) {
+      this._sceneNormal = this._scenePass.getTextureNode('normal');
+      this._sceneDepth = this._scenePass.getTextureNode('depth');
+      this._aoPass = ao(this._sceneDepth, this._sceneNormal, camera);
+      this._aoPass.radius.value = CINEMATIC_LIGHTING.contactAO.radius;
+      this._aoPass.thickness.value = CINEMATIC_LIGHTING.contactAO.thickness;
+      this._aoPass.distanceFallOff.value = CINEMATIC_LIGHTING.contactAO.distanceFallOff;
+      this._aoStrength = uniform(0.65);
+      const aoFactor = mix(vec3(1), vec3(this._aoPass.getTextureNode().r), this._aoStrength);
+      this._groundedSceneColor = this._sceneColor.mul(vec4(aoFactor, 1));
+    } else {
+      // SwiftShader and compatibility WebGL can spend minutes on one GTAO
+      // frame. Analytic fixture/sun shadows still provide contact on this
+      // fallback; reserve the screen-space pass for native WebGPU.
+      this._groundedSceneColor = this._sceneColor;
+    }
+
+    // Modern bloom is selective too. A layer-filtered camera renders only
+    // explicitly tagged emitters; bright sunlit concrete can no longer haze
+    // the whole frame merely because it crosses a luminance threshold.
+    this._selectiveBloomEnabled = renderer.backend?.isWebGPUBackend === true;
+    if (this._selectiveBloomEnabled) {
+      this._bloomCamera = camera.clone();
+      this._bloomCamera.layers.set(BLOOM_LAYER);
+      this._softGlowCamera = camera.clone();
+      this._softGlowCamera.layers.set(SOFT_GLOW_LAYER);
+      this._bloomScenePass = pass(scene, this._bloomCamera);
+      this._softGlowScenePass = pass(scene, this._softGlowCamera);
+      this._bloomSource = this._bloomScenePass.getTextureNode('output');
+      this._softGlowSource = this._softGlowScenePass.getTextureNode('output');
+    } else {
+      // Compatibility WebGL keeps the original single scene pass. Rendering
+      // two additional layer-filtered copies can starve software GL and low
+      // end GPUs; the luminance threshold remains its conservative mask.
+      this._bloomSource = this._sceneColor;
+      this._softGlowSource = this._sceneColor;
+    }
     this._bloomPass = bloom(
-      this._sceneColor,
+      this._bloomSource,
       opts.strength ?? DEFAULT_STRENGTH,
       opts.radius ?? DEFAULT_RADIUS,
       opts.threshold ?? DEFAULT_THRESHOLD,
     );
     this._bloomPass.smoothWidth.value = opts.smoothWidth ?? DEFAULT_SMOOTH_WIDTH;
     this._softGlowPass = bloom(
-      this._sceneColor,
+      this._softGlowSource,
       this._quality.softGlow ? (opts.softStrength ?? SOFT_STRENGTH) : 0,
       opts.softRadius ?? SOFT_RADIUS,
       opts.softThreshold ?? SOFT_THRESHOLD,
@@ -306,7 +349,7 @@ class ModernGlowPipeline {
     this._softStrength = opts.softStrength ?? SOFT_STRENGTH;
 
     this._pipeline = new RenderPipeline(renderer);
-    this._pipeline.outputNode = this._sceneColor.add(this._bloomPass).add(this._softGlowPass);
+    this._pipeline.outputNode = this._groundedSceneColor.add(this._bloomPass).add(this._softGlowPass);
     this.setQuality(this._quality);
   }
 
@@ -317,9 +360,16 @@ class ModernGlowPipeline {
   setQuality(quality = {}) {
     this._quality = { ...this._quality, ...quality };
     this._softGlowPass.strength.value = this._quality.softGlow ? this._softStrength : 0;
-    const scale = Math.max(0.2, Math.min(1, this._quality.glowScale ?? 0.5));
-    this._bloomPass._resolutionScale = scale;
-    this._softGlowPass._resolutionScale = Math.max(0.1, scale * 0.5);
+    // Three r184's BloomNode owns fixed half-resolution mip chains and exposes
+    // no resolution-scale control. Assigning a private `_resolutionScale`
+    // property here looked like a quality setting but BloomNode never read it.
+    // `glowScale` therefore remains a LegacyGlowPipeline-only control until
+    // Three exposes a supported equivalent for the node pipeline.
+    if (this._aoPass) {
+      this._aoStrength.value = Math.max(0, Math.min(1, quality.contactAOStrength ?? 0.65));
+      this._aoPass.samples.value = Math.max(4, Math.floor(quality.contactAOSamples ?? 12));
+      this._aoPass.resolutionScale = Math.max(0.25, Math.min(1, quality.contactAOScale ?? 0.5));
+    }
   }
 
   // RenderPipeline tracks the renderer drawing buffer and resizes its own
@@ -327,13 +377,22 @@ class ModernGlowPipeline {
   setSize() {}
 
   render() {
-    if (this._enabled) this._pipeline.render();
+    if (this._enabled) {
+      if (this._selectiveBloomEnabled) {
+        this._bloomCamera.copy(this.camera);
+        this._bloomCamera.layers.set(BLOOM_LAYER);
+        this._softGlowCamera.copy(this.camera);
+        this._softGlowCamera.layers.set(SOFT_GLOW_LAYER);
+      }
+      this._pipeline.render();
+    }
     else this.renderer.render(this.scene, this.camera);
   }
 
   dispose() {
     this._bloomPass.dispose();
     this._softGlowPass.dispose();
+    this._aoPass?.dispose();
     this._pipeline.dispose();
   }
 }

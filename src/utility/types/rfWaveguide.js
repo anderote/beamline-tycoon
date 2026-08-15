@@ -127,9 +127,22 @@ export default {
   color: '#cc4444',
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
-  // The fitting itself supplies the transition; routing may turn immediately
-  // without reserving an extra quarter-tile tail on the deck.
-  portClearance: false,
+  // Rectangular guide is the deliberately demanding service. A half-tile of
+  // straight guide leaves each launch, every elbow owns the same straight-leg
+  // budget, and the planner keeps a wider service aisle around installed
+  // rigid runs. This is geometry the player can read, not an arbitrary cost.
+  routingProfile: 'rigid',
+  avoidRigidIntersections: true,
+  routeClearanceTiles: 0.5,
+  equipmentClearanceTiles: 0.25,
+  portClearance: true,
+  portTailTiles: 0.5,
+  minStraightTiles: 0.5,
+  bendRadiusMeters: 0.42,
+  bendPenalty: 8,
+  requiresPortApproach: true,
+  fittingStyle: 'waveguideFlange',
+  couplerSpacingMeters: 3,
   capacityUnit: 'kW',
   // Waveguide may tee, but every tee introduces a modeled impedance mismatch.
   // Extra branches show up as reflected power and worse VSWR in the RF panel.

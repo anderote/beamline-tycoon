@@ -49,7 +49,8 @@ export class VolumetricLightPool {
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
       const candidate = i < this.activeCount ? candidates[i] : null;
-      if (!candidate || candidate.volumeProfile === 'none' || darkness <= 0.01) {
+      const activation = Math.max(0, Math.min(1, candidate?.activation ?? darkness));
+      if (!candidate || candidate.volumeProfile === 'none' || activation <= 0.01) {
         slot.opacity = Math.max(0, slot.opacity - step);
         slot.material.uniforms.uOpacity.value = slot.opacity * 0.12;
         if (slot.opacity <= 0) this._park(slot);
@@ -57,7 +58,7 @@ export class VolumetricLightPool {
       }
       this._apply(slot, candidate, darkness, time);
       slot.opacity = Math.min(1, slot.opacity + step);
-      slot.material.uniforms.uOpacity.value = slot.opacity * darkness * candidate.weight * 0.12;
+      slot.material.uniforms.uOpacity.value = slot.opacity * activation * candidate.weight * 0.12;
     }
   }
 

@@ -28,8 +28,13 @@ import {
   portWorldPosition,
   availablePorts,
 } from '../utility/ports.js';
-import { buildPortRoutedPath, pathLengthSubUnits } from '../utility/line-geometry.js';
+import {
+  buildPortRoutedPath,
+  findObstacleAwareRoute,
+  pathLengthSubUnits,
+} from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
+import { buildRigidRouteObstacles } from '../utility/route-obstacles.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 
 // Half-width of the run corridor, in tiles. A sink port counts as "passed" if
@@ -106,6 +111,8 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
     preferVerticalFirst,
     allowZeroLength: !!opts.allowZeroLength,
     portClearance: opts.portClearance !== false,
+    portTailTiles: opts.portTailTiles,
+    minStraightTiles: opts.minStraightTiles,
   });
 }
 
@@ -236,12 +243,27 @@ export function planUtilityRun(state, {
         vf, {
         allowZeroLength: utilityType === 'powerCable',
         portClearance: UTILITY_TYPES[utilityType]?.portClearance !== false,
+        portTailTiles: UTILITY_TYPES[utilityType]?.portTailTiles,
+        minStraightTiles: UTILITY_TYPES[utilityType]?.minStraightTiles,
       });
       if (!path) continue;
       if (validateDrawLine(probeState, { utilityType, start, end, path }).ok) {
         chosen = path;
         break;
       }
+    }
+    const descriptor = UTILITY_TYPES[utilityType] || {};
+    if (!chosen && descriptor.routingProfile === 'rigid') {
+      const obstacles = buildRigidRouteObstacles(probeState, utilityType, { startRef: start, endRef: end });
+      const path = findObstacleAwareRoute(outlet.tile, outlet.vec, c.tile, c.vec, {
+        preferVerticalFirst,
+        portClearance: descriptor.portClearance !== false,
+        portTailTiles: descriptor.portTailTiles,
+        minStraightTiles: descriptor.minStraightTiles,
+        bendPenalty: descriptor.bendPenalty,
+        blocked: obstacles.isBlocked,
+      });
+      if (path && validateDrawLine(probeState, { utilityType, start, end, path }).ok) chosen = path;
     }
     if (!chosen) { skipped++; continue; }
     const subL = pathLengthSubUnits(chosen);

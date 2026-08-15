@@ -38,8 +38,6 @@ export class MusicPlayer {
     this.currentIndex = -1;
     this.audio = new Audio();
     this.audio.volume = 0.4;
-    // Start silently unless the player explicitly enables soundtrack audio.
-    this.audio.muted = true;
     // Global handle so lightweight UI (e.g. the title-screen mute toggle) can
     // reach the player without threading a reference through every screen.
     try { window.__blMusic = this; } catch { /* no window */ }

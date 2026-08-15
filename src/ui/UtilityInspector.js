@@ -198,7 +198,11 @@ export class UtilityInspector {
       // alone rendered a literal 0 next to correct header totals.
       const capParam = desc.capacityParam || 'capacity';
       for (const s of network.sources) {
-        const cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
+        let cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
+        if (network.utilityType === 'coolingWater' && !(cap > 0)
+          && s.params?.heatRejectionCapacity > 0) {
+          cap = s.params.heatRejectionCapacity;
+        }
         html += `<div class="utility-list-row">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
           <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>

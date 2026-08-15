@@ -43,6 +43,7 @@ const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 // Keeps identical materials shared across lines for the same descriptor+state.
 const _matCache = new Map();
 const _jacketMatCache = new Map();
+const _hardwareMatCache = new Map();
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
@@ -103,6 +104,23 @@ function getJacketMaterial(utilityType, errorStatus) {
   });
   if (FLOW_PARAMS[utilityType]) patchFlowMaterial(mat, utilityType, flowState);
   _jacketMatCache.set(key, shared(mat));
+  return mat;
+}
+
+// Elbow flanges and guide collars are hardware, not flowing contents. Keeping
+// them on a separate metallic material makes every joint legible even when the
+// service body is dark or carrying an emissive flow pulse.
+function getLineHardwareMaterial(utilityType) {
+  if (_hardwareMatCache.has(utilityType)) return _hardwareMatCache.get(utilityType);
+  const color = utilityType === 'vacuumPipe' ? '#c4c9cc'
+    : utilityType === 'rfWaveguide' ? '#b9783f'
+      : (UTILITY_TYPES[utilityType]?.color || '#aaaaaa');
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    roughness: 0.26,
+    metalness: 0.78,
+  });
+  _hardwareMatCache.set(utilityType, shared(mat));
   return mat;
 }
 
@@ -351,6 +369,177 @@ function buildRectSegment(p0, p1, width, height, material, runDist) {
   return mesh;
 }
 
+function cornerSweepInfo(prev, at, next, descriptor) {
+  const incoming = new THREE.Vector3().subVectors(at, prev);
+  const outgoing = new THREE.Vector3().subVectors(next, at);
+  const inLen = incoming.length(), outLen = outgoing.length();
+  if (inLen < 1e-4 || outLen < 1e-4) return null;
+  incoming.normalize();
+  outgoing.normalize();
+  const dot = incoming.x * outgoing.x + incoming.y * outgoing.y + incoming.z * outgoing.z;
+  if (dot > 0.9999 || dot < -0.9999) return null;
+  const authored = descriptor?.bendRadiusMeters || 0;
+  if (!(authored > 0)) return null;
+  // Keep a short visible straight on both sides even on legacy routes whose
+  // stored legs predate the service's current bend-radius rule.
+  const trim = Math.min(authored, inLen * 0.44, outLen * 0.44);
+  if (!(trim > 1e-4)) return null;
+  return {
+    incoming,
+    outgoing,
+    trim,
+    start: new THREE.Vector3(at.x - incoming.x * trim, at.y - incoming.y * trim, at.z - incoming.z * trim),
+    end: new THREE.Vector3(at.x + outgoing.x * trim, at.y + outgoing.y * trim, at.z + outgoing.z * trim),
+    at,
+  };
+}
+
+function trimmedSegment(points, index, descriptor) {
+  let start = points[index].clone();
+  let end = points[index + 1].clone();
+  if (index > 0) {
+    const bend = cornerSweepInfo(points[index - 1], points[index], points[index + 1], descriptor);
+    if (bend) start = bend.end;
+  }
+  if (index + 1 < points.length - 1) {
+    const bend = cornerSweepInfo(points[index], points[index + 1], points[index + 2], descriptor);
+    if (bend) end = bend.start;
+  }
+  return { start, end };
+}
+
+function elbowCurve(info) {
+  if (!info || !THREE.CubicBezierCurve3) return null;
+  // Cubic approximation of a quarter circle: the 0.5522848 tangent factor is
+  // the standard near-exact Bezier representation of a 90-degree arc.
+  const tangent = info.trim * 0.5522847498;
+  const c1 = new THREE.Vector3(
+    info.start.x + info.incoming.x * tangent,
+    info.start.y + info.incoming.y * tangent,
+    info.start.z + info.incoming.z * tangent,
+  );
+  const c2 = new THREE.Vector3(
+    info.end.x - info.outgoing.x * tangent,
+    info.end.y - info.outgoing.y * tangent,
+    info.end.z - info.outgoing.z * tangent,
+  );
+  return new THREE.CubicBezierCurve3(info.start, c1, c2, info.end);
+}
+
+function buildRoundSweepElbow(info, radius, material) {
+  if (!THREE.TubeGeometry) return null;
+  const curve = elbowCurve(info);
+  if (!curve) return null;
+  const geo = new THREE.TubeGeometry(curve, 10, radius, SEGS, false);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.userData = { isUtilityJoint: true, isUtilitySweepElbow: true, bendRadius: info.trim };
+  return mesh;
+}
+
+// Rectangular sweep for the H-plane bends that dominate floor-routed
+// waveguide. Four cross-section vertices are carried along the same circular
+// centreline as the vacuum elbow, producing a continuous hollow-duct silhouette
+// instead of hiding two butt-jointed boxes inside a cube.
+function buildRectSweepElbow(info, width, height, material) {
+  if (!THREE.BufferGeometry || !THREE.Float32BufferAttribute) return null;
+  // Deck bends stay horizontal. Port riser bends use the compact fallback
+  // below; keeping their guide frame explicit avoids a twist at vertical.
+  if (Math.abs(info.incoming.y) > 1e-4 || Math.abs(info.outgoing.y) > 1e-4) return null;
+  const curve = elbowCurve(info);
+  if (!curve) return null;
+  const steps = 10;
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p = curve.getPoint(t);
+    const tangent = curve.getTangent(t).normalize();
+    const sideX = -tangent.z;
+    const sideZ = tangent.x;
+    const distance = info.trim * Math.PI * 0.5 * t;
+    for (const [side, up, u] of [[-1, -1, 0], [1, -1, 1], [1, 1, 1], [-1, 1, 0]]) {
+      positions.push(
+        p.x + sideX * width * 0.5 * side,
+        p.y + height * 0.5 * up,
+        p.z + sideZ * width * 0.5 * side,
+      );
+      uvs.push(u, distance);
+    }
+    if (i === steps) continue;
+    const a = i * 4, b = (i + 1) * 4;
+    for (let face = 0; face < 4; face++) {
+      const n = (face + 1) % 4;
+      indices.push(a + face, b + face, b + n, a + face, b + n, a + n);
+    }
+  }
+  // End plates close the copper guide body; the equipment port fitting hides
+  // the seam where a run terminates, while elbow collars hide these seams.
+  indices.push(0, 2, 1, 0, 3, 2);
+  const last = steps * 4;
+  indices.push(last, last + 1, last + 2, last, last + 2, last + 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.userData = { isUtilityJoint: true, isUtilitySweepElbow: true, bendRadius: info.trim };
+  return mesh;
+}
+
+function buildServiceFitting(point, direction, descriptor, material) {
+  if (!point || !direction || !descriptor?.fittingStyle) return null;
+  const radius = descriptor.pipeRadiusMeters || 0.04;
+  const depth = descriptor.fittingStyle === 'waveguideFlange' ? 0.055 : 0.045;
+  const half = direction.clone().normalize().multiplyScalar(depth * 0.5);
+  const a = new THREE.Vector3(point.x - half.x, point.y - half.y, point.z - half.z);
+  const b = new THREE.Vector3(point.x + half.x, point.y + half.y, point.z + half.z);
+  let mesh;
+  if (descriptor.fittingStyle === 'waveguideFlange') {
+    mesh = buildRectSegment(a, b, radius * 2.65, radius * 1.95, material);
+  } else if (THREE.TorusGeometry) {
+    const geo = new THREE.TorusGeometry(radius * 1.38, radius * 0.22, 6, 14);
+    mesh = new THREE.Mesh(geo, material);
+    mesh.position.copy(point);
+    const forward = new THREE.Vector3(0, 0, 1);
+    mesh.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(forward, direction.clone().normalize()));
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+  } else {
+    mesh = buildCylinderSegment(a, b, radius * 1.62, material);
+  }
+  if (mesh) mesh.userData = {
+    ...mesh.userData,
+    isUtilityJoint: true,
+    isUtilityFitting: true,
+    fittingStyle: descriptor.fittingStyle,
+  };
+  return mesh;
+}
+
+function addInlineCouplers(group, start, end, descriptor, material) {
+  const spacing = descriptor?.couplerSpacingMeters;
+  if (!(spacing > 0)) return;
+  const direction = new THREE.Vector3().subVectors(end, start);
+  const length = direction.length();
+  if (length < spacing * 1.35) return;
+  direction.normalize();
+  // Centre the regular pattern on the segment so two adjacent couplers never
+  // bunch against a corner flange.
+  const count = Math.floor(length / spacing);
+  const step = length / (count + 1);
+  for (let i = 1; i <= count; i++) {
+    const point = new THREE.Vector3(
+      start.x + direction.x * step * i,
+      start.y + direction.y * step * i,
+      start.z + direction.z * step * i,
+    );
+    const fitting = buildServiceFitting(point, direction, descriptor, material);
+    if (fitting) group.add(fitting);
+  }
+}
+
 // --- Elbows -------------------------------------------------------------
 //
 // Straight segments butt-joined at a waypoint leave a notch on the OUTSIDE of
@@ -377,7 +566,7 @@ const JOINT_SWELL = 1.05;
 // The elbow at ONE interior waypoint. `radius` is the radius of the body being
 // jointed, so a jacketed line calls this twice (core, then jacket) exactly as
 // the segment builder emits two cylinders.
-function buildCornerJoint(prev, at, next, style, radius, material) {
+function buildCornerJoint(prev, at, next, style, radius, material, descriptor = null) {
   // Done in scalars rather than through Vector3: this runs for every waypoint
   // of every line in the hall on each rebuild, and most of them turn out to be
   // collinear and bail here, so it would be three throwaway vectors per miss.
@@ -387,6 +576,14 @@ function buildCornerJoint(prev, at, next, style, radius, material) {
   if (inLen < 1e-4 || outLen < 1e-4) return null;
   const cosTurn = (ix * ox + iy * oy + iz * oz) / (inLen * outLen);
   if (cosTurn > COLLINEAR_DOT) return null;
+
+  const sweep = cornerSweepInfo(prev, at, next, descriptor);
+  if (sweep) {
+    const curved = style === 'rectWaveguide'
+      ? buildRectSweepElbow(sweep, radius * 2, radius * 1.4, material)
+      : buildRoundSweepElbow(sweep, radius, material);
+    if (curved) return curved;
+  }
 
   let geo;
   if (style === 'rectWaveguide') {
@@ -524,7 +721,9 @@ function resampleControlPoints(points, count) {
   return out;
 }
 
-function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverride = null) {
+function buildLineGroup(
+  line, placeablesById, errorStatus, reversed, pointOverride = null, joinedOpenEnds = null,
+) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
   const flexible = isSoftCable(line.utilityType);
@@ -537,6 +736,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
   group.userData = { lineId: line.id, utilityType: line.utilityType, errorStatus: errorStatus || 'ok' };
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const mat = getLineMaterial(line.utilityType, errorStatus);
+  const hardwareMat = getLineHardwareMaterial(line.utilityType);
   const style = descriptor.geometryStyle || 'cylinder';
   // Only meshes carrying a flow-patched material need to bloom — an untagged
   // (vacuumPipe) run stays off BLOOM_LAYER and the darken pass leaves it
@@ -573,8 +773,9 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
     group.add(flexibleMesh);
   }
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
+    const trimmed = trimmedSegment(points, i, descriptor);
+    const a = trimmed.start;
+    const b = trimmed.end;
     const segLen = segLens[i];
     const fwdStart = runDistCum;
     const fwdEnd = runDistCum + segLen;
@@ -611,6 +812,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
       if (flowing) mesh.layers.enable(BLOOM_LAYER);
       group.add(mesh);
     }
+    if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
 
   // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
@@ -623,33 +825,56 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
     ? getJacketMaterial(line.utilityType, errorStatus) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
-    const joint = buildCornerJoint(prev, at, next, style, radius, mat);
+    const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
     if (joint) group.add(joint);
     if (jointJacketMat) {
       const jacketJoint = buildCornerJoint(
         prev, at, next, style, radius * 1.6, jointJacketMat);
       if (jacketJoint) group.add(jacketJoint);
     }
+    const sweep = cornerSweepInfo(prev, at, next, descriptor);
+    if (sweep && descriptor.fittingStyle) {
+      const entry = buildServiceFitting(sweep.start, sweep.incoming, descriptor, hardwareMat);
+      const exit = buildServiceFitting(sweep.end, sweep.outgoing, descriptor, hardwareMat);
+      if (entry) group.add(entry);
+      if (exit) group.add(exit);
+    }
   }
 
   // Open-end indicators: a small contrasting disc at any endpoint that
   // isn't anchored to a port. Signals "this side isn't wired up yet."
   const openCapMat = getOpenCapMaterial(line.utilityType);
-  if (!line.start && points.length > 0) {
+  if (!line.start && !joinedOpenEnds?.start && points.length > 0) {
     const cap = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
     );
     cap.position.copy(points[0]);
+    cap.userData.isUtilityOpenCap = true;
     group.add(cap);
   }
-  if (!line.end && points.length > 0) {
+  if (!line.end && !joinedOpenEnds?.end && points.length > 0) {
     const cap = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
     );
     cap.position.copy(points[points.length - 1]);
+    cap.userData.isUtilityOpenCap = true;
     group.add(cap);
+  }
+  // A branch endpoint that lands on a trunk is a tee, not a dangling glowing
+  // ball. Its collar is deliberately the same fitting vocabulary as an elbow
+  // so the network reads as assembled hardware from any camera angle.
+  for (const which of ['start', 'end']) {
+    if (!joinedOpenEnds?.[which] || points.length < 2) continue;
+    const index = which === 'start' ? 0 : points.length - 1;
+    const neighbor = which === 'start' ? 1 : points.length - 2;
+    const direction = new THREE.Vector3().subVectors(points[index], points[neighbor]).normalize();
+    const fitting = buildServiceFitting(points[index], direction, descriptor, hardwareMat);
+    if (fitting) {
+      fitting.userData.isUtilityTeeFitting = true;
+      group.add(fitting);
+    }
   }
 
   // Struck through when its network is faulted. Lives in the line's own group,
@@ -693,18 +918,19 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
 
 // Cached translucent materials for the draw preview, keyed by utility type.
 const _previewMatCache = new Map();
-function getPreviewMaterial(utilityType) {
-  if (_previewMatCache.has(utilityType)) return _previewMatCache.get(utilityType);
+function getPreviewMaterial(utilityType, valid = true) {
+  const key = `${utilityType}|${valid ? 'valid' : 'blocked'}`;
+  if (_previewMatCache.has(key)) return _previewMatCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
-  const color = descriptor?.color || '#ffffff';
+  const color = valid ? (descriptor?.color || '#ffffff') : '#ff4f38';
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     roughness: 0.3, metalness: 0.1,
-    transparent: true, opacity: 0.55,
+    transparent: true, opacity: valid ? 0.55 : 0.72,
     emissive: new THREE.Color(color),
     emissiveIntensity: 0.35,
   });
-  _previewMatCache.set(utilityType, shared(mat));
+  _previewMatCache.set(key, shared(mat));
   return mat;
 }
 
@@ -731,13 +957,15 @@ function buildPreviewLine(preview) {
   group.userData = { isUtilityLinePreview: true };
   const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
   const style = descriptor.geometryStyle || 'cylinder';
-  const mat = getPreviewMaterial(preview.utilityType);
+  const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
+  const hardwareMat = getLineHardwareMaterial(preview.utilityType);
   const flexibleMesh = flexible
     ? buildFlexibleCable(points, radius, mat, false, previewY)
     : null;
   if (flexibleMesh) group.add(flexibleMesh);
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
-    const a = points[i], b = points[i + 1];
+    const trimmed = trimmedSegment(points, i, descriptor);
+    const a = trimmed.start, b = trimmed.end;
     let mesh = null;
     if (style === 'rectWaveguide') {
       mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat);
@@ -746,9 +974,24 @@ function buildPreviewLine(preview) {
     }
     if (mesh) group.add(mesh);
   }
-  // Little spheres at waypoints to emphasize the polyline.
+  for (let i = 1; !flexible && i < points.length - 1; i++) {
+    const prev = points[i - 1], at = points[i], next = points[i + 1];
+    const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
+    if (joint) group.add(joint);
+    const sweep = cornerSweepInfo(prev, at, next, descriptor);
+    if (sweep && descriptor.fittingStyle) {
+      const entry = buildServiceFitting(sweep.start, sweep.incoming, descriptor, hardwareMat);
+      const exit = buildServiceFitting(sweep.end, sweep.outgoing, descriptor, hardwareMat);
+      if (entry) group.add(entry);
+      if (exit) group.add(exit);
+    }
+  }
+  // Flexible/open generic utilities keep waypoint beads for hand feedback.
+  // Rigid services show their actual swept elbows and collars instead.
   const sphereMat = mat;
-  for (const p of flexible ? [points[0], points[points.length - 1]] : points) {
+  const markerPoints = flexible ? [points[0], points[points.length - 1]]
+    : (descriptor.routingProfile === 'rigid' ? [points[0], points[points.length - 1]] : points);
+  for (const p of markerPoints) {
     const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);
     const sm = new THREE.Mesh(sg, sphereMat);
     sm.position.copy(p);
@@ -936,6 +1179,7 @@ export class UtilityLineBuilderV2 {
     this._previewObject = null;
     this._previewSig = null;
     this._hoverObject = null;
+    this._hoverSig = null;
     // `${placeableId}:${portName}` → portAnchor3D, filled by setAvailablePorts
     // and read by setHoverPort (which is given an identity, not a record).
     this._anchorByKey = new Map();
@@ -960,8 +1204,9 @@ export class UtilityLineBuilderV2 {
     const lines = utilityLines || new Map();
     const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
     const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
-    const iter = typeof lines.values === 'function' ? lines.values() : lines;
-    for (const line of iter) {
+    const records = typeof lines.values === 'function' ? Array.from(lines.values()) : Array.from(lines);
+    const installedLineIds = new Set(records.map(line => line?.id).filter(Boolean));
+    for (const line of records) {
       if (!line || !line.id) continue;
       seen.add(line.id);
       const errorStatus = errorByLineId.get(line.id) || 'ok';
@@ -994,6 +1239,10 @@ export class UtilityLineBuilderV2 {
       }
       let pointOverride = null;
       let relaxation = null;
+      const joinedOpenEnds = {
+        start: !!line.tapLineIds?.start && installedLineIds.has(line.tapLineIds.start),
+        end: !!line.tapLineIds?.end && installedLineIds.has(line.tapLineIds.end),
+      };
       if (isSoftCable(line.utilityType)) {
         const initialPoints = buildSoftCableWorldPoints(line, placeablesById);
         const floorY = utilityLineHeight(line.utilityType);
@@ -1044,12 +1293,13 @@ export class UtilityLineBuilderV2 {
             placeablesById,
             errorStatus,
             reversed,
+            joinedOpenEnds,
             parentGroup,
           };
         }
       }
       const group = buildLineGroup(
-        line, placeablesById, errorStatus, reversed, pointOverride);
+        line, placeablesById, errorStatus, reversed, pointOverride, joinedOpenEnds);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
@@ -1206,6 +1456,7 @@ export class UtilityLineBuilderV2 {
         state.errorStatus,
         state.reversed,
         state.finalPoints,
+        state.joinedOpenEnds,
       );
       if (replacement) {
         state.parentGroup.add(replacement);
@@ -1304,6 +1555,7 @@ export class UtilityLineBuilderV2 {
     const sig = preview && preview.path && preview.path.length
       ? preview.utilityType + '|' + preview.valid + '|' +
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
+        + (preview.cablePath || []).map(p => `${p.col},${p.row}`).join(';') + '|'
         + [preview.startAnchor, preview.endAnchor]
           .map(a => a ? `${a.x},${a.y},${a.z}` : '-').join('|')
       : null;
@@ -1325,20 +1577,26 @@ export class UtilityLineBuilderV2 {
 
   /** Update the hover-port marker. Call every frame. */
   setHoverPort(hoverPort, parentGroup) {
+    const key = hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
+    const anchor = key ? this._anchorByKey.get(key) : null;
+    const resolved = anchor ? { ...hoverPort, anchor } : hoverPort;
+    const point = resolved?.anchor || resolved?.worldPos || resolved;
+    const sig = key
+      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}`
+      : null;
+    if (sig === this._hoverSig) return false;
+    this._hoverSig = sig;
     if (this._hoverObject) {
       parentGroup.remove(this._hoverObject);
       this._disposeObject(this._hoverObject);
       this._hoverObject = null;
     }
-    const key = hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
-    const obj = buildHoverMarker(
-      key && this._anchorByKey.has(key)
-        ? { ...hoverPort, anchor: this._anchorByKey.get(key) }
-        : hoverPort);
+    const obj = buildHoverMarker(resolved);
     if (obj) {
       parentGroup.add(obj);
       this._hoverObject = obj;
     }
+    return true;
   }
 
   /**
@@ -1460,6 +1718,7 @@ export class UtilityLineBuilderV2 {
       this._disposeObject(this._hoverObject);
       this._hoverObject = null;
     }
+    this._hoverSig = null;
     if (this._portMarkerGroup) {
       parentGroup.remove(this._portMarkerGroup);
       this._disposeGroup(this._portMarkerGroup);
@@ -1480,6 +1739,7 @@ export class UtilityLineBuilderV2 {
     // hash so the line rebuilds when a connected placeable is moved.
     const pathStr = (line.path || []).map(p => `${p.col},${p.row}`).join(';');
     const cableStr = (line.cablePath || []).map(p => `${p.col},${p.row}`).join(';');
+    const tapStr = `${line.tapLineIds?.start || '-'}:${line.tapLineIds?.end || '-'}`;
     // Explicit "open" marker distinguishes a null endpoint (dangling) from
     // an unresolved port lookup — both used to collide on "".
     let startStr = line.start ? '?' : 'open';
@@ -1501,7 +1761,7 @@ export class UtilityLineBuilderV2 {
         if (a) endStr = `${a.x.toFixed(3)},${a.y.toFixed(3)},${a.z.toFixed(3)}`;
       }
     }
-    return `${line.utilityType}|${pathStr}|${cableStr}|${startStr}|${endStr}`;
+    return `${line.utilityType}|${pathStr}|${cableStr}|${tapStr}|${startStr}|${endStr}`;
   }
 
   _disposeGroup(group) {

@@ -37,6 +37,7 @@ import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
+import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 import {
   buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
@@ -55,6 +56,7 @@ import {
 import { ShadowScheduler } from './shadow-scheduler.js';
 import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
+import { fixtureActivationFactor } from './fixture-activation.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
 import { WorldPhysicsPresentation } from './world-physics-presentation.js';
@@ -107,6 +109,19 @@ const ZOOM_MAX = 14;
 const GHOST_TINT_OK = 0x44ff44;
 const GHOST_TINT_BLOCKED = 0xff4444;
 const GHOST_TINT_UNAFFORDABLE = 0xffb020;
+
+const PORT_MARKER_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const LIGHT_CANDIDATE_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'decorationsChanged', 'wallsChanged', 'doorsChanged', 'windowsChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const SHADOW_GEOMETRY_EVENTS = new Set([
+  ...LIGHT_CANDIDATE_EVENTS, 'zonesChanged',
+]);
 
 /** Ghost color for a (valid, reason) pair. Reasons come from placement.js. */
 function ghostTint(valid, reason) {
@@ -311,6 +326,7 @@ export class ThreeRenderer {
     // Task 6 (fake light pools) and Task 9 (real point lights) read this
     // instead of re-scanning every decoration.
     this.lightingGroup = [];
+    this._fixtureActivation = new Map();
     // Task 6 fake-lighting layer: one merged additive mesh for every ground
     // light pool (lightPoolGroup) plus one Sprite billboard per glowing
     // emitter (lightHaloGroup). Both are rebuilt only when lightingGroup
@@ -514,9 +530,9 @@ export class ThreeRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.AgXToneMapping ?? THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = CINEMATIC_LIGHTING.exposure.day;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setClearColor(0x1a1a2e);
+    this.renderer.setClearColor(0x091126);
 
     const threeCanvas = this.renderer.domElement;
     threeCanvas.style.position = 'absolute';
@@ -531,10 +547,8 @@ export class ThreeRenderer {
 
     // Scene
     this.scene = new THREE.Scene();
-
-    // Physics is a presentation layer over authored meshes. It owns incident
-    // snapshots and lazy bodies without writing transforms into game state.
-    await this._physicsPresentation.init(this.scene);
+    this.scene.background = new THREE.Color(0x091126);
+    this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
     // Isometric orthographic camera
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
@@ -557,7 +571,7 @@ export class ThreeRenderer {
     this.camera.lookAt(0, 0, 0);
 
     // Lighting — dynamic day/night cycle
-    this._ambientLight = new THREE.AmbientLight(0xfff5e6, 1.3);
+    this._ambientLight = new THREE.HemisphereLight(0xdceeff, 0x473c30, CINEMATIC_LIGHTING.ambient.day);
     this.scene.add(this._ambientLight);
 
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -609,6 +623,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend.capabilities.maxTextureSize,
+      backend: this._rendererBackend.backend,
     });
     this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
     this._sunShadowScheduler = new ShadowScheduler(1, {
@@ -782,25 +797,20 @@ export class ThreeRenderer {
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
     this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
-
     window.addEventListener('resize', this._boundOnResize);
 
     // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
     // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
       try {
-      // Any world event may have moved a port or claimed a utility line —
-      // let _animate rebuild the armed-tool port markers on its next frame.
-      this._portMarkersDirty = true;
-      // Same idea for the light rig's candidate lists (placed fixtures,
-      // glow-role meshes) — invalidate on every event rather than trying to
-      // enumerate exactly which events could add/remove one; the actual
-      // scene traversal is deferred to the rig's next update() call.
-      if (this._lightRig) this._lightRig.markDirty();
-      if (this._sunShadowScheduler) this._sunShadowScheduler.markAllDirty();
+      if (PORT_MARKER_EVENTS.has(event)) this._portMarkersDirty = true;
+      if (this._lightRig && LIGHT_CANDIDATE_EVENTS.has(event)) this._lightRig.markDirty();
+      if (this._sunShadowScheduler && SHADOW_GEOMETRY_EVENTS.has(event)) {
+        this._sunShadowScheduler.markAllDirty();
+      }
       switch (event) {
         case 'beamlineChanged':
-          this.refresh(); // full 3D rebuild
+          this._refreshBeamlineWorld();
           break;
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
@@ -832,6 +842,10 @@ export class ThreeRenderer {
         case 'zonesChanged':
           this._refreshTerrain();
           this._refreshZones();
+          // Fixture room context is authored by zones. Rebuild its cached
+          // registry so a newly zoned room lights immediately rather than
+          // waiting for an unrelated decoration edit.
+          this._refreshDecorations();
           if (this._refreshPalette) this._refreshPalette();
           break;
         case 'wallsChanged':
@@ -956,6 +970,9 @@ export class ThreeRenderer {
     }
 
     this._animate();
+    // Rapier is a large WASM chunk and ordinary construction never needs it.
+    // Warm it after the first playable frame instead of blocking init/title.
+    this._physicsPresentation.scheduleInit(this.scene);
   }
 
   // --- Coordinate conversion (PixiJS-compatible) ---
@@ -1612,6 +1629,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend?.capabilities?.maxTextureSize,
+      backend: this._rendererBackend?.backend,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
     if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
@@ -3806,18 +3824,19 @@ export class ThreeRenderer {
       this._localTimeOfDay = (this._localTimeOfDay + dt * perSecond) % 1;
     }
 
-    // timeOfDay: 0 = midnight, 0.5 = noon. Map to the sun's old angle
-    // convention (angle=0 was noon, angle=π was midnight) so orbit radius,
-    // elevation range and shadow-texel snapping below are unchanged.
+    const grade = dayNightGrade(this._localTimeOfDay);
+
+    // timeOfDay: 0 = midnight, 0.5 = noon. Dawn and dusk cross the real
+    // horizon at .25/.75, producing the long shadows the previous always-high
+    // orbit could never make.
     const sunAngle = (this._localTimeOfDay - 0.5) * 2 * Math.PI;
 
-    // Sun orbits in a circle: radius 50, height varies with angle
-    const R = 50;
+    const R = CINEMATIC_LIGHTING.sun.orbitRadius;
     const x = Math.cos(sunAngle) * R;
     const z = Math.sin(sunAngle) * R;
-    // Sun height: peaks at noon (angle=0), lowest at midnight (angle=π)
-    // Range from 10 (low sun / long shadows) to 50 (high noon)
-    const elevation = 30 + 20 * Math.cos(sunAngle);
+    const sunHeight = Math.max(0, grade.solarAltitude);
+    const elevation = CINEMATIC_LIGHTING.sun.minElevation
+      + sunHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     // Offset sun position and shadow target to follow the camera center
     // Snap target in light-space to texel grid to prevent shadow swimming
     const cx = this._panX || 0;
@@ -3846,7 +3865,9 @@ export class ThreeRenderer {
     // same pan-tracked target the sun uses. No shadow-texel snapping needed;
     // it never casts shadows.
     const moonAngle = sunAngle + Math.PI;
-    const moonElevation = 30 + 20 * Math.cos(moonAngle);
+    const moonHeight = Math.max(0, -grade.solarAltitude);
+    const moonElevation = CINEMATIC_LIGHTING.sun.minElevation
+      + moonHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     const mx = Math.cos(moonAngle) * R;
     const mz = Math.sin(moonAngle) * R;
     this._moonLight.position.set(mx + cx, moonElevation, mz + cz);
@@ -3857,7 +3878,6 @@ export class ThreeRenderer {
     // day, 1 = deep night) is published on the renderer for later tasks
     // (fixture emissive, light pools, real point lights) to read so they
     // ramp in lockstep with the sky.
-    const grade = dayNightGrade(this._localTimeOfDay);
     this._darkness = grade.darkness;
     this._lightingEffectTimeMs = this._localTimeOfDay * DAY_LENGTH_TICKS * 1000;
 
@@ -3875,8 +3895,13 @@ export class ThreeRenderer {
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);
+    this._ambientLight.groundColor.setRGB(...grade.groundColor);
 
     this._moonLight.intensity = grade.moonIntensity;
+    this.renderer.toneMappingExposure = grade.exposure;
+    this.scene.background.setRGB(...grade.skyColor);
+    this.scene.fog.color.setRGB(...grade.fogColor);
+    this.scene.fog.density = grade.fogDensity;
 
     // Glow role (screens, indicator lamps): brighten as the sky darkens, but
     // never let them read as fully dark at noon — a lit console screen stays
@@ -3974,6 +3999,19 @@ export class ThreeRenderer {
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
+  }
+
+  _refreshBeamlineWorld() {
+    // Beamline edits do not change terrain, rooms, furnishings, or
+    // decorations. Rebuild only the sections whose topology or endpoints can
+    // move instead of walking and hashing the entire world snapshot.
+    this._refreshComponents();
+    this._refreshBeamPipes();
+    this._refreshBeam();
+    this._refreshUtilityLinesV2();
+    this._refreshUnwiredSinkMarkers(true);
+    this._refreshPortFittings();
+    this._markPhysicsBodiesDirty();
   }
 
   _refreshTerrain() {
@@ -4409,10 +4447,13 @@ export class ThreeRenderer {
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
+    this._fixtureActivation.clear();
     for (const fx of this.lightingGroup) {
+      const activation = fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
+      if (fx.id != null) this._fixtureActivation.set(fx.id, activation);
       const mat = fx.group.userData.emitterMaterial;
       if (mat) {
-        mat.emissiveIntensity = emitterIntensityForDarkness(darkness)
+        mat.emissiveIntensity = emitterIntensityForDarkness(activation)
           * fixtureDynamicFactor(
             fx.def?.light?.dynamicProfile,
             fx.id,
@@ -4424,13 +4465,16 @@ export class ThreeRenderer {
     if (this.lightPoolGroup) {
       const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
       for (const child of this.lightPoolGroup.children) {
-        if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
-        applyPoolSuppression(child, suppression);
+        if (child.material) child.material.opacity = poolOpacityForDarkness(1);
+        applyPoolSuppression(child, suppression, this._fixtureActivation);
       }
     }
     if (this.lightHaloGroup) {
       this.lightHaloGroup.traverse((child) => {
-        if (child.isSprite) child.material.opacity = haloOpacityForDarkness(darkness);
+        if (child.isSprite) {
+          const activation = this._fixtureActivation.get(child.userData.fixtureId) ?? darkness;
+          child.material.opacity = haloOpacityForDarkness(activation);
+        }
       });
     }
     // Window panes come up warm from the outside as night falls. The builder
@@ -5143,8 +5187,8 @@ export class ThreeRenderer {
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
+    this._physicsPresentation.dispose();
     if (this.staffPawns) {
-      this._physicsPresentation.dispose();
       this.staffPawns.dispose();
       this.staffPawns = null;
     }

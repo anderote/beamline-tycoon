@@ -281,14 +281,15 @@ export function autoAcceptDialogs(page) {
  * "New Game" reload, so this is the app's own fast path, not a test-only
  * back door.
  */
-export async function bootFreshGame(page) {
+export async function bootFreshGame(page, options = {}) {
   await blockRemoteDrive(page);
-  await page.addInitScript(() => {
+  await page.addInitScript(({ lightingQuality }) => {
     try {
       localStorage.clear();
+      if (lightingQuality) localStorage.setItem('beamlineTycoon.lightingQuality', lightingQuality);
       sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
     } catch { /* first navigation has no storage access */ }
-  });
+  }, { lightingQuality: options.lightingQuality || null });
   await page.goto('/');
   await waitForBoot(page);
   await dismissWelcome(page);

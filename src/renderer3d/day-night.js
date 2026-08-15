@@ -14,44 +14,47 @@
 // every later consumer (fixture emissive, light pools, real point lights)
 // reads to stay in lockstep — see design doc §2/§3.
 
-// ---------------------------------------------------------------------------
-// Taste knobs. Everything below derives from these; retune by eye.
-// ---------------------------------------------------------------------------
+import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 
-// Ambient intensity at deep night. This is deliberately substantial: the
-// ambient colour below is also cool and sub-white, so intensity and tint
-// multiply together before tone mapping. A much lower floor made ordinary
-// materials collapse into black silhouettes while emissive utility effects
-// remained visible. (Day value, 1.3, matches the intensity the renderer used
-// to pin unconditionally.)
-export const NIGHT_AMBIENT = 0.65;
-const DAY_AMBIENT = 1.3;
+// Cool hemispheric fill keeps ordinary materials readable at night without
+// flattening them: the ground lobe remains much darker than the sky lobe.
+export const NIGHT_AMBIENT = CINEMATIC_LIGHTING.ambient.night;
+export const DAY_AMBIENT = CINEMATIC_LIGHTING.ambient.day;
 
 // Deep blue-purple the ambient (and, faintly, the sun) colour approaches as
 // darkness -> 1. Keep enough red/green energy for material colours and form
 // to remain readable; the blue bias still separates moonlight from warm
 // fixture pools without crushing the unlit scene.
-export const NIGHT_TINT = [0.42, 0.5, 0.72];
+export const NIGHT_TINT = [0.38, 0.46, 0.68];
+const NIGHT_GROUND = [0.055, 0.045, 0.075];
 
 // Warm colour at the day/night boundary (dusk/dawn) — this is the "existing
 // warm-to-blue shift" the old code produced as the sun neared the horizon,
 // kept here as an explicit waypoint instead of a side effect of a cosine.
-const AMBIENT_DUSK_COLOR = [0.95, 0.9, 0.8];
-const SUN_DUSK_COLOR = [1, 0.9, 0.75];
+const AMBIENT_DUSK_COLOR = [0.72, 0.58, 0.5];
+const GROUND_DUSK_COLOR = [0.18, 0.11, 0.09];
+const SUN_DUSK_COLOR = [1, 0.58, 0.28];
 
-// Full daylight colour (noon), shared by ambient and sun — matches both of
-// the old per-light formulas at dayness = 1.
+// Full daylight colour (noon), shared by ambient and sun.
 const DAY_COLOR = [1, 1, 1];
+const DAY_GROUND = [0.28, 0.24, 0.19];
 
 // Sun directional-light intensity range. Falls all the way to 0 at night
 // (the old code floored it at 0.8); the moon below stands in for it so the
 // scene never goes black.
-const SUN_DAY_INTENSITY = 1.8;
+const SUN_DAY_INTENSITY = CINEMATIC_LIGHTING.sun.dayIntensity;
 
 // Moon: a weak, cool-blue stand-in light for when the sun is down, so
 // midnight has some directionality and geometry keeps its form.
-export const MOON_MAX_INTENSITY = 0.35;
+export const MOON_MAX_INTENSITY = CINEMATIC_LIGHTING.moon.maxIntensity;
 export const MOON_COLOR = [0.55, 0.65, 0.95];
+
+const SKY_DAY = [0.24, 0.39, 0.58];
+const SKY_DUSK = [0.16, 0.075, 0.105];
+const SKY_NIGHT = [0.012, 0.02, 0.055];
+const FOG_DAY = [0.28, 0.38, 0.48];
+const FOG_DUSK = [0.16, 0.085, 0.095];
+const FOG_NIGHT = [0.025, 0.035, 0.075];
 
 // Half-width, in "distance from noon" units (see noonDistance below), of the
 // dusk/dawn ease. The transition is centred on noonDistance = 0.25, which is
@@ -96,6 +99,11 @@ function colorRamp(d, duskColor) {
   return lerpColor(duskColor, NIGHT_TINT, smoothstep(0.25, 0.5, d));
 }
 
+function threePointRamp(d, day, dusk, night) {
+  if (d <= 0.25) return lerpColor(day, dusk, smoothstep(0, 0.25, d));
+  return lerpColor(dusk, night, smoothstep(0.25, 0.5, d));
+}
+
 /**
  * Pure day/night lighting grade.
  *
@@ -107,6 +115,12 @@ function colorRamp(d, duskColor) {
  *   sunIntensity: number,
  *   sunColor: [number, number, number],
  *   moonIntensity: number,
+ *   solarAltitude: number,
+ *   groundColor: [number, number, number],
+ *   skyColor: [number, number, number],
+ *   fogColor: [number, number, number],
+ *   fogDensity: number,
+ *   exposure: number,
  * }}
  */
 export function dayNightGrade(timeOfDay) {
@@ -124,18 +138,44 @@ export function dayNightGrade(timeOfDay) {
 
   const ambientIntensity = lerp(DAY_AMBIENT, NIGHT_AMBIENT, darkness);
   const ambientColor = colorRamp(d, AMBIENT_DUSK_COLOR);
+  const groundColor = threePointRamp(d, DAY_GROUND, GROUND_DUSK_COLOR, NIGHT_GROUND);
 
   const sunIntensity = SUN_DAY_INTENSITY * (1 - darkness);
   const sunColor = colorRamp(d, SUN_DUSK_COLOR);
 
   const moonIntensity = MOON_MAX_INTENSITY * darkness;
 
+  // True horizon crossings at 06:00/18:00, highest at noon and below the
+  // horizon at night. The renderer uses this for elevation as well as grade,
+  // so dawn and dusk finally produce long directional shadows.
+  const solarAltitude = Math.sin((timeOfDay - 0.25) * Math.PI * 2);
+  const skyColor = threePointRamp(d, SKY_DAY, SKY_DUSK, SKY_NIGHT);
+  const fogColor = threePointRamp(d, FOG_DAY, FOG_DUSK, FOG_NIGHT);
+  const fogDensity = lerp(
+    CINEMATIC_LIGHTING.atmosphere.dayDensity,
+    CINEMATIC_LIGHTING.atmosphere.nightDensity,
+    darkness,
+  );
+  const twilight = 1 - Math.min(1, Math.abs(d - 0.25) / TWILIGHT_HALF_WIDTH);
+  const baseExposure = lerp(
+    CINEMATIC_LIGHTING.exposure.day,
+    CINEMATIC_LIGHTING.exposure.night,
+    darkness,
+  );
+  const exposure = lerp(baseExposure, CINEMATIC_LIGHTING.exposure.twilight, twilight);
+
   return {
     darkness,
     ambientIntensity,
     ambientColor,
+    groundColor,
     sunIntensity,
     sunColor,
     moonIntensity,
+    solarAltitude,
+    skyColor,
+    fogColor,
+    fogDensity,
+    exposure,
   };
 }

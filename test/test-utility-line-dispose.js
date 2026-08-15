@@ -14,6 +14,9 @@
 // no WebGL or THREE global is needed.
 
 import UtilityLineBuilderV2 from '../src/renderer3d/utility-line-builder-v2.js';
+import * as THREE_NS from 'three';
+
+globalThis.THREE = THREE_NS;
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -78,6 +81,24 @@ console.log('\n--- 3. _disposeObject still handles a bare Mesh ---');
   builder._disposeObject(fakeMesh(geo, mat));
   assert(geo.disposed, 'mesh geometry disposed');
   assert(mat.disposed, 'mesh-owned material disposed');
+}
+
+console.log('\n--- 4. stationary hover markers are memoized ---');
+{
+  const parent = new THREE_NS.Group();
+  const hover = {
+    placeableId: 'pump-1', portName: 'vac_out', utilityType: 'vacuumPipe',
+    worldPos: { x: 2, y: 0.5, z: 3 },
+  };
+  assert(builder.setHoverPort(hover, parent) === true, 'first hover builds a marker');
+  const first = builder._hoverObject;
+  assert(builder.setHoverPort({ ...hover }, parent) === false,
+    'same identity and anchor are a cache hit');
+  assert(builder._hoverObject === first, 'cache hit preserves the existing GPU object');
+  assert(builder.setHoverPort({ ...hover, worldPos: { ...hover.worldPos, x: 2.5 } }, parent) === true,
+    'a moved anchor rebuilds the marker');
+  assert(builder._hoverObject !== first, 'moved marker replaces the old object');
+  builder.dispose(parent);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

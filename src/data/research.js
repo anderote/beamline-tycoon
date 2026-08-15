@@ -95,12 +95,8 @@ export const RESEARCH_SPEED_TABLE = {
 //     constraint. Making reputation bind would mean pricing it above the
 //     achievable curve, which is a wall by definition.
 //
-// Measured result (scripts/balance-sim.mjs d, seed 909), ticks to clear all 68
-// reachable nodes vs the 28,800 target:
-//     4 extra lines  67,454  2.34x     12 extra lines  33,197  1.15x
-//     8 extra lines  42,854  1.49x     24 extra lines  22,895  0.79x  (default)
-// The spread is structural, not a tuning miss — see the note on
-// ECON.beamIncomePerNode. The design target is the twelve-line facility.
+// Facility income still scales with useful hardware and operating contracts;
+// the fast and scenario lanes validate those live economy contracts directly.
 // ---------------------------------------------------------------------------
 export const RESEARCH = {
   // === Beam Optics tree ===

@@ -11,6 +11,7 @@ import {
   planPanelAutoConnect,
 } from '../src/input/panel-auto-connect.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
+import { InputHandler } from '../src/input/InputHandler.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -137,6 +138,35 @@ console.log('\n--- 4. Affordability is checked before mutation ---');
     'an unaffordable click spends nothing');
   assert(game._undoStack.length === undoBefore,
     'an unaffordable click adds no undo entry');
+}
+
+console.log('\n--- 5. Tab belongs to one selected distribution panel ---');
+{
+  const game = makeGame();
+  const input = {
+    game,
+    selectedPlaceableId: 'panel',
+    selectedPlaceableIds: new Set(['panel']),
+    _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,
+    _selectedAutoConnectPanelId: InputHandler.prototype._selectedAutoConnectPanelId,
+    _autoConnectPanel: id => { input.connectedPanelId = id; },
+  };
+  let prevented = 0;
+  const handled = InputHandler.prototype._handleSelectedPanelAutoConnectKey.call(input, {
+    key: 'Tab', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(handled && prevented === 1 && input.connectedPanelId === 'panel',
+    'plain Tab auto-connects the single selected distribution panel');
+
+  input.selectedPlaceableIds.add('near_1');
+  input.connectedPanelId = null;
+  const multiHandled = InputHandler.prototype._handleSelectedPanelAutoConnectKey.call(input, {
+    key: 'Tab', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(!multiHandled && input.connectedPanelId === null,
+    'multi-selection leaves Tab available to cycle palette categories');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -11,27 +11,91 @@ import { WorldPhysics } from '../physics/world-physics.js';
  * together. None of the transforms managed here are written back to game state.
  */
 export class WorldPhysicsPresentation {
-  constructor(renderObjects) {
+  constructor(renderObjects, dependencies = {}) {
     this.renderObjects = renderObjects;
+    this.createWorld = dependencies.createWorld || (() => new WorldPhysics());
+    this.createDebris = dependencies.createDebris || ((world, scene) => new DebrisSystem(world, scene));
+    this.createRagdolls = dependencies.createRagdolls
+      || ((staffPawns, world, scene) => new StaffRagdolls(staffPawns, world, scene));
     this.world = null;
     this.worldIds = new Set();
     this.bodiesDirty = true;
     this.incidentSnapshot = null;
     this.staffRagdolls = null;
     this.debris = null;
+    this.scene = null;
+    this.staffPawns = null;
+    this.initPromise = null;
+    this.idleHandle = null;
+    this.idleKind = null;
+    this.disposed = false;
   }
 
   async init(scene) {
-    this.world = await new WorldPhysics().init();
-    // A low safety slab catches objects that leave the finite terrain mesh
-    // without duplicating contacts on the ordinary y≈0 terrain surface.
-    this.world.addGround({ y: -20 });
-    this.debris = new DebrisSystem(this.world, scene);
+    if (scene) this.scene = scene;
+    if (this.disposed) return null;
+    if (this.world?.ready) return this.world;
+    if (this.initPromise) return this.initPromise;
+    this.cancelScheduledInit();
+    this.initPromise = (async () => {
+      const world = await this.createWorld().init();
+      if (this.disposed) {
+        world.dispose();
+        return null;
+      }
+      // A low safety slab catches objects that leave the finite terrain mesh
+      // without duplicating contacts on the ordinary y≈0 terrain surface.
+      world.addGround({ y: -20 });
+      this.world = world;
+      this.debris = this.createDebris(world, this.scene);
+      if (this.staffPawns) {
+        this.staffRagdolls = this.createRagdolls(this.staffPawns, world, this.scene);
+      }
+      this.syncTerrain();
+      return world;
+    })();
+    try {
+      return await this.initPromise;
+    } catch (error) {
+      this.initPromise = null;
+      throw error;
+    }
+  }
+
+  scheduleInit(scene) {
+    if (scene) this.scene = scene;
+    if (this.disposed || this.world?.ready || this.initPromise || this.idleHandle != null) return;
+    const start = () => {
+      this.idleHandle = null;
+      this.idleKind = null;
+      this.init().catch(error => console.warn('[Physics] Deferred initialization failed.', error));
+    };
+    if (typeof requestIdleCallback === 'function') {
+      this.idleKind = 'idle';
+      this.idleHandle = requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      this.idleKind = 'timeout';
+      this.idleHandle = setTimeout(start, 0);
+    }
+  }
+
+  cancelScheduledInit() {
+    if (this.idleHandle == null) return;
+    if (this.idleKind === 'idle' && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(this.idleHandle);
+    } else {
+      clearTimeout(this.idleHandle);
+    }
+    this.idleHandle = null;
+    this.idleKind = null;
   }
 
   attachStaff(staffPawns, scene) {
+    this.staffPawns = staffPawns;
+    if (scene) this.scene = scene;
+    if (!this.world?.ready) return;
     this.staffRagdolls?.dispose();
-    this.staffRagdolls = new StaffRagdolls(staffPawns, this.world, scene);
+    this.staffRagdolls = this.createRagdolls(staffPawns, this.world, this.scene);
   }
 
   update(dt) {
@@ -39,7 +103,19 @@ export class WorldPhysicsPresentation {
   }
 
   explode(position, options = {}, emitVisualEffect = null) {
-    if (!this.world?.ready || !position) return [];
+    if (!position) return [];
+    if (!this.world?.ready) {
+      const queuedPosition = {
+        x: Number(position.x) || 0,
+        y: Number(position.y) || 0,
+        z: Number(position.z) || 0,
+      };
+      const queuedOptions = { ...options };
+      this.init().then(world => {
+        if (world && !this.disposed) this.explode(queuedPosition, queuedOptions, emitVisualEffect);
+      }).catch(error => console.warn('[Physics] Could not run queued incident.', error));
+      return [];
+    }
     // Incident undo is one-level and atomic: restore the prior presentation
     // before capturing the next baseline.
     if (this.incidentSnapshot) this.undo();
@@ -175,6 +251,8 @@ export class WorldPhysicsPresentation {
   }
 
   dispose() {
+    this.disposed = true;
+    this.cancelScheduledInit();
     this.staffRagdolls?.dispose();
     this.staffRagdolls = null;
     this.debris?.dispose();
@@ -184,6 +262,8 @@ export class WorldPhysicsPresentation {
     this.worldIds.clear();
     this.incidentSnapshot = null;
     this.bodiesDirty = true;
+    this.scene = null;
+    this.staffPawns = null;
   }
 
   _releaseAuthoredBodies() {
