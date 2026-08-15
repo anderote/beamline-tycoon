@@ -24,7 +24,7 @@ import { openHiringDialog } from './HiringDialog.js';
 import { facilityStaffingReport, facilityProgressReport } from '../game/staff/staffDiagnostics.js';
 import { professionDef } from '../data/professions.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from './format.js';
-import { utilityStatRows } from './utility-supply.js';
+import { paletteUtilityTags, utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -2327,6 +2327,22 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   }
   item.appendChild(previewEl);
 
+  // Short draw/supply tags use the same compact badge treatment as RF bands.
+  // Keep them on the left so the RF frequency badge remains fixed at the
+  // right: e.g. a chiller reads "P: -2 kW" / "C: +50 kW" at a glance.
+  const utilityTags = paletteUtilityTags(comp);
+  if (utilityTags.length) {
+    const tagsEl = document.createElement('div');
+    tagsEl.className = 'palette-utility-tags';
+    for (const tag of utilityTags) {
+      const tagEl = document.createElement('div');
+      tagEl.className = `palette-utility-tag palette-utility-${tag.key} palette-utility-${tag.direction}`;
+      tagEl.textContent = tag.text;
+      tagsEl.appendChild(tagEl);
+    }
+    item.appendChild(tagsEl);
+  }
+
   // RF band badge (top-right corner).
   //
   // Sources declare `rfBands` — what the tube can cover. Accelerating
@@ -2355,20 +2371,6 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
       freqLine.className = 'palette-rf-freq';
       freqLine.textContent = formatRfFrequency(rfSink.frequency);
       bandEl.appendChild(freqLine);
-    }
-    // RF output power (green) for infra RF sources
-    if (comp.category === 'rfPower' && comp.params?.power) {
-      const pwrLine = document.createElement('div');
-      pwrLine.className = 'palette-rf-output';
-      pwrLine.textContent = `${comp.params.power} kW`;
-      bandEl.appendChild(pwrLine);
-    }
-    // RF power draw (red) for beamline accel components
-    if (comp.rfPowerRequired) {
-      const rfLine = document.createElement('div');
-      rfLine.className = 'palette-rf-draw';
-      rfLine.textContent = `${comp.rfPowerRequired} kW`;
-      bandEl.appendChild(rfLine);
     }
     item.appendChild(bandEl);
   }
@@ -3764,4 +3766,3 @@ UIHost.prototype._armSearchResult = function(result) {
 
   this._selectPaletteTool(kind, id, recallVariant(id));
 };
-

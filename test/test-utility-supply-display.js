@@ -18,7 +18,7 @@
 //      yields no supply row.
 
 import { COMPONENTS } from '../src/data/components.js';
-import { utilityStatRows } from '../src/ui/utility-supply.js';
+import { paletteUtilityTags, utilityStatRows } from '../src/ui/utility-supply.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -156,6 +156,28 @@ console.log('\n--- Test 6: zero-capacity source port -> no supply row ---');
   assert(COMPONENTS.bakeoutSystem.ports.vac_out.params.pumpSpeed === 0,
     'bakeoutSystem fixture assumption — pumpSpeed is 0');
   assert(supplyRows('bakeoutSystem').length === 0, 'bakeoutSystem (pumpSpeed:0 marker port) has no supply row');
+}
+
+// ===========================================================================
+// Test 7: palette badges use terse signed utility labels.
+// ===========================================================================
+console.log('\n--- Test 7: compact palette utility tags ---');
+{
+  const fanCoil = paletteUtilityTags(COMPONENTS.fanCoilCooler);
+  assert(JSON.stringify(fanCoil) === JSON.stringify([
+    { key: 'power', text: 'P: -1 kW', direction: 'draw' },
+    { key: 'cooling', text: 'C: +20 kW', direction: 'supply' },
+  ]), `fanCoilCooler: compact power + cooling tags (got ${JSON.stringify(fanCoil)})`);
+
+  const magnetron = paletteUtilityTags(COMPONENTS.magnetron);
+  assert(JSON.stringify(magnetron) === JSON.stringify([
+    { key: 'power', text: 'P: -7 kW', direction: 'draw' },
+    { key: 'rf', text: 'R: +5 kW', direction: 'supply' },
+  ]), `magnetron: compact power + RF tags (got ${JSON.stringify(magnetron)})`);
+
+  const sBand = paletteUtilityTags(COMPONENTS.sbandStructure);
+  assert(sBand.some(tag => tag.text === 'R: -45 kW' && tag.direction === 'draw'),
+    `sBandStructure: compact RF demand tag (got ${JSON.stringify(sBand)})`);
 }
 
 // ==========================================================================

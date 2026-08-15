@@ -53,6 +53,73 @@ const SUPPLY_SPEC = {
   vacuumPipe:   { param: 'pumpSpeed',     unit: 'L/s' },
 };
 
+// The build palette has far less room than an inspector row. These one-letter
+// labels deliberately mirror the short RF-band badges instead of repeating
+// prose such as "Power draw" or "Cooling capacity" over the thumbnail.
+const PALETTE_UTILITY_SPEC = {
+  hvCable:      { key: 'power',   label: 'P', param: 'capacity',      unit: 'kW' },
+  powerCable:   { key: 'power',   label: 'P', param: 'capacity',      unit: 'kW' },
+  rfWaveguide:  { key: 'rf',      label: 'R', param: 'capacity',      unit: 'kW' },
+  coolingWater: { key: 'cooling', label: 'C', param: 'capacity',      unit: 'kW' },
+  cryoTransfer: { key: 'cryo',    label: 'K', param: 'coldCapacityW', unit: 'W' },
+  vacuumPipe:   { key: 'vacuum',  label: 'V', param: 'pumpSpeed',     unit: 'L/s' },
+  dataFiber:    { key: 'data',    label: 'D', param: 'capacity',      unit: 'Gbps' },
+};
+
+const PALETTE_UTILITY_ORDER = ['power', 'cooling', 'rf', 'cryo', 'vacuum', 'data'];
+
+function compactAmount(amount) {
+  // Keep fractional low-draw equipment readable without wasting badge space
+  // on floating-point noise from split distribution ports.
+  return String(Math.round(amount * 1000) / 1000);
+}
+
+/**
+ * Compact draw/supply badges for a palette item.
+ *
+ * A negative tag is a utility the component consumes; a positive tag is
+ * capacity it supplies. This intentionally shows only the component's own
+ * electrical draw plus its source ports: a sink-only item's required links
+ * belong in its placement/inspector information, while a source's output is
+ * the decision a player needs to compare in the catalogue.
+ *
+ * @param {{ energyCost?: number, rfPowerRequired?: number, ports?: object }} comp
+ * @returns {Array<{ key: string, text: string, direction: 'draw'|'supply' }>}
+ */
+export function paletteUtilityTags(comp) {
+  const tags = [];
+  if (!comp) return tags;
+
+  if (typeof comp.energyCost === 'number' && Number.isFinite(comp.energyCost) && comp.energyCost !== 0) {
+    tags.push({ key: 'power', text: `P: -${compactAmount(comp.energyCost)} kW`, direction: 'draw' });
+  }
+  if (typeof comp.rfPowerRequired === 'number' && Number.isFinite(comp.rfPowerRequired) && comp.rfPowerRequired !== 0) {
+    tags.push({ key: 'rf', text: `R: -${compactAmount(comp.rfPowerRequired)} kW`, direction: 'draw' });
+  }
+
+  // Sum outlet capacities per utility. Distribution gear exposes several
+  // physical ports but they share one device rating, so one compact tag is
+  // both clearer and consistent with utilityStatRows below.
+  const totals = new Map();
+  for (const port of Object.values(comp.ports || {})) {
+    if (!port || port.role !== 'source') continue;
+    const spec = PALETTE_UTILITY_SPEC[port.utility];
+    const amount = port.params?.[spec?.param];
+    if (!spec || typeof amount !== 'number' || !Number.isFinite(amount)) continue;
+    totals.set(spec.key, { ...spec, amount: (totals.get(spec.key)?.amount || 0) + amount });
+  }
+  for (const key of PALETTE_UTILITY_ORDER) {
+    const total = totals.get(key);
+    if (!total || total.amount === 0) continue;
+    tags.push({
+      key,
+      text: `${total.label}: +${compactAmount(total.amount)} ${total.unit}`,
+      direction: 'supply',
+    });
+  }
+  return tags;
+}
+
 // 0.001 -> "0.1%", 0.005 -> "0.5%", 0.05 -> "5%", 1 -> "100%".
 function fmtDutyPercent(dutyFactor) {
   const pct = Math.round(dutyFactor * 1000) / 10;
