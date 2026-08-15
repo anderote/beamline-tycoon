@@ -2911,6 +2911,16 @@ UIHost.prototype._bindManualEntryPoints = function() {
         item && item.dataset.paletteKind === 'component' ? item.dataset.paletteKey : null;
     });
     palette.addEventListener('mouseleave', () => { this._hoveredPaletteComponent = null; });
+    // The palette is a horizontal strip. Treat either a conventional vertical
+    // wheel or a trackpad's horizontal gesture as horizontal scroll while the
+    // pointer is over it, rather than letting that gesture reach world zoom.
+    palette.addEventListener('wheel', (e) => {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!delta) return;
+      palette.scrollLeft += delta;
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
   }
 
   // F1 (and Shift+/ "?") open the manual. Esc closing is inherited from the
