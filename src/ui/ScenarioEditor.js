@@ -70,8 +70,7 @@ export class ScenarioEditor {
     mk('Export', 'Export Scenario — download .json + copy a .js generator module to clipboard/console', () => this.exportScenario());
     mk('Play', 'Play This Scenario — apply the built world as a scenario and playtest it with normal economics', () => this.playScenario());
     mk('Exit', 'Exit Editor — leave the editor and resume your saved game', () => this.exit());
-    // Sit inline in the top bar, right after the EDITOR MODE badge (the
-    // left rail below the bar is occupied by #beam-stats-panel).
+    // Sit inline in the top bar, right after the EDITOR MODE badge.
     const badge = document.getElementById('editor-badge');
     if (badge) badge.after(bar);
     else document.body.appendChild(bar);
