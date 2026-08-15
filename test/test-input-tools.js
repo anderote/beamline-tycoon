@@ -285,6 +285,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   globalThis.document = { addEventListener() {} };
   let deletes = 0;
+  const slots = [];
   const input = {
     keysDown: new Set(),
     activeTool: null,
@@ -292,19 +293,27 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     _toolConsumed: () => false,
     _deleteSelectedFromKeyboard: () => { deletes++; return true; },
     _toggleContextDemolish() {},
+    _saveSelectionSlot: slot => slots.push(`save:${slot}`),
+    _recallSelectionSlot: slot => slots.push(`recall:${slot}`),
   };
   InputHandler.prototype._bindKeyboard.call(input);
   const keydown = listeners.keydown[0];
-  const event = key => ({
+  const event = (key, opts = {}) => ({
     key, target: { tagName: 'BODY' },
     ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+    code: opts.code || '', repeat: false,
+    ...opts,
     preventDefault() {},
   });
   keydown(event('Delete'));
   keydown(event('Backspace'));
   keydown(event('d'));
+  keydown(event('1', { code: 'Digit1', ctrlKey: true }));
+  keydown(event('!', { code: 'Digit1', shiftKey: true }));
   assertOk(deletes === 2, 'Delete and Mac Backspace use selection deletion');
   assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
+  assertOk(slots.join(',') === 'save:1,recall:1',
+    'Ctrl+digit saves and Shift+digit recalls the same formation slot');
   if (priorWindow === undefined) delete globalThis.window;
   else globalThis.window = priorWindow;
   if (priorDocument === undefined) delete globalThis.document;

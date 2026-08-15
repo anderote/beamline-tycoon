@@ -2192,6 +2192,73 @@ export class ThreeRenderer {
     }
   }
 
+  /**
+   * Movable placeables whose projected model bounds overlap a screen marquee.
+   * Beamline hardware and stacked objects stay out: the group-placement model
+   * cannot move them without also rewriting their carrier pipe/stack graph.
+   */
+  placeablesInScreenRect(rect) {
+    if (!rect || !this.camera || !this.renderer) return [];
+    const left = Math.min(rect.left, rect.right);
+    const right = Math.max(rect.left, rect.right);
+    const top = Math.min(rect.top, rect.bottom);
+    const bottom = Math.max(rect.top, rect.bottom);
+    const state = this._liveState();
+    const byId = new Map((state.placeables || []).map(entry => [entry.id, entry]));
+    const rootsById = new Map();
+    for (const group of [this.componentGroup, this.equipmentGroup, this.decorationGroup]) {
+      for (const root of (group?.children || [])) {
+        if (root.userData?.nodeId != null) rootsById.set(root.userData.nodeId, root);
+      }
+    }
+
+    const results = [];
+    const box = new THREE.Box3();
+    for (const entry of (state.placeables || [])) {
+      if (entry.kind === 'beamline' || entry.category === 'beamline') continue;
+      if (entry.stackParentId || (entry.stackChildren || []).length > 0) continue;
+      const rootObj = rootsById.get(entry.id);
+      if (!rootObj) continue;
+      rootObj.updateWorldMatrix?.(true, true);
+      box.makeEmpty();
+      box.setFromObject(rootObj);
+      const projected = [];
+      if (!box.isEmpty()) {
+        for (const x of [box.min.x, box.max.x]) {
+          for (const y of [box.min.y, box.max.y]) {
+            for (const z of [box.min.z, box.max.z]) {
+              const point = this.worldToScreen(x, y, z);
+              if (point) projected.push(point);
+            }
+          }
+        }
+      }
+      if (projected.length === 0) {
+        const def = COMPONENTS[entry.type] || PLACEABLES[entry.type];
+        const centre = placeableCenterWorld(entry, def);
+        if (centre) {
+          const point = this.worldToScreen(
+            centre.x,
+            sampleSurfaceYAt(state, centre.x, centre.z) + 0.5,
+            centre.z,
+          );
+          if (point) projected.push(point);
+        }
+      }
+      if (projected.length === 0) continue;
+      const bounds = projected.reduce((acc, point) => ({
+        left: Math.min(acc.left, point.x),
+        right: Math.max(acc.right, point.x),
+        top: Math.min(acc.top, point.y),
+        bottom: Math.max(acc.bottom, point.y),
+      }), { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity });
+      if (bounds.right < left || bounds.left > right
+          || bounds.bottom < top || bounds.top > bottom) continue;
+      results.push({ entry: byId.get(entry.id) || entry, rootObj });
+    }
+    return results;
+  }
+
   /** Ground-following amber ring for a selected panel's assisted-wire reach. */
   _addPanelInfluenceRing(entry, def) {
     const centre = placeableCenterWorld(entry, def);

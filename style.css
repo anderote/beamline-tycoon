@@ -3362,6 +3362,31 @@ body {
 .hover-tooltip-detail {
   color: #aaaacc;
 }
+.selection-marquee {
+  position: fixed;
+  z-index: 9998;
+  pointer-events: none;
+  border: 1px solid rgba(102, 224, 255, 0.95);
+  background: rgba(70, 170, 230, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(10, 30, 55, 0.65), 0 0 8px rgba(70, 190, 255, 0.35);
+}
+.placement-key-hint {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  padding: 5px 8px;
+  border: 1px solid rgba(110, 110, 165, 0.55);
+  border-radius: 3px;
+  background: rgba(14, 14, 30, 0.9);
+  color: #b9bad4;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.placement-key-hint .k { color: #ffe38a; }
+.placement-key-hint .sep { color: rgba(180, 180, 220, 0.45); margin: 0 3px; }
 .demolish-tooltip {
   border-color: rgba(180, 60, 60, 0.6);
   background: rgba(32, 12, 12, 0.94);

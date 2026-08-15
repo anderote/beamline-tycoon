@@ -11,6 +11,7 @@ import {
   captureSelectionGroup,
   previewSelectionGroup,
   selectionTargets,
+  transformSelectionGroup,
 } from '../src/input/selection-group.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { portWorldPosition } from '../src/utility/ports.js';
@@ -86,6 +87,44 @@ console.log('\n=== Selection groups ===\n');
 }
 
 {
+  const { game, sourceId, sinkId } = fixture(550);
+  const captured = captureSelectionGroup(game, [sourceId, sinkId], {
+    operation: 'copy', primaryId: sourceId,
+  });
+  const rotated = transformSelectionGroup(captured.payload, { quarterTurns: 1 });
+  const mirrored = transformSelectionGroup(captured.payload, { mirror: true });
+  assert(rotated.items.every((item, index) => item.dir === (captured.payload.items[index].dir + 1) % 4),
+    'rotating a formation turns every item orientation');
+  assert(rotated.connections.length === 1
+      && rotated.connections[0].path[0].col !== captured.payload.connections[0].path[0].col,
+  'rotation transforms the internal utility path with the items');
+  assert(mirrored.connections.length === 1
+      && mirrored.connections[0].path[0].col !== captured.payload.connections[0].path[0].col,
+  'mirroring reflects the internal utility path with the items');
+  for (const transformed of [rotated, mirrored]) {
+    const preview = previewSelectionGroup(game, transformed, {
+      ...transformed.anchor,
+      col: transformed.anchor.col + 30,
+      row: transformed.anchor.row + 30,
+    });
+    assert(preview.ok && preview.connections.length === 1,
+      'a transformed formation and its cable validate at a clear destination');
+  }
+  const fourTurns = [0, 1, 2, 3].reduce(
+    payload => transformSelectionGroup(payload, { quarterTurns: 1 }),
+    captured.payload,
+  );
+  const twoMirrors = transformSelectionGroup(
+    transformSelectionGroup(captured.payload, { mirror: true }),
+    { mirror: true },
+  );
+  assert(JSON.stringify(fourTurns.items) === JSON.stringify(captured.payload.items),
+    'four rotations return every item to its exact subtile and direction');
+  assert(JSON.stringify(twoMirrors.items) === JSON.stringify(captured.payload.items),
+    'mirroring twice returns every item exactly');
+}
+
+{
   const { game, sourceId, sinkId, line } = fixture(551);
   const countBefore = game.state.placeables.length;
   const fundingBefore = game.state.resources.funding;
@@ -124,6 +163,77 @@ console.log('\n=== Selection groups ===\n');
   game.undo();
   assert(game.state.placeables.length === countBefore && game.state.utilityLines.size === 1,
     'one undo removes the copied formation and its utility line together');
+}
+
+
+{
+  const selectedFrames = [];
+  const entries = {
+    a: { id: 'a', type: 'labBench', kind: 'equipment', category: 'equipment' },
+    b: { id: 'b', type: 'controlConsole', kind: 'equipment', category: 'equipment' },
+  };
+  const input = {
+    _marquee: { startX: 10, startY: 20, endX: 100, endY: 120, additive: false, dragging: true },
+    _updateMarquee() { return true; },
+    _clearMarquee() { this._marquee = null; },
+    renderer: {
+      placeablesInScreenRect: () => [
+        { entry: entries.a, rootObj: { name: 'root-a' } },
+        { entry: entries.b, rootObj: { name: 'root-b' } },
+      ],
+      setSelectionOutlines: roots => selectedFrames.push(roots.slice()),
+      _openEquipmentWindow() {},
+      _refreshContextWindows() {},
+    },
+    game: { getPlaceable: id => entries[id] || null },
+    selectedNodeId: null,
+    selectedPlaceableId: null,
+    selectedPlaceableIds: new Set(),
+    _selectedRootsById: new Map(),
+    _renderSelectionOutlines: InputHandler.prototype._renderSelectionOutlines,
+    _showToast() {},
+  };
+  const consumed = InputHandler.prototype._finishMarquee.call(input, { clientX: 100, clientY: 120 });
+  assert(consumed && input.selectedPlaceableIds.size === 2,
+    'a dragged screen marquee selects every matching movable placeable');
+  assert(input.selectedPlaceableId === 'b' && selectedFrames.at(-1).length === 2,
+    'marquee selection establishes one primary item and outlines the whole group');
+}
+
+{
+  const { game, sourceId, sinkId } = fixture(553);
+  let persisted = 0;
+  let recalled = null;
+  const input = {
+    game,
+    selectedPlaceableId: sinkId,
+    selectedPlaceableIds: new Set([sourceId, sinkId]),
+    _selectionSlots: {},
+    _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,
+    _captureSelectedCopy: InputHandler.prototype._captureSelectedCopy,
+    _cloneSelectionPayload: InputHandler.prototype._cloneSelectionPayload,
+    _persistSelectionSlots() { persisted++; },
+    _showToast() {},
+    _armSelectionPayload(payload) { recalled = payload; return true; },
+  };
+  const saved = InputHandler.prototype._saveSelectionSlot.call(input, '1');
+  const savedCol = input._selectionSlots['1'].items[0].col;
+  game.getPlaceable(sourceId).col += 50;
+  const recalledOk = InputHandler.prototype._recallSelectionSlot.call(input, '1');
+  assert(saved && persisted === 1 && input._selectionSlots['1'].items.length === 2,
+    'Ctrl+digit stores the full selected formation and persists the slot');
+  assert(recalledOk && recalled.operation === 'copy' && recalled.items[0].col === savedCol,
+    'Shift+digit recalls an immutable copy even after the originals move');
+}
+
+{
+  const hint = InputHandler.prototype._placementKeyHintText.call({
+    game: { _designPlacer: null },
+    activeTool: { kind: 'move', payload: { kind: 'selectionGroup' } },
+    armedPlaceableId: null,
+  });
+  assert(hint.includes('F') && hint.includes('Rotate') && hint.includes('M') && hint.includes('Mirror'),
+    'group placement exposes rotate and mirror keys in the cursor hint');
 }
 
 {
