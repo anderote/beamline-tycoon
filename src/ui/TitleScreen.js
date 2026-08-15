@@ -129,6 +129,11 @@ export class TitleScreen {
         this._toggleMute();
         return;
       }
+      // Hand the trusted gesture straight to the media element. In
+      // particular, a saved `wasPlaying: false` state does not arm the
+      // player's generic autoplay retry, but this screen explicitly promises
+      // that continuing begins with music on.
+      window.__blMusic?.requestPlayback?.();
       this._userReady = true;
       this.el.removeEventListener('pointerdown', this._onLoadingClick);
       if (this._pendingReady) {
