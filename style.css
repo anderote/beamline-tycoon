@@ -882,17 +882,18 @@ body {
 }
 
 #connection-guide {
-  position: fixed;
-  right: 16px;
-  bottom: 170px;
-  z-index: 149;
-  width: min(590px, calc(100vw - 32px));
-  padding: 10px 13px 12px;
-  border: 2px solid rgba(200, 120, 40, 0.6);
-  border-radius: 2px;
-  background: rgba(8, 8, 24, 0.94);
-  box-shadow: 0 0 12px rgba(200, 120, 40, 0.15), inset 0 0 30px rgba(10, 10, 30, 0.5);
-  color: #b7dcf4;
+  position: absolute;
+  bottom: 280px;
+  left: 12px;
+  z-index: 110;
+  width: 320px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(80, 80, 140, 0.4);
+  border-radius: 5px;
+  background: rgba(15, 15, 35, 0.92);
+  box-shadow: none;
+  color: #ccddff;
   font-family: 'Press Start 2P', monospace;
   pointer-events: none;
 }
@@ -900,18 +901,18 @@ body {
 .connection-guide-header {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(200, 120, 40, 0.35);
+  gap: 9px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
 }
 .connection-guide-kicker {
-  color: rgba(200, 120, 40, 0.58);
-  font-size: 7px;
+  color: rgba(150, 170, 230, 0.5);
+  font-size: 6px;
   letter-spacing: 1px;
 }
 .connection-guide-title {
-  color: #d8a85d;
-  font-size: 10px;
+  color: #ccddff;
+  font-size: 9px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
@@ -919,54 +920,53 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 5px;
-  padding-top: 12px;
+  gap: 2px;
+  min-height: 68px;
+  padding: 9px 10px 11px;
 }
 .connection-guide-node {
-  display: grid;
-  grid-template-columns: 20px auto;
-  grid-template-rows: auto auto;
-  column-gap: 6px;
-  min-width: 66px;
+  display: flex;
+  flex: 0 1 62px;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
   color: #b6def8;
+  text-align: center;
 }
 .connection-guide-icon {
-  grid-row: 1 / 3;
-  align-self: center;
   color: #6fd4ff;
-  font-size: 18px;
-  text-align: center;
+  font-size: 15px;
   text-shadow: 0 0 6px rgba(73, 197, 255, 0.45);
 }
 .connection-guide-name {
-  font-size: 8px;
-  line-height: 1.35;
-  white-space: nowrap;
+  margin-top: 4px;
+  font-size: 6px;
+  line-height: 1.45;
 }
 .connection-guide-detail {
   color: rgba(180, 205, 236, 0.58);
-  font-size: 6px;
+  margin-top: 2px;
+  font-size: 5px;
   line-height: 1.35;
-  white-space: nowrap;
 }
 .connection-guide-link {
   display: grid;
   justify-items: center;
-  flex: 1 1 36px;
-  min-width: 32px;
+  flex: 1 1 18px;
+  min-width: 12px;
 }
 .connection-guide-link-label {
-  color: rgba(216, 168, 93, 0.72);
-  font-size: 6px;
-  margin-bottom: 3px;
-  white-space: nowrap;
+  color: rgba(151, 185, 238, 0.66);
+  font-size: 5px;
+  margin-bottom: 4px;
+  text-align: center;
 }
 .connection-guide-arrow {
   color: #6fd4ff;
   width: 100%;
-  padding: 3px 0;
+  padding: 2px 0;
   border-top: 2px solid rgba(111, 212, 255, 0.68);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1;
   text-align: right;
   text-shadow: 0 0 7px rgba(73, 197, 255, 0.6);

@@ -753,7 +753,10 @@ const CONNECTION_GUIDES = {
 UIHost.prototype._renderConnectionGuide = function(category) {
   const el = document.getElementById('connection-guide');
   if (!el) return;
-  const guide = this.activeMode === 'infra' ? CONNECTION_GUIDES[category] : null;
+  this._connectionGuideCategory = category;
+  const isPlacing = this._connectionGuidePlacementActive
+    ?? Boolean(this.renderer._inputHandler?.activeTool);
+  const guide = this.activeMode === 'infra' && !isPlacing ? CONNECTION_GUIDES[category] : null;
   if (!guide) {
     el.classList.add('hidden');
     el.replaceChildren();
@@ -780,6 +783,16 @@ UIHost.prototype._renderConnectionGuide = function(category) {
     }
   });
   el.appendChild(flow);
+};
+
+// The infrastructure guide owns the same lower-left slot as the normal
+// buildable preview. It is a reference card only: arming any placement tool
+// immediately clears it, and Escape restores it for the active infra tab.
+UIHost.prototype._setConnectionGuidePlacementActive = function(active) {
+  this._connectionGuidePlacementActive = active;
+  const category = this._connectionGuideCategory
+    || document.querySelector('.cat-tab.active')?.dataset.category;
+  this._renderConnectionGuide(category);
 };
 
 /**

@@ -2036,6 +2036,7 @@ export class InputHandler {
     // Tools that own a variant write it back in onEnter.
     this.selectedPlaceableVariant = 0;
     this.activeTool = tool || null;
+    this.renderer.ui?._setConnectionGuidePlacementActive?.(Boolean(this.activeTool));
     if (this.activeTool) {
       this.activeTool.onEnter?.(this._toolCtx);
       if (this.activeTool.cursor) {
@@ -2123,6 +2124,7 @@ export class InputHandler {
     if (prev.cursor) this.renderer.canvas.style.cursor = '';
     this.hoverPlaceable = null;
     this.renderer._clearPreview?.();
+    this.renderer.ui?._setConnectionGuidePlacementActive?.(false);
     this._updateShiftHint();
   }
 
