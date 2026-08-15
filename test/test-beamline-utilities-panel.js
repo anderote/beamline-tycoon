@@ -206,7 +206,7 @@ console.log('\n--- Test 6: unsolved and unrelated networks are not invented ---'
 }
 
 // ==========================================================================
-// Test 7: the overview embeds the shared 12-hour vacuum plot.
+// Test 7: the overview embeds the shared selectable vacuum plot.
 // ==========================================================================
 console.log('\n--- Test 7: overview pressure history ---');
 {
@@ -239,9 +239,9 @@ console.log('\n--- Test 7: overview pressure history ---');
 
   assert(html.includes('Vacuum pressure') && html.includes('2.00e-8 mbar'),
     'overview reports the connected section pressure');
-  assert(html.includes('vacuum-pressure-chart') && html.includes('last 12 hours')
-      && html.includes('Network'),
-    'overview renders the shared rolling pressure graph');
+  assert(html.includes('vacuum-pressure-chart') && html.includes('-10d')
+      && html.includes('>10d</button>') && html.includes('Network'),
+    'overview renders the shared rolling pressure graph at its widest range');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

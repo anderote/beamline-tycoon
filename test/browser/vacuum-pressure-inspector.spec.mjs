@@ -3,7 +3,7 @@ import {
   bootFreshGame, createErrorCollector, expectRendererLive, frames,
 } from './helpers.mjs';
 
-test('clicking a vacuum pipeline opens its 12-hour pressure plot', async ({ page }) => {
+test('clicking a vacuum pipeline opens its ten-day pressure plot by default', async ({ page }) => {
   const errors = createErrorCollector(page);
   await bootFreshGame(page);
   await expectRendererLive(page);
@@ -71,9 +71,10 @@ test('clicking a vacuum pipeline opens its 12-hour pressure plot', async ({ page
   await expect(inspector).toBeVisible();
   await expect(inspector.locator('.vacuum-pressure-chart')).toBeVisible();
   await expect(inspector.locator('.vacuum-pressure-chart')).toHaveAttribute(
-    'aria-label', 'Vacuum pressure over the last 12 in-game hours',
+    'aria-label', 'Vacuum pressure over the last 10d of in-game time',
   );
-  await expect(inspector).toContainText('last 12 hours');
+  await expect(inspector.locator('[data-vacuum-range-ticks="2400"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(inspector.locator('[data-vacuum-range-ticks]')).toHaveText(['1d', '2d', '10d']);
   await expect(inspector).toContainText('Network');
   await expect(inspector).not.toContainText('Mount a Pirani');
   errors.checkAll();

@@ -9,8 +9,12 @@ import { hardwareNodes } from '../game/aggregates.js';
 import { dataFeeIncome } from '../game/economy.js';
 import { endpointsById } from '../utility/endpoint-lookup.js';
 import { UTILITY_TYPES as UTILITY_DESCRIPTORS } from '../utility/registry.js';
-import { renderVacuumPressureGraph } from '../utility/types/vacuumPipe.js';
+import {
+  DEFAULT_VACUUM_HISTORY_RANGE_TICKS,
+  renderVacuumPressureGraph,
+} from '../utility/types/vacuumPipe.js';
 import { escapeHtml } from './format.js';
+import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
 // Imported, not re-declared: this map IS the utility-type -> quality-field
 // contract, and a hand-copied local one drifts from the table the gate wrote.
 import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
@@ -86,6 +90,7 @@ export class BeamlineWindow {
   constructor(game, beamlineId) {
     this.game = game;
     this.beamlineId = beamlineId;
+    this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
 
     const entry = game.registry.get(beamlineId);
     if (!entry) {
@@ -251,6 +256,7 @@ export class BeamlineWindow {
       </div>
       ${this._overviewVacuumHtml(nodeIds)}
     `;
+    this._bindVacuumHistoryControls(el);
   }
 
   _renderStats(el) {
@@ -604,7 +610,7 @@ export class BeamlineWindow {
         <span>${escapeHtml(sectionNote)}</span>
         <strong>${fmtUtilityQty(flow.pressure)} mbar</strong>
       </div>
-      ${renderVacuumPressureGraph(flow)}`;
+      ${renderVacuumPressureGraph(flow, this._vacuumHistoryRangeTicks)}`;
   }
 
   _renderUtilities(el) {
@@ -707,13 +713,22 @@ export class BeamlineWindow {
               : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
           html += `<div class="beamline-vacuum-network">
             <div class="beamline-vacuum-summary"><span>${escapeHtml(stage)} · ${fmtUtilityQty(flow.numberDensity)} molecules/m³</span><strong>${fmtUtilityQty(flow.pressure)} mbar</strong></div>
-            ${renderVacuumPressureGraph(flow)}
+            ${renderVacuumPressureGraph(flow, this._vacuumHistoryRangeTicks)}
           </div>`;
         }
       }
       html += '</section>';
     }
     el.innerHTML = html;
+    this._bindVacuumHistoryControls(el);
+  }
+
+  _bindVacuumHistoryControls(el) {
+    bindVacuumPressureRangeControls(el, rangeTicks => {
+      if (rangeTicks === this._vacuumHistoryRangeTicks) return;
+      this._vacuumHistoryRangeTicks = rangeTicks;
+      if (this.ctx && this.ctx._el) this.ctx.update();
+    });
   }
 
   // ---------------------------------------------------------------------------

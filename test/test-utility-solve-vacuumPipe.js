@@ -8,6 +8,8 @@ import desc, {
   circularPipeVolumeLitres, numberDensityFromPressure,
   ROUGH_ULTIMATE_PRESSURE_MBAR, HIGH_ULTIMATE_PRESSURE_MBAR,
   UHV_ULTIMATE_PRESSURE_MBAR, VACUUM_HISTORY_TICKS,
+  VACUUM_HISTORY_RANGES, VACUUM_TICKS_PER_DAY,
+  DEFAULT_VACUUM_HISTORY_RANGE_TICKS, renderVacuumPressureGraph,
 } from '../src/utility/types/vacuumPipe.js';
 
 let passed = 0, failed = 0;
@@ -289,9 +291,18 @@ console.log('\n--- Test 9: conductance and gauge history ---');
       && result.flowState.pressureHistory[0].readings.gauge_1 > 0,
     'network and gauge pressure are recorded into the rolling history');
   const html = desc.renderInspector(net, result.flowState, result.nextPersistentState);
-  assert(html.includes('Pressure history') && html.includes('last 12 hours')
-      && html.includes('-12h') && html.includes('Network') && html.includes('<svg'),
-    'the vacuum network inspector renders the 12-hour pressure graph');
+  assert(VACUUM_HISTORY_TICKS === VACUUM_TICKS_PER_DAY * 10
+      && DEFAULT_VACUUM_HISTORY_RANGE_TICKS === VACUUM_HISTORY_TICKS,
+    'vacuum history retains ten days and defaults to the widest range');
+  assert(VACUUM_HISTORY_RANGES.map(range => range.label).join(',') === '1d,2d,10d'
+      && html.includes(`data-vacuum-range-ticks="${VACUUM_HISTORY_TICKS}" aria-pressed="true"`)
+      && html.includes('-10d') && html.includes('-5d')
+      && html.includes('Network') && html.includes('<svg'),
+    'the vacuum network inspector renders 1d/2d/10d controls with 10d selected');
+  const oneDayHtml = renderVacuumPressureGraph(result.flowState, VACUUM_TICKS_PER_DAY);
+  assert(oneDayHtml.includes(`data-vacuum-range-ticks="${VACUUM_TICKS_PER_DAY}" aria-pressed="true"`)
+      && oneDayHtml.includes('-1d') && oneDayHtml.includes('-12h'),
+    'the pressure graph renders the selected one-day axis and control state');
 
   world.tick = VACUUM_HISTORY_TICKS + 10;
   const trimmed = desc.solve(net, {
@@ -304,7 +315,7 @@ console.log('\n--- Test 9: conductance and gauge history ---');
   assert(trimmed.flowState.pressureHistory.length === 2
       && trimmed.flowState.pressureHistory[0].tick === 10
       && trimmed.flowState.pressureHistory[1].tick === world.tick,
-    'pressure history retains exactly the latest 12 in-game hours');
+    'pressure history retains exactly the latest 10 in-game days');
 }
 
 // ==========================================================================

@@ -17,6 +17,8 @@ import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-disc
 import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { escapeHtml } from './format.js';
 import { renderRfSpectrum } from './rf-spectrum.js';
+import { DEFAULT_VACUUM_HISTORY_RANGE_TICKS } from '../utility/types/vacuumPipe.js';
+import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -96,6 +98,7 @@ export class UtilityInspector {
     this.game = game;
     this.utilityType = utilityType;
     this.networkId = networkId;
+    this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
 
     const winId = 'util-' + utilityType + '-' + networkId;
     const existing = ContextWindow.getWindow(winId);
@@ -199,16 +202,29 @@ export class UtilityInspector {
     }
 
     let html = `<div class="utility-inspector">`;
-    html += `<div class="utility-network-id"><strong>Network ID:</strong> ${escapeHtml(this.networkId)}</div>`;
-    html += `<div><strong>Capacity:</strong> ${fmtQty(totalCapacity)} ${escapeHtml(desc.capacityUnit || '')}</div>`;
-    html += `<div><strong>Demand:</strong> ${fmtQty(totalDemand)} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</div>`;
-    if (comparable) html += `<div class="utility-meter-wrap">${loadBar(util, 160)}</div>`;
-    if (worstQuality !== null) html += `<div class="utility-meter-wrap">${qualityBar(worstQuality, 160)}</div>`;
+    html += `<div class="utility-inspector-identity">
+      <span>Network ID</span>
+      <code>${escapeHtml(this.networkId)}</code>
+      <span class="utility-live-badge">LIVE</span>
+    </div>`;
+    html += `<div class="utility-summary-grid">
+      <div class="utility-summary-stat"><span>Capacity</span><strong>${fmtQty(totalCapacity)}</strong><small>${escapeHtml(desc.capacityUnit || '')}</small></div>
+      <div class="utility-summary-stat"><span>Demand</span><strong>${fmtQty(totalDemand)}</strong><small>${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</small></div>
+      <div class="utility-summary-stat"><span>Sources</span><strong>${network.sources?.length || 0}</strong><small>connected</small></div>
+      <div class="utility-summary-stat"><span>Sinks</span><strong>${network.sinks?.length || 0}</strong><small>connected</small></div>
+    </div>`;
+    if (comparable || worstQuality !== null) {
+      html += '<div class="utility-health-grid">';
+      if (comparable) html += `<div>${loadBar(util, 160)}</div>`;
+      if (worstQuality !== null) html += `<div>${qualityBar(worstQuality, 160)}</div>`;
+      html += '</div>';
+    }
 
     // Sources
     if (network.sources && network.sources.length) {
-      html += `<hr class="ui-divider"/>`;
-      html += `<div><strong>Sources (${network.sources.length}):</strong></div>`;
+      html += `<section class="utility-inspector-section">
+        <div class="utility-section-heading"><strong>Sources</strong><span>${network.sources.length}</span></div>
+        <div class="utility-endpoint-list">`;
       // Descriptors name their own per-port params (cryo carries capacity as
       // coldCapacityW, vacuum as pumpSpeed, ...); network-discovery only
       // mirrors params.capacity/params.demand onto the port, so reading those
@@ -229,57 +245,63 @@ export class UtilityInspector {
           cap = s.params.storageCapacityL;
           sourceUnit = 'L storage';
         }
-        html += `<div class="utility-list-row">
-          &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
-          <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>
-          <span class="ui-text-muted">· ${cap != null ? cap : 0} ${escapeHtml(sourceUnit)}</span>
+        html += `<div class="utility-endpoint-row">
+          <div class="utility-endpoint-name"><strong>${escapeHtml(this._placeableLabel(s.placeableId))}</strong><span>${escapeHtml(s.portName)}</span></div>
+          <span class="utility-endpoint-value">${fmtQty(cap != null ? cap : 0)} ${escapeHtml(sourceUnit)}</span>
         </div>`;
       }
+      html += '</div></section>';
     }
 
     // Sinks
     if (network.sinks && network.sinks.length) {
-      html += `<hr class="ui-divider"/>`;
-      html += `<div><strong>Sinks (${network.sinks.length}):</strong></div>`;
+      html += `<section class="utility-inspector-section">
+        <div class="utility-section-heading"><strong>Sinks</strong><span>${network.sinks.length}</span></div>
+        <div class="utility-endpoint-list">`;
       const demParam = desc.demandParam || 'demand';
       for (const s of network.sinks) {
         const dem = (s.params && s.params[demParam] != null ? s.params[demParam] : s.demand) || 0;
         const q = flow.perSinkQuality ? flow.perSinkQuality[s.portKey] : undefined;
         const qStr = (q !== undefined)
-          ? ` <span style="color:${qualityColor(q)}">(${(q * 100).toFixed(0)}%)</span>`
+          ? `<span class="utility-endpoint-quality" style="--utility-quality-color:${qualityColor(q)}">${(q * 100).toFixed(0)}%</span>`
           : '';
-        html += `<div class="utility-list-row">
-          &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
-          <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>
-          <span class="ui-text-muted">· ${dem} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</span>${qStr}
+        html += `<div class="utility-endpoint-row">
+          <div class="utility-endpoint-name"><strong>${escapeHtml(this._placeableLabel(s.placeableId))}</strong><span>${escapeHtml(s.portName)}</span></div>
+          <span class="utility-endpoint-value">${fmtQty(dem)} ${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</span>${qStr}
         </div>`;
       }
+      html += '</div></section>';
     }
 
     // Errors
     if (flow.errors && flow.errors.length) {
       const rfBandMismatch = this.utilityType === 'rfWaveguide'
         && flow.errors.some(e => e.code === 'rf_frequency_split' || e.code === 'rf_frequency_mismatch');
-      html += `<hr class="ui-divider"/>`;
+      html += `<section class="utility-inspector-section utility-issues-section">`;
       if (rfBandMismatch) {
         html += '<div class="utility-rf-band-alert utility-rf-band-alert-inspector">⚠ RF BAND MISMATCH — SPLIT THIS WAVEGUIDE NETWORK</div>';
       }
-      html += `<div><strong>Issues:</strong></div>`;
+      html += `<div class="utility-section-heading"><strong>Issues</strong><span>${flow.errors.length}</span></div>`;
       for (const e of flow.errors) {
         const color = e.severity === 'hard' ? '#ff4444' : '#ddaa22';
-        html += `<div class="utility-issue" style="color:${color}">
-          ${escapeHtml((e.severity || 'info').toUpperCase())}: ${escapeHtml(e.message || e.code || '')}
+        html += `<div class="utility-issue" style="--utility-issue-color:${color}">
+          <strong>${escapeHtml((e.severity || 'info').toUpperCase())}</strong><span>${escapeHtml(e.message || e.code || '')}</span>
         </div>`;
       }
+      html += '</section>';
     }
 
     // Descriptor-specific inner section
     if (typeof desc.renderInspector === 'function') {
       try {
-        const inner = desc.renderInspector(network, flow, persistent);
+        const inner = desc.renderInspector(network, flow, persistent, {
+          vacuumHistoryRangeTicks: this._vacuumHistoryRangeTicks,
+        });
         if (inner) {
-          html += `<hr class="ui-divider"/>`;
-          html += inner;
+          html += `<section class="utility-inspector-section utility-details-section">
+            <div class="utility-section-heading"><strong>Network details</strong></div>
+            ${inner}
+          </section>`;
         }
       } catch (err) {
         html += `<div class="utility-issue utility-issue-error">renderInspector threw: ${escapeHtml((err && err.message) || String(err))}</div>`;
@@ -305,6 +327,12 @@ export class UtilityInspector {
 
     html += `</div>`;
     el.innerHTML = html;
+
+    bindVacuumPressureRangeControls(el, rangeTicks => {
+      if (rangeTicks === this._vacuumHistoryRangeTicks) return;
+      this._vacuumHistoryRangeTicks = rangeTicks;
+      if (this.ctx && this.ctx._el) this.ctx.update();
+    });
 
     if (hasRefill) {
       const btn = el.querySelector('[data-refill-btn="1"]');

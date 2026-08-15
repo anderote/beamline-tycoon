@@ -22,7 +22,14 @@ export const UHV_START_PRESSURE_MBAR = 1e-5;
 export const ROUGH_ULTIMATE_PRESSURE_MBAR = 1e-3;
 export const HIGH_ULTIMATE_PRESSURE_MBAR = 1e-8;
 export const UHV_ULTIMATE_PRESSURE_MBAR = 1e-11;
-export const VACUUM_HISTORY_TICKS = 120; // 12 in-game hours (240 ticks/day)
+export const VACUUM_TICKS_PER_DAY = 240;
+export const VACUUM_HISTORY_RANGES = Object.freeze([
+  Object.freeze({ ticks: VACUUM_TICKS_PER_DAY, label: '1d', startLabel: '-1d', midLabel: '-12h' }),
+  Object.freeze({ ticks: VACUUM_TICKS_PER_DAY * 2, label: '2d', startLabel: '-2d', midLabel: '-1d' }),
+  Object.freeze({ ticks: VACUUM_TICKS_PER_DAY * 10, label: '10d', startLabel: '-10d', midLabel: '-5d' }),
+]);
+export const VACUUM_HISTORY_TICKS = VACUUM_HISTORY_RANGES.at(-1).ticks;
+export const DEFAULT_VACUUM_HISTORY_RANGE_TICKS = VACUUM_HISTORY_TICKS;
 export const VACUUM_HISTORY_SAMPLE_TICKS = 5; // half an in-game hour
 
 const SUB_UNIT_M = 0.5;
@@ -322,33 +329,42 @@ function escape(value) {
   })[ch]);
 }
 
+function vacuumHistoryRange(rangeTicks) {
+  return VACUUM_HISTORY_RANGES.find(range => range.ticks === Number(rangeTicks))
+    || VACUUM_HISTORY_RANGES.at(-1);
+}
+
 // Shared by the single-network inspector and the beamline overview. Keeping
-// the plotter here means both windows use the same time range, gauge status
-// rules, log scale, and series styling.
-export function renderVacuumPressureGraph(flow) {
+// the plotter here means both windows use the same selectable ranges, gauge
+// status rules, log scale, and series styling.
+export function renderVacuumPressureGraph(
+  flow,
+  rangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS,
+) {
   const gauges = flow.gauges || [];
   const history = flow.pressureHistory || [];
+  const range = vacuumHistoryRange(rangeTicks);
   // Leave enough room for the right-anchored "now" label. With an 8 px
   // margin its final glyph sat outside the SVG viewBox and was clipped in
   // both inspectors.
   const W = 360, H = 150, left = 42, right = 18, top = 8, bottom = 24;
   const x0 = left, x1 = W - right, y0 = top, y1 = H - bottom;
   const now = Number.isFinite(flow.tick) ? flow.tick : 0;
-  const start = now - VACUUM_HISTORY_TICKS;
+  const start = now - range.ticks;
   const logMax = 3, logMin = -12;
   const x = tick => x0 + (Math.max(start, Math.min(now, tick)) - start)
-    / VACUUM_HISTORY_TICKS * (x1 - x0);
+    / range.ticks * (x1 - x0);
   const y = pressure => {
     const log = Math.max(logMin, Math.min(logMax, Math.log10(Math.max(1e-12, pressure))));
     return y0 + (logMax - log) / (logMax - logMin) * (y1 - y0);
   };
-  let svg = `<svg class="vacuum-pressure-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacuum pressure over the last 12 in-game hours">`;
+  let svg = `<svg class="vacuum-pressure-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacuum pressure over the last ${range.label} of in-game time">`;
   for (const decade of [3, 0, -3, -6, -9, -12]) {
     const py = y(Math.pow(10, decade));
     svg += `<line x1="${x0}" y1="${py}" x2="${x1}" y2="${py}" stroke="#ffffff18"/>`;
     svg += `<text x="${x0 - 4}" y="${py + 3}" fill="#aaa" font-size="9" text-anchor="end">1e${decade}</text>`;
   }
-  for (const [tick, label] of [[start, '-12h'], [start + VACUUM_HISTORY_TICKS / 2, '-6h'], [now, 'now']]) {
+  for (const [tick, label] of [[start, range.startLabel], [start + range.ticks / 2, range.midLabel], [now, 'now']]) {
     const px = x(tick);
     svg += `<line x1="${px}" y1="${y0}" x2="${px}" y2="${y1}" stroke="#ffffff12"/>`;
     svg += `<text x="${px}" y="${H - 7}" fill="#aaa" font-size="9" text-anchor="middle">${label}</text>`;
@@ -369,6 +385,7 @@ export function renderVacuumPressureGraph(flow) {
   for (const trace of series) {
     const points = [];
     for (const sample of history) {
+      if (!Number.isFinite(sample?.tick) || sample.tick < start || sample.tick > now) continue;
       const pressure = trace.pressureAt(sample);
       if (!(pressure > 0)) continue;
       points.push(`${x(sample.tick).toFixed(1)},${y(pressure).toFixed(1)}`);
@@ -396,8 +413,17 @@ export function renderVacuumPressureGraph(flow) {
     legend += `<div><span style="color:${trace.color}">●</span> ${escape(trace.label)} <span class="ui-text-faint">${escape(detail)}</span></div>`;
   }
   legend += '</div>';
-  return '<div><strong>Pressure history</strong> <span class="ui-text-faint">last 12 hours · mbar, log scale</span></div>'
-    + svg + legend;
+  const controls = VACUUM_HISTORY_RANGES.map(option => {
+    const selected = option.ticks === range.ticks;
+    return `<button type="button" class="vacuum-pressure-range-btn${selected ? ' is-active' : ''}" data-vacuum-range-ticks="${option.ticks}" aria-pressed="${selected ? 'true' : 'false'}">${option.label}</button>`;
+  }).join('');
+  return `<div class="vacuum-pressure-plot">
+    <div class="vacuum-pressure-heading">
+      <div><strong>Pressure history</strong><span class="vacuum-pressure-caption">mbar · log scale</span></div>
+      <div class="vacuum-pressure-range" role="group" aria-label="Pressure history range">${controls}</div>
+    </div>
+    ${svg}${legend}
+  </div>`;
 }
 
 export default {
@@ -578,20 +604,21 @@ export default {
       errors,
     };
   },
-  renderInspector(network, flow) {
+  renderInspector(network, flow, _persistent, viewOptions = {}) {
     const stage = flow.vacuumStage === 'uhv' ? 'UHV'
       : flow.vacuumStage === 'high' ? 'High vacuum'
         : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
     return `<div class="vacuum-network-physics">
-      <div><strong>Active stage:</strong> ${escape(stage)}</div>
-      <div><strong>Pressure:</strong> ${escape(fmtPressure(flow.pressure))}</div>
-      <div><strong>Gas density:</strong> ${escape((flow.numberDensity || 0).toExponential(2))} molecules/m³</div>
-      <div><strong>Gas inventory:</strong> ${escape((flow.moleculeCount || 0).toExponential(2))} molecules</div>
-      <div><strong>Evacuated volume:</strong> ${escape((flow.volumeL || 0).toFixed(1))} L</div>
-      <div><strong>Effective pumping:</strong> ${escape((flow.effectivePumpSpeed || 0).toFixed(1))} L/s <span class="ui-text-faint">(${escape((flow.nominalPumpSpeed || 0).toFixed(1))} nominal)</span></div>
-      <div><strong>Gas mix:</strong> ${escape(flow.gasSpecies || '--')}</div>
-      <div class="ui-text-faint">${escape((flow.beamPipeLengthM || 0).toFixed(1))} m beam pipe · ${escape((flow.serviceLineLengthM || 0).toFixed(1))} m service line</div>
-      <div style="margin-top:8px">${renderVacuumPressureGraph(flow)}</div>
+      <div class="vacuum-physics-grid">
+        <div class="vacuum-physics-stat vacuum-physics-stat-primary"><span>Pressure</span><strong>${escape(fmtPressure(flow.pressure))}</strong></div>
+        <div class="vacuum-physics-stat"><span>Active stage</span><strong>${escape(stage)}</strong></div>
+        <div class="vacuum-physics-stat"><span>Evacuated volume</span><strong>${escape((flow.volumeL || 0).toFixed(1))} L</strong></div>
+        <div class="vacuum-physics-stat"><span>Effective pumping</span><strong>${escape((flow.effectivePumpSpeed || 0).toFixed(1))} L/s</strong><small>${escape((flow.nominalPumpSpeed || 0).toFixed(1))} L/s nominal</small></div>
+        <div class="vacuum-physics-stat"><span>Gas density</span><strong>${escape((flow.numberDensity || 0).toExponential(2))} m⁻³</strong></div>
+        <div class="vacuum-physics-stat"><span>Gas inventory</span><strong>${escape((flow.moleculeCount || 0).toExponential(2))} molecules</strong></div>
+      </div>
+      <div class="vacuum-physics-footnote"><span>${escape(flow.gasSpecies || '--')}</span><span>${escape((flow.beamPipeLengthM || 0).toFixed(1))} m beam pipe</span><span>${escape((flow.serviceLineLengthM || 0).toFixed(1))} m service line</span></div>
+      ${renderVacuumPressureGraph(flow, viewOptions.vacuumHistoryRangeTicks)}
     </div>`;
   },
   refillCost() { return null; },
