@@ -22,6 +22,22 @@ function richGame() {
   return game;
 }
 
+console.log('\n=== wall paint belongs to an independently selectable face ===\n');
+{
+  const game = richGame();
+  game.placeWall(4, 4, 'n', 'officeWall');
+  assertOk(game.paintWallFace(4, 4, 'n', 'labBlue'),
+    'painting from the wall record side paints that room-facing face');
+  assertOk(game.paintWallFace(4, 3, 's', 'utilityGray'),
+    'painting through the mirrored edge paints the opposite face');
+  const wall = game.state.walls[0];
+  assertOk(wall.facePaint?.inside === 'labBlue' && wall.facePaint?.outside === 'utilityGray',
+    'both wall faces retain independent finishes');
+  assertOk(game.paintWallFace(4, 3, 's', null) && wall.facePaint?.inside === 'labBlue'
+    && !wall.facePaint?.outside,
+  'right-click reset clears only the selected face finish');
+}
+
 console.log('\n=== shielding walls occupy a one-subtile-deep edge strip ===\n');
 {
   assertOk(WALL_TYPES.cinderblockWall.insetSubtiles === 1,

@@ -85,7 +85,7 @@ const {
   WallBuilder, doorOpeningLayout, HEIGHT_SCALE, LINTEL_HEIGHT,
   SUBTILES_PER_EDGE, SUBTILE_SIZE,
 } = await import('../src/renderer3d/wall-builder.js');
-const { DOOR_TYPES, WALL_TYPES } = await import('../src/data/structure.js');
+const { DOOR_TYPES, WALL_TYPES, WALL_PAINTS } = await import('../src/data/structure.js');
 
 const TILE_SIZE = 2;
 const POST_WIDTH = 0.1;
@@ -528,6 +528,26 @@ console.log('\n=== 12. A wall stored under the mirrored key never seals the door
   const fills = wb2._meshes.filter(m => near(m.geometry.parameters?.height ?? -1, wallH));
   assert(fills.length === 2,
     "the door's side fills take their height from the wall recorded on the far tile");
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 13. Wall paint selects the two physical faces independently ===\n');
+{
+  const wb = new WallBuilder(null);
+  wb.build(
+    [{
+      col: 2, row: 2, edge: 'n', type: 'officeWall', variant: 0,
+      facePaint: { inside: 'labBlue', outside: 'utilityGray' }, baseY: { a: 0, b: 0 },
+    }],
+    [], [], new Group(), 'up', null,
+  );
+  const material = wb._meshes[0].material;
+  assert(Array.isArray(material), 'a painted wall uses per-face materials');
+  // BoxGeometry's front (+Z) face is the inside of a north-edge wall; its
+  // back (-Z) face is the adjoining tile's independent outside finish.
+  assert(material[4].color === WALL_PAINTS.labBlue.color
+    && material[5].color === WALL_PAINTS.utilityGray.color,
+  'north-edge inside/outside paint maps to opposite visible wall faces');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

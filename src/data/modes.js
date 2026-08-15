@@ -68,7 +68,7 @@ export const MODES = {
     name: 'Structure',
     categories: {
       flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' } } },
-      walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, shielding: { name: 'Shielding' } } },
+      walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, shielding: { name: 'Shielding' }, paint: { name: 'Paint' } } },
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
       windows:     { name: 'Windows',       color: '#8cf', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielded: { name: 'Shielded' } } },
       // Wall- and ceiling-mounted fixtures (mount !== 'ground') — building

@@ -36,6 +36,18 @@ export function variantCost(def, variant = 0) {
   return typeof vc === 'number' ? vc : flat;
 }
 
+// Cosmetic finishes apply to one face of an existing wall. They deliberately
+// live outside WALL_TYPES: painting never changes a wall's construction cost,
+// height, collision, or shielding properties.
+export const WALL_PAINTS = {
+  cleanWhite:  { id: 'cleanWhite',  name: 'Clean White',  color: 0xe9e5dc },
+  labBlue:     { id: 'labBlue',     name: 'Lab Blue',     color: 0x5f91b8 },
+  controlTeal: { id: 'controlTeal', name: 'Control Teal', color: 0x4b8f8b },
+  safetyGreen: { id: 'safetyGreen', name: 'Safety Green', color: 0x5d9a68 },
+  utilityGray: { id: 'utilityGray', name: 'Utility Gray', color: 0x777d84 },
+  warmOchre:   { id: 'warmOchre',   name: 'Warm Ochre',   color: 0xb68b55 },
+};
+
 // All floor types — placed as full tiles. Indoor floors require a
 // concrete foundation; outdoor floors can sit directly on bare ground
 // or on top of foundations.
