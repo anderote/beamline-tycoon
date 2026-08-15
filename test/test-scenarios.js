@@ -174,10 +174,10 @@ for (const scenario of SCENARIOS) {
   // Wiring: transformer → switchgear → MCC is 2 HV feeders, then 8 branch circuits off the MCC's
   // eight sockets (2 junctions + 5 support units + the power bus), 5 vacuum
   // (2 junctions + 2 manifolds + the turbo's tap), 1 RF into the waveguide
-  // manifold, 2 cooling, 2 data = 19 lines. Four of them are bus feeds standing
+  // manifold, 2 process-water, 2 plant-water, 2 data = 22 lines. Four of them are bus feeds standing
   // in for what would otherwise be 16 per-component stubs.
-  assert((state.utilityLines?.size || 0) === 20,
-    `twenty utility lines wired (got ${state.utilityLines?.size})`);
+  assert((state.utilityLines?.size || 0) === 22,
+    `twenty-two utility lines wired, including the staged cooling plant (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
   assert(hvLines.length === 2, `transformer and switchgear use two HV feeders (got ${hvLines.length})`);

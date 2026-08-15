@@ -961,6 +961,15 @@ export const INFRASTRUCTURE_RAW = {
   },
 
   // ── Cooling Water ─────────────────────────────────────────────────
+  waterTank: {
+    id: 'waterTank', name: 'Make-up Water Tank',
+    desc: 'Bulk treated-water storage for the cooling plant. Start the plant-water chain here: connect this tank to a heat rejector, then connect the rejector to a chiller. It does not feed beamline equipment directly.',
+    category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
+    cost: { funding: 180000 }, stats: {}, energyCost: 0,
+    subL: 3, subW: 3, subH: 4, gridW: 3, gridH: 3, geometryType: 'cylinder',
+    baseMaterial: 'metal_painted_blue', zoneTier: 0, spriteKey: 'waterLoad', spriteColor: 0x277a9c,
+    placement: 'module', ports: {}, requiredConnections: [],
+  },
   waterLoad: {
     id: 'waterLoad',
     name: 'High-Power Water Load',
@@ -1012,15 +1021,16 @@ export const INFRASTRUCTURE_RAW = {
   // machine grows.
   fanCoilCooler: {
     id: 'fanCoilCooler',
-    name: 'Fan-Coil Cooler',
-    desc: 'Finned water-to-air coil with a squirrel-cage blower, dumping 20 kW of magnet heat straight into the hall. No compressor, no tower, no basin — the supply temperature just tracks room ambient, so it holds nothing tighter than about +10°C over the air it is breathing. Enough to keep one or two magnets off their thermal interlocks while the beamline is still two components long. The worst dollars-per-kilowatt in the game, and the only cooling you can afford on day one.',
-    // This is a direct air heat rejector, not a source of chilled water.
-    coolingRole: 'directAir',
+    name: 'Air-Cooled Condenser',
+    desc: 'Small air-cooled heat rejector for a starter cooling plant. Connect a Make-up Water Tank to this unit, then connect it to a Package Chiller. It rejects 50 kW to hall air: expensive and noisy, but the affordable first rung before an outdoor dry cooler or cooling tower.',
+    coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
     cost: { funding: 140000 },
     stats: {},
-    energyCost: 1,
+    // Passive starter rejector: its tiny natural-convection capacity is what
+    // keeps the first complete plant affordable. Larger rejectors need power.
+    energyCost: 0,
     subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_blue',
     zoneTier: 0,
@@ -1029,7 +1039,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: [],
   },
   packageChiller: {
     id: 'packageChiller',

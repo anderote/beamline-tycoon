@@ -357,6 +357,7 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
     pipeCryo:    '#44aacc',
     pipeVacuum:  '#555555',
     pipeCooling: '#4488cc',
+    pipePlantWater: '#277a9c',
     pipePower:   '#44cc44',
     pipeData:    '#eeeeee',
   };
@@ -388,12 +389,13 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
       powerCable:   C.pipePower,
       rfWaveguide:  C.pipeRF,
       coolingWater: C.pipeCooling,
+      plantWater: C.pipePlantWater,
       cryoTransfer: C.pipeCryo,
       dataFiber:    C.pipeData,
       vacuumPipe:   C.pipeVacuum,
     };
     // Valve-bearing connection types (fluid lines)
-    const valveConns = new Set(['coolingWater', 'cryoTransfer', 'vacuumPipe']);
+    const valveConns = new Set(['coolingWater', 'plantWater', 'cryoTransfer', 'vacuumPipe']);
     // Collect unique connection types
     const uniqueConns = [...new Set(conns)].filter(c => connColorMap[c]);
     // Add output connections for facility categories that provide services
@@ -405,10 +407,10 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
     if (comp.category === 'cooling' && comp.subsection === 'cryogenics' && !uniqueConns.includes('cryoTransfer')) {
       uniqueConns.push('cryoTransfer');
     }
-    // Cooling distribution/plant: produces cooling water output
-    if (comp.category === 'cooling' && comp.subsection !== 'cryogenics' && !uniqueConns.includes('coolingWater')) {
-      uniqueConns.push('coolingWater');
-    }
+    // Cooling diagrams describe their actual service: process-water plant
+    // supplies LCW, while tanks and rejectors sit on the plant-water loop.
+    if (comp.category === 'cooling' && comp.subsection === 'processCooling' && !uniqueConns.includes('coolingWater')) uniqueConns.push('coolingWater');
+    if (comp.category === 'cooling' && ['waterSupply', 'heatRejection'].includes(comp.subsection) && !uniqueConns.includes('plantWater')) uniqueConns.push('plantWater');
     // Data/Controls: produces data fiber output
     if (comp.category === 'dataControls' && !uniqueConns.includes('dataFiber')) {
       uniqueConns.push('dataFiber');

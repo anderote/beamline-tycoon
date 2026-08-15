@@ -25,7 +25,8 @@ export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   areaMonitor: 'areaMonitor',
   shielding: 'shieldedCell', targetHandling: 'handling', beamDump: 'dump',
   radWasteStorage: 'storage', laserSystem: 'laserBay', petawattLaser: 'laserBay',
-  powerPanel: 'cabinet', powerBus: 'powerBus',
+  powerPanel: 'cabinet', powerBus: 'powerBus', spiderBox: 'powerBus',
+  waterTank: 'storage',
 
   // Office furnishings that had no parts list.
   whiteboard: 'whiteboard', whiteboardLarge: 'whiteboard', coffeeMachine: 'coffeeMachine',

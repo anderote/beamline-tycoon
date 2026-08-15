@@ -257,6 +257,8 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // to share the service row with the west chiller's run to the detector, and
   // two lines of one utility may not overlap unless they share a source.
   const ch2  = place('chiller', 3, 11);
+  const plantTank = place('waterTank', -2, 14);
+  const tower = place('coolingTower', 6, 14);
 
   // Distribution row (9), hard against the line. One power bus and one
   // waveguide manifold span the run; vacuum only reaches 5 cells, so it takes
@@ -288,7 +290,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hv && mcc2) wire('hvCable', { id: hv, port: 'hv_out_2' }, { id: mcc2, port: 'hv_in' });
   const westLoads = [[src2, 'pwr_in'], [mbk, 'pwr_in'], [ssa2, 'pwr_in'],
     [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'pwr_in']];
-  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in']];
+  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in'], [tower, 'pwr_in']];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
     loads.forEach(([id, port], i) => {
       if (id && panel) wire('powerCable', { id: panel, port: `pwr_out_${i + 1}` }, { id, port });
@@ -311,6 +313,9 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     if (mbk) wire('rfWaveguide', { id: mbk, port: 'rf_out' }, { id: wgBus2, port: 'bus_left' });
     if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out' }, { id: wgBus2, port: 'bus_right' });
   }
+  if (plantTank && tower) wire('plantWater', { id: plantTank, port: 'water_out' }, { id: tower, port: 'plant_in' });
+  if (tower && ch1) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch1, port: 'reject_in' });
+  if (tower && ch2) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch2, port: 'reject_in' });
   // East chiller first: its drop runs along the same service row as the west
   // chiller's feed to the detector, and lines of one utility may not overlap
   // unless they share a source.

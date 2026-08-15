@@ -438,16 +438,25 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     for (const pid of touchedPlaceables) {
       const ports = portLookup.listPorts(pid) || [];
       const passNames = [];
+      const throughNames = [];
       const sourceNames = [];
       for (const { name, spec } of ports) {
         if (!spec) continue;
         if (spec.utility !== utilityType) continue;
         if (spec.role === 'pass') passNames.push(name);
+        if (spec.through) throughNames.push(name);
         else if (spec.role === 'source') sourceNames.push(name);
       }
       // Pass-through ports: logically continuous within the device.
       if (passNames.length >= 2) {
         const keys = passNames.map(n => `${pid}:${n}`);
+        for (const k of keys) allPortKeys.add(k);
+        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+      }
+      // Explicit hydraulic continuity for staged plant equipment. This is
+      // intentionally opt-in: ordinary source/sink pairs remain isolated.
+      if (throughNames.length >= 2) {
+        const keys = throughNames.map(n => `${pid}:${n}`);
         for (const k of keys) allPortKeys.add(k);
         for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
       }

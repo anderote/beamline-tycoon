@@ -245,8 +245,11 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
 
   const lcw = getUtilityPortsV2('lcwSkid');
   const tower = getUtilityPortsV2('coolingTower');
-  assert(lcw.cool_out.params.capacity < tower.cool_out.params.capacity,
-    'cooling ladder: lcwSkid < coolingTower');
+  const tank = getUtilityPortsV2('waterTank');
+  assert(lcw.reject_in.params.rejectionDemand < tower.reject_out.params.rejectionCapacity,
+    'staged cooling ladder: LCW skid demand < cooling-tower rejection capacity');
+  assert(tank.water_out?.utility === 'plantWater' && tank.water_out.params.waterSupply === true,
+    'make-up tank starts the plant-water chain');
 
   const rough = getUtilityPortsV2('roughingPump');
   const turbo = getUtilityPortsV2('turboPump');

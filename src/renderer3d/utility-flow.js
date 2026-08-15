@@ -62,6 +62,11 @@ export const FLOW_PARAMS = {
     // merge into a steady flowing gradient.
     speed: 0.55, period: 5.0, width: 3.5, strength: 1.1, baseGlow: 0.12,
   },
+  plantWater: {
+    // Condenser/make-up water is a larger, slower outdoor service than the
+    // tightly controlled LCW process loop.
+    speed: 0.38, period: 5.5, width: 3.8, strength: 0.9, baseGlow: 0.08,
+  },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
     // frost glow" the brief calls for. Applied to both the core AND the

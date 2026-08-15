@@ -159,6 +159,11 @@ export function setupSmallBeamlineFacility(game) {
   const xfmr = game.placePlaceable({ type: 'facilityTransformer', col: -8, row: -1, free: true, silent: true });
   const gear = game.placePlaceable({ type: 'switchgear', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
+  // Complete cooling plant: tank -> air-cooled condenser -> LCW skid.
+  // It sits outside the compact beam hall so the scenario teaches that plant
+  // water is facility infrastructure, not another branch to a magnet.
+  const waterTank = game.placePlaceable({ type: 'waterTank', col: -9, row: 3, free: true, silent: true });
+  const condenser = game.placePlaceable({ type: 'fanCoilCooler', col: -5, row: 3, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
   const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
   // Vacuum: the six on-pipe chambers outgas ~4.2e-6 on top of the junctions'
@@ -217,8 +222,10 @@ export function setupSmallBeamlineFacility(game) {
   if (ssa && wgBus) wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
 
   // Cooling: gun collector heat plus the one quadrupole. A single magnet does
-  // not earn a header, so it gets a stub. Gives the starter facility a live
-  // water reservoir (a recurring refill cost).
+  // not earn a header, so it gets a stub. The process-water skid is enabled
+  // only after its tank -> heat-rejection chain is complete.
+  if (waterTank && condenser) wire('plantWater', { id: waterTank, port: 'water_out' }, { id: condenser, port: 'plant_in' });
+  if (condenser && skid) wire('plantWater', { id: condenser, port: 'reject_out' }, { id: skid, port: 'reject_in' });
   if (skid) {
     if (src) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: src, port: 'cool_in' });
     if (quad) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: quad, port: 'cool_in' });
