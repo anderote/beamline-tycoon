@@ -10,9 +10,10 @@ export class EquipmentWindow {
    * @param {object} game   - Game instance
    * @param {object} equip  - Equipment entry { id, type, col, row }
    */
-  constructor(game, equip) {
+  constructor(game, equip, selectionActions = {}) {
     this.game = game;
     this.equip = equip;
+    this.selectionActions = selectionActions;
     // This window is also the compact info menu for selected furnishings,
     // decorations, and infrastructure. Equipment remains the common case,
     // so retain the name and public entry point.
@@ -36,11 +37,32 @@ export class EquipmentWindow {
     this.ctx.onTabRender('info', (container) => this._renderInfo(container));
 
     this.ctx.setActions([
+      {
+        label: 'Place',
+        title: 'Pick up the selection and place it together',
+        onClick: () => this.selectionActions.onPlace?.(equip.id),
+      },
+      {
+        label: 'Copy',
+        title: 'Copy the selection and its internal utility connections',
+        onClick: () => this.selectionActions.onCopy?.(equip.id),
+      },
       { label: 'Demolish (50% refund)', variant: 'danger', onClick: () => {
-        this.game.demolishTarget({ kind: equip.kind || 'equipment', id: equip.id });
-        this.ctx.close();
+        if (this.selectionActions.onDemolish) {
+          const removedIds = this.selectionActions.onDemolish(equip.id) || [];
+          for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
+        } else {
+          this.game.demolishTarget({ kind: equip.kind || 'equipment', id: equip.id });
+          this.ctx.close();
+        }
       }},
     ]);
+    this._updateTitle();
+  }
+
+  _updateTitle() {
+    const count = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
+    this.ctx?.setTitle(count > 1 ? `${count} Items Selected` : this.comp.name);
   }
 
   _renderInfo(container) {
@@ -83,6 +105,7 @@ export class EquipmentWindow {
   }
 
   refresh() {
+    this._updateTitle();
     this.ctx.update();
   }
 }

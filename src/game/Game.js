@@ -2767,7 +2767,7 @@ export class Game {
    * route that no longer fits into a visible dangling end rather than leaving
    * a line secretly connected to the object's old position.
    */
-  reanchorUtilityLinesForPlaceable(placeableId) {
+  reanchorUtilityLinesForPlaceable(placeableId, { skipLineIds = null } = {}) {
     const placeable = this.getPlaceable(placeableId);
     const lines = this.state.utilityLines;
     if (!placeable || !lines || !this.utilityLineSystem) return 0;
@@ -2777,6 +2777,7 @@ export class Game {
     let dangled = 0;
     const attached = [];
     for (const line of lines.values()) {
+      if (skipLineIds?.has?.(line.id)) continue;
       const ports = [];
       if (line.start?.placeableId === placeableId) ports.push(line.start.portName);
       if (line.end?.placeableId === placeableId) ports.push(line.end.portName);
