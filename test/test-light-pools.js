@@ -142,8 +142,9 @@ console.log('\n=== one projection drives mount, pool, cone, and attenuation ===\
       assert(Number.isFinite(p.distance) && p.distance > 0, `${def.id}/dir${dir}: finite positive throw`);
       assert(Number.isFinite(p.halfAngle) && p.halfAngle > 0 && p.halfAngle < Math.PI / 2,
         `${def.id}/dir${dir}: valid spotlight half-angle`);
-      assert(Math.abs(p.emitter.y - (floorY + def.light.emitterY)) < 1e-9,
-        `${def.id}/dir${dir}: emitter height is measured from the floor for every mount`);
+      const sourceY = floorY + def.light.emitterY + (def.light.sourceOffsetY ?? 0);
+      assert(Math.abs(p.emitter.y - sourceY) < 1e-9,
+        `${def.id}/dir${dir}: emitter follows the visible source below its mount`);
       assert(p.groundFootprint.rx > 0 && p.groundFootprint.rz > 0,
         `${def.id}/dir${dir}: painted footprint comes from the same projection packet`);
     }
@@ -243,7 +244,8 @@ console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
     'the same wall wash slopes down onto the floor');
 
   const panel = fixtureLightTag(DEF.ceilingPanel, { id: 'C1' });
-  assert(panel.offsetY === 0, 'an overhead fixture hangs from its origin too — offsetY 0');
+  assert(panel.offsetY === DEF.ceilingPanel.light.sourceOffsetY,
+    'an overhead source follows its diffuser below the ceiling attachment');
 
   // --- aimed ground cone (floodLight) ---
   const flood = fixtureLightTag(DEF.floodLight, { id: 'F1', dir: 2 });
@@ -265,10 +267,12 @@ console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
     assert(overhead.shape === 'cone', `${id} uses a directional cone, not an omnidirectional point light`);
     assert(overhead.aimed === false, `${id} points straight down — placement dir does not tilt it sideways`);
     assert(overhead.aimYaw === 0, `${id} reports zero horizontal aim yaw`);
-    assert(overhead.volumeProfile === 'downlight', `${id} publishes a visible downward volume profile`);
+    assert(overhead.volumeProfile === 'none', `${id} avoids a visible cone in clear interior air`);
   }
   const bay = fixtureLightTag(DEF.highBay, { id: 'H1', dir: 1 });
   assert(bay.coneDeg === 90, 'highBay keeps its wide 90 degree cone');
+  assert(bay.offsetY === -0.28 && bay.sourceOffsetY === -0.28,
+    'highBay light originates at the bottom diffuser, 28 cm below its mount');
 
   // --- defs with no light block, and field defaults ---
   assert(fixtureLightTag({ id: 'bench', mount: 'ground' }, { id: 'B1' }) === null,

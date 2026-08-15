@@ -1,4 +1,46 @@
-export function createVolumetricLightMaterial() {
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import { positionLocal, positionWorld, sin, smoothstep, uniform } from 'three/tsl';
+
+function createModernVolumetricLightMaterial() {
+  const uniforms = {
+    uColor: uniform(new THREE.Color(0xffffff)),
+    uOpacity: uniform(0),
+    uLength: uniform(1),
+    uRadius: uniform(1),
+    uTime: uniform(0),
+    uPhase: uniform(0),
+  };
+
+  // ConeGeometry is one unit high, centred on the origin and widens toward
+  // local -Y. Fade both ends and the shell edge so this reads as suspended
+  // atmosphere, never as an opaque cone object.
+  const axial = positionLocal.y.negate().add(0.5).clamp(0, 1);
+  const localRadius = uniforms.uRadius.mul(axial).max(0.001);
+  const edge = positionLocal.xz.length().div(localRadius);
+  const radial = smoothstep(1, 0.42, edge);
+  const longitudinal = smoothstep(0, 0.12, axial)
+    .mul(smoothstep(1, 0.78, axial));
+  const drift = sin(positionWorld.y.mul(5).add(uniforms.uTime.mul(0.35)).add(uniforms.uPhase))
+    .mul(0.1).add(0.9);
+
+  const material = new MeshBasicNodeMaterial({
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  material.colorNode = uniforms.uColor;
+  material.opacityNode = uniforms.uOpacity.mul(radial).mul(longitudinal).mul(drift);
+  // Preserve the tiny uniform facade consumed by VolumetricLightPool so both
+  // renderer implementations share the same update path.
+  material.uniforms = uniforms;
+  return material;
+}
+
+export function createVolumetricLightMaterial({ modern = false } = {}) {
+  if (modern) return createModernVolumetricLightMaterial();
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(0xffffff) },
@@ -50,4 +92,3 @@ export function createVolumetricLightMaterial() {
     toneMapped: false,
   });
 }
-

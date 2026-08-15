@@ -241,6 +241,10 @@ test('quality changes park fixed slots and shadow refreshes obey the configured 
     'slots above the preset budget are fully parked');
   assert.equal(rig._spotSlots.every((s) => s.light.shadow.mapSize.width === 512), true,
     'the preset shadow-map resolution is applied to every pooled slot');
+  assert.equal(rig._spotSlots.slice(0, 2).every((s) => s.light.shadow.intensity === 1), true,
+    'the active shadow subset retains full shadow contribution');
+  assert.equal(rig._spotSlots.slice(2).every((s) => s.light.shadow.intensity === 0), true,
+    'parked shadow-capable slots cannot sample stale shadow layers');
 
   rig.setQuality({ fixtureShadowCount: 0, fixtureShadowHz: 0 });
   rig.update(camera, 1, 1);
@@ -248,6 +252,31 @@ test('quality changes park fixed slots and shadow refreshes obey the configured 
     'low quality performs no local shadow refreshes');
   assert.equal(rig.getFixtureSuppression().size, 0,
     'painted pools return when all real fixture slots are parked');
+});
+
+test('real-light and shadow budgets remain independent at every quality tier', () => {
+  const scene = new SceneStub();
+  for (let i = 0; i < 40; i++) placeFixture(scene, `tier-${i}`, DEF.ceilingPanel, i, 0);
+  const rig = new LightRig(scene, {
+    fixtureLightCount: 64,
+    activeFixtureLightCount: 16,
+    shadowSpotCount: 24,
+    activeShadowSpotCount: 0,
+    pointCount: 1,
+  });
+  const camera = { position: new V3(0, 8, 0) };
+  rig.update(camera, 1, 1);
+  assert.equal(rig.getStats().assignedFixtureLights, 16,
+    'low quality does not inherit the larger immutable shadow topology');
+  assert.equal(rig.getStats().assignedFixtureShadows, 0);
+  assert.equal(rig._spotSlots.slice(0, 16).every((s) => s.light.shadow.intensity === 0), true);
+
+  rig.setQuality({ fixtureLightCount: 32, fixtureShadowCount: 6 });
+  rig.update(camera, 1, 1);
+  assert.equal(rig.getStats().assignedFixtureLights, 32);
+  assert.equal(rig.getStats().assignedFixtureShadows, 6);
+  assert.equal(rig._spotSlots.slice(0, 6).every((s) => s.light.shadow.intensity === 1), true);
+  assert.equal(rig._spotSlots.slice(6, 24).every((s) => s.light.shadow.intensity === 0), true);
 });
 
 // --- flash(): reuse, never allocate; steal the dimmest when saturated -----
@@ -327,6 +356,38 @@ test('production fixture registry drives real spots without a legacy scene tag',
     'the same fixture id suppresses its painted pool');
   assert.ok(slot.target.position.z > slot.light.position.z,
     'the spot follows the rendered group rotation instead of assuming dir=0');
+});
+
+test('the production many-light budget selects 64 real fixtures and shadows its nearest 24', () => {
+  const scene = new SceneStub();
+  const fixtures = [];
+  for (let i = 0; i < 80; i++) {
+    const group = new Group();
+    group.position.set(i % 10, 4, Math.floor(i / 10));
+    scene.add(group);
+    fixtures.push({ id: `dense-${i}`, def: DEF.ceilingPanel, group });
+  }
+
+  const rig = new LightRig(scene, {
+    fixtureLightCount: 64,
+    activeFixtureLightCount: 64,
+    shadowSpotCount: 24,
+    activeShadowSpotCount: 24,
+    pointCount: 16,
+  });
+  const topologyAdds = scene.addCalls;
+  rig.setFixtureRegistry(fixtures);
+  rig.update({ position: new V3(0, 8, 0) }, 1, 1, new V3(0, 0, 0));
+
+  const stats = rig.getStats();
+  assert.equal(stats.assignedFixtureLights, 64);
+  assert.equal(stats.assignedFixtureShadows, 24);
+  assert.equal(rig.getFixtureSuppression().size, 64,
+    'all selected analytic lights suppress their corresponding painted fallback');
+  assert.equal(scene.addCalls, topologyAdds,
+    'dense selection only rewrites pooled GPU data; it never changes scene topology');
+  assert.equal(rig._spotSlots.slice(24).every((slot) => !slot.light.castShadow), true,
+    'the batched tail remains real PBR lighting without multiplying shadow passes');
 });
 
 // --- Spot handover: hysteresis, crossfade, and pool suppression ------------
@@ -564,8 +625,8 @@ test('a spot is aimed, angled, throttled and tinted by the fixture def itself, n
     && Math.abs(bay.target.position.z - bay.light.position.z) < 1e-9,
     'an overhead cone points STRAIGHT down regardless of dir — it has no aim to follow');
   assert.ok(bay.target.position.y < bay.light.position.y, 'down, not up');
-  assert.equal(bay.light.position.y, 0,
-    'an overhead fixture\'s emitter is at its own origin (offsetY 0) — emitterY is measured from the ceiling it hangs off, not from the floor');
+  assert.ok(Math.abs(bay.light.position.y - DEF.highBay.light.sourceOffsetY) < 1e-9,
+    'an overhead fixture emits from its visible diffuser below the ceiling attachment');
 });
 
 test('the flash reserve keeps idle point slots back, so an explosion never has to darken a lit console', () => {

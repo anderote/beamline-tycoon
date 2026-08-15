@@ -1,10 +1,16 @@
 // Immutable lighting budgets. Runtime preset changes only park pooled effects
 // or alter their refresh cadence; they never change shader light topology.
 
-export const MAX_FIXTURE_SHADOWS = 8;
+// Modern renderer budgets: up to 64 real analytic fixture lights are kept in
+// DynamicLighting's uniform buffers. The nearest twenty-four also receive cached
+// shadow maps; the rest still light every PBR surface but avoid a shadow-map
+// render and sampler each. Legacy WebGL derives a lower shadow cap below.
+export const MAX_FIXTURE_LIGHTS = 64;
+export const MAX_FIXTURE_SHADOWS = 24;
 export const MAX_VOLUMETRIC_BEAMS = 8;
 
-// Every fixed fixture SpotLight contributes two fragment-shader samplers:
+// On the legacy renderer every fixed fixture SpotLight contributes two
+// fragment-shader samplers:
 // one for its cookie and one for its shadow map. The sun contributes another
 // shadow sampler, and ordinary materials still need room for their own maps.
 // WebGL implementations commonly expose only 16 fragment texture units, so
@@ -16,7 +22,8 @@ export const FIXTURE_TEXTURE_UNITS = 2;
 
 /**
  * Bound the immutable fixture-light topology to the GPU's fragment sampler
- * budget. The returned count is fixed when the renderer is constructed, so
+ * budget. The modern renderer instead packs all fixture shadows into one
+ * depth-array binding. The returned count is fixed when the legacy renderer is constructed, so
  * runtime quality changes still park lights without recompiling shaders.
  */
 export function fixtureShadowTopologyLimit(maxTextureUnits) {
@@ -28,6 +35,7 @@ export function fixtureShadowTopologyLimit(maxTextureUnits) {
 
 const PRESETS = {
   low: {
+    fixtureLightCount: 16,
     fixtureShadowCount: 0,
     fixtureShadowMapSize: 512,
     fixtureShadowHz: 0,
@@ -40,7 +48,8 @@ const PRESETS = {
     volumetricCount: 0,
   },
   medium: {
-    fixtureShadowCount: 3,
+    fixtureLightCount: 32,
+    fixtureShadowCount: 6,
     fixtureShadowMapSize: 512,
     fixtureShadowHz: 10,
     fixtureShadowUpdatesPerFrame: 1,
@@ -52,8 +61,9 @@ const PRESETS = {
     volumetricCount: 1,
   },
   high: {
-    fixtureShadowCount: 6,
-    fixtureShadowMapSize: 1024,
+    fixtureLightCount: 48,
+    fixtureShadowCount: 12,
+    fixtureShadowMapSize: 768,
     fixtureShadowHz: 15,
     fixtureShadowUpdatesPerFrame: 2,
     sunShadowMapSize: 4096,
@@ -64,10 +74,11 @@ const PRESETS = {
     volumetricCount: 3,
   },
   ultra: {
-    fixtureShadowCount: 8,
-    fixtureShadowMapSize: 1536,
-    fixtureShadowHz: 30,
-    fixtureShadowUpdatesPerFrame: 4,
+    fixtureLightCount: 64,
+    fixtureShadowCount: 24,
+    fixtureShadowMapSize: 1024,
+    fixtureShadowHz: 15,
+    fixtureShadowUpdatesPerFrame: 1,
     sunShadowMapSize: 4096,
     sunShadowHz: 30,
     glowScale: 0.5,

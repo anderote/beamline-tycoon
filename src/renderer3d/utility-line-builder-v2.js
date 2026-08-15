@@ -661,8 +661,10 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
   }
 
   // Publish effect INTENT only. VisualEffectSystem owns the scalable drawing
-  // strategy (instanced crest + projected spill + optional pooled real light),
-  // so this geometry builder never allocates lights or effect meshes.
+  // strategy (instanced crest + optional pooled real light), so this geometry
+  // builder never allocates lights or effect meshes. Utility crests explicitly
+  // skip projected floor circles: the cable itself is the visible source and
+  // its bounded real-light proxy supplies any nearby surface response.
   if (flowing) {
     const effectPoints = reversed ? points.slice().reverse() : points;
     const flow = FLOW_PARAMS[line.utilityType];
@@ -674,7 +676,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverri
       speed: flow.speed,
       period: flow.period,
       radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
-      groundRadius: style === 'rectWaveguide' ? 0.34 : 0.25,
+      groundSpill: false,
       state: errorStatus || 'ok',
       light: {
         intensity: line.utilityType === 'rfWaveguide' ? 0.26 : 0.16,

@@ -1,4 +1,4 @@
-// src/three-global.js — promotes the npm `three` package to a global.
+// src/three-global.js — promotes Three's WebGPU-capable namespace to a global.
 //
 // 31 source files under src/ reference a bare `THREE.` global (they were
 // written against the old CDN <script> tag and are NOT being converted to
@@ -21,5 +21,12 @@
 // "./addons/*": "./examples/jsm/*", so `three/addons/postprocessing/*.js`
 // resolves correctly — that's the path later tasks should use, not the
 // `three/examples/jsm/postprocessing/*.js` long form (though both work).
-import * as THREE from 'three';
-globalThis.THREE ??= THREE;
+// The world renderer and every object it consumes must come from the same
+// module graph. Mixing objects from `three` with a renderer from
+// `three/webgpu` creates duplicate constructor/node caches and can dispose a
+// shadow texture that another graph still has queued. WebGLRenderer is added
+// only for the three small legacy thumbnail/view-cube canvases.
+import * as THREE_WEBGPU from 'three/webgpu';
+import { WebGLRenderer } from 'three';
+
+globalThis.THREE ??= Object.freeze({ ...THREE_WEBGPU, WebGLRenderer });

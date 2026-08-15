@@ -20,7 +20,8 @@
     "vite": "^8.0.7"
   },
   "dependencies": {
-    "three": "0.160.0",
+    "@dimforge/rapier3d-compat": "0.19.3",
+    "three": "0.184.0",
     "vault66-crt-effect": "^3.1.1"
   }
 }

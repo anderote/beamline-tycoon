@@ -18,6 +18,9 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPipeline } from 'three/webgpu';
+import { pass } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 
 // Layer index glow meshes are assigned to (`mesh.layers.enable(BLOOM_LAYER)`).
 // Object3Ds default to layer 0 only, so anything that never opts in is
@@ -88,7 +91,7 @@ const MIX_FRAGMENT_SHADER = `
   }
 `;
 
-export class GlowPipeline {
+class LegacyGlowPipeline {
   constructor(renderer, scene, camera, opts = {}) {
     this.renderer = renderer;
     this.scene = scene;
@@ -267,5 +270,79 @@ export class GlowPipeline {
     this._finalComposer.dispose();
     this._darkMaterial.dispose();
     this._materialCache.clear();
+  }
+}
+
+/**
+ * TSL-native bloom for WebGPU and its WebGL2 fallback backend. It operates on
+ * the HDR scene output, so emissive surfaces and genuinely hot highlights
+ * bloom without material swapping or duplicate scene renders. This is both
+ * cheaper and physically more coherent than the legacy layer trick.
+ */
+class ModernGlowPipeline {
+  constructor(renderer, scene, camera, opts = {}) {
+    this.renderer = renderer;
+    this.scene = scene;
+    this.camera = camera;
+    this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
+    this._quality = opts.quality || { glowScale: 0.5, softGlow: true };
+
+    this._scenePass = pass(scene, camera);
+    this._sceneColor = this._scenePass.getTextureNode('output');
+    this._bloomPass = bloom(
+      this._sceneColor,
+      opts.strength ?? DEFAULT_STRENGTH,
+      opts.radius ?? DEFAULT_RADIUS,
+      opts.threshold ?? DEFAULT_THRESHOLD,
+    );
+    this._bloomPass.smoothWidth.value = opts.smoothWidth ?? DEFAULT_SMOOTH_WIDTH;
+    this._softGlowPass = bloom(
+      this._sceneColor,
+      this._quality.softGlow ? (opts.softStrength ?? SOFT_STRENGTH) : 0,
+      opts.softRadius ?? SOFT_RADIUS,
+      opts.softThreshold ?? SOFT_THRESHOLD,
+    );
+    this._softGlowPass.smoothWidth.value = opts.softSmoothWidth ?? SOFT_SMOOTH_WIDTH;
+    this._softStrength = opts.softStrength ?? SOFT_STRENGTH;
+
+    this._pipeline = new RenderPipeline(renderer);
+    this._pipeline.outputNode = this._sceneColor.add(this._bloomPass).add(this._softGlowPass);
+    this.setQuality(this._quality);
+  }
+
+  get enabled() { return this._enabled; }
+
+  setEnabled(value) { this._enabled = !!value; }
+
+  setQuality(quality = {}) {
+    this._quality = { ...this._quality, ...quality };
+    this._softGlowPass.strength.value = this._quality.softGlow ? this._softStrength : 0;
+    const scale = Math.max(0.2, Math.min(1, this._quality.glowScale ?? 0.5));
+    this._bloomPass._resolutionScale = scale;
+    this._softGlowPass._resolutionScale = Math.max(0.1, scale * 0.5);
+  }
+
+  // RenderPipeline tracks the renderer drawing buffer and resizes its own
+  // transient targets on render, so this API is intentionally a no-op.
+  setSize() {}
+
+  render() {
+    if (this._enabled) this._pipeline.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose() {
+    this._bloomPass.dispose();
+    this._softGlowPass.dispose();
+    this._pipeline.dispose();
+  }
+}
+
+/** Stable facade used by ThreeRenderer while both backends remain supported. */
+export class GlowPipeline {
+  constructor(renderer, scene, camera, opts = {}) {
+    return renderer.isWebGPURenderer
+      ? new ModernGlowPipeline(renderer, scene, camera, opts)
+      : new LegacyGlowPipeline(renderer, scene, camera, opts);
   }
 }

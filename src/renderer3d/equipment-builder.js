@@ -136,6 +136,16 @@ export class EquipmentBuilder {
       const rotY = -dir * (Math.PI / 2);
       const fallbackColor = compDef?.spriteColor || compDef?.color || 0x888888;
       const baseName = compDef?.baseMaterial || null;
+      const physicsId = item.id ?? `${isFurnishing ? 'furnishing' : 'equipment'}:${item.type}:${item.col}:${item.row}:${item.subCol ?? 0}:${item.subRow ?? 0}`;
+      const stampPhysicsIdentity = (object) => {
+        object.userData ||= {};
+        object.userData.physicsId = physicsId;
+        object.userData.placeableId = item.id ?? null;
+        object.userData.placeableType = item.type;
+        object.userData.physicsKind = isFurnishing ? 'furnishing' : 'equipment';
+        object.userData.physicsMassKg = Number(compDef?.physicsMassKg) || null;
+        object.userData.physicsDensityKgM3 = Number(compDef?.physicsDensityKgM3) || null;
+      };
 
       // ── Parts path ────────────────────────────────────────────────
       // If the def lists `parts`, build a Group with one Mesh per part.
@@ -181,6 +191,7 @@ export class EquipmentBuilder {
         group.rotation.y = rotY;
         group.matrixAutoUpdate = false;
         group.updateMatrix();
+        stampPhysicsIdentity(group);
         // PORT STUBS disabled — will revisit with connected routing
         // if (!isFurnishing) {
         //   const portStubs = buildPortStubs(
@@ -251,6 +262,7 @@ export class EquipmentBuilder {
       //   if (portStubs) wrapper.add(portStubs);
       // }
       wrapper.updateMatrix();
+      stampPhysicsIdentity(wrapper);
 
       parentGroup.add(wrapper);
       this._meshes.push(wrapper);

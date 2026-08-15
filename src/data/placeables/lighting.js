@@ -11,12 +11,15 @@
 // (Structure -> Lights, alongside Flooring/Walls/Doors). Two extra fields
 // discriminate behavior for later tasks:
 //   - mount: 'ground' | 'wall' | 'overhead' | 'surface' — placement layer.
-//   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY }
+//   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY,
+//              sourceOffsetY? }
 //     — read uniformly by the renderer regardless of mount. `radius` is the
 //     light pool radius in world units (meters); `emitterY` is the emitter's
 //     offset above a ground/surface support, or the authored world height for
-//     wall/overhead fixtures (also meters). `coneDeg`/`tiltDeg` are
-//     required when shape === 'cone'.
+//     wall/overhead fixtures (also meters). `sourceOffsetY` is an optional
+//     correction from that mounted group origin to the visible diffuser; it
+//     keeps the analytic light and painted pool attached to hanging geometry.
+//     `coneDeg`/`tiltDeg` are required when shape === 'cone'.
 //
 // `lamppost` and `bollardLight` are reworked from decorations.raw.js with
 // their cost/morale/footprint carried over unchanged. `floodLight` replaces
@@ -53,10 +56,15 @@ const LIGHT_PROFILES = {
   bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'cage' },
   wallStripLight: { sourceRadius: 0.16, shadowSoftness: 0.75, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   emergencyWallLight: { sourceRadius: 0.08, shadowSoftness: 0.6, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'statusBlink', cookieProfile: 'soft' },
-  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
-  highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
-  linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.8, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
-  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.9, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  // Ordinary interior luminaires should be perceived from the surfaces they
+  // illuminate, not from a translucent cone hanging in otherwise-clear air.
+  // Volumetric shafts remain available to deliberately atmospheric fixtures
+  // (outdoor mast/flood profiles and incident effects), but an office panel or
+  // high bay gets a broad real-light penumbra and no visible beam geometry.
+  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.9,  bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  highBay:        { sourceRadius: 0.2,  shadowSoftness: 0.78, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
+  linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.88, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.94, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   deskLamp:       { sourceRadius: 0.07, shadowSoftness: 0.7, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
   portableWorkLight: { sourceRadius: 0.1, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
 };
@@ -162,6 +170,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'cone',
       coneDeg: 105, beamAngleDeg: 105, tiltDeg: 0, emitterY: 3.0,
+      sourceOffsetY: -0.195,
     },
   },
   {
@@ -173,7 +182,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.9,
     light: {
       color: '#f0f5ff', intensity: 1.6, radius: 9, shape: 'cone',
-      coneDeg: 90, tiltDeg: 0, emitterY: 4.5,
+      coneDeg: 90, tiltDeg: 0, emitterY: 4.5, sourceOffsetY: -0.28,
     },
   },
   {
@@ -186,6 +195,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'cone',
       coneDeg: 100, beamAngleDeg: 100, tiltDeg: 0, emitterY: 3.4,
+      sourceOffsetY: -0.251,
     },
   },
   {
@@ -198,6 +208,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'cone',
       coneDeg: 110, beamAngleDeg: 110, tiltDeg: 0, emitterY: 3.2,
+      sourceOffsetY: -0.139,
     },
   },
 
