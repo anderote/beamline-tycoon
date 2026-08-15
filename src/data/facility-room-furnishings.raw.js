@@ -357,14 +357,15 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
   serverRack: {
-    id: 'serverRack', name: 'Server Rack', zoneType: 'controlRoom',
+    id: 'serverRack', name: 'All-in-One Capture Rack', zoneType: 'controlRoom',
     cost: { funding: 15000 }, energyCost: 3.0, spriteColor: 0x3a3e4a,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: {
       zoneOutput: 0.08, research: 0.03,
-      // Small all-in-one control-room package: enough DAQ, disk and mixed
-      // compute for one modest endpoint. Larger facilities scale each axis
-      // independently with the dedicated racks below.
+      // The starter control-room data backbone: it captures detector streams,
+      // keeps a raw-data buffer, and has just enough mixed compute for one
+      // modest experiment. Larger facilities scale each axis independently
+      // with the dedicated archive and compute racks below.
       dataSystem: { kind: 'allInOne', ingest: 8, storage: 240, cpu: 5, gpu: 3 },
     }, baseMaterial: 'metal_dark',
     // 1×2 footprint, 2.5 m tall. 19" server cabinet — medium-gray body,
@@ -429,7 +430,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
   dataAppliance: {
-    id: 'dataAppliance', name: 'Compact Data Appliance', zoneType: 'controlRoom',
+    id: 'dataAppliance', name: 'Compact Capture Appliance', zoneType: 'controlRoom',
     cost: { funding: 8000 }, energyCost: 1.2, spriteColor: 0x3f6274,
     gridW: 1, gridH: 1, subH: 3, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.04, dataSystem: { kind: 'allInOne', ingest: 4, storage: 60, cpu: 2, gpu: 1 } },
@@ -978,8 +979,8 @@ const ROOM_FURNISHING_DESCS = {
   bookshelf: 'Textbooks, proceedings, and one long-overdue library book. Office Space.',
   printer: 'Prints fine until the moment you urgently need it to. Office Space.',
   monitorBank: 'Wall of status displays — more screens, more control. Control Room.',
-  serverRack: 'Controls-network servers; boosts output and research. Control Room.',
-  dataAppliance: 'A small all-in-one DAQ, disk, CPU and GPU package for one starter endpoint. Control Room.',
+  serverRack: 'The starter control-room data backbone: captures detector streams, buffers raw data, and runs modest CPU/GPU analysis. Control Room.',
+  dataAppliance: 'A compact capture, memory and compute package for extending a small control room. Control Room.',
   dataStorageRack: 'A dense standalone memory and disk array for buffering long experimental runs. Control Room.',
   cpuComputeRack: 'General-purpose CPU nodes for controls, dosimetry, isotope accounting and reconstruction. Control Room.',
   gpuComputeRack: 'Accelerator GPUs for imaging, detector events and photon-science workloads. Control Room.',

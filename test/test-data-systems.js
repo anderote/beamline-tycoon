@@ -19,7 +19,7 @@ console.log('\n=== Facility data systems ===\n');
     ],
   };
   const c = computeDataSystemCapacity(state);
-  assert(c.ingest === 4, 'compact appliance contributes starter ingest');
+  assert(c.ingest === 4, 'compact capture appliance contributes starter ingest');
   assert(c.storage === 3060, 'standalone storage adds to appliance memory');
   assert(c.cpu === 42, 'standalone CPU rack adds general processing');
   assert(c.gpu === 66, 'standalone GPU rack adds accelerated processing');
@@ -32,7 +32,7 @@ console.log('\n=== Facility data systems ===\n');
     resources: { data: 0 }, staffDataEfficiency: 0,
   };
   const first = tickDataSystems(state, [e], [{ entry: e, rate: 6, workload: 'cpu' }]);
-  assert(first.ingested === 6 && first.processed === 0, 'without a scientist, raw data is ingested but not processed');
+  assert(first.ingested === 6 && first.processed === 0, 'all-in-one capture rack keeps raw data before a scientist can process it');
   assert(e.beamState.rawDataStored === 6, 'unprocessed data persists in storage');
 
   state.staffDataEfficiency = 1;

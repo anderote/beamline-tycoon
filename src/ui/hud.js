@@ -3420,7 +3420,7 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     this._ssep(),
     this._sstat('MPS', d.mpsStatus, '', mpsColor),
     this._ssep(),
-    this._sstat('Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`, dataColor),
+    this._sstat('Capture', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`, dataColor),
     this._ssep(),
     this._sstat('Processed', d.processedRate.toFixed(1), '/t'),
     this._ssep(),
@@ -3437,6 +3437,8 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     ${this._detailRow('Laser Systems', dd.laserSystems)}
     ${this._detailRow('Raw Buffer', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`)}
     ${this._detailRow('Dropped This Tick', d.droppedRate.toFixed(1), 'data')}
+    ${this._detailRow('Capture Racks', dd.dataUnits.allInOne || 0)}
+    ${this._detailRow('Archive Arrays', dd.dataUnits.storage || 0)}
     ${this._detailRow('CPU Processing', this._fmt(d.cpuCapacity), 'data/t')}
     ${this._detailRow('GPU Processing', this._fmt(d.gpuCapacity), 'data/t')}
   </div>`;
