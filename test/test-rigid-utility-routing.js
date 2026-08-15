@@ -121,6 +121,36 @@ console.log('\n--- 3. Equipment footprints are solid to rigid routes ---');
   }).ok, 'equipment detour validates');
 }
 
+console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---');
+{
+  // Beam-pipe path coordinates are tile-centre indices: the renderer places
+  // this buncher at world (5, 1), or utility-route tile (2.5, 0.5). The
+  // synthesized endpoint record deliberately uses a different logical origin
+  // for solver footprint arithmetic, which must not shift physical obstacles.
+  const state = {
+    placeables: [],
+    beamPipes: [{
+      id: 'beam', subL: 16,
+      path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+      placements: [{ id: 'buncher', type: 'buncher', position: 0.4375, subL: 2 }],
+    }],
+    utilityLines: new Map(),
+  };
+  const clearBesideModel = validateDrawLine(state, {
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  assert(clearBesideModel.ok,
+    `a route beside the rendered attachment clears its old phantom footprint (${clearBesideModel.reason || 'ok'})`);
+
+  const throughModel = validateDrawLine(state, {
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 0, row: 0.5 }, { col: 5, row: 0.5 }],
+  });
+  assert(!throughModel.ok && throughModel.reason === 'blocked_by_equipment',
+    `a route through the attachment's rendered footprint is still refused (${throughModel.reason || 'ok'})`);
+}
+
 console.log('\n--- 3b. The ordinary drag controller invokes the detour search ---');
 {
   const state = {

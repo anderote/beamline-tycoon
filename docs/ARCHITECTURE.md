@@ -232,9 +232,9 @@ Three lists, all in `Game.js`: `UNDO_PRESERVED_FIELDS` (`:78-84`) — clock, res
 **U3. `dir` on an on-pipe placement is a *compass* index, not the same quarter-turn.**
 `placementPose` returns `dir` as 0=NE, 1=SE, 2=SW, 3=NW derived from the path segment (`pipe-placements.js:270-277`). It happens to be consumable as quarter turns by the renderer and `portWorldPosition`, but its *derivation* is directional, not rotational.
 
-**U4. On-pipe placement records carry **negative** `subCol`/`subRow`.**
-`utility-endpoints.js:46-47` sets them to `-footprint/2`. `placementPose` returns the placement's **centre** (what the renderer draws on) while port geometry measures from the anchor corner, so the negative offsets re-centre it. `network-discovery.endpointCenter` (`:93`) and `endpointBox` (`:224`) both document the same convention.
-*Silent failure:* treating them as ordinary origins puts every on-pipe component's ports half a footprint off, so lines refuse to snap for reasons the player cannot see.
+**U4. On-pipe placement records carry **negative** `subCol`/`subRow`, but their rendered centre has the beam-pipe tile offset.**
+`utility-endpoints.js:46-47` sets the logical offsets to `-footprint/2` for solver footprint arithmetic. Beam-pipe path coordinates are tile-centre indices, however, so the physical model centre is `col*2+1, row*2+1`; `componentPose` and `portAnchor3D` apply that offset. Any physical-world consumer of the synthesized record must preserve the distinction: `network-discovery.endpointCenter`/`endpointBox` intentionally use the logical convention, while `route-obstacles.physicalEndpointCenterWorld` uses the rendered centre.
+*Silent failure:* treating a physical obstacle like an ordinary logical endpoint shifts its blocking footprint one metre north-west, rejecting a clear utility route on one side of the visible machine while allowing a route through the other side.
 
 **U5. The 2:1 dimetric camera is a formula, not a magic number.**
 `ThreeRenderer.js:466-471`: for a camera at `(d, h, d)` the screen X:Y ratio for a grid axis is `sqrt(2h² + 4d²) / (h·sqrt(2))`; setting it to 2 gives `h = d·sqrt(6)/3`. It reproduces the old PixiJS 64x32 tile projection. Ground-projected pan axes are pre-normalized by √2 (`:1082-1088`).
