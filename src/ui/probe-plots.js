@@ -29,6 +29,9 @@ export const ProbePlots = (() => {
       yd: null,
       targets: (opts && opts.targets) || null,
       yAxisMode: opts && opts.yAxisMode === 'log' ? 'log' : 'linear',
+      rightInset: opts && Number.isFinite(opts.rightInset)
+        ? Math.max(0, opts.rightInset)
+        : null,
     };
     if (!(opts && opts.noClear)) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -72,10 +75,11 @@ export const ProbePlots = (() => {
 
   // --- Shared utilities ---
 
-  function _area(canvas) {
+  function _area(canvas, opts = null) {
+    const rightInset = Math.max(0, Number(opts?.rightInset) || 0);
     return {
       x: PAD.left, y: PAD.top,
-      w: canvas.width - PAD.left - PAD.right,
+      w: Math.max(10, canvas.width - PAD.left - PAD.right - rightInset),
       h: canvas.height - PAD.top - PAD.bottom,
     };
   }
@@ -530,7 +534,7 @@ export const ProbePlots = (() => {
   // --- "Along beamline" plots ---
 
   function _drawBeamEnvelope(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
-    const a = _area(canvas);
+    const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
     const ghost = o && o.ghost;
     // Focus health color bands (behind everything)
@@ -555,7 +559,7 @@ export const ProbePlots = (() => {
   }
 
   function _drawCurrentLoss(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
-    const a = _area(canvas);
+    const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
     const ghost = o && o.ghost;
     const target = o?.targetBand || o?.targets?.currentMA;
@@ -588,7 +592,7 @@ export const ProbePlots = (() => {
   }
 
   function _drawEmittance(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
-    const a = _area(canvas);
+    const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
     const logDomain = o?.yAxisMode === 'log'
@@ -610,9 +614,12 @@ export const ProbePlots = (() => {
   }
 
   function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
-    const a = _area(canvas);
-    // Shrink plot area slightly for right axis labels
-    const aR = { ...a, w: a.w - 30 };
+    // This plot already owns one right axis for dispersion. Callers composing
+    // another metric can reserve additional room while keeping every trace on
+    // this exact same distance span.
+    const aR = _area(canvas, {
+      rightInset: o?.rightInset == null ? 30 : o.rightInset,
+    });
     const [xMin, xMax] = xRange || _xRange(env);
 
     // Left axis: energy with smart unit scaling
@@ -655,7 +662,7 @@ export const ProbePlots = (() => {
   }
 
   function _drawPeakCurrent(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
-    const a = _area(canvas);
+    const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
     const ghost = !!(o && o.ghost);
     const vals = env.map(d => d.peak_current).filter(v => v != null && isFinite(v) && v > 0);
@@ -675,6 +682,178 @@ export const ProbePlots = (() => {
     if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ee55ee', label: 'I_peak' }]);
+  }
+
+  // --- Secondary distance-axis overlays ---
+  //
+  // These are deliberately individual quantities (or pairs that share one
+  // unit), rather than recursively drawing a second complete plot. That gives
+  // the overlay one honest y-axis while both selections use exactly the same
+  // physical distance coordinates.
+  const SECONDARY_DISTANCE_TYPES = new Set([
+    'energy', 'dispersion', 'beam-envelope', 'current-loss', 'emittance', 'peak-current',
+  ]);
+
+  function isDistancePlot(type) {
+    return ['energy-dispersion', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
+      .includes(type);
+  }
+
+  function secondaryYDomain(type, envelope, yScale) {
+    if (!SECONDARY_DISTANCE_TYPES.has(type) || !envelope || envelope.length < 2) return null;
+    let values;
+    let applyScale = false;
+    if (type === 'energy') values = envelope.map(d => d.energy);
+    else if (type === 'dispersion') values = envelope.map(d => d.eta_x);
+    else if (type === 'beam-envelope') {
+      values = envelope.flatMap(d => [(d.sigma_x || 0) * 1000, (d.sigma_y || 0) * 1000]);
+      applyScale = true;
+    } else if (type === 'current-loss') {
+      values = envelope.map(d => d.current);
+      applyScale = true;
+    } else if (type === 'emittance') {
+      values = envelope.flatMap(d => [d.emit_nx, d.emit_ny]);
+      applyScale = true;
+    } else if (type === 'peak-current') values = envelope.map(d => d.peak_current);
+    values = (values || []).filter(v => v != null && isFinite(v));
+    if (values.length === 0) return null;
+    const domain = _range(values);
+    return applyScale ? _applyYScale(domain[0], domain[1], yScale) : domain;
+  }
+
+  function _secondarySpec(type, env, domain) {
+    const primary = '#ff5ec4';
+    const paired = '#a98bff';
+    if (type === 'energy') {
+      const ref = Math.max(Math.abs(domain[0]), Math.abs(domain[1])) || 1;
+      const scale = ref >= 1000 ? 1e-3 : ref >= 1 ? 1 : ref >= 1e-3 ? 1e3 : 1e6;
+      const unit = ref >= 1000 ? 'TeV' : ref >= 1 ? 'GeV' : ref >= 1e-3 ? 'MeV' : 'keV';
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.energy == null ? null : d.energy * scale })),
+        domain: domain.map(v => v * scale),
+        axisLabel: `E (${unit})`,
+        scale,
+        channels: [{ key: '_secondaryA', color: primary, label: '2·Energy' }],
+      };
+    }
+    if (type === 'dispersion') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.eta_x })), domain,
+        axisLabel: '\u03b7_x (m)',
+        channels: [{ key: '_secondaryA', color: primary, label: '2·\u03b7_x' }],
+      };
+    }
+    if (type === 'beam-envelope') {
+      return {
+        data: env.map(d => ({ ...d,
+          _secondaryA: (d.sigma_x || 0) * 1000,
+          _secondaryB: (d.sigma_y || 0) * 1000,
+        })),
+        domain, axisLabel: '\u03c3 (mm)',
+        channels: [
+          { key: '_secondaryA', color: primary, label: '2·\u03c3_x' },
+          { key: '_secondaryB', color: paired, label: '2·\u03c3_y', dashed: true },
+        ],
+      };
+    }
+    if (type === 'current-loss') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.current })), domain,
+        axisLabel: 'I (mA)',
+        channels: [{ key: '_secondaryA', color: primary, label: '2·Current' }],
+      };
+    }
+    if (type === 'emittance') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.emit_nx, _secondaryB: d.emit_ny })),
+        domain, axisLabel: '\u03b5_n (m·rad)',
+        channels: [
+          { key: '_secondaryA', color: primary, label: '2·\u03b5_nx' },
+          { key: '_secondaryB', color: paired, label: '2·\u03b5_ny', dashed: true },
+        ],
+      };
+    }
+    if (type === 'peak-current') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.peak_current })), domain,
+        axisLabel: 'I_peak (A)',
+        channels: [{ key: '_secondaryA', color: primary, label: '2·I_peak' }],
+      };
+    }
+    return null;
+  }
+
+  function _secondaryAxis(ctx, a, label, yMin, yMax, logY, color, offset) {
+    const axisX = a.x + a.w + offset;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.75;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(axisX, a.y);
+    ctx.lineTo(axisX, a.y + a.h);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'left';
+    for (let i = 0; i <= 3; i++) {
+      const y = a.y + a.h - (i / 3) * a.h;
+      ctx.fillText(_fmtPlotValue(_tickValue(i / 3, yMin, yMax, logY)), axisX + 3, y + 3);
+    }
+    ctx.save();
+    ctx.translate(axisX + 27, a.y + a.h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+
+  function _secondaryLegend(ctx, a, channels) {
+    ctx.font = '7px monospace';
+    let x = a.x + 4;
+    const y = a.y + 8;
+    for (const channel of channels) {
+      ctx.fillStyle = channel.color;
+      ctx.fillRect(x, y - 5, 7, 2);
+      ctx.textAlign = 'left';
+      ctx.fillText(channel.label, x + 9, y);
+      x += ctx.measureText(channel.label).width + 20;
+    }
+  }
+
+  /** Draw one independently scaled metric over an existing distance plot.
+   *  The caller owns the background and primary axes. `rightInset` must match
+   *  the primary draw so the traces share pixel-for-pixel x coordinates. */
+  function drawSecondary(canvas, type, envelope, xRange, yScale, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || canvas.width < 10 || canvas.height < 10) return;
+    const rawDomain = opts.yDomain || secondaryYDomain(type, envelope, yScale);
+    if (!rawDomain || !envelope || envelope.length < 2) return;
+    const spec = _secondarySpec(type, envelope, rawDomain);
+    if (!spec) return;
+
+    const a = _area(canvas, { rightInset: opts.rightInset });
+    const [xMin, xMax] = xRange || _xRange(envelope);
+    let [yMin, yMax] = spec.domain;
+    const values = spec.channels.flatMap(channel =>
+      spec.data.map(d => d[channel.key]).filter(v => v != null && isFinite(v)));
+    const logDomain = opts.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], values)
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+
+    ctx.save();
+    for (const channel of spec.channels) {
+      _line(ctx, a, spec.data, channel.key, channel.color, xMin, xMax,
+        yMin, yMax, !!channel.dashed, !!opts.ghost, logY);
+    }
+    if (!opts.ghost) {
+      _secondaryAxis(ctx, a, spec.axisLabel, yMin, yMax, logY,
+        spec.channels[0].color, Math.max(0, Number(opts.axisOffset) || 0));
+      _secondaryLegend(ctx, a, spec.channels);
+    }
+    ctx.restore();
   }
 
   // --- "At this point" plots ---
@@ -986,5 +1165,13 @@ export const ProbePlots = (() => {
     return (ma * 1e6).toPrecision(3) + ' nA';
   }
 
-  return { draw, yDomainFor, unionYDomain, targetYDomain };
+  return {
+    draw,
+    drawSecondary,
+    isDistancePlot,
+    secondaryYDomain,
+    yDomainFor,
+    unionYDomain,
+    targetYDomain,
+  };
 })();

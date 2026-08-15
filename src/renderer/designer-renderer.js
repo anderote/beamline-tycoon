@@ -930,6 +930,8 @@ BeamlineDesigner.prototype._getEnvelopeAtSelected = function() {
 
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
 const PLOT_SCALE = 1.2;
+const ENERGY_RIGHT_AXIS_INSET = 30;
+const SECONDARY_RIGHT_AXIS_INSET = 36;
 
 // An envelope the plot renderers can actually draw (they need two samples to
 // have a curve at all).
@@ -1018,6 +1020,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
   const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
     const select = panel.querySelector('.dsgn-plot-select');
+    const secondarySelect = panel.querySelector('.dsgn-plot-secondary-select');
     const canvas = panel.querySelector('.dsgn-plot-canvas');
     if (!select || !canvas) return;
 
@@ -1027,6 +1030,26 @@ BeamlineDesigner.prototype._renderPlots = function() {
     if (plotW < 10 || plotH < 10) return;
 
     const plotType = select.value;
+    const distancePlot = ProbePlots.isDistancePlot(plotType);
+    if (secondarySelect) {
+      secondarySelect.disabled = !distancePlot;
+      secondarySelect.title = distancePlot
+        ? 'Add a second quantity with its own right-side y-axis'
+        : 'This plot has no beamline-distance x-axis to share';
+      for (const option of secondarySelect.options) {
+        option.disabled = option.value !== 'none' && option.value === plotType;
+      }
+      if (!distancePlot || secondarySelect.selectedOptions[0]?.disabled) {
+        secondarySelect.value = 'none';
+      }
+    }
+    const secondaryType = secondarySelect?.value || 'none';
+    const hasSecondary = distancePlot && secondaryType !== 'none';
+    const primaryRightInset = plotType === 'energy-dispersion'
+      ? ENERGY_RIGHT_AXIS_INSET
+      : 0;
+    const rightInset = primaryRightInset
+      + (hasSecondary ? SECONDARY_RIGHT_AXIS_INSET : 0);
 
     // Render to a small offscreen canvas
     const off = document.createElement('canvas');
@@ -1046,15 +1069,39 @@ BeamlineDesigner.prototype._renderPlots = function() {
       );
       const targetDomain = ProbePlots.targetYDomain(plotType, targets);
       const targetBand = targetDomain?.[0] || null;
+      const secondaryDomainChannels = hasSecondary
+        ? ProbePlots.unionYDomain(
+          ProbePlots.secondaryYDomain(secondaryType, solid, yScale),
+          ghost ? ProbePlots.secondaryYDomain(secondaryType, ghost, yScale) : null,
+        )
+        : null;
+      const secondaryDomain = secondaryDomainChannels?.[0] || null;
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
-          { yDomain, targetBand, ghost: true, targets, yAxisMode });
+          { yDomain, targetBand, ghost: true, targets, yAxisMode, rightInset });
+        if (secondaryDomain) {
+          ProbePlots.drawSecondary(off, secondaryType, ghost, xRange, yScale, {
+            yDomain: secondaryDomain,
+            ghost: true,
+            yAxisMode,
+            rightInset,
+            axisOffset: primaryRightInset,
+          });
+        }
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
-        { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode });
+        { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode, rightInset });
+      if (secondaryDomain) {
+        ProbePlots.drawSecondary(off, secondaryType, solid, xRange, yScale, {
+          yDomain: secondaryDomain,
+          yAxisMode,
+          rightInset,
+          axisOffset: primaryRightInset,
+        });
+      }
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
