@@ -213,6 +213,12 @@ def beamline_config_from_game(game_beamline):
             )
         el["length"] = sub_l * 0.5
 
+        # Endpoint data production is a catalogue capability, not a physics
+        # type. Several purpose-built endpoints are thin drifts or targets but
+        # still carry digitizers; preserve their declared rate for lattice.py.
+        if stats.get("dataRate", 0) > 0:
+            el["dataRate"] = stats["dataRate"]
+
         if physics_type == "source":
             # Read emittance from computed stats if available, else use defaults per gun type
             default_emit = {"dcPhotoGun": 1e-6, "ncRfGun": 0.5e-6, "srfGun": 0.3e-6}

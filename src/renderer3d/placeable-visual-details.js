@@ -31,6 +31,8 @@ export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   // Office furnishings that had no parts list.
   whiteboard: 'whiteboard', whiteboardLarge: 'whiteboard', coffeeMachine: 'coffeeMachine',
   projector: 'projector', phoneUnit: 'phone',
+  dataAppliance: 'rack', dataStorageRack: 'rack',
+  cpuComputeRack: 'rack', gpuComputeRack: 'rack',
 
   // Lab and shop equipment that had no parts list.
   oscilloscope: 'benchInstrument', signalGenerator: 'benchInstrument',

@@ -155,21 +155,28 @@ export function dataFeeIncome(billedRate) {
  * two separately and must report what was paid, not a second derivation of
  * it — the 50x user-fee defect above came from exactly that.
  */
-export function computeBeamIncomeBreakdown(beamState, nodeCount = 0) {
+export function computeBeamIncomeBreakdown(beamState, nodeCount = 0, options = {}) {
   // `|| 0.2` here treated a legitimate quality of exactly 0 (lattice.py
   // returns beam_quality 0.0 outright when the emittance ratio degenerates)
   // as 20%, so a fully scrambled beam still earned income forever. The 0.2 is
   // only a stand-in for "physics hasn't reported yet".
   const raw = beamState.beamQuality;
   const q = Number.isFinite(raw) ? raw : 0.2;
-  const beam = q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  // Typed beamlines earn primarily from the service performed at their
+  // endpoint. The small operating allowance keeps a temporarily out-of-band
+  // machine from becoming literally valueless while it is tuned. Untyped
+  // legacy/scenario lines retain the old node-count economy for save and
+  // balance compatibility.
+  const beam = options.typed
+    ? q * (20 + 10 * nodeCount) + Math.max(0, options.serviceRevenue || 0)
+    : q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
   const dataFees = dataFeeIncome(beamState.dataRate);
   return { beam, dataFees, total: beam + dataFees };
 }
 
 /** The breakdown's total, which is the amount one running beamline is paid. */
-export function computeBeamIncome(beamState, nodeCount = 0) {
-  return computeBeamIncomeBreakdown(beamState, nodeCount).total;
+export function computeBeamIncome(beamState, nodeCount = 0, options = {}) {
+  return computeBeamIncomeBreakdown(beamState, nodeCount, options).total;
 }
 
 /**
@@ -613,6 +620,8 @@ export function computeSystemStats(state) {
   const monitors = counts.areaMonitor || 0;
   const timingSystems = counts.timingSystem || 0;
   const mpsCount = counts.mps || 0;
+  const ds = state.dataSystemSnapshot || {};
+  const dc = ds.capacity || {};
 
   const dataControls = {
     iocs,
@@ -620,6 +629,14 @@ export function computeSystemStats(state) {
     monitors,
     timingSystems,
     mpsStatus: mpsCount > 0 ? 'Active' : 'None',
+    ingestCapacity: dc.ingest || 0,
+    storageCapacity: dc.storage || 0,
+    cpuCapacity: dc.cpu || 0,
+    gpuCapacity: dc.gpu || 0,
+    ingestRate: ds.ingested || 0,
+    processedRate: ds.processed || 0,
+    rawStored: ds.stored || 0,
+    droppedRate: ds.dropped || 0,
     energyDraw: categoryDraw('dataControls'),
     detail: {
       rackIocs: iocs,
@@ -628,6 +645,7 @@ export function computeSystemStats(state) {
       timingSystems,
       mps: mpsCount,
       laserSystems,
+      dataUnits: dc.units || {},
     },
   };
 

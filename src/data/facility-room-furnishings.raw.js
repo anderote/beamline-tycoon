@@ -360,7 +360,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     id: 'serverRack', name: 'Server Rack', zoneType: 'controlRoom',
     cost: { funding: 15000 }, energyCost: 3.0, spriteColor: 0x3a3e4a,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
-    effects: { zoneOutput: 0.08, research: 0.03 }, baseMaterial: 'metal_dark',
+    effects: {
+      zoneOutput: 0.08, research: 0.03,
+      // Small all-in-one control-room package: enough DAQ, disk and mixed
+      // compute for one modest endpoint. Larger facilities scale each axis
+      // independently with the dedicated racks below.
+      dataSystem: { kind: 'allInOne', ingest: 8, storage: 240, cpu: 5, gpu: 3 },
+    }, baseMaterial: 'metal_dark',
     // 1×2 footprint, 2.5 m tall. 19" server cabinet — medium-gray body,
     // alternating light/dark server faceplates with visible status LEDs and
     // drive activity lights.
@@ -421,6 +427,34 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 's8c', x: -0.18, y: 4.57, z: -0.97, w: 0.05, h: 0.05, l: 0.02, color: 0xffaa40 },
       { name: 's8d', x:  0.3, y: 4.57, z: -0.97, w: 0.05, h: 0.05, l: 0.02, color: 0x44ff66 },
     ],
+  },
+  dataAppliance: {
+    id: 'dataAppliance', name: 'Compact Data Appliance', zoneType: 'controlRoom',
+    cost: { funding: 8000 }, energyCost: 1.2, spriteColor: 0x3f6274,
+    gridW: 1, gridH: 1, subH: 3, spriteKey: 'serverRack',
+    effects: { zoneOutput: 0.04, dataSystem: { kind: 'allInOne', ingest: 4, storage: 60, cpu: 2, gpu: 1 } },
+    baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
+  },
+  dataStorageRack: {
+    id: 'dataStorageRack', name: 'Storage Array', zoneType: 'controlRoom',
+    cost: { funding: 45000 }, energyCost: 4.0, spriteColor: 0x426a8a,
+    gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
+    effects: { zoneOutput: 0.04, dataSystem: { kind: 'storage', storage: 3000 } },
+    baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
+  },
+  cpuComputeRack: {
+    id: 'cpuComputeRack', name: 'CPU Compute Rack', zoneType: 'controlRoom',
+    cost: { funding: 70000 }, energyCost: 9.0, spriteColor: 0x56884b,
+    gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
+    effects: { zoneOutput: 0.05, research: 0.02, dataSystem: { kind: 'cpu', cpu: 40 } },
+    baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
+  },
+  gpuComputeRack: {
+    id: 'gpuComputeRack', name: 'GPU Compute Rack', zoneType: 'controlRoom',
+    cost: { funding: 110000 }, energyCost: 16.0, spriteColor: 0x7650a5,
+    gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
+    effects: { zoneOutput: 0.05, research: 0.03, dataSystem: { kind: 'gpu', gpu: 65 } },
+    baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
   },
   operatorConsole: {
     id: 'operatorConsole', name: 'Operator Console', zoneType: 'controlRoom',
@@ -945,6 +979,10 @@ const ROOM_FURNISHING_DESCS = {
   printer: 'Prints fine until the moment you urgently need it to. Office Space.',
   monitorBank: 'Wall of status displays — more screens, more control. Control Room.',
   serverRack: 'Controls-network servers; boosts output and research. Control Room.',
+  dataAppliance: 'A small all-in-one DAQ, disk, CPU and GPU package for one starter endpoint. Control Room.',
+  dataStorageRack: 'A dense standalone memory and disk array for buffering long experimental runs. Control Room.',
+  cpuComputeRack: 'General-purpose CPU nodes for controls, dosimetry, isotope accounting and reconstruction. Control Room.',
+  gpuComputeRack: 'Accelerator GPUs for imaging, detector events and photon-science workloads. Control Room.',
   operatorConsole: 'Where operators drive the machine and log the excuses. Control Room.',
   alarmPanel: 'Annunciator panel. Green is good; you will learn the other colors. Control Room.',
   diningTable: 'Shared meals, shared gossip, shared crumbs. Cafeteria.',

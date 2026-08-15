@@ -36,7 +36,7 @@
 //     cryomodule's load dwarfing a single warm-bore cavity's.
 //   - Vacuum outgassing scales with interior volume; one roughing pump keeps
 //     a starter chain alive at mediocre quality, turbo/ion pumps make it good.
-//   - Data is flavor-scaled Gbps; the solver is binary connectivity.
+//   - Data is Gbps; sources share their capacity proportionally across sinks.
 
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
@@ -944,6 +944,16 @@ const INFRA_UTILITY_PORTS = {
   blmReadout:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
   llrfController:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
   patchPanel:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 2 } } },
+  // Control-room and diagnostics data systems. These are network endpoints,
+  // not magical facility-wide bonuses: the player can run fiber directly
+  // from a beamline endpoint to a compact appliance or a rack-scale system.
+  dataAppliance:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
+  serverRack:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
+  daqRack:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
+  serverCluster:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 12 } } },
+  dataStorageRack:     { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
+  cpuComputeRack:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
+  gpuComputeRack:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80 } } },
 };
 
 // ---------------------------------------------------------------------------
@@ -976,7 +986,8 @@ const INFRA_SINK_SHAPE = {
 
 // Loads not implied by energyCost. beamDump absorbs beam power, not wall
 // power; heCompressor dumps its compression heat into the water loop.
-// dataFiber is binary connectivity in the solver, so 1 Gbps is flavor.
+// Small control devices use a 1 Gbps management load; high-rate endpoints
+// declare their acquisition stream explicitly above.
 const INFRA_SINK_LOAD_OVERRIDES = {
   beamDump:     { coolingWater: 50 },
   heCompressor: { coolingWater: 20 },

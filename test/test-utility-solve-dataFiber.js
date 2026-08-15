@@ -1,8 +1,7 @@
-// test/test-utility-solve-dataFiber.js — tests for dataFiber.solve() v1.
+// test/test-utility-solve-dataFiber.js — tests for capacity-aware data fiber.
 //
-// Physics: binary — any source in the network → every sink is connected
-// (quality 1); otherwise sinks are disconnected (quality 0 + soft
-// data_disconnected error).
+// Connected sinks share source bandwidth. Missing sources are disconnected;
+// overloaded networks remain live but derate every endpoint proportionally.
 
 import desc from '../src/utility/types/dataFiber.js';
 
@@ -124,9 +123,11 @@ console.log('\n--- Test 6: totals are Gbps, not port counts ---');
   assert(r.flowState.totalCapacity === 40, `totalCapacity sums params.capacity (got ${r.flowState.totalCapacity})`);
   assert(r.flowState.totalDemand === 50, `totalDemand sums params.demand (got ${r.flowState.totalDemand})`);
   assert(r.flowState.utilization > 1 - 1e-9, `utilization reflects the real load (got ${r.flowState.utilization})`);
-  // Physics is still binary connectivity: both sinks connected despite 50 > 40.
-  assert(r.flowState.perSinkQuality.k1 === 1 && r.flowState.perSinkQuality.k2 === 1,
-    'connectivity physics unchanged');
+  assert(Math.abs(r.flowState.perSinkQuality.k1 - 0.8) < 1e-9
+      && Math.abs(r.flowState.perSinkQuality.k2 - 0.8) < 1e-9,
+    '50 Gbps of demand shares 40 Gbps of capacity at 80% quality');
+  assert(r.errors.some(e => e.code === 'data_overloaded'),
+    'overload publishes a soft data_overloaded warning');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

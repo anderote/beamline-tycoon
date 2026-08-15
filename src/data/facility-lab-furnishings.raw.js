@@ -423,7 +423,10 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
     id: 'daqRack', name: 'DAQ Rack', zoneType: 'diagnosticsLab',
     cost: { funding: 15000 }, energyCost: 1.5, spriteColor: 0x2a2c30,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'daqRack',
-    effects: { zoneOutput: 0.07, research: 0.02 }, baseMaterial: 'metal_dark',
+    effects: {
+      zoneOutput: 0.07, research: 0.02,
+      dataSystem: { kind: 'daq', ingest: 40, storage: 80, cpu: 3 },
+    }, baseMaterial: 'metal_dark',
     // Rack faceplates (LEDs, displays, patch panel) all sit at -Z; anchor
     // one subtile north of the footprint, facing south into the rack.
     station: { jobs: ['takeData'], slots: 1, seated: 'preferred',
@@ -485,7 +488,7 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       { name: 'lamp6', x:  0.30, y: 4.58, z: -0.97, w: 0.06, h: 0.06, l: 0.02, color: 0x44ff66 },
     ],
   },
-  serverCluster:    { id: 'serverCluster',     name: 'Server Cluster',          zoneType: 'diagnosticsLab', cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
+  serverCluster:    { id: 'serverCluster',     name: 'Server Cluster',          zoneType: 'diagnosticsLab', cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08, dataSystem: { kind: 'allInOne', ingest: 12, storage: 600, cpu: 20, gpu: 12 } }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
   toolChest: {
     id: 'toolChest', name: 'Tool Chest', zoneType: 'maintenance',
     cost: { funding: 3000 }, energyCost: 0, spriteColor: 0xcc2222,
@@ -662,8 +665,8 @@ const LAB_FURNISHING_DESCS = {
   scopeStation: 'Rolling scope cart for wherever the signal is misbehaving today. Diagnostics Lab.',
   wireScannerBench: 'Bench electronics for wire-scanner beam profile readout. Diagnostics Lab.',
   bpmTestFixture: 'Test electronics for beam position monitor pickups. Diagnostics Lab.',
-  daqRack: 'Full-height rack of digitizers and timing gear; also feeds research. Diagnostics Lab.',
-  serverCluster: 'Compute cluster for crunching run data; serious research boost. Diagnostics Lab.',
+  daqRack: 'High-throughput ingest and a short acquisition buffer; pair it with storage and compute for sustained runs. Diagnostics Lab.',
+  serverCluster: 'Larger all-in-one compute and storage cluster for crunching run data. Diagnostics Lab.',
   toolChest: 'Maintenance tool storage. Contents migrate mysteriously between shifts. Maintenance zone.',
   partsShelf: 'Spare-parts shelving, organized by "I will remember where it is". Maintenance zone.',
   workCart: 'Wheeled cart for hauling tools to wherever the fault is. Maintenance zone.',

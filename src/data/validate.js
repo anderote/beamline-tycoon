@@ -442,8 +442,8 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 
   // ── Utility ports table integrity ─────────────────────────────────
   for (const [id, ports] of Object.entries(utilityPorts)) {
-    if (!beamline[id] && !infrastructure[id]) {
-      problem(id, 'utilityPorts', `utility-ports-v2.js entry '${id}' references no beamline/infrastructure component`);
+    if (!beamline[id] && !infrastructure[id] && !roomFurnishings[id] && !labFurnishings[id]) {
+      problem(id, 'utilityPorts', `utility-ports-v2.js entry '${id}' references no component or facility furnishing`);
     }
     for (const [portName, spec] of Object.entries(ports || {})) {
       if (!UTILITIES.has(spec.utility)) {

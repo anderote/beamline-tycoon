@@ -157,8 +157,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             # research data and the tech tree was unreachable under real
             # physics. The headless fallback masked it by computing data a
             # different way.
-            if etype == "detector" and is_last:
-                detector_rates.append(beam.current * element.get("dataRate", 1.0))
+            if is_last and element.get("dataRate", 0) > 0:
+                detector_rates.append(beam.current * element["dataRate"])
 
             context.cumulative_s += sub_el["length"]
 

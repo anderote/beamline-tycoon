@@ -1526,6 +1526,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'dataControls', subsection: 'controls',
     cost: { funding: 100000 },
     stats: {},
+    effects: { dataSystem: { kind: 'storage', storage: 800 } },
     energyCost: 0.5,
     subL: 2, subW: 1, subH: 4, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_dark',

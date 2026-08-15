@@ -55,6 +55,8 @@ import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from '.
 import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
+import { computeEndpointService } from './endpoint-economy.js';
+import { tickDataSystems } from './data-systems.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -140,6 +142,7 @@ const UNDO_PRESERVED_FIELDS = [
 const BEAMSTATE_PRESERVED_FIELDS = [
   'componentHealth', 'beamOnTicks', 'continuousBeamTicks',
   'totalBeamHours', 'totalDataCollected', 'uptimeFraction',
+  'rawDataStored', 'rawDataDropped', 'totalRawDataIngested', 'totalDataProcessed',
 ];
 
 // Stand-in log used while building an undo snapshot (see _snapshot).
@@ -325,10 +328,13 @@ export class Game {
       zoneOccupied: {},         // "col,row" -> zoneType
       zoneConnectivity: {},     // zoneType -> { active, tileCount, tileTier, tier, staffedOutput, peakTier }
       // Published each tick by jobRunner.js's tickJobs — see that field's
-      // own comment there and _tickBeamline's sciMult line. Not serialized
+      // own comment there and the data-pipeline handoff in _tickBeamline. Not serialized
       // (derived, like economySnapshot): a fresh tick republishes it before
       // anything downstream reads it.
       staffDataEfficiency: 0,
+      // Derived facility-wide view of the DAQ -> storage -> CPU/GPU pipeline.
+      // Raw buffers themselves live on beamState and therefore save normally.
+      dataSystemSnapshot: null,
       // Facility equipment (off-beamline support systems)
       facilityEquipment: [],      // [{ id, type, col, row }]
       facilityGrid: {},           // "col,row" -> equipment id
@@ -4247,7 +4253,7 @@ export class Game {
     // losses) at this model's coarser resolution. dataQuality is deliberately
     // NOT applied here — _tickBeamline already derates data by it.
     const q01 = (v) => (typeof v === 'number' ? Math.max(0, Math.min(1, v)) : 1);
-    let eGain = 0, dRate = 0, bq = 1;
+    let eGain = 0, dRate = 0, bq = 1, current = 0;
     let worstVacuum = 1;
     for (const el of physicsBeamline) {
       const s = el.stats || {};
@@ -4257,6 +4263,7 @@ export class Game {
         : q01(iq.powerQuality) * q01(iq.rfQuality) * q01(iq.coolingQuality) * q01(iq.cryoQuality);
       if (s.energyGain) eGain += s.energyGain * gainScale;
       if (s.dataRate) dRate += s.dataRate;
+      if (!(current > 0) && s.beamCurrent) current = s.beamCurrent;
       if (s.beamQuality) bq += s.beamQuality;
       if (el.infraQuality) worstVacuum = Math.min(worstVacuum, q01(iq.vacuumQuality));
     }
@@ -4275,7 +4282,7 @@ export class Game {
     bs.beamQuality = bq;
     bs.luminosity = 0;
     bs.physicsAlive = true;
-    bs.beamCurrent = 0;
+    bs.beamCurrent = current;
     bs.totalLossFraction = 0;
     bs.discoveryChance = 0;
     bs.photonRate = 0;
@@ -4712,7 +4719,9 @@ export class Game {
 
     }
 
-    // Tick all running beamlines
+    // Tick all running beamlines. Data requests are buffered and resolved as
+    // one facility pipeline after every beam has published its input rate.
+    this._pendingDataInputs = [];
     for (const entry of this.registry.getAll()) {
       if (entry.status === 'running') {
         this._tickBeamline(entry, econ);
@@ -4721,6 +4730,7 @@ export class Game {
         // A stopped beamline earns no data fees; leaving the last running
         // value here would let a panel quote income the player is not paid.
         entry.beamState.effectiveDataRate = 0;
+        entry.beamState.serviceRevenue = 0;
       }
 
       // Uptime tracking per beamline
@@ -4728,6 +4738,8 @@ export class Game {
         entry.beamState.uptimeFraction = beamlineUptime(entry.beamState, this.state.tick);
       }
     }
+
+    this._tickDataSystems();
 
     // The last economy term is now known — publish the breakdown before
     // anything else in the tick can be tempted to recompute one.
@@ -4873,6 +4885,17 @@ export class Game {
     return dataNodeCount > 0 ? totalDataQ / dataNodeCount : 1;
   }
 
+  /** Resolve the facility-wide DAQ/storage/compute queue accumulated this tick. */
+  _tickDataSystems() {
+    const result = tickDataSystems(
+      this.state,
+      this.registry.getAll(),
+      Array.isArray(this._pendingDataInputs) ? this._pendingDataInputs : [],
+    );
+    this._pendingDataInputs = [];
+    return result;
+  }
+
   /**
    * @param entry registry entry to bill and advance
    * @param econ  tick()'s accumulator; this beamline's income terms are added
@@ -4881,7 +4904,11 @@ export class Game {
   _tickBeamline(entry, econ = null) {
     const bs = entry.beamState;
 
-    if (!this.state.infraCanRun) return;
+    if (!this.state.infraCanRun) {
+      bs.effectiveDataRate = 0;
+      bs.serviceRevenue = 0;
+      return;
+    }
 
     bs.continuousBeamTicks++;
     bs.beamOnTicks++;
@@ -4909,9 +4936,20 @@ export class Game {
     const connectedDataRate = billedDataRate(bs, this._dataConnectivityFactor(blNodes));
     bs.effectiveDataRate = connectedDataRate;
 
+    // Commercial endpoints pay directly for useful beam delivery. Irradiation
+    // and isotope contracts scale with E*I; medical/EUV availability contracts
+    // are capped and reward reliable in-band operation instead of over-driving.
+    const service = computeEndpointService(entry.typeId, bs, blNodes);
+    bs.serviceRevenue = service.revenue;
+    bs.serviceContract = service.contractName;
+    bs.serviceBandScore = service.bandScore;
+    bs.servicePerformanceScore = service.performanceScore;
+    bs.serviceBeamPowerKw = service.beamPowerKw || 0;
+
     const earned = computeBeamIncomeBreakdown(
       connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
       nodeCount,
+      { typed: !!entry.typeId, serviceRevenue: service.revenue },
     );
     this.state.resources.funding += earned.total;
     if (econ) {
@@ -4920,50 +4958,14 @@ export class Game {
       econ.beamlines++;
     }
 
-    // Data from detectors (physics-driven). Task 6 (staff-professions-3,
-    // jobs-and-gates): sciMult used to be `1 + state.staff.scientist * 0.1`
-    // — a bonus for merely HAVING scientists on the roster, whether or not
-    // any of them were doing anything. It now reads the summed efficiency
-    // of scientists actually in phase 'work' on a takeData job this tick,
-    // published by jobRunner.js's tickJobs (see state.staffDataEfficiency's
-    // own comment there). No working scientist -> 0 -> no data gain at all,
-    // full stop; a working one scales this directly by their efficiency,
-    // same as every other work job in the game.
-    //
-    // Fix round 1 (coordinator review): divided by the number of currently
-    // RUNNING beamlines (floored at 1, so a call against an unregistered
-    // beamline — this method's own unit tests — divides by 1, i.e. no
-    // change). state.staffDataEfficiency is a facility-wide total (see that
-    // field's own comment on why it isn't bound to one specific beamline),
-    // and this method runs once per running beamline — multiplying the SAME
-    // undivided total onto every one of them made total facility data scale
-    // with beamline count for free: measured live, two beamlines each
-    // independently credited the full 10.00/tick a single scientist's
-    // efficiency implied, and 1/2/4/8 lines gave 10/20/40/80 from that same
-    // one scientist. Dividing here means the total the facility earns from
-    // a given roster of scientists no longer depends on how many lines
-    // their output happens to be spread across.
-    const runningBeamlineCount = Math.max(1, (this.registry.getAll() || []).filter(e => e.status === 'running').length);
-    const sciMult = (this.state.staffDataEfficiency || 0) / runningBeamlineCount;
-    if (connectedDataRate > 0) {
-      const dataGain = connectedDataRate * sciMult;
-      this.state.resources.data += dataGain;
-      bs.totalDataCollected += dataGain;
-    }
-
-    // Photon data from undulators (bonus data, scaled down). Fix round 1
-    // (coordinator review): this used to add data with NO scientist check
-    // at all — measured live with zero working scientists, the detector
-    // half correctly paid 0 but this half still paid 4.50/tick, a real
-    // route around the "no scientist -> no data" gate the brief calls for.
-    // Gated by the same sciMult as the detector half above, for the same
-    // reason: it is data collection, same as the detector's own, and there
-    // is no version of "no scientist -> no data" that carves out an
-    // exception for undulators specifically.
-    if (bs.photonRate > 0) {
-      const photonData = bs.photonRate * 0.1 * bs.beamQuality * sciMult;
-      this.state.resources.data += photonData;
-      bs.totalDataCollected += photonData;
+    // Collection now enters a real facility pipeline. Fiber has already
+    // derated the endpoint here; shared DAQ ingest, storage, CPU/GPU compute,
+    // and the Take Data scientist gate are applied once after all beamlines.
+    const rawRate = connectedDataRate
+      + Math.max(0, bs.photonRate || 0) * 0.1 * Math.max(0, bs.beamQuality || 0);
+    if (rawRate > 0) {
+      if (!Array.isArray(this._pendingDataInputs)) this._pendingDataInputs = [];
+      this._pendingDataInputs.push({ entry, rate: rawRate, workload: service.workload });
     }
 
     // User beam hours from photon ports

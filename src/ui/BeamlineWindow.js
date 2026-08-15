@@ -450,6 +450,9 @@ export class BeamlineWindow {
     // zero science and zero fees here rather than as income nobody is paid.
     const dataRateTick = bs.effectiveDataRate ?? 0;
     const feePerTick = dataFeeIncome(dataRateTick);
+    const serviceRevenue = bs.serviceRevenue || 0;
+    const contract = bs.serviceContract || 'No endpoint contract';
+    const rawStored = bs.rawDataStored || 0;
 
     el.innerHTML = `
       <div class="ctx-section-label">Capital</div>
@@ -460,8 +463,11 @@ export class BeamlineWindow {
       <div class="ctx-section-label">Operating</div>
       <div class="ctx-stats-grid three-col">
         <div class="ctx-stat"><div class="ctx-stat-label">Energy</div><div class="ctx-stat-val warn">${energyDraw.toFixed(0)} kW</div></div>
-        <div class="ctx-stat"><div class="ctx-stat-label">User Fees</div><div class="ctx-stat-val">$${feePerTick.toFixed(2)}/t</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Endpoint Revenue</div><div class="ctx-stat-val">$${serviceRevenue.toFixed(2)}/t</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Contract</div><div class="ctx-stat-val neutral">${contract}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Data Fees</div><div class="ctx-stat-val">$${feePerTick.toFixed(2)}/t</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Data Out</div><div class="ctx-stat-val">${dataRateTick.toFixed(2)}/t</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Raw Stored</div><div class="ctx-stat-val">${rawStored.toFixed(1)}</div></div>
       </div>
     `;
   }

@@ -1,8 +1,8 @@
 // src/utility/types/dataFiber.js
 //
-// Data fiber utility descriptor. v1 physics: binary connectivity. If the
-// network has ≥1 source, every sink is "connected" (quality 1); otherwise the
-// sinks are orphaned (quality 0) and a soft data_disconnected error is raised.
+// Data fiber utility descriptor. Capacity is shared by every sink on a
+// network: a 40 Gbps switch serving 50 Gbps of endpoints delivers 80% to each.
+// Missing sources still fail closed with a soft data_disconnected warning.
 
 import { powerFeedFactor } from '../power-feed.js';
 
@@ -32,11 +32,7 @@ export default {
   solve(network, persistent, worldState) {
     const poweredSources = network.sources.filter(s => powerFeedFactor(worldState, s.placeableId) > 0);
     const hasSource = poweredSources.length > 0;
-    // The physics is binary connectivity, but the flow totals are display
-    // fields tagged with capacityUnit — publish real Gbps like every other
-    // descriptor, not port counts (the inspector showed "1.0 Gbps" above
-    // rows reading "40 Gbps").
-    const totalCapacity = network.sources.reduce(
+    const totalCapacity = poweredSources.reduce(
       (a, s) => a + ((s.params && s.params.capacity) || 0)
         * powerFeedFactor(worldState, s.placeableId), 0);
     const totalDemand = network.sinks.reduce(
@@ -44,7 +40,20 @@ export default {
     const perSinkQuality = {};
     const errors = [];
     if (hasSource) {
-      for (const s of network.sinks) perSinkQuality[s.portKey] = 1;
+      // Opaque descriptor tests historically omit params; retain their simple
+      // connectivity meaning while all authored game ports use real Gbps.
+      const quality = totalCapacity <= 0 && poweredSources.every(s => !s.params)
+        ? 1
+        : (totalDemand > 0 ? Math.min(1, totalCapacity / totalDemand) : 1);
+      for (const s of network.sinks) perSinkQuality[s.portKey] = quality;
+      if (quality < 1) {
+        errors.push({
+          severity: 'soft',
+          code: 'data_overloaded',
+          message: `Data network overloaded (${totalDemand.toFixed(1)} Gbps demand / ${totalCapacity.toFixed(1)} Gbps capacity).`,
+          location: { networkId: network.id },
+        });
+      }
     } else if (network.sinks.length > 0) {
       for (const s of network.sinks) perSinkQuality[s.portKey] = 0;
       errors.push({

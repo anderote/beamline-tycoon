@@ -3310,6 +3310,7 @@ UIHost.prototype._renderPowerStats = function(d, summary, detail) {
 
 UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
   const mpsColor = d.mpsStatus === 'Active' ? 'good' : '';
+  const dataColor = d.droppedRate > 0 ? 'bad' : (d.rawStored > d.storageCapacity * 0.8 ? 'warn' : 'good');
   summary.innerHTML = [
     this._sstat('IOCs', d.iocs, ''),
     this._ssep(),
@@ -3320,6 +3321,10 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     this._sstat('Timing', d.timingSystems, ''),
     this._ssep(),
     this._sstat('MPS', d.mpsStatus, '', mpsColor),
+    this._ssep(),
+    this._sstat('Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`, dataColor),
+    this._ssep(),
+    this._sstat('Processed', d.processedRate.toFixed(1), '/t'),
     this._ssep(),
     this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
   ].join('');
@@ -3332,6 +3337,10 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     ${this._detailRow('Timing Systems', dd.timingSystems)}
     ${this._detailRow('MPS Units', dd.mps)}
     ${this._detailRow('Laser Systems', dd.laserSystems)}
+    ${this._detailRow('Raw Buffer', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`)}
+    ${this._detailRow('Dropped This Tick', d.droppedRate.toFixed(1), 'data')}
+    ${this._detailRow('CPU Processing', this._fmt(d.cpuCapacity), 'data/t')}
+    ${this._detailRow('GPU Processing', this._fmt(d.gpuCapacity), 'data/t')}
   </div>`;
 };
 

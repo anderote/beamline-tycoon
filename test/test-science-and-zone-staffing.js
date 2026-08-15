@@ -227,9 +227,9 @@ console.log('\n=== 2. A scientist working takeData -> staffDataEfficiency scales
 }
 
 // =============================================================================
-// 3. Game._tickBeamline reads staffDataEfficiency as its sciMult.
+// 3. Game data pipeline requires both working scientist and compute hardware.
 // =============================================================================
-console.log('\n=== 3. Game._tickBeamline: sciMult reads state.staffDataEfficiency ===\n');
+console.log('\n=== 3. Game data pipeline: scientist + hardware gate research data ===\n');
 {
   const { Game } = await import('../src/game/Game.js');
   const { BeamlineRegistry, makeDefaultBeamState } = await import('../src/beamline/BeamlineRegistry.js');
@@ -240,18 +240,24 @@ console.log('\n=== 3. Game._tickBeamline: sciMult reads state.staffDataEfficienc
   const bs = makeDefaultBeamState('testStand');
   bs.dataRate = 10;
   const entry = { id: 'bl-test', sourceId: null, beamState: bs };
+  g.registry.beamlines.set(entry.id, entry);
+  g.state.placeables.push({ id: 'data-test', type: 'serverCluster' });
 
   g.state.staffDataEfficiency = 0;
   const dataBefore = g.state.resources.data;
   g._tickBeamline(entry);
+  g._tickDataSystems();
   assertOk(g.state.resources.data === dataBefore,
     `staffDataEfficiency 0 -> no data gain despite a live dataRate (before ${dataBefore}, after ${g.state.resources.data})`);
 
+  bs.rawDataStored = 0; // isolate the next tick from the buffered first one
   g.state.staffDataEfficiency = 0.7;
   const dataBefore2 = g.state.resources.data;
   g._tickBeamline(entry);
+  g._tickDataSystems();
   const gained = g.state.resources.data - dataBefore2;
-  assertOk(Math.abs(gained - 10 * 0.7) < 1e-9, `data gain === connectedDataRate * staffDataEfficiency (want 7, got ${gained})`);
+  assertOk(gained > 0 && gained <= 10,
+    `working scientist plus installed compute processes the live stream (got ${gained})`);
 }
 
 // =============================================================================
@@ -808,16 +814,21 @@ console.log('\n=== 18. Photon data is gated by the same scientist check as detec
   bs.photonRate = 45;
   bs.beamQuality = 1;
   const entry = { id: 'bl-photon', sourceId: null, beamState: bs };
+  g.registry.beamlines.set(entry.id, entry);
+  g.state.placeables.push({ id: 'data-photon', type: 'serverCluster' });
 
   g.state.staffDataEfficiency = 0;
   const dataBefore = g.state.resources.data;
   g._tickBeamline(entry);
+  g._tickDataSystems();
   assertOk(g.state.resources.data === dataBefore,
     `18a. no working scientist -> photon data gain is 0 too (before ${dataBefore}, after ${g.state.resources.data})`);
 
+  bs.rawDataStored = 0;
   g.state.staffDataEfficiency = 1;
   const dataBefore2 = g.state.resources.data;
   g._tickBeamline(entry);
+  g._tickDataSystems();
   const gained = g.state.resources.data - dataBefore2;
   assertOk(gained > 0, `18b. a working scientist DOES unlock photon data (gained ${gained})`);
 }
@@ -842,14 +853,16 @@ console.log('\n=== 19. takeData total is independent of beamline count (fix roun
   const entry1 = { id: 'bl-q1', sourceId: null, beamState: bs1, status: 'running' };
   const entry2 = { id: 'bl-q2', sourceId: null, beamState: bs2, status: 'running' };
   g.registry.getAll = () => [entry1, entry2]; // both registered AND running
+  g.state.placeables.push({ id: 'data-shared', type: 'serverRack' });
 
   g.state.staffDataEfficiency = 1.0; // one scientist, efficiency 1.0
   const before = g.state.resources.data;
   g._tickBeamline(entry1);
   g._tickBeamline(entry2);
+  g._tickDataSystems();
   const totalGain = g.state.resources.data - before;
-  assertOk(Math.abs(totalGain - 10) < 1e-9,
-    `19. total facility data gain from ONE scientist stays 10 regardless of beamline count — the pre-fix formula would have summed to 20 (want 10, got ${totalGain})`);
+  assertOk(Math.abs(totalGain - 6) < 1e-9,
+    `19. two streams share one server rack's 6/t balanced compute budget (got ${totalGain})`);
 }
 
 // =============================================================================

@@ -11,7 +11,7 @@ A particle accelerator isn't just magnets and cavities — it's a control system
 
 **Rack/IOC (Input/Output Controller)** — the basic unit of the control system. Each rack runs EPICS (Experimental Physics and Industrial Control System) software and feeds nearby beamline instruments via data/fiber. It supplies 10 Gbps to its network.
 
-It is not the only data source: **Network Switch** (40 Gbps), **Archiver** (20), **BPM Electronics** (8), **BLM Readout** (8), **Timing System** (5), **LLRF Controller** (4), and **Patch Panel** (2) all act as sources. The solver's physics is binary connectivity — the network has a source or it doesn't — so the Gbps figures are display values, not a budget the solver enforces.
+It is not the only data source: **Network Switch** (40 Gbps), **Archiver** (20), **BPM Electronics** (8), **BLM Readout** (8), **Timing System** (5), **LLRF Controller** (4), and **Patch Panel** (2) all act as sources. Gbps is a real shared budget: if a 40 Gbps network serves 50 Gbps of endpoints, each stream runs at 80% and the rest is dropped.
 
 Place data sources distributed along your facility, or run a Fiber Bus ($35k, 12-cell reach — the longest reach of any bus, and the cheapest).
 
@@ -38,27 +38,32 @@ MPS is not a hard gate — you can run without it. But **without an MPS anywhere
 The data flow for diagnostics is:
 
 ```
-Beam -> Diagnostic instrument -> Data/Fiber -> data source -> Data income
+Beam -> Endpoint -> Data/Fiber -> DAQ ingest -> Raw storage -> CPU/GPU -> Research data
 ```
 
-Data connectivity is a **soft** derate, not an on/off switch. The game averages the `dataQuality` of every data-producing component on the beamline and scales the beamline's data income by that average. Only two components produce data: the **detector** (rate 1.0) and the **Faraday cup** (0.1). A detector wired to nothing has data quality 0 and earns nothing; a facility with two detectors, one wired, earns half.
+Data connectivity is a **soft** derate, not a beam trip. The game averages the `dataQuality` of every data-producing endpoint on the beamline and scales its incoming stream by that average. Purpose-built materials, irradiation, isotope, therapy, neutron, photon, XFEL, EUV, and particle-physics endpoints all declare data output. An unwired endpoint has data quality 0; an overloaded network receives a fractional quality based on available bandwidth.
+
+Connected data then needs four facility resources. **DAQ ingest** limits how much can enter per tick. **Raw storage** buffers work that cannot be processed immediately. **CPU racks** are best for controls, dosimetry, isotope accounting, and ordinary reconstruction. **GPU racks** are best for imaging, photon science, and high-rate detector events. A scientist working **Take Data** operates the processing pipeline; without one, raw data accumulates until storage fills.
+
+The **Compact Data Appliance**, **Server Rack**, and **Server Cluster** are all-in-one packages for small systems. Larger facilities can add a **DAQ Rack**, standalone **Storage Arrays**, **CPU Compute Racks**, and **GPU Compute Racks** independently so the limiting stage can be expanded instead of buying another copy of everything.
 
 Diagnostics like BPMs and wire scanners declare data sinks and must be wired for the same reason any sink must — but they contribute no data rate of their own, so leaving one unwired costs you nothing directly.
 
 ### Strategy
 
-- Data fiber is the cheapest run in the game ($1,200/tile) and the Fiber Bus has the longest reach. There is no good reason to leave a detector unwired.
+- Data fiber is the cheapest run in the game ($1,200/tile) and the Fiber Bus has the longest reach. Watch the Data & Controls panel for bandwidth overload and dropped data.
+- Start with an all-in-one appliance. Add standalone storage when the raw buffer stays full, CPU for service/controls workloads, and GPUs for imaging or detector workloads.
 - Build the MPS early — 2x wear on everything is the single largest avoidable running cost in the game
 - Data fiber is the only utility that will never trip your beam, so wire it last if you're short on cash — but wire it
 
 ## The Math
 
-**Data income factor:**
+**Fiber delivery factor:**
 ```
-factor = mean(dataQuality) over components with stats.dataRate > 0
-data_income = base_data_rate x factor
+network_quality = min(1, network_capacity / network_demand)
+connected_rate = raw_endpoint_rate x mean(endpoint dataQuality)
 ```
-A declared-but-unwired data sink resolves to `dataQuality = 0`; a component that declares no data sink is not applicable and doesn't drag the average down.
+A declared-but-unwired data sink resolves to `dataQuality = 0`; a component that declares no data sink is not applicable and doesn't drag the average down. DAQ, free storage, the correct compute class, and scientist availability apply after this factor.
 
 **Component wear (applied every 10 ticks):**
 ```

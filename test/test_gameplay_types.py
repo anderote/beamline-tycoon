@@ -73,6 +73,19 @@ class TestKnownTypesResolve(unittest.TestCase):
         }
         self.assertLessEqual(gated, KNOWN_PHYSICS_TYPES)
 
+    def test_data_rate_survives_non_detector_endpoint_physics_type(self):
+        """Purpose-built endpoint digitizers may be drift/target absorbers.
+        Their catalogue dataRate must still reach the lattice event summary."""
+        elements = beamline_config_from_game([
+            {"type": "source", "physicsType": "source", "subL": 2,
+             "stats": {}},
+            {"type": "materialsTestStation", "physicsType": "drift",
+             "subL": 2, "stats": {"dataRate": 0.5}},
+        ])
+        self.assertEqual(elements[1]["dataRate"], 0.5)
+        result = propagate(elements, machine_type="testStand")
+        self.assertGreater(result["summary"]["event_rate"], 0)
+
 
 class TestRawFileDeclarations(unittest.TestCase):
     """Cross-language guard: every entry in beamline-components.raw.js must
