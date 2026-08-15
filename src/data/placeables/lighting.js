@@ -161,7 +161,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.05,
     light: {
       color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'cone',
-      coneDeg: 105, beamAngleDeg: 105, tiltDeg: 0, emitterY: 1.5,
+      coneDeg: 105, beamAngleDeg: 105, tiltDeg: 0, emitterY: 3.0,
     },
   },
   {
@@ -185,7 +185,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.18,
     light: {
       color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'cone',
-      coneDeg: 100, beamAngleDeg: 100, tiltDeg: 0, emitterY: 2.2,
+      coneDeg: 100, beamAngleDeg: 100, tiltDeg: 0, emitterY: 3.4,
     },
   },
   {
@@ -197,7 +197,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.22,
     light: {
       color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'cone',
-      coneDeg: 110, beamAngleDeg: 110, tiltDeg: 0, emitterY: 2.1,
+      coneDeg: 110, beamAngleDeg: 110, tiltDeg: 0, emitterY: 3.2,
     },
   },
 
