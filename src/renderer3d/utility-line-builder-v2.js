@@ -69,10 +69,10 @@ function shared(mat) {
 // Faults used to recolour the pipe — an amber emissive over green renders as
 // solid yellow, which reads as "this is a different kind of pipe" rather than
 // "this run is faulted", and the blend lands on a different hue for each of
-// the six utilities so there is nothing to learn. The fault is a SYMBOL now
-// (buildFaultMark, below): a red X struck over the run, one shape that means
-// the same thing on every colour of pipe. Motion carries the fault instead
-// (patchFlowMaterial, utility-flow.js): errorStatus selects a flowState —
+// the six utilities so there is nothing to learn. Motion carries the line
+// state, while compact issue markers live over the affected sink ports and
+// the hover tooltip explains the cause. patchFlowMaterial (utility-flow.js)
+// uses errorStatus to select a flowState —
 // 'ok' | 'soft' | 'hard' — so a faulted run keeps its colour but stutters,
 // dims or stops, which is why the cache key below is per-status again: this
 // is a distinct material variant, just not a distinct colour.
@@ -843,78 +843,6 @@ function getOpenCapMaterial(utilityType) {
   return mat;
 }
 
-// --- Fault marks --------------------------------------------------------
-//
-// A faulted run is struck through with an X. One symbol, drawn the same way
-// over all six utility colours, which is the whole point: recolouring the pipe
-// made a fault look like a different KIND of pipe, and made it look different
-// on every utility. Red for a hard fault (this run is dead — unwired, cut off,
-// starved), amber for a soft one (it works, but it is over capacity).
-//
-// Drawn flat in the ground plane, depth-test off at a high renderOrder, so it
-// reads from any view rotation and nothing on the floor can hide it.
-
-const FAULT_MARK_COLORS = { hard: '#ff3322', soft: '#ffaa22' };
-const FAULT_MARK_ARM = 0.32;    // half-diagonal of the X, metres
-const FAULT_MARK_BAR = 0.075;   // bar thickness
-
-const _faultMarkMatCache = new Map();
-function getFaultMarkMaterial(severity) {
-  if (_faultMarkMatCache.has(severity)) return _faultMarkMatCache.get(severity);
-  const color = FAULT_MARK_COLORS[severity] || FAULT_MARK_COLORS.hard;
-  const mat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(color),
-    emissive: new THREE.Color(color),
-    emissiveIntensity: 0.85,
-    roughness: 0.3, metalness: 0.0,
-    transparent: true, opacity: 0.95,
-    depthTest: false,
-  });
-  _faultMarkMatCache.set(severity, shared(mat));
-  return mat;
-}
-
-/** The X itself, centred on `pos` and lying flat. */
-function buildFaultMark(pos, severity) {
-  const mat = getFaultMarkMaterial(severity);
-  const g = new THREE.Group();
-  for (const sign of [1, -1]) {
-    const bar = new THREE.Mesh(
-      new THREE.BoxGeometry(FAULT_MARK_ARM * 2, FAULT_MARK_BAR * 0.6, FAULT_MARK_BAR),
-      mat,
-    );
-    bar.rotation.y = sign * Math.PI / 4;
-    bar.renderOrder = 1002;
-    g.add(bar);
-  }
-  // Clear of the run it marks rather than buried in it — the pipes now lie on
-  // the deck, so an X at run height would be half-swallowed by the cable.
-  g.position.set(pos.x, pos.y + 0.28, pos.z);
-  g.userData = { isUtilityFaultMark: true, severity };
-  return g;
-}
-
-/**
- * Where to strike the X: the midpoint of the polyline BY LENGTH, so it lands
- * on the run rather than on whichever waypoint happens to be central (a path
- * with a long leg and a short one would otherwise mark the short end).
- */
-function polylineMidpoint(points) {
-  let total = 0;
-  for (let i = 0; i < points.length - 1; i++) total += points[i].distanceTo(points[i + 1]);
-  if (total === 0) return points[0];
-  let walked = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    const seg = points[i].distanceTo(points[i + 1]);
-    if (walked + seg >= total / 2) {
-      const t = seg === 0 ? 0 : (total / 2 - walked) / seg;
-      return points[i].clone().lerp(points[i + 1], t);
-    }
-    walked += seg;
-  }
-  return points[points.length - 1];
-}
-
 /** Preserve the visible rope shape when a new target solve changes sampling. */
 function resampleControlPoints(points, count) {
   if (!Array.isArray(points) || points.length < 2 || count < 2) return null;
@@ -1097,14 +1025,6 @@ function buildLineGroup(
       fitting.userData.isUtilityTeeFitting = true;
       group.add(fitting);
     }
-  }
-
-  // Struck through when its network is faulted. Lives in the line's own group,
-  // so it is created, rebuilt and disposed with the line — the hash already
-  // carries errorStatus, so a status change rebuilds and the X appears or
-  // clears with no separate refresh path.
-  if (errorStatus && errorStatus !== 'ok') {
-    group.add(buildFaultMark(polylineMidpoint(points), errorStatus));
   }
 
   // Publish effect INTENT only. VisualEffectSystem owns the scalable drawing
@@ -1326,30 +1246,20 @@ function buildTapMarker(worldPos, color, runY) {
   return mesh;
 }
 
-// --- Unwired-sink markers ----------------------------------------------
+// --- Sink-port issue markers -------------------------------------------
 //
-// A component that declares a hard-required sink and has nothing wired to it
-// trips the beam (utility-gate HARD_REQUIRED_UTILS). Most such components are
-// role:'placement' modules living inside a pipe — a quadrupole with no cooling
-// looks exactly like the wired quadrupole next to it, and a FODO cell holds a
-// dozen of them. The marker must therefore read at normal zoom without hover:
-// a utility-coloured chevron floating above the offending port on a stem, all
-// drawn depthTest-off at a high renderOrder so pipe/building geometry can't
-// hide it.
-//
-// Sized as a map pin, not as scenery: at a metre and a half the stems read as
-// part of the facility and a wired-up hall turns into a forest of them, so the
-// pin sits just clear of the equipment it marks and the chevron is small enough
-// that a dozen of them still leave the machines legible.
+// The pipe stays visually identified by utility type. A compact exclamation
+// point over the affected sink carries status instead: yellow means connected
+// but under-served; red means the port receives nothing (including an RF band
+// mismatch) or belongs to a hard-failed network.
 
-// How far the chevron floats above the port it is complaining about. The pin
-// hangs off the PORT's anchor now, not off a fixed height over the tile, so a
-// tall cabinet's pin clears the cabinet and a floor pump's pin sits low.
-const UNWIRED_MARK_RISE = 0.7;
+const ISSUE_MARK_COLORS = { warning: '#ffcc33', critical: '#ff3333' };
+const ISSUE_MARK_RISE = 0.42;
 
-const _unwiredMatCache = new Map();
-function getUnwiredMarkerMaterial(color) {
-  if (_unwiredMatCache.has(color)) return _unwiredMatCache.get(color);
+const _issueMatCache = new Map();
+function getIssueMarkerMaterial(severity) {
+  if (_issueMatCache.has(severity)) return _issueMatCache.get(severity);
+  const color = ISSUE_MARK_COLORS[severity] || ISSUE_MARK_COLORS.critical;
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
@@ -1358,33 +1268,33 @@ function getUnwiredMarkerMaterial(color) {
     transparent: true, opacity: 0.95,
     depthTest: false,
   });
-  _unwiredMatCache.set(color, shared(mat));
+  _issueMatCache.set(severity, shared(mat));
   return mat;
 }
 
-// One marker: a down-pointing cone over a thin stem that lands on the port.
-function buildUnwiredMarker(mark) {
-  const descriptor = UTILITY_TYPES[mark.utilityType];
-  const color = descriptor?.color || '#ff4444';
-  const mat = getUnwiredMarkerMaterial(color);
+function buildUtilityPortIssueMarker(mark) {
+  const mat = getIssueMarkerMaterial(mark.severity);
   const g = new THREE.Group();
-
   const footY = Number.isFinite(mark.y) ? mark.y : PIPE_Y;
-  const tipY = footY + UNWIRED_MARK_RISE;
+  const dotY = footY + ISSUE_MARK_RISE;
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat);
+  dot.position.set(0, dotY, 0);
+  dot.renderOrder = 1001;
+  g.add(dot);
 
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.26, 6), mat);
-  cone.rotation.x = Math.PI;               // apex down, at the stem top
-  cone.position.set(0, tipY + 0.13, 0);
-  cone.renderOrder = 1001;
-  g.add(cone);
-
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, UNWIRED_MARK_RISE, 6), mat);
-  stem.position.set(0, (tipY + footY) / 2, 0);
-  stem.renderOrder = 1001;
-  g.add(stem);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.22, 0.055), mat);
+  bar.position.set(0, dotY + 0.18, 0);
+  bar.renderOrder = 1001;
+  g.add(bar);
 
   g.position.set(mark.x, 0, mark.z);
-  g.userData = { isUnwiredSinkMarker: true, placeableId: mark.id, utilityType: mark.utilityType };
+  g.userData = {
+    isUtilityPortIssueMarker: true,
+    placeableId: mark.placeableId,
+    portName: mark.portName,
+    utilityType: mark.utilityType,
+    severity: mark.severity,
+  };
   return g;
 }
 
@@ -1418,9 +1328,9 @@ export class UtilityLineBuilderV2 {
     // `${placeableId}:${portName}` → portAnchor3D, filled by setAvailablePorts
     // and read by setHoverPort (which is given an identity, not a record).
     this._anchorByKey = new Map();
-    // Unwired-sink markers + the signature that guards their rebuild.
-    this._unwiredGroup = null;
-    this._unwiredSig = null;
+    // Sink-port issue markers + the signature that guards their rebuild.
+    this._issueGroup = null;
+    this._issueSig = null;
   }
 
   /**
@@ -1681,8 +1591,8 @@ export class UtilityLineBuilderV2 {
         continue;
       }
 
-      // Rebuild once at rest so fault marks and declarative path effects use
-      // the final centreline too. Shared materials survive the replacement.
+      // Rebuild once at rest so declarative path effects use the final
+      // centreline too. Shared materials survive the replacement.
       state.parentGroup.remove(group);
       this._disposeGroup(group);
       const replacement = buildLineGroup(
@@ -1887,45 +1797,44 @@ export class UtilityLineBuilderV2 {
   }
 
   /**
-   * Render one marker per unwired declared sink.
+   * Render one exclamation marker per unhealthy sink port.
    *
-   * @param {Array<{id,portName,utilityType,x,z}>} marks world positions of the
-   *        offending ports, as resolved by the caller (the renderer owns the
-   *        endpoint lookup; this builder only draws).
+   * @param {Array<{placeableId,portName,utilityType,severity,x,y,z}>} marks
+   *        world positions resolved by the caller (this builder only draws).
    * @param {THREE.Group} parentGroup
    *
    * Signature-guarded: the caller may hand the same set every tick and only
    * a changed set costs a rebuild. Returns true when it rebuilt.
    */
-  setUnwiredSinkMarkers(marks, parentGroup) {
+  setUtilityPortIssueMarkers(marks, parentGroup) {
     const list = marks || [];
-    const sig = list.map(m => `${m.id}:${m.portName}:${m.utilityType}:`
+    const sig = list.map(m => `${m.placeableId}:${m.portName}:${m.utilityType}:${m.severity}:`
       + `${m.x.toFixed(2)},${(m.y || 0).toFixed(2)},${m.z.toFixed(2)}`).join(';');
-    if (sig === this._unwiredSig && this._unwiredGroup) return false;
-    this._unwiredSig = sig;
-    if (this._unwiredGroup) {
-      parentGroup.remove(this._unwiredGroup);
-      this._disposeGroup(this._unwiredGroup);
-      this._unwiredGroup = null;
+    if (sig === this._issueSig && this._issueGroup) return false;
+    this._issueSig = sig;
+    if (this._issueGroup) {
+      parentGroup.remove(this._issueGroup);
+      this._disposeGroup(this._issueGroup);
+      this._issueGroup = null;
     }
     if (list.length === 0) return true;
     const group = new THREE.Group();
-    group.userData = { isUnwiredSinkMarkers: true };
-    for (const m of list) group.add(buildUnwiredMarker(m));
+    group.userData = { isUtilityPortIssueMarkers: true };
+    for (const m of list) group.add(buildUtilityPortIssueMarker(m));
     parentGroup.add(group);
-    this._unwiredGroup = group;
+    this._issueGroup = group;
     return true;
   }
 
   /**
-   * Breathe the marker emissive so the chevrons read as an alert rather than
-   * as more scenery. Touches at most one material per utility colour and only
+   * Breathe the marker emissive so the glyphs read as an alert rather than as
+   * more scenery. Touches at most one material per severity and only
    * while markers exist, so it is safe on the per-frame path.
    */
-  pulseUnwiredMarkers(timeMs) {
-    if (!this._unwiredGroup) return;
+  pulseUtilityPortIssueMarkers(timeMs) {
+    if (!this._issueGroup) return;
     const k = 0.6 + 0.6 * (0.5 + 0.5 * Math.sin(timeMs * 0.005));
-    for (const mat of _unwiredMatCache.values()) mat.emissiveIntensity = k;
+    for (const mat of _issueMatCache.values()) mat.emissiveIntensity = k;
   }
 
 
@@ -1960,13 +1869,13 @@ export class UtilityLineBuilderV2 {
       this._disposeGroup(this._portMarkerGroup);
       this._portMarkerGroup = null;
     }
-    if (this._unwiredGroup) {
+    if (this._issueGroup) {
       // Markers live in their own scene group, not parentGroup — remove from
       // whichever parent actually holds them.
-      this._unwiredGroup.parent?.remove(this._unwiredGroup);
-      this._disposeGroup(this._unwiredGroup);
-      this._unwiredGroup = null;
-      this._unwiredSig = null;
+      this._issueGroup.parent?.remove(this._issueGroup);
+      this._disposeGroup(this._issueGroup);
+      this._issueGroup = null;
+      this._issueSig = null;
     }
   }
 

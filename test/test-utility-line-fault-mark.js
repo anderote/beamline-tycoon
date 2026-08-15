@@ -1,12 +1,13 @@
-// test/test-utility-line-fault-pulse.js — a faulted run is struck with an X;
-// it does not become a different colour of pipe.
+// A utility run keeps its own colour and carries no world-space fault X.
+// Fault text belongs to hover; the only compact world glyph is an exclamation
+// point over each affected sink port.
 //
 // The defect: a network in a fault state painted its lines with an amber or
 // red emissive. Over powerCable's green that renders as solid yellow, which
 // reads as "this is a different kind of pipe" rather than "this run is
 // faulted" — and being a blend it lands on a different hue for each of the six
 // utilities, so there is nothing for the player to learn. The colour is the
-// utility's identity; the fault is a symbol struck over it.
+// utility's identity. Fault state now stays in flow motion + port affordances.
 //
 // THREE is a CDN global in the browser; stubbed here to the handful of classes
 // the material and mark paths touch.
@@ -56,7 +57,7 @@ globalThis.THREE = {
 
 const { getLineMaterial, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
-const { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } =
+const { UTILITY_TYPES, UTILITY_TYPE_LIST } =
   await import('../src/utility/registry.js');
 
 let passed = 0, failed = 0;
@@ -107,60 +108,62 @@ console.log('\n--- 1. A faulted line keeps its utility colour ---');
     `no status recolours or lights the pipe (wrong: ${wrong.join(',') || 'none'})`);
 }
 
-console.log('\n--- 2. The fault is an X over the run ---');
+console.log('\n--- 2. Faulted lines carry no red/amber X ---');
 {
   const ok = buildOne(LINE('ul_ok', 'powerCable'), 'ok');
-  assert(marksIn(ok.group).length === 0, 'a healthy run carries no mark');
+  assert(marksIn(ok.group).length === 0, 'a healthy run carries no X');
 
   const hard = buildOne(LINE('ul_hard', 'powerCable'), 'hard');
-  const hardMarks = marksIn(hard.group);
-  assert(hardMarks.length === 1, `a hard fault strikes one mark (got ${hardMarks.length})`);
-  assert(hardMarks[0] && hardMarks[0].children.length === 2,
-    'made of two crossed bars — an X, not a blob');
-  assert(hardMarks[0] && hardMarks[0].children.every(b => Math.abs(b.rotation.y) > 0.1),
-    'both bars are turned off-axis, so they cross');
+  assert(marksIn(hard.group).length === 0, 'a hard fault carries no X on the pipe');
 
   const soft = buildOne(LINE('ul_soft', 'powerCable'), 'soft');
-  const softMarks = marksIn(soft.group);
-  assert(softMarks.length === 1, 'a soft fault is marked too');
-  assert(softMarks[0].userData.severity === 'soft'
-    && hardMarks[0].userData.severity === 'hard',
-    'and the two severities stay distinguishable');
-  assert(softMarks[0].children[0].material !== hardMarks[0].children[0].material,
-    'via different materials (amber vs red), not different shapes');
+  assert(marksIn(soft.group).length === 0, 'a soft fault carries no X on the pipe');
 }
 
-console.log('\n--- 3. The mark sits on the run, clear of it ---');
+console.log('\n--- 3. Sink alerts are compact exclamation points over ports ---');
 {
-  const { group } = buildOne(LINE('ul_pos', 'powerCable'), 'hard');
-  const mark = marksIn(group)[0];
-  const runY = utilityLineHeight('powerCable');
-  // The fixture runs from tile (0,0) to (4,0) → world x 0..8 at z 0.
-  assert(Math.abs(mark.position.x - 4) < 1e-6 && Math.abs(mark.position.z) < 1e-6,
-    `struck at the midpoint of the run (${mark.position.x}, ${mark.position.z})`);
-  assert(mark.position.y > runY,
-    `and above it, not buried in the cable (${mark.position.y} vs run ${runY})`);
-}
-
-console.log('\n--- 4. Clearing the fault clears the mark ---');
-{
-  // Same line id, status flips: the hash carries errorStatus, so the rebuild
-  // is what removes the X. A stale mark would mean a fixed network still
-  // reading as broken.
-  const line = LINE('ul_flip', 'powerCable');
   const builder = new UtilityLineBuilderV2();
   const parent = new Obj3();
-  const lines = new Map([[line.id, line]]);
-  let status = 'hard';
-  builder._buildErrorMap = () => new Map([[line.id, status]]);
+  builder.setUtilityPortIssueMarkers([
+    {
+      placeableId: 'quad', portName: 'pwr_in', utilityType: 'powerCable',
+      severity: 'warning', x: 2, y: 0.4, z: 3,
+    },
+    {
+      placeableId: 'cavity', portName: 'rf_in', utilityType: 'rfWaveguide',
+      severity: 'critical', x: 5, y: 0.8, z: 7,
+    },
+  ], parent);
+  const markers = parent.children[0]?.children || [];
+  assert(markers.length === 2, 'one marker is drawn per affected sink port');
+  assert(markers.every(marker => marker.children.length === 2),
+    'each marker is a two-piece exclamation glyph, not an X');
+  assert(markers.every(marker => marker.children[1].position.y > marker.children[0].position.y),
+    'the bar sits over the dot');
+  assert(markers[0]?.userData.severity === 'warning'
+      && markers[0]?.children[0].material.color.c === '#ffcc33',
+    'partial service uses a yellow exclamation point');
+  assert(markers[1]?.userData.severity === 'critical'
+      && markers[1]?.children[0].material.color.c === '#ff3333',
+    'zero service uses a red exclamation point');
+  assert(markers[1]?.position.x === 5 && markers[1]?.position.z === 7,
+    'the issue glyph is anchored over the affected port');
+}
 
-  builder.build(lines, new Map(), parent, { state: {} });
-  assert(marksIn(parent).length === 1, 'faulted: marked');
-
-  status = 'ok';
-  builder.build(lines, new Map(), parent, { state: {} });
-  assert(marksIn(parent).length === 0, 'fixed: the mark is gone');
-  assert(parent.children.length === 1, 'and the line itself is still there, once');
+console.log('\n--- 4. Clearing port issues clears the glyphs ---');
+{
+  const builder = new UtilityLineBuilderV2();
+  const parent = new Obj3();
+  const issue = {
+    placeableId: 'quad', portName: 'pwr_in', utilityType: 'powerCable',
+    severity: 'warning', x: 2, y: 0.4, z: 3,
+  };
+  assert(builder.setUtilityPortIssueMarkers([issue], parent) === true,
+    'the first issue set builds markers');
+  assert(builder.setUtilityPortIssueMarkers([issue], parent) === false,
+    'an unchanged issue set reuses its marker group');
+  builder.setUtilityPortIssueMarkers([], parent);
+  assert(parent.children.length === 0, 'fixed ports have no lingering glyph');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

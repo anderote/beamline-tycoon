@@ -80,6 +80,9 @@ const warningNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
 });
 assert(warningNetwork.detailSegments[2].tone === 'warning',
   'moderately underpowered demand is orange');
+assert(warningNetwork.detail.includes('Issue: Connected equipment is under-served.')
+    && warningNetwork.detailSegments[4].tone === 'warning',
+  'under-service is explained in yellow on the line hover');
 
 const criticalNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
   totalDemand: 100,
@@ -87,6 +90,30 @@ const criticalNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
 });
 assert(criticalNetwork.detailSegments[2].tone === 'critical',
   'severely underpowered demand is red');
+
+const mismatchNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.rfWaveguide, {
+  totalDemand: 100,
+  totalCapacity: 100,
+  perSinkQuality: { 'cavity:rf_in': 0 },
+  errors: [{
+    severity: 'soft',
+    code: 'rf_frequency_mismatch',
+    message: 'No RF source covering L-band (1300.0 MHz).',
+  }],
+});
+assert(mismatchNetwork.detail.includes('Issue: No RF source covering L-band (1300.0 MHz).')
+    && mismatchNetwork.detailSegments[4].tone === 'critical',
+  'a band mismatch that delivers zero service is explained in red');
+
+const hardFaultNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
+  totalDemand: 100,
+  totalCapacity: 0,
+  perSinkQuality: { 'quad:pwr_in': 0 },
+  errors: [{ severity: 'hard', code: 'power_starved', message: 'Power network has no capacity.' }],
+});
+assert(hardFaultNetwork.detail.includes('Issue: Power network has no capacity.')
+    && hardFaultNetwork.detailSegments[4].tone === 'critical',
+  'a hard failure puts its solver explanation in red on the line hover');
 
 function fakeDocument() {
   const textNode = text => ({ textContent: String(text) });
@@ -120,7 +147,8 @@ assert(furnishing.detail === 'Morale +10% · Research +2',
 
 for (const info of [
   cavity, panel, actionablePanel, packageChiller, makeUpTank, facilityWater,
-  bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork, furnishing,
+  bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork,
+  mismatchNetwork, hardFaultNetwork, furnishing,
 ]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);

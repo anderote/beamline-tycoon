@@ -5,8 +5,8 @@
 // PBR shading, via onBeforeCompile, in the utility's own colour. Gated on
 // whatever getLineMaterial's caller already knows about network health
 // (ok/soft/hard from utility-line-builder-v2._buildErrorMap): a hard fault
-// doesn't just draw an X over the pipe, it stops the pipe from carrying
-// anything — the motion IS the "is this network actually delivering" signal.
+// stops the pipe from carrying anything. Motion is the line-level delivery
+// signal; port glyphs and hover text carry the actionable diagnosis.
 //
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
 
