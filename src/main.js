@@ -30,7 +30,7 @@ import { SaveSlots } from './game/SaveSlots.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
-import { AdvisorEngine } from './advisor/engine.js';
+import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
 import { Stubby } from './ui/Stubby.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
@@ -339,6 +339,18 @@ function showScenarioPicker(game) {
         game.log(`Scenario "${scenario.name}" loaded.`, 'good');
       }
     }
+  }
+
+  // Advice level is both save-portable (the advisor serializer above) and a
+  // global player preference. The global choice wins when switching slots or
+  // starting a new facility; if it does not exist yet, migrate the level from
+  // the active save into it.
+  try {
+    const preferredAdviceLevel = localStorage.getItem(ADVICE_LEVEL_STORAGE_KEY);
+    if (preferredAdviceLevel) advisorEngine.setLevel(preferredAdviceLevel);
+    else localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, advisorEngine.level());
+  } catch {
+    /* Storage may be unavailable in privacy-restricted embeds. */
   }
 
   if (restoredView) {

@@ -5,6 +5,29 @@ import { makeDraggable } from './draggable.js';
 // The welcome/title screen always opens on this track (matched on its name):
 // "01 - Russian Doomer music Vol 1 (Night Drive)".
 const WELCOME_TRACK_MATCH = 'night drive';
+const MUSIC_STATE_KEY = 'beamlineTycoon.music';
+
+/** A filename survives manifest reordering and server rebuilds; currentIndex
+ *  remains as a legacy fallback for music state saved by earlier versions. */
+export function resolveSavedTrackIndex(tracks, saved) {
+  if (!Array.isArray(tracks) || !saved) return -1;
+  if (typeof saved.currentTrackFile === 'string') {
+    const byFile = tracks.findIndex(track => track.file === saved.currentTrackFile);
+    if (byFile >= 0) return byFile;
+  }
+  return Number.isInteger(saved.currentIndex)
+    && saved.currentIndex >= 0
+    && saved.currentIndex < tracks.length
+    ? saved.currentIndex
+    : -1;
+}
+
+export function hasSavedPlayback(saved) {
+  return !!saved
+    && typeof saved.selectedTheme === 'string'
+    && (typeof saved.currentTrackFile === 'string'
+      || (Number.isInteger(saved.currentIndex) && saved.currentIndex >= 0));
+}
 
 export class MusicPlayer {
   constructor() {
@@ -23,6 +46,7 @@ export class MusicPlayer {
     this.shuffleOrder = [];
     this._pendingResumeTime = 0;
     this._lastPositionSave = 0;
+    this._stateReady = false;
 
     // DOM references
     this.el = document.getElementById('music-player');
@@ -196,7 +220,12 @@ export class MusicPlayer {
     // On the welcome/title screen we always open on a specific track from the
     // start (not the saved resume). TitleScreen sets window.__blWelcomeMusic
     // when it mounts. Once in the game, normal save/resume takes over.
-    const forceWelcome = typeof window !== 'undefined' && window.__blWelcomeMusic;
+    // The welcome track is a first-run default, not a reload override. The old
+    // unconditional flag made the otherwise-persisted song and time unreachable
+    // on every ordinary title-screen boot.
+    const forceWelcome = typeof window !== 'undefined'
+      && window.__blWelcomeMusic
+      && !hasSavedPlayback(saved);
     let welcomeTheme = null;
     if (forceWelcome) {
       for (const th of this.themeNames) {
@@ -227,8 +256,9 @@ export class MusicPlayer {
         this._generateShuffleOrder();
       }
       // Saved track only applies when NOT forcing the welcome track.
-      if (!welcomeTheme && typeof saved.currentIndex === 'number' && saved.currentIndex < this.tracks.length) {
-        this.currentIndex = saved.currentIndex;
+      if (!welcomeTheme && saved.selectedTheme === this.currentTheme) {
+        const restoredIndex = resolveSavedTrackIndex(this.tracks, saved);
+        if (restoredIndex >= 0) this.currentIndex = restoredIndex;
       }
       if (saved.minimized) this._setMinimized(true);
     }
@@ -257,7 +287,16 @@ export class MusicPlayer {
       this._pendingResumeTime = saved.currentTime;
     }
     this.audio.src = this.tracks[this.currentIndex].url;
-    this._tryAutoplay();
+    this._stateReady = true;
+
+    // A deliberate pause survives reload too. Legacy state without
+    // `wasPlaying` retains the original autoplay behavior.
+    if (!welcomeTheme && saved?.wasPlaying === false) {
+      this.isPlaying = false;
+      this._updatePlayButton();
+    } else {
+      this._tryAutoplay();
+    }
   }
 
   _populateThemeSelect() {
@@ -276,6 +315,7 @@ export class MusicPlayer {
     const files = this.themes[this.currentTheme] || [];
     this.tracks = files.map(f => ({
       url: `${this.baseUrl || 'music'}/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
+      file: String(f),
       name: f.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
     }));
   }
@@ -354,6 +394,7 @@ export class MusicPlayer {
           try { this.audio.currentTime = this._pendingResumeTime; } catch {}
         }
         this._pendingResumeTime = 0;
+        this._saveState();
       }
     });
 
@@ -366,7 +407,23 @@ export class MusicPlayer {
       }
     });
 
-    this.audio.addEventListener('pause', () => this._saveState());
+    this.audio.addEventListener('play', () => {
+      this.isPlaying = true;
+      this._updatePlayButton();
+      this._saveState();
+    });
+    this.audio.addEventListener('pause', () => {
+      this.isPlaying = false;
+      this._updatePlayButton();
+      this._saveState();
+    });
+
+    // timeupdate is deliberately throttled; pagehide captures the exact final
+    // position before a reload or Vite/server rebuild replaces the document.
+    window.addEventListener('pagehide', () => this._saveState());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this._saveState();
+    });
   }
 
   /**
@@ -375,6 +432,9 @@ export class MusicPlayer {
    * window.__blWelcomeMusic flag). No-op until tracks have loaded.
    */
   playWelcomeTrack() {
+    // Returning to the title screen must not erase an in-progress soundtrack.
+    // With no prior state this still supplies the intended first-run track.
+    if (hasSavedPlayback(this._readSavedState())) return;
     if (!this.tracks || this.themeNames.length === 0) return;
     let theme = null;
     for (const th of this.themeNames) {
@@ -593,11 +653,13 @@ export class MusicPlayer {
   }
 
   _saveState() {
+    if (!this._stateReady) return;
     try {
       const t = this.audio.currentTime;
-      localStorage.setItem('beamlineTycoon.music', JSON.stringify({
+      localStorage.setItem(MUSIC_STATE_KEY, JSON.stringify({
         selectedTheme: this.currentTheme,
         currentIndex: this.currentIndex,
+        currentTrackFile: this.tracks[this.currentIndex]?.file || null,
         currentTime: (typeof t === 'number' && isFinite(t)) ? t : 0,
         wasPlaying: this.isPlaying,
         volume: this.audio.volume,
@@ -609,7 +671,7 @@ export class MusicPlayer {
 
   _readSavedState() {
     try {
-      return JSON.parse(localStorage.getItem('beamlineTycoon.music'));
+      return JSON.parse(localStorage.getItem(MUSIC_STATE_KEY));
     } catch {
       return null;
     }

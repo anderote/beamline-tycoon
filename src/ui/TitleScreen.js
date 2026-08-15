@@ -49,9 +49,9 @@ export class TitleScreen {
     this._dismissed = false;
     this._t0 = performance.now();
 
-    // The welcome screen always opens on the doomer "night drive" track. Set
-    // the flag for the music player's first load; if it's already loaded
-    // (returning to the title mid-session), switch to it immediately.
+    // The welcome screen requests the doomer "night drive" track as a
+    // first-run default. MusicPlayer ignores this request when it has a saved
+    // song and playback position, so reloads resume instead of restarting.
     try {
       window.__blWelcomeMusic = true;
       window.__blMusic?.playWelcomeTrack?.();

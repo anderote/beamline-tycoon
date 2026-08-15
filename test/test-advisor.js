@@ -26,7 +26,12 @@
 //   7. a rule that throws does not take the rest of the table down with it.
 //   8. sprite frames are distinguishable from idle.
 
-import { ADVICE_LEVELS, AdvisorEngine, SEVERITY_RANK } from '../src/advisor/engine.js';
+import {
+  ADVICE_LEVELS,
+  ADVICE_LEVEL_STORAGE_KEY,
+  AdvisorEngine,
+  SEVERITY_RANK,
+} from '../src/advisor/engine.js';
 import { ADVICE_RULES } from '../src/advisor/rules.js';
 import { buildAdvisorContext } from '../src/advisor/context.js';
 import { STUBBY_FRAMES } from '../src/ui/stubby-sprite.js';
@@ -282,6 +287,8 @@ console.log('7. player-selected advice levels filter and persist');
 
   check('all four player-facing advice levels are declared',
     ['all', 'warnings', 'blockers', 'off'].every(level => ADVICE_LEVELS[level]));
+  check('advice level has a stable global preference key',
+    ADVICE_LEVEL_STORAGE_KEY === 'beamlineTycoon.adviceLevel');
   engine.setLevel('warnings');
   const warningOnly = new AdvisorEngine([rules[0], rules[1]]);
   warningOnly.setLevel('warnings');

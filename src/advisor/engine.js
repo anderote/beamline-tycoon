@@ -22,6 +22,11 @@ export const ADVICE_LEVELS = Object.freeze({
   off: Object.freeze({ label: 'Off', detail: 'Stubby stays quiet', minRank: Infinity }),
 });
 
+/** Global preference key. The level also lives in the active game save for
+ *  portability, while this key keeps the player's choice when switching save
+ *  slots or starting a new facility. */
+export const ADVICE_LEVEL_STORAGE_KEY = 'beamlineTycoon.adviceLevel';
+
 const DEFAULT_ADVICE_LEVEL = 'all';
 
 /** Rules that omit cooldownTicks still get one — a rule firing every

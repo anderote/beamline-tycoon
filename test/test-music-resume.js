@@ -1,0 +1,49 @@
+// Regression coverage for soundtrack continuity across reloads and rebuilds.
+// These helpers are DOM-free so the identity rules can be tested without
+// pretending that Node's audio implementation behaves like a browser's.
+
+import { hasSavedPlayback, resolveSavedTrackIndex } from '../src/ui/MusicPlayer.js';
+
+let failures = 0;
+function check(name, condition, detail = '') {
+  if (condition) console.log(`  ok   ${name}`);
+  else {
+    failures++;
+    console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+const reorderedTracks = [
+  { file: 'gamma.ogg', name: 'gamma' },
+  { file: 'alpha.ogg', name: 'alpha' },
+  { file: 'beta.ogg', name: 'beta' },
+];
+
+console.log('music reload state');
+
+const stableSave = {
+  selectedTheme: 'sovietcore',
+  currentIndex: 0,
+  currentTrackFile: 'beta.ogg',
+  currentTime: 137.25,
+  wasPlaying: true,
+};
+check('recognizes a saved soundtrack session', hasSavedPlayback(stableSave));
+check('restores by filename after manifest reordering',
+  resolveSavedTrackIndex(reorderedTracks, stableSave) === 2);
+
+const legacySave = { selectedTheme: 'sovietcore', currentIndex: 1, currentTime: 20 };
+check('recognizes legacy index-only state', hasSavedPlayback(legacySave));
+check('legacy state still restores by index',
+  resolveSavedTrackIndex(reorderedTracks, legacySave) === 1);
+
+check('invalid indices do not select a random track',
+  resolveSavedTrackIndex(reorderedTracks, { currentIndex: 99 }) === -1);
+check('an empty preference does not suppress the first-run welcome track',
+  !hasSavedPlayback({ selectedTheme: 'sovietcore', currentIndex: -1 }));
+
+if (failures) {
+  console.log(`\n${failures} check(s) failed`);
+  process.exit(1);
+}
+console.log('\nall checks passed');

@@ -29,7 +29,7 @@ import { paletteUtilityTags, utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
-import { ADVICE_LEVELS } from '../advisor/engine.js';
+import { ADVICE_LEVELS, ADVICE_LEVEL_STORAGE_KEY } from '../advisor/engine.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -2961,6 +2961,7 @@ UIHost.prototype._setAdvisorLevel = function(level) {
   const advisor = this.game?._advisor;
   if (!advisor?.setLevel?.(level)) return;
   this._syncAdvisorLevelMenu();
+  try { localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, level); } catch {}
   // Re-evaluate immediately: choosing Off or a stricter band should dismiss
   // an ineligible bubble now, not on the next two-second advisor tick.
   this.game._runAdvisor?.();
