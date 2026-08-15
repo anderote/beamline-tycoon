@@ -9,9 +9,9 @@ A particle accelerator isn't just magnets and cavities — it's a control system
 
 ### Control System
 
-**Rack/IOC (Input/Output Controller)** — the basic unit of the control system. Each rack runs EPICS (Experimental Physics and Industrial Control System) software and feeds nearby beamline instruments via data/fiber. It supplies 10 Gbps to its network.
+**Rack/IOC (Input/Output Controller)** — the basic unit of the machine-control system. Each rack runs EPICS (Experimental Physics and Industrial Control System) software and feeds nearby beamline instruments via data/fiber. It supplies 10 Gbps to controls traffic, but it does not capture experimental raw data by itself.
 
-It is not the only data source: **Network Switch** (40 Gbps), **Archiver** (20), **BPM Electronics** (8), **BLM Readout** (8), **Timing System** (5), **LLRF Controller** (4), and **Patch Panel** (2) all act as sources. Gbps is a real shared budget: if a 40 Gbps network serves 50 Gbps of endpoints, each stream runs at 80% and the rest is dropped.
+It is not the only controls-network source: **Network Switch** (40 Gbps), **Archiver** (20), **BPM Electronics** (8), **BLM Readout** (8), **Timing System** (5), **LLRF Controller** (4), and **Patch Panel** (2) all keep monitoring traffic connected. Experimental endpoints must reach an **All-in-One Capture Rack**, **Compact Capture Appliance**, **High-Throughput DAQ Rack**, or **Data Processing Cluster** before their stream can enter the science pipeline. Gbps is a real shared budget: if a 40 Gbps network serves 50 Gbps of endpoints, each stream runs at 80% and the rest is dropped.
 
 Place data sources distributed along your facility, or run a Fiber Bus ($35k, 12-cell reach — the longest reach of any bus, and the cheapest).
 
@@ -43,9 +43,9 @@ Beam -> Endpoint -> Data/Fiber -> DAQ ingest -> Raw storage -> CPU/GPU -> Resear
 
 Data connectivity is a **soft** derate, not a beam trip. The game averages the `dataQuality` of every data-producing endpoint on the beamline and scales its incoming stream by that average. Purpose-built materials, irradiation, isotope, therapy, neutron, photon, XFEL, EUV, and particle-physics endpoints all declare data output. An unwired endpoint has data quality 0; an overloaded network receives a fractional quality based on available bandwidth.
 
-Connected data then needs four facility resources. **DAQ ingest** limits how much can enter per tick. **Raw storage** buffers work that cannot be processed immediately. **CPU racks** are best for controls, dosimetry, isotope accounting, and ordinary reconstruction. **GPU racks** are best for imaging, photon science, and high-rate detector events. A scientist working **Take Data** operates the processing pipeline; without one, raw data accumulates until storage fills.
+Connected data then needs four Control Room resources. **DAQ ingest** limits how much can enter per tick. **Raw storage** buffers work that cannot be processed immediately. **CPU racks** are best for controls, dosimetry, isotope accounting, and ordinary reconstruction. **GPU racks** are best for imaging, photon science, and high-rate detector events. A scientist working **Take Data** operates the processing pipeline; without one, raw data accumulates until storage fills. Functional data racks must be inside their authored Control Room or Diagnostics Lab zone, and the room needs a fiber-connected ingest gateway before any of its shared storage or compute comes online.
 
-The **Compact Data Appliance**, **Server Rack**, and **Server Cluster** are all-in-one packages for small systems. Larger facilities can add a **DAQ Rack**, standalone **Storage Arrays**, **CPU Compute Racks**, and **GPU Compute Racks** independently so the limiting stage can be expanded instead of buying another copy of everything.
+The **Compact Capture Appliance** and **All-in-One Capture Rack** are starter all-in-one packages. Larger facilities can add a **High-Throughput DAQ Rack**, **Data Processing Cluster**, standalone **Raw Data Buffers**, **CPU Compute Racks**, and **GPU Compute Racks** independently so the limiting stage can be expanded instead of buying another copy of everything. The process-variable **Archiver** supports monitoring and post-mortems; it is not detector-event storage and no longer expands the raw buffer.
 
 Diagnostics like BPMs and wire scanners declare data sinks and must be wired for the same reason any sink must — but they contribute no data rate of their own, so leaving one unwired costs you nothing directly.
 

@@ -1065,16 +1065,14 @@ const INFRA_UTILITY_PORTS = {
   blmReadout:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
   llrfController:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
   patchPanel:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 2 } } },
-  // Control-room and diagnostics data systems. These are network endpoints,
-  // not magical facility-wide bonuses: the player can run fiber directly
-  // from a beamline endpoint to a compact appliance or a rack-scale system.
+  // Control-room and diagnostics capture gateways terminate experimental
+  // fiber. Storage and compute racks sit behind that gateway on the room's
+  // internal fabric, so they deliberately expose no facility-fiber source:
+  // wiring a detector straight to a disk shelf must not create a DAQ path.
   dataAppliance:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
   serverRack:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
   daqRack:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
   serverCluster:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 12 } } },
-  dataStorageRack:     { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
-  cpuComputeRack:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
-  gpuComputeRack:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80 } } },
 };
 
 // ---------------------------------------------------------------------------

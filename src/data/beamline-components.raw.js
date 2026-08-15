@@ -37,7 +37,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     category: 'source',
     subsection: 'electron',
     cost: { funding: 200000 },
-    stats: { beamCurrent: 100 },
+    // Catalogue values mirror component-physics.js at the default controls.
+    // Emittance remains live/derived after placement (cathode temperature
+    // changes it), but the build card still needs the default for comparison.
+    stats: { beamCurrent: 100, emittance: 1.35 },
     energyCost: 15,
     apertureRadius: 40,
     subL: 4,

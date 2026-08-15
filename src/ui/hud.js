@@ -2606,6 +2606,13 @@ UIHost.prototype._showPalettePreview = function(comp) {
     let html = '';
     html += statRow('Cost', costs);
     for (const r of utilityStatRows(comp)) html += statRow(r.label, r.value);
+    const dataSystem = comp.effects?.dataSystem;
+    if (dataSystem) {
+      if (dataSystem.ingest > 0) html += statRow('DAQ Ingest', `${dataSystem.ingest} data/t`);
+      if (dataSystem.storage > 0) html += statRow('Raw Buffer', `${dataSystem.storage} data`);
+      if (dataSystem.cpu > 0) html += statRow('CPU Processing', `${dataSystem.cpu} data/t`);
+      if (dataSystem.gpu > 0) html += statRow('GPU Processing', `${dataSystem.gpu} data/t`);
+    }
     html += statRow('Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`);
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {
@@ -3400,6 +3407,7 @@ UIHost.prototype._renderPowerStats = function(d, summary, detail) {
 UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
   const mpsColor = d.mpsStatus === 'Active' ? 'good' : '';
   const dataColor = d.droppedRate > 0 ? 'bad' : (d.rawStored > d.storageCapacity * 0.8 ? 'warn' : 'good');
+  const gatewayColor = d.gatewayCount > 0 ? 'good' : (d.requestedRate > 0 ? 'bad' : '');
   summary.innerHTML = [
     this._sstat('IOCs', d.iocs, ''),
     this._ssep(),
@@ -3411,9 +3419,13 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     this._ssep(),
     this._sstat('MPS', d.mpsStatus, '', mpsColor),
     this._ssep(),
-    this._sstat('Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`, dataColor),
+    this._sstat('DAQ', d.gatewayCount, 'gateways', gatewayColor),
     this._ssep(),
-    this._sstat('Processed', d.processedRate.toFixed(1), '/t'),
+    this._sstat('Captured', d.ingestRate.toFixed(1), `/ ${d.requestedRate.toFixed(1)}`, dataColor),
+    this._ssep(),
+    this._sstat('Buffered', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`, dataColor),
+    this._ssep(),
+    this._sstat('Processed', d.processedRate.toFixed(1), '/t', dataColor),
     this._ssep(),
     this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
   ].join('');
@@ -3426,10 +3438,17 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     ${this._detailRow('Timing Systems', dd.timingSystems)}
     ${this._detailRow('MPS Units', dd.mps)}
     ${this._detailRow('Laser Systems', dd.laserSystems)}
+    ${this._detailRow('Pipeline', 'Fiber → DAQ → Buffer → Compute')}
+    ${this._detailRow('Current Bottleneck', d.bottleneck)}
+    ${this._detailRow('Requested Stream', d.requestedRate.toFixed(1), 'data/t')}
+    ${this._detailRow('DAQ Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`)}
     ${this._detailRow('Raw Buffer', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`)}
     ${this._detailRow('Dropped This Tick', d.droppedRate.toFixed(1), 'data')}
+    ${this._detailRow('Capture Racks', dd.dataUnits.allInOne || 0)}
+    ${this._detailRow('Raw Buffer Racks', dd.dataUnits.storage || 0)}
     ${this._detailRow('CPU Processing', this._fmt(d.cpuCapacity), 'data/t')}
     ${this._detailRow('GPU Processing', this._fmt(d.gpuCapacity), 'data/t')}
+    ${this._detailRow('Inactive Data Units', d.inactiveDataUnits)}
   </div>`;
 };
 

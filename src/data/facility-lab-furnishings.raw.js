@@ -420,7 +420,8 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
   wireScannerBench: { id: 'wireScannerBench',  name: 'Wire Scanner Readout',    zoneType: 'diagnosticsLab', cost: { funding: 5000 },  energyCost: 1.5, spriteColor: 0x888888, gridW: 1, gridH: 1, subH: 0.6, visualSubW: 1.0, visualSubH: 0.6, visualSubL: 0.8, spriteKey: 'wireScannerBench', effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_brushed', faces: { '+Z': { decal: 'wire_scanner_bench_front' }, '-X': { decal: 'wire_scanner_bench_side' }, '+X': { decal: 'wire_scanner_bench_side' } } },
   bpmTestFixture:   { id: 'bpmTestFixture',    name: 'BPM Electronics',         zoneType: 'diagnosticsLab', cost: { funding: 10000 },  energyCost: 1.0, spriteColor: 0xcccc44, gridW: 1, gridH: 1, subH: 0.5, visualSubW: 1.0, visualSubH: 0.5, visualSubL: 0.8, spriteKey: 'bpmTestFixture',   effects: { zoneOutput: 0.08 }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'bpm_test_fixture_front' }, '-X': { decal: 'bpm_test_fixture_side' }, '+X': { decal: 'bpm_test_fixture_side' } } },
   daqRack: {
-    id: 'daqRack', name: 'DAQ Rack', zoneType: 'diagnosticsLab',
+    id: 'daqRack', name: 'High-Throughput DAQ Rack',
+    zoneTypes: ['controlRoom', 'diagnosticsLab'],
     cost: { funding: 15000 }, energyCost: 1.5, spriteColor: 0x2a2c30,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'daqRack',
     effects: {
@@ -488,7 +489,7 @@ export const FACILITY_LAB_FURNISHINGS_RAW = {
       { name: 'lamp6', x:  0.30, y: 4.58, z: -0.97, w: 0.06, h: 0.06, l: 0.02, color: 0x44ff66 },
     ],
   },
-  serverCluster:    { id: 'serverCluster',     name: 'Server Cluster',          zoneType: 'diagnosticsLab', cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08, dataSystem: { kind: 'allInOne', ingest: 12, storage: 600, cpu: 20, gpu: 12 } }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
+  serverCluster:    { id: 'serverCluster',     name: 'Data Processing Cluster', zoneTypes: ['controlRoom', 'diagnosticsLab'], cost: { funding: 50000 },  energyCost: 5.0, spriteColor: 0x448844, gridW: 3, gridH: 2, subH: 5, spriteKey: 'serverCluster',    effects: { research: 0.08, dataSystem: { kind: 'allInOne', ingest: 12, storage: 600, cpu: 20, gpu: 12 } }, baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' }, '-X': { decal: 'server_cluster_side' }, '+X': { decal: 'server_cluster_side' } } },
   toolChest: {
     id: 'toolChest', name: 'Tool Chest', zoneType: 'maintenance',
     cost: { funding: 3000 }, energyCost: 0, spriteColor: 0xcc2222,
@@ -665,8 +666,8 @@ const LAB_FURNISHING_DESCS = {
   scopeStation: 'Rolling scope cart for wherever the signal is misbehaving today. Diagnostics Lab.',
   wireScannerBench: 'Bench electronics for wire-scanner beam profile readout. Diagnostics Lab.',
   bpmTestFixture: 'Test electronics for beam position monitor pickups. Diagnostics Lab.',
-  daqRack: 'High-throughput ingest and a short acquisition buffer; pair it with storage and compute for sustained runs. Diagnostics Lab.',
-  serverCluster: 'Larger all-in-one compute and storage cluster for crunching run data. Diagnostics Lab.',
+  daqRack: 'High-throughput fiber ingest and a short acquisition buffer; place it in the Control Room or beside specialist diagnostics.',
+  serverCluster: 'Larger all-in-one capture, storage, and compute cluster for the Control Room or Diagnostics Lab.',
   toolChest: 'Maintenance tool storage. Contents migrate mysteriously between shifts. Maintenance zone.',
   partsShelf: 'Spare-parts shelving, organized by "I will remember where it is". Maintenance zone.',
   workCart: 'Wheeled cart for hauling tools to wherever the fault is. Maintenance zone.',

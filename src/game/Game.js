@@ -56,7 +56,7 @@ import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
 import { computeEndpointService } from './endpoint-economy.js';
-import { tickDataSystems } from './data-systems.js';
+import { dataSystemHomeZone, tickDataSystems } from './data-systems.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -2713,6 +2713,25 @@ export class Game {
 
     const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
     const usesFloor = usesFloorOccupancy(placeable);
+
+    // Functional data hardware belongs in an authored operations room. The
+    // palette has always grouped furnishings by zone, but placement itself
+    // never enforced that grouping, which let a Raw Data Buffer on bare dirt
+    // contribute to the facility-wide pipeline. Reject the misleading build
+    // instead of accepting an object whose gameplay effect will be inactive.
+    if (placeable.effects?.dataSystem && this.state.zoneOccupied) {
+      const footprintTiles = new Set(cells.map(c => `${c.col},${c.row}`));
+      for (const tileKey of footprintTiles) {
+        if (!itemMatchesZone(placeable, this.state.zoneOccupied[tileKey])) {
+          const zones = Array.isArray(placeable.zoneTypes)
+            ? placeable.zoneTypes : [placeable.zoneType];
+          const names = zones.filter(Boolean).map(z => ZONES[z]?.name || z).join(' or ');
+          this.log(`${placeable.name} must be placed entirely inside ${names}`, 'bad');
+          return false;
+        }
+      }
+    }
+
     if (stackTarget) {
       // Stacking — cells are occupied by the ground item, which is expected.
     } else if (usesFloor) {
@@ -5012,6 +5031,26 @@ export class Game {
    */
   _dataConnectivityFactor(nodes) {
     if (!this.state.nodeQualities) return 1;
+    const dataNetworks = this.state.utilityNetworks?.get?.('dataFiber');
+    const gatewayByNetwork = new Map();
+    if (Array.isArray(dataNetworks)) {
+      for (const network of dataNetworks) {
+        const hasGateway = (network.sources || []).some(source => {
+          const placed = this.state.placeables.find(p => p.id === source.placeableId);
+          const spec = placed && PLACEABLES[placed.type]?.effects?.dataSystem;
+          return !!(spec?.ingest > 0 && dataSystemHomeZone(this.state, placed) !== null);
+        });
+        gatewayByNetwork.set(network.id, hasGateway);
+      }
+    }
+
+    const sinkHasGateway = (nodeId) => {
+      if (!Array.isArray(dataNetworks)) return true;
+      const key = `${nodeId}:data_in`;
+      return dataNetworks.some(network => gatewayByNetwork.get(network.id)
+        && (network.ports || []).some(port => `${port.placeableId}:${port.portName}` === key));
+    };
+
     let totalDataQ = 0;
     let dataNodeCount = 0;
     for (const node of nodes) {
@@ -5021,7 +5060,11 @@ export class Game {
         // Same fail-closed rule as the physics bridge: a declared but unsolved
         // data sink is 0, a node that declares none is not applicable (1.0).
         const fallback = declaredSinkQualityFloor(node.type)?.dataQuality ?? 1.0;
-        totalDataQ += nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : fallback;
+        const networkQuality = nq && typeof nq.dataQuality === 'number' ? nq.dataQuality : fallback;
+        // IOCs, switches, and telemetry archivers keep controls traffic alive,
+        // but science data is only captured when this endpoint's own network
+        // reaches an ingest-capable DAQ gateway in its valid room.
+        totalDataQ += sinkHasGateway(node.id) ? networkQuality : 0;
         dataNodeCount++;
       }
     }

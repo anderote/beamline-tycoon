@@ -29,6 +29,7 @@ export const UNITS = {
   powerCapacity:   'kW',
   // Beam stats
   beamCurrent:     'mA',
+  emittance:       'mm·mrad',
   bendAngle:       'deg',
   focusStrength:   'T/m',
   beamQuality:     'mm·mrad',

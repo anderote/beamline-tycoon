@@ -1637,11 +1637,10 @@ export const INFRASTRUCTURE_RAW = {
   archiver: {
     id: 'archiver',
     name: 'Archiver',
-    desc: 'Data logging server that records all process variables — temperatures, pressures, beam current, magnet settings — into a time-series database. Not required for operation but invaluable for post-mortem analysis and long-term trending. One archiver covers the whole facility.',
+    desc: 'Data logging server that records process variables — temperatures, pressures, beam current, and magnet settings — into a time-series database. It supports monitoring and post-mortem analysis; experimental detector events belong in a Control Room Raw Data Buffer instead.',
     category: 'dataControls', subsection: 'controls',
     cost: { funding: 100000 },
     stats: {},
-    effects: { dataSystem: { kind: 'storage', storage: 800 } },
     energyCost: 0.5,
     subL: 2, subW: 1, subH: 4, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_dark',

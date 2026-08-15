@@ -162,6 +162,7 @@ export function setupSmallBeamlineFacility(game) {
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
   const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
+  const captureRack = game.state.placeables.find(p => p.type === 'serverRack')?.id;
   // Vacuum: the six on-pipe chambers outgas ~4.2e-6 on top of the junctions'
   // 1.2e-6, and pressure is total outgassing over total pump speed — a 15 L/s
   // roughing pump alone lands at 3.6e-7 mbar, i.e. every component on the pipe
@@ -222,9 +223,11 @@ export function setupSmallBeamlineFacility(game) {
   }
 
   // Data: soft-gated, but an unwired diagnostic still derates data income.
-  if (ioc) {
-    if (cup) wire('dataFiber', { id: ioc, port: 'data_out' }, { id: cup, port: 'data_in' });
-    if (bpm) wire('dataFiber', { id: ioc, port: 'data_out' }, { id: bpm, port: 'data_in' });
+  if (captureRack) {
+    // Science streams terminate at the Control Room DAQ gateway. The IOC
+    // remains the machine-controls source, but it is not raw-data capture.
+    if (cup) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: cup, port: 'data_in' });
+    if (bpm) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: bpm, port: 'data_in' });
   }
 
   game.state.resources.funding = funding0;
