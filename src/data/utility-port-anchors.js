@@ -50,13 +50,74 @@ export const PORT_ANCHOR_OVERRIDES = {
   cryomodule: { _default: { y: 1.15 }, cryo_in: { y: 0.7 }, rf_in: { y: 1.45 } },
 
   // --- support plant -------------------------------------------------------
-  // Tall cabinets: feed at the bottom where the gland plate is, not mid-face.
-  hvTransformer: { _default: { y: 0.7 } },
-  facilityTransformer: { _default: { y: 0.7 } },
-  gridIntertieTransformer: { _default: { y: 0.7 } },
-  switchgear: { _default: { y: 0.7 } },
-  powerBus: { _default: { y: 0.5 } },
-  spiderBox: { _default: { y: 0.45 } },
+  // Electrical hardware uses readable terminal banks rather than model-bound
+  // midpoints. Transformer secondaries sit high on the front cable side;
+  // panels put branch plugs in a vertical front-edge strip and isolate the HV
+  // gland low on the rear. These are presentation mounts only.
+  padMountTransformer: {
+    _default: { y: 0.78, lat: 0.42 },
+    hv_out_1: { along: 0 },
+  },
+  facilityTransformer: {
+    _default: { y: 1.55, lat: 0.82 },
+    hv_out_1: { along: -0.25 }, hv_out_2: { along: 0.25 },
+  },
+  hvTransformer: {
+    _default: { y: 1.42, lat: 0.82 },
+    hv_out_1: { y: 1.25, along: -0.34 }, hv_out_2: { y: 1.25, along: 0.34 },
+    hv_out_3: { y: 1.58, along: -0.34 }, hv_out_4: { y: 1.58, along: 0.34 },
+  },
+  gridIntertieTransformer: {
+    _default: { y: 1.38, lat: 0.82 },
+    hv_out_1: { y: 1.22, along: -0.36 }, hv_out_2: { y: 1.22, along: 0 },
+    hv_out_3: { y: 1.22, along: 0.36 }, hv_out_4: { y: 1.58, along: -0.36 },
+    hv_out_5: { y: 1.58, along: 0 }, hv_out_6: { y: 1.58, along: 0.36 },
+  },
+  switchgear: {
+    _default: { y: 0.7, lat: 0.66 },
+    hv_in: { y: 0.42, along: -0.28 },
+    hv_out_1: { y: 0.55, along: 0.27 }, hv_out_2: { y: 0.92, along: 0.27 },
+    hv_out_3: { y: 1.29, along: 0.27 }, hv_out_4: { y: 1.66, along: 0.27 },
+  },
+  powerPanel: {
+    _default: { y: 0.5, lat: 0.19 }, hv_in: { y: 0.30, along: -0.15 },
+    pwr_out_1: { y: 0.30, along: 0.15 }, pwr_out_2: { y: 0.62, along: 0.15 },
+    pwr_out_3: { y: 0.94, along: 0.15 }, pwr_out_4: { y: 1.26, along: 0.15 },
+  },
+  sectionDistributionPanel: {
+    _default: { y: 0.5, lat: 0.24 }, hv_in: { y: 0.32, along: -0.38 },
+    pwr_out_1: { y: 0.32, along: 0.38 }, pwr_out_2: { y: 0.55, along: 0.38 },
+    pwr_out_3: { y: 0.78, along: 0.38 }, pwr_out_4: { y: 1.01, along: 0.38 },
+    pwr_out_5: { y: 1.24, along: 0.38 }, pwr_out_6: { y: 1.47, along: 0.38 },
+  },
+  mainDistributionPanel: {
+    _default: { y: 0.5, lat: 0.26 }, hv_in: { y: 0.32, along: -0.56 },
+    pwr_out_1: { y: 0.32, along: 0.56 }, pwr_out_2: { y: 0.52, along: 0.56 },
+    pwr_out_3: { y: 0.72, along: 0.56 }, pwr_out_4: { y: 0.92, along: 0.56 },
+    pwr_out_5: { y: 1.12, along: 0.56 }, pwr_out_6: { y: 1.32, along: 0.56 },
+    pwr_out_7: { y: 1.52, along: 0.56 }, pwr_out_8: { y: 1.72, along: 0.56 },
+  },
+  mcc: {
+    _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.68 },
+    pwr_out_1: { y: 0.42, along: -0.58 }, pwr_out_2: { y: 0.78, along: -0.58 },
+    pwr_out_3: { y: 1.14, along: -0.58 }, pwr_out_4: { y: 1.50, along: -0.58 },
+    pwr_out_5: { y: 0.42, along: 0.58 }, pwr_out_6: { y: 0.78, along: 0.58 },
+    pwr_out_7: { y: 1.14, along: 0.58 }, pwr_out_8: { y: 1.50, along: 0.58 },
+  },
+  ups: {
+    _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.48 },
+    pwr_out_1: { y: 0.72, along: 0.48 }, pwr_out_2: { y: 1.38, along: 0.48 },
+  },
+  powerBus: {
+    _default: { y: 0.84, lat: 0.21 }, pwr_in: { y: 0.92, lat: 0.71, along: 0 },
+    pwr_out_1: { along: -0.54 }, pwr_out_2: { along: -0.54 },
+    pwr_out_3: { along: -0.18 }, pwr_out_4: { along: -0.18 },
+    pwr_out_5: { along: 0.18 }, pwr_out_6: { along: 0.18 },
+    pwr_out_7: { along: 0.54 }, pwr_out_8: { along: 0.54 },
+  },
+  spiderBox: {
+    _default: { y: 0.12, lat: 0.22, along: 0 },
+  },
 
   // Pumps are squat and top-connected.
   turboPump: { _default: { y: 0.85 } },

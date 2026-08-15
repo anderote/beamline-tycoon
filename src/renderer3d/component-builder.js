@@ -86,6 +86,7 @@ import {
   _buildPadMountTransformerRoles,
   _buildMCCRoles,
   _buildUPSRoles,
+  _buildCompactDistributionPanelRoles,
   _buildSectionDistributionPanelRoles,
   _buildMainDistributionPanelRoles,
   _buildPowerBusRoles,
@@ -1437,6 +1438,7 @@ ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;
 ROLE_BUILDERS.padMountTransformer = _buildPadMountTransformerRoles;
 ROLE_BUILDERS.mcc = _buildMCCRoles;
 ROLE_BUILDERS.ups = _buildUPSRoles;
+ROLE_BUILDERS.powerPanel = _buildCompactDistributionPanelRoles;
 ROLE_BUILDERS.sectionDistributionPanel = _buildSectionDistributionPanelRoles;
 ROLE_BUILDERS.mainDistributionPanel = _buildMainDistributionPanelRoles;
 ROLE_BUILDERS.powerBus = _buildPowerBusRoles;

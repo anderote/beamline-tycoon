@@ -64,7 +64,6 @@ import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
-import { portSide } from '../beamline/junctions.js';
 import {
   PITCH_REST,
   PITCH_TOP,
@@ -2649,6 +2648,31 @@ export class ThreeRenderer {
     this._renderGridAroundCursor(hover.col, hover.row);
     this._addPlaceableGhostMeshes(hover, valid, reason);
   }
+
+  /** Draw a bright floor chevron at the placeable's local +Z (front) edge. */
+  _addFacingArrow(cx, cz, dir, frontHalf, y) {
+    const vectors = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+    const [dx, dz] = vectors[((dir || 0) % 4 + 4) % 4];
+    const perpX = dz, perpZ = -dx;
+    const tipDist = Math.max(0.16, frontHalf - 0.10);
+    const shaftLen = Math.min(0.62, Math.max(0.25, frontHalf * 0.55));
+    const wing = Math.min(0.26, Math.max(0.16, frontHalf * 0.28));
+    const tipX = cx + dx * tipDist;
+    const tipZ = cz + dz * tipDist;
+    const tail = new THREE.Vector3(tipX - dx * shaftLen, y, tipZ - dz * shaftLen);
+    const tip = new THREE.Vector3(tipX, y, tipZ);
+    const mat = this._previewEdgeMat(0x88bbff);
+    this._addPreviewMesh(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([tail, tip]), mat,
+    ));
+    const chevron = [
+      new THREE.Vector3(tipX - dx * wing + perpX * wing, y, tipZ - dz * wing + perpZ * wing),
+      tip,
+      new THREE.Vector3(tipX - dx * wing - perpX * wing, y, tipZ - dz * wing - perpZ * wing),
+    ];
+    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevron), mat));
+  }
+
   _addPlaceableGhostMeshes(hover, valid, reason = null) {
     const placeable = PLACEABLES[hover.id];
     if (!placeable) return;
@@ -2763,33 +2787,13 @@ export class ThreeRenderer {
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
 
-    // Direction arrow for source/endpoint modules — shows which way the
-    // module connects to pipe (exit direction for sources, entry direction
-    // for endpoints). Derive the vector from the port's rotated compass side
-    // rather than DIR_DELTA; DIR_DELTA encodes the NE=0 isometric convention,
-    // which is 180° off from a source's front-facing exit port.
-    const compDef = COMPONENTS[hover.id];
-    if (compDef && (compDef.isSource || compDef.isEndpoint)) {
-      const dir = hover.dir || 0;
-      const portName = compDef.isSource ? 'exit' : 'entry';
-      const side = portSide({ type: hover.id, dir }, portName);
-      const SIDE_VEC = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] };
-      const [dx, dz] = SIDE_VEC[side] || [0, -1];
-      // Perpendicular (rotated 90° CCW) for the chevron wings.
-      const perpX = dz, perpZ = -dx;
-      const arrowY = surfaceY + placeYOffset + EDGE_OFFSET + 0.03;
-      const arrowMat = this._previewEdgeMat(0x88bbff);
-      const arrowStart = new THREE.Vector3(px - dx * 0.4, arrowY, pz - dz * 0.4);
-      const arrowEnd = new THREE.Vector3(px + dx * 0.6, arrowY, pz + dz * 0.6);
-      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints([arrowStart, arrowEnd]), arrowMat));
-      const tipX = px + dx * 0.6, tipZ = pz + dz * 0.6;
-      const chevLen = 0.3;
-      const chevPts = [
-        new THREE.Vector3(tipX - dx * chevLen + perpX * chevLen, arrowY, tipZ - dz * chevLen + perpZ * chevLen),
-        new THREE.Vector3(tipX, arrowY, tipZ),
-        new THREE.Vector3(tipX - dx * chevLen - perpX * chevLen, arrowY, tipZ - dz * chevLen - perpZ * chevLen),
-      ];
-      this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevPts), arrowMat));
+    // Every device gets the same unambiguous local-front marker. Decorations
+    // are intentionally excluded: a tree or shrub has no operator-facing side.
+    if (placeable.kind !== 'decoration') {
+      this._addFacingArrow(
+        px, pz, hover.dir || 0, ghRaw * SUB_UNIT / 2,
+        surfaceY + placeYOffset + EDGE_OFFSET + 0.03,
+      );
     }
   }
 
@@ -2833,6 +2837,10 @@ export class ThreeRenderer {
     fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
+    this._addFacingArrow(
+      px, pz, direction || 0, ghRaw * SUB_UNIT / 2,
+      yAt(px, pz) + EDGE_OFFSET + 0.03,
+    );
   }
 
   /**

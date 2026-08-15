@@ -241,6 +241,12 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && Object.values(bus).filter(p => p.connectionKind === 'powerFieldOut').length === 8
       && bus.pwr_in.params.fieldCapacity === 160,
     'beamline busway has one feeder input, eight field taps, and a 160 kW rating');
+  const busTaps = Object.entries(bus)
+    .filter(([name]) => name.startsWith('pwr_out_'))
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+  assert(busTaps.every(([, p], i) => p.side === (i % 2 === 0 ? 'right' : 'left'))
+      && new Set(busTaps.map(([, p]) => p.offsetAlong)).size === 4,
+    'busway taps form four matched pairs along its left and right edges');
   assert(spider.pwr_in?.connectionKind === 'powerFieldIn'
       && Object.values(spider).filter(p => p.connectionKind === 'powerFieldOut').length === 3
       && spider.pwr_in.params.fieldCapacity === 30,

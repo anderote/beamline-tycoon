@@ -702,10 +702,8 @@ function busPorts(utility, serviceRadius) {
   return out;
 }
 
-// Sides to spread N ports across, in order. A panel is approached from
-// whichever direction the machine happens to sit, so outlets are distributed
-// around the footprint rather than stacked on one face — with the port anchors
-// from the connection overhaul, that is also where the connectors are drawn.
+// Sides used by compact field boxes. Permanent cabinets and transformers put
+// their terminals on a deliberate front/rear service plane instead.
 const OUTLET_SIDES = ['right', 'front', 'left', 'back'];
 
 /** A supply: `count` HV outlets sharing `capacity` kW. */
@@ -714,8 +712,12 @@ function supplyPorts(capacity, count) {
   for (let i = 0; i < count; i++) {
     out[`hv_out_${i + 1}`] = {
       utility: 'hvCable',
-      side: OUTLET_SIDES[i % OUTLET_SIDES.length],
-      offsetAlong: 0.5 + 0.25 * Math.floor(i / OUTLET_SIDES.length),
+      // Transformer secondary terminals are grouped on the operator-facing
+      // cable side. Presentation anchors arrange high-count banks in rows;
+      // these unique fractions keep the routing endpoints independently
+      // approachable at subtile resolution.
+      side: 'front',
+      offsetAlong: (i + 1) / (count + 1),
       role: 'source',
       connectionKind: 'hvSupplyOut',
       // capacity/N per outlet, for the same reason distribution splits its
@@ -819,11 +821,32 @@ function fieldDistributionPorts(count, { capacity, serviceRadius = null, feedSid
   return out;
 }
 
+/** Long busway: feeder enters one end, four tap boxes line each long edge. */
+function buswayPorts(capacity, serviceRadius) {
+  const out = {
+    pwr_in: {
+      utility: 'powerCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerFieldIn', bus: true,
+      params: { fieldCapacity: capacity, serviceRadius },
+    },
+  };
+  for (let i = 0; i < 8; i++) {
+    const bankIndex = Math.floor(i / 2);
+    out[`pwr_out_${i + 1}`] = {
+      utility: 'powerCable', side: i % 2 === 0 ? 'right' : 'left',
+      offsetAlong: 0.2 + bankIndex * 0.2,
+      role: 'pass', connectionKind: 'powerFieldOut', bus: true,
+      params: { fieldCapacity: capacity, serviceRadius },
+    };
+  }
+  return out;
+}
+
 const INFRA_UTILITY_PORTS = {
   // Field distribution is deliberately physical: an incoming branch circuit
   // and a finite set of real tap boxes. It is not a service-radius shortcut
   // and it cannot bridge another field distributor.
-  powerBus:            fieldDistributionPorts(8, { capacity: 160, serviceRadius: 10 }),
+  powerBus:            buswayPorts(160, 10),
   spiderBox:           fieldDistributionPorts(3, { capacity: 30 }),
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      busPorts('vacuumPipe',    5),
