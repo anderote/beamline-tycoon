@@ -132,6 +132,12 @@ export class UtilityLineInputController {
   // Public: the port the cursor is snapped to (null if none).
   get hoverPort() { return this._hoverPort; }
 
+  // Used by the idle-world gesture: before a utility tool is selected, find
+  // whichever visible, available port the player clicked and report its type.
+  findPortAt(worldX, worldY, screen) {
+    return this._snapToNearestPort(worldX, worldY, screen, null);
+  }
+
   // Public: player-facing reason the drag as it stands would be REFUSED, or
   // null when it would commit. Read by the tool for the drag tooltip.
   get dragReject() {
@@ -576,7 +582,7 @@ export class UtilityLineInputController {
    * still correct for floor-standing equipment and is what the headless suites
    * assert against.
    */
-  _snapToNearestPort(worldX, worldY, screen) {
+  _snapToNearestPort(worldX, worldY, screen, utilityType = this._utilityType) {
     const state = this.game.state;
     const lines = state.utilityLines;
     const cursorWorld = this._isoFloatToWorld(worldX, worldY);
@@ -594,8 +600,12 @@ export class UtilityLineInputController {
     for (const placeable of listUtilityEndpoints(state)) {
       const def = COMPONENTS[placeable.type];
       if (!def || !def.ports) continue;
-      const availableNames = availablePorts(placeable, def, this._utilityType, lines);
-      for (const name of availableNames) {
+      const types = utilityType
+        ? [utilityType]
+        : [...new Set(Object.values(def.ports).map(spec => spec?.utility).filter(Boolean))];
+      for (const type of types) {
+        const availableNames = availablePorts(placeable, def, type, lines);
+        for (const name of availableNames) {
         // The endpoint REFERENCE is what the solver reads; the path geometry
         // should start where the connector is actually drawn. On-pipe hardware
         // can reserve a footprint several metres wider than its model, so
@@ -618,9 +628,10 @@ export class UtilityLineInputController {
           d = Math.hypot(pos.x - cursorWorld.x, pos.z - cursorWorld.z);
         }
 
-        if (d < bestDist) {
-          bestDist = d;
-          best = { placeableId: placeable.id, portName: name, worldPos: routePos };
+          if (d < bestDist) {
+            bestDist = d;
+            best = { placeableId: placeable.id, portName: name, worldPos: routePos, utilityType: type };
+          }
         }
       }
     }

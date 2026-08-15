@@ -30,7 +30,8 @@ import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
-import { buildPortFittings, portFittingSignature } from './builders/port-fitting-builder.js';
+import { buildPortFitting, buildPortFittings, portFittingSignature } from './builders/port-fitting-builder.js';
+import { UTILITY_TYPES } from '../utility/registry.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
@@ -2781,6 +2782,34 @@ export class ThreeRenderer {
     obj.rotation.y = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
+
+    // A placement ghost is the moment players decide where its utilities will
+    // route. Show every declared connector in its authored utility colour,
+    // brighter and larger than the live fitting so a translucent body never
+    // buries an important port.
+    const portDef = COMPONENTS[hover.id] || placeable;
+    if (portDef?.ports) {
+      const ghostEndpoint = { ...hover, type: hover.id };
+      for (const [portName, spec] of Object.entries(portDef.ports)) {
+        if (!spec?.utility) continue;
+        const anchor = portAnchor3D(ghostEndpoint, portDef, portName);
+        if (!anchor) continue;
+        const fitting = buildPortFitting(anchor, spec.utility);
+        fitting.scale.setScalar(1.35);
+        fitting.renderOrder = 1002;
+        this.previewGroup.add(fitting);
+        const color = UTILITY_TYPES[spec.utility]?.markerColor || UTILITY_TYPES[spec.utility]?.color || '#ffff88';
+        const glow = new THREE.Mesh(
+          new THREE.SphereGeometry(0.11, 10, 8),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false }),
+        );
+        const out = anchor.out || { x: 0, z: 0 };
+        const standOff = (anchor.standoff || 0) + 0.11;
+        glow.position.set(anchor.x + out.x * standOff, anchor.y, anchor.z + out.z * standOff);
+        glow.renderOrder = 1003;
+        this.previewGroup.add(glow);
+      }
+    }
 
     // Wall fixtures are anchored to an edge, not a floor footprint. Their
     // tinted model is the placement marker; drawing a floor quad beneath it

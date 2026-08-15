@@ -1756,6 +1756,23 @@ export class InputHandler {
       // Active tool gets first claim on the press (after camera controls,
       // which are built-in input handling, not tools).
       if (this._toolConsumed('onMouseDown', e)) return;
+
+      // With no build tool active, a direct grab on a visible connector starts
+      // the matching utility gesture. This keeps ordinary equipment selection
+      // intact everywhere except the port itself, where wiring is the clear
+      // intent. The UtilityLineTool owns the rest of the drag/commit exactly
+      // as if it had been armed from the build palette.
+      if (e.button === 0 && !this.activeTool) {
+        const world = this.renderer.screenToWorld(e.clientX, e.clientY);
+        const port = this.utilityLineController.findPortAt(
+          world.x, world.y, { x: e.clientX, y: e.clientY },
+        );
+        if (port?.utilityType) {
+          this.setTool(new UtilityLineTool(port.utilityType));
+          this._toolConsumed('onMouseDown', e);
+          return;
+        }
+      }
     });
 
     canvas.addEventListener('mousemove', (e) => {
