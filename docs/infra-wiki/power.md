@@ -1,8 +1,8 @@
 # Electrical Power
 
 ## Quick Tip
-Every active component draws power. A transformer supplies capacity; switchgear,
-panels, busways and spider boxes only distribute that upstream capacity. No power
+Every active component draws power. A transformer supplies capacity; panels,
+busways and spider boxes only distribute that upstream capacity. No power
 connection = no function.
 
 ## How It Works
@@ -29,24 +29,17 @@ distribution equipment.
 Power is a radial tree, not a mesh:
 
 ```text
-transformer → HV feeder → main switchgear → HV feeder → panel / MCC / UPS
-            → branch circuit → busway / spider box → equipment
+transformer → HV feeder → distribution panel → branch circuit → field distributor → equipment
 ```
 
-- **Main Switchgear** takes one HV input and provides four protected feeders
-  for downstream distribution equipment.
-- **Power Distribution Panel** has four front-face branch outlets for nearby
-  diagnostics, small pumps and electronics.
-- **Motor Control Center** has eight front-face outlets for larger equipment
-  clusters.
-- **UPS / Battery Bank** has two protected outlets for critical controls and
-  LLRF. It does not yet simulate stored-energy ride-through.
-- **Beamline Busway** is a long field distributor: one feeder in, a whole
-  beamline segment covered.
-- **Spider Box** is a small field distributor: one feeder in, four local taps.
+- **Compact Distribution Panel**: 40 kW, one HV feed, four 10 kW branch outlets.
+- **Section Distribution Panel**: 150 kW, one HV feed, six 25 kW branch outlets.
+- **Main Distribution Panel**: 400 kW, one HV feed, eight 50 kW branch outlets.
+- **Beamline Busway**: 160 kW field limit, one branch feed, eight plug-in taps.
+- **Spider Box**: 30 kW field limit, one branch feed, three local taps.
 
 Distribution equipment adds no capacity. Each item accepts exactly one
-upstream feeder, and distribution outputs cannot be tied together. If a future
+upstream feed; a field distributor cannot feed another field distributor. If a future
 facility needs redundant feeds, it will use an explicit transfer switch rather
 than silently paralleling two live panels.
 
@@ -76,9 +69,9 @@ This means you can have one power network for your RF systems and another for yo
 
 ### Strategy
 
-- Start with one pad-mount transformer and a small distribution panel
-- Add a facility/HV transformer and main switchgear as you add high-draw equipment (NC RF structures, detectors, cryomodules)
-- Power panels are cheap but tiny; use a busway or spider box to reach clustered equipment without creating a second supply
+- Start with one pad-mount transformer and a compact distribution panel
+- Move through facility, HV and grid-intertie transformers in capacity/cost order as your demand grows
+- Pick panel size by the number and rating of branch circuits; use a busway or spider box only to fan out one branch locally
 - Watch utilization — running above 90% leaves no headroom for expansion
 - Plan power network topology before building: it's easier to lay cables on an empty floor
 

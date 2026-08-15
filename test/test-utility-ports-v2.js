@@ -216,14 +216,17 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'main switchgear has one HV input and four protected downstream feeders');
 
   const panel = getUtilityPortsV2('powerPanel');
-  const mcc = getUtilityPortsV2('mcc');
-  assert(panel.hv_in.params.demand < mcc.hv_in.params.demand,
-    'distribution ladder: powerPanel draws less than an MCC');
+  const section = getUtilityPortsV2('sectionDistributionPanel');
+  const main = getUtilityPortsV2('mainDistributionPanel');
+  assert(panel.hv_in.params.demand < section.hv_in.params.demand
+      && section.hv_in.params.demand < main.hv_in.params.demand,
+    'distribution ladder: compact < section < main panel');
   const outlets = (t) => Object.keys(getUtilityPortsV2(t))
     .filter(n => n.startsWith('pwr_out')).length;
-  assert(outlets('ups') < outlets('powerPanel') && outlets('powerPanel') < outlets('mcc'),
-    `outlet counts rise with the device (ups ${outlets('ups')}, `
-    + `panel ${outlets('powerPanel')}, mcc ${outlets('mcc')})`);
+  assert(outlets('powerPanel') < outlets('sectionDistributionPanel')
+      && outlets('sectionDistributionPanel') < outlets('mainDistributionPanel'),
+    `outlet counts rise with the panel size (panel ${outlets('powerPanel')}, `
+    + `section ${outlets('sectionDistributionPanel')}, main ${outlets('mainDistributionPanel')})`);
   const panelOutputs = Object.entries(panel)
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
@@ -235,11 +238,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const bus = getUtilityPortsV2('powerBus');
   const spider = getUtilityPortsV2('spiderBox');
   assert(bus.pwr_in?.connectionKind === 'powerFieldIn'
-      && Object.values(bus).filter(p => p.connectionKind === 'powerFieldOut').length === 3,
-    'beamline busway has one feeder input and distinct field taps');
+      && Object.values(bus).filter(p => p.connectionKind === 'powerFieldOut').length === 8
+      && bus.pwr_in.params.fieldCapacity === 160,
+    'beamline busway has one feeder input, eight field taps, and a 160 kW rating');
   assert(spider.pwr_in?.connectionKind === 'powerFieldIn'
-      && Object.values(spider).filter(p => p.connectionKind === 'powerFieldOut').length === 4,
-    'spider box has one feeder input and four local taps');
+      && Object.values(spider).filter(p => p.connectionKind === 'powerFieldOut').length === 3
+      && spider.pwr_in.params.fieldCapacity === 30,
+    'spider box has one feeder input, three local taps, and a 30 kW rating');
   assert(outlets('hvTransformer') === 0,
     'a supply hands out no branch circuits — everything goes through distribution');
 
@@ -299,17 +304,17 @@ console.log('\n--- Test: infrastructure requiredConnections have sink ports ---'
 // ==========================================================================
 console.log('\n--- Distribution cabinet port layout ---');
 {
-  for (const [id, count] of [['powerPanel', 4], ['mcc', 8], ['ups', 2]]) {
+  for (const [id, count] of [['powerPanel', 4], ['sectionDistributionPanel', 6], ['mainDistributionPanel', 8]]) {
     const ports = getUtilityPortsV2(id);
     const outlets = Object.entries(ports)
       .filter(([name]) => name.startsWith('pwr_out_'))
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
     assert(outlets.length === count, `${id} exposes ${count} real branch outlets`);
-    assert(outlets.every(([, p]) => p.side === 'right'),
-      `${id} branch outlets all occupy its +X front face`);
+    assert(outlets.every(([, p]) => p.side === 'front'),
+      `${id} branch outlets all occupy its front face`);
     assert(new Set(outlets.map(([, p]) => p.offsetAlong)).size === count,
       `${id} branch outlets are spaced to distinct positions`);
-    assert(ports.hv_in.side === 'left', `${id} HV feed enters through the rear`);
+    assert(ports.hv_in.side === 'back', `${id} HV feed enters through the rear`);
   }
 }
 

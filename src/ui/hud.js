@@ -2090,6 +2090,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     if (comp.category !== compCategory) continue;
     catComps.push({ key, comp });
   }
+  // Catalogues normally retain their authored order. Power explicitly carries
+  // a capacity/cost ladder, though, so honour its local palette order without
+  // forcing the raw registry to be physically arranged around the UI.
+  catComps.sort((a, b) => (a.comp.paletteOrder ?? Number.MAX_SAFE_INTEGER)
+    - (b.comp.paletteOrder ?? Number.MAX_SAFE_INTEGER));
 
   if (subsections && Object.keys(subsections).length > 0) {
     // Render with subsection grouping

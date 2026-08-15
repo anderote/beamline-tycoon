@@ -10,19 +10,19 @@ Carries high-voltage power from a transformer to main/local distribution. It is 
 
 - **Color:** Black (0x141418)
 - **Network type:** Capacity-based (kW supply vs rated distribution demand)
-- **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; main switchgear after it has one HV input
-- **Consumers:** Main switchgear, distribution panels, MCCs, UPS units
+- **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; main switchgear remains an optional specialty feeder splitter
+- **Consumers:** Compact, section and main distribution panels
 - **Cost:** $1,200/sub-unit ($4,800/tile)
 
 ### Power Cable (green)
-Carries low-voltage branch power from panels, MCCs and UPS units to field distribution or active equipment. It never starts at a transformer.
+Carries low-voltage branch power from distribution panels to field distribution or active equipment. It never starts at a transformer.
 
 - **Color:** Green (0x44cc44)
 - **Network type:** Capacity-based (kW supply vs demand)
-- **Source equipment:** Power Panel, Motor Control Center, UPS / Battery Bank
+- **Source equipment:** Compact, Section and Main Distribution Panels
 - **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
 - **Cost:** $600/sub-unit ($2,400/tile)
-- **Field distribution:** Beamline Busway ($90k, 10-cell service radius) and Spider Box (four local taps). Both take one upstream branch and add no capacity.
+- **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (three taps, 30 kW). Both take one upstream branch, add no capacity, and cannot be chained.
 
 ### Vacuum Pipe (gray)
 Connects vacuum pumps to the beamline. Each pump adds its rated speed to the network; pressure is the network's total gas load divided by its total pump speed.

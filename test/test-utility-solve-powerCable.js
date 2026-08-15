@@ -102,9 +102,26 @@ console.log('\n--- Test 4: no source, sink demand 10 ---');
 }
 
 // ==========================================================================
-// Test 5: nextPersistentState returned as-is.
+// Test 5: a passive field distributor caps its branch without manufacturing
+// another supply.
 // ==========================================================================
-console.log('\n--- Test 5: persistent pass-through ---');
+console.log('\n--- Test 5: field distribution rating caps supplied power ---');
+{
+  const net = mkNetwork({
+    ports: [{ placeableId: 'bus', portName: 'pwr_in', params: { fieldCapacity: 30 } }],
+    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'out', capacity: 100 }],
+    sinks: [{ portKey: 'k1', placeableId: 'p2', portName: 'in', demand: 60 }],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(r.flowState.totalCapacity === 30, 'field rating limits capacity to 30 kW');
+  assert(approx(r.flowState.perSinkQuality.k1, 0.5), 'field overload derates the load to 50%');
+  assert(r.errors[0]?.message.startsWith('Field distribution'), 'reports a field-distribution overload');
+}
+
+// ==========================================================================
+// Test 6: nextPersistentState returned as-is.
+// ==========================================================================
+console.log('\n--- Test 6: persistent pass-through ---');
 {
   const net = mkNetwork({});
   const persistent = { foo: 1 };
@@ -113,9 +130,9 @@ console.log('\n--- Test 5: persistent pass-through ---');
 }
 
 // ==========================================================================
-// Test 6: purity — no mutation of network or persistent.
+// Test 7: purity — no mutation of network or persistent.
 // ==========================================================================
-console.log('\n--- Test 6: purity ---');
+console.log('\n--- Test 7: purity ---');
 {
   const net = mkNetwork({
     sources: [{ portKey: 's1', placeableId: 'p1', portName: 'out', capacity: 100 }],

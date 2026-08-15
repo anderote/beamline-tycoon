@@ -86,6 +86,10 @@ import {
   _buildPadMountTransformerRoles,
   _buildMCCRoles,
   _buildUPSRoles,
+  _buildSectionDistributionPanelRoles,
+  _buildMainDistributionPanelRoles,
+  _buildPowerBusRoles,
+  _buildSpiderBoxRoles,
 } from './builders/power-builder.js';
 import {
   _buildFaradayCupRoles,
@@ -1425,6 +1429,10 @@ ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;
 ROLE_BUILDERS.padMountTransformer = _buildPadMountTransformerRoles;
 ROLE_BUILDERS.mcc = _buildMCCRoles;
 ROLE_BUILDERS.ups = _buildUPSRoles;
+ROLE_BUILDERS.sectionDistributionPanel = _buildSectionDistributionPanelRoles;
+ROLE_BUILDERS.mainDistributionPanel = _buildMainDistributionPanelRoles;
+ROLE_BUILDERS.powerBus = _buildPowerBusRoles;
+ROLE_BUILDERS.spiderBox = _buildSpiderBoxRoles;
 
 // Phase 6: carrierRack removed with the legacy rack-paint system. The role
 // builder and its constants are gone.

@@ -150,14 +150,14 @@ export function setupSmallBeamlineFacility(game) {
 
   // Service row (north). Power: 172 kW total draw — gun 50, cavities 30,
   // quad 10, buncher 5, cup + BPM 2, support gear 5, and the amplifier's 70 —
-  // so this starts with the 400 kW transformer tier and a main switchgear
-  // cabinet, rather than the 150 kW pad-mount starter.
+  // so this starts with the 400 kW transformer tier and its matching main
+  // distribution panel, rather than the 150 kW pad-mount starter.
   // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they
   // share one network — which is the point of the low-band consolidation. Only
   // the SSA and the TWT cover VHF, and the SSA (35 kW against 17 kW of demand)
   // is the one with the power.
   const xfmr = game.placePlaceable({ type: 'facilityTransformer', col: -8, row: -1, free: true, silent: true });
-  const gear = game.placePlaceable({ type: 'switchgear', col: -5, row: -1, free: true, silent: true });
+  const mainPanel = game.placePlaceable({ type: 'mainDistributionPanel', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
   const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
@@ -168,11 +168,9 @@ export function setupSmallBeamlineFacility(game) {
   // as in the real thing) takes the whole line to ~1.7e-8.
   const pump = game.placePlaceable({ type: 'roughingPump', col: 4, row: -1, free: true, silent: true });
 
-  // Distribution row (south). One power bus (reach 10) spans the whole run;
-  // vacuum manifolds only reach 5, so the run needs two.
+  // Distribution row (south). The busway's eight real tap boxes cover the
+  // nearby on-pipe loads; vacuum manifolds only reach 5, so the run needs two.
   const pwrBus  = game.placePlaceable({ type: 'powerBus', col: 0, row: 1, free: true, silent: true });
-  // The local distribution panel for the support row: 250 kW and eight sockets.
-  const mccPanel = game.placePlaceable({ type: 'mcc', col: -5, row: 1, free: true, silent: true });
   const vacW    = game.placePlaceable({ type: 'vacuumManifold', col: -3, row: 1, free: true, silent: true });
   const vacE    = game.placePlaceable({ type: 'vacuumManifold', col: 3, row: 1, free: true, silent: true });
   const wgBus   = game.placePlaceable({ type: 'waveguideManifold', col: -2, row: 1, free: true, silent: true });
@@ -183,22 +181,18 @@ export function setupSmallBeamlineFacility(game) {
 
   const wire = (util, from, to) => wireUtility(game, util, from, to);
 
-  // Power runs supply → main distribution → local distribution → branches.
+  // Power runs supply → main distribution → branches.
   //
-  // The transformer carries the facility's 400 kW. Main switchgear turns its
-  // one feed into protected downstream feeders, and the MCC turns one of those
-  // into eight branch circuits. Neither distributor creates capacity.
-  if (xfmr && gear) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: gear, port: 'hv_in' });
-  if (gear && mccPanel) wire('hvCable', { id: gear, port: 'hv_out_1' }, { id: mccPanel, port: 'hv_in' });
-  if (mccPanel) {
-    // Seven support loads and the power bus: eight circuits, eight sockets, and
-    // the panel is full. Growing this facility means a second panel — and the
-    // switchgear's second HV feeder is sitting there for it.
+  // The transformer carries the facility's 400 kW. The matching main panel
+  // turns one HV feeder into eight 50 kW branch circuits; it adds no capacity.
+  if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
+  if (mainPanel) {
+    // Seven support loads plus the busway use the main panel's eight circuits.
     const loads = [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
       [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
       [pwrBus, 'pwr_in']];
     loads.forEach(([id, port], i) => {
-      if (id) wire('powerCable', { id: mccPanel, port: `pwr_out_${i + 1}` }, { id, port });
+      if (id) wire('powerCable', { id: mainPanel, port: `pwr_out_${i + 1}` }, { id, port });
     });
   }
 

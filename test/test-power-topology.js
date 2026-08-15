@@ -56,6 +56,8 @@ assert(candidate('powerCable', ref('bus', 'pwr_out_1'), ref('load', 'pwr_in')).o
   'busway tap -> equipment load is valid');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_2'), ref('spider', 'pwr_in')).ok,
   'panel -> spider box feeder input is valid');
+assert(candidate('powerCable', ref('bus', 'pwr_out_2'), ref('spider', 'pwr_in')).reason === 'invalid_port_pair',
+  'a field distributor cannot feed another field distributor');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_3'), ref('panelB', 'pwr_out_1')).reason === 'invalid_port_pair',
   'two distribution outputs cannot be tied together');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_4'), ref('bus', 'pwr_out_2')).reason === 'invalid_port_pair',
