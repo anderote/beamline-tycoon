@@ -216,13 +216,20 @@ export function setupSmallBeamlineFacility(game) {
 
   // Both pumps land on the one vacuum network — pump speed sums across a
   // network, so the turbo backs the whole line, not just the cup.
+  // Give the east pump its short manifold branch before the west pump's
+  // three-way fanout occupies the shared service lanes.
+  if (turbo && vacE) wire('vacuumPipe', { id: turbo, port: 'vac_out' }, { id: vacE, port: 'bus_right' });
   if (pump) {
-    for (const [id, port] of [[src, 'vac_in'], [cup, 'vac_in'],
-      [vacW, 'bus_left']]) {
+    // Install the west-manifold trunk first so it owns the long service aisle;
+    // the two short junction branches can then leave the pump on either side.
+    // If the source branch is routed first it naturally occupies that aisle,
+    // boxing the later trunk against the beam-mounted equipment now that its
+    // physical (rather than shifted logical) footprint is authoritative.
+    for (const [id, port] of [[vacW, 'bus_left'], [src, 'vac_in'],
+      [cup, 'vac_in']]) {
       if (id) wire('vacuumPipe', { id: pump, port: 'vac_out' }, { id, port });
     }
   }
-  if (turbo && vacE) wire('vacuumPipe', { id: turbo, port: 'vac_out' }, { id: vacE, port: 'bus_right' });
 
   // RF: one waveguide run into the manifold feeds the buncher and all three
   // cavities.

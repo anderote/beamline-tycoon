@@ -95,6 +95,29 @@ function rotatedHalfExtentsTiles(placeable, def) {
   };
 }
 
+/**
+ * Physical X/Z centre of an endpoint's rendered model.
+ *
+ * Ordinary placeables use a top-left footprint origin, so
+ * placeableCenterWorld is already authoritative. Beam-pipe placements are the
+ * exception: their synthesized utility record keeps negative subtile offsets
+ * for solver footprint arithmetic, while `col`/`row` identify a beam-pipe
+ * tile centre rendered at `col * 2 + 1`, `row * 2 + 1`. Treating that logical
+ * record as an ordinary placeable shifts its obstacle one metre north-west —
+ * rejecting clear routes beside the model and permitting routes through its
+ * opposite edge.
+ */
+function physicalEndpointCenterWorld(placeable, def) {
+  if (placeable?.pipeId
+      && !(Number.isFinite(placeable.worldX) && Number.isFinite(placeable.worldZ))) {
+    return {
+      x: (placeable.col || 0) * 2 + 1,
+      z: (placeable.row || 0) * 2 + 1,
+    };
+  }
+  return placeableCenterWorld(placeable, def);
+}
+
 function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const clearance = Math.max(0, descriptor.equipmentClearanceTiles || 0);
@@ -102,7 +125,7 @@ function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
     if (!placeable?.id || ignoredPlaceableIds.has(placeable.id)) continue;
     const def = lookupDef(state, placeable.type);
     if (!def) continue;
-    const center = placeableCenterWorld(placeable, def);
+    const center = physicalEndpointCenterWorld(placeable, def);
     if (!center) continue;
     const half = rotatedHalfExtentsTiles(placeable, def);
     const centerCol = center.x / 2;
