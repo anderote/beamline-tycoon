@@ -7,7 +7,8 @@ import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-
 const plantNetwork = {
   id: 'plant-1', utilityType: 'coolingWater', ports: [], lineIds: [],
   sources: [
-    { portKey: 'tank:cool_out', placeableId: 'tank', portName: 'cool_out', params: { reservoir: true } },
+    { portKey: 'tank:cool_out', placeableId: 'tank', portName: 'cool_out',
+      params: { storageCapacityL: 500, supplyRateLPerTick: 1 } },
     { portKey: 'tower:cool_out', placeableId: 'tower', portName: 'cool_out', params: { heatRejectionCapacity: 100 } },
     { portKey: 'chiller:cool_out', placeableId: 'chiller', portName: 'cool_out', params: { capacity: 100 } },
   ],
@@ -24,6 +25,8 @@ const state = {
 const process = coolingWater.solve(plantNetwork, { reservoirVolumeL: 500 }, state);
 assert.equal(process.flowState.totalCapacity, 100, 'complete one-pipe plant supplies process water');
 assert.equal(process.flowState.perSinkQuality['magnet:cool_in'], 1, 'one-pipe loop cools load');
+assert.equal(process.flowState.storageCapacityL, 500, 'tank contributes finite network storage');
+assert.equal(process.flowState.supplyRateLPerTick, 1, 'tank contributes its authored make-up flow');
 
 // The rejector has an inlet and outlet, but is one hydraulic stage. Discovery
 // must unite those explicitly-marked through ports into one ordered plant.
@@ -71,5 +74,11 @@ assert(Math.abs(packageProcessNetworks[0].sources.reduce(
 assert(Math.abs(packageProcessNetworks[0].sources.reduce(
   (sum, source) => sum + source.params.heatRejectionCapacity, 0) - 5) < 1e-9,
   'six package connections do not duplicate integrated heat rejection');
+assert(Math.abs(packageProcessNetworks[0].sources.reduce(
+  (sum, source) => sum + source.params.storageCapacityL, 0) - 100) < 1e-9,
+  'six package connections add back to one finite 100 L buffer');
+assert.equal(packageProcessNetworks[0].sources.reduce(
+  (sum, source) => sum + source.params.supplyRateLPerTick, 0), 0,
+  'the integrated package buffer does not generate make-up water');
 
 console.log('cooling plant chain: PASS');

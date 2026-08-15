@@ -199,14 +199,23 @@ export class UtilityInspector {
       const capParam = desc.capacityParam || 'capacity';
       for (const s of network.sources) {
         let cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
+        let sourceUnit = desc.capacityUnit || '';
         if (network.utilityType === 'coolingWater' && !(cap > 0)
           && s.params?.heatRejectionCapacity > 0) {
           cap = s.params.heatRejectionCapacity;
+        } else if (network.utilityType === 'coolingWater' && !(cap > 0)
+          && s.params?.supplyRateLPerTick > 0) {
+          cap = s.params.supplyRateLPerTick;
+          sourceUnit = 'L/tick supply';
+        } else if (network.utilityType === 'coolingWater' && !(cap > 0)
+          && s.params?.storageCapacityL > 0) {
+          cap = s.params.storageCapacityL;
+          sourceUnit = 'L storage';
         }
         html += `<div class="utility-list-row">
           &bull; ${escapeHtml(this._placeableLabel(s.placeableId))}
           <span class="ui-text-faint">· ${escapeHtml(s.portName)}</span>
-          <span class="ui-text-muted">· ${cap != null ? cap : 0} ${escapeHtml(desc.capacityUnit || '')}</span>
+          <span class="ui-text-muted">· ${cap != null ? cap : 0} ${escapeHtml(sourceUnit)}</span>
         </div>`;
       }
     }
@@ -308,10 +317,14 @@ export class UtilityInspector {
     if (typeof game.chargeReservoirRefill === 'function') game.chargeReservoirRefill(cost);
     else if (typeof game.spend === 'function') game.spend(cost);
 
-    // Reset reservoir fields from descriptor defaults. `persistentStateDefaults`
-    // is the authoritative "full" state for a given utility type.
+    // Fixed reservoirs refill to descriptor defaults. Dynamic reservoirs
+    // (cooling water) derive their full volume from the connected storage and
+    // expose a descriptor hook so a 5,000 L tank is not reset to a hard-coded
+    // legacy amount.
     const defaults = desc.persistentStateDefaults || {};
-    const resetState = { ...persistent, ...defaults };
+    const resetState = typeof desc.refilledPersistentState === 'function'
+      ? desc.refilledPersistentState(persistent)
+      : { ...persistent, ...defaults };
     if (state.utilityNetworkState && typeof state.utilityNetworkState.set === 'function') {
       state.utilityNetworkState.set(this.networkId, resetState);
     }

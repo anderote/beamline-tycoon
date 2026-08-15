@@ -197,6 +197,7 @@ export class SolveRunner {
     // edit intact — never minted, never silently dropped.
     const inherited = new Map(); // netId -> accumulated persistent state
     const inheritedType = new Map(); // netId -> utility type (for the cap below)
+    const inheritedNetwork = new Map(); // netId -> live network (for dynamic caps)
     const claimed = new Set();   // orphan ids a live network inherited from
     const addShare = (netId, entry, share) => {
       const part = splitPersistentState(entry, share);
@@ -232,6 +233,7 @@ export class SolveRunner {
         for (const s of shares) {
           addShare(s.id, entry, s.overlap / total);
           inheritedType.set(s.id, utilityType);
+          inheritedNetwork.set(s.id, nets.find(n => n.id === s.id));
         }
         if (shares.length > 0) claimed.add(oid);
       }
@@ -247,15 +249,21 @@ export class SolveRunner {
       // the Refill button vanished and the loop ran proportionally longer
       // between refills than the economy is tuned for. persistentStateDefaults
       // IS a full reservoir, so it doubles as the per-field ceiling.
-      const defaults = this.registry.types?.[inheritedType.get(netId)]?.persistentStateDefaults;
-      if (defaults) {
+      const descriptor = this.registry.types?.[inheritedType.get(netId)];
+      const network = inheritedNetwork.get(netId);
+      let bounded = entry;
+      if (typeof descriptor?.boundPersistentState === 'function') {
+        bounded = descriptor.boundPersistentState(entry, network) || entry;
+      }
+      const defaults = descriptor?.persistentStateDefaults;
+      if (defaults && bounded === entry) {
         for (const [k, cap] of Object.entries(defaults)) {
           if (typeof cap === 'number' && typeof entry[k] === 'number' && entry[k] > cap) {
             entry[k] = cap;
           }
         }
       }
-      stateMap.set(netId, entry);
+      stateMap.set(netId, bounded);
     }
 
     // (3) Prune orphans whose contents were copied out above. An orphan that

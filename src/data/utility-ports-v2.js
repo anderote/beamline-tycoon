@@ -40,6 +40,7 @@
 
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
+import { COOLING_WATER_INVENTORY } from './cooling-water-inventory.js';
 import { bandForFrequencyHz } from './rf-bands.js';
 
 // ---------------------------------------------------------------------------
@@ -933,7 +934,7 @@ function controlElectronicsPorts({
 }
 
 // Cooling plant uses a consistent, mirrorable header layout. Process-water
-// suppliers and reservoirs expose four branches on the primary (+X/right)
+// suppliers, make-up sources and storage expose four branches on the primary (+X/right)
 // header and two on the opposite header. Heat rejectors only need their
 // physical supply/return pair, kept together on one authored face.
 //
@@ -949,7 +950,9 @@ function coolingPlantPorts(params, names = [
 ]) {
   const out = {};
   const splitParams = { ...params };
-  for (const key of ['capacity', 'heatRejectionCapacity']) {
+  for (const key of [
+    'capacity', 'heatRejectionCapacity', 'supplyRateLPerTick', 'storageCapacityL',
+  ]) {
     if (typeof splitParams[key] === 'number') splitParams[key] /= names.length;
   }
   names.forEach((name, i) => {
@@ -1067,16 +1070,22 @@ const INFRA_UTILITY_PORTS = {
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // One cooling-water network carries plant and process water. A working loop
-  // contains a reservoir, chiller, and heat rejector; compact units carry all
-  // three roles on their shared six-connection header.
-  // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 5143 → 4000
-  // → 3100 → 2500), so a bigger plant is always the better deal once you can
-  // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
-  // chiller does not mean buying 3x the capacity you actually need.
-  // A reservoir stores water but does not chill it. Explicit zero prevents the
-  // generic source fallback from turning the tank into a phantom chiller.
+  // contains finite storage, a chiller, and a heat rejector; compact units
+  // carry all three roles on their shared six-connection header.
+  // The compact 5/25 kW packages buy an affordable start; the 175/300 kW
+  // central chillers buy scale but need separate storage and heat rejection.
+  // Water inventory is two independent capabilities. The make-up tank has a
+  // small float-valve feed plus storage, the facility main has a larger feed
+  // and no storage, and the bulk tanks have storage but never generate water.
+  // Explicit process capacity:0 keeps every one out of the cooling ladder.
   waterTank:             coolingPlantPorts({
-    reservoir: true, capacity: 0,
+    capacity: 0, ...COOLING_WATER_INVENTORY.waterTank,
+  }),
+  facilityWaterSupply:   coolingPlantPorts({
+    capacity: 0, ...COOLING_WATER_INVENTORY.facilityWaterSupply,
+  }),
+  bulkWaterTank:         coolingPlantPorts({
+    capacity: 0, ...COOLING_WATER_INVENTORY.bulkWaterTank,
   }),
   // These authored faces follow the visible pipe pairs on each model.
   fanCoilCooler:         heatRejectorPorts(50, 'back'),
@@ -1087,7 +1096,8 @@ const INFRA_UTILITY_PORTS = {
   // secondary header opposite the four primary branches.
   packageChiller:        coolingPlantPorts(
     {
-      reservoir: true, capacity: 5, heatRejectionCapacity: 5,
+      capacity: 5, heatRejectionCapacity: 5,
+      ...COOLING_WATER_INVENTORY.packageChiller,
       displayLabel: 'Cooling capacity',
     },
     [
@@ -1098,7 +1108,8 @@ const INFRA_UTILITY_PORTS = {
   // Preserve the legacy `cool_out` and three previously added branch names;
   // discovery unites all same-device sources into one internal header.
   lcwSkid:               coolingPlantPorts({
-    reservoir: true, capacity: 25, heatRejectionCapacity: 25,
+    capacity: 25, heatRejectionCapacity: 25,
+    ...COOLING_WATER_INVENTORY.lcwSkid,
   }),
   dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
   chiller:               coolingPlantPorts({ capacity: 300 }),

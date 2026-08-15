@@ -34,6 +34,9 @@ the short authoring contract.
   reserve rigid equipment or service-clearance aisles.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
+- Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank
+  volume as `storageCapacityL`. These are independent capabilities: a source
+  must not imply storage, and passive storage must not imply water generation.
 
 ## Scenario validity
 

@@ -121,7 +121,10 @@ function autoRefill(game) {
       if (!cost || !cost.funding || state.resources.funding < cost.funding) continue;
       state.resources.funding -= cost.funding;
       spent += cost.funding;
-      state.utilityNetworkState.set(net.id, { ...persistent, ...desc.persistentStateDefaults });
+      const refilled = typeof desc.refilledPersistentState === 'function'
+        ? desc.refilledPersistentState(persistent)
+        : { ...persistent, ...desc.persistentStateDefaults };
+      state.utilityNetworkState.set(net.id, refilled);
     }
   }
   return spent;

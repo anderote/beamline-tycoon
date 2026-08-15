@@ -338,6 +338,22 @@ console.log('\n--- Test 7: cavity performance tracks cavity-specs ---');
     const ascending = rungs.every((r, i) => i === 0 || r.capacity >= rungs[i - 1].capacity);
     assert(ascending, `${utility}: ladder is ordered by capacity`);
   }
+
+  const coolingLadder = UTILITY_LADDERS.coolingWater;
+  assert(coolingLadder.find(r => r.id === 'chiller')?.capacity === 300,
+    'multi-port cooling ladder adds outlet shares back to the 300 kW nameplate');
+  const makeUpPage = getComponentPage('waterTank');
+  const mainPage = getComponentPage('facilityWaterSupply');
+  const bulkPage = getComponentPage('bulkWaterTank');
+  assert(makeUpPage.performance.some(p => p.label === 'Make-up flow' && p.value === 1)
+      && makeUpPage.performance.some(p => p.label === 'Water storage' && p.value === 500),
+    'make-up tank wiki page publishes both water capabilities');
+  assert(mainPage.performance.some(p => p.label === 'Make-up flow' && p.value === 20)
+      && !mainPage.performance.some(p => p.label === 'Water storage'),
+    'facility water wiki page publishes flow without storage');
+  assert(bulkPage.performance.some(p => p.label === 'Water storage' && p.value === 5000)
+      && !bulkPage.performance.some(p => p.label === 'Make-up flow'),
+    'bulk tank wiki page publishes passive storage without generation');
 }
 
 // ==========================================================================

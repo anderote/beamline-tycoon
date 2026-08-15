@@ -97,20 +97,21 @@ function buildLadder(utility) {
   const param = UTILITY_META[utility].capacityParam;
   const rungs = [];
   for (const [id, comp] of Object.entries(COMPONENTS)) {
-    for (const port of Object.values(getUtilityPortsV2(id))) {
-      if (port.utility !== utility || port.role !== 'source') continue;
-      rungs.push({
-        id,
-        name: comp.name || id,
-        capacity: port.params[param] ?? 0,
-        cost: comp.cost?.funding ?? 0,
-        // An RF source is defined by the bands it covers, not by a frequency
-        // of its own. Undefined for every other utility.
-        bands: port.params.bands,
-        dutyFactor: port.params.dutyFactor,
-      });
-      break;
-    }
+    const ports = Object.values(getUtilityPortsV2(id))
+      .filter(port => port.utility === utility && port.role === 'source');
+    if (ports.length === 0) continue;
+    rungs.push({
+      id,
+      name: comp.name || id,
+      // Multi-port equipment divides its nameplate across physical outlets.
+      // The wiki ladder must add those parts back together just like solve().
+      capacity: ports.reduce((sum, port) => sum + (port.params[param] ?? 0), 0),
+      cost: comp.cost?.funding ?? 0,
+      // An RF source is defined by the bands it covers, not by a frequency
+      // of its own. Undefined for every other utility.
+      bands: ports[0].params.bands,
+      dutyFactor: ports[0].params.dutyFactor,
+    });
   }
   rungs.sort((a, b) => a.capacity - b.capacity || a.id.localeCompare(b.id));
   return rungs.map((r, i) => ({ ...r, rung: i + 1, rungs: rungs.length }));
@@ -248,6 +249,27 @@ function sourceEffect(utility, params, componentId) {
   const rung = pos ? ` Rung ${pos.rung} of ${pos.rungs} on the ${info.name} ladder.` : '';
 
   switch (utility) {
+    case 'coolingWater': {
+      const ports = Object.values(getUtilityPortsV2(componentId))
+        .filter(port => port.utility === utility && port.role === 'source');
+      const supply = ports.reduce(
+        (sum, port) => sum + (port.params.supplyRateLPerTick || 0), 0);
+      const storage = ports.reduce(
+        (sum, port) => sum + (port.params.storageCapacityL || 0), 0);
+      if (supply > 0 || storage > 0) {
+        const roles = [];
+        if (supply > 0) roles.push(`supplies ${fmt(supply)} L/tick of make-up water`);
+        if (storage > 0) roles.push(`stores ${fmt(storage)} L`);
+        const separation = supply > 0 && storage > 0
+          ? ' Flow and storage are independent network capabilities.'
+          : supply > 0
+            ? ' It provides no storage, so the network still needs a tank.'
+            : ' It is passive storage and never generates water.';
+        return `${roles.join(' and ')}.${separation}`;
+      }
+      return `Supplies ${fmt(cap)} ${info.capacityUnit} of process cooling. `
+        + 'Thermal capacity, make-up flow and stored inventory are separate.' + rung;
+    }
     case 'rfWaveguide': {
       const duty = params.dutyFactor ?? 1;
       const covered = params.bands || [];

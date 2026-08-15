@@ -59,6 +59,11 @@ const PALETTE_METRIC_SPEC = {
   dataFiber:    { draw: ['demand', 'Data draw', 'Gbps'], capacity: ['capacity', 'Data capacity', 'Gbps'] },
 };
 
+const COOLING_INVENTORY_METRICS = [
+  ['supplyRateLPerTick', 'Water supply', 'L/tick'],
+  ['storageCapacityL', 'Water storage', 'L'],
+];
+
 function compactNumber(value) {
   if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
   // Vacuum loads are intentionally tiny (often 5e-7 mbar·L/s). Rounding
@@ -81,6 +86,17 @@ export function paletteUtilityMetrics(comp) {
 
   for (const port of Object.values((comp && comp.ports) || {})) {
     if (!port || (port.role !== 'sink' && port.role !== 'source')) continue;
+    if (port.role === 'source' && port.utility === 'coolingWater') {
+      for (const [param, label, unit] of COOLING_INVENTORY_METRICS) {
+        const inventoryValue = Number(port.params?.[param]);
+        if (!Number.isFinite(inventoryValue) || inventoryValue <= 0) continue;
+        const inventoryKey = `inventory:${param}`;
+        const inventory = totals.get(inventoryKey)
+          || { label, unit, value: 0, kind: 'capacity' };
+        inventory.value += inventoryValue;
+        totals.set(inventoryKey, inventory);
+      }
+    }
     const kind = port.role === 'sink' ? 'draw' : 'capacity';
     const spec = PALETTE_METRIC_SPEC[port.utility]?.[kind];
     if (!spec) continue;
@@ -218,6 +234,18 @@ export function utilityStatRows(comp) {
       value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
     }
     rows.push({ label: displayLabel || SUPPLY_LABEL, value });
+  }
+
+  // Water inventory is not thermal cooling capacity. Report both authored
+  // capabilities independently so a main never looks like a tank and passive
+  // storage never looks like water generation.
+  for (const [param, label, unit] of COOLING_INVENTORY_METRICS) {
+    let amount = 0;
+    for (const port of Object.values((comp && comp.ports) || {})) {
+      if (port?.utility !== 'coolingWater' || port.role !== 'source') continue;
+      amount += Number(port.params?.[param]) || 0;
+    }
+    if (amount > 0) rows.push({ label, value: `${Math.round(amount * 1e6) / 1e6} ${unit}` });
   }
 
   return rows;

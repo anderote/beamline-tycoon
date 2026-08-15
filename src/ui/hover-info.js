@@ -107,9 +107,23 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     return { title, detail: `RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}` };
   }
 
+  const coolingOut = sumPorts(ports, ['coolingWater'], 'source', 'capacity');
+  if (coolingOut > 0) {
+    return { title, detail: `Cooling output: ${fmtNumber(coolingOut)} kW` };
+  }
+
+  const waterSupply = sumPorts(
+    ports, ['coolingWater'], 'source', 'supplyRateLPerTick');
+  const waterStorage = sumPorts(
+    ports, ['coolingWater'], 'source', 'storageCapacityL');
+  if (waterSupply > 0 || waterStorage > 0) {
+    const parts = [];
+    if (waterSupply > 0) parts.push(`${fmtNumber(waterSupply)} L/tick supply`);
+    if (waterStorage > 0) parts.push(`${fmtNumber(waterStorage)} L storage`);
+    return { title, detail: `Water: ${parts.join(' · ')}` };
+  }
+
   const sourceSpecs = [
-    ['coolingWater', 'coldCapacityW', 'Cooling output', 'W'],
-    ['coolingWater', 'capacity', 'Cooling output', 'kW'],
     ['cryoTransfer', 'coldCapacityW', 'Cryo output', 'W'],
     ['vacuumPipe', 'pumpSpeed', 'Pumping speed', 'L/s'],
     ['dataFiber', 'capacity', 'Data output', 'Gbps'],

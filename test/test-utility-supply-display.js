@@ -188,6 +188,36 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'compact HV distributor: palette shows two outputs totaling 200 kW');
 }
 
+// ======================================================================
+// Test 8: water flow and storage stay separate in every component display.
+// ======================================================================
+console.log('\n--- Test 8: water inventory metrics stay separate ---');
+{
+  const rowsFor = id => utilityStatRows(COMPONENTS[id]);
+  const makeUp = rowsFor('waterTank');
+  const main = rowsFor('facilityWaterSupply');
+  const bulk = rowsFor('bulkWaterTank');
+
+  assert(makeUp.some(r => r.label === 'Water supply' && r.value === '1 L/tick')
+      && makeUp.some(r => r.label === 'Water storage' && r.value === '500 L'),
+    'make-up tank displays both its flow rate and capacity');
+  assert(main.some(r => r.label === 'Water supply' && r.value === '20 L/tick')
+      && !main.some(r => r.label === 'Water storage'),
+    'facility main displays high flow and no invented storage');
+  assert(bulk.some(r => r.label === 'Water storage' && r.value === '5000 L')
+      && !bulk.some(r => r.label === 'Water supply'),
+    'bulk tanks display storage and no invented generation');
+  assert(supplyRows('waterTank').length === 0
+      && supplyRows('facilityWaterSupply').length === 0
+      && supplyRows('bulkWaterTank').length === 0,
+    'water inventory roles are not mislabeled as thermal cooling supply');
+
+  const makeUpMetrics = paletteUtilityMetrics(COMPONENTS.waterTank);
+  assert(makeUpMetrics.some(r => r.label === 'Water supply' && r.value === '1 L/tick')
+      && makeUpMetrics.some(r => r.label === 'Water storage' && r.value === '500 L'),
+    'placement card exposes both make-up tank capabilities');
+}
+
 // ==========================================================================
 console.log(`\n${passed}/${passed + failed} assertions passed`);
 if (failed > 0) {

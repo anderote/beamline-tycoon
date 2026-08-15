@@ -395,11 +395,11 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 9. Joining two loops cannot overfill one reservoir ===\n');
+console.log('\n=== 9. Joining loops respects their combined authored storage ===\n');
 // Regression: _reconcilePersistentState sums numeric fields when several
 // orphaned networks are inherited by one successor. Reservoir volumes are
-// capped, so joining two loops produced > RESERVOIR_MAX_L and refillCost()
-// returned null — the Refill button vanished for good.
+// capped, so joining loops used to exceed their storage and make refillCost()
+// return null. The cap is now the joined tanks' authored total, not a global.
 {
   const state = {
     utilityLines: new Map(),
@@ -409,26 +409,31 @@ console.log('\n=== 9. Joining two loops cannot overfill one reservoir ===\n');
   };
   const runner = new SolveRunner({ state, registry: UtilityRegistry });
   const netId = 'net_coolingWater_joined';
-  // Two full independent loops, both orphaned onto one successor.
+  // Two overfull independent loops, both orphaned onto one successor that has
+  // two 500 L tanks. Their 1,400 L total must clamp to 1,000 L.
   state.utilityNetworkState.set('net_coolingWater_a', {
-    reservoirVolumeL: 400, __portKeys: ['p1:cool_out'],
+    reservoirVolumeL: 700, __portKeys: ['p1:cool_out'],
   });
   state.utilityNetworkState.set('net_coolingWater_b', {
-    reservoirVolumeL: 400, __portKeys: ['p2:cool_out'],
+    reservoirVolumeL: 700, __portKeys: ['p2:cool_out'],
   });
   const networksByType = new Map([['coolingWater', [{
     id: netId, ports: [
       { placeableId: 'p1', portName: 'cool_out' },
       { placeableId: 'p2', portName: 'cool_out' },
     ],
+    sources: [
+      { placeableId: 'p1', portName: 'cool_out', params: { storageCapacityL: 500 } },
+      { placeableId: 'p2', portName: 'cool_out', params: { storageCapacityL: 500 } },
+    ],
   }]]]);
   runner._reconcilePersistentState(networksByType);
   const joined = state.utilityNetworkState.get(netId);
   assert(!!joined, 'the successor inherited the orphans');
-  assert(joined.reservoirVolumeL === coolingWater.RESERVOIR_MAX_L,
-    `the merged reservoir is clamped to its max (got ${joined.reservoirVolumeL})`);
-  assert(coolingWater.RESERVOIR_MAX_L - joined.reservoirVolumeL >= 0,
-    'refillCost sees a non-negative shortfall, so the Refill button survives a join');
+  assert(joined.reservoirVolumeL === 1000 && joined.reservoirCapacityL === 1000,
+    `the merged reservoir is clamped to both tanks (got ${joined.reservoirVolumeL}/${joined.reservoirCapacityL})`);
+  assert(coolingWater.default.refillCost(joined) === null,
+    'a dynamically full joined reservoir needs no refill');
 
   // The split-then-rejoin round trip must still conserve: two halves that add
   // back up to less than a full reservoir are summed, not clamped away.
