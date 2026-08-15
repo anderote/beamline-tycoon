@@ -316,7 +316,7 @@ export const RESEARCH = {
     // about. It is also what makes spallation reachable: without it the type
     // has no high-beta accelerating structure at all and its 0.8-3 GeV band
     // costs eighty-plus spoke cavities.
-    unlocks: ['srf650Cryomodule'],
+    unlocks: ['srf650Cryomodule', 'protonLinacFrontEnd'],
     effect: { energyCostMult: 0.80 },
     requires: 'srfTechnology',
   },

@@ -5605,6 +5605,70 @@ body {
 .ctx-window.bltype-window { width: 620px; }
 .ctx-window.bltype-window .ctx-body { height: 440px; }
 
+/* Whole research horizon. The type cards answer "what is this machine?";
+   this strip answers the other question the old picker left implicit: "where
+   am I, and what can I work toward next?" */
+.bltype-roadmap {
+  margin-bottom: 9px;
+  padding: 8px;
+  border: 1px solid rgba(79, 116, 170, 0.34);
+  border-radius: 4px;
+  background: linear-gradient(120deg, rgba(21, 31, 55, 0.92), rgba(12, 17, 35, 0.88));
+}
+.bltype-roadmap-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: #7587ad;
+  font-size: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.bltype-roadmap-head strong { color: #b8c9ef; font-weight: normal; }
+.bltype-roadmap-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 7px;
+}
+.bltype-roadmap-tier {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 4px;
+  min-width: 0;
+}
+.bltype-roadmap-label { color: #59678a; font-size: 7px; padding-top: 3px; }
+.bltype-roadmap-items { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bltype-roadmap-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 4px;
+  color: #747b98;
+  background: rgba(8, 10, 24, 0.56);
+  border-left: 2px solid #464b63;
+  font-size: 6px;
+  line-height: 1.35;
+}
+.bltype-roadmap-item b { color: #d2a55b; font-weight: normal; flex: 0 0 auto; }
+.bltype-roadmap-item.ready { color: #a9c9b2; border-left-color: #4d9e6b; }
+.bltype-roadmap-item.ready b { color: #69d38c; }
+.bltype-roadmap-item.active { color: #d6c28d; border-left-color: #d4a43f; }
+.bltype-frontier {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(83, 103, 145, 0.25);
+  font-size: 7px;
+}
+.bltype-frontier > span { color: #65769a; text-transform: uppercase; }
+.bltype-frontier > strong { color: #d4def5; font-weight: normal; }
+.bltype-frontier > small { color: #b7975f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .bltype-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5682,6 +5746,16 @@ body {
   border-color: #88aaff;
   box-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
 }
+.blueprint-card.locked {
+  opacity: 0.55;
+  cursor: default;
+  filter: saturate(0.45);
+}
+.blueprint-card.locked:hover {
+  background: rgba(15, 15, 35, 0.7);
+  border-color: rgba(80, 80, 120, 0.35);
+}
+.blueprint-lock { color: #d4a650; font-size: 7px; line-height: 1.5; }
 .blueprint-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .blueprint-name { color: #ccddff; font-size: 8px; line-height: 1.4; }
 /* Measured numbers get their own colour so they never read as a spec band:

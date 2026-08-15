@@ -75,6 +75,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     context.active_modules = modules
 
     total_photon_rate = 0.0
+    ring_injection_current = None
     luminosities = []
     collision_rates = []
     detector_rates = []
@@ -89,6 +90,13 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     for i, element in enumerate(beamline_config):
         context.element_index = i
         etype = element.get("type", "drift")
+
+        # A storage ring's catalogue current is accumulated at injection, not
+        # the one-pass current left after its photon beamlines. Preserve the
+        # current at the septum so gameplay.py can model multi-turn filling.
+        if (element.get("game_type") == "injectionSeptum"
+                and ring_injection_current is None):
+            ring_injection_current = beam.current
 
         if etype == "source":
             source_len = element["length"]
@@ -143,6 +151,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
                 if module.name == "fel_gain" and report.details:
                     total_photon_rate += report.details.get("power_w", 0) * 1e-6
+                if module.name == "synchrotron_light" and report.details:
+                    total_photon_rate += report.details.get("photon_rate", 0.0)
                 if module.name == "beam_beam" and report.details:
                     luminosities.append(report.details.get("luminosity", 0))
 
@@ -250,6 +260,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         # ~1e33, so adding it would swamp everything else.
         "event_rate": sum(detector_rates) + sum(collision_rates),
         "photon_rate": total_photon_rate,
+        "ring_injection_current": ring_injection_current,
         "beam_quality": beam_quality,
         "alive": beam.alive,
         "total_loss_fraction": cumulative_loss,

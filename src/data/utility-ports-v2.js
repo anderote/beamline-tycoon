@@ -158,6 +158,14 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 380 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
   },
+  // RFQ + low-beta SRF front end delivered as one commissioned tunnel sector.
+  // Unlike a cyclotron it exposes both RF and cryogenic plant to the player.
+  protonLinacFrontEnd: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 600 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 420 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.62, role: 'sink', params: { srfHeatW: 500 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left',  offsetAlong: 0.82, role: 'sink', params: { demand: 80 } },
+  },
   // The extreme case of "a cyclotron is a water heater that occasionally emits
   // protons", and the one machine where the joke is arithmetic: 230 MeV at the
   // nameplate microamp is a QUARTER OF A WATT of beam against 420 kW at the

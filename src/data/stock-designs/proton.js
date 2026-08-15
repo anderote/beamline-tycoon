@@ -17,36 +17,15 @@
 // entirely plausible. Writing the species here makes the harness and the game
 // agree; see the report note about closing the gap in the harness itself.
 //
-// ── WHY THESE SIX AND NOT EIGHT ────────────────────────────────────────────
+// ── THE FRONT-END HANDOFF IS AN EXPLICIT MACHINE STEP ─────────────────────
 //
-// Spallation ships NO blueprint, and the two isotope/therapy ladders are built
-// on cyclotron front ends rather than on the RFQ + SRF linac the catalogue's
-// low-beta hardware implies. Both follow from measurements, not from taste:
-//
-//   * NO BUILT-UP PROTON LINAC TRANSPORTS. The rfq is the only structure whose
-//     design beta (0.04) can accelerate a sub-MeV proton — every other
-//     low-beta cavity (halfWaveResonator, pillboxCavity, spokeCavity) has a
-//     transit-time ZERO between the source's beta and its own, so a 40-750 keV
-//     beam stalls dead before it reaches them. And the rfq's bore is 6 mm over
-//     a 3 m body, an acceptance of ~1.2e-5 m.rad, while the smallest geometric
-//     emittance any DC proton source in the catalogue delivers is 6.9e-5
-//     (ionSource at 100 kV; cockcroftWalton is 3.0e-4). Best measured
-//     transmission over a full solenoid/quad/collimator matching scan: 2 nA
-//     out of 50 mA, i.e. 4e-8. No optic fixes an acceptance mismatch.
-//
-//   * SPALLATION HAS NO OTHER FRONT END. Its palette holds ionSource,
-//     ecrIonSource and cockcroftWalton and no cyclotron, so the paragraph above
-//     is the whole story: 0.8-3.0 GeV at 1-60 mA is unreachable from anything
-//     it is allowed to build. Its highest-gradient allowed structure is the
-//     spokeCavity at 10 MeV, and ellipticalSrfCavity/cryomodule — whose
-//     DESIGN_BETA of 0.65 is a *proton* number, exactly the SNS/ESS high-beta
-//     elliptical — are allowlisted to the electron and photon types only.
-//
-// So the hadron ladders here are cyclotron + SRF booster: a compound machine
-// hands over a beam that is already at 30 or 70 MeV, where beta is 0.25-0.37,
-// the spokeCavity's transit-time factor is 0.74-0.99, and the geometric
-// emittance finally fits a 32 mm bore. That is also how ARRONAX-class and
-// clinical lines are actually extended in the real world.
+// A bare DC ion source cannot be matched through the catalogue RFQ: its phase
+// space is wider than the 6 mm bore accepts. The spallation ladder therefore
+// starts with protonLinacFrontEnd, a compound ion-source/RFQ/low-beta-linac
+// sector delivering 180 MeV. From there the existing 650 MHz medium-beta and
+// 805 MHz high-beta cryomodules reproduce the PIP-II/SNS/ESS progression. The
+// abstraction is visible and priced; it does not pretend the hard first 180
+// MeV disappeared.
 
 export const PROTON_DESIGNS = [
   // ── Isotope & Irradiation — 15-70 MeV, 0.1-1.0 mA, 5-50 mm spot ─────────
@@ -230,14 +209,77 @@ export const PROTON_DESIGNS = [
     ],
   },
 
-  // ── Spallation Neutron Source — NO BLUEPRINT ────────────────────────────
-  //
-  // Not an oversight and not "yet to be authored": 0.8-3.0 GeV at 1-60 mA is
-  // unreachable from this type's palette, for the two measured reasons in the
-  // file header. Closing it needs a catalogue change, not a cleverer lattice —
-  // either a proton-class front end whose emittance fits an RFQ bore, or
-  // ellipticalSrfCavity/cryomodule (DESIGN_BETA 0.65, which IS the SNS/ESS
-  // high-beta proton cavity) added to spallation's `beamlineTypes`. Shipping a
-  // blueprint that dies in its first three metres would be worse than shipping
-  // none, because the picker would advertise a megawatt it cannot make.
+  // ── Spallation Neutron Source — 0.8-3 GeV, 1-60 mA ──────────────────────
+  {
+    id: 'spallation-compact-800',
+    typeId: 'spallation',
+    tier: 1,
+    name: 'Compact Neutron Source (0.8 GeV)',
+    blurb: 'A commissioned 180 MeV front end and five medium-beta modules: the entry neutron source uses exactly the hardware its family research unlocks.',
+    components: [
+      { type: 'protonLinacFrontEnd', params: { particleType: 'proton' } },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 1.2, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 1.2, polarity: 1 } },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'bpm', params: {} },
+      { type: 'ict', params: {} },
+      { type: 'spallationNeutronTarget', params: {} },
+    ],
+  },
+  {
+    id: 'spallation-sns-1600',
+    typeId: 'spallation',
+    tier: 2,
+    name: 'SNS-class Source (1.6 GeV)',
+    blurb: 'Three high-beta sectors lift the same proven injector into a general-purpose pulsed neutron facility with room for a serious instrument programme.',
+    components: [
+      { type: 'protonLinacFrontEnd', params: { particleType: 'proton' } },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 1.4, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 1.4, polarity: 1 } },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 2.0, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 2.0, polarity: 1 } },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'bpm', params: {} },
+      { type: 'ict', params: {} },
+      { type: 'wireScanner', params: {} },
+      { type: 'spallationNeutronTarget', params: {} },
+    ],
+  },
+  {
+    id: 'spallation-ess-2800',
+    typeId: 'spallation',
+    tier: 3,
+    name: 'Flagship Neutron Source (2.8 GeV)',
+    blurb: 'Six high-beta sectors and stepped FODO control push the reference linac near the top of its band: expensive, power-hungry and booked years ahead.',
+    components: [
+      { type: 'protonLinacFrontEnd', params: { particleType: 'proton' } },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'srf650Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 1.4, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 1.4, polarity: 1 } },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 2.0, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 2.0, polarity: 1 } },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'quadrupole', params: { gradient: 2.8, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 2.8, polarity: 1 } },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'srf805Cryomodule', params: {} },
+      { type: 'bpm', params: {} },
+      { type: 'ict', params: {} },
+      { type: 'wireScanner', params: {} },
+      { type: 'scanningMagnet', params: {} },
+      { type: 'spallationNeutronTarget', params: {} },
+    ],
+  },
 ];
