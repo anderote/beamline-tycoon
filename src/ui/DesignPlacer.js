@@ -4,9 +4,10 @@ import { COMPONENTS } from '../data/components.js';
 import { FLOORS } from '../data/structure.js';
 import { DIR, DIR_DELTA, turnLeft, reverseDir } from '../data/directions.js';
 import { portSide } from '../beamline/junctions.js';
-import { pipeCost } from '../beamline/BeamlineSystem.js';
+import { pipeCost, pipeTileDist } from '../beamline/BeamlineSystem.js';
 import { layoutDesign } from '../beamline/design-layout.js';
 import { placementPose } from '../beamline/pipe-placements.js';
+import { applyPreviewDialog } from './ApplyPreviewDialog.js';
 
 // DIR_DELTA index -> compass side, and back. DIR_DELTA[0..3] are
 // (0,-1)/(1,0)/(0,1)/(-1,0) = N/E/S/W, which is exactly the clockwise compass
@@ -130,6 +131,10 @@ export class DesignPlacer {
     this.totalCost = 0;
     // The share of totalCost that BeamlineSystem.drawPipe charges itself.
     this.pipeQuote = 0;
+    // While the cost/change confirmation is open, keep the ghost fixed on the
+    // exact placement the dialog describes and refuse a second concurrent
+    // confirmation click.
+    this._confirmationPending = false;
     // Fix round 1: the design's total spares cost — every component in it,
     // module and on-pipe alike. Not part of totalCost (which is funding
     // only, by name and by every existing caller's expectation); charged
@@ -156,12 +161,14 @@ export class DesignPlacer {
   }
 
   setPosition(col, row) {
+    if (this._confirmationPending) return;
     this.startCol = col;
     this.startRow = row;
     this._recompute();
   }
 
   rotate() {
+    if (this._confirmationPending) return;
     this.direction = (this.direction + 1) % 4;
     this._recompute();
   }
@@ -174,6 +181,7 @@ export class DesignPlacer {
    * needs a mirrored dipole component, not a flag.
    */
   reflect() {
+    if (this._confirmationPending) return;
     this.reflected = !this.reflected;
     this._recompute();
   }
@@ -379,6 +387,107 @@ export class DesignPlacer {
       }
     } else if (this.totalCost > this.game.state.resources.funding) {
       this.valid = false;
+    }
+  }
+
+  /**
+   * Player-facing description of the currently previewed placement. It uses
+   * the already-computed ghost rather than walking the saved design again, so
+   * "New" describes exactly what confirm() will build at this location.
+   */
+  placementSummary() {
+    const grouped = new Map();
+    const add = ({ type, label, count = 1, cost = 0, metres = 0 }) => {
+      const key = type || `label:${label}`;
+      const row = grouped.get(key) || { type, label, count: 0, cost: 0, metres: 0 };
+      row.count += count;
+      row.cost += cost;
+      row.metres += metres;
+      grouped.set(key, row);
+    };
+
+    for (const module of this.previewModules) {
+      add({
+        type: module.type,
+        cost: COMPONENTS[module.type]?.cost?.funding || 0,
+      });
+    }
+
+    if (this.previewPipes.length > 0) {
+      const metres = this.previewPipes.reduce(
+        (sum, pipe) => sum + pipeTileDist([pipe.from, pipe.to]) * 2,
+        0,
+      );
+      add({
+        type: 'drift',
+        count: this.previewPipes.length,
+        cost: this.pipeQuote,
+        metres,
+      });
+    }
+
+    if (this.foundationTiles.length > 0) {
+      add({
+        label: FLOORS.concrete?.name || 'Concrete Pad',
+        count: this.foundationTiles.length,
+        cost: this.foundationTiles.length * (FLOORS.concrete?.cost || 10),
+      });
+    }
+
+    const adds = [...grouped.values()].map(row => ({
+      ...(row.type ? { type: row.type } : {}),
+      ...(row.label ? { label: row.label } : {}),
+      count: row.count,
+      cost: row.cost,
+      ...(row.metres ? { metres: Math.round(row.metres * 100) / 100 } : {}),
+    }));
+
+    return {
+      adds,
+      removes: [],
+      movedCount: 0,
+      movedDistanceM: 0,
+      danglingLineCount: 0,
+      totalCost: this.totalCost,
+    };
+  }
+
+  /**
+   * UI command for a world click on a design ghost: preview first, then place
+   * the unchanged ghost as one undoable gesture only after explicit consent.
+   * The synchronous confirm() remains the mutation seam used by headless
+   * coordinators and tests.
+   */
+  async requestConfirm() {
+    if (!this.active || !this.design) return false;
+    if (!this.valid) {
+      return this.game.commitGesture({
+        validate: () => ({ ok: false, reason: 'Invalid placement!' }),
+        mutate: () => false,
+      });
+    }
+    if (this._confirmationPending) return false;
+
+    this._confirmationPending = true;
+    const design = this.design;
+    try {
+      const choice = await applyPreviewDialog.open(this.placementSummary(), {
+        title: `Place ${design.name || 'beamline'}?`,
+        applyLabel: 'Place design',
+        backLabel: 'Back to placement',
+      });
+      if (choice !== 'apply' || !this.active || this.design !== design) return false;
+
+      // Funding or map occupancy may have changed while the modal was open.
+      // Revalidate the frozen ghost immediately before entering the gesture.
+      this._recompute();
+      return this.game.commitGesture({
+        validate: () => (this.valid
+          ? true : { ok: false, reason: 'Placement is no longer valid!' }),
+        mutate: () => this.confirm(),
+      });
+    } finally {
+      this._confirmationPending = false;
     }
   }
 

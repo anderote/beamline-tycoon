@@ -2342,14 +2342,12 @@ export class InputHandler {
 
     // DesignPlacer confirmation
     if (this.game._designPlacer && this.game._designPlacer.active) {
-      // Design placement is a world-mutating gesture like any other tool
-      // commit — outside the gesture helper it was the only one outside the
-      // undo model, so Ctrl+Z after placing a design silently deleted it as
-      // a side effect of rewinding whatever came before.
-      this.game.commitGesture({
-        validate: () => (this.game._designPlacer.valid
-          ? true : { ok: false, reason: 'Invalid placement!' }),
-        mutate: () => this.game._designPlacer.confirm(),
+      // requestConfirm owns preview → revalidation → undoable commit. Keeping
+      // that multi-step workflow on DesignPlacer leaves InputHandler as event
+      // routing and gives every surface that places a design the same gate.
+      Promise.resolve(this.game._designPlacer.requestConfirm()).catch((err) => {
+        console.error('[design placer] confirmation crashed', err);
+        this.game.log('Design placement failed unexpectedly — nothing was changed', 'bad');
       });
       return;
     }

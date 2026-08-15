@@ -1083,6 +1083,7 @@ export class BeamlineDesigner {
 
     const choice = await applyPreviewDialog.open(plan.summary, {
       name: this._editedBeamlineName(),
+      applyLabel: 'Confirm changes',
     });
     if (choice !== 'apply') return false;
     // The designer can be torn down while the preview is up (a load, a
