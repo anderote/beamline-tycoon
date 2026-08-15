@@ -1,14 +1,16 @@
 // src/utility/types/hvCable.js
 //
 // High-voltage feeders: the runs from an HV supply or main switchgear to a
-// distribution device (switchgear, panel, MCC, UPS). Nothing else uses them.
+// distribution device (switchgear, panel, MCC, UPS), or a large dedicated
+// load such as an RF source or dry-cooler bank.
 //
 // Why a seventh utility rather than "powerCable at a different point in the
 // chain": with one type, nothing stops a player cabling a magnet straight to
 // the transformer and skipping distribution entirely, so the two-stage chain
 // would be a suggestion rather than a rule. Splitting it puts the rule in the
-// port tables — a supply exposes only hv_out, a machine exposes only pwr_in,
-// and the only thing that has both is a distribution device.
+// port tables — a supply exposes only hv_out, ordinary machines expose only
+// pwr_in, dedicated HV loads expose only hv_in, and only distribution gear
+// has both an HV input and output.
 //
 // It is also the one place capacity comes from. Distribution adds none (same
 // principle the distribution buses already follow), so total facility capacity

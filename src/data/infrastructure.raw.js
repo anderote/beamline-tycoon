@@ -94,7 +94,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 2450,
     rfBand: 'sband',
     // The 2.45 GHz ISM magnetron is a mass-produced part, not a tunable one.
@@ -120,7 +120,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 'broadband',
     // Solid-state transistor amplifiers are a 350-700 MHz technology — that is
     // where the LDMOS parts and the combiner designs actually live. The first
@@ -147,7 +147,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 2856,
     rfBand: 'sband',
     // A fixed-frequency production tube, not a lab instrument: the 5045 was
@@ -176,7 +176,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 'broadband',
     // Genuinely wideband — a slow-wave helix has no resonant cavity to tie it
     // to a band. At 20 kW it is the unblocker for any frequency and never the
@@ -204,7 +204,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 2856,
     rfBand: 'sband',
     // Pulsed klystrons are the standard drive for warm high-gradient hardware,
@@ -231,7 +231,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 1300,
     rfBand: 'lband',
     // CW klystrons are built for SRF: 650/805 MHz proton cryomodules and the
@@ -277,7 +277,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 1300,
     rfBand: 'lband',
     // IOTs were built in volume for 470-700 MHz UHF broadcast transmitters;
@@ -386,7 +386,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 2856,
     rfBand: 'sband',
     // Same band coverage as the pulsed klystron it replaces, at four times the
@@ -413,7 +413,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 'broadband',
     // The small SSA's territory plus L-band: solid-state combining scales in
     // module count, so the big transmitter reaches one band higher, not four.
@@ -444,7 +444,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
     rfFrequency: 'broadband',
     // Cyclotron resonance in a several-tesla field puts a gyrotron's output at
     // millimetre wavelengths by construction. It cannot go low, and it is the
@@ -1158,7 +1158,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   coolingTower: {
     id: 'coolingTower',

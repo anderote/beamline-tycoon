@@ -283,12 +283,14 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     const id = wireUtility(game, util, from, to);
     if (!id) log('C: wire failed', util, from.id, '->', to.id);
   };
-  // Power runs supply -> HV -> distribution -> branch circuits. Ten loads here,
-  // and a cable is point to point, so they need ten sockets: two MCCs off two
-  // of the transformer's four HV feeders.
+  // Power runs supply -> HV -> distribution -> branch circuits. The two RF
+  // sources are dedicated HV loads; the remaining ten branch loads need two
+  // MCCs and their point-to-point sockets.
   if (hv && mcc1) wire('hvCable', { id: hv, port: 'hv_out_1' }, { id: mcc1, port: 'hv_in' });
   if (hv && mcc2) wire('hvCable', { id: hv, port: 'hv_out_2' }, { id: mcc2, port: 'hv_in' });
-  const westLoads = [[src2, 'pwr_in'], [mbk, 'pwr_in'], [ssa2, 'pwr_in'],
+  if (hv && mbk) wire('hvCable', { id: hv, port: 'hv_out_3' }, { id: mbk, port: 'hv_in' });
+  if (hv && ssa2) wire('hvCable', { id: hv, port: 'hv_out_4' }, { id: ssa2, port: 'hv_in' });
+  const westLoads = [[src2, 'pwr_in'],
     [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'pwr_in']];
   const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in'], [tower, 'pwr_in']];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {

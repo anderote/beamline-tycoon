@@ -22,6 +22,8 @@ const placeables = [
   ['bus', 'powerBus', 24, 0],
   ['spider', 'spiderBox', 24, 8],
   ['load', 'quadrupole', 32, 0],
+  ['rfSource', 'gyrotron', 32, 8],
+  ['dryCooler', 'dryCoolerBank', 40, 8],
 ].map(([id, type, col, row]) => ({ id, type, col, row, subCol: 0, subRow: 0, dir: 0 }));
 const state = { placeables, beamPipes: [], utilityLines: new Map() };
 
@@ -48,6 +50,10 @@ assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('panelA', 'hv_in')).ok,
   'main switchgear -> panel is a valid protected downstream feeder');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('xfmr', 'hv_out_2')).reason === 'invalid_port_pair',
   'two HV supply outputs cannot be tied together');
+assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('rfSource', 'hv_in')).ok,
+  'transformer -> RF source is a valid dedicated HV feeder');
+assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in')).ok,
+  'switchgear -> dry cooler bank is a valid dedicated HV feeder');
 
 console.log('\n--- Branch hierarchy ---');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_1'), ref('bus', 'pwr_in')).ok,

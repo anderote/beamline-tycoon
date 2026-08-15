@@ -262,7 +262,9 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     const a = connectionKind(startSpec, utilityType);
     const b = connectionKind(endSpec, utilityType);
     return oneOfPair(a, b, 'hvSupplyOut', 'hvDistributionIn')
-      || oneOfPair(a, b, 'hvDistributionOut', 'hvDistributionIn');
+      || oneOfPair(a, b, 'hvDistributionOut', 'hvDistributionIn')
+      || oneOfPair(a, b, 'hvSupplyOut', 'hvLoadIn')
+      || oneOfPair(a, b, 'hvDistributionOut', 'hvLoadIn');
   }
   if (utilityType === 'powerCable') {
     const a = connectionKind(startSpec, utilityType);

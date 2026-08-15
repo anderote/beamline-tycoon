@@ -967,6 +967,9 @@ const INFRA_UTILITY_PORTS = {
 // the opposite side from the source ports above so a unit that both consumes
 // and produces doesn't stack two ports on one edge.
 const INFRA_SINK_SHAPE = {
+  // Large, dedicated loads land directly on the facility HV service. They
+  // remain terminal loads: only distribution gear exposes an HV output.
+  hvCable:      { name: 'hv_in',   side: 'left',  offsetAlong: 0.3, param: 'demand', connectionKind: 'hvLoadIn' },
   powerCable:   { name: 'pwr_in',  side: 'left',  offsetAlong: 0.3, param: 'demand' },
   coolingWater: { name: 'cool_in', side: 'front', offsetAlong: 0.5, param: 'heatLoad' },
   dataFiber:    { name: 'data_in', side: 'back',  offsetAlong: 0.5, param: 'demand' },
@@ -1000,6 +1003,7 @@ function buildInfraSinkPorts() {
         side: shape.side,
         offsetAlong: shape.offsetAlong,
         role: 'sink',
+        ...(shape.connectionKind ? { connectionKind: shape.connectionKind } : {}),
         params: { [shape.param]: load },
       };
     }

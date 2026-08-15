@@ -148,15 +148,16 @@ export function setupSmallBeamlineFacility(game) {
   const quad = placements[4];
   const bpm = placements[5];
 
-  // Service row (north). Power: 172 kW total draw — gun 50, cavities 30,
-  // quad 10, buncher 5, cup + BPM 2, support gear 5, and the amplifier's 70 —
-  // so this starts with the 400 kW transformer tier and its matching main
-  // distribution panel, rather than the 150 kW pad-mount starter.
+  // Service row (north). The ordinary branch loads total 102 kW — gun 50,
+  // cavities 30, quad 10, buncher 5, cup + BPM 2 and support gear 5. The RF
+  // amplifier is a separate 70 kW HV feeder, so this uses the 1.2 MW service
+  // transformer tier and its matching main distribution panel rather than the
+  // 150 kW pad-mount starter.
   // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they
   // share one network — which is the point of the low-band consolidation. Only
   // the SSA and the TWT cover VHF, and the SSA (35 kW against 17 kW of demand)
   // is the one with the power.
-  const xfmr = game.placePlaceable({ type: 'facilityTransformer', col: -8, row: -1, free: true, silent: true });
+  const xfmr = game.placePlaceable({ type: 'hvTransformer', col: -8, row: -1, free: true, silent: true });
   const mainPanel = game.placePlaceable({ type: 'mainDistributionPanel', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
@@ -186,10 +187,12 @@ export function setupSmallBeamlineFacility(game) {
   // The transformer carries the facility's 400 kW. The matching main panel
   // turns one HV feeder into eight 50 kW branch circuits; it adds no capacity.
   if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
+  // RF sources are dedicated high-voltage loads, not branch-circuit loads.
+  if (xfmr && ssa) wire('hvCable', { id: xfmr, port: 'hv_out_2' }, { id: ssa, port: 'hv_in' });
   if (mainPanel) {
-    // Seven support loads plus the busway use the main panel's eight circuits.
+    // Six support loads plus the busway use seven of the panel's eight circuits.
     const loads = [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
-      [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
+      [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
       [pwrBus, 'pwr_in']];
     loads.forEach(([id, port], i) => {
       if (id) wire('powerCable', { id: mainPanel, port: `pwr_out_${i + 1}` }, { id, port });

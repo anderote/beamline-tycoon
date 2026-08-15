@@ -299,11 +299,16 @@ console.log('\n--- Test: infrastructure requiredConnections have sink ports ---'
     `every infra requiredConnection has a sink port (missing: ${missing.join(', ') || 'none'})`);
 
   const gyro = getUtilityPortsV2('gyrotron');
-  assert(gyro.pwr_in && gyro.pwr_in.role === 'sink'
-      && gyro.pwr_in.params.demand === INFRASTRUCTURE_RAW.gyrotron.energyCost,
-    `gyrotron pwr_in demand tracks its energyCost (got ${gyro.pwr_in && gyro.pwr_in.params.demand})`);
+  assert(gyro.hv_in && gyro.hv_in.role === 'sink'
+      && gyro.hv_in.connectionKind === 'hvLoadIn'
+      && gyro.hv_in.params.demand === INFRASTRUCTURE_RAW.gyrotron.energyCost,
+    `gyrotron hv_in demand tracks its energyCost (got ${gyro.hv_in && gyro.hv_in.params.demand})`);
   assert(gyro.rf_out && gyro.rf_out.role === 'source',
     'the hand-authored source port survives the merge');
+
+  const cavity = getUtilityPortsV2('pillboxCavity');
+  assert(cavity.pwr_in?.utility === 'powerCable' && !cavity.hv_in,
+    'RF cavities remain ordinary branch-power loads');
 
   const dump = getUtilityPortsV2('beamDump');
   assert(dump.cool_in && dump.cool_in.params.heatLoad > 0,

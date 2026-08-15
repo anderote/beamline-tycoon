@@ -27,6 +27,13 @@ function powerInputNetwork(worldState, placeableId) {
     .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
 }
 
+function hvLoadInputNetwork(worldState, placeableId) {
+  const networks = worldState?.utilityNetworks?.get?.('hvCable') || [];
+  const inputKey = `${placeableId}:hv_in`;
+  return networks.find(network => (network.ports || [])
+    .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
+}
+
 function plantWaterInputNetwork(worldState, placeableId) {
   const networks = worldState?.utilityNetworks?.get?.('plantWater') || [];
   const inputKey = `${placeableId}:reject_in`;
@@ -68,11 +75,11 @@ export function hvFeedFactor(worldState, placeableId, visiting = new Set()) {
  * Whether a powered utility source is actually energized.
  *
  * The power solver runs before every ordinary utility solver, so its
- * per-sink result is available here during the same tick. A device without a
- * `pwr_in` is deliberately treated as self-powered: this keeps passive
+ * per-sink result is available here during the same tick. A device without an
+ * electrical input is deliberately treated as self-powered: this keeps passive
  * fittings and genuine grid/HV sources out of an invented wall-power loop.
- * A powered device with no reachable `pwr_in`, on the other hand, contributes
- * zero capacity to vacuum, cooling, RF, cryo, and data networks.
+ * A powered device with no reachable branch or HV input, on the other hand,
+ * contributes zero capacity to vacuum, cooling, RF, cryo, and data networks.
  */
 export function powerFeedFactor(worldState, placeableId) {
   // Descriptor-only unit tests often use opaque ids without a world model.
@@ -83,10 +90,16 @@ export function powerFeedFactor(worldState, placeableId) {
   // Game always publishes utilityNetworks before any descriptor is solved.
   if (!worldState.utilityNetworks || typeof worldState.utilityNetworks.get !== 'function') return 1;
   const type = typeForId(worldState, placeableId);
-  if (!type || !getUtilityPortsV2(type).pwr_in) return 1;
-  const network = powerInputNetwork(worldState, placeableId);
-  const flow = network && worldState.utilityNetworkData?.get?.('powerCable')?.get?.(network.id);
-  const quality = flow?.perSinkQuality?.[`${placeableId}:pwr_in`];
+  const ports = type && getUtilityPortsV2(type);
+  if (!ports || (!ports.pwr_in && !ports.hv_in)) return 1;
+  const isHvLoad = !!ports.hv_in;
+  const network = isHvLoad
+    ? hvLoadInputNetwork(worldState, placeableId)
+    : powerInputNetwork(worldState, placeableId);
+  const utilityType = isHvLoad ? 'hvCable' : 'powerCable';
+  const portName = isHvLoad ? 'hv_in' : 'pwr_in';
+  const flow = network && worldState.utilityNetworkData?.get?.(utilityType)?.get?.(network.id);
+  const quality = flow?.perSinkQuality?.[`${placeableId}:${portName}`];
   return typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : 0;
 }
 
