@@ -302,10 +302,9 @@ console.log('\n--- Types unlock with their defining hardware available ---');
   const reqOf = (t) => Array.isArray(t.requires) ? t.requires : (t.requires ? [t.requires] : []);
 
   for (const [need, types] of Object.entries({
-    protonAcceleration: ['spallation', 'therapy'],
+    protonAcceleration: ['isotopeIrradiation', 'spallation', 'therapy'],
     bunchCompression:   ['collider', 'blackHoleFactory'],
     srfTechnology:      ['collider'],
-    targetPhysics:      ['isotopeIrradiation'],
     // The tier-6 type's whole hardware set, and the reason the closure check
     // matters more here than anywhere else: `targetPhysicsAdv` gates the ONLY
     // accelerating structure blackHoleFactory can see, and nothing in the
@@ -322,6 +321,15 @@ console.log('\n--- Types unlock with their defining hardware available ---');
       assert(done.has(need), `${tid} unlock implies ${need}`);
     }
   }
+
+  assert(BEAMLINE_TYPES.isotopeIrradiation.requires === 'protonAcceleration',
+    'the first paid proton mission opens with proton acceleration');
+  assert(COMPONENTS.radiationEffectsStation.requires === 'protonAcceleration',
+    'its electronics irradiation endpoint opens at the same research node');
+  assert(BEAMLINE_TYPES.isotopeIrradiation.requiredEndpoint[0] === 'radiationEffectsStation',
+    'the guided endpoint order leads with the early paid test station');
+  assert(COMPONENTS.isotopeProductionTarget.requires === 'targetPhysics',
+    'isotope production remains a later Target Physics upgrade');
 
   const eb = BEAMLINE_TYPES.ebeamProcessing.excludes;
   assert(eb.includes('velocitySelector'), 'ebeamProcessing excludes velocitySelector');

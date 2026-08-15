@@ -734,10 +734,10 @@ export const RESEARCH = {
   protonAcceleration: {
     id: 'protonAcceleration', category: 'machineTypes',
     name: 'Proton Acceleration',
-    desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens the door to hadron physics, neutron sources, and medical proton therapy.',
+    desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens an electronics irradiation test station as the first commercial proton contract, followed later by isotope production, neutron sources, and medical proton therapy.',
     cost: { data: 200, funding: 5000000 },
     duration: 60,
-    unlocks: ['rfq'],
+    unlocks: ['rfq', 'radiationEffectsStation'],
     requires: 'cyclotronTech',
   },
   ecrIonSource: {

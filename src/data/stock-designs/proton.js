@@ -59,8 +59,8 @@ export const PROTON_DESIGNS = [
     id: 'isotope-cyclone30',
     typeId: 'isotopeIrradiation',
     tier: 1,
-    name: 'PET Isotope Line (30 MeV)',
-    blurb: 'A compact cyclotron, four metres of pipe and a target. Makes the fluorine-18 in every PET scan in the county and asks almost nothing of you.',
+    name: 'Electronics Test Line (30 MeV)',
+    blurb: 'A compact proton machine feeding a raster-scanned test cave. Qualifies satellite electronics and radiation-hard chips for paying customers before the isotope programme comes online.',
     components: [
       { type: 'cyclotron30', params: { particleType: 'proton' } },
       // 0.5 T/m against a 0.24 GeV/c beam: deliberately gentle, and set to
@@ -69,7 +69,7 @@ export const PROTON_DESIGNS = [
       { type: 'quadrupole', params: { gradient: 0.5, polarity: 1 } },
       { type: 'bpm', params: {} },
       { type: 'ict', params: {} },
-      { type: 'target', params: {} },
+      { type: 'radiationEffectsStation', params: {} },
     ],
   },
   {

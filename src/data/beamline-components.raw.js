@@ -2550,12 +2550,15 @@ export const BEAMLINE_COMPONENTS_RAW = {
   radiationEffectsStation: {
     id: 'radiationEffectsStation',
     physicsType: 'target',
-    name: 'Radiation Effects Test Station',
-    desc: 'A temperature-controlled, raster-scanned test cave for spacecraft electronics and detector components. It spreads the proton beam across a fixture, records single-event effects, and keeps operators outside the shielding while samples are swapped remotely.',
+    name: 'Electronics Irradiation Station',
+    desc: 'A temperature-controlled, raster-scanned test cave for spacecraft electronics, detector components, and radiation-hardened chips. It spreads an early proton beam across a device fixture and sells qualified radiation-test campaigns by the shift, recording single-event effects while samples are swapped remotely behind shielding.',
     category: 'endpoint', subsection: 'targets',
     cost: { funding: 2400000 }, stats: { dataRate: 3 }, energyCost: 25,
     apertureRadius: 60, subL: 8, subW: 6, subH: 4, gridW: 6, gridH: 8,
-    geometryType: 'box', interiorVolume: 80, requires: 'targetPhysics', isEndpoint: true,
+    // This is the entry commercial endpoint for proton acceleration. Isotope
+    // targets remain behind Target Physics; electronics customers only need a
+    // controlled proton field and calibrated dosimetry.
+    geometryType: 'box', interiorVolume: 80, requires: 'protonAcceleration', isEndpoint: true,
     spriteKey: 'target', spriteColor: 0xd88a3a, accentColor: 0xd88a3a,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
     beamlineTypes: ['isotopeIrradiation'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
