@@ -38,7 +38,7 @@ export const ARTICLE_COMPONENTS = {
     'piraniGauge', 'coldCathodeGauge', 'baGauge',
   ],
   'infra-rf-power': [
-    'magnetron', 'solidStateAmp', 'slac5045Klystron', 'twt',
+    'magnetron', 'widebandDriverAmp', 'lowBandBuncherAmp', 'solidStateAmp', 'slac5045Klystron', 'twt',
     'pulsedKlystron', 'cwKlystron', 'iot',
     'multibeamKlystron', 'highPowerSSA', 'gyrotron',
     'waveguideManifold', 'circulator', 'modulator', 'rfCoupler', 'llrfController',

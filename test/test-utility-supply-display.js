@@ -74,7 +74,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
   }
 
   const RF = {
-    magnetron: [5, 0.01], twt: [20, 0.05], solidStateAmp: [35, 1.0],
+    magnetron: [5, 0.01], widebandDriverAmp: [5, 1.0], lowBandBuncherAmp: [10, 1.0], twt: [20, 0.05], solidStateAmp: [35, 1.0],
     pulsedKlystron: [50, 0.001], cwKlystron: [50, 1.0], iot: [80, 1.0],
     multibeamKlystron: [200, 0.005], highPowerSSA: [300, 1.0], gyrotron: [1000, 1.0],
   };
@@ -93,7 +93,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 27, `27 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 29, `29 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================

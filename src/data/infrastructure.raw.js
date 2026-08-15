@@ -100,6 +100,57 @@ export const INFRASTRUCTURE_RAW = {
     // The 2.45 GHz ISM magnetron is a mass-produced part, not a tunable one.
     rfBands: ['sband'],
   },
+  widebandDriverAmp: {
+    id: 'widebandDriverAmp',
+    name: '5 kW Wideband Driver Amplifier',
+    desc: 'Low-power travelling-wave-tube driver for commissioning and diagnostics. Delivers 5 kW CW across every RF band, so it can run a buncher, a single low-power cavity, or an unfamiliar test article without buying a dedicated gallery source. Its bandwidth is the product; its output is intentionally not.',
+    category: 'rfPower', subsection: 'supply',
+    // Low-power wideband TWTs are laboratory instruments, not scaled-down
+    // linac sources: six-band coverage makes its $/kW premium deliberate.
+    cost: { funding: 125000 },
+    stats: {},
+    energyCost: 13,
+    subL: 2, subW: 1, subH: 3, gridW: 1, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_red',
+    zoneTier: 0,
+    spriteKey: 'solidStateAmp',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { power: 5, efficiency: 0.40 },
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['hvCable'],
+    rfFrequency: 'broadband',
+    rfBands: ['vhf', 'uhf', 'lband', 'sband', 'cband', 'xband'],
+  },
+  lowBandBuncherAmp: {
+    id: 'lowBandBuncherAmp',
+    name: '10 kW Low-Band Buncher Amplifier',
+    desc: 'Compact continuous-wave solid-state RF rack delivering 10 kW across the VHF and UHF front end. It is deliberately sized for the first 162.5 MHz buncher, pillbox, or low-beta cavity rather than for a full linac gallery: low cost, low wall-plug draw, and one clean waveguide output.',
+    category: 'rfPower', subsection: 'supply',
+    // 10 kW, VHF+UHF, CW. The small-combiner premium keeps this starter rung
+    // from being cheaper per kW than the 35 kW SSA it grows into. → $7,500/kW.
+    cost: { funding: 75000 },
+    stats: {},
+    energyCost: 18,
+    subL: 2, subW: 1, subH: 3, gridW: 1, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_red',
+    zoneTier: 0,
+    spriteKey: 'solidStateAmp',
+    spriteColor: 0xd8463a,
+    accentColor: 0xd8463a,
+    params: { power: 10, efficiency: 0.56 },
+    placement: 'module',
+    ports: {},
+
+    requiredConnections: ['hvCable'],
+    rfFrequency: 'broadband',
+    // The first buncher is 162.5 MHz (VHF), not UHF. Covering both low bands
+    // gives the requested UHF path without making the starter buncher need a
+    // second, otherwise useless source.
+    rfBands: ['vhf', 'uhf'],
+  },
   solidStateAmp: {
     id: 'solidStateAmp',
     name: 'Solid-State Amplifier',

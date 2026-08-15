@@ -41,7 +41,7 @@ Carries RF power from sources to accelerating cavities. Band-matched: a source d
 
 - **Color:** Red (0xcc4444)
 - **Network type:** One frequency per network, fed by the sources covering its band
-- **Source equipment:** Magnetron, TWT, SSA, SLAC 5045 Klystron, Pulsed Klystron, CW Klystron, IOT, Multi-beam Klystron, High-power SSA, Gyrotron
+- **Source equipment:** Magnetron, 5 kW Wideband Driver Amplifier, 10 kW Low-Band Buncher Amplifier, TWT, SSA, SLAC 5045 Klystron, Pulsed Klystron, CW Klystron, IOT, Multi-beam Klystron, High-power SSA, Gyrotron
 - **Consumers:** All RF cavities and structures, the RFQ, bunchers, and the ECR ion source
 - **Cost:** $1,800/sub-unit ($7,200/tile)
 - **Bus:** Waveguide Manifold, $160k, 6-cell service radius
