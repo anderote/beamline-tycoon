@@ -790,6 +790,11 @@ export class StaffPawns {
 
   update(dt) {
     if (!this._pawns.size) return;
+    // The renderer keeps receiving animation frames while the simulation is
+    // paused. Pawn movement owns observable simulation state (job arrival and
+    // member.fromNode), so advancing it here would let staff walk, arrive, and
+    // change availability while every other simulation system is frozen.
+    if (this.game?.state?.paused) return;
     if (!(dt > 0) || dt > 0.5) dt = 0.016; // clamp tab-switch spikes
 
     const members = this.game?.state?.staffMembers || [];

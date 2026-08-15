@@ -201,6 +201,34 @@ function sameNode(a, b) {
   return a.col === b.col && a.row === b.row && a.subCol === b.subCol && a.subRow === b.subRow;
 }
 
+console.log('\n=== 0. Pausing freezes pawn travel and its simulation-facing state ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 10, 0, 10);
+  const consoleEntry = placeItem(state, 'operatorConsole', 8, 8, 0, 0, 0);
+  const member = { id: 'paused-staff', profession: 'operator', job: null };
+  state.staffMembers = [member];
+  bump(state);
+
+  const ref = getStationIndex(state).byJob.runBeam[0];
+  assertOk(reserveStation(state, ref.key, member.id), 'sanity: the queued station is reserved');
+  member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, destNode: ref.node, phase: 'travel', progress: 0 };
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get(member.id);
+  const start = subtileToWorld({ col: 0, row: 0, subCol: 0, subRow: 0 });
+  pawn.x = start.x; pawn.z = start.z;
+  state.paused = true;
+
+  pawns.update(1);
+  assertOk(pawn.mode === 'idle' && pawn.path === null, 'a paused pawn does not begin its queued journey');
+  assertOk(member.job.phase === 'travel', 'a paused pawn cannot arrive and advance its job');
+  assertOk(member.fromNode === undefined, 'a paused pawn does not update simulation-facing position');
+  assertOk(pawn.x === start.x && pawn.z === start.z, 'a paused pawn stays at its current position');
+  void consoleEntry;
+}
+
 console.log('\n=== 1. A travel job with a resolvable station walks the pawn there on its own, ending the path on the station anchor ===\n');
 {
   const state = makeState();
