@@ -1,4 +1,4 @@
-import { WallTool } from '../src/input/structure-tools.js';
+import { DoorTool, WallTool } from '../src/input/structure-tools.js';
 
 let passed = 0;
 let failed = 0;
@@ -112,6 +112,42 @@ console.log('\n=== WallTool smart Shift interactions ===\n');
     'crossing the drag threshold starts a free run from the raw initial edge');
   assertOk(calls.commits.length === 1 && calls.commits[0].length === 2,
     'Shift-drag commits the ordinary straight wall path instead of the smart fill');
+}
+
+console.log('\n=== Structure tool right-click removal ===\n');
+
+{
+  const calls = [];
+  const tool = new WallTool('officeWall');
+  tool.onRightClick({ clientX: 10, clientY: 20 }, {
+    input: {
+      _getNearestFloorEdge: () => ({ col: 3, row: 4, edge: 'e' }),
+      clearTool: () => { throw new Error('wall tool should stay armed'); },
+    },
+    game: {
+      _withUndo: fn => { calls.push('undo'); return fn(); },
+      removeWall: (col, row, edge) => calls.push(`wall:${col},${row},${edge}`),
+    },
+  });
+  assertOk(calls.join('|') === 'undo|wall:3,4,e',
+    'right-click in wall mode removes the targeted wall in one undo step');
+}
+
+{
+  const calls = [];
+  const tool = new DoorTool('officeDoor');
+  tool.onRightClick({ clientX: 10, clientY: 20 }, {
+    input: {
+      _getNearestWallEdge: () => ({ col: 7, row: 8, edge: 'n' }),
+      clearTool: () => { throw new Error('door tool should stay armed'); },
+    },
+    game: {
+      _withUndo: fn => { calls.push('undo'); return fn(); },
+      removeDoor: (col, row, edge) => calls.push(`door:${col},${row},${edge}`),
+    },
+  });
+  assertOk(calls.join('|') === 'undo|door:7,8,n',
+    'right-click in door mode removes the targeted door in one undo step');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

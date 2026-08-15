@@ -468,6 +468,16 @@ export class WallTool extends Tool {
     return false;
   }
 
+  onRightClick(e, ctx) {
+    // Keep the wall tool armed so a player can quickly trim a run without
+    // swapping to demolition mode. `removeWall` resolves either spelling of
+    // a shared edge and also cleans up dependent doors/windows.
+    const edge = ctx.input._getNearestFloorEdge(e.clientX, e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => ctx.game.removeWall(edge.col, edge.row, edge.edge));
+    return true;
+  }
+
   onShiftChange(down, ctx) {
     const input = ctx.input;
     const renderer = ctx.renderer;
@@ -603,8 +613,11 @@ export class DoorTool extends Tool {
   }
 
   onRightClick(_e, ctx) {
-    // Right-click deselects, like every sibling structure tool.
-    ctx.input.clearTool();
+    // Keep the door tool armed so a player can correct openings directly.
+    // `removeDoor` is alias-aware, matching the wall-facing placement snap.
+    const edge = ctx.input._getNearestWallEdge(_e.clientX, _e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => ctx.game.removeDoor(edge.col, edge.row, edge.edge));
     return true;
   }
 }
